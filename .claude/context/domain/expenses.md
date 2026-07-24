@@ -57,6 +57,48 @@ Both share one approval lifecycle and are entered/managed together in a single u
   two-stage **Mark as Paid** dialog with receipt AI auto-fill
   (`nirmaan_stack.api.payment_autofill.extract_payment_fields`).
 
+### Project invoice/payment split + both-sided AI autofill (2026-07-22)
+Project Expenses now mirrors the Non-Project split (previously it had **no** invoice/payment
+fields). 5 fields added to the `Project Expenses` doctype — `invoice_attachment` /
+`invoice_ref` / `invoice_date`, `payment_attachment` / `payment_ref` (`payment_date` already
+existed). Frappe re-serialised the JSON on migrate into `Payment Details` / `Invoice Details`
+sections; all 5 columns verified via `has_column`.
+- **Creator records invoice at create/edit** — optional "Record Invoice Details" section in
+  `NewProjectExpenseDialog.tsx` (two-stage upload) with **invoice AI autofill**
+  (`invoice_autofill.extract_invoice_fields`) filling Invoice Ref (from `invoice_no`),
+  Invoice Date, **and Amount** (from the invoice total; the existing **₹15,000** create cap
+  still validates and flags larger extracted amounts).
+- **Accountant records payment at Mark-as-Paid** — a NEW two-stage
+  `ProjectExpenses/components/UpdatePaymentDetailsDialog.tsx` (ported from Non-Project) with
+  **payment AI autofill** (`payment_autofill.extract_payment_fields`) filling Payment Ref +
+  Date, attaching the proof, and setting `payment_by` + status `Paid`. Amount is **not**
+  re-filled here (already set at create), but the receipt's extracted `transfer_amount` is
+  **cross-checked** against the recorded expense amount: on a mismatch (`|diff| > ₹1`) a
+  **soft amber warning** (`amountMismatch`) says the receipt is "more/less than" the expense
+  amount — **non-blocking** (Mark-as-Paid still allowed). This mismatch warning lives in
+  **BOTH** Mark-as-Paid dialogs — `ProjectExpenses/components/UpdatePaymentDetailsDialog.tsx`
+  AND `NonProjectExpenses/components/UpdatePaymentDetailsDialog.tsx` (identical logic). **Mark-as-Paid no longer routes through
+  `EditProjectExpenseDialog`** (`ProjectExpensesList.handleOpenMarkPaid` opens the new dialog).
+- **Files are docname-linked to `Project Expenses`** so they appear under the doc's
+  attachments (`attached_to_doctype`/`_name`/`_field`). Create-time invoice uploads happen
+  before the doc exists, so they're **re-linked after `createDoc`** via
+  `updateDoc("File", <fileName>, {...})` (non-blocking — the field URL is set regardless);
+  mark-as-paid / edit uploads pass `docname` directly. This is a deliberate **improvement
+  over Non-Project's create flow**, which leaves its create-time File unlinked.
+- Split **Inv. Attach / Pay. Attach** columns + clickable blue Invoice Ref (Paid/All) added to
+  `projectExpensesColumns.tsx`; the 5 fields added to `DEFAULT_PE_FIELDS_TO_FETCH`.
+- `EditProjectExpenseDialog.tsx` surfaces invoice fields (any stage) + payment fields
+  (Approved/Paid) with existing-attachment view + replace-upload.
+- **Amount cap exemption (frontend-only):** the ₹15,000 create/edit cap (`AMOUNT_LIMIT`)
+  is lifted for any type whose docname/label **contains** a `NO_LIMIT_EXPENSE_TYPE_KEYWORDS`
+  word (currently `["accommodation"]`, **case-insensitive SUBSTRING** match — so
+  "Accommodation Deposit", "Staff Accommodation Rent", "Labour Accommodation Rent", or a
+  plain "Accommodation" all qualify). Defined identically in `NewProjectExpenseDialog.tsx` +
+  `EditProjectExpenseDialog.tsx` (`isUncappedExpenseType`); any new project-flagged type
+  containing the keyword is exempt automatically — no code change needed. Unrelated to the
+  ₹5,000 backend auto-approve threshold (that still applies). No backend cap enforcement
+  exists.
+
 ---
 
 ## What was IMPROVED / CHANGED
@@ -144,8 +186,12 @@ Primary actions render inline; secondary (Requested-only) sit in a `⋯` overflo
 (hidden for Procurement & HR); Paid → Admin only; All → Admin only.
 
 ### Project Expenses — actions per tab
-Same profiles/gating, but **no Record Invoice** (no invoice/payment split), all actions
-inline (no `⋯` menu), and **Accountant\* CAN Edit a Requested row**.
+Same profiles/gating, all actions inline (no `⋯` menu), and **Accountant\* CAN Edit a
+Requested row**. As of 2026-07-22 Project mirrors the Non-Project invoice/payment split:
+invoice details are recorded optionally as a **section in the create/edit dialog** (not a
+separate "Record Invoice" row action), and **Mark as Paid** opens the two-stage payment
+dialog (`UpdatePaymentDetailsDialog`, receipt AI autofill + proof) instead of the plain edit
+dialog.
 
 | Tab | Action | Admin | PMO | Accountant\* | Procurement | HR |
 |---|---|:--:|:--:|:--:|:--:|:--:|
@@ -174,7 +220,9 @@ Actions column visibility: same rule as Non-Project.
   `api/payments/get_project_payment_summary.py`, `api/po_adjustments/adjustment_logic.py`,
   `hooks.py` (doc_events).
 - Frontend module: `pages/Expenses/ExpenseLayout.tsx`, `pages/ProjectExpenses/*`,
-  `pages/NonProjectExpenses/*` (list pages, `config/*Columns.tsx`, dialogs).
+  `pages/NonProjectExpenses/*` (list pages, `config/*Columns.tsx`, dialogs). Project
+  dialogs: `NewProjectExpenseDialog.tsx` (invoice autofill), `EditProjectExpenseDialog.tsx`,
+  `UpdatePaymentDetailsDialog.tsx` (Mark-as-Paid, payment autofill).
 - Reports/aggregation: `pages/reports/hooks/useOutflowReportData.ts`,
   `useProjectReportCalculations.ts`, `pages/projects/data/root/useProjectRootApi.ts`,
   `pages/ProjectPayments/PaymentSummaryCards.tsx`.

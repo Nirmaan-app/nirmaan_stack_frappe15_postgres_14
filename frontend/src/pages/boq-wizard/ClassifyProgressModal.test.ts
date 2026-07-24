@@ -4,7 +4,7 @@
 // guard) that the blocking modal's dismiss-gating + progress bar depend on. The JSX modal itself
 // is manual-cert; only these pure fns are tested.
 import { describe, it, expect } from "vitest";
-import { deriveClassifyModalPhase, classifyPercent } from "./ClassifyProgressModal";
+import { deriveClassifyModalPhase, classifyPercent, aiStatusWarning } from "./ClassifyProgressModal";
 
 describe("deriveClassifyModalPhase", () => {
   it("running with known progress -> running (determinate bar)", () => {
@@ -53,5 +53,45 @@ describe("classifyPercent", () => {
 
   it("complete -> 100", () => {
     expect(classifyPercent({ done: 57, total: 57 })).toBe(100);
+  });
+});
+
+// HV-11: the AI-off warning (per-discipline, healthy path silent).
+describe("aiStatusWarning", () => {
+  it("HEALTHY single engine (ran) -> '' (no regression: zero noise on the healthy path)", () => {
+    expect(aiStatusWarning({ Electrical: "ran" })).toBe("");
+  });
+
+  it("HEALTHY multi-engine (all ran) -> ''", () => {
+    expect(aiStatusWarning({ Electrical: "ran", HVAC: "ran" })).toBe("");
+  });
+
+  it("null / absent status (no eligible rows) -> '' (not a fallback)", () => {
+    expect(aiStatusWarning({ Electrical: null })).toBe("");
+    expect(aiStatusWarning({ Electrical: undefined })).toBe("");
+    expect(aiStatusWarning({})).toBe("");
+  });
+
+  it("disabled single engine -> warning naming the discipline", () => {
+    const w = aiStatusWarning({ HVAC: "disabled" });
+    expect(w).toContain("AI voter was OFF for HVAC");
+    expect(w).toContain("rule-only");
+    expect(w).toContain("flagged for review");
+  });
+
+  it("no_key is treated as OFF (same warning path)", () => {
+    expect(aiStatusWarning({ Electrical: "no_key" })).toContain("AI voter was OFF for Electrical");
+  });
+
+  it("MIXED multi-engine (one ran, one disabled) -> names ONLY the off discipline", () => {
+    const w = aiStatusWarning({ Electrical: "ran", HVAC: "disabled" });
+    expect(w).toContain("AI voter was OFF for HVAC");
+    expect(w).not.toContain("Electrical"); // the healthy engine is not named
+  });
+
+  it("multiple off disciplines -> named together, sorted, joined with ' and '", () => {
+    expect(aiStatusWarning({ HVAC: "disabled", Electrical: "no_key" })).toContain(
+      "AI voter was OFF for Electrical and HVAC",
+    );
   });
 });

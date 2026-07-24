@@ -24,7 +24,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useFrappeGetCall, useFrappeGetDoc, useFrappePostCall, FrappeContext, type FrappeConfig } from "frappe-react-sdk";
 import { useUserData } from "@/hooks/useUserData";
 import { BoqPresence } from "./BoqPresence";
-import { AlertTriangle, ArrowLeft, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, ChevronUp, ClipboardList, Filter, Loader2, Lock, Maximize2, Minimize2, Pin, PinOff, Redo2, RefreshCw, Save, Search, ShieldCheck, ShieldOff, Sigma, SlidersHorizontal, Snowflake, Sparkles, Undo2, Unlock, X } from "lucide-react";
+import { AlertTriangle, ArrowDownToLine, ArrowLeft, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, ChevronUp, ClipboardList, Filter, Loader2, Lock, Maximize2, Minimize2, Pin, PinOff, Redo2, RefreshCw, Save, Search, ShieldCheck, ShieldOff, Sigma, SlidersHorizontal, Snowflake, Sparkles, Undo2, Unlock, X } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -52,14 +52,18 @@ import type {
   CommittedSheetGridResponse,
   DismissalSaveArgs,
   EngineCatalog,
+  EngineOption,
   ApplyCopyForwardResponse,
   GetCommittedStateResponse,
+  GetCrossBoqCarryPlanResponse,
   GetPricedRowsResponse,
+  GetSheetCategoriesResolvedResponse,
   GetSheetVersionsResponse,
   PricedRow,
   RateCellSaveArgs,
   ReconChoiceSaveArgs,
   RemarkSaveArgs,
+  ResolvedSheetCategory,
   ReviewEntry,
   RowReviewFlags,
   SheetCategoryRow,
@@ -67,11 +71,26 @@ import type {
 import { ROLE_LABELS } from "./boqTypes";
 import { VersionRibbon } from "./VersionRibbon";
 import { CopyForwardDialog } from "./CopyForwardDialog";
+import {
+  CROSS_BOQ_CARRY_PLAN_METHOD,
+  CrossBoqCarryDialog,
+  carryButtonState,
+  summarizeSheetCarry,
+} from "./CrossBoqCarryDialog";
 import { CategoryVerdictPicker, buildEngineGroups } from "./CategoryVerdictPicker";
-import { ClassifyProgressModal } from "./ClassifyProgressModal";
+import {
+  acceptClassifyEvent,
+  addRunningDisciplines,
+  buildSheetEngineCatalogs,
+  removeRunningDiscipline,
+  resolvedToSheetCategoryRow,
+  summariseResolvedOutcome,
+  unionScopes,
+  type ScopeUnion,
+} from "./sheetCategoryResolve";
+import { ClassifyProgressModal, aiStatusWarning } from "./ClassifyProgressModal";
 import {
   ClassifySheetDialog,
-  aiStatusNote,
   isNeedsReviewCategory,
   reduceProgress,
   skipRollupText,
@@ -184,8 +203,65 @@ interface ClassifyStatusResponse {
   committed_version?: number | null;
   sheet_warnings?: string[];
 }
-// CL-2: only the Electrical engine is wired in v1 (matches the ClassifySheetDialog gating).
-const CLASSIFY_DISCIPLINE = "Electrical";
+// HV-10: a stable empty catalog record for the default (no catalogs fetched) case.
+const EMPTY_CATALOGS: Record<string, EngineCatalog> = {};
+
+/**
+ * HV-10: fetch ONE discipline's category catalog and report it up. Rendered once per ran-discipline
+ * so the number of catalog fetches is dynamic yet hook-safe (each instance calls exactly one hook).
+ * Renders no DOM. N-generic -- `discipline` is data.
+ */
+function EngineCatalogFetcher({
+  discipline,
+  onLoaded,
+}: {
+  discipline: string;
+  onLoaded: (discipline: string, categories: CategoryCatalogEntry[]) => void;
+}) {
+  const { data } = useFrappeGetCall<{
+    message: { discipline: string; categories: CategoryCatalogEntry[] };
+  }>(
+    "nirmaan_stack.api.boq.wizard.classify.get_category_catalog",
+    { discipline },
+    `boq-catalog::${discipline}`,
+  );
+  const cats = data?.message?.categories;
+  useEffect(() => {
+    if (cats) onLoaded(discipline, cats);
+  }, [cats, discipline, onLoaded]);
+  return null;
+}
+
+/**
+ * HV-10: poll ONE discipline's classify status. Rendered once per (ran UNION running) discipline.
+ * `running` gates the 3s refresh; a non-running instance still fetches ONCE on mount (the recovery
+ * read). Reports every status up via the stable `onStatus`. Renders no DOM. N-generic.
+ */
+function ClassifyStatusPoller({
+  boq,
+  sheetName,
+  discipline,
+  running,
+  onStatus,
+}: {
+  boq: string;
+  sheetName: string;
+  discipline: string;
+  running: boolean;
+  onStatus: (discipline: string, msg: ClassifyStatusResponse) => void;
+}) {
+  const { data } = useFrappeGetCall<{ message: ClassifyStatusResponse }>(
+    "nirmaan_stack.api.boq.wizard.classify.get_classify_status",
+    { boq, sheet_name: sheetName, discipline },
+    `boq-classify-status::${boq}::${sheetName}::${discipline}`,
+    { refreshInterval: running ? 3000 : 0 },
+  );
+  const msg = data?.message;
+  useEffect(() => {
+    if (msg) onStatus(discipline, msg);
+  }, [msg, discipline, onStatus]);
+  return null;
+}
 
 // T1 reconnect-gate: the editor's socket self-heal refetches (get_priced_rows + get_sheet_categories)
 // must fire ONLY on a GENUINE reconnect (a connect that followed a disconnect), never on the initial
@@ -231,6 +307,23 @@ const SheetPricingPage = () => {
     boqId ? undefined : null,
   );
 
+  // ── AMENDMENT C / C3: cross-BOQ carry eligibility ─────────────────────────────
+  // A revision sheet only (origin=="revision" + source_boq): off a revision there is no original,
+  // so the action does not exist and the button is HIDDEN, not disabled. Scoped to THIS sheet via
+  // sheet_names, and the dialog fetches with the identical args -- SWR serves both from one
+  // request, so opening the dialog is instant. Disabled (swrKey null) off a revision, which is the
+  // common case: an upload/template BoQ pays nothing for this.
+  const isRevisionSheet = boq?.origin === "revision" && !!boq?.source_boq;
+  const { data: carryPlanData } = useFrappeGetCall<{ message: GetCrossBoqCarryPlanResponse }>(
+    CROSS_BOQ_CARRY_PLAN_METHOD,
+    {
+      dest_boq: boqId ?? "",
+      source_boq: boq?.source_boq ?? "",
+      sheet_names: JSON.stringify([sheetName ?? ""]),
+    },
+    isRevisionSheet && boqId && sheetName ? undefined : null,
+  );
+
   // ── Version-view (read-only history browser) ──────────────────────────────────
   // selectedVersion: null = the CURRENT/live version (today's editable behaviour, unchanged); a
   // number = an EARLIER committed version shown read-only with its OWN pricing. Reset on a sheet
@@ -240,6 +333,11 @@ const SheetPricingPage = () => {
   // and a transient summary line after a successful apply. Both reset on a sheet switch (below).
   const [copyForwardOpen, setCopyForwardOpen] = useState(false);
   const [copyForwardMsg, setCopyForwardMsg] = useState<string | null>(null);
+  // AMENDMENT C / C3: the per-sheet cross-BOQ carry (the hub's whole-BoQ button is removed at C6).
+  // Same shape as copy-forward above -- a dialog flag + a transient summary line -- because it is
+  // the same act, cross-BOQ instead of cross-version.
+  const [carryOpen, setCarryOpen] = useState(false);
+  const [carryMsg, setCarryMsg] = useState<string | null>(null);
   // The live read's committed version -- the single source of "which version is live".
   const liveCommitVersion = pricedData?.message?.commit_version ?? null;
   // Per-sheet Work Packages -- carried onto the committed BoQ Sheet at commit time and returned
@@ -261,45 +359,61 @@ const SheetPricingPage = () => {
     boqId && sheetName ? undefined : null,
   );
 
-  // CL-2: the per-row category verdicts for THIS sheet (Electrical engine). mutateCategories
-  // refetches after a classify run completes so the grid's Category column repaints. Disabled
-  // until boqId + sheetName are present (swrKey gotcha).
+  // HV-10: the per-row MULTI-ENGINE resolved verdicts for THIS sheet (get_sheet_categories_resolved).
+  // ONE index-covered read across every discipline; the server applies the resolution ladder per
+  // row. mutateCategories refetches after a classify run / verdict write so the grid repaints.
+  // get_sheet_categories (single-discipline) is UNTOUCHED -- freeze + summary still call it.
   const { data: catData, mutate: mutateCategories } = useFrappeGetCall<{
-    message: { committed_version: number | null; categories: SheetCategoryRow[] };
+    message: GetSheetCategoriesResolvedResponse;
   }>(
-    "nirmaan_stack.api.boq.wizard.classify.get_sheet_categories",
-    { boq: boqId ?? "", sheet_name: sheetName ?? "", discipline: CLASSIFY_DISCIPLINE },
+    "nirmaan_stack.api.boq.wizard.classify.get_sheet_categories_resolved",
+    { boq: boqId ?? "", sheet_name: sheetName ?? "" },
     boqId && sheetName ? undefined : null,
   );
-  // CL-3: the selectable category catalog for the Electrical engine (id -> label). Read-only;
-  // disabled until boqId + sheetName are present. Drives the verdict picker groups + the Category
-  // cell's label display.
-  const { data: catalogData } = useFrappeGetCall<{
-    message: { discipline: string; categories: CategoryCatalogEntry[] };
-  }>(
-    "nirmaan_stack.api.boq.wizard.classify.get_category_catalog",
-    { discipline: CLASSIFY_DISCIPLINE },
-    boqId && sheetName ? undefined : null,
+  // HV-10: the disciplines that actually ran on this sheet (the picker's group set). N-generic --
+  // a future engine appears here the moment it has current rows, with zero code change.
+  const ranDisciplines = useMemo<string[]>(
+    () => catData?.message?.disciplines ?? [],
+    [catData],
+  );
+  // HV-10: the engine registry (labels for the picker groups). One stable fetch; N-generic.
+  const { data: enginesData } = useFrappeGetCall<{ message: EngineOption[] }>(
+    "nirmaan_stack.api.boq.wizard.classify.list_engines",
+    {},
+    boqId && sheetName ? "boq-classify-engines" : null,
+  );
+  const engineLabelByDiscipline = useMemo<Record<string, string>>(() => {
+    const m: Record<string, string> = {};
+    (enginesData?.message ?? []).forEach((e) => (m[e.discipline] = e.label));
+    return m;
+  }, [enginesData]);
+  // HV-10: one category catalog per ran-discipline, accumulated from child EngineCatalogFetchers
+  // (hook-safe N-dynamic fetch pattern). Each discipline's catalog lands once and is memoized.
+  const [catalogsByDiscipline, setCatalogsByDiscipline] =
+    useState<Record<string, EngineCatalog>>(EMPTY_CATALOGS);
+  const handleCatalogLoaded = useCallback(
+    (discipline: string, categories: CategoryCatalogEntry[]) => {
+      setCatalogsByDiscipline((prev) =>
+        prev[discipline]
+          ? prev
+          : { ...prev, [discipline]: { discipline, label: discipline, categories } },
+      );
+    },
+    [],
   );
   // CL-3: id -> label for the Category cell display (reference-stable per fetch -> memo-safe).
+  // Merged across every ran-discipline's catalog (ids are disjoint across engines).
   const categoryLabelById = useMemo(() => {
     const m = new Map<string, string>();
-    (catalogData?.message?.categories ?? []).forEach((c) => m.set(c.id, c.label));
+    for (const cat of Object.values(catalogsByDiscipline)) {
+      cat.categories.forEach((c) => m.set(c.id, c.label));
+    }
     return m;
-  }, [catalogData]);
-  // CL-3: the picker's engine-scoped groups (v1: a single Electrical group carrying its catalog).
+  }, [catalogsByDiscipline]);
+  // HV-10: the picker's engine-scoped groups -- ONE per ran-discipline, labelled from the registry.
   const engineCatalogs = useMemo<EngineCatalog[]>(
-    () =>
-      catalogData?.message
-        ? [
-            {
-              discipline: catalogData.message.discipline,
-              label: CLASSIFY_DISCIPLINE,
-              categories: catalogData.message.categories,
-            },
-          ]
-        : [],
-    [catalogData],
+    () => buildSheetEngineCatalogs(ranDisciplines, catalogsByDiscipline, engineLabelByDiscipline),
+    [ranDisciplines, catalogsByDiscipline, engineLabelByDiscipline],
   );
   // CL-3: optimistic per-row verdict overrides (this session), keyed by excel_row. An override
   // shows the picked verdict instantly; it is dropped once the set_row_category refetch
@@ -312,10 +426,22 @@ const SheetPricingPage = () => {
   // so the row memo is never defeated by a per-render Map. Overrides merge LAST (optimistic wins).
   const categoriesByExcelRow = useMemo(() => {
     const m = new Map<number, SheetCategoryRow>();
-    (catData?.message?.categories ?? []).forEach((c) => m.set(c.excel_row, c));
+    // HV-10: adapt each server-resolved row onto the grid's SheetCategoryRow shape so PricingGrid
+    // + deriveVerdictState + isNeedsReviewCategory render UNCHANGED. Telemetry (conflict, votes,
+    // review_priority) is dropped by the adapter and never reaches the grid.
+    (catData?.message?.categories ?? []).forEach((c: ResolvedSheetCategory) =>
+      m.set(c.excel_row, resolvedToSheetCategoryRow(c)),
+    );
     categoryOverrides.forEach((c, k) => m.set(k, c));
     return m;
   }, [catData, categoryOverrides]);
+  // HV-10: the resolved row detail keyed by excel_row -- the page reads `human_discipline` here to
+  // clear the right engine's verdict (the grid never sees this; it stays telemetry-free).
+  const resolvedByExcelRow = useMemo(() => {
+    const m = new Map<number, ResolvedSheetCategory>();
+    (catData?.message?.categories ?? []).forEach((c) => m.set(c.excel_row, c));
+    return m;
+  }, [catData]);
 
   // The selected EARLIER version's read-only rows + its OWN pricing (ADDITIVE endpoint; the live
   // get_priced_rows hot path above is byte-for-byte untouched). Disabled unless viewing history.
@@ -477,6 +603,38 @@ const SheetPricingPage = () => {
   const [classifySummary, setClassifySummary] = useState<ClassifySummary | null>(null);
   const [showNeedsReview, setShowNeedsReview] = useState(false);
   const classifyRunningRef = useRef(false);
+  // HV-10: a ref mirror of classifySummary so the stable per-discipline status callback can read
+  // "is a terminal summary showing?" without re-registering the pollers.
+  const classifySummaryRef = useRef<ClassifySummary | null>(null);
+  classifySummaryRef.current = classifySummary;
+  // HV-10: the disciplines with a run IN FLIGHT this session (set on onStarted, each removed when
+  // its own done arrives). One status poller is rendered per running discipline; the modal
+  // completes when the set empties. Single-engine sheets (all sheets today) keep length <= 1, so
+  // this degenerates to the pre-HV-10 single poll. A ref mirrors it for the stable callbacks.
+  const [runningDisciplines, setRunningDisciplines] = useState<string[]>([]);
+  const runningDisciplinesRef = useRef<string[]>([]);
+  runningDisciplinesRef.current = runningDisciplines;
+  const ranDisciplinesRef = useRef<string[]>([]);
+  ranDisciplinesRef.current = ranDisciplines;
+  // HV-10b: the row-range union of the CURRENT run set (owner condition 1). Set fresh on each
+  // onStarted -- a new run set REPLACES it, so it never carries across run sets (the reset
+  // semantics); a whole-sheet or unknown-scope run collapses it to {mode:"sheet"}. The COMBINED
+  // EFFECTIVE completion summary is scoped to this union. Default {sheet} covers a run recovered
+  // from the status poll (started elsewhere -> scope unknown -> whole sheet).
+  const scopeUnionRef = useRef<ScopeUnion>({ mode: "sheet" });
+  // HV-11: per-discipline ai_status accumulated over the CURRENT run set (reset on each onStarted,
+  // one entry recorded per engine as its done arrives). At all-done it is mirrored into
+  // classifyAiStatusByDiscipline so the modal + toast render the AI-off warning (naming the off
+  // discipline[s]); the healthy path (all "ran") yields an empty warning, so the text is unchanged.
+  const aiStatusByDisciplineRef = useRef<Record<string, string | null | undefined>>({});
+  const [classifyAiStatusByDiscipline, setClassifyAiStatusByDiscipline] = useState<
+    Record<string, string | null | undefined>
+  >({});
+  // HV-10b: a ref mirror of the resolved read so the terminal-summary compute (fired after
+  // mutateCategories refetches) can read the FRESH resolved rows even if the awaited mutate return
+  // is unavailable. Updated every render (cheap; the value is already memo-stable per fetch).
+  const catDataRef = useRef<{ message: GetSheetCategoriesResolvedResponse } | undefined>(undefined);
+  catDataRef.current = catData;
 
   // T1 reconnect-gate refs (NOT state -- must never add a re-render source). sawDisconnectRef flips
   // true on a socket "disconnect"; lastReconnectRefetchRef stamps the last gated refetch so a
@@ -669,7 +827,13 @@ const SheetPricingPage = () => {
     setClassifyModalOpen(false);
     setClassifyProgress(null);
     setClassifySummary(null);
+    // HV-11: the per-discipline ai_status warning is per-run-set -- a tab switch starts clean.
+    setClassifyAiStatusByDiscipline({});
+    aiStatusByDisciplineRef.current = {};
     setShowNeedsReview(false);
+    // HV-10: the running set is per-sheet (the pollers re-derive from the new sheet's ran set).
+    setRunningDisciplines([]);
+    runningDisciplinesRef.current = [];
     // CL-3: the verdict picker + optimistic overrides are per-sheet -- a tab switch starts clean.
     setPickerState(null);
     setCategoryOverrides(new Map());
@@ -700,14 +864,36 @@ const SheetPricingPage = () => {
     (p: Partial<ClassifyDonePayload> & { boq_name: string; sheet_name: string; discipline: string }) => {
       if (p.boq_name !== (boqId ?? "")) return;
       if (p.sheet_name !== (sheetName ?? "")) return;
-      if (p.discipline !== CLASSIFY_DISCIPLINE) return;
+      // HV-10: accept a done for ANY discipline this sheet ran or is running (membership, not the
+      // old `=== CLASSIFY_DISCIPLINE` equality that discarded every non-Electrical event).
+      if (!acceptClassifyEvent(p.discipline, ranDisciplinesRef.current, runningDisciplinesRef.current))
+        return;
+      // Drop this discipline from the running set; the run is fully done only when the set empties.
+      const nextRunning = removeRunningDiscipline(runningDisciplinesRef.current, p.discipline);
+      runningDisciplinesRef.current = nextRunning;
+      setRunningDisciplines(nextRunning);
+      // HV-11: record THIS engine's ai_status for the run set's AI-off warning -- on EVERY done, not
+      // just all-done, so a per-discipline map accumulates even when an engine finishes mid-run.
+      aiStatusByDisciplineRef.current[p.discipline] = p.ai_status ?? null;
+      const allDone = nextRunning.length === 0;
+      if (!allDone) {
+        // A mid-run engine finished; repaint the grid but WAIT for the rest before summarising --
+        // the completion summary is the COMBINED outcome, so it is composed only once every engine
+        // in the run set has terminated (HV-10b).
+        void mutateCategories();
+        return;
+      }
       setClassifyRunning(false);
       classifyRunningRef.current = false;
       setClassifyProgress(null);
-      setClassifySummary({
-        total_in_range: p.total_in_range ?? 0,
-        eligible_classified: p.eligible_classified ?? 0,
-        needs_review: p.needs_review ?? 0,
+      // HV-11: publish the accumulated per-discipline ai_status so the modal + toast render the
+      // AI-off warning (silent when every ran discipline had AI on).
+      setClassifyAiStatusByDiscipline({ ...aiStatusByDisciplineRef.current });
+
+      // Non-count fields carried from the terminal payload. HV-10b changes ONLY the NUMBERS' source
+      // (per-engine denominator -> combined effective); the wording, skip rollup and ai_status note
+      // are unchanged, carried as the last-completing engine reported them.
+      const carry = {
         auto_accepted: p.auto_accepted ?? 0,
         skipped_total: p.skipped_total ?? 0,
         skipped_by_reason: p.skipped_by_reason ?? {},
@@ -716,8 +902,37 @@ const SheetPricingPage = () => {
         ai_status: p.ai_status ?? null,
         status: p.status,
         error_code: p.error_code,
+      };
+
+      if (p.status === "error") {
+        // Error path unchanged -- the error modal reads status/error_code, not the counts.
+        setClassifySummary({
+          total_in_range: 0,
+          eligible_classified: 0,
+          needs_review: 0,
+          ...carry,
+        });
+        void mutateCategories();
+        return;
+      }
+
+      // SUCCESS, all engines done: the completion summary is the COMBINED EFFECTIVE outcome over the
+      // resolved read (the grid's source of truth), scoped to this run set's row range union
+      // (HV-10b). Computed from the FRESH resolved rows (post-refetch) so the message == the
+      // resolved effective split == what the grid then shows. categorised = effective non-blank
+      // (an auto-accept OR a human verdict); review = effective blank (the blank-review law).
+      const union = scopeUnionRef.current;
+      void mutateCategories().then((fresh) => {
+        const rows =
+          fresh?.message?.categories ?? catDataRef.current?.message?.categories ?? [];
+        const { categorised, review } = summariseResolvedOutcome(rows, union);
+        setClassifySummary({
+          ...carry,
+          eligible_classified: categorised,
+          needs_review: review,
+          total_in_range: categorised + review,
+        });
       });
-      void mutateCategories();
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [boqId, sheetName, mutateCategories],
@@ -733,7 +948,8 @@ const SheetPricingPage = () => {
       if (
         p.boq !== (boqId ?? "") ||
         p.sheet_name !== (sheetName ?? "") ||
-        p.discipline !== CLASSIFY_DISCIPLINE
+        // HV-10: accept progress for any discipline this sheet ran or is running (membership).
+        !acceptClassifyEvent(p.discipline, ranDisciplinesRef.current, runningDisciplinesRef.current)
       )
         return;
       setClassifyProgress((prev) => reduceProgress(prev, { done: p.done, total: p.total }));
@@ -751,48 +967,53 @@ const SheetPricingPage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socket, boqId, sheetName, applyClassifyDone]);
 
-  // Fallback + on-mount recovery: get_classify_status. Always enabled (a single read on mount
-  // recovers an in-flight run started elsewhere / before navigation), then polls every 3s ONLY
-  // while running. A "done" state funnels through the SAME applyClassifyDone (socket or poll --
-  // first to resolve wins, gated on classifyRunningRef); a "running" state seen while we think
-  // we're idle resumes the indicator (the recovery case).
-  const { data: classifyStatusData } = useFrappeGetCall<{ message: ClassifyStatusResponse }>(
-    "nirmaan_stack.api.boq.wizard.classify.get_classify_status",
-    { boq: boqId ?? "", sheet_name: sheetName ?? "", discipline: CLASSIFY_DISCIPLINE },
-    boqId && sheetName ? `boq-classify-status::${boqId}::${sheetName}` : null,
-    { refreshInterval: classifyRunning ? 3000 : 0 },
-  );
-  useEffect(() => {
-    const msg = classifyStatusData?.message;
-    if (!msg) return;
-    if (msg.state === "done") {
-      if (!classifyRunningRef.current) return; // only a done we were waiting on
-      applyClassifyDone({
-        boq_name: boqId ?? "",
-        sheet_name: sheetName ?? "",
-        discipline: CLASSIFY_DISCIPLINE,
-        ...msg,
-      });
-    } else if (msg.state === "running") {
-      // PRECEDENCE: done WINS. If a terminal summary is already showing (modal awaiting the
-      // user's Close), ignore a stale running poll so it cannot re-open/re-lock the modal. A NEW
-      // run clears classifySummary in onStarted, which re-enables this recovery branch.
-      if (!classifyRunningRef.current && classifySummary) return;
-      // First-time recovery of an in-flight run (started elsewhere / before navigation): open the
-      // blocking modal and flag it running.
-      if (!classifyRunningRef.current) {
-        setClassifyRunning(true);
-        classifyRunningRef.current = true;
-        setClassifyModalOpen(true);
+  // HV-10: PER-RUNNING-DISCIPLINE status handling. Each engine's marker/status is independent
+  // server-side, so one <ClassifyStatusPoller> is rendered per discipline in (ran UNION running):
+  // the ran set gives on-mount recovery (a single read recovers an in-flight run started elsewhere
+  // / before navigation); the running set polls every 3s. A "done" funnels through applyClassifyDone
+  // (which drops that discipline and completes the modal only when ALL running clear); a "running"
+  // recovers/advances the bar. Single-engine sheets poll exactly one discipline -- identical to
+  // the pre-HV-10 single poll. This callback is stable so the pollers never re-register.
+  const statusPollDisciplines = useMemo(() => {
+    const s = new Set<string>(ranDisciplines);
+    runningDisciplines.forEach((d) => s.add(d));
+    return [...s];
+  }, [ranDisciplines, runningDisciplines]);
+  const handleClassifyStatus = useCallback(
+    (discipline: string, msg: ClassifyStatusResponse) => {
+      if (msg.state === "done") {
+        if (!classifyRunningRef.current) return; // only a done we were waiting on
+        applyClassifyDone({
+          boq_name: boqId ?? "",
+          sheet_name: sheetName ?? "",
+          discipline,
+          ...msg,
+        });
+      } else if (msg.state === "running") {
+        // PRECEDENCE: done WINS -- a terminal summary awaiting Close ignores a stale running poll.
+        if (!classifyRunningRef.current && classifySummaryRef.current) return;
+        if (!classifyRunningRef.current) {
+          setClassifyRunning(true);
+          classifyRunningRef.current = true;
+          setClassifyModalOpen(true);
+        }
+        // Recover a discipline running but not yet in our set (started elsewhere).
+        if (!runningDisciplinesRef.current.includes(discipline)) {
+          const next = addRunningDisciplines(runningDisciplinesRef.current, [discipline]);
+          runningDisciplinesRef.current = next;
+          setRunningDisciplines(next);
+          // HV-10b: a run recovered from the poll has no captured scope, so the summary cannot be
+          // range-scoped precisely -- degrade the union to whole-sheet (never UNDER-report a run).
+          scopeUnionRef.current = { mode: "sheet" };
+        }
+        if (typeof msg.done === "number" && typeof msg.total === "number") {
+          setClassifyProgress({ done: msg.done, total: msg.total });
+        }
       }
-      // POLL DRIVES THE BAR: advance on EVERY running poll (not just the recovery seed). The
-      // socket onProgress path stays additive -- last-writer-wins on the same {done,total}.
-      if (typeof msg.done === "number" && typeof msg.total === "number") {
-        setClassifyProgress({ done: msg.done, total: msg.total });
-      }
-    }
+    },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [classifyStatusData, applyClassifyDone, boqId, sheetName, classifySummary]);
+    [applyClassifyDone, boqId, sheetName],
+  );
 
   // Slice 4c: Esc-to-exit full-screen. A window keydown listener mounted ONLY while expanded
   // (added on expand, removed on collapse / unmount). shouldExitFullscreenOnEsc guards the two
@@ -1131,37 +1352,56 @@ const SheetPricingPage = () => {
     }
   };
 
-  // CL-3: pick / clear one row's human category verdict. Optimistic: stamp the pick into
-  // categoryOverrides (human_category_id = id; effective = id || the machine final) so the grid
-  // repaints instantly + close the picker; POST set_row_category; on success mutateCategories()
-  // then drop the override (the authoritative verdict has landed); on error drop the override
-  // (revert) + surface the message inline (the page's error strip -- no toast in this editor).
-  const handleVerdictSelect = async (id: string) => {
+  // HV-10: pick / clear one row's human category verdict, DISCIPLINE-AWARE. A group pick carries
+  // that engine's discipline (the write lands on ITS row identity; upsert-on-missing mints the row
+  // if absent). "Clear verdict" passes discipline=null -> the page targets the row's currently
+  // RESOLVED human discipline (or the effective discipline), since there is nothing else to clear.
+  // Optimistic override on a PICK (human wins the ladder immediately); after a successful write the
+  // resolved read is refetched so the ladder redisplays authoritatively (HV-10 replaces the old
+  // P1-perf skip -- multi-engine resolution can shift). On error, revert + surface inline.
+  const handleVerdictSelect = async (id: string, discipline: string | null) => {
     const target = pickerState;
     if (!target) return;
     const { excelRow } = target;
-    const cur = categoriesByExcelRow.get(excelRow);
-    const base: SheetCategoryRow = cur ?? {
-      excel_row: excelRow,
-      rule_category_id: "",
-      ai_category_id: "",
-      final_category_id: "",
-      routing: "",
-      routing_reason: "",
-      human_category_id: "",
-      effective_category_id: "",
-    };
-    const optimistic: SheetCategoryRow = {
-      ...base,
-      excel_row: excelRow,
-      human_category_id: id,
-      effective_category_id: id || base.final_category_id,
-    };
-    setCategoryOverrides((prev) => new Map(prev).set(excelRow, optimistic));
+    const resolved = resolvedByExcelRow.get(excelRow);
+    // Resolve the target discipline: an explicit group pick wins; a clear falls back to the row's
+    // resolved human discipline, then its effective discipline.
+    const pickDiscipline =
+      discipline ?? resolved?.human_discipline ?? resolved?.resolved_discipline ?? null;
+    if (!pickDiscipline) {
+      // Nothing to write against (a clear on a blank row with no verdict) -- just close.
+      setPickerState(null);
+      return;
+    }
     setPickerState(null);
     setSaveError(null);
+    let didOverride = false;
+    if (id) {
+      // Optimistic: a human pick wins the ladder -> render "your pick" instantly.
+      const cur = categoriesByExcelRow.get(excelRow);
+      const base: SheetCategoryRow = cur ?? {
+        excel_row: excelRow,
+        rule_category_id: "",
+        ai_category_id: "",
+        final_category_id: "",
+        routing: "Auto-accepted",
+        routing_reason: "",
+        human_category_id: "",
+        effective_category_id: "",
+      };
+      const optimistic: SheetCategoryRow = {
+        ...base,
+        excel_row: excelRow,
+        routing: "Auto-accepted",
+        human_category_id: id,
+        effective_category_id: id,
+      };
+      setCategoryOverrides((prev) => new Map(prev).set(excelRow, optimistic));
+      didOverride = true;
+    }
     const dropOverride = () =>
       setCategoryOverrides((prev) => {
+        if (!prev.has(excelRow)) return prev;
         const next = new Map(prev);
         next.delete(excelRow);
         return next;
@@ -1172,14 +1412,13 @@ const SheetPricingPage = () => {
         sheet_name: sheetName, // VERBATIM -- trailing spaces intact (#152)
         excel_row: excelRow,
         human_category_id: id,
-        discipline: CLASSIFY_DISCIPLINE,
+        discipline: pickDiscipline,
       });
-      // P1 perf: the optimistic override is AUTHORITATIVE for the picked cell -- do NOT refetch the
-      // whole sheet's categories here (mutateCategories forced a second full-grid pass + a 188 KB
-      // round-trip). The override persists for the session; the write lands in the DB and re-derives
-      // authoritatively on the next sheet load / classify run. On FAILURE we revert (below).
+      // HV-10: refetch so the SERVER ladder redisplays (human wins), then drop the optimistic patch.
+      await mutateCategories();
+      if (didOverride) dropOverride();
     } catch (e) {
-      dropOverride();
+      if (didOverride) dropOverride();
       setSaveError(
         getFrappeError(e) || "Could not save the category verdict. Please try again.",
       );
@@ -1478,6 +1717,19 @@ const SheetPricingPage = () => {
   // columns (trivially complete). Passed to the grid as one boolean prop (ANDed OUTSIDE the
   // override) + drives the "declare formulas" banner.
   const formulasComplete = areFormulasComplete(columnDescriptors, columnFormulas);
+  // AMENDMENT C / C3: the carry button's state, from the PURE helper (ADR-0010 F4 -- the rule is
+  // unit-tested; this page only renders it). `locked` already folds the deliberate lock, a
+  // takeover, a foreign holder AND history mode, so one flag covers every read-only reason.
+  const carryPlanSheet = isRevisionSheet
+    ? carryPlanData?.message?.sheets?.[0] ?? null
+    : null;
+  const carryState = carryButtonState({
+    isRevisionSheet,
+    loading: isRevisionSheet && carryPlanData === undefined,
+    locked,
+    formulasComplete,
+    sheet: carryPlanSheet,
+  });
   // Priced count: M = priceable lines; N = FULLY priced (every qty-bearing area filled).
   const pricedCount = computePricedCount(rows, columnDescriptors);
   const allPriced = pricedCount.total > 0 && pricedCount.priced === pricedCount.total;
@@ -1707,6 +1959,37 @@ const SheetPricingPage = () => {
           <Check className="h-3.5 w-3.5 shrink-0" />
           <span className="flex-1">{copyForwardMsg}</span>
           <button type="button" onClick={() => setCopyForwardMsg(null)} aria-label="Dismiss">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* AMENDMENT C / C3: the per-sheet cross-BOQ carry dialog + its transient summary line.
+          Mirrors the copy-forward pair above -- the same act, cross-BOQ instead of cross-version.
+          C4 replaces the dialog body with the multi-layer version and moves the apply onto the
+          synchronous apply_sheet_carry endpoint. */}
+      {isRevisionSheet && boq?.source_boq && sheetName && (
+        <CrossBoqCarryDialog
+          open={carryOpen}
+          boqId={boqId ?? ""}
+          sourceBoq={boq.source_boq}
+          sheetName={sheetName}
+          onClose={() => setCarryOpen(false)}
+          onApplied={(summary, needsNewValues) => {
+            setCarryMsg(summarizeSheetCarry(summary, needsNewValues));
+            setCarryOpen(false);
+            // AMENDMENT D: rates only -- no `mutateCategories()`. The carry can no longer change
+            // a category, so refetching them here would be a wasted round-trip.
+            void mutate();
+          }}
+        />
+      )}
+
+      {carryMsg && (
+        <div className="flex items-center gap-2 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100">
+          <Check className="h-3.5 w-3.5 shrink-0" />
+          <span className="flex-1">{carryMsg}</span>
+          <button type="button" onClick={() => setCarryMsg(null)} aria-label="Dismiss">
             <X className="h-3.5 w-3.5" />
           </button>
         </div>
@@ -1982,6 +2265,39 @@ const SheetPricingPage = () => {
             <Save className="h-4 w-4" />
             Save now
           </Button>
+          {/* AMENDMENT C / C3: carry the ORIGINAL's rates + annotations into this revision sheet.
+              Placed immediately after Save now (owner-directed) and filled EMERALD when it is
+              actionable -- the row's loud-state convention (teal Lock, sky Freeze, amber override),
+              and emerald already reads as "priced" in this screen. HIDDEN off a revision: with no
+              original the action does not exist, so a disabled button would be a lie. The four
+              states + their tooltip copy come from the pure carryButtonState. */}
+          {carryState.kind !== "hidden" && (
+            <Button
+              size="sm"
+              variant={carryState.kind === "ready" ? "default" : "outline"}
+              className={cn(
+                "gap-1.5",
+                carryState.kind === "ready" &&
+                  "bg-emerald-600 text-white hover:bg-emerald-700 dark:bg-emerald-700 dark:hover:bg-emerald-800",
+              )}
+              disabled={carryState.kind !== "ready"}
+              onClick={() => {
+                // Flush pending rate drafts FIRST: the carry writes underneath the grid, and a
+                // draft saved afterwards would silently overwrite a carried rate.
+                gridRef.current?.flush();
+                setCarryMsg(null);
+                setCarryOpen(true);
+              }}
+              title={
+                carryState.kind === "ready"
+                  ? "Copy the original BoQ's rates and annotations into this sheet"
+                  : carryState.reason
+              }
+            >
+              <ArrowDownToLine className="h-4 w-4" />
+              Carry rates from original
+            </Button>
+          )}
           </>
           )}
         </div>
@@ -2402,6 +2718,7 @@ const SheetPricingPage = () => {
         sheetName={(sheetName ?? "").trim()}
         progress={classifyProgress}
         summary={classifySummary}
+        aiStatusByDiscipline={classifyAiStatusByDiscipline}
         onClose={() => {
           setClassifyModalOpen(false);
           setClassifyProgress(null);
@@ -2441,9 +2758,9 @@ const SheetPricingPage = () => {
                 {skipRollupText(classifySummary.skipped_by_reason)}
               </span>
             )}
-            {aiStatusNote(classifySummary.ai_status) && (
+            {aiStatusWarning(classifyAiStatusByDiscipline) && (
               <span className="mt-0.5 block text-amber-700 dark:text-amber-300">
-                {aiStatusNote(classifySummary.ai_status)}
+                {aiStatusWarning(classifyAiStatusByDiscipline)}
               </span>
             )}
           </div>
@@ -2458,13 +2775,45 @@ const SheetPricingPage = () => {
         </div>
       )}
 
+      {/* HV-10: per-ran-discipline catalog fetchers + per-(ran UNION running) status pollers.
+          Each renders no DOM; the number is dynamic yet hook-safe (one hook per instance). */}
+      {ranDisciplines.map((d) => (
+        <EngineCatalogFetcher key={`cat-${d}`} discipline={d} onLoaded={handleCatalogLoaded} />
+      ))}
+      {boqId && sheetName
+        ? statusPollDisciplines.map((d) => (
+            <ClassifyStatusPoller
+              key={`status-${d}`}
+              boq={boqId}
+              sheetName={sheetName}
+              discipline={d}
+              running={runningDisciplines.includes(d)}
+              onStatus={handleClassifyStatus}
+            />
+          ))
+        : null}
+
       {/* CL-2: the classify-sheet launcher dialog (fetches engines + fires start_classify). */}
       <ClassifySheetDialog
         open={classifyOpen}
         boqId={boqId ?? ""}
         sheetName={sheetName ?? ""}
         onClose={() => setClassifyOpen(false)}
-        onStarted={() => {
+        onStarted={(launches) => {
+          // HV-10: capture the launched disciplines so the pollers/filters accept their events.
+          const next = addRunningDisciplines(
+            runningDisciplinesRef.current,
+            launches.map((l) => l.discipline),
+          );
+          runningDisciplinesRef.current = next;
+          setRunningDisciplines(next);
+          // HV-10b: a FRESH run set REPLACES the scope union with just this run set's scopes (the
+          // reset-between-run-sets semantics); multiple engines in one launch fold via unionScopes
+          // (whole-sheet dominates a mixed union). The completion summary is scoped to it.
+          scopeUnionRef.current = unionScopes(launches.map((l) => l.scope));
+          // HV-11: a fresh run set RESETS the per-discipline ai_status accumulation.
+          aiStatusByDisciplineRef.current = {};
+          setClassifyAiStatusByDiscipline({});
           setClassifyRunning(true);
           classifyRunningRef.current = true;
           setClassifyProgress(null);
@@ -2479,7 +2828,7 @@ const SheetPricingPage = () => {
       <CategoryVerdictPicker
         open={!!pickerState}
         anchorEl={pickerState?.anchorEl ?? null}
-        groups={buildEngineGroups([CLASSIFY_DISCIPLINE], engineCatalogs)}
+        groups={buildEngineGroups(ranDisciplines, engineCatalogs)}
         currentId={
           pickerState
             ? categoriesByExcelRow.get(pickerState.excelRow)?.human_category_id ||

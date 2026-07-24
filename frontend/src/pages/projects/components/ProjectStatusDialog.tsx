@@ -9,7 +9,7 @@ import {
   AlertDialogTitle
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { TailSpin } from "react-loader-spinner";
@@ -72,7 +72,7 @@ export const ProjectStatusDialog: React.FC<ProjectStatusDialogProps> = ({
       setIsDesignTrackerDisabled(true);
       setIsCommissionReportDisabled(true);
     }
-  }, [newStatus]);
+  }, [open,newStatus]);
 
 
   const handleConfirm = () => {
@@ -110,14 +110,18 @@ export const ProjectStatusDialog: React.FC<ProjectStatusDialogProps> = ({
           {/* --- Halted/Handover/Completed Status Options --- */}
           {(newStatus === "Halted" || newStatus === "Handover" || newStatus === "Completed") && (
             <div className="mt-4 space-y-4 py-2 border-t pt-4 text-left">
-              <h4 className="text-sm font-semibold text-gray-900 mb-2">Disable modules for this project:</h4>
+              <h4 className="text-sm font-semibold text-gray-900 mb-2">Modules for this project <span className="font-normal text-gray-500">(on = active, off = inactive)</span>:</h4>
 
               <div className="flex items-center space-x-2">
-                <Checkbox
+                <Switch
                   id="dpr-checkbox"
-                  checked={isDPRDisabled}
-                  onCheckedChange={(checked) => setIsDPRDisabled(checked === true)}
+                  className="data-[state=checked]:bg-green-600"
+                  checked={!isDPRDisabled}
+                  onCheckedChange={(checked) => setIsDPRDisabled(!checked)}
                 />
+                <span className={`w-7 text-xs font-semibold ${isDPRDisabled ? "text-gray-400" : "text-green-600"}`}>
+                  {isDPRDisabled ? "OFF" : "ON"}
+                </span>
                 <Label htmlFor="dpr-checkbox" className="text-sm cursor-pointer font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
                   DPR Report
                 </Label>
@@ -138,11 +142,15 @@ export const ProjectStatusDialog: React.FC<ProjectStatusDialogProps> = ({
 
               <div className="flex flex-col space-y-1">
                 <div className="flex items-center space-x-2">
-                  <Checkbox
+                  <Switch
                     id="design-checkbox"
-                    checked={isDesignTrackerDisabled}
-                    onCheckedChange={(checked) => setIsDesignTrackerDisabled(checked === true)}
+                    className="data-[state=checked]:bg-green-600"
+                    checked={!isDesignTrackerDisabled}
+                    onCheckedChange={(checked) => setIsDesignTrackerDisabled(!checked)}
                   />
+                  <span className={`w-7 text-xs font-semibold ${isDesignTrackerDisabled ? "text-gray-400" : "text-green-600"}`}>
+                    {isDesignTrackerDisabled ? "OFF" : "ON"}
+                  </span>
                   <Label htmlFor="design-checkbox" className="text-sm cursor-pointer font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
                     Design Tracker
                   </Label>
@@ -156,11 +164,15 @@ export const ProjectStatusDialog: React.FC<ProjectStatusDialogProps> = ({
 
               <div className="flex flex-col space-y-1">
                 <div className="flex items-center space-x-2">
-                  <Checkbox
+                  <Switch
                     id="commission-checkbox"
-                    checked={isCommissionReportDisabled}
-                    onCheckedChange={(checked) => setIsCommissionReportDisabled(checked === true)}
+                    className="data-[state=checked]:bg-green-600"
+                    checked={!isCommissionReportDisabled}
+                    onCheckedChange={(checked) => setIsCommissionReportDisabled(!checked)}
                   />
+                  <span className={`w-7 text-xs font-semibold ${isCommissionReportDisabled ? "text-gray-400" : "text-green-600"}`}>
+                    {isCommissionReportDisabled ? "OFF" : "ON"}
+                  </span>
                   <Label htmlFor="commission-checkbox" className="text-sm cursor-pointer font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
                     Commission Report
                   </Label>
@@ -175,11 +187,15 @@ export const ProjectStatusDialog: React.FC<ProjectStatusDialogProps> = ({
 
 
               <div className="flex items-center space-x-2">
-                <Checkbox
+                <Switch
                   id="inventory-checkbox"
-                  checked={isInventoryDisabled}
-                  onCheckedChange={(checked) => setIsInventoryDisabled(checked === true)}
+                  className="data-[state=checked]:bg-green-600"
+                  checked={!isInventoryDisabled}
+                  onCheckedChange={(checked) => setIsInventoryDisabled(!checked)}
                 />
+                <span className={`w-7 text-xs font-semibold ${isInventoryDisabled ? "text-gray-400" : "text-green-600"}`}>
+                  {isInventoryDisabled ? "OFF" : "ON"}
+                </span>
                 <Label htmlFor="inventory-checkbox" className="text-sm cursor-pointer font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
                   Inventory
                 </Label>
@@ -198,11 +214,15 @@ export const ProjectStatusDialog: React.FC<ProjectStatusDialogProps> = ({
               )}
 
               <div className="flex items-center space-x-2">
-                <Checkbox
+                <Switch
                   id="pmo-checkbox"
-                  checked={isPMODisabled}
-                  onCheckedChange={(checked) => setIsPMODisabled(checked === true)}
+                  className="data-[state=checked]:bg-green-600"
+                  checked={!isPMODisabled}
+                  onCheckedChange={(checked) => setIsPMODisabled(!checked)}
                 />
+                <span className={`w-7 text-xs font-semibold ${isPMODisabled ? "text-gray-400" : "text-green-600"}`}>
+                  {isPMODisabled ? "OFF" : "ON"}
+                </span>
                 <Label htmlFor="pmo-checkbox" className="text-sm cursor-pointer font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
                   PMO Dashboard
                 </Label>

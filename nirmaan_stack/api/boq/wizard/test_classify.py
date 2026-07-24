@@ -5,7 +5,9 @@
 
 Coverage matrix:
   ENGINES
-    POS  Electrical available; HVAC + ELV present-but-unavailable; is_discipline_available gate.
+    POS  Electrical + HVAC available (HV-9 flip, owner GO 2026-07-22); exactly two available;
+         HVAC catalog returns its 17 categories.
+    NEG  ELV present-but-unavailable; its catalog throws; start_classify on it throws.
   ORCHESTRATOR (DB seeded tree; STUBBED AI voter via ai_voter's injectable client -- no live API)
     POS  whole sheet classifies every eligible row; rows persist as current with routing filled.
     POS  a range spanning an ineligible spacer + a superseded row classifies only the eligible
@@ -28,14 +30,18 @@ tearDownClass because persist.write_row_categories commits (so the toggle would 
 import json
 from unittest import mock
 
+import unittest
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.boq.wizard import classify
 from nirmaan_stack.api.boq.wizard.classify import (
     _classify_worker,
+    _resolve_row_ladder,
     get_classify_status,
     get_sheet_categories,
+    get_sheet_categories_resolved,
     list_engines,
     set_row_category,
     start_classify,
@@ -161,13 +167,29 @@ class TestEngines(FrappeTestCase):
             for k in ("id", "label", "discipline", "available"):
                 self.assertIn(k, e)
         by_disc = {e["discipline"]: e for e in listed}
+        # HV-9 (owner GO 2026-07-22): HVAC is LIVE. Electrical + HVAC available; ELV still not.
         self.assertTrue(by_disc["Electrical"]["available"])
-        self.assertFalse(by_disc["HVAC"]["available"])
+        self.assertTrue(by_disc["HVAC"]["available"])
         self.assertFalse(by_disc["ELV"]["available"])
+
+    def test_exactly_two_engines_available(self):
+        """HV-9 guard: the flip enables HVAC and NOTHING else -- ELV must stay disabled."""
+        listed = list_engines()
+        avail = sorted(e["discipline"] for e in listed if e["available"])
+        self.assertEqual(avail, ["Electrical", "HVAC"])
+        self.assertEqual(len(listed), 3)  # ELV still LISTED, just unavailable
+
+    def test_elv_remains_present_but_unavailable(self):
+        """THE NEGATIVE: an engine listed without a shipped ruleset stays gated."""
+        elv = engines.get_engine_by_discipline("ELV")
+        self.assertIsNotNone(elv)
+        self.assertFalse(elv["available"])
+        self.assertFalse(engines.is_discipline_available("ELV"))
 
     def test_is_discipline_available(self):
         self.assertTrue(engines.is_discipline_available("Electrical"))
-        self.assertFalse(engines.is_discipline_available("HVAC"))
+        self.assertTrue(engines.is_discipline_available("HVAC"))
+        self.assertFalse(engines.is_discipline_available("ELV"))
         self.assertFalse(engines.is_discipline_available("Nonexistent"))
 
     def test_category_catalog(self):
@@ -179,9 +201,15 @@ class TestEngines(FrappeTestCase):
         self.assertIn("db_switchgear", ids)
         # every category carries a non-empty display label (id fallback ensures this)
         self.assertTrue(cat["categories"] and all(c["label"] for c in cat["categories"]))
-        # an unavailable engine has no catalog -> throws
+        # HV-9: HVAC is live, so it now HAS a catalog -- the picker's 17 categories.
+        hv = get_category_catalog("HVAC")
+        self.assertEqual(hv["discipline"], "HVAC")
+        self.assertEqual(len(hv["categories"]), 17)
+        self.assertIn("hvac_raceway", {c["id"] for c in hv["categories"]})
+        self.assertTrue(all(c["label"] for c in hv["categories"]))
+        # an unavailable engine still has no catalog -> throws (ELV is now the exemplar)
         with self.assertRaises(frappe.ValidationError):
-            get_category_catalog("HVAC")
+            get_category_catalog("ELV")
 
 
 # ── ORCHESTRATOR ─────────────────────────────────────────────────────────────────
@@ -392,8 +420,9 @@ class TestStartClassify(FrappeTestCase):
         super().tearDownClass()
 
     def test_unavailable_engine_throws(self):
+        """HV-9: HVAC is live, so ELV is now the unavailable exemplar for this gate."""
         with self.assertRaises(frappe.ValidationError):
-            start_classify(boq=self.boq, sheet_name=self.sheet, discipline="HVAC", scope={"mode": "sheet"})
+            start_classify(boq=self.boq, sheet_name=self.sheet, discipline="ELV", scope={"mode": "sheet"})
 
     def test_bad_range_throws(self):
         with self.assertRaises(frappe.ValidationError):
@@ -625,6 +654,189 @@ class TestGetSheetCategories(FrappeTestCase):
         res = get_sheet_categories(boq=self.boq, sheet_name=self.sheet)
         elevens = [c for c in res["categories"] if c["excel_row"] == 11]
         self.assertEqual(len(elevens), 1)
+
+    def test_write_persists_rules_version_stamp(self):
+        """HV-11 part 1b: the STAMP END stays faithful -- write_row_categories persists the
+        rules_version it is handed. The HV-9 empty stamp was UPSTREAM (the loader dropped the key,
+        so orchestrator fed ''); the writer was always correct. Pin it so a future regression here
+        is caught now that the loader surfaces a real version."""
+        persist.write_row_categories(self.boq, self.sheet, 1, "Electrical",
+                                     [_cat_row(21, rules_version="4.2-hv7")])
+        stamped = frappe.db.get_value(
+            _ROW_CATEGORY,
+            {"boq": self.boq, "sheet_name": self.sheet, "excel_row": 21, "is_current": 1},
+            "rules_version",
+        )
+        self.assertEqual(stamped, "4.2-hv7")
+
+    def test_freeze_reader_shape_unchanged(self):
+        """HV-10 regression guard: get_sheet_categories stays single-discipline (freeze +
+        get_freeze_summary depend on this exact shape). No `disciplines`, no `votes`."""
+        res = get_sheet_categories(boq=self.boq, sheet_name=self.sheet, discipline="Electrical")
+        self.assertNotIn("disciplines", res)
+        self.assertIn("committed_version", res)
+        c = res["categories"][0]
+        self.assertNotIn("votes", c)
+        self.assertNotIn("cross_engine_conflict", c)
+        self.assertIn("effective_category_id", c)
+
+
+# ── HV-10 PER-ROW RESOLUTION LADDER (pure) ───────────────────────────────────────
+def _vote(routing="Needs review", ai_confidence=0.0, final_category_id="",
+          human_category_id="", human_verdict_at="", rule_category_id="x", ai_category_id=""):
+    return {
+        "rule_category_id": rule_category_id, "ai_category_id": ai_category_id,
+        "ai_confidence": ai_confidence, "final_category_id": final_category_id,
+        "routing": routing, "review_priority": 0,
+        "human_category_id": human_category_id, "human_verdict_at": human_verdict_at,
+    }
+
+
+class TestResolveRowLadder(unittest.TestCase):
+    """The owner-locked ladder, tested PURELY (no DB). N-engine generic: disciplines are just
+    dict keys; a synthetic 'Plumbing' proves nothing is hardcoded."""
+
+    def test_single_discipline_auto(self):
+        eff, src, disc, conflict, hc, hd = _resolve_row_ladder(
+            {"HVAC": _vote(routing="Auto-accepted", final_category_id="hvac_piping", ai_confidence=0.95)})
+        self.assertEqual((eff, src, disc, conflict), ("hvac_piping", "auto", "HVAC", False))
+
+    def test_single_discipline_review_blank(self):
+        eff, src, disc, conflict, hc, hd = _resolve_row_ladder({"HVAC": _vote(routing="Needs review")})
+        self.assertEqual((eff, src, disc, conflict), ("", "blank", None, False))
+
+    def test_single_discipline_review_with_human(self):
+        eff, src, disc, conflict, hc, hd = _resolve_row_ladder(
+            {"HVAC": _vote(routing="Needs review", human_category_id="hvac_adp",
+                           human_verdict_at="2026-07-22 10:00:00")})
+        self.assertEqual((eff, src, disc), ("hvac_adp", "human", "HVAC"))
+        self.assertFalse(conflict)
+
+    def test_human_beats_auto_across_disciplines(self):
+        eff, src, disc, conflict, hc, hd = _resolve_row_ladder({
+            "Electrical": _vote(routing="Auto-accepted", final_category_id="panels", ai_confidence=0.99),
+            "HVAC": _vote(routing="Needs review", human_category_id="hvac_adp",
+                          human_verdict_at="2026-07-22 09:00:00"),
+        })
+        self.assertEqual((eff, src, disc), ("hvac_adp", "human", "HVAC"))
+
+    def test_most_recent_human_wins(self):
+        eff, src, disc, conflict, hc, hd = _resolve_row_ladder({
+            "Electrical": _vote(human_category_id="panels", human_verdict_at="2026-07-22 08:00:00"),
+            "HVAC": _vote(human_category_id="hvac_adp", human_verdict_at="2026-07-22 11:30:00"),
+        })
+        self.assertEqual((eff, disc, hd), ("hvac_adp", "HVAC", "HVAC"))
+
+    def test_two_autos_higher_confidence_wins_and_conflict(self):
+        eff, src, disc, conflict, hc, hd = _resolve_row_ladder({
+            "Electrical": _vote(routing="Auto-accepted", final_category_id="panels", ai_confidence=0.90),
+            "HVAC": _vote(routing="Auto-accepted", final_category_id="hvac_ahu", ai_confidence=0.97),
+        })
+        self.assertEqual((eff, src, disc), ("hvac_ahu", "auto", "HVAC"))
+        self.assertTrue(conflict)
+
+    def test_two_autos_equal_confidence_deterministic_and_conflict(self):
+        a = _resolve_row_ladder({
+            "Electrical": _vote(routing="Auto-accepted", final_category_id="panels", ai_confidence=0.9),
+            "HVAC": _vote(routing="Auto-accepted", final_category_id="hvac_ahu", ai_confidence=0.9),
+        })
+        b = _resolve_row_ladder({
+            "HVAC": _vote(routing="Auto-accepted", final_category_id="hvac_ahu", ai_confidence=0.9),
+            "Electrical": _vote(routing="Auto-accepted", final_category_id="panels", ai_confidence=0.9),
+        })
+        self.assertEqual(a, b)          # order-independent (deterministic tiebreak)
+        self.assertTrue(a[3])           # conflict flagged
+
+    def test_all_review_multi_is_blank_no_conflict(self):
+        eff, src, disc, conflict, hc, hd = _resolve_row_ladder({
+            "Electrical": _vote(routing="Needs review"),
+            "HVAC": _vote(routing="Needs review"),
+        })
+        self.assertEqual((eff, src, disc, conflict), ("", "blank", None, False))
+
+    def test_synthetic_third_discipline_flows_through(self):
+        """N-GENERIC GUARD: a discipline the code has never heard of resolves with ZERO special
+        casing -- it is just another key."""
+        eff, src, disc, conflict, hc, hd = _resolve_row_ladder({
+            "Electrical": _vote(routing="Needs review"),
+            "HVAC": _vote(routing="Auto-accepted", final_category_id="hvac_ahu", ai_confidence=0.88),
+            "Plumbing": _vote(routing="Auto-accepted", final_category_id="plumbing_pipe",
+                              ai_confidence=0.94),
+        })
+        self.assertEqual((eff, src, disc), ("plumbing_pipe", "auto", "Plumbing"))
+        self.assertTrue(conflict)
+
+
+# ── HV-10 get_sheet_categories_resolved (endpoint, DB) ───────────────────────────
+class TestGetSheetCategoriesResolved(FrappeTestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.project = _make_project()
+        cls.boq = _new_boq(cls.project.name, "Resolved BoQ")
+        cls.sheet = "ResFix "  # VERBATIM trailing space (#152)
+        _new_sheet(cls.boq, cls.sheet)
+        # HVAC: r10 auto, r11 review-blank
+        persist.write_row_categories(cls.boq, cls.sheet, 1, "HVAC", [
+            _cat_row(10, rule_category_id="hvac_piping", ai_category_id="hvac_piping",
+                     final_category_id="hvac_piping", routing="Auto-accepted", ai_confidence=0.95),
+            _cat_row(11, rule_category_id="hvac_piping", ai_category_id="hvac_adp",
+                     final_category_id="", routing="Needs review", ai_confidence=0.9),
+        ])
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete(_ROW_CATEGORY, {"boq": cls.boq})
+        frappe.db.delete("BoQ Sheet", {"boq": cls.boq})
+        frappe.db.commit()
+        _cleanup_project(cls.project.name)
+        super().tearDownClass()
+
+    def test_single_engine_resolves_like_effective(self):
+        res = get_sheet_categories_resolved(boq=self.boq, sheet_name=self.sheet)
+        self.assertEqual(res["disciplines"], ["HVAC"])
+        by = {c["excel_row"]: c for c in res["categories"]}
+        self.assertEqual(by[10]["effective_category_id"], "hvac_piping")
+        self.assertEqual(by[10]["effective_source"], "auto")
+        self.assertEqual(by[11]["effective_category_id"], "")
+        self.assertEqual(by[11]["effective_source"], "blank")
+
+    def test_votes_map_carries_per_discipline_detail(self):
+        res = get_sheet_categories_resolved(boq=self.boq, sheet_name=self.sheet)
+        by = {c["excel_row"]: c for c in res["categories"]}
+        self.assertIn("HVAC", by[10]["votes"])
+        self.assertEqual(by[10]["votes"]["HVAC"]["final_category_id"], "hvac_piping")
+        self.assertEqual(by[10]["votes"]["HVAC"]["routing"], "Auto-accepted")
+
+    def test_multi_engine_human_wins_and_lists_both(self):
+        """Self-contained on its own sheet -- persist.* commits defeat the per-test rollback, so
+        this test must not pollute the shared fixture's discipline set."""
+        sheet = "ResMulti "  # VERBATIM trailing space (#152)
+        _new_sheet(self.boq, sheet)
+        try:
+            # r11: Electrical auto-accept + an HVAC human verdict; the human must win the ladder.
+            persist.write_row_categories(self.boq, sheet, 1, "Electrical", [
+                _cat_row(11, rule_category_id="panels", ai_category_id="panels",
+                         final_category_id="panels", routing="Auto-accepted", ai_confidence=0.99),
+            ])
+            persist.set_human_verdict(self.boq, sheet, 11, 1, "HVAC", "hvac_adp")
+            res = get_sheet_categories_resolved(boq=self.boq, sheet_name=sheet)
+            self.assertEqual(sorted(res["disciplines"]), ["Electrical", "HVAC"])
+            by = {c["excel_row"]: c for c in res["categories"]}
+            self.assertEqual(by[11]["effective_category_id"], "hvac_adp")
+            self.assertEqual(by[11]["effective_source"], "human")
+            self.assertEqual(by[11]["human_discipline"], "HVAC")
+            self.assertEqual(sorted(by[11]["votes"].keys()), ["Electrical", "HVAC"])
+        finally:
+            frappe.db.delete(_ROW_CATEGORY, {"boq": self.boq, "sheet_name": sheet})
+            frappe.db.delete("BoQ Sheet", {"boq": self.boq, "sheet_name": sheet})
+            frappe.db.commit()
+
+    def test_uncommitted_sheet_returns_empty(self):
+        res = get_sheet_categories_resolved(boq=self.boq, sheet_name="NoSuchSheet ")
+        self.assertEqual(res["committed_version"], None)
+        self.assertEqual(res["disciplines"], [])
+        self.assertEqual(res["categories"], [])
 
 
 # ── SET_ROW_CATEGORY ─────────────────────────────────────────────────────────────

@@ -18,6 +18,8 @@ ancestors score), and derive expectations FROM the flat run (not hardcoded weigh
   "FLOOR SERVICE BOXES" -> popup_boxes      (ancestor rule, weight 0.5)
 Filler ancestors ("aaa"/"bbb") match no rule. m=0.5 is the sweep multiplier under test.
 """
+import json
+import os
 import unittest
 
 from nirmaan_stack.services.boq_category.runner import classify_line, load_ruleset
@@ -29,13 +31,26 @@ HALF = {"rules_multiplier": 0.5}
 
 
 class TestConfigSurface(unittest.TestCase):
-    """load_ruleset exposes a per-discipline decay dict, defaulting flat (no JSON carries one)."""
+    """load_ruleset exposes a per-discipline decay dict. Electrical carries NO decay block and
+    rides the flat default (LOCKED at 1.0 by its own D2/D2b sweep). HVAC wires one EXPLICITLY
+    at HV-3 -- also measured flat, but on the record rather than by default."""
 
-    def test_electrical_decay_defaults_flat(self):
+    def test_electrical_decay_locked_flat(self):
+        # A10 backwards-compat lock: electrical behaviour must not move. Asserted twice --
+        # the resolved value AND the absence of a decay block in its asset, so an accidental
+        # HVAC-style edit to rules_electrical.json fails here.
         self.assertEqual(load_ruleset("Electrical")["decay"], {"rules_multiplier": 1.0})
+        rules_electrical = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "rules_electrical.json")
+        with open(rules_electrical, encoding="utf-8") as fh:
+            self.assertNotIn("decay", json.load(fh),
+                             msg="electrical decay is LOCKED flat by default -- do not wire a block")
 
-    def test_hvac_decay_defaults_flat(self):
-        self.assertEqual(load_ruleset("HVAC")["decay"], {"rules_multiplier": 1.0})
+    def test_hvac_decay_wired_explicitly_and_flat(self):
+        # HV-3 (2026-07-20): was `defaults flat` (no block); HVAC now carries an explicit block.
+        # The measured value is still 1.0 -- the sweep found no multiplier that beats flat.
+        self.assertEqual(load_ruleset("HVAC")["decay"]["rules_multiplier"], 1.0)
+        self.assertEqual(load_ruleset("HVAC")["decay"]["_fit"], "PROVISIONAL-FIT")
 
 
 class TestDecayMechanism(unittest.TestCase):

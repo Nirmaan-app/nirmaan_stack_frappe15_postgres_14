@@ -88,7 +88,14 @@
   "gemini_accept_snapshot",
   "gemini_snapshot_owner",
   "resolution_section",
-  "chosen_source"
+  "chosen_source",
+  "revision_carry_status",
+  "revision_review_reason",
+  "revision_shift_delta",
+  "revision_shift_anchor",
+  "revision_reviewed",
+  "revision_reviewed_by",
+  "revision_reviewed_at"
  ],
  "fields": [
   {
@@ -570,12 +577,60 @@
    "label": "Chosen Source",
    "options": "parser\nclaude\ngemini\nmanual",
    "read_only": 1
+  },
+  {
+   "description": "For origin=revision review rows (ADR-0014 D6/D7, AMENDMENT B 2026-07-20): 'Copied' iff the row sat at the same Excel row with the same description as the original AND its parent did too, in which case it copied the original's effective classification AND parenting together (both or neither). 'Needs Review' (S2) is every OTHER content row of a revision sheet, always paired with a `revision_review_reason`; it renders red and must be affirmed before the sheet can be finalized. Blank means not a revision row at all -- every upload/template row (byte-identical) and every spacer, which renders 'Original'. Set at the post-parse merge seam. Matched/New/Ambiguous/Drifted are RETIRED: never written again, retained only so legacy rows still validate.",
+   "fieldname": "revision_carry_status",
+   "fieldtype": "Select",
+   "label": "Revision Carry Status",
+   "options": "\nCopied\nNeeds Review\nMatched\nNew\nAmbiguous\nDrifted"
+  },
+  {
+   "description": "S2 (revision needs-review): the machine code naming WHY this row did not carry -- one of row_inserted / position_shifted / description_changed / parent_not_carried / duplicate_position / no_excel_position / source_unclassified. The vocabulary lives in services/boq_revision/reasons.py; the prose lives in the frontend so wording can change without a migration. Blank off a revision and on every Copied row. Data, not Select, so a new code needs no schema change (mirrors `classification`).",
+   "fieldname": "revision_review_reason",
+   "fieldtype": "Data",
+   "label": "Revision Review Reason",
+   "read_only": 1
+  },
+  {
+   "description": "S2: for a position_shifted row, how far it moved -- CUMULATIVE (counting every edit above it), positive = pushed down. 0 means not applicable, which is unambiguous here: a real shift can never be 0 (offset 0 means same position, which would have MATCHED). With `revision_shift_anchor` it keys the shift block for the bulk affirm.",
+   "fieldname": "revision_shift_delta",
+   "fieldtype": "Int",
+   "label": "Revision Shift Delta",
+   "read_only": 1
+  },
+  {
+   "description": "S2: the revised Excel row where the insertion/deletion that caused this row's shift begins -- the block id, shared by the block's collateral rows AND the inserted rows that caused it, so the warnings panel can state one event instead of one line per row. 0 = not applicable (Excel rows are 1-based, so 0 is never a real anchor).",
+   "fieldname": "revision_shift_anchor",
+   "fieldtype": "Int",
+   "label": "Revision Shift Anchor",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "S2/S3: the reviewer's 'Looks OK' affirmation on a Needs Review row. Written ONLY by affirm_revision_row / affirm_revision_block and auto-set by a classification or parent edit; deliberately NOT by a value edit (a quantity fix says nothing about classification). Kept SEPARATE from flags_dismissed, which acknowledges the parser's advisory flags -- a row can carry both, and one tick must not clear the other. The finalize gate blocks on Needs Review rows where this is 0.",
+   "fieldname": "revision_reviewed",
+   "fieldtype": "Check",
+   "label": "Revision Reviewed"
+  },
+  {
+   "fieldname": "revision_reviewed_by",
+   "fieldtype": "Link",
+   "label": "Revision Reviewed By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "revision_reviewed_at",
+   "fieldtype": "Datetime",
+   "label": "Revision Reviewed At",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-08 01:00:00.000000",
+ "modified": "2026-07-22 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "BoQ Review Row",

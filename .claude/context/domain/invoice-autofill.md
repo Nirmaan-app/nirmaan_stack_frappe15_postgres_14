@@ -24,9 +24,16 @@ Indian invoices and payment receipts need a handful of fields keyed in every tim
 ### Endpoints (whitelisted, contract preserved)
 
 - `api/invoice_autofill.extract_invoice_fields(file_url)` → `extract(..., doc_kind="invoice")`. Returns `invoice_no, invoice_date, amount, net_amount, supplier_gstin, receiver_gstin, confidence{}, entities[], min_confidence, processor_id (= gemini_model), validation{}`.
-- `api/payment_autofill.extract_payment_fields(file_url)` → `extract(..., doc_kind="payment")`. Returns `utr, payment_date, transfer_amount, …`.
+- `api/payment_autofill.extract_payment_fields(file_url)` → `extract(..., doc_kind="payment")`. Returns `utr, payment_date, transfer_amount, beneficiary_name (soft-check only), confidence{}, entities[], min_confidence, processor_id, validation{amount, vendor_match}`. See **Payment soft-checks** below.
 
-Five frontend dialogs consume these (InvoiceDialog, NewProjectInvoiceDialog, UpdatePaymentDialog, NewNonProjectExpense, NewInflowPayment) — unchanged by the swap.
+Frontend dialogs consuming these (unchanged by the seam swap): InvoiceDialog, NewProjectInvoiceDialog, UpdatePaymentDialog, NewNonProjectExpense, NewInflowPayment. **Added 2026-07-22 — Project Expenses:** `ProjectExpenses/components/NewProjectExpenseDialog.tsx` consumes `extract_invoice_fields` (invoice → ref/date/amount), and `ProjectExpenses/components/UpdatePaymentDetailsDialog.tsx` consumes `extract_payment_fields` (receipt → payment ref/date) at Mark-as-Paid. See `.claude/context/domain/expenses.md` → "Project invoice/payment split".
+
+### Payment soft-checks — amount + beneficiary (`payment_autofill.py`)
+
+`extract_payment_fields` returns a `validation{}` with two **non-blocking, never-persisted** checks that `UpdatePaymentDialog` renders as amber banners (soft warnings; **Confirm Payment stays enabled**):
+
+- **`amount`** — receipt `transfer_amount` vs the parent `Project Payments.amount`. Server returns `{expected, extracted, delta_threshold: 2.0}`; the **frontend** does the compare because effective expected = `amount − TDS` and TDS is typed *after* autofill, so the banner reacts as TDS changes.
+- **`vendor_match`** (added 2026-07-23) — Gemini also extracts **`beneficiary_name`** (the credited payee, NOT the sender/remitter; a payment-branch prompt + `_PAYMENT_FIELDS` addition in `gemini.py`, so invoice/customer_po extraction is untouched). `_build_vendor_match` resolves `Project Payments.vendor → Vendors.vendor_name + account_name` and fuzzy-matches the beneficiary against **both**, matching if it hits **either** — the receipt shows the bank *account holder* (`account_name`), which is often not the display `vendor_name`. Returns `{expected_name, expected_account_name, extracted, match, by}` where `match ∈ {True, False, None}` and **None = can't verify** (no vendor set, or beneficiary unreadable → never a false mismatch). The dialog banners **only** on `match === false`. The matcher (`_names_match`: lowercase + strip non-alphanumerics → equal / substring / shared meaningful token, with a stopword list) is a **local copy in `payment_autofill.py`** — deliberately NOT hoisted into `helpers.py`, to keep the change scoped to the payment flow (`customer_po_autofill.py` keeps its own equivalent `_names_match`; a future consolidation into `helpers.names_match` is the obvious refactor if a third flow needs it).
 
 ### Trust is computed, not model-reported
 

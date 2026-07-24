@@ -1,6 +1,13 @@
 // Shared wizard types for the BoQ Upload wizard (Module 2b onward).
 // Both BoqUploadScreen and BoqHubPage import from here -- do NOT duplicate.
 
+// S5b (#1103, ADR-0014 D7): revised-BoQ review delta types live in the pure delta module
+// (revisionReviewDelta.ts imports nothing from here -> one-directional, no cycle).
+import type { RevisionCarryStatus, RevisionReviewMeta } from "./revisionReviewDelta";
+// W5: the revision-carry REPORT shapes live with the pure copy helpers that consume them
+// (revisionCarryReport.ts imports nothing from here -> one-directional, no cycle).
+import type { RevisionCarryBySheet } from "./revisionCarryReport";
+
 /**
  * Friendly display labels for all 21 parser role values.
  * Single source of truth -- SheetConfigPanel's ROLES_BY_GROUP and SheetDataGrid
@@ -104,6 +111,12 @@ export interface BoQSheetDraft {
    * always read-modify-write to preserve column_role_map and other keys).
    */
   sheet_config?: Record<string, unknown> | string | null;
+  /**
+   * Revised-BoQ (S4/#1101): the ORIGINAL committed sheet this draft was carried from, set
+   * write-once at revision seeding on a MATCHED sheet (blank on a New sheet / a normal upload).
+   * Its presence marks a revision-carried sheet -- enables the config-screen dangling-role flag.
+   */
+  source_sheet_name?: string | null;
   /**
    * Set to 1 by the parse worker when it marks a sheet "Parsed". Never cleared.
    * Dirty-detection contract: wizard_status="Config Done" + has_prior_parse=1 means
@@ -215,6 +228,12 @@ export interface ParseRunDonePayload {
   failed_sheets?: string[];
   // error fields
   error_code?: "missing_file" | "fetch_failed" | "no_eligible_sheets" | "parse_failed" | "internal";
+  /**
+   * W5: per-sheet revision review-carry counts, keyed by VERBATIM sheet_name (#152). OMITTED
+   * entirely on a non-revision parse, so the payload stays byte-identical there. Rides the
+   * get_parse_status poll too (_publish_parse_event caches the whole payload it publishes).
+   */
+  revision_carry?: RevisionCarryBySheet;
 }
 
 /**
@@ -308,13 +327,18 @@ export interface BOQsDoc {
    */
   parse_in_progress?: 0 | 1;
   /**
-   * How this BoQ was created (ADR-0013 A1). "upload" = normal Excel ingest (re-parseable);
-   * "template" = cloned from the master template (no source workbook -> Configure/Parse are
-   * SUPPRESSED in the hub, stepper starts at Review). Default "upload". BoQ-level marker.
+   * How this BoQ was created (ADR-0013 A1 / ADR-0014 D2). "upload" = normal Excel ingest
+   * (re-parseable); "template" = cloned from the master template (no source workbook ->
+   * Configure/Parse are SUPPRESSED in the hub, stepper starts at Review); "revision" = a
+   * revised upload against a committed original (an unconfirmed revision -- origin="revision"
+   * AND empty sheet_drafts -- is redirected from the hub to the sheet-mapping screen). Default
+   * "upload". BoQ-level marker.
    */
-  origin?: "upload" | "template";
+  origin?: "upload" | "template" | "revision";
   /** For origin="template": the master BoQ Template this was cloned from (provenance). */
   source_template?: string;
+  /** For origin="revision" (ADR-0014 D2): the committed original this revises. */
+  source_boq?: string;
   /**
    * 1 = this is a project-less SCRATCH AUTHORING BoQ for the master template (ADR-0013 A1).
    * Authored via an is_template_source upload; once committed, the hub shows "Set as master
@@ -543,6 +567,28 @@ export interface ReviewRow {
   // winning Source is conveyed SOLELY by the source-tagged status badge (Accepted·Claude /
   // Accepted·Gemini; manual reads "Edited"; untouched reads "Original"/parser).
   chosen_source?: "parser" | "claude" | "gemini" | "manual";
+
+  // ── Revised-BoQ review carry (S5a/S5b, #1102/#1103, ADR-0014 D7). ADDITIVE-ONLY. ───────────
+  // Stamped by the post-parse merge (review_carry.py) ONLY on a revision sheet's matched-content
+  // rows: "Matched" (carried -- the calm default, no treatment) or "New" / "Ambiguous"
+  // (a delta that surfaces in the existing Status column + the needs-action panel). "Drifted" is
+  // RETIRED (owner amendment 2026-07-20 -- the effective-value carry closes the hole it flagged);
+  // a legacy row still holding it falls through to "Original". Blank/absent on
+  // every upload/template row and on a revision sheet's blank/spacer rows -> the review screen is
+  // byte-identical off a revision. "REMOVED" is never a value (an original-only outcome with no
+  // revised row -- surfaced as the panel's muted removed-row advisory line instead).
+  revision_carry_status?: RevisionCarryStatus | null;
+  // ── S4: the needs-review diagnosis + the reviewer's confirmation. ADDITIVE-ONLY. ────────────
+  // `revision_review_reason` is a code from services/boq_revision/reasons.py; the WORDING lives in
+  // revisionChangeBlocks.ts so it can change with no migration. `revision_shift_delta` /
+  // `_anchor` use 0 for "not applicable" (a real shift is never 0; Excel rows are 1-based), and
+  // together the anchor + delta identify the shift BLOCK a bulk affirm targets.
+  // `revision_reviewed` is the stored "Looks OK" -- an unconfirmed stamped row blocks finalize.
+  // All blank/0 off a revision, so the red treatment and the Looks OK column stay inert there.
+  revision_review_reason?: string | null;
+  revision_shift_delta?: number | null;
+  revision_shift_anchor?: number | null;
+  revision_reviewed?: number | null;
 }
 
 /**
@@ -588,6 +634,13 @@ export interface GetReviewRowsResponse {
   // sibling in this response -- Claude's enable lives in a separate settings home and is read
   // elsewhere; only gemini_enabled rides this payload.
   gemini_enabled?: boolean;
+  // S5b (#1103, ADR-0014 D7 + Amendment B): the revised-BoQ meta block -- present
+  // (is_revision:true) only for a revision sheet, null/absent for upload/template. Carries the
+  // copied / needs-review / total counts (server-derived from the persisted stamp) and the
+  // original's version for the "copied from v{n}" label. Per-row provenance rides each ReviewRow's
+  // revision_carry_status; the counts need this sheet-level block because a row that did not copy
+  // is indistinguishable from a fresh-upload row by design.
+  revision?: RevisionReviewMeta | null;
 }
 
 /**
@@ -1068,6 +1121,15 @@ export interface MarkParsedCheckDoneResponse {
   // A2 (template origin): number of SELECTED line-item rows still missing a quantity. Present only
   // on the {ok:false} template finalize-gate rejection; absent for the structural-break case.
   qty_gap?: number;
+  // S3 (revision): rows stamped `Needs Review` that nobody has confirmed yet. Present only on that
+  // rejection; `breaks` is [] alongside it, since the two gates refuse for different reasons and
+  // structural breaks are checked first.
+  unaffirmed_count?: number;
+  unaffirmed?: Array<{
+    row_index: number;
+    source_row_number: number | null;
+    revision_review_reason: string | null;
+  }>;
 }
 
 /** Response shape of unmark_sheet_parsed_check_done (reverts to "Parsed"). */
@@ -1217,6 +1279,87 @@ export interface ApplyCopyForwardResponse {
     non_priceable: number;
     invalid: number;
   };
+}
+
+// ── Cross-BOQ rate carry (S10 / #1106, ADR-0014 D9) ────────────────────────────────
+// Carry the ORIGINAL's committed rates across into a committed REVISION. This is the same-BOQ
+// copy-forward classifier pointed cross-BOQ (see CopyForward* above): whole-BOQ, per-CELL,
+// DESTINATION-keyed. The source + dest excel rows DIFFER (D6 matches on description, not row
+// number), so a plan row carries BOTH. Backend: cross_boq_carry.get_cross_boq_carry_plan /
+// apply_sheet_carry (synchronous, per sheet -- AMENDMENT C).
+
+/**
+ * One classified cross-BOQ carry plan row. outcome: 1 = HARD SKIP (never written, shown with
+ * `reason` + `skip_reason`), 2 = clean copy (dest empty), 3 = conflict (dest already priced ->
+ * keep/overwrite). The carry is source-driven; D6 NEW dest rows never enter the plan (they have no
+ * source rate) -- they surface as `needs_new_value_count` and via the pricing editor's "Show
+ * unpriced" filter. `target_col_letter` is the RE-RESOLVED dest rate column (null on a skip).
+ */
+export interface CrossBoqCarryPlanRow {
+  source_excel_row: number;
+  dest_excel_row: number | null;
+  description: string | null;
+  dest_description: string | null;
+  source_rate: number | null;
+  area: string | null;
+  rate_kind: string;
+  source_boq: string;
+  source_version: number;
+  outcome: 1 | 2 | 3;
+  skip_reason: "removed" | "no_rate_column" | "non_priceable" | null;
+  target_col_letter: string | null;
+  current_rate: number | null;
+  reason: string | null;
+}
+
+/** The plan-count rollup for one sheet (the four PLAN skip reasons; `invalid` is apply-time only). */
+export interface CrossBoqCarryCounts {
+  clean: number;
+  conflict: number;
+  removed: number;
+  no_rate_column: number;
+  non_priceable: number;
+}
+
+/** One committed revision sheet's carry plan. `formulas_complete` false => the mandatory
+ *  amount-formula gate blocks this sheet's carry (shown unticked + labelled). `needs_new_value_count`
+ *  = D6 NEW priceable dest rows that need a hand-entered rate (never in `plan`). */
+export interface CrossBoqCarrySheet {
+  sheet_name: string;
+  source_sheet_name: string;
+  source_version: number;
+  dest_version: number;
+  plan: CrossBoqCarryPlanRow[];
+  counts: CrossBoqCarryCounts;
+  formulas_complete: boolean;
+  needs_new_value_count: number;
+}
+
+/** Response shape of apply_sheet_carry (AMENDMENT C, C2) -- synchronous, so the summary comes
+ *  straight back instead of a job id. AMENDMENT D removed the `layers` block: the carry moves
+ *  rates and nothing else. */
+export interface ApplySheetCarryResponse {
+  ok: boolean;
+  copied: number;
+  conflicts_overwritten: number;
+  conflicts_kept: number;
+  skipped: Record<string, number>;
+}
+
+/** Response shape of get_cross_boq_carry_plan. */
+export interface GetCrossBoqCarryPlanResponse {
+  source_boq: string;
+  dest_boq: string;
+  sheets: CrossBoqCarrySheet[];
+}
+
+/** One user decision posted per sheet to start_cross_boq_carry (destination-keyed).
+ *  Presence in a sheet's list = "carry this cell"; `overwrite` matters only for a conflict. */
+export interface CrossBoqCarryDecision {
+  dest_excel_row: number;
+  area: string | null;
+  rate_kind: string;
+  overwrite?: boolean;
 }
 
 /**
@@ -1401,6 +1544,45 @@ export interface SheetCategoryRow {
   routing_reason: string;
   human_category_id: string;
   effective_category_id: string;
+}
+
+/**
+ * HV-10: one discipline's raw vote detail for a row, from get_sheet_categories_resolved.
+ * TELEMETRY: review_priority is stored here but NEVER rendered (owner amendment 2026-07-22).
+ */
+export interface ResolvedVote {
+  rule_category_id: string;
+  ai_category_id: string;
+  ai_confidence: number | null;
+  final_category_id: string;
+  routing: string;
+  review_priority: number;
+}
+
+/**
+ * HV-10: one row after the SERVER-SIDE multi-engine resolution ladder
+ * (get_sheet_categories_resolved). `effective_source` is "human" | "auto" | "blank";
+ * `cross_engine_conflict` is TELEMETRY-ONLY -- computed at read time, NEVER persisted and (owner
+ * ruling) NEVER rendered. `votes` is the per-discipline detail, keyed by discipline (N-generic --
+ * any engine is just another key). A single-engine sheet resolves exactly as today.
+ */
+export interface ResolvedSheetCategory {
+  excel_row: number;
+  effective_category_id: string;
+  effective_source: "human" | "auto" | "blank";
+  resolved_discipline: string | null;
+  cross_engine_conflict: boolean;
+  human_category_id: string;
+  human_discipline: string | null;
+  votes: Record<string, ResolvedVote>;
+}
+
+/** HV-10: the get_sheet_categories_resolved payload. `disciplines` = every engine with current
+ * rows on the sheet (the picker's group set). */
+export interface GetSheetCategoriesResolvedResponse {
+  committed_version: number | null;
+  disciplines: string[];
+  categories: ResolvedSheetCategory[];
 }
 
 // ── CL-3: category verdict picker (click-to-edit human category verdict) ─────────

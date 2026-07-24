@@ -76,13 +76,35 @@
  *     indent (paddingLeft = depth * INDENT_PX) applied here. Chevron + pill removed.
  *   Chevron click/collapse/aria/invisible-on-leaf behavior unchanged verbatim.
  */
-import { useMemo, useRef, useEffect, useState, Fragment } from "react";
-import { ChevronDown, ChevronRight, ChevronUp, SlidersHorizontal, Info, MessageSquare, Search, X, Filter, CheckCircle2, Sparkles, AlertTriangle, AlertOctagon, MoreHorizontal, Trash2 } from "lucide-react";
+import { useMemo, useRef, useEffect, useState, useCallback, Fragment } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent } from "react";
+import { ChevronDown, ChevronRight, ChevronUp, SlidersHorizontal, Info, MessageSquare, Search, X, Filter, CheckCircle2, Sparkles, AlertTriangle, AlertOctagon, MoreHorizontal, GitCompareArrows, Trash2 } from "lucide-react";
 import { useFrappePostCall } from "frappe-react-sdk";
 import { cn } from "@/lib/utils";
 import { getFrappeError } from "@/utils/frappeErrors";
 import type { ReviewRow, ColumnDescriptor, AdvisoryFlag, StructuralBreak, SaveReviewEditResponse, EditLogEntry } from "./boqTypes";
 import { ROLE_LABELS } from "./boqTypes";
+// S5b (#1103, ADR-0014 D7 + Amendment B): revised-BoQ review surfacing (pure, testable helpers).
+import {
+  computeRevisionDelta,
+  isReviewRowEdited,
+  isRowCopied,
+  REVISION_COPIED_BADGE,
+  REVISION_NEEDS_REVIEW_BADGE,
+  REVISION_NEEDS_REVIEW_ROW_CLASS,
+  REVISION_REVIEWED_BADGE,
+  type RevisionReviewMeta,
+} from "./revisionReviewDelta";
+// S4: the reason vocabulary + its wording, and the collateral/causal boundary that bounds the
+// block bulk-affirm. Backend ships codes, this module owns every sentence (WARN_BREAK_LABELS
+// precedent) -- so re-wording never needs a migration.
+import {
+  isCollateralReason,
+  isConfirmedRow,
+  isUnaffirmed,
+  reasonSentence,
+  reasonShortLabel,
+} from "./revisionChangeBlocks";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -126,9 +148,19 @@ import { RestructureModal } from "./RestructureModal";
 import {
   isSelectableRow,
   isRowExcluded,
-  countSelectedLineItemsNoQty,
+  isQtyEligibleRow,
+  buildQtyGapEntries,
   rowPickerLabel,
 } from "./templateSelection";
+// Quantity keyboard navigation (template origin): PURE movement rule + registry keys.
+import {
+  nextQtyCell,
+  qtyNavDirectionFor,
+  qtyCellKey,
+  qtyCellKeyAt,
+  findQtyCoord,
+  type QtyNavMatrix,
+} from "./qtyNav";
 // Row-detail panel READ views: the ancestor chain + direct-children list (additive, no layout
 // change to the surrounding panel). Pure components walking effective_parent_index / its inverse.
 import { ParentChain } from "./ParentChain";
@@ -218,7 +250,7 @@ const VISIBILITY_HOP_CAP = 60; // max ancestor chain length for isVisible check
 // span (no indent, no fallback) inline at the call site.
 function DescriptionCellInner(
   { text, isPreamble, isLineItem, depth }:
-  { text: string; isPreamble: boolean; isLineItem: boolean; depth: number },
+    { text: string; isPreamble: boolean; isLineItem: boolean; depth: number },
 ) {
   return (
     <div style={{ paddingLeft: `${depth * INDENT_PX}px` }}>
@@ -284,13 +316,25 @@ const CLASS_FILTER_VALUES = ["preamble", "line_item", "note", "spacer", "subtota
 
 // §9 #159: Status filter option labels. AI-3a adds the third state "ai_accepted"
 // (an AI suggestion was Accepted -- distinct provenance from a plain human edit).
-type StatusFilter = "all" | "edited" | "original" | "ai_accepted";
+// S5 adds the three REVISION states. They are offered only on a revision sheet (same gate as the
+// Looks OK column) -- off a revision no row carries a carry stamp, so the options would all filter
+// to nothing.
+type StatusFilter =
+  | "all" | "edited" | "original" | "ai_accepted"
+  | "copied" | "needs_review" | "reviewed";
 const STATUS_FILTER_LABELS: Record<StatusFilter, string> = {
   all: "All",
   edited: "Edited",
   original: "Original",
   ai_accepted: "AI Accepted",
+  copied: "Copied",
+  needs_review: "Needs review",
+  reviewed: "Reviewed",
 };
+
+/** The base options, and the revision-only additions appended after them. */
+const BASE_STATUS_FILTERS: readonly StatusFilter[] = ["all", "edited", "original", "ai_accepted"];
+const REVISION_STATUS_FILTERS: readonly StatusFilter[] = ["copied", "needs_review", "reviewed"];
 
 // AI-3a: AI Rec column filter. "all" = no narrowing (show every row); "any" = rows with a
 // pending AI suggestion; "high"/"medium"/"low" = rows whose suggestion carries that
@@ -487,9 +531,21 @@ interface ReviewTreeProps {
   // get_review_rows (the server cascade flips is_excluded across the subtree / the keyspace
   // is renumbered). SheetReviewPage wires this to mutate() (+ breaksMutate).
   onSelectionChanged?: () => void;
+  // ── S5b (#1103, ADR-0014 D7): revised-BoQ delta meta ──────────────────────────
+  // The revision block from get_review_rows -- null/absent for an upload/template sheet (the whole
+  // delta layer is inert, so the review screen is BYTE-IDENTICAL off a revision). Present only for
+  // a revision sheet; carries the D6 REMOVED-originals count/sample + the source version for the
+  // advisory line + chip. Per-row deltas ride each row's revision_carry_status (no prop needed).
+  revisionMeta?: RevisionReviewMeta | null;
+  /**
+   * S5: confirm ONE `Needs Review` row ("Looks OK"). Its PRESENCE is the read-only gate, the
+   * wizard's convention for every write affordance -- the page withholds it when the sheet is
+   * frozen or the user is not the lock holder, and the column then renders read-only.
+   */
+  onAffirmRow?: (rowIndex: number, affirmed: boolean) => void | Promise<void>;
 }
 
-export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqName, sheetName, onSaved, onRemarkSaved, onRestructured, readOnly = false, onEditIntent, geminiEnabled = false, expanded = false, templateOrigin = false, selectable = false, canCreateRows = false, onSelectionChanged }: ReviewTreeProps) {
+export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqName, sheetName, onSaved, onRemarkSaved, onRestructured, readOnly = false, onEditIntent, geminiEnabled = false, expanded = false, templateOrigin = false, selectable = false, canCreateRows = false, onSelectionChanged, revisionMeta = null, onAffirmRow }: ReviewTreeProps) {
   // Create-from-Template: the two new props share ONE extra fixed-anchor column. When neither
   // is on, templateControls is false and nothing new renders (byte-identical to the upload flow).
   const templateControls = selectable || canCreateRows;
@@ -675,8 +731,15 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   const [deleteDialog, setDeleteDialog] = useState<ReviewRow | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  // T10: advisory (non-blocking) count of SELECTED line items with no quantity.
-  const noQtyCount = useMemo(() => countSelectedLineItemsNoQty(rows), [rows]);
+  // T10/A2: SELECTED line items whose quantity is invalid (missing / zero / negative). This is
+  // the SAME list SheetReviewPage's Finalize gate counts -- one list, one length, so the block
+  // and the disabled-Finalize tooltip can never report different numbers. The row-index SET
+  // drives both the "needs a quantity" view filter and the per-row attention fill.
+  const qtyGapEntries = useMemo(() => buildQtyGapEntries(rows), [rows]);
+  const qtyGapRowIndexes = useMemo(
+    () => new Set(qtyGapEntries.map(e => e.rowIndex)),
+    [qtyGapEntries],
+  );
 
   // T10: flip a row's selection. include=true -> excluded=0 (select + ancestor chain);
   // include=false -> excluded=1 (deselect + descendant subtree). onEditIntent acquires the
@@ -768,7 +831,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
     const isRoot = row.ai_suggested_is_root === 1;
     const parentIsChange = ai.hasParent && (
       isRoot ? row.effective_parent_index !== null
-             : row.ai_suggested_parent !== row.effective_parent_index
+        : row.ai_suggested_parent !== row.effective_parent_index
     );
     const parentAccept = aiAcceptParent && parentIsChange;
     // AI-3c-3: mirror the manual onPickClass rule -- ANY accepted change on a row WITH
@@ -784,11 +847,11 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
       const parentLabel = isRoot
         ? "Top level (root)"
         : (() => {
-            const src = presetRowParent !== undefined
-              ? byIdx.get(presetRowParent)?.source_row_number
-              : undefined;
-            return src !== undefined ? `row ${src}` : `#${presetRowParent}`;
-          })();
+          const src = presetRowParent !== undefined
+            ? byIdx.get(presetRowParent)?.source_row_number
+            : undefined;
+          return src !== undefined ? `row ${src}` : `#${presetRowParent}`;
+        })();
       setRestructureModal({
         row,
         // Fold an accepted classification change into the SAME restructure call; else a
@@ -800,9 +863,9 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
         // (-> modal keeps the row's own parent, child-disposition only).
         ...(presetRowParent !== undefined
           ? {
-              presetRowParent,
-              presetParentMessage: `Parent set to ${parentLabel} per AI suggestion — choose what happens to this row's children below.`,
-            }
+            presetRowParent,
+            presetParentMessage: `Parent set to ${parentLabel} per AI suggestion — choose what happens to this row's children below.`,
+          }
           : {}),
         markAiAccepted: true,
       });
@@ -1115,6 +1178,17 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   const [classFilter, setClassFilter] = useState<Set<string>>(() => new Set(CLASS_FILTER_VALUES));
   const [searchQuery, setSearchQuery] = useState("");
   const [searchCurrentIdx, setSearchCurrentIdx] = useState(0);
+  // S5b (#1103): revision delta filter -- when true, the tree narrows to needs-action rows (a
+  // New/Ambiguous row the human has not yet handled). A predicate inside passesFilter (so
+  // it composes with search: a hit can never be a filtered-out row). Only ever set on a revision
+  // sheet (the toggle lives in the delta panel, which mounts only there) -> inert off a revision.
+  const [deltaFilterOnly, setDeltaFilterOnly] = useState(false);
+  // A2/qty-block: the "needs a quantity" review block's open state + its view filter. The filter
+  // is a passesFilter predicate (same shape as deltaFilterOnly) so it composes with search, and
+  // is SELF-CLEARING -- entering a quantity drops the row from qtyGapRowIndexes and the tree
+  // re-renders without it. Only ever set on a template sheet (the block mounts only there).
+  const [qtyGapOpen, setQtyGapOpen] = useState(false);
+  const [qtyGapFilterOnly, setQtyGapFilterOnly] = useState(false);
 
   const toggleCol = (col: string) => {
     setVisibleCols(prev => {
@@ -1218,9 +1292,16 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   };
 
   // A2 (template origin): inline Total-Quantity edit -- SILENT save (no confirm dialog), mirrors
-  // the text-field silent-save path. Fires on blur / Enter; no-op when unchanged. save_review_edit
-  // has NO separate server-side lock acquire, so the single client onEditIntent cannot create the
-  // duplicate-lock race that the T10 selection checkbox hit.
+  // the text-field silent-save path. Fires on blur / Enter; no-op when unchanged.
+  //
+  // LOCK ACQUIRE IS ON **FOCUS**, NOT HERE. save_review_edit DOES acquire the draft lock
+  // server-side (review_screen.py -> draft_lock.acquire_or_refresh), so firing the client
+  // acquire from inside the save raced it on the lock's check-then-insert and 409'd the write
+  // (the same duplicate-PK race the T10 selection checkbox documents). What used to hide it was
+  // the human pause between focusing a cell and blurring it; keyboard nav commits on Enter and
+  // closes that gap. Acquiring on focus restores the separation BY DESIGN rather than by luck --
+  // and focusing an editable cell is what "edit intent" means anyway. ensureLockAcquired is
+  // idempotent (heldVersionRef), so re-focusing costs nothing.
   const saveQtyInline = async (row: ReviewRow, raw: string) => {
     const prev = row.qty_total ?? "";
     if (String(raw).trim() === String(prev).trim()) return; // unchanged -> no write
@@ -1230,7 +1311,6 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
       setSaveError("Quantity cannot be negative.");
       return;
     }
-    onEditIntent?.(); // B1: acquire the draft lock on first edit-intent (client side only)
     setSaveError(null);
     try {
       const res = await saveCall({
@@ -1259,8 +1339,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
       setSaveError("Quantity cannot be negative.");
       return;
     }
-    onEditIntent?.(); // B1: client-side lock acquire (save_review_edit adds no server-side race)
-    setSaveError(null);
+    setSaveError(null); // lock acquire is on FOCUS -- see saveQtyInline's note
     try {
       const res = await saveCall({
         boq_name: boqName,
@@ -1411,6 +1490,27 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
     : advisoryWarnRows.filter(w => !w.dismissed);
   const dismissedAdvisoryCount = advisoryWarnRows.filter(w => w.dismissed).length;
   const hasAnyWarning = warningRows.length > 0;
+
+  // S5b (#1103, ADR-0014 D7): the revised-BoQ delta summary -- the ONE fold of per-row
+  // revision_carry_status + the removed-originals meta into {mode, needs-action rows, chip data}.
+  // Pure + memoized on (rows, revisionMeta); inert (mode "none") for a non-revision sheet.
+  // S4: row_index -> row, so the needs-action panel can read each listed row's own reason without
+  // an O(n) scan per entry. Keyed on `rows` only -- it is a pure index of them.
+  const byRowIndex = useMemo(
+    () => new Map(rows.map((r) => [r.row_index, r])),
+    [rows],
+  );
+
+  // S5: does this sheet get the "Looks OK" column at all? Only a revision sheet with content to
+  // diff against -- a declared-New / unmapped sheet has nothing to confirm. Read by the <th>, the
+  // body <td> AND the totalCols term; all three must gate on THIS, or the grid misaligns.
+  const showAffirmColumn = revisionMeta?.is_revision === true
+    && (revisionMeta?.total_count ?? 0) > 0;
+
+  const revisionDelta = useMemo(
+    () => computeRevisionDelta(rows, revisionMeta),
+    [rows, revisionMeta],
+  );
 
   // R4: per-category advisory rollup for the panel header (evolved from the SheetReviewPage
   // count strip). "N label – M cleared" where cleared = flags of that type on a dismissed row.
@@ -1589,13 +1689,38 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   // DUAL-AI (ADR-0003): the Gemini filter-active styling is derived inside GeminiHeaderCell
   // (from its geminiFilter prop), so no ReviewTree-level "active" flag is needed here.
   const passesFilter = (row: ReviewRow): boolean => {
+    // S5b (#1103, Amendment B): revision review filter -- one early-return, narrows to the rows
+    // that did NOT copy and that the human has not handled. Tests MEMBERSHIP of the summary's
+    // needsActionRowIndexes rather than re-deriving the predicate, because the predicate alone is
+    // only meaningful on a revision sheet (off a revision EVERY row is unstamped) -- the summary is
+    // the gate. SELF-CLEARING: editing/accepting a row rebuilds the memo without it, so it drops
+    // from the filtered tree with no extra code. Gated on there being rows LEFT: when the reviewer
+    // resolves the last one the panel (and its toggle) unmounts -- without this guard a stuck
+    // deltaFilterOnly would empty the tree with no visible way to turn it off.
+    if (deltaFilterOnly && revisionDelta.needsActionRows.length > 0
+        && !revisionDelta.needsActionRowIndexes.has(row.row_index)) return false;
+    // A2/qty-block: narrow to the line items still missing a valid quantity. Same shape as the
+    // revision filter above, including the rows-LEFT guard: when the reviewer fills the last one
+    // the block (and its toggle) unmounts, and without the guard a stuck filter would leave an
+    // empty tree with no visible way to turn it off.
+    if (qtyGapFilterOnly && qtyGapEntries.length > 0
+        && !qtyGapRowIndexes.has(row.row_index)) return false;
     // Status predicate. AI-3a: "ai_accepted" keys on ai_suggestion_status; edited/original
     // use the isEdited expression (mirrors the inline at the render row; a remark-only row
     // is Original since save_review_remark never stamps edited_at/edit_log).
+    // S5: the three revision states read the row's OWN stamp via the pure predicates rather than
+    // `revisionDelta`'s membership set -- so this stays a function of `row` alone and needs no
+    // extra memo dependency to stay fresh.
     if (statusFilter === "ai_accepted") {
       if (row.ai_suggestion_status !== "Accepted") return false;
+    } else if (statusFilter === "copied") {
+      if (!isRowCopied(row)) return false;
+    } else if (statusFilter === "needs_review") {
+      if (!isUnaffirmed(row)) return false;
+    } else if (statusFilter === "reviewed") {
+      if (!isConfirmedRow(row)) return false;
     } else if (statusFilter !== "all") {
-      const edited = row.edited_at !== null || (Array.isArray(row.edit_log) && row.edit_log.length > 0);
+      const edited = isReviewRowEdited(row);
       if (statusFilter === "edited" ? !edited : edited) return false;
     }
     // Classification predicate -- effective_classification ∈ the SHOW-set (all-shown == pass).
@@ -1629,6 +1754,84 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
     return true;
   };
 
+  // ── The ONE rendered-row list ────────────────────────────────────────────────────
+  // The three visibility predicates compose here ONCE, and both the <tbody> map and the
+  // quantity keyboard-nav matrix read this. Keeping the render's own inline guards would give
+  // nav a second, independently-drifting notion of "which rows exist" -- and nav order MUST
+  // equal render order or ArrowDown lands on a row that is not on screen.
+  //
+  // A plain const, NOT useMemo: the predicates close over `collapsed`, four filter states and
+  // byIdx, so a dependency list would be a drift hazard for no gain -- ReviewTree is not
+  // memoized, and the per-row cost is identical to the guards this replaces.
+  const renderableRows = rows.filter(
+    (row) => isVisible(row) && classificationVisible(row) && passesFilter(row),
+  );
+
+  // ── Quantity keyboard navigation (template origin) ───────────────────────────────
+  // Walk the quantity column(s) with the arrows / Enter / Tab instead of native tabbing, which
+  // steps through every checkbox and row menu on the way. Deliberately DOM-focus driven with NO
+  // React state: PricingGrid can hold an `activeCell` in state only because its rows are memoized
+  // behind an exhaustive comparator; ReviewTree renders rows inline (which is why AreaQtyCells
+  // owns its own draft), so a state tick per keystroke would re-render the whole tree. The
+  // browser already holds the focus truth -- mirroring it into state would buy nothing.
+  //
+  // The matrix is the rendered qty inputs, in render order: single-area = the one Total cell per
+  // row; multi-area = the visible per-area cells (the Total there is a read-only running sum, so
+  // it is not a target). Rows keep their DURABLE row_index as the registry key.
+  const qtyNavMatrix: QtyNavMatrix = useMemo(() => {
+    if (!templateOrigin || readOnly) return [];
+    const cols = hasPerAreaQty
+      ? areaQtyDescriptors.filter(d => visibleCols.has(d.col)).map(d => d.col)
+      : (qtyTotalDescriptor && visibleCols.has(qtyTotalDescriptor.col)
+          ? [qtyTotalDescriptor.col] : []);
+    if (cols.length === 0) return [];
+    // ELIGIBLE rows only -- `isQtyEligibleRow` = an eligible CLASSIFICATION (preamble /
+    // line_item, what the clone seeds qty_by_area for) AND still SELECTED. Walking a note,
+    // spacer or DESELECTED row is dead travel through cells that can never take a value.
+    // This is the ONLY nav-order rule, and it agrees with the render by construction: those
+    // rows emit no input, so there is nothing there to focus.
+    return renderableRows
+      .filter(isQtyEligibleRow)
+      .map(row => ({ rowIndex: row.row_index, cols }));
+    // renderableRows is rebuilt every render (it is a plain filter over rows); keying the memo on
+    // its LENGTH plus the row-order signal would be false economy -- the array identity is the
+    // honest signal and the map is O(rendered rows).
+  }, [templateOrigin, readOnly, hasPerAreaQty, areaQtyDescriptors, qtyTotalDescriptor,
+      visibleCols, renderableRows]);
+
+  // Registry of the live qty <input>s, keyed (row_index, col). Populated by each input's ref.
+  const qtyInputRefs = useRef<Map<string, HTMLInputElement>>(new Map());
+  const registerQtyInput = useCallback((rowIndex: number, col: string, el: HTMLInputElement | null) => {
+    const key = qtyCellKey(rowIndex, col);
+    if (el) qtyInputRefs.current.set(key, el);
+    else qtyInputRefs.current.delete(key);
+  }, []);
+
+  // One keydown handler on the <tbody>; each input's keydown bubbles here. Acts ONLY on an
+  // element that marked itself navigable (data-qtynav), so every other control in the row --
+  // checkboxes, row menus, chevrons -- keeps its native keyboard behaviour untouched.
+  const handleQtyNavKeyDown = (e: ReactKeyboardEvent<HTMLTableSectionElement>) => {
+    const el = e.target as HTMLElement | null;
+    if (!el || el.dataset?.qtynav !== "1") return;
+    const dir = qtyNavDirectionFor(e);
+    if (!dir) return; // typing / Escape / anything else -> the input keeps it
+    const rowIndex = Number(el.dataset.qtynavRow);
+    const col = el.dataset.qtynavCol;
+    if (!Number.isFinite(rowIndex) || !col) return;
+    const from = findQtyCoord(qtyNavMatrix, rowIndex, col);
+    if (!from) return;
+    // Own the key even at an edge: Tab must not escape the grid, and Enter must not submit.
+    e.preventDefault();
+    const to = nextQtyCell(from, dir, qtyNavMatrix);
+    if (!to) return; // edge -> commit (blur already fired nothing) and stay put
+    const key = qtyCellKeyAt(qtyNavMatrix, to);
+    const next = key ? qtyInputRefs.current.get(key) : null;
+    // Moving focus fires the current input's onBlur, which is the existing save path -- so the
+    // value commits on every move with no separate commit step.
+    next?.focus();
+    next?.select();
+  };
+
   // §9 #159 (+fuzzy): search hit list -- row_index of rows that pass the SAME shown-filter
   // (classificationVisible + passesFilter) AND whose description FUZZY-matches the query
   // (token AND, partial, min length 2 -- shared with SheetSearchView via boqDescriptionSearch).
@@ -1642,7 +1845,10 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
     const matched = fuzzyDescriptionMatchSet(candidates, searchQuery, (row) => row.description ?? "");
     return candidates.filter((row) => matched.has(row)).map((row) => row.row_index);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, searchQuery, statusFilter, classFilter, aiFilter, geminiFilter, geminiEnabled, showSpacers, showNotes, showSubtotals]);
+    // S5b (#1103): deltaFilterOnly is a passesFilter input -> it MUST be a searchHits dep, or a
+    // hit could survive from a now-filtered-out row (the compose interlock). Same for the A2
+    // qty-gap filter and its row set (which changes as quantities are entered).
+  }, [rows, searchQuery, statusFilter, classFilter, aiFilter, geminiFilter, geminiEnabled, showSpacers, showNotes, showSubtotals, deltaFilterOnly, qtyGapFilterOnly, qtyGapRowIndexes]);
 
   const searchHitSet = useMemo(() => new Set(searchHits), [searchHits]);
   // Reset the hit pointer whenever the hit set changes (mirror SheetSearchView :288-290).
@@ -1724,8 +1930,12 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
             )}
           </div>
 
+          {/* HEIGHT-BOUNDED + scrolling (owner, 2026-07-22). This panel lists one entry per flagged
+              row, so a sheet with a few hundred classifier warnings pushed the review grid itself
+              off-screen when opened. Capped rather than truncated -- every entry is still reachable,
+              it just scrolls in place. */}
           {warningsPanelOpen && (
-            <div className="border-t border-amber-200/60 dark:border-amber-900/40 px-2 py-2 space-y-2">
+            <div className="border-t border-amber-200/60 dark:border-amber-900/40 px-2 py-2 space-y-2 max-h-72 overflow-y-auto">
               {/* Must-fix structural breaks -- grouped distinctly above the advisories. */}
               {breakWarnRows.length > 0 && (
                 <div className="space-y-1">
@@ -1829,13 +2039,202 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
         </div>
       )}
 
-      {/* T10: soft, NON-BLOCKING advisory -- selected line items missing a quantity. */}
-      {selectable && noQtyCount > 0 && (
-        <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-muted/30 border border-border text-xs text-muted-foreground flex-wrap">
-          <Info className="h-3.5 w-3.5 shrink-0" />
+      {/* ── S5b (#1103, ADR-0014 D7 + Amendment B): revised-BoQ surfacing ─────────
+          The polarity is INVERTED vs the original slice: the STAMPED rows (`Copied`) are the calm
+          ones, and the UNSTAMPED rows are what needs review. There are no advisory panels any more
+          -- a row whose parent did not match simply does not copy (both-or-neither), so it is
+          already in the needs-review set rather than a separate class of muted line.
+          Three mutually-exclusive states from the pure computeRevisionDelta:
+            no-deltas    -> a green chip (every content row copied);
+            needs-action -> the R4-shaped amber panel (clickable rows that need review);
+            none         -> nothing (upload/template, or a declared-New revision sheet). */}
+      {revisionDelta.mode === "no-deltas" && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-green-300 dark:border-green-800 bg-green-50 dark:bg-green-950/40 text-xs text-green-900 dark:text-green-100 flex-wrap">
+          <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-green-600 dark:text-green-400" />
           <span>
-            {noQtyCount} selected line {noQtyCount === 1 ? "item has" : "items have"} no quantity.
+            {`All ${revisionDelta.copiedCount} row${revisionDelta.copiedCount === 1 ? "" : "s"} copied`}
+            {revisionDelta.sourceVersion != null ? ` from v${revisionDelta.sourceVersion}` : " from the original"}
+            {" — nothing needs review."}
           </span>
+        </div>
+      )}
+
+      {revisionDelta.mode === "needs-action" && (
+        <div className="rounded-md border border-amber-200 dark:border-amber-900/50 bg-amber-50/40 dark:bg-amber-950/15 overflow-hidden">
+          {/* Header: icon + needs-review count + a "filter to these rows" toggle (mirrors the
+              warnings panel's "Show dismissed" ml-auto toggle). */}
+          <div className="flex items-center gap-2 px-3 py-2 flex-wrap">
+            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-800 dark:text-amber-200">
+              <GitCompareArrows className="h-3.5 w-3.5" />
+              <span>
+                {/* Server counts describe the CARRY ("412 of 500 copied from v1"); the live count
+                    below describes REMAINING WORK and self-clears as the reviewer works. The two
+                    are deliberately different numbers -- do not collapse them. */}
+                {revisionDelta.copiedCount} of {revisionDelta.totalCount} rows copied
+                {revisionDelta.sourceVersion != null && ` from v${revisionDelta.sourceVersion}`}
+                {revisionDelta.needsActionRows.length > 0 && (
+                  <span className="ml-1">
+                    · {revisionDelta.needsActionRows.length}{" "}
+                    {revisionDelta.needsActionRows.length === 1 ? "row needs" : "rows need"} review
+                  </span>
+                )}
+              </span>
+            </span>
+            {/* Filter toggle -- only meaningful when there ARE clickable needs-action rows. Narrows
+                the tree to those rows; SELF-CLEARING (an edited row leaves the set, so the filter
+                empties itself as the reviewer works). */}
+            {revisionDelta.needsActionRows.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setDeltaFilterOnly((v) => !v)}
+                className={cn(
+                  "ml-auto inline-flex items-center gap-1 text-[11px] transition-colors",
+                  deltaFilterOnly
+                    ? "text-amber-700 dark:text-amber-300 font-medium"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                aria-pressed={deltaFilterOnly}
+              >
+                <Filter className="h-3 w-3" />
+                {deltaFilterOnly ? "Show all rows" : "Filter to these rows"}
+              </button>
+            )}
+          </div>
+
+          {/* S4: WHAT CHANGED, grouped by EVENT rather than by row. One row inserted near the top
+              of a 400-row sheet leaves ~399 rows unable to carry -- listing 399 warnings describes
+              the sheet, not the edit. Each entry states one insertion / deletion and its blast
+              radius, and carries the bulk affirm for its collateral. Comes from the sheet-level
+              summary the parse stamped; nothing is re-derived here. */}
+          {revisionDelta.changeBlocks.length > 0 && (
+            <div className="border-t border-amber-200/60 dark:border-amber-900/40 px-3 py-2 space-y-1.5 max-h-40 overflow-y-auto">
+              {/* NO bulk affirm here (owner, 2026-07-22). A "Looks OK for all N moved" button made
+                  the block the unit of judgement, and a reviewer who can clear a whole shift in one
+                  click will not open the rows -- which is exactly the reading the gate exists to
+                  force. Every row is confirmed individually, in its own Looks OK cell. */}
+              {revisionDelta.changeBlocks.map((b) => (
+                <div key={b.key} className="flex items-start gap-2 flex-wrap">
+                  <span className="text-[11px] leading-snug text-amber-900 dark:text-amber-100">
+                    {b.text}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* One clickable entry per row still needing confirmation -> reveal + scroll. Each
+              carries its OWN reason (S4 replaced the single shared sentence), because the taxonomy
+              distinguishes a genuinely new row from one that merely moved, and those need different
+              amounts of thought.
+
+              HEIGHT-BOUNDED + scrolling (owner, 2026-07-22): one row inserted near the top of a
+              sheet can leave hundreds of rows here, and an unbounded list pushed the actual review
+              grid off-screen -- the panel that explains the work was crowding out the work. The cap
+              keeps the panel a fixed-size header no matter the sheet. */}
+          <div className="border-t border-amber-200/60 dark:border-amber-900/40 px-2 py-2 space-y-1 max-h-56 overflow-y-auto">
+
+            {revisionDelta.needsActionRows.map((d) => {
+              const r = byRowIndex.get(d.rowIndex);
+              return (
+                <button
+                  key={`delta-${d.rowIndex}`}
+                  type="button"
+                  onClick={() => revealAndScrollToRow(d.rowIndex)}
+                  className="w-full text-left flex items-start gap-2 rounded px-2 py-1.5 bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200/70 dark:border-amber-900/40 hover:bg-amber-100/70 dark:hover:bg-amber-950/35 transition-colors"
+                >
+                  <span className="shrink-0 mt-0.5 font-mono text-[11px] text-muted-foreground">
+                    {d.excelRow !== null ? `Row ${d.excelRow}` : `#${d.rowIndex}`}
+                  </span>
+                  <span className="flex flex-col gap-0.5 min-w-0">
+                    <span className="flex flex-wrap items-center gap-1">
+                      <span className={cn(
+                        "rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-none whitespace-nowrap",
+                        isCollateralReason(r?.revision_review_reason)
+                          ? "bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200"
+                          : "bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200",
+                      )}>
+                        {reasonShortLabel(r?.revision_review_reason)}
+                      </span>
+                    </span>
+                    {r && (
+                      <span className="text-[11px] leading-snug text-amber-700/90 dark:text-amber-300/90">
+                        {reasonSentence(r)}
+                      </span>
+                    )}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* A2/qty-block: the "needs a quantity" REVIEW BLOCK -- the surfacing half of the finalize
+        gate, modelled on the pricing editor's review list (SheetPricingPage) and reusing this
+        screen's own clickable-entry idiom (revealAndScrollToRow, which expands collapsed
+        ancestors before scrolling). It REPLACES the T10 one-line advisory, which reported a bare
+        count with no addresses -- on a long sheet the offending rows could be collapsed or
+        filtered out of sight while the count blocked Finalize.
+
+        Deliberately NOT dismissible (unlike pricing's needs_rate): this gate is server-enforced
+        at finalize, so a "Looks OK" that left Finalize blocked would be a lie. */}
+      {selectable && qtyGapEntries.length > 0 && (
+        <div className="rounded-md border border-amber-200 dark:border-amber-900/50 bg-amber-50/50 dark:bg-amber-950/20">
+          <div className="flex items-center gap-2 px-3 py-2 flex-wrap">
+            <Info className="h-3.5 w-3.5 shrink-0 text-amber-700 dark:text-amber-300" />
+            <span className="text-xs font-medium text-amber-900 dark:text-amber-100">
+              {qtyGapEntries.length} line {qtyGapEntries.length === 1 ? "item needs" : "items need"} a
+              quantity before this sheet can be finalized.
+            </span>
+            <button
+              type="button"
+              onClick={() => setQtyGapOpen(o => !o)}
+              aria-expanded={qtyGapOpen}
+              className="ml-auto inline-flex items-center gap-1 text-[11px] text-amber-700 dark:text-amber-300 hover:text-amber-900 dark:hover:text-amber-100 transition-colors"
+            >
+              {qtyGapOpen ? "Hide list" : "Show list"}
+            </button>
+            {/* View filter -- mirrors the pricing editor's Show-unpriced toggle. VIEW-ONLY: it
+              never touches qtyGapEntries, so the count above and the Finalize gate are untouched. */}
+            <button
+              type="button"
+              onClick={() => setQtyGapFilterOnly(v => !v)}
+              aria-pressed={qtyGapFilterOnly}
+              className={cn(
+                "inline-flex items-center gap-1 text-[11px] transition-colors",
+                qtyGapFilterOnly
+                  ? "text-amber-700 dark:text-amber-300 font-medium"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <Filter className="h-3 w-3" />
+              {qtyGapFilterOnly ? "Show all rows" : "Filter to these rows"}
+            </button>
+          </div>
+          {qtyGapOpen && (
+            <div className="border-t border-amber-200/60 dark:border-amber-900/40 px-2 py-2 space-y-1 max-h-56 overflow-y-auto">
+              {qtyGapEntries.map(e => (
+                <button
+                  key={`qtygap-${e.rowIndex}`}
+                  type="button"
+                  onClick={() => revealAndScrollToRow(e.rowIndex)}
+                  className="w-full text-left flex items-start gap-2 rounded px-2 py-1.5 bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200/70 dark:border-amber-900/40 hover:bg-amber-100/70 dark:hover:bg-amber-950/35 transition-colors"
+                >
+                  <span className="shrink-0 mt-0.5 font-mono text-[11px] text-muted-foreground">
+                    {e.excelRow !== null ? `Row ${e.excelRow}` : `#${e.rowIndex}`}
+                  </span>
+                  <span className="flex flex-col gap-0.5 min-w-0">
+                    <span className="text-[11px] leading-snug text-foreground truncate">
+                      {e.description || "(no description)"}
+                    </span>
+                    <span className="text-[11px] leading-snug text-amber-700/90 dark:text-amber-300/90">
+                      {e.text}
+                    </span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
       {/* T10/T11: inline selection error (kept off toasts -- wizard convention). */}
@@ -1846,633 +2245,662 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
       )}
 
       <div className="rounded-md border border-border overflow-hidden">
-      {/* B1.1b-ii: controls bar -- column-subset selector + classification toggles */}
-      <div className="flex items-center gap-4 px-3 py-2 border-b border-border bg-muted/20 flex-wrap">
-        {/* Feature 1: column-subset selector (only when hideable columns exist --
+        {/* B1.1b-ii: controls bar -- column-subset selector + classification toggles */}
+        <div className="flex items-center gap-4 px-3 py-2 border-b border-border bg-muted/20 flex-wrap">
+          {/* Feature 1: column-subset selector (only when hideable columns exist --
             MC-4: ordinary descriptor columns + extra description fan-out columns) */}
-        {pickerColumns.length > 0 && (
-          <Popover>
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                className={cn(
-                  "inline-flex items-center gap-1.5 px-2 py-1 text-xs rounded-md border border-border",
-                  "bg-background hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-colors",
-                  hiddenColCount > 0 && "border-primary text-foreground",
-                )}
-              >
-                <SlidersHorizontal className="h-3.5 w-3.5" />
-                Columns
-                {hiddenColCount > 0 && (
-                  <span className="text-[10px] font-medium text-amber-600 dark:text-amber-400">
-                    ({hiddenColCount} hidden)
-                  </span>
-                )}
-              </button>
-            </PopoverTrigger>
-            <PopoverContent align="start" className="w-auto min-w-[200px] p-2">
-              <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">
-                Data columns
-              </p>
-              <div className="space-y-1">
-                {pickerColumns.map(c => (
-                  <label
-                    key={c.col}
-                    htmlFor={`vis-col-${c.col}`}
-                    className="flex items-center gap-2 py-0.5 cursor-pointer text-xs text-muted-foreground hover:text-foreground"
-                  >
-                    <Checkbox
-                      id={`vis-col-${c.col}`}
-                      checked={visibleCols.has(c.col)}
-                      onCheckedChange={() => toggleCol(c.col)}
-                    />
-                    {c.label}
-                  </label>
-                ))}
-              </div>
-            </PopoverContent>
-          </Popover>
-        )}
-        {/* B2a-fix OBS-1: master show-all / hide-all flags toggle */}
-        {hasFlagsAny && (
-          <button
-            type="button"
-            onClick={toggleShowAllFlags}
-            className={cn(
-              "inline-flex items-center gap-1.5 px-2 py-1 text-xs rounded-md border border-border",
-              "bg-background hover:bg-muted/50 transition-colors",
-              showAllFlags
-                ? "text-amber-600 dark:text-amber-400 border-amber-300 dark:border-amber-700"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            <Info className="h-3.5 w-3.5" />
-            {showAllFlags ? "Hide all flags" : "Show all flags"}
-          </button>
-        )}
-        {/* Feature 2: three independent annotation-row visibility toggles */}
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-muted-foreground">Show:</span>
-          <label
-            htmlFor="cls-spacers"
-            className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground hover:text-foreground"
-          >
-            <Checkbox
-              id="cls-spacers"
-              checked={showSpacers}
-              onCheckedChange={(c) => setShowSpacers(c === true)}
-            />
-            Spacers
-          </label>
-          <label
-            htmlFor="cls-notes"
-            className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground hover:text-foreground"
-          >
-            <Checkbox
-              id="cls-notes"
-              checked={showNotes}
-              onCheckedChange={(c) => setShowNotes(c === true)}
-            />
-            Notes
-          </label>
-          <label
-            htmlFor="cls-subtotals"
-            className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground hover:text-foreground"
-          >
-            <Checkbox
-              id="cls-subtotals"
-              checked={showSubtotals}
-              onCheckedChange={(c) => setShowSubtotals(c === true)}
-            />
-            Subtotals
-          </label>
-        </div>
-        {/* §9 #159: description search box -- mirrors SheetSearchView's hit-stepper PATTERN
+          {pickerColumns.length > 0 && (
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className={cn(
+                    "inline-flex items-center gap-1.5 px-2 py-1 text-xs rounded-md border border-border",
+                    "bg-background hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-colors",
+                    hiddenColCount > 0 && "border-primary text-foreground",
+                  )}
+                >
+                  <SlidersHorizontal className="h-3.5 w-3.5" />
+                  Columns
+                  {hiddenColCount > 0 && (
+                    <span className="text-[10px] font-medium text-amber-600 dark:text-amber-400">
+                      ({hiddenColCount} hidden)
+                    </span>
+                  )}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-auto min-w-[200px] p-2">
+                <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">
+                  Data columns
+                </p>
+                <div className="space-y-1">
+                  {pickerColumns.map(c => (
+                    <label
+                      key={c.col}
+                      htmlFor={`vis-col-${c.col}`}
+                      className="flex items-center gap-2 py-0.5 cursor-pointer text-xs text-muted-foreground hover:text-foreground"
+                    >
+                      <Checkbox
+                        id={`vis-col-${c.col}`}
+                        checked={visibleCols.has(c.col)}
+                        onCheckedChange={() => toggleCol(c.col)}
+                      />
+                      {c.label}
+                    </label>
+                  ))}
+                </div>
+              </PopoverContent>
+            </Popover>
+          )}
+          {/* B2a-fix OBS-1: master show-all / hide-all flags toggle */}
+          {hasFlagsAny && (
+            <button
+              type="button"
+              onClick={toggleShowAllFlags}
+              className={cn(
+                "inline-flex items-center gap-1.5 px-2 py-1 text-xs rounded-md border border-border",
+                "bg-background hover:bg-muted/50 transition-colors",
+                showAllFlags
+                  ? "text-amber-600 dark:text-amber-400 border-amber-300 dark:border-amber-700"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <Info className="h-3.5 w-3.5" />
+              {showAllFlags ? "Hide all flags" : "Show all flags"}
+            </button>
+          )}
+          {/* Feature 2: three independent annotation-row visibility toggles */}
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-muted-foreground">Show:</span>
+            <label
+              htmlFor="cls-spacers"
+              className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground hover:text-foreground"
+            >
+              <Checkbox
+                id="cls-spacers"
+                checked={showSpacers}
+                onCheckedChange={(c) => setShowSpacers(c === true)}
+              />
+              Spacers
+            </label>
+            <label
+              htmlFor="cls-notes"
+              className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground hover:text-foreground"
+            >
+              <Checkbox
+                id="cls-notes"
+                checked={showNotes}
+                onCheckedChange={(c) => setShowNotes(c === true)}
+              />
+              Notes
+            </label>
+            <label
+              htmlFor="cls-subtotals"
+              className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground hover:text-foreground"
+            >
+              <Checkbox
+                id="cls-subtotals"
+                checked={showSubtotals}
+                onCheckedChange={(c) => setShowSubtotals(c === true)}
+              />
+              Subtotals
+            </label>
+          </div>
+          {/* §9 #159: description search box -- mirrors SheetSearchView's hit-stepper PATTERN
             (cycling + N-of-M counter), NOT imported. Stepping calls the existing
             revealAndScrollToRow so a hit under a collapsed parent auto-expands. */}
-        <div className="flex items-center gap-1.5 ml-auto">
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search description…"
-              className="h-8 w-56 pl-7 pr-7 text-xs"
-              aria-label="Search descriptions"
-            />
-            {searchQuery !== "" && (
-              <button
-                type="button"
-                onClick={() => setSearchQuery("")}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                aria-label="Clear search"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            )}
+          <div className="flex items-center gap-1.5 ml-auto">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search description…"
+                className="h-8 w-56 pl-7 pr-7 text-xs"
+                aria-label="Search descriptions"
+              />
+              {searchQuery !== "" && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  aria-label="Clear search"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+            <span className="min-w-[52px] text-xs tabular-nums text-muted-foreground">
+              {searchHits.length === 0 ? "0 of 0" : `${safeSearchIdx + 1} of ${searchHits.length}`}
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="h-7 w-7"
+              disabled={searchHits.length === 0}
+              onClick={stepSearchPrev}
+              aria-label="Previous match"
+            >
+              <ChevronUp className="h-4 w-4" />
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="h-7 w-7"
+              disabled={searchHits.length === 0}
+              onClick={stepSearchNext}
+              aria-label="Next match"
+            >
+              <ChevronDown className="h-4 w-4" />
+            </Button>
           </div>
-          <span className="min-w-[52px] text-xs tabular-nums text-muted-foreground">
-            {searchHits.length === 0 ? "0 of 0" : `${safeSearchIdx + 1} of ${searchHits.length}`}
-          </span>
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            className="h-7 w-7"
-            disabled={searchHits.length === 0}
-            onClick={stepSearchPrev}
-            aria-label="Previous match"
-          >
-            <ChevronUp className="h-4 w-4" />
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            className="h-7 w-7"
-            disabled={searchHits.length === 0}
-            onClick={stepSearchNext}
-            aria-label="Next match"
-          >
-            <ChevronDown className="h-4 w-4" />
-          </Button>
         </div>
-      </div>
-      {/* Table scroll area -- max-h adjusted to account for controls bar height */}
-      <div className={cn("overflow-auto", expanded ? "max-h-[calc(100vh-6rem)]" : "max-h-[calc(100vh-16rem)]")}>
-        {/* B2a-fix OBS-1: clicking anywhere in the table body dismisses the single-open
+        {/* Table scroll area -- max-h adjusted to account for controls bar height */}
+        <div className={cn("overflow-auto", expanded ? "max-h-[calc(100vh-6rem)]" : "max-h-[calc(100vh-16rem)]")}>
+          {/* B2a-fix OBS-1: clicking anywhere in the table body dismisses the single-open
             accordion (sets expandedFlagRow null). The Info button's stopPropagation
             prevents the opening click from immediately triggering this handler.
             B2b: also clears expandedDetailRow (Option-B mutual exclusivity).
             Scoped to the <table> so the controls bar above is not affected. */}
-        <table
-          className="w-full text-xs border-collapse"
-          onClick={() => { setExpandedFlagRow(null); setExpandedDetailRow(null); }}
-        >
-          <thead>
-            {/* B2b BUILD 3: sticky moved from <tr> to individual <th> cells (solid bg, no bleed-through).
+          <table
+            className="w-full text-xs border-collapse"
+            onClick={() => { setExpandedFlagRow(null); setExpandedDetailRow(null); }}
+          >
+            <thead>
+              {/* B2b BUILD 3: sticky moved from <tr> to individual <th> cells (solid bg, no bleed-through).
                 Corner cell (expander) gets both-axis sticky at z-30. Other <th> get top-only at z-20. */}
-            <tr className="border-b border-border">
-              {/* Expander column (B2b): corner -- both axes sticky, solid bg. Empty header.
+              <tr className="border-b border-border">
+                {/* Expander column (B2b): corner -- both axes sticky, solid bg. Empty header.
                   A2: HIDDEN for template origin (the row-detail panel it opens is suppressed
                   there -- see the body cell + the detail-panel row + totalCols). With it gone
                   the template grid has NO frozen-left column; that is intentional (Include is
                   simply the first cell, not sticky). MUST move in lockstep with them. */}
-              {!templateOrigin && (
-                <th className="px-1 py-2 w-8 border-r border-border sticky top-0 left-0 z-30 bg-muted" />
-              )}
-              {/* T10/T11: template-controls column (select checkbox + row-actions menu).
+                {!templateOrigin && (
+                  <th className="px-1 py-2 w-8 border-r border-border sticky top-0 left-0 z-30 bg-muted" />
+                )}
+                {/* T10/T11: template-controls column (select checkbox + row-actions menu).
                   Rendered ONLY when selectable or canCreateRows -> the upload flow is unaffected. */}
-              {templateControls && (
-                <th className="px-2 py-2 text-left font-medium text-muted-foreground w-24 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
-                  {/* The cell carries the include checkbox AND the row-actions (⋯) menu, so the
+                {templateControls && (
+                  <th className="px-2 py-2 text-left font-medium text-muted-foreground w-24 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
+                    {/* The cell carries the include checkbox AND the row-actions (⋯) menu, so the
                       header names both. canCreateRows alone (no selection) => actions only. */}
-                  {selectable ? (canCreateRows ? "Include / Actions" : "Include") : ""}
+                    {selectable ? (canCreateRows ? "Include / Actions" : "Include") : ""}
+                  </th>
+                )}
+                {/* Excel Row: positional anchor -- source_row_number, no mapped letter */}
+                <th className="px-2 py-2 text-left font-medium text-muted-foreground w-10 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
+                  Excel Row
                 </th>
-              )}
-              {/* Excel Row: positional anchor -- source_row_number, no mapped letter */}
-              <th className="px-2 py-2 text-left font-medium text-muted-foreground w-10 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
-                Excel Row
-              </th>
-              {/* A2: Status + AI Rec provenance columns are HIDDEN for template origin (a clone has
+                {/* A2: Status + AI Rec provenance columns are HIDDEN for template origin (a clone has
                   no AI layer). Wrapped together in one fragment; renders UNCHANGED when
                   !templateOrigin (upload). MUST gate on the identical expression as the matching
                   body cells + the totalCols base-8 decrement, or the grid misaligns. */}
-              {!templateOrigin && (<>
-              {/* Status (B2c): edit-provenance badge -- green "Edited" or blank. Not frozen-left.
+                {!templateOrigin && (<>
+                  {/* Status (B2c): edit-provenance badge -- green "Edited" or blank. Not frozen-left.
                   §9 #159: header-cell Popover filter (Edited / Original / All) on statusFilter. */}
-              <th className="px-2 py-2 text-left font-medium text-muted-foreground w-20 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
-                <div className="flex items-center gap-1">
-                  <span>Status</span>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <button
-                        type="button"
-                        onClick={(e) => e.stopPropagation()}
-                        className={cn(
-                          "inline-flex items-center justify-center h-4 w-4 rounded transition-colors",
-                          statusFilterActive
-                            ? "text-blue-600 dark:text-blue-400"
-                            : "text-muted-foreground/60 hover:text-foreground",
-                        )}
-                        aria-label="Filter by status"
-                        title="Filter by status"
-                      >
-                        <Filter className="h-3 w-3" />
-                      </button>
-                    </PopoverTrigger>
-                    <PopoverContent align="start" className="w-auto min-w-[140px] p-2">
-                      <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">Status</p>
-                      <div className="space-y-0.5">
-                        {(["all", "edited", "original", "ai_accepted"] as const).map(opt => (
+                  <th className="px-2 py-2 text-left font-medium text-muted-foreground w-20 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
+                    <div className="flex items-center gap-1">
+                      <span>Status</span>
+                      <Popover>
+                        <PopoverTrigger asChild>
                           <button
-                            key={opt}
                             type="button"
-                            onClick={() => setStatusFilter(opt)}
+                            onClick={(e) => e.stopPropagation()}
                             className={cn(
-                              "flex w-full items-center gap-2 rounded px-1.5 py-1 text-left text-xs transition-colors",
-                              statusFilter === opt
-                                ? "bg-muted font-medium text-foreground"
-                                : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                              "inline-flex items-center justify-center h-4 w-4 rounded transition-colors",
+                              statusFilterActive
+                                ? "text-blue-600 dark:text-blue-400"
+                                : "text-muted-foreground/60 hover:text-foreground",
                             )}
+                            aria-label="Filter by status"
+                            title="Filter by status"
                           >
-                            {STATUS_FILTER_LABELS[opt]}
+                            <Filter className="h-3 w-3" />
                           </button>
-                        ))}
-                      </div>
-                    </PopoverContent>
-                  </Popover>
-                </div>
-              </th>
-              {/* AI Rec (AI-3a): confidence badges for a pending AI suggestion. Filter
+                        </PopoverTrigger>
+                        <PopoverContent align="start" className="w-auto min-w-[140px] p-2">
+                          <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">Status</p>
+                          <div className="space-y-0.5">
+                            {/* S5: the revision states are appended only on a revision sheet --
+                              same gate as the Looks OK column, because off a revision every one of
+                              them filters to an empty tree. */}
+                            {[
+                              ...BASE_STATUS_FILTERS,
+                              ...(showAffirmColumn ? REVISION_STATUS_FILTERS : []),
+                            ].map(opt => (
+                              <button
+                                key={opt}
+                                type="button"
+                                onClick={() => setStatusFilter(opt)}
+                                className={cn(
+                                  "flex w-full items-center gap-2 rounded px-1.5 py-1 text-left text-xs transition-colors",
+                                  statusFilter === opt
+                                    ? "bg-muted font-medium text-foreground"
+                                    : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                                )}
+                              >
+                                {STATUS_FILTER_LABELS[opt]}
+                              </button>
+                            ))}
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+                  </th>
+                  {/* AI Rec (AI-3a): confidence badges for a pending AI suggestion. Filter
                   Popover mirrors the Status/Classification filter pattern. */}
-              <th className="px-2 py-2 text-left font-medium text-muted-foreground w-20 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
-                <div className="flex items-center gap-1">
-                  <span>AI Rec</span>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <button
-                        type="button"
-                        onClick={(e) => e.stopPropagation()}
-                        className={cn(
-                          "inline-flex items-center justify-center h-4 w-4 rounded transition-colors",
-                          aiFilterActive
-                            ? "text-blue-600 dark:text-blue-400"
-                            : "text-muted-foreground/60 hover:text-foreground",
-                        )}
-                        aria-label="Filter by AI suggestion"
-                        title="Filter by AI suggestion"
-                      >
-                        <Filter className="h-3 w-3" />
-                      </button>
-                    </PopoverTrigger>
-                    <PopoverContent align="start" className="w-auto min-w-[160px] p-2">
-                      <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">AI suggestion</p>
-                      <div className="space-y-0.5">
-                        {(["all", "any", "high", "medium", "low"] as const).map(opt => (
+                  <th className="px-2 py-2 text-left font-medium text-muted-foreground w-20 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
+                    <div className="flex items-center gap-1">
+                      <span>AI Rec</span>
+                      <Popover>
+                        <PopoverTrigger asChild>
                           <button
-                            key={opt}
                             type="button"
-                            onClick={() => setAiFilter(opt)}
+                            onClick={(e) => e.stopPropagation()}
                             className={cn(
-                              "flex w-full items-center gap-2 rounded px-1.5 py-1 text-left text-xs transition-colors",
-                              aiFilter === opt
-                                ? "bg-muted font-medium text-foreground"
-                                : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                              "inline-flex items-center justify-center h-4 w-4 rounded transition-colors",
+                              aiFilterActive
+                                ? "text-blue-600 dark:text-blue-400"
+                                : "text-muted-foreground/60 hover:text-foreground",
                             )}
+                            aria-label="Filter by AI suggestion"
+                            title="Filter by AI suggestion"
                           >
-                            {AI_FILTER_LABELS[opt]}
+                            <Filter className="h-3 w-3" />
                           </button>
-                        ))}
-                      </div>
-                    </PopoverContent>
-                  </Popover>
-                </div>
-              </th>
-              </>)}
-              {/* Gemini (DUAL-AI, ADR-0003): SECOND provider column -- mounted directly after the
+                        </PopoverTrigger>
+                        <PopoverContent align="start" className="w-auto min-w-[160px] p-2">
+                          <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">AI suggestion</p>
+                          <div className="space-y-0.5">
+                            {(["all", "any", "high", "medium", "low"] as const).map(opt => (
+                              <button
+                                key={opt}
+                                type="button"
+                                onClick={() => setAiFilter(opt)}
+                                className={cn(
+                                  "flex w-full items-center gap-2 rounded px-1.5 py-1 text-left text-xs transition-colors",
+                                  aiFilter === opt
+                                    ? "bg-muted font-medium text-foreground"
+                                    : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                                )}
+                              >
+                                {AI_FILTER_LABELS[opt]}
+                              </button>
+                            ))}
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+                  </th>
+                </>)}
+                {/* Gemini (DUAL-AI, ADR-0003): SECOND provider column -- mounted directly after the
                   Claude "AI Rec" header. Visual clone of the AI Rec <th>; only when geminiEnabled.
                   A2: geminiEnabled is passed as (geminiEnabled && !isTemplateOrigin), so this is
                   never mounted for template origin. */}
-              {geminiEnabled && (
-                <GeminiHeaderCell geminiFilter={geminiFilter} setGeminiFilter={setGeminiFilter} />
-              )}
-              {/* Sl.No: letter from the sl_no descriptor col, if mapped */}
-              <th className="px-2 py-2 text-left font-medium text-muted-foreground w-16 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
-                {slNoLetter ? `Sl.No (${slNoLetter})` : "Sl.No"}
-              </th>
-              {/* Parent (FIX 1): parent row's Excel row number -- derived, no mapped letter */}
-              <th className="px-2 py-2 text-left font-medium text-muted-foreground w-16 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
-                Parent
-              </th>
-              {/* Classification (B1.1b-iii): fixed anchor -- chevron + pill; no mapped letter.
+                {geminiEnabled && (
+                  <GeminiHeaderCell geminiFilter={geminiFilter} setGeminiFilter={setGeminiFilter} />
+                )}
+                {/* Sl.No: letter from the sl_no descriptor col, if mapped */}
+                <th className="px-2 py-2 text-left font-medium text-muted-foreground w-16 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
+                  {slNoLetter ? `Sl.No (${slNoLetter})` : "Sl.No"}
+                </th>
+                {/* Parent (FIX 1): parent row's Excel row number -- derived, no mapped letter */}
+                <th className="px-2 py-2 text-left font-medium text-muted-foreground w-16 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
+                  Parent
+                </th>
+                {/* Classification (B1.1b-iii): fixed anchor -- chevron + pill; no mapped letter.
                   §9 #159: header-cell Popover filter -- checklist of the 6 CLS_LABELS values
                   (effective_classification), NOT the 4 assignable write-targets. */}
-              <th className="px-2 py-2 text-left font-medium text-muted-foreground w-36 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
-                <div className="flex items-center gap-1">
-                  <span>Classification</span>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <button
-                        type="button"
-                        onClick={(e) => e.stopPropagation()}
-                        className={cn(
-                          "inline-flex items-center justify-center h-4 w-4 rounded transition-colors",
-                          classFilterActive
-                            ? "text-blue-600 dark:text-blue-400"
-                            : "text-muted-foreground/60 hover:text-foreground",
-                        )}
-                        aria-label="Filter by classification"
-                        title="Filter by classification"
-                      >
-                        <Filter className="h-3 w-3" />
-                      </button>
-                    </PopoverTrigger>
-                    <PopoverContent align="start" className="w-auto min-w-[160px] p-2">
-                      <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">Classification</p>
-                      <div className="space-y-1">
-                        {CLASS_FILTER_VALUES.map(c => (
-                          <label
-                            key={c}
-                            htmlFor={`cls-filter-${c}`}
-                            className="flex items-center gap-2 py-0.5 cursor-pointer text-xs text-muted-foreground hover:text-foreground"
-                          >
-                            <Checkbox
-                              id={`cls-filter-${c}`}
-                              checked={classFilter.has(c)}
-                              onCheckedChange={() => toggleClassFilter(c)}
-                            />
-                            {CLS_LABELS[c] ?? c}
-                          </label>
-                        ))}
-                      </div>
-                    </PopoverContent>
-                  </Popover>
-                </div>
-              </th>
-              {/* MC-4: Description fan-out -- one <th> per mapped description column when
+                <th className="px-2 py-2 text-left font-medium text-muted-foreground w-36 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
+                  <div className="flex items-center gap-1">
+                    <span>Classification</span>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={(e) => e.stopPropagation()}
+                          className={cn(
+                            "inline-flex items-center justify-center h-4 w-4 rounded transition-colors",
+                            classFilterActive
+                              ? "text-blue-600 dark:text-blue-400"
+                              : "text-muted-foreground/60 hover:text-foreground",
+                          )}
+                          aria-label="Filter by classification"
+                          title="Filter by classification"
+                        >
+                          <Filter className="h-3 w-3" />
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent align="start" className="w-auto min-w-[160px] p-2">
+                        <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">Classification</p>
+                        <div className="space-y-1">
+                          {CLASS_FILTER_VALUES.map(c => (
+                            <label
+                              key={c}
+                              htmlFor={`cls-filter-${c}`}
+                              className="flex items-center gap-2 py-0.5 cursor-pointer text-xs text-muted-foreground hover:text-foreground"
+                            >
+                              <Checkbox
+                                id={`cls-filter-${c}`}
+                                checked={classFilter.has(c)}
+                                onCheckedChange={() => toggleClassFilter(c)}
+                              />
+                              {CLS_LABELS[c] ?? c}
+                            </label>
+                          ))}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                </th>
+                {/* S5 "Looks OK" -- the per-row confirmation, placed directly after Classification
+                  (owner, 2026-07-22): confirming a row IS a judgement about its classification, so
+                  the tick belongs beside the value it is confirming rather than over with the
+                  provenance badges. Present ONLY on a revision sheet with carry content, and MUST
+                  gate on the identical expression as the matching body cell + the totalCols term,
+                  or every colSpan drifts by one.
+                  NOTE it sits OUTSIDE the !templateOrigin fragment that wraps Status / AI Rec --
+                  it has to, being after Classification -- which is safe because a template-origin
+                  BoQ is never a revision, so showAffirmColumn is false there anyway. */}
+                {showAffirmColumn && (
+                  <th className="px-2 py-2 text-center font-medium text-muted-foreground w-20 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
+                    Looks OK
+                  </th>
+                )}
+                {/* MC-4: Description fan-out -- one <th> per mapped description column when
                   the sheet carries description_parts_raw; else the single legacy anchor
                   (byte-identical). First column = wide always-on anchor; the rest are
                   narrower and hide/show via visibleCols. headerText is `Label (Col)`
                   (or the bare letter when no real label was captured). */}
-              {fanOut ? descriptionColumns.map((c, i) => {
-                const isFirst = i === 0;
-                if (!isFirst && !visibleCols.has(c.col)) return null;
-                return (
-                  <th
-                    key={c.col}
-                    className={cn(
-                      "px-2 py-2 text-left font-medium text-muted-foreground whitespace-nowrap sticky top-0 z-20 bg-muted",
-                      isFirst ? "min-w-[280px]" : "min-w-[160px] border-l border-border",
-                    )}
-                  >
-                    {c.headerText}
+                {fanOut ? descriptionColumns.map((c, i) => {
+                  const isFirst = i === 0;
+                  if (!isFirst && !visibleCols.has(c.col)) return null;
+                  return (
+                    <th
+                      key={c.col}
+                      className={cn(
+                        "px-2 py-2 text-left font-medium text-muted-foreground whitespace-nowrap sticky top-0 z-20 bg-muted",
+                        isFirst ? "min-w-[280px]" : "min-w-[160px] border-l border-border",
+                      )}
+                    >
+                      {c.headerText}
+                    </th>
+                  );
+                }) : (
+                  <th className="px-2 py-2 text-left font-medium text-muted-foreground min-w-[280px] whitespace-nowrap sticky top-0 z-20 bg-muted">
+                    {descriptionLetter ? `Description (${descriptionLetter})` : "Description"}
                   </th>
-                );
-              }) : (
-                <th className="px-2 py-2 text-left font-medium text-muted-foreground min-w-[280px] whitespace-nowrap sticky top-0 z-20 bg-muted">
-                  {descriptionLetter ? `Description (${descriptionLetter})` : "Description"}
-                </th>
-              )}
-              {/* Descriptor-driven columns: only rendered when col is in visibleCols */}
-              {displayDescriptors.map(d => {
-                if (!visibleCols.has(d.col)) return null;
-                const label = `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}${d.area ? ` · ${d.area}` : ""}`;
-                return (
-                  <th
-                    key={d.col}
-                    className={cn(
-                      "px-2 py-2 text-right font-medium text-muted-foreground",
-                      "w-28 min-w-[112px] border-l border-border whitespace-nowrap",
-                      "sticky top-0 z-20",
-                      d.area ? (areaColorMap[d.area] ?? "bg-muted") : "bg-muted",
-                    )}
-                  >
-                    {label}
-                  </th>
-                );
-              })}
-              {/* append-to-notes-as-columns: combined "Append Notes" column PINNED LAST.
+                )}
+                {/* Descriptor-driven columns: only rendered when col is in visibleCols */}
+                {displayDescriptors.map(d => {
+                  if (!visibleCols.has(d.col)) return null;
+                  const label = `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}${d.area ? ` · ${d.area}` : ""}`;
+                  return (
+                    <th
+                      key={d.col}
+                      className={cn(
+                        "px-2 py-2 text-right font-medium text-muted-foreground",
+                        "w-28 min-w-[112px] border-l border-border whitespace-nowrap",
+                        "sticky top-0 z-20",
+                        d.area ? (areaColorMap[d.area] ?? "bg-muted") : "bg-muted",
+                      )}
+                    >
+                      {label}
+                    </th>
+                  );
+                })}
+                {/* append-to-notes-as-columns: combined "Append Notes" column PINNED LAST.
                   A hand-written trailing anchor (NOT a descriptor -- forcing last via a
                   descriptor would fight the Excel-letter sort). Shown only when the sheet
                   maps append-columns. NOT in the column-subset selector. */}
-              {hasAppendCombined && (
-                <th className="px-2 py-2 text-left font-medium text-muted-foreground w-48 min-w-[180px] border-l border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
-                  Append Notes
-                </th>
-              )}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map(row => {
-              if (!isVisible(row)) return null;
-              // B1.1b-ii FEAT B: classification-visibility gate (annotation rows only).
-              // Children of a filtered row render independently at their original depth.
-              if (!classificationVisible(row)) return null;
-              // §9 #159: Status + Classification filter gate (strict hide). Combines with
-              // the two gates above (AND); a non-matching row emits no <tr>. passesFilter is
-              // the SAME predicate searchHits is computed over (compose interlock).
-              if (!passesFilter(row)) return null;
+                {hasAppendCombined && (
+                  <th className="px-2 py-2 text-left font-medium text-muted-foreground w-48 min-w-[180px] border-l border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
+                    Append Notes
+                  </th>
+                )}
+              </tr>
+            </thead>
+            {/* onKeyDown here (not per input) is the ONE quantity-nav handler; it no-ops on any
+              target that is not a qty cell, so the rest of the row keeps native keyboard use. */}
+            <tbody onKeyDown={handleQtyNavKeyDown}>
+              {/* renderableRows already applied the three visibility gates (collapse /
+                classification / Status+Classification filters) -- see its definition. The
+                quantity nav matrix is built from the SAME list, so nav order == render order. */}
+              {renderableRows.map(row => {
+                const depth = depths.get(row.row_index) ?? 0;
+                const hasChildren = hasChildrenSet.has(row.row_index);
+                const isCollapsed = collapsed.has(row.row_index);
+                const isPreamble = row.effective_classification === "preamble";
+                const isLineItem = row.effective_classification === "line_item";
 
-              const depth = depths.get(row.row_index) ?? 0;
-              const hasChildren = hasChildrenSet.has(row.row_index);
-              const isCollapsed = collapsed.has(row.row_index);
-              const isPreamble = row.effective_classification === "preamble";
-              const isLineItem = row.effective_classification === "line_item";
+                // FIX 1: resolve parent's Excel row number (null for roots / invalid parent)
+                const pIdx = row.effective_parent_index ?? -1;
+                const parentExcelRow = pIdx >= 0 ? (byIdx.get(pIdx)?.source_row_number ?? null) : null;
 
-              // FIX 1: resolve parent's Excel row number (null for roots / invalid parent)
-              const pIdx = row.effective_parent_index ?? -1;
-              const parentExcelRow = pIdx >= 0 ? (byIdx.get(pIdx)?.source_row_number ?? null) : null;
+                // B2a: advisory flags for this row
+                const rowFlags = flagsByRowIdx.get(row.row_index) ?? [];
+                const hasFlags = rowFlags.length > 0;
+                // C-flag-dismissal: row was acknowledged via "Looks OK". The flags STILL
+                // compute (orthogonal); this only greys the marker + reads "Reviewed".
+                // A dismissal is NOT an edit -- the row stays "Original" (isEdited untouched).
+                const isDismissed = !!row.flags_dismissed;
+                // B2a-fix OBS-1: reveal when show-all is on OR this row is the single open row.
+                const flagsExpanded = hasFlags && (showAllFlags || expandedFlagRow === row.row_index);
+                // C-v2c (polish): the remark marker is ALWAYS shown when the row carries a
+                // non-empty remark -- a marker's job is to advertise the remark, so no toggle
+                // or open-panel gating. Clicking the marker opens the detail panel (no reveal row).
+                const hasRemark = typeof row.remarks === "string" && row.remarks.trim() !== "";
+                // A2: the marker's ONLY action is toggleDetailRow, and the detail panel is suppressed
+                // for template origin -- so it would be a dead click. Gated HERE (not at the JSX) so
+                // the ml-auto marker wrapper also drops when the remark was its only occupant.
+                // Consequence: a cloned row carrying a source remark does not surface it on a template
+                // review. Accepted -- remarks are not a template-review concern (owner call).
+                const remarkMarkerShown = hasRemark && !templateOrigin;
+                // B2c: colSpan for flag-reasons + detail panel rows -- 8 fixed anchors
+                // (expander, Excel Row, Status, AI Rec [AI-3a], Sl.No, Parent, Classification,
+                // Description). append-to-notes-as-columns: +1 when "Append Notes" is shown.
+                // DUAL-AI (ADR-0003): +1 when the Gemini column is mounted (geminiEnabled) -- the
+                // 9th fixed anchor sits between AI Rec and Sl.No. Drives EVERY colSpan below (the
+                // flag-reasons row + the inline detail-panel row both span totalCols).
+                // MC-4: pickerColumns = ordinary descriptor cols + extra (non-first)
+                // description fan-out cols. Base 8 still counts the FIRST/legacy Description
+                // anchor; the extra visible description cols ride pickerColumns. In legacy
+                // mode pickerColumns === displayDescriptors, so this is identical to before.
+                const visibleDescriptorCount = pickerColumns.filter(c => visibleCols.has(c.col)).length;
+                // T10/T11: +1 for the template-controls column when it is mounted (else unchanged).
+                // A2: template origin hides THREE fixed anchors -- Status, AI Rec, and (row-detail
+                // suppressed) the Expander -> the base 8 drops by 3. Folded into ONE term because all
+                // three vanish together on the same condition; split it into separate terms only if a
+                // future change un-hides one of them independently.
+                // MUST move in lockstep with the {!templateOrigin && …} header/body wraps above/below.
+                // S5: `showAffirmColumn` adds the "Looks OK" column. It MUST appear in exactly
+                // three places -- this term, the <th>, and the body <td> -- all gated on the same
+                // expression, or every colSpan below drifts by one.
+                const totalCols = (8 - (templateOrigin ? 3 : 0)) + (templateControls ? 1 : 0) + (geminiEnabled ? 1 : 0) + (showAffirmColumn ? 1 : 0) + visibleDescriptorCount + (hasAppendCombined ? 1 : 0);
+                // B2c: edit-provenance rule -- edited_at set OR edit_log non-empty.
+                const isEdited = isReviewRowEdited(row);
+                // S4: stamped `Needs Review` and not yet confirmed -- the state that BLOCKS
+                // finalize. Membership, not a re-derived predicate: `revisionDelta` is the gate
+                // that knows whether this is even a revision sheet.
+                const needsRevisionReview = revisionDelta.needsActionRowIndexes.has(row.row_index);
+                // AI-3a: pending-suggestion shape for the AI Rec cell + the row tint.
+                const aiInfo = aiSuggestionInfo(row);
+                const hasPendingAi = aiInfo.hasClass || aiInfo.hasParent;
+                // R1 (ADR-0006 sec 5): Gemini DIFFS-ONLY pending shape -- drives a VIOLET tint that
+                // mirrors the Claude indigo one. geminiSuggestionInfo is now diffs-only (vs parser),
+                // so this is true only when Gemini genuinely diverges. Gated on geminiEnabled so the
+                // tint never appears when the Gemini column is not mounted.
+                const geminiInfo = geminiEnabled ? geminiSuggestionInfo(row) : null;
+                const hasPendingGemini = !!geminiInfo && (geminiInfo.hasClass || geminiInfo.hasParent);
+                // Both-providers-disagree precedence: Claude keeps the full-row indigo tint; Gemini
+                // then shows only as a VIOLET LEFT-EDGE ACCENT (a left border), so both signals stay
+                // visible. Gemini gets the full-row violet tint only when Claude is NOT also pending.
+                const geminiFullTint = hasPendingGemini && !hasPendingAi;
+                const geminiEdgeAccent = hasPendingGemini && hasPendingAi;
 
-              // B2a: advisory flags for this row
-              const rowFlags = flagsByRowIdx.get(row.row_index) ?? [];
-              const hasFlags = rowFlags.length > 0;
-              // C-flag-dismissal: row was acknowledged via "Looks OK". The flags STILL
-              // compute (orthogonal); this only greys the marker + reads "Reviewed".
-              // A dismissal is NOT an edit -- the row stays "Original" (isEdited untouched).
-              const isDismissed = !!row.flags_dismissed;
-              // B2a-fix OBS-1: reveal when show-all is on OR this row is the single open row.
-              const flagsExpanded = hasFlags && (showAllFlags || expandedFlagRow === row.row_index);
-              // C-v2c (polish): the remark marker is ALWAYS shown when the row carries a
-              // non-empty remark -- a marker's job is to advertise the remark, so no toggle
-              // or open-panel gating. Clicking the marker opens the detail panel (no reveal row).
-              const hasRemark = typeof row.remarks === "string" && row.remarks.trim() !== "";
-              // A2: the marker's ONLY action is toggleDetailRow, and the detail panel is suppressed
-              // for template origin -- so it would be a dead click. Gated HERE (not at the JSX) so
-              // the ml-auto marker wrapper also drops when the remark was its only occupant.
-              // Consequence: a cloned row carrying a source remark does not surface it on a template
-              // review. Accepted -- remarks are not a template-review concern (owner call).
-              const remarkMarkerShown = hasRemark && !templateOrigin;
-              // B2c: colSpan for flag-reasons + detail panel rows -- 8 fixed anchors
-              // (expander, Excel Row, Status, AI Rec [AI-3a], Sl.No, Parent, Classification,
-              // Description). append-to-notes-as-columns: +1 when "Append Notes" is shown.
-              // DUAL-AI (ADR-0003): +1 when the Gemini column is mounted (geminiEnabled) -- the
-              // 9th fixed anchor sits between AI Rec and Sl.No. Drives EVERY colSpan below (the
-              // flag-reasons row + the inline detail-panel row both span totalCols).
-              // MC-4: pickerColumns = ordinary descriptor cols + extra (non-first)
-              // description fan-out cols. Base 8 still counts the FIRST/legacy Description
-              // anchor; the extra visible description cols ride pickerColumns. In legacy
-              // mode pickerColumns === displayDescriptors, so this is identical to before.
-              const visibleDescriptorCount = pickerColumns.filter(c => visibleCols.has(c.col)).length;
-              // T10/T11: +1 for the template-controls column when it is mounted (else unchanged).
-              // A2: template origin hides THREE fixed anchors -- Status, AI Rec, and (row-detail
-              // suppressed) the Expander -> the base 8 drops by 3. Folded into ONE term because all
-              // three vanish together on the same condition; split it into separate terms only if a
-              // future change un-hides one of them independently.
-              // MUST move in lockstep with the {!templateOrigin && …} header/body wraps above/below.
-              const totalCols = (8 - (templateOrigin ? 3 : 0)) + (templateControls ? 1 : 0) + (geminiEnabled ? 1 : 0) + visibleDescriptorCount + (hasAppendCombined ? 1 : 0);
-              // B2c: edit-provenance rule -- edited_at set OR edit_log non-empty.
-              const isEdited = row.edited_at !== null || (Array.isArray(row.edit_log) && row.edit_log.length > 0);
-              // AI-3a: pending-suggestion shape for the AI Rec cell + the row tint.
-              const aiInfo = aiSuggestionInfo(row);
-              const hasPendingAi = aiInfo.hasClass || aiInfo.hasParent;
-              // R1 (ADR-0006 sec 5): Gemini DIFFS-ONLY pending shape -- drives a VIOLET tint that
-              // mirrors the Claude indigo one. geminiSuggestionInfo is now diffs-only (vs parser),
-              // so this is true only when Gemini genuinely diverges. Gated on geminiEnabled so the
-              // tint never appears when the Gemini column is not mounted.
-              const geminiInfo = geminiEnabled ? geminiSuggestionInfo(row) : null;
-              const hasPendingGemini = !!geminiInfo && (geminiInfo.hasClass || geminiInfo.hasParent);
-              // Both-providers-disagree precedence: Claude keeps the full-row indigo tint; Gemini
-              // then shows only as a VIOLET LEFT-EDGE ACCENT (a left border), so both signals stay
-              // visible. Gemini gets the full-row violet tint only when Claude is NOT also pending.
-              const geminiFullTint = hasPendingGemini && !hasPendingAi;
-              const geminiEdgeAccent = hasPendingGemini && hasPendingAi;
+                // B2b: parent label resolution for detail panel (Excel row numbers where resolvable).
+                const origParentLabel = (() => {
+                  const pi = row.parent_index;
+                  if (pi === null || pi < 0) return "root";
+                  const n = byIdx.get(pi)?.source_row_number;
+                  return n !== undefined ? `row ${n}` : `#${pi}`;
+                })();
+                const effParentLabel = (() => {
+                  const ep = row.effective_parent_index;
+                  if (ep === null || ep < 0) return "root";
+                  const n = byIdx.get(ep)?.source_row_number;
+                  return n !== undefined ? `row ${n}` : `#${ep}`;
+                })();
+                // Slice 1b-alpha: a human-rooted row (human_is_root=1, human_parent=-1) is
+                // ALSO a parent override -- the detail panel must show "row N -> root".
+                const parentOverridden =
+                  (row.human_parent !== null && row.human_parent >= 0) || row.human_is_root === 1;
+                const clsOverridden = row.human_classification !== null;
+                // Slice §9 #162: the standalone "Change parent" door is offered ONLY when the
+                // row's CURRENT classification is one of the 4 assignable classes. The button
+                // opens the modal via a no-op reclassify (newClassification = current class);
+                // for subtotal_marker / header_repeat that no-op would be rejected by the
+                // backend _ASSIGNABLE_CLASSIFICATIONS gate, so the door must not appear there.
+                const canChangeParent =
+                  row.effective_classification != null &&
+                  (ASSIGNABLE_CLASSIFICATIONS as readonly string[]).includes(row.effective_classification);
 
-              // B2b: parent label resolution for detail panel (Excel row numbers where resolvable).
-              const origParentLabel = (() => {
-                const pi = row.parent_index;
-                if (pi === null || pi < 0) return "root";
-                const n = byIdx.get(pi)?.source_row_number;
-                return n !== undefined ? `row ${n}` : `#${pi}`;
-              })();
-              const effParentLabel = (() => {
-                const ep = row.effective_parent_index;
-                if (ep === null || ep < 0) return "root";
-                const n = byIdx.get(ep)?.source_row_number;
-                return n !== undefined ? `row ${n}` : `#${ep}`;
-              })();
-              // Slice 1b-alpha: a human-rooted row (human_is_root=1, human_parent=-1) is
-              // ALSO a parent override -- the detail panel must show "row N -> root".
-              const parentOverridden =
-                (row.human_parent !== null && row.human_parent >= 0) || row.human_is_root === 1;
-              const clsOverridden = row.human_classification !== null;
-              // Slice §9 #162: the standalone "Change parent" door is offered ONLY when the
-              // row's CURRENT classification is one of the 4 assignable classes. The button
-              // opens the modal via a no-op reclassify (newClassification = current class);
-              // for subtotal_marker / header_repeat that no-op would be rejected by the
-              // backend _ASSIGNABLE_CLASSIFICATIONS gate, so the door must not appear there.
-              const canChangeParent =
-                row.effective_classification != null &&
-                (ASSIGNABLE_CLASSIFICATIONS as readonly string[]).includes(row.effective_classification);
-
-              return (
-                // Fragment lets us emit optional sibling <tr>s (flag-reasons, detail panel).
-                <Fragment key={row.row_index}>
-                  <tr
-                    ref={(el) => {
-                      if (el) rowRefs.current.set(row.row_index, el);
-                      else rowRefs.current.delete(row.row_index);
-                    }}
-                    className={cn(
-                      "border-b border-border hover:bg-muted/30 transition-colors",
-                      isPreamble && "bg-muted/20",
-                      // AI-3a: subtle indigo tint for a row carrying a PENDING AI suggestion.
-                      // Placed BEFORE the edited-green tint so an edited row stays green
-                      // (twMerge keeps the last conflicting bg-*), and BEFORE the amber flash
-                      // so the scroll-highlight still wins on flash (existing tint ordering).
-                      hasPendingAi && "bg-indigo-50/50 dark:bg-indigo-950/20",
-                      // R1: full-row VIOLET tint when ONLY Gemini diverges (Claude not pending).
-                      // Same ordering slot as the indigo tint (before green so an edited row stays
-                      // green). When BOTH disagree, Claude's indigo above wins the full-row tint and
-                      // Gemini falls back to the left-edge accent below.
-                      geminiFullTint && "bg-violet-50/50 dark:bg-violet-950/20",
-                      // R1 both-disagree: VIOLET left-edge accent so the Gemini signal stays visible
-                      // alongside Claude's full-row indigo. A left border (not a bg-*) so it composes
-                      // with the indigo tint instead of overwriting it.
-                      geminiEdgeAccent && "border-l-2 border-l-violet-400 dark:border-l-violet-500",
-                      isEdited && "bg-green-50 dark:bg-green-950/30",
-                      // FIX 1: transient amber flash wins over green tint (placed after in cn())
-                      highlightedIdx === row.row_index && "bg-amber-100 dark:bg-amber-900/40",
-                      // §9 #159 search highlight -- RINGS (inset box-shadow), layered OVER the
-                      // background tiers above so they never mask the edited-green / preamble
-                      // tints (the collision rule). Soft ring = all hits; strong = current hit
-                      // (mutually exclusive so the two ring widths can't conflict in Tailwind).
-                      searchHitSet.has(row.row_index) && currentHitRowIdx !== row.row_index && "ring-1 ring-inset ring-blue-300 dark:ring-blue-700",
-                      currentHitRowIdx === row.row_index && "ring-2 ring-inset ring-blue-500 dark:ring-blue-400",
-                      // T10: pruned (excluded) rows read as excluded -- dimmed (opacity is
-                      // orthogonal to the bg tiers above, so it composes without masking them).
-                      selectable && isRowExcluded(row) && "opacity-50",
-                    )}
-                  >
-                    {/* Expander column (B2b BUILD 1): frozen-left sticky -- always visible on horizontal scroll.
+                return (
+                  // Fragment lets us emit optional sibling <tr>s (flag-reasons, detail panel).
+                  <Fragment key={row.row_index}>
+                    <tr
+                      ref={(el) => {
+                        if (el) rowRefs.current.set(row.row_index, el);
+                        else rowRefs.current.delete(row.row_index);
+                      }}
+                      className={cn(
+                        "border-b border-border hover:bg-muted/30 transition-colors",
+                        isPreamble && "bg-muted/20",
+                        // AI-3a: subtle indigo tint for a row carrying a PENDING AI suggestion.
+                        // Placed BEFORE the edited-green tint so an edited row stays green
+                        // (twMerge keeps the last conflicting bg-*), and BEFORE the amber flash
+                        // so the scroll-highlight still wins on flash (existing tint ordering).
+                        hasPendingAi && "bg-indigo-50/50 dark:bg-indigo-950/20",
+                        // R1: full-row VIOLET tint when ONLY Gemini diverges (Claude not pending).
+                        // Same ordering slot as the indigo tint (before green so an edited row stays
+                        // green). When BOTH disagree, Claude's indigo above wins the full-row tint and
+                        // Gemini falls back to the left-edge accent below.
+                        geminiFullTint && "bg-violet-50/50 dark:bg-violet-950/20",
+                        // R1 both-disagree: VIOLET left-edge accent so the Gemini signal stays visible
+                        // alongside Claude's full-row indigo. A left border (not a bg-*) so it composes
+                        // with the indigo tint instead of overwriting it.
+                        geminiEdgeAccent && "border-l-2 border-l-violet-400 dark:border-l-violet-500",
+                        isEdited && "bg-green-50 dark:bg-green-950/30",
+                        // S4: a revision row nobody has confirmed yet. A red LEFT BORDER + a light
+                        // wash rather than a fill, so it composes with the tints above instead of
+                        // masking them (the channel-collision rule) -- and so it never reads as the
+                        // must-fix structural red, which is a panel fill and is fixed a completely
+                        // different way. Inert off a revision: nothing is stamped there.
+                        needsRevisionReview && REVISION_NEEDS_REVIEW_ROW_CLASS,
+                        // FIX 1: transient amber flash wins over green tint (placed after in cn())
+                        highlightedIdx === row.row_index && "bg-amber-100 dark:bg-amber-900/40",
+                        // §9 #159 search highlight -- RINGS (inset box-shadow), layered OVER the
+                        // background tiers above so they never mask the edited-green / preamble
+                        // tints (the collision rule). Soft ring = all hits; strong = current hit
+                        // (mutually exclusive so the two ring widths can't conflict in Tailwind).
+                        searchHitSet.has(row.row_index) && currentHitRowIdx !== row.row_index && "ring-1 ring-inset ring-blue-300 dark:ring-blue-700",
+                        currentHitRowIdx === row.row_index && "ring-2 ring-inset ring-blue-500 dark:ring-blue-400",
+                        // T10: pruned (excluded) rows read as excluded -- dimmed (opacity is
+                        // orthogonal to the bg tiers above, so it composes without masking them).
+                        selectable && isRowExcluded(row) && "opacity-50",
+                      )}
+                    >
+                      {/* Expander column (B2b BUILD 1): frozen-left sticky -- always visible on horizontal scroll.
                         stopPropagation is mandatory (prevents table-dismiss from firing on the same click).
                         A2: HIDDEN for template origin -- MUST gate on the identical expression as the
                         matching <th>, the detail-panel row, and the totalCols base-8 decrement. */}
-                    {!templateOrigin && (
-                    <td className="px-1 py-1.5 align-top w-8 border-r border-border sticky left-0 z-10 bg-background">
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); toggleDetailRow(row.row_index); }}
-                        aria-label={expandedDetailRow === row.row_index ? "Hide row detail" : "Show row detail"}
-                        className="h-4 w-4 flex items-center justify-center rounded text-muted-foreground hover:text-foreground transition-colors"
-                      >
-                        {expandedDetailRow === row.row_index
-                          ? <ChevronDown className="h-3 w-3" />
-                          : <ChevronRight className="h-3 w-3" />}
-                      </button>
-                    </td>
-                    )}
+                      {!templateOrigin && (
+                        <td className="px-1 py-1.5 align-top w-8 border-r border-border sticky left-0 z-10 bg-background">
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); toggleDetailRow(row.row_index); }}
+                            aria-label={expandedDetailRow === row.row_index ? "Hide row detail" : "Show row detail"}
+                            className="h-4 w-4 flex items-center justify-center rounded text-muted-foreground hover:text-foreground transition-colors"
+                          >
+                            {expandedDetailRow === row.row_index
+                              ? <ChevronDown className="h-3 w-3" />
+                              : <ChevronRight className="h-3 w-3" />}
+                          </button>
+                        </td>
+                      )}
 
-                    {/* T10/T11: template-controls cell -- selection checkbox (eligible rows) +
+                      {/* T10/T11: template-controls cell -- selection checkbox (eligible rows) +
                         row-actions menu. Only mounted when templateControls is on. stopPropagation
                         so interacting here does not dismiss an open detail/flag panel. */}
-                    {templateControls && (
-                      <td className="px-2 py-1.5 align-top w-24 border-r border-border">
-                        <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-                          {selectable && isSelectableRow(row) && (
-                            <Checkbox
-                              checked={!isRowExcluded(row)}
-                              onCheckedChange={(c) => { void handleToggleExcluded(row, c === true); }}
-                              aria-label={isRowExcluded(row) ? "Include this row" : "Exclude this row"}
-                            />
-                          )}
-                          {canCreateRows && (
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <button
-                                  type="button"
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:text-foreground transition-colors"
-                                  aria-label="Row actions"
-                                  title="Insert or delete rows"
-                                >
-                                  <MoreHorizontal className="h-3.5 w-3.5" />
-                                </button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="start">
-                                <DropdownMenuItem onClick={() => openCreateDialog(row, "above")}>
-                                  Insert row above
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => openCreateDialog(row, "below")}>
-                                  Insert row below
-                                </DropdownMenuItem>
-                                {/* Delete has been PROMOTED out of this menu to the inline trash
+                      {templateControls && (
+                        <td className="px-2 py-1.5 align-top w-24 border-r border-border">
+                          <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                            {selectable && isSelectableRow(row) && (
+                              <Checkbox
+                                checked={!isRowExcluded(row)}
+                                onCheckedChange={(c) => { void handleToggleExcluded(row, c === true); }}
+                                aria-label={isRowExcluded(row) ? "Include this row" : "Exclude this row"}
+                              />
+                            )}
+                            {canCreateRows && (
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:text-foreground transition-colors"
+                                    aria-label="Row actions"
+                                    title="Insert or delete rows"
+                                  >
+                                    <MoreHorizontal className="h-3.5 w-3.5" />
+                                  </button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="start">
+                                  <DropdownMenuItem onClick={() => openCreateDialog(row, "above")}>
+                                    Insert row above
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => openCreateDialog(row, "below")}>
+                                    Insert row below
+                                  </DropdownMenuItem>
+                                  {/* Delete has been PROMOTED out of this menu to the inline trash
                                     button below -- same guard, same confirm dialog. Deliberately
                                     NOT duplicated here: two affordances for one action in one cell,
                                     with the hidden one reachable only via an unlabelled ⋯, is noise. */}
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          )}
-                          {/* Inline delete -- ONLY for a user-created row (is_synthetic=1, set by
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            )}
+                            {/* Inline delete -- ONLY for a user-created row (is_synthetic=1, set by
                               template_rows.create_review_row and re-checked server-side by
                               delete_review_row, so this gate is UX, not the boundary). Rendering it
                               inline also makes "which rows did I add?" answerable at a glance, which
                               the ⋯ menu could not. Opens the existing confirm dialog -- never a
                               direct write (a deleted row's children get re-parented; no undo). */}
-                          {canCreateRows && row.is_synthetic === 1 && (
-                            <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); setDeleteError(null); setDeleteDialog(row); }}
-                              className="h-5 w-5 flex items-center justify-center rounded text-destructive/70 hover:text-destructive hover:bg-destructive/10 transition-colors"
-                              aria-label={`Delete added row ${row.source_row_number}`}
-                              title="Delete this added row"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          )}
-                        </div>
+                            {canCreateRows && row.is_synthetic === 1 && (
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); setDeleteError(null); setDeleteDialog(row); }}
+                                className="h-5 w-5 flex items-center justify-center rounded text-destructive/70 hover:text-destructive hover:bg-destructive/10 transition-colors"
+                                aria-label={`Delete added row ${row.source_row_number}`}
+                                title="Delete this added row"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      )}
+
+                      {/* Excel Row */}
+                      <td className="px-2 py-1.5 text-muted-foreground font-mono align-top w-10 border-r border-border">
+                        {row.source_row_number}
                       </td>
-                    )}
 
-                    {/* Excel Row */}
-                    <td className="px-2 py-1.5 text-muted-foreground font-mono align-top w-10 border-r border-border">
-                      {row.source_row_number}
-                    </td>
-
-                    {/* A2: Status + AI Rec cells HIDDEN for template origin -- gate on the IDENTICAL
+                      {/* A2: Status + AI Rec cells HIDDEN for template origin -- gate on the IDENTICAL
                         !templateOrigin expression as the matching headers, or the grid misaligns. */}
-                    {!templateOrigin && (<>
-                    {/* Status (B2c): edit-provenance badge -- not frozen-left.
+                      {!templateOrigin && (<>
+                        {/* Status (B2c): edit-provenance badge -- not frozen-left.
                         AI-3a: an accepted suggestion (indigo/violet) takes precedence over Edited
                         -- an accepted suggestion writes to human_* and would otherwise read
                         "Edited", erasing the provenance.
@@ -2481,305 +2909,414 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                         when the Gemini suggestion is Accepted (violet). Only one can be Accepted at
                         a time (the backend enforces exactly-one-Source). Claude is checked FIRST so
                         its existing badge path is byte-identical to before for the Claude case. */}
-                    <td className="px-2 py-1.5 align-top w-20 border-r border-border">
-                      {row.ai_suggestion_status === "Accepted" ? (
-                        <span className="rounded-full py-0.5 px-2 text-[10px] font-medium leading-none shrink-0 whitespace-nowrap bg-indigo-100 dark:bg-indigo-900 text-indigo-800 dark:text-indigo-200">
-                          Accepted · Claude
-                        </span>
-                      ) : row.gemini_suggestion_status === "Accepted" ? (
-                        <span className="rounded-full py-0.5 px-2 text-[10px] font-medium leading-none shrink-0 whitespace-nowrap bg-violet-100 dark:bg-violet-900 text-violet-800 dark:text-violet-200">
-                          Accepted · Gemini
-                        </span>
-                      ) : isEdited ? (
-                        <span className="rounded-full py-0.5 px-2 text-[10px] font-medium leading-none shrink-0 whitespace-nowrap bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200">
-                          Edited
-                        </span>
-                      ) : (
-                        <span className="rounded-full py-0.5 px-2 text-[10px] font-medium leading-none shrink-0 whitespace-nowrap bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300">
-                          Original
-                        </span>
-                      )}
-                    </td>
+                        <td className="px-2 py-1.5 align-top w-20 border-r border-border">
+                          {row.ai_suggestion_status === "Accepted" ? (
+                            <span className="rounded-full py-0.5 px-2 text-[10px] font-medium leading-none shrink-0 whitespace-nowrap bg-indigo-100 dark:bg-indigo-900 text-indigo-800 dark:text-indigo-200">
+                              Accepted · Claude
+                            </span>
+                          ) : row.gemini_suggestion_status === "Accepted" ? (
+                            <span className="rounded-full py-0.5 px-2 text-[10px] font-medium leading-none shrink-0 whitespace-nowrap bg-violet-100 dark:bg-violet-900 text-violet-800 dark:text-violet-200">
+                              Accepted · Gemini
+                            </span>
+                          ) : isEdited ? (
+                            <span className="rounded-full py-0.5 px-2 text-[10px] font-medium leading-none shrink-0 whitespace-nowrap bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200">
+                              Edited
+                            </span>
+                          ) : needsRevisionReview ? (
+                            /* S4: the one revision state that HOLDS the sheet -- nothing downstream
+                               moves until it is confirmed. Ranks below Edited / Accepted because
+                               those describe work already done in THIS revision; a row that was
+                               edited has been answered, and the backend has already confirmed it. */
+                            <span className={cn(
+                              "rounded-full py-0.5 px-2 text-[10px] font-medium leading-none shrink-0 whitespace-nowrap",
+                              REVISION_NEEDS_REVIEW_BADGE.className,
+                            )}>
+                              {REVISION_NEEDS_REVIEW_BADGE.label}
+                            </span>
+                          ) : isConfirmedRow(row) ? (
+                            /* Confirmed by the reviewer. Calm on purpose -- the work is done and
+                               the row should stop competing for attention. The stamp is KEPT
+                               rather than blanked, so "was reviewed" stays distinguishable from
+                               "never needed review". */
+                            <span className={cn(
+                              "rounded-full py-0.5 px-2 text-[10px] font-medium leading-none shrink-0 whitespace-nowrap",
+                              REVISION_REVIEWED_BADGE.className,
+                            )}>
+                              {REVISION_REVIEWED_BADGE.label}
+                            </span>
+                          ) : isRowCopied(row) ? (
+                            /* S5b (#1103, ADR-0014 D7 + Amendment B): "Copied" -- this row carried the
+                               original's effective classification AND parenting (same Excel row, same
+                               description, parent matched too). Calm + informational: it says the
+                               decision came from the original, not from this parse.
+                               Ranks BELOW every "handled" state (Accepted·Claude/Gemini, Edited)
+                               because those describe work done in THIS revision, which supersedes the
+                               provenance. Every non-copied row falls through to "Original" below --
+                               byte-identical to a fresh upload. Inert off a revision (blank status). */
+                            <span className={cn(
+                              "rounded-full py-0.5 px-2 text-[10px] font-medium leading-none shrink-0 whitespace-nowrap",
+                              REVISION_COPIED_BADGE.className,
+                            )}>
+                              {REVISION_COPIED_BADGE.label}
+                            </span>
+                          ) : (
+                            <span className="rounded-full py-0.5 px-2 text-[10px] font-medium leading-none shrink-0 whitespace-nowrap bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300">
+                              Original
+                            </span>
+                          )}
+                        </td>
 
-                    {/* AI Rec (AI-3a): confidence badge(s) for a PENDING suggestion --
+                        {/* AI Rec (AI-3a): confidence badge(s) for a PENDING suggestion --
                         classification + parent each get one (H/M/L); both -> two side by
                         side; none / resolved -> blank. */}
-                    <td className="px-2 py-1.5 align-top w-20 border-r border-border">
-                      {(aiInfo.hasClass || aiInfo.hasParent) ? (
-                        <div className="flex items-center gap-1">
-                          {aiInfo.hasClass && (
-                            <AiConfBadge
-                              conf={aiInfo.classConf}
-                              title={`AI suggests classification: ${row.ai_suggested_classification ?? "?"}${aiInfo.classConf ? ` (${aiInfo.classConf})` : ""}`}
-                            />
-                          )}
-                          {aiInfo.hasParent && (
-                            <AiConfBadge
-                              conf={aiInfo.parentConf}
-                              title={
-                                row.ai_suggested_is_root === 1
-                                  ? `AI suggests making this a top-level root${aiInfo.parentConf ? ` (${aiInfo.parentConf})` : ""}`
-                                  : `AI suggests a new parent${aiInfo.parentConf ? ` (${aiInfo.parentConf})` : ""}`
-                              }
-                            />
-                          )}
-                        </div>
-                      ) : null}
-                    </td>
-                    </>)}
+                        <td className="px-2 py-1.5 align-top w-20 border-r border-border">
+                          {(aiInfo.hasClass || aiInfo.hasParent) ? (
+                            <div className="flex items-center gap-1">
+                              {aiInfo.hasClass && (
+                                <AiConfBadge
+                                  conf={aiInfo.classConf}
+                                  title={`AI suggests classification: ${row.ai_suggested_classification ?? "?"}${aiInfo.classConf ? ` (${aiInfo.classConf})` : ""}`}
+                                />
+                              )}
+                              {aiInfo.hasParent && (
+                                <AiConfBadge
+                                  conf={aiInfo.parentConf}
+                                  title={
+                                    row.ai_suggested_is_root === 1
+                                      ? `AI suggests making this a top-level root${aiInfo.parentConf ? ` (${aiInfo.parentConf})` : ""}`
+                                      : `AI suggests a new parent${aiInfo.parentConf ? ` (${aiInfo.parentConf})` : ""}`
+                                  }
+                                />
+                              )}
+                            </div>
+                          ) : null}
+                        </td>
+                      </>)}
 
-                    {/* Gemini (DUAL-AI, ADR-0003): SECOND provider cell -- mounted directly after
+                      {/* Gemini (DUAL-AI, ADR-0003): SECOND provider cell -- mounted directly after
                         the Claude "AI Rec" cell. Visual clone reading gemini_*; only when enabled.
                         A2: geminiEnabled is false for template origin, so this never mounts. */}
-                    {geminiEnabled && <GeminiBodyCell row={row} />}
+                      {geminiEnabled && <GeminiBodyCell row={row} />}
 
-                    {/* Sl.No */}
-                    <td className="px-2 py-1.5 text-muted-foreground align-top w-16 border-r border-border">
-                      {row.sl_no_value ?? ""}
-                    </td>
+                      {/* Sl.No */}
+                      <td className="px-2 py-1.5 text-muted-foreground align-top w-16 border-r border-border">
+                        {row.sl_no_value ?? ""}
+                      </td>
 
-                    {/* Parent (FIX 1): clickable "↑ N" link to parent's Excel row; blank for roots */}
-                    <td className="px-2 py-1.5 align-top w-16 border-r border-border">
-                      {parentExcelRow !== null ? (
-                        <button
-                          type="button"
-                          onClick={() => revealAndScrollToRow(pIdx)}
-                          className="text-[11px] font-mono text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap"
-                        >
-                          ↑ {parentExcelRow}
-                        </button>
-                      ) : null}
-                    </td>
+                      {/* Parent (FIX 1): clickable "↑ N" link to parent's Excel row; blank for roots */}
+                      <td className="px-2 py-1.5 align-top w-16 border-r border-border">
+                        {parentExcelRow !== null ? (
+                          <button
+                            type="button"
+                            onClick={() => revealAndScrollToRow(pIdx)}
+                            className="text-[11px] font-mono text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap"
+                          >
+                            ↑ {parentExcelRow}
+                          </button>
+                        ) : null}
+                      </td>
 
-                    {/* Classification (B1.1b-iii): chevron + pill + optional flag marker.
+                      {/* Classification (B1.1b-iii): chevron + pill + optional flag marker.
                         Flag marker (B2a): neutral amber Info icon; click-to-reveal reasons.
                         stopPropagation prevents bubbling to chevron/parent-link handlers. */}
-                    <td className="px-2 py-1.5 align-top w-36 border-r border-border">
-                      <div className="flex items-start gap-1.5">
-                        {/* Expand/collapse toggle -- invisible (not hidden) on leaf rows
+                      <td className="px-2 py-1.5 align-top w-36 border-r border-border">
+                        <div className="flex items-start gap-1.5">
+                          {/* Expand/collapse toggle -- invisible (not hidden) on leaf rows
                             so the layout stays stable and descriptions align. */}
-                        <button
-                          type="button"
-                          className={cn(
-                            "mt-0.5 shrink-0 h-4 w-4 flex items-center justify-center rounded",
-                            "text-muted-foreground hover:text-foreground transition-colors",
-                            !hasChildren && "invisible pointer-events-none",
-                          )}
-                          onClick={() => { if (hasChildren) toggleCollapse(row.row_index); }}
-                          aria-label={isCollapsed ? "Expand" : "Collapse"}
-                          tabIndex={hasChildren ? 0 : -1}
-                        >
-                          {isCollapsed
-                            ? <ChevronRight className="h-3 w-3" />
-                            : <ChevronDown className="h-3 w-3" />}
-                        </button>
-                        <ClassificationPill cls={row.effective_classification} />
-                        {/* Right-aligned marker group (remark + flag). Both sit inside one
+                          <button
+                            type="button"
+                            className={cn(
+                              "mt-0.5 shrink-0 h-4 w-4 flex items-center justify-center rounded",
+                              "text-muted-foreground hover:text-foreground transition-colors",
+                              !hasChildren && "invisible pointer-events-none",
+                            )}
+                            onClick={() => { if (hasChildren) toggleCollapse(row.row_index); }}
+                            aria-label={isCollapsed ? "Expand" : "Collapse"}
+                            tabIndex={hasChildren ? 0 : -1}
+                          >
+                            {isCollapsed
+                              ? <ChevronRight className="h-3 w-3" />
+                              : <ChevronDown className="h-3 w-3" />}
+                          </button>
+                          <ClassificationPill cls={row.effective_classification} />
+                          {/* Right-aligned marker group (remark + flag). Both sit inside one
                             ml-auto wrapper so each stays right-aligned independently
                             (either, both, or neither present). Markers live INSIDE the
                             Classification cell -- no extra column, no totalCols change. */}
-                        {(remarkMarkerShown || hasFlags) && (
-                          <div className="mt-0.5 ml-auto flex items-center gap-0.5 shrink-0">
-                            {/* C-v2c: remark marker (blue, distinct from amber flags).
+                          {(remarkMarkerShown || hasFlags) && (
+                            <div className="mt-0.5 ml-auto flex items-center gap-0.5 shrink-0">
+                              {/* C-v2c: remark marker (blue, distinct from amber flags).
                                 Click opens the detail panel (read+edit the remark there).
                                 stopPropagation prevents the table dismiss-onClick firing. */}
-                            {remarkMarkerShown && (
-                              <button
-                                type="button"
-                                onClick={(e) => { e.stopPropagation(); toggleDetailRow(row.row_index); }}
-                                className="shrink-0 h-4 w-4 flex items-center justify-center rounded text-blue-500/80 hover:text-blue-600 dark:text-blue-400/80 dark:hover:text-blue-300 transition-colors"
-                                aria-label="Show remark"
-                                title="Remark"
-                              >
-                                <MessageSquare className="h-3 w-3" />
-                              </button>
-                            )}
-                            {/* B2a: advisory flag marker -- one unified indicator per flagged row.
+                              {remarkMarkerShown && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); toggleDetailRow(row.row_index); }}
+                                  className="shrink-0 h-4 w-4 flex items-center justify-center rounded text-blue-500/80 hover:text-blue-600 dark:text-blue-400/80 dark:hover:text-blue-300 transition-colors"
+                                  aria-label="Show remark"
+                                  title="Remark"
+                                >
+                                  <MessageSquare className="h-3 w-3" />
+                                </button>
+                              )}
+                              {/* B2a: advisory flag marker -- one unified indicator per flagged row.
                                 stopPropagation prevents the table's dismiss-onClick from firing
                                 on the same click that opens/closes this row's reason reveal.
                                 B2b BUILD 5: aria-label "advisory notes" -> "flags". */}
-                            {hasFlags && (
-                              <button
-                                type="button"
-                                onClick={(e) => { e.stopPropagation(); toggleFlagRow(row.row_index); }}
-                                className={cn(
-                                  "shrink-0 h-4 w-4 flex items-center justify-center rounded",
-                                  "transition-colors",
-                                  // C-flag-dismissal: a NEW greyed/checked state -- the flags
-                                  // still EXIST (acknowledged, not removed). NOT amber-active.
-                                  isDismissed
-                                    ? "text-muted-foreground/70 hover:text-muted-foreground"
-                                    : flagsExpanded
-                                      ? "text-amber-600 dark:text-amber-400"
-                                      : "text-amber-500/70 hover:text-amber-600 dark:text-amber-500/70 dark:hover:text-amber-400",
-                                )}
-                                aria-label={
-                                  isDismissed
-                                    ? (flagsExpanded ? "Hide flags (reviewed)" : "Show flags (reviewed)")
-                                    : (flagsExpanded ? "Hide flags" : "Show flags")
-                                }
-                                title={
-                                  isDismissed
-                                    ? "Reviewed — looks OK"
-                                    : (flagsExpanded ? "Hide flags" : "Show flags")
-                                }
-                              >
-                                {isDismissed
-                                  ? <CheckCircle2 className="h-3 w-3" />
-                                  : <Info className="h-3 w-3" />}
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </td>
+                              {hasFlags && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); toggleFlagRow(row.row_index); }}
+                                  className={cn(
+                                    "shrink-0 h-4 w-4 flex items-center justify-center rounded",
+                                    "transition-colors",
+                                    // C-flag-dismissal: a NEW greyed/checked state -- the flags
+                                    // still EXIST (acknowledged, not removed). NOT amber-active.
+                                    isDismissed
+                                      ? "text-muted-foreground/70 hover:text-muted-foreground"
+                                      : flagsExpanded
+                                        ? "text-amber-600 dark:text-amber-400"
+                                        : "text-amber-500/70 hover:text-amber-600 dark:text-amber-500/70 dark:hover:text-amber-400",
+                                  )}
+                                  aria-label={
+                                    isDismissed
+                                      ? (flagsExpanded ? "Hide flags (reviewed)" : "Show flags (reviewed)")
+                                      : (flagsExpanded ? "Hide flags" : "Show flags")
+                                  }
+                                  title={
+                                    isDismissed
+                                      ? "Reviewed — looks OK"
+                                      : (flagsExpanded ? "Hide flags" : "Show flags")
+                                  }
+                                >
+                                  {isDismissed
+                                    ? <CheckCircle2 className="h-3 w-3" />
+                                    : <Info className="h-3 w-3" />}
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </td>
 
-                    {/* MC-4: Description fan-out body cells. FIRST column = the anchor
+                      {/* S5 "Looks OK": the per-row confirmation, directly after Classification --
+                        confirming a row IS a judgement about its classification. Rendered for every
+                        row so the column stays aligned, but only a STAMPED row has anything to
+                        confirm: a Copied row is already a decision, and an unstamped row is not a
+                        revision row at all. Read-only when `onAffirmRow` is withheld (frozen sheet /
+                        not the lock holder) -- the wizard's presence-is-the-gate convention, so
+                        there is no second per-cell `editable` signal. */}
+                      {showAffirmColumn && (
+                        <td className="px-2 py-1.5 align-top w-20 border-r border-border text-center">
+                          {(needsRevisionReview || isConfirmedRow(row)) && (
+                            <label className="inline-flex items-center justify-center cursor-pointer">
+                              <input
+                                type="checkbox"
+                                className="h-3.5 w-3.5 accent-green-600 cursor-pointer disabled:cursor-default"
+                                checked={!needsRevisionReview}
+                                disabled={!onAffirmRow}
+                                onChange={(e) => {
+                                  void onAffirmRow?.(row.row_index, e.target.checked);
+                                }}
+                                aria-label={`Confirm row ${row.source_row_number ?? row.row_index}`}
+                                title={needsRevisionReview
+                                  ? reasonSentence(row)
+                                  : "Confirmed — click to undo"}
+                              />
+                            </label>
+                          )}
+                        </td>
+                      )}
+
+                      {/* MC-4: Description fan-out body cells. FIRST column = the anchor
                         (depth indent + "(no description)" fallback via the shared inner);
                         EXTRA columns = plain per-column values (blank when the row has no
                         triple), hide/show via visibleCols. LEGACY (no parts) = the single
                         anchor via the SAME shared inner -> byte-identical. */}
-                    {fanOut ? descriptionColumns.map((c, i) => {
-                      const isFirst = i === 0;
-                      if (!isFirst && !visibleCols.has(c.col)) return null;
-                      if (isFirst) {
-                        return (
-                          <td key={c.col} className="px-2 py-1.5 align-top">
-                            <DescriptionCellInner
-                              text={descriptionCellValue(row, c.col)}
-                              isPreamble={isPreamble}
-                              isLineItem={isLineItem}
-                              depth={depth}
-                            />
-                          </td>
-                        );
-                      }
-                      return (
-                        <td key={c.col} className="px-2 py-1.5 align-top border-l border-border">
-                          <span className={cn(
-                            "leading-snug break-words min-w-0",
-                            isPreamble && "font-medium text-foreground",
-                            isLineItem && "text-foreground",
-                            !isPreamble && !isLineItem && "text-muted-foreground italic text-[11px]",
-                          )}>
-                            {descriptionCellValue(row, c.col)}
-                          </span>
-                        </td>
-                      );
-                    }) : (
-                      <td className="px-2 py-1.5 align-top">
-                        <DescriptionCellInner
-                          text={row.description ?? ""}
-                          isPreamble={isPreamble}
-                          isLineItem={isLineItem}
-                          depth={depth}
-                        />
-                      </td>
-                    )}
-
-                    {/* Descriptor-driven data columns: only rendered when col is in visibleCols.
-                        A2: for template origin the Total-Quantity (qty_total) cell is inline-editable
-                        (silent save on blur/Enter); every other descriptor cell stays read-only. */}
-                    {displayDescriptors.map(d => {
-                      // A2-D1 (decision D5): multi-area template -> delegate the CONTIGUOUS per-area
-                      // qty cells + the qty_total cell to <AreaQtyCells> (live-sum Total + per-row
-                      // local draft; a keystroke re-renders ONLY that row's cells). Anchored at the
-                      // FIRST per-area descriptor and evaluated OUTSIDE the visibleCols guard below so
-                      // a hidden first-area col still anchors the block; <AreaQtyCells> emits the SAME
-                      // set of <td>s (each gated by visibleCols) in the SAME order the loop would have.
-                      if (multiAreaInline) {
-                        const isAreaQtyCol = d.value_key !== null && d.value_field === "qty_by_area";
-                        const isQtyTotalCol = d.value_key === null && d.value_field === "qty_total";
-                        if (isAreaQtyCol) {
-                          if (d.col !== firstAreaQtyCol) return null; // later area cols emitted by <AreaQtyCells>
+                      {fanOut ? descriptionColumns.map((c, i) => {
+                        const isFirst = i === 0;
+                        if (!isFirst && !visibleCols.has(c.col)) return null;
+                        if (isFirst) {
                           return (
-                            <AreaQtyCells
-                              key="area-qty-cells"
-                              row={row}
-                              areaDescriptors={areaQtyDescriptors}
-                              totalDescriptor={qtyTotalDescriptor}
-                              visibleCols={visibleCols}
-                              onSaveArea={saveAreaQtyInline}
-                            />
+                            <td key={c.col} className="px-2 py-1.5 align-top">
+                              <DescriptionCellInner
+                                text={descriptionCellValue(row, c.col)}
+                                isPreamble={isPreamble}
+                                isLineItem={isLineItem}
+                                depth={depth}
+                              />
+                            </td>
                           );
                         }
-                        if (isQtyTotalCol) return null; // Total emitted by <AreaQtyCells>
-                      }
-                      if (!visibleCols.has(d.col)) return null;
-                      const val = resolveDescriptorValue(row, d);
-                      // A2: single-area template -> the ONE qty_total cell is inline-editable;
-                      // gated OFF when multi-area (there <AreaQtyCells> renders the Total as a
-                      // read-only summed cell).
-                      const isInlineQty = templateOrigin && !readOnly && !hasPerAreaQty
-                        && d.value_key === null && d.value_field === "qty_total";
-                      return (
-                        <td
-                          key={d.col}
-                          className="px-2 py-1.5 text-right align-top border-l border-border tabular-nums"
-                        >
-                          {isInlineQty ? (
-                            <input
-                              key={`qty-${row.row_index}-${String(row.qty_total ?? "blank")}`}
-                              type="number"
-                              inputMode="decimal"
-                              min="0"
-                              defaultValue={row.qty_total ?? ""}
-                              onBlur={(e) => saveQtyInline(row, e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") {
-                                  e.preventDefault();
-                                  (e.target as HTMLInputElement).blur();
-                                }
-                              }}
-                              placeholder="0"
-                              className="w-20 rounded border border-input bg-background px-1.5 py-0.5 text-right text-xs tabular-nums focus:outline-none focus:ring-1 focus:ring-ring"
-                            />
-                          ) : (
-                            renderDescriptorCell(val)
-                          )}
+                        return (
+                          <td key={c.col} className="px-2 py-1.5 align-top border-l border-border">
+                            <span className={cn(
+                              "leading-snug break-words min-w-0",
+                              isPreamble && "font-medium text-foreground",
+                              isLineItem && "text-foreground",
+                              !isPreamble && !isLineItem && "text-muted-foreground italic text-[11px]",
+                            )}>
+                              {descriptionCellValue(row, c.col)}
+                            </span>
+                          </td>
+                        );
+                      }) : (
+                        <td className="px-2 py-1.5 align-top">
+                          <DescriptionCellInner
+                            text={row.description ?? ""}
+                            isPreamble={isPreamble}
+                            isLineItem={isLineItem}
+                            depth={depth}
+                          />
                         </td>
-                      );
-                    })}
-                    {/* append-to-notes-as-columns: combined "Append Notes" cell (LAST).
+                      )}
+
+                      {/* Descriptor-driven data columns: only rendered when col is in visibleCols.
+                        A2: for template origin the Total-Quantity (qty_total) cell is inline-editable
+                        (silent save on blur/Enter); every other descriptor cell stays read-only. */}
+                      {displayDescriptors.map(d => {
+                        // A2-D1 (decision D5): multi-area template -> delegate the CONTIGUOUS per-area
+                        // qty cells + the qty_total cell to <AreaQtyCells> (live-sum Total + per-row
+                        // local draft; a keystroke re-renders ONLY that row's cells). Anchored at the
+                        // FIRST per-area descriptor and evaluated OUTSIDE the visibleCols guard below so
+                        // a hidden first-area col still anchors the block; <AreaQtyCells> emits the SAME
+                        // set of <td>s (each gated by visibleCols) in the SAME order the loop would have.
+                        if (multiAreaInline) {
+                          const isAreaQtyCol = d.value_key !== null && d.value_field === "qty_by_area";
+                          const isQtyTotalCol = d.value_key === null && d.value_field === "qty_total";
+                          if (isAreaQtyCol) {
+                            if (d.col !== firstAreaQtyCol) return null; // later area cols emitted by <AreaQtyCells>
+                            return (
+                              <AreaQtyCells
+                                key="area-qty-cells"
+                                row={row}
+                                areaDescriptors={areaQtyDescriptors}
+                                totalDescriptor={qtyTotalDescriptor}
+                                visibleCols={visibleCols}
+                                onSaveArea={saveAreaQtyInline}
+                                // A SELECTED line item must carry a quantity to finalize; the cell
+                                // derives its own LIVE fill from that (see AreaQtyCells.liveQtyGap).
+                                qtyRequired={isLineItem && !isRowExcluded(row)}
+                                // Non-eligible (note / spacer / subtotal) or DESELECTED rows
+                                // get read-only cells -- their value still displays, and that is
+                                // also what keeps them out of the keyboard-nav matrix.
+                                qtyEditable={isQtyEligibleRow(row)}
+                                registerQtyInput={registerQtyInput}
+                                onEditIntent={onEditIntent}
+                              />
+                            );
+                          }
+                          if (isQtyTotalCol) return null; // Total emitted by <AreaQtyCells>
+                        }
+                        if (!visibleCols.has(d.col)) return null;
+                        const val = resolveDescriptorValue(row, d);
+                        // A2: single-area template -> the ONE qty_total cell is inline-editable;
+                        // gated OFF when multi-area (there <AreaQtyCells> renders the Total as a
+                        // read-only summed cell).
+                        // A quantity cell is editable only on a QTY-ELIGIBLE row: an
+                        // eligible classification AND still selected (isQtyEligibleRow). A
+                        // note / spacer / subtotal marker cannot carry a quantity (one typed
+                        // there saved silently and only surfaced later in the pricing editor
+                        // as a qty-on-non-priceable anomaly), and a DESELECTED row is not
+                        // committed at all. Their value still RENDERS read-only, so nothing
+                        // is hidden -- and a deselect now zeroes it server-side anyway.
+                        const isInlineQty = templateOrigin && !readOnly && !hasPerAreaQty
+                          && isQtyEligibleRow(row)
+                          && d.value_key === null && d.value_field === "qty_total";
+                        // A2/qty-block: attention fill on the ONE cell the finalize gate reads.
+                        // Single-area qty_total IS the saved value the user types, so the
+                        // saved-state set is already live enough here (multi-area gets its own
+                        // draft-aware fill inside AreaQtyCells, where the Total is a running sum).
+                        const isQtyGapCell = isInlineQty && qtyGapRowIndexes.has(row.row_index);
+                        return (
+                          <td
+                            key={d.col}
+                            title={isQtyGapCell ? "This line needs a quantity before the sheet can be finalized." : undefined}
+                            className={cn(
+                              "px-2 py-1.5 text-right align-top border-l border-border tabular-nums",
+                              isQtyGapCell && "bg-amber-50 dark:bg-amber-950/30",
+                            )}
+                          >
+                            {isInlineQty ? (
+                              <input
+                                key={`qty-${row.row_index}-${String(row.qty_total ?? "blank")}`}
+                                ref={(el) => registerQtyInput(row.row_index, d.col, el)}
+                                // Marks this input as navigable + carries its identity, which is
+                                // how the ONE tbody keydown handler resolves the active cell
+                                // without any React state (see handleQtyNavKeyDown).
+                                data-qtynav="1"
+                                data-qtynav-row={row.row_index}
+                                data-qtynav-col={d.col}
+                                type="number"
+                                inputMode="decimal"
+                                min="0"
+                                defaultValue={row.qty_total ?? ""}
+                                // B1: acquire the draft lock on edit INTENT = focus, well before
+                                // the save it must not race (see saveQtyInline). Idempotent.
+                                onFocus={() => onEditIntent?.()}
+                                onBlur={(e) => saveQtyInline(row, e.target.value)}
+                                onKeyDown={(e) => {
+                                  // Escape reverts to the saved value. Assigning .value directly
+                                  // is the supported escape hatch for an UNCONTROLLED input --
+                                  // and keeps this cell off ReviewTree's render path, which a
+                                  // controlled draft would drag the whole tree onto.
+                                  // Enter / arrows / Tab bubble to the tbody nav handler.
+                                  if (e.key === "Escape") {
+                                    e.preventDefault();
+                                    e.currentTarget.value = String(row.qty_total ?? "");
+                                  }
+                                }}
+                                // NO placeholder: a grey "0" in an empty cell is indistinguishable
+                                // from a typed 0, and BOTH are quantity gaps -- that ambiguity is
+                                // what made the old bare-count advisory impossible to act on.
+                                className="w-20 rounded border border-input bg-background px-1.5 py-0.5 text-right text-xs tabular-nums focus:outline-none focus:ring-1 focus:ring-ring"
+                              />
+                            ) : (
+                              renderDescriptorCell(val)
+                            )}
+                          </td>
+                        );
+                      })}
+                      {/* append-to-notes-as-columns: combined "Append Notes" cell (LAST).
                         Read-only text blob; left-aligned + wrapping (unlike the numeric
                         descriptor cells). Blank when the row has no append values. */}
-                    {hasAppendCombined && (
-                      <td className="px-2 py-1.5 align-top text-left border-l border-border text-muted-foreground break-words min-w-[180px]">
-                        {buildAppendCombined(row)}
-                      </td>
-                    )}
-                  </tr>
-
-                  {/* B2a-fix OBS-1: flag-reasons reveal row -- single-open or show-all */}
-                  {flagsExpanded && (
-                    <tr className="bg-amber-50/60 dark:bg-amber-950/20">
-                      <td
-                        colSpan={totalCols}
-                        className="px-3 py-2 border-b border-amber-100 dark:border-amber-900/30"
-                      >
-                        <WarningFlagContent flags={rowFlags} classifierNotes={row.classifier_warnings} />
-                        {/* C-flag-dismissal: when acknowledged, the reasons stay readable
-                            (the cover the flag-reason text provides) but are tagged reviewed. */}
-                        {isDismissed && (
-                          <p className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
-                            <CheckCircle2 className="h-3 w-3 shrink-0" />
-                            Reviewed — looks OK
-                            {row.flags_dismissed_by ? <span className="text-muted-foreground/70">· {row.flags_dismissed_by}{row.flags_dismissed_at ? ` · ${row.flags_dismissed_at}` : ""}</span> : null}
-                          </p>
-                        )}
-                      </td>
+                      {hasAppendCombined && (
+                        <td className="px-2 py-1.5 align-top text-left border-l border-border text-muted-foreground break-words min-w-[180px]">
+                          {buildAppendCombined(row)}
+                        </td>
+                      )}
                     </tr>
-                  )}
 
-                  {/* B2b BUILD 1: inline read-only detail panel -- single-open (Option-B with flag accordion).
+                    {/* B2a-fix OBS-1: flag-reasons reveal row -- single-open or show-all */}
+                    {flagsExpanded && (
+                      <tr className="bg-amber-50/60 dark:bg-amber-950/20">
+                        <td
+                          colSpan={totalCols}
+                          className="px-3 py-2 border-b border-amber-100 dark:border-amber-900/30"
+                        >
+                          <WarningFlagContent flags={rowFlags} classifierNotes={row.classifier_warnings} />
+                          {/* C-flag-dismissal: when acknowledged, the reasons stay readable
+                            (the cover the flag-reason text provides) but are tagged reviewed. */}
+                          {isDismissed && (
+                            <p className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
+                              <CheckCircle2 className="h-3 w-3 shrink-0" />
+                              Reviewed — looks OK
+                              {row.flags_dismissed_by ? <span className="text-muted-foreground/70">· {row.flags_dismissed_by}{row.flags_dismissed_at ? ` · ${row.flags_dismissed_at}` : ""}</span> : null}
+                            </p>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+
+                    {/* B2b BUILD 1: inline read-only detail panel -- single-open (Option-B with flag accordion).
                       Interior clicks stopped from bubbling so reading inside the panel does NOT dismiss it.
                       A2: suppressed entirely for template origin (its caret is gone above). The
                       !templateOrigin term is defence -- navigateToRow can still set expandedDetailRow,
                       but it is only reachable from INSIDE this panel, so no live path opens it. */}
-                  {!templateOrigin && expandedDetailRow === row.row_index && (
-                    <tr className="bg-muted/30">
-                      <td colSpan={totalCols} className="px-3 py-3 border-b border-border">
-                        {/* Detail-panel layout pass (FINDING B): a DISTINCT nested card.
+                    {!templateOrigin && expandedDetailRow === row.row_index && (
+                      <tr className="bg-muted/30">
+                        <td colSpan={totalCols} className="px-3 py-3 border-b border-border">
+                          {/* Detail-panel layout pass (FINDING B): a DISTINCT nested card.
                             INDIGO body tint (NOT the bg-muted/30 row-hover tint) + border +
                             rounded + subtle shadow + own padding insets it from the cell.
                             BRAND-RED left-accent stripe (border-l-primary = the rose/crimson
@@ -2787,75 +3324,75 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                             hue 0) carries the brand color as an ACCENT, not a full red surface
                             -- a red surface would collide with the destructive/error red used
                             on this screen (re-parse warning, cycle rejection). */}
-                        <div onClick={(e) => e.stopPropagation()} className="bg-indigo-50/40 dark:bg-indigo-950/20 border border-border border-l-4 border-l-primary rounded-md shadow-sm p-3">
-                          {/* Header: Excel row number + provenance badge */}
-                          <div className="flex items-center gap-2 mb-2">
-                            <span className="text-xs font-medium text-foreground">
-                              Row detail — Excel row {row.source_row_number}
-                            </span>
-                            {(row.edited_at !== null || (Array.isArray(row.edit_log) && row.edit_log.length > 0))
-                              ? <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 font-medium">edited</span>
-                              : <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">original</span>
-                            }
-                          </div>
-                          {/* Original-vs-effective: classification + parent (read-only, edit-focused panel).
+                          <div onClick={(e) => e.stopPropagation()} className="bg-indigo-50/40 dark:bg-indigo-950/20 border border-border border-l-4 border-l-primary rounded-md shadow-sm p-3">
+                            {/* Header: Excel row number + provenance badge */}
+                            <div className="flex items-center gap-2 mb-2">
+                              <span className="text-xs font-medium text-foreground">
+                                Row detail — Excel row {row.source_row_number}
+                              </span>
+                              {isReviewRowEdited(row)
+                                ? <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 font-medium">edited</span>
+                                : <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">original</span>
+                              }
+                            </div>
+                            {/* Original-vs-effective: classification + parent (read-only, edit-focused panel).
                               Obs 1: VERTICAL STACK (grid-cols-1) -- Classification row, then the
                               Parent + "Change parent" row below it; the prior grid-cols-2 pushed
                               Parent's right column off-screen on a wide row. */}
-                          <div className="grid grid-cols-1 gap-y-1 text-xs mb-2">
-                            <div className="flex items-center gap-2">
-                              <div>
-                                <span className="text-muted-foreground">Classification: </span>
-                                {clsOverridden ? (
-                                  <>
-                                    <span className="line-through text-muted-foreground">{row.classification ?? "—"}</span>
-                                    {" → "}
-                                    <span className="text-foreground font-medium">{row.effective_classification ?? "—"}</span>
-                                  </>
-                                ) : (
-                                  <span className="text-foreground">{row.classification ?? "—"}</span>
-                                )}
-                              </div>
-                              {/* Slice 1b-beta: reclassify trigger -- pill-styled DropdownMenu of the
+                            <div className="grid grid-cols-1 gap-y-1 text-xs mb-2">
+                              <div className="flex items-center gap-2">
+                                <div>
+                                  <span className="text-muted-foreground">Classification: </span>
+                                  {clsOverridden ? (
+                                    <>
+                                      <span className="line-through text-muted-foreground">{row.classification ?? "—"}</span>
+                                      {" → "}
+                                      <span className="text-foreground font-medium">{row.effective_classification ?? "—"}</span>
+                                    </>
+                                  ) : (
+                                    <span className="text-foreground">{row.classification ?? "—"}</span>
+                                  )}
+                                </div>
+                                {/* Slice 1b-beta: reclassify trigger -- pill-styled DropdownMenu of the
                                   4 assignable target classes. Picking one routes via onPickClass:
                                   childless -> light confirm; has children -> the restructure modal.
                                   Lives in the detail panel (already stopPropagation-wrapped above);
                                   DropdownMenuContent portals to body so item clicks never dismiss it.
                                   Slice D1: hidden when readOnly (the classification text above stays). */}
-                              {!readOnly && (
-                                <DropdownMenu>
-                                  <DropdownMenuTrigger asChild>
-                                    <button
-                                      type="button"
-                                      className="inline-flex items-center gap-1 rounded-full bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 py-0.5 px-2 text-[10px] font-medium leading-none hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors"
-                                    >
-                                      Change ▾
-                                    </button>
-                                  </DropdownMenuTrigger>
-                                  <DropdownMenuContent align="start">
-                                    {ASSIGNABLE_CLASSIFICATIONS.map(c => (
-                                      <DropdownMenuItem key={c} onClick={() => onPickClass(row, c)}>
-                                        {CLS_LABELS[c] ?? c}
-                                      </DropdownMenuItem>
-                                    ))}
-                                  </DropdownMenuContent>
-                                </DropdownMenu>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <div>
-                                <span className="text-muted-foreground">Parent: </span>
-                                {parentOverridden ? (
-                                  <>
-                                    <span className="line-through text-muted-foreground">{origParentLabel}</span>
-                                    {" → "}
-                                    <span className="text-foreground font-medium">{effParentLabel}</span>
-                                  </>
-                                ) : (
-                                  <span className="text-foreground">{origParentLabel}</span>
+                                {!readOnly && (
+                                  <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                      <button
+                                        type="button"
+                                        className="inline-flex items-center gap-1 rounded-full bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 py-0.5 px-2 text-[10px] font-medium leading-none hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors"
+                                      >
+                                        Change ▾
+                                      </button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="start">
+                                      {ASSIGNABLE_CLASSIFICATIONS.map(c => (
+                                        <DropdownMenuItem key={c} onClick={() => onPickClass(row, c)}>
+                                          {CLS_LABELS[c] ?? c}
+                                        </DropdownMenuItem>
+                                      ))}
+                                    </DropdownMenuContent>
+                                  </DropdownMenu>
                                 )}
                               </div>
-                              {/* Slice §9 #162: standalone "Change parent" door -- a SECOND front
+                              <div className="flex items-center gap-2">
+                                <div>
+                                  <span className="text-muted-foreground">Parent: </span>
+                                  {parentOverridden ? (
+                                    <>
+                                      <span className="line-through text-muted-foreground">{origParentLabel}</span>
+                                      {" → "}
+                                      <span className="text-foreground font-medium">{effParentLabel}</span>
+                                    </>
+                                  ) : (
+                                    <span className="text-foreground">{origParentLabel}</span>
+                                  )}
+                                </div>
+                                {/* Slice §9 #162: standalone "Change parent" door -- a SECOND front
                                   door to the SAME RestructureModal, reached WITHOUT a reclassify.
                                   Mirrors the Classification cell's "Change ▾" control (left). Opens
                                   the modal via setRestructureModal DIRECTLY (not onPickClass) with
@@ -2866,145 +3403,145 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                                   reparent). A plain button, not a dropdown: there is no list to pick;
                                   the single action is "open the modal". Hidden on subtotal_marker /
                                   header_repeat via canChangeParent. Slice D1: also hidden when readOnly. */}
-                              {canChangeParent && !readOnly && (
-                                <button
-                                  type="button"
-                                  onClick={() => { onEditIntent?.(); setRestructureModal({ row, newClassification: row.effective_classification as string }); }}
-                                  className="inline-flex items-center gap-1 rounded-full bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 py-0.5 px-2 text-[10px] font-medium leading-none hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors"
-                                >
-                                  Change parent
-                                </button>
-                              )}
+                                {canChangeParent && !readOnly && (
+                                  <button
+                                    type="button"
+                                    onClick={() => { onEditIntent?.(); setRestructureModal({ row, newClassification: row.effective_classification as string }); }}
+                                    className="inline-flex items-center gap-1 rounded-full bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 py-0.5 px-2 text-[10px] font-medium leading-none hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors"
+                                  >
+                                    Change parent
+                                  </button>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                          {/* NEW read views: ancestor chain + direct children. Additive, read-only
+                            {/* NEW read views: ancestor chain + direct children. Additive, read-only
                               (shown in both editable + readOnly sheets); clicking a crumb / child
                               drill-navigates the main tree (navigateToRow). No change to the
                               surrounding panel layout. */}
-                          <div className="mb-2 space-y-2">
-                            <ParentChain row={row} byIdx={byIdx} onNavigate={navigateToRow} />
-                            <ChildrenList row={row} childrenByParent={childrenByParent} onNavigate={navigateToRow} />
-                          </div>
-                          {/* AI-3b-1/3b-2: per-field accept/reject of a PENDING AI suggestion.
+                            <div className="mb-2 space-y-2">
+                              <ParentChain row={row} byIdx={byIdx} onNavigate={navigateToRow} />
+                              <ChildrenList row={row} childrenByParent={childrenByParent} onNavigate={navigateToRow} />
+                            </div>
+                            {/* AI-3b-1/3b-2: per-field accept/reject of a PENDING AI suggestion.
                               Shown only when the row carries a pending suggestion + not readOnly.
                               Classification + parent each get a checkbox + confidence badge +
                               suggested value; one explanation line; Apply + Reject. AI-3b-2: a
                               parent accept on a row WITH children is allowed -- Apply opens the
                               children-only RestructureModal (handleApplyAi) instead of the accept
                               endpoint; the status flips cancel-safely on the modal's Save. */}
-                          {!readOnly && (() => {
-                            const ai = aiSuggestionInfo(row);
-                            if (!(ai.hasClass || ai.hasParent)) return null;
-                            const clsIsChange = ai.hasClass &&
-                              row.ai_suggested_classification !== row.effective_classification;
-                            const parentIsChange = ai.hasParent && (
-                              row.ai_suggested_is_root === 1
-                                ? row.effective_parent_index !== null
-                                : row.ai_suggested_parent !== row.effective_parent_index
-                            );
-                            // AI-3b-2: a parent accept on a with-children row routes through the
-                            // modal (child disposition) rather than applying directly.
-                            const parentOpensModal = parentIsChange && hasChildrenSet.has(row.row_index);
-                            const suggestedParentLabel = row.ai_suggested_is_root === 1
-                              ? "Top level (root)"
-                              : (() => {
+                            {!readOnly && (() => {
+                              const ai = aiSuggestionInfo(row);
+                              if (!(ai.hasClass || ai.hasParent)) return null;
+                              const clsIsChange = ai.hasClass &&
+                                row.ai_suggested_classification !== row.effective_classification;
+                              const parentIsChange = ai.hasParent && (
+                                row.ai_suggested_is_root === 1
+                                  ? row.effective_parent_index !== null
+                                  : row.ai_suggested_parent !== row.effective_parent_index
+                              );
+                              // AI-3b-2: a parent accept on a with-children row routes through the
+                              // modal (child disposition) rather than applying directly.
+                              const parentOpensModal = parentIsChange && hasChildrenSet.has(row.row_index);
+                              const suggestedParentLabel = row.ai_suggested_is_root === 1
+                                ? "Top level (root)"
+                                : (() => {
                                   const p = row.ai_suggested_parent;
                                   if (p === null || p === undefined || p < 0) return "—";
                                   const src = byIdx.get(p)?.source_row_number;
                                   return src !== undefined ? `row ${src}` : `#${p}`;
                                 })();
-                            const canApply =
-                              (aiAcceptCls && ai.hasClass && clsIsChange) ||
-                              (aiAcceptParent && ai.hasParent && parentIsChange);
-                            // R3a (ADR-0006): an AI apply must never silently overwrite a standing
-                            // decision (the other provider's accepted suggestion OR a manual edit).
-                            // Disable Apply while the row carries any override; the user must first
-                            // "Revert to parser" (the unified affordance below).
-                            const blockedByOverride = !!row.has_override;
-                            return (
-                              <div className="mb-2 rounded-md border border-indigo-200 dark:border-indigo-900 bg-indigo-50/40 dark:bg-indigo-950/20 p-2">
-                                <p className="text-[10px] font-medium uppercase tracking-wide text-indigo-700 dark:text-indigo-300 mb-1.5 flex items-center gap-1">
-                                  <Sparkles className="h-3 w-3" /> AI suggestion
-                                </p>
-                                {ai.hasClass && (
-                                  <label className={cn(
-                                    "flex items-center gap-2 text-xs mb-1",
-                                    clsIsChange ? "cursor-pointer" : "cursor-not-allowed",
-                                  )}>
-                                    <Checkbox
-                                      checked={aiAcceptCls}
-                                      disabled={!clsIsChange}
-                                      onCheckedChange={(c) => setAiAcceptCls(!!c)}
-                                    />
-                                    <AiConfBadge conf={row.ai_classification_confidence ?? null} title="AI classification confidence" />
-                                    <span>
-                                      Classification &rarr;{" "}
-                                      <span className="font-medium">{CLS_LABELS[row.ai_suggested_classification ?? ""] ?? row.ai_suggested_classification}</span>
-                                      {!clsIsChange && <span className="text-muted-foreground italic"> (no change)</span>}
-                                    </span>
-                                  </label>
-                                )}
-                                {ai.hasParent && (
-                                  <label
-                                    className={cn(
-                                      "flex items-center gap-2 text-xs mb-1",
-                                      parentIsChange ? "cursor-pointer" : "cursor-not-allowed",
-                                    )}
-                                    title={parentOpensModal
-                                      ? "This row has children — applying opens the restructure step to choose where the children go."
-                                      : undefined}
-                                  >
-                                    <Checkbox
-                                      checked={aiAcceptParent}
-                                      disabled={!parentIsChange}
-                                      onCheckedChange={(c) => setAiAcceptParent(!!c)}
-                                    />
-                                    <AiConfBadge conf={row.ai_parent_confidence ?? null} title="AI parent confidence" />
-                                    <span>
-                                      Parent &rarr; <span className="font-medium">{suggestedParentLabel}</span>
-                                      {!parentIsChange && <span className="text-muted-foreground italic"> (no change)</span>}
-                                      {parentOpensModal && (
-                                        <span className="text-muted-foreground italic"> (opens restructure)</span>
-                                      )}
-                                    </span>
-                                  </label>
-                                )}
-                                {row.ai_explanation && (
-                                  <p className="text-[11px] text-muted-foreground mb-1.5 leading-snug">{row.ai_explanation}</p>
-                                )}
-                                {aiActionError && <p className="text-xs text-destructive mb-1">{aiActionError}</p>}
-                                {blockedByOverride && (
-                                  <p className="text-[11px] text-muted-foreground italic mb-1.5 leading-snug">
-                                    Revert this row to parser before applying an AI suggestion.
+                              const canApply =
+                                (aiAcceptCls && ai.hasClass && clsIsChange) ||
+                                (aiAcceptParent && ai.hasParent && parentIsChange);
+                              // R3a (ADR-0006): an AI apply must never silently overwrite a standing
+                              // decision (the other provider's accepted suggestion OR a manual edit).
+                              // Disable Apply while the row carries any override; the user must first
+                              // "Revert to parser" (the unified affordance below).
+                              const blockedByOverride = !!row.has_override;
+                              return (
+                                <div className="mb-2 rounded-md border border-indigo-200 dark:border-indigo-900 bg-indigo-50/40 dark:bg-indigo-950/20 p-2">
+                                  <p className="text-[10px] font-medium uppercase tracking-wide text-indigo-700 dark:text-indigo-300 mb-1.5 flex items-center gap-1">
+                                    <Sparkles className="h-3 w-3" /> AI suggestion
                                   </p>
-                                )}
-                                <div className="flex items-center gap-2">
-                                  <span title={blockedByOverride
-                                    ? "Revert this row to parser before applying an AI suggestion."
-                                    : undefined}>
+                                  {ai.hasClass && (
+                                    <label className={cn(
+                                      "flex items-center gap-2 text-xs mb-1",
+                                      clsIsChange ? "cursor-pointer" : "cursor-not-allowed",
+                                    )}>
+                                      <Checkbox
+                                        checked={aiAcceptCls}
+                                        disabled={!clsIsChange}
+                                        onCheckedChange={(c) => setAiAcceptCls(!!c)}
+                                      />
+                                      <AiConfBadge conf={row.ai_classification_confidence ?? null} title="AI classification confidence" />
+                                      <span>
+                                        Classification &rarr;{" "}
+                                        <span className="font-medium">{CLS_LABELS[row.ai_suggested_classification ?? ""] ?? row.ai_suggested_classification}</span>
+                                        {!clsIsChange && <span className="text-muted-foreground italic"> (no change)</span>}
+                                      </span>
+                                    </label>
+                                  )}
+                                  {ai.hasParent && (
+                                    <label
+                                      className={cn(
+                                        "flex items-center gap-2 text-xs mb-1",
+                                        parentIsChange ? "cursor-pointer" : "cursor-not-allowed",
+                                      )}
+                                      title={parentOpensModal
+                                        ? "This row has children — applying opens the restructure step to choose where the children go."
+                                        : undefined}
+                                    >
+                                      <Checkbox
+                                        checked={aiAcceptParent}
+                                        disabled={!parentIsChange}
+                                        onCheckedChange={(c) => setAiAcceptParent(!!c)}
+                                      />
+                                      <AiConfBadge conf={row.ai_parent_confidence ?? null} title="AI parent confidence" />
+                                      <span>
+                                        Parent &rarr; <span className="font-medium">{suggestedParentLabel}</span>
+                                        {!parentIsChange && <span className="text-muted-foreground italic"> (no change)</span>}
+                                        {parentOpensModal && (
+                                          <span className="text-muted-foreground italic"> (opens restructure)</span>
+                                        )}
+                                      </span>
+                                    </label>
+                                  )}
+                                  {row.ai_explanation && (
+                                    <p className="text-[11px] text-muted-foreground mb-1.5 leading-snug">{row.ai_explanation}</p>
+                                  )}
+                                  {aiActionError && <p className="text-xs text-destructive mb-1">{aiActionError}</p>}
+                                  {blockedByOverride && (
+                                    <p className="text-[11px] text-muted-foreground italic mb-1.5 leading-snug">
+                                      Revert this row to parser before applying an AI suggestion.
+                                    </p>
+                                  )}
+                                  <div className="flex items-center gap-2">
+                                    <span title={blockedByOverride
+                                      ? "Revert this row to parser before applying an AI suggestion."
+                                      : undefined}>
+                                      <Button
+                                        size="sm"
+                                        className="h-7 px-2 text-xs"
+                                        disabled={!canApply || blockedByOverride || isAcceptingAi || isRejectingAi}
+                                        onClick={() => { void handleApplyAi(row); }}
+                                      >
+                                        {isAcceptingAi ? "Applying…" : "Apply selected changes"}
+                                      </Button>
+                                    </span>
                                     <Button
                                       size="sm"
+                                      variant="outline"
                                       className="h-7 px-2 text-xs"
-                                      disabled={!canApply || blockedByOverride || isAcceptingAi || isRejectingAi}
-                                      onClick={() => { void handleApplyAi(row); }}
+                                      disabled={isAcceptingAi || isRejectingAi}
+                                      onClick={() => { void handleRejectAi(row); }}
                                     >
-                                      {isAcceptingAi ? "Applying…" : "Apply selected changes"}
+                                      {isRejectingAi ? "Rejecting…" : "Reject"}
                                     </Button>
-                                  </span>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="h-7 px-2 text-xs"
-                                    disabled={isAcceptingAi || isRejectingAi}
-                                    onClick={() => { void handleRejectAi(row); }}
-                                  >
-                                    {isRejectingAi ? "Rejecting…" : "Reject"}
-                                  </Button>
+                                  </div>
                                 </div>
-                              </div>
-                            );
-                          })()}
-                          {/* R3a (ADR-0006): the UNIFIED "Revert to parser". Shown whenever the
+                              );
+                            })()}
+                            {/* R3a (ADR-0006): the UNIFIED "Revert to parser". Shown whenever the
                               row carries any standing override (has_override) -- an accepted AI
                               suggestion (either provider) OR a manual edit. It restores the row +
                               any children a restructure moved to the parser baseline, regardless of
@@ -3014,32 +3551,32 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                               finalized sheet freezes the affordance). handleRevertToParser ->
                               onRemarkSaved (mutate-only re-fetch -> the row re-renders clean, the
                               accept blocks reappear Pending, this button disappears). */}
-                          {row.has_override && (
-                            <div className="mb-2 rounded-md border border-indigo-200 dark:border-indigo-900 bg-indigo-50/40 dark:bg-indigo-950/20 p-2">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-7 px-2 text-xs"
-                                  disabled={readOnly || isRevertingToParser}
-                                  onClick={() => { void handleRevertToParser(row); }}
-                                >
-                                  {isRevertingToParser ? "Reverting…" : "Revert to parser"}
-                                </Button>
-                                {readOnly ? (
-                                  <span className="text-muted-foreground italic text-xs">
-                                    Sheet is finalized — revert unavailable.
-                                  </span>
-                                ) : (
-                                  <span className="text-muted-foreground italic text-xs">
-                                    Restores this row (and any moved children) to the parser baseline.
-                                  </span>
-                                )}
+                            {row.has_override && (
+                              <div className="mb-2 rounded-md border border-indigo-200 dark:border-indigo-900 bg-indigo-50/40 dark:bg-indigo-950/20 p-2">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 px-2 text-xs"
+                                    disabled={readOnly || isRevertingToParser}
+                                    onClick={() => { void handleRevertToParser(row); }}
+                                  >
+                                    {isRevertingToParser ? "Reverting…" : "Revert to parser"}
+                                  </Button>
+                                  {readOnly ? (
+                                    <span className="text-muted-foreground italic text-xs">
+                                      Sheet is finalized — revert unavailable.
+                                    </span>
+                                  ) : (
+                                    <span className="text-muted-foreground italic text-xs">
+                                      Restores this row (and any moved children) to the parser baseline.
+                                    </span>
+                                  )}
+                                </div>
+                                {aiActionError && <p className="text-xs text-destructive mt-1">{aiActionError}</p>}
                               </div>
-                              {aiActionError && <p className="text-xs text-destructive mt-1">{aiActionError}</p>}
-                            </div>
-                          )}
-                          {/* DUAL-AI (ADR-0003 sec 8A): the Gemini accept/reject block, mounted
+                            )}
+                            {/* DUAL-AI (ADR-0003 sec 8A): the Gemini accept/reject block, mounted
                               BENEATH the Claude block. Visual clone of the Claude block reading
                               gemini_* + calling the gemini endpoints. R3a (ADR-0006): the block now
                               owns ONLY the Pending accept/reject UI (gated on !readOnly) -- the
@@ -3048,357 +3585,357 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                               children accepts route to the SHARED RestructureModal via
                               onOpenRestructureGemini (markGeminiAccepted). Only mounted when
                               geminiEnabled. */}
-                          {geminiEnabled && !readOnly && (
-                            <GeminiAcceptBlock
-                              row={row}
-                              boqName={boqName}
-                              sheetName={sheetName}
-                              hasChildren={hasChildrenSet.has(row.row_index)}
-                              parentLabel={(idx) => {
-                                if (idx < 0) return "Top level (root)";
-                                const src = byIdx.get(idx)?.source_row_number;
-                                return src !== undefined ? `row ${src}` : `#${idx}`;
-                              }}
-                              readOnly={readOnly}
-                              onOpenRestructure={onOpenRestructureGemini}
-                              onChanged={() => { onRemarkSaved?.(); }}
-                              onAccepted={(editedAt) => { onSaved?.(editedAt); }}
-                            />
-                          )}
-                          {/* "Edit Row" accordion -- collapses the inline edit surfaces (values,
+                            {geminiEnabled && !readOnly && (
+                              <GeminiAcceptBlock
+                                row={row}
+                                boqName={boqName}
+                                sheetName={sheetName}
+                                hasChildren={hasChildrenSet.has(row.row_index)}
+                                parentLabel={(idx) => {
+                                  if (idx < 0) return "Top level (root)";
+                                  const src = byIdx.get(idx)?.source_row_number;
+                                  return src !== undefined ? `row ${src}` : `#${idx}`;
+                                }}
+                                readOnly={readOnly}
+                                onOpenRestructure={onOpenRestructureGemini}
+                                onChanged={() => { onRemarkSaved?.(); }}
+                                onAccepted={(editedAt) => { onSaved?.(editedAt); }}
+                              />
+                            )}
+                            {/* "Edit Row" accordion -- collapses the inline edit surfaces (values,
                               text, per-area) behind one CLOSED-by-default toggle so the detail panel
                               opens read-first. Only rendered when the sheet is editable AND at least
                               one editable surface exists; on a read-only/finalized sheet none of the
                               inner blocks render, so the accordion is suppressed entirely. Remarks is
                               a SEPARATE section below (excluded by owner request). */}
-                          {!readOnly && (editableDescriptors.length > 0 || editableTextDescriptors.length > 0 || editableAreaDescriptors.length > 0) && (
-                            <Accordion type="single" collapsible className="mb-2 border-t border-border/60 pt-1">
-                              <AccordionItem value="edit-row" className="border-none">
-                                {/* Compact INLINE trigger: neutralize shadcn's default `flex-1 justify-between`
+                            {!readOnly && (editableDescriptors.length > 0 || editableTextDescriptors.length > 0 || editableAreaDescriptors.length > 0) && (
+                              <Accordion type="single" collapsible className="mb-2 border-t border-border/60 pt-1">
+                                <AccordionItem value="edit-row" className="border-none">
+                                  {/* Compact INLINE trigger: neutralize shadcn's default `flex-1 justify-between`
                                     (which strands the chevron at the far-right edge of this wide panel) so the
                                     label + chevron sit together, left-aligned, matching the panel's other
                                     text-[10px] uppercase section labels. */}
-                                <AccordionTrigger className="w-auto flex-none justify-start gap-1.5 rounded px-1.5 py-1 -ml-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground hover:no-underline hover:text-foreground">
-                                  Edit Row
-                                </AccordionTrigger>
-                                <AccordionContent className="pb-0">
-                                  {/* C-v2: editable value inputs -- the flat numeric fields this sheet
+                                  <AccordionTrigger className="w-auto flex-none justify-start gap-1.5 rounded px-1.5 py-1 -ml-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground hover:no-underline hover:text-foreground">
+                                    Edit Row
+                                  </AccordionTrigger>
+                                  <AccordionContent className="pb-0">
+                                    {/* C-v2: editable value inputs -- the flat numeric fields this sheet
                                       surfaces (per-area cells + text fields stay read-only here). Each
                                       commits via an explicit Apply button that opens the confirm dialog.
                                       Slice D1: the whole block is gated OUT when readOnly. */}
-                                  {!readOnly && editableDescriptors.length > 0 && (
-                                    <div className="mb-2">
-                                      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Edit values</p>
-                                      {/* Fixed 4-per-row, content-sized, left-packed grid: the four
+                                    {!readOnly && editableDescriptors.length > 0 && (
+                                      <div className="mb-2">
+                                        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Edit values</p>
+                                        {/* Fixed 4-per-row, content-sized, left-packed grid: the four
                                           fixed-width (w-36) fields sit close together then wrap to the next
                                           row of 4, with no equal-grid dead space spreading them apart. */}
-                                      <div className="grid grid-cols-[repeat(4,max-content)] gap-2 justify-start">
-                                        {editableDescriptors.map(d => {
-                                          const stored = (row as unknown as Record<string, unknown>)[d.value_field];
-                                          const storedStr = stored === null || stored === undefined ? "" : String(stored);
-                                          const current = editInputs[d.value_field] ?? storedStr;
-                                          const dirty = current !== storedStr;
-                                          const fieldLabel = `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}`;
-                                          return (
-                                            <div key={d.value_field} className="flex flex-col gap-1">
-                                              <label
-                                                htmlFor={`edit-${row.row_index}-${d.value_field}`}
-                                                className="text-[10px] text-muted-foreground"
-                                              >
-                                                {fieldLabel}
-                                              </label>
-                                              <div className="flex items-center gap-1">
-                                                <Input
-                                                  id={`edit-${row.row_index}-${d.value_field}`}
-                                                  type="number"
-                                                  value={current}
-                                                  onChange={(e) =>
-                                                    setEditInputs(prev => ({ ...prev, [d.value_field]: e.target.value }))
-                                                  }
-                                                  className="h-7 text-xs w-36"
-                                                />
-                                                <Button
-                                                  type="button"
-                                                  size="sm"
-                                                  variant="outline"
-                                                  className="h-7 px-2 text-xs shrink-0"
-                                                  disabled={!dirty || isSaving}
-                                                  onClick={() => openValueConfirm(row, d, storedStr, current)}
+                                        <div className="grid grid-cols-[repeat(4,max-content)] gap-2 justify-start">
+                                          {editableDescriptors.map(d => {
+                                            const stored = (row as unknown as Record<string, unknown>)[d.value_field];
+                                            const storedStr = stored === null || stored === undefined ? "" : String(stored);
+                                            const current = editInputs[d.value_field] ?? storedStr;
+                                            const dirty = current !== storedStr;
+                                            const fieldLabel = `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}`;
+                                            return (
+                                              <div key={d.value_field} className="flex flex-col gap-1">
+                                                <label
+                                                  htmlFor={`edit-${row.row_index}-${d.value_field}`}
+                                                  className="text-[10px] text-muted-foreground"
                                                 >
-                                                  Apply
-                                                </Button>
+                                                  {fieldLabel}
+                                                </label>
+                                                <div className="flex items-center gap-1">
+                                                  <Input
+                                                    id={`edit-${row.row_index}-${d.value_field}`}
+                                                    type="number"
+                                                    value={current}
+                                                    onChange={(e) =>
+                                                      setEditInputs(prev => ({ ...prev, [d.value_field]: e.target.value }))
+                                                    }
+                                                    className="h-7 text-xs w-36"
+                                                  />
+                                                  <Button
+                                                    type="button"
+                                                    size="sm"
+                                                    variant="outline"
+                                                    className="h-7 px-2 text-xs shrink-0"
+                                                    disabled={!dirty || isSaving}
+                                                    onClick={() => openValueConfirm(row, d, storedStr, current)}
+                                                  >
+                                                    Apply
+                                                  </Button>
+                                                </div>
                                               </div>
-                                            </div>
-                                          );
-                                        })}
+                                            );
+                                          })}
+                                        </div>
                                       </div>
-                                    </div>
-                                  )}
-                                  {/* C-v2b: editable TEXT inputs (unit / make_model) -- a separate
+                                    )}
+                                    {/* C-v2b: editable TEXT inputs (unit / make_model) -- a separate
                                       block from the numeric one. Apply saves DIRECTLY (no confirm
                                       dialog); the value is a string. Shown only when the sheet maps
                                       the column (editableTextDescriptors gating). Slice D1: gated OUT when readOnly. */}
-                                  {!readOnly && editableTextDescriptors.length > 0 && (
-                                    <div className="mb-2">
-                                      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Edit text</p>
-                                      {/* Fixed 4-per-row, content-sized, left-packed grid: the four
+                                    {!readOnly && editableTextDescriptors.length > 0 && (
+                                      <div className="mb-2">
+                                        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Edit text</p>
+                                        {/* Fixed 4-per-row, content-sized, left-packed grid: the four
                                           fixed-width (w-36) fields sit close together then wrap to the next
                                           row of 4, with no equal-grid dead space spreading them apart. */}
-                                      <div className="grid grid-cols-[repeat(4,max-content)] gap-2 justify-start">
-                                        {editableTextDescriptors.map(d => {
-                                          const stored = (row as unknown as Record<string, unknown>)[d.value_field];
-                                          const storedStr = stored === null || stored === undefined ? "" : String(stored);
-                                          const current = textInputs[d.value_field] ?? storedStr;
-                                          const dirty = current !== storedStr;
-                                          const fieldLabel = `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}`;
-                                          return (
-                                            <div key={d.value_field} className="flex flex-col gap-1">
-                                              <label
-                                                htmlFor={`edit-text-${row.row_index}-${d.value_field}`}
-                                                className="text-[10px] text-muted-foreground"
-                                              >
-                                                {fieldLabel}
-                                              </label>
-                                              <div className="flex items-center gap-1">
-                                                <Input
-                                                  id={`edit-text-${row.row_index}-${d.value_field}`}
-                                                  type="text"
-                                                  value={current}
-                                                  onChange={(e) =>
-                                                    setTextInputs(prev => ({ ...prev, [d.value_field]: e.target.value }))
-                                                  }
-                                                  className="h-7 text-xs w-36"
-                                                />
-                                                <Button
-                                                  type="button"
-                                                  size="sm"
-                                                  variant="outline"
-                                                  className="h-7 px-2 text-xs shrink-0"
-                                                  disabled={!dirty || isSaving}
-                                                  onClick={() => { void saveTextField(row.row_index, d.value_field, current); }}
+                                        <div className="grid grid-cols-[repeat(4,max-content)] gap-2 justify-start">
+                                          {editableTextDescriptors.map(d => {
+                                            const stored = (row as unknown as Record<string, unknown>)[d.value_field];
+                                            const storedStr = stored === null || stored === undefined ? "" : String(stored);
+                                            const current = textInputs[d.value_field] ?? storedStr;
+                                            const dirty = current !== storedStr;
+                                            const fieldLabel = `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}`;
+                                            return (
+                                              <div key={d.value_field} className="flex flex-col gap-1">
+                                                <label
+                                                  htmlFor={`edit-text-${row.row_index}-${d.value_field}`}
+                                                  className="text-[10px] text-muted-foreground"
                                                 >
-                                                  Apply
-                                                </Button>
+                                                  {fieldLabel}
+                                                </label>
+                                                <div className="flex items-center gap-1">
+                                                  <Input
+                                                    id={`edit-text-${row.row_index}-${d.value_field}`}
+                                                    type="text"
+                                                    value={current}
+                                                    onChange={(e) =>
+                                                      setTextInputs(prev => ({ ...prev, [d.value_field]: e.target.value }))
+                                                    }
+                                                    className="h-7 text-xs w-36"
+                                                  />
+                                                  <Button
+                                                    type="button"
+                                                    size="sm"
+                                                    variant="outline"
+                                                    className="h-7 px-2 text-xs shrink-0"
+                                                    disabled={!dirty || isSaving}
+                                                    onClick={() => { void saveTextField(row.row_index, d.value_field, current); }}
+                                                  >
+                                                    Apply
+                                                  </Button>
+                                                </div>
                                               </div>
-                                            </div>
-                                          );
-                                        })}
+                                            );
+                                          })}
+                                        </div>
                                       </div>
-                                    </div>
-                                  )}
-                                  {/* C-v2d: editable PER-AREA values -- one input per area cell
+                                    )}
+                                    {/* C-v2d: editable PER-AREA values -- one input per area cell
                                       the sheet maps (qty/amount/rate by area). Each commits via
                                       the SAME confirm dialog as flat numeric edits (openAreaConfirm).
                                       Blank -> 0.0 (the area key stays). Shown only when the sheet
                                       maps per-area columns (editableAreaDescriptors gating). Slice D1: gated OUT when readOnly. */}
-                                  {!readOnly && editableAreaDescriptors.length > 0 && (
-                                    <div className="mb-2">
-                                      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Edit per-area values</p>
-                                      {/* Fixed 4-per-row, content-sized, left-packed grid: the four
+                                    {!readOnly && editableAreaDescriptors.length > 0 && (
+                                      <div className="mb-2">
+                                        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Edit per-area values</p>
+                                        {/* Fixed 4-per-row, content-sized, left-packed grid: the four
                                           fixed-width (w-36) fields sit close together then wrap to the next
                                           row of 4, with no equal-grid dead space spreading them apart. */}
-                                      <div className="grid grid-cols-[repeat(4,max-content)] gap-2 justify-start">
-                                        {editableAreaDescriptors.map(d => {
-                                          const storedVal = resolveDescriptorValue(row, d);
-                                          const storedStr = storedVal === null || storedVal === undefined ? "" : String(storedVal);
-                                          const current = areaInputs[d.col] ?? storedStr;
-                                          const dirty = current !== storedStr;
-                                          // Label: "E — Rate Combined (per area) · Zone A" (+ rate kind for rate).
-                                          const fieldLabel = `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}${d.area ? ` · ${d.area}` : ""}`;
-                                          return (
-                                            <div key={d.col} className="flex flex-col gap-1">
-                                              <label
-                                                htmlFor={`edit-area-${row.row_index}-${d.col}`}
-                                                className="text-[10px] text-muted-foreground"
-                                              >
-                                                {fieldLabel}
-                                              </label>
-                                              <div className="flex items-center gap-1">
-                                                <Input
-                                                  id={`edit-area-${row.row_index}-${d.col}`}
-                                                  type="number"
-                                                  value={current}
-                                                  onChange={(e) =>
-                                                    setAreaInputs(prev => ({ ...prev, [d.col]: e.target.value }))
-                                                  }
-                                                  className="h-7 text-xs w-36"
-                                                />
-                                                <Button
-                                                  type="button"
-                                                  size="sm"
-                                                  variant="outline"
-                                                  className="h-7 px-2 text-xs shrink-0"
-                                                  disabled={!dirty || isSaving}
-                                                  onClick={() => openAreaConfirm(row, d, storedStr, current)}
+                                        <div className="grid grid-cols-[repeat(4,max-content)] gap-2 justify-start">
+                                          {editableAreaDescriptors.map(d => {
+                                            const storedVal = resolveDescriptorValue(row, d);
+                                            const storedStr = storedVal === null || storedVal === undefined ? "" : String(storedVal);
+                                            const current = areaInputs[d.col] ?? storedStr;
+                                            const dirty = current !== storedStr;
+                                            // Label: "E — Rate Combined (per area) · Zone A" (+ rate kind for rate).
+                                            const fieldLabel = `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}${d.area ? ` · ${d.area}` : ""}`;
+                                            return (
+                                              <div key={d.col} className="flex flex-col gap-1">
+                                                <label
+                                                  htmlFor={`edit-area-${row.row_index}-${d.col}`}
+                                                  className="text-[10px] text-muted-foreground"
                                                 >
-                                                  Apply
-                                                </Button>
+                                                  {fieldLabel}
+                                                </label>
+                                                <div className="flex items-center gap-1">
+                                                  <Input
+                                                    id={`edit-area-${row.row_index}-${d.col}`}
+                                                    type="number"
+                                                    value={current}
+                                                    onChange={(e) =>
+                                                      setAreaInputs(prev => ({ ...prev, [d.col]: e.target.value }))
+                                                    }
+                                                    className="h-7 text-xs w-36"
+                                                  />
+                                                  <Button
+                                                    type="button"
+                                                    size="sm"
+                                                    variant="outline"
+                                                    className="h-7 px-2 text-xs shrink-0"
+                                                    disabled={!dirty || isSaving}
+                                                    onClick={() => openAreaConfirm(row, d, storedStr, current)}
+                                                  >
+                                                    Apply
+                                                  </Button>
+                                                </div>
                                               </div>
-                                            </div>
-                                          );
-                                        })}
+                                            );
+                                          })}
+                                        </div>
                                       </div>
-                                    </div>
-                                  )}
-                                  {/* Shared inline save error (numeric + text + per-area edits) */}
-                                  {saveError && <p className="text-xs text-destructive mb-2">{saveError}</p>}
-                                </AccordionContent>
-                              </AccordionItem>
-                            </Accordion>
-                          )}
-                          {/* C-v2c: per-row Remarks -- human-only annotation. SEPARATE write
+                                    )}
+                                    {/* Shared inline save error (numeric + text + per-area edits) */}
+                                    {saveError && <p className="text-xs text-destructive mb-2">{saveError}</p>}
+                                  </AccordionContent>
+                                </AccordionItem>
+                              </Accordion>
+                            )}
+                            {/* C-v2c: per-row Remarks -- human-only annotation. SEPARATE write
                               path (save_review_remark): saving a remark does NOT mark the row
                               "Edited". Read + edit here in the panel (no inline reveal row).
                               Dedicated remarkError (not the shared saveError) keeps the two
                               surfaces from cross-displaying. */}
-                          {(() => {
-                            const storedRemark = row.remarks ?? "";
-                            // Slice D1: a frozen sheet shows the stored remark read-only (or nothing
-                            // when there is none) -- the Textarea + Save are gated out.
-                            if (readOnly) {
-                              if (!storedRemark) return null;
+                            {(() => {
+                              const storedRemark = row.remarks ?? "";
+                              // Slice D1: a frozen sheet shows the stored remark read-only (or nothing
+                              // when there is none) -- the Textarea + Save are gated out.
+                              if (readOnly) {
+                                if (!storedRemark) return null;
+                                return (
+                                  <div className="mb-2 max-w-md">
+                                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Remarks</p>
+                                    <p className="text-xs text-foreground whitespace-pre-wrap">{storedRemark}</p>
+                                  </div>
+                                );
+                              }
+                              const remarkOverCap = remarkInput.length > REMARK_MAX_LEN;
+                              const remarkDirty = remarkInput !== storedRemark;
                               return (
                                 <div className="mb-2 max-w-md">
                                   <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Remarks</p>
-                                  <p className="text-xs text-foreground whitespace-pre-wrap">{storedRemark}</p>
+                                  <Textarea
+                                    value={remarkInput}
+                                    onChange={(e) => setRemarkInput(e.target.value)}
+                                    placeholder="Add a note for this row (optional)"
+                                    rows={2}
+                                    className="text-xs"
+                                  />
+                                  <div className="flex items-center justify-between gap-2 mt-1">
+                                    <span
+                                      className={cn(
+                                        "text-[10px]",
+                                        remarkOverCap ? "text-destructive" : "text-muted-foreground",
+                                      )}
+                                    >
+                                      {remarkInput.length}/{REMARK_MAX_LEN}
+                                      {remarkOverCap && <span className="ml-1">max {REMARK_MAX_LEN} characters</span>}
+                                    </span>
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-7 px-2 text-xs shrink-0"
+                                      disabled={!remarkDirty || remarkOverCap || isSavingRemark}
+                                      onClick={() => { void saveRemark(row.row_index, remarkInput); }}
+                                    >
+                                      Save remark
+                                    </Button>
+                                  </div>
+                                  {remarkError && <p className="text-xs text-destructive mt-1">{remarkError}</p>}
                                 </div>
                               );
-                            }
-                            const remarkOverCap = remarkInput.length > REMARK_MAX_LEN;
-                            const remarkDirty = remarkInput !== storedRemark;
-                            return (
-                              <div className="mb-2 max-w-md">
-                                <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Remarks</p>
-                                <Textarea
-                                  value={remarkInput}
-                                  onChange={(e) => setRemarkInput(e.target.value)}
-                                  placeholder="Add a note for this row (optional)"
-                                  rows={2}
-                                  className="text-xs"
-                                />
-                                <div className="flex items-center justify-between gap-2 mt-1">
-                                  <span
-                                    className={cn(
-                                      "text-[10px]",
-                                      remarkOverCap ? "text-destructive" : "text-muted-foreground",
-                                    )}
-                                  >
-                                    {remarkInput.length}/{REMARK_MAX_LEN}
-                                    {remarkOverCap && <span className="ml-1">max {REMARK_MAX_LEN} characters</span>}
-                                  </span>
-                                  <Button
-                                    type="button"
-                                    size="sm"
-                                    variant="outline"
-                                    className="h-7 px-2 text-xs shrink-0"
-                                    disabled={!remarkDirty || remarkOverCap || isSavingRemark}
-                                    onClick={() => { void saveRemark(row.row_index, remarkInput); }}
-                                  >
-                                    Save remark
-                                  </Button>
-                                </div>
-                                {remarkError && <p className="text-xs text-destructive mt-1">{remarkError}</p>}
-                              </div>
-                            );
-                          })()}
-                          {/* R4: ONE consolidated warning block for this row -- advisory flags
+                            })()}
+                            {/* R4: ONE consolidated warning block for this row -- advisory flags
                               (orphan/parser as a line, classifier_warning expanded to one bullet
                               PER note, via WarningFlagContent) folded together with the (removed)
                               standalone "Classifier notes" section, and the per-row "Looks OK"
                               moved to the BOTTOM so it reads as "this whole block is reviewed". */}
-                          {rowFlags.length > 0 && (
-                            <div className="mb-2 rounded-md border border-amber-200/60 dark:border-amber-900/40 bg-amber-50/40 dark:bg-amber-950/15 px-2.5 py-2">
-                              <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300 mb-1 flex items-center gap-1">
-                                <AlertTriangle className="h-3 w-3" /> Warnings
-                              </p>
-                              <WarningFlagContent flags={rowFlags} classifierNotes={row.classifier_warnings} />
-                              {isDismissed && row.flags_dismissed_by && (
-                                <p className="mt-1 text-[10px] text-muted-foreground">
-                                  Acknowledged by {row.flags_dismissed_by}
-                                  {row.flags_dismissed_at ? ` · ${row.flags_dismissed_at}` : ""}
+                            {rowFlags.length > 0 && (
+                              <div className="mb-2 rounded-md border border-amber-200/60 dark:border-amber-900/40 bg-amber-50/40 dark:bg-amber-950/15 px-2.5 py-2">
+                                <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300 mb-1 flex items-center gap-1">
+                                  <AlertTriangle className="h-3 w-3" /> Warnings
                                 </p>
-                              )}
-                              {dismissError && <p className="text-xs text-destructive mt-1">{dismissError}</p>}
-                              {/* The "Looks OK" sits BELOW all the warnings -- one click acknowledges
+                                <WarningFlagContent flags={rowFlags} classifierNotes={row.classifier_warnings} />
+                                {isDismissed && row.flags_dismissed_by && (
+                                  <p className="mt-1 text-[10px] text-muted-foreground">
+                                    Acknowledged by {row.flags_dismissed_by}
+                                    {row.flags_dismissed_at ? ` · ${row.flags_dismissed_at}` : ""}
+                                  </p>
+                                )}
+                                {dismissError && <p className="text-xs text-destructive mt-1">{dismissError}</p>}
+                                {/* The "Looks OK" sits BELOW all the warnings -- one click acknowledges
                                   ALL of this row's flags at once (per-row). NOT an edit (the row stays
                                   "Original"). stopPropagation so the table-body click that closes the
                                   detail panel doesn't fire. */}
-                              <div className="mt-2 flex items-center justify-start border-t border-amber-200/50 dark:border-amber-900/30 pt-1.5">
-                                {isDismissed ? (
-                                  <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                                    <CheckCircle2 className="h-3 w-3" /> Reviewed — looks OK
-                                  </span>
-                                ) : !readOnly ? (
-                                  <Button
-                                    type="button"
-                                    size="sm"
-                                    variant="outline"
-                                    className="h-7 px-2.5 text-[11px]"
-                                    disabled={isDismissingFlags}
-                                    onClick={(e) => { e.stopPropagation(); void dismissFlags(row.row_index, true); }}
-                                  >
-                                    <CheckCircle2 className="h-3 w-3 mr-1" /> Looks OK
-                                  </Button>
-                                ) : null}
+                                <div className="mt-2 flex items-center justify-start border-t border-amber-200/50 dark:border-amber-900/30 pt-1.5">
+                                  {isDismissed ? (
+                                    <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                                      <CheckCircle2 className="h-3 w-3" /> Reviewed — looks OK
+                                    </span>
+                                  ) : !readOnly ? (
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-7 px-2.5 text-[11px]"
+                                      disabled={isDismissingFlags}
+                                      onClick={(e) => { e.stopPropagation(); void dismissFlags(row.row_index, true); }}
+                                    >
+                                      <CheckCircle2 className="h-3 w-3 mr-1" /> Looks OK
+                                    </Button>
+                                  ) : null}
+                                </div>
                               </div>
+                            )}
+                            {/* Edit history from edit_log */}
+                            <div className="mb-1">
+                              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Edit history</p>
+                              {(() => {
+                                // A2 edit-log clarity (render-only): latest-first, describe each
+                                // entry (honest verb + Excel-row parents + date+HH:MM), and DROP
+                                // suppressed entries (#162 no-op reclassify) before rendering, so
+                                // they never produce an <li>. "No edits yet." reflects the
+                                // post-suppression list.
+                                const described = (Array.isArray(row.edit_log) ? [...row.edit_log] : [])
+                                  .reverse()
+                                  .map((entry) => ({ entry, d: describeEditEntry(entry) }))
+                                  .filter((x): x is { entry: EditLogEntry; d: DescribedEditEntry } => x.d !== null);
+                                return described.length > 0 ? (
+                                  <ul className="mt-0.5 space-y-0.5">
+                                    {described.map(({ entry, d }, i) => (
+                                      <li key={i} className="text-xs text-foreground">
+                                        <span className="font-medium">{d.verb}</span>
+                                        {/* Non-parent edits keep the field name for context. */}
+                                        {d.showField ? (
+                                          <span className="text-muted-foreground">{" "}{entry.field}</span>
+                                        ) : null}
+                                        {/* C-v2d: per-area target -- "(Zone A)" or "(Zone A / combined_rate)". */}
+                                        {entry.area ? (
+                                          <span className="text-muted-foreground">
+                                            {" "}({entry.area}{entry.rate_subkey ? ` / ${entry.rate_subkey}` : ""})
+                                          </span>
+                                        ) : null}
+                                        {d.detail ? (
+                                          <>{": "}{d.detail}</>
+                                        ) : null}
+                                        {" — "}
+                                        <span className="text-muted-foreground">{entry.by} · {formatEditAt(entry.at)}</span>
+                                        {entry.reason ? (
+                                          <span className="text-muted-foreground"> · reason: {entry.reason}</span>
+                                        ) : null}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                ) : (
+                                  <p className="mt-0.5 text-xs text-muted-foreground italic">No edits yet.</p>
+                                );
+                              })()}
                             </div>
-                          )}
-                          {/* Edit history from edit_log */}
-                          <div className="mb-1">
-                            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Edit history</p>
-                            {(() => {
-                              // A2 edit-log clarity (render-only): latest-first, describe each
-                              // entry (honest verb + Excel-row parents + date+HH:MM), and DROP
-                              // suppressed entries (#162 no-op reclassify) before rendering, so
-                              // they never produce an <li>. "No edits yet." reflects the
-                              // post-suppression list.
-                              const described = (Array.isArray(row.edit_log) ? [...row.edit_log] : [])
-                                .reverse()
-                                .map((entry) => ({ entry, d: describeEditEntry(entry) }))
-                                .filter((x): x is { entry: EditLogEntry; d: DescribedEditEntry } => x.d !== null);
-                              return described.length > 0 ? (
-                                <ul className="mt-0.5 space-y-0.5">
-                                  {described.map(({ entry, d }, i) => (
-                                    <li key={i} className="text-xs text-foreground">
-                                      <span className="font-medium">{d.verb}</span>
-                                      {/* Non-parent edits keep the field name for context. */}
-                                      {d.showField ? (
-                                        <span className="text-muted-foreground">{" "}{entry.field}</span>
-                                      ) : null}
-                                      {/* C-v2d: per-area target -- "(Zone A)" or "(Zone A / combined_rate)". */}
-                                      {entry.area ? (
-                                        <span className="text-muted-foreground">
-                                          {" "}({entry.area}{entry.rate_subkey ? ` / ${entry.rate_subkey}` : ""})
-                                        </span>
-                                      ) : null}
-                                      {d.detail ? (
-                                        <>{": "}{d.detail}</>
-                                      ) : null}
-                                      {" — "}
-                                      <span className="text-muted-foreground">{entry.by} · {formatEditAt(entry.at)}</span>
-                                      {entry.reason ? (
-                                        <span className="text-muted-foreground"> · reason: {entry.reason}</span>
-                                      ) : null}
-                                    </li>
-                                  ))}
-                                </ul>
-                              ) : (
-                                <p className="mt-0.5 text-xs text-muted-foreground italic">No edits yet.</p>
-                              );
-                            })()}
+                            {/* Reason slot -- laid out but empty; pending Slice C's 6th edit_log key */}
+                            <p className="text-[11px] text-muted-foreground italic">Reason — (added in a later step)</p>
                           </div>
-                          {/* Reason slot -- laid out but empty; pending Slice C's 6th edit_log key */}
-                          <p className="text-[11px] text-muted-foreground italic">Reason — (added in a later step)</p>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>{/* R4: close the table-card div opened above; the dialogs/modal below are siblings
               inside the outer space-y-3 wrapper. */}
 

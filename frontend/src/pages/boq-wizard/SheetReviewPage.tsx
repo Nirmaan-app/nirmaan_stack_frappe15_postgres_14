@@ -593,6 +593,31 @@ const SheetReviewPage = () => {
     }
   };
 
+  // ── S5: revision "Looks OK" confirmations ────────────────────────────────
+  // Rows that carried nothing from the original block finalize until a human confirms them. Both
+  // calls mutate() afterwards so the row stamp, the panel's remaining count and the Finalize
+  // button's disabled state all resettle from the SAME server read -- never from local optimism,
+  // because the count they feed is the one the finalize gate itself refuses on.
+  const { call: affirmRowCall } = useFrappePostCall<{ message: { ok: boolean } }>(
+    "nirmaan_stack.api.boq.wizard.review_screen.affirm_revision_row",
+  );
+  const [affirmError, setAffirmError] = useState<string | null>(null);
+
+  const handleAffirmRow = async (rowIndex: number, affirmed: boolean) => {
+    setAffirmError(null);
+    try {
+      await affirmRowCall({
+        boq_name: boqId ?? "",
+        sheet_name: sheetName ?? "", // VERBATIM #152
+        row_index: rowIndex,
+        affirmed,
+      });
+      void mutate();
+    } catch (e: unknown) {
+      setAffirmError(getFrappeError(e) || "Could not save that confirmation.");
+    }
+  };
+
   const { call: markCall, loading: markLoading } = useFrappePostCall<{
     message: MarkParsedCheckDoneResponse;
   }>("nirmaan_stack.api.boq.wizard.review_screen.mark_sheet_parsed_check_done");
@@ -641,6 +666,16 @@ const SheetReviewPage = () => {
         // missing or negative. Re-fetch rows so the inline qty cells + the client qtyGap gate re-sync.
         setMarkError(
           `Enter a valid quantity (present and not negative) for all ${msg.qty_gap} selected line item${msg.qty_gap === 1 ? "" : "s"} before finalizing.`,
+        );
+        void mutate();
+      } else if (msg.unaffirmed_count) {
+        // S5 (revision): rows that didn't carry are still unconfirmed. Like the qty_gap case this
+        // is normally unreachable -- the button is already disabled -- so reaching it means the
+        // count moved under us (a re-parse, or another editor). Re-fetch so the red rows, the
+        // panel and the button all re-sync from the server's own count.
+        setMarkError(
+          `Confirm the ${msg.unaffirmed_count} row${msg.unaffirmed_count === 1 ? "" : "s"} that ` +
+          "didn't carry from the original before finalizing.",
         );
         void mutate();
       } else {
@@ -751,6 +786,11 @@ const SheetReviewPage = () => {
   // A2: template-origin finalize gate -- count SELECTED line_item rows still missing a quantity
   // (STRICT, rate-only NOT exempt). Upload origin -> 0 (countSelectedLineItemsNoQty is not called).
   const qtyGap = isTemplateOrigin ? countSelectedLineItemsNoQty(rows) : 0;
+  // S5: revision finalize gate -- rows stamped `Needs Review` that nobody has confirmed. Read from
+  // the SERVER meta, not counted client-side: it is produced by the very function the finalize
+  // endpoint refuses on, so the button and the server can never disagree (ADR-0010 F1). 0 off a
+  // revision, and 0 on a sheet parsed before this feature shipped.
+  const unaffirmedCount = reviewData?.message?.revision?.unaffirmed_count ?? 0;
 
   // Acquire the draft lock on FIRST edit-intent (ReviewTree threads this as onEditIntent, called
   // at the top of every real-edit funnel -- value/text edits, reclassify/restructure opens, AI
@@ -894,12 +934,14 @@ const SheetReviewPage = () => {
               variant="outline"
               className="gap-1.5"
               onClick={openMarkDialog}
-              disabled={reviewLoading || breaks.length > 0 || qtyGap > 0}
+              disabled={reviewLoading || breaks.length > 0 || qtyGap > 0 || unaffirmedCount > 0}
               title={breaks.length > 0
                 ? "Fix the must-fix structural issues listed above before finalizing."
                 : qtyGap > 0
                   ? `Enter a valid quantity (present and not negative) for all ${qtyGap} selected line item${qtyGap === 1 ? "" : "s"} before finalizing.`
-                  : undefined}
+                  : unaffirmedCount > 0
+                    ? `Confirm the ${unaffirmedCount} row${unaffirmedCount === 1 ? "" : "s"} that didn't carry from the original before finalizing.`
+                    : undefined}
             >
               <ShieldCheck className="h-4 w-4" />
               Mark Finalized
@@ -1033,6 +1075,12 @@ const SheetReviewPage = () => {
           <span>{geminiMessage}</span>
         </div>
       )}
+      {/* S5: a failed confirmation. Inline, not a toast -- the wizard convention. */}
+      {affirmError && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-destructive/40 bg-destructive/10 text-xs text-destructive flex-wrap">
+          <span>{affirmError}</span>
+        </div>
+      )}
       {geminiResult && (
         <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-indigo-300 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/40 text-xs text-indigo-900 dark:text-indigo-100 flex-wrap">
           <Sparkles className="h-3.5 w-3.5 shrink-0 text-indigo-600 dark:text-indigo-300" />
@@ -1157,6 +1205,14 @@ const SheetReviewPage = () => {
           selectable={isTemplateOrigin && !readOnly}
           canCreateRows={isTemplateOrigin && !readOnly}
           onSelectionChanged={() => { void mutate(); void breaksMutate(); }}
+          // S5b (#1103, ADR-0014 D7): the revised-BoQ delta meta -- null for upload/template so the
+          // Status column + delta panel stay inert (byte-identical off a revision).
+          revisionMeta={reviewData?.message?.revision ?? null}
+          // S5: the revision confirmation writes. WITHHELD when readOnly (frozen sheet) -- the
+          // wizard's presence-is-the-gate convention, so the column renders but its checkbox is
+          // disabled rather than there being a second per-cell "editable" signal. Both refetch so
+          // the row stamps, the blocking count and the Finalize button all resettle together.
+          onAffirmRow={readOnly ? undefined : handleAffirmRow}
         />
       )}
 

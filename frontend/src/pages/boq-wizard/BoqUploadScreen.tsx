@@ -81,6 +81,8 @@ export function BoqUploadScreen({ projectId, onBack, embedded }: BoqUploadScreen
     confirmedFields,
     boqDocName,
     jobId,
+    revisionMode,
+    sourceBoq,
     setUploadStatus,
     setBoqDocName,
     fillFromParse,
@@ -151,7 +153,9 @@ export function BoqUploadScreen({ projectId, onBack, embedded }: BoqUploadScreen
 
   // Fetch the BOQs doc once boqDocName is set (i.e. after socket success).
   // Third arg null disables SWR fetch until boqDocName is available (per sdk gotcha in CLAUDE.md).
-  const { data: boqDoc } = useFrappeGetDoc<BOQsDoc>(
+  // mutate is the W3 re-read after an entry conversion: convert_revision_entry recomputes
+  // boq_name + version server-side, and the fill effect below re-runs off the fresh doc.
+  const { data: boqDoc, mutate: mutateBoqDoc } = useFrappeGetDoc<BOQsDoc>(
     "BOQs",
     boqDocName ?? "",
     boqDocName ? undefined : null
@@ -173,15 +177,21 @@ export function BoqUploadScreen({ projectId, onBack, embedded }: BoqUploadScreen
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [boqDoc, uploadStatus]);
 
-  // ── Continue gate (M1.33-M1.36) ──────────────────────────────────────────
+  // ── Continue gate (M1.33-M1.36; ADR-0014 D1 adds "original selected" in Revise mode) ──
   const allConfirmed =
     confirmedFields.boqName && confirmedFields.version && confirmedFields.gst;
-  const canContinue = droppedFile !== null && uploadStatus === "done" && allConfirmed;
+  // A revision must have its original picked before Continue (source_boq rides the upload).
+  const needsOriginal = revisionMode === "revise" && !sourceBoq;
+  const canContinue =
+    droppedFile !== null && uploadStatus === "done" && allConfirmed && !needsOriginal;
 
   const missingItems: string[] = [];
+  if (needsOriginal) missingItems.push("select the original BoQ to revise");
   if (!droppedFile) {
     missingItems.push("upload a BoQ file");
-  } else if (uploadStatus !== "done") {
+  } else if (uploadStatus !== "done" && !needsOriginal) {
+    // In Revise mode the upload is held until the original is picked -- don't mislabel that
+    // wait as "parsing"; the needsOriginal item already tells the user what to do.
     missingItems.push("wait for parsing to complete");
   }
   if (!confirmedFields.boqName) missingItems.push("confirm BoQ name");
@@ -230,6 +240,11 @@ export function BoqUploadScreen({ projectId, onBack, embedded }: BoqUploadScreen
             <BoqMasterPanel
               projectName={project?.project_name ?? ""}
               customer={project?.customer}
+              // W3 entry un-lock: the panel needs the SERVER's current entry to decide
+              // whether a radio/picker change is a real conversion or a no-op.
+              boqOrigin={boqDoc?.origin}
+              boqSourceBoq={boqDoc?.source_boq ?? null}
+              onEntryConverted={mutateBoqDoc}
             />
           </CardContent>
         </Card>

@@ -39,9 +39,25 @@ interface AreaQtyCellsProps {
   visibleCols: Set<string>;
   // Persist one per-area edit (wraps ReviewTree.saveAreaQtyInline). Fires on blur/Enter.
   onSaveArea: (row: ReviewRow, d: ColumnDescriptor, raw: string) => void;
+  // Does this row have to carry a quantity before the sheet can finalize? (= a SELECTED
+  // line item). Drives the LIVE attention fill on the Total cell -- see below.
+  qtyRequired?: boolean;
+  // Is this row ELIGIBLE to carry a quantity at all (preamble / line_item -- the classes the
+  // clone seeds qty_by_area for)? A note / spacer / subtotal marker renders its area cells
+  // READ-ONLY: a quantity there is meaningless, saved silently, and only surfaced much later
+  // as a pricing-editor anomaly. Default TRUE so existing callers are unchanged.
+  qtyEditable?: boolean;
+  // Quantity keyboard nav: registers each area input in ReviewTree's (row_index, col) registry
+  // so the ONE tbody keydown handler can move focus between them. Reference-stable (useCallback
+  // in ReviewTree), so it never re-runs the effect below or churns this component.
+  registerQtyInput?: (rowIndex: number, col: string, el: HTMLInputElement | null) => void;
+  // B1: acquire the draft lock on edit INTENT = focus. Deliberately NOT fired from the save
+  // path: save_review_edit acquires the lock server-side too, and firing both at once races
+  // the lock's check-then-insert and 409s the write. See ReviewTree.saveQtyInline's note.
+  onEditIntent?: () => void;
 }
 
-export function AreaQtyCells({ row, areaDescriptors, totalDescriptor, visibleCols, onSaveArea }: AreaQtyCellsProps) {
+export function AreaQtyCells({ row, areaDescriptors, totalDescriptor, visibleCols, onSaveArea, qtyRequired = false, qtyEditable = true, registerQtyInput, onEditIntent }: AreaQtyCellsProps) {
   // LOCAL per-area draft (area name -> raw string). Isolated to THIS row's cells so a
   // keystroke re-renders only here. Empty until the user types; each area falls back to
   // its saved value when its draft entry is absent.
@@ -98,6 +114,14 @@ export function AreaQtyCells({ row, areaDescriptors, totalDescriptor, visibleCol
   // print a spurious "0" on every structural row. A user-entered draft forces it qty-bearing.
   const isQtyBearing = row.qty_by_area != null || Object.keys(draft).length > 0;
 
+  // LIVE "still needs a quantity" fill on the Total cell. Derived from the SAME draft-or-saved
+  // values as liveTotal, NOT from the saved qty_total the review block reads -- otherwise the
+  // Total would already show 25 while the cell still looked unsatisfied, waiting on the server
+  // re-sum + refetch. That saved/live split is deliberate and mirrors the pricing editor's
+  // (priceability computes the strip from saved state; the grid keeps its own draft-aware
+  // marker). A NEGATIVE value keeps its existing red ring -- amber is the missing-value channel.
+  const liveQtyGap = qtyRequired && liveTotal <= 0;
+
   return (
     <Fragment>
       {areaDescriptors.map(d => {
@@ -108,12 +132,30 @@ export function AreaQtyCells({ row, areaDescriptors, totalDescriptor, visibleCol
         // NOT persisted -- red ring + inline hint, value kept for correction. isNeg drives both.
         const numeric = Number(value);
         const isNeg = value.trim() !== "" && Number.isFinite(numeric) && numeric < 0;
+        // Non-eligible row -> read-only cell. Emitted in the SAME <td> position so the
+        // column-alignment contract above still holds; any stored value still displays.
+        if (!qtyEditable) {
+          return (
+            <td
+              key={d.col}
+              className="px-2 py-1.5 text-right align-top border-l border-border tabular-nums"
+            >
+              {renderDescriptorCell(row.qty_by_area?.[area] ?? null)}
+            </td>
+          );
+        }
         return (
           <td
             key={d.col}
             className="px-2 py-1.5 text-right align-top border-l border-border tabular-nums"
           >
             <input
+              ref={(el) => registerQtyInput?.(row.row_index, d.col, el)}
+              // Marks this input navigable + carries its identity for ReviewTree's ONE tbody
+              // keydown handler (no React state -- see handleQtyNavKeyDown).
+              data-qtynav="1"
+              data-qtynav-row={row.row_index}
+              data-qtynav-col={d.col}
               type="number"
               inputMode="decimal"
               min="0"
@@ -124,15 +166,23 @@ export function AreaQtyCells({ row, areaDescriptors, totalDescriptor, visibleCol
                 const v = e.target.value;
                 setDraft(prev => ({ ...prev, [area]: v }));
               }}
+              onFocus={() => onEditIntent?.()}
               // Block the save when negative -- keep the draft so the user can fix it.
               onBlur={(e) => { if (!isNeg) onSaveArea(row, d, e.target.value); }}
               onKeyDown={(e) => {
-                if (e.key === "Enter") {
+                // Escape drops THIS area's draft so the input falls back to its saved value.
+                // Enter / arrows / Tab bubble to the tbody nav handler.
+                if (e.key === "Escape") {
                   e.preventDefault();
-                  (e.target as HTMLInputElement).blur();
+                  setDraft(prev => {
+                    const copy = { ...prev };
+                    delete copy[area];
+                    return copy;
+                  });
                 }
               }}
-              placeholder="0"
+              // NO placeholder: a grey "0" in an empty cell reads exactly like a typed 0, and
+              // both are quantity gaps -- the amber Total fill is the honest signal instead.
               className={
                 "w-20 rounded border bg-background px-1.5 py-0.5 text-right text-xs tabular-nums focus:outline-none focus:ring-1 " +
                 (isNeg
@@ -149,7 +199,11 @@ export function AreaQtyCells({ row, areaDescriptors, totalDescriptor, visibleCol
       {totalDescriptor && visibleCols.has(totalDescriptor.col) && (
         <td
           key={totalDescriptor.col}
-          className="px-2 py-1.5 text-right align-top border-l border-border tabular-nums"
+          title={liveQtyGap ? "This line needs a quantity before the sheet can be finalized." : undefined}
+          className={
+            "px-2 py-1.5 text-right align-top border-l border-border tabular-nums" +
+            (liveQtyGap ? " bg-amber-50 dark:bg-amber-950/30" : "")
+          }
         >
           {/* Read-only LIVE sum -- formatted identically to the descriptor cell
               (renderDescriptorCell of a number -> fmtNum), so display matches. A non-qty

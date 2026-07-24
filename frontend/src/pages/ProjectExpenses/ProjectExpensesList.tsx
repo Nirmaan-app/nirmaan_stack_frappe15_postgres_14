@@ -37,6 +37,7 @@ import {
 import { getProjectExpenseColumns } from "./config/projectExpensesColumns";
 import { NewProjectExpenseDialog } from "./components/NewProjectExpenseDialog";
 import { EditProjectExpenseDialog } from "./components/EditProjectExpenseDialog";
+import { UpdatePaymentDetailsDialog } from "./components/UpdatePaymentDetailsDialog";
 import { ProjectExpenseSummaryCard } from "./components/ProjectExpenseSummaryCard";
 
 // UI Components
@@ -120,7 +121,12 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
     expense: ProjectExpenses;
     next: "Approved" | "Paid";
   } | null>(null);
-  const [markPaidMode, setMarkPaidMode] = useState(false);
+  // Mark-as-Paid opens the two-stage payment dialog (receipt AI auto-fill + proof),
+  // mirroring Non-Project. Regular Edit uses EditProjectExpenseDialog.
+  const [paymentExpense, setPaymentExpense] = useState<ProjectExpenses | null>(
+    null
+  );
+  const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false);
 
   // Embedded in a project (projectId present) = Paid-only view with NO status tabs;
   // the standalone list keeps the full tabbed Requested/Approved/Paid/All workflow.
@@ -209,7 +215,6 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
   const handleOpenEditDialog = useCallback(
     (expense: ProjectExpenses) => {
       setExpenseToEdit(expense);
-      setMarkPaidMode(false);
       setEditProjectExpenseDialog(true);
     },
     [setEditProjectExpenseDialog]
@@ -224,14 +229,10 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
     },
     []
   );
-  const handleOpenMarkPaid = useCallback(
-    (expense: ProjectExpenses) => {
-      setExpenseToEdit(expense);
-      setMarkPaidMode(true);
-      setEditProjectExpenseDialog(true);
-    },
-    [setEditProjectExpenseDialog]
-  );
+  const handleOpenMarkPaid = useCallback((expense: ProjectExpenses) => {
+    setPaymentExpense(expense);
+    setIsPaymentDialogOpen(true);
+  }, []);
 
   const confirmDelete = async () => {
     if (!expenseToDelete) return;
@@ -489,11 +490,24 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
       {expenseToEdit && (
         <EditProjectExpenseDialog
           expenseToEdit={expenseToEdit}
-          markAsPaid={markPaidMode}
           onSuccess={() => {
             refetch();
             mutateCounts();
             setEditProjectExpenseDialog(false);
+          }}
+        />
+      )}
+      {paymentExpense && (
+        <UpdatePaymentDetailsDialog
+          isOpen={isPaymentDialogOpen}
+          setIsOpen={setIsPaymentDialogOpen}
+          expense={paymentExpense}
+          markAsPaid
+          getProjectName={getProjectName}
+          getVendorName={getVendorName}
+          onSuccess={() => {
+            refetch();
+            mutateCounts();
           }}
         />
       )}

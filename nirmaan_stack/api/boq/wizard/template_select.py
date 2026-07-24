@@ -30,6 +30,8 @@ BEFORE the write. `frappe.db.commit()` runs after the writes. sheet_name is matc
 """
 from __future__ import annotations
 
+import json
+
 import frappe
 from frappe.utils import now_datetime
 
@@ -44,6 +46,32 @@ from nirmaan_stack.api.boq.wizard.review_screen import (
 # subtotal_marker / header_repeat) rides along with its nearest eligible ancestor and is
 # derived at read / commit -- never written by the cascade (D5).
 _ELIGIBLE_CLASSIFICATIONS: frozenset[str] = frozenset({"preamble", "line_item"})
+
+
+def zeroed_qty_by_area(current) -> dict | None:
+    """The cleared form of a row's `qty_by_area`: the SAME area keys, all values 0.
+
+    The key set is PRESERVED rather than nulled because a template clone seeds every eligible
+    row with `{area: 0.0}` for each configured area, and the review grid reads that key set to
+    decide whether a row is qty-bearing (a null makes the Total render blank instead of 0).
+    Clearing must therefore return the row to its freshly-cloned shape, not to an empty one.
+    Returns None when there was no dict to begin with (single-area rows), so the caller can
+    skip writing the column at all. PURE -- unit-tested."""
+    if not isinstance(current, dict):
+        return None
+    return {area: 0 for area in current}
+
+
+def _clear_row_quantities(row_name: str, current: dict) -> None:
+    """Zero a row's quantities on DESELECT. Uses set_value (no doc.save) to match the
+    is_excluded write beside it -- no provenance / edit_log churn for a selection action.
+    `qty_by_area` is a JSON column written through json.dumps; the column is skipped entirely
+    for a single-area row that never had one."""
+    values: dict = {"qty_total": 0}
+    zeroed = zeroed_qty_by_area(current.get("qty_by_area"))
+    if zeroed is not None:
+        values["qty_by_area"] = json.dumps(zeroed)
+    frappe.db.set_value("BoQ Review Row", row_name, values, update_modified=False)
 
 
 # ---------------------------------------------------------------------------
@@ -194,6 +222,8 @@ def set_row_excluded(
             "parent_index", "human_parent", "human_is_root",
             "ai_suggestion_status", "ai_suggested_classification",
             "ai_suggested_parent", "ai_suggested_is_root",
+            # Quantities: a DESELECT clears them (see _clear_row_quantities).
+            "qty_total", "qty_by_area",
         ],
     )
 
@@ -201,6 +231,7 @@ def set_row_excluded(
     eff_class: dict[int, str] = {}
     name_by_idx: dict[int, str] = {}
     excluded_by_idx: dict[int, int] = {}
+    qty_by_idx: dict[int, dict] = {}
     for r in sheet_rows:
         idx = int(r.row_index)
         eff = resolve_effective(r)
@@ -208,6 +239,7 @@ def set_row_excluded(
         eff_class[idx] = eff["effective_classification"]
         name_by_idx[idx] = r.name
         excluded_by_idx[idx] = 1 if r.is_excluded else 0
+        qty_by_idx[idx] = {"qty_total": r.qty_total, "qty_by_area": r.qty_by_area}
 
     if row_index not in name_by_idx:
         frappe.throw(
@@ -239,6 +271,17 @@ def set_row_excluded(
             update_modified=False,
         )
         excluded_by_idx[idx] = new_val
+        # DESELECT also CLEARS the row's quantities. A deselected row is not committed, so a
+        # quantity left on it is dead data that silently returns if the row is re-selected --
+        # the reviewer would see a number they did not type for a scope they just removed.
+        # Cascade-wide: a deselected parent clears its whole subtree, which is the case that
+        # matters (deselecting one group can strand dozens of typed quantities).
+        # Like the is_excluded write itself this uses set_value and stamps NO provenance: the
+        # user performed a SELECTION, not a per-row edit, and flipping a cascade of rows to
+        # "Edited" would misattribute work they never did.
+        # ONE-WAY by design (owner): re-selecting restores the row, never the numbers.
+        if new_val == 1:
+            _clear_row_quantities(name_by_idx[idx], qty_by_idx.get(idx) or {})
 
     frappe.db.commit()
 

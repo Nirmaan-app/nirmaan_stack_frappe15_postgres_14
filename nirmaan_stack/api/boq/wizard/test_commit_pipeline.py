@@ -296,6 +296,38 @@ class TestCommitPipeline(FrappeTestCase):
         res = self._commit("HVAC", "finalized")
         self.assertTrue(frappe.db.get_value(_GRID, res["grid_name"], "committed_at"))
 
+    # ----- T4b. W5: the revision-overlay report is revision-ONLY -------- #
+
+    def test_non_revision_commit_omits_revision_overlay(self):
+        """BYTE-IDENTICAL GUARDRAIL for W5 (A8).
+
+        `_commit_one_sheet` now returns `revision_overlay` -- the per-layer count summary
+        `committed_carry.carry_commit_overlay` produces -- so the commit-results modal can tell
+        the user what a revision carried forward. This BoQ is a plain upload (origin defaults
+        to "upload", no source_boq), so the carry no-ops, `overlay_summary` is nulled, and the
+        key must be ABSENT -- not present-and-zero. Anything else changes the envelope every
+        existing non-revision commit returns, which is precisely what the repo rule forbids;
+        asserting the WHOLE key set (rather than just the missing key) is what makes that a
+        proof rather than an inspection.
+
+        The positive side -- a revision sheet reporting real per-layer counts -- lives in
+        `test_committed_carry.TestCommitPipelineReportsTheOverlay`, next to the overlay
+        fixture machinery it needs.
+        """
+        expected_keys = {
+            "sheet_name", "disposition", "sheet_disposition", "grid_name", "boq_sheet_name",
+            "commit_version", "row_count", "froze_prior", "froze_prior_sheet", "node_count",
+            "froze_nodes",
+        }
+        # The finalized branch is the one that CALLS the overlay carry ...
+        fin = self._commit("HVAC", "finalized")
+        self.assertNotIn("revision_overlay", fin)
+        self.assertEqual(set(fin), expected_keys)
+        # ... and general_specs is the branch that never reaches it.
+        gs = self._commit("SOW", "general_specs")
+        self.assertNotIn("revision_overlay", gs)
+        self.assertEqual(set(gs), expected_keys)
+
     # ----- T5. gate re-check (negative) --------------------------------- #
 
     def test_commit_boq_rejects_ineligible_sheet(self):

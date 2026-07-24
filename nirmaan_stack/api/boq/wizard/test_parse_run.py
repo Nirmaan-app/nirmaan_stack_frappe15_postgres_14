@@ -2639,3 +2639,348 @@ class TestGetStaleSheets(FrappeTestCase):
             get_stale_sheets(None)
         with self.assertRaises(frappe.ValidationError):
             get_stale_sheets("BOQ-DOES-NOT-EXIST-99999")
+
+
+# ---------------------------------------------------------------------------
+# Group 7: the done-event revision-carry REPORT (W5/A8, ADR-0014 Amendment B)
+# ---------------------------------------------------------------------------
+
+class TestParseDoneRevisionCarryPayload(FrappeTestCase):
+    """W5 (A8): `boq:parse_run_done` must REPORT the per-sheet review-carry numbers.
+
+    `merge_revision_review_carry` has always computed `{copied, needs_review, total}` per
+    sheet -- the worker just threw the dict away, so the parse-completion modal could say
+    "Parsed: Data" and nothing about how much of the original's classification work
+    survived into the revision. W5 captures it into `revision_carry_by_sheet` (keyed by the
+    VERBATIM sheet_name, #152) and spreads it into the SUCCESS payload.
+
+    TWO filters shape the report, and both are pinned here:
+      * per SHEET -- only a sheet with `total > 0` is recorded, so a declared-New sheet or a
+        source with no committed nodes contributes NOTHING (reporting "0 of 0 copied" is
+        noise, not information);
+      * per PAYLOAD -- the `revision_carry` key is spread in only when the resulting dict is
+        non-empty, so a non-revision parse keeps its exact pre-W5 payload shape.
+
+    THE REGRESSION THESE CATCH: a refactor that drops the capture (or the spread) leaves the
+    parse working perfectly and every other test green -- the numbers just silently vanish
+    from the payload again. So `test_revision_parse_reports_the_carry_numbers` asserts the
+    CONCRETE counts the fixture produces (2 copied / 1 needing review of 3 content rows);
+    presence alone would survive the threading being rewired to a constant or to
+    `{}`-per-sheet. `test_non_revision_parse_omits_the_key_entirely` is the byte-identical
+    guardrail: W5 is additive-for-revisions-only, and that must be PROVEN, not inspected.
+
+    Fixture: one 4-row workbook sheet parsed as the REVISION, against an original whose
+    committed tier holds twins for only the first two content rows.
+      Excel 2  "EARTHWORK"                  -> committed twin (effective root)   -> Copied
+      Excel 3  "Excavation in ordinary soil"-> committed twin, parent = row 2     -> Copied
+      Excel 4  "PCC 1:4:8 backfill"         -> NO committed twin                 -> needs review
+    Row 3's parent is row 2's node, which also matches -- Amendment B's both-or-neither rule
+    means a broken parent twin would silently drop row 3 from `copied`, so the expected 2/1/3
+    is load-bearing on the fixture staying exactly this shape.
+    """
+
+    SHEET = "Data"
+    NEW_SHEET = "Fresh Scope"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.project = _make_project()
+
+        import openpyxl
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = cls.SHEET
+        ws.append(["SL", "Description", "Unit", "Qty", "Rate", "Amount"])          # Excel row 1
+        ws.append([None, "EARTHWORK", None, None, None, None])                     # Excel row 2
+        ws.append([1, "Excavation in ordinary soil", "cum", 10, 100.0, 1000.0])    # Excel row 3
+        ws.append([2, "PCC 1:4:8 backfill", "cum", 5, 200.0, 1000.0])              # Excel row 4
+        # A second tab used ONLY by the mixed-sheet test. Every other test seeds a draft for
+        # `SHEET` alone, and assemble_mapping_config is DRAFT-driven, so this tab is inert there.
+        ws_new = wb.create_sheet(cls.NEW_SHEET)
+        ws_new.append(["SL", "Description", "Unit", "Qty", "Rate", "Amount"])
+        ws_new.append([1, "Brand new scope item", "nos", 1, 10.0, 10.0])
+        tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
+        wb.save(tmp.name)
+        tmp.close()
+        cls._wb_path = tmp.name
+
+        # The ORIGINAL: a committed sheet + the two nodes that give rows 2 and 3 their twins.
+        cls.original = cls._make_boq_doc(origin="upload")
+        bs = frappe.new_doc("BoQ Sheet")
+        bs.boq = cls.original.name
+        bs.sheet_name = cls.SHEET
+        bs.sheet_order = 1
+        bs.treat_as = "data"
+        bs.is_current = 1
+        bs.commit_version = 1
+        bs.committed_at = frappe.utils.now()
+        bs.insert(ignore_permissions=True)
+        cls.src_sheet = bs.name
+        section = cls._node("Preamble", "preamble", "EARTHWORK", 2, 0, level=1)
+        cls._node("Line Item", "line_item", "Excavation in ordinary soil", 3, 1,
+                  parent_node=section.name)
+        # Deliberately NO node for "PCC 1:4:8 backfill" (Excel row 4) -- it is the
+        # needs-review side of the count.
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            os.unlink(cls._wb_path)
+        except OSError:
+            pass
+        for boq in frappe.get_all("BOQs", filters={"project": cls.project.name}, fields=["name"]):
+            frappe.db.delete("BOQ Nodes", {"boq": boq.name})
+            frappe.db.delete("BoQ Sheet", {"boq": boq.name})
+        frappe.db.commit()
+        _cleanup_project(cls.project.name)
+        super().tearDownClass()
+
+    def tearDown(self):
+        # _run_parse_worker commits, so its BoQs + rows outlive FrappeTestCase's rollback.
+        # Drop every BoQ except the class-level original, keeping the tests order-independent.
+        for boq in frappe.get_all(
+            "BOQs", filters={"project": self.__class__.project.name}, fields=["name"]
+        ):
+            if boq.name == self.__class__.original.name:
+                continue
+            frappe.db.delete("BoQ Review Row", {"boq": boq.name})
+            frappe.delete_doc("BOQs", boq.name, force=True, ignore_permissions=True)
+        frappe.db.commit()
+        super().tearDown()
+
+    # ---- fixture helpers ----------------------------------------------
+
+    @classmethod
+    def _make_boq_doc(cls, origin, source_boq=None):
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.project.name
+        boq.boq_name = f"Carry Payload {origin} {frappe.generate_hash(length=4)}"
+        boq.tax_treatment = "Pre-tax"
+        boq.origin = origin
+        if source_boq:
+            boq.source_boq = source_boq
+        boq.source_file_url = cls._wb_path
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return boq
+
+    @classmethod
+    def _node(cls, node_type, row_class, description, source_row_number, sort_order,
+              level=None, parent_node=None):
+        """A CURRENT committed node on the original. `row_class` + `parent_node` are the
+        EFFECTIVE values the carry reads (never the human_* layer)."""
+        n = frappe.new_doc("BOQ Nodes")
+        n.sheet = cls.src_sheet
+        n.boq = cls.original.name
+        n.node_type = node_type
+        n.row_class = row_class
+        n.description = description
+        n.source_row_number = source_row_number
+        n.sort_order = sort_order
+        if level is not None:
+            n.level = level
+        if node_type == "Line Item":
+            n.qty = 0
+        if parent_node:
+            n.parent_node = parent_node
+        n.commit_version = 1
+        n.is_current = 1
+        n.committed_at = frappe.utils.now()
+        n.insert(ignore_permissions=True)
+        return n
+
+    def _seed_draft(self, boq_name, source_sheet_name):
+        """Append the one Config Done draft. `source_sheet_name` is D3's write-once mapping
+        pointer -- None is a declared-NEW sheet, which carries nothing."""
+        doc = frappe.get_doc("BOQs", boq_name)
+        doc.append("sheet_drafts", {
+            "sheet_name": self.SHEET,
+            "sheet_order": 1,
+            "wizard_status": "Config Done",
+            "sheet_config": json.dumps(_PROD_BLOB_TMPL),
+            "source_sheet_name": source_sheet_name,
+        })
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+
+    def _parse_and_capture(self, boq_name):
+        """Run the worker with publish_realtime captured; return the SUCCESS payload dict.
+        Mirrors test_done_event_payload_shape_frozen's capture pattern."""
+        from unittest.mock import patch
+        with patch.object(frappe, "publish_realtime") as mock_pub:
+            _run_parse_worker(boq_name, user="Administrator")
+        done = [c for c in mock_pub.call_args_list
+                if c.args and c.args[0] == "boq:parse_run_done"]
+        self.assertTrue(done, "boq:parse_run_done was not published")
+        payload = done[-1].args[1]
+        self.assertEqual(payload["status"], "success",
+                         f"parse did not succeed: {payload}")
+        return payload
+
+    # ---- (a) a REVISION parse reports real numbers ---------------------
+
+    def test_revision_parse_reports_the_carry_numbers(self):
+        """The success payload carries the merge's own per-sheet {copied, needs_review, total}.
+
+        Hard numbers on purpose: the fixture gives exactly two matchable content rows and one
+        unmatched one, so a threading that reported a constant, an empty dict, or the wrong
+        sheet's counts fails here.
+        """
+        rev = self._make_boq_doc(origin="revision", source_boq=self.original.name)
+        self._seed_draft(rev.name, source_sheet_name=self.SHEET)
+
+        payload = self._parse_and_capture(rev.name)
+
+        self.assertIn("revision_carry", payload,
+                      "W5 dropped the carry report from the done payload")
+        self.assertEqual(
+            payload["revision_carry"],
+            {self.SHEET: {"copied": 2, "needs_review": 1, "total": 3,
+                          "reason_counts": {"row_inserted": 1}}},
+        )
+
+    def test_the_payload_omits_the_sheet_level_change_summary(self):
+        """S2: `change_summary` rides the DRAFT, never the socket payload.
+
+        It is read by the review screen, which already loads the draft, and can run to 50 shift
+        blocks plus 50 removed rows with descriptions -- broadcasting that to every connected
+        client for a modal that only ever prints "N of M copied" is pure weight.
+        """
+        rev = self._make_boq_doc(origin="revision", source_boq=self.original.name)
+        self._seed_draft(rev.name, source_sheet_name=self.SHEET)
+
+        payload = self._parse_and_capture(rev.name)
+
+        self.assertNotIn("change_summary", payload["revision_carry"][self.SHEET])
+
+    def test_carry_report_agrees_with_the_persisted_stamp(self):
+        """The reported numbers must equal what the review screen will independently read.
+
+        `revision_review_counts` re-derives the same triple from the persisted
+        `revision_carry_status` stamps rather than from the merge's return value, so the two
+        cannot disagree unless the payload stopped reflecting the real merge.
+        """
+        from nirmaan_stack.api.boq.wizard.review_carry import revision_review_counts
+
+        rev = self._make_boq_doc(origin="revision", source_boq=self.original.name)
+        self._seed_draft(rev.name, source_sheet_name=self.SHEET)
+
+        payload = self._parse_and_capture(rev.name)
+
+        counts = {k: payload["revision_carry"][self.SHEET][k]
+                  for k in ("copied", "needs_review", "total")}
+        self.assertEqual(counts, revision_review_counts(rev.name, self.SHEET))
+
+    def test_carry_report_is_keyed_by_the_verbatim_sheet_name(self):
+        """#152: the key is the sheet_name as stored, spaces and all -- the frontend looks the
+        sheet up by that exact string, so a `.strip()` anywhere in the capture breaks the join."""
+        padded = "Data "                       # a trailing space, the #152 vehicle
+        import openpyxl
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = padded
+        ws.append(["SL", "Description", "Unit", "Qty", "Rate", "Amount"])
+        ws.append([1, "Excavation in ordinary soil", "cum", 10, 100.0, 1000.0])
+        tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
+        wb.save(tmp.name)
+        tmp.close()
+        self.addCleanup(lambda: os.path.exists(tmp.name) and os.unlink(tmp.name))
+
+        rev = self._make_boq_doc(origin="revision", source_boq=self.original.name)
+        frappe.db.set_value("BOQs", rev.name, "source_file_url", tmp.name)
+        doc = frappe.get_doc("BOQs", rev.name)
+        doc.append("sheet_drafts", {
+            "sheet_name": padded, "sheet_order": 1, "wizard_status": "Config Done",
+            "sheet_config": json.dumps(_PROD_BLOB_TMPL), "source_sheet_name": self.SHEET,
+        })
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+
+        payload = self._parse_and_capture(rev.name)
+
+        self.assertEqual(list(payload["revision_carry"]), [padded])
+
+    def test_declared_new_sheet_contributes_nothing_to_the_report(self):
+        """A declared-NEW (unmapped) revision sheet is NOT keyed into the report.
+
+        The merge no-ops for an unmapped sheet and returns the zero triple; the `total > 0`
+        filter then keeps it out of `revision_carry_by_sheet` -- a New sheet has nothing to
+        carry BY DEFINITION, so "0 of 0 copied" would be noise in the completion modal. Here
+        it is the ONLY sheet, so the whole key disappears from the payload. Dropping the
+        filter (reporting every revision sheet) fails this.
+        """
+        rev = self._make_boq_doc(origin="revision", source_boq=self.original.name)
+        self._seed_draft(rev.name, source_sheet_name=None)
+
+        payload = self._parse_and_capture(rev.name)
+
+        self.assertNotIn("revision_carry", payload)
+
+    # ---- (b) the byte-identical guardrail ------------------------------
+
+    def test_non_revision_parse_omits_the_key_entirely(self):
+        """A plain UPLOAD parse's payload is byte-identical to its pre-W5 shape.
+
+        Not merely "revision_carry is falsy" -- the key must be ABSENT, which is what the
+        `**({...} if revision_carry_by_sheet else {})` spread buys. The repo rule is that every
+        non-revision flow stays byte-identical and that it is proven by test, so this asserts
+        the WHOLE key set, not just the one missing key.
+        """
+        boq = self._make_boq_doc(origin="upload")
+        self._seed_draft(boq.name, source_sheet_name=None)
+
+        payload = self._parse_and_capture(boq.name)
+
+        self.assertNotIn("revision_carry", payload)
+        self.assertEqual(
+            set(payload.keys()),
+            {"status", "boq_name", "parsed_sheets", "not_parsed_sheets", "failed_sheets"},
+        )
+
+    def test_mixed_revision_reports_only_the_carrying_sheet(self):
+        """A revision with a carrying sheet AND a declared-New one keys ONLY the carrier.
+
+        The per-sheet dict is what the modal joins against its sheet list, so a filter applied
+        to the WHOLE payload instead of per sheet (or dropped entirely) shows up here as an
+        extra all-zeros "Fresh Scope" line the user would read as "nothing carried".
+        """
+        rev = self._make_boq_doc(origin="revision", source_boq=self.original.name)
+        doc = frappe.get_doc("BOQs", rev.name)
+        doc.append("sheet_drafts", {
+            "sheet_name": self.SHEET, "sheet_order": 1, "wizard_status": "Config Done",
+            "sheet_config": json.dumps(_PROD_BLOB_TMPL), "source_sheet_name": self.SHEET,
+        })
+        doc.append("sheet_drafts", {
+            "sheet_name": self.NEW_SHEET, "sheet_order": 2, "wizard_status": "Config Done",
+            "sheet_config": json.dumps(_PROD_BLOB_TMPL), "source_sheet_name": None,
+        })
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+
+        payload = self._parse_and_capture(rev.name)
+
+        self.assertEqual(sorted(payload["parsed_sheets"]),
+                         sorted([self.SHEET, self.NEW_SHEET]),
+                         "fixture broken: both sheets must actually parse")
+        self.assertEqual(list(payload["revision_carry"]), [self.SHEET])
+        self.assertEqual(payload["revision_carry"][self.SHEET],
+                         {"copied": 2, "needs_review": 1, "total": 3,
+                          "reason_counts": {"row_inserted": 1}})
+
+    def test_revision_with_no_committed_source_contributes_nothing(self):
+        """A MAPPED sheet whose source has no committed nodes is also kept out of the report.
+
+        `merge_revision_review_carry` returns the zero triple when the mapped source has no
+        current committed sheet (`_load_and_match` bails), and `total > 0` filters it out --
+        so "mapped" alone is not what earns a sheet a line in the report; having matchable
+        content rows is.
+        """
+        barren = self._make_boq_doc(origin="upload")          # committed nothing
+        rev = self._make_boq_doc(origin="revision", source_boq=barren.name)
+        self._seed_draft(rev.name, source_sheet_name=self.SHEET)
+
+        payload = self._parse_and_capture(rev.name)
+
+        self.assertNotIn("revision_carry", payload)

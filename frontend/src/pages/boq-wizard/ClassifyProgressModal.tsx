@@ -20,7 +20,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { aiStatusNote, skipRollupText } from "./ClassifySheetDialog";
+import { skipRollupText } from "./ClassifySheetDialog";
 import type { ClassifySummary } from "./boqTypes";
 
 export type ClassifyModalPhase = "starting" | "running" | "success" | "error";
@@ -48,12 +48,35 @@ export function classifyPercent(progress: { done: number; total: number } | null
   return Math.round((progress.done / progress.total) * 100);
 }
 
+/**
+ * HV-11 PURE: the AI-fallback warning for a completion summary, from the per-discipline ai_status
+ * map ACCUMULATED over the run set (one entry per ran discipline). The HEALTHY path is SILENT --
+ * returns "" when every discipline had the voter ON ("ran") or had no eligible rows (null/absent),
+ * so the healthy completion text is byte-identical to before. When ANY discipline reported the
+ * voter OFF ("disabled" or "no_key"), returns ONE plain-language line NAMING those disciplines:
+ * their rows are rule-only and all flagged for review. Multi-engine: only the OFF disciplines are
+ * named, so a mixed run (one on, one off) warns about exactly the off one.
+ */
+export function aiStatusWarning(
+  aiStatusByDiscipline: Readonly<Record<string, string | null | undefined>>,
+): string {
+  const off = Object.entries(aiStatusByDiscipline)
+    .filter(([, s]) => s === "disabled" || s === "no_key")
+    .map(([discipline]) => discipline)
+    .sort();
+  if (off.length === 0) return "";
+  return `AI voter was OFF for ${off.join(" and ")} - those rows are rule-only and all flagged for review. Turn AI on in Settings to auto-accept consensus rows.`;
+}
+
 interface ClassifyProgressModalProps {
   open: boolean;
   running: boolean;
   sheetName: string;
   progress: { done: number; total: number } | null;
   summary: ClassifySummary | null;
+  // HV-11: per-discipline ai_status accumulated over the run set -- drives the AI-off warning
+  // (silent on the healthy path). Empty/absent => no warning.
+  aiStatusByDiscipline?: Readonly<Record<string, string | null | undefined>>;
   onClose: () => void;
 }
 
@@ -63,6 +86,7 @@ export function ClassifyProgressModal({
   sheetName,
   progress,
   summary,
+  aiStatusByDiscipline,
   onClose,
 }: ClassifyProgressModalProps) {
   const phase = deriveClassifyModalPhase(running, progress, summary);
@@ -148,8 +172,10 @@ export function ClassifyProgressModal({
             {skipRollupText(summary.skipped_by_reason ?? {}) && (
               <p className="text-muted-foreground">{skipRollupText(summary.skipped_by_reason ?? {})}</p>
             )}
-            {aiStatusNote(summary.ai_status) && (
-              <p className="text-amber-700 dark:text-amber-300">{aiStatusNote(summary.ai_status)}</p>
+            {aiStatusWarning(aiStatusByDiscipline ?? {}) && (
+              <p className="text-amber-700 dark:text-amber-300">
+                {aiStatusWarning(aiStatusByDiscipline ?? {})}
+              </p>
             )}
           </div>
         )}

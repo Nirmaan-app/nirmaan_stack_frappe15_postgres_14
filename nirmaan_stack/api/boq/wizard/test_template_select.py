@@ -17,12 +17,28 @@ from nirmaan_stack.api.boq.wizard.template_select import (
     _build_children_map,
     _descendants,
     set_row_excluded,
+    zeroed_qty_by_area,
 )
 
 
 # ---------------------------------------------------------------------------
 # Pure cascade helpers -- no frappe, no DB
 # ---------------------------------------------------------------------------
+
+class TestZeroedQtyByArea(unittest.TestCase):
+    """The pure clearing shape used when a DESELECT zeroes a row's quantities."""
+
+    def test_keeps_the_area_keys_and_zeroes_the_values(self):
+        self.assertEqual(zeroed_qty_by_area({"Area1": 7, "B2": 5.5}), {"Area1": 0, "B2": 0})
+
+    def test_empty_dict_stays_an_empty_dict(self):
+        self.assertEqual(zeroed_qty_by_area({}), {})
+
+    def test_returns_none_for_a_row_that_never_had_one(self):
+        # Single-area rows carry no qty_by_area -> the caller skips the column entirely.
+        self.assertIsNone(zeroed_qty_by_area(None))
+        self.assertIsNone(zeroed_qty_by_area(""))
+
 
 class TestCascadeHelpers(unittest.TestCase):
     """The graph math that mirrors the frontend templateSelection.ts (F1 parity)."""
@@ -224,6 +240,107 @@ class TestSetRowExcluded(FrappeTestCase):
                 "is_excluded", 0, update_modified=False,
             )
         frappe.db.commit()
+
+    # --- DESELECT clears quantities ------------------------------------------
+
+    def _set_qty(self, idx, total, by_area=None):
+        vals = {"qty_total": total}
+        if by_area is not None:
+            vals["qty_by_area"] = json.dumps(by_area)
+        frappe.db.set_value(
+            "BoQ Review Row",
+            {"boq": self.boq_name, "sheet_name": self.SHEET, "row_index": idx},
+            vals, update_modified=False,
+        )
+        frappe.db.commit()
+
+    def _qty(self, idx):
+        r = frappe.db.get_value(
+            "BoQ Review Row",
+            {"boq": self.boq_name, "sheet_name": self.SHEET, "row_index": idx},
+            ["qty_total", "qty_by_area"], as_dict=True,
+        )
+        qba = r.qty_by_area
+        if isinstance(qba, str) and qba:
+            qba = json.loads(qba)
+        return r.qty_total, qba
+
+    def test_deselect_clears_the_rows_quantity(self):
+        self._set_qty(3, 25)
+        set_row_excluded(
+            boq_name=self.boq_name, sheet_name=self.SHEET, row_index=3, excluded=True,
+        )
+        total, _ = self._qty(3)
+        self.assertEqual(total, 0, "a deselected row keeps no quantity")
+
+    def test_deselect_clears_the_whole_cascaded_subtree(self):
+        # The case that matters: deselecting one group can strand dozens of typed quantities.
+        self._set_qty(1, 10)
+        self._set_qty(2, 20)
+        self._set_qty(3, 30)
+        set_row_excluded(
+            boq_name=self.boq_name, sheet_name=self.SHEET, row_index=0, excluded=True,
+        )
+        for idx in (1, 2, 3):
+            self.assertEqual(self._qty(idx)[0], 0, f"row {idx} cleared by the cascade")
+
+    def test_deselect_zeroes_per_area_values_but_keeps_the_area_KEYS(self):
+        # The clone seeds {area: 0.0} per configured area and the grid reads that key set to
+        # decide a row is qty-bearing -- nulling it would blank the Total instead of showing 0.
+        self._set_qty(3, 12, {"Area1": 7, "B2": 5})
+        set_row_excluded(
+            boq_name=self.boq_name, sheet_name=self.SHEET, row_index=3, excluded=True,
+        )
+        total, qba = self._qty(3)
+        self.assertEqual(total, 0)
+        self.assertEqual(qba, {"Area1": 0, "B2": 0})
+
+    def test_reselect_does_not_restore_the_cleared_quantity(self):
+        # ONE-WAY by design (owner): re-selecting restores the row, never the numbers.
+        self._set_qty(3, 25)
+        set_row_excluded(
+            boq_name=self.boq_name, sheet_name=self.SHEET, row_index=3, excluded=True,
+        )
+        set_row_excluded(
+            boq_name=self.boq_name, sheet_name=self.SHEET, row_index=3, excluded=False,
+        )
+        self.assertEqual(_excluded(self.boq_name, self.SHEET, 3), 0, "row is back in")
+        self.assertEqual(self._qty(3)[0], 0, "but the quantity is not")
+
+    def test_select_never_clears_quantities(self):
+        # The SELECT cascade pulls the ancestor chain back in -- it must not touch quantities
+        # on rows that were already included and already carry numbers.
+        self._set_qty(0, 5)
+        self._set_qty(1, 6)
+        set_row_excluded(
+            boq_name=self.boq_name, sheet_name=self.SHEET, row_index=2, excluded=False,
+        )
+        self.assertEqual(self._qty(0)[0], 5)
+        self.assertEqual(self._qty(1)[0], 6)
+
+    def test_deselect_clears_without_stamping_provenance(self):
+        # The user performed a SELECTION, not a per-row edit -- flipping a cascade of rows to
+        # "Edited" would misattribute work they never did. Matches the is_excluded write beside it.
+        self._set_qty(2, 20)
+        self._set_qty(3, 30)
+        set_row_excluded(
+            boq_name=self.boq_name, sheet_name=self.SHEET, row_index=0, excluded=True,
+        )
+        for idx in (2, 3):
+            edited_at = frappe.db.get_value(
+                "BoQ Review Row",
+                {"boq": self.boq_name, "sheet_name": self.SHEET, "row_index": idx},
+                "edited_at",
+            )
+            self.assertFalse(edited_at, f"row {idx} must not be stamped as edited by a deselect")
+
+    def test_deselect_leaves_a_ride_along_rows_quantity_alone(self):
+        # Non-eligible rows are never written by this endpoint (D5) -- including their qty.
+        self._set_qty(4, 9)          # a note row (should never have one, but prove we don't touch it)
+        set_row_excluded(
+            boq_name=self.boq_name, sheet_name=self.SHEET, row_index=0, excluded=True,
+        )
+        self.assertEqual(self._qty(4)[0], 9)
 
     # --- DESELECT cascade ---------------------------------------------------
 

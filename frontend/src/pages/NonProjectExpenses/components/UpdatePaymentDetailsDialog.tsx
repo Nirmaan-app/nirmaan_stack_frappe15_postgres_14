@@ -19,6 +19,7 @@ import { Separator } from "@/components/ui/separator";
 import { NonProjectExpenses } from "@/types/NirmaanStack/NonProjectExpenses";
 import SITEURL from "@/constants/siteURL";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { parseNumber } from "@/utils/parseNumber";
 import { cn } from "@/lib/utils";
 
 interface UpdatePaymentDetailsDialogProps {
@@ -65,6 +66,9 @@ export const UpdatePaymentDetailsDialog: React.FC<UpdatePaymentDetailsDialogProp
     // Two-stage payment UX: "upload" shows only the receipt uploader; after a
     // successful upload we advance to "form" and reveal Payment Date + Ref.
     const [paymentStage, setPaymentStage] = useState<"upload" | "form">("upload");
+    // Soft cross-check: the receipt's extracted amount vs the recorded expense amount.
+    // Non-blocking — just a warning so the accountant verifies before paying.
+    const [amountMismatch, setAmountMismatch] = useState<{ receiptAmount: number; expenseAmount: number } | null>(null);
 
     const SUPPORTED_AUTOFILL_EXTS = ["pdf", "png", "jpg", "jpeg"];
     const isSupportedForAutofill = (file: File) => {
@@ -96,6 +100,15 @@ export const UpdatePaymentDetailsDialog: React.FC<UpdatePaymentDetailsDialogProp
             if (Object.keys(updates).length > 0) setFormState(prev => ({ ...prev, ...updates }));
             setAutofilledFields(filled);
 
+            // Cross-check the receipt's amount against the recorded expense amount (soft).
+            const receiptAmount = data?.transfer_amount != null ? parseNumber(String(data.transfer_amount)) : NaN;
+            const expenseAmount = parseNumber(String(expense.amount ?? ""));
+            if (!isNaN(receiptAmount) && receiptAmount > 0 && expenseAmount > 0 && Math.abs(receiptAmount - expenseAmount) > 1) {
+                setAmountMismatch({ receiptAmount, expenseAmount });
+            } else {
+                setAmountMismatch(null);
+            }
+
             toast(
                 filled.size > 0
                     ? { title: "Auto-filled from receipt", description: `Filled ${filled.size} field${filled.size > 1 ? "s" : ""}. Please verify.`, variant: "success" }
@@ -110,7 +123,7 @@ export const UpdatePaymentDetailsDialog: React.FC<UpdatePaymentDetailsDialogProp
                 setPaymentStage("form"); // reveal the fields (filled) after upload — success or not
             }
         }
-    }, [upload, extractPaymentFields, toast, expense.name]);
+    }, [upload, extractPaymentFields, toast, expense.name, expense.amount]);
 
     useEffect(() => {
         if (isOpen && expense) {
@@ -128,6 +141,7 @@ export const UpdatePaymentDetailsDialog: React.FC<UpdatePaymentDetailsDialogProp
             setUploadedPaymentUrl(null);
             setAutofilledFields(new Set());
             setIsAutofilling(false);
+            setAmountMismatch(null);
             // Start on the upload step unless the expense already has a payment receipt.
             setPaymentStage(expense.payment_attachment ? "form" : "upload");
         }
@@ -149,6 +163,7 @@ export const UpdatePaymentDetailsDialog: React.FC<UpdatePaymentDetailsDialogProp
         setNewAttachmentFile(file);
         setUploadedPaymentUrl(null);
         setAutofilledFields(new Set());
+        setAmountMismatch(null);
         setAttachmentAction(file ? "replace" : (existingAttachmentUrl ? "keep" : "remove"));
         if (file) {
             if (isSupportedForAutofill(file)) {
@@ -165,6 +180,7 @@ export const UpdatePaymentDetailsDialog: React.FC<UpdatePaymentDetailsDialogProp
     const handleRemoveExistingAttachment = () => {
         setNewAttachmentFile(null); // Clear any staged new file
         setAttachmentAction("remove");
+        setAmountMismatch(null);
     };
 
     const handleAttachmentError = useCallback(({ message }: { type: "size" | "type", message: string }) => {
@@ -289,6 +305,20 @@ export const UpdatePaymentDetailsDialog: React.FC<UpdatePaymentDetailsDialogProp
 
                 <div className="space-y-4 py-2">
                     <p className="text-sm font-medium">Record Payment Details</p>
+                    {/* Soft warning: the uploaded receipt's amount doesn't match the expense amount. */}
+                    {amountMismatch && (
+                        <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                            <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                            <span className="leading-snug">
+                                The uploaded receipt shows{" "}
+                                <b>{formatToRoundedIndianRupee(amountMismatch.receiptAmount)}</b>, which is{" "}
+                                <b>{amountMismatch.receiptAmount > amountMismatch.expenseAmount ? "more than" : "less than"}</b>{" "}
+                                the expense amount <b>{formatToRoundedIndianRupee(amountMismatch.expenseAmount)}</b>{" "}
+                                (difference {formatToRoundedIndianRupee(Math.abs(amountMismatch.receiptAmount - amountMismatch.expenseAmount))}).
+                                Please verify before marking as Paid.
+                            </span>
+                        </div>
+                    )}
                     {paymentStage === "form" && (
                         <>
                             <div className="grid grid-cols-4 items-center gap-4">

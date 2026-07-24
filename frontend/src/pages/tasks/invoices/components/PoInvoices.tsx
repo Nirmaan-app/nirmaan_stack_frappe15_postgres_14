@@ -1,4 +1,4 @@
-import React, { useMemo, useCallback } from "react";
+import React, { useMemo, useCallback, useState } from "react";
 import { ColumnDef, Row } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
 import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
@@ -30,6 +30,7 @@ import { useGstOptions } from "@/hooks/useGstOptions";
 import { NirmaanAttachment } from "@/types/NirmaanStack/NirmaanAttachment";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
+import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
 
 // --- Config ---
 import { PO_INVOICE_SEARCHABLE_FIELDS, PO_INVOICE_DATE_COLUMNS, PO_INVOICE_RECONCILIATION_STATUS_OPTIONS } from '../config/poInvoicesTable.config';
@@ -37,6 +38,12 @@ import { ReconciliationStatus } from '../constants';
 
 // --- Components ---
 import { ReconciliationDialog } from "./ReconciliationDialog";
+import { InvoiceDataDialog } from "@/pages/ProcurementOrders/purchase-order/components/InvoiceDataDialog";
+import {
+    useInvoiceRowAdminActions,
+    InvoiceRowActionsCell,
+    InvoiceRowAdminActionDialogs,
+} from "../hooks/useInvoiceRowAdminActions";
 
 // --- Interfaces ---
 interface Projects {
@@ -91,6 +98,49 @@ interface PoInvoicesProps {
     vendorId?: string; // Optional: filter to specific vendor
     vendorName?: string; // Vendor Name for meaningful export filename
 }
+
+/**
+ * Invoice-amount cell: clickable, opens the InvoiceDataDialog listing this invoice
+ * with its per-item PO/Invoiced mapping (same dialog used by the All-POs table).
+ */
+const InvoiceAmountCell: React.FC<{ item: InvoiceItem }> = ({ item }) => {
+    const [open, setOpen] = useState(false);
+    // The reconciliation feed carries only Approved PO invoices; build the minimal
+    // VendorInvoice the dialog needs (it fetches line_mappings itself, by `name`).
+    const dialogInvoice = {
+        name: item.name,
+        invoice_no: item.invoice_no,
+        invoice_date: item.date,
+        invoice_amount: item.amount,
+        status: "Approved",
+        invoice_attachment: item.invoice_attachment_id,
+        document_name: item.procurement_order,
+        document_type: "Procurement Orders",
+        project: item.project,
+    } as unknown as VendorInvoice;
+
+    return (
+        <>
+            <div
+                className="font-medium text-green-600 underline underline-offset-2 cursor-pointer hover:text-green-700"
+                onClick={(e) => { e.stopPropagation(); setOpen(true); }}
+                title="View invoice items"
+            >
+                {formatToRoundedIndianRupee(item.amount)}
+            </div>
+            <InvoiceDataDialog
+                open={open}
+                onOpenChange={setOpen}
+                vendorInvoices={[dialogInvoice]}
+                visibleStatuses={["Pending", "Approved", "Rejected"]}
+                project={item.project}
+                poNumber={item.procurement_order}
+                documentType="Procurement Orders"
+                vendor={item.vendor_name}
+            />
+        </>
+    );
+};
 
 // --- Component ---
 export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId, vendorName }) => {
@@ -186,6 +236,9 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId, vendorName }) 
         },
         getAttachmentUrl,
     });
+
+    // --- Admin-only row Actions (edit + delete an invoice) ---
+    const invoiceActions = useInvoiceRowAdminActions("Procurement Orders", mutateInvoices);
 
     // Helper to get project name
     const getProjectName = useMemo(() => memoize((projectId: string) => {
@@ -292,13 +345,9 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId, vendorName }) 
             },
             {
                 accessorKey: "amount",
-                header: ({ column }) => <DataTableColumnHeader column={column} title="Amount" />,
-                cell: ({ row }) => (
-                    <div className="font-medium text-green-600">
-                        {formatToRoundedIndianRupee(row.original.amount)}
-                    </div>
-                ),
-                size: 120,
+                header: ({ column }) => <DataTableColumnHeader column={column} title={<span className="whitespace-normal leading-tight">Invoice Amount</span>} />,
+                cell: ({ row }) => <InvoiceAmountCell item={row.original} />,
+                size: 130,
             },
             {
                 accessorKey: "reconciled_amount",
@@ -580,12 +629,31 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId, vendorName }) 
                         </Button>
                     );
                 },
-                size: 80,
+                size: 130,
             }
         );
 
+        // Admin-only Actions column: edit + delete the invoice.
+        if (invoiceActions.isAdmin) {
+            baseColumns.push({
+                id: "actions",
+                header: () => <div className="text-right">Actions</div>,
+                cell: ({ row }) => (
+                    <InvoiceRowActionsCell
+                        invoiceName={row.original.name}
+                        invoiceNo={row.original.invoice_no}
+                        parentDocName={row.original.procurement_order}
+                        onEdit={invoiceActions.requestEdit}
+                        onDelete={invoiceActions.requestDelete}
+                    />
+                ),
+                size: 90,
+                enableSorting: false,
+            });
+        }
+
         return baseColumns;
-    }, [getAttachmentUrl, getProjectName, getVendorName, getUserFullName, getGstName, canUpdateReconciliation, openReconciliationDialog, isReconciliationProcessing, role, vendorId]);
+    }, [getAttachmentUrl, getProjectName, getVendorName, getUserFullName, getGstName, canUpdateReconciliation, openReconciliationDialog, isReconciliationProcessing, role, vendorId, invoiceActions.isAdmin, invoiceActions.requestEdit, invoiceActions.requestDelete]);
 
     // --- Use Server Data Table Hook in Client Mode ---
     const {
@@ -972,6 +1040,11 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId, vendorName }) 
                 currentInvoiceAmount={dialogState.currentInvoiceAmount}
                 currentReconciledAmount={dialogState.currentReconciledAmount}
             />
+
+            {/* Admin-only invoice edit + delete dialogs */}
+            {invoiceActions.isAdmin && (
+                <InvoiceRowAdminActionDialogs actions={invoiceActions} refresh={mutateInvoices} />
+            )}
         </div>
     );
 };

@@ -283,7 +283,22 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
 - **MANDATORY amount-formula gate (owner-locked; REVERSES "formula optional"):** every amount column needs a covering
   formula (`priceability.areFormulasComplete`, override>wildcard via `pickFormula`) before ANY rate is editable; the
   gate is ANDed in OUTSIDE `isRateEditableRow` so the override CANNOT bypass it. `onSaveFormula` (declaration) stays
-  live while rates are locked. Server `_sheet_formulas_complete` is the real boundary.
+  live while rates are locked. Server `_sheet_formulas_complete` is the real boundary. It ALSO gates the revision
+  carry button (below).
+- **Revision carry button (owner-locked, ADR-0014 Amendment C + Amendment D):** a revision commit carries NOTHING, so
+  the ONE carry surface is the emerald **"Carry rates from original"** button in the pricing editor's action row,
+  immediately after *Save now* (the hub's whole-BoQ button is REMOVED). Its four states come from the PURE
+  `carryButtonState` (`CrossBoqCarryDialog.tsx`, ADR-0010 F4): **hidden** off a revision (`origin === "revision" &&
+  source_boq` — with no original the action does not exist, so a disabled button would be a lie), then loading, then
+  no-mapped-source, then **locked**, then the formula gate, then nothing-to-carry. It calls `gridRef.current?.flush()`
+  BEFORE opening — the carry writes underneath the grid and a pending draft saved afterwards would overwrite a carried
+  rate. **AMENDMENT D: the dialog is RATES-ONLY.** The "Annotations & categories" block, its per-layer Keep/Overwrite
+  toggles and the eight pure layer helpers are DELETED, along with the `layers` POST field and the `CrossBoqCarryLayer*`
+  types — do not reintroduce them. Readiness is `counts.clean + counts.conflict > 0` (annotations no longer make the
+  button ready), and the destructive footer reports **armed RATE overwrites** via the pure `armedRateOverwrites` —
+  it was re-pointed, NOT deleted, because otherwise removing the layers would have removed the only "there is no undo"
+  warning while the destructive action remained. Emerald is BANNED inside the dialog — it means priced/succeeded in
+  this screen and belongs to the button + the post-apply line.
 - **Formula engine arc F1–F4 (COMPLETE):** PURE `amountFormula.ts` (evaluate) + `AmountFormulaBuilder.tsx` /
   `formulaTokens.ts` (author; click-to-insert, NO literals) + `PricingGrid.evaluateAmountCell` (compute;
   formula-wins-else-pairing, draft-aware, fail-safe BLANK on any missing operand — never a stale number).
@@ -341,6 +356,53 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   when none exists) so a verdict on a no-record eligible row persists. The "Check Category" filter button is the CL-3
   needs-review filter RENAMED (visible label only — `showNeedsReview`/`isNeedsReviewCategory`/the `"Needs review"`
   routing literal are unchanged).
+- **Multi-engine category resolution (HV-10, N-GENERIC -- no discipline named in the pathway):** the
+  pricing editor reads `get_sheet_categories_resolved(boq, sheet_name)` (NOT the single-discipline
+  `get_sheet_categories`, which is UNTOUCHED so `freeze_classification`/`get_freeze_summary` keep
+  working). The SERVER applies a per-ROW ladder across every discipline with current rows: human
+  wins (most-recent between disciplines) > auto-accepted > higher-`ai_confidence` between multiple
+  autos (row flagged `cross_engine_conflict`) > blank. **`cross_engine_conflict` is TELEMETRY-ONLY --
+  computed, never persisted, NEVER rendered** (owner ruling, same as `review_priority`); the pure
+  `resolvedToSheetCategoryRow` adapter (`sheetCategoryResolve.ts`) DROPS it so it can't reach a
+  rendered surface, and maps each resolved row onto the grid's `SheetCategoryRow` so `PricingGrid` +
+  `deriveVerdictState` + `isNeedsReviewCategory` render UNCHANGED (blank rows still blank + amber).
+  `ranDisciplines` (the read's `disciplines[]`) drives: one `get_category_catalog` per ran-discipline
+  (via child `EngineCatalogFetcher` -- the hook-safe N-dynamic-fetch pattern) into the grouped
+  picker (`buildSheetEngineCatalogs`), and per-running-discipline status polling (one child
+  `ClassifyStatusPoller` each -- single-engine = the old single poll; the modal completes when all
+  running disciplines terminate). Socket done/progress filters are MEMBERSHIP in
+  `(ran UNION running)`, never `=== a constant`. **The picker's `onSelect(id, discipline)` CARRIES
+  the picked group's discipline** -- the write (`set_row_category`) lands on that engine's row
+  identity (upsert-on-missing mints it); "Clear" (`discipline=null`) targets the row's resolved
+  human discipline. **NEVER hardcode a discipline string in this pathway** (the deleted
+  `CLASSIFY_DISCIPLINE` constant was the HV-10 bug); a future engine flips `available` in the
+  registry and flows through with zero code change. Every new page input stays identity-stable
+  (`useMemo`/`useCallback`) so the `PricingGrid` `React.memo` shield holds.
+- **Completion summary = COMBINED EFFECTIVE outcome (HV-10b, owner ruling 2026-07-22):** the
+  "xx classified, yy flagged for review" message (both the `ClassifyProgressModal` line and the
+  post-close toast) reports the COMBINED effective split, NOT a per-engine denominator (the old
+  last-engine-wins `classifySummary` was the defect: a 2-engine run showed one engine's 13/12).
+  When ALL running disciplines terminate, `applyClassifyDone` composes the summary from the FRESH
+  resolved read (the grid's source of truth, post-`mutateCategories`) via the pure
+  `summariseResolvedOutcome(resolvedRows, rangeUnion)`: categorised = effective non-blank (an
+  auto-accept OR a human verdict -- so a pre-existing human verdict counts as categorised),
+  review = effective blank. It is scoped to the run set's `rangeUnion` (`unionScopes`): a fresh
+  run set (each `onStarted`) REPLACES the union (reset semantics); multiple engines fold together
+  and **whole-sheet DOMINATES a mixed union**; a run recovered from the poll (unknown scope) or an
+  empty scope degrades to whole-sheet. Single-engine whole-sheet with no human verdicts equals the
+  engine's own numbers by construction (pinned by test). To carry the range up, `ClassifySheetDialog`'s
+  `onStarted` now passes `Array<{discipline, scope}>` (signature-only; no dialog behaviour change).
+  The error path and the message WORDING are unchanged -- only the numbers' SOURCE changed.
+- **AI-status on the completion surfaces (HV-11): HEALTHY PATH SILENT, FALLBACK LOUD.** The pure
+  `aiStatusWarning(aiStatusByDiscipline)` (`ClassifyProgressModal.tsx`) drives an AI-off warning on
+  BOTH the modal line + the post-close toast. It returns "" when every ran discipline had AI ON
+  (`ran`) or had no eligible rows (null) -- so the healthy completion text stays byte-identical
+  (zero noise); when ANY discipline reports `disabled`/`no_key` it returns ONE plain line NAMING the
+  off discipline(s) (multi-engine names ONLY the off one). `SheetPricingPage` accumulates ai_status
+  PER DISCIPLINE over the run set (`aiStatusByDisciplineRef`, reset each `onStarted`, one entry per
+  engine's done) -- do NOT revert to the old single last-engine-wins `aiStatusNote` render, which
+  masked a mixed multi-engine run. The done payload's `ai_status` values are `ran | disabled |
+  no_key | null`.
 - **Classification freeze read pattern (SEPARATE from the pricing lock):** `classification_frozen` (+ `frozen_by`/`frozen_at`)
   rides `get_priced_rows` -> `GetPricedRowsResponse` and is read off `activeMessage` BESIDE `isLocked` — but it is
   DELIBERATELY NOT ORed into the pricing `locked` gate (pricing stays live under a classification freeze). It gates ONLY
@@ -584,6 +646,209 @@ store.
 
 The FULL per-slice component contracts (keyboard-nav matrix, the row-memo anti-defeat rule, the formula engine F1–F4, reconciliation, collapse/expand, lock/unlock, the two-ribbon toolbar, search/column-hide, export/download, review-screen render contracts, etc.) live in **`.claude/context/domain/boq-frontend.md`**. Load it before pricing-editor / review-screen frontend work. The STABLE conventions + LOAD-BEARING invariants are summarized above (§ "Pricing editor … LOAD-BEARING invariants" and § "Review screen … load-bearing invariants").
 
+### Pricing Module (HVAC / Electrical / ELV Pricing) -- Frontend Conventions
+
+Standalone estimation-pricing pages (SEPARATE from the BoQ wizard/pricing editor). Lives in
+`src/pages/pricing/` (`PricingWorkbookPage.tsx` + `pricingWorkbooks.ts` + local `pricingLibs.ts`). Live
+status / decisions: `frontend/.claude/plans/pricing-module-plan.md`.
+
+- **`pricingWorkbooks.ts` is THE single source of truth (PW-1).** One `PRICING_WORKBOOKS` registry entry per
+  workbook page (`{ path, title, label }`) feeds all three consumers: the generic page (identity), the route
+  entries in `routesConfig.tsx` (paths), and the sidebar spread in `NewSidebar.tsx` (keys + labels). Adding a
+  workbook page = one registry entry + one route object + nothing else in the sidebar (its four touches are
+  registry-driven: the role-gated item spread, `allKeys`, `groupMappings`, and the flat-label discriminator Set).
+  Two rules are load-bearing: (1) **`title` must match the Pricing Workbook doctype's unique `title` exactly** —
+  it is both the selection key and the import title; (2) **`path` must stay a SINGLE top-level segment**, because
+  the sidebar's active-item matching is single-segment (`pathname.slice(1).split("/")[0]`, then
+  `` `/${selectedKeys}` === subitem.key ``) — a nested `/pricing/hvac` would never highlight.
+- **ONE generic page, one route object PER workbook (PW-1) — do NOT collapse them into `/pricing/:key`.**
+  `PricingWorkbookPage` resolves its own entry from `useLocation().pathname` via `workbookForPath`; an
+  unregistered path renders a visible "Unknown pricing workbook" state, never a blank page. Separate route
+  objects are deliberate: they guarantee a real UNMOUNT on workbook switch, which is what destroys the
+  Luckysheet **global singleton** and fires the `releaseBeacon` that frees the server-side checkout lock. A
+  single param route reuses the element (no remount) and would strand the lock for 30 min — live-verified in
+  PW-1: switching away mid-edit left `checked_out_by` NULL with zero stale sheet content.
+- **Selection is BY TITLE, never by list position (PW-1).** `list_workbooks` is unfiltered and ordered
+  `modified desc`, so the old `rows[0]` pick silently changed which workbook opened as people saved. Select with
+  `rows.find(r => r.title === entry.title)`. Likewise the empty state is **per-title** (`!match`), NOT
+  "zero workbooks in the system" (`!rows.length`) — the latter made Import unreachable for every page once any
+  one workbook existed, so workbooks #2/#3 could not be created through the product at all. Import creates with
+  `entry.title`, giving each page an independent empty → import → ready lifecycle.
+- **Import + save pipeline (FR-1 -> FR-6), in order.** Import: `decodeSheetNames` (LuckyExcel escapes sheet
+  NAMES but not formula text) -> `normalizeFormulas`. Save: `reenterNormalizedFormulas` (push corrected
+  formulas back through the engine so it recomputes a real value — **pass the plain STRING**; the object form
+  `setCellValue(r,c,{f:"..."})` silently leaves the cell empty) -> `serializeSheets` (compaction + a final
+  normalize guard that drops stale `v`/`m` on any cell it still has to fix). Transport for BOTH
+  `create_workbook` and `save_workbook` is **gzip + `multipart/form-data`** (file field `workbook_json_gz`);
+  the nested-JSON body is GONE, there is no fallback. Rationale: nesting the workbook as a JSON string escaped
+  every quote (1.23x -> 25.91 MB) and 413'd against the 25 MiB `max_file_size`; gzip is ~0.7 MB.
+- **Dropdowns are re-attached at import (DV-2), because LuckyExcel DROPS every `<dataValidation>`.**
+  `pricingValidations.ts` re-reads the same .xlsx with the **vendored `window.JSZip` global** (never an npm
+  import — that would bundle it), parses `<dataValidation>` **and the `x14:` extLst variant**, and attaches
+  `sheet.dataVerification`. Schema: a flat map **`"<row>_<col>" -> record`, 0-indexed, PER CELL** — a
+  multi-cell `sqref` expands to one record each. `value1` is polymorphic: a range reference (cross-sheet
+  works, including quoted names with spaces and `&`) or a literal comma list. Range sources are **clamped to
+  the source sheet's data extent +5** — the engine re-walks the whole range on every dropdown open, so an
+  unclamped 50k-row source is 50k iterations per click. Runs AFTER `decodeSheetNames` (matching uses decoded
+  names) and never blocks an import. `serializeSheets` keeps the key, so dropdowns survive round-trips.
+  **`prohibitInput` is false everywhere (advisory red-flag, owner-vetoable) — and NOTE: validation only
+  guards TYPING; programmatic writes bypass it entirely, so a dropdown is a convenience, not a constraint.**
+- **ENGINE CAUTIONS (owner-locked, both proven by minimal repro).** (1) **Never emit `INDEX` in composition** —
+  `=INDEX(r,2)` is fine but `=INDEX(r,2)*2` returns **0**; use `VLOOKUP` against a key-first helper pair.
+  (2) **Never leave `<operator><space>(`** — even `=2 * (1+2)` yields `#NAME?` for the whole cell; a space
+  BEFORE the operator is harmless. `normalizeFormulaText` strips it quote-aware (string literals untouched).
+  (3) The engine **never evaluates formulas at load** — it renders the cached value, which is why save-time
+  re-entry (not just text fixing) is required.
+- **Browser-measurement guard:** assert `document.visibilityState === "visible"` before any timing or render
+  measurement. Hidden tabs suspend `requestAnimationFrame` (Luckysheet never paints) and throttle timers to
+  ~1/min — this manufactured a convincing but entirely false "render hang" that cost two slices.
+- **Vendored engine, script-injected — NOT bundled.** Luckysheet / LuckyExcel / JSZip are vendored under
+  `nirmaan_stack/public/pricing_libs/` and served at `/assets/nirmaan_stack/pricing_libs/`. `pricingLibs.ts`
+  injects the CSS `<link>`s + `<script>`s at runtime in dependency order (plugin.js before luckysheet.umd.js;
+  jszip before luckyexcel) and reads `window.luckysheet` / `window.LuckyExcel`. **Never `import` these packages**
+  (that would bundle ~3 MB into the app chunk); keep them out of the import graph.
+- **Lazy `Component` export (M1.59)** — the page module ends with `export { PricingWorkbookPage as Component }`.
+  All three route entries lazy-import the SAME module, so they share one ~10 KB chunk.
+- **Sheet init is POST-MOUNT, never synchronous (PM-3):** `luckysheet.create` must run only after the container
+  div is mounted. Every create path (load / import / edit / release) calls `requestSheet(sheets, allowEdit)` (a
+  nonce-bumped state request); a `useEffect` keyed on `status === "ready" && renderReq` performs the actual
+  `initSheet`. NEVER call `luckysheet.create` synchronously inside an async callback — the container is rendered
+  only in the non-empty branch, so a pre-`"ready"` create hits a null container (`getElementById → null →
+  addEventListener` crash). Re-init (not a live toggle) is how `allowEdit` changes — `destroy()` then `create`.
+- **Toolbar always on (PM-3):** `showtoolbar: true` unconditionally; `showinfobar: false`; other bars default.
+  Edit-only actions stay gated by `allowEdit`, NOT by hiding the toolbar.
+- **Checkout-lock flow + honest banner (PM-3):** page loads READ-ONLY; "Edit" → `checkout` → re-init with
+  `allowEdit:true` + Save/Release. On a checkout FAILURE, re-fetch the true lock state: show "Locked by <holder>
+  — read only (since <t> IST)" ONLY when `checked_out_by` is non-null AND ≠ current session user AND not expired;
+  otherwise surface the REAL error and keep Edit available (retryable). NEVER show an "another user" fallback on a
+  null holder (that phantom-lock bug is DIAG-3). unmount + `beforeunload` best-effort `release` (fetch `keepalive`
+  with the CSRF header).
+- **Save posts the COMPACT form via `serializeSheets(getAllSheets())` (PM-5) — the single source for the save
+  shape.** `serializeSheets` (in `pricingLibs.ts`) strips the rebuilt/runtime keys (`data`, `visibledatarow`,
+  `visibledatacolumn`, `jfgird_select_save`, `luckysheet_selection_range`) and keeps `celldata` + `config` +
+  `calcChain` + display settings. The raw `getAllSheets()` is ~26 MB (Luckysheet rebuilds `data` for every sheet
+  at load); compacting → ~14 MB so it POSTs. LOSSLESS — the engine rebuilds `data` from `celldata` on load; this
+  is the same celldata-only canonical shape already stored. Any new save-shaped path MUST go through
+  `serializeSheets`.
+- **Save uses a raw `fetch`, NOT the SDK (PM-6, large-body precedent).** `handleSave` POSTs the compacted body via
+  same-origin `fetch` to `/api/method/…save_workbook` (session cookie + `X-Frappe-CSRF-Token` from
+  `window.frappe`/`window.csrf_token`), mirroring the `releaseBeacon` + wizard multipart-upload precedent — the
+  SDK/axios path stalled intermittently through the Vite dev proxy on the ~18 MB body, while `fetch` completes in
+  ~1.6 s (live-verified: 3 button saves + revert, all 200, no hang). Failure parses `_server_messages` for the
+  real message and keeps lock + Edit state. **Everything else (checkout/release/get/list) stays on the SDK** —
+  small bodies, no reason to change. Watermark opacity is **0.22** (PM-6, darker; still `#D03B45`).
+- **Watermark** = pointer-events-none data-URI-SVG overlay in the **Nirmaan brand red `#D03B45`** (full name +
+  email, tiled ~30°, font 21/weight 600, opacity 0.22 per PM-6) in BOTH read-only and edit modes; must never
+  block sheet interaction. Keyed on the USER, not the workbook — it needs no per-workbook parametrization.
+- **Access strings (PM-1 DB-verified, profile side):** `PricingRoute` guard + the sidebar spread both gate on
+  Administrator OR role_profile `Nirmaan Admin Profile` / `Nirmaan Estimates Executive Profile`. The backend
+  (`api/pricing/workbook.py`) also accepts the `Nirmaan Estimates Executive` Role and is the real enforcement
+  layer — keep the guard/sidebar strings in sync with each other, not necessarily with the backend Role set.
+- **Action-bar role gating (PW-2a).** ONE derived flag drives the whole bar:
+  `isPricingAdmin = user_id === "Administrator" || role === "Nirmaan Admin Profile"`, with `role` destructured
+  off the EXISTING `useUserData()` call (no new fetch — `PricingRoute` already warmed that SWR key). Admins get
+  Edit / Save / Release / Import / **Replace from Excel**; estimation users get **Sandbox only** and never see
+  a write affordance (the empty-state Import is admin-gated too). **Gate the bar on
+  `roleResolved = role !== "Loading"`** — `useUserData` returns the literal `"Loading"` while the
+  `Nirmaan Users` doc is in flight, and without the gate an admin flashes the estimation bar. Client gating is
+  **UX only**; the backend write gate (`_require_pricing_write_access`) is the boundary, and `PricingRoute`
+  stays wide so estimation users still reach the module.
+- **Sandbox pattern (PW-2a): editability WITHOUT a lock.** `requestSheet(sheets, true)` with **no** `checkout`
+  call; persistent amber banner + Exit Sandbox, which RE-FETCHES from the server (the engine may mutate the
+  array it was created with, so a cached array is not a trustworthy pristine snapshot). Three things keep it
+  from ever writing, and all three must be preserved: (1) `releaseBeacon` hard-guards on `lockMineRef.current`,
+  which only `handleEdit` sets — **do NOT replace that guard with a `sandbox` condition**, the ref is the single
+  truth for "do I hold the lock"; (2) Save/Release render only under `lock === "mine"`; (3) **NEVER pass
+  `allowUpdate: true` to `luckysheet.create`** (engine default is false) — with it on, the engine POSTs its own
+  deltas to `updateUrl` autonomously, outside the lock, outside `save_workbook`, and outside the Sandbox
+  guarantee. The engine binds no Ctrl+S and has no toolbar save item; the Save button is the ONLY save surface.
+- **Replace-from-Excel is a SAVE, not a create.** Admin + lock held. Reuses the full `runImportPipeline`
+  (shared with the empty-state import), confirms first, re-`checkout`s to refresh the 30-min lock before the
+  POST (idempotent for the holder; a long .xlsx conversion can otherwise blow the window), then posts
+  `save_workbook` with `{name}`. **Never `create_workbook`** — `Pricing Workbook.title` is `unique: 1`, and
+  save preserves the prior content as a version snapshot for free. Payload shape is identical between the two
+  endpoints; only the text field differs.
+- **Import pipeline stage order is AUTHORITATIVE (PW-2b-i) — every position is load-bearing:**
+  `decodeSheetNames -> clampRowBloat -> normalizeFormulas -> runFormulaStage (freeze -> transform ->
+  materializeHelpers) -> attachDataValidations`. decode FIRST (LuckyExcel escapes sheet NAMES, not
+  formula text). **clamp SECOND is a PERFORMANCE PRECONDITION**, not tidiness — raw ELV converts to
+  1,819,874 cells of which 98.8% are style-only filler and every later stage walks celldata.
+  normalize before the parser. **DV LAST and after the clamp** — `clampRangeSource` clamps a dropdown
+  source to the sheet extent +5, so running it on the bloated grid clamps to ~50,503 instead of ~30
+  and reinstates the per-dropdown cost DV-2 removed. `runImportPipeline` returns `{sheets, report}`.
+- **Formula transforms are AST-based (`pricingFormulaAst.ts` + `pricingTransforms.ts`), never regex.**
+  Transforms COMPOSE inside one cell (an IFS whose branches are each a multi-condition array
+  INDEX/MATCH; a LET wrapping another), so one bottom-up `mapNode` pass is what makes composition
+  safe — and it is why LET inlining does not duplicate an expensive lookup. **Abstain is a
+  first-class outcome**: anything not understood is left UNTOUCHED and reported; the parser never
+  throws into the pipeline. ⚠️ **Array formulas carry NO marker after conversion** (no `t:"array"`,
+  no braces) — detect BY SHAPE (`MATCH(1,(a=x)*(b=y),0)`).
+- **ENGINE CAUTIONS #3-#5 (PW-2b-i, all found only by live Tier-3, all invisible to a green suite):**
+  **(3)** a boolean literal poisons the cell — `,FALSE)` returns `#NAME?`, so every generated VLOOKUP
+  emits `,0)`. **(4)** **LuckyExcel emits numeric cell values as UNTYPED STRINGS** (`{v:"1.0"}` with
+  no `ct.t === "n"`) which the engine normalizes to `1` on load — **never trust `ct.t` on converted
+  (pre-load) celldata**; canonicalize by SHAPE (`NUMERIC_LIKE`), which is what keeps helper keys
+  matching the engine's runtime key. **(5)** **the engine evaluates ALL IF branches and propagates any
+  branch's error** — it does not short-circuit — so generated lookups inside IF/IFS branches are
+  wrapped in `IFERROR`; standalone lookups stay bare and honest. ⚠️ **The fallback token must not be
+  error-spelled**: the engine coerces the literal `"#N/A"` back into the #N/A error
+  (`ISTEXT("#N/A")` is `false`), re-poisoning the very IF the wrap protects. The token is `"n/a"`
+  (`ISTEXT` true, survives concatenation, still reads as a miss).
+- **Helper columns follow the FIXED workbooks' own convention:** `_mk` marker in the header row, key
+  `=A2&"|"&B2`, value mirroring the result column, pair allocated at `maxCol + 2`, hidden via
+  `config.colhidden`. **Each helper cell carries `f` AND a pipeline-computed `v`** — the engine never
+  evaluates at load (FR-6), so a bare formula reads blank and every lookup returns `#N/A`. A source
+  cell that is itself an unevaluated formula yields an EMPTY key for that row, never a partial key
+  that could match the wrong record. `_mk` is also the IDEMPOTENCY marker (snapshot which sheets have
+  it BEFORE writing, or the first pair you write hides every later pair on that sheet).
+- **Criterion-range harmonization (owner-directed):** when the criterion + result ranges share a start
+  row and a strict MAJORITY span, an outlier whose END differs by <= `MAX_HARMONIZE_ROWS` (2) is
+  pulled onto the consensus and reported as class `harmonized`. A tie, a differing start row, or a
+  larger gap still abstains — those bounds are what keep it a typo-fixer rather than a guesser.
+- ⚠️ **Testing lesson (PW-2b-i):** the Tier-1 tests assert the emitted formula TEXT, which is correct,
+  and they structurally **cannot** see that the engine mis-reads that text at runtime. Cautions 3, 4
+  and 5 were all invisible to a fully green suite. **Anything about engine SEMANTICS must be proven
+  in a live Tier-3 run.**
+- **Consent-based live fix (`pricingLiveFix.ts`, PW-2b-ii + PW-2d).** `[Fix]` eligibility is DERIVED, not a
+  hand-kept class list: `assessFix` runs the hit through `transformFormula`; a **helper-FREE** rewrite
+  (`helpers.length === 0`, or a dead-Google `freeze`) is fixed in the LIVE engine; a **helper-CLASS** rewrite
+  (multi-cond INDEX/MATCH) is fixed OFFLINE at save (below). Live writes mirror FR-6 (`setCellValue` with the
+  plain STRING) and go through **`withSheetActive`** — activate the hit's sheet, write, restore the prior active
+  sheet. ⚠️ **ENGINE CAUTION #6 (owner-locked):** `setCellValue` on a NON-active sheet CORRUPTS it — a bulk write
+  rebuilds that sheet's cell store from an incomplete grid and DROPS every unrendered row (proven: a live
+  Termination table went 154 rows → 0 and the save persisted the gutted sheet). NEVER write a non-active sheet;
+  `withSheetActive` is the guard (`setSheetActive` is synchronous — no render-await). The import report is a
+  receipt (`ImportReportDialog.tsx`), `lastReport` session-only. ⚠️ **Backend `_prune_versions` deletes via raw
+  `frappe.db.delete`, NOT `delete_doc`** — a list-shaped version doc otherwise trips the list-valued-JSON load
+  wall on the 21st save; every save-shaped path on an array-`workbook_json` doc avoids `doc.save()`/`delete_doc`.
+- **Save-time helper-class fix + single-action dialog (`pricingLiveFix.ts` / `pricingHitEval.ts`, PW-2d — Option 3).**
+  The advisory dialog is Cancel + ONE primary action: **"Fix all & save"** when any hit is fixable (helper-free AND
+  helper-class ride the same click), **"Save anyway"** when hits exist but none fixable, **"Save"** at zero hits;
+  each row shows **"will be fixed"** / **"no automatic fix — saved as-is"** (`isAutoFixable` = helper-free OR
+  `REASON_NEEDS_HELPER`). Helper-class hits are fixed **OFFLINE on the serialized payload** — `materializeHelpers({force:true})`
+  writes the pairs into `celldata` with computed values + `config.colhidden`, each hit gets its rewritten VLOOKUP,
+  then ONE save, then `requestSheet(fixedSheets,true)` re-inits so `create()` renders the stored values. **NEVER via
+  live `setCellValue` on the (usually non-active) table sheet (CAUTION #6), and NEVER `refreshFormula()` — ⚠️ ENGINE
+  CAUTION #7:** a global recompute force-evaluates every formula and cascades `#NAME?` (the engine renders Excel's
+  cached values on load, FR-6), and a `setCellValue` re-entry of the rewritten hit THROWS (it rejects a VLOOKUP whose
+  key is a `&`-concatenation). **FIXED-CELL DISPLAY (owner call):** `pricingHitEval.computeHitValueExact` stores the
+  hit's value **only where it resolves EXACTLY** against the just-built helpers (VLOOKUP dict lookup, resolvable refs,
+  `& + - * /`, `ROUND*` with integer digits) — anything else (IF/IFS/IFERROR/branch, unknown fn, missing ref, VLOOKUP
+  miss) leaves the cell BLANK (recomputes on the next edit). **Stored `f` always correct; `v` exact-or-absent — NEVER
+  an approximation** (a wrong cached `v` would display wrong until a recalc). The report labels each row **"value
+  computed"** vs **"blank until recalc"**; `canonicalizeCellValue` (pricingHelpers) is the SINGLE source for the
+  criterion/key canonicalization so an offline VLOOKUP key matches the materialized helper key by construction.
+- **Save-time formula advisory (`pricingFormulaScan.ts`, PW-2a) is WARN-ONLY and PURE.** Scans
+  `sheets[].celldata[].v.f` **after `serializeSheets`** so it sees exactly what will be persisted. Flags INDEX
+  anywhere (ENGINE CAUTION #1 — `=INDEX(r,2)*2` silently returns 0), the engine-absent `XLOOKUP`/`IFS`/`LET`,
+  and any name outside `window.luckysheet_function` (a plain object keyed by UPPERCASE name, 371 entries;
+  `supportedFunctionsFromEngine` returns null when it is missing/implausible and the unknown-name rule is then
+  **skipped — fail-OPEN**, never warn-on-everything). Detection strips BOTH `"..."` literals and `'...'`
+  sheet-name references before matching `identifier(`, so `="INDEX of items"` and a sheet named
+  `'Sheet (old)'` are not flagged. `handleSaveClick` scans then opens the dialog; `performSave` posts the
+  ALREADY-SCANNED sheets so Continue never re-runs the 400 ms re-entry pass. Keep the module side-effect free —
+  PW-2b's consent-based fixing is meant to be a caller change, not a rewrite.
+
 ## Important Notes
 
 - **Frappe Backend Required**: This frontend cannot run standalone; it requires a Frappe backend (see `../CLAUDE.md` for backend documentation)
@@ -609,6 +874,18 @@ The FULL per-slice component contracts (keyboard-nav matrix, the row-memo anti-d
 - **Inventory Item-Wise Page**: `src/pages/inventory/InventoryItemWisePage.tsx` — cross-project aggregation of latest submitted Remaining Items Reports with max PO quote rates for estimated cost. Virtualized expandable table with category/unit facet filters and CSV export. Sidebar access: Admin, PMO, PL, PM, Procurement.
 - **DN/CEO Hold Exemption**: Delivery Note operations (create, edit, return) are exempt from CEO Hold blocking — DNs can be managed even on held projects.
 - **Vendor Financial Dialogs**: Vendor WO/Material Orders tables show Amount Due column with clickable Total Invoiced and Amount Paid cells that open InvoiceDataDialog/PaymentsDataDialog respectively.
+- **Invoice Qty (`Purchase Order Item.invoice_qty`)**: derived "how much of each PO line is invoiced", recomputed from Vendor Invoice Line mappings on every invoice event. FULL architecture (recompute classifier EXACT/TRUSTED-FULL/ORDERED-FB/ZERO — partial/unmapped POs fall back to **ordered qty**, owner 2026-07-22; one-time backfill + Gemini extraction + cache, credit notes, Additional Charges, Resolve UI, gotchas) → **`../.claude/context/domain/invoice-qty.md`**. The frontend surfaces + who can use them:
+
+  | Surface | File | Frontend gate | Backend gate |
+  |---|---|---|---|
+  | Add Invoice / **Add Credit** buttons | `invoices-and-dcs/DocumentAttachments.tsx` (PO); `service-request/SRAttachments.tsx` (SR, **no Add Credit**) | shown unless `isEstimatesExecutive` | `update_invoice_data` |
+  | Edit invoice (pencil) | `DocumentAttachments.tsx` (`onEditEntry`) | `isAccountant` = Accountant · Accountant Lead · **Admin** | `update_invoice_data` |
+  | Edit AI mapping on an **Approved** PO invoice | `InvoiceDialog.tsx` (`canReExtract`) | Pending → anyone who can edit; **Approved → Nirmaan Admin only** (`isNirmaanAdmin`) | `_admin_can_rebuild` (Pending OR Nirmaan Admin) |
+  | **Resolve Invoices** page `/resolve-invoices` | `pages/temp/ResolveInvoices.tsx` | route `AdminRoute` + in-page `isAdmin` (**Administrator \| Nirmaan Admin Profile**) | `temp_resolve._require_admin` (same set) |
+
+- **Add Invoice vs Add Credit (PO only)**: the entry **button** decides `is_credit_note` (Add Credit = 1, `+` icon); the `InvoiceDialog` Credit-Note checkbox is a **read-only indicator shown ONLY in Edit mode** (hidden in Add). A credit note pins an amber warning at the top ("won't affect the PO's invoiced quantity"), stores a **negative** amount, and is excluded from `invoice_qty`. **SR shows "Add Invoice" only** and always opens non-credit (guard: `docType === "Procurement Orders" ? flag : false`). Sign logic in the autofill callback: `is_credit_note` → amount negative; `is_credit_note=false` **+ Gemini-detected credit** → amount **and** qty negative (return note). ⚠️ the autofill `useCallback` MUST list `invoiceData.is_credit_note` in deps (stale-closure else). `newInvoiceIsCredit` lives in `useDialogStore`.
+- **Resolve Invoices** is **Nirmaan Admin only** (PMO can reach the `AdminRoute` route but the page shows "Admin only" — `isAdmin` excludes PMO, matching the backend). Analyze (Gemini, read-only on the file) → correct mapping/qty → Save → optimistic card removal. Naming (`temp_resolve` / `pages/temp`) is legacy; the feature is permanent.
+- **`LineItemMappingReview`** (`invoices-and-dcs/components/`): the SHARED invoice-line → PO-item review table (Add/Edit dialog **and** Resolve UI). Line qty editable via the opt-in **`editableQty`** prop. **Radix gotcha:** the portalled react-select menu needs `styles.menuPortal = { ...base, pointerEvents: "auto" }` — a modal Radix dialog sets `pointer-events:none` outside itself, so without it options are keyboard-only. Any `lazy()` route (like `/resolve-invoices`) MUST be wrapped in `<Suspense fallback={null}>` or it throws "component suspended while responding to synchronous input".
 - **PO Adjustments**: Decoupled payment reconciliation system (`src/pages/POAdjustment/`). Revision approval auto-creates `PO Adjustments` doc tracking financial impact; negative diffs with remaining balance show "Adjust Payments" button on PO detail. Three PUSH methods: Against-PO, Ad-hoc expense, Vendor Refund. Pending adjustments lock PO payments. **PULL flow (2026-06):** a top-of-PO `VendorCreditSummaryCard` shows the vendor's overpaid-credit pool across all its POs ("₹X across N POs", vendor-scoped + cross-project) and "Apply to this PO" pulls it into the current PO (`apply_vendor_credit_to_po`); push & pull both take `FOR UPDATE` row locks (`_lock_and_assert_source_credit` / `_lock_and_assert_dest_capacity`) so the same credit can't be double-spent. See `.claude/context/domain/po-adjustments.md` for full docs + `docs/adr/0007-vendor-scoped-credit-application.md`.
 - **PO Revision simplified to 2 steps**: Item editing + Summary (Step 2 financial allocation removed). Payment reconciliation handled by PO Adjustments system post-approval. See `.claude/context/domain/po-revisions.md`.
 - **Loss Justification (high-loss items, PR + SB)**: a per-item reason required when **Loss % > 10%** (strict). Shared helper `src/utils/lossPercent.ts` (`computeLossPercent(savingLoss, benchmark)` + `isHighLoss` + `LOSS_THRESHOLD_PERCENT = 10`) is the SINGLE source of the rule — use it on every surface; never re-derive the threshold inline. **Capture (procurement enters + gate):** `VendorsSelectionSummary.tsx` (PR) + `Sent Back Requests/SBQuotesSelectionReview.tsx` (SB) — a "Reason (required)" textarea on each >10% item keyed by the `order_list` child-row `name`; Send-for-Approval disabled until all high-loss items are justified. PR sends `loss_justifications` in the `send_vendor_quotes` postcall; SB has no send endpoint so it persists the FULL `order_list` (justifications merged) via `updateDoc("Sent Back Category", ...)` — must send the whole child array (replace-all; omitting rows deletes them). **Approval (read-only display + backstop):** shared `ApproveVendorQuotes/components/VendorApprovalTable.tsx` shows Loss % in the Savings/Loss column + a light-red "Reason:" chip under the item name; both approve hooks (`useApproveRejectLogic.ts`, `useApproveSBSLogic.ts`) compute `lossPercent` with the **Target-prioritized** benchmark (NOT the `min(Target,L1)` used by the existing ₹ Savings/Loss column — see root CLAUDE.md GOTCHA 2) and block approval of a selected >10% item with no reason (Send Back is the escape hatch). `loss_justification` rides PR rows via `...prItem` spread but is mapped EXPLICITLY in the SB hook (it builds the display item field-by-field). Scope/rationale: `docs/adr/0002-loss-justification-scope.md`; terms: root `CONTEXT.md`.

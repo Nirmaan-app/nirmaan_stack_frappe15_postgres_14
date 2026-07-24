@@ -31,7 +31,8 @@
   "template_section",
   "is_template_source",
   "origin",
-  "source_template"
+  "source_template",
+  "source_boq"
  ],
  "fields": [
   {
@@ -188,11 +189,11 @@
   },
   {
    "default": "upload",
-   "description": "How this BoQ was created: 'upload' (Excel ingest, re-parseable) or 'template' (cloned from the master template; no source workbook, Configure/Parse suppressed). Origin-uniform per BoQ (ADR-0013 D4).",
+   "description": "How this BoQ was created: 'upload' (Excel ingest, re-parseable), 'template' (cloned from the master template; no source workbook, Configure/Parse suppressed), or 'revision' (ADR-0014 D2 -- a tagged fresh upload of a revised workbook against an already-committed original; re-parseable like an upload, carries provenance via source_boq). Origin-uniform per BoQ (ADR-0013 D4). A 'revision' is an upload for every existing origin gate (S1 audit): it takes the non-template branch everywhere.",
    "fieldname": "origin",
    "fieldtype": "Select",
    "label": "Origin",
-   "options": "upload\ntemplate",
+   "options": "upload\ntemplate\nrevision",
    "read_only": 1
   },
   {
@@ -202,12 +203,20 @@
    "label": "Source Template",
    "options": "BoQ Template",
    "read_only": 1
+  },
+  {
+   "description": "For origin=revision BoQs (ADR-0014 D2): the committed ORIGINAL BoQ this revision was uploaded against -- the diff baseline and the source of every carry. Null for upload/template BoQs. Modeled on source_template. Chains are allowed (a committed revision is itself revisable); source_boq forms a strict DAG (the source must pre-exist and be committed), so no cycles. Set by upload_file when source_boq is passed (S2); read-only.",
+   "fieldname": "source_boq",
+   "fieldtype": "Link",
+   "label": "Source BoQ",
+   "options": "BOQs",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-08 01:00:00.000000",
+ "modified": "2026-07-18 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "BOQs",

@@ -12079,3 +12079,1034 @@ the merge. No decision required (it is a local removal predating this session, n
 **Scope:** the merge commit is the resolution ONLY (PricingGrid.tsx hunks + auto-merged develop changes). NOT staged /
 NOT committed: `.claude/settings.local.json` + `patches.txt` (standing noise), `synthetic_*.xlsx` fixtures (re-saved by the
 parser test runs this session), build artifacts under `public/frontend` + `www/` (gitignored). NOT pushed (per spec).
+
+
+## HVAC engine -- Build slice HV-3 (ruleset v1 + proximity decay + raceway) COMPLETE
+
+Applies the evidence-mandated ruleset improvements from the Set-1 label scoring, wires the HVAC
+proximity-decay curve, and adds the owner's new `hvac_raceway` category across the assets. On
+`feature/boq-classification-eval` (one feat commit + this docs commit). **RULES ONLY -- no AI calls
+anywhere in this slice** (the saved v0 AI predictions are reused verbatim as the comparison column).
+Registry stays OFF (HV-1 gate untouched); `scoring.json`, `routing_config.json`, `engines.py`,
+`orchestrator.py`, `ai_voter.py`, `routing.py`, `persist.py` and all electrical assets are UNTOUCHED.
+No doctype change, so no migrate. No user-visible change.
+
+### The evidence base
+
+`_classification_review/hvac_labels_and_scoring/SCORING_V0.md` -- the team's provisional Set-1 hand
+labels scored against the saved v0 predictions over **1,366 line items** (11 sheets). Rules v0 = 52.49%,
+AI v1.0 = 84.33%. That scoring is what mandated (and, twice, what REFUTED) the changes below.
+
+**Feed fidelity, proven BEFORE any edit.** The re-score rebuilds each row's classifier feed with the
+tracked `harness/decay_sweep.py` `_ancestor_feed` (parent_excel_row walk, root-first
+`[sheet] + [desc+notes]`, matching `context_builder.py:181-184`). Run against the UNMODIFIED v0 assets it
+reproduced the saved `rule_category` on **1847/1847 eligible rows (100.00%)** and the saved headline
+exactly (52.49% / HIGH 77.41% / n=1366). Every v1 number below is therefore a like-for-like comparison
+on the same rows, same truth, same feed.
+
+### What shipped (rules_hvac.json 0.1-hv1-v0 -> 1.0-hv3-v1)
+
+Every v1 rule carries `source: "set1-scoring 2026-07-20 (provisional labels)"`.
+
+- **(a) RACEWAY CARVE-OUT** (owner ruling). New category `hvac_raceway` ("Raceway" / "cable trays,
+  raceways, and tray accessories") = the 17th HVAC category. New `RCW-KW` (0.55) + `RCW-ANC` (0.4,
+  mirroring electrical's `CT-ANC`). Tray tokens REMOVED from `CBL-KW`/`CBL-ANC` -- Cables is cabling
+  only. Guards BOTH ways: `CBL-TRAY-EXCL` (a tray line never scores Cables -- necessary because every
+  tray line contains the word "cable") and `RCW-DRIPTRAY-EXCL` (a unit drip/drain/condensate tray never
+  scores Raceway).
+- **(b) H4 CONFIRMED (100%, n=66) -- the owner's 4A ruling encoded.** New `INS-ATTRIBUTE-EXCL`, a
+  regex exclusion on `hvac_insulation`: an insulation word that is an ATTRIBUTE of a pipe or valve line
+  ("insulated pipe", "pipe with insulation", "insulated butterfly valve", "with 13 mm insulation") does
+  NOT claim the row. Insulation claims a row only when insulation is the SUBJECT.
+- **(d) H1 + H7 REFUTED -- their proposed edits deliberately NOT applied.** H1's bare duct tokens
+  (15.6% agreement) and any BTU->Sensors rule (0/31 -- truth said Valve Package on every labelled meter
+  row) are absent, and there are negative tests locking both absences. In H7's place: `VLV-METER-PROV`,
+  a deliberately WEAK (0.2, lands LOW) BTU/energy/flow-meter -> Valve Package rule, `plain`-stamped
+  PROVISIONAL on noisy labels and owed a re-check at clean labels.
+
+### What was mandated, measured, and REJECTED
+
+- **(c) Raising `ADP-ANC`.** The slice mandated raising the ADP ancestor weight so air-distribution
+  children reach HIGH/MED. Measured on the same 1,366 rows: **ADP-ANC 0.4 -> 52.86%, 0.45 -> 50.29%,
+  0.5 -> 50.29%** (flat). Raising it costs ~35 rows net -- drift 45 ducting / 31 AHU / 23 VRF into ADP,
+  ducting recall collapsing 53.6% -> 21.6% and VRF 97.8% -> 73.1%. 0.45 is no safe middle: it TIES the
+  sibling 0.45 ancestors (`DUCT-ANC`/`AHU-ANC`/`VRF-ANC`) and still wins the alphabetical tiebreak.
+  **Root cause of the mis-mandate:** H2's "ancestor right 84%" was measured on rows ADP ALREADY won;
+  raising the weight extends the rule into a DIFFERENT population where truth says ducting/AHU/VRF.
+  **Correct reading of H2: KEEP the `air distribution` token (H2 wanted it deleted), do not amplify it.**
+  OWNER-RULED to keep 0.4. Locked by `test_adp_ancestor_weight_not_amplified` +
+  `test_ducting_ancestor_beats_adp_ancestor`.
+
+### Proximity decay -- MEASURED FLAT, wired EXPLICITLY, stamped PROVISIONAL-FIT
+
+The tracked `harness/decay_sweep.py` was run over the 1,366 labelled rows (same exclusions as the
+scoring: dummies, illegal-value rows, blanks) across the certified 20-value ladder. **Flat m=1.0 won at
+52.86%; no multiplier beat it** -- best non-flat `m=0.90` = 52.27% (-8 rows), `m<=0.75` fell to ~49.4%.
+This mirrors the Electrical D2/D2b outcome exactly.
+
+`rules_hvac.json` therefore carries an EXPLICIT top-level `decay` block at `1.0` with
+`_fit: "PROVISIONAL-FIT"` -- wired on the record rather than left to the implicit default, with the
+measured grid in its own `_note`. PROVISIONAL-FIT = fitted on the team's PROVISIONAL labels (known
+vocabulary drift + an unfinished preamble pass); **a re-sweep is OWED at clean labels and the value is
+not certified until then.** Electrical is untouched and stays flat-by-default (no block), asserted twice
+in `test_decay.py::test_electrical_decay_locked_flat`.
+
+### The v0 -> v1 re-score (rules only)
+
+Full report: `_classification_review/hvac_rules_v1_rescore/RESCORE_V1.md`.
+
+| | v0 | v1 |
+|---|---:|---:|
+| Overall accuracy | 52.49% | **52.86%** (+5 rows) |
+| HIGH band | n=270, 77.4% | n=263, 79.5% |
+| LOW band | n=935 | n=949 (LOW did NOT shrink, +14) |
+| Bare-dimension-leaf pile (589) | 36.2% | 36.2% (unchanged) |
+| Rows improved / regressed | -- | 6 / 1 |
+
+**H-change ledger (by ablation -- rules_hvac.json rewritten with one change removed, re-scored, then
+restored byte-identical):** (a) raceway -1, (b) H4 guard 0, (d) BTU rule +6. Net +5.
+
+**Two changes are honestly near-zero on this row set, and the report says why rather than hiding it:**
+
+- **(a) Raceway scores 0 predictions -- UNMEASURABLE here, not broken.** The team labelled 28 tray line
+  items with the out-of-legend value `CableTray & Raceway` (Reason: Electrical), so all 28 are among the
+  73 illegal-value rows EXCLUDED from scoring. Of 60 Set-1 line items in a tray context, only 2 name a
+  tray in their own text; the rest are bare dimension leaves reached via `RCW-ANC` inheritance. The
+  carve-out is owed a real measurement once `Raceway` is a legal label.
+- **(b) The H4 guard fires on 17 scored rows and changes 0 verdicts.** The guard tests the LINE's own
+  text (runner step 4 matches `desc_blob`), which is where "insulated pipe" lives. The 66-row H4 pile is
+  mostly bare dimension leaves that INHERIT insulation from an ancestor carrying the word -- the line
+  itself says nothing, so no line-level guard can reach them. **That pile needs the STRUCTURAL
+  nearest-ancestor inheritance change (runner-level), not another keyword.** The guard is still correct
+  and shipped: it encodes the 4A ruling and bites the moment composite lines enter a scored set.
+
+**The standing verdict is unchanged by this slice:** rules are not a viable primary voter on HVAC
+(52.9% vs the AI's 84.3%), the bare-dimension-leaf pile is the single largest failure at 36.2%, and
+neither more keywords nor a decay curve moves it. The durable lift is the runner-level nearest-parent
+inheritance change.
+
+### Tests
+
+`test_runner_hvac.py` 21 -> **38** (+17), all green: 17-category validation + the owner-brief
+name/description check; raceway carve-out 4 (tray -> Raceway with Cables zeroed; plain cable -> Cables
+with Raceway zeroed; drip-tray false friend; bare-size-leaf inheritance); H4 guard 4 (insulated pipe /
+4A composite / insulated valve all NOT insulation, plus a POSITIVE CONTROL that standalone insulation
+still wins, so the guard is proven not to over-fire); ADP 3 (token still places ADP, weight locked at
+0.4, ducting ancestor still beats it); provisional meter 3 (BTU -> Valve Package and stays LOW, no
+BTU->Sensors rule, no H1 duct tokens); decay config 2 (explicit flat + PROVISIONAL-FIT stamp;
+near-beats-far proven live on HVAC assets under `decay_override`).
+
+`test_decay.py` 12 -> **12** (owner-ruled scope addition; 2 tests strengthened in place, no count change):
+the HVAC assertion changed from "defaults flat (no block)" to "wired explicitly + PROVISIONAL-FIT", and
+the electrical one now ALSO asserts `rules_electrical.json` carries no `decay` block at all.
+
+`test_runner_electrical.py` **82 -> 82 unchanged** (A10 backwards-compat: electrical behaviour is
+byte-identical). `test_hv2_voter_harness.py` 14 -> 14. Suite 115 -> 132.
+
+**KNOWN pre-existing failure, OUT of scope, unchanged at `a7b8237c`:** `TestMigrateWorkPackageToMulti`
+in `api/boq/wizard/test_update_sheet_draft.py` still errors (3 errors of 82) --
+`column "work_package" of relation "tabBoQ Sheet Draft" does not exist`. Unrelated to HV-3; reported,
+not touched.
+
+
+## HVAC engine -- Build slice HV-4 (nearest-hit ancestor resolution + mined ruleset v2) COMPLETE
+
+The two structural fixes HV-3 proved necessary: a nearest-firing-ancestor resolution mechanism in
+the rules engine (HVAC-gated, electrical untouched), and a label-mined vocabulary expansion of
+`rules_hvac.json` (v2) grown iteratively against the Set-1 truth with measurement after every batch.
+On `feature/boq-classification-eval` (one feat commit + this docs commit). **RULES ONLY -- no AI
+calls; registry stays OFF; Set-2 never opened.** No doctype change, so no migrate. No prompt edits.
+No user-visible change.
+
+### THE HEADLINE, UNSPUN
+
+**Set-1 rules accuracy 52.86% -> 66.91% on the same 1,366 rows. The owner's bar is 80%. The gap is
+13.09 points and this slice does not close it.** That is the honest landing zone for rules-as-built,
+not a way-point: of eight principled ancestor-vocabulary batches measured, the four that would have
+pushed further all measured NEGATIVE (the BMS batch alone cost 135 rows). The errors that remain are
+not lexical. The residual anatomy + fired-signal traces are at the top of
+`_classification_review/hvac_rules_v2_rescore/RESCORE_V2.md`; whether the missing 13 points belong to
+clean labels, to round-3 machinery, or to a genuine rules ceiling (meaning routing must carry more
+weight for HVAC than it did for electrical, where rules reach 86.9%) is an owner conversation to have
+with that report in hand.
+
+### Gate 1 -- the seam (read before any code)
+
+- **Ancestor signals are collected** in `classify_line`'s step 1-2 rule loop. Legacy flattens the
+  WHOLE chain into one `anc_blob` and matches against it, so a banner four levels up scores exactly
+  as hard as the immediate parent.
+- **D1 decay interacts but does not fix it:** decay's "contributes ONCE at the nearest matching
+  ancestor" is PER RULE, not per resolution point -- rule A can contribute at d=0 while rule B still
+  contributes at d=3 (scaled). At the shipped flat m=1.0 the decay path does not even run.
+- **Exclusion guards** zero a category in step 2-4, tested against `desc_blob` (own text + notes);
+  the inheritance path applies them against the ancestor blob instead.
+- **Ties resolved ALPHABETICALLY by `category_id`** (`_rank_key` returned `(-eff, cat)`), and the
+  inheritance path additionally demanded strict dominance or abstained.
+- **Where the gate cuts in:** a resolution index computed once per call, consumed by BOTH the main
+  ancestor loop and the fragment-inheritance fallback -- the latter matters most, because a bare
+  dimension leaf has no own signal and is decided entirely there.
+- **Seam is clean:** the mechanism and the tie-break are both behind one opt-in key, so the
+  electrical code path is untouched. No stop condition triggered.
+
+### Part 1 -- the mechanism (runner.py, gated)
+
+`ancestor_resolution: "nearest_hit"` in the discipline's rules JSON. ABSENT = legacy blob,
+byte-identical. Semantics: walk ancestors nearest-first; the FIRST ancestor at which ANY ancestor
+rule fires is the RESOLUTION POINT; only signals firing there contribute; farther ancestors
+contribute **nothing** (not a decayed remnant). No ancestor fires anywhere -> behaviour unchanged.
+Item-keyword signals on the row's own text are unaffected; exclusion guards still global;
+inherited-stays-sub-HIGH cap unchanged. **Composed order of operations** is documented in the code
+comment: own-text signals -> resolution point -> ancestor signals at that point scaled by `m**d` ->
+agreement/cap -> exclusions -> ranking -> conflict/band/geometry.
+
+**Tie-break chain (same gate):** score -> higher single rule WEIGHT -> more distinct signal types ->
+STABLE declaration order. Never alphabetical. Legacy disciplines keep `(-eff, cat)` exactly.
+
+**A10 electrical lock, proven at corpus scale:** the electrical decay sweep was run over its 2,888-row
+labelled corpus BEFORE and AFTER the runner change -- `sweep_table.csv` and
+`per_category_accuracy_matrix.csv` are byte-identical (86.88%, HIGH n=1247 @ 97.43%), plus
+`test_runner_electrical` 82/82 unchanged and a dedicated gating test asserting electrical still SUMS
+a far banner with a near header.
+
+**Mechanism measured ALONE** (v1 rules unchanged, flag on): overall 52.86% -> **52.93%** (+1 row), but
+the bare-dimension-leaf pile **36.2% -> 43.6%**. The structural fix lands exactly where HV-3 predicted;
+it just does not show as headline accuracy until mined vocabulary gives it something to resolve to.
+
+**Performance note:** the nearest-hit scan tests every rule against every ancestor, so the ancestor
+feed is normalised ONCE per call (`_norm_ancestors`). Without that the offline scorer took minutes
+per run; with it, 1.4s for 1,366 rows. Semantics identical (verified: same 52.93% / same pile 43.6%).
+
+### Part 2 -- mining (floor-gated, batch-measured)
+
+**Floor (declared up front):** a shipped rule needs support >= 8 truth rows, spanning >= 2 distinct
+BoQs, precision >= 85% for its category -- recorded in each rule's own `source` string so the asset is
+self-auditing.
+
+**Keep-rule (owner-ruled, and now loop policy that round 3 inherits): keep a batch if overall improves
+AND gain >= 5x total rows lost.** This replaced a per-category percentage-point guard that was
+vetoing a +127-row batch over a 4-row wobble in a 37-row category. The ratio rule is what we actually
+care about -- the quality of the trade -- and it earns its keep on the ADP batch, which was NET
+POSITIVE (+3) yet lost ~30 rows elsewhere: both flat caps would have waved it through on arithmetic;
+the ratio rejected it. Stamped fitted-on-provisional like everything else: the same 5x rule applies
+fresh at the clean-label re-mine.
+
+**Shipped (2 rules, both clearing the floor):**
+
+| rule | category | support | boqs | precision | effect |
+|---|---|---:|---:|---:|---:|
+| `VLV-ANC-TYPE` | Valve Package | 136 | 5 | 86.1% | +127 rows (14.1x) |
+| `FAN-ANC-TYPE` | Fans | 76 | 6 | 96.2% | +64 rows (64.0x) |
+
+`VLV-ANC-TYPE` **reopens hypothesis H3**, deferred at HV-3 to clean labels and reopened here on the
+owner's ruling: under nearest-hit its pile is genuinely different. The valve size leaves were losing a
+three-way **0.40 tie** (insulation / valve / chilled-water) at the SAME ancestor -- a valve spec
+paragraph incidentally mentions insulation and chilled water -- broken only by declaration order. It
+was never a vocabulary gap: VLV-ANC already fired. KNOWN COST: 9 rows where a valve is itemised INSIDE
+an AHU/CHW package, the contested boundary `VLV-KW`'s own plain already flags.
+
+`FAN-ANC-TYPE` **was narrowed by the floor and this is the floor working.** Proposed with nine tokens
+it measured 75.0% precision -- below the bar -- so every token was scored individually and only two
+survived (`inline fan` 97.2%/5 BoQs, `fresh air fan` 97.3%/5 BoQs). `exhaust air` (53.3%),
+`ventilation unit`/`ventilation units` (0%) and `centrifugal fan` (single BoQ) were rejected.
+
+**REJECTED and recorded for retry at clean labels:** a piping ancestor batch (no token could clear
+>= 2 BoQs -- `copper pipe` 100% and `refrigerant pipe` 88.9% were both single-BoQ), duct / ADP /
+insulation / BMS ancestor vocabulary (all measured NEGATIVE), and the ADP batch (+3 gained, ~30 lost,
+0.1x -- rejected by the ratio rule). Grids for all of them are in RESCORE_V2.md.
+
+### The boilerplate queue and the spread test -- a NEGATIVE result worth recording
+
+The n-gram miner surfaced ~1,873 ancestor candidates that clear the numeric floor but are **spec
+boilerplate**: `aluminum cladding` (support 146, precision 97%, 4 BoQs), `body` (146, 100%),
+`cast iron` (115, 100%), `32mm insulations` (118, 100%), `media temperature` (60, 100%) -- fragments of
+one long valve specification paragraph, not category vocabulary.
+
+**The judgment test applied (stated so it is auditable and reusable): would this phrase still predict
+this category in a BoQ written by a different consultant who had never seen this template? If the
+phrase only identifies the category because a specific document says it that way, it is boilerplate.**
+
+The owner-mandated **per-BoQ spread test** was built and run, and it **FAILED to discriminate**:
+1,601 of 1,873 candidates came back "spread-validated" -- including `body` and `32mm` -- with 100%
+precision independently in each of 2-4 BoQs and no BoQ holding >60% of support. The reason is that
+those BoQs **share a copy-pasted specification template**, so cross-BoQ spread is not evidence of
+independence and the test's premise does not hold on this corpus. **Nothing from the queue was
+shipped.** All 1,873 candidates are written to `REJECTED_CANDIDATES.csv` with phrase, target
+category, support, BoQ count, pooled precision, per-BoQ precision, biggest-BoQ support share, verdict
+and reason class -- the promotion queue for the Set-2 out-of-sample pass, which is the only test that
+can actually settle them. That deviation from the literal instruction is deliberate and flagged here
+rather than buried: shipping 1,601 boilerplate rules would have inflated the Set-1 number and
+collapsed on Set-2.
+
+### Results
+
+| stage | accuracy | correct |
+|---|---:|---:|
+| v0 (HV-2 assets) | 52.49% | 717 |
+| v1 (HV-3 shipped) | 52.86% | 722 |
+| + nearest-hit mechanism ALONE | 52.93% | 723 |
+| + B1 valve-type ancestor (mined) | 62.23% | 850 |
+| **+ B2 fan-type ancestor = v2 SHIPPED** | **66.91%** | **914** |
+
+**Band shift -- LOW mass moved for the first time:** LOW 935 -> 747, HIGH 270 -> 463 and HIGH got MORE
+accurate (77.4% -> 85.7%). The engine is now confident more often AND right more often when confident,
+which is the calibration result that matters for routing.
+
+**The bare-dimension-leaf pile: 36.2% -> 70.5%** (589 rows). HV-3 named this the single largest rules
+failure and predicted only a structural fix could move it. It nearly doubled.
+
+**Regressions:** 62 rows v0-right -> v2-wrong, against 259 v0-wrong -> v2-right (net +197). Ten verbatim
+examples in RESCORE_V2.md.
+
+**Rules-only-right vs the AI rose from 51 to 122** -- the engine now contributes independent signal the
+AI does not have, which is what makes a two-voter routing policy worth anything.
+
+### Tests
+
+`test_runner_hvac.py` 38 -> **52** (+14), all green: nearest-hit resolution 5 (near beats far banner;
+farther ancestor contributes NOTHING rather than a decayed remnant; silent immediate parent falls
+through to grandparent; no-fire-anywhere = legacy abstain; symmetry -- flip the order and ducting wins);
+gating 3 (electrical carries no flag, HVAC does, and **the gating negative**: electrical still SUMS a
+far banner with a near header); tie-break 2 (deterministic across repeats; higher weight beats the
+alphabetically-earlier category that used to win); mined-rule validation 3 (targets known categories;
+every mined rule records support/boqs/prec in `source`; the fan rule's floor-rejected tokens are
+absent); decay composition 1.
+
+**One HV-3 assertion was updated, not preserved:** `test_hvac_near_ancestor_beats_far_under_decay`
+asserted that a far banner wins at FLAT and only decay flips it. Nearest-hit makes the flat run
+resolve at the near ancestor by itself -- that IS the slice's point -- so it became
+`test_nearest_hit_subsumes_what_decay_used_to_be_needed_for`. In-scope file; reported, not silently
+patched.
+
+`test_decay.py` **12 -> 12, GREEN, untouched** -- the anticipated collision did not materialise, so the
+conditional scope expansion was not used. `test_runner_electrical.py` **82 -> 82 unchanged** (A10).
+`test_hv2_voter_harness.py` 14 -> 14. Suite 146 -> 160.
+
+**KNOWN pre-existing failure, OUT of scope, unchanged:** `TestMigrateWorkPackageToMulti` in
+`api/boq/wizard/test_update_sheet_draft.py` still errors (3 errors of 82) --
+`column "work_package" of relation "tabBoQ Sheet Draft" does not exist`. Unrelated to HV-4.
+
+
+## HVAC engine -- Build slice HV-5 (boundary rulings encoded: rules v3 + prompt v1.2) COMPLETE
+
+Encodes the owner's Boundary Rulings register into BOTH voters, plus the two mechanical fixes the
+deep-dive priced. On `feature/boq-classification-eval` (one feat commit + this docs commit).
+**RULES-ONLY MEASUREMENT -- no AI calls; the prompt v1.2 edits take effect and are measured at the
+next AI run.** Registry stays OFF; Set-2 never opened; no doctype change, so no migrate.
+
+### Headline -- two views
+
+| view | truth used | accuracy |
+|---|---|---:|
+| HV-4 baseline (v2 assets) | current | 66.91% |
+| **(a) v3 vs CURRENT truth** | current, unedited | **73.87%** |
+| **(b) v3 vs OWNER-CORRECTED truth** | 65-row packet applied | **77.75%** |
+
+View (a) is the comparable number (+6.96 pp, +95 rows). View (b) is the honest one: it scores against
+the truth the register now defines. **No truth file was edited** -- the packet is
+`_classification_review/hvac_rules_v3_rescore/LABEL_CORRECTIONS.csv` and is applied only in memory.
+
+**Band shift, and this is the result that matters for routing:** LOW **935 -> 470**, HIGH **270 -> 629**
+at 81.7% (view a) / 85.5% (view b). M1 did its job -- the 1.000/HIGH confident-wrong composite family
+is gone. 414 rows improved against 122 regressions.
+
+### Step-0 gate -- the r208 discrepancy: class (a), print-layer slip
+
+The deep-dive's underlying data was CORRECT. `deepdive.json` carries
+`sheet='HVAC HIGH SIDE CHILLED WATER'` on that trace; the report's renderer prints only
+`<boq> r<row>` and DROPS the sheet field, and BOQ-26-00009 has multiple sheets, so the address is
+ambiguous. With the VERBATIM sheet name (note the TRAILING SPACE, #152) the live DB confirms
+`BOQ-26-00009 / 'HVAC HIGH SIDE CHILLED WATER ' r208 = "200 mm Dia"` under the Ultrasonic BTU meters
+parent -- exactly as claimed. `'HVAC LOWSIDE BOQ' r208` is the underdeck insulation row; both are real,
+they are different rows. **Spot-audit run anyway: 10 rows across 5 piles, address -> live DB
+description, 0 mismatches (0.0%).** No join defect; slice proceeded.
+
+Two follow-ups worth carrying (neither in this slice's file scope): the deep-dive renderer should
+print the sheet, and any address taken from a report to the DB must use the VERBATIM sheet name --
+the corpus artefacts store the STRIPPED form.
+
+### The register as law -- each ruling, one line
+
+Every rule carries `source: "owner ruling 2026-07-21, workbook provenance <sheet>"`.
+
+| # | ruling | mechanism shipped |
+|---|---|---|
+| R1 | flexible/foil duct -> ADP; Ducting is rigid fabricated sheet metal only | `ADP-FLEXDUCT` 0.55 + `ADP-FLEXDUCT-ANC` 0.5; `DUCT-FLEX-EXCL` and `DUCT-FLEX-ANC-EXCL` forbid Ducting in flex context (line AND ancestor) |
+| R2 | pipeline instruments -> Valve Package; Sensors keeps the BMS basket | `VLV-METER-PROV` PROMOTED 0.2 -> 0.55 and extended (thermometer, thermowell, gauges, test points); new `VLV-INSTRUMENT-ANC` 0.5; `thermometer`/`pressure gauge` REMOVED from `SNS-KW` |
+| R3 | plenum -> ADP, beating an AHU section | `ADP-PLENUM-ANC` 0.5 (> AHU-ANC 0.45) **and** `AHU-PLENUM-ANC-EXCL` forbidding AHU at a plenum resolution point |
+| R4 | starter/control/VFD panel -> Panels, beating an AHU section | `PNL-ANC-TYPE` 0.5 + `AHU-PANEL-ANC-EXCL` (regex) -- same mechanism pair as R3 |
+| R5 | damper accessories -> ADP, damper context ONLY | `ADP-DAMPER-ANC` 0.5 + `PNL-DAMPER-ANC-EXCL` + `SNS-DAMPER-ANC-EXCL`; both guards fire only at a damper resolution point, so generic panels and BMS sensors are untouched |
+| R6 | canvas/flexible connections resolve by SERVED context | `ADP-CANVAS` at **0.42** -- a weight WINDOW, see the caution below |
+| R7 | filters: standalone -> Misc, integral -> the unit | `MSC-FILTER-STANDALONE` 0.45 + `AHU-FILTER-EXCL` (regex on filter-as-subject) |
+| R8 | air curtains -> Misc | `MSC-AIRCURTAIN` 0.55 + `FAN-AIRCURTAIN-EXCL` |
+| R9 | FCU with factory-fitted valve package stays CHW Units | `VLV-FCU-ANC-EXCL` -- forbids Valve Package at an FCU resolution point; retires the 11-row known cost HV-4 accepted |
+| R10 | work/service lines -> Misc regardless of system | `MSC-WORKLINE` at **0.6**, deliberately ABOVE the item-keyword band, guarded by `exclude_if` on SITC scopes |
+
+**R6 CAUTION, on the record.** The rule grammar has no conditional, so "resolve by served context" is
+expressed as a weight window: with the 0.05 direct-signal ranking bonus, `ADP-CANVAS` scores 0.47
+effective -- clearing `DUCT-ANC` (0.45) so ADP wins under a duct header, staying under
+`FAN-ANC-TYPE` (0.5) so Fans wins under a fan header. **That window is only 0.03 wide.** Any future
+change to `DUCT-ANC`, `FAN-ANC-TYPE` or `scoring.direct_signal_bonus` will silently break the ruling.
+It is covered by tests in both directions, and a proper conditional grammar is the durable fix.
+
+**Two rulings needed a second pass, found by probing before writing tests, not after:** R6's canvas
+token was already present in `ADP-KW` at 0.55, so the new rule STACKED to 0.95 and ADP won even in fan
+context (fixed by removing the token from `ADP-KW`); and R10 at 0.5 lost to the system noun
+("Dismantling of existing ducting" -> Ducting 0.55), fixed by lifting it to 0.6.
+
+### Mechanical fixes
+
+- **M1 ancestor-aware composite guard (runner, HVAC-gated).** New `applies_to_ancestor` flag on
+  exclusion rules; those patterns are evaluated against the RESOLUTION POINT instead of the line, and
+  are consumed ONLY on the nearest-hit path -- a legacy discipline has no resolution point, so
+  electrical is structurally unable to reach them. `INS-COMPOSITE-ANC-EXCL` encodes the 4A ruling at
+  ancestor level: a header describing a HOST (pipe/duct/valve) with insulation as an ATTRIBUTE cannot
+  yield Insulation for its children. **The discriminator is DISTANCE, not vocabulary** -- the pattern
+  requires >= 2 intervening words, so the compound-noun item forms ("duct insulation", "pipe
+  insulation", "underdeck insulation") never match and the three 4A insulation-is-the-item families
+  still win. Proven both directions by test.
+- **M2 singular pipe tokens** added to `PIPE-ANC` -- hypothesis H5, deferred since HV-3, settled by
+  the deep-dive trace: real headers say `DRAIN PIPE` / `REFRIGERANT PIPE`.
+- **M3 uninformative-near-parent skip NOT built** -- held by the owner pending the r208 answer.
+  Note that R2's new `VLV-INSTRUMENT-ANC` incidentally relieves part of pile 10 by making the
+  instrument preamble an informative resolution point, so the walk now stops there.
+
+### Label-correction packet (Part 4)
+
+`LABEL_CORRECTIONS.csv`, 65 rows, no truth edited in place: 57 grille/diffuser neck-size leaves
+Ducting -> ADP, and 8 work-line rows R10 overrules (ADP/Ducting/Piping/Panels -> Misc).
+
+**Note on the count:** the brief said "the 43 grille rows". 43 was the SIZE OF THE FAILURE PILE (the
+rows the classifier got wrong). The full population of Ducting-labelled rows sitting under a
+grille/diffuser header is **57** -- the correction applies to the mislabelled rows, not only to the
+ones that happened to be misclassified.
+
+### Tests
+
+`test_runner_hvac.py` 52 -> **79** (+27; the pre-run estimate was 73 -- I under-counted my own new
+cases). All green. Every R-rule has a positive and, where it has one, its guard negative: R1 flex-duct
+positive + Ducting-forbidden + rigid-ducting-unaffected; R2 thermometer + BTU-leaf inheritance + the
+Sensors-keeps-BMS negative; R3 and R4 beating the AHU section with AHU proven zeroed; R5 damper panel
+positive + generic-panel and BMS-sensor negatives; R6 both contexts; R7 standalone + integral; R8; R9
+with Valve Package proven zeroed; R10 work-line + dismantling + the SITC guard negative. M1 is tested
+in BOTH directions (composite pipe and composite valve -> host category; duct-insulation and underdeck
+-> still Insulation) plus a gating assertion that electrical carries no ancestor-exclusion rules at
+all. M2 positive + token presence.
+
+**One HV-3 assertion updated, not preserved:** `test_btu_meter_is_valve_package_and_stays_low`
+asserted band == LOW because HV-3 shipped that rule PROVISIONAL at weight 0.2. R2 promotes it to full
+weight from the workbook, so the row is no longer LOW -- the promotion IS the ruling. Renamed to
+`test_btu_meter_is_valve_package_at_full_weight` and now asserts the shipped weight. Reported, not
+silently patched.
+
+`test_decay.py` **12 -> 12, GREEN, untouched** -- no assertion collision, so the conditional scope
+expansion was again not used. `test_runner_electrical.py` **82 -> 82 unchanged**.
+`test_hv2_voter_harness.py` 14 -> 14. Suite 160 -> 187.
+
+**A10 electrical proof, corpus scale:** the electrical sweep over its 2,888-row labelled corpus is
+byte-identical to the HV-4 baseline (`sweep_table.csv` and `per_category_accuracy_matrix.csv` both
+diff-clean; 86.88%, HIGH n=1247 @ 97.43%).
+
+**KNOWN pre-existing failure, OUT of scope, unchanged:** `TestMigrateWorkPackageToMulti` in
+`api/boq/wizard/test_update_sheet_draft.py` (3 errors of 82) --
+`column "work_package" of relation "tabBoQ Sheet Draft" does not exist`.
+
+### Residual for round 4
+
+Full tables in `_classification_review/hvac_rules_v3_rescore/RESCORE_V3.md`. The register closed the
+boundary piles it was written for; what remains is the pile-10 mechanism (held), the truth-side
+questions the packet does not cover, and the ADP<->Ducting reading that survives even after the
+corrections. The 80% bar is now within reach on view (b) -- 77.75% against 80% -- but the last points
+look like they need the held mechanism and a clean-label re-mine, not more vocabulary.
+
+## HVAC engine -- Build slice HV-6 (final owner rulings: rules v4 + prompt v1.3) COMPLETE
+
+**Commits:** `20ef94da` (feat) + this docs commit. Branch `feature/boq-classification-eval`, base
+tip `9623b129`. **Rules-only measurement; NO AI calls this slice.** HVAC engine registry stays OFF.
+
+### The three final rulings
+
+**1. CHW/DX boundary -- the FEED MEDIUM decides, never the form factor.** `cassette`, `hi-wall`,
+`ductable`, `split` are FORM words describing the box, not the category. Water-fed (chilled water /
+CHW / water-fed / water-cooled, and FCU by definition) -> `hvac_chw_units`; refrigerant-fed
+(refrigerant / R410A / R32 / DX / condensing unit) -> `hvac_dx_unit`. **Context may come from the
+line's own text OR its section header** -- this was the load-bearing correction: a first encoding
+demanded co-location in the line's own text and broke 6 correct rows (`1.6 TR Cassette Ac` carries
+its water context only in the ancestor). Bare form with NEITHER context stays LOW/contested on
+purpose. Shipped as: `CHW-CASSETTE`/`DX-CASSETTE` restated as law, `CHW-ANC` widened with
+`water fed`/`water cooled`, new **`DX-ANC`** (ancestor, 0.4) mirroring `CHW-ANC`, new
+**`DX-VRF-EXCL`** (exclusion, `applies_to_ancestor: true`) giving VRF precedence.
+
+**A measured negative, on the record:** the bare token `refrigerant` in `DX-ANC` was tried and
+REJECTED -- VRF systems are refrigerant-fed too, so it stole VRF rows (-4). A regression test now
+guards against reintroducing it.
+
+**2. VRF controllers -> `hvac_vrf`.** A VRF/VRV system's own controls (corded/wireless remote,
+centralised remote controller, Intelligent Touch Manager) price with the VRF package: new
+**`VRF-CONTROLS`** (item_keyword regex, 0.55). Guarded the other direction by new
+**`SNS-VRFCTRL-EXCL`** so Sensors keeps the BMS basket only (BACnet/BMS integration, transmitters,
+thermostats). The discriminator is WHAT THE DEVICE CONTROLS.
+
+**3. Misc -- UNCHANGED**, by explicit owner ruling. No Misc rule was touched.
+
+### The PNL-ANC-TYPE grid -- and why NOTHING shipped
+
+The Set-2 exam measured `PNL-ANC-TYPE` at 18.8% precision (16 fires) and flagged it for a fix.
+Measured on the combined 2,354-row corpus, **every in-scope remedy is worse than keeping it**:
+
+| option | in scope? | accuracy | delta | moved | fixed | broke |
+|---|---|---:|---:|---:|---:|---:|
+| **(0) keep as-is -- SHIPPED** | -- | **68.22%** | baseline | -- | -- | -- |
+| (i) restrict to distance d=0 | **NO** -- needs a `runner.py` field | -- | -- | -- | -- | -- |
+| (ii-a) delete `PNL-ANC-TYPE` | yes | 67.25% | **-0.98 pp** | 37 | 0 | **23** |
+| (ii-b) delete it + `PNL-ANC` | yes | 67.33% | -0.89 pp | 40 | 2 | 23 |
+| (iii) `headers_only: true` (+/- narrowed match) | yes | 68.01% | -0.21 pp | 10 | 0 | 5 |
+
+Deleting the rule breaks **23 correct rows and fixes zero**: it is what resolves bare fragment
+leaves (`For 15HP`, `22.38 kW`) under a panel header. The exam's 18.8% was a **Set-2-only**
+measurement of the rule's own claims; on the full corpus it is net strongly positive. Both are
+true. **AMBIGUITY SURFACED, NOT GUESSED:** option (i) is not implementable without a per-rule
+distance field in `runner.py`, which was out of scope -- deferred to HV-7 with this grid as
+evidence.
+
+### Verification (rules-only, combined n=2,354, view ii)
+
+**68.22% -> 68.39% (+0.17 pp).** 11 rows moved: **6 fixed, 2 regressed, 3 neutral**. Rows moving
+OUTSIDE the ruling categories: **4, net +2** -- inside the declared 5-row stopping condition.
+Ten of seventeen categories are bit-for-bit unchanged. DX Unit recall 0.0 -> 66.7 (first correct
+rows in the corpus), Sensors precision 27.7 -> 30.2, Panels precision 51.1 -> 53.3, Cables recall
+35.6 -> 37.6. **CHW Units did not move** -- the ruling is encoded and symmetric, but that pile's
+exam fragility is a truth/boundary problem, not a weight problem.
+
+**The 2 regressions** (`00029 / HVAC WORK` r384-385, `a. 12 HP nominal capacity`, truth VRF) are a
+KNOWN LIMITATION accepted deliberately: `DX-VRF-EXCL` is ancestor-scoped and inspects only the
+RESOLUTION POINT, so a VRF ancestor sitting *above* a DX-worded header is invisible to it. A
+whole-chain exclusion would need a runner mechanism -- deferred. Net trade +6/-2, so it ships.
+
+Full tables, verbatim traces and the electrical proof:
+`_classification_review/hvac_rules_v4_verify/VERIFY_V4.md`.
+
+### Tests
+
+`test_runner_hvac.py` **79 -> 92 (+13)**: CHW/DX positives both directions, the bare-form-factor
+NEGATIVE (no context -> not HIGH/MED), VRF precedence at the resolution point, the `refrigerant`
+regression guard, `CHW-ANC` water vocabulary, two VRF-controller positives, two BMS-side
+negatives, rules version `4.0-hv6` + the four new rule ids, the `PNL-ANC-TYPE` retention decision,
+and prompt v1.3 carrying both discriminators. `test_runner_electrical.py` **82 -> 82 lock held**,
+`test_decay.py` 12 -> 12, `test_hv2_voter_harness.py` 14 -> 14. **Suite 187 -> 200, all green.**
+
+**A10 electrical proof:** `rules_electrical.json` untouched; all verdicts over the **1,384** tracked
+electrical corpus line items hash IDENTICALLY across the change (`818dd8f1...1a5f`, 0 rows differ).
+Method: classify with the working tree, then again with `rules_hvac.json` reverted to HEAD bytes.
+*(In-repo corpus; the full 2,888-row labelled set lives outside the repo and was not re-run.)*
+
+**KNOWN pre-existing failure, OUT of scope, unchanged:** `TestMigrateWorkPackageToMulti` in
+`api/boq/wizard/test_update_sheet_draft.py` (3 errors of 82).
+
+### NO UNSEEN DATA LEFT -- the next honest eval is production Set-3
+
+Set-1 and Set-2 are both spent. Every remaining number on this corpus is in-sample. **Nothing
+further should be tuned against it** -- the Set-2 exam's verdict (further ruleset tuning fits
+noise) is now doubly binding, and this slice deliberately made NO weight changes and did NO new
+mining. Carried to HV-7: (1) prompt v1.3 is UNMEASURED and must be certified; (2) the
+`PNL-ANC-TYPE` distance restriction; (3) the `DX-VRF-EXCL` whole-chain variant; (4) the routing
+policy from the exam's frontier (owner-selected variant: `AGREE AND conf >= 0.80` demoting
+Cables/Ducting/Sensors); (5) the blank-`final_category_id` review policy. Registry stays OFF.
+
+## HVAC engine -- Build slice HV-6b (notes-as-fallback matching surface, HVAC-gated) COMPLETE
+
+**Commits:** `c60c6d1a` (feat) + this docs commit. Branch `feature/boq-classification-eval`, base
+tip `a58890c6`. **Rules-only measurement; NO AI calls.** Registry stays OFF.
+
+### The owner decision this slice implements
+
+The notes probe (`_classification_review/hvac_notes_probe/NOTES_PROBE.md`) falsified the
+notes-blindness hypothesis -- the rules ALREADY match notes everywhere (own notes in the item blob
+at `runner.py`, ancestor notes in `anc_texts` at each level), so the proposed change measured as an
+**exact no-op, 0 of 2,354 rows**. The informative counterfactual was the inverse, and it was large.
+
+The probe's winning variant cleared three of four pre-fixed gates and failed the fourth by one row
+(**ADP -6** against a `<=5` threshold). **The owner WAIVED that gate on 2026-07-21**, accepting the
+trade explicitly: ADP gives up 6 correct rows and gains **+14.7 pp precision (67.4 -> 82.1)** on the
+corpus's largest category (627 rows), while the corpus gains **+167 net rows** and the review share
+falls to the 30% target. This slice ships that decision.
+
+### Semantics shipped
+
+Per-discipline OPT-IN via the rules file's top-level `"matching_surface": "notes_fallback"`:
+
+- **PASS 1 (notes-free):** item/exclusion rules match the row DESCRIPTION only; ancestor rules match
+  ancestor DESCRIPTIONS only, each at its own level.
+- **PASS 2 (fallback):** ONLY when pass 1 abstains outright, re-run the LEGACY full surface
+  (descriptions + all notes, own and ancestor). A pass-1 verdict wins as-is.
+- **Flag absent = legacy single pass, byte-identical.** `rules_electrical.json` carries no key.
+
+**Where the gate cuts in:** at the top of `classify_line`, after `load_ruleset` and before any blob
+is built -- **outside every existing mechanism, changing none of them**. Each pass runs the complete
+unmodified pipeline (nearest-hit, decay, ancestor-scoped guards, exclusion zeroing, agreement
+bonus/cap, deterministic tie-break, conflict penalty, band, geometry override). Pass 1 re-enters
+with `ancestor_texts := ancestor_headers`, so **no `context_builder` change and no new feed were
+needed** -- the notes-free ancestor surface is the header list the builder already assembles.
+A private `_notes_fallback_pass` kwarg guards recursion; without `ancestor_headers` the gate cannot
+be honoured and legacy runs. Every verdict now carries a `matching_pass` stamp
+(**2,310 `notes_free` + 44 `notes_fallback`** across the corpus).
+
+### Acceptance -- reproduces the probe to the decimal
+
+| metric | probe target | shipped v4.1 | delta |
+|---|---:|---:|---:|
+| combined (n=2,354) | 75.49% | **75.49%** | -0.00 |
+| Set-2 | 73.07% | **73.07%** | -0.00 |
+| agreement with AI v1.2 | 77.74% | **77.74%** | +0.00 |
+
+From v4.0: **+7.10 pp** combined, **+8.94 pp** Set-2, **+7.94 pp** agreement. **193 gains, 26
+regressions, +167 net.** (The probe predicted a ~32-row regression shape for full ablation; the
+shipped fallback lands at 26 because the fallback pass rescues the Raceway fragment leaves full
+ablation lost -- Raceway +8 here vs +4 under ablation.) Biggest gains: VAV Box +45, VRF +43,
+Piping +21, AHU +15, Ducting +14. Full tables + verbatim regressions:
+`_classification_review/hvac_v41_acceptance/ACCEPTANCE_V41.md`.
+
+### Routing grid -- INPUT FOR HV-7 (evidence only, no policy code here)
+
+Under **AGREE AND `ai_conf` >= 0.80** with the demotion list re-derived from v4.1's own in-segment
+grid: **L3' = {AHU, Cables, Sensors}** -- as predicted. Note the shift from v4.0's
+{Cables, Ducting, Sensors}: **Ducting leaves** (the surface change fixed it, 95.8% in-segment) and
+**AHU joins** (the change exposed it at 55.6%). Auto-accept **70.4% combined @ 98.67%** (67.8% @
+98.53% on Set-2); **review share 29.6%**, down from 37.6% -- landing the owner's 30% target with
+auto-accept accuracy holding.
+
+### Backwards compatibility -- Electrical
+
+`rules_electrical.json` untouched and carries NO flag; `load_ruleset("Electrical")["matching_surface"]`
+is `None`. **Because this slice edits `runner.py`, the byte-identity check is stronger than HV-6's:
+it reverts `runner.py` ITSELF to its HEAD bytes and re-classifies the whole electrical corpus** --
+**1,384 line items, 0 differ**, identical verdict hash `818dd8f1...1a5f` (the same digest recorded at
+HV-6, so electrical is stable across both slices). 82/82 electrical tests pass. **Electrical adopts
+this surface ONLY via its own measured re-run on its 2,888-row labelled corpus, as a rider on the
+Set-3 item** -- not here.
+
+### Tests
+
+`test_runner_hvac.py` **92 -> 101 (+9)**: pass-1 resolution from ancestor descriptions; the
+**boilerplate-does-not-pollute negative** (the reason this slice exists); fallback engages only on
+abstain; both-surfaces-abstain stays blank; the gate cannot engage without `ancestor_headers`;
+composition with nearest-hit + decay; flag/version `4.1-hv6b`; **electrical carries no flag and
+reports the legacy pass**; the private recursion guard is not a caller knob.
+`test_runner_electrical.py` **82 -> 82 lock held**; `test_decay.py` **12 -> 12 UNTOUCHED** (the
+conditional scope expansion was not needed -- no assertion collision); `test_hv2_voter_harness.py`
+14 -> 14. **Suite 200 -> 209, all green.**
+
+**One assertion collision, SURFACED not silently fixed:** the HV-6 test
+`test_rules_version_is_v4_and_new_rules_present` pinned `version == "4.0-hv6"` and failed on the
+deliberate bump to `4.1-hv6b`. The four HV-6 rules are all still present; the pin was relaxed to the
+`4.x` major line. No behaviour was changed to make a test pass.
+
+**KNOWN pre-existing failure, OUT of scope, unchanged:** `TestMigrateWorkPackageToMulti` in
+`api/boq/wizard/test_update_sheet_draft.py` (3 errors of 82).
+
+### Caveats carried to HV-7
+
+1. **Set-1 and Set-2 are both SPENT** -- confirm on **production Set-3** before re-cutting the
+   routing policy. Mitigation: this change fits **zero parameters** (a binary surface flip), and
+   Set-2 moved MORE than combined (+8.94 vs +7.10) -- the opposite of an overfitting signature.
+2. **The AI feed is UNTOUCHED** -- `ai_voter.py` and the prompts are not in this slice. The voter
+   still reads notes in full because it reads them semantically. **The divergence between the two
+   voters' matching surfaces is now deliberate and load-bearing**, and must not be "tidied up".
+3. **The pre-MC append-to-notes sub-hypothesis remains untested** -- exactly one committed sheet
+   (`BOQ-26-00017 / AHU`, 13 scored rows) uses the workaround.
+4. Routing policy code is still unwritten; the §3 grid is its input. Registry stays OFF.
+
+## HVAC engine -- Build slice HV-7 (per-discipline routing policy + certification mode) COMPLETE
+
+**Commits:** `b02597e0` (feat) + this docs commit. Branch `feature/boq-classification-eval`, base
+tip `1103d8ec`. **Backend only; NO AI calls; NO frontend edits.** Registry stays OFF.
+
+### The signed policy, shipped as CONFIG not code
+
+`rules_hvac.json` v**4.2-hv7** carries a top-level `routing_policy` block (same opt-in precedent as
+`ancestor_resolution` / `decay` / `matching_surface`; **absent = legacy R3d, byte-identical**):
+
+```json
+{"policy_id": "consensus_floor_v1", "min_ai_confidence": 0.80,
+ "demoted_categories": ["hvac_ahu", "hvac_cables", "hvac_sensors"],
+ "priority_max_ai_confidence": 0.70}
+```
+
+`routing.route_policy_v1` implements it; **`route_r3d` is untouched** and remains the Electrical
+path. AUTO-ACCEPT iff both voters agree on the same non-blank category AND `ai_conf >= 0.80` AND
+the category is not demoted; everything else routes to review with a **BLANK** `final_category_id`.
+
+**THE DEMOTION LIST IS DATA, NEVER CODE.** It is re-derived from the in-segment grid at every eval
+cycle and has already moved once (v4.0's {Cables, Ducting, Sensors} -> {AHU, Cables, Sensors} when
+the HV-6b surface change fixed Ducting and exposed AHU). A test asserts that **no `hvac_` category
+id appears anywhere in `routing.py`**.
+
+### OWNER SCOPE ADDITION (ruled 2026-07-22) -- and the stop that earned it
+
+`runner.py` was OUT of the declared scope, but the slice **STOPPED** at Part 5 on a real defect:
+`load_ruleset` returns a **HAND-BUILT dict**, so a gating key not listed in that return is
+invisible to every caller. `ruleset.get("routing_policy")` read back **None**, meaning the signed
+policy would have been **silently inert** -- and the Electrical identity test would still have
+PASSED, for entirely the wrong reason (nothing routing by the new policy at all). That is a
+silently-green failure, exactly the class the stopping conditions exist to catch.
+
+The owner ruled **EXACTLY one additive line** in `runner.py` (same precedent as the HV-3
+`test_decay` ruling): `"routing_policy": rules_doc.get("routing_policy"),` alongside
+`matching_surface`. **A negative test now pins the gap forever** -- Electrical must read
+`routing_policy` as PRESENT-and-None, so a future key can never go missing silently again.
+
+### OWNER POLICY AMENDMENT (2026-07-22) -- priority is telemetry, HV-7f CANCELLED
+
+**The priority tier is REMOVED from the product surface.** All review rows are uniform: blank
+`final_category_id`, `routing = "Needs review"`, **identical presentation, exactly as Electrical**.
+The planned **HV-7f frontend slice is CANCELLED** and no frontend file was touched in this slice.
+
+> **INVARIANT: `review_priority` is telemetry for eval / cockpit use; it must never drive
+> reviewer-facing UI.**
+
+`route_policy_v1` still computes it (`conf < 0.70` OR mutual blank), `persist` still writes it, and
+`classify.get_sheet_categories` may still carry it in the payload -- but **nothing renders it and
+nothing may**. The invariant is stated in three places so it cannot be lost: the doctype field
+description, the certification report, and here. On the **AI-off fail-safe** path priority is
+explicitly stamped **0** -- the AI never ran, so its absent confidence is not evidence of doubt,
+and treating those rows as priority would flood the queue with a whole sheet.
+
+### Migrate -- the sanctioned exception, verified
+
+`review_priority` (Check, default 0) added to `BoQ Row Category`; `bench --site localhost migrate`
+run; **`frappe.db.has_column("BoQ Row Category", "review_priority") = True`**, `smallint`, default
+`0`, **10,818 existing rows backfilled to 0**. Checked against the LIVE site because passing tests
+do not prove the runtime column exists (tests use a separate auto-migrated DB).
+
+### Certification mode -- the new tracked instrument
+
+`BOQ_HARNESS_MODE=certify` on `harness/electrical_classification_harness.py` (default `classify` =
+the existing run, byte-identical when the var is absent). Inputs `BOQ_CERT_PREDICTIONS` (folder of
+per-sheet prediction CSVs) + `BOQ_CERT_TRUTH` (node_id -> truth JSON); outputs `CERTIFICATION.md` +
+`certification_rows.csv`. It applies the discipline's policy IN MEMORY, joins truth, and reports
+per-tier population/accuracy/coverage, review + priority share, the in-segment grid, and the
+wrong-rows-auto-accepted list verbatim. **NO DB WRITES, EVER.** This promotes the previously
+**untracked** `accept41*.py` scoring logic into tracked code -- the exact gap the HV-7 recon found
+(every per-tier number in the exam, HV-6 and HV-6b came from scratch scripts).
+
+### Acceptance -- reproduces the HV-6b grid exactly
+
+| measure | HV-6b target | HV-7 certification | |
+|---|---:|---:|---|
+| auto-accept, combined | 70.4% @ 98.67% | **70.4% @ 98.67%** (1,658 rows) | PASS |
+| auto-accept, Set-2 | 67.8% @ 98.53% | **67.8% @ 98.53%** | PASS |
+| review share | 29.6% | **29.6%** | PASS |
+| wrong rows auto-accepted | 22 | **22** (9 Set-2 / 13 Set-1) | PASS |
+| priority share (telemetry) | -- | 3.7% (88 rows) | -- |
+
+**All three invariants PASS:** blank-final on every review row; **auto-accept final == the agreed
+category** (the positive twin, added at owner condition 3); priority == (conf < floor OR mutual
+blank). The 22 wrong auto-accepts are listed verbatim in
+`_classification_review/hv7_acceptance/cert/CERTIFICATION.md` -- they cluster on bare dimension
+leaves (`150 mm dia`, `0.63MM`, `40 mm dia`) and the Misc-as-commercial-bucket rows the Set-2 exam
+already identified as owner questions, not model defects.
+
+### Tests
+
+**New `tests/test_routing_policy.py` -- 23 tests** (placed beside the runner tests because it
+exercises a service module + the loader; the legacy R3d tests stay in
+`api/boq/wizard/test_row_category.py`, untouched): auto-accept cell incl. the inclusive floor
+boundary; the positive twin (final == agreed category); rule band is irrelevant to this policy;
+below-floor, demoted, disagreement-at-0.99 (the exam's law) and one-blank all route to review;
+**blank-final swept across every review shape**; priority at 0.69, NOT priority at exactly 0.70,
+mutual blank is priority, auto-accept never priority; HVAC exposes the signed values;
+**the NEGATIVE that pins the stop -- Electrical reads `routing_policy` present-and-None**;
+Electrical falls back to R3d identically; the legacy R3d config is untouched; **no `hvac_` id is
+hard-coded in `routing.py`**; thresholds are read from the argument; and a certification-mode
+smoke (mode selector, truth-shape parsing, per-file isolation).
+
+`api/boq/wizard/test_row_category.py` **26 -> 29**: priority round-trips through persist; **the
+negative -- it defaults to 0 on the legacy path, never None**; the endpoint exposes it.
+`test_runner_hvac.py` 101 -> 101, `test_runner_electrical.py` **82 -> 82 lock held**,
+`test_decay.py` 12 -> 12, `test_hv2_voter_harness.py` 14 -> 14.
+**Services suites 209 -> 232; DB-backed suite 26 -> 29. All green.**
+
+**One assertion collision, SURFACED not silently fixed:** the HV-6b test pinned
+`version == "4.1-hv6b"` and failed on the declared bump to `4.2-hv7`. The pin was relaxed to the
+`4.x` line; the `matching_surface` flag -- what that test is really about -- stays pinned exactly.
+No behaviour was changed to make a test pass.
+
+### A10 Electrical proof (run AFTER the loader fix, per owner condition 1)
+
+`rules_electrical.json` untouched and carries no `routing_policy`; `load_ruleset("Electrical")`
+returns it present-and-None -> the `route_r3d` branch. Byte-identity measured by reverting
+**`runner.py` itself** to its HEAD bytes and re-classifying: **1,384 line items, 0 differ**,
+identical verdict hash `818dd8f1...1a5f` -- the same digest recorded at HV-6 and HV-6b, so
+Electrical is now stable across three consecutive slices.
+
+### Carried forward
+
+1. **Set-3 confirmation is OWED** -- Set-1 and Set-2 are both spent; these policy values (floor,
+   demotion list, priority floor) are fitted on a closed corpus.
+2. **HV-7f is CANCELLED.** No frontend differentiation of review rows, ever.
+3. `PNL-ANC-TYPE` distance restriction + the `DX-VRF-EXCL` whole-chain variant remain deferred.
+4. The pre-MC append-to-notes sub-hypothesis remains untested (one sheet, 13 rows).
+5. HVAC engine registry stays **OFF** (`engines.py` `available=False`).
+
+## HVAC engine -- Build slice HV-9 (THE REGISTRY FLIP -- HVAC IS LIVE) COMPLETE
+
+**Commits:** `16d3fb47` (feat) + this docs commit. Branch `feature/boq-classification-eval`, base
+tip `eed13469`. **Owner GO 2026-07-22. This slice closes the HVAC build arc.**
+
+### The flip
+
+`engines.py`: the HVAC entry's `available` flag **False -> True**. One line; nothing else in the
+file. `is_discipline_available("HVAC")` now returns True, so `start_classify`,
+`set_row_category` and `get_category_catalog` all admit HVAC. The certified stack behind the
+switch: **rules `4.2-hv7`** + the **notes-fallback matching surface** + **prompt `hvac-v1.3`** +
+the **`consensus_floor_v1` routing policy** + the **blank-review invariant**.
+
+### Tests
+
+`test_classify.py` **38 -> 40**. The HVAC-disabled assertions flip to enabled; **ELV takes over as
+the unavailable exemplar** for the two gate negatives (catalog throws, `start_classify` throws),
+since HVAC can no longer play that role. Two NEW guards: **exactly two engines available**
+(Electrical + HVAC; ELV still LISTED but disabled) and **ELV remains present-but-unavailable**.
+The HVAC catalog assertion checks all **17** categories incl. `hvac_raceway`.
+`test_runner_electrical` **82 -> 82 lock held**; services suite **232**; DB-backed
+`test_row_category` **29**. All green.
+
+### The live smoke -- the first production HVAC classify
+
+`BOQ-26-00017 | Piping ` (verbatim trailing space, #152), via the **real `start_classify`
+endpoint** after a worker restart (the flip is server-side config; workers do not hot-reload).
+
+| measure | result |
+|---|---|
+| eligible classified | 23 (18 line items + 5 preambles); 1 subtotal skipped |
+| `ai_status` | **ran** |
+| routing split | **14 auto-accepted / 9 needs review** |
+| INVARIANT blank-final on every review row | **PASS** |
+| INVARIANT auto-accept final == the agreed category | **PASS** |
+| `review_priority` | all 0, stored; **nothing renders it** |
+| provenance | `prompt_version` = `hvac-v1.3` on all 23; model `claude-opus-4-8` |
+| catalog | 17 HVAC categories returned (the picker's source) |
+
+**Certification-shape comparison (HV-8 `certification_rows.csv`, same sheet): 18/18 comparable
+rows land in the SAME tier, 61% auto-accept in both.** The live AI ran independently and still
+reproduced the certified shape exactly -- the strongest available evidence that production
+behaviour matches what was certified.
+
+The 9 review rows are the **piping-vs-insulation boundary** (rule `hvac_piping` vs AI
+`hvac_insulation` at 0.94-0.95), plus one row where the AI abstained. That is the known corpus
+boundary, arriving in production exactly as the certification predicted.
+
+**Electrical untouched:** `BOQ-26-00009 | ELECTRICAL WORKS` 939 -> 939 rows, total Electrical
+10,818 -> 10,818, 3/3 spot-checked rows byte-identical.
+
+### The AI-toggle incident (recorded, because it shaped the slice)
+
+The first smoke attempt returned **`ai_status: "disabled"`** and persisted 23 rule-only rows. The
+`BOQ Upload Review AI Settings.enabled` flag read **True at pre-flight** and **False** minutes
+later (`tabSingles.modified 2026-07-22 02:04:03`, `modified_by Administrator`); **change tracking
+is not enabled on that doctype, so the flip is unattributable**. The slice **STOPPED** rather than
+report a pass: with the AI off, the owner-locked **CL-5 fail-safe** adopts the RULE category as
+`final_category_id` and flags every row for review -- correct behaviour, but it trips the stated
+stopping condition *"any review row with a non-blank final"*.
+
+The owner re-enabled the toggle and the smoke was re-run. **Freeze-and-supersede did its job**:
+the AI-off rows are now `category_version 1, is_current 0` (superseded history) and the certified
+run is `category_version 2, is_current 1`. No dirty data survived into the current tier.
+**Lesson for production: `ai_status` must be checked on every run, because an AI-off run looks
+successful and silently produces rule-only verdicts.**
+
+### KNOWN DEFECT found by the smoke (reported, NOT fixed -- out of scope)
+
+**`rules_version` is stored EMPTY on every persisted row.** `orchestrator` sets it from
+`ruleset.get("version", "")`, but `load_ruleset` returns a **hand-built dict that does not surface
+`version`** -- the SAME class of gap that stopped HV-7 over `routing_policy`. `prompt_version` and
+`model` are stamped correctly; only the ruleset provenance is blank. Harmless to routing, but it
+means **persisted rows cannot be attributed to a ruleset version** -- which matters the moment two
+ruleset versions coexist in production. Fix is one additive loader line
+(`"version": rules_doc.get("version")`), same precedent as HV-7's. **Deferred to its own slice.**
+
+### The production era opens
+
+1. **Set-3 accrual is LIVE.** Every production HVAC classify from here is unseen out-of-sample
+   evidence. The first 23 rows are banked.
+2. **The Ducting demotion call is HELD** for gate review (HV-8 re-derived
+   {AHU, Cables, Ducting, Sensors} vs the shipped three; Ducting at 94.5%, half a point under the
+   rule). It should now ride **production** evidence rather than the spent corpus.
+3. **The demotion list must be re-derived from production data**, not re-fitted on Set-1/Set-2.
+4. **The electrical debt register** (`PNL-ANC-TYPE` distance restriction, the `DX-VRF-EXCL`
+   whole-chain variant, the electrical notes-fallback adoption) rides production evidence too.
+5. **`review_priority` stays telemetry-only** -- never reviewer-facing (owner amendment
+   2026-07-22); HV-7f remains cancelled.
+6. Stale comment to tidy in a later slice: `engines.py`'s docstring still says *"Today only
+   Electrical is available"*. Left untouched because this slice's scope was "NOTHING else in the
+   file".
+
+## Pricing editor -- Build slice HV-10 (MULTI-ENGINE per-row resolution + grouped picker) COMPLETE
+
+**Commits:** `76a41050` (feat) + this docs commit. Branch `feature/boq-classification-eval`, base
+tip `120cd3c6`. Fixes the HV-9-era defect: the pricing editor was hardcoded to
+`discipline="Electrical"` in NINE sites, so an HVAC sheet showed blank Category cells and the
+classify modal stuck at "preparing rows" (its done/progress/status filters discarded HVAC events).
+
+### The owner-locked design, as shipped
+
+- **Per-ROW resolution, SERVER-SIDE**, in the new `get_sheet_categories_resolved(boq, sheet_name)`
+  ladder: (1) human verdict wins -- most-recent (`human_verdict_at`) between disciplines, ties on
+  discipline name (deterministic, not hardcoded); (2) auto-accepted beats needs-review; (3) multiple
+  auto-accepts -> higher `ai_confidence` wins + `cross_engine_conflict=true`; (4) all review -> BLANK
+  (blank-review law). ONE index-covered query across all disciplines (the composite index leads with
+  boq/sheet/cv, so dropping the discipline filter is covered -- recon 0.4 ms), grouped per excel_row.
+- **`cross_engine_conflict` is TELEMETRY-ONLY** -- computed at read time, NEVER persisted, NEVER
+  rendered (owner ruling, same class as `review_priority`). The frontend adapter drops it so it can
+  never reach a rendered surface.
+- **Picker** shows one discipline-labelled group per engine with current rows; single-engine sheets
+  look flat as today. **A human pick CARRIES its group's discipline**; the write lands on that
+  engine's row identity (upsert-on-missing mints it -- CL-6). "Clear verdict" targets the row's
+  resolved human discipline.
+- **N-ENGINE GENERIC**: no discipline is named anywhere in the pathway (grep-proof at commit); a
+  synthetic "Plumbing" engine flows through the whole resolved read + the tests with ZERO code
+  changes. A future engine flipping `available` in the registry inherits this for free.
+
+### The two-endpoint read model (the freeze-preservation decision)
+
+`get_sheet_categories` (single-discipline) is **BYTE-UNTOUCHED** -- `freeze_classification` (line 497)
+and `get_freeze_summary` (600) still call it positionally with one discipline. The pricing editor
+consumes the NEW merged `get_sheet_categories_resolved` instead. This was the top recon risk (a
+shared-endpoint shape change would silently break Freeze); a regression test pins the old shape.
+**The write path is unchanged** -- `set_row_category` already validates the discipline vocabulary
+(an `hvac_` id sent as Electrical THROWS, never corrupts) and upserts; HV-10 only makes the frontend
+send the right discipline.
+
+### Frontend (the nine sites + memo safety)
+
+`CLASSIFY_DISCIPLINE` deleted. The grid consumes adapted rows via the PURE `resolvedToSheetCategoryRow`
+so `PricingGrid` + `deriveVerdictState` + `isNeedsReviewCategory` render UNCHANGED (no new visual
+states; blank rows still show blank + amber). One `get_category_catalog` per ran-discipline +
+`list_engines` labels feed `buildSheetEngineCatalogs`. Socket done/progress filters became MEMBERSHIP
+in (ran UNION running); status polling is PER-RUNNING-DISCIPLINE (one `ClassifyStatusPoller` each --
+single-engine = today's single poll), so the modal completes when all running disciplines terminate
+(the stuck-modal fix). `onStarted(disciplines)` is captured. **The hook-safe N-dynamic
+fetch/poll uses child `EngineCatalogFetcher` / `ClassifyStatusPoller` components** (one hook each,
+stable order). Every new page input is `useMemo`/`useCallback` stable so the `PricingGrid`
+`React.memo` shield holds. New pure helpers: `sheetCategoryResolve.ts` (adapter + membership +
+running-set + group builder), unit-tested in `sheetCategoryResolve.test.ts`.
+
+### Tests + baselines (in-container, bench-verified)
+
+- Backend `test_classify.py` **40 -> 54 (+14)**: the ladder pure-grid (single-discipline == today;
+  human-beats-auto; most-recent-human; two-auto conflict + higher-confidence; all-review blank;
+  equal-confidence deterministic tiebreak; **synthetic third discipline "Plumbing"**), the resolved
+  endpoint (single-engine resolves like effective; votes map; multi-engine human-wins + lists both;
+  uncommitted empty), and a **freeze-reader-shape regression guard**. `test_row_category` 29 green.
+- Frontend `vitest` **532 -> 547 (+15)** (new `sheetCategoryResolve.test.ts`, 24 files). `tsc`
+  net-zero new errors (3235 pre-existing in the repo, **0 in the touched files**).
+- **Electrical byte-identical (A10):** the resolved read on `BOQ-26-00009 | ELECTRICAL WORKS`
+  returns disciplines `["Electrical"]`, 939 rows, 0 effective differences vs `get_sheet_categories`,
+  3/3 spot-check MATCH.
+
+### Live verification
+
+HVAC `Piping` renders **14 auto + 9 blank** (matches the HV-8 certification). The MULTI-ENGINE row:
+`BOQ-26-00033 | LOWSIDE` excel_row 10 took an Electrical human verdict (`panels`) -- the upsert
+minted the Electrical row, disciplines went `["HVAC"] -> ["Electrical","HVAC"]`, the ladder showed
+it winning (source human, `human_discipline=Electrical`); a subsequent HVAC-group pick
+(`hvac_piping`) overrode it by most-recent-human. **Left in the HVAC-pick state** (row 10 carries
+both a superseded Electrical human + the current HVAC human -- the intended two-discipline demo row).
+
+### The standing warning LIFTS
+
+**Category picks on HVAC sheets are safe from this slice on.** The write sends the picked group's
+discipline, the picker shows the right engine's vocabulary, and the modal completes.
+
+### Carried forward
+
+1. **Concurrent multi-engine classify progress** is wired (per-discipline pollers + all-terminate
+   completion) but only single-engine has been LIVE-exercised; confirm a genuine two-engine
+   concurrent run before relying on the aggregate progress bar. **(DONE -- HV-10b live check ran a
+   genuine concurrent Electrical+HVAC whole-sheet run on `BOQ-26-00050 | MEP Combined`; aggregate
+   progress + all-terminate modal completion both held.)**
+2. The AI-toggle keeps turning itself off (unattributable; own investigation) and an AI-off run
+   still reports success -- both unchanged by HV-10.
+3. `rules_version` persists empty (HV-9) -- own slice.
+
+## Pricing editor -- Build slice HV-10b (completion summary = COMBINED EFFECTIVE outcome) COMPLETE
+
+**Owner ruling (2026-07-22), from the browser E2E:** after a multi-engine classify, the completion
+message ("xx classified, yy flagged for review") reported a PER-ENGINE denominator (the
+last-completing engine's `boq:classify_sheet_done` payload -- last-engine-wins), so a concurrent
+2-engine whole-sheet run showed one engine's 13/12 instead of the combined 7 categorised / 9 review
+the grid actually rendered. **The summary must agree with the grid.**
+
+**The fix (frontend-only).** When ALL running disciplines terminate, `applyClassifyDone`
+(`SheetPricingPage.tsx`) composes the completion summary from the FRESH resolved read (the SAME
+`get_sheet_categories_resolved` source the grid renders, awaited off `mutateCategories`) via the new
+pure `summariseResolvedOutcome(resolvedRows, rangeUnion)` (`sheetCategoryResolve.ts`):
+`categorised` = effective non-blank (an auto-accept OR a human verdict -- a pre-existing human
+verdict counts as categorised), `review` = effective blank (the blank-review law). It is scoped to
+the run set's `rangeUnion` (`unionScopes`): each `onStarted` REPLACES the union with just that run
+set's scopes (reset-between-run-sets); multiple engines fold together and **whole-sheet DOMINATES a
+mixed union**; a poll-recovered run (unknown scope) or an empty scope degrades to whole-sheet. Only
+the NUMBERS' source changed -- the wording, skip rollup, ai_status note, and the error path are
+untouched; a mid-run (not-all-done) engine only refetches, never composes a summary.
+
+**Owner-ruled scope addition (A12).** `ClassifySheetDialog.onStarted` now passes
+`Array<{discipline, scope}>` instead of `string[]` (prop type + the `onStarted(...)` call payload) so
+the page can build the range union. This is a SIGNATURE-ONLY change -- the dialog's launch behaviour
+(engine select, range validate, `start_classify`) is byte-identical.
+
+**Tests (bench-verified in-container).** vitest **547 -> 560 (+13)** in
+`sheetCategoryResolve.test.ts`: `unionScopes` (empty/whole-sheet/single-range/disjoint/overlapping
+dedup/**mixed whole-sheet-dominates**/**reset-between-run-sets**) + `summariseResolvedOutcome`
+(**equality-by-construction** single-engine whole-sheet == the engine's own numbers; the **concurrent
+2-engine E2E shape** 16 rows -> 7/9; **range-scoped** union only; **human verdict counts as
+categorised**; whitespace-blank; empty). `tsc` net-zero (3235, 0 in touched files). `ClassifySheetDialog`/
+`ClassifyProgressModal` pure tests unchanged (the modal's props are unchanged; only the numbers' source moved page-side).
+
+**Live proof.** Concurrent Electrical+HVAC whole-sheet run on `BOQ-26-00050 | MEP Combined` (AI
+`claude-opus-4-8` verified ON): the modal line, the post-close toast, and the resolved effective
+split matched three ways (no single-engine 16/13 or 16/12 denominator). See
+`_classification_review/hv10b_report/HV10B_REPORT.md`.
+
+**Note (stranding constraint):** a whole-sheet re-classify supersedes row categories and human
+verdicts do NOT carry forward (intentional), so a whole-sheet run's completion summary cannot itself
+hold a pre-existing human verdict on a row it re-ran; the human-counts rule is proven by the vitest
+grid + the same `summariseResolvedOutcome` helper over the post-pick live resolved read.
+
+## Build slice HV-11 (rules_version provenance + AI-settings change tracking + ai_status surfaced) COMPLETE
+
+Three owed hygiene fixes, one slice (migrate-carrying). Branch `feature/boq-classification-eval`,
+base tip `12dbc0e7`.
+
+**Part 1 -- rules_version provenance (closes the HV-9 finding).** The classify path already threaded
+the version end-to-end -- `orchestrator.classify_sheet_rows` reads `ruleset.get("version")`
+(`orchestrator.py:125`), stamps it into the row dict (`:221`), and `persist.write_row_categories`
+writes `doc.rules_version` (`persist.py:109`). The SOLE gap was upstream: `runner.load_ruleset`
+returns a HAND-BUILT dict that never surfaced `"version"`, so the getter saw None and rules_version
+persisted EMPTY. **Fix = ONE additive loader line** (`"version": rules_doc.get("version")`, the exact
+HV-7 routing_policy precedent). The provenance chain is now WHOLE. Live: an AI-off HVAC classify
+stamped `rules_version = "4.2-hv7"` on the new rows (prompt_version/model unchanged); Electrical
+ruleset version = `2.1-tuning2` (additive provenance for the legacy engine too).
+
+**Part 2 -- AI-settings change tracking.** `track_changes: 1` on the `BOQ Upload Review AI Settings`
+doctype JSON (nothing else), `bench migrate` applied. A toggle OFF->ON flip produced two Version
+docs (`gbs0rqa5fo` enabled 1->0, `gbvh3ucc0g` enabled 0->1) with user + timestamp. From this slice
+any toggle flip is attributable via the Version log -- the standing incident's instrument (the four
+prior unattributed self-flips would each now get a name).
+
+**Part 3 -- ai_status on the completion surfaces.** The done payload already carried `ai_status`
+(`ran | disabled | no_key | null`). The new pure `aiStatusWarning(aiStatusByDiscipline)`
+(`ClassifyProgressModal.tsx`) renders on BOTH the modal + the post-close toast. Per-discipline
+accumulation over the run set (`aiStatusByDisciplineRef` in `SheetPricingPage`, reset each
+`onStarted`, one entry per engine's done); the HEALTHY path (`ran`/null) yields "" so the completion
+text is byte-identical (zero noise), while ANY `disabled`/`no_key` yields ONE plain line NAMING those
+disciplines (multi-engine names ONLY the off one). Replaced the old single-status `aiStatusNote`
+render (which was last-engine-wins + un-named). Live: AI OFF shows *"AI voter was OFF for HVAC - ..."*
+on modal AND toast; AI ON shows no warning on either.
+
+**Tests (bench-verified):** backend `test_runner_hvac` 101 -> 104 (+3: loader surfaces HVAC +
+Electrical version; a present-and-None gap-class monkeypatch pin), `test_classify` 54 -> 55 (+1:
+persist stamps a provided rules_version). Frontend `vitest` 560 -> 567 (+7 `aiStatusWarning`), `tsc`
+net-zero (3235, 0 in touched files). Report + live evidence:
+`_classification_review/hv11_report/HV11_REPORT.md`.
+
+**Env note:** `bench migrate` clears sessions -- recovery needed a fresh `bench start` + Vite restart
++ clear-site-data + re-login before start_classify stopped returning the CSRF "Invalid Request".

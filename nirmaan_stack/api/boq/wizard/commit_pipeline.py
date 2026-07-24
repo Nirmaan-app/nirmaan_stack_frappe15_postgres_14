@@ -76,6 +76,7 @@ import frappe
 import openpyxl
 
 from nirmaan_stack.api.boq.wizard.commit_gate import compute_committable_sheets
+from nirmaan_stack.api.boq.wizard import committed_carry
 from nirmaan_stack.api.boq.wizard import directional_guard
 from nirmaan_stack.api.boq.wizard.review_screen import resolve_effective
 from nirmaan_stack.api.boq.wizard.sheet_preview import (
@@ -645,6 +646,17 @@ def _commit_one_sheet(
             boq_name, sheet_name, boq_sheet_name, prior_sheet_names,
             commit_version, committed_at,
         )
+        # AMENDMENT C (C5, ADR-0014): stamp the D2 provenance triple. A revision commit carries
+        # NOTHING else -- no formulas, no annotations, no categories. Formulas are hand-declared per
+        # sheet exactly as in the normal phase, and that declaration gates the per-sheet "Carry
+        # rates from original" action in the pricing editor, which moves the rates AND the four
+        # row-addressed annotation layers together (cross_boq_carry.apply_sheet_carry).
+        #
+        # The STAMP must stay: cross_boq_carry._resolve_sheet_carry reads `source_sheet_name` off
+        # the committed BoQ Sheet to find the source at all. It is sheet-level identity, not row
+        # information. Runs only for a FINALIZED sheet (the node tier the carry addresses now
+        # exists); a non-revision commit no-ops inside -> byte-identical.
+        committed_carry.stamp_revision_provenance(boq_name, sheet_name, boq_sheet_name)
 
     # OUTPUT-FIDELITY RECONCILIATION (Slice 2) -- grid tier. Verify the persisted faithful
     # grid equals the extracted grid_rows BEFORE the commit. (The node tier reconciles
@@ -658,7 +670,7 @@ def _commit_one_sheet(
 
     frappe.db.commit()
 
-    return {
+    result = {
         "sheet_name": sheet_name,
         "disposition": disposition,
         "sheet_disposition": sheet_disposition,
@@ -671,6 +683,7 @@ def _commit_one_sheet(
         "node_count": node_result["node_count"],
         "froze_nodes": node_result["froze_nodes"],
     }
+    return result
 
 
 def _write_grid(

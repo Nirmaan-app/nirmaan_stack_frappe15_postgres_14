@@ -45,6 +45,10 @@ export type DialogStore = {
   newInvoiceDialog: boolean;
   setNewInvoiceDialog: (open: boolean) => void;
   toggleNewInvoiceDialog: () => void;
+  // Whether the New Invoice dialog was opened via the "Add Credit" button (credit note = true).
+  // "Add Invoice" sets it false; the dialog reads it to seed is_credit_note (add mode only).
+  newInvoiceIsCredit: boolean;
+  setNewInvoiceIsCredit: (v: boolean) => void;
 
   // Edit Invoice Dialog
   editInvoiceDialog: boolean;
@@ -131,6 +135,8 @@ export const useDialogStore = create<DialogStore>((set) => ({
   newInvoiceDialog: false,
   setNewInvoiceDialog: (open: boolean) => set({ newInvoiceDialog: open }),
   toggleNewInvoiceDialog: () => set((state) => ({ newInvoiceDialog: !state.newInvoiceDialog })),
+  newInvoiceIsCredit: false,
+  setNewInvoiceIsCredit: (v: boolean) => set({ newInvoiceIsCredit: v }),
 
   editInvoiceDialog: false,
   setEditInvoiceDialog: (open: boolean) => set({ editInvoiceDialog: open }),
