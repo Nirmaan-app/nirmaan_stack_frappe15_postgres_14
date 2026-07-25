@@ -279,6 +279,32 @@ export function shouldRefetchOnConnect(
   return state.sawDisconnect && now - state.lastRefetchAt >= RECONNECT_REFETCH_DEBOUNCE_MS;
 }
 
+// Slice G3b: client mirror of the server's _CATEGORY_OVERRIDE_REASON_MAX_LEN (pricing.py). The server
+// caps it too -- BOTH, not either. Delete with the override control.
+export const CATEGORY_OVERRIDE_REASON_MAX_LEN = 250;
+
+/**
+ * Slice G3b: may the current user SEE the admin override control? True iff the role has RESOLVED
+ * (not the "Loading" sentinel -- so the control never flashes in before disappearing) AND the user is
+ * an admin, MIRRORING the server's _is_nirmaan_admin (Administrator OR role_profile "Nirmaan Admin
+ * Profile"; useUserData maps Administrator -> "Nirmaan Admin Profile"). CONVENIENCE ONLY -- the server
+ * (set/clear_category_override) is authoritative. Pure -- unit-tested. Delete with the override.
+ */
+export function canAdminOverride(role: string, userId: string): boolean {
+  if (role === "Loading") return false;
+  return userId === "Administrator" || role === "Nirmaan Admin Profile";
+}
+
+/**
+ * Slice G3b: normalise the OPTIONAL reason for submission -- client-cap to the max length (belt to the
+ * input's maxLength suspenders; the server caps too), trim, and map blank to null (a blank reason is
+ * VALID; the server stores NULL). Pure -- unit-tested. Delete with the override.
+ */
+export function normalizeOverrideReason(raw: string): string | null {
+  const trimmed = raw.slice(0, CATEGORY_OVERRIDE_REASON_MAX_LEN).trim();
+  return trimmed || null;
+}
+
 const SheetPricingPage = () => {
   const { boqId, sheetName } = useParams<{ boqId: string; sheetName: string }>();
   const navigate = useNavigate();
@@ -528,6 +554,14 @@ const SheetPricingPage = () => {
   const { call: setRowCategory } = useFrappePostCall(
     "nirmaan_stack.api.boq.wizard.classify.set_row_category",
   );
+  // Slice G3b: the admin category-gate override set/clear endpoints (server enforces admin via
+  // _is_nirmaan_admin; the client role check is convenience only). Delete with the override.
+  const { call: setCategoryOverrideCall } = useFrappePostCall(
+    "nirmaan_stack.api.boq.wizard.pricing.set_category_override",
+  );
+  const { call: clearCategoryOverrideCall } = useFrappePostCall(
+    "nirmaan_stack.api.boq.wizard.pricing.clear_category_override",
+  );
   // In-flight guard for the lock toggle (disables it during the POST).
   const [lockToggling, setLockToggling] = useState(false);
 
@@ -559,7 +593,13 @@ const SheetPricingPage = () => {
   // user acquires / releases. The server throw (BOQ_PRICING_LOCKED in every save_* endpoint)
   // stays the durable enforcement; this is only the UX accelerator.
   const { socket } = useContext(FrappeContext) as FrappeConfig;
-  const { user_id: currentUser } = useUserData();
+  // Slice G3b: `role` is read from the SAME already-warm useUserData() call (no new fetch). Control
+  // visibility flows through the pure `canAdminOverride` helper (see its docstring) -- role-resolved AND
+  // admin. CONVENIENCE ONLY; the server is authoritative. Delete `showCategoryOverrideControl` + the
+  // `role` read + everything marked "G3b" when the override is removed (owner commitment: once
+  // classification engines cover all disciplines).
+  const { user_id: currentUser, role } = useUserData();
+  const showCategoryOverrideControl = canAdminOverride(role, currentUser);
   const { call: acquirePricingLock } = useFrappePostCall(
     "nirmaan_stack.api.boq.wizard.pricing.acquire_pricing_lock",
   );
@@ -1430,6 +1470,55 @@ const SheetPricingPage = () => {
       setSaveError(
         getFrappeError(e) || "Could not save the category verdict. Please try again.",
       );
+    }
+  };
+
+  // ── Slice G3b: the admin category-gate OVERRIDE control (set / clear) ───────────────────────────
+  // Self-contained so it can be deleted in ONE cut when the override is removed (owner commitment).
+  // NO confirmation dialog: the reason popover IS data entry, not an "are you sure" step (owner
+  // ruling). Reason is OPTIONAL (blank is valid). Errors (incl. PermissionError) surface the SERVER's
+  // message inline via the existing saveError banner -- never swallowed, never replaced with generic
+  // copy. On success, mutate() refetches so the banner + rate-cell state flip with no page reload.
+  const [overridePopoverOpen, setOverridePopoverOpen] = useState(false);
+  const [overrideReason, setOverrideReason] = useState("");
+  const [overrideSubmitting, setOverrideSubmitting] = useState(false);
+  const handleSetCategoryOverride = async () => {
+    if (commitVersion === null) return;
+    setSaveError(null);
+    setOverrideSubmitting(true);
+    try {
+      await setCategoryOverrideCall({
+        boq_name: boqId,
+        sheet_name: sheetName, // VERBATIM (#152)
+        committed_version: commitVersion,
+        // Client cap is belt-and-braces (the input maxLength blocks it too); the server caps as well.
+        // Blank -> null (server stores NULL). Pure helper -- unit-tested.
+        reason: normalizeOverrideReason(overrideReason),
+      });
+      setOverridePopoverOpen(false);
+      setOverrideReason("");
+      void mutate();
+    } catch (e) {
+      setSaveError(getFrappeError(e) || "Could not override the category check. Please try again.");
+    } finally {
+      setOverrideSubmitting(false);
+    }
+  };
+  const handleClearCategoryOverride = async () => {
+    if (commitVersion === null) return;
+    setSaveError(null);
+    setOverrideSubmitting(true);
+    try {
+      await clearCategoryOverrideCall({
+        boq_name: boqId,
+        sheet_name: sheetName, // VERBATIM (#152)
+        committed_version: commitVersion,
+      });
+      void mutate();
+    } catch (e) {
+      setSaveError(getFrappeError(e) || "Could not clear the override. Please try again.");
+    } finally {
+      setOverrideSubmitting(false);
     }
   };
 
@@ -2979,19 +3068,74 @@ const SheetPricingPage = () => {
         <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-xs text-amber-900 dark:text-amber-100 flex-wrap">
           <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-700 dark:text-amber-300" />
           {categoryGateOverride ? (
-            <span>
-              Category check overridden by {categoryOverrideBy ?? "an admin"}
-              {categoryOverrideAt ? ` on ${formatDate(categoryOverrideAt)}` : ""}.{" "}
-              {categoryBlankCount} row{categoryBlankCount === 1 ? "" : "s"} still{" "}
-              {categoryBlankCount === 1 ? "has" : "have"} no category &mdash; rate editing is unlocked
-              anyway.
-            </span>
+            <>
+              <span>
+                Category check overridden by {categoryOverrideBy ?? "an admin"}
+                {categoryOverrideAt ? ` on ${formatDate(categoryOverrideAt)}` : ""}.{" "}
+                {categoryBlankCount} row{categoryBlankCount === 1 ? "" : "s"} still{" "}
+                {categoryBlankCount === 1 ? "has" : "have"} no category &mdash; rate editing is unlocked
+                anyway.
+              </span>
+              {/* G3b: CLEAR control (admin-only, role-resolved). No confirmation -- clearing re-locks,
+                  it fails safe. */}
+              {showCategoryOverrideControl && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 px-2 text-xs"
+                  disabled={overrideSubmitting}
+                  onClick={handleClearCategoryOverride}
+                >
+                  {overrideSubmitting ? "Removing…" : "Remove override"}
+                </Button>
+              )}
+            </>
           ) : (
-            <span>
-              {categoryBlankCount} row{categoryBlankCount === 1 ? "" : "s"} still{" "}
-              {categoryBlankCount === 1 ? "needs" : "need"} a category. Rate editing is locked until
-              every line item and preamble has one. Use the Check Category filter to find them.
-            </span>
+            <>
+              <span>
+                {categoryBlankCount} row{categoryBlankCount === 1 ? "" : "s"} still{" "}
+                {categoryBlankCount === 1 ? "needs" : "need"} a category. Rate editing is locked until
+                every line item and preamble has one. Use the Check Category filter to find them.
+              </span>
+              {/* G3b: SET control (admin-only, role-resolved). The reason popover IS the interaction --
+                  no "are you sure" step (owner ruling); reason is OPTIONAL. */}
+              {showCategoryOverrideControl && (
+                <Popover open={overridePopoverOpen} onOpenChange={setOverridePopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" size="sm" className="h-6 px-2 text-xs">
+                      Override the check
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-72 space-y-2 p-3">
+                    <p className="text-xs font-medium text-foreground">Override the category check</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Unlocks rate editing despite blank categories. Reason is optional.
+                    </p>
+                    <Input
+                      value={overrideReason}
+                      onChange={(e) => setOverrideReason(e.target.value)}
+                      maxLength={CATEGORY_OVERRIDE_REASON_MAX_LEN}
+                      placeholder="Reason (optional)"
+                      className="h-8 text-xs"
+                      disabled={overrideSubmitting}
+                    />
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[10px] text-muted-foreground">
+                        {overrideReason.length}/{CATEGORY_OVERRIDE_REASON_MAX_LEN}
+                      </span>
+                      <Button
+                        size="sm"
+                        className="h-7 px-3 text-xs"
+                        disabled={overrideSubmitting}
+                        onClick={handleSetCategoryOverride}
+                      >
+                        {overrideSubmitting ? "Overriding…" : "Override"}
+                      </Button>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              )}
+            </>
           )}
         </div>
       )}
