@@ -3790,11 +3790,13 @@ class TestCopyForward(FrappeTestCase):
         cls._price(cls.boq, cls.sheet, 1, 14, "D", None, "combined_rate", 500.0)  # non_match absent
         cls._price(cls.boq, cls.sheet, 1, 15, "E", None, "supply_rate", 600.0)    # no_rate_column
         frappe.db.commit()
-        # Slice G2b NOTE: apply_copy_forward does NOT go through _resolve_and_guard_cell (it checks
-        # lock + formula gates inline up front, then writes via _resolve_committed_cell +
-        # _write_cell_price_record), so it BYPASSES the category gate -- these tests pass on an
-        # UNcategorised destination v2, which is the live proof of that bypass (fact-found G2b Task 3;
-        # gating copy-forward is an owner decision for a follow-up, not this slice).
+        # Slice G2c: apply_copy_forward NOW gates on the DESTINATION's categories (the current
+        # version, v2). These outcome/apply tests are about rates/columns/priceability, NOT the
+        # category gate, so the DESTINATION v2 is categorised here (through the live gate, never the
+        # override -- owner ruling) so the carry is not refused. The gate itself is covered by the
+        # dedicated TestCopyForwardCategoryGate below. Only the current version needs categories --
+        # the OLD source version (v1) stays uncategorised, proving the gate reads the destination.
+        _categorise_fixture_rate_editable_rows(cls.boq, cls.sheet, 2)
 
     @classmethod
     def tearDownClass(cls):
@@ -3956,6 +3958,8 @@ class TestCopyForward(FrappeTestCase):
                          [{"srn": 20, "node_type": "Line Item", "description": "Drift A", "qty": 5.0}])
         self._price(self.boq, sheet, 1, 20, "D", None, "combined_rate", 777.0)
         frappe.db.commit()
+        # Slice G2c: the drift DEST (current v2) must be categorised or the carry is refused.
+        _categorise_fixture_rate_editable_rows(self.boq, sheet, 2)
         try:
             by = {r["excel_row"]: r for r in
                   get_copy_forward_plan(boq_name=self.boq, sheet_name=sheet, from_version=1)["plan"]}
@@ -4006,6 +4010,166 @@ class TestCopyForward(FrappeTestCase):
             get_copy_forward_plan(boq_name=self.boq, sheet_name=self.sheet)
         with self.assertRaises(frappe.ValidationError):
             get_copy_forward_plan(boq_name=self.boq, sheet_name=self.sheet, from_version=2)
+
+
+class TestCopyForwardCategoryGate(FrappeTestCase):
+    """Slice G2c -- apply_copy_forward (FLAVOUR 1, WITHIN-BoQ version carry) is now gated on the
+    DESTINATION sheet's categories, exactly as save_cell_price is. The DESTINATION is the CURRENT
+    committed version (rates are copied INTO it). The gate is sheet-level, checked ONCE up front,
+    AFTER the mandatory-formula gate (which keeps precedence). The admin override is the only escape.
+
+    Fixture: sheet "CFG Fix " with an OLD priced v1 (source) + a CURRENT v2 (dest), scalar rate map
+    (no amount cols -> trivially formula-complete, so the CATEGORY gate is what bites). A second
+    sheet "CFG Amt " carries an amount column with NO formula, for the precedence check. sheet_name
+    VERBATIM (#152)."""
+
+    _SHEET_DT = "BoQ Sheet"
+    _ROW_CATEGORY = "BoQ Row Category"
+    _MAP = {
+        "B": {"role": "description", "area": None},
+        "C": {"role": "unit", "area": None},
+        "D": {"role": "rate_combined", "area": None},
+    }
+    _AMT_MAP = {
+        "B": {"role": "description", "area": None},
+        "C": {"role": "unit", "area": None},
+        "D": {"role": "rate_combined", "area": None},
+        "F": {"role": "amount_total", "area": None},
+    }
+    SHEET = "CFG Fix "  # VERBATIM trailing space (#152)
+    AMT = "CFG Amt "
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "Copy-Forward Category-Gate BoQ"
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq = boq.name
+
+        # The gated sheet: CURRENT v2 (dest, blank categories) + OLD v1 (source, priced).
+        TestCopyForward._seed_sheet(cls.boq, cls.SHEET, 2, 1, cls._MAP, [
+            {"srn": 30, "node_type": "Line Item", "description": "Item A", "qty": 5.0},
+            {"srn": 31, "node_type": "Line Item", "description": "Item B", "qty": 5.0},
+        ])
+        cls.dest_sheet_v2 = frappe.db.get_value(
+            cls._SHEET_DT, {"boq": cls.boq, "sheet_name": cls.SHEET, "commit_version": 2}, "name")
+        TestCopyForward._seed_sheet(cls.boq, cls.SHEET, 1, 0, cls._MAP, [
+            {"srn": 30, "node_type": "Line Item", "description": "Item A", "qty": 5.0},
+            {"srn": 31, "node_type": "Line Item", "description": "Item B", "qty": 5.0},
+        ])
+        TestCopyForward._price(cls.boq, cls.SHEET, 1, 30, "D", None, "combined_rate", 100.0)
+        TestCopyForward._price(cls.boq, cls.SHEET, 1, 31, "D", None, "combined_rate", 200.0)
+
+        # The precedence sheet: an amount column with NO formula (the formula gate must win).
+        TestCopyForward._seed_sheet(cls.boq, cls.AMT, 2, 1, cls._AMT_MAP, [
+            {"srn": 40, "node_type": "Line Item", "description": "Amt A", "qty": 5.0},
+        ])
+        TestCopyForward._seed_sheet(cls.boq, cls.AMT, 1, 0, cls._AMT_MAP, [
+            {"srn": 40, "node_type": "Line Item", "description": "Amt A", "qty": 5.0},
+        ])
+        TestCopyForward._price(cls.boq, cls.AMT, 1, 40, "D", None, "combined_rate", 300.0)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete(cls._ROW_CATEGORY, {"boq": cls.boq})
+        cleanup_committed_fixture(cls.boq)
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        # Reset to the seeded state: no dest pricing, no categories, override OFF, no lock.
+        frappe.db.delete(_PRICING, {"boq": self.boq, "committed_version": 2})
+        frappe.db.delete(self._ROW_CATEGORY, {"boq": self.boq})
+        frappe.db.set_value(self._SHEET_DT, self.dest_sheet_v2, "category_gate_override", 0,
+                            update_modified=False)
+        frappe.db.delete(_LOCK_DT, {"boq": self.boq})
+        frappe.db.commit()
+
+    def _apply_30(self):
+        return apply_copy_forward(
+            boq_name=self.boq, sheet_name=self.SHEET, from_version=1,
+            decisions=json.dumps([{"excel_row": 30, "area": None, "rate_kind": "combined_rate"}]),
+        )
+
+    def _dest_rate(self, excel_row):
+        return frappe.db.get_value(_PRICING, {
+            "boq": self.boq, "sheet_name": self.SHEET, "committed_version": 2,
+            "excel_row": excel_row, "col_letter": "D", "is_current": 1, "is_filled": 1}, "rate")
+
+    def _categorise_dest(self):
+        _categorise_fixture_rate_editable_rows(self.boq, self.SHEET, 2)
+
+    # (a) NEGATIVE -- refused when the DESTINATION has a blank rate-editable row.
+    def test_a_refused_when_destination_blank(self):
+        with self.assertRaises(frappe.ValidationError) as cm:
+            self._apply_30()
+        msg = str(cm.exception)
+        self.assertIn("Nothing was copied", msg)          # (ii) nothing copied
+        self.assertIn("CFG Fix", msg)                     # (i) destination named
+        self.assertIn("categoris", msg.lower())           # (iii) re-run after categorising
+        self.assertIn("admin", msg.lower())               # (iv) override exists
+
+    # (b) ATOMIC -- after the refusal, nothing was written.
+    def test_b_refusal_writes_nothing(self):
+        with self.assertRaises(frappe.ValidationError):
+            self._apply_30()
+        self.assertIsNone(self._dest_rate(30), "a refused carry writes nothing")
+
+    # (c) POSITIVE -- succeeds once the destination is fully categorised.
+    def test_c_succeeds_once_categorised(self):
+        self._categorise_dest()
+        res = self._apply_30()
+        self.assertEqual(res["copied"], 1)
+        self.assertEqual(self._dest_rate(30), 100.0)
+
+    # (d) OVERRIDE -- the admin override on the destination unlocks the carry despite blanks.
+    def test_d_admin_override_unlocks(self):
+        pricing.set_category_override(
+            boq_name=self.boq, sheet_name=self.SHEET, committed_version=2,
+            reason="carry ahead of classification",
+        )
+        res = self._apply_30()  # blanks remain, but the override lets it through
+        self.assertEqual(res["copied"], 1)
+        self.assertEqual(self._dest_rate(30), 100.0)
+
+    # (e) SOURCE IRRELEVANT -- an uncategorised SOURCE (v1) does not block a categorised DEST (v2).
+    def test_e_uncategorised_source_does_not_block(self):
+        self._categorise_dest()  # categorise ONLY the destination (current v2)
+        self.assertEqual(frappe.db.count(self._ROW_CATEGORY, {
+            "boq": self.boq, "committed_version": 1, "is_current": 1}), 0,
+            "the source version carries no categories")
+        self.assertEqual(self._apply_30()["copied"], 1)
+
+    # (f) REPLAY -- refuse, categorise, re-run (rates arrive), re-run again (no double-apply).
+    def test_f_replay_and_no_double_apply(self):
+        with self.assertRaises(frappe.ValidationError):
+            self._apply_30()  # refused while blank
+        self._categorise_dest()
+        self._apply_30()
+        self.assertEqual(self._dest_rate(30), 100.0)
+        self._apply_30()  # re-run must not double-apply the value
+        self.assertEqual(self._dest_rate(30), 100.0)
+        self.assertEqual(frappe.db.count(_PRICING, {
+            "boq": self.boq, "sheet_name": self.SHEET, "committed_version": 2,
+            "excel_row": 30, "col_letter": "D", "is_current": 1}), 1,
+            "exactly one current row after replay (freeze-and-supersede)")
+
+    # (g) PRECEDENCE -- the formula gate still wins when both formulas AND categories are missing.
+    def test_g_formula_gate_wins_precedence(self):
+        with self.assertRaises(frappe.ValidationError) as cm:
+            apply_copy_forward(
+                boq_name=self.boq, sheet_name=self.AMT, from_version=1,
+                decisions=json.dumps([
+                    {"excel_row": 40, "area": None, "rate_kind": "combined_rate"}]),
+            )
+        msg = str(cm.exception).lower()
+        self.assertIn("formula", msg, "the formula gate message must surface, not the category one")
+        self.assertNotIn("nothing was copied", msg)
 
 
 class TestRateEditableBlankCount(FrappeTestCase):

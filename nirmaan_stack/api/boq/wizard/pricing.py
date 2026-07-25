@@ -316,22 +316,35 @@ def _get_category_gate_override(boq_name, sheet_name, committed_version) -> int:
     return 1 if frappe.db.get_value(_BOQ_SHEET, name, "category_gate_override") else 0
 
 
+def _categories_gate_ok(boq_name, sheet_name, committed_version) -> bool:
+    """ONE source of truth for the CATEGORY-GATE condition (Slice G2b/G2c). True iff a rate write is
+    permitted past the gate: the admin override is set for this sheet+version, OR no rate-editable
+    row (Line Item always; qty-bearing Preamble -- the G2a 'rate_editable' population) has a blank
+    RESOLVED category. Blank = classified-and-blank OR never-classified (ONE definition, no special
+    cases).
+
+    Short-circuits when the override is set (no blank query then). Otherwise reuses the G2a counter
+    (population='rate_editable') -- the SAME function get_priced_rows surfaces the count from, so the
+    gate, the banner, and every caller can never disagree. Each caller applies its OWN messaging
+    idiom over this ONE condition: the save path throws via _guard_categories_complete (save-path
+    wording); apply_copy_forward throws its own copy-forward-voiced message inline; cross_boq_carry
+    maps a False to its reason tuple ('categories_incomplete'). sheet_name VERBATIM (#152)."""
+    if _get_category_gate_override(boq_name, sheet_name, committed_version):
+        return True
+    return not blank_category_eligible_rows(
+        boq_name, sheet_name, committed_version, population="rate_editable"
+    )
+
+
 def _guard_categories_complete(boq_name, sheet_name, committed_version) -> None:
     """CATEGORY GATE (Slice G2b): reject a rate write while ANY rate-editable row on the sheet has a
     blank RESOLVED category, UNLESS the admin override is set for this sheet+version. ABSOLUTE
     against the 'Price any row' priceability override (owner ruling) -- placed OUTSIDE that override
-    block, exactly like the mandatory amount-formula gate. Blank = any rate-editable row (Line Item
-    always; qty-bearing Preamble) without a resolved category, classified-and-blank OR never-
-    classified (the G2a 'rate_editable' population -- ONE definition, no special cases).
-
-    Short-circuits when the override is set (no blank query then). Otherwise reuses the G2a counter
-    (population='rate_editable') -- the SAME function get_priced_rows surfaces the count from, so the
-    gate and the banner can never disagree. sheet_name VERBATIM (#152)."""
-    if _get_category_gate_override(boq_name, sheet_name, committed_version):
-        return
-    if blank_category_eligible_rows(
-        boq_name, sheet_name, committed_version, population="rate_editable"
-    ):
+    block, exactly like the mandatory amount-formula gate. The throwing shape used by the SAVE path
+    (_resolve_and_guard_cell); the two carry paths gate over the SAME condition (_categories_gate_ok)
+    with their own carry-voiced messaging. Delegates the condition to _categories_gate_ok (ONE source
+    of truth). sheet_name VERBATIM (#152)."""
+    if not _categories_gate_ok(boq_name, sheet_name, committed_version):
         frappe.throw(
             "Some priceable rows on this sheet do not have a category yet. Rate editing is locked "
             "until every rate-editable row is categorised. Only an admin can override this to price "
@@ -584,12 +597,17 @@ def _node_priceable_without_override(node_type, node_name, qty) -> bool:
 
 
 def _resolve_and_guard_cell(boq_name, sheet_name, excel_row, committed_version, allow_non_priceable):
-    """Resolve the committed cell + run the THREE write-gates (deliberate lock, mandatory
-    amount-formula, priceability) -- everything save_cell_price does BEFORE the single-editor lock
-    acquire. Returns the resolved node dict ({name, node_type, qty}); throws on any gate failure
-    (reject-mutates-nothing). Factored out of save_cell_price (UNCHANGED order/behaviour) so the
-    atomic copy-forward apply reuses the IDENTICAL resolve+gate path per cell. NO lock acquire, NO
-    write, NO commit."""
+    """Resolve the committed cell + run the FOUR write-gates in order (deliberate lock, mandatory
+    amount-formula, category, priceability) -- everything save_cell_price does BEFORE the single-
+    editor lock acquire. Returns the resolved node dict ({name, node_type, qty}); throws on any gate
+    failure (reject-mutates-nothing). Factored out of save_cell_price (UNCHANGED order/behaviour).
+    NO lock acquire, NO write, NO commit.
+
+    This is the PER-CELL save path. The two rate carry-forward paths do NOT call it: they gate ONCE
+    up front at the SHEET level, then loop calling _resolve_committed_cell (resolve only) + the
+    shared writer -- apply_copy_forward (this file) and cross_boq_carry._apply_sheet_carry both run
+    the deliberate-lock + formula + category gates as a single sheet-level block (Slice G2c), because
+    those gates are inherently sheet-level and a per-cell call would re-run them K times."""
     # The cell must exist in the committed tier (also yields the node pointer + node_type).
     node = _resolve_committed_cell(boq_name, sheet_name, excel_row, committed_version)
     node_name = node["name"]
@@ -2881,6 +2899,23 @@ def apply_copy_forward(boq_name=None, sheet_name=None, from_version=None, decisi
                 "Every amount column on the current version needs a declared formula before any "
                 "rate can be copied. Define the missing amount formulas first.",
                 title="Formulas incomplete",
+            )
+        # CATEGORY GATE (Slice G2c) -- carried rates land on the DESTINATION (current version), so
+        # the DESTINATION's categories govern, exactly as on the save path. Sheet-level, checked
+        # ONCE here (never per row); the admin override is the only escape. Placed AFTER the formula
+        # gate (which keeps precedence) and BEFORE the single-editor acquire, inside the try so it
+        # rolls back uniformly and nothing is written on a block. It throws a COPY-FORWARD-voiced
+        # message (naming the destination + saying nothing was copied + how to re-run) over the
+        # SHARED _categories_gate_ok condition -- NOT _guard_categories_complete, whose save-path
+        # wording ("rate editing is locked") is wrong for a batch carry and is owner-locked.
+        if not _categories_gate_ok(boq_name, sheet_name, current_version):
+            frappe.throw(
+                f"Nothing was copied. The destination sheet '{sheet_name}' has priceable rows with "
+                f"no category yet, and rates cannot be copied onto it until every rate-editable row "
+                f"is categorised. Your existing rates are untouched -- categorise the destination, "
+                f"then run the copy-forward again and the rates will come across. An admin can "
+                f"override this to copy before classification is complete.",
+                title="Categories incomplete",
             )
         # ONE single-editor-lock acquire on the CURRENT version for the whole batch.
         acquire_or_refresh(
