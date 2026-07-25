@@ -3946,3 +3946,189 @@ class TestCopyForward(FrappeTestCase):
             get_copy_forward_plan(boq_name=self.boq, sheet_name=self.sheet)
         with self.assertRaises(frappe.ValidationError):
             get_copy_forward_plan(boq_name=self.boq, sheet_name=self.sheet, from_version=2)
+
+
+class TestRateEditableBlankCount(FrappeTestCase):
+    """Slice G2a: persist.blank_category_eligible_rows(..., population="rate_editable") counts
+    blank-category rows over the RATE-EDITABLE population (Line Item always; Preamble only when
+    qty-bearing), and get_priced_rows surfaces the count + a categories_complete boolean.
+    ADDITIVE -- no gate ships here.
+
+    Fixture (one committed sheet, blank categories unless noted):
+      20 Preamble qty-bearing (scalar qty 10)         -> rate-editable, blank -> COUNTED
+      21 Preamble qty-LESS (qty 0)                    -> eligible NOT rate-editable -> NOT counted
+      22 Line Item zero-qty                           -> rate-editable, blank -> COUNTED
+      23 Line Item qty-bearing WITH a real category   -> rate-editable, categorised -> NOT counted
+      24 Line Item zero-qty, NEVER classified         -> rate-editable, blank (fail-open) -> COUNTED
+      25 Other (note)                                 -> neither population -> NOT counted
+      26 Preamble qty-bearing VIA AREA child          -> rate-editable, blank -> COUNTED
+    => rate_editable blank = {20, 22, 24, 26} (4); eligible blank = {20, 21, 22, 24, 26} (5).
+    The two populations differ by row 21 (the qty-less Preamble) -- owner ruling, legitimately.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "G2a Rate-Editable Blank Count BoQ"
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq = boq.name
+        cls.sheet = "G2a Count "  # VERBATIM trailing space (#152)
+        cls.cv = 1
+        fx = build_committed_sheet_fixture(cls.boq, cls.sheet, commit_version=cls.cv)
+        cls.bqsh = fx["bqsh"]
+        # Replace the fixture's default nodes with exactly our 7 labelled rows.
+        frappe.db.delete("BOQ Nodes", {"boq": cls.boq})
+        frappe.db.commit()
+        now = frappe.utils.now()
+
+        def _node(node_type, row_class, er, order, qty=None, area_qty=None, level=None):
+            n = frappe.new_doc("BOQ Nodes")
+            n.boq = cls.boq
+            n.sheet = cls.bqsh
+            n.node_type = node_type
+            n.row_class = row_class
+            n.description = node_type + " @ " + str(er)
+            n.sort_order = order
+            n.source_row_number = er
+            if qty is not None:
+                n.qty = qty
+            if level is not None:
+                n.level = level
+            n.commit_version = cls.cv
+            n.is_current = 1
+            n.committed_at = now
+            if area_qty:
+                for a, q in area_qty.items():
+                    n.append("qty_by_area", {"area_name": a, "qty": q})
+            n.insert(ignore_permissions=True)
+            return n.name
+
+        cls.node_names = {}
+        cls.node_names[20] = _node("Preamble", "preamble", 20, 1, qty=10.0, level=1)
+        cls.node_names[21] = _node("Preamble", "preamble", 21, 2, qty=0.0, level=1)
+        cls.node_names[22] = _node("Line Item", "line_item", 22, 3, qty=0.0)
+        cls.node_names[23] = _node("Line Item", "line_item", 23, 4, qty=25.0,
+                                   area_qty={"Phase 1": 25.0, "Phase 2": 0.0})
+        cls.node_names[24] = _node("Line Item", "line_item", 24, 5, qty=0.0)
+        cls.node_names[25] = _node("Other", "note", 25, 6)
+        cls.node_names[26] = _node("Preamble", "preamble", 26, 7, qty=0.0, level=1,
+                                   area_qty={"Phase 1": 0.0, "Phase 2": 7.0})
+        frappe.db.commit()
+
+        def _cat(er, final="", routing="Needs review"):
+            return {"excel_row": er, "rule_category_id": "", "ai_category_id": "",
+                    "final_category_id": final, "routing": routing}
+
+        # 20/21/22/26 blank (Needs review); 23 categorised (Auto-accepted). 24 gets NO record.
+        persist.write_row_categories(cls.boq, cls.sheet, cls.cv, "Electrical", [
+            _cat(20), _cat(21), _cat(22), _cat(26),
+            _cat(23, final="db_switchgear", routing="Auto-accepted"),
+        ])
+        _declare_fixture_amount_formulas(cls.boq, cls.sheet, cls.cv)
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete("BoQ Row Category", {"boq": cls.boq})
+        cleanup_committed_fixture(cls.boq)
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def _rate_editable_rows(self):
+        return persist.blank_category_eligible_rows(
+            self.boq, self.sheet, self.cv, population="rate_editable")
+
+    def _eligible_rows(self):
+        return persist.blank_category_eligible_rows(self.boq, self.sheet, self.cv)  # default
+
+    def test_a_qty_bearing_preamble_blank_counted(self):
+        """(a) POSITIVE -- a qty-bearing Preamble with a blank category IS counted."""
+        rows = {r["excel_row"] for r in self._rate_editable_rows()}
+        self.assertIn(20, rows)
+        self.assertIn(26, rows)  # qty-bearing via the per-area child
+
+    def test_b_qtyless_preamble_blank_not_counted(self):
+        """(b) NEGATIVE -- a qty-LESS Preamble with a blank category is NOT counted."""
+        rows = {r["excel_row"] for r in self._rate_editable_rows()}
+        self.assertNotIn(21, rows)
+
+    def test_c_zero_qty_line_item_blank_counted(self):
+        """(c) a zero-qty Line Item with a blank category IS counted (Line Items always count)."""
+        rows = {r["excel_row"] for r in self._rate_editable_rows()}
+        self.assertIn(22, rows)
+
+    def test_d_never_classified_rate_editable_counted(self):
+        """(d) a never-classified rate-editable row IS counted (Slice 1a fail-open guard survives)."""
+        rows = {r["excel_row"] for r in self._rate_editable_rows()}
+        self.assertIn(24, rows)
+
+    def test_e_other_never_counted(self):
+        """(e) an 'Other' row is never counted in EITHER population."""
+        self.assertNotIn(25, {r["excel_row"] for r in self._rate_editable_rows()})
+        self.assertNotIn(25, {r["excel_row"] for r in self._eligible_rows()})
+
+    def test_f_eligible_population_byte_identical(self):
+        """(f) BYTE-IDENTITY -- the default 'eligible' population is unchanged by this slice: it
+        INCLUDES the qty-less Preamble (21) that rate_editable excludes."""
+        eligible = {r["excel_row"] for r in self._eligible_rows()}
+        self.assertEqual(eligible, {20, 21, 22, 24, 26})
+
+    def test_populations_differ_by_qtyless_preamble(self):
+        """The two populations visibly differ: rate_editable = 4, eligible = 5 (row 21)."""
+        rate = {r["excel_row"] for r in self._rate_editable_rows()}
+        eligible = {r["excel_row"] for r in self._eligible_rows()}
+        self.assertEqual(rate, {20, 22, 24, 26})
+        self.assertEqual(eligible, {20, 21, 22, 24, 26})
+        self.assertEqual(eligible - rate, {21})
+
+    def test_g_batched_qty_matches_node_is_qty_bearing(self):
+        """(g) CONSISTENCY PIN -- the batched _qty_bearing_node_names agrees with the single-row
+        node_is_qty_bearing on the SAME nodes, both directions. If they diverge, the gate and the
+        rate-edit guard would disagree."""
+        nodes = frappe.get_all("BOQ Nodes",
+            filters={"boq": self.boq, "sheet": self.bqsh, "is_current": 1},
+            fields=["name", "qty"])
+        batched = persist._qty_bearing_node_names(nodes)
+        for n in nodes:
+            single = persist.node_is_qty_bearing(n["name"], n.get("qty"))
+            self.assertEqual(n["name"] in batched, single,
+                             "batched vs single disagree on " + n["name"])
+
+    def test_invalid_population_raises(self):
+        """An unknown population is a programming error -> ValueError (no silent default)."""
+        with self.assertRaises(ValueError):
+            persist.blank_category_eligible_rows(self.boq, self.sheet, self.cv, population="bogus")
+
+    def test_get_priced_rows_surfaces_count(self):
+        """get_priced_rows surfaces rate_editable_blank_category_count (4) + categories_complete
+        (False), and existing keys stay present + same-typed."""
+        msg = get_priced_rows(boq_name=self.boq, sheet_name=self.sheet)
+        self.assertEqual(msg["rate_editable_blank_category_count"], 4)
+        self.assertIs(msg["categories_complete"], False)
+        # existing keys still present + typed as before (regression on the additive change)
+        self.assertIsInstance(msg["is_locked"], bool)
+        self.assertIsInstance(msg["classification_frozen"], bool)
+
+    def test_categories_complete_flips_true_when_all_categorised(self):
+        """Give every remaining blank rate-editable row a category -> count 0, boolean True."""
+        persist.write_row_categories(self.boq, self.sheet, self.cv, "Electrical", [
+            {"excel_row": er, "rule_category_id": "", "ai_category_id": "",
+             "final_category_id": "db_switchgear", "routing": "Auto-accepted"}
+            for er in (20, 22, 24, 26)
+        ])
+        try:
+            msg = get_priced_rows(boq_name=self.boq, sheet_name=self.sheet)
+            self.assertEqual(msg["rate_editable_blank_category_count"], 0)
+            self.assertIs(msg["categories_complete"], True)
+        finally:
+            # restore the fixture's blank state for other tests (order-independence)
+            persist.write_row_categories(self.boq, self.sheet, self.cv, "Electrical", [
+                {"excel_row": er, "rule_category_id": "", "ai_category_id": "",
+                 "final_category_id": "", "routing": "Needs review"}
+                for er in (20, 22, 26)
+            ])
+            frappe.db.delete("BoQ Row Category", {"boq": self.boq, "excel_row": 24})
+            frappe.db.commit()

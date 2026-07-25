@@ -41,7 +41,12 @@ from nirmaan_stack.api.boq.wizard.pricing_lock import acquire_or_refresh, read_l
 # Slice G1: the committed-node qty-bearing test was relocated DOWN to the service layer
 # (persist.node_is_qty_bearing) so it is defined ONCE and the coming category-count refinement
 # can reach it without a service->api import. api -> service is the legal direction.
-from nirmaan_stack.services.boq_category.persist import node_is_qty_bearing
+# Slice G2a: get_priced_rows ADDITIVELY surfaces the rate-editable blank-category count from the
+# service-layer counter (population="rate_editable"). No gate ships here -- that is G2b.
+from nirmaan_stack.services.boq_category.persist import (
+    blank_category_eligible_rows,
+    node_is_qty_bearing,
+)
 
 _PRICING = "BoQ Cell Pricing"
 _BOQ_SHEET = "BoQ Sheet"
@@ -2086,6 +2091,13 @@ def get_priced_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         "classification_frozen": False,
         "frozen_by": None,
         "frozen_at": None,
+        # Slice G2a (ADDITIVE, ships one slice ahead of its G3 consumer): the count of RATE-EDITABLE
+        # rows (Line Item always; Preamble only when qty-bearing) whose RESOLVED effective category
+        # is blank, plus a convenience boolean (count == 0). PAYLOAD keys, NOT schema. NOTHING is
+        # gated by them here -- the rate-edit lock + its admin override ship in G2b. For an
+        # uncommitted / grid-only sheet there are no rate-editable rows -> 0 / complete=True.
+        "rate_editable_blank_category_count": 0,
+        "categories_complete": True,
     }
 
     # A committed sheet+version has a lock identity -> surface its current lock state.
@@ -2115,6 +2127,14 @@ def get_priced_rows(boq_name: str = None, sheet_name: str = None) -> dict:
             base["classification_frozen"] = bool(_fz.get("classification_frozen"))
             base["frozen_by"] = _fz.get("frozen_by")
             base["frozen_at"] = _fz.get("frozen_at")
+        # Slice G2a: rate-editable blank-category count for THIS committed version (additive; no
+        # gate). The service counter batches the qty test (ONE child query), so this is O(1) extra
+        # queries on the get_priced_rows path. G3 renders these; G2b will gate on them.
+        _rate_editable_blanks = blank_category_eligible_rows(
+            boq_name, sheet_name, commit_version, population="rate_editable"
+        )
+        base["rate_editable_blank_category_count"] = len(_rate_editable_blanks)
+        base["categories_complete"] = base["rate_editable_blank_category_count"] == 0
         # Amount formulas (F1): the current per-column formulas for this committed version,
         # shaped PER-COLUMN for the grid lookup (built once; NOT stamped onto any row).
         base["column_formulas"] = [
