@@ -24,6 +24,7 @@ from frappe.utils.background_jobs import get_job_status
 
 from nirmaan_stack.services.boq_category import engines, orchestrator, persist
 from nirmaan_stack.services.boq_category.runner import load_ruleset
+from nirmaan_stack.api.boq.wizard import pricing  # G2d: re-classify clears the category-gate override
 
 _ROW_CATEGORY = "BoQ Row Category"
 _BOQ_SHEET = "BoQ Sheet"
@@ -250,12 +251,18 @@ def _classify_worker(boq=None, sheet_name=None, discipline="Electrical", scope=N
             boq, sheet_name, discipline, row_filter=row_filter, progress_cb=_progress
         )
         frappe.db.commit()  # commit BEFORE publish (CLAUDE.md rule)
+        # G2d: on a SUCCESSFUL WHOLE-SHEET re-classify, clear the category-gate override for this
+        # sheet. Placed AFTER the classify commit, never fails the run (see helper). Per-engine by
+        # design -- each engine's worker clears independently (there is no single all-engines
+        # completion point); a range/partial run leaves the override intact.
+        override_cleared = _clear_override_after_reclassify(boq, sheet_name, scope)
         payload = {
             "status": "success",
             "boq_name": boq,
             "sheet_name": sheet_name,
             "discipline": discipline,
             **summary,
+            "category_override_cleared": override_cleared,  # additive; after **summary so it wins
         }
     except Exception:
         frappe.db.rollback()
@@ -268,6 +275,41 @@ def _classify_worker(boq=None, sheet_name=None, discipline="Electrical", scope=N
             "error_code": "classify_failed",
         }
     _publish_classify_event(boq, sheet_name, discipline, user, payload)
+
+
+def _clear_override_after_reclassify(boq, sheet_name, scope) -> bool:
+    """G2d: clear the category-gate override after a SUCCESSFUL WHOLE-SHEET re-classify.
+
+    RATIONALE: re-classification changes which rows have categories, so an override granted against
+    the OLD category picture must not silently carry forward -- the admin re-asserts against the new
+    state.
+
+    - Only a WHOLE-SHEET run clears (scope mode 'sheet'); a partial row-range run leaves the override
+      INTACT (it only touched some rows).
+    - IDEMPOTENT: a sheet with no override is a clean no-op (returns False).
+    - MUST NOT fail the classify run: on ANY error, log and return False so the classification result
+      stands. The gate fails SAFE -- an uncleared override only leaves rate editing unlocked, which the
+      admin already chose.
+
+    Returns True iff an override was actually present and has now been cleared. PER-ENGINE by design:
+    each engine's worker calls this independently (there is no single all-engines completion point),
+    so a multi-engine whole-sheet re-classify clears once per engine and an override re-set between two
+    engines' completions is wiped by the later one.
+    """
+    try:
+        if not (scope and scope.get("mode") == "sheet"):
+            return False
+        committed_version = _resolve_committed_version(boq, sheet_name)
+        if committed_version is None:
+            return False
+        return bool(
+            pricing.reset_category_gate_override_on_reclassify(boq, sheet_name, committed_version)
+        )
+    except Exception:
+        frappe.log_error(
+            title="BoQ re-classify override clear failed", message=frappe.get_traceback()
+        )
+        return False
 
 
 def _publish_classify_progress(boq, sheet_name, discipline, user, done, total):

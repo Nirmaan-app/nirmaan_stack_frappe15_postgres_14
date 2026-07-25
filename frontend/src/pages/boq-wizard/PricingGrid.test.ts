@@ -603,6 +603,54 @@ describe("buildOptimisticVerdict", () => {
   });
 });
 
+// ── Slice G2d GAP B: a FAILED category clear REVERTS the optimistic state (count returns) ──
+// G3a's optimistic clear makes the live count RISE immediately; the SUCCESS path was cert-covered but
+// the FAILURE path (the save throws -> dropOverride removes the optimistic entry -> the count returns
+// to its pre-clear value) was untested. SheetPricingPage merges catData + categoryOverrides into the
+// map countMasterSetBlankRows reads (its useMemo: `new Map(catData)` then `overrides.forEach(set)`) and
+// dropOverride deletes the entry. That setState wiring is not unit-testable in this node-env harness
+// (no jsdom/@testing-library, vitest.config.ts), so this test reproduces the SAME merge shape over the
+// REAL pure helpers and asserts the count round-trip the revert guarantees; the component wiring itself
+// is covered by the browser cert (C5).
+describe("failed category clear reverts the optimistic count (Gap B)", () => {
+  const mcat = (over: Partial<SheetCategoryRow> = {}): SheetCategoryRow => ({
+    excel_row: 10, rule_category_id: "", ai_category_id: "", final_category_id: "",
+    routing: "Auto-accepted", routing_reason: "", human_category_id: "",
+    effective_category_id: "", ...over,
+  });
+  const rows = [{ source_row_number: 10, node_type: "Line Item" } as
+    Pick<PricedRow, "node_type" | "source_row_number">];
+  // Merge exactly as SheetPricingPage does (catData first, then the optimistic overrides win).
+  const merged = (
+    catData: ReadonlyMap<number, SheetCategoryRow>,
+    overrides: ReadonlyMap<number, SheetCategoryRow>,
+  ) => {
+    const m = new Map(catData);
+    overrides.forEach((c, k) => m.set(k, c));
+    return m;
+  };
+
+  it("clear raises the count, then a failed save drops the override and the count returns", () => {
+    const catData = new Map<number, SheetCategoryRow>([
+      [10, mcat({ effective_category_id: "db_switchgear" })], // row 10 starts CATEGORISED
+    ]);
+    const before = countMasterSetBlankRows(rows, merged(catData, new Map()));
+    expect(before).toBe(0); // nothing blank pre-clear
+
+    // Optimistic CLEAR: overlay a blank verdict for row 10 -> the count RISES.
+    const base = catData.get(10) as SheetCategoryRow;
+    const overrides = new Map<number, SheetCategoryRow>([[10, buildOptimisticVerdict(base, "")]]);
+    const duringClear = countMasterSetBlankRows(rows, merged(catData, overrides));
+    expect(duringClear).toBe(1);
+    expect(duringClear).toBeGreaterThan(before);
+
+    // Save FAILS -> dropOverride removes the optimistic entry -> the count REVERTS to pre-clear.
+    overrides.delete(10);
+    const afterRevert = countMasterSetBlankRows(rows, merged(catData, overrides));
+    expect(afterRevert).toBe(before);
+  });
+});
+
 // ── Slice 4a: annotation helpers (color + remark) ───────────────────────────────
 describe("colorClassForToken", () => {
   it("maps each of the 8 tokens to a distinct left-border class", () => {

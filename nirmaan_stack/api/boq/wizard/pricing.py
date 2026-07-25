@@ -512,9 +512,19 @@ def clear_category_override(boq_name=None, sheet_name=None, committed_version=No
             f"No current committed sheet '{sheet_name}' at version {committed_version}.",
             title="Not found",
         )
+    _write_category_gate_override_cleared(name)
+    frappe.db.commit()
+    return {"ok": True, "category_gate_override": 0}
+
+
+def _write_category_gate_override_cleared(sheet_row_name):
+    """The raw 4-field override-cleared write (set_value, update_modified=False, NO commit). The
+    SINGLE source of the clear write -- reused by clear_category_override (the admin endpoint) AND
+    the re-classify auto-clear (G2d), so the reset shape is defined once, not a third set_value.
+    The caller commits."""
     frappe.db.set_value(
         _BOQ_SHEET,
-        name,
+        sheet_row_name,
         {
             "category_gate_override": 0,
             "category_override_by": None,
@@ -523,8 +533,23 @@ def clear_category_override(boq_name=None, sheet_name=None, committed_version=No
         },
         update_modified=False,
     )
+
+
+def reset_category_gate_override_on_reclassify(boq_name, sheet_name, committed_version) -> bool:
+    """G2d internal helper (NOT whitelisted, NO admin gate -- the re-classify auto-clear is a SYSTEM
+    action, and the user who triggered the classify need not be an admin). Clears the category-gate
+    override on the sheet's current committed version, reusing the shared write. IDEMPOTENT: returns
+    True only when an override was actually present and has now been cleared (set_value + commit);
+    returns False (a clean no-op, no write, no commit) when the sheet has no current row or no
+    override was set. sheet_name VERBATIM (#152)."""
+    name = _current_sheet_name(boq_name, sheet_name, committed_version)
+    if not name:
+        return False
+    if not frappe.db.get_value(_BOQ_SHEET, name, "category_gate_override"):
+        return False
+    _write_category_gate_override_cleared(name)
     frappe.db.commit()
-    return {"ok": True, "category_gate_override": 0}
+    return True
 
 
 # ── Single-editor concurrency lock -- realtime acquire / release (A2 / ADR-0011) ──

@@ -45,6 +45,7 @@ from nirmaan_stack.api.boq.wizard.classify import (
     set_row_category,
     start_classify,
 )
+from nirmaan_stack.api.boq.wizard import pricing  # G2d: re-classify clears the category-gate override
 from nirmaan_stack.services.boq_category import engines, orchestrator, persist
 # Slice 1a: the resolution ladder was relocated classify -> persist (service layer). Import it
 # under its former name so the existing TestResolveRowLadder cases exercise the SAME function.
@@ -611,6 +612,192 @@ class TestClassifyWorker(FrappeTestCase):
         self.assertEqual(term["error_code"], "classify_failed")
         self.assertIsNone(classify._get_marker(self.boq, self.sheet, self.disc))
         pub.assert_called_once()
+
+
+# ── G2d: RE-CLASSIFY CLEARS THE CATEGORY-GATE OVERRIDE ─────────────────────────────
+class TestReclassifyClearsOverride(FrappeTestCase):
+    """G2d: a SUCCESSFUL WHOLE-SHEET re-classify clears the category-gate override on that sheet's
+    current committed version. A range/partial run, a failed run, and set_row_category do NOT clear;
+    the clear is idempotent, sheet-isolated, and never fails the classification run. The orchestrator
+    is mocked so the tests exercise the worker's clear wiring, not real classification.
+
+    PER-ENGINE EDGE (test_multi_engine_each_engine_clears_independently): a re-classify is fired once
+    per selected engine (ClassifySheetDialog loops start_classify), each spawning its own worker with
+    no all-engines completion barrier -- so an override re-set between two engines' completions is
+    wiped by the later engine. This test asserts that real behaviour."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.project = _make_project()
+        cls.boq = _new_boq(cls.project.name, "Reclassify Clear BoQ")
+        cls.sheetA = "ClearFixA "  # VERBATIM trailing space (#152)
+        cls.sheetB = "ClearFixB "
+        _new_sheet(cls.boq, cls.sheetA)
+        _new_sheet(cls.boq, cls.sheetB)
+        cls.disc = "Electrical"
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete(_ROW_CATEGORY, {"boq": cls.boq})
+        frappe.db.delete("BoQ Sheet", {"boq": cls.boq})
+        frappe.db.commit()
+        _cleanup_project(cls.project.name)
+        super().tearDownClass()
+
+    def tearDown(self):
+        for s in (self.sheetA, self.sheetB):
+            self._reset_override(s)
+            for d in (self.disc, "HVAC"):  # the multi-engine test also runs the HVAC worker
+                frappe.cache().delete_value(classify._status_key(self.boq, s, d))
+                frappe.cache().delete_value(classify._marker_key(self.boq, s, d))
+        frappe.db.delete(_ROW_CATEGORY, {"boq": self.boq})
+        frappe.db.commit()
+
+    # ── override fixture helpers ──
+    def _set_override(self, sheet_name, reason="G2d cert"):
+        name = classify._current_sheet_name(self.boq, sheet_name, 1)
+        frappe.db.set_value(
+            "BoQ Sheet", name,
+            {
+                "category_gate_override": 1,
+                "category_override_by": "Administrator",
+                "category_override_at": frappe.utils.now_datetime(),
+                "category_override_reason": reason,
+            },
+            update_modified=False,
+        )
+        frappe.db.commit()
+
+    def _reset_override(self, sheet_name):
+        name = classify._current_sheet_name(self.boq, sheet_name, 1)
+        frappe.db.set_value(
+            "BoQ Sheet", name,
+            {
+                "category_gate_override": 0, "category_override_by": None,
+                "category_override_at": None, "category_override_reason": None,
+            },
+            update_modified=False,
+        )
+        frappe.db.commit()
+
+    def _override(self, sheet_name):
+        name = classify._current_sheet_name(self.boq, sheet_name, 1)
+        return frappe.db.get_value(
+            "BoQ Sheet", name,
+            ["category_gate_override", "category_override_by",
+             "category_override_at", "category_override_reason"],
+            as_dict=True,
+        )
+
+    def _assert_cleared(self, sheet_name):
+        row = self._override(sheet_name)
+        self.assertEqual(row["category_gate_override"], 0)
+        self.assertIsNone(row["category_override_by"])
+        self.assertIsNone(row["category_override_at"])
+        self.assertIsNone(row["category_override_reason"])
+
+    def _assert_set(self, sheet_name):
+        row = self._override(sheet_name)
+        self.assertEqual(row["category_gate_override"], 1)
+        self.assertEqual(row["category_override_by"], "Administrator")
+
+    _FAKE_SUMMARY = {
+        "total_in_range": 1, "eligible_classified": 1, "needs_review": 0, "auto_accepted": 1,
+        "skipped_total": 0, "skipped_by_reason": {}, "committed_version": 1, "sheet_warnings": [],
+    }
+
+    def _run_worker(self, sheet_name, scope, *, fail=False, discipline=None):
+        orch = mock.patch(
+            "nirmaan_stack.api.boq.wizard.classify.orchestrator.classify_sheet_rows",
+            side_effect=RuntimeError("boom") if fail else None,
+            return_value=None if fail else self._FAKE_SUMMARY,
+        )
+        disc = discipline or self.disc
+        with orch, mock.patch("frappe.publish_realtime"), mock.patch("frappe.log_error"):
+            _classify_worker(
+                boq=self.boq, sheet_name=sheet_name, discipline=disc,
+                scope=scope, user="Administrator",
+            )
+        # The worker keys its terminal payload by the ACTUAL discipline it ran.
+        return frappe.cache().get_value(classify._status_key(self.boq, sheet_name, disc))
+
+    # ── (a) POSITIVE: whole-sheet success clears a set override ──
+    def test_whole_sheet_success_clears_override(self):
+        self._set_override(self.sheetA)
+        term = self._run_worker(self.sheetA, {"mode": "sheet"})
+        self.assertEqual(term["status"], "success")
+        self.assertTrue(term["category_override_cleared"])
+        self._assert_cleared(self.sheetA)
+
+    # ── (b) NEGATIVE: a failed run leaves the override intact ──
+    def test_failed_run_leaves_override_intact(self):
+        self._set_override(self.sheetA)
+        term = self._run_worker(self.sheetA, {"mode": "sheet"}, fail=True)
+        self.assertEqual(term["status"], "error")
+        self.assertNotIn("category_override_cleared", term)  # only the success payload carries it
+        self._assert_set(self.sheetA)
+
+    # ── (b2) NEGATIVE: a partial row-range run does NOT clear ──
+    def test_range_run_does_not_clear(self):
+        self._set_override(self.sheetA)
+        term = self._run_worker(self.sheetA, {"mode": "range", "start": 1, "end": 2})
+        self.assertEqual(term["status"], "success")
+        self.assertFalse(term["category_override_cleared"])
+        self._assert_set(self.sheetA)
+
+    # ── (c) NEGATIVE: set_row_category does NOT clear an active override ──
+    def test_set_row_category_does_not_clear(self):
+        self._set_override(self.sheetA)
+        set_row_category(
+            boq=self.boq, sheet_name=self.sheetA, excel_row=11,
+            human_category_id="earthing", discipline=self.disc,
+        )
+        self._assert_set(self.sheetA)
+
+    # ── (d) IDEMPOTENT: whole-sheet success with no override is a clean no-op ──
+    def test_no_override_whole_sheet_is_clean_noop(self):
+        self._reset_override(self.sheetA)  # ensure absent
+        term = self._run_worker(self.sheetA, {"mode": "sheet"})
+        self.assertEqual(term["status"], "success")
+        self.assertFalse(term["category_override_cleared"])
+        self._assert_cleared(self.sheetA)  # still clear, no crash
+
+    # ── (e) ISOLATION: clearing sheet A does not touch sheet B ──
+    def test_clear_is_sheet_isolated(self):
+        self._set_override(self.sheetA)
+        self._set_override(self.sheetB)
+        self._run_worker(self.sheetA, {"mode": "sheet"})
+        self._assert_cleared(self.sheetA)
+        self._assert_set(self.sheetB)
+
+    # ── (f) RESILIENCE: a clear failure never fails the classification run ──
+    def test_clear_failure_never_fails_classification(self):
+        self._set_override(self.sheetA)
+        with mock.patch(
+            "nirmaan_stack.api.boq.wizard.pricing.reset_category_gate_override_on_reclassify",
+            side_effect=RuntimeError("clear blew up"),
+        ):
+            term = self._run_worker(self.sheetA, {"mode": "sheet"})
+        self.assertEqual(term["status"], "success")  # classify stands despite the clear failing
+        self.assertFalse(term["category_override_cleared"])  # the except returned False
+        self._assert_set(self.sheetA)  # override untouched because the clear raised
+
+    # ── PER-ENGINE EDGE: each engine's worker clears independently (owner-requested) ──
+    def test_multi_engine_each_engine_clears_independently(self):
+        # Engine A (Electrical) completes -> clears.
+        self._set_override(self.sheetA)
+        term_a = self._run_worker(self.sheetA, {"mode": "sheet"}, discipline="Electrical")
+        self.assertTrue(term_a["category_override_cleared"])
+        self._assert_cleared(self.sheetA)
+        # An admin re-SETS the override in the gap before the second engine finishes.
+        self._set_override(self.sheetA)
+        # Engine B (HVAC) completes -> clears the just-re-set override AGAIN. This is the real,
+        # reported behaviour: with no all-engines barrier, the later engine wipes it.
+        term_b = self._run_worker(self.sheetA, {"mode": "sheet"}, discipline="HVAC")
+        self.assertTrue(term_b["category_override_cleared"])
+        self._assert_cleared(self.sheetA)
 
 
 # ── GET_SHEET_CATEGORIES ─────────────────────────────────────────────────────────

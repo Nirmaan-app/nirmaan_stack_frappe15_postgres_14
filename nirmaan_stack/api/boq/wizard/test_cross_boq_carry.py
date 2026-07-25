@@ -1167,3 +1167,26 @@ class TestCrossBoqCarryCategoryGate(FrappeTestCase):
         self.assertIsNone(summary)
         self.assertEqual(reason, "categories_incomplete")
         self.assertIsNone(self._dest_rate(10), "the widened carry gate wrote nothing")
+
+    # (j) G2d GAP A -- a PRE-EXISTING destination rate SURVIVES a refused carry byte-identically -----
+    def test_j_preexisting_dest_rate_survives_refused_carry(self):
+        """The cross-BoQ refusal message also promises 'Your existing rates are untouched.' Seed the
+        DEST (the revision) with a rate on the very row the carry targets, refuse the carry (blank
+        categories), and assert the rate is byte-identical with NO superseded history row minted."""
+        _price(self.rev, self.DEST, 1, 10, "D", "combined_rate", 555.0)
+        frappe.db.commit()
+        rows_before = frappe.db.count(_PRICING, {
+            "boq": self.rev, "sheet_name": self.DEST, "committed_version": 1,
+            "excel_row": 10, "col_letter": "D"})
+        self.assertEqual(self._dest_rate(10), 555.0)
+        # Categories still blank -> the carry of row 10 is refused sheet-level, up front.
+        summary, reason = self._apply_inner_10()
+        self.assertIsNone(summary)
+        self.assertEqual(reason, "categories_incomplete")
+        # Byte-identical: same value, still the one current row, no superseded history row created.
+        self.assertEqual(self._dest_rate(10), 555.0, "the pre-existing rate survived byte-identically")
+        rows_after = frappe.db.count(_PRICING, {
+            "boq": self.rev, "sheet_name": self.DEST, "committed_version": 1,
+            "excel_row": 10, "col_letter": "D"})
+        self.assertEqual(rows_after, rows_before, "the refused carry minted no superseded history row")
+        self.assertEqual(rows_after, 1, "still exactly one pricing row for the cell")

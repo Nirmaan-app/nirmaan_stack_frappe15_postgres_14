@@ -4197,6 +4197,30 @@ class TestCopyForwardCategoryGate(FrappeTestCase):
         self.assertIn("Nothing was copied", str(cm.exception))
         self.assertIsNone(self._dest_rate(30), "the widened carry gate wrote nothing")
 
+    # (j) G2d GAP A -- a PRE-EXISTING destination rate SURVIVES a refused carry byte-identically -----
+    def test_j_preexisting_dest_rate_survives_refused_carry(self):
+        """The refusal message promises 'Your existing rates are untouched.' Every other carry test
+        starts from an EMPTY destination, so they prove only that no rate APPEARED -- not that a
+        pre-existing one SURVIVED. Seed the DEST (v2) with a rate on the very row the carry targets,
+        refuse the carry (blank categories), and assert the rate is byte-identical with NO superseded
+        history row minted by the refused attempt."""
+        TestCopyForward._price(self.boq, self.SHEET, 2, 30, "D", None, "combined_rate", 777.0)
+        frappe.db.commit()
+        rows_before = frappe.db.count(_PRICING, {
+            "boq": self.boq, "sheet_name": self.SHEET, "committed_version": 2,
+            "excel_row": 30, "col_letter": "D"})
+        self.assertEqual(self._dest_rate(30), 777.0)
+        # Categories still blank -> the carry of row 30 is refused sheet-level, up front.
+        with self.assertRaises(frappe.ValidationError):
+            self._apply_30()
+        # Byte-identical: same value, still the one current row, no superseded history row created.
+        self.assertEqual(self._dest_rate(30), 777.0, "the pre-existing rate survived byte-identically")
+        rows_after = frappe.db.count(_PRICING, {
+            "boq": self.boq, "sheet_name": self.SHEET, "committed_version": 2,
+            "excel_row": 30, "col_letter": "D"})
+        self.assertEqual(rows_after, rows_before, "the refused carry minted no superseded history row")
+        self.assertEqual(rows_after, 1, "still exactly one pricing row for the cell")
+
 
 class TestRateEditableBlankCount(FrappeTestCase):
     """Slice G2a: persist.blank_category_eligible_rows(..., population="rate_editable") counts
