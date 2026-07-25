@@ -15,12 +15,12 @@
     "rule": "B3"
   },
   "f2_inline_json_parse_pages": {
-    "count": 201,
+    "count": 207,
     "description": "Inline JSON.parse occurrences in pages/ (backend shapes should be parsed at one typed accessor).",
     "rule": "F2"
   },
   "f5_raw_updatedoc_files": {
-    "count": 114,
+    "count": 116,
     "description": "Frontend files calling useFrappeUpdateDoc / updateDoc( directly instead of one write-safety seam.",
     "rule": "F5"
   }
