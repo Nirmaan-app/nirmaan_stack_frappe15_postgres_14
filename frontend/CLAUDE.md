@@ -348,14 +348,19 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   editable"). `hasRun` is a GRID-LEVEL prop = `categoriesByExcelRow.size > 0` (page passes it; same size>0 truth that
   gates the filter button) — it is DELIBERATELY NOT in `pricingRowPropsAreEqual` (a pure function of the already-compared
   `categoriesByExcelRow`, so it never flips without that map's ref changing). The Category cell shows an amber FILL
-  (`bg-amber-50 dark:bg-amber-950/30`, the grid's attention-fill token) when (a) an eligible cell has a BLANK effective
-  category (`unclassified`, with or without a record), or (b) a `needs_review` cell HAS a category — case (b) ALSO
-  switches text to high-contrast `text-black dark:text-white` (amber-on-amber was illegible) and keeps its amber dot. The
-  fill CLEARS automatically when a category is set (effective non-blank → state leaves `unclassified`/`needs_review`); do
-  NOT add clearing code. Backend: `set_row_category`→`persist.set_human_verdict` UPSERTS (creates a `BoQ Row Category`
-  when none exists) so a verdict on a no-record eligible row persists. The "Check Category" filter button is the CL-3
-  needs-review filter RENAMED (visible label only — `showNeedsReview`/`isNeedsReviewCategory`/the `"Needs review"`
-  routing literal are unchanged).
+  (`bg-amber-50 dark:bg-amber-950/30`, the grid's attention-fill token) exactly when the **ONE shared predicate
+  `isMasterSetBlank(row, cat)` = `isPriceableType(row.node_type) && deriveVerdictState(cat) === "unclassified"`**
+  (exported from `PricingGrid`) is true — an ELIGIBLE row (Line Item / Preamble) whose category cell is EMPTY
+  (`unclassified`: with OR without a record, incl. never-classified no-record rows). The old `|| needs_review` disjunct
+  was DROPPED from the fill (unreachable from resolved data — a resolved review row has a blank effective, which
+  short-circuits to `unclassified` — and the owner ruled amber == master-set-blank). The fill CLEARS automatically when a
+  category is set (effective non-blank → state leaves `unclassified`); do NOT add clearing code. Backend:
+  `set_row_category`→`persist.set_human_verdict` UPSERTS (creates a `BoQ Row Category` when none exists) so a verdict on a
+  no-record eligible row persists. **The "Check Category" view filter uses the SAME `isMasterSetBlank` predicate, so the
+  filter shows EXACTLY what amber shows (owner-locked) — including never-classified eligible rows.** It REPLACED the
+  RETIRED `isNeedsReviewCategory`, which returned FALSE for a never-classified row and so could not surface the rows the
+  widened "empty is empty" gate now counts. `isPriceableType` TRIMS `node_type` so the client master set is byte-identical
+  to the server's stripped eligible set. Amber and the filter, being one predicate, can never drift.
 - **Multi-engine category resolution (HV-10, N-GENERIC -- no discipline named in the pathway):** the
   pricing editor reads `get_sheet_categories_resolved(boq, sheet_name)` (NOT the single-discipline
   `get_sheet_categories`, which is UNTOUCHED so `freeze_classification`/`get_freeze_summary` keep
