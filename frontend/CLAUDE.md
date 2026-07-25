@@ -361,6 +361,31 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   RETIRED `isNeedsReviewCategory`, which returned FALSE for a never-classified row and so could not surface the rows the
   widened "empty is empty" gate now counts. `isPriceableType` TRIMS `node_type` so the client master set is byte-identical
   to the server's stripped eligible set. Amber and the filter, being one predicate, can never drift.
+- **Category-gate VISIBLE half -- the live count, banner + cell gating (four surfaces, ONE predicate).**
+  The page derives a LIVE blank COUNT via `PricingGrid.countMasterSetBlankRows(rows, categoriesByExcelRow)`
+  -- the SAME `isMasterSetBlank` the amber fill + Check-Category filter use, now a FOURTH surface. It
+  **iterates the ROWS array, NEVER the categories map** (a never-classified row is absent from the map but
+  must still count -- the fail-open the backend guards). Memoise it on `[rows, categoriesByExcelRow]` (which
+  already folds the optimistic overrides), so it recomputes only on a fetch/pick/clear, never per keystroke.
+  **Only the BOOLEAN `categoryGateOpen = isCategoryGateOpen(count, override)` reaches `PricingGrid` -- NEVER
+  the count.** A count changes on every pick and would re-render every row; the boolean flips only when
+  editability actually flips (which IS when every row's editability changes -- the correct time to re-render
+  all rows). It is threaded like `formulasComplete`: a `PricingGridProps` boolean (default true), a row prop
+  in `pricingRowPropsAreEqual`, ANDed OUTSIDE `isRateEditableRow` in ALL THREE rate-write gates (the inline
+  cell edit, `rateWritableAt` paste, `isDeltaWritable` undo/redo) so "Price any row" can never reach past it.
+  **DELIBERATE asymmetry: the count keeps counting under the override (an admin sees how many remain) but the
+  gate opens.** The category-pick handler writes an optimistic override for BOTH a pick AND a clear
+  (`buildOptimisticVerdict`): a clear yields a BLANK verdict (effective "" -> `isMasterSetBlank` TRUE) so the
+  count RISES instantly and the sheet re-locks in the same interaction (closing the drops-on-pick /
+  rises-late-on-clear window); it reverts on save failure via the existing `dropOverride`, and the refetch
+  reconciles an auto-machine reversion. The amber BANNER (owner-approved copy, a distinct OVERRIDE variant
+  naming `category_override_by`/`category_override_at` via `formatDate`) shows the count and NAMES the existing
+  "Check Category" control -- **no new button, no click-to-jump** (owner ruling). `GetPricedRowsResponse`
+  declares the G2a/G2b/G2e payload keys (`eligible_blank_category_count`, `categories_complete`,
+  `category_gate_override`/`_by`/`_at`/`_reason`). The set/clear override CONTROL is G3b (this slice only
+  DISPLAYS override state). **The refusal messages drop the pre-G2e "priceable"/"rate-editable" wording**
+  (those terms stay correct only for the SEPARATE priceability gate). Because the client gate makes rate cells
+  read-only, a UI save cannot be ATTEMPTED while locked -- the server save-refusal message is a backstop.
 - **Multi-engine category resolution (HV-10, N-GENERIC -- no discipline named in the pathway):** the
   pricing editor reads `get_sheet_categories_resolved(boq, sheet_name)` (NOT the single-discipline
   `get_sheet_categories`, which is UNTOUCHED so `freeze_classification`/`get_freeze_summary` keep
