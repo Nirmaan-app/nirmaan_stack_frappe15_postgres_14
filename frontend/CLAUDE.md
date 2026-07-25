@@ -382,8 +382,14 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   naming `category_override_by`/`category_override_at` via `formatDate`) shows the count and NAMES the existing
   "Check Category" control -- **no new button, no click-to-jump** (owner ruling). `GetPricedRowsResponse`
   declares the G2a/G2b/G2e payload keys (`eligible_blank_category_count`, `categories_complete`,
-  `category_gate_override`/`_by`/`_at`/`_reason`). The set/clear override CONTROL is G3b (this slice only
-  DISPLAYS override state). **The refusal messages drop the pre-G2e "priceable"/"rate-editable" wording**
+  `category_gate_override`/`_by`/`_at`/`_reason`). **The admin set/clear override CONTROL SHIPPED in G3b** --
+  two contextual buttons IN the banner (SET = `Override the check` -> a reason `Popover`, OPTIONAL reason +
+  `N/250` counter, no confirmation; CLEAR = `Remove override`), both gated on the pure exported
+  `canAdminOverride(role, userId)` (role-resolved AND admin, MIRRORS `_is_nirmaan_admin` by construction --
+  CONVENIENCE ONLY, server authoritative; the `role !== "Loading"` guard prevents a flash). Reason is
+  normalised by the pure exported `normalizeOverrideReason` (client cap 250 + blank->null). Banners render
+  for everyone; controls are admin-only. Override is TEMPORARY -- every G3b block carries a delete marker
+  (removal condition: once classification engines cover all disciplines). **The refusal messages drop the pre-G2e "priceable"/"rate-editable" wording**
   (those terms stay correct only for the SEPARATE priceability gate). Because the client gate makes rate cells
   read-only, a UI save cannot be ATTEMPTED while locked -- the server save-refusal message is a backstop.
 - **Multi-engine category resolution (HV-10, N-GENERIC -- no discipline named in the pathway):** the
