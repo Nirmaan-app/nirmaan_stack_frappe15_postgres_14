@@ -10,6 +10,8 @@ save_row_remark: freeze any prior current via frappe.db.set_value(is_current=0),
 insert a fresh current at max(category_version)+1.
 """
 
+import math
+
 import frappe
 
 _ROW_CATEGORY = "BoQ Row Category"
@@ -43,6 +45,44 @@ def is_sheet_classification_frozen(boq, sheet_name, committed_version) -> int:
     if not name:
         return 0
     return 1 if frappe.db.get_value(_BOQ_SHEET, name, "classification_frozen") else 0
+
+
+# ── Committed-node qty-bearing test (relocated from pricing.py, Slice G1) ──────────────
+# A NODE concern (not a category one), placed here because this module already reads committed
+# BOQ Nodes (blank_category_eligible_rows) and because the coming rate-editable category count
+# needs it in the service layer. RELOCATED from api/boq/wizard/pricing.py so it is defined ONCE
+# and shared: pricing.py imports node_is_qty_bearing UP (api -> service, legal), and the future
+# category-count refinement uses it in-module. Behaviour is byte-identical to the former
+# pricing._is_nonzero_qty / pricing._node_is_qty_bearing. The frontend isRowQtyBearing mirror in
+# PricingGrid.tsx is a DELIBERATE, accepted duplication across the language boundary -- NOT this.
+def is_nonzero_qty(v) -> bool:
+    """A finite, non-zero numeric quantity -- mirrors the frontend isNonZeroNum
+    (typeof number && Number.isFinite && !== 0). None / 0 / 0.0 / a bool / a non-numeric ->
+    False; a finite non-zero number, INCLUDING a negative qty -> True. Committed qty coerces
+    unset -> 0.0 (never NULL), but None is guarded defensively."""
+    return (
+        isinstance(v, (int, float))
+        and not isinstance(v, bool)
+        and math.isfinite(v)
+        and v != 0
+    )
+
+
+def node_is_qty_bearing(node_name: str, node_qty) -> bool:
+    """"qty anywhere" (owner-locked "Definition A") -- the node's scalar qty OR ANY of its
+    BOQ Node Qty By Area child rows' qty is finite non-zero. The committed analog of the
+    frontend isRowQtyBearing. DELIBERATELY LOOSER than the per-area / rate-column qty-bearing
+    of isPriceableLine (the flags/count axis) -- this answers "can this row be priced at all?".
+    Used ONLY for the Preamble branch of the rate-edit guard, so the (cheap) child read fires
+    only when a Preamble is being priced without the override."""
+    if is_nonzero_qty(node_qty):
+        return True
+    child_qtys = frappe.get_all(
+        "BOQ Node Qty By Area",
+        filters={"parent": node_name, "parenttype": _BOQ_NODES, "parentfield": "qty_by_area"},
+        pluck="qty",
+    )
+    return any(is_nonzero_qty(q) for q in child_qtys)
 
 
 # ── Multi-engine per-row resolution ladder (relocated from classify.py, Slice 1a) ──────

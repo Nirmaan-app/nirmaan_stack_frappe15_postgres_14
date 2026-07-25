@@ -27,7 +27,6 @@ Public API:
 from __future__ import annotations
 
 import json
-import math
 
 import frappe
 from frappe.utils import now_datetime
@@ -39,6 +38,10 @@ from nirmaan_stack.api.boq.wizard.review_screen import (
 )
 from nirmaan_stack.api.boq.wizard import pricing_lock
 from nirmaan_stack.api.boq.wizard.pricing_lock import acquire_or_refresh, read_lock_info
+# Slice G1: the committed-node qty-bearing test was relocated DOWN to the service layer
+# (persist.node_is_qty_bearing) so it is defined ONCE and the coming category-count refinement
+# can reach it without a service->api import. api -> service is the legal direction.
+from nirmaan_stack.services.boq_category.persist import node_is_qty_bearing
 
 _PRICING = "BoQ Cell Pricing"
 _BOQ_SHEET = "BoQ Sheet"
@@ -216,34 +219,9 @@ def _next_pricing_version(boq_name, sheet_name, excel_row, col_letter, committed
     return ((agg[0].mv if agg else None) or 0) + 1
 
 
-def _is_nonzero_qty(v) -> bool:
-    """A finite, non-zero numeric quantity -- mirrors the frontend isNonZeroNum
-    (typeof number && Number.isFinite && !== 0). None / 0 / 0.0 / a bool / a non-numeric ->
-    False; a finite non-zero number, INCLUDING a negative qty -> True. Committed qty coerces
-    unset -> 0.0 (never NULL), but None is guarded defensively."""
-    return (
-        isinstance(v, (int, float))
-        and not isinstance(v, bool)
-        and math.isfinite(v)
-        and v != 0
-    )
-
-
-def _node_is_qty_bearing(node_name: str, node_qty) -> bool:
-    """"qty anywhere" (owner-locked "Definition A") -- the node's scalar qty OR ANY of its
-    BOQ Node Qty By Area child rows' qty is finite non-zero. The committed analog of the
-    frontend isRowQtyBearing. DELIBERATELY LOOSER than the per-area / rate-column qty-bearing
-    of isPriceableLine (the flags/count axis) -- this answers "can this row be priced at all?".
-    Used ONLY for the Preamble branch of the rate-edit guard, so the (cheap) child read fires
-    only when a Preamble is being priced without the override."""
-    if _is_nonzero_qty(node_qty):
-        return True
-    child_qtys = frappe.get_all(
-        "BOQ Node Qty By Area",
-        filters={"parent": node_name, "parenttype": _NODE, "parentfield": "qty_by_area"},
-        pluck="qty",
-    )
-    return any(_is_nonzero_qty(q) for q in child_qtys)
+# _is_nonzero_qty / _node_is_qty_bearing were RELOCATED to the service layer
+# (persist.is_nonzero_qty / persist.node_is_qty_bearing, Slice G1) -- imported above and called
+# from _node_priceable_without_override below. Behaviour is byte-identical.
 
 
 def _resolve_committed_cell(boq_name, sheet_name, excel_row, committed_version) -> dict:
@@ -453,7 +431,7 @@ def _node_priceable_without_override(node_type, node_name, qty) -> bool:
     if node_type == "Line Item":
         return True
     if node_type == "Preamble":
-        return _node_is_qty_bearing(node_name, qty)
+        return node_is_qty_bearing(node_name, qty)
     return False
 
 

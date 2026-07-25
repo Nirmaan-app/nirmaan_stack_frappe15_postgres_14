@@ -47,6 +47,7 @@ from nirmaan_stack.api.boq.wizard.pricing import (
 )
 from nirmaan_stack.api.boq.wizard.commit_gate import get_committed_state
 from nirmaan_stack.api.boq.wizard import pricing
+from nirmaan_stack.services.boq_category import persist
 from nirmaan_stack.api.boq.wizard import pricing_lock
 from nirmaan_stack.api.boq.wizard.pricing_lock import (
     LOCK_STALE_SECONDS,
@@ -1464,6 +1465,61 @@ class TestPreambleQtyBearingGuard(FrappeTestCase):
         res = self._save(self.OTHER_ROW, allow_non_priceable=True)
         self.assertTrue(res["ok"])
         self.assertEqual(self._price_count(self.OTHER_ROW), 1)
+
+
+class TestQtyBearingRelocation(FrappeTestCase):
+    """Slice G1: the committed-node qty-bearing test was RELOCATED from pricing.py DOWN to the
+    service layer (persist.node_is_qty_bearing / persist.is_nonzero_qty). This slice is
+    behaviour-PRESERVING; the end-to-end guard behaviour is pinned by TestPreambleQtyBearingGuard
+    (unchanged). These tests pin the relocation SEAM itself:
+
+      (a) IDENTITY -- pricing.py uses the RELOCATED function object, not a copy, and the old
+          private names are gone (so there is exactly ONE definition, no drift).
+      (b) NEGATIVE -- a qty-less Preamble is still non-priceable via the moved logic (the guard
+          still bites).
+      (c) POSITIVE -- a qty-bearing Preamble and a zero-qty Line Item are still priceable.
+
+    The predicate _node_priceable_without_override IS the logic behind save_cell_price's
+    priceability guard; testing it directly is the tightest test of the relocation. The qty-0
+    child read on a synthetic node name safely returns [] (no fixture needed)."""
+
+    def test_relocated_function_is_shared_not_copied(self):
+        # (a) pricing.py imported the relocated name -- it MUST be the SAME object as persist's.
+        self.assertIs(pricing.node_is_qty_bearing, persist.node_is_qty_bearing)
+        # No lingering private copy in pricing.py (proves there is not a second definition).
+        self.assertFalse(hasattr(pricing, "_node_is_qty_bearing"))
+        self.assertFalse(hasattr(pricing, "_is_nonzero_qty"))
+
+    def test_is_nonzero_qty_semantics_unchanged(self):
+        # is_nonzero_qty: finite non-zero number (incl. negative) True; 0/None/bool/non-numeric False.
+        self.assertTrue(persist.is_nonzero_qty(5.0))
+        self.assertTrue(persist.is_nonzero_qty(-3))
+        self.assertFalse(persist.is_nonzero_qty(0))
+        self.assertFalse(persist.is_nonzero_qty(0.0))
+        self.assertFalse(persist.is_nonzero_qty(None))
+        self.assertFalse(persist.is_nonzero_qty(True))   # a bool is not a qty
+        self.assertFalse(persist.is_nonzero_qty("5"))    # non-numeric
+
+    def test_qtyless_preamble_not_priceable(self):
+        # (b) NEGATIVE -- scalar qty 0 and no per-area child (synthetic node -> child read []) -> False.
+        self.assertFalse(persist.node_is_qty_bearing("nonexistent-node-G1", 0))
+        self.assertFalse(
+            pricing._node_priceable_without_override("Preamble", "nonexistent-node-G1", 0)
+        )
+
+    def test_qty_bearing_preamble_and_zero_qty_line_item_priceable(self):
+        # (c) POSITIVE -- a scalar-qty Preamble is priceable; a zero-qty Line Item is ALWAYS
+        # priceable (the rate-only line); a non-priceable "Other" stays non-priceable.
+        self.assertTrue(persist.node_is_qty_bearing("nonexistent-node-G1", 10.0))  # scalar path, no DB
+        self.assertTrue(
+            pricing._node_priceable_without_override("Preamble", "nonexistent-node-G1", 10.0)
+        )
+        self.assertTrue(
+            pricing._node_priceable_without_override("Line Item", "nonexistent-node-G1", 0)
+        )
+        self.assertFalse(
+            pricing._node_priceable_without_override("Other", "nonexistent-node-G1", 10.0)
+        )
 
 
 class TestRowRemark(FrappeTestCase):
