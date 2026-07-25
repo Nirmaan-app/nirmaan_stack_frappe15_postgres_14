@@ -339,18 +339,27 @@ def _categories_gate_ok(boq_name, sheet_name, committed_version) -> bool:
 
 
 def _guard_categories_complete(boq_name, sheet_name, committed_version) -> None:
-    """CATEGORY GATE (Slice G2b): reject a rate write while ANY rate-editable row on the sheet has a
-    blank RESOLVED category, UNLESS the admin override is set for this sheet+version. ABSOLUTE
-    against the 'Price any row' priceability override (owner ruling) -- placed OUTSIDE that override
-    block, exactly like the mandatory amount-formula gate. The throwing shape used by the SAVE path
-    (_resolve_and_guard_cell); the two carry paths gate over the SAME condition (_categories_gate_ok)
-    with their own carry-voiced messaging. Delegates the condition to _categories_gate_ok (ONE source
-    of truth). sheet_name VERBATIM (#152)."""
-    if not _categories_gate_ok(boq_name, sheet_name, committed_version):
+    """CATEGORY GATE (Slice G2b; widened G2e): reject a rate write while ANY ELIGIBLE row (the MASTER
+    SET -- node_type in {Line Item, Preamble}) on the sheet has a blank RESOLVED category, UNLESS the
+    admin override is set for this sheet+version. ABSOLUTE against the 'Price any row' priceability
+    override (owner ruling) -- placed OUTSIDE that override block, exactly like the mandatory
+    amount-formula gate. The throwing shape used by the SAVE path (_resolve_and_guard_cell).
+
+    Slice G3a: threads the BLANK COUNT into the message. The override + eligible-blank checks are the
+    SAME as _categories_gate_ok (identical `_get_category_gate_override` + `blank_category_eligible_rows(
+    ..., "eligible")`); inlined here ONLY so the length of the blank list is in hand for the message
+    (the carry paths keep delegating to _categories_gate_ok, whose bool needs no count). sheet_name
+    VERBATIM (#152)."""
+    if _get_category_gate_override(boq_name, sheet_name, committed_version):
+        return
+    blanks = blank_category_eligible_rows(
+        boq_name, sheet_name, committed_version, population="eligible"
+    )
+    if blanks:
         frappe.throw(
-            "Some priceable rows on this sheet do not have a category yet. Rate editing is locked "
-            "until every rate-editable row is categorised. Only an admin can override this to price "
-            "before classification is complete.",
+            "Rate editing is locked on this sheet. Every line item and preamble needs a category, "
+            "and {n} still don't have one. Use the Check Category filter to find them. Only an "
+            "admin can override this.".format(n=len(blanks)),
             title="Categories incomplete",
         )
 
@@ -2915,11 +2924,11 @@ def apply_copy_forward(boq_name=None, sheet_name=None, from_version=None, decisi
         # wording ("rate editing is locked") is wrong for a batch carry and is owner-locked.
         if not _categories_gate_ok(boq_name, sheet_name, current_version):
             frappe.throw(
-                f"Nothing was copied. The destination sheet '{sheet_name}' has priceable rows with "
-                f"no category yet, and rates cannot be copied onto it until every rate-editable row "
-                f"is categorised. Your existing rates are untouched -- categorise the destination, "
-                f"then run the copy-forward again and the rates will come across. An admin can "
-                f"override this to copy before classification is complete.",
+                f"Nothing was copied. The destination sheet '{sheet_name}' still has rows without a "
+                f"category - every line item and preamble needs one. Your existing rates are "
+                f"untouched. Categorise the destination, then run the copy-forward again and the "
+                f"rates will come across. An admin can override this to copy before classification "
+                f"is complete.",
                 title="Categories incomplete",
             )
         # ONE single-editor-lock acquire on the CURRENT version for the whole batch.

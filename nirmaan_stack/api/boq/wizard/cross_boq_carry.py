@@ -451,11 +451,10 @@ _APPLY_BLOCK_MESSAGE = {
     # "this sheet" would be ambiguous -- owner requirement, Slice G2c). This is the only block whose
     # message is a template; the endpoint formats it, the others are plain.
     "categories_incomplete": (
-        "Nothing was copied. The destination sheet '{sheet}' has priceable rows with no category "
-        "yet, and rates cannot be carried onto it until every rate-editable row is categorised. "
-        "Your existing rates are untouched -- categorise the destination, then run the carry again "
-        "and the rates will come across. An admin can override this to carry before classification "
-        "is complete."
+        "Nothing was carried. The destination sheet '{sheet}' still has rows without a category - "
+        "every line item and preamble needs one. Your existing rates are untouched. Categorise the "
+        "destination, then run the carry again and the rates will come across. An admin can override "
+        "this to carry before classification is complete."
     ),
     "locked": "Another user is editing this sheet right now. Try again once they finish.",
 }

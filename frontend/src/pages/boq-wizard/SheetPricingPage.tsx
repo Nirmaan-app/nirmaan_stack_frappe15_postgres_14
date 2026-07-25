@@ -96,10 +96,13 @@ import {
 } from "./ClassifySheetDialog";
 import {
   PricingGrid,
+  buildOptimisticVerdict,
   buildSearchHits,
   classificationVisible,
+  countMasterSetBlankRows,
   deriveSaveStatus,
   hideableDescriptors,
+  isCategoryGateOpen,
   isGridOnlySheet,
   isMasterSetBlank,
   isTakeoverError,
@@ -1241,6 +1244,12 @@ const SheetPricingPage = () => {
   const classificationFrozen = activeMessage?.classification_frozen ?? false;
   const frozenBy = activeMessage?.frozen_by ?? null;
   const frozenAt = activeMessage?.frozen_at ?? null;
+  // Slice G3a: the admin category-gate override state (DISPLAY only -- the set/clear control is G3b).
+  // The server also returns `eligible_blank_category_count` / `categories_complete` (G2e) -- the page
+  // derives its OWN live count below from isMasterSetBlank; these are the load-time parity source.
+  const categoryGateOverride = activeMessage?.category_gate_override ?? false;
+  const categoryOverrideBy = activeMessage?.category_override_by ?? null;
+  const categoryOverrideAt = activeMessage?.category_override_at ?? null;
   classificationFrozenRef.current = classificationFrozen;
   // Loading/error track the ACTIVE source (the history fetch while in history mode).
   const pricedLoading = isViewingHistory ? historyData === undefined : pricedData === undefined;
@@ -1375,30 +1384,29 @@ const SheetPricingPage = () => {
     }
     setPickerState(null);
     setSaveError(null);
-    let didOverride = false;
-    if (id) {
-      // Optimistic: a human pick wins the ladder -> render "your pick" instantly.
-      const cur = categoriesByExcelRow.get(excelRow);
-      const base: SheetCategoryRow = cur ?? {
-        excel_row: excelRow,
-        rule_category_id: "",
-        ai_category_id: "",
-        final_category_id: "",
-        routing: "Auto-accepted",
-        routing_reason: "",
-        human_category_id: "",
-        effective_category_id: "",
-      };
-      const optimistic: SheetCategoryRow = {
-        ...base,
-        excel_row: excelRow,
-        routing: "Auto-accepted",
-        human_category_id: id,
-        effective_category_id: id,
-      };
-      setCategoryOverrides((prev) => new Map(prev).set(excelRow, optimistic));
-      didOverride = true;
-    }
+    // Optimistic override for BOTH a pick AND a clear (Slice G3a Scope 5), so the LIVE count updates
+    // instantly. A pick shows the human verdict (non-blank effective -> isMasterSetBlank FALSE ->
+    // count DROPS). A clear shows the BLANK state (effective "" -> deriveVerdictState "unclassified"
+    // -> isMasterSetBlank TRUE -> count RISES) so the sheet re-locks in the SAME interaction instead
+    // of briefly appearing unlocked until the refetch reconciles. (Server-side a clear reverts to the
+    // machine verdict; for an auto-machine row the optimistic blank over-reports for the round-trip
+    // only, corrected by mutateCategories -- it never UNDER-reports, so the gate never wrongly opens.)
+    const cur = categoriesByExcelRow.get(excelRow);
+    const base: SheetCategoryRow = cur ?? {
+      excel_row: excelRow,
+      rule_category_id: "",
+      ai_category_id: "",
+      final_category_id: "",
+      routing: "Auto-accepted",
+      routing_reason: "",
+      human_category_id: "",
+      effective_category_id: "",
+    };
+    // buildOptimisticVerdict (pure, tested): a pick sets a non-blank effective (count drops); a clear
+    // sets a blank effective (count rises). `base` already carries excel_row.
+    const optimistic = buildOptimisticVerdict(base, id);
+    setCategoryOverrides((prev) => new Map(prev).set(excelRow, optimistic));
+    const didOverride = true;
     const dropOverride = () =>
       setCategoryOverrides((prev) => {
         if (!prev.has(excelRow)) return prev;
@@ -1717,6 +1725,23 @@ const SheetPricingPage = () => {
   // columns (trivially complete). Passed to the grid as one boolean prop (ANDed OUTSIDE the
   // override) + drives the "declare formulas" banner.
   const formulasComplete = areFormulasComplete(columnDescriptors, columnFormulas);
+  // Slice G3a: the LIVE count of ELIGIBLE master-set rows whose category cell is EMPTY, from the SAME
+  // isMasterSetBlank predicate the amber fill + Check-Category filter use (four surfaces, ONE
+  // predicate -- never a second emptiness test). Iterate the ROWS array, NOT categoriesByExcelRow: a
+  // never-classified row is ABSENT from the map (Recon 5/6) but MUST be counted -- keying off the map
+  // would miss it (the fail-open the backend already guards). useMemo'd on the SAME deps as
+  // categoriesByExcelRow (which folds catData + the optimistic overrides) plus rows, so it recomputes
+  // only on a fetch / pick / clear, never per keystroke. At load this equals the server's
+  // eligible_blank_category_count (parity, verified in the cert).
+  const categoryBlankCount = useMemo(
+    () => countMasterSetBlankRows(rows, categoriesByExcelRow),
+    [rows, categoriesByExcelRow],
+  );
+  // The gate OPENS when zero blanks remain OR the admin override is set. DELIBERATE asymmetry: the
+  // COUNT keeps counting blanks even under the override (an admin should see how many remain), but
+  // the GATE opens regardless. Only this BOOLEAN reaches the grid (never the count -- a count changes
+  // on every pick and would re-render every row; the boolean flips only when editability flips).
+  const categoryGateOpen = isCategoryGateOpen(categoryBlankCount, categoryGateOverride);
   // AMENDMENT C / C3: the carry button's state, from the PURE helper (ADR-0010 F4 -- the rule is
   // unit-tested; this page only renders it). `locked` already folds the deliberate lock, a
   // takeover, a foreign holder AND history mode, so one flag covers every read-only reason.
@@ -2944,6 +2969,33 @@ const SheetPricingPage = () => {
         </div>
       )}
 
+      {/* ── CATEGORY GATE banner (Slice G3a) ─────────────────────────────────────
+          Shown when the live blank count > 0 (mirrors the formula-banner conditions). Two
+          owner-approved variants: LOCK (the gate is shut) vs OVERRIDE (an admin unlocked it anyway --
+          the count STILL shows the blanks). It NAMES the existing "Check Category" toolbar control; it
+          does NOT add a button and there is no click-to-jump (owner ruling). Amber-note styling,
+          verbatim from the formula banner. */}
+      {!isGridOnly && !locked && !pricedLoading && !pricedError && categoryBlankCount > 0 && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-xs text-amber-900 dark:text-amber-100 flex-wrap">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-700 dark:text-amber-300" />
+          {categoryGateOverride ? (
+            <span>
+              Category check overridden by {categoryOverrideBy ?? "an admin"}
+              {categoryOverrideAt ? ` on ${formatDate(categoryOverrideAt)}` : ""}.{" "}
+              {categoryBlankCount} row{categoryBlankCount === 1 ? "" : "s"} still{" "}
+              {categoryBlankCount === 1 ? "has" : "have"} no category &mdash; rate editing is unlocked
+              anyway.
+            </span>
+          ) : (
+            <span>
+              {categoryBlankCount} row{categoryBlankCount === 1 ? "" : "s"} still{" "}
+              {categoryBlankCount === 1 ? "needs" : "need"} a category. Rate editing is locked until
+              every line item and preamble has one. Use the Check Category filter to find them.
+            </span>
+          )}
+        </div>
+      )}
+
       {/* ── Inline save error (a save throw surfaces here; the cell keeps your input). */}
       {!isGridOnly && saveError && (
         <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-destructive/40 bg-destructive/10 text-xs text-destructive flex-wrap">
@@ -3194,6 +3246,10 @@ const SheetPricingPage = () => {
             // TRUE for a trivially-complete sheet. onSaveFormula stays live so the holder can
             // declare formulas while rates are locked.
             formulasComplete={formulasComplete}
+            // CATEGORY GATE (G3a, per-sheet): when false the grid renders ALL rate cells read-only,
+            // ANDed OUTSIDE the override exactly like formulasComplete. Only the BOOLEAN is passed
+            // (never the count) so a category pick that does not flip the gate re-renders no rows.
+            categoryGateOpen={categoryGateOpen}
             editable={editable}
             lockInfo={lockInfo}
             // Slice 4c: relax the grid's height cap to fill the full-screen slot. LAYOUT-ONLY --

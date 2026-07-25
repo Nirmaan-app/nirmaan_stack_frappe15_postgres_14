@@ -20,6 +20,9 @@ import {
   isGridOnlySheet,
   isPriceableType,
   isMasterSetBlank,
+  countMasterSetBlankRows,
+  isCategoryGateOpen,
+  buildOptimisticVerdict,
   colorClassForToken,
   swatchClassForToken,
   rowColorCells,
@@ -504,6 +507,102 @@ describe("isMasterSetBlank", () => {
   });
 });
 
+// ── Slice G3a: the LIVE blank count (banner) over the SAME isMasterSetBlank predicate ──
+describe("countMasterSetBlankRows", () => {
+  const mcat = (over: Partial<SheetCategoryRow> = {}): SheetCategoryRow => ({
+    excel_row: 0, rule_category_id: "", ai_category_id: "", final_category_id: "",
+    routing: "Auto-accepted", routing_reason: "", human_category_id: "",
+    effective_category_id: "", ...over,
+  });
+  const r = (source_row_number: number, node_type: PricedRow["node_type"]) =>
+    ({ source_row_number, node_type } as Pick<PricedRow, "node_type" | "source_row_number">);
+  // 10 LI categorised | 11 LI blank-record | 12 Preamble never-classified (absent from map) |
+  // 13 LI whitespace id | 14 Other blank | 15 Preamble categorised
+  const rows = [r(10, "Line Item"), r(11, "Line Item"), r(12, "Preamble"), r(13, "Line Item"),
+                r(14, "Other"), r(15, "Preamble")];
+  const cats = new Map<number, SheetCategoryRow>([
+    [10, mcat({ effective_category_id: "db_switchgear" })],
+    [11, mcat({ effective_category_id: "", routing: "Needs review" })],
+    // 12 is NEVER-classified -> deliberately ABSENT from the map
+    [13, mcat({ effective_category_id: "   " })],
+    [14, mcat({ effective_category_id: "" })],
+    [15, mcat({ effective_category_id: "db_switchgear" })],
+  ]);
+
+  it("(a) counts a NEVER-classified eligible row (absent from the map)", () => {
+    // Iterating the ROWS (not the map) is what catches row 12; keying off the map would miss it.
+    expect(countMasterSetBlankRows([r(12, "Preamble")], new Map())).toBe(1);
+  });
+
+  it("(b) counts a WHITESPACE-only category id (the predicate trims)", () => {
+    expect(countMasterSetBlankRows([r(13, "Line Item")], cats)).toBe(1);
+  });
+
+  it("(c) does NOT count an 'Other' row", () => {
+    expect(countMasterSetBlankRows([r(14, "Other")], cats)).toBe(0);
+  });
+
+  it("(d) does NOT count a row DISPLAYING a category", () => {
+    expect(countMasterSetBlankRows([r(10, "Line Item")], cats)).toBe(0);
+  });
+
+  it("counts the whole fixture correctly (11 blank + 12 never-classified + 13 whitespace = 3)", () => {
+    expect(countMasterSetBlankRows(rows, cats)).toBe(3);
+  });
+
+  it("(i) PARITY: matches the server population -- eligible {LI, Preamble}, blank incl. no-record", () => {
+    // The server's blank_category_eligible_rows(..., "eligible") counts exactly this set:
+    // eligible = node_type in {Line Item, Preamble}; blank = empty resolved category incl. no record.
+    // Same rows/cats -> the client count equals what the server would return (3).
+    const eligibleBlank = rows.filter(
+      (row) => (row.node_type === "Line Item" || row.node_type === "Preamble")
+        && !(cats.get(row.source_row_number)?.effective_category_id ?? "").trim(),
+    ).length;
+    expect(countMasterSetBlankRows(rows, cats)).toBe(eligibleBlank);
+    expect(eligibleBlank).toBe(3);
+  });
+});
+
+// ── Slice G3a: the gate-open boolean (count 0 OR override) ──
+describe("isCategoryGateOpen", () => {
+  it("(e) opens at count 0, closes at count > 0", () => {
+    expect(isCategoryGateOpen(0, false)).toBe(true);
+    expect(isCategoryGateOpen(1, false)).toBe(false);
+    expect(isCategoryGateOpen(9, false)).toBe(false);
+  });
+  it("(e/f) the override opens the gate regardless of the count (the count still reports blanks)", () => {
+    expect(isCategoryGateOpen(3, true)).toBe(true);
+    expect(isCategoryGateOpen(0, true)).toBe(true);
+    // and the COUNT is independent of the override (the banner still shows the blanks) --
+    const rows = [{ source_row_number: 1, node_type: "Line Item" } as Pick<PricedRow, "node_type" | "source_row_number">];
+    expect(countMasterSetBlankRows(rows, new Map())).toBe(1); // 1 blank even though the gate is open
+  });
+});
+
+// ── Slice G3a: the optimistic verdict builder (pick vs clear) ──
+describe("buildOptimisticVerdict", () => {
+  const base: SheetCategoryRow = {
+    excel_row: 7, rule_category_id: "", ai_category_id: "", final_category_id: "",
+    routing: "Auto-accepted", routing_reason: "", human_category_id: "", effective_category_id: "",
+  };
+  const eligible = { node_type: "Line Item" } as Pick<PricedRow, "node_type">;
+
+  it("a PICK produces a NON-blank verdict -> isMasterSetBlank FALSE (count drops)", () => {
+    const opt = buildOptimisticVerdict(base, "db_switchgear");
+    expect(opt.human_category_id).toBe("db_switchgear");
+    expect(opt.effective_category_id).toBe("db_switchgear");
+    expect(isMasterSetBlank(eligible, opt)).toBe(false);
+    expect(opt.excel_row).toBe(7); // base identity preserved
+  });
+
+  it("(g) a CLEAR produces a BLANK verdict -> isMasterSetBlank TRUE (count RISES)", () => {
+    const opt = buildOptimisticVerdict(base, "");
+    expect(opt.human_category_id).toBe("");
+    expect((opt.effective_category_id ?? "").trim()).toBe("");
+    expect(isMasterSetBlank(eligible, opt)).toBe(true);
+  });
+});
+
 // ── Slice 4a: annotation helpers (color + remark) ───────────────────────────────
 describe("colorClassForToken", () => {
   it("maps each of the 8 tokens to a distinct left-border class", () => {
@@ -945,6 +1044,7 @@ describe("pricingRowPropsAreEqual (React.memo comparator)", () => {
       columnFormulas: [],
       override: false,
       formulasComplete: true,
+      categoryGateOpen: true,
       onSaveRate: undefined,
       onSaveColor: undefined,
       onSaveRemark: undefined,

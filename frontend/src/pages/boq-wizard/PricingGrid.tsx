@@ -497,6 +497,61 @@ export function isMasterSetBlank(
 }
 
 /**
+ * Slice G3a: the LIVE count of ELIGIBLE master-set rows whose category cell is EMPTY -- the number
+ * the banner shows and what drives categoryGateOpen. Iterates the ROWS array, NEVER the categories
+ * map: a never-classified row is ABSENT from the map but MUST be counted (isMasterSetBlank treats an
+ * undefined cat as blank) -- keying off the map would miss it, the fail-open the backend already
+ * guards. Uses the SAME isMasterSetBlank predicate as the amber fill + the Check-Category filter
+ * (four surfaces, ONE predicate). Pure -- unit-tested.
+ */
+export function countMasterSetBlankRows(
+  rows: readonly Pick<PricedRow, "node_type" | "source_row_number">[],
+  categoriesByExcelRow: ReadonlyMap<number, SheetCategoryRow>,
+): number {
+  let n = 0;
+  for (const r of rows) {
+    if (isMasterSetBlank(r, categoriesByExcelRow.get(r.source_row_number))) n += 1;
+  }
+  return n;
+}
+
+/**
+ * Slice G3a: the category gate OPENS when zero master-set rows are blank OR the admin override is
+ * set. DELIBERATE asymmetry: the count keeps counting blanks under the override (an admin sees how
+ * many remain), but the gate opens regardless. Pure -- unit-tested.
+ */
+export function isCategoryGateOpen(blankCount: number, override: boolean): boolean {
+  return blankCount === 0 || override;
+}
+
+/**
+ * Slice G3a: build the optimistic SheetCategoryRow for a verdict PICK (`humanId` non-empty) or a
+ * CLEAR (`humanId === ""`), folded onto the row's current resolved entry `base`. A pick sets a
+ * NON-blank effective (isMasterSetBlank -> FALSE, the live count DROPS); a clear sets a BLANK
+ * effective (isMasterSetBlank -> TRUE, the count RISES) so the sheet re-locks in the same
+ * interaction rather than briefly appearing unlocked until the refetch. Pure -- unit-tested.
+ */
+export function buildOptimisticVerdict(
+  base: SheetCategoryRow,
+  humanId: string,
+): SheetCategoryRow {
+  return humanId
+    ? {
+        ...base,
+        routing: "Auto-accepted",
+        human_category_id: humanId,
+        effective_category_id: humanId,
+      }
+    : {
+        ...base,
+        routing: "Needs review",
+        human_category_id: "",
+        final_category_id: "",
+        effective_category_id: "",
+      };
+}
+
+/**
  * A finite, non-zero number. SELF-CONTAINED copy of priceability.isNonZeroNum (semantics
  * IDENTICAL) so the rate-edit gate needs NOTHING from priceability -- preserving the one-way
  * dependency (priceability imports from PricingGrid, never the reverse; importing back would
@@ -1480,6 +1535,18 @@ interface PricingGridProps {
    */
   formulasComplete?: boolean;
   /**
+   * CATEGORY GATE (Slice G3a, per-SHEET boolean). When FALSE, NO rate cell is editable -- ANDed
+   * OUTSIDE isRateEditableRow, exactly like formulasComplete, so the `override` (INSIDE
+   * isRateEditableRow) can NEVER reach past it: an eligible row with a blank category locks the whole
+   * sheet, override or not. The page derives it as (blank-count === 0 OR the admin category-gate
+   * override is set) from the SAME isMasterSetBlank predicate the amber fill + Check-Category filter
+   * use. Default TRUE (back-compat: absent => open, so existing callers/tests are unaffected). Only
+   * this BOOLEAN reaches the grid -- NEVER the count (a count changes on every pick and would
+   * re-render all rows; the boolean flips only when the gate actually flips, which IS when every
+   * row's editability changes).
+   */
+  categoryGateOpen?: boolean;
+  /**
    * Slice 4a: save one row's remark (save_row_remark + mutate). ABSENT => remarks render
    * read-only (the page withholds it when locked/taken-over, mirroring onSaveRate).
    */
@@ -1919,6 +1986,9 @@ interface PricingGridRowProps {
   override: boolean;
   /** MANDATORY amount-formula gate (per-SHEET boolean -- flips identically for all rows). */
   formulasComplete: boolean;
+  /** CATEGORY GATE (Slice G3a, per-SHEET boolean -- flips identically for all rows, like
+   *  formulasComplete). FALSE => every rate cell read-only regardless of the override. */
+  categoryGateOpen: boolean;
   onSaveRate?: (cell: RateCellSaveArgs, rate: number) => Promise<void>;
   onSaveColor?: (args: ColorSaveArgs[]) => Promise<void>;
   onSaveRemark?: (args: RemarkSaveArgs) => Promise<void>;
@@ -1993,6 +2063,7 @@ export function pricingRowPropsAreEqual(
     prev.onCategoryClick === next.onCategoryClick &&
     prev.override === next.override &&
     prev.formulasComplete === next.formulasComplete &&
+    prev.categoryGateOpen === next.categoryGateOpen &&
     prev.onSaveRate === next.onSaveRate &&
     prev.onSaveColor === next.onSaveColor &&
     prev.onSaveRemark === next.onSaveRemark &&
@@ -2058,6 +2129,7 @@ const PricingGridRow = memo(function PricingGridRow({
   onCategoryClick,
   override,
   formulasComplete,
+  categoryGateOpen,
   onSaveRate,
   onSaveColor,
   onSaveRemark,
@@ -2469,6 +2541,7 @@ const PricingGridRow = memo(function PricingGridRow({
         if (
           onSaveRate &&
           formulasComplete &&
+          categoryGateOpen &&
           isRateDescriptor(d) &&
           isRateEditableRow(row, override)
         ) {
@@ -2706,7 +2779,7 @@ PricingGridRow.displayName = "PricingGridRow";
 // grid props identity-stable (the 12 useMemo/useCallback wraps -- esp. `rows`/`displayRows`); a
 // future non-stable prop silently kills the shield (see frontend/CLAUDE.md).
 export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(function PricingGrid(
-  { rows, columnDescriptors, onSaveRate, onBatchWrite, onDirtyChange, onHistoryChange, override = false, formulasComplete = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], categoriesByExcelRow = EMPTY_CATEGORY_MAP, hasRun = false, categoryLabelById = EMPTY_CATEGORY_LABEL_MAP, onCategoryClick, onSaveReconChoice, hiddenCols, currentHitExcelRow = null, collapsed, childrenByParent, onToggleCollapse, onRevealRow, frozen = false, virtualized = false },
+  { rows, columnDescriptors, onSaveRate, onBatchWrite, onDirtyChange, onHistoryChange, override = false, formulasComplete = true, categoryGateOpen = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], categoriesByExcelRow = EMPTY_CATEGORY_MAP, hasRun = false, categoryLabelById = EMPTY_CATEGORY_LABEL_MAP, onCategoryClick, onSaveReconChoice, hiddenCols, currentHitExcelRow = null, collapsed, childrenByParent, onToggleCollapse, onRevealRow, frozen = false, virtualized = false },
   ref,
 ) {
   // Cluster B: per-cell reconciliation choice map (per-SHEET; reference-stable across a keystroke
@@ -3204,11 +3277,15 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
     return d && isRateDescriptor(d) ? "rate" : "other";
   };
   // Is the rate cell at (row, c) actually writable? Mirrors the inline edit gate EXACTLY: the cell
-  // axis (isRateDescriptor) + the sheet gate (formulasComplete, ANDed OUTSIDE) + the row axis
-  // (isRateEditableRow incl. the override). A paste can no more bypass these than a keystroke can.
+  // axis (isRateDescriptor) + the sheet gates (formulasComplete + categoryGateOpen, both ANDed
+  // OUTSIDE) + the row axis (isRateEditableRow incl. the override). A paste can no more bypass these
+  // than a keystroke can.
   const rateWritableAt = (row: PricedRow, c: number): boolean => {
     const d = descriptorAt(c);
-    return !!d && isRateDescriptor(d) && formulasComplete && isRateEditableRow(row, override);
+    return (
+      !!d && isRateDescriptor(d) && formulasComplete && categoryGateOpen &&
+      isRateEditableRow(row, override)
+    );
   };
   // Read one cell's copyable value (the optimistic draft when present, else the saved value). Returns
   // a SKIP hole (null) for a non-copyable cell (anchor / amount / qty / out-of-range).
@@ -3533,13 +3610,13 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
 
   // Is this delta's target still a writable rate cell NOW? Resolve the row by excel row + the
   // descriptor by col over the FULL set (column-hide must NOT block an undo), then apply the SAME
-  // server-mirrored gate (rate descriptor + formulasComplete + isRateEditableRow).
+  // server-mirrored gate (rate descriptor + formulasComplete + categoryGateOpen + isRateEditableRow).
   const isDeltaWritable = (delta: RateDelta): boolean => {
     const row = rows.find((r) => r.source_row_number === delta.cell.excelRow);
     if (!row) return false;
     const dd = displayDescriptors.find((x) => x.col === delta.cell.colLetter);
     if (!dd || !isRateDescriptor(dd)) return false;
-    return formulasComplete && isRateEditableRow(row, override);
+    return formulasComplete && categoryGateOpen && isRateEditableRow(row, override);
   };
 
   // Replay one entry: write each still-writable delta's newRate (undo passes invert(entry), so its
@@ -4385,6 +4462,7 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
       onCategoryClick={onCategoryClick}
       override={override}
       formulasComplete={formulasComplete}
+      categoryGateOpen={categoryGateOpen}
       onSaveRate={onSaveRate}
       onSaveColor={onSaveColor}
       onSaveRemark={onSaveRemark}

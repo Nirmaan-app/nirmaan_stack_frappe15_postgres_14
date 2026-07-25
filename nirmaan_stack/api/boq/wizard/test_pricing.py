@@ -4111,15 +4111,21 @@ class TestCopyForwardCategoryGate(FrappeTestCase):
     def _categorise_dest(self):
         _categorise_fixture_eligible_rows(self.boq, self.SHEET, 2)
 
-    # (a) NEGATIVE -- refused when the DESTINATION has a blank rate-editable row.
+    # (a) NEGATIVE -- refused when the DESTINATION has a blank eligible row (G3a message family).
     def test_a_refused_when_destination_blank(self):
         with self.assertRaises(frappe.ValidationError) as cm:
             self._apply_30()
         msg = str(cm.exception)
-        self.assertIn("Nothing was copied", msg)          # (ii) nothing copied
-        self.assertIn("CFG Fix", msg)                     # (i) destination named
-        self.assertIn("categoris", msg.lower())           # (iii) re-run after categorising
-        self.assertIn("admin", msg.lower())               # (iv) override exists
+        # The four G2c points ON SCREEN, in the owner-approved G3a text --
+        self.assertIn("Nothing was copied", msg)                 # (ii) nothing copied
+        self.assertIn("Your existing rates are untouched", msg)  # (ii) rates safe
+        self.assertIn("CFG Fix", msg)                            # (i) destination named
+        self.assertIn("run the copy-forward again", msg)         # (iii) re-runnable
+        self.assertIn("Categorise the destination", msg)         # (iii) how to fix
+        self.assertIn("admin can override", msg.lower())         # (iv) override exists
+        # the new wording drops the pre-G2e "priceable" / "rate-editable" terms.
+        self.assertNotIn("priceable", msg.lower())
+        self.assertNotIn("rate-editable", msg.lower())
 
     # (b) ATOMIC -- after the refusal, nothing was written.
     def test_b_refusal_writes_nothing(self):
@@ -4784,3 +4790,19 @@ class TestEligibleGateWidened(FrappeTestCase):
         self.assertEqual(gate_blanks, 2)
         self.assertEqual(freeze_count, gate_blanks, "freeze count must equal the gate count")
         self.assertEqual(surfaced, gate_blanks, "surfaced payload count must equal the gate count")
+
+    # (message) the SAVE-refusal message threads the blank COUNT + uses the G3a wording -----
+    def test_i_save_message_reports_the_blank_count(self):
+        self._write(62, "Needs review", "")     # blank two master-set rows -> count 2
+        self._never_classify(64)
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            self._save()  # save on the categorised row 60 -> refused by the 2 blanks
+        msg = str(ctx.exception)
+        self.assertIn("Rate editing is locked on this sheet", msg)
+        self.assertIn("Every line item and preamble needs a category", msg)
+        self.assertIn("2 still don't have one", msg)     # the threaded count (len of the blank list)
+        self.assertIn("Check Category filter", msg)
+        self.assertIn("admin can override", msg.lower())
+        # the pre-G2e "priceable" / "rate-editable" wording is gone (the message family fix)
+        self.assertNotIn("priceable", msg.lower())
+        self.assertNotIn("rate-editable", msg.lower())

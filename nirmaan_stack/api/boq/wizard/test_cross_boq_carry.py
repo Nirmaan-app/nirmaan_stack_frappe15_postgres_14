@@ -1140,10 +1140,16 @@ class TestCrossBoqCarryCategoryGate(FrappeTestCase):
         with self.assertRaises(frappe.ValidationError) as cm:
             self._apply_endpoint_10()
         msg = str(cm.exception)
-        self.assertIn("Nothing was copied", msg)          # (ii) nothing copied
+        # G3a message family (owner-approved text): the four G2c points ON SCREEN --
+        self.assertIn("Nothing was carried", msg)         # (ii) nothing carried
+        self.assertIn("Your existing rates are untouched", msg)  # (ii) rates safe
         self.assertIn(self.DEST, msg)                     # (i) destination named
-        self.assertIn("categoris", msg.lower())           # (iii) re-run after categorising
-        self.assertIn("admin", msg.lower())               # (iv) override exists
+        self.assertIn("run the carry again", msg)         # (iii) re-runnable after categorising
+        self.assertIn("Categorise the destination", msg)  # (iii) how to fix
+        self.assertIn("admin can override", msg.lower())  # (iv) override exists
+        # and the new wording drops the pre-G2e "priceable" / "rate-editable" terms.
+        self.assertNotIn("priceable", msg.lower())
+        self.assertNotIn("rate-editable", msg.lower())
         # The mapped copy IS the dict entry, formatted with the dest sheet name.
         self.assertEqual(
             msg, cross_boq_carry._APPLY_BLOCK_MESSAGE["categories_incomplete"].format(
