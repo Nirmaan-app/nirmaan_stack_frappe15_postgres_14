@@ -103,6 +103,28 @@ def _declare_fixture_amount_formulas(boq_name, sheet_name, commit_version):
         )
 
 
+def _categorise_fixture_rate_editable_rows(boq_name, sheet_name, commit_version,
+                                           discipline="Electrical"):
+    """Slice G2b test support -- write REAL category records (Auto-accepted, a valid frozen
+    category id) for every RATE-EDITABLE row on the fixture so the sheet legitimately SATISFIES the
+    category gate (_guard_categories_complete). This MIRRORS _declare_fixture_amount_formulas, which
+    satisfies the FORMULA gate the same way: setup drives THROUGH the live gate on every run rather
+    than bypassing it (owner ruling: NOT the admin override in tests). It writes through the normal
+    persistence path (persist.write_row_categories) -- production-plausible (an auto-accepted
+    classify) -- and categorises exactly the rows that would otherwise gate (the rate-editable BLANK
+    set), so it is a no-op once a sheet is already fully categorised. sheet_name VERBATIM (#152)."""
+    blanks = persist.blank_category_eligible_rows(
+        boq_name, sheet_name, commit_version, population="rate_editable"
+    )
+    if not blanks:
+        return
+    persist.write_row_categories(boq_name, sheet_name, commit_version, discipline, [
+        {"excel_row": b["excel_row"], "rule_category_id": "", "ai_category_id": "",
+         "final_category_id": "db_switchgear", "routing": "Auto-accepted"}
+        for b in blanks
+    ])
+
+
 class TestCellPricing(FrappeTestCase):
 
     @classmethod
@@ -124,6 +146,8 @@ class TestCellPricing(FrappeTestCase):
         # MANDATORY amount-formula gate: the fixture has amount cols F/I -> declare covering
         # formulas so save_cell_price is not rejected (see _declare_fixture_amount_formulas).
         _declare_fixture_amount_formulas(cls.boq, cls.sheet, cls.cv)
+        # Slice G2b: categorise the fixture's rate-editable rows so the category gate is satisfied.
+        _categorise_fixture_rate_editable_rows(cls.boq, cls.sheet, cls.cv)
 
     @classmethod
     def tearDownClass(cls):
@@ -361,6 +385,10 @@ class TestGetPricedRows(FrappeTestCase):
         # covering formulas so save_cell_price succeeds. The scalar sheet has zero amount cols
         # (trivially complete), so it needs none.
         _declare_fixture_amount_formulas(cls.boq, cls.sheet, cls.cv)
+        # Slice G2b: categorise the fixture's rate-editable rows so the category gate is satisfied.
+        _categorise_fixture_rate_editable_rows(cls.boq, cls.sheet, cls.cv)
+        # ... and the local scalar-rate sheet (its Line Item row 10 is rate-editable too).
+        _categorise_fixture_rate_editable_rows(cls.boq, cls.scalar_sheet, cls.cv)
 
     @classmethod
     def tearDownClass(cls):
@@ -526,6 +554,8 @@ class TestSingleEditorLock(FrappeTestCase):
         # MANDATORY amount-formula gate: declare covering formulas so save_cell_price reaches the
         # lock logic (the gate fires BEFORE the lock acquire). setUp clears the lock this leaves.
         _declare_fixture_amount_formulas(cls.boq, cls.sheet, cls.cv)
+        # Slice G2b: categorise the fixture's rate-editable rows so the category gate is satisfied.
+        _categorise_fixture_rate_editable_rows(cls.boq, cls.sheet, cls.cv)
         cls.me = frappe.session.user
         cls.other = frappe.db.get_value(
             "User", {"name": ["not in", [cls.me, "Guest"]], "enabled": 1}, "name"
@@ -858,6 +888,9 @@ class TestLockPerSheetIsolation(FrappeTestCase):
         # covering formulas on EACH so save_cell_price reaches the lock logic on either sheet.
         _declare_fixture_amount_formulas(cls.boq, cls.sheet_a, cls.cv)
         _declare_fixture_amount_formulas(cls.boq, cls.sheet_b, cls.cv)
+        # Slice G2b: categorise the rate-editable rows on BOTH sheets so the category gate passes.
+        _categorise_fixture_rate_editable_rows(cls.boq, cls.sheet_a, cls.cv)
+        _categorise_fixture_rate_editable_rows(cls.boq, cls.sheet_b, cls.cv)
         cls.me = frappe.session.user
         cls.other = frappe.db.get_value(
             "User", {"name": ["not in", [cls.me, "Guest"]], "enabled": 1}, "name"
@@ -1214,6 +1247,9 @@ class TestPriceabilityGuard(FrappeTestCase):
         # throw would PRE-EMPT the priceability throw and these tests would assert the wrong
         # message. With the sheet complete, save_cell_price reaches the priceability check.
         _declare_fixture_amount_formulas(cls.boq, cls.sheet, cls.cv)
+        # Slice G2b: categorise the fixture's rate-editable rows so save reaches the priceability
+        # check (the category gate sits between the formula gate and priceability).
+        _categorise_fixture_rate_editable_rows(cls.boq, cls.sheet, cls.cv)
 
     @classmethod
     def tearDownClass(cls):
@@ -1388,6 +1424,9 @@ class TestPreambleQtyBearingGuard(FrappeTestCase):
         # PRE-EMPT the qty-gate throws these tests assert. With the sheet complete, save_cell_price
         # reaches the asymmetric qty gate.
         _declare_fixture_amount_formulas(cls.boq, cls.sheet, cls.cv)
+        # Slice G2b: categorise the rate-editable rows so save reaches the qty/priceability check
+        # (rows 7/8/51 + the base fixture line items; the qty-less Preamble 6 is not rate-editable).
+        _categorise_fixture_rate_editable_rows(cls.boq, cls.sheet, cls.cv)
 
     @classmethod
     def tearDownClass(cls):
@@ -2293,6 +2332,8 @@ class TestCellDismissal(FrappeTestCase):
         # (the re-arm proof on a Line Item) is not rejected by the gate. setUp clears the lock
         # this leaves; the formula records persist (cleared in tearDownClass).
         _declare_fixture_amount_formulas(cls.boq, cls.sheet, cls.cv)
+        # Slice G2b: categorise the fixture's rate-editable rows so the category gate is satisfied.
+        _categorise_fixture_rate_editable_rows(cls.boq, cls.sheet, cls.cv)
 
     @classmethod
     def tearDownClass(cls):
@@ -2536,6 +2577,11 @@ class TestMandatoryFormulaGate(FrappeTestCase):
         cls.fixture = build_committed_sheet_fixture(cls.boq, cls.sheet, commit_version=cls.cv)
         cls.noamt_sheet = "Gate NoAmt "  # scalar rate, ZERO amount cols -> trivially complete
         cls.noamt_node = _build_scalar_rate_committed_sheet(cls.boq, cls.noamt_sheet, cls.cv)
+        # Slice G2b: categorise the rate-editable rows on BOTH sheets so the category gate is
+        # satisfied (this is orthogonal to formula-completeness -- the FORMULA-gate tests here still
+        # start formula-INCOMPLETE and reject on the formula gate, which fires first).
+        _categorise_fixture_rate_editable_rows(cls.boq, cls.sheet, cls.cv)
+        _categorise_fixture_rate_editable_rows(cls.boq, cls.noamt_sheet, cls.cv)
 
     @classmethod
     def tearDownClass(cls):
@@ -2662,6 +2708,9 @@ class TestReconciliationChoice(FrappeTestCase):
         cls.sheet = "Recon Fix "  # VERBATIM trailing space (#152)
         cls.cv = 1
         cls.fixture = build_committed_sheet_fixture(cls.boq, cls.sheet, commit_version=cls.cv)
+        # Slice G2b: categorise the fixture's rate-editable rows (formulas are declared per-test in
+        # setUp; categories persist across tests) so save_cell_price passes the category gate.
+        _categorise_fixture_rate_editable_rows(cls.boq, cls.sheet, cls.cv)
 
     @classmethod
     def tearDownClass(cls):
@@ -3411,6 +3460,8 @@ class TestSheetLock(FrappeTestCase):
         # Make the sheet formula-COMPLETE so save_cell_price reaches the lock/priceability/write
         # (the mandatory-formula gate fires before priceability; the lock guard fires first).
         _declare_fixture_amount_formulas(cls.boq, cls.sheet, cls.cv)
+        # Slice G2b: categorise the fixture's rate-editable rows so the category gate is satisfied.
+        _categorise_fixture_rate_editable_rows(cls.boq, cls.sheet, cls.cv)
         # get_committed_state iterates BoQ Committed Sheet Grid rows -- the shared node fixture
         # doesn't create one, so add a minimal is_current grid row for the is_locked-surface test.
         grid = frappe.new_doc("BoQ Committed Sheet Grid")
@@ -3591,6 +3642,8 @@ class TestGetVersionPricedRows(FrappeTestCase):
         # v1: build (is_current=1), declare formulas, price col E (Phase 1 combined) = 150 -> freeze.
         cls.v1 = build_committed_sheet_fixture(cls.boq, cls.sheet, commit_version=1)
         _declare_fixture_amount_formulas(cls.boq, cls.sheet, 1)
+        # Slice G2b: categorise BEFORE the setUpClass save below (the gate is on the save path).
+        _categorise_fixture_rate_editable_rows(cls.boq, cls.sheet, 1)
         save_cell_price(boq_name=cls.boq, sheet_name=cls.sheet, excel_row=34, col_letter="E",
                         committed_version=1, rate=150.0, area="Phase 1", rate_kind="combined")
         # Freeze v1 (BoQ Sheet + its nodes) so the CURRENT path resolves v2 unambiguously.
@@ -3601,6 +3654,8 @@ class TestGetVersionPricedRows(FrappeTestCase):
         # v2: build (is_current=1), declare formulas, price the SAME cell = 999 (a different rate).
         cls.v2 = build_committed_sheet_fixture(cls.boq, cls.sheet, commit_version=2)
         _declare_fixture_amount_formulas(cls.boq, cls.sheet, 2)
+        # Slice G2b: categorise BEFORE the setUpClass save below (the gate is on the save path).
+        _categorise_fixture_rate_editable_rows(cls.boq, cls.sheet, 2)
         save_cell_price(boq_name=cls.boq, sheet_name=cls.sheet, excel_row=34, col_letter="E",
                         committed_version=2, rate=999.0, area="Phase 1", rate_kind="combined")
         frappe.db.commit()
@@ -3735,6 +3790,11 @@ class TestCopyForward(FrappeTestCase):
         cls._price(cls.boq, cls.sheet, 1, 14, "D", None, "combined_rate", 500.0)  # non_match absent
         cls._price(cls.boq, cls.sheet, 1, 15, "E", None, "supply_rate", 600.0)    # no_rate_column
         frappe.db.commit()
+        # Slice G2b NOTE: apply_copy_forward does NOT go through _resolve_and_guard_cell (it checks
+        # lock + formula gates inline up front, then writes via _resolve_committed_cell +
+        # _write_cell_price_record), so it BYPASSES the category gate -- these tests pass on an
+        # UNcategorised destination v2, which is the live proof of that bypass (fact-found G2b Task 3;
+        # gating copy-forward is an owner decision for a follow-up, not this slice).
 
     @classmethod
     def tearDownClass(cls):
@@ -4132,3 +4192,233 @@ class TestRateEditableBlankCount(FrappeTestCase):
             ])
             frappe.db.delete("BoQ Row Category", {"boq": self.boq, "excel_row": 24})
             frappe.db.commit()
+
+
+class TestCategoryGate(FrappeTestCase):
+    """Slice G2b: save_cell_price REJECTS a rate write while any RATE-EDITABLE row has a blank
+    category, UNLESS the admin category override is set. The 'Price any row' override does NOT
+    bypass it (owner ruling); the formula gate still wins precedence.
+
+    Fixture (one formula-complete committed sheet; blank = Needs-review unless noted):
+      40 Line Item qty-bearing (25)     -> rate-editable, blank  -> GATES
+      41 Line Item zero-qty             -> rate-editable, blank  -> GATES
+      42 Preamble qty-LESS              -> eligible NOT rate-editable, blank -> does NOT gate
+      43 Line Item qty-bearing (5)      -> rate-editable, categorised (db_switchgear)
+      44 Other (note)                   -> neither population
+    Baseline blanks-that-gate = {40, 41}. sheet_name carries a trailing space (#152).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "G2b Category Gate BoQ"
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq = boq.name
+        cls.sheet = "G2b Gate "  # VERBATIM trailing space (#152)
+        cls.cv = 1
+        fx = build_committed_sheet_fixture(cls.boq, cls.sheet, commit_version=cls.cv)
+        cls.bqsh = fx["bqsh"]
+        frappe.db.delete("BOQ Nodes", {"boq": cls.boq})
+        frappe.db.commit()
+        now = frappe.utils.now()
+
+        def _node(node_type, row_class, er, order, qty=None, area_qty=None, level=None):
+            n = frappe.new_doc("BOQ Nodes")
+            n.boq = cls.boq
+            n.sheet = cls.bqsh
+            n.node_type = node_type
+            n.row_class = row_class
+            n.description = node_type + " @ " + str(er)
+            n.sort_order = order
+            n.source_row_number = er
+            if qty is not None:
+                n.qty = qty
+            if level is not None:
+                n.level = level
+            n.commit_version = cls.cv
+            n.is_current = 1
+            n.committed_at = now
+            if area_qty:
+                for a, q in area_qty.items():
+                    n.append("qty_by_area", {"area_name": a, "qty": q})
+            n.insert(ignore_permissions=True)
+            return n.name
+
+        _node("Line Item", "line_item", 40, 1, qty=25.0, area_qty={"Phase 1": 25.0, "Phase 2": 0.0})
+        _node("Line Item", "line_item", 41, 2, qty=0.0)
+        _node("Preamble", "preamble", 42, 3, qty=0.0, level=1)
+        _node("Line Item", "line_item", 43, 4, qty=5.0, area_qty={"Phase 1": 5.0, "Phase 2": 0.0})
+        _node("Other", "note", 44, 5)
+        frappe.db.commit()
+        _declare_fixture_amount_formulas(cls.boq, cls.sheet, cls.cv)
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete("BoQ Row Category", {"boq": cls.boq})
+        cleanup_committed_fixture(cls.boq)
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def _write_baseline_categories(self):
+        # 40/41/42 blank (Needs review); 43 categorised (Auto-accepted).
+        def blank(er):
+            return {"excel_row": er, "rule_category_id": "", "ai_category_id": "",
+                    "final_category_id": "", "routing": "Needs review"}
+        persist.write_row_categories(self.boq, self.sheet, self.cv, "Electrical", [
+            blank(40), blank(41), blank(42),
+            {"excel_row": 43, "rule_category_id": "", "ai_category_id": "",
+             "final_category_id": "db_switchgear", "routing": "Auto-accepted"},
+        ])
+
+    def _categorise(self, *excel_rows):
+        persist.write_row_categories(self.boq, self.sheet, self.cv, "Electrical", [
+            {"excel_row": er, "rule_category_id": "", "ai_category_id": "",
+             "final_category_id": "db_switchgear", "routing": "Auto-accepted"}
+            for er in excel_rows
+        ])
+
+    def setUp(self):
+        # Per-test isolation: no prices/locks, override OFF, categories at baseline (gate ACTIVE).
+        frappe.db.delete(_PRICING, {"boq": self.boq})
+        frappe.db.delete(_LOCK_DT, {"boq": self.boq})
+        bs = pricing._current_sheet_name(self.boq, self.sheet, self.cv)
+        frappe.db.set_value("BoQ Sheet", bs, {
+            "category_gate_override": 0, "category_override_by": None,
+            "category_override_at": None, "category_override_reason": None,
+        }, update_modified=False)
+        frappe.db.commit()
+        self._write_baseline_categories()
+
+    def _save(self, excel_row, **kw):
+        return save_cell_price(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=excel_row,
+            col_letter="E", committed_version=self.cv, rate=99.0, area="Phase 1", **kw,
+        )
+
+    def _price_count(self, excel_row):
+        return frappe.db.count(_PRICING, {"boq": self.boq, "excel_row": excel_row})
+
+    # (a) NEGATIVE -----------------------------------------------------------------------
+    def test_a_rejected_when_blank(self):
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            self._save(40)
+        self.assertIn("categor", str(ctx.exception).lower())
+        self.assertEqual(self._price_count(40), 0, "a gated save wrote nothing")
+
+    # (b) POSITIVE -----------------------------------------------------------------------
+    def test_b_succeeds_when_all_categorised(self):
+        self._categorise(40, 41)  # 42 is qty-less Preamble (does not gate); 43 already categorised
+        res = self._save(40)
+        self.assertTrue(res["ok"])
+        self.assertEqual(self._price_count(40), 1)
+
+    # (c) ABSOLUTE against 'Price any row' ----------------------------------------------
+    def test_c_price_any_row_does_not_bypass(self):
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            self._save(40, allow_non_priceable=True)
+        self.assertIn("categor", str(ctx.exception).lower())
+        self.assertEqual(self._price_count(40), 0)
+
+    # (d) OVERRIDE unlocks ---------------------------------------------------------------
+    def test_d_override_unlocks(self):
+        pricing.set_category_override(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
+            reason="pricing ahead of classification",
+        )
+        res = self._save(40)  # blanks still present, but override is set
+        self.assertTrue(res["ok"])
+        self.assertEqual(self._price_count(40), 1)
+
+    # (e) RE-LOCK on clear ---------------------------------------------------------------
+    def test_e_clear_relocks(self):
+        pricing.set_category_override(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv)
+        pricing.clear_category_override(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv)
+        with self.assertRaises(frappe.ValidationError):
+            self._save(40)
+        self.assertEqual(self._price_count(40), 0)
+
+    # (f) ADMIN --------------------------------------------------------------------------
+    def test_f_admin_predicate_and_endpoint(self):
+        # Predicate tested by passing a user EXPLICITLY (no frappe.set_user hazard).
+        self.assertFalse(pricing._is_nirmaan_admin("ghost-nonadmin-g2b@example.com"))
+        self.assertTrue(pricing._is_nirmaan_admin("Administrator"))
+        # Endpoint: a non-admin session is rejected (mock the predicate; avoid set_user).
+        from unittest import mock
+        with mock.patch.object(pricing, "_is_nirmaan_admin", return_value=False):
+            with self.assertRaises(frappe.PermissionError):
+                pricing.set_category_override(
+                    boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv)
+        # Admin (default Administrator session) succeeds.
+        res = pricing.set_category_override(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv)
+        self.assertEqual(res["category_gate_override"], 1)
+
+    # (g) qty-LESS Preamble blank does not gate -----------------------------------------
+    def test_g_qtyless_preamble_blank_does_not_gate(self):
+        self._categorise(40, 41)  # rate-editable rows done; 42 (qty-less Preamble) stays BLANK
+        # sanity: 42 is still blank
+        eff = frappe.db.get_value("BoQ Row Category",
+            {"boq": self.boq, "sheet_name": self.sheet, "excel_row": 42, "is_current": 1},
+            "final_category_id")
+        self.assertEqual((eff or "").strip(), "", "row 42 is still blank")
+        res = self._save(40)  # succeeds -> the blank qty-less Preamble did NOT gate
+        self.assertTrue(res["ok"])
+
+    # (h) ORDER -- formula gate wins over the category gate ------------------------------
+    def test_h_formula_gate_wins_over_category(self):
+        # Both formulas missing AND categories blank -> the FORMULA message must win (guard order
+        # unchanged: formula gate is BEFORE the category gate).
+        frappe.db.delete("BoQ Cell Amount Formula", {"boq": self.boq})
+        frappe.db.commit()
+        try:
+            with self.assertRaises(frappe.ValidationError) as ctx:
+                self._save(40)
+            msg = str(ctx.exception).lower()
+            self.assertIn("formula", msg)
+            self.assertNotIn("categor", msg)
+        finally:
+            _declare_fixture_amount_formulas(self.boq, self.sheet, self.cv)
+
+    # (i) REASON -------------------------------------------------------------------------
+    def test_i_reason_cap_null_and_clear(self):
+        # over-long reason rejected
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            pricing.set_category_override(
+                boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
+                reason="x" * (pricing._CATEGORY_OVERRIDE_REASON_MAX_LEN + 1))
+        self.assertIn("too long", str(ctx.exception).lower())
+        bs = pricing._current_sheet_name(self.boq, self.sheet, self.cv)
+        # absent reason stores NULL
+        pricing.set_category_override(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv)
+        self.assertIsNone(frappe.db.get_value("BoQ Sheet", bs, "category_override_reason"))
+        # a supplied reason is stored
+        pricing.set_category_override(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv, reason="valid note")
+        self.assertEqual(frappe.db.get_value("BoQ Sheet", bs, "category_override_reason"), "valid note")
+        # clearing clears the reason (and the flag)
+        pricing.clear_category_override(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv)
+        self.assertEqual(frappe.db.get_value("BoQ Sheet", bs, "category_gate_override"), 0)
+        self.assertIsNone(frappe.db.get_value("BoQ Sheet", bs, "category_override_reason"))
+
+    # SURFACING in get_priced_rows -------------------------------------------------------
+    def test_get_priced_rows_surfaces_override(self):
+        msg = get_priced_rows(boq_name=self.boq, sheet_name=self.sheet)
+        self.assertIs(msg["category_gate_override"], False)
+        self.assertIsNone(msg["category_override_by"])
+        self.assertIsNone(msg["category_override_at"])
+        self.assertIsNone(msg["category_override_reason"])
+        pricing.set_category_override(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv, reason="why")
+        msg2 = get_priced_rows(boq_name=self.boq, sheet_name=self.sheet)
+        self.assertIs(msg2["category_gate_override"], True)
+        self.assertEqual(msg2["category_override_by"], "Administrator")
+        self.assertIsNotNone(msg2["category_override_at"])
+        self.assertEqual(msg2["category_override_reason"], "why")

@@ -121,6 +121,9 @@ _COLOR = "BoQ Cell Color"
 # Per-row remark cap -- mirrors review_screen._REMARK_MAX_LEN (the review-screen remark).
 _REMARK_MAX_LEN = 250
 
+# Category-gate override reason cap (Slice G2b) -- its own constant, mirroring _REMARK_MAX_LEN.
+_CATEGORY_OVERRIDE_REASON_MAX_LEN = 250
+
 # The 8 color tokens (stable strings, NOT hex -- the frontend maps token -> swatch).
 # MUST stay in sync with the Select options in boq_cell_color.json.
 _COLOR_TOKENS = frozenset({"red", "orange", "yellow", "green", "blue", "purple", "pink", "grey"})
@@ -304,6 +307,39 @@ def _guard_sheet_not_locked(boq_name, sheet_name, committed_version) -> None:
         frappe.throw(_LOCKED_WRITE_MESSAGE, title="Sheet is locked")
 
 
+def _get_category_gate_override(boq_name, sheet_name, committed_version) -> int:
+    """1 iff the current committed BoQ Sheet for (boq, sheet_name, version) has the admin category
+    override set; 0 when unset OR no current row. A pure read. Mirrors _get_sheet_is_locked."""
+    name = _current_sheet_name(boq_name, sheet_name, committed_version)
+    if not name:
+        return 0
+    return 1 if frappe.db.get_value(_BOQ_SHEET, name, "category_gate_override") else 0
+
+
+def _guard_categories_complete(boq_name, sheet_name, committed_version) -> None:
+    """CATEGORY GATE (Slice G2b): reject a rate write while ANY rate-editable row on the sheet has a
+    blank RESOLVED category, UNLESS the admin override is set for this sheet+version. ABSOLUTE
+    against the 'Price any row' priceability override (owner ruling) -- placed OUTSIDE that override
+    block, exactly like the mandatory amount-formula gate. Blank = any rate-editable row (Line Item
+    always; qty-bearing Preamble) without a resolved category, classified-and-blank OR never-
+    classified (the G2a 'rate_editable' population -- ONE definition, no special cases).
+
+    Short-circuits when the override is set (no blank query then). Otherwise reuses the G2a counter
+    (population='rate_editable') -- the SAME function get_priced_rows surfaces the count from, so the
+    gate and the banner can never disagree. sheet_name VERBATIM (#152)."""
+    if _get_category_gate_override(boq_name, sheet_name, committed_version):
+        return
+    if blank_category_eligible_rows(
+        boq_name, sheet_name, committed_version, population="rate_editable"
+    ):
+        frappe.throw(
+            "Some priceable rows on this sheet do not have a category yet. Rate editing is locked "
+            "until every rate-editable row is categorised. Only an admin can override this to price "
+            "before classification is complete.",
+            title="Categories incomplete",
+        )
+
+
 @frappe.whitelist(methods=["POST"])
 def lock_sheet(boq_name=None, sheet_name=None, committed_version=None):
     """Deliberately LOCK a committed sheet read-only (the pricing twin of
@@ -358,6 +394,113 @@ def _set_sheet_lock(boq_name, sheet_name, committed_version, locked: bool) -> di
         "locked_by": locked_by,
         "locked_at": locked_at,
     }
+
+
+# ── Category-gate admin override (Slice G2b) ──────────────────────────────────────
+# The ONLY escape from the rate-editable category gate (_guard_categories_complete): an
+# ADMIN-ONLY, PERSISTED, per-sheet-per-committed-version flag on the BoQ Sheet. Set/cleared via
+# frappe.db.set_value (NOT doc.save -- the list-valued area_dimensions JSON throws on a full save)
+# + an explicit commit, mirroring _set_sheet_lock. Admin = the EXISTING _is_nirmaan_admin (reused,
+# not re-minted -- it matches the frontend's role source by construction). TEMPORARY BY DESIGN:
+# remove once classification engines cover all disciplines.
+@frappe.whitelist(methods=["POST"])
+def set_category_override(boq_name=None, sheet_name=None, committed_version=None, reason=None):
+    """ADMIN-ONLY: set the per-sheet category-gate override (unlocks rate editing despite blank
+    categories). Records who + when + an OPTIONAL short reason (capped, NULL when absent). A
+    non-admin is rejected with PermissionError. sheet_name VERBATIM (#152).
+    Returns {ok, category_gate_override, category_override_by, category_override_at,
+    category_override_reason}.
+    URL: /api/method/nirmaan_stack.api.boq.wizard.pricing.set_category_override"""
+    if not boq_name:
+        frappe.throw("boq_name is required.", title="Missing field: boq_name")
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+    if committed_version is None or committed_version == "":
+        frappe.throw("committed_version is required.", title="Missing field: committed_version")
+    if not frappe.db.exists("BOQs", boq_name):
+        frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
+    user = frappe.session.user
+    if not _is_nirmaan_admin(user):
+        frappe.throw(
+            "Only an admin may override the category gate.",
+            frappe.PermissionError,
+            title="Not permitted",
+        )
+    if reason is not None and len(reason) > _CATEGORY_OVERRIDE_REASON_MAX_LEN:
+        frappe.throw(
+            f"Reason is too long ({len(reason)} chars). Maximum is "
+            f"{_CATEGORY_OVERRIDE_REASON_MAX_LEN}.",
+            title="Reason too long",
+        )
+    name = _current_sheet_name(boq_name, sheet_name, committed_version)
+    if not name:
+        frappe.throw(
+            f"No current committed sheet '{sheet_name}' at version {committed_version}.",
+            title="Not found",
+        )
+    reason_val = reason if (reason is not None and reason != "") else None  # NULL when absent/empty
+    now = now_datetime()
+    frappe.db.set_value(
+        _BOQ_SHEET,
+        name,
+        {
+            "category_gate_override": 1,
+            "category_override_by": user,
+            "category_override_at": now,
+            "category_override_reason": reason_val,
+        },
+        update_modified=False,
+    )
+    frappe.db.commit()
+    return {
+        "ok": True,
+        "category_gate_override": 1,
+        "category_override_by": user,
+        "category_override_at": now,
+        "category_override_reason": reason_val,
+    }
+
+
+@frappe.whitelist(methods=["POST"])
+def clear_category_override(boq_name=None, sheet_name=None, committed_version=None):
+    """ADMIN-ONLY: clear the per-sheet category-gate override (re-locks rate editing while blanks
+    remain). Clears the flag + by + at + reason. A non-admin is rejected with PermissionError.
+    sheet_name VERBATIM (#152). Returns {ok, category_gate_override: 0}.
+    URL: /api/method/nirmaan_stack.api.boq.wizard.pricing.clear_category_override"""
+    if not boq_name:
+        frappe.throw("boq_name is required.", title="Missing field: boq_name")
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+    if committed_version is None or committed_version == "":
+        frappe.throw("committed_version is required.", title="Missing field: committed_version")
+    if not frappe.db.exists("BOQs", boq_name):
+        frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
+    user = frappe.session.user
+    if not _is_nirmaan_admin(user):
+        frappe.throw(
+            "Only an admin may clear the category gate override.",
+            frappe.PermissionError,
+            title="Not permitted",
+        )
+    name = _current_sheet_name(boq_name, sheet_name, committed_version)
+    if not name:
+        frappe.throw(
+            f"No current committed sheet '{sheet_name}' at version {committed_version}.",
+            title="Not found",
+        )
+    frappe.db.set_value(
+        _BOQ_SHEET,
+        name,
+        {
+            "category_gate_override": 0,
+            "category_override_by": None,
+            "category_override_at": None,
+            "category_override_reason": None,
+        },
+        update_modified=False,
+    )
+    frappe.db.commit()
+    return {"ok": True, "category_gate_override": 0}
 
 
 # ── Single-editor concurrency lock -- realtime acquire / release (A2 / ADR-0011) ──
@@ -462,6 +605,12 @@ def _resolve_and_guard_cell(boq_name, sheet_name, excel_row, committed_version, 
             "be entered. Define the missing amount formulas first.",
             title="Formulas incomplete",
         )
+
+    # CATEGORY GATE (Slice G2b) -- ABSOLUTE against the 'Price any row' override, like the formula
+    # gate. Placed AFTER the formula gate and OUTSIDE the priceability override block below, so the
+    # override can never reach past it (owner ruling). The ONLY escape is the admin category
+    # override (set_category_override). Reject-mutates-nothing.
+    _guard_categories_complete(boq_name, sheet_name, committed_version)
 
     # PRICEABILITY GUARD (ASYMMETRIC, owner-locked) -- shares _node_priceable_without_override with
     # the copy-forward plan classifier so the client UX, this boundary, and the plan never drift.
@@ -2091,6 +2240,13 @@ def get_priced_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         "classification_frozen": False,
         "frozen_by": None,
         "frozen_at": None,
+        # Slice G2b (ADDITIVE): the admin category-gate override state for this committed version --
+        # the ONLY escape from _guard_categories_complete. Beside classification_frozen (a separate
+        # per-sheet flag); G3 renders it. False / None for an uncommitted / grid-only sheet.
+        "category_gate_override": False,
+        "category_override_by": None,
+        "category_override_at": None,
+        "category_override_reason": None,
         # Slice G2a (ADDITIVE, ships one slice ahead of its G3 consumer): the count of RATE-EDITABLE
         # rows (Line Item always; Preamble only when qty-bearing) whose RESOLVED effective category
         # is blank, plus a convenience boolean (count == 0). PAYLOAD keys, NOT schema. NOTHING is
@@ -2118,15 +2274,23 @@ def get_priced_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         base["is_locked"] = bool(_get_sheet_is_locked(boq_name, sheet_name, commit_version))
         # Classification freeze (persisted on BoQ Sheet, separate from is_locked) -- one pure read
         # of the current committed version's freeze fields; rides the same committed-version branch.
+        # Slice G2b: the category-gate override fields are read in the SAME get_value as the freeze
+        # fields (one query for all seven), riding the same committed-version branch.
         _frozen_name = _current_sheet_name(boq_name, sheet_name, commit_version)
         if _frozen_name:
             _fz = frappe.db.get_value(
                 _BOQ_SHEET, _frozen_name,
-                ["classification_frozen", "frozen_by", "frozen_at"], as_dict=True,
+                ["classification_frozen", "frozen_by", "frozen_at",
+                 "category_gate_override", "category_override_by",
+                 "category_override_at", "category_override_reason"], as_dict=True,
             ) or {}
             base["classification_frozen"] = bool(_fz.get("classification_frozen"))
             base["frozen_by"] = _fz.get("frozen_by")
             base["frozen_at"] = _fz.get("frozen_at")
+            base["category_gate_override"] = bool(_fz.get("category_gate_override"))
+            base["category_override_by"] = _fz.get("category_override_by")
+            base["category_override_at"] = _fz.get("category_override_at")
+            base["category_override_reason"] = _fz.get("category_override_reason")
         # Slice G2a: rate-editable blank-category count for THIS committed version (additive; no
         # gate). The service counter batches the qty test (ONE child query), so this is O(1) extra
         # queries on the get_priced_rows path. G3 renders these; G2b will gate on them.
