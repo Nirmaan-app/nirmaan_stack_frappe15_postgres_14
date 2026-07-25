@@ -14,6 +14,12 @@ import frappe
 
 _ROW_CATEGORY = "BoQ Row Category"
 _BOQ_SHEET = "BoQ Sheet"
+_BOQ_NODES = "BOQ Nodes"
+
+# Eligible node types for classification. INTENTIONALLY mirrored (not imported) from
+# orchestrator._CLASSIFY_NT / context_builder / the harness CLASSIFY_NT: importing orchestrator
+# here would be a service<->service circular import (orchestrator imports THIS module at load).
+_ELIGIBLE_NODE_TYPES = {"Line Item", "Preamble"}
 
 # Reject marker for a write against a classification-frozen sheet. Mirrors pricing.py's
 # _LOCKED_WRITE_MESSAGE idiom (a stable, greppable string the frontend can match on).
@@ -37,6 +43,138 @@ def is_sheet_classification_frozen(boq, sheet_name, committed_version) -> int:
     if not name:
         return 0
     return 1 if frappe.db.get_value(_BOQ_SHEET, name, "classification_frozen") else 0
+
+
+# ── Multi-engine per-row resolution ladder (relocated from classify.py, Slice 1a) ──────
+# THE single source of truth for "one row's resolved effective category across every discipline
+# that classified it". Lives in the SERVICE layer so BOTH api callers share ONE ladder without an
+# illegal service->api import (mirrors the frozen-reader precedent above): classify.
+# get_sheet_categories_resolved AND blank_category_eligible_rows below (and a future pricing
+# rate-edit gate). Behaviour is byte-identical to the former classify._resolve_row_ladder.
+def resolve_row_ladder(votes):
+    """Apply the owner-locked per-row resolution ladder to one row's per-discipline votes.
+
+    votes: {discipline: {rule_category_id, ai_category_id, ai_confidence, final_category_id,
+            routing, review_priority, human_category_id, human_verdict_at}}
+
+    Ladder (owner 2026-07-22/23):
+      1. HUMAN wins. A discipline whose human_category_id is set. If MULTIPLE disciplines carry a
+         human verdict, the MOST RECENT (human_verdict_at) wins; ties break on discipline name
+         (deterministic ordering only -- NOT a hardcoded discipline, so the pathway stays generic).
+      2. else AUTO-ACCEPTED beats needs-review.
+      3. else if MULTIPLE auto-accepts: HIGHER ai_confidence wins, and cross_engine_conflict=True.
+         Confidence ties break on discipline name (deterministic).
+      4. else (all disciplines say review): effective category BLANK (the blank-review law).
+
+    cross_engine_conflict is TELEMETRY-ONLY: computed here at read time, NEVER persisted and (owner
+    ruling) NEVER rendered. It is True ONLY in branch 3.
+
+    Returns (effective_category_id, effective_source, resolved_discipline, conflict,
+             human_category_id, human_discipline).
+    """
+    # 1. Human verdict on any discipline -> most-recent wins.
+    humans = [
+        (d, v) for d, v in votes.items() if (v.get("human_category_id") or "").strip()
+    ]
+    if humans:
+        # sort by (human_verdict_at, discipline) descending on time, ascending name as tiebreak
+        humans.sort(key=lambda dv: ((dv[1].get("human_verdict_at") or ""), _neg_key(dv[0])),
+                    reverse=True)
+        d, v = humans[0]
+        cat = (v.get("human_category_id") or "").strip()
+        return cat, "human", d, False, cat, d
+
+    # 2/3. Auto-accepted disciplines.
+    autos = [(d, v) for d, v in votes.items() if (v.get("routing") or "") == "Auto-accepted"]
+    if autos:
+        # highest ai_confidence; discipline name as a deterministic tiebreak
+        autos.sort(key=lambda dv: (_conf(dv[1]), _neg_key(dv[0])), reverse=True)
+        d, v = autos[0]
+        conflict = len(autos) > 1
+        return (v.get("final_category_id") or ""), "auto", d, conflict, "", None
+
+    # 4. All review -> blank.
+    return "", "blank", None, False, "", None
+
+
+def _conf(v):
+    try:
+        return float(v.get("ai_confidence") or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _neg_key(name):
+    """A reversible sort helper: under reverse=True we want ASCENDING discipline name as the
+    tiebreak, so invert the string ordering. Deterministic; names are data, never branched on."""
+    return tuple(-ord(c) for c in (name or ""))
+
+
+def _current_sheet_doc(boq, sheet_name, committed_version):
+    """Docname of the is_current=1 BoQ Sheet for (boq, sheet_name, committed_version), or None.
+    Same resolution is_sheet_classification_frozen uses. sheet_name VERBATIM (#152)."""
+    return frappe.db.get_value(
+        _BOQ_SHEET,
+        {"boq": boq, "sheet_name": sheet_name, "commit_version": committed_version, "is_current": 1},
+        "name",
+    )
+
+
+def blank_category_eligible_rows(boq, sheet_name, committed_version):
+    """Eligible rows (node_type in {Line Item, Preamble}, is_current) whose RESOLVED effective
+    category is BLANK across EVERY discipline that classified the sheet -- using the SAME
+    resolve_row_ladder that get_sheet_categories_resolved uses.
+
+    LOAD-BEARING (Slice 1a fail-open guard): a row with NO BoQ Row Category record at all is
+    counted BLANK. Never-classified rows are ABSENT from the resolved category read, so a count that
+    scans only classified rows fails OPEN on a never-classified sheet. Here the eligible NODE set is
+    the denominator and the ladder is applied to votes.get(excel_row, {}), so an absent row resolves
+    to "" (ladder branch 4) and IS counted blank.
+
+    Blank criterion = the ladder's EFFECTIVE CATEGORY is empty (index [0]), not effective_source ==
+    "blank": this matches the old single-discipline get_sheet_categories emptiness test exactly, so
+    a single-discipline sheet's counts are unchanged.
+
+    Shared by get_freeze_summary (this slice) and a future pricing rate-edit gate. Returns
+    [{excel_row, node_type}] (blank eligible rows only), sorted by excel_row. Empty when the sheet
+    is uncommitted. sheet_name VERBATIM (#152).
+    """
+    sheet_doc = _current_sheet_doc(boq, sheet_name, committed_version)
+    if not sheet_doc:
+        return []
+
+    nodes = frappe.get_all(
+        _BOQ_NODES,
+        filters={"boq": boq, "sheet": sheet_doc, "is_current": 1},
+        fields=["source_row_number", "node_type"],
+    )
+    eligible = [
+        {"excel_row": n["source_row_number"], "node_type": (n.get("node_type") or "").strip()}
+        for n in nodes
+        if (n.get("node_type") or "").strip() in _ELIGIBLE_NODE_TYPES
+    ]
+
+    # Every discipline's current votes for the version, grouped by excel_row (NO discipline filter --
+    # the multi-engine denominator). Mirrors get_sheet_categories_resolved's read.
+    cat_rows = frappe.get_all(
+        _ROW_CATEGORY,
+        filters={
+            "boq": boq, "sheet_name": sheet_name,
+            "committed_version": committed_version, "is_current": 1,
+        },
+        fields=["excel_row", "discipline", "routing", "human_category_id",
+                "human_verdict_at", "ai_confidence", "final_category_id"],
+    )
+    votes_by_row = {}
+    for r in cat_rows:
+        votes_by_row.setdefault(r["excel_row"], {})[r["discipline"]] = r
+
+    blanks = [
+        e for e in eligible
+        if not (resolve_row_ladder(votes_by_row.get(e["excel_row"], {}))[0] or "").strip()
+    ]
+    blanks.sort(key=lambda e: e["excel_row"])
+    return blanks
 
 
 def _identity_filters(boq, sheet_name, excel_row, committed_version, discipline):

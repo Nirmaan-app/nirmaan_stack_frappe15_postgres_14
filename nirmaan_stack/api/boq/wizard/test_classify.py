@@ -38,7 +38,6 @@ from frappe.tests.utils import FrappeTestCase
 from nirmaan_stack.api.boq.wizard import classify
 from nirmaan_stack.api.boq.wizard.classify import (
     _classify_worker,
-    _resolve_row_ladder,
     get_classify_status,
     get_sheet_categories,
     get_sheet_categories_resolved,
@@ -47,6 +46,9 @@ from nirmaan_stack.api.boq.wizard.classify import (
     start_classify,
 )
 from nirmaan_stack.services.boq_category import engines, orchestrator, persist
+# Slice 1a: the resolution ladder was relocated classify -> persist (service layer). Import it
+# under its former name so the existing TestResolveRowLadder cases exercise the SAME function.
+from nirmaan_stack.services.boq_category.persist import resolve_row_ladder as _resolve_row_ladder
 from nirmaan_stack.services.boq_category.runner import classify_line
 from nirmaan_stack.api.boq.wizard.test_review_screen import _cleanup_project, _make_project
 
@@ -1062,3 +1064,145 @@ class TestFreezeClassification(FrappeTestCase):
             frappe.db.count(classify._TRUTH_SNAPSHOT, {"boq": self.boq, "sheet_name": sheet}), 0
         )
         self.assertFalse((self._human_by_row(sheet).get(11) or "").strip())
+
+
+class TestFreezeSummaryResolved(FrappeTestCase):
+    """Slice 1a: get_freeze_summary's blank counts read the MULTI-ENGINE resolved ladder
+    (persist.blank_category_eligible_rows) instead of the single-discipline get_sheet_categories.
+
+    Behaviours protected:
+      (a) POSITIVE  -- a row categorised under discipline B only is NOT counted blank when the
+          summary is asked with discipline A.
+      (b) NEGATIVE/LOAD-BEARING -- an eligible row with NO BoQ Row Category record at all IS
+          counted blank (the fail-open guard: never-classified rows are ABSENT from the resolved
+          read, so the count must key on the eligible NODE set, not on returned rows).
+      (c) an eligible row blank on EVERY discipline IS counted blank.
+      (d) a SINGLE-discipline sheet's counts are UNCHANGED versus the old behaviour (compat pin;
+          also pinned independently by TestFreezeClassification.test_uncategorised_skipped_but_counted).
+      (e) the Preamble vs Line Item split is still reported correctly.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.project = _make_project()
+        cls.boq = _new_boq(cls.project.name, "FreezeSummaryResolved BoQ")
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete(_ROW_CATEGORY, {"boq": cls.boq})
+        frappe.db.delete("BOQ Nodes", {"boq": cls.boq})
+        frappe.db.delete("BoQ Sheet", {"boq": cls.boq})
+        frappe.db.commit()
+        _cleanup_project(cls.project.name)
+        super().tearDownClass()
+
+    def _seed_multi(self):
+        """A committed sheet with eligible rows across TWO disciplines:
+          20 Line Item -> HVAC only, auto-accepted (final=hvac_ducting)  -> NOT blank
+          21 Preamble  -> Electrical only, auto-accepted (final=earthing) -> NOT blank
+          22 Line Item -> NO BoQ Row Category record at all               -> blank (fail-open)
+          23 Line Item -> BOTH disciplines, both Needs review (final="")  -> blank
+          25 Preamble  -> NO record                                        -> blank
+          24 Other spacer                                                  -> ineligible
+        Expected blanks: {22, 23, 25} -> preambles=1 (25), line_items=2 (22, 23). Returns sheet_name."""
+        sheet = "FZR " + frappe.generate_hash(length=6)
+        sd = _new_sheet(self.boq, sheet)
+        p = _node(self.boq, sd, "Preamble", 21, None, "SECTION", 1, level=0)
+        _node(self.boq, sd, "Line Item", 20, p, "hvac duct", 2)
+        _node(self.boq, sd, "Line Item", 22, p, "never classified li", 3)
+        _node(self.boq, sd, "Line Item", 23, p, "review both", 4)
+        _node(self.boq, sd, "Preamble", 25, None, "UNCAT SECTION", 5, level=0)
+        _node(self.boq, sd, "Other", 24, p, "", 6, row_class="spacer")
+        frappe.db.commit()
+        # 20 categorised under HVAC only (auto-accepted, non-blank final).
+        persist.write_row_categories(
+            self.boq, sheet, 1, "HVAC",
+            [_cat_row(20, rule_category_id="hvac_ducting", ai_category_id="hvac_ducting",
+                      final_category_id="hvac_ducting", routing="Auto-accepted")],
+        )
+        # 21 categorised under Electrical only (default _cat_row: auto-accepted, final=earthing).
+        persist.write_row_categories(self.boq, sheet, 1, "Electrical", [_cat_row(21)])
+        # 23 present under BOTH disciplines, both Needs review (blank on each).
+        persist.write_row_categories(
+            self.boq, sheet, 1, "Electrical",
+            [_cat_row(23, rule_category_id="", ai_category_id="", final_category_id="",
+                      routing="Needs review")],
+        )
+        persist.write_row_categories(
+            self.boq, sheet, 1, "HVAC",
+            [_cat_row(23, rule_category_id="", ai_category_id="", final_category_id="",
+                      routing="Needs review")],
+        )
+        # 22 and 25 -> intentionally NO BoQ Row Category record.
+        return sheet
+
+    def test_helper_blank_set_resolves_across_disciplines(self):
+        """Direct helper contract: the blank eligible set is exactly {22, 23, 25} -- 20 (HVAC-only)
+        and 21 (Electrical-only) are categorised and excluded; 22/25 (no record) and 23 (review on
+        both) are blank. Covers (a), (b), (c) at the helper level."""
+        sheet = self._seed_multi()
+        blanks = persist.blank_category_eligible_rows(self.boq, sheet, 1)
+        self.assertEqual({b["excel_row"] for b in blanks}, {22, 23, 25})
+        # 20 (categorised under the OTHER discipline) and 21 are NOT blank.
+        self.assertNotIn(20, {b["excel_row"] for b in blanks})
+        self.assertNotIn(21, {b["excel_row"] for b in blanks})
+
+    def test_summary_positive_other_discipline_not_blank(self):
+        """(a) POSITIVE -- asked with discipline 'Electrical', the HVAC-only row 20 is NOT counted
+        blank. Old single-discipline behaviour would have counted it (no Electrical record)."""
+        sheet = self._seed_multi()
+        summ = classify.get_freeze_summary(self.boq, sheet, "Electrical")
+        # line_items blank = {22, 23} only (NOT 20). Old behaviour would have been 3.
+        self.assertEqual(summ["uncategorised_line_items"], 2)
+        self.assertEqual(summ["uncategorised_preambles"], 1)  # {25}; NOT 21 (Electrical-categorised)
+
+    def test_discipline_param_ignored(self):
+        """The `discipline` parameter is accepted but no longer restricts the count: asking with
+        'Electrical' vs 'HVAC' yields identical blank counts (resolved across all disciplines)."""
+        sheet = self._seed_multi()
+        e = classify.get_freeze_summary(self.boq, sheet, "Electrical")
+        h = classify.get_freeze_summary(self.boq, sheet, "HVAC")
+        self.assertEqual(e["uncategorised_line_items"], h["uncategorised_line_items"])
+        self.assertEqual(e["uncategorised_preambles"], h["uncategorised_preambles"])
+
+    def test_never_classified_row_is_blank(self):
+        """(b) NEGATIVE/LOAD-BEARING -- row 22 has NO BoQ Row Category record at all and MUST be
+        counted blank (fail-open). A count scanning only returned category rows would miss it."""
+        sheet = self._seed_multi()
+        blanks = {b["excel_row"] for b in persist.blank_category_eligible_rows(self.boq, sheet, 1)}
+        self.assertIn(22, blanks)
+
+    def test_blank_on_every_discipline_is_blank(self):
+        """(c) row 23 is Needs review on BOTH disciplines (blank on each) -> counted blank."""
+        sheet = self._seed_multi()
+        blanks = {b["excel_row"] for b in persist.blank_category_eligible_rows(self.boq, sheet, 1)}
+        self.assertIn(23, blanks)
+
+    def test_preamble_line_item_split(self):
+        """(e) the blank split is by node_type: 1 Preamble (25) and 2 Line Items (22, 23)."""
+        sheet = self._seed_multi()
+        summ = classify.get_freeze_summary(self.boq, sheet, "Electrical")
+        self.assertEqual(summ["uncategorised_preambles"], 1)
+        self.assertEqual(summ["uncategorised_line_items"], 2)
+
+    def test_single_discipline_counts_unchanged(self):
+        """(d) COMPAT PIN -- a single-discipline (Electrical) sheet counts exactly as the old
+        get_sheet_categories-emptiness behaviour: 30 categorised (not blank), 31 Needs review
+        (blank line item), 32 no-record (blank preamble)."""
+        sheet = "FZS " + frappe.generate_hash(length=6)
+        sd = _new_sheet(self.boq, sheet)
+        p = _node(self.boq, sd, "Preamble", 30, None, "SECTION", 1, level=0)
+        _node(self.boq, sd, "Line Item", 31, p, "review li", 2)
+        _node(self.boq, sd, "Preamble", 32, None, "UNCAT SECTION", 3, level=0)
+        frappe.db.commit()
+        persist.write_row_categories(self.boq, sheet, 1, "Electrical", [_cat_row(30)])  # auto-accepted
+        persist.write_row_categories(
+            self.boq, sheet, 1, "Electrical",
+            [_cat_row(31, rule_category_id="", ai_category_id="", final_category_id="",
+                      routing="Needs review")],
+        )
+        # 32 -> no record.
+        summ = classify.get_freeze_summary(self.boq, sheet, "Electrical")
+        self.assertEqual(summ["uncategorised_preambles"], 1)   # row 32 (no record)
+        self.assertEqual(summ["uncategorised_line_items"], 1)  # row 31 (needs review)
