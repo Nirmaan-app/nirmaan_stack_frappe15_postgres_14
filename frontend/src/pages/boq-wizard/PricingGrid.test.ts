@@ -19,6 +19,7 @@ import {
   orderCommittedSheets,
   isGridOnlySheet,
   isPriceableType,
+  isMasterSetBlank,
   colorClassForToken,
   swatchClassForToken,
   rowColorCells,
@@ -52,6 +53,7 @@ import type {
   ColumnDescriptor,
   ColumnFormula,
   PricedRow,
+  SheetCategoryRow,
 } from "./boqTypes";
 
 function desc(
@@ -448,6 +450,57 @@ describe("isPriceableType", () => {
     expect(isPriceableType("line item")).toBe(false);
     expect(isPriceableType("note")).toBe(false);
     expect(isPriceableType("")).toBe(false);
+  });
+
+  it("Slice G2e: TRIMS node_type so it matches the server's stripped eligible set", () => {
+    expect(isPriceableType(" Line Item ")).toBe(true);
+    expect(isPriceableType("Preamble\t")).toBe(true);
+    expect(isPriceableType("   ")).toBe(false); // whitespace-only -> not eligible
+  });
+});
+
+// ── Slice G2e: the ONE shared master-set-blank predicate (amber fill == Check-Category filter) ──
+describe("isMasterSetBlank", () => {
+  const mcat = (over: Partial<SheetCategoryRow> = {}): SheetCategoryRow => ({
+    excel_row: 10, rule_category_id: "", ai_category_id: "", final_category_id: "",
+    routing: "Auto-accepted", routing_reason: "", human_category_id: "",
+    effective_category_id: "", ...over,
+  });
+  const row = (node_type: PricedRow["node_type"]) =>
+    ({ node_type } as Pick<PricedRow, "node_type">);
+
+  it("(j) TRUE for a never-classified eligible row (no category record -> undefined)", () => {
+    expect(isMasterSetBlank(row("Line Item"), undefined)).toBe(true);
+    expect(isMasterSetBlank(row("Preamble"), undefined)).toBe(true);
+  });
+
+  it("(j) TRUE for a blank (classified-and-empty) eligible row", () => {
+    expect(isMasterSetBlank(row("Line Item"), mcat({ effective_category_id: "" }))).toBe(true);
+  });
+
+  it("qty-less Preamble is in the master set (priceability is NOT part of this axis)", () => {
+    // The predicate keys only on node_type + emptiness; a zero-qty Preamble is eligible + blank.
+    expect(isMasterSetBlank(row("Preamble"), undefined)).toBe(true);
+  });
+
+  it("(j) FALSE for a row DISPLAYING a category (auto or human)", () => {
+    expect(isMasterSetBlank(row("Line Item"), mcat({ effective_category_id: "db_switchgear" }))).toBe(false);
+    expect(
+      isMasterSetBlank(row("Line Item"), mcat({ effective_category_id: "x", human_category_id: "x" })),
+    ).toBe(false);
+  });
+
+  it("(j) FALSE for a non-eligible ('Other') row even when blank", () => {
+    expect(isMasterSetBlank(row("Other"), undefined)).toBe(false);
+    expect(isMasterSetBlank(row("Other"), mcat({ effective_category_id: "" }))).toBe(false);
+  });
+
+  it("WHITESPACE effective id counts as blank (client trims, matching the server strip)", () => {
+    expect(isMasterSetBlank(row("Line Item"), mcat({ effective_category_id: "   " }))).toBe(true);
+  });
+
+  it("node_type whitespace still resolves to the master set (Scope 3 trim)", () => {
+    expect(isMasterSetBlank(row(" Line Item " as PricedRow["node_type"]), undefined)).toBe(true);
   });
 });
 

@@ -36,6 +36,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.boq.wizard import committed_carry, cross_boq_carry, pricing
 from nirmaan_stack.api.boq.wizard.pricing_lock import acquire_or_refresh
+from nirmaan_stack.services.boq_category import persist
 from nirmaan_stack.api.boq.wizard.test_revision_entry import (
     _cleanup_project,
     _make_boq,
@@ -45,7 +46,7 @@ from nirmaan_stack.api.boq.wizard.test_revision_mapping import _make_revision
 # Slice G2c: reuse the SAVE-path fixture categoriser (ONE source of truth for "categorise the
 # rate-editable rows through the live persist path"), rather than mirroring it here -- the dest of a
 # carry must satisfy the same category gate a save does, so the same helper applies.
-from nirmaan_stack.api.boq.wizard.test_pricing import _categorise_fixture_rate_editable_rows
+from nirmaan_stack.api.boq.wizard.test_pricing import _categorise_fixture_eligible_rows
 
 _PRICING = "BoQ Cell Pricing"
 _LOCK_DT = "BoQ Sheet Pricing Lock"
@@ -187,7 +188,7 @@ class TestCrossBoqRateCarry(FrappeTestCase):
         # The dedicated gate coverage is TestCrossBoqCarryCategoryGate. (The "Amt Rev" formula-gate
         # sheet is deliberately NOT categorised -- the formula gate must fire before the category
         # gate there.)
-        _categorise_fixture_rate_editable_rows(cls.rev, cls.DEST, 1)
+        _categorise_fixture_eligible_rows(cls.rev, cls.DEST, 1)
 
         # A SECOND revision sheet with an amount column + NO formula -> formula gate fails.
         cls.amt_src_sheet = _seed_sheet(cls.orig, cls.AMT_SRC, 1, 1,
@@ -781,7 +782,7 @@ class TestApplySheetCarrySynchronous(FrappeTestCase):
         # Slice G2c: the DESTINATION now governs the category gate on apply, and tearDown wipes the
         # dest categories after every test -- so re-categorise the dest's rate-editable rows before
         # each test (through the live persist path, never the override) so the carry is not refused.
-        _categorise_fixture_rate_editable_rows(self.rev, self.DEST, 1)
+        _categorise_fixture_eligible_rows(self.rev, self.DEST, 1)
         frappe.db.commit()
 
     def tearDown(self):
@@ -1000,6 +1001,9 @@ class TestCrossBoqCarryCategoryGate(FrappeTestCase):
             {"B": _DESC, "C": _UNIT, "D": _SCALAR_RATE}, [
                 {"srn": 10, "node_type": "Line Item", "description": "Item A", "qty": 5.0},
                 {"srn": 11, "node_type": "Line Item", "description": "Item B", "qty": 5.0},
+                # G2e: a qty-less Preamble on the DEST (not carried) -- an uncategorised one gates the
+                # carry under the widened eligible gate (test_i).
+                {"srn": 12, "node_type": "Preamble", "description": "Header"},
             ])
         _stamp_provenance(cls.dest_sheet, cls.orig, cls.SRC)
 
@@ -1064,7 +1068,7 @@ class TestCrossBoqCarryCategoryGate(FrappeTestCase):
             "excel_row": excel_row, "col_letter": col, "is_current": 1, "is_filled": 1}, "rate")
 
     def _categorise_dest(self):
-        _categorise_fixture_rate_editable_rows(self.rev, self.DEST, 1)
+        _categorise_fixture_eligible_rows(self.rev, self.DEST, 1)
 
     # (a) NEGATIVE -- refused when the DESTINATION has a blank rate-editable row.
     def test_a_refused_when_destination_blank(self):
@@ -1144,3 +1148,16 @@ class TestCrossBoqCarryCategoryGate(FrappeTestCase):
         self.assertEqual(
             msg, cross_boq_carry._APPLY_BLOCK_MESSAGE["categories_incomplete"].format(
                 sheet=self.DEST))
+
+    # (i) CARRY inherits the widening -- a blank qty-less Preamble on the DEST refuses the carry -----
+    def test_i_qtyless_preamble_gates_carry(self):
+        # G2e: categorise only the Line Items (10, 11); the DEST's qty-less Preamble (12) stays blank.
+        # Under the old rate-editable gate the carry would have succeeded; the widened eligible gate
+        # (shared pricing._categories_gate_ok) now refuses it.
+        persist.write_row_categories(self.rev, self.DEST, 1, "Electrical", [
+            {"excel_row": er, "rule_category_id": "", "ai_category_id": "",
+             "final_category_id": "db_switchgear", "routing": "Auto-accepted"} for er in (10, 11)])
+        summary, reason = self._apply_inner_10()
+        self.assertIsNone(summary)
+        self.assertEqual(reason, "categories_incomplete")
+        self.assertIsNone(self._dest_rate(10), "the widened carry gate wrote nothing")

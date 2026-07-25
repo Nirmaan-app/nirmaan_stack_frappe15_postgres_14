@@ -317,22 +317,24 @@ def _get_category_gate_override(boq_name, sheet_name, committed_version) -> int:
 
 
 def _categories_gate_ok(boq_name, sheet_name, committed_version) -> bool:
-    """ONE source of truth for the CATEGORY-GATE condition (Slice G2b/G2c). True iff a rate write is
-    permitted past the gate: the admin override is set for this sheet+version, OR no rate-editable
-    row (Line Item always; qty-bearing Preamble -- the G2a 'rate_editable' population) has a blank
-    RESOLVED category. Blank = classified-and-blank OR never-classified (ONE definition, no special
-    cases).
+    """ONE source of truth for the CATEGORY-GATE condition (Slice G2b/G2c; widened G2e). True iff a
+    rate write is permitted past the gate: the admin override is set for this sheet+version, OR no
+    ELIGIBLE row (the MASTER SET -- node_type in {Line Item, Preamble}; PRICEABILITY is NO LONGER
+    part of the gate, so a qty-less Preamble IS in the set) has a blank RESOLVED category. Blank =
+    the category cell the user sees is EMPTY -- classified-and-blank OR never-classified, path to
+    empty irrelevant (owner ruling 2026-07-25 "empty is empty"; ONE definition, no special cases).
 
-    Short-circuits when the override is set (no blank query then). Otherwise reuses the G2a counter
-    (population='rate_editable') -- the SAME function get_priced_rows surfaces the count from, so the
-    gate, the banner, and every caller can never disagree. Each caller applies its OWN messaging
-    idiom over this ONE condition: the save path throws via _guard_categories_complete (save-path
-    wording); apply_copy_forward throws its own copy-forward-voiced message inline; cross_boq_carry
-    maps a False to its reason tuple ('categories_incomplete'). sheet_name VERBATIM (#152)."""
+    Short-circuits when the override is set (no blank query then). Otherwise reuses the counter with
+    the DEFAULT population='eligible' -- the SAME function + population get_freeze_summary counts and
+    get_priced_rows surfaces (eligible_blank_category_count), so the gate, the freeze count, the
+    banner, and every caller can never disagree. Each caller applies its OWN messaging idiom over
+    this ONE condition: the save path throws via _guard_categories_complete (save-path wording);
+    apply_copy_forward throws its own copy-forward-voiced message inline; cross_boq_carry maps a
+    False to its reason tuple ('categories_incomplete'). sheet_name VERBATIM (#152)."""
     if _get_category_gate_override(boq_name, sheet_name, committed_version):
         return True
     return not blank_category_eligible_rows(
-        boq_name, sheet_name, committed_version, population="rate_editable"
+        boq_name, sheet_name, committed_version, population="eligible"
     )
 
 
@@ -2265,12 +2267,14 @@ def get_priced_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         "category_override_by": None,
         "category_override_at": None,
         "category_override_reason": None,
-        # Slice G2a (ADDITIVE, ships one slice ahead of its G3 consumer): the count of RATE-EDITABLE
-        # rows (Line Item always; Preamble only when qty-bearing) whose RESOLVED effective category
-        # is blank, plus a convenience boolean (count == 0). PAYLOAD keys, NOT schema. NOTHING is
-        # gated by them here -- the rate-edit lock + its admin override ship in G2b. For an
-        # uncommitted / grid-only sheet there are no rate-editable rows -> 0 / complete=True.
-        "rate_editable_blank_category_count": 0,
+        # Slice G2e ("empty is empty"): the count of ELIGIBLE rows (the MASTER SET -- node_type in
+        # {Line Item, Preamble}, priceability NO LONGER part of it) whose RESOLVED effective category
+        # is blank, plus a convenience boolean (count == 0). PAYLOAD keys, NOT schema. This is the
+        # SAME population + number get_freeze_summary counts. (Renamed from the G2a
+        # `rate_editable_blank_category_count`, which became inaccurate once the gate widened to the
+        # eligible set -- Recon 5 confirmed no consumer existed, so the rename was free.) For an
+        # uncommitted / grid-only sheet there are no eligible rows -> 0 / complete=True.
+        "eligible_blank_category_count": 0,
         "categories_complete": True,
     }
 
@@ -2309,14 +2313,15 @@ def get_priced_rows(boq_name: str = None, sheet_name: str = None) -> dict:
             base["category_override_by"] = _fz.get("category_override_by")
             base["category_override_at"] = _fz.get("category_override_at")
             base["category_override_reason"] = _fz.get("category_override_reason")
-        # Slice G2a: rate-editable blank-category count for THIS committed version (additive; no
-        # gate). The service counter batches the qty test (ONE child query), so this is O(1) extra
-        # queries on the get_priced_rows path. G3 renders these; G2b will gate on them.
-        _rate_editable_blanks = blank_category_eligible_rows(
-            boq_name, sheet_name, commit_version, population="rate_editable"
+        # Slice G2e: ELIGIBLE blank-category count for THIS committed version (the MASTER SET --
+        # {Line Item, Preamble}, "empty is empty"). SAME population + number the gate condition
+        # (_categories_gate_ok) uses AND get_freeze_summary counts, so the surfaced count, the gate,
+        # and the freeze summary can never disagree. G3a renders these.
+        _eligible_blanks = blank_category_eligible_rows(
+            boq_name, sheet_name, commit_version, population="eligible"
         )
-        base["rate_editable_blank_category_count"] = len(_rate_editable_blanks)
-        base["categories_complete"] = base["rate_editable_blank_category_count"] == 0
+        base["eligible_blank_category_count"] = len(_eligible_blanks)
+        base["categories_complete"] = base["eligible_blank_category_count"] == 0
         # Amount formulas (F1): the current per-column formulas for this committed version,
         # shaped PER-COLUMN for the grid lookup (built once; NOT stamped onto any row).
         base["column_formulas"] = [

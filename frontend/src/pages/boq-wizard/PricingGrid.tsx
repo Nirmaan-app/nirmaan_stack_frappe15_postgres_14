@@ -469,9 +469,31 @@ export function isColumnVisible(
  * (VERBATIM). Every other type ("Other" -- note/spacer/subtotal/header_repeat), as well as a
  * null/undefined node_type (old/absent payload), is non-priceable. Keys on the SAME field the
  * server guard uses (save_cell_price), so the two axes can never drift. Pure -- unit-tested.
+ * Slice G2e: TRIMS node_type before matching -- the server's eligible-set filter strips node_type
+ * (persist.blank_category_eligible_rows), so trimming here keeps the master set byte-identical on
+ * both sides (Recon 6 Q3d: the client used to compare raw, the server stripped).
  */
 export function isPriceableType(nodeType: string | null | undefined): boolean {
-  return nodeType === "Preamble" || nodeType === "Line Item";
+  const t = (nodeType ?? "").trim();
+  return t === "Preamble" || t === "Line Item";
+}
+
+/**
+ * Slice G2e -- the ONE shared "this row is in the MASTER SET and its category cell is EMPTY"
+ * predicate. It drives BOTH the grid's amber Category-cell fill AND the page's Check-Category view
+ * filter, so they can never drift apart (owner ruling 2026-07-25: the filter must show EXACTLY what
+ * amber shows). Master set = isPriceableType(node_type) (Line Item / Preamble, trimmed);
+ * EMPTY = deriveVerdictState(cat) === "unclassified" -- which covers a never-classified row
+ * (cat === undefined), a classified-and-blank row, and a whitespace-only id (deriveVerdictState
+ * trims, matching the server's strip). Needs the ROW (for node_type), not just the category.
+ * Replaces the retired isNeedsReviewCategory, which returned FALSE for a never-classified row and so
+ * could not surface rows the widened gate now counts (Recon 6 Q8). Pure -- unit-tested.
+ */
+export function isMasterSetBlank(
+  row: Pick<PricedRow, "node_type">,
+  cat: SheetCategoryRow | undefined,
+): boolean {
+  return isPriceableType(row.node_type) && deriveVerdictState(cat) === "unclassified";
 }
 
 /**
@@ -2355,13 +2377,20 @@ const PricingGridRow = memo(function PricingGridRow({
         // eligible blank cell on a sheet that has been classified at least once). Nothing is
         // clickable on a never-run sheet; a non-eligible row is never clickable.
         const editable = !!onCategoryClick && (isRowEditable(cat) || (eligible && hasRun));
-        // Amber "needs a category" FILL: (a) an eligible cell with a BLANK effective category
-        // (unclassified -- shows with OR without a record, incl. no-record rows), and (b) a
-        // needs-review cell that HAS a category. Clears automatically once a category is set
-        // (effective goes non-blank -> state leaves unclassified/needs_review).
-        const uncategorizedEligible = eligible && state === "unclassified";
-        const amberFill =
-          uncategorizedEligible || needsReview ? "bg-amber-50 dark:bg-amber-950/30" : undefined;
+        // Amber "needs a category" FILL (Slice G2e): IS the shared master-set-blank predicate -- an
+        // ELIGIBLE row whose category cell is EMPTY (unclassified: with OR without a record, incl.
+        // no-record rows). This is the SAME predicate the page's Check-Category filter uses
+        // (isMasterSetBlank), so amber and the filter can never drift. The old `|| needsReview`
+        // disjunct is DROPPED: `needs_review` is unreachable from resolved data
+        // (resolvedToSheetCategoryRow sets routing "Needs review" only when the effective is blank,
+        // and deriveVerdictState short-circuits a blank effective to "unclassified" first -- Recon 6
+        // Q8c), and the owner ruled amber == master-set-blank so a non-eligible needs_review row must
+        // never be amber. (The needsReview var still drives the dot/text-colour below -- an
+        // unreachable-but-harmless cell affordance, left untouched.) Clears automatically once a
+        // category is set (effective goes non-blank -> state leaves "unclassified").
+        const amberFill = isMasterSetBlank(row, cat)
+          ? "bg-amber-50 dark:bg-amber-950/30"
+          : undefined;
         return (
           <td
             {...tdFocusProps(colIndex)}

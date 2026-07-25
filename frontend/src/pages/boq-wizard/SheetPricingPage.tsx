@@ -91,7 +91,6 @@ import {
 import { ClassifyProgressModal, aiStatusWarning } from "./ClassifyProgressModal";
 import {
   ClassifySheetDialog,
-  isNeedsReviewCategory,
   reduceProgress,
   skipRollupText,
 } from "./ClassifySheetDialog";
@@ -102,6 +101,7 @@ import {
   deriveSaveStatus,
   hideableDescriptors,
   isGridOnlySheet,
+  isMasterSetBlank,
   isTakeoverError,
   orderCommittedSheets,
   shouldExitFullscreenOnEsc,
@@ -1767,9 +1767,11 @@ const SheetPricingPage = () => {
   const passesViewFilter = (r: PricedRow) =>
     (!showOnlyUnpriced ||
       (isPriceableLine(r, columnDescriptors) && !isFullyPriced(r, columnDescriptors))) &&
-    // CL-2: "show only needs-review" keeps rows whose category verdict is an unresolved
-    // Needs-review (VIEW-ONLY -- it never touches counts / Summary / the review-flag feed).
-    (!showNeedsReview || isNeedsReviewCategory(categoriesByExcelRow.get(r.source_row_number))) &&
+    // Slice G2e: the "Check Category" filter keeps rows in the MASTER SET whose category cell is
+    // EMPTY -- the SAME shared predicate the grid's amber fill uses (isMasterSetBlank), so the
+    // filter shows EXACTLY what amber shows (owner ruling; it now surfaces never-classified eligible
+    // rows the old isNeedsReviewCategory missed). VIEW-ONLY -- never touches counts / Summary / feed.
+    (!showNeedsReview || isMasterSetBlank(r, categoriesByExcelRow.get(r.source_row_number))) &&
     classificationVisible(r.effective_classification, rowTypeToggles);
   const anyViewFilter = showOnlyUnpriced || showNeedsReview || !noRowTypeHidden;
   // displayRows: the view filter AND collapse, composed in ONE page-side pass (R4). VIEW-ONLY --
