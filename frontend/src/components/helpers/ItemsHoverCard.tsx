@@ -57,6 +57,27 @@ export const ItemsHoverCard: React.FC<ItemsHoverCardProps> = ({
     }
   );
 
+  // Delivery Note items carry no rate of their own — the rate lives on the source
+  // Procurement Order's `items` child table (the same table the PO tab's hover card
+  // reads). Fetch that PO (only for a DN, only while open) and index quote by item_id.
+  const isDeliveryNote = parentDoctype === "Delivery Notes";
+  const sourcePoName = isDeliveryNote ? parentDoc?.procurement_order : undefined;
+  const { data: sourcePoData } = useFrappeGetDoc(
+    "Procurement Orders",
+    sourcePoName,
+    isOpen && isDeliveryNote && sourcePoName ? `DN-source-PO-${sourcePoName}` : null,
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+    }
+  );
+  const poRateByItemId = new Map<string, number>();
+  if (Array.isArray(sourcePoData?.items)) {
+    sourcePoData.items.forEach((it: any) => {
+      if (it?.item_id != null) poRateByItemId.set(String(it.item_id), it.quote);
+    });
+  }
+
   // console.log(parentDoctype, parentDoc?.name,parentDocData)
   // Extract the child table items once the parent data is loaded
   // Only use parentDocData if it matches the current parentDocId to prevent stale data
@@ -76,6 +97,18 @@ export const ItemsHoverCard: React.FC<ItemsHoverCardProps> = ({
       uom: row.uom,
       quantity: row.quantity,
       rate: row.rate,
+    }));
+  } else if (parentDoctype === "Delivery Notes") {
+    // Delivery Note items store the delivered qty under `delivered_quantity` (there is
+    // no `quantity` field), so normalize it to the `quantity` key the render reads, and
+    // join `quote` (rate) from the source PO's items by item_id (DN items carry no rate).
+    const childRows = isCorrectData && Array.isArray(parentDocData?.[childTableName])
+      ? parentDocData[childTableName]
+      : [];
+    itemsToDisplay = childRows.map((row: any) => ({
+      ...row,
+      quantity: row.delivered_quantity,
+      quote: poRateByItemId.get(String(row.item_id)),
     }));
   } else {
     itemsToDisplay = isCorrectData
@@ -112,7 +145,9 @@ export const ItemsHoverCard: React.FC<ItemsHoverCardProps> = ({
       <PopoverContent className="w-[550px] max-h-[60vh] overflow-auto p-0 relative">
         {/* Close Button */}
         <div className="sticky top-0 bg-white z-20 flex justify-between items-center px-3 py-2 border-b">
-          <h4 className="font-semibold text-sm">Order Items</h4>
+          <h4 className="font-semibold text-sm">
+            {isDeliveryNote ? "Delivery Items" : "Order Items"}
+          </h4>
           <Button
             variant="ghost"
             size="sm"
