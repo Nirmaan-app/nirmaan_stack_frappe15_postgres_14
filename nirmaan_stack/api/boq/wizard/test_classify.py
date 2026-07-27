@@ -1252,6 +1252,187 @@ class TestFreezeClassification(FrappeTestCase):
         )
         self.assertFalse((self._human_by_row(sheet).get(11) or "").strip())
 
+    # ── Slice ST-1: freeze stamps the MULTI-ENGINE resolved read (owner Option A, 2026-07-26) ──
+    def _seed_multitrade(self):
+        """A fresh committed sheet classified under TWO disciplines:
+          10 Preamble  -- Electrical auto (earthing)          -> stamped Electrical
+          11 Line Item -- Electrical auto (earthing)          -> stamped Electrical
+          12 Line Item -- HVAC auto (hvac_ducting)            -> stamped HVAC
+          13 Line Item -- Electrical HUMAN (db_switchgear)    -> stamped Electrical (human wins)
+          14 Line Item -- HVAC HUMAN (hvac_vrf)               -> stamped HVAC (human wins)
+          15 Line Item -- NO category record (blank)          -> skipped
+          16 Preamble  -- NO category record (blank)          -> skipped
+          17 Other     -- spacer (ineligible)
+        Resolved non-blank eligible = {10,11,12,13,14} (5), across BOTH vocabularies. Returns sheet."""
+        sheet = "FZMT " + frappe.generate_hash(length=6)
+        sd = _new_sheet(self.boq, sheet)
+        p = _node(self.boq, sd, "Preamble", 10, None, "SECTION", 1, level=0)
+        _node(self.boq, sd, "Line Item", 11, p, "earth strip", 2)
+        _node(self.boq, sd, "Line Item", 12, p, "supply air duct", 3)
+        _node(self.boq, sd, "Line Item", 13, p, "lt panel", 4)
+        _node(self.boq, sd, "Line Item", 14, p, "vrf outdoor unit", 5)
+        _node(self.boq, sd, "Line Item", 15, p, "uncategorised li", 6)
+        _node(self.boq, sd, "Preamble", 16, None, "UNCAT SECTION", 7, level=0)
+        _node(self.boq, sd, "Other", 17, p, "", 8, row_class="spacer")
+        frappe.db.commit()
+        # Electrical auto rows (10, 11) + HVAC auto row (12, hvac vocabulary).
+        persist.write_row_categories(
+            self.boq, sheet, 1, "Electrical", [_cat_row(10), _cat_row(11)]
+        )
+        persist.write_row_categories(
+            self.boq, sheet, 1, "HVAC",
+            [_cat_row(12, rule_category_id="hvac_ducting", ai_category_id="hvac_ducting",
+                      final_category_id="hvac_ducting", routing_reason="consensus -- hvac_ducting")],
+        )
+        # Human verdicts, one per discipline (UPSERT -- rows 13/14 have no prior classify record).
+        persist.set_human_verdict(self.boq, sheet, 13, 1, "Electrical", "db_switchgear")
+        persist.set_human_verdict(self.boq, sheet, 14, 1, "HVAC", "hvac_vrf")
+        return sheet
+
+    def _snaps(self, sheet):
+        return frappe.get_all(
+            classify._TRUTH_SNAPSHOT,
+            filters={"boq": self.boq, "sheet_name": sheet},
+            fields=["excel_row", "label_category_id", "discipline", "snapshot_batch", "source"],
+        )
+
+    def _current_human(self, sheet, excel_row, discipline):
+        rows = frappe.get_all(
+            _ROW_CATEGORY,
+            filters={"boq": self.boq, "sheet_name": sheet, "excel_row": excel_row,
+                     "discipline": discipline, "is_current": 1},
+            fields=["human_category_id"],
+        )
+        return (rows[0]["human_category_id"] or "").strip() if rows else None
+
+    def test_freeze_multitrade_stamps_both_vocabularies(self):
+        """The fix itself: ONE freeze stamps rows from BOTH disciplines' vocabularies, each on its
+        RESOLVING discipline's row, banked in ONE snapshot batch. Called with discipline='Electrical'
+        (the frontend default) yet HVAC rows are stamped too -- the param no longer gates the set."""
+        sheet = self._seed_multitrade()
+        res = classify.freeze_classification(self.boq, sheet, "Electrical")
+        self.assertEqual(res["rows_stamped"], 5)
+        self.assertEqual(res["snapshots_banked"], 5)
+        snaps = self._snaps(sheet)
+        self.assertEqual(len(snaps), 5)
+        self.assertEqual(len({s["snapshot_batch"] for s in snaps}), 1)  # ONE shared batch
+        by = {s["excel_row"]: s for s in snaps}
+        self.assertEqual(set(by), {10, 11, 12, 13, 14})  # 15/16 blank -> not banked
+        # Both vocabularies present, each on the resolving discipline.
+        self.assertEqual(by[11]["label_category_id"], "earthing")
+        self.assertEqual(by[11]["discipline"], "Electrical")
+        self.assertEqual(by[12]["label_category_id"], "hvac_ducting")
+        self.assertEqual(by[12]["discipline"], "HVAC")
+        self.assertEqual({s["discipline"] for s in snaps}, {"Electrical", "HVAC"})
+
+    def test_freeze_multitrade_human_precedence_and_placement(self):
+        """Each human-verdict row is stamped with its HUMAN category, annotated on the RESOLVING
+        discipline's is_current row identity (not the freeze-call discipline)."""
+        sheet = self._seed_multitrade()
+        classify.freeze_classification(self.boq, sheet, "Electrical")
+        # Human categories survive as the stamped effective, on their own discipline's row.
+        self.assertEqual(self._current_human(sheet, 13, "Electrical"), "db_switchgear")
+        self.assertEqual(self._current_human(sheet, 14, "HVAC"), "hvac_vrf")
+        # Auto HVAC row 12 stamped on the HVAC row; there is NO Electrical row for 12 to stamp.
+        self.assertEqual(self._current_human(sheet, 12, "HVAC"), "hvac_ducting")
+        self.assertIsNone(self._current_human(sheet, 12, "Electrical"))
+        by = {s["excel_row"]: s for s in self._snaps(sheet)}
+        self.assertEqual(by[13]["label_category_id"], "db_switchgear")
+        self.assertEqual(by[13]["discipline"], "Electrical")
+        self.assertEqual(by[14]["label_category_id"], "hvac_vrf")
+        self.assertEqual(by[14]["discipline"], "HVAC")
+
+    def test_freeze_multitrade_blank_rows_skipped(self):
+        """The deliberately-blank eligible rows (15 Line Item, 16 Preamble) get NO stamp and NO
+        snapshot, and no Row Category record is minted for them."""
+        sheet = self._seed_multitrade()
+        classify.freeze_classification(self.boq, sheet, "Electrical")
+        by = {s["excel_row"]: s for s in self._snaps(sheet)}
+        self.assertNotIn(15, by)
+        self.assertNotIn(16, by)
+        # No record was minted for either blank row (any discipline).
+        for r in (15, 16):
+            self.assertEqual(
+                frappe.db.count(_ROW_CATEGORY, {"boq": self.boq, "sheet_name": sheet, "excel_row": r}),
+                0,
+            )
+
+    def test_freeze_multitrade_fifth_surface_one_number(self):
+        """ONE number: snapshots_banked == the resolved non-blank stamp-target count, and it is the
+        exact complement of get_freeze_summary's blank counts over the eligible set."""
+        sheet = self._seed_multitrade()
+        targets = persist.resolved_category_stamp_targets(self.boq, sheet, 1)
+        summ = classify.get_freeze_summary(self.boq, sheet, "Electrical")
+        blanks = summ["uncategorised_preambles"] + summ["uncategorised_line_items"]
+        self.assertEqual(blanks, 2)  # row 15 (line item) + row 16 (preamble)
+        res = classify.freeze_classification(self.boq, sheet, "Electrical")
+        self.assertEqual(res["snapshots_banked"], len(targets))     # snapshot == resolved non-blank
+        self.assertEqual(res["snapshots_banked"], 5)
+        # eligible master set (10-16 = 7 rows) == non-blank (5) + blank (2): one consistent picture.
+        self.assertEqual(res["snapshots_banked"] + blanks, 7)
+
+    def test_freeze_single_trade_equivalence(self):
+        """Spec item 5: on a one-discipline sheet the resolved stamp source is EQUIVALENT to the old
+        single-discipline get_sheet_categories source (same excel_rows, same effective labels)."""
+        sheet = self._seed()  # the original single-Electrical fixture
+        # OLD source: non-blank rows of the single-discipline reader (still byte-untouched).
+        old_cats = classify.get_sheet_categories(self.boq, sheet, "Electrical")["categories"]
+        old_nonblank = {
+            c["excel_row"]: (c["effective_category_id"] or "").strip()
+            for c in old_cats if (c.get("effective_category_id") or "").strip()
+        }
+        # NEW source: the resolved stamp targets.
+        new_targets = {
+            t["excel_row"]: t["effective_category_id"]
+            for t in persist.resolved_category_stamp_targets(self.boq, sheet, 1)
+        }
+        self.assertEqual(new_targets, old_nonblank)
+        self.assertEqual(new_targets, {10: "earthing", 11: "earthing", 12: "db_switchgear"})
+        # And every resolving discipline is the single trade.
+        self.assertTrue(all(
+            t["resolved_discipline"] == "Electrical"
+            for t in persist.resolved_category_stamp_targets(self.boq, sheet, 1)
+        ))
+
+    def test_get_sheet_categories_stays_single_discipline(self):
+        """Regression pin (the freeze trap): get_sheet_categories is byte-untouched -- asked for
+        Electrical on a multi-trade sheet it returns ONLY Electrical rows, never HVAC's."""
+        sheet = self._seed_multitrade()
+        elec = classify.get_sheet_categories(self.boq, sheet, "Electrical")["categories"]
+        rows = {c["excel_row"] for c in elec}
+        self.assertIn(11, rows)          # Electrical auto row present
+        self.assertNotIn(12, rows)       # HVAC-only row absent
+        self.assertNotIn(14, rows)       # HVAC human row absent
+        hvac = classify.get_sheet_categories(self.boq, sheet, "HVAC")["categories"]
+        hrows = {c["excel_row"] for c in hvac}
+        self.assertIn(12, hrows)
+        self.assertNotIn(11, hrows)
+
+    def test_freeze_multitrade_rollback_holds(self):
+        """Negative: a mid-batch failure on a multi-trade freeze writes NOTHING -- zero snapshots,
+        the flag stays unset, and the in-place stamps on the auto rows (blank before) roll back."""
+        sheet = self._seed_multitrade()
+        real_new_doc = frappe.new_doc
+        state = {"n": 0}
+
+        def boom(doctype, *a, **k):
+            if doctype == classify._TRUTH_SNAPSHOT:
+                state["n"] += 1
+                if state["n"] == 3:  # blow up after the 2nd snapshot inserted
+                    raise RuntimeError("induced mid-batch failure (multi-trade)")
+            return real_new_doc(doctype, *a, **k)
+
+        with mock.patch.object(frappe, "new_doc", side_effect=boom):
+            with self.assertRaises(RuntimeError):
+                classify.freeze_classification(self.boq, sheet, "Electrical")
+        self.assertFalse(persist.is_sheet_classification_frozen(self.boq, sheet, 1))
+        self.assertEqual(
+            frappe.db.count(classify._TRUTH_SNAPSHOT, {"boq": self.boq, "sheet_name": sheet}), 0
+        )
+        # Rows 10/11 (Electrical auto) + 12 (HVAC auto) had blank human before freeze -> rolled back.
+        self.assertFalse((self._current_human(sheet, 11, "Electrical") or ""))
+        self.assertFalse((self._current_human(sheet, 12, "HVAC") or ""))
+
 
 class TestFreezeSummaryResolved(FrappeTestCase):
     """Slice 1a: get_freeze_summary's blank counts read the MULTI-ENGINE resolved ladder
