@@ -16,6 +16,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 import { formatDate } from "@/utils/FormatDate";
 import { exportToCsv } from "@/utils/exportToCsv";
 import { ColumnDef } from "@tanstack/react-table";
@@ -32,10 +33,79 @@ import { Link } from "react-router-dom";
 import {
   useMonthlyWIPData,
   useWipMonthOptions,
+  WipCompliance,
   WipMonthlyRow,
+  WipPeriod,
 } from "./useMonthlyWIPData";
 
-type SortKey = "project_name" | "days_active" | "dpr" | "inventory" | "dc" | "dn";
+// --------------------------------------------------------------------------- //
+// Column model — the single source of truth for the numeric columns. The header
+// (two-tier), the body cells, sorting and the group dividers all derive from it,
+// so a column is added/renamed/reordered in ONE place.
+// --------------------------------------------------------------------------- //
+
+/** Month-scoped, day-based fields (present on both a project row AND its stints). */
+type ComplianceField = keyof WipCompliance;
+/** Lifetime, project-level fields (present only on the project row). */
+type LifetimeField = "dispatched_po" | "total_dn" | "missing_dn" | "total_dc" | "missing_dc";
+type NumericField = ComplianceField | LifetimeField;
+
+type SortKey = "project_name" | NumericField;
+
+interface NumericColumn {
+  key: NumericField;
+  label: string;
+  /** First column of a group — draws the left divider. */
+  groupStart?: boolean;
+  /** Bold — the "base" figure of its group (Active Days, Dispatched POs). */
+  emphasize?: boolean;
+  /** Lifetime & project-level — stint sub-rows render "—" instead of a value. */
+  lifetime?: boolean;
+  /** A "missing" gap column — a non-zero value is shown red (0 stays muted). */
+  danger?: boolean;
+}
+
+const NUMERIC_COLUMNS: NumericColumn[] = [
+  { key: "active_working_days", label: "Active Days", groupStart: true, emphasize: true },
+  { key: "total_dpr_days", label: "Total DPR" },
+  { key: "missing_dpr_days", label: "Missing DPR", danger: true },
+  { key: "expected_inventory", label: "Expected", groupStart: true },
+  { key: "actual_inventory", label: "Actual" },
+  { key: "missing_inventory", label: "Missing", danger: true },
+  { key: "dispatched_po", label: "Disp.", groupStart: true, emphasize: true, lifetime: true },
+  { key: "total_dn", label: "Total DN", lifetime: true },
+  { key: "missing_dn", label: "Missing DN", lifetime: true, danger: true },
+  { key: "total_dc", label: "Total DC", groupStart: true, lifetime: true },
+  { key: "missing_dc", label: "Missing DC", lifetime: true, danger: true },
+];
+
+interface ColumnGroup {
+  label: string;
+  span: number;
+}
+const COLUMN_GROUPS: ColumnGroup[] = [
+  { label: "Project", span: 3 },
+  { label: "DPR · Daily (excl. Sun)", span: 3 },
+  { label: "Inventory · Weekly (Mon)", span: 3 },
+  { label: "Delivery Notes (ALL)", span: 3 },
+  { label: "Delivery Chellans (All)", span: 2 },
+];
+
+/** A visible vertical divider between column groups — runs continuously through
+ *  the header band and every body row (applied to each group's first column). */
+const GROUP_EDGE = "border-l-2 border-muted-foreground/40";
+/** A very lean 1px rule between the individual columns WITHIN a group. */
+const LEAN_EDGE = "border-l border-border/50";
+/** Layout widths as PERCENTAGES so the table always fills the viewport exactly —
+ *  no horizontal scroll on a laptop; every column scales with the available width.
+ *  Sum: 2 + 14 + 9·2 + 6·11 = 100. Numeric columns stay tight (the group header
+ *  carries the wider context). */
+const COL_W = { chevron: "2%", project: "14%", date: "9%", num: "6%" } as const;
+/** chevron + project + start + end + every numeric column. */
+const TOTAL_COLS = 4 + NUMERIC_COLUMNS.length;
+
+/** 0 rendered muted so real gaps read louder than compliant zeros. */
+const numFmt = (n: number) => (n ? n : <span className="text-muted-foreground">0</span>);
 
 const monthLabel = (options: { value: string; label: string }[], month: string) =>
   options.find((o) => o.value === month)?.label ?? month;
@@ -96,6 +166,10 @@ function clampWip(actualStart: string, actualEnd: string, month: string): Clampe
   };
 }
 
+// --------------------------------------------------------------------------- //
+// Presentational cells (shared by the project row and its stint sub-rows).
+// --------------------------------------------------------------------------- //
+
 /** Small muted "actual: <date>" line shown under a clamped date when they differ. */
 const ActualLine = ({ date }: { date: string }) => (
   <div className="text-[10px] text-muted-foreground">actual: {date}</div>
@@ -133,44 +207,117 @@ const StatusBadge = ({ status }: { status: string }) => (
   </Badge>
 );
 
+const StartCell = ({ c, small }: { c: ClampedWip; small?: boolean }) => (
+  <TableCell className={cn(LEAN_EDGE, small && "text-sm")} title={c.tooltip}>
+    <div>
+      {c.dispStart}
+      {c.carriedIn && <CarriedIn />}
+    </div>
+    {c.carriedIn && <ActualLine date={c.actualStart} />}
+  </TableCell>
+);
+
+const EndCell = ({ c, small }: { c: ClampedWip; small?: boolean }) => (
+  <TableCell className={cn(LEAN_EDGE, small && "text-sm")} title={c.tooltip}>
+    {c.ongoing ? (
+      <OngoingBadge />
+    ) : (
+      <>
+        <div>
+          {c.dispEnd}
+          {c.carriedOut && <CarriedOut />}
+        </div>
+        {c.carriedOut && <ActualLine date={c.actualEnd} />}
+      </>
+    )}
+  </TableCell>
+);
+
+// Numeric columns are tight (see COL_W.num) — trim shadcn's default p-4 side padding.
+const NUM_CELL = "text-center tabular-nums !px-2";
+
+const NumberCell = ({ value, col, small }: { value: number; col: NumericColumn; small?: boolean }) => (
+  <TableCell
+    className={cn(
+      NUM_CELL,
+      small && "text-sm",
+      col.emphasize && "font-medium",
+      col.danger && value > 0 && "font-semibold text-red-600 dark:text-red-500",
+      col.groupStart ? GROUP_EDGE : LEAN_EDGE,
+    )}
+  >
+    {numFmt(value)}
+  </TableCell>
+);
+
+/** Lifetime column on a stint row — a muted em-dash (G4/G5 are project-level). */
+const DashCell = ({ col }: { col: NumericColumn }) => (
+  <TableCell className={cn(NUM_CELL, "text-sm text-muted-foreground/40", col.groupStart ? GROUP_EDGE : LEAN_EDGE)}>
+    —
+  </TableCell>
+);
+
 /** Distinct statuses across a row's stints, e.g. "WIP + Handover". */
 const rowStatuses = (r: WipMonthlyRow) =>
   Array.from(new Set(r.periods.map((p) => p.status))).join(" + ");
 
-/** One flat CSV line — a project "Total" row, then a row per stint (multi-stint only). */
+// --------------------------------------------------------------------------- //
+// CSV export — one "Total" row per project + a labeled row per stint (multi-stint
+// only). G4/G5 are lifetime & project-level, so they carry "" on stint rows.
+// --------------------------------------------------------------------------- //
 interface ExportRow {
   project: string;
   row: string;             // "Total" | "Stint 1" | "Stint 2" ...
   status: string;
-  days: number;
   start_in_month: string;
   end_in_month: string;
   actual_start: string;
   actual_end: string;
-  dpr: number;
-  inventory: number;
-  dc: number;
-  dn: number;
+  active_days: number;     // active working days (excl. Sundays)
+  total_dpr_days: number;
+  missing_dpr_days: number;
+  expected_inventory: number;
+  actual_inventory: number;
+  missing_inventory: number;
+  dispatched_po: number | "";
+  total_dn: number | "";
+  missing_dn: number | "";
+  total_dc: number | "";
+  missing_dc: number | "";
 }
 
 const EXPORT_COLUMNS: ColumnDef<ExportRow, any>[] = [
   { accessorKey: "project", header: "Project", meta: { exportHeaderName: "Project" } },
   { accessorKey: "row", header: "Row", meta: { exportHeaderName: "Row" } },
   { accessorKey: "status", header: "Status", meta: { exportHeaderName: "Status" } },
-  { accessorKey: "days", header: "Days", meta: { exportHeaderName: "Active / Stint Days" } },
   { accessorKey: "start_in_month", header: "Start", meta: { exportHeaderName: "Start (in month)" } },
   { accessorKey: "end_in_month", header: "End", meta: { exportHeaderName: "End (in month)" } },
   { accessorKey: "actual_start", header: "Actual Start", meta: { exportHeaderName: "Actual Start" } },
   { accessorKey: "actual_end", header: "Actual End", meta: { exportHeaderName: "Actual End" } },
-  { accessorKey: "dpr", header: "DPR Count", meta: { exportHeaderName: "DPR Count" } },
-  { accessorKey: "inventory", header: "Inventory Count", meta: { exportHeaderName: "Inventory Count" } },
-  { accessorKey: "dc", header: "DC Count", meta: { exportHeaderName: "DC Count" } },
-  { accessorKey: "dn", header: "DN Count", meta: { exportHeaderName: "DN Count" } },
+  { accessorKey: "active_days", header: "Active Days", meta: { exportHeaderName: "Active Days (excl. Sun)" } },
+  { accessorKey: "total_dpr_days", header: "Total DPR Days", meta: { exportHeaderName: "Total DPR Days" } },
+  { accessorKey: "missing_dpr_days", header: "Missing DPR Days", meta: { exportHeaderName: "Missing DPR Days" } },
+  { accessorKey: "expected_inventory", header: "Expected Inventory", meta: { exportHeaderName: "Expected Inventory" } },
+  { accessorKey: "actual_inventory", header: "Actual Inventory", meta: { exportHeaderName: "Actual Inventory" } },
+  { accessorKey: "missing_inventory", header: "Missing Inventory", meta: { exportHeaderName: "Missing Inventory" } },
+  { accessorKey: "dispatched_po", header: "Dispatched POs", meta: { exportHeaderName: "Dispatched POs (lifetime)" } },
+  { accessorKey: "total_dn", header: "Total DN", meta: { exportHeaderName: "Total DN (lifetime)" } },
+  { accessorKey: "missing_dn", header: "Missing DN", meta: { exportHeaderName: "Missing DN (lifetime)" } },
+  { accessorKey: "total_dc", header: "Total DC", meta: { exportHeaderName: "Total DC (lifetime)" } },
+  { accessorKey: "missing_dc", header: "Missing DC", meta: { exportHeaderName: "Missing DC (lifetime)" } },
 ];
 
-/** Flatten to one Total row per project + a labeled row per stint (multi-stint only). */
+/** Group-header row for the CSV (merged-cell style — label at each group's first
+ *  column, aligned with the on-screen two-tier header). Keyed by accessorKey. */
+const EXPORT_GROUP_HEADERS: Record<string, string> = {
+  active_days: "DPR · Daily (excl. Sun)",
+  expected_inventory: "Inventory · Weekly (Mon)",
+  dispatched_po: "PO Dispatch · Lifetime",
+  total_dc: "DC · Lifetime",
+};
+
 function buildExportRows(rows: WipMonthlyRow[], month: string): ExportRow[] {
-  const clamped = (start: string, end: string) => {
+  const clampedLabels = (start: string, end: string) => {
     const c = clampWip(start, end, month);
     return {
       startIn: c.dispStart + (c.carriedIn ? " (from earlier)" : ""),
@@ -179,33 +326,48 @@ function buildExportRows(rows: WipMonthlyRow[], month: string): ExportRow[] {
   };
   const fmtEnd = (end: string) => (end === "ongoing" ? "Ongoing" : formatDate(end));
 
+  // Fields shared by a project Total row and its stint rows (the day-based block).
+  const compliance = (x: WipCompliance) => ({
+    active_days: x.active_working_days,
+    total_dpr_days: x.total_dpr_days,
+    missing_dpr_days: x.missing_dpr_days,
+    expected_inventory: x.expected_inventory,
+    actual_inventory: x.actual_inventory,
+    missing_inventory: x.missing_inventory,
+  });
+
   const out: ExportRow[] = [];
   for (const r of rows) {
-    const t = clamped(r.active_start, r.active_end);
+    const t = clampedLabels(r.active_start, r.active_end);
     out.push({
       project: r.project_name,
       row: "Total",
       status: rowStatuses(r),
-      days: r.days_active,
       start_in_month: t.startIn,
       end_in_month: t.endIn,
       actual_start: formatDate(r.active_start),
       actual_end: fmtEnd(r.active_end),
-      dpr: r.dpr, inventory: r.inventory, dc: r.dc, dn: r.dn,
+      ...compliance(r),
+      dispatched_po: r.dispatched_po,
+      total_dn: r.total_dn,
+      missing_dn: r.missing_dn,
+      total_dc: r.total_dc,
+      missing_dc: r.missing_dc,
     });
     if (r.stints > 1) {
       r.periods.forEach((p, i) => {
-        const s = clamped(p.start, p.end);
+        const s = clampedLabels(p.start, p.end);
         out.push({
           project: "",           // blank so the stint nests under its project's Total row
           row: `Stint ${i + 1}`,
           status: p.status,
-          days: p.days,
           start_in_month: s.startIn,
           end_in_month: s.endIn,
           actual_start: formatDate(p.start),
           actual_end: fmtEnd(p.end),
-          dpr: p.dpr, inventory: p.inventory, dc: p.dc, dn: p.dn,
+          ...compliance(p),
+          // G4/G5 are lifetime & project-level — blank on stint rows.
+          dispatched_po: "", total_dn: "", missing_dn: "", total_dc: "", missing_dc: "",
         });
       });
     }
@@ -227,7 +389,7 @@ export default function MonthlyWIPPage() {
   const reportMonth = report?.month ?? month;
 
   const [search, setSearch] = useState("");
-  const [sortKey, setSortKey] = useState<SortKey>("days_active");
+  const [sortKey, setSortKey] = useState<SortKey>("active_working_days");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const handleSort = (key: SortKey) => {
     if (key === sortKey) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -236,6 +398,7 @@ export default function MonthlyWIPPage() {
       setSortDir(key === "project_name" ? "asc" : "desc");
     }
   };
+
   const displayRows = useMemo(() => {
     const q = search.trim().toLowerCase();
     const filtered = q ? rows.filter((r) => r.project_name.toLowerCase().includes(q)) : rows;
@@ -244,28 +407,10 @@ export default function MonthlyWIPPage() {
         const cmp = a.project_name.localeCompare(b.project_name);
         return sortDir === "asc" ? cmp : -cmp;
       }
-      const av = a[sortKey] as number;
-      const bv = b[sortKey] as number;
-      return sortDir === "asc" ? av - bv : bv - av;
+      const diff = a[sortKey] - b[sortKey];
+      return sortDir === "asc" ? diff : -diff;
     });
   }, [rows, search, sortKey, sortDir]);
-
-  const sortHead = (label: string, k: SortKey, align = false) => {
-    const active = sortKey === k;
-    const Icon = active ? (sortDir === "asc" ? ChevronUp : ChevronDown) : ArrowUpDown;
-    return (
-      <TableHead className={align ? "text-right" : ""}>
-        <button
-          type="button"
-          onClick={() => handleSort(k)}
-          className={`inline-flex items-center gap-1 hover:text-foreground ${align ? "flex-row-reverse" : ""}`}
-        >
-          {label}
-          <Icon className={`h-3 w-3 ${active ? "text-foreground" : "text-muted-foreground/50"}`} />
-        </button>
-      </TableHead>
-    );
-  };
 
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const toggle = (project: string) =>
@@ -275,27 +420,30 @@ export default function MonthlyWIPPage() {
       return next;
     });
 
+  // Export mirrors what's on screen — current sort + search, not the raw payload.
   const handleExport = () => {
-    if (!rows.length) return;
-    exportToCsv(`Monthly_WIP_${reportMonth}`, buildExportRows(rows, reportMonth), EXPORT_COLUMNS);
+    if (!displayRows.length) return;
+    exportToCsv(`Monthly_WIP_${reportMonth}`, buildExportRows(displayRows, reportMonth), EXPORT_COLUMNS, {
+      groupHeaders: EXPORT_GROUP_HEADERS,
+    });
   };
 
-  const numFmt = (n: number) => (n ? n : <span className="text-muted-foreground">0</span>);
-
-  const totals = useMemo(
-    () =>
-      rows.reduce(
-        (acc, r) => {
-          acc.dpr += r.dpr;
-          acc.inventory += r.inventory;
-          acc.dc += r.dc;
-          acc.dn += r.dn;
-          return acc;
-        },
-        { dpr: 0, inventory: 0, dc: 0, dn: 0 }
-      ),
-    [rows]
-  );
+  const sortHead = (label: string, k: SortKey, align = false, extraClass = "") => {
+    const active = sortKey === k;
+    const Icon = active ? (sortDir === "asc" ? ChevronUp : ChevronDown) : ArrowUpDown;
+    return (
+      <TableHead key={k} className={cn(align && "text-center !px-2 text-xs whitespace-normal break-words", extraClass)}>
+        <button
+          type="button"
+          onClick={() => handleSort(k)}
+          className={cn("inline-flex items-center gap-1 hover:text-foreground", align && "justify-center")}
+        >
+          {label}
+          <Icon className={cn("h-3 w-3", active ? "text-foreground" : "text-muted-foreground/50")} />
+        </button>
+      </TableHead>
+    );
+  };
 
   return (
     <div className="flex flex-col gap-4 p-4">
@@ -304,8 +452,9 @@ export default function MonthlyWIPPage() {
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Monthly WIP &amp; Handover</h1>
           <p className="text-sm text-muted-foreground">
-            Days each project was active (WIP or Handover), with DPR / Inventory / DC / DN activity.
-            Dates show within the selected month — hover for the actual dates.
+            DPR (daily, Sundays excluded) and Inventory (weekly, each active Monday) are scoped to the
+            selected month. PO Dispatch and DC are <span className="font-medium">lifetime</span> totals —
+            unaffected by the month picker. Hover dates for the actuals.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -321,7 +470,7 @@ export default function MonthlyWIPPage() {
               ))}
             </SelectContent>
           </Select>
-          <Button variant="outline" size="sm" onClick={handleExport} disabled={!rows.length}>
+          <Button variant="outline" size="sm" onClick={handleExport} disabled={!displayRows.length}>
             <Download className="mr-2 h-4 w-4" />
             Export
           </Button>
@@ -333,11 +482,6 @@ export default function MonthlyWIPPage() {
         <p className="text-sm text-muted-foreground">
           {rows.length} project{rows.length === 1 ? "" : "s"} active during{" "}
           <span className="font-medium text-foreground">{monthLabel(options, month)}</span>
-          {rows.length > 0 && (
-            <>
-              {" "}· DPR {totals.dpr} · Inventory {totals.inventory} · DC {totals.dc} · DN {totals.dn}
-            </>
-          )}
         </p>
       )}
 
@@ -354,38 +498,61 @@ export default function MonthlyWIPPage() {
 
       {/* Table */}
       <div className="rounded-md border overflow-x-auto">
-        <Table>
+        <Table className="table-fixed">
+          <colgroup>
+            <col style={{ width: COL_W.chevron }} />
+            <col style={{ width: COL_W.project }} />
+            <col style={{ width: COL_W.date }} />
+            <col style={{ width: COL_W.date }} />
+            {NUMERIC_COLUMNS.map((col) => (
+              <col key={col.key} style={{ width: COL_W.num }} />
+            ))}
+          </colgroup>
           <TableHeader>
-            <TableRow>
-              <TableHead className="w-8" />
-              {sortHead("Project", "project_name")}
-              {sortHead("Active Days", "days_active", true)}
-              <TableHead>Active Start</TableHead>
-              <TableHead>Active End</TableHead>
-              {sortHead("DPR Count", "dpr", true)}
-              {sortHead("Inventory Count", "inventory", true)}
-              {sortHead("DC Count", "dc", true)}
-              {sortHead("DN Count", "dn", true)}
+            {/* Group row — a distinct banded header so each group reads as a block */}
+            <TableRow className="border-b-0 bg-muted/60 hover:bg-muted/60">
+              <TableHead rowSpan={2} />
+              {COLUMN_GROUPS.map((g, i) => (
+                <TableHead
+                  key={g.label}
+                  colSpan={g.span}
+                  className={cn(
+                    "h-9 text-center text-[11px] font-semibold uppercase tracking-wide text-foreground",
+                    i > 0 && GROUP_EDGE
+                  )}
+                >
+                  {g.label}
+                </TableHead>
+              ))}
+            </TableRow>
+            {/* Column row */}
+            <TableRow className="hover:bg-transparent">
+              {sortHead("Project", "project_name", false, LEAN_EDGE)}
+              <TableHead className={LEAN_EDGE}>Active Start</TableHead>
+              <TableHead className={LEAN_EDGE}>Active End</TableHead>
+              {NUMERIC_COLUMNS.map((col) =>
+                sortHead(col.label, col.key, true, col.groupStart ? GROUP_EDGE : LEAN_EDGE)
+              )}
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading && (
               <TableRow>
-                <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
+                <TableCell colSpan={TOTAL_COLS} className="h-24 text-center text-muted-foreground">
                   Loading…
                 </TableCell>
               </TableRow>
             )}
             {error && !isLoading && (
               <TableRow>
-                <TableCell colSpan={9} className="h-24 text-center text-destructive">
+                <TableCell colSpan={TOTAL_COLS} className="h-24 text-center text-destructive">
                   Failed to load the report.
                 </TableCell>
               </TableRow>
             )}
             {!isLoading && !error && displayRows.length === 0 && (
               <TableRow>
-                <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
+                <TableCell colSpan={TOTAL_COLS} className="h-24 text-center text-muted-foreground">
                   {rows.length === 0
                     ? "No projects were active (WIP or Handover) during this month."
                     : "No projects match your search."}
@@ -405,7 +572,7 @@ export default function MonthlyWIPPage() {
                       className={canExpand ? "cursor-pointer" : ""}
                       onClick={canExpand ? () => toggle(row.project) : undefined}
                     >
-                      <TableCell className="w-8 p-0 pl-2">
+                      <TableCell className="bg-muted/60 p-0 pl-2">
                         {canExpand ? (
                           isOpen ? (
                             <ChevronDown className="h-4 w-4 text-muted-foreground" />
@@ -414,7 +581,7 @@ export default function MonthlyWIPPage() {
                           )
                         ) : null}
                       </TableCell>
-                      <TableCell className="font-medium">
+                      <TableCell className={cn("font-medium break-words", LEAN_EDGE)}>
                         <Link
                           to={`/projects/${row.project}?page=overview`}
                           className="text-primary hover:underline"
@@ -422,40 +589,20 @@ export default function MonthlyWIPPage() {
                         >
                           {row.project_name}
                         </Link>
-                        <span className="ml-2 inline-flex gap-1 align-middle">
+                        <div className="mt-1 flex items-center gap-1">
                           {distinctStatuses.map((s) => (
                             <StatusBadge key={s} status={s} />
                           ))}
-                        </span>
-                        {canExpand && (
-                          <span className="ml-2 text-xs text-muted-foreground">({row.stints} stints)</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right font-medium">{row.days_active}</TableCell>
-                      <TableCell title={c.tooltip}>
-                        <div>
-                          {c.dispStart}
-                          {c.carriedIn && <CarriedIn />}
+                          {canExpand && (
+                            <span className="text-xs text-muted-foreground">({row.stints} stints)</span>
+                          )}
                         </div>
-                        {c.carriedIn && <ActualLine date={c.actualStart} />}
                       </TableCell>
-                      <TableCell title={c.tooltip}>
-                        {c.ongoing ? (
-                          <OngoingBadge />
-                        ) : (
-                          <>
-                            <div>
-                              {c.dispEnd}
-                              {c.carriedOut && <CarriedOut />}
-                            </div>
-                            {c.carriedOut && <ActualLine date={c.actualEnd} />}
-                          </>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right">{numFmt(row.dpr)}</TableCell>
-                      <TableCell className="text-right">{numFmt(row.inventory)}</TableCell>
-                      <TableCell className="text-right">{numFmt(row.dc)}</TableCell>
-                      <TableCell className="text-right">{numFmt(row.dn)}</TableCell>
+                      <StartCell c={c} />
+                      <EndCell c={c} />
+                      {NUMERIC_COLUMNS.map((col) => (
+                        <NumberCell key={col.key} value={row[col.key]} col={col} />
+                      ))}
                     </TableRow>
 
                     {canExpand &&
@@ -463,37 +610,29 @@ export default function MonthlyWIPPage() {
                       row.periods.map((p, i) => {
                         const cp = clampWip(p.start, p.end, reportMonth);
                         return (
-                          <TableRow key={`${row.project}-stint-${i}`} className="bg-muted/40">
-                            <TableCell className="w-8" />
-                            <TableCell className="pl-8 text-sm text-muted-foreground">
+                          <TableRow
+                            key={`${row.project}-stint-${i}`}
+                            className="bg-sky-50 hover:bg-sky-50 dark:bg-sky-950/30 dark:hover:bg-sky-950/30"
+                          >
+                            <TableCell className="bg-muted/60" />
+                            <TableCell className={cn("pl-8 text-sm text-muted-foreground", LEAN_EDGE)}>
                               <span className="mr-2">Stint {i + 1}</span>
                               <StatusBadge status={p.status} />
                             </TableCell>
-                            <TableCell className="text-right text-sm">{p.days}</TableCell>
-                            <TableCell className="text-sm" title={cp.tooltip}>
-                              <div>
-                                {cp.dispStart}
-                                {cp.carriedIn && <CarriedIn />}
-                              </div>
-                              {cp.carriedIn && <ActualLine date={cp.actualStart} />}
-                            </TableCell>
-                            <TableCell className="text-sm" title={cp.tooltip}>
-                              {cp.ongoing ? (
-                                <OngoingBadge />
+                            <StartCell c={cp} small />
+                            <EndCell c={cp} small />
+                            {NUMERIC_COLUMNS.map((col) =>
+                              col.lifetime ? (
+                                <DashCell key={col.key} col={col} />
                               ) : (
-                                <>
-                                  <div>
-                                    {cp.dispEnd}
-                                    {cp.carriedOut && <CarriedOut />}
-                                  </div>
-                                  {cp.carriedOut && <ActualLine date={cp.actualEnd} />}
-                                </>
-                              )}
-                            </TableCell>
-                            <TableCell className="text-right text-sm">{numFmt(p.dpr)}</TableCell>
-                            <TableCell className="text-right text-sm">{numFmt(p.inventory)}</TableCell>
-                            <TableCell className="text-right text-sm">{numFmt(p.dc)}</TableCell>
-                            <TableCell className="text-right text-sm">{numFmt(p.dn)}</TableCell>
+                                <NumberCell
+                                  key={col.key}
+                                  value={p[col.key as keyof WipPeriod] as number}
+                                  col={col}
+                                  small
+                                />
+                              )
+                            )}
                           </TableRow>
                         );
                       })}

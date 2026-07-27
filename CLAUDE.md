@@ -345,5 +345,6 @@ editor (Luckysheet-as-static-assets planned) whose workbook state is persisted s
 | Invoice Autofill | `.claude/context/domain/invoice-autofill.md` |
 | **Invoice Qty** (derived `invoice_qty`, recompute classifier, backfill + Gemini extraction, cache, Resolve UI) | `.claude/context/domain/invoice-qty.md` |
 | Vendor Hold | `frontend/.claude/context/domain/vendor-hold.md` |
+| **Monthly WIP & Handover report** (Reports hub → Projects → "Monthly WIP"; 5-group/15-col compliance table: DPR-daily / Inventory-weekly / lifetime PO-dispatch + DC; active-days from Version history) | `.claude/plans/monthly-wip-plan.md` |
 | Frontend domain context (full) | `frontend/.claude/context/_index.md` |
 | Session changelog | `.claude/CHANGELOG.md` |

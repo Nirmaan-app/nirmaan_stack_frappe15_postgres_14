@@ -13,7 +13,9 @@ from frappe.tests.utils import FrappeTestCase
 from nirmaan_stack.api.reports.wip_monthly_report import (
     _active_periods_for_month,
     _build_intervals,
+    _compliance_metrics,
     _merged_active_periods,
+    _period_day_set,
 )
 
 NOW = datetime(2026, 7, 9, 12, 0, 0)
@@ -109,3 +111,62 @@ class TestActiveIntervals(FrappeTestCase):
         total, periods = _active_periods_for_month(merged, date(2026, 1, 1), date(2026, 2, 1))
         self.assertEqual(total, 0)
         self.assertEqual(periods, [])
+
+
+class TestComplianceMetrics(FrappeTestCase):
+    # Anchor: 2026-01-01 is a Thursday, so 2026-01-05 is a Monday and 2026-01-04
+    # / 11 / 18 / 25 are Sundays. All windows below use ``[cstart, cend)``.
+
+    # --- _period_day_set --------------------------------------------------- #
+    def test_period_day_set_entry_in_exit_out(self):
+        s = _period_day_set(date(2026, 1, 5), date(2026, 1, 12))  # Mon 5 .. Sun 11
+        self.assertEqual(len(s), 7)
+        self.assertIn(date(2026, 1, 5), s)        # entry day counts
+        self.assertNotIn(date(2026, 1, 12), s)    # exit day does not
+
+    # --- _compliance_metrics: DPR (daily, Sundays excluded) ---------------- #
+    def test_dpr_excludes_sundays_and_reconciles(self):
+        active = _period_day_set(date(2026, 1, 5), date(2026, 1, 12))  # Mon..Sun (7d)
+        dpr = {
+            date(2026, 1, 5), date(2026, 1, 7), date(2026, 1, 9),  # 3 working-day DPRs
+            date(2026, 1, 11),  # Sunday DPR — NOT counted (Sunday isn't a working day)
+            date(2026, 1, 20),  # outside the active window — NOT counted
+        }
+        m = _compliance_metrics(active, dpr, set())
+        self.assertEqual(m["active_working_days"], 6)   # 7 days − 1 Sunday
+        self.assertEqual(m["total_dpr_days"], 3)
+        self.assertEqual(m["missing_dpr_days"], 3)
+        # The reconciliation guarantee the report is built on:
+        self.assertEqual(m["total_dpr_days"] + m["missing_dpr_days"], m["active_working_days"])
+
+    # --- _compliance_metrics: Inventory (weekly, Monday-dated) ------------- #
+    def test_inventory_counts_only_monday_dated_reports(self):
+        active = _period_day_set(date(2026, 1, 5), date(2026, 1, 12))  # one Monday: Jan 5
+        # Filed on Tuesday — does NOT cover the Monday.
+        m1 = _compliance_metrics(active, set(), {date(2026, 1, 6)})
+        self.assertEqual(m1["expected_inventory"], 1)
+        self.assertEqual(m1["actual_inventory"], 0)
+        self.assertEqual(m1["missing_inventory"], 1)
+        # Filed on the Monday itself — covers it.
+        m2 = _compliance_metrics(active, set(), {date(2026, 1, 5)})
+        self.assertEqual(m2["actual_inventory"], 1)
+        self.assertEqual(m2["missing_inventory"], 0)
+
+    def test_inventory_two_mondays_partial(self):
+        active = _period_day_set(date(2026, 1, 5), date(2026, 1, 19))  # Mon 5 .. Sun 18
+        m = _compliance_metrics(active, set(), {date(2026, 1, 12)})  # 2nd Monday only
+        self.assertEqual(m["active_working_days"], 12)  # 14 days − 2 Sundays
+        self.assertEqual(m["expected_inventory"], 2)    # Jan 5 + Jan 12
+        self.assertEqual(m["actual_inventory"], 1)
+        self.assertEqual(m["missing_inventory"], 1)
+
+    def test_empty_active_set_is_all_zero(self):
+        m = _compliance_metrics(set(), {date(2026, 1, 5)}, {date(2026, 1, 5)})
+        self.assertEqual(
+            (m["active_working_days"], m["total_dpr_days"], m["missing_dpr_days"]),
+            (0, 0, 0),
+        )
+        self.assertEqual(
+            (m["expected_inventory"], m["actual_inventory"], m["missing_inventory"]),
+            (0, 0, 0),
+        )
