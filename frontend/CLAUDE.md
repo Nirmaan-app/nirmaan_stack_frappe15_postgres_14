@@ -801,6 +801,14 @@ status / decisions: `frontend/.claude/plans/pricing-module-plan.md`.
   capped element). Short lists are unaffected (natural height, no scrollbar). Bare-ID specificity wins over the
   vendored script-injected styles — no `!important` needed. Accepted residual: a list opened low in the
   viewport can overhang the bottom edge but stays scrollable.
+- **Dropdown type-to-search (PW-DS) is an APP-LEVEL DOM augmentation (`pricingDropdownSearch.ts`), never a
+  vendored change.** `installDropdownSearch()` (one `useEffect([])` in `PricingWorkbookPage`) runs a
+  `document.body` `MutationObserver` that, on each dropdown open, prepends a filter `<input>` into
+  `#luckysheet-dataVerification-dropdown-List`. **The input MUST carry `luckysheet-mousedown-cancel`** — without
+  it the engine's global mousedown handler dismisses the popup and steals focus (recon-proven). Selection stays
+  the engine's own document-delegated `.dropdown-List-item` click (filtering only toggles `display`); the module
+  owns arrow/Enter/Escape nav since the engine has none. Pure `filterOptions` / `nextVisibleIndex` are
+  unit-tested. NEVER move this into the vendored `pricing_libs`.
 - **Full-screen (PW-FS) = root-className FLIP, NOT the native Fullscreen API, NOT a portal.** An `expanded`
   `useState` swaps the page root between `flex flex-col h-[calc(100vh-100px)]` and
   `fixed inset-0 z-50 flex flex-col bg-background` (pure `pricingRootClass`) — ONE JSX tree, nothing remounts

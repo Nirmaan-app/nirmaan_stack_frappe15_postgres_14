@@ -1077,6 +1077,78 @@ slice: the served transformed module was byte-stale until restart, `hasFullScree
 - **Import-normalizer candidate: `FALSE()`→`0` / `TRUE()`→`1`** (the v6-prep LibreOffice lesson) — a future
   normalizer rule to consider; not implemented.
 
+## PW-DS — Type-to-search in data-validation dropdowns (2026-07-28)
+
+Long range-sourced dropdowns (e.g. Electrical `I10` = 106 options) were unsearchable — the user had to
+scroll the (now 300px-capped) list to find a value. PW-DS adds a filter box inside the dropdown popup.
+
+**Governing recon:** the 2026-07-28 type-to-search RECON (full report on the owner's Desktop). Every
+load-bearing fact was proven against the live DOM and re-verified in this slice's live matrix.
+
+### Design — an APP-LEVEL DOM augmentation (no vendored change)
+
+- **Module:** `pricingDropdownSearch.ts` exports `installDropdownSearch(): () => void` (returns the
+  uninstaller) plus two PURE unit-tested helpers (`filterOptions`, `nextVisibleIndex`). Wired by ONE
+  `useEffect([])` in `PricingWorkbookPage.tsx` — install on mount, uninstall (observer disconnect + remove any
+  live injected nodes) on unmount. Idempotent install guard (module-scoped `installed` flag).
+- **Observer-driven, re-inject-per-open (self-cleaning cleanup contract).** A `MutationObserver` on
+  `document.body` (`{childList, subtree}`) detects the popup opening; the callback is O(1) in the common case
+  (one `getElementById` + one inline-`display` read) and only augments when the pricing dropdown is actually
+  open, has options, and is not yet augmented. Body-scoped + engine-agnostic so it survives every engine
+  re-init (edit / release / sandbox / import destroy + recreate the popup container). Recon Q5: the engine
+  **rebuilds the popup's `.dropdown-List-item` children on every open** (childList: N removed + N added, then
+  `display:block`), which auto-wipes our injected input — so we simply re-inject each open and never need to
+  clean up on close.
+- **The injected input MUST carry `luckysheet-mousedown-cancel` (LOAD-BEARING, recon-proven by a NEGATIVE
+  probe).** Without that class the engine's global mousedown handler dismisses the popup and steals focus to
+  the cell editor the instant the input is clicked. This is the one hard requirement.
+- **Filter semantics:** the pure `filterOptions(texts, query)` — case-insensitive substring on the TRIMMED
+  query, empty query = all, returns a boolean mask PARALLEL to the input (hide/show via `display`, NEVER a
+  re-sort). Zero matches → a muted, non-clickable "No matches" row (not a `.dropdown-List-item`, so the
+  engine's delegated click handler ignores it). Selection stays the engine's own DELEGATED-on-`document`
+  handler (`click` → `.dropdown-List-item`) — hiding non-matches leaves survivors clickable, and Enter fires a
+  synthetic `.click()` so the engine performs the cell write. Click-to-select without typing is untouched.
+- **Own keyboard nav (the engine has NONE — recon Q6: arrows fall through to the GRID).** On the input,
+  ArrowUp/ArrowDown move a highlight over VISIBLE items (pure `nextVisibleIndex`, clamped, scrolled into view
+  within the 300px cap); Enter selects the highlighted row **or, with no explicit highlight, the FIRST visible
+  row** (so Enter-straight-after-typing picks the top match — the live-matrix item-d fix); Escape closes
+  (mirror the engine's dismiss: `display:none` + remove the input). All FOUR keys `stopPropagation` +
+  `preventDefault`, or the arrows would move the grid selection and close the popup.
+- **CSS (`pricing.css`):** the sticky full-width input, the highlight class, the muted no-matches row. Plain
+  hex (not Tailwind tokens) on purpose — this styles the vendored Luckysheet light-theme popup DOM, consistent
+  with the existing bare-ID 300px cap rule. The sticky input's ~30px sits INSIDE the 300px cap (recon Q4); no
+  cap change.
+
+### Fallback shapes on record (not needed — the injected input works)
+
+If the injected-input coexistence ever breaks in a future engine version: (a) a document-level keystroke
+capture with no visible input, filtering the open list and echoing the typed buffer in a chip; or (b) a
+floating search chip positioned NEXT to the popup rather than inside it.
+
+### Verification
+
+- **Gates:** tsc `--noEmit` (0 errors in slice files); `yarn build` OK (known-benign chunk-size warning;
+  vendored libs stay unbundled — `PricingWorkbookPage` chunk ~60 KB). Vitest 960 → **976** (+16, one new
+  file `pricingDropdownSearch.test.ts` covering `filterOptions` case/substring/order/empty/no-match/trim +
+  the never-reorder negative, and `nextVisibleIndex` sparse-mask/clamp/seed/empty→-1).
+- **Live matrix (Sandbox, all three workbooks):** a) I10 (106 opts) opens with the box focused, "rccb"→18,
+  click writes + closes, reopen = fresh empty box; b) type "mccb", ArrowDown×3 highlights the 3rd visible +
+  scrolls, Enter writes it, **grid selection did NOT move during arrows**; c) "zzzz" → "No matches",
+  backspace restores; d) short list O39 (Wire/Cable) — box appears, "w"+Enter selects Wire (first-visible
+  fallback), click-without-typing still works; e) full-screen — search+select works identically inside the
+  flipped subtree; f) cell-edit non-regression — no popup, normal edit + Esc-cancel, the augmentation does not
+  interfere (a leftover input lives only inside the hidden container, inert); g) cross-workbook — HVAC + ELV
+  (incl. the ELV 195-source Sprinkler dropdown) filter + select; h) dismissal — click inside stays open
+  (class exemption), click outside closes (engine behavior preserved); i) end state — all sandboxes exited,
+  all locks NULL, all three versions unchanged (Electrical v5 / HVAC v1 / ELV v1).
+- **One fix cycle:** item-d Enter-with-no-highlight originally no-op'd; fixed to fall back to the first
+  visible option; a + f re-verified green after.
+
+### Backwards-compat
+
+Pure DOM augmentation — the engine's delegated click-to-select is untouched; with no popup open there is zero
+interference with normal grid/cell editing; no vendored change, no backend, no doctype.
+
 ## PM-3+ / remaining module queue
 
 - **Univer spike**, then the production go-live sequence.
