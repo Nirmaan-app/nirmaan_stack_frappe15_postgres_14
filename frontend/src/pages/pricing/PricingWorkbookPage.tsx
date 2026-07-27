@@ -68,6 +68,7 @@ import {
 import { ImportReportDialog, reportIsNoop } from "./ImportReportDialog";
 import { REASON_NEEDS_HELPER, applyHelperFixesOffline, applyLiveFix, assessHit } from "./pricingLiveFix";
 import { attachDataValidations } from "./pricingValidations";
+import { installDropdownSearch } from "./pricingDropdownSearch";
 import { workbookForPath } from "./pricingWorkbooks";
 import { pricingRootClass, shouldExitPricingFullscreenOnEsc } from "./pricingHelpers";
 // Dropdown cap (DIAG 2026-07-27): a bare-ID rule capping the Luckysheet
@@ -418,6 +419,17 @@ export function PricingWorkbookPage() {
 		const id = requestAnimationFrame(() => window.luckysheet?.resize?.());
 		return () => cancelAnimationFrame(id);
 	}, [expanded]);
+
+	// -- PW-DS: type-to-search in data-validation dropdowns ---------------
+	// App-level DOM augmentation over the vendored engine (NO vendored change): a
+	// MutationObserver watches for the dropdown popup to open and prepends a search
+	// input that filters the option rows. Installed once per page mount, torn down on
+	// unmount. Body-scoped + engine-agnostic, so it survives every re-init (edit /
+	// release / sandbox / import). See pricingDropdownSearch.ts.
+	useEffect(() => {
+		const uninstall = installDropdownSearch();
+		return uninstall;
+	}, []);
 
 	// -- actions -----------------------------------------------------------
 	const reloadSheet = useCallback(
