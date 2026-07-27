@@ -30,7 +30,6 @@ import { useGstOptions } from "@/hooks/useGstOptions";
 import { NirmaanAttachment } from "@/types/NirmaanStack/NirmaanAttachment";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
-import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
 
 // --- Config ---
 import { PO_INVOICE_SEARCHABLE_FIELDS, PO_INVOICE_DATE_COLUMNS, PO_INVOICE_RECONCILIATION_STATUS_OPTIONS } from '../config/poInvoicesTable.config';
@@ -105,19 +104,10 @@ interface PoInvoicesProps {
  */
 const InvoiceAmountCell: React.FC<{ item: InvoiceItem }> = ({ item }) => {
     const [open, setOpen] = useState(false);
-    // The reconciliation feed carries only Approved PO invoices; build the minimal
-    // VendorInvoice the dialog needs (it fetches line_mappings itself, by `name`).
-    const dialogInvoice = {
-        name: item.name,
-        invoice_no: item.invoice_no,
-        invoice_date: item.date,
-        invoice_amount: item.amount,
-        status: "Approved",
-        invoice_attachment: item.invoice_attachment_id,
-        document_name: item.procurement_order,
-        document_type: "Procurement Orders",
-        project: item.project,
-    } as unknown as VendorInvoice;
+    // The dialog self-fetches the document's invoices (and their line mappings)
+    // from `poNumber` + `visibleStatuses` — it takes no invoice list. The hand-built
+    // `dialogInvoice` that used to sit here fed a `vendorInvoices` prop that no
+    // longer exists on the dialog (ADR-0010 #4 WS-B).
 
     return (
         <>
@@ -131,7 +121,6 @@ const InvoiceAmountCell: React.FC<{ item: InvoiceItem }> = ({ item }) => {
             <InvoiceDataDialog
                 open={open}
                 onOpenChange={setOpen}
-                vendorInvoices={[dialogInvoice]}
                 visibleStatuses={["Pending", "Approved", "Rejected"]}
                 project={item.project}
                 poNumber={item.procurement_order}

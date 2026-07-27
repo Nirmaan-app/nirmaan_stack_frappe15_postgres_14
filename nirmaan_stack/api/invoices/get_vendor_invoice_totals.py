@@ -7,7 +7,7 @@ Used by frontend components to replace inline JSON parsing of invoice_data.
 
 import frappe
 from frappe import _
-from frappe.utils import flt
+from frappe.utils import add_days, flt, getdate, today
 import json
 
 
@@ -363,20 +363,147 @@ def get_invoice_totals_by_document():
     useTotalInvoicedByDocument). GROUP BY in the DB → a flat map keyed
     "<document_type>|<document_name>" so the frontend does an O(1) lookup instead of
     fetching every Pending/Approved invoice (limit:100000). Sum is left unrounded to
-    match the client's parseNumber accumulation exactly."""
+    match the client's parseNumber accumulation exactly.
+
+    Returns the map DIRECTLY — NOT the `{"message": ..., "status": 200}` envelope the
+    other functions in this module use. Frappe already wraps a whitelisted return in
+    `{"message": ...}`, so the envelope reached the client as `response.message.message`
+    and every key lookup read undefined — the column rendered "—" on every row from the
+    day this endpoint shipped. That blank column is what prompted the revert to a
+    `limit: 100000` whole-table fetch; the fetch was never the fix, this envelope was
+    the bug. The sibling functions above keep their envelope because their callers
+    already unwrap it.
+    """
     rows = frappe.db.sql(
         """
         SELECT document_type, document_name, SUM(invoice_amount) AS total
-        FROM `tabVendor Invoices`
+        FROM "tabVendor Invoices"
         WHERE status IN ('Pending', 'Approved')
         GROUP BY document_type, document_name
         """,
         as_dict=True,
     )
     return {
-        "message": {
-            f"{r['document_type']}|{r['document_name']}": flt(r["total"])
-            for r in rows
-        },
-        "status": 200,
+        f"{r['document_type']}|{r['document_name']}": flt(r["total"])
+        for r in rows
+    }
+
+
+@frappe.whitelist()
+def get_invoice_dashboard_stats():
+    """Time-windowed Vendor Invoice activity for the reconciliation summary.
+
+    Three measures x three windows x (count, amount):
+      - ADDED         : invoices created in the window, any status (by `creation`)
+      - AUTO APPROVED : status Approved AND auto_approved = 1
+      - MANUAL APPROVED: status Approved AND auto_approved != 1
+
+    Windows are today, the last 7 days and the last 30 days, each INCLUSIVE of
+    today — matching `get_payment_dashboard_stats`' `add_days(today, -6)` /
+    `-29` convention so the two summary cards on adjacent screens mean the same
+    thing by "7 days".
+
+    Deliberately ONE aggregate query rather than the row-loop-in-Python approach
+    used by `get_payment_dashboard_stats`: ADR-0010 B5 puts counts/aggregates
+    over many rows in the database. A CTE computes the two derived date columns
+    once so the FILTER clauses stay readable.
+
+    Notes on the edges:
+      - `approved_on` is NULL on a handful of legacy Approved rows; those fall
+        back to `modified` so they cannot silently vanish from every window.
+      - Amounts are summed AS STORED, so a credit note (negative
+        `invoice_amount`) nets the value down. That is the intended "value"
+        semantics — these are money totals, not document counts.
+      - Dates are derived via `frappe.utils` (site timezone, Asia/Kolkata)
+        rather than SQL's CURRENT_DATE, which would follow the DB session's
+        timezone instead.
+    """
+    today_date = getdate(today())
+    seven_days_ago = getdate(add_days(today_date, -6))
+    thirty_days_ago = getdate(add_days(today_date, -29))
+
+    params = {
+        "today": today_date,
+        "seven": seven_days_ago,
+        "thirty": thirty_days_ago,
+    }
+
+    rows = frappe.db.sql(
+        """
+        WITH inv AS (
+            SELECT
+                invoice_amount,
+                status,
+                COALESCE(auto_approved, 0)                  AS is_auto,
+                creation::date                              AS created_on,
+                COALESCE(approved_on, modified)::date       AS actioned_on
+            FROM "tabVendor Invoices"
+        )
+        SELECT
+            -- Added (by creation, any status)
+            COUNT(*) FILTER (WHERE created_on = %(today)s)                              AS added_today_count,
+            COALESCE(SUM(invoice_amount) FILTER (WHERE created_on = %(today)s), 0)      AS added_today_amount,
+            COUNT(*) FILTER (WHERE created_on >= %(seven)s)                             AS added_7d_count,
+            COALESCE(SUM(invoice_amount) FILTER (WHERE created_on >= %(seven)s), 0)     AS added_7d_amount,
+            COUNT(*) FILTER (WHERE created_on >= %(thirty)s)                            AS added_30d_count,
+            COALESCE(SUM(invoice_amount) FILTER (WHERE created_on >= %(thirty)s), 0)    AS added_30d_amount,
+
+            -- Auto-approved (System stamped it at insert)
+            COUNT(*) FILTER (
+                WHERE status = 'Approved' AND is_auto = 1 AND actioned_on = %(today)s
+            ) AS auto_today_count,
+            COALESCE(SUM(invoice_amount) FILTER (
+                WHERE status = 'Approved' AND is_auto = 1 AND actioned_on = %(today)s
+            ), 0) AS auto_today_amount,
+            COUNT(*) FILTER (
+                WHERE status = 'Approved' AND is_auto = 1 AND actioned_on >= %(seven)s
+            ) AS auto_7d_count,
+            COALESCE(SUM(invoice_amount) FILTER (
+                WHERE status = 'Approved' AND is_auto = 1 AND actioned_on >= %(seven)s
+            ), 0) AS auto_7d_amount,
+            COUNT(*) FILTER (
+                WHERE status = 'Approved' AND is_auto = 1 AND actioned_on >= %(thirty)s
+            ) AS auto_30d_count,
+            COALESCE(SUM(invoice_amount) FILTER (
+                WHERE status = 'Approved' AND is_auto = 1 AND actioned_on >= %(thirty)s
+            ), 0) AS auto_30d_amount,
+
+            -- Manually approved (a human actioned it)
+            COUNT(*) FILTER (
+                WHERE status = 'Approved' AND is_auto <> 1 AND actioned_on = %(today)s
+            ) AS manual_today_count,
+            COALESCE(SUM(invoice_amount) FILTER (
+                WHERE status = 'Approved' AND is_auto <> 1 AND actioned_on = %(today)s
+            ), 0) AS manual_today_amount,
+            COUNT(*) FILTER (
+                WHERE status = 'Approved' AND is_auto <> 1 AND actioned_on >= %(seven)s
+            ) AS manual_7d_count,
+            COALESCE(SUM(invoice_amount) FILTER (
+                WHERE status = 'Approved' AND is_auto <> 1 AND actioned_on >= %(seven)s
+            ), 0) AS manual_7d_amount,
+            COUNT(*) FILTER (
+                WHERE status = 'Approved' AND is_auto <> 1 AND actioned_on >= %(thirty)s
+            ) AS manual_30d_count,
+            COALESCE(SUM(invoice_amount) FILTER (
+                WHERE status = 'Approved' AND is_auto <> 1 AND actioned_on >= %(thirty)s
+            ), 0) AS manual_30d_amount
+        FROM inv
+        """,
+        params,
+        as_dict=True,
+    )
+
+    stats = rows[0] if rows else {}
+    # Counts stay ints, amounts go through flt so the JSON carries numbers the
+    # frontend can format without re-parsing.
+    #
+    # Returns the stats dict DIRECTLY — deliberately NOT the
+    # `{"message": ..., "status": 200}` envelope the older functions above use.
+    # Frappe already wraps a whitelisted return in `{"message": ...}`, so that
+    # envelope would land on the client as `response.message.message` and every
+    # lookup would read undefined (i.e. render ₹0). Matches
+    # `get_payment_dashboard_stats`, which the summary card is modelled on.
+    return {
+        key: (flt(value) if key.endswith("_amount") else int(value or 0))
+        for key, value in stats.items()
     }

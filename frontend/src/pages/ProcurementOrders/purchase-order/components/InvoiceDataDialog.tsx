@@ -48,24 +48,38 @@ export const InvoiceDataDialog = ({
   documentType = "Procurement Orders",
   visibleStatuses = ["Approved"],
 }: InvoiceDataDialogProps) => {
-  // Self-fetch this doc's Approved invoices only when the dialog is open (swrKey null
+  // Self-fetch this doc's invoices only when the dialog is open (swrKey null
   // disables until then). Filter by `document_name` (= poNumber) + status only — NOT
   // `document_type`: document_name is globally unique, so this preserves the PO-and-SR
   // behavior of the shared callers. Replaces the whole-table `vendorInvoices` prop
   // (ADR-0010 #4 WS-B).
+  //
+  // The status filter is driven by `visibleStatuses` (default ["Approved"], so the
+  // original callers are unchanged). It used to be hardcoded to 'Approved' with
+  // `visibleStatuses` applied only as a CLIENT filter on top — which meant a caller
+  // asking for Pending got a query that could never return one. On the reconciliation
+  // screen's Pending tab that made the dialog structurally incapable of showing the
+  // very invoice the user clicked.
+  const statusFilter = useMemo(
+    () => (visibleStatuses.length ? [...visibleStatuses].sort() : ["Approved"]),
+    [visibleStatuses]
+  );
   const { data: fetchedInvoices } = useFrappeGetDocList<VendorInvoice>(
     "Vendor Invoices",
     {
       fields: ["name", "document_name", "invoice_amount", "invoice_no", "invoice_date", "invoice_attachment", "status"],
-      filters: [["document_name", "=", poNumber ?? ""], ["status", "=", "Approved"]],
+      filters: [["document_name", "=", poNumber ?? ""], ["status", "in", statusFilter]],
       limit: 0,
     },
-    open && poNumber ? `InvoiceDialog-${poNumber}` : null
+    // The status set is part of the cache identity: without it, two dialogs on the
+    // same document but different `visibleStatuses` would share one SWR entry and
+    // whichever opened first would decide what the other sees.
+    open && poNumber ? `InvoiceDialog-${poNumber}-${statusFilter.join(",")}` : null
   );
-  const approvedInvoices = fetchedInvoices ?? [];
   const isPO = documentType === "Procurement Orders";
   const docNumberLabel = isPO ? "PO Number:" : "WO Number:";
-  const visibleInvoices = approvedInvoices.filter(inv => visibleStatuses.includes(inv.status));
+  // The query already scopes to the requested statuses — no second client-side pass.
+  const visibleInvoices = fetchedInvoices ?? [];
 
   // `invoice_attachment` on a Vendor Invoice is a Link to a `Nirmaan Attachments`
   // doc (an ID, not a file URL). Resolve IDs → file URLs in one batch when the

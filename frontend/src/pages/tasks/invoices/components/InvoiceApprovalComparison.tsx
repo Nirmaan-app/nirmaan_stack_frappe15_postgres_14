@@ -13,7 +13,7 @@
  */
 import React, { useMemo } from "react";
 import { useFrappeGetDoc } from "frappe-react-sdk";
-import { CheckCircle2, XCircle, Sparkles } from "lucide-react";
+import { AlertTriangle, CheckCircle2, XCircle, Sparkles } from "lucide-react";
 import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
@@ -21,6 +21,7 @@ import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { formatDate } from "date-fns";
 import { MappingTableView } from "@/pages/ProcurementOrders/invoices-and-dcs/components/MappingTableView";
+import { summariseSkipReasons } from "@/pages/tasks/invoices/utils/autoApproveReasons";
 
 /**
  * Robust amount parser. The shared `parseNumber` util uses bare `parseFloat`,
@@ -153,6 +154,13 @@ export const InvoiceApprovalComparison: React.FC<Props> = ({
     const entities = useMemo(
         () => parseEntities(invoice.autofill_all_entities_json),
         [invoice.autofill_all_entities_json]
+    );
+
+    // Why auto-approval declined this invoice — tiered + cascade-collapsed by
+    // the pure module so a hand-typed entry doesn't render 10 implied tokens.
+    const skipSummary = useMemo(
+        () => summariseSkipReasons(invoice),
+        [invoice]
     );
 
     const aiPurchaseOrder = entities["purchase_order"];
@@ -336,6 +344,69 @@ export const InvoiceApprovalComparison: React.FC<Props> = ({
                         lines={lineMappings}
                         title="Line-item mapping (verified at upload)"
                     />
+                </div>
+            )}
+
+            {/* Why the system declined to auto-approve. This is the last surface
+                before a human commits, so the flags belong here rather than only
+                in the table — a reviewer who never scrolls the grid still sees
+                them. Blockers first, cascade already collapsed. */}
+            {skipSummary.flags.length > 0 && (
+                <div className="rounded-md border border-amber-200 bg-amber-50 overflow-hidden">
+                    <div className="px-3 py-1.5 border-b border-amber-200 flex items-center gap-1.5">
+                        <AlertTriangle className="h-3.5 w-3.5 text-amber-700" />
+                        <span className="text-xs font-medium text-amber-900">
+                            Not auto-approved — {skipSummary.flags.length} check
+                            {skipSummary.flags.length === 1 ? "" : "s"} to confirm
+                        </span>
+                    </div>
+                    <ul className="p-2 space-y-1">
+                        {skipSummary.flags.map((reason) => (
+                            <li key={reason.token} className="flex items-start gap-1.5 text-xs">
+                                <span
+                                    className={`mt-1.5 h-1.5 w-1.5 rounded-full shrink-0 ${reason.tier === "blocker"
+                                            ? "bg-red-500"
+                                            : reason.tier === "check"
+                                                ? "bg-amber-500"
+                                                : "bg-gray-400"
+                                        }`}
+                                />
+                                <span
+                                    className={
+                                        reason.tier === "blocker"
+                                            ? "text-red-800 font-medium"
+                                            : "text-gray-800"
+                                    }
+                                >
+                                    {reason.label}
+                                </span>
+                            </li>
+                        ))}
+                    </ul>
+                    {(skipSummary.eligibility.length > 0 || skipSummary.suppressedCount > 0) && (
+                        <div className="border-t border-amber-200 px-3 py-1.5 text-[10px] text-amber-800/80 space-y-0.5">
+                            {skipSummary.eligibility.map((r) => (
+                                <div key={r.token}>{r.label}</div>
+                            ))}
+                            {skipSummary.suppressedCount > 0 && (
+                                <div>
+                                    {skipSummary.suppressedCount} further AI check
+                                    {skipSummary.suppressedCount === 1 ? "" : "s"} not applicable
+                                </div>
+                            )}
+                        </div>
+                    )}
+                    <div className="border-t border-amber-200 px-3 py-1.5 text-[10px] text-amber-800/70">
+                        Recorded when the invoice was created; not re-checked after edits.
+                    </div>
+                </div>
+            )}
+
+            {/* Eligibility-only: nothing failed, it simply was never a candidate. */}
+            {skipSummary.flags.length === 0 && skipSummary.eligibility.length > 0 && (
+                <div className="text-[11px] text-gray-500 italic px-1">
+                    Not eligible for auto-approval:{" "}
+                    {skipSummary.eligibility.map((r) => r.label).join(" · ")}
                 </div>
             )}
 
