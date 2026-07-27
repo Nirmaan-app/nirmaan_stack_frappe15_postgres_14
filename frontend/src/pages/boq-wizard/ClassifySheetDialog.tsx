@@ -24,7 +24,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { getFrappeError } from "@/utils/frappeErrors";
-import type { ClassifyScope, EngineOption, SheetCategoryRow } from "./boqTypes";
+import type { ClassifyScope, EngineOption } from "./boqTypes";
 
 // ── Pure helpers (vitest-tested) ─────────────────────────────────────────────────
 
@@ -114,17 +114,11 @@ export function aiStatusNote(aiStatus: string | null | undefined): string {
   return "";
 }
 
-/**
- * Whether a category row is an unresolved "Needs review" verdict -- routed to review AND without a
- * human override yet. Drives the amber cue in the grid's Category column.
- */
-export function isNeedsReviewCategory(cat: SheetCategoryRow | undefined): boolean {
-  return (
-    !!cat &&
-    cat.routing === "Needs review" &&
-    !(cat.human_category_id && cat.human_category_id.trim())
-  );
-}
+// Slice G2e: isNeedsReviewCategory was RETIRED here. It returned FALSE for a never-classified row
+// (undefined), so it could not surface the rows the widened "empty is empty" gate now counts. Its
+// sole functional caller (the Check-Category view filter) + the grid's amber fill now share ONE
+// predicate, PricingGrid.isMasterSetBlank(row, cat), which takes the ROW (for node_type) and treats
+// a never-classified / blank / whitespace cell as blank -- the filter shows exactly what amber shows.
 
 // ── Component ────────────────────────────────────────────────────────────────────
 

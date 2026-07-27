@@ -871,6 +871,26 @@ export interface GetPricedRowsResponse {
   frozen_by: string | null;
   /** When the classification was frozen (null when not frozen). */
   frozen_at: string | null;
+  /**
+   * CATEGORY GATE payload (Slices G2a/G2b/G2e). `eligible_blank_category_count` = the count of
+   * ELIGIBLE master-set rows (node_type Line Item / Preamble) whose RESOLVED category is blank
+   * ("empty is empty"); `categories_complete` = (count === 0). This is the SAME population +
+   * number `get_freeze_summary` counts. The page derives the count client-side from the shared
+   * `isMasterSetBlank` predicate (so it can update live); these server values are the load-time
+   * parity source. 0 / true for an uncommitted / grid-only sheet.
+   */
+  eligible_blank_category_count: number;
+  categories_complete: boolean;
+  /**
+   * The admin category-gate OVERRIDE state for this committed version (Slice G2b). When
+   * `category_gate_override` is true the gate is OPEN despite blanks; the other three describe who
+   * set it, when, and an optional reason. G3a DISPLAYS these (the set/clear control is G3b). All
+   * false / null for an uncommitted / grid-only sheet or when the override is unset.
+   */
+  category_gate_override: boolean;
+  category_override_by: string | null;
+  category_override_at: string | null;
+  category_override_reason: string | null;
 }
 
 // ── Slice 4b-A: the computed review-flag layer (Cluster A) ───────────────────────

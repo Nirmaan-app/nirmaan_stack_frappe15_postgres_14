@@ -428,13 +428,18 @@ def apply_sheet_carry(dest_boq=None, sheet_name=None, decisions=None) -> dict:
         raise
 
     if reason:
-        frappe.throw(_APPLY_BLOCK_MESSAGE[reason], title=_APPLY_BLOCK_TITLE[reason])
+        message = _APPLY_BLOCK_MESSAGE[reason]
+        if reason == "categories_incomplete":
+            # the ONLY block that names the destination sheet -- two BOQs are in play, so
+            # "this sheet" would be ambiguous (owner requirement, Slice G2c).
+            message = message.format(sheet=ctx.dest_sheet_name)
+        frappe.throw(message, title=_APPLY_BLOCK_TITLE[reason])
 
     summary["ok"] = True
     return summary
 
 
-#: The three known gate blocks `_apply_sheet_carry` reports, as user-facing copy. The worker path
+#: The known gate blocks `_apply_sheet_carry` reports, as user-facing copy. The worker path
 #: (C6 removes it) routes these same reasons into its per-sheet `failed[]` instead.
 _APPLY_BLOCK_MESSAGE = {
     "locked_deliberate": "This sheet is locked for editing. Unlock it before carrying.",
@@ -442,11 +447,21 @@ _APPLY_BLOCK_MESSAGE = {
         "Every amount column on this sheet needs a declared formula before anything can be "
         "carried. Define the missing amount formulas first."
     ),
+    # {sheet} is filled with the DESTINATION sheet name at the throw site (two BOQs are in play, so
+    # "this sheet" would be ambiguous -- owner requirement, Slice G2c). This is the only block whose
+    # message is a template; the endpoint formats it, the others are plain.
+    "categories_incomplete": (
+        "Nothing was carried. The destination sheet '{sheet}' still has rows without a category - "
+        "every line item and preamble needs one. Your existing rates are untouched. Categorise the "
+        "destination, then run the carry again and the rates will come across. An admin can override "
+        "this to carry before classification is complete."
+    ),
     "locked": "Another user is editing this sheet right now. Try again once they finish.",
 }
 _APPLY_BLOCK_TITLE = {
     "locked_deliberate": "Sheet locked",
     "formulas_incomplete": "Formulas incomplete",
+    "categories_incomplete": "Categories incomplete",
     "locked": "Being edited",
 }
 
@@ -474,6 +489,16 @@ def _apply_sheet_carry(ctx: _SheetCarry, decisions, user):
         ctx.dest_boq, ctx.dest_sheet_name, ctx.dest_version
     ):
         return None, "formulas_incomplete"
+    # CATEGORY GATE (Slice G2c) -- carried rates land on the DESTINATION sheet, so the DESTINATION's
+    # categories govern (NOT the source). ONE shared condition (pricing._categories_gate_ok) drives
+    # this and the save/copy-forward throws; here we keep this file's reason-tuple idiom so the block
+    # surfaces as the mapped friendly message. Sheet-level, checked ONCE (never per row); the admin
+    # override on the DEST sheet is the only escape. AFTER formula (which keeps precedence), BEFORE
+    # the transient-lock acquire -- so a block returns before any write and nothing is mutated.
+    if not pricing._categories_gate_ok(
+        ctx.dest_boq, ctx.dest_sheet_name, ctx.dest_version
+    ):
+        return None, "categories_incomplete"
 
     try:
         # ONE single-editor-lock acquire on the dest version -- a lock held by ANOTHER user throws

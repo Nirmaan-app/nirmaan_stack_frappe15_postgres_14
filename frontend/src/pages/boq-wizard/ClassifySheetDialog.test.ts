@@ -1,8 +1,10 @@
 // Unit tests for the pure helpers in ClassifySheetDialog (BoQ Phase 5 CL-2 classify-sheet UI).
 //
 // These pin the launch/progress/summary logic that the JSX dialog + SheetPricingPage depend on
-// (engine gating, range validation, monotonic progress folding, the skip rollup wording, and the
-// needs-review verdict predicate). The JSX itself is manual-cert; only these pure fns are tested.
+// (engine gating, range validation, monotonic progress folding, the skip rollup wording). The JSX
+// itself is manual-cert; only these pure fns are tested. (Slice G2e: the needs-review verdict
+// predicate isNeedsReviewCategory was retired; its replacement isMasterSetBlank is tested in
+// PricingGrid.test.ts, where the predicate now lives.)
 import { describe, it, expect } from "vitest";
 import {
   selectableEngines,
@@ -12,27 +14,14 @@ import {
   reduceProgress,
   skipRollupText,
   aiStatusNote,
-  isNeedsReviewCategory,
 } from "./ClassifySheetDialog";
-import type { EngineOption, SheetCategoryRow } from "./boqTypes";
+import type { EngineOption } from "./boqTypes";
 
 const engine = (over: Partial<EngineOption> = {}): EngineOption => ({
   id: "electrical",
   label: "Electrical",
   discipline: "Electrical",
   available: true,
-  ...over,
-});
-
-const cat = (over: Partial<SheetCategoryRow> = {}): SheetCategoryRow => ({
-  excel_row: 10,
-  rule_category_id: "",
-  ai_category_id: "",
-  final_category_id: "",
-  routing: "Auto-accepted",
-  routing_reason: "",
-  human_category_id: "",
-  effective_category_id: "",
   ...over,
 });
 
@@ -140,33 +129,5 @@ describe("aiStatusNote", () => {
     expect(aiStatusNote("ran")).toBe("");
     expect(aiStatusNote(null)).toBe("");
     expect(aiStatusNote(undefined)).toBe("");
-  });
-});
-
-describe("isNeedsReviewCategory", () => {
-  it("is true for a Needs review verdict with no human pick", () => {
-    expect(isNeedsReviewCategory(cat({ routing: "Needs review", human_category_id: "" }))).toBe(
-      true,
-    );
-  });
-
-  it("is false when a human pick is set", () => {
-    expect(
-      isNeedsReviewCategory(cat({ routing: "Needs review", human_category_id: "CAT-1" })),
-    ).toBe(false);
-  });
-
-  it("treats a whitespace-only human pick as no pick (still needs review)", () => {
-    expect(
-      isNeedsReviewCategory(cat({ routing: "Needs review", human_category_id: "   " })),
-    ).toBe(true);
-  });
-
-  it("is false for a non-review routing", () => {
-    expect(isNeedsReviewCategory(cat({ routing: "Auto-accepted" }))).toBe(false);
-  });
-
-  it("is false for undefined", () => {
-    expect(isNeedsReviewCategory(undefined)).toBe(false);
   });
 });

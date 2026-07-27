@@ -13110,3 +13110,718 @@ net-zero (3235, 0 in touched files). Report + live evidence:
 
 **Env note:** `bench migrate` clears sessions -- recovery needed a fresh `bench start` + Vite restart
 + clear-site-data + re-login before start_classify stopped returning the CSRF "Invalid Request".
+
+
+## Build slice 1a (freeze summary onto the multi-engine resolved read) COMPLETE
+
+BACKEND-ONLY, NO migrate. Branch `feature/boq-pricing-helper`, base tip `6da6b207`.
+
+**Why.** `get_freeze_summary` counted eligible rows lacking a category by calling the SINGLE-discipline
+`get_sheet_categories`. On a sheet where two disciplines are both classified, a row categorised only
+under the OTHER discipline was counted uncategorised. A forthcoming rate-edit gate needs the SAME
+count, so it is built as one shared helper, not inline in the endpoint.
+
+**The shared helper (`persist.blank_category_eligible_rows(boq, sheet_name, committed_version)`).**
+Lives in the SERVICE layer (mirrors the `is_sheet_classification_frozen` frozen-reader precedent) so
+both `classify.py` and a future `pricing.py` caller reach it without a service->api import. It returns
+the eligible rows (node_type in {Line Item, Preamble}, is_current) whose RESOLVED effective category is
+blank across EVERY discipline, as `[{excel_row, node_type}]`.
+- **Fail-open guard (LOAD-BEARING, pinned by a test):** a row with NO `BoQ Row Category` record at all
+  is counted BLANK. Never-classified rows are ABSENT from the resolved category read, so the helper
+  keys on the eligible NODE set (the denominator) and applies the ladder to `votes.get(excel_row, {})`
+  -- an absent row resolves to `""` (ladder branch 4) and IS counted blank. A count that scanned only
+  returned category rows would fail OPEN (report 0 blanks) on a never-classified sheet.
+- **Blank criterion = the ladder's effective category is empty** (index [0]), NOT `effective_source ==
+  "blank"` -- this matches the old single-discipline `get_sheet_categories` emptiness test exactly, so a
+  single-discipline sheet's counts are unchanged.
+
+**One shared ladder.** `_resolve_row_ladder` + `_conf` + `_neg_key` were RELOCATED classify ->
+`persist.resolve_row_ladder` (behaviour byte-identical). `get_sheet_categories_resolved` now calls
+`persist.resolve_row_ladder`; the helper calls the same. `test_classify` imports the relocated ladder
+under its former name (`persist.resolve_row_ladder as _resolve_row_ladder`) so the existing
+`TestResolveRowLadder` cases exercise the SAME function. The former `classify._eligible_nodes` reader
+was folded into the helper (its logic + the blank resolution now live together, cannot drift).
+
+**Rewire.** `get_freeze_summary` computes its preamble/line-item blank split from
+`persist.blank_category_eligible_rows`. Its `discipline` parameter is ACCEPTED (backward-compatible
+signature) but NO LONGER USED -- the count resolves across all disciplines. Return keys/types unchanged.
+
+**`get_sheet_categories` stayed BYTE-UNTOUCHED** (hard constraint): it still backs `freeze_classification`'s
+stamping/banking. **`freeze_classification` stamping/banking is DELIBERATELY DEFERRED** to its own slice
+(multi-discipline stamping is an owner decision, out of scope here).
+
+**Before/after (live, `BOQ-26-00131 | ESTIMATE ` (trailing space), committed_version 2):**
+old single-discipline `get_freeze_summary` blank totals = 104 asked `Electrical` (38 preamble + 66 line
+item) / 69 asked `HVAC` (23 + 46); NEW resolved = **54** either way (18 preamble + 36 line item),
+`discipline` param proven ignored. (The 66/46/36 line-item figures match the Slice-1a recon.)
+
+**Tests (bench-verified):** `test_classify` 55 -> 62 (+7, new class `TestFreezeSummaryResolved`:
+helper blank-set across disciplines; positive other-discipline-not-blank; discipline-param-ignored;
+never-classified-is-blank (fail-open); blank-on-every-discipline; preamble/line-item split; single-
+discipline compat pin). Regression `test_pricing` 189 -> 189 (unmoved). Files: `services/boq_category/
+persist.py`, `api/boq/wizard/classify.py`, `api/boq/wizard/test_classify.py`.
+
+
+## Build slice G1 (relocate the qty-bearing test to the service layer) COMPLETE
+
+BACKEND-ONLY, NO migrate, BEHAVIOUR BYTE-IDENTICAL. Branch `feature/boq-pricing-helper`, base tip
+`96bf96f1`.
+
+**Why.** The coming category gate (G2) needs to count blank categories on the RATE-EDITABLE row
+population (Line Item always; Preamble only when qty-bearing). That counting helper lives in the
+SERVICE layer (`persist.blank_category_eligible_rows`). The qty-bearing test lived in the API layer
+(`pricing.py`). Service->api at module top is against convention, so the test moves DOWN and pricing.py
+imports it UP (api->service, legal) -- ONE definition, shared, not a second copy that drifts.
+
+**Home chosen: `services/boq_category/persist.py`.** No node-level service module exists (surveyed
+`services/`: boq_category, boq_parser, boq_revision, extraction -- none is a node-priceability home).
+The spec's node-module preference is explicitly conditional ("preferable to persist.py IF ONE ALREADY
+EXISTS"); none does, and "do NOT create a new module unless no existing home fits". persist.py fits both
+import constraints (pricing.py imports it api->service; the G2 count uses it in-module) AND already reads
+committed `BOQ Nodes` since Slice 1a (`blank_category_eligible_rows`, `_ELIGIBLE_NODE_TYPES`,
+`_BOQ_NODES`, `_current_sheet_doc`) -- so a node-qty test is consistent with the node-reading role
+persist.py already has. A new node module was considered and rejected per the "don't create unless
+nothing fits" rule.
+
+**What moved.** `_is_nonzero_qty` -> `persist.is_nonzero_qty`; `_node_is_qty_bearing` ->
+`persist.node_is_qty_bearing` (both now PUBLIC -- they stopped being private the moment they are
+shared). Logic verbatim (parenttype uses persist's `_BOQ_NODES` = "BOQ Nodes", byte-identical value).
+`pricing.py` now `from ...persist import node_is_qty_bearing` and `_node_priceable_without_override`
+calls it; the now-dead `import math` was removed from pricing.py (its only use was the moved function).
+`_node_priceable_without_override` / `save_cell_price` signatures unchanged.
+
+**Byte-identical proof.** The end-to-end priceability behaviour is pinned by the UNCHANGED
+`TestPreambleQtyBearingGuard` (zero-qty Preamble rejected; scalar-qty + area-child Preambles accepted;
+zero-qty Line Item accepted; Other rejected) -- all still green through `save_cell_price`. The new
+`TestQtyBearingRelocation` pins the relocation SEAM: an `is` identity assert that `pricing.node_is_
+qty_bearing IS persist.node_is_qty_bearing` (+ the old private names are GONE, so there is exactly one
+definition), the `is_nonzero_qty` truth table, and the predicate `_node_priceable_without_override`
+still rejecting a qty-less Preamble / accepting a qty-bearing Preamble + a zero-qty Line Item.
+
+**The client mirror stays.** `isRowQtyBearing` in `PricingGrid.tsx` is NOT touched -- it is a DELIBERATE,
+accepted duplication across the JS<->Python language boundary, not the same code, and out of scope here.
+
+**No circular import** -- proven by running the suites (not by reasoning): persist.py imports only
+`frappe`+`math`; pricing.py -> persist.py -> frappe. **Tests (bench-verified):** `test_pricing` 189 ->
+**193** (+4 `TestQtyBearingRelocation`; no other test moved). Regression `test_classify` **62** unchanged.
+Files: `api/boq/wizard/pricing.py`, `services/boq_category/persist.py`, `api/boq/wizard/test_pricing.py`.
+
+**Known harmless stale reference (deferred, out of scope):** a COMMENT in `review_screen.py:831` names
+`pricing._is_nonzero_qty` (descriptive prose, not a call/import) -- editing it is outside G1 scope; the
+convention it describes still exists, relocated. Flagged for a future touch.
+
+**Stack restart:** R1-R6 ritual run; `frappe.ping` -> 200 (:8000), Vite -> 200 (:8080), single healthy
+instances. **Browser live-cert RUN + PASSED** (owner logged the session in mid-slice; precondition i).
+Sheet `BOQ-26-00106 | ELECTRICAL BOQ` cv1 (formula-complete, classified, has both a rate-editable Line
+Item and qty-less Preambles): C1 root+sheet loaded; C2 a Line Item rate cell took focus (blue ring, value
+1800, NOTHING typed); C3 a qty-less Preamble rate cell was read-only plain "0" with Price-any-row OFF; C4
+Price-any-row ON made that Preamble cell an editable input, OFF returned it to read-only; C5 the Category
+column rendered values ("Point Wiring"). NO rate saved ("240 of 240 priced / All changes saved" unchanged
+throughout). Behaviour byte-identical post-relocation. This unblocks the rate-editable population count in G2.
+
+
+## Build slice G2a (rate-editable blank-category count, surfaced) COMPLETE
+
+BACKEND-ONLY, ADDITIVE, NO behaviour change, NO migrate. Branch `feature/boq-pricing-helper`, base tip
+`4e3caeb4`.
+
+**Why.** The coming gate (G2b) locks rate editing on a sheet until every RATE-EDITABLE row has a category.
+Slice 1a built a blank-counter over the CLASSIFICATION-ELIGIBLE population (Line Item + Preamble, no qty
+test); G1 relocated the qty test to the service layer. G2a adds the RATE-EDITABLE count (Line Item ALWAYS;
+Preamble ONLY when qty-bearing) and surfaces it. **NO gate/lock/override ships here** -- the lock + its admin
+override ship together in G2b, so no sheet is ever locked without an escape.
+
+**Shape chosen: a `population` PARAMETER on the existing `persist.blank_category_eligible_rows`, not a
+sibling.** Two populations: `"eligible"` (default, BYTE-IDENTICAL to pre-G2a) and `"rate_editable"`. Rationale:
+the two share ~90% of the logic (resolve current sheet -> read nodes -> read votes -> apply the resolve
+ladder), differing only in the node filter; a parameter keeps ONE source of truth for the blank-resolution.
+The default preserves the sole existing caller's positional call (`get_freeze_summary` in classify.py, which
+is OUT of scope and MUST NOT change) byte-identically. A sibling would have duplicated the resolve/ladder
+logic. The two populations LEGITIMATELY differ (a qty-less Preamble is eligible but not rate-editable) --
+owner ruling; `get_freeze_summary` deliberately keeps the ELIGIBLE population and is NOT repointed.
+
+**Batched qty (the N-query problem).** `node_is_qty_bearing` issues a child-table query PER node; looping it
+would be O(N) per sheet. G2a adds `persist._qty_bearing_node_names(nodes)`: `qty` is added to the counter's
+EXISTING node `get_all` (a free column, no extra query), and the `BOQ Node Qty By Area` children are fetched
+in ONE batched `parent IN (...)` query -> a set of qty-bearing node names. It reuses the shared
+`is_nonzero_qty` for BOTH the scalar and the child values (one number definition; no re-inlined finite check).
+`node_is_qty_bearing` is LEFT UNCHANGED -- it stays the single-row source of truth for `pricing.py`; the
+batched path is an ADDITIONAL reader over the same semantics. A CONSISTENCY-PIN test asserts the batched set
+and `node_is_qty_bearing` agree per node, both directions (if they diverged, the gate and the rate-edit guard
+would disagree). The eligible path adds NO child query (byte-identical).
+
+**Measured (largest committed sheet BOQ-26-00009 `ELECTRICAL WORKS` cv2, 1093 nodes on the sheet):** warm
+best-of-3 -- `rate_editable` = 816 blank / **4 SQL queries / ~15 ms**; `eligible` = 939 blank / 3 queries /
+~4 ms. **rate_editable adds exactly +1 query (the batched child query) -> O(1) queries, not O(N).** The
+batched child query's cost scales with the IN-list size and `BOQ Node Qty By Area` LACKS a parent index (the
+systemic project finding): an isolated probe over 2686 whole-BoQ parents took ~678 ms cold; within
+get_priced_rows the query is per-sheet-scoped so the real cost is ~15 ms. **No index added this slice** (per
+spec -- report, do not add). Live consistency pin over all 1093 real nodes: ALL AGREE.
+
+**Surfaced keys (ADDITIVE, in `get_priced_rows`; PAYLOAD not schema; ship one slice ahead of the G3
+consumer):**
+- `rate_editable_blank_category_count` (int) -- rate-editable rows with a blank RESOLVED category.
+- `categories_complete` (bool) -- `count == 0`.
+Defaults on an uncommitted / grid-only sheet: `0` / `True` (no rate-editable rows -> vacuously complete). All
+existing keys stay present + same-typed.
+
+**Tests (bench-verified):** `test_pricing` 193 -> **204** (+11, new class `TestRateEditableBlankCount`:
+(a) qty-bearing Preamble blank counted; (b) qty-LESS Preamble blank NOT counted; (c) zero-qty Line Item
+counted; (d) never-classified rate-editable counted [fail-open survives]; (e) Other never counted in either;
+(f) BYTE-IDENTITY of the eligible population; the populations-differ assertion; (g) CONSISTENCY PIN
+batched-vs-single; invalid-population ValueError; get_priced_rows surfaces the count; categories_complete
+flips true when all categorised). Regression `test_classify` **62** unchanged (the eligible byte-identity is
+independently pinned by the still-green `TestFreezeSummaryResolved`). Files: `services/boq_category/persist.py`,
+`api/boq/wizard/pricing.py` (get_priced_rows return only), `api/boq/wizard/test_pricing.py`.
+
+**Browser cert RAN + PASSED** (owner session logged in; mandatory de-stale run -- 1 service worker
+unregistered, storage cleared, tab closed+reopened, bare root first; the httpOnly `sid` cookie survived so no
+re-login was needed). Synthetic sheet `BOQ-26-00133 | G2A CERT ` (trailing space), committed v1, rows 30-37:
+30 Preamble-qty, 31 Preamble-qty-via-area, 32 Preamble-qty-less, 33 Line Item-qty, 34 Line Item-zero-qty, 35
+Line Item categorised, 36 Line Item never-classified, 37 Other/Note. C1 expected 5 (stated first); C2
+endpoint `rate_editable_blank_category_count`=5 + `categories_complete`=False (matches C1); C3 eligible
+blank=6 > rate-editable 5 (differ by the qty-less Preamble 32); C4 categorise all rate-editable rows -> count
+0 + boolean True; C5 in-browser with Price-any-row OFF, rows 33/34/35/36 (Line Items) + 30/31 (qty-bearing
+Preambles) showed editable rate input boxes and 32 (qty-less Preamble) + 37 (Note) were read-only -- EXACTLY
+as pre-G2a, NOTHING newly gated; C6 Category column rendered ("DB and Switchgear" on 35, amber fill on
+blanks). NO rate saved. Synthetic BoQ + project DELETED and verified (0 residual nodes/sheets). (Setup note: a
+transient single-editor lock left by the formula-declaration step -- save_amount_formula acquires the lock --
+was cleared before the browser view; it is unrelated to G2a.)
+
+**Next:** G2b adds the actual rate-edit gate + its admin override consuming these keys; G3 renders them. NO
+gate ships until G2b.
+
+**OWNER RULING for G2b (dated 2026-07-25, captured here so it is not lost):** the **"Price any row"
+priceability override must NOT bypass the category gate.** When categories are incomplete
+(`categories_complete == False`) NOTHING is rate-editable -- override or not -- exactly like the MANDATORY
+amount-formula gate, which is ANDed OUTSIDE `isRateEditableRow(row, override)` (client) and enforced before
+the priceability block (server `_resolve_and_guard_cell`) so the priceability override can never reach past
+it. The category gate must sit in the SAME position: ANDed OUTSIDE the `override` on the client
+(`categories_complete && formulasComplete && isRateDescriptor && isRateEditableRow(row, override)`) and thrown
+in `_resolve_and_guard_cell` (server) alongside/after the formula gate, BEFORE the priceability block. The
+category gate's OWN escape is the SEPARATE admin override (G2b), never "Price any row". Do NOT let the two
+overrides be conflated.
+
+
+## Build slice G2b (category gate + admin override) COMPLETE
+
+FULL-STACK BACKEND, MIGRATE-CARRYING. Branch `feature/boq-pricing-helper`, base tip `3bf756df`.
+**PULLERS MUST RUN `bench migrate`** (four new BoQ Sheet fields). Abhishek needs a migrate heads-up.
+
+**What it does.** (1) A rate write (`save_cell_price`) is REJECTED while any RATE-EDITABLE row on the sheet
+has a blank RESOLVED category (the G2a `rate_editable` population -- Line Item always; qty-bearing Preamble).
+(2) An ADMIN-ONLY, PERSISTED, per-sheet-per-committed-version override unlocks the gate, recording who/when +
+an OPTIONAL short reason. (3) The override state is surfaced through `get_priced_rows`. The gate + its escape
+ship TOGETHER (a lock with no escape must never exist, not even for one slice).
+
+**Doctype fields (MIGRATED, verified via has_column + information_schema).** New
+`category_override_section` on `BoQ Sheet`, AFTER `classification_freeze_section` and BEFORE
+`revision_provenance_section`, mirroring the freeze trio: `category_gate_override` (Check, default 0),
+`category_override_by` (Data, read_only), `category_override_at` (Datetime, read_only), `category_override_reason`
+(Small Text, OPTIONAL, not read_only). Added to BOTH `fields` and `field_order`; top-level `modified` bumped.
+
+**The gate.** `_guard_categories_complete` in `pricing.py`, inserted in `_resolve_and_guard_cell` AFTER the
+mandatory amount-formula gate and BEFORE the priceability block -- i.e. OUTSIDE `if not
+_coerce_bool(allow_non_priceable):`, so **the "Price any row" priceability override can NEVER bypass it**
+(owner ruling; ABSOLUTE like the formula gate). Guard order is now: resolve-cell -> deliberate-lock ->
+mandatory-formula -> **category** -> priceability -> (transient-lock acquire) -> write. The gate reuses the
+G2a helper `blank_category_eligible_rows(..., population="rate_editable")` -- the SAME function
+`get_priced_rows` surfaces the count from, so the gate and the banner can NEVER disagree (no short-circuit
+reader, no consistency-pin needed). Distinct throw title "Categories incomplete". **Blank = any rate-editable
+row without a resolved category, classified-and-blank OR never-classified -- ONE definition, no special cases**
+(owner ruling).
+
+**NO GRANDFATHERING (owner ruling).** The gate applies uniformly to EVERY committed sheet, including
+already-priced ones -- a rate revision on an uncategorised sheet requires categorising first (that is the
+entire point). NO backfill patch was written; NO override was set on any real sheet. The admin override is
+the ONLY exception path.
+
+**The override endpoints.** `set_category_override(boq_name, sheet_name, committed_version, reason=None)` and
+`clear_category_override(boq_name, sheet_name, committed_version)` in `pricing.py`. ADMIN check REUSES the
+EXISTING `_is_nirmaan_admin` (Administrator OR `Nirmaan Users.role_profile == "Nirmaan Admin Profile"`) -- NOT
+a new admin definition, NOT the Pricing Module's `_require_pricing_write_access` (wrong module/copy); it
+matches the frontend's role source (`useUserData().role` reads the same `Nirmaan Users.role_profile`) by
+construction. A non-admin is rejected with `frappe.PermissionError`. Reason optional, capped server-side at
+its own constant `_CATEGORY_OVERRIDE_REASON_MAX_LEN=250` (mirroring `_REMARK_MAX_LEN`), stored NULL when
+absent; clearing clears the reason too. Write pattern = `frappe.db.set_value(update_modified=False)` + explicit
+`frappe.db.commit()` (NEVER doc.save -- the list-valued `area_dimensions` JSON throws on a full save); actor =
+`frappe.session.user` (user id, not display name); `now_datetime()` for the timestamp.
+
+**Surfacing (ADDITIVE) in `get_priced_rows`** -- read in the SAME get_value as the freeze fields (one query for
+all seven): **`category_gate_override`** (bool), **`category_override_by`**, **`category_override_at`**,
+**`category_override_reason`**. Existing keys stay present + same-typed. G3 renders these.
+
+**Measured per-save gate cost (largest real sheet BOQ-26-00009 `ELECTRICAL WORKS` cv2, 1093 nodes, warm):**
+OFF-path (override not set) = **6 SQL queries / ~15.4 ms** added per `save_cell_price` (override read 2q/1ms +
+blank check 4q/14.4ms). ON-path (override SET) short-circuits (confirmed: `blank_category_eligible_rows`
+called 0 times) = **2 queries / ~1 ms** (override read only). ~15ms on the largest sheet is NOT material for an
+interactive save (which already does freeze-and-supersede + insert + re-arms + lock-acquire + commit; the
+network round-trip dwarfs it). No DB index added (per spec).
+
+**COPY-FORWARD FINDING (fact-finding, no behaviour changed).** `apply_copy_forward` (pricing.py) does NOT go
+through `_resolve_and_guard_cell` -- it checks the lock + formula gates INLINE up front, then writes via
+`_resolve_committed_cell` + `_write_cell_price_record`, so it **BYPASSES the category gate**. An uncategorised
+sheet's re-commit carries rates forward with NO block and NO failure (clean success -- not partial, not
+silent). Live proof: `TestCopyForward`'s `apply_copy_forward` tests pass on an UNcategorised destination v2.
+**Whether copy-forward should also be gated is an OWNER DECISION for a follow-up slice** (it was NOT changed
+here -- Task 3 is fact-finding only). Recorded so it is not lost.
+
+**Test fixtures satisfy the gate by CATEGORISING, never by override (owner ruling, option B).** New shared
+helper `_categorise_fixture_rate_editable_rows` (test_pricing.py, mirroring `_declare_fixture_amount_formulas`)
+writes REAL category rows for a fixture's rate-editable rows via the normal `persist.write_row_categories`
+path -- production-plausible, and the fixtures drive THROUGH the live gate every run rather than disabling it
+(a permanently-disabled tripwire is what the override would have been). Called from the setup of each affected
+save-path class (TestCellPricing, TestGetPricedRows [+ its scalar sheet], TestSingleEditorLock,
+TestLockPerSheetIsolation [both sheets], TestPriceabilityGuard, TestPreambleQtyBearingGuard, TestCellDismissal,
+TestSheetLock, TestGetVersionPricedRows [before its setUpClass saves], TestReconciliationChoice,
+TestMandatoryFormulaGate). **No existing assertion was changed -- only setup.** `TestCategoryGate` +
+`TestRateEditableBlankCount` are DELIBERATELY not categorised (they must see blanks). `TestCopyForward` is NOT
+categorised (it proves the copy-forward bypass).
+
+**Tests (bench-verified):** `test_pricing` 204 -> **214** (+10, new class `TestCategoryGate`: (a) reject when
+blank; (b) succeed when all categorised; (c) "Price any row" does NOT bypass; (d) override unlocks; (e) clear
+re-locks; (f) admin predicate [explicit users] + endpoint PermissionError [mock, no set_user] + admin success;
+(g) qty-less Preamble blank does not gate; (h) formula gate wins precedence; (i) reason cap/NULL/clear; the
+get_priced_rows override surfacing). Regression `test_classify` **62** unchanged. Both suites moved ONLY by the
+new tests (the 38 existing save-path tests that the gate initially broke are green again via the setup
+categorisation, no assertion changed).
+
+**Browser cert RAN + PASSED** (owner session survived the migrate; mandatory de-stale run -- 1 SW unregistered,
+storage cleared, tab closed+reopened, bare root first). Synthetic sheet `BOQ-26-00136 | G2B CERT ` (trailing
+space), committed v1, rows 50 (LI qty, blank), 51 (LI zero-qty, blank), 52 (Preamble qty-less, blank), 53 (LI
+qty, categorised), 54 (Other). C1: typed a rate on Line Item 50 -> REFUSED with a VISIBLE red banner ("Some
+priceable rows on this sheet do not have a category yet...") + "Save failed", nothing saved. C2: Price-any-row
+ON, retried -> STILL REFUSED (same banner). C3: admin `set_category_override` -> the save SUCCEEDED ("Saved as
+of 19:54", green priced dot, "1 of 2 priceable lines priced"). C4: `clear_category_override` -> REFUSED again
+(banner returned). C5: the qty-less Preamble (52) never gated (count=2 not 3; read-only). C6 REGRESSION on the
+REAL fully-categorised sheet `BOQ-26-00114 | Electrical `: `save_cell_price` on cell excel_row 313 (orig
+45000) succeeded, then RESTORED to 45000 with the pricing row-set identical to before; the browser showed NO
+gate banner (gate invisible on a categorised sheet). C7: Category column rendered ("Point Wiring" /
+"DB and Switchgear"). Synthetic BoQ + project DELETED + verified (0 residual). (Setup note: a transient
+single-editor lock left by save_amount_formula was cleared before each browser view; unrelated to G2b.)
+
+**OVERRIDE REMOVAL CONDITION (dated commitment, 2026-07-25):** the category-gate override is TEMPORARY BY
+DESIGN -- REMOVE it (fields + endpoints + surfacing) once classification engines cover ALL disciplines.
+
+**OWED / follow-ups:** G2c (clear the override on re-classify) is OWED -- deliberately out of this slice.
+Whether copy-forward should be gated (the bypass above) is an owner decision for a follow-up.
+
+---
+
+## Build slice G2c (gate BOTH rate carry-forward paths) COMPLETE
+
+BACKEND, NO MIGRATE. Branch `feature/boq-pricing-helper`, base tip `de517961`. Owner ruling: rate
+carry-forward IS subject to the category gate in BOTH flavours; the **DESTINATION** sheet's categories
+govern; the admin override is the only escape, exactly as on the save path. (This CLOSES the G2b
+copy-forward-bypass follow-up. The clear-override-on-reclassify item is renamed **G2d** and remains OWED.)
+
+**What it does.** Both rate carry-forward paths now refuse a carry while any RATE-EDITABLE row on the
+DESTINATION has a blank resolved category, unless the admin override is set on that dest sheet:
+- **Flavour 1 -- WITHIN-BoQ version carry** (`apply_copy_forward`, `pricing.py`): rates carry from a prior
+  committed version of the SAME sheet into the CURRENT version. Gate added to the EXISTING up-front
+  sheet-level block, AFTER the mandatory-formula gate and BEFORE `acquire_or_refresh`, evaluating the
+  current (destination) version. Uses this file's THROW idiom.
+- **Flavour 2 -- CROSS-BoQ revision carry** (`cross_boq_carry._apply_sheet_carry`): rates carry from another
+  BoQ (the original) into its revision. Gate added to the EXISTING up-front block, AFTER the formula check
+  and BEFORE the transient lock, evaluating `ctx.dest_boq`/`dest_sheet_name`/`dest_version` (the revision,
+  NEVER the source). Uses this file's REASON-TUPLE idiom (`return None, "categories_incomplete"`) mapped to
+  a friendly message.
+
+**ONE shared condition (single source of truth).** `pricing._categories_gate_ok(boq, sheet, version) -> bool`
+= override set OR no rate-editable blank category. It REUSES the G2a
+`blank_category_eligible_rows(..., "rate_editable")` -- the SAME function `get_priced_rows`, the save gate,
+and the banner all read, so nothing can disagree. `_guard_categories_complete` (the SAVE path throw) was
+refactored to delegate to it (save behaviour + message BYTE-UNCHANGED). The blank-count logic is NOT
+re-implemented in `cross_boq_carry.py` (it imports `pricing` and calls the shared predicate).
+
+**Per-file messaging over the one condition (SCOPE §6 -- refusal-message quality).** Each path keeps its own
+idiom and neither reuses the save-path wording ("rate editing is locked", which is owner-locked and wrong for
+a batch carry). Both messages carry all four required points -- (i) the DESTINATION sheet is named, (ii)
+nothing was copied / existing rates untouched, (iii) re-runnable after categorising, (iv) an admin override
+exists:
+- F1 throws inline (title "Categories incomplete"): *"Nothing was copied. The destination sheet '<sheet>' has
+  priceable rows with no category yet, and rates cannot be copied onto it until every rate-editable row is
+  categorised. Your existing rates are untouched -- categorise the destination, then run the copy-forward
+  again and the rates will come across. An admin can override this to copy before classification is complete."*
+- F2 maps `"categories_incomplete"` in `_APPLY_BLOCK_MESSAGE`/`_APPLY_BLOCK_TITLE`; the endpoint FORMATS the
+  dest sheet name in (the only templated block -- two BoQs are in play so "this sheet" would be ambiguous):
+  *"Nothing was copied. The destination sheet '<sheet>' has priceable rows with no category yet, and rates
+  cannot be carried onto it until every rate-editable row is categorised. Your existing rates are untouched --
+  categorise the destination, then run the carry again and the rates will come across. An admin can override
+  this to carry before classification is complete."*
+
+**Sheet-level, not per-row.** Neither carry loop calls `_resolve_and_guard_cell`; the gate is checked ONCE up
+front (the gate is inherently sheet-level). Per-row was rejected on cost (~15 ms x K, Recon 4) + failure-shape
+mismatch (F2 returns a reason tuple, the guard throws). Both paths stay ATOMIC (rollback, nothing written on a
+block) and fully REPLAYABLE + idempotent (freeze-and-supersede -- a re-run overwrites with the same value, no
+double-apply; nothing is stranded). The admin override unlocks carry too. **Precedence: the mandatory-formula
+gate still wins** (checked before the category gate on both paths) -- pinned by a test on each flavour.
+
+**Stale docstring fixed.** `_resolve_and_guard_cell` (pricing.py) claimed copy-forward "reuses the IDENTICAL
+resolve+gate path per cell" -- FALSE. Corrected to describe the real behaviour (per-cell SAVE path; the two
+carry paths gate ONCE up front at the sheet level and loop over `_resolve_committed_cell` + the shared writer).
+
+**Tests (bench-verified).** `test_pricing` 214 -> **221** (+7 `TestCopyForwardCategoryGate`: negative / atomic /
+positive / override / source-irrelevant / replay+idempotent / formula-precedence). `test_cross_boq_carry` 40 ->
+**48** (+8 `TestCrossBoqCarryCategoryGate`: same seven + the FLAVOUR-2 SHAPE test proving the endpoint surfaces
+the MAPPED friendly message, not a raw throw). `test_classify` **62** unchanged (no regression). Existing carry
+tests adapted by CATEGORISING the destination fixtures (shared `_categorise_fixture_rate_editable_rows`,
+imported into `test_cross_boq_carry.py` -- one source of truth), NEVER the override, NEVER an assertion change.
+**Amendment-D guard re-expressed (owner-decided).** `TestApplySheetCarrySynchronous.test_a_carry_writes_no_annotation_of_any_kind`
+asserted zero `BoQ Row Category` rows on the dest after a carry -- impossible under G2c (the dest MUST be
+categorised to carry). Its CATEGORY leg (only) was re-expressed to two checks over the SAME Amendment-D intent:
+(1) the dest category COUNT is unchanged across the carry (catches an ADD), and (2) the source's distinctive ids
+('elec_machine'/'elec_human') never appear on the dest (catches an OVERWRITE); Remark/Color/Dismissal legs stay
+`== 0` unchanged.
+
+**Browser live-cert RAN + PASSED** (owner session `admins@nirmaan.app`; mandatory de-stale done -- SW/caches
+cleared, tab closed+reopened, bare root then deep route). Synthetic data (deleted + verified zero residual after):
+- FLAVOUR 1: BoQ `BOQ-26-00136`, sheet `G2C CF ` (trailing space), rows 10/11, v1 priced (100/200) + current v2
+  uncategorised. C1: Copy-forward apply -> REFUSED, red in-dialog message quoted verbatim (all four points
+  on-screen, full, not truncated). C2: 0 dest v2 pricing rows. C3: categorise dest -> "Copied 2 rates". C4:
+  re-run Overwrite-all -> "overwrote 2", values still 100/200, exactly one current row per cell (pv=2).
+- FLAVOUR 2: orig `BOQ-26-00137` + revision `BOQ-26-00138`, sheet `G2C XB ` (trailing space), rows 10/11. C5:
+  "Carry rates from original" apply -> REFUSED with the MAPPED friendly message (naming 'G2C XB ', verbatim,
+  all four points). C6: 0 rev filled rows + source has 0 categories. C7: categorise dest -> "Carried 2 rates".
+  C8: rev carried 10->100/11->200 while SOURCE stayed uncategorised (source did not block; only dest gated).
+- C9 REGRESSION: real fully-categorised `BOQ-26-00114` / `Electrical ` cv1, cell excel_row 313 col K (orig
+  45000): save 45111 SUCCEEDED (gate did not block a categorised sheet), then RESTORED to 45000, rowset
+  identical.
+
+**OWED / follow-ups:** **G2d** (clear the override on re-classify) is OWED. `apply_copy_forward`'s sibling
+gap noted at G2b -- `apply_copy_forward` was previously the bypass -- is now CLOSED by this slice.
+
+---
+
+## Build slice G2e (widen the gate to "empty is empty" + match the filter to amber) COMPLETE
+
+BACKEND + FRONTEND, NO MIGRATE. Branch `feature/boq-pricing-helper`, base tip `3945eca4`. THREE commits
+(chore re-baseline / feat / docs).
+
+**OWNER RULING (in full, "empty is empty", 2026-07-26).** (1) MASTER SET = every row the classification logic
+says needs a category: `node_type` Line Item OR Preamble, on the current committed version. Notes / spacers /
+subtotals / any other type are NOT in it. (2) BLANK = the Category cell the USER SEES is EMPTY -- the path to
+empty is IRRELEVANT (never classified, classified-and-returned-nothing, AI never ran, human cleared it,
+whitespace id). (3) The gate opens ONLY when the master set has ZERO blanks; one blank locks the sheet.
+**PRICEABILITY IS NO LONGER PART OF THE GATE -- a qty-less Preamble IS in the master set.** The owner has seen
+and ACCEPTED the measured cost (on real sheets 122->316, 196->378 blanks) and directed it not be re-raised.
+
+**What changed (Scopes 1-6).**
+- **Scope 1 -- widen the population:** `pricing._categories_gate_ok` switched from `population="rate_editable"`
+  to the DEFAULT `"eligible"`. Both carry gates (`apply_copy_forward` inline throw, `cross_boq_carry._apply_sheet_carry`
+  reason tuple) inherit it automatically -- they call the SAME `_categories_gate_ok` (verified, not assumed;
+  `cross_boq_carry.py` unedited). The `"rate_editable"` MODE of `blank_category_eligible_rows` + its batched qty
+  helper + its `TestRateEditableBlankCount` mode tests are RETAINED but currently UNUSED (kept for the future
+  tendering-module rate helpers, which operate on exactly that population). Documented here rather than in
+  `persist.py` (out of scope).
+- **Scope 2 -- rename the surfaced key:** `rate_editable_blank_category_count` -> **`eligible_blank_category_count`**
+  in `get_priced_rows` (both the default dict + the computed value), now counting the eligible set. Recon 5
+  verified NO consumer existed (`GetPricedRowsResponse` did not even declare it), so the rename was free.
+  `categories_complete` keeps its name (still accurate, wider population). Browser-verified live: the OLD key is
+  absent from the payload.
+- **Scope 3 -- close the node_type trim asymmetry:** client `PricingGrid.isPriceableType` now TRIMS `node_type`
+  (`(nodeType ?? "").trim()`), matching the server's `(node_type or "").strip()`. Server side unchanged.
+- **Scope 4 -- ONE shared predicate:** new exported `PricingGrid.isMasterSetBlank(row, cat)` =
+  `isPriceableType(node_type) && deriveVerdictState(cat) === "unclassified"`. BOTH the grid's amber Category-cell
+  fill AND the page's Check-Category view filter (`passesViewFilter`) now call it, so they can never drift. The
+  amber fill's old `|| needsReview` disjunct was REMOVED (unreachable from resolved data -- Recon 6 Q8c -- and the
+  owner ruled amber == master-set-blank); the `needsReview` var still drives the dot/text-colour (untouched).
+  `isNeedsReviewCategory` was RETIRED from `ClassifySheetDialog.tsx` (it returned FALSE for a never-classified row
+  and could not surface rows the widened gate counts); its sole functional caller was `passesViewFilter` and its
+  vitest block moved to `PricingGrid.test.ts` as `isMasterSetBlank` cases.
+- **Scope 5 -- widen the fixture helper:** `_categorise_fixture_rate_editable_rows` ->
+  `_categorise_fixture_eligible_rows` (categorises the ELIGIBLE population); all ~23 call sites inherit the fix.
+  The shared committed fixture's zero-qty Preamble (row 6) is now categorised, so save/carry tests built on it do
+  not gate.
+- **Scope 6 -- (g) inversions (OWNER-DIRECTED):** `TestCategoryGate.test_g_qtyless_preamble_blank_does_not_gate`
+  -> `test_g_qtyless_preamble_blank_gates` (asserts REFUSED); the copy-forward carry gained
+  `test_h_qtyless_preamble_gates_carry`; the cross-BoQ gained `test_i_qtyless_preamble_gates_carry`. Recorded in
+  each docstring as an owner-directed reversal, NOT a weakening. `TestRateEditableBlankCount`'s MODE tests stay
+  unchanged (the mode is retained); only its two get_priced_rows PAYLOAD tests updated (key + eligible value 4->5).
+
+**Parity (owner-required, VERIFIED).** After the widening the gate count == `get_freeze_summary`'s count ==
+the surfaced `eligible_blank_category_count` -- ONE number, superseding the earlier two-different-numbers
+acceptance. `get_freeze_summary` was NOT changed (it already used the eligible population). Pinned by
+`TestEligibleGateWidened.test_h_gate_count_equals_freeze_summary`.
+
+**Residence re-baseline (Scope 0, its OWN commit, before any code edit).** `residence_check.py --init` cleared
+the develop-merge frontend drift: F2 201->207, F5 114->116 (those increases originate from the develop merge,
+NOT this arc). Backend rules B1(0)/B2(8)/B3(40) unchanged -- no backend drift absorbed. Post-edit re-check:
+all rules at baseline (delta 0).
+
+**Tests (bench-verified).** `test_pricing` 221 -> **228** (+7: new `TestEligibleGateWidened` (b/d/e/f/g/h) +
+copy-forward `test_h`; the (g) inversion + payload-key updates change assertions in place). `test_cross_boq_carry`
+40... 48 -> **49** (+1: `test_i`). `test_classify` **62** unchanged. Frontend vitest **907 -> 910** (retired 5
+`isNeedsReviewCategory` cases in `ClassifySheetDialog.test.ts` 22->17; added 1 trim case + 7 `isMasterSetBlank`
+cases in `PricingGrid.test.ts`). `tsc --noEmit`: ZERO errors in any touched file (the project baseline is
+tsc-dirty on legacy `Retired Components`; the build uses vite/esbuild, not tsc).
+
+**Browser live-cert RAN + PASSED** (owner session `admins@nirmaan.app`; mandatory de-stale done -- SW
+unregistered, caches/storage cleared, tab closed+reopened, bare root then deep route; BUNDLE-MARKER confirmed:
+a never-classified eligible row appears under the Check-Category filter, which the old bundle could not do).
+Synthetic data (deleted + verified zero residual after):
+- MAIN sheet `BOQ-26-00138` / `G2E CERT ` (rows: 10 LI categorised | 11 LI blank | 12 Preamble-qty blank |
+  13 qty-LESS Preamble blank | 14 LI never-classified | 15 Other). C1: `eligible_blank_category_count` = 4 ==
+  `get_freeze_summary` sum 4 (2 pre + 2 li); OLD key absent. C2: rate save on the categorised LI -> REFUSED
+  (visible red banner). C3: categorise all EXCEPT the qty-less Preamble 13 -> STILL REFUSED (old gate would have
+  succeeded). C4: categorise 13 -> save SUCCEEDS. C5: "Check Category" filter surfaces the never-classified row 14.
+  C6: filter set {13,14} == amber set {13,14} (SAME set). C7: Other row 15 neither amber nor filtered nor counted.
+- CARRY (C8): orig `BOQ-26-00139` + revision `BOQ-26-00140` / `G2E XB ` (dest LI 20,21 categorised + qty-less
+  Preamble 22 BLANK). "Carry rates from original" apply -> REFUSED with the mapped friendly message naming the
+  dest; nothing written.
+- C9 REGRESSION: real fully-categorised `BOQ-26-00114` / `Electrical ` cv1 cell 313 (orig 45000): save 45123
+  SUCCEEDED (gate did not block a categorised sheet), RESTORED to 45000, rowset identical.
+
+**OWED / follow-ups:** **G3a** (the banner + live count consuming `eligible_blank_category_count`) is NEXT.
+**G2d** (clear the override on re-classify, plus the copy-forward carry-atomicity test gap) is OWED. The
+`rate_editable` mode has no consumer until the tendering-module rate helpers arrive. Minor: the SAVE-path throw
+message still reads "rate-editable row" (owner-locked existing message, not changed this slice); and a couple of
+comment references to `isNeedsReviewCategory` remain in the out-of-scope `boqTypes.ts` / `sheetCategoryResolve.ts`
+(comments only, no code impact).
+
+---
+
+## Build slice G3a (make the category gate VISIBLE + correct the message family) COMPLETE
+
+FRONTEND + BACKEND-MESSAGES, NO MIGRATE. Branch `feature/boq-pricing-helper`, base tip `53b1a300`. Two
+commits (feat / docs).
+
+**What shipped.** The category gate was live server-side (G2b/G2c) and widened to the eligible master set
+(G2e) but INVISIBLE -- a user typed a rate and only then got refused. G3a adds the visible half + corrects the
+message family that still described the pre-G2e rule.
+
+- **Scope 1 -- the live count (page).** `SheetPricingPage` derives `categoryBlankCount` via the new pure
+  `PricingGrid.countMasterSetBlankRows(rows, categoriesByExcelRow)` -- the SAME `isMasterSetBlank` predicate the
+  amber fill + Check-Category filter use (FOUR surfaces, ONE predicate). It ITERATES THE ROWS, never the
+  categories map, so a never-classified row (absent from the map) is still counted. `useMemo` on
+  `[rows, categoriesByExcelRow]`. `categoryGateOpen = isCategoryGateOpen(count, override) = (count === 0) ||
+  override`. At load the client count == the server's `eligible_blank_category_count` == `get_freeze_summary`'s
+  count (cert C1: 5 == 5 == 5).
+- **Scope 2 -- only a BOOLEAN to the grid.** `categoryGateOpen` is threaded to `PricingGrid` exactly like
+  `formulasComplete` (prop default true; row prop in `pricingRowPropsAreEqual`; passed per row). NEVER the count.
+  Re-render profile per category pick: the top-level memo bails (categoriesByExcelRow ref changed) -> grid body
+  re-executes once -> only the PICKED row's `<tr>` re-renders (its `category` entry changed); `categoryGateOpen`
+  is unchanged on a non-flip pick so it adds ZERO row re-renders. On the FLIP (last blank categorised) the
+  boolean changes and ALL rows re-render once -- correct, that IS when every row's editability flips (identical
+  to `formulasComplete`'s profile).
+- **Scope 3 -- cell gating.** `categoryGateOpen` is ANDed OUTSIDE `isRateEditableRow` in ALL THREE rate-write
+  gates (the inline cell edit, `rateWritableAt` paste, `isDeltaWritable` undo/redo), mirroring `formulasComplete`
+  -- so "Price any row" can never reach past it (cert C10). Consequence: while locked, rate cells are read-only,
+  so a UI save cannot be ATTEMPTED; the server save-refusal is a BACKSTOP (verified at the endpoint, C7).
+- **Scope 4 -- the banner.** In the page banner stack beside the formula banner, amber-note styling verbatim.
+  Owner-approved copy with the live count (singular/plural handled); a distinct OVERRIDE variant naming
+  `category_override_by` + `formatDate(category_override_at)` (dd-MMM-yyyy, the app convention). It NAMES the
+  existing "Check Category" control -- no new button, no click-to-jump.
+- **Scope 5 -- clear-path optimistic fix.** The pick handler now writes an optimistic override for BOTH a pick
+  AND a clear (pure `buildOptimisticVerdict`): a clear yields a BLANK verdict (effective "" -> `isMasterSetBlank`
+  TRUE) so the count RISES instantly and the sheet re-locks in the same interaction -- closing the
+  drops-on-pick / rises-late-on-clear divergence window where the sheet briefly appeared unlocked. Reverts on
+  save failure via the existing `dropOverride`; the refetch reconciles an auto-machine reversion (it only
+  over-reports blank for the round-trip, never under-reports, so the gate never wrongly opens).
+- **Scope 6 -- message family.** The save (`_guard_categories_complete`, now threading the blank count),
+  copy-forward (`apply_copy_forward`), and cross-BoQ (`_APPLY_BLOCK_MESSAGE`) refusals use the owner-approved
+  text, dropping "priceable"/"rate-editable" (correct only for the SEPARATE priceability gate). `_guard_categories_complete`
+  inlines the override + eligible-blank checks (identical to `_categories_gate_ok`) ONLY to get the count length;
+  the carry paths keep delegating to `_categories_gate_ok`. Audit: no other user-facing category-context
+  "priceable"/"rate-editable" string remains.
+- **Scope 7 -- payload types.** `GetPricedRowsResponse` (boqTypes.ts) declares `eligible_blank_category_count`,
+  `categories_complete`, `category_gate_override`, `category_override_by`/`_at`/`_reason`.
+
+**Tests (bench/vitest-verified).** `test_pricing` 228 -> **229** (`TestEligibleGateWidened.test_i` -- the save
+message threads the count; `TestCopyForwardCategoryGate.test_a` strengthened to the new text + no-old-terms).
+`test_cross_boq_carry` **49** (test_h re-asserts the new "Nothing was carried" text + all four G2c points + no
+old terms). Frontend vitest 910 -> **920** (+10: `countMasterSetBlankRows` a/b/c/d + fixture + parity;
+`isCategoryGateOpen` e/f; `buildOptimisticVerdict` pick + clear-g). `tsc --noEmit`: ZERO errors in any touched
+file. Residence: all rules at baseline (delta 0).
+
+**Browser live-cert RAN + PASSED** (owner session `admins@nirmaan.app`; mandatory de-stale done; BUNDLE-MARKER =
+the BANNER on screen, which cannot exist in the old bundle). Synthetic data deleted + verified zero residual.
+MAIN `BOQ-26-00140` / `G3A CERT ` (10 LI cat | 11/12 LI blank | 13 Preamble-qty blank | 14 qty-less Preamble
+blank | 15 LI never-classified | 16 Other):
+- C1 banner "5 rows still need a category…" == server count 5 == freeze 5. C2 cells read-only while locked
+  (0 inputs, incl. the categorised row). C3 pick -> count 5->4 IMMEDIATELY, no reload/flicker. C4 clear ->
+  count 4->5 IMMEDIATELY (the Scope-5 behaviour that did not exist before). C5 the FLIP: categorise the last
+  blank -> banner gone + rate cells editable (5 inputs) same interaction. C6 the RE-LOCK: clear -> banner
+  returns + cells read-only. C7 save backstop text (endpoint): "…Every line item and preamble needs a category,
+  and 1 still don't have one. Use the Check Category filter…" (count threaded, no old terms). C10 "Price any
+  row" ON keeps cells read-only + banner shown. C11 filter parity: amber {15} == filter {15} == count 1.
+- C8 (carry `BOQ-26-00141`/`BOQ-26-00142` / `G3A XB `) refusal ON SCREEN: "Nothing was carried. The destination
+  sheet 'G3A XB ' still has rows without a category - …" -- all four G2c points present, no old terms.
+- C9 override banner (set via endpoint, no UI): "Category check overridden by admins@nirmaan.app on 26-Jul-2026.
+  1 row still has no category — rate editing is unlocked anyway." + cells editable; clear -> lock banner returns.
+- C12 REGRESSION real `BOQ-26-00114` / `Electrical `: NO banner, cells editable; save 45321 succeeded, restored
+  to 45000, rowset identical.
+
+**OWED / follow-ups:** **G3b** (the admin override SET/CLEAR control -- G3a only DISPLAYS override state).
+**G2d** (clear the override on re-classify, plus the copy-forward carry-atomicity test gap). The pre-G2e
+save-path "rate-editable" wording is now CORRECTED (this slice). The `rate_editable` mode stays unused until the
+tendering-module rate helpers arrive.
+
+## Build slice G3b (the admin category-gate override CONTROL -- frontend) COMPLETE
+
+**What shipped.** G2b shipped the server override (`set_category_override` / `clear_category_override`, admin-only
+via `_is_nirmaan_admin`) and G3a shipped the banner that DISPLAYS override state -- but there was no in-product way
+to SET or CLEAR it (previously done only via a raw endpoint call). G3b wires the two contextual controls INTO the
+existing category-gate banner (`SheetPricingPage.tsx`), admin-only, with NO new endpoint, gate, count, or copy
+change. Pure wiring on top of G2b/G3a.
+
+**Where the controls live (deliberately contextual, NOT a toolbar button).**
+- **SET** -- in the LOCK-variant banner: an `Override the check` outline button opens a shadcn `Popover` (title
+  "Override the category check", subtitle "Unlocks rate editing despite blank categories. Reason is optional.")
+  holding an OPTIONAL reason `Input` (`maxLength={CATEGORY_OVERRIDE_REASON_MAX_LEN}`=250) + a live `N/250` counter
+  + an `Override` action. **No "are you sure" step** -- the reason popover IS the interaction (owner ruling).
+- **CLEAR** -- in the OVERRIDE-variant banner: a `Remove override` outline button, no confirmation (clearing
+  re-locks, it fails safe).
+- Both gated on the SAME `showCategoryOverrideControl` flag; **banners render for everyone**, controls do not.
+
+**Decisions (owner-locked, recorded so they are not re-litigated).**
+- **Admin check mirrors the server BY CONSTRUCTION, is CONVENIENCE ONLY.** New exported pure helper
+  `canAdminOverride(role, userId)` = `role !== "Loading" && (userId === "Administrator" || role === "Nirmaan Admin
+  Profile")`. `useUserData()` maps the Administrator user to role `"Nirmaan Admin Profile"`, so this matches
+  `_is_nirmaan_admin` without importing it or minting a new def. The `role !== "Loading"` guard is LOAD-BEARING:
+  the control must not FLASH in before the role resolves. **The server is authoritative;** the frontend/server
+  role-source divergence is a KNOWN, owner-ACCEPTED trade-off.
+- **Reason is OPTIONAL** (blank valid). New exported pure helper `normalizeOverrideReason(raw)` =
+  `raw.slice(0, MAX).trim() || null` -- client cap is belt-and-braces (the `Input maxLength` blocks it too; the
+  server caps as well -- BOTH, not either), and blank maps to `null` (server stores NULL).
+- **The count keeps counting while the override is active** -- the banner still shows "N row(s) still has/have no
+  category"; the override unlocks editing, it does not zero the count. Unchanged from G3a.
+- On success both handlers call `mutate()` (the get_priced_rows refetch) -- the banner + rate-cell state flip with
+  **NO page reload**. On failure (incl. `PermissionError`) the SERVER's message surfaces inline via the existing
+  `saveError` banner (`getFrappeError(e) || fallback`) -- never swallowed, never replaced with generic copy;
+  identical idiom to the file's proven lock/save handlers.
+
+**DELETE MAP (override is temporary by design -- owner commitment: remove once classification engines cover all
+disciplines).** One cut removes G3b: (1) the two exported helpers `canAdminOverride` + `normalizeOverrideReason` +
+the const `CATEGORY_OVERRIDE_REASON_MAX_LEN`; (2) the `role` read + `showCategoryOverrideControl` derivation;
+(3) the two `useFrappePostCall` handles `setCategoryOverrideCall`/`clearCategoryOverrideCall`; (4) the state trio
+`overridePopoverOpen`/`overrideReason`/`overrideSubmitting` + the handlers `handleSetCategoryOverride` /
+`handleClearCategoryOverride`; (5) the two `{showCategoryOverrideControl && (...)}` control blocks inside the
+banner (revert each fragment back to a bare `<span>`). Every block carries a `G3b` / "Delete with the override"
+marker. The whole G2b server override (endpoints + 4 `BoQ Sheet` fields) is removed separately per its own
+condition.
+
+**Tests.** 11 new vitest in `frontend/src/pages/boq-wizard/categoryOverrideControl.test.ts` covering the two pure
+helpers (admin sees / non-admin does not / `Loading` + `Error` sentinels hide -- no flash / reason blank->null,
+whitespace->null, trimmed pass-through, over-long capped, cap-before-trim, const==250). Component render is
+manual-cert (project runs vitest in `node` env, no jsdom/@testing-library -- vitest.config.ts). Full suite
+**931 passed** (920 + 11). Python `test_pricing` **229** + `test_cross_boq_carry` **49** UNCHANGED (no Python
+edits). tsc --noEmit clean on the touched file. Residence check holding (no regressions).
+
+**Browser live-cert (`admins@nirmaan.app`, admin; `BOQ-26-00086` / `INVERTER`, gate shut with 1 blank).**
+- C1 SET control `Override the check` visible in the lock banner (bundle marker). C2 popover opens with reason
+  input + `0/250` counter + `Override`. C3 counter live-updates to `39/250` as the reason is typed. C4 `Override`
+  -> override banner replaces lock banner, **no reload** (a `window` sentinel survived). C5 override banner:
+  "Category check overridden by admins@nirmaan.app on 26-Jul-2026. 1 row still has no category — rate editing is
+  unlocked anyway." + `Remove override` control. C6 `Remove override` -> lock banner + SET control return, **no
+  reload** (sentinel survived). C9 zero residual -- the `BoQ Sheet` override fields (`category_gate_override` /
+  `_by` / `_at` / `_reason`) verified back to `0`/NULL after the clear.
+- **C7 (non-admin sees neither control on-screen) NOT exercised** -- no non-admin account available in the env;
+  covered by unit tests (`canAdminOverride` -> false for non-admin roles and for both resolve sentinels). **C8
+  (live rejection surfaces the server message) NOT exercised live** -- no non-admin to trigger the server
+  `PermissionError`; covered by the shared `getFrappeError(e) || fallback` idiom (identical to the proven
+  lock/save handlers). Both honestly reported, not skipped-silently.
+
+**OWED / follow-ups (unchanged):** **G2d** (clear the override on re-classify + the copy-forward carry-atomicity
+test gap). The non-admin on-screen case (C7) and the live-rejection case (C8) remain to be exercised whenever a
+non-admin account exists in the cert env.
+
+## Build slice G2d (clear the override on re-classify + close three test gaps) COMPLETE -- CATEGORY GATE ARC CLOSED
+
+**What shipped.** The last behavioural gap in the category-gate arc: a successful WHOLE-SHEET re-classify now
+CLEARS the admin category-gate override on that sheet's current committed version (flag + actor + timestamp +
+reason). Plus three test gaps closed. With this slice the **category gate arc (G2a-G3b + G2d) is functionally
+complete.**
+
+**Re-classify entry point (established from code, V1-V4).** ONE production path: `classify.start_classify`
+(whitelisted) enqueues `classify._classify_worker` (background `long` queue) -> `orchestrator.classify_sheet_rows`.
+A re-classify is ALWAYS single-discipline and can be whole-sheet (`scope.mode=="sheet"`) or a partial row-range.
+**Owner correction (mid-slice): a re-classify CAN be multi-engine at the user-facing level** -- `ClassifySheetDialog`
+lets the user tick MANY engines and LOOPS `start_classify` once per engine, spawning N independent
+`_classify_worker` runs with **NO all-engines completion barrier** (each publishes its own
+`boq:classify_sheet_done`); they run in parallel on the queue. Since the only completion signal is PER-ENGINE, the
+clear lives in `_classify_worker` (owner decision rule), and a test asserts the per-engine edge (below).
+
+**The clear (owner-locked rules).**
+- `classify._clear_override_after_reclassify(boq, sheet_name, scope)` is called in `_classify_worker` AFTER the
+  classify `frappe.db.commit()`, inside the `try` (so it only runs on SUCCESS -- never in the `except`).
+- **WHOLE-SHEET ONLY:** returns False for `scope.mode != "sheet"` (a partial row-range run leaves the override
+  INTACT). **IDEMPOTENT:** a sheet with no override is a clean no-op (returns False, no write). **NEVER fails the
+  run:** the whole helper is wrapped in try/except that logs (`frappe.log_error`) + returns False -- a classify
+  succeeding matters more than the override state, and the gate fails SAFE (an uncleared override only leaves
+  editing unlocked, which the admin already chose).
+- RATIONALE (in the code comment): a re-classify changes which rows have categories, so an override granted
+  against the OLD picture must not silently carry forward -- the admin re-asserts against the new state.
+- The actual write is `pricing.reset_category_gate_override_on_reclassify(boq, sheet, version)` (NOT whitelisted,
+  NO admin gate -- a SYSTEM action; the re-classifier need not be admin). It reuses the SHARED
+  `pricing._write_category_gate_override_cleared(sheet_row_name)` extracted from `clear_category_override` (the
+  admin endpoint now calls it too -- ONE clear write, not a third `set_value`; the endpoint's behaviour is
+  byte-preserved). `classify.py` imports `pricing` (api->api, no cycle -- verified).
+- **ADDITIVE payload key:** the worker's success terminal payload carries `category_override_cleared` (bool),
+  placed AFTER `**summary` so it can't be clobbered. No new response shape, no UI built for it (the banner
+  reflects the change on next load).
+- Does NOT clear on `set_row_category`, freeze/unfreeze, or any partial run.
+
+**Three test gaps closed.**
+- **Gap A (carry atomicity with a PRE-EXISTING rate)** -- both carry refusal messages promise "Your existing
+  rates are untouched," but every prior test used an EMPTY destination (proving no rate APPEARED, not that a
+  pre-existing one SURVIVED). New `test_j_preexisting_dest_rate_survives_refused_carry` in BOTH `test_pricing`
+  (copy-forward) and `test_cross_boq_carry` (cross-BoQ): seed the DEST with a rate on the very carried row, refuse
+  the carry (blank categories), assert the rate is byte-identical AND no superseded history row was minted.
+- **Gap B (the FAILED-clear revert)** -- G3a's optimistic category-clear makes the live count RISE; the SUCCESS
+  path was cert-covered but the FAILURE path was untested. New `describe("failed category clear reverts the
+  optimistic count (Gap B)")` in `PricingGrid.test.ts` reproduces the component's `catData + overrides` merge over
+  the REAL pure helpers (`buildOptimisticVerdict` + `countMasterSetBlankRows`) and asserts the count round-trip
+  the revert guarantees (clear raises the count; dropping the override returns it to pre-clear). The `dropOverride`
+  setState wiring itself is not unit-testable in this node-env harness (no jsdom/@testing-library) -- stated
+  plainly, and covered live by cert C5-equivalent.
+- **Gap C (non-admin control)** -- see cert C7: no non-admin account in the env, so it stays unit-test-only
+  (`canAdminOverride`), reported (second slice carrying it).
+
+**Backend re-classify clear tests (`test_classify`, +8 -> 70).** New `TestReclassifyClearsOverride`:
+(a) whole-sheet success CLEARS a set override; (b) a FAILED run leaves it INTACT; (b2) a range run does NOT clear;
+(c) `set_row_category` does NOT clear; (d) no-override whole-sheet is a clean no-op; (e) the clear is
+SHEET-ISOLATED (A cleared, B untouched); (f) a clear FAILURE never fails the classification (status stays
+success, `category_override_cleared` False, override untouched); and the PER-ENGINE edge
+(`test_multi_engine_each_engine_clears_independently`): engine A clears -> override re-set -> engine B clears it
+AGAIN (the reported behaviour with no all-engines barrier).
+
+**Counts.** `test_classify` 62 -> **70**; `test_pricing` 229 -> **230**; `test_cross_boq_carry` 49 -> **50**;
+vitest 931 -> **932**. tsc clean; residence holding. No Python signature/gate/message change beyond the additive
+clear; the `clear_category_override` endpoint is behaviour-preserved.
+
+**Browser live-cert (`admins@nirmaan.app`; SYNTHETIC `BOQ-26-00143` / `G2D Cert Sheet ` (trailing space),
+scalar-rate sheet with 4 blank eligible rows; C8 on the REAL `BOQ-26-00114` / `Electrical `).** Stack fully
+restarted (R1-R6) so the workers ran the new code; de-stale ritual run; bundle marker = the `Override the check`
+control on screen.
+- **C1** override set THROUGH the G3b button -> override banner appears (no reload; sentinel survived).
+- **C2** with the override active, a rate SAVE (row 11 = 250) SUCCEEDED -- the join G3b did not exercise:
+  button -> stored state -> gate open -> successful write (DB-confirmed).
+- **C3** whole-sheet re-classify (Electrical) -> override GONE: on reload the LOCK banner returned ("4 rows still
+  need a category. Rate editing is locked until every line item and preamble has one...") + the `Override the
+  check` SET button, and ZERO editable rate cells (read-only). (AI was OFF -> the CL-5 fail-safe routes every row
+  to Needs-review, so all 4 read as blank -- the documented AI-off shape; the override-clear is the point.)
+- **C4** the four override fields are reset in the DB (flag 0, actor/timestamp/reason NULL); the terminal payload
+  carried `category_override_cleared: True`, `ai_status: disabled`.
+- **C5** a LIVE mid-worker classify failure cannot be induced safely through the UI (would require breaking the
+  classifier); per the spec's allowance this relies on the unit test `test_failed_run_leaves_override_intact` --
+  reported, not faked.
+- **C6** a single-row category pick (`set_row_category`, the picker's exact endpoint) does NOT clear an active
+  override (DB: flag still 1, actor still admins@nirmaan.app).
+- **C7** NON-ADMIN not exercised on-screen -- no non-admin account, and logging in as one needs credentials that
+  must not be obtained/guessed; unit-covered (`canAdminOverride`), reported (second slice carrying it).
+- **C8** REAL-sheet regression on `BOQ-26-00114`/`Electrical ` (fully categorised): NO category banner, NO
+  override control, rate cells editable; recorded the original (row 16/col K = 1800.0), saved 9999 (SUCCEEDED,
+  DB-confirmed), restored 1800.0 (DB-confirmed), lock released. Done via the exact `acquire_pricing_lock` +
+  `save_cell_price` endpoints (precision/safety on a real sheet given the renderer flap).
+- Synthetic data DELETED, **zero residual verified**.
+- **Harness artifact (banked v5.85):** on C3 the live in-editor refresh did NOT auto-flip -- the
+  `ClassifyProgressModal` stuck at "Starting..." because a CDP-driven tab is `visibilityState: hidden`, which
+  throttles the frontend's `setInterval` poll. The BACKEND `get_classify_status` returned `success` +
+  `category_override_cleared: true` on demand, and a manual route reload showed the correct post-clear banner --
+  so this is a POSSIBLY-ARTIFACT of the hidden-tab timer throttle, NOT a product defect; no code changed.
+
+**ARC CLOSE (remaining items are process, not behaviour):** push; PK re-upload; the design-doc updates incl. the
+Sec.6 priceability correction; the stale `review_screen.py` comment; the Abhishek `patches.txt` migrate heads-up;
+the owner's branch-naming decision. The admin override's eventual REMOVAL stays conditioned on classification
+engines covering all disciplines.
