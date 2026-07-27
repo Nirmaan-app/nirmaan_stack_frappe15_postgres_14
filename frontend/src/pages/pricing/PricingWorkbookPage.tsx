@@ -29,6 +29,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { useFrappePostCall } from "frappe-react-sdk";
+import { Maximize2, Minimize2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -68,6 +69,7 @@ import { ImportReportDialog, reportIsNoop } from "./ImportReportDialog";
 import { REASON_NEEDS_HELPER, applyHelperFixesOffline, applyLiveFix, assessHit } from "./pricingLiveFix";
 import { attachDataValidations } from "./pricingValidations";
 import { workbookForPath } from "./pricingWorkbooks";
+import { pricingRootClass, shouldExitPricingFullscreenOnEsc } from "./pricingHelpers";
 // Dropdown cap (DIAG 2026-07-27): a bare-ID rule capping the Luckysheet
 // data-validation dropdown list to 300px + overflow-y:auto, so long
 // range-sourced lists scroll internally instead of rendering at full
@@ -201,6 +203,14 @@ export function PricingWorkbookPage() {
 		null
 	);
 	const [viewingReport, setViewingReport] = useState<boolean>(false);
+	// PW-FS: full-screen / maximize (per-session). When true the page ROOT wrapper
+	// becomes a fixed inset-0 overlay covering the app shell. Pure LAYOUT -- it flips
+	// ONLY the root className (one JSX tree, same children, same engine container id),
+	// so nothing remounts: the Luckysheet instance, the checkout lock, the sandbox
+	// session and the watermark sibling all survive. NOT a Dialog / portal (those
+	// remount + would strand the watermark), NOT the native Fullscreen API (Radix
+	// dialogs portal to document.body and would be hidden behind a fullscreened node).
+	const [expanded, setExpanded] = useState<boolean>(false);
 
 	// Post-mount (re)create request. The actual luckysheet.create runs from the
 	// effect below, which fires only when status === "ready" so the container div
@@ -382,6 +392,32 @@ export function PricingWorkbookPage() {
 			destroySheet();
 		};
 	}, [destroySheet]);
+
+	// -- PW-FS: full-screen Esc-to-exit -----------------------------------
+	// A window keydown listener mounted ONLY while expanded. shouldExitPricingFullscreenOnEsc
+	// guards the collision cases (a dropdown/popup that already consumed the Esc via
+	// defaultPrevented, and an <input>/<textarea> cell editor being typed).
+	useEffect(() => {
+		if (!expanded) return;
+		const onKeyDown = (e: KeyboardEvent) => {
+			if (shouldExitPricingFullscreenOnEsc(e, document.activeElement)) setExpanded(false);
+		};
+		window.addEventListener("keydown", onKeyDown);
+		return () => window.removeEventListener("keydown", onKeyDown);
+	}, [expanded]);
+
+	// -- PW-FS: repaint the engine canvas after the container size flips --
+	// Luckysheet sizes its canvas at create() and only re-measures on its OWN window-resize
+	// listener. A className flip changes the CONTAINER box but NOT the window, so that
+	// listener never fires and the canvas keeps the old size (blank/clipped band, misplaced
+	// scrollbars) until told otherwise. Call luckysheet.resize() on BOTH directions, after
+	// the browser has laid out the new box (rAF -- the class change is not settled in the
+	// same tick). Guarded on sheetInitedRef so it no-ops before the engine exists.
+	useEffect(() => {
+		if (!sheetInitedRef.current) return;
+		const id = requestAnimationFrame(() => window.luckysheet?.resize?.());
+		return () => cancelAnimationFrame(id);
+	}, [expanded]);
 
 	// -- actions -----------------------------------------------------------
 	const reloadSheet = useCallback(
@@ -906,9 +942,29 @@ export function PricingWorkbookPage() {
 	const showSandboxEntry = roleResolved && status === "ready" && !sandbox && lock !== "mine";
 
 	return (
-		<div className="flex flex-col h-[calc(100vh-100px)]">
+		// PW-FS: ONE JSX tree -- only THIS wrapper's className flips (normal <-> fixed
+		// inset-0 overlay). The action bar + sandbox band stay the fixed-height first
+		// children and the sheet slot keeps flex-1, so no child remounts and the engine
+		// container / watermark siblings are untouched.
+		<div className={pricingRootClass(expanded)}>
 			<div className="flex flex-wrap items-center gap-2 p-2 border-b border-border">
 				<h1 className="text-base font-semibold text-foreground mr-2">{workbookTitle}</h1>
+
+				{/* PW-FS: full-screen toggle -- ALWAYS rendered once a sheet exists
+				    (ready/loading), orthogonal to editability / sandbox. */}
+				{(status === "ready" || status === "loading") && (
+					<Button
+						size="sm"
+						variant="outline"
+						className="gap-1.5"
+						aria-pressed={expanded}
+						onClick={() => setExpanded((v) => !v)}
+						title={expanded ? "Exit full screen (Esc)" : "Expand the editor to full screen"}
+					>
+						{expanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+						{expanded ? "Exit full screen" : "Full screen"}
+					</Button>
+				)}
 
 				{!roleResolved && (
 					// Neutral bar while the role resolves -- never flash the wrong one.
