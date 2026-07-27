@@ -27,7 +27,35 @@ yarn build
 ```bash
 yarn test-local
 # Opens Cypress E2E tests in Chrome browser
+
+yarn test
+# vitest, environment: "node" -- unit tests only. NOT run by CI (.github/workflows/ci.yml runs
+# the Python bench suite only), so this is a LOCAL gate.
 ```
+
+**There is NO DOM test environment** — no jsdom / happy-dom / `@testing-library`, a deliberate
+choice recorded in `vitest.config.ts`. **Load-bearing consequence:** anything whose correctness is
+a React *semantic* — a component mounting, unmounting, or preserving state across a render — is
+STRUCTURALLY untestable here; only pure in/out helpers can be covered, and a pure helper extracted
+from such a component passes happily while the component itself misbehaves. (Same trap the Pricing
+Module records at PW-2b-i: the tests assert the emitted formula TEXT and cannot see that the engine
+mis-reads it at runtime.) When a change turns on a React semantic, the honest verification is a
+live browser A/B — revert, reproduce, restore, re-verify — not a unit test.
+
+**App-shell invariant (guarded by nothing but this note + a comment in the file):** the navigation
+reset in `components/common/ErrorBoundaryWrapper.tsx` MUST NOT be a React `key`. A changing `key`
+is an unmount instruction, and that boundary wraps `<Outlet />` in `MainLayout` — keying it on the
+location rebuilds EVERY routed page on EVERY navigation, and silently destroys page state on a
+same-route param change (the BoQ pricing editor's sheet-tab strip is exactly that shape). Reset it
+by comparing a `resetKey` prop instead.
+
+> **DEFERRED — owner reminder:** add a DOM environment so the invariant above can be pinned by a
+> test. Agreed scope: `jsdom` ONLY (no `@testing-library`), a per-file `// @vitest-environment
+> jsdom` docblock so the global `environment: "node"` and every existing suite stay untouched, and
+> one test file whose primary case is *a same-route param change must not remount the child*.
+> ⚠️ Pin **`jsdom@^26`** — jsdom 27+ requires Node >= 22 and the dev container runs Node 20.
+> ⚠️ Install INSIDE the container (host `node_modules` is linux-arm64). An interrupted `yarn add`
+> PRUNES `node_modules` and breaks the runner — recover with `yarn install --frozen-lockfile`.
 
 ### Preview Production Build
 ```bash
