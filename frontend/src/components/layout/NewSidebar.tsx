@@ -442,7 +442,8 @@ export function NewSidebar() {
       "Nirmaan PMO Executive Profile",
       "Nirmaan Project Lead Profile",
       "Nirmaan Accountant Profile",
-      "Nirmaan Accountant Lead Profile"
+      "Nirmaan Accountant Lead Profile",
+      "Nirmaan Estimates Executive Profile"
     ].includes(role as string)
       ? [
         {
