@@ -447,6 +447,22 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   `AlertDialog`; both `mutate()` to re-read the flag (the `lock_sheet`/`handleToggleLock` pattern). While frozen,
   `onCategoryClick` short-circuits with a brief inline message via a `classificationFrozenRef` — the callback stays
   REFERENCE-STABLE (row-memo anti-defeat rule); NEVER thread a per-row `frozen` prop through `pricingRowPropsAreEqual`.
+- **Rate-helper chassis (U1, DEV-only, `rate-helper/`; full detail in the plan doc's "Build slice U1"):** the
+  "Suggest rates" button + per-cell badges + the page-level panel that renders a typed helper CONTRACT generically
+  (`RateHelper.compute -> Suggestion | NoSuggestion`; the panel has ZERO helper-specific rendering — a new helper is
+  a registry edit). Load-bearing invariants: (1) **DEV gate `RATE_HELPER_ENABLED` (`import.meta.env.DEV` + a
+  localStorage kill-switch) — a prod `vite build` makes the whole feature unreachable**, so it must guard the button,
+  the grid props (`rowSuggestionsByExcelRow`/`onSuggestionBadgeClick` passed only when enabled), and the panel mount.
+  (2) The ONE write is **`PricingGridHandle.applyRate(excelRow, col, value)`, which MUST mirror the typed `onChange`
+  EXACTLY — optimistic `setDraftRates` + clear proposal + the SAME 1s debounced `scheduleAutoSave`, NEVER a
+  synchronous `commitRate`**: a synchronous commit races the page's `dirty -> ensureLockAcquired` and trips a spurious
+  takeover; deferring makes "Use this value" byte-identical to typing (undo/mutate/takeover/locked-gate all inherited).
+  (3) Memo shield (P1): the grid gets per-row ONLY its `rowSuggestions` entry compared BY VALUE (`rowSuggestionsEqual`),
+  never the whole Map; `rowSuggestionsByExcelRow` + `onSuggestionBadgeClick` change only on a run/Use (like
+  `categoriesByExcelRow`), never on keystroke. (4) The button's enable chain **REUSES the rate-write gate
+  (`!locked && formulasComplete && categoryGateOpen`) — never re-derived** — surfacing the first failing reason as the
+  title. (5) The badge lives in the rate cell's right-aligned flex strip with `stopPropagation`, so a bare cell click
+  still just places the cursor. Nothing persists (page-session only; a reload wipes suggestions). The STUB dies at U2.
 - **Socket reconnect self-heal must be reconnect-GATED + debounced (T1, owner-verified):** a `socket.on("connect", ...)`
   handler that refetches (`mutate()`/`mutateCategories()`) MUST NOT fire on every connect — the initial mount connect
   double-fetches (the SWR mount fetch already ran) and a flapping dev socket then refetches on every reconnect, and
