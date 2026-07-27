@@ -68,6 +68,11 @@ import { ImportReportDialog, reportIsNoop } from "./ImportReportDialog";
 import { REASON_NEEDS_HELPER, applyHelperFixesOffline, applyLiveFix, assessHit } from "./pricingLiveFix";
 import { attachDataValidations } from "./pricingValidations";
 import { workbookForPath } from "./pricingWorkbooks";
+// Dropdown cap (DIAG 2026-07-27): a bare-ID rule capping the Luckysheet
+// data-validation dropdown list to 300px + overflow-y:auto, so long
+// range-sourced lists scroll internally instead of rendering at full
+// content height (unscrollable, JS-placed off-screen). See pricing.css.
+import "./pricing.css";
 
 declare global {
 	interface Window {

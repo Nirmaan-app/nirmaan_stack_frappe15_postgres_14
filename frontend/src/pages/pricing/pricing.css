@@ -1,0 +1,4 @@
+/* Fix: long range-sourced data-validation dropdowns were unscrollable
+   (rendered at full content height, no internal scroll, clipped
+   off-screen). DIAG 2026-07-27. */
+#luckysheet-dataVerification-dropdown-List { max-height: 300px; overflow-y: auto; }
