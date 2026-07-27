@@ -791,7 +791,27 @@ status / decisions: `frontend/.claude/plans/pricing-module-plan.md`.
   small bodies, no reason to change. Watermark opacity is **0.22** (PM-6, darker; still `#D03B45`).
 - **Watermark** = pointer-events-none data-URI-SVG overlay in the **Nirmaan brand red `#D03B45`** (full name +
   email, tiled ~30°, font 21/weight 600, opacity 0.22 per PM-6) in BOTH read-only and edit modes; must never
-  block sheet interaction. Keyed on the USER, not the workbook — it needs no per-workbook parametrization.
+  block sheet interaction. Keyed on the USER, not the workbook — it needs no per-workbook parametrization. It
+  is a **React SIBLING** of the engine mount (both `absolute inset-0` inside one `relative flex-1`) — NEVER
+  reparent `#pricing-workbook-luckysheet` or the watermark strands.
+- **Dropdown height cap (`pricing.css`, imported once by `PricingWorkbookPage`):** a bare-ID rule
+  `#luckysheet-dataVerification-dropdown-List { max-height: 300px; overflow-y: auto; }` makes long
+  range-sourced data-validation dropdowns scroll INTERNALLY instead of rendering at full content height
+  (unscrollable + JS-placed off-screen). Capping the height also fixes placement (the engine measures the
+  capped element). Short lists are unaffected (natural height, no scrollbar). Bare-ID specificity wins over the
+  vendored script-injected styles — no `!important` needed. Accepted residual: a list opened low in the
+  viewport can overhang the bottom edge but stays scrollable.
+- **Full-screen (PW-FS) = root-className FLIP, NOT the native Fullscreen API, NOT a portal.** An `expanded`
+  `useState` swaps the page root between `flex flex-col h-[calc(100vh-100px)]` and
+  `fixed inset-0 z-50 flex flex-col bg-background` (pure `pricingRootClass`) — ONE JSX tree, nothing remounts
+  (engine / lock / sandbox / watermark survive). Native API is BANNED (the Radix save/import dialogs portal to
+  `document.body` at `z-50` and would be hidden behind a fullscreened node; against a `z-50` overlay DOM-order
+  puts them on top). **`window.luckysheet.resize()` MUST fire on BOTH enter and exit** (a `useEffect([expanded])`
+  rAF, guarded on the sheet-inited ref) — the engine's own window-resize listener does not fire on a
+  container-only change. Esc-exit uses the pure co-located `shouldExitPricingFullscreenOnEsc` (bare Esc; false
+  on `defaultPrevented`; false on INPUT/TEXTAREA) — do NOT import the wizard's twin (the module stays
+  standalone). NOTE: Luckysheet `stopPropagation`s Escape at its grid, so Esc exits only when focus is OUTSIDE
+  the grid; the toggle button is the universal exit.
 - **Access strings (PM-1 DB-verified, profile side):** `PricingRoute` guard + the sidebar spread both gate on
   Administrator OR role_profile `Nirmaan Admin Profile` / `Nirmaan Estimates Executive Profile`. The backend
   (`api/pricing/workbook.py`) also accepts the `Nirmaan Estimates Executive` Role and is the real enforcement

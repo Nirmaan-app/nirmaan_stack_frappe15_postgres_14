@@ -1000,6 +1000,83 @@ Networking NOT corrupted (155 cells), single save v23→24. Cleanup: Electrical 
   arithmetic uses the same IEEE ops, and any true mismatch would only mean a one-recalc-late display, not a
   wrong persisted `f`.
 
+## PW-FS — Dropdown scroll cap + full-screen mode (2026-07-28)
+
+Two additive UI changes to `PricingWorkbookPage` (the shared HVAC / Electrical / ELV page). No backend, no
+doctype, no engine change. tsc 0 errors in slice files; build ✓; vitest **170 → 178** (new
+`pricingHelpers.test.ts`, 8). Full live matrix a–i PASSED on a Vite-restarted `:8080` (owner-run de-stale;
+the in-container watcher never sees a Windows-mount edit, so a restart is mandatory — proven again this
+slice: the served transformed module was byte-stale until restart, `hasFullScreen:false → true`).
+
+### Commit 1 — data-validation dropdown height cap (`pricing.css`)
+
+- **Mechanism (DIAG 2026-07-27):** Luckysheet renders the `#luckysheet-dataVerification-dropdown-List` at its
+  FULL content height with `max-height:none; overflow:visible`, so a long range-sourced list is not an internal
+  scroll container AND is JS-placed off-screen from the uncapped height. The fix is a bare-ID rule
+  `#luckysheet-dataVerification-dropdown-List { max-height: 300px; overflow-y: auto; }`, imported ONCE by
+  `PricingWorkbookPage`. **Capped height fixes BOTH scroll and placement** — Luckysheet measures the element's
+  actual (now-capped) rendered height when it positions the list, so a 300px list lands on-screen.
+- **Specificity: Tier 1 (bare ID, no `!important` needed) — VERIFIED live.** The built/served page applied
+  `max-height:300px` from the plain `#id` selector (the vendored script-injected styles do not set a competing
+  rule at ≥ ID specificity). No `html`-prefix or `!important` escalation was required.
+- **Accepted residual (bottom-edge overhang):** a long list opened from a cell LOW in the viewport still opens
+  downward anchored to the cell, so the capped 300px can extend past the viewport bottom (measured I41: 71px
+  overhang) — but it stays internally scrollable so every option is reachable. Owner-accepted (DIAG).
+- **Backwards-compat:** the rule touches ONLY the Luckysheet dropdown container. Short lists are unaffected —
+  a 2-option list renders at its natural 58px with NO scrollbar (`overflow-y:auto` shows a bar only when
+  content exceeds the cap). Proven live (O39 "Wire,Cable").
+- **Live proof (Electrical I10, 106-option `'Unique Linkages reference sheet'!$B$2:$B$107`, in full-screen +
+  Sandbox):** list opens on-screen, scrollbar present, wheel scrolls, LAST option reachable + selects
+  (`I10 = "63A RCCB 300mA(FP)"`); discarded on Exit Sandbox. Cap CSS confirmed active on all three pages
+  (HVAC + ELV computed `max-height:300px`).
+
+### Commit 2 — full-screen mode
+
+- **Mechanism = root-className FLIP (RECON 2026-07-27, the wizard Slice-4c pattern), NOT the native Fullscreen
+  API, NOT a portal.** One `expanded` `useState`; the page root swaps
+  `flex flex-col h-[calc(100vh-100px)]` ↔ `fixed inset-0 z-50 flex flex-col bg-background` via the pure
+  `pricingRootClass(expanded)` (`pricingHelpers.ts`, unit-tested). ONE JSX tree — the action bar + sandbox
+  band stay the fixed-height first children, the sheet slot stays `relative flex-1`, and the engine-mount +
+  watermark siblings are untouched, so NOTHING remounts (engine instance / checkout lock / sandbox / drafts
+  all survive).
+- **HARD RULE 1 — never reparent `#pricing-workbook-luckysheet`.** The watermark is a React SIBLING overlay
+  (`absolute inset-0 z-10`) of the mount div; a className flip on an ANCESTOR keeps the whole subtree, so the
+  watermark survives (proven: tiled + on top in FS and after exit). Reparenting the container (e.g. into a
+  portal) would strand it.
+- **HARD RULE 2 — never the native Fullscreen API.** The save-advisory / import-report dialogs are Radix,
+  portalled to `document.body` at `z-50`; against a `z-50` page overlay the DOM-order tie-break puts the
+  body-appended dialog ON TOP (proven live: the INDEX advisory rendered above the overlay). The native API
+  would hide those dialogs (they portal outside the fullscreened node).
+- **`luckysheet.resize()` REQUIRED both directions.** The engine sizes its canvas at `create()` and only
+  re-measures on its OWN window-resize listener; a container-only className flip does not fire it, so a
+  `useEffect([expanded])` calls `requestAnimationFrame(() => window.luckysheet?.resize?.())` (guarded on
+  `sheetInitedRef`) on enter AND exit. Proven: canvas fills the viewport on enter and restores on exit across
+  Electrical / HVAC / ELV; at 90% zoom (dpr 0.9) the repaint is crisp (canvas buffer matches CSS 1:1, no blur).
+- **Esc semantics (`shouldExitPricingFullscreenOnEsc`, pure, co-located — NOT imported from boq-wizard):** a
+  window keydown listener mounted only while expanded; exits on a BARE Escape, and returns false on
+  `e.defaultPrevented` or when `activeElement` is INPUT/TEXTAREA. **Engine nuance (Luckysheet-specific,
+  reported):** Luckysheet `stopPropagation`s Escape at its grid contenteditable, so the window listener never
+  fires while the GRID has focus — i.e. Esc exits when focus is OUTSIDE the grid (right after entering, or the
+  action bar) and is inert inside the grid; the "Exit full screen" button is the universal exit. This
+  satisfies the matrix (Esc exits ✓; Esc-in-cell-editor does not ✓; button works ✓) with the specced
+  predicate unchanged. A capture-phase listener would make in-grid Esc exit but would also yank the user out
+  mid-cell-edit (contenteditable, not INPUT/TEXTAREA) and fire alongside dropdown-dismiss — rejected; button +
+  outside-grid Esc is the accepted behaviour. (Owner may revisit.)
+- **Toggle:** an always-rendered (when `status` is ready/loading) outline button in the action bar,
+  Maximize2/Minimize2, `aria-pressed`, Esc named in the title; orthogonal to editability/sandbox.
+- **No lifecycle change:** the `beforeunload`/release wiring is ref-keyed + unmount-driven and layout-agnostic;
+  a className flip never unmounts, so it is untouched (recon-verified, held live: Edit→enter FS→Save advisory→
+  Cancel→clear→Release all worked from within FS; Electrical stayed v5).
+
+### Standing maintenance riders (carried, not this slice)
+
+- **SUMIFS verified** — the probe table passed on all cases; no normalizer work owed.
+- **Electrical baseline v2 superseded by the new master import** — the older v2 snapshot is stale vs the
+  current master; RE-SNAPSHOT at the next maintenance touch (do not trust the old baseline for a regression
+  diff).
+- **Import-normalizer candidate: `FALSE()`→`0` / `TRUE()`→`1`** (the v6-prep LibreOffice lesson) — a future
+  normalizer rule to consider; not implemented.
+
 ## PM-3+ / remaining module queue
 
 - **Univer spike**, then the production go-live sequence.
