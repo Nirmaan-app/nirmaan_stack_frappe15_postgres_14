@@ -172,6 +172,7 @@ import type {
   SheetCategoryRow,
 } from "./boqTypes";
 import { deriveVerdictState, isRowEditable, labelFor } from "./CategoryVerdictPicker";
+import { type RowSuggestions, rowSuggestionsEqual } from "./rate-helper/rateHelperTypes";
 
 // Depth indent step -- mirrors ReviewTree.INDENT_PX (kept in sync; the pricing grid does
 // not import ReviewTree per design v1.3 Sec.4 path b).
@@ -1627,6 +1628,20 @@ interface PricingGridProps {
    */
   onCategoryClick?: (excelRow: number, cellEl: HTMLElement) => void;
   /**
+   * U1 rate-helper (dev): page-owned suggestion state per Excel row (built by pressing "Suggest
+   * rates"). A reference-stable Map that changes only on a run / a "Use this value" (like
+   * categoriesByExcelRow) -- NEVER on keystroke. Each row reads ONLY its own entry (by value in the
+   * comparator), so a rebuild re-renders just the rows whose badges changed. ABSENT/empty => no badges.
+   */
+  rowSuggestionsByExcelRow?: Map<number, RowSuggestions>;
+  /**
+   * U1 rate-helper (dev): open the suggestion panel for a rate cell (Excel row + column letter +
+   * the clicked cell element for scoping). Reference-stable (page useCallback) -> memo-safe. The
+   * badge's own onClick calls it with stopPropagation, so a bare cell click still just places the
+   * cursor. ABSENT => no badges are interactive (the feature is off).
+   */
+  onSuggestionBadgeClick?: (excelRow: number, col: string, cellEl: HTMLElement) => void;
+  /**
    * CL-3: id -> label for the Category cell's DISPLAY (from classify.get_category_catalog). A
    * reference-stable Map (page-built, changes only on fetch, never on keystroke) -> memo-safe.
    * ABSENT/empty => the cell falls back to the raw category id (labelFor).
@@ -1700,6 +1715,11 @@ export interface PricingGridHandle {
   undo: () => void;
   /** Slice B: redo the most recently undone rate gesture (no-op when nothing to redo / read-only). */
   redo: () => void;
+  /** U1 rate-helper: apply a value to a rate cell (excelRow + Excel column letter) through the SAME
+   * commitRate path a typed value takes -- optimistic draft, undo history, in-flight/takeover,
+   * autosave/refetch. No-op if the cell is not an editable rate cell (onSaveRate withheld => locked).
+   * The ONE write the "Use this value" affordance calls; it adds no second save path. */
+  applyRate: (excelRow: number, col: string, value: number) => void;
 }
 
 // ── Editor perf fix: PricingGrid row-level memoization (recon items 1+2) ─────────
@@ -1749,6 +1769,8 @@ const EMPTY_CATEGORY_MAP: Map<number, SheetCategoryRow> = new Map();
 // CL-3: a stable empty id->label map for the default (no catalog fetched) case -- a shared
 // reference so the row memo is never defeated by a fresh Map per render.
 const EMPTY_CATEGORY_LABEL_MAP: Map<string, string> = new Map();
+// U1 rate-helper: stable empty default so an absent prop never churns the memo.
+const EMPTY_SUGGESTIONS_MAP: Map<number, RowSuggestions> = new Map();
 
 /** Shallow string-map equality (key set + values). Pure -- unit-tested. */
 function shallowEqualStrMap(a: Record<string, string>, b: Record<string, string>): boolean {
@@ -1983,6 +2005,13 @@ interface PricingGridRowProps {
   /** CL-3: open the verdict picker for a classified row's Category cell (page-owned, ref-stable).
    *  undefined => the cell is display-only (no click-to-edit). */
   onCategoryClick?: (excelRow: number, cellEl: HTMLElement) => void;
+  /** U1 rate-helper: this row's OWN suggestion entry (from rowSuggestionsByExcelRow.get(excelRow)).
+   *  Compared BY VALUE (rowSuggestionsEqual) in pricingRowPropsAreEqual, so a whole-Map rebuild only
+   *  re-renders rows whose badge state changed. undefined => this row has no badges. */
+  rowSuggestions?: RowSuggestions;
+  /** U1 rate-helper: reference-stable page callback the badge calls (stopPropagation). undefined =>
+   *  feature off. */
+  onSuggestionBadgeClick?: (excelRow: number, col: string, cellEl: HTMLElement) => void;
   override: boolean;
   /** MANDATORY amount-formula gate (per-SHEET boolean -- flips identically for all rows). */
   formulasComplete: boolean;
@@ -2061,6 +2090,8 @@ export function pricingRowPropsAreEqual(
     prev.hasRun === next.hasRun &&
     prev.categoryLabelById === next.categoryLabelById &&
     prev.onCategoryClick === next.onCategoryClick &&
+    rowSuggestionsEqual(prev.rowSuggestions, next.rowSuggestions) &&
+    prev.onSuggestionBadgeClick === next.onSuggestionBadgeClick &&
     prev.override === next.override &&
     prev.formulasComplete === next.formulasComplete &&
     prev.categoryGateOpen === next.categoryGateOpen &&
@@ -2127,6 +2158,8 @@ const PricingGridRow = memo(function PricingGridRow({
   hasRun,
   categoryLabelById,
   onCategoryClick,
+  rowSuggestions,
+  onSuggestionBadgeClick,
   override,
   formulasComplete,
   categoryGateOpen,
@@ -2584,6 +2617,43 @@ const PricingGridRow = memo(function PricingGridRow({
                     )}
                   />
                 )}
+                {/* U1 rate-helper: the suggestion badge. Its own click (stopPropagation) opens the
+                    panel; a bare click on the input beside it still just places the cursor. */}
+                {onSuggestionBadgeClick && rowSuggestions?.byCol[d.col] && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSuggestionBadgeClick(
+                        row.source_row_number,
+                        d.col,
+                        e.currentTarget as HTMLElement,
+                      );
+                    }}
+                    className={cn(
+                      "inline-flex h-4 min-w-[16px] shrink-0 items-center justify-center rounded-full px-1 text-[10px] font-semibold leading-none",
+                      rowSuggestions.byCol[d.col].used
+                        ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+                        : "bg-primary/15 text-primary hover:bg-primary/25",
+                    )}
+                    title={
+                      rowSuggestions.byCol[d.col].used
+                        ? "Suggested value used"
+                        : `${rowSuggestions.byCol[d.col].count} rate suggestion(s)`
+                    }
+                    aria-label={
+                      rowSuggestions.byCol[d.col].used
+                        ? "Suggested value used"
+                        : "Open rate suggestions"
+                    }
+                  >
+                    {rowSuggestions.byCol[d.col].used ? (
+                      <Check className="h-3 w-3" />
+                    ) : (
+                      rowSuggestions.byCol[d.col].count
+                    )}
+                  </button>
+                )}
                 <Input
                   {...inputFocusProps(colIndex)}
                   type="text"
@@ -2779,7 +2849,7 @@ PricingGridRow.displayName = "PricingGridRow";
 // grid props identity-stable (the 12 useMemo/useCallback wraps -- esp. `rows`/`displayRows`); a
 // future non-stable prop silently kills the shield (see frontend/CLAUDE.md).
 export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(function PricingGrid(
-  { rows, columnDescriptors, onSaveRate, onBatchWrite, onDirtyChange, onHistoryChange, override = false, formulasComplete = true, categoryGateOpen = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], categoriesByExcelRow = EMPTY_CATEGORY_MAP, hasRun = false, categoryLabelById = EMPTY_CATEGORY_LABEL_MAP, onCategoryClick, onSaveReconChoice, hiddenCols, currentHitExcelRow = null, collapsed, childrenByParent, onToggleCollapse, onRevealRow, frozen = false, virtualized = false },
+  { rows, columnDescriptors, onSaveRate, onBatchWrite, onDirtyChange, onHistoryChange, override = false, formulasComplete = true, categoryGateOpen = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], categoriesByExcelRow = EMPTY_CATEGORY_MAP, hasRun = false, categoryLabelById = EMPTY_CATEGORY_LABEL_MAP, onCategoryClick, rowSuggestionsByExcelRow = EMPTY_SUGGESTIONS_MAP, onSuggestionBadgeClick, onSaveReconChoice, hiddenCols, currentHitExcelRow = null, collapsed, childrenByParent, onToggleCollapse, onRevealRow, frozen = false, virtualized = false },
   ref,
 ) {
   // Cluster B: per-cell reconciliation choice map (per-SHEET; reference-stable across a keystroke
@@ -3080,6 +3150,41 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
         delete committedAttemptRef.current[key];
       });
   }, [onSaveRate, displayDescriptors]);
+
+  // U1 rate-helper: apply a value to a rate cell (excelRow + Excel column letter) EXACTLY as a
+  // typed value -- optimistic draft (cell shows it at once) + clear any proposal + the SAME 1s
+  // debounced autosave the onChange handler schedules (inlined here because scheduleAutoSave is
+  // declared below). Deferring the commit rather than committing synchronously is load-bearing: the
+  // draft flips the sheet dirty, which fires the page's ensureLockAcquired BEFORE the save runs, so
+  // "Use this value" never races lock acquisition (a synchronous commit did -> spurious takeover).
+  // It inherits the identical bookkeeping typing has: undo history, mutate refetch, in-flight /
+  // takeover, and the onSaveRate (locked) gate via autoSaveCellRef -> commitRate. No second save path.
+  const applyRate = useCallback(
+    (excelRow: number, col: string, value: number) => {
+      if (!onSaveRate) return;
+      const row = rowsRef.current.find((r) => r.source_row_number === excelRow);
+      const d = displayDescriptors.find((dd) => dd.col === col);
+      if (!row || !d || !isRateDescriptor(d)) return;
+      const key = cellKey(row.row_index, d.col);
+      const str = String(value);
+      setDraftRates((prev) => ({ ...prev, [key]: str }));
+      setProposedRates((prev) => {
+        if (prev[key] === undefined) return prev;
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+      let deb = debouncersRef.current.get(key);
+      if (!deb) {
+        deb = debounce(() => autoSaveCellRef.current(row.row_index, d.col), AUTOSAVE_MS);
+        debouncersRef.current.set(key, deb);
+      }
+      deb();
+    },
+    [onSaveRate, displayDescriptors],
+  );
+  const applyRateRef = useRef(applyRate);
+  applyRateRef.current = applyRate;
 
   // Slice 3c: keep the latest-state commit closure + draft snapshot fresh for the
   // debounce/flush (refs avoid stale captures). Runs after every render.
@@ -3918,6 +4023,9 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
       // via refs (synced each render), so the handle need not rebuild when rows/override change.
       undo: () => undoRef.current(),
       redo: () => redoRef.current(),
+      // U1 rate-helper: delegate to the latest applyRate via a ref (like undo/redo) so the handle
+      // need not rebuild when rows/descriptors change.
+      applyRate: (excelRow, col, value) => applyRateRef.current(excelRow, col, value),
     }),
     [jumpToRow],
   );
@@ -4460,6 +4568,8 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
       hasRun={hasRun}
       categoryLabelById={categoryLabelById}
       onCategoryClick={onCategoryClick}
+      rowSuggestions={rowSuggestionsByExcelRow.get(row.source_row_number)}
+      onSuggestionBadgeClick={onSuggestionBadgeClick}
       override={override}
       formulasComplete={formulasComplete}
       categoryGateOpen={categoryGateOpen}
