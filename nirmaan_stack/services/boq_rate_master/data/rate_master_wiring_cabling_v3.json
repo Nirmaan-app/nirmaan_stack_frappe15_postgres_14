@@ -1,7 +1,7 @@
 {
- "source_workbook": "Electrical_pricing_-_25_Jul_2026__1_.xlsx",
+ "source_workbook": "Electrical_pricing_-_28_Jul_2026.xlsx",
  "extracted_at": "2026-07-28",
- "extraction_provenance": "formulas decoded from ALL ITEM WISE RATE S4/T4/S5/T5/S6/S7 + the Wiring & cabling / Termination assumption blocks (chat session 2026-07-28); v2: attribute casing normalized to canonical uppercase (owner ruling 2026-07-28)",
+ "extraction_provenance": "formulas decoded from ALL ITEM WISE RATE S4/T4/S5/T5/S6/S7 + the Wiring & cabling / Termination assumption blocks (chat session 2026-07-28); v2: attribute casing normalized to canonical uppercase (owner ruling 2026-07-28); v3: data-only revision from the 28-Jul benchmark workbook (56 unarmoured-copper install fills + 2 corrections; pipelines verified UNCHANGED by formula diff)",
  "items": [
   {
    "kind": "cable",
@@ -3948,7 +3948,7 @@
    },
    "rates": {
     "list_price_per_mtr": 49.8,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 12.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -3967,7 +3967,7 @@
    },
    "rates": {
     "list_price_per_mtr": 66.7,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 12.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -3986,7 +3986,7 @@
    },
    "rates": {
     "list_price_per_mtr": 84.75,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 12.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -4005,7 +4005,7 @@
    },
    "rates": {
     "list_price_per_mtr": 116.0,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 12.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -4024,7 +4024,7 @@
    },
    "rates": {
     "list_price_per_mtr": 192.0,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 12.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -4043,7 +4043,7 @@
    },
    "rates": {
     "list_price_per_mtr": 281.0,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 12.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -4062,7 +4062,7 @@
    },
    "rates": {
     "list_price_per_mtr": 413.0,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 14.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -4081,7 +4081,7 @@
    },
    "rates": {
     "list_price_per_mtr": 706.0,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 14.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -4100,7 +4100,7 @@
    },
    "rates": {
     "list_price_per_mtr": 1108.0,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 17.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -4119,7 +4119,7 @@
    },
    "rates": {
     "list_price_per_mtr": 1847.0,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 21.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -4138,7 +4138,7 @@
    },
    "rates": {
     "list_price_per_mtr": 2573.0,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 26.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -4157,7 +4157,7 @@
    },
    "rates": {
     "list_price_per_mtr": 3648.0,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 26.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -4176,7 +4176,7 @@
    },
    "rates": {
     "list_price_per_mtr": 5186.0,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 30.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -4195,7 +4195,7 @@
    },
    "rates": {
     "list_price_per_mtr": 68.35,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 12.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -4214,7 +4214,7 @@
    },
    "rates": {
     "list_price_per_mtr": 92.45,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 12.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -4233,7 +4233,7 @@
    },
    "rates": {
     "list_price_per_mtr": 117.5,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 12.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -4252,7 +4252,7 @@
    },
    "rates": {
     "list_price_per_mtr": 166.0,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 12.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -4328,7 +4328,7 @@
    },
    "rates": {
     "list_price_per_mtr": 1037.0,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 20.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -4347,7 +4347,7 @@
    },
    "rates": {
     "list_price_per_mtr": 1620.0,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 20.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -4366,7 +4366,7 @@
    },
    "rates": {
     "list_price_per_mtr": 2686.0,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 22.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -4385,7 +4385,7 @@
    },
    "rates": {
     "list_price_per_mtr": 3735.0,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 30.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -4404,7 +4404,7 @@
    },
    "rates": {
     "list_price_per_mtr": 5318.0,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 34.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -4423,7 +4423,7 @@
    },
    "rates": {
     "list_price_per_mtr": 7378.0,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 40.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -4442,7 +4442,7 @@
    },
    "rates": {
     "list_price_per_mtr": 87.4,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 12.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -4461,7 +4461,7 @@
    },
    "rates": {
     "list_price_per_mtr": 119.0,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 12.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -4480,7 +4480,7 @@
    },
    "rates": {
     "list_price_per_mtr": 152.5,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 12.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -4499,7 +4499,7 @@
    },
    "rates": {
     "list_price_per_mtr": 215.25,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 12.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -4575,7 +4575,7 @@
    },
    "rates": {
     "list_price_per_mtr": 1368.0,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 20.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -4594,7 +4594,7 @@
    },
    "rates": {
     "list_price_per_mtr": 2139.0,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 20.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -4613,7 +4613,7 @@
    },
    "rates": {
     "list_price_per_mtr": 3509.0,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 22.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -4632,7 +4632,7 @@
    },
    "rates": {
     "list_price_per_mtr": 4908.0,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 30.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -4651,7 +4651,7 @@
    },
    "rates": {
     "list_price_per_mtr": 7025.0,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 34.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -4670,7 +4670,7 @@
    },
    "rates": {
     "list_price_per_mtr": 9753.0,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 40.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -4689,7 +4689,7 @@
    },
    "rates": {
     "list_price_per_mtr": 113.75,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 12.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -4708,7 +4708,7 @@
    },
    "rates": {
     "list_price_per_mtr": 161.0,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 12.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -4727,7 +4727,7 @@
    },
    "rates": {
     "list_price_per_mtr": 208.0,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 12.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -4746,7 +4746,7 @@
    },
    "rates": {
     "list_price_per_mtr": 284.0,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 12.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -4822,7 +4822,7 @@
    },
    "rates": {
     "list_price_per_mtr": 1850.0,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 20.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -4841,7 +4841,7 @@
    },
    "rates": {
     "list_price_per_mtr": 2830.0,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 22.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -4860,7 +4860,7 @@
    },
    "rates": {
     "list_price_per_mtr": 5137.0,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 22.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -4879,7 +4879,7 @@
    },
    "rates": {
     "list_price_per_mtr": 7042.0,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 26.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -4898,7 +4898,7 @@
    },
    "rates": {
     "list_price_per_mtr": 10194.0,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 40.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -4917,7 +4917,7 @@
    },
    "rates": {
     "list_price_per_mtr": 13942.0,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 40.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -4936,7 +4936,7 @@
    },
    "rates": {
     "list_price_per_mtr": 136.5,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 12.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -4955,7 +4955,7 @@
    },
    "rates": {
     "list_price_per_mtr": 195.5,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 12.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -4974,7 +4974,7 @@
    },
    "rates": {
     "list_price_per_mtr": 250.0,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 12.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -4993,7 +4993,7 @@
    },
    "rates": {
     "list_price_per_mtr": 344.0,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 12.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -5278,7 +5278,7 @@
    },
    "rates": {
     "list_price_per_mtr": 82.71,
-    "install_base_per_mtr": 15.0
+    "install_base_per_mtr": 12.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -5297,7 +5297,7 @@
    },
    "rates": {
     "list_price_per_mtr": 110.35,
-    "install_base_per_mtr": 25.0
+    "install_base_per_mtr": 12.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -5316,7 +5316,7 @@
    },
    "rates": {
     "list_price_per_mtr": 147.0,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 15.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -5335,7 +5335,7 @@
    },
    "rates": {
     "list_price_per_mtr": 213.0,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 20.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -5354,7 +5354,7 @@
    },
    "rates": {
     "list_price_per_mtr": 310.0,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 20.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -5430,7 +5430,7 @@
    },
    "rates": {
     "list_price_per_mtr": 347.0,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 17.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -5449,7 +5449,7 @@
    },
    "rates": {
     "list_price_per_mtr": 462.0,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 20.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -5468,7 +5468,7 @@
    },
    "rates": {
     "list_price_per_mtr": 148.0,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 12.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -5525,7 +5525,7 @@
    },
    "rates": {
     "list_price_per_mtr": 436.0,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 20.0
    },
    "source": {
     "sheet": "Wiring & cabling",
@@ -5544,7 +5544,7 @@
    },
    "rates": {
     "list_price_per_mtr": 577.0,
-    "install_base_per_mtr": 0.0
+    "install_base_per_mtr": 22.0
    },
    "source": {
     "sheet": "Wiring & cabling",

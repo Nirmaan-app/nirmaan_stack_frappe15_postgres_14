@@ -39,7 +39,7 @@ BATCH_PREFIX = "rmbulk-"
 NORMALIZE_ATTRS = ("material", "insulation")
 
 DEFAULT_DATA_FILE = os.path.join(
-    os.path.dirname(__file__), "data", "rate_master_wiring_cabling_v2.json"
+    os.path.dirname(__file__), "data", "rate_master_wiring_cabling_v3.json"
 )
 
 
