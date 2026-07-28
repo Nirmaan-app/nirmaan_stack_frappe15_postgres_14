@@ -48,7 +48,12 @@ class TestRateMaster(FrappeTestCase):
 
     @classmethod
     def tearDownClass(cls):
+        # RM-4a: audited edits create Version docs (track_changes) in the live DB -- delete them for
+        # the synthetic docs BEFORE the docs, so no orphan Versions and the live count returns to 0.
         for disc in cls._disciplines:
+            for dt in ("BoQ Rate Category Config", "BoQ Rate Master Item"):
+                for r in frappe.get_all(dt, filters={"discipline": disc}, fields=["name"]):
+                    frappe.db.delete("Version", {"ref_doctype": dt, "docname": r.name})
             frappe.db.delete("BoQ Rate Master Item", {"discipline": disc})
             frappe.db.delete("BoQ Rate Category Config", {"discipline": disc})
         frappe.db.commit()
@@ -275,3 +280,167 @@ class TestRateMaster(FrappeTestCase):
             {"material", "insulation", "core", "thickness_sqmm", "brand"}.issubset(attr_ids)
         )
         self.assertIn("normalization_rule", cfg)
+
+    # ---- RM-4a: editing endpoints (admin-only) ----
+    def _config_name(self, disc):
+        return frappe.db.get_value(
+            "BoQ Rate Category Config", {"discipline": disc, "active": 1}, "name"
+        )
+
+    def _versions(self, dt, docname):
+        return frappe.get_all("Version", filters={"ref_doctype": dt, "docname": docname}, fields=["name", "data"])
+
+    def test_09_config_param_edit_audited_first_version(self):
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._real_payload(disc))
+        cfg_name = self._config_name(disc)
+        # no Version for this synthetic config yet
+        self.assertEqual(len(self._versions("BoQ Rate Category Config", cfg_name)), 0)
+
+        # cable_boq step 1 (apply_effective_multiplier), condition 0 (ARMOURED), discount 0.75 -> 0.70
+        res = rate_master.update_rate_config_param(
+            name=cfg_name, pipeline_id="cable_boq", step_index=1, condition_index=0,
+            param_key="discount", new_value="0.70",
+        )
+        self.assertTrue(res["ok"])
+        self.assertEqual(
+            res["config"]["pipelines"]["cable_boq"]["steps"][1]["conditions"][0]["params"]["discount"],
+            0.70,
+        )
+        # persisted
+        stored = _obj(frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config"))
+        self.assertEqual(
+            stored["pipelines"]["cable_boq"]["steps"][1]["conditions"][0]["params"]["discount"], 0.70
+        )
+        # AUDIT: the FIRST Version doc now exists and its diff captures the config field
+        versions = self._versions("BoQ Rate Category Config", cfg_name)
+        self.assertEqual(len(versions), 1)
+        changed = {c[0] for c in json.loads(versions[0]["data"]).get("changed", [])}
+        self.assertIn("config", changed)
+
+    def test_10_config_param_negatives(self):
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._real_payload(disc))
+        cfg_name = self._config_name(disc)
+        before = frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config")
+
+        # non-admin -> PermissionError, no write
+        original = frappe.session.user
+        try:
+            frappe.set_user("Guest")
+            with self.assertRaises(frappe.PermissionError):
+                rate_master.update_rate_config_param(
+                    name=cfg_name, pipeline_id="cable_boq", step_index=1, condition_index=0,
+                    param_key="discount", new_value="0.70",
+                )
+        finally:
+            frappe.set_user(original)
+
+        # non-numeric value -> validation error, no write
+        with self.assertRaises(frappe.ValidationError):
+            rate_master.update_rate_config_param(
+                name=cfg_name, pipeline_id="cable_boq", step_index=1, condition_index=0,
+                param_key="discount", new_value="cheap",
+            )
+        # nonexistent param path -> validation error, no write (adding params is RM-4b)
+        with self.assertRaises(frappe.ValidationError):
+            rate_master.update_rate_config_param(
+                name=cfg_name, pipeline_id="cable_boq", step_index=1, condition_index=0,
+                param_key="not_a_param", new_value="0.5",
+            )
+        # config byte-identical after all three rejects
+        self.assertEqual(frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config"), before)
+
+    def test_11_item_rate_edit_audited(self):
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._real_payload(disc))
+        it = frappe.get_all(
+            "BoQ Rate Master Item", filters={"discipline": disc, "kind": "cable"}, fields=["name"], limit=1
+        )[0]["name"]
+        res = rate_master.update_rate_master_item(
+            name=it, rates_patch=json.dumps({"list_price_per_mtr": 999.5}),
+            attributes_patch=json.dumps({"material": "copper"}),  # canonicalised -> COPPER
+        )
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["item"]["rates"]["list_price_per_mtr"], 999.5)
+        self.assertEqual(res["item"]["attributes"]["material"], "COPPER")
+        # AUDIT
+        self.assertEqual(len(self._versions("BoQ Rate Master Item", it)), 1)
+
+    def test_12_item_edit_negatives(self):
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._real_payload(disc))
+        it = frappe.get_all(
+            "BoQ Rate Master Item", filters={"discipline": disc, "kind": "cable"}, fields=["name"], limit=1
+        )[0]["name"]
+        original = frappe.session.user
+        try:
+            frappe.set_user("Guest")
+            with self.assertRaises(frappe.PermissionError):
+                rate_master.update_rate_master_item(name=it, rates_patch=json.dumps({"x": 1}))
+        finally:
+            frappe.set_user(original)
+        # bad attribute key -> validation error
+        with self.assertRaises(frappe.ValidationError):
+            rate_master.update_rate_master_item(
+                name=it, attributes_patch=json.dumps({"not_an_attr": "X"})
+            )
+
+    def test_13_create_item_manual_provenance(self):
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._real_payload(disc))
+        before = self._active_items(disc)
+        res = rate_master.create_rate_master_item(
+            discipline=disc, kind="cable", brand="Polycab", unit="Mtr",
+            attributes=json.dumps({"material": "aluminium", "insulation": "armoured", "core": 7.0, "thickness_sqmm": 25.0}),
+            rates=json.dumps({"list_price_per_mtr": 500.0, "install_base_per_mtr": 30.0}),
+        )
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["item"]["source_sheet"], "Manual entry")
+        self.assertEqual(res["item"]["source_row"], 0)
+        self.assertTrue(res["item"]["import_batch"].startswith("manual-"))
+        self.assertEqual(res["item"]["active"], 1)
+        # material/insulation canonicalised
+        self.assertEqual(res["item"]["attributes"]["material"], "ALUMINIUM")
+        self.assertEqual(res["item"]["attributes"]["insulation"], "ARMOURED")
+        self.assertEqual(self._active_items(disc), before + 1)
+
+        # negatives: non-admin + bad attribute key
+        original = frappe.session.user
+        try:
+            frappe.set_user("Guest")
+            with self.assertRaises(frappe.PermissionError):
+                rate_master.create_rate_master_item(discipline=disc, kind="cable")
+        finally:
+            frappe.set_user(original)
+        with self.assertRaises(frappe.ValidationError):
+            rate_master.create_rate_master_item(
+                discipline=disc, kind="cable", attributes=json.dumps({"bogus": 1})
+            )
+
+    def test_14_deactivate_retains_row(self):
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._real_payload(disc))
+        made = rate_master.create_rate_master_item(
+            discipline=disc, kind="cable", brand="Polycab", unit="Mtr",
+            attributes=json.dumps({"material": "COPPER", "insulation": "ARMOURED", "core": 9.0, "thickness_sqmm": 99.0}),
+            rates=json.dumps({"list_price_per_mtr": 1.0}),
+        )["item"]["name"]
+        total_before = frappe.db.count("BoQ Rate Master Item", {"discipline": disc})
+
+        # non-admin cannot deactivate
+        original = frappe.session.user
+        try:
+            frappe.set_user("Guest")
+            with self.assertRaises(frappe.PermissionError):
+                rate_master.deactivate_rate_master_item(name=made)
+        finally:
+            frappe.set_user(original)
+
+        res = rate_master.deactivate_rate_master_item(name=made)
+        self.assertEqual(res["active"], 0)
+        # RETAINED (never deleted), just inactive
+        self.assertEqual(frappe.db.count("BoQ Rate Master Item", {"discipline": disc}), total_before)
+        self.assertEqual(frappe.db.get_value("BoQ Rate Master Item", made, "active"), 0)
+        # audited
+        self.assertGreaterEqual(len(self._versions("BoQ Rate Master Item", made)), 1)

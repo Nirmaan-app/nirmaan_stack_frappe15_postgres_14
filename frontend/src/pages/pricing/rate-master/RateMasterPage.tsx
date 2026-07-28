@@ -9,17 +9,24 @@
 //
 // Lazy route module -- exports `Component` per the M1.59 lazy() contract.
 
-import { useMemo, useState } from "react";
-import { useFrappeGetCall } from "frappe-react-sdk";
+import { useCallback, useMemo, useState } from "react";
+import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useUserData } from "@/hooks/useUserData";
 import { RATE_MASTER_DISCIPLINES } from "./rateMasterRegistry";
 import { RateMasterDataViewer } from "./RateMasterDataViewer";
 import { RateMasterDerivation } from "./RateMasterDerivation";
+import { isRateMasterAdmin } from "./rateMasterEdit";
 import type { GetConfigResponse, GetItemsResponse } from "./rateMasterTypes";
 
 const ITEMS_METHOD = "nirmaan_stack.api.boq.rate_master.get_rate_master_items";
 const CONFIG_METHOD = "nirmaan_stack.api.boq.rate_master.get_rate_category_config";
+// RM-4a: admin-only write endpoints (owner option (a) -- Estimates is READ-ONLY, controls HIDDEN).
+const UPDATE_PARAM_METHOD = "nirmaan_stack.api.boq.rate_master.update_rate_config_param";
+const UPDATE_ITEM_METHOD = "nirmaan_stack.api.boq.rate_master.update_rate_master_item";
+const CREATE_ITEM_METHOD = "nirmaan_stack.api.boq.rate_master.create_rate_master_item";
+const DEACTIVATE_ITEM_METHOD = "nirmaan_stack.api.boq.rate_master.deactivate_rate_master_item";
 
 export function RateMasterPage() {
   const [disciplineId, setDisciplineId] = useState(RATE_MASTER_DISCIPLINES[0]?.discipline ?? "");
@@ -35,12 +42,12 @@ export function RateMasterPage() {
     return discipline?.categories[0]?.category_id ?? "";
   }, [discipline, categoryId]);
 
-  const { data: itemsData, isLoading: itemsLoading, error: itemsError } = useFrappeGetCall<{ message: GetItemsResponse }>(
+  const { data: itemsData, isLoading: itemsLoading, error: itemsError, mutate: mutateItems } = useFrappeGetCall<{ message: GetItemsResponse }>(
     ITEMS_METHOD,
     { discipline: disciplineId },
     disciplineId ? `rate-master-items-${disciplineId}` : null
   );
-  const { data: configData, isLoading: configLoading, error: configError } = useFrappeGetCall<{ message: GetConfigResponse }>(
+  const { data: configData, isLoading: configLoading, error: configError, mutate: mutateConfig } = useFrappeGetCall<{ message: GetConfigResponse }>(
     CONFIG_METHOD,
     { discipline: disciplineId, category_id: activeCategoryId },
     disciplineId && activeCategoryId ? `rate-master-config-${disciplineId}-${activeCategoryId}` : null
@@ -48,6 +55,60 @@ export function RateMasterPage() {
 
   const items = itemsData?.message?.items ?? [];
   const config = configData?.message?.config ?? null;
+  const configName = configData?.message?.name;
+
+  // RM-4a: admin gate (owner option (a)). `role` off the already-warm useUserData (PricingRoute warmed
+  // it); the pure isRateMasterAdmin mirrors the server _is_nirmaan_admin. When false the tabs render
+  // read-only (controls HIDDEN, not disabled). Server-authoritative regardless.
+  const { user_id: currentUser, role } = useUserData();
+  const isAdmin = isRateMasterAdmin(role, currentUser);
+
+  const { call: callSaveParam } = useFrappePostCall(UPDATE_PARAM_METHOD);
+  const { call: callSaveItem } = useFrappePostCall(UPDATE_ITEM_METHOD);
+  const { call: callCreateItem } = useFrappePostCall(CREATE_ITEM_METHOD);
+  const { call: callDeactivateItem } = useFrappePostCall(DEACTIVATE_ITEM_METHOD);
+
+  // Each write refetches its collection so the derivation/viewer recompute live (the persistence split
+  // then carries edited params/rates into the next pricing-panel compute with no re-run).
+  const onSaveParam = useCallback(
+    async (pipelineId: string, stepIndex: number, conditionIndex: number | null, paramKey: string, newValue: number) => {
+      if (!configName) throw new Error("No config loaded.");
+      await callSaveParam({
+        name: configName, pipeline_id: pipelineId, step_index: stepIndex,
+        condition_index: conditionIndex ?? undefined, param_key: paramKey, new_value: newValue,
+      });
+      await mutateConfig();
+    },
+    [callSaveParam, configName, mutateConfig]
+  );
+  const onSaveItem = useCallback(
+    async (name: string, patch: { rates_patch?: Record<string, number | null>; attributes_patch?: Record<string, string | number> }) => {
+      await callSaveItem({
+        name,
+        rates_patch: patch.rates_patch ? JSON.stringify(patch.rates_patch) : undefined,
+        attributes_patch: patch.attributes_patch ? JSON.stringify(patch.attributes_patch) : undefined,
+      });
+      await mutateItems();
+    },
+    [callSaveItem, mutateItems]
+  );
+  const onCreateItem = useCallback(
+    async (payload: { kind: string; brand?: string; unit?: string; attributes: Record<string, string | number>; rates: Record<string, number | null> }) => {
+      await callCreateItem({
+        discipline: disciplineId, kind: payload.kind, brand: payload.brand, unit: payload.unit,
+        attributes: JSON.stringify(payload.attributes), rates: JSON.stringify(payload.rates),
+      });
+      await mutateItems();
+    },
+    [callCreateItem, disciplineId, mutateItems]
+  );
+  const onDeactivateItem = useCallback(
+    async (name: string) => {
+      await callDeactivateItem({ name });
+      await mutateItems();
+    },
+    [callDeactivateItem, mutateItems]
+  );
   const categoryLabel =
     config?.category_display ??
     discipline?.categories.find((c) => c.category_id === activeCategoryId)?.label ??
@@ -112,10 +173,19 @@ export function RateMasterPage() {
               config={config}
               disciplineLabel={discipline?.label ?? disciplineId}
               categoryLabel={categoryLabel}
+              isAdmin={isAdmin}
+              onSaveItem={onSaveItem}
+              onCreateItem={onCreateItem}
+              onDeactivateItem={onDeactivateItem}
             />
           </TabsContent>
           <TabsContent value="derivation" className="mt-3">
-            <RateMasterDerivation items={items} config={config} />
+            <RateMasterDerivation
+              items={items}
+              config={config}
+              isAdmin={isAdmin}
+              onSaveParam={onSaveParam}
+            />
           </TabsContent>
         </Tabs>
       )}

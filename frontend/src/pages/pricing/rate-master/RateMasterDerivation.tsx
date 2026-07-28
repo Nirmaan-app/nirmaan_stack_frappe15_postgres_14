@@ -7,15 +7,113 @@
 // pricer-facing helper defers them. Honest no-match + unsupported-step states.
 
 import { useMemo, useState } from "react";
+import { Pencil, Check, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { AttributeDefinition, RateCategoryConfig, RateMasterItem, StepTrace } from "./rateMasterTypes";
 import { runAllPipelines } from "./ratePipelineInterpreter";
+import { isEditableParam, matchedConditionIndex, parseFiniteInput } from "./rateMasterEdit";
 
 interface Props {
   items: RateMasterItem[];
   config: RateCategoryConfig;
+  // RM-4a: admin-only inline param editing. Non-admins render today's read-only view (controls HIDDEN).
+  isAdmin?: boolean;
+  onSaveParam?: (
+    pipelineId: string,
+    stepIndex: number,
+    conditionIndex: number | null,
+    paramKey: string,
+    newValue: number,
+  ) => Promise<void>;
+}
+
+// RM-4a: one numeric parameter, admin-inline-editable (pencil -> input -> save/cancel; Escape cancels;
+// Enter saves). Save calls the param endpoint (via onSave); the page refetches + the derivation
+// recomputes. Read-only string params (e.g. `kind`) never reach this -- they render as plain text.
+function InlineParamEdit({
+  paramKey,
+  value,
+  onSave,
+}: {
+  paramKey: string;
+  value: number;
+  onSave: (v: number) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(String(value));
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const begin = () => {
+    setDraft(String(value));
+    setErr(null);
+    setEditing(true);
+  };
+  const cancel = () => {
+    setEditing(false);
+    setErr(null);
+  };
+  const commit = async () => {
+    const n = parseFiniteInput(draft);
+    if (n === null) {
+      setErr("Enter a number");
+      return;
+    }
+    setSaving(true);
+    setErr(null);
+    try {
+      await onSave(n);
+      setEditing(false);
+    } catch (e) {
+      setErr((e as { message?: string })?.message ?? "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!editing) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded bg-muted/50 px-1.5 py-0.5 font-mono">
+        {paramKey} {value}
+        <button
+          type="button"
+          aria-label={`Edit ${paramKey}`}
+          onClick={begin}
+          className="text-muted-foreground hover:text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+        >
+          <Pencil className="h-3 w-3" />
+        </button>
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span className="font-mono">{paramKey}</span>
+      <Input
+        autoFocus
+        className="h-6 w-20 text-xs"
+        value={draft}
+        disabled={saving}
+        inputMode="decimal"
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") void commit();
+          else if (e.key === "Escape") cancel();
+        }}
+        aria-label={`${paramKey} value`}
+      />
+      <button type="button" aria-label="Save" disabled={saving} onClick={() => void commit()} className="text-emerald-600 hover:text-emerald-700 disabled:opacity-50">
+        <Check className="h-3.5 w-3.5" />
+      </button>
+      <button type="button" aria-label="Cancel" disabled={saving} onClick={cancel} className="text-muted-foreground hover:text-foreground disabled:opacity-50">
+        <X className="h-3.5 w-3.5" />
+      </button>
+      {err && <span className="text-[10px] text-destructive">{err}</span>}
+    </span>
+  );
 }
 
 function fmt(v: number | undefined): string {
@@ -32,7 +130,7 @@ function detailFor(s: StepTrace): string {
   return "";
 }
 
-export function RateMasterDerivation({ items, config }: Props) {
+export function RateMasterDerivation({ items, config, isAdmin, onSaveParam }: Props) {
   const selectableDefs = useMemo(
     () => config.attribute_definitions.filter((d) => d.selector !== false),
     [config]
@@ -178,7 +276,50 @@ export function RateMasterDerivation({ items, config }: Props) {
                           <div className="font-mono">{s.step}</div>
                           <div className="text-muted-foreground">{s.label}</div>
                         </td>
-                        <td className="py-1 pr-2 align-top">{detailFor(s)}</td>
+                        <td className="py-1 pr-2 align-top">
+                          {(() => {
+                            // RM-4a: address the CONFIG path for this step so numeric params can be
+                            // edited inline (admin). condIdx re-derives the matched branch exactly as
+                            // the interpreter did (no interpreter change). String params (kind) + the
+                            // condition `when` stay read-only; editing STRUCTURE is RM-4b.
+                            const configStep = (config.pipelines?.[r.pipelineId]?.steps?.[i] ?? undefined) as
+                              | { conditions?: { when: Record<string, string | number>; params: Record<string, number> }[] }
+                              | undefined;
+                            const condIdx = matchedConditionIndex(configStep, r.matchedItem?.attributes);
+                            const whenLabel =
+                              condIdx !== null && configStep?.conditions
+                                ? Object.entries(configStep.conditions[condIdx].when)
+                                    .map(([k, v]) => `${k} = ${v}`)
+                                    .join(", ")
+                                : s.bandChosen ?? null;
+                            const entries = Object.entries(s.params ?? {});
+                            if (entries.length === 0) return detailFor(s);
+                            return (
+                              <div className="space-y-1">
+                                {whenLabel && <div className="text-muted-foreground">{whenLabel}</div>}
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  {entries.map(([key, value]) =>
+                                    isAdmin && onSaveParam && isEditableParam(value) ? (
+                                      <InlineParamEdit
+                                        key={key}
+                                        paramKey={key}
+                                        value={value}
+                                        onSave={(v) => onSaveParam(r.pipelineId, i, condIdx, key, v)}
+                                      />
+                                    ) : (
+                                      <span
+                                        key={key}
+                                        className="rounded bg-muted/50 px-1.5 py-0.5 font-mono text-muted-foreground"
+                                      >
+                                        {key} {String(value)}
+                                      </span>
+                                    ),
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })()}
+                        </td>
                         <td className="py-1 pr-2 text-right align-top tabular-nums">
                           {s.produced ? `${s.produced.key} = ${fmt(s.produced.value)}` : ""}
                         </td>

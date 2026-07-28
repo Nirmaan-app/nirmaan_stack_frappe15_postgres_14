@@ -109,6 +109,7 @@ def get_rate_category_config(discipline=None, category_id=None):
 from frappe.utils.background_jobs import get_job_status  # noqa: E402
 
 from nirmaan_stack.services.boq_rate_master import extraction  # noqa: E402
+from nirmaan_stack.services.boq_rate_master import loader  # noqa: E402  (RM-4a: reuse _canonicalize_attributes)
 from nirmaan_stack.api.boq.wizard import pricing  # noqa: E402  (D8 gate reuse; import UP api->api)
 
 RUN_DOCTYPE = "BoQ Rate Suggestion Run"
@@ -423,3 +424,269 @@ def get_suggestion_events(boq=None, sheet_name=None, run_id=None):
         order_by="creation asc",
     )
     return {"events": events}
+
+
+# ── RM-4a: rate-master EDITING (admin-only; owner option (a) -- Estimates is READ-ONLY) ──────────
+# Four POST-whitelisted write endpoints. Every one gates on the IMPORTED pricing._is_nirmaan_admin
+# (never a third copy), with the admin gate BEFORE any target resolution or write (PermissionError on
+# failure). PARAM VALUES ONLY: editing pipeline STRUCTURE, conditions, or attribute definitions is
+# RM-4b -- a mis-addressed / non-existent path is a validation error, NOT a create. The AUDITED write
+# recipe is doc.save (get_doc -> mutate the parsed dict -> json.dumps -> doc.save -> commit): both
+# doctypes carry track_changes:1 and DICT-valued JSON only (config / attributes / rates -- no
+# BoQ-Sheet-style list-valued field), so doc.save is safe AND records a Version diff. set_value is
+# FORBIDDEN for these edits -- it bypasses the doc lifecycle, so it would skip the Version audit.
+_MANUAL_BATCH_PREFIX = "manual-"
+_MANUAL_SOURCE_SHEET = "Manual entry"
+
+
+def _require_rate_admin():
+    """Admin gate for the RM-4a editors -- BEFORE any resolution/write. Reuses the wizard's
+    pricing._is_nirmaan_admin (Administrator OR Nirmaan Admin Profile); never a re-minted copy."""
+    user = frappe.session.user
+    if not pricing._is_nirmaan_admin(user):
+        frappe.throw(
+            "Only an admin may edit the rate master.",
+            frappe.PermissionError,
+            title="Not permitted",
+        )
+    return user
+
+
+def _finite_number(value, label):
+    """Parse value to a finite float (int/float/numeric-string). Rejects None/bool/NaN/Inf and
+    non-numeric strings -- numeric-only param/rate values (RM-4a edits values, never types)."""
+    if isinstance(value, bool) or value is None:
+        frappe.throw(f"{label} must be a number.", title="Invalid value")
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        frappe.throw(f"{label} must be a number (got {value!r}).", title="Invalid value")
+    if num != num or num in (float("inf"), float("-inf")):
+        frappe.throw(f"{label} must be a finite number.", title="Invalid value")
+    return num
+
+
+def _active_config_attr_ids(discipline):
+    """Union of attribute-definition ids across the ACTIVE category config(s) for a discipline, or
+    None when no active config exists (attribute-key validation is skipped 'where determinable')."""
+    rows = frappe.get_all(
+        CONFIG_DOCTYPE, filters={"discipline": discipline, "active": 1}, fields=["config"]
+    )
+    if not rows:
+        return None
+    ids = set()
+    for r in rows:
+        cfg = _parse_json(r["config"], {})
+        for d in cfg.get("attribute_definitions", []) or []:
+            if isinstance(d, dict) and d.get("id"):
+                ids.add(d["id"])
+    return ids
+
+
+@frappe.whitelist(methods=["POST"])
+def update_rate_config_param(
+    name=None, pipeline_id=None, step_index=None, param_key=None, new_value=None,
+    condition_index=None,
+):
+    """ADMIN-ONLY: set ONE existing numeric parameter on a stored pipeline step (or a step's
+    condition branch). PARAM VALUES ONLY -- the addressed path MUST already exist; creating/removing
+    params or steps is RM-4b (validation error, no write). Audited (doc.save -> Version diff).
+    Path: config.pipelines[pipeline_id].steps[step_index].params[param_key], or
+          ...steps[step_index].conditions[condition_index].params[param_key].
+    Returns {ok, config}. URL: .../rate_master.update_rate_config_param"""
+    _require_rate_admin()  # BEFORE resolution/write
+    if not name:
+        frappe.throw("name is required.", title="Missing field: name")
+    if not pipeline_id:
+        frappe.throw("pipeline_id is required.", title="Missing field: pipeline_id")
+    if step_index is None or step_index == "":
+        frappe.throw("step_index is required.", title="Missing field: step_index")
+    if not param_key:
+        frappe.throw("param_key is required.", title="Missing field: param_key")
+    num = _finite_number(new_value, "new_value")
+    try:
+        step_index = int(step_index)
+    except (TypeError, ValueError):
+        frappe.throw("step_index must be an integer.", title="Invalid value")
+    has_cond = condition_index is not None and condition_index != ""
+    if has_cond:
+        try:
+            condition_index = int(condition_index)
+        except (TypeError, ValueError):
+            frappe.throw("condition_index must be an integer.", title="Invalid value")
+
+    doc = frappe.get_doc(CONFIG_DOCTYPE, name)  # 404s cleanly if missing
+    cfg = _parse_json(doc.config, {})
+    pipelines = cfg.get("pipelines") or {}
+    if pipeline_id not in pipelines:
+        frappe.throw(f"Pipeline '{pipeline_id}' not found in this config.", title="Path not found")
+    steps = pipelines[pipeline_id].get("steps") or []
+    if not (0 <= step_index < len(steps)):
+        frappe.throw(f"step_index {step_index} out of range.", title="Path not found")
+    step = steps[step_index]
+    if has_cond:
+        conditions = step.get("conditions") or []
+        if not (0 <= condition_index < len(conditions)):
+            frappe.throw(
+                f"condition_index {condition_index} out of range.", title="Path not found"
+            )
+        params = conditions[condition_index].get("params")
+    else:
+        params = step.get("params")
+    if not isinstance(params, dict) or param_key not in params:
+        # The param must ALREADY exist -- creating a param is structure editing (RM-4b).
+        frappe.throw(
+            f"Parameter '{param_key}' does not exist at this path -- adding parameters is not "
+            "supported here.",
+            title="Path not found",
+        )
+    params[param_key] = num
+    doc.config = json.dumps(cfg)
+    doc.save(ignore_permissions=True, ignore_version=False)  # AUDITED (track_changes -> Version diff)
+    frappe.db.commit()
+    return {"ok": True, "config": cfg}
+
+
+@frappe.whitelist(methods=["POST"])
+def update_rate_master_item(name=None, rates_patch=None, attributes_patch=None):
+    """ADMIN-ONLY: merge a rates_patch and/or attributes_patch onto an item's existing JSON dicts.
+    Rate values numeric-or-null; attribute keys validated against the discipline's active config
+    attribute-definitions where determinable, and material/insulation canonicalised to UPPERCASE.
+    Audited (doc.save). Returns {ok, item}. URL: .../rate_master.update_rate_master_item"""
+    _require_rate_admin()  # BEFORE resolution/write
+    if not name:
+        frappe.throw("name is required.", title="Missing field: name")
+    rates_patch = _parse_json(rates_patch, None)
+    attributes_patch = _parse_json(attributes_patch, None)
+    if not rates_patch and not attributes_patch:
+        frappe.throw(
+            "Provide a rates_patch and/or attributes_patch.", title="Nothing to update"
+        )
+    if rates_patch is not None and not isinstance(rates_patch, dict):
+        frappe.throw("rates_patch must be an object.", title="Invalid value")
+    if attributes_patch is not None and not isinstance(attributes_patch, dict):
+        frappe.throw("attributes_patch must be an object.", title="Invalid value")
+
+    doc = frappe.get_doc(ITEM_DOCTYPE, name)  # 404s cleanly if missing
+    rates = _parse_json(doc.rates, {}) or {}
+    attributes = _parse_json(doc.attributes, {}) or {}
+
+    if rates_patch:
+        for k, v in rates_patch.items():
+            if v is None:
+                rates[k] = None  # numeric-OR-NULL
+            else:
+                rates[k] = _finite_number(v, f"rates.{k}")
+    if attributes_patch:
+        known = _active_config_attr_ids(doc.discipline)
+        merged = dict(attributes)
+        for k, v in attributes_patch.items():
+            if known is not None and k not in known:
+                frappe.throw(
+                    f"Unknown attribute '{k}' for discipline '{doc.discipline}'.",
+                    title="Invalid attribute",
+                )
+            merged[k] = v
+        attributes = loader._canonicalize_attributes(merged)  # material/insulation -> UPPERCASE
+
+    doc.rates = json.dumps(rates)
+    doc.attributes = json.dumps(attributes)
+    doc.save(ignore_permissions=True, ignore_version=False)  # AUDITED
+    frappe.db.commit()
+    return {
+        "ok": True,
+        "item": {
+            "name": doc.name,
+            "discipline": doc.discipline,
+            "kind": doc.kind,
+            "brand": doc.brand,
+            "unit": doc.unit,
+            "attributes": _parse_json(doc.attributes, {}),
+            "rates": _parse_json(doc.rates, {}),
+            "active": doc.active,
+        },
+    }
+
+
+@frappe.whitelist(methods=["POST"])
+def create_rate_master_item(
+    discipline=None, kind=None, brand=None, unit=None, attributes=None, rates=None
+):
+    """ADMIN-ONLY: insert a new ACTIVE item row with MANUAL provenance (import_batch='manual-'+hash,
+    source_sheet='Manual entry', source_row=0). Attribute keys validated against the discipline's
+    active config where determinable; material/insulation canonicalised to UPPERCASE; rate values
+    numeric-or-null. Audited on insert. Returns {ok, item}.
+    URL: .../rate_master.create_rate_master_item"""
+    _require_rate_admin()  # BEFORE resolution/write
+    if not discipline:
+        frappe.throw("discipline is required.", title="Missing field: discipline")
+    if not kind:
+        frappe.throw("kind is required.", title="Missing field: kind")
+    attributes = _parse_json(attributes, {}) or {}
+    rates = _parse_json(rates, {}) or {}
+    if not isinstance(attributes, dict):
+        frappe.throw("attributes must be an object.", title="Invalid value")
+    if not isinstance(rates, dict):
+        frappe.throw("rates must be an object.", title="Invalid value")
+    known = _active_config_attr_ids(discipline)
+    if known is not None:
+        for k in attributes:
+            if k not in known:
+                frappe.throw(
+                    f"Unknown attribute '{k}' for discipline '{discipline}'.",
+                    title="Invalid attribute",
+                )
+    clean_rates = {}
+    for k, v in rates.items():
+        clean_rates[k] = None if v is None else _finite_number(v, f"rates.{k}")
+    attrs = loader._canonicalize_attributes(attributes)  # material/insulation -> UPPERCASE
+
+    doc = frappe.get_doc(
+        {
+            "doctype": ITEM_DOCTYPE,
+            "discipline": discipline,
+            "kind": kind.strip(),
+            "brand": brand,
+            "unit": unit,
+            "attributes": json.dumps(attrs),
+            "rates": json.dumps(clean_rates),
+            "source_sheet": _MANUAL_SOURCE_SHEET,
+            "source_row": 0,
+            "import_batch": _MANUAL_BATCH_PREFIX + frappe.generate_hash(length=12),
+            "active": 1,
+        }
+    )
+    doc.insert(ignore_permissions=True)
+    frappe.db.commit()
+    return {
+        "ok": True,
+        "item": {
+            "name": doc.name,
+            "discipline": doc.discipline,
+            "kind": doc.kind,
+            "brand": doc.brand,
+            "unit": doc.unit,
+            "attributes": _parse_json(doc.attributes, {}),
+            "rates": _parse_json(doc.rates, {}),
+            "source_sheet": doc.source_sheet,
+            "source_row": doc.source_row,
+            "import_batch": doc.import_batch,
+            "active": doc.active,
+        },
+    }
+
+
+@frappe.whitelist(methods=["POST"])
+def deactivate_rate_master_item(name=None):
+    """ADMIN-ONLY: set active=0 on an item (freeze-and-supersede -- the row is RETAINED, NEVER
+    deleted). Idempotent. Audited (doc.save). Returns {ok, active:0}.
+    URL: .../rate_master.deactivate_rate_master_item"""
+    _require_rate_admin()  # BEFORE resolution/write
+    if not name:
+        frappe.throw("name is required.", title="Missing field: name")
+    doc = frappe.get_doc(ITEM_DOCTYPE, name)  # 404s cleanly if missing
+    if doc.active:
+        doc.active = 0
+        doc.save(ignore_permissions=True, ignore_version=False)  # AUDITED
+        frappe.db.commit()
+    return {"ok": True, "active": 0}
