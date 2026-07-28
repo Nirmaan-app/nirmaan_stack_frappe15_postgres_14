@@ -271,7 +271,8 @@ const InvoiceTotalCell: React.FC<{
 };
 
 /**
- * "Auto-approval" cell — why the system did NOT auto-approve this invoice.
+ * "Not Auto-Approved Reason" cell — why the system did NOT auto-approve this
+ * invoice.
  *
  * `auto_approve_skip_reasons` has been persisted since the 13-gate check
  * shipped, and until now nothing rendered it. The tiering + cascade collapse
@@ -609,14 +610,14 @@ const getCommonColumns = (
             header: ({ column }) => (
                 <DataTableColumnHeader
                     column={column}
-                    title={<span className="whitespace-normal leading-tight inline-block">Auto-approval</span>}
+                    title={<span className="whitespace-normal leading-tight inline-block">Not Auto-Approved<br />Reason</span>}
                 />
             ),
             cell: ({ row }) => <AutoApproveReasonCell invoice={row.original} />,
             size: 220,
             enableSorting: false,
             meta: {
-                exportHeaderName: "Auto-approval",
+                exportHeaderName: "Not Auto-Approved Reason",
                 exportValue: (row: VendorInvoice) => {
                     if (row.auto_approved === 1) return "Auto-approved";
                     const summary = summariseSkipReasons(row);
