@@ -938,6 +938,112 @@ generated, so a fresh checkout works. To genuinely regenerate after changing a f
 
 ---
 
+## ⚠️ ADR-0014 Amendment E (2026-07-28) — the layers come back, opt-in + attributed
+
+**Owner-directed reversal of Amendment D.** `cross_boq_carry.apply_sheet_carry` takes `layers` again
+and moves rates **plus** any ticked subset of the four row-addressed layers. Amendment D's objection
+was that carried records arrived **un-asked-for** and **un-attributed**; Amendment E answers both,
+and a restoration with only one of them would reproduce the original defect.
+
+**The COMMIT seam is UNCHANGED** — a revision commit still stamps the D2 provenance triple and
+carries nothing. Everything here is the explicit per-sheet action.
+
+### Schema (3 MIGRATE-carrying additions)
+
+| Doctype | Added |
+|---|---|
+| `BoQ Row Category`, `BoQ Cell Remark`, `BoQ Cell Color`, `BoQ Cell Dismissal` | `carry_provenance_section` + `carried_from_boq` / `carried_from_version` / `carried_at` |
+| `BoQ Sheet` | `sheet_config_snapshot` (JSON, nullable) — the R2 lossless config snapshot |
+
+### The engine
+
+- `committed_carry.LAYER_KEYS = ("categories", "remarks", "colors", "remark_dismissals")`;
+  `walk_layers(ctx, choices, *, apply)` is the **single dispatch point** for both the plan
+  (`apply=False`) and the write (`apply=True`), so a layer cannot be planned one way and applied
+  another. An absent / `carry:False` layer is skipped entirely and **omitted from the result**, so
+  the summary reports what actually ran instead of rows of zeros.
+- `persist.carry_row_categories(boq, sheet_name, committed_version, rows, *, source_boq,
+  source_version, overwrite=False)` — **the provenance stamp is KEYWORD-REQUIRED**, so no code path
+  can produce an unstamped carried record. A caller wanting an unstamped write wants
+  `write_row_categories`. ⚠️ **Do not soften this to an optional kwarg.**
+- `persist.eligible_excel_rows` reuses the existing `_ELIGIBLE_NODE_TYPES`, so eligibility keeps
+  **one owner** (ADR-0010 B2).
+- **Destination-eligibility guard (NEW code, not restored):** write only where the *destination* row
+  is Line Item / Preamble. The old commit-seam carry structurally could not hit this (its
+  destination was always freshly parsed); a post-commit carry can, and a category on a non-eligible
+  row pollutes both the grid and the classifier's evaluation corpus.
+- Only `flag_kind == "remark"` dismissals carry (the four computed kinds acknowledge conditions a
+  revision recomputes). Colours survive only if the physical column **letter** survives.
+- Unknown layer keys are **dropped silently** in `_coerce_layers`, so a layer that exists on one
+  side of the wire but not the other cannot break the call — no lock-step deploy.
+- Layers ride the **same transaction** as the rates: one commit, one rollback.
+
+> ⚠️ **The carried `human_verdict_at` keeps the SOURCE's (older) timestamp — never freshen it.**
+> `resolve_row_ladder` breaks a human-vs-human tie across disciplines on the *most recent* verdict,
+> so keeping it old is exactly what makes a verdict made **on the revision** outrank a carried one,
+> with **no precedence code anywhere**. Pinned by
+> `test_human_verdict_timestamp_is_carried_verbatim_not_freshened`.
+
+### The category gate moved (reverses Slice G2c for THIS path only)
+
+`categories_incomplete` is removed from `_APPLY_BLOCK_MESSAGE` / `_APPLY_BLOCK_TITLE`. Once the
+action carries categories, gating it on categories being complete blocks its own remedy: a freshly
+committed revision has **zero** category rows, so the gate is shut, so the carry that would populate
+them cannot run — and a revision containing one genuinely new line item could never satisfy a
+post-carry re-check either.
+
+⚠️ **`pricing.save_cell_price` and `pricing.apply_copy_forward` KEEP the gate and are untouched.**
+The gate stops a *hand-typed* rate landing on an uncategorised row; a carry moves known values from
+a known-good source. **Do not "restore consistency" by re-adding it to the carry path** —
+`test_h_categories_block_is_gone_from_the_message_family` guards the message maps and a re-added
+branch will `KeyError` loudly, which is intended.
+
+⚠️ **Do not widen `LAYER_KEYS` to include `formulas`** — `test_an_unknown_layer_key_is_dropped_silently`
+uses it as the unknown-key example and would silently stop testing anything. (That is exactly what
+happened to its predecessor when R5 implemented `remarks`.)
+
+### Two supporting fixes that rode this work
+
+**R1 — Frappe STRIPS every value in an `["in", [...]]` filter** (`frappe/model/db_query.py`:
+`value = [escape((cstr(v) or "").strip()) for v in values]`). An `=` comparison is **not** stripped,
+which is why only this side broke. Sheet names carry real leading/trailing whitespace (`#152
+sheet_name VERBATIM`), so `read_committed_work_packages` silently dropped every whitespace-bearing
+sheet — and a revision sheet with no work package can never be attested, parsed or committed.
+**Second and worse blast site:** `revision._carry_counts` used the identical filter while
+`_resolve_sheet_carry` (an `=` read) went ahead and carried, so the mapping screen reported **0**
+carryable rates for those sheets and the carry delivered anyway — the `count == carry` invariant
+failing in the direction W6 never covered (**122 rates / 87 classifications** under-reported on
+`BOQ-26-00099`). Fixed by one shared `revision_carry.current_committed_sheets(boq, sheet_names,
+fields)` that filters names **in Python**, used by both call sites — which is what
+`cross_boq_carry._dest_committed_sheets` already did correctly.
+
+**R2 — lossless committed config snapshot.** `_write_committed_boq_sheet` pinned only **6** config
+keys, and `revision_carry._committed_data_sheet` seeds a revision by **inverting that snapshot**, so
+anything outside the 6 could not carry. Measured across 865 configured draft sheets:
+`top_header_rows_override` **46**, `skip_top_rows_after_header` **44**, `skip_row_definitions` **13**
+non-default values, all silently reset on any revision. ⚠️ **Merge rule, load-bearing in both
+directions:** the snapshot supplies only the EXTRA keys and the six columns are re-applied on top
+and stay authoritative — `treat_as` in particular is derived from the commit **disposition**, so a
+snapshot that won could seed `master_preamble` onto a data sheet and drop it out of the parse.
+`sheet_name` is stripped. **FORWARD-ONLY:** already-committed sheets keep a NULL snapshot and the
+six-key fallback permanently (their draft blobs may have drifted since commit).
+
+### Verification
+
+880 backend tests green across the 17 BoQ suites; 1061 vitest across 45 files; `tsc` clean;
+`residence_check.py` holding at 40/0/8/116/207. Every slice was checked by **deliberately breaking
+the fix and confirming the tests caught it** — which found that `test_snapshot_sheet_name_is_stripped`
+had been *passing against a broken reader* (it asserted an absence with no proof the source ever
+contained the thing), and that `test_commit_pipeline`'s `_CFG` fixture contained **only the six keys
+that survived commit**, making the config loss structurally invisible.
+
+⚠️ **Prod is not migrated.** Three migrations ride these commits — a prod deploy needs
+`bench --site <site> migrate` **before** any commit/carry runs, or writes fail on missing columns.
+
+---
+
+## ⚠️ SUPERSEDED 2026-07-28 by Amendment E (above) — retained as the record of WHY the layers were removed, which is why they returned opt-in + attributed
+
 ## ⚠️ ADR-0014 Amendment D (2026-07-23) — the per-sheet carry moves RATES ONLY
 
 **Owner-directed reversal of Amendment C's annotation carry.** `cross_boq_carry.apply_sheet_carry`

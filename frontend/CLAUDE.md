@@ -320,13 +320,29 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   source_boq` — with no original the action does not exist, so a disabled button would be a lie), then loading, then
   no-mapped-source, then **locked**, then the formula gate, then nothing-to-carry. It calls `gridRef.current?.flush()`
   BEFORE opening — the carry writes underneath the grid and a pending draft saved afterwards would overwrite a carried
-  rate. **AMENDMENT D: the dialog is RATES-ONLY.** The "Annotations & categories" block, its per-layer Keep/Overwrite
-  toggles and the eight pure layer helpers are DELETED, along with the `layers` POST field and the `CrossBoqCarryLayer*`
-  types — do not reintroduce them. Readiness is `counts.clean + counts.conflict > 0` (annotations no longer make the
-  button ready), and the destructive footer reports **armed RATE overwrites** via the pure `armedRateOverwrites` —
-  it was re-pointed, NOT deleted, because otherwise removing the layers would have removed the only "there is no undo"
-  warning while the destructive action remained. Emerald is BANNED inside the dialog — it means priced/succeeded in
+  rate. **AMENDMENT E (2026-07-28) REVERSED Amendment D: the dialog carries the four non-rate layers again, OPT-IN.**
+  An "Also carry" block (single-sheet mode ONLY; hidden when the server sends no `sheet.layers`, disabled when the
+  formula gate blocks the sheet) offers one row per `CARRY_LAYER_KEYS` entry with a Keep/Overwrite pair shown only when
+  `kept > 0`. **Defaults categories ON, the three annotation layers OFF — a UI default living ONLY in
+  `initialLayerChoices()`; never push it into the server** (an omitted `layers` payload is rates-only, which is exactly
+  what a pre-E client keeps getting). The plan walks every layer with overwrite OFF, so
+  `layerMoveCount = carried + (overwrite ? kept : 0)`. **Three gates had to widen to BOTH axes, and each matters:**
+  `nothingToCarry` replaces `selectedCount === 0` (unticking every rate but leaving Categories ticked is real work);
+  the destructive footer counts rates and layer records **separately** (they are not the same kind of loss); and
+  `summarizeSheetCarry`'s "Nothing was carried." branch keys off every axis (a category-only carry is the LIKELIEST
+  shape — a revision whose rates all conflict can still take the whole category set). Readiness is still
+  `counts.clean + counts.conflict > 0`. Emerald is BANNED inside the dialog — it means priced/succeeded in
   this screen and belongs to the button + the post-apply line.
+- **The "carried" verdict state (Amendment E, owner ruling 2026-07-28):** `deriveVerdictState` gains `"carried"`,
+  rendered as sky text + `CornerDownRight` + a `carried from <BOQ>` tooltip. It marks **EVERY carried row, machine or
+  human** — provenance is the axis, and "who decided it" does not answer "was this inherited?"; the check therefore sits
+  ABOVE the human check. Its one input is `SheetCategoryRow.carried_from_boq`, which `resolvedToSheetCategoryRow` MUST
+  pass through — unlike `cross_engine_conflict`/`review_priority`/`votes` (telemetry, deliberately dropped), this is
+  provenance, and dropping it fails SILENTLY (every carried row renders as locally decided). Both gates built on
+  `deriveVerdictState` are unaffected and test-pinned: `isRowEditable` (`!== "unclassified"`, so a carried row stays
+  correctable) and `isMasterSetBlank` (`=== "unclassified"`, so an inherited category still opens the rate gate).
+  ⚠️ `SheetPricingPage`'s `onApplied` MUST call `mutateCategories()` — Amendment D had removed it as a dead
+  round-trip, and that reasoning expired with the layer it was based on.
 - **Formula engine arc F1–F4 (COMPLETE):** PURE `amountFormula.ts` (evaluate) + `AmountFormulaBuilder.tsx` /
   `formulaTokens.ts` (author; click-to-insert, NO literals) + `PricingGrid.evaluateAmountCell` (compute;
   formula-wins-else-pairing, draft-aware, fail-safe BLANK on any missing operand — never a stale number).

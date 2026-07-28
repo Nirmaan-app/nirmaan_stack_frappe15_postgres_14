@@ -830,6 +830,71 @@ the W6 defect.
 
 ---
 
+## ⚠️ Amendment E — the layers come back, opt-in + attributed (2026-07-28) — **BUILT, E2E OWED**
+
+**Owner-directed reversal of Amendment D**, which had deleted the four non-rate layers outright.
+ADR: `docs/adr/0014-boq-revised-upload-and-carry.md` § Amendment E. As-built:
+`.claude/context/domain/boq-backend.md` + `frontend/.claude/context/domain/boq-frontend.md`
+§ Amendment E. Working brief: `docs/boq/HANDOFF-revision-carry-amendment-e.md`.
+
+**The rule, in one sentence:**
+
+> *Carry rates from original* moves the rates **and** any of the four row-addressed layers the user
+> ticks — category ON by default, the three annotation layers OFF — and every carried record is
+> stamped with the BoQ, version and time it came from.
+
+**Why it is not "undo Amendment D".** Amendment D's complaint was precise: a carried record arrived
+**un-asked-for** and **un-attributed**. Amendment E answers both — opt-in per layer, plus a
+provenance stamp that is **keyword-required** on the write path. Restoring one half only would
+reproduce the original defect.
+
+### Slices
+
+| Slice | Scope | Status |
+|---|---|---|
+| **R1** | Work-package carry fix — Frappe strips values in an `["in"]` filter | ✅ built, tested, live-verified |
+| **R2** | Lossless committed `sheet_config` snapshot *(MIGRATE)* | ✅ built, tested, migrated |
+| **R3** | Category carry engine + provenance schema *(MIGRATE)* | ✅ built, tested |
+| **R4** | Wire `layers` into `apply_sheet_carry`; remove the category gate from this path | ✅ built, tested |
+| **R5** | Annotation layers (remark / colour / `remark` dismissal), opt-in *(MIGRATE)* | ✅ built, tested |
+| **R6** | Frontend — the "carried" verdict state + the dialog's "Also carry" block | ✅ built, tested |
+| **R7** | ADR-0014 Amendment E + domain docs + this plan | ✅ done |
+| **E2E** | Live browser run | ❌ **OWED** — see the fixture note below |
+
+**Verification.** Backend **881** across the 17 BoQ suites; frontend **1061** vitest across 45 files
+(was 999); `tsc` clean; `residence_check.py` holding at 40/0/8/116/207. Every slice was checked by
+**deliberately breaking the fix and confirming the tests caught it**.
+
+**Two things found by that method, not by the green suite:** `test_snapshot_sheet_name_is_stripped`
+was *passing against a broken reader* (it asserted an absence with no proof the source ever held the
+thing), and `test_commit_pipeline`'s `_CFG` fixture held **only the six keys that survived commit**,
+making the R2 config loss structurally invisible. A test that passes both before and after a fix
+proves nothing.
+
+**Found during R7, fixed:** `carry_category_layer`'s freeze guard was documented (in both the source
+and its test) as *"defence in depth — the endpoint gates this too"*. **`cross_boq_carry` gates the
+freeze nowhere** — that guard is the ONLY one on the path, and the comment invited its removal.
+Docstrings corrected + a plan-side test added (`..._also_plans_nothing`).
+
+### ⚠️ E2E fixture note
+
+`BOQ-26-00066 / ELECTRICAL BOQ` is the only real candidate on the bench (259 categorised rows, 169
+auto-accepted, 1 human) and **has no revision yet** — create one as the test vehicle.
+`BOQ-26-00269` / `BOQ-26-00099` (the ELV/FPS pair) is a **poor** vehicle: ELV has
+`engines.py available=False`, so **both sides have zero categories** and a category carry would
+prove nothing. Full walk in `docs/boq/HANDOFF-revision-carry-amendment-e.md` §7.3.
+
+### Known limitations the owner accepted
+
+- **Re-commit still strands everything** (scope is revision-only). **256 sheets on the bench carry
+  more than one commit version versus 11 revision BoQs**, so this is the *more* common case; the R3
+  engine would serve it with only a second call site.
+- **R2 is forward-only** — already-committed sheets keep a NULL snapshot and the six-key fallback.
+- ⚠️ **Prod is not migrated.** Three migrations ride these commits (R2, R3, R5): a prod deploy needs
+  `bench --site <site> migrate` **before** any commit or carry runs.
+
+---
+
 ## ⚠️ Amendment C — commit carries nothing; all carry moves to the pricing screen (2026-07-23)
 
 **Owner-directed after reviewing the S8/S9/S10 as-built.** ADR blocks: **D8** and **D9**, each to be
