@@ -2215,9 +2215,13 @@ const SheetPricingPage = () => {
           onApplied={(summary, needsNewValues) => {
             setCarryMsg(summarizeSheetCarry(summary, needsNewValues));
             setCarryOpen(false);
-            // AMENDMENT D: rates only -- no `mutateCategories()`. The carry can no longer change
-            // a category, so refetching them here would be a wasted round-trip.
             void mutate();
+            // AMENDMENT E: the carry CAN change categories again (the `categories` layer is ticked
+            // by default), so the resolved read must be refetched or the grid renders the pre-carry
+            // verdicts -- no "carried" cue, and a stale blank count keeping the rate gate shut on
+            // rows that were just categorised. Amendment D had removed this call as a dead
+            // round-trip; that reasoning expired with the layer it was based on.
+            void mutateCategories();
           }}
         />
       )}

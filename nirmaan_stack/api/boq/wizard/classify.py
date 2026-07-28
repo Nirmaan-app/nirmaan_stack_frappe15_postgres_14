@@ -462,6 +462,9 @@ def get_sheet_categories_resolved(boq=None, sheet_name=None):
             "excel_row", "discipline", "rule_category_id", "ai_category_id", "ai_confidence",
             "final_category_id", "routing", "routing_reason", "review_priority",
             "human_category_id", "human_verdict_at",
+            # ADR-0014 Amendment E: carry provenance, so the grid can show a carried verdict as
+            # carried rather than as the reviewer's own pick.
+            "carried_from_boq",
         ],
         order_by="excel_row asc",
     )
@@ -486,6 +489,13 @@ def get_sheet_categories_resolved(boq=None, sheet_name=None):
             "cross_engine_conflict": conflict,
             "human_category_id": human_cat,
             "human_discipline": human_disc,
+            # The ORIGINAL this row's EFFECTIVE verdict was carried from, else None. Read off the
+            # discipline that actually RESOLVED the row, not "any vote is carried": a row can be
+            # carried in one engine and classified locally in another, and only the one the user
+            # is looking at should read as carried. None on everything classified or picked here.
+            "carried_from_boq": (
+                (votes.get(rdisc) or {}).get("carried_from_boq") if rdisc else None
+            ),
             "votes": {
                 d: {f: v.get(f) for f in _RESOLVED_VOTE_FIELDS}
                 for d, v in votes.items()

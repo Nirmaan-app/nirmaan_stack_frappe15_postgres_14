@@ -62,7 +62,7 @@ import {
   type SetStateAction,
 } from "react";
 import { debounce, type DebouncedFunc } from "lodash";
-import { Palette, MessageSquare, AlertTriangle, Flag, Scale, ChevronRight, Check } from "lucide-react";
+import { Palette, MessageSquare, AlertTriangle, Flag, Scale, ChevronRight, Check, CornerDownRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -2475,6 +2475,11 @@ const PricingGridRow = memo(function PricingGridRow({
         const label = labelFor(effective, categoryLabelById);
         const needsReview = state === "needs_review";
         const isHuman = state === "human";
+        // Amendment E: the verdict arrived by the cross-BoQ carry -- machine or human (owner
+        // ruling 2026-07-28: provenance is the axis, so EVERY inherited row is marked). Rendered
+        // distinctly from `isHuman` because emerald + a tick reads as "your pick", which on a
+        // carried row attributes to this reviewer a decision made on another BoQ entirely.
+        const isCarried = state === "carried";
         // CL-6: eligibility (Preamble/Line Item) is the click + amber-fill axis. A non-eligible row
         // (node_type "Other" -- notes/subtotals) is never clickable and never amber.
         const eligible = isPriceableType(row.node_type);
@@ -2500,7 +2505,13 @@ const PricingGridRow = memo(function PricingGridRow({
           <td
             {...tdFocusProps(colIndex)}
             data-colkey="category"
-            title={isHuman ? `${label} (your pick)` : label || undefined}
+            title={
+              isHuman
+                ? `${label} (your pick)`
+                : isCarried
+                  ? `${label} (carried from ${cat?.carried_from_boq})`
+                  : label || undefined
+            }
             onClick={
               editable
                 ? (e) => onCategoryClick?.(row.source_row_number, e.currentTarget as HTMLElement)
@@ -2514,7 +2525,9 @@ const PricingGridRow = memo(function PricingGridRow({
                 ? "text-black dark:text-white"
                 : isHuman
                   ? "text-emerald-700 dark:text-emerald-300"
-                  : "text-foreground",
+                  : isCarried
+                    ? "text-sky-700 dark:text-sky-300"
+                    : "text-foreground",
               amberFill,
               editable && "cursor-pointer hover:bg-muted/40",
               cellNavClass(colIndex),
@@ -2531,6 +2544,12 @@ const PricingGridRow = memo(function PricingGridRow({
                 <Check
                   aria-hidden
                   className="h-3 w-3 shrink-0 text-emerald-600 dark:text-emerald-400"
+                />
+              )}
+              {isCarried && (
+                <CornerDownRight
+                  aria-hidden
+                  className="h-3 w-3 shrink-0 text-sky-600 dark:text-sky-400"
                 />
               )}
               <span className="truncate">{label}</span>
