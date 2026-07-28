@@ -405,8 +405,9 @@ def get_sheet_categories(boq=None, sheet_name=None, discipline="Electrical"):
 
 # ---------------------------------------------------------------------------
 # HV-10 multi-engine per-row resolution. get_sheet_categories (above) is the
-# SINGLE-DISCIPLINE reader and is UNTOUCHED -- freeze_classification and
-# get_freeze_summary keep calling it positionally with one discipline. This new
+# SINGLE-DISCIPLINE reader and is BYTE-UNTOUCHED -- it now backs ONLY the tests'
+# regression pin (Slice ST-1 repointed freeze_classification onto the resolved
+# read, and get_freeze_summary already reads the resolved ladder). This
 # endpoint is the MERGED reader the pricing editor consumes: it reads every
 # discipline's current rows in ONE index-covered query and resolves an effective
 # verdict PER ROW via the owner-locked ladder.
@@ -582,16 +583,28 @@ def get_category_catalog(discipline="Electrical"):
 @frappe.whitelist(methods=["POST"])
 def freeze_classification(boq_name=None, sheet_name=None, discipline="Electrical"):
     """FREEZE a committed sheet's classification. THREE effects, all in ONE atomic transaction:
-      1. stamp every categorised eligible row's EFFECTIVE category (human if set else final) into
+      1. stamp every eligible row whose RESOLVED effective category is non-blank into
          human_category_id IN PLACE (persist.stamp_human_verdicts_bulk, the set_human_verdict
-         idiom -- NOT freeze-and-supersede);
-      2. bank one BoQ Category Truth Snapshot row per categorised eligible row (source
-         'Frozen in product', ONE shared snapshot_batch for the event);
+         idiom -- NOT freeze-and-supersede), ON THE RESOLVING DISCIPLINE'S is_current row;
+      2. bank one BoQ Category Truth Snapshot row per stamped row (source 'Frozen in product', ONE
+         shared snapshot_batch for the event), carrying that row's RESOLVING discipline;
       3. set classification_frozen / frozen_by / frozen_at on the is_current=1 BoQ Sheet.
-    Rows WITHOUT a category are skipped from stamping + banking (by design; get_freeze_summary
-    reports how many). While frozen, set_row_category AND start_classify are rejected; PRICING is
-    untouched. ATOMIC: one commit at the end; any failure rolls back so NOTHING is written.
-    Returns {rows_stamped, snapshots_banked, snapshot_batch, committed_version}.
+
+    Slice ST-1 (owner Option A, 2026-07-26): the stamp SOURCE is the MULTI-ENGINE resolved read
+    (persist.resolved_category_stamp_targets -- the same resolve_row_ladder the freeze COUNT and
+    get_sheet_categories_resolved use), NOT the single-discipline get_sheet_categories. So a sheet
+    classified under two disciplines stamps rows from BOTH vocabularies in one freeze, each on the
+    ladder winner's identity; and snapshot_count == the resolved non-blank eligible count ==
+    get_freeze_summary's number (ONE fifth-surface number). On a single-discipline sheet this is
+    equivalent to the old path. The `discipline` parameter is now used ONLY for the availability
+    guard below (mirrors get_freeze_summary's accepted-but-unused disposition); it no longer selects
+    which rows are stamped -- the freeze is whole-sheet by construction. get_sheet_categories is left
+    BYTE-UNTOUCHED.
+
+    Rows WITHOUT a non-blank resolved category are skipped from stamping + banking (by design;
+    get_freeze_summary reports how many). While frozen, set_row_category AND start_classify are
+    rejected; PRICING is untouched. ATOMIC: one commit at the end; any failure rolls back so NOTHING
+    is written. Returns {rows_stamped, snapshots_banked, snapshot_batch, committed_version}.
     URL: /api/method/nirmaan_stack.api.boq.wizard.classify.freeze_classification
     """
     if not boq_name:
@@ -615,32 +628,40 @@ def freeze_classification(boq_name=None, sheet_name=None, discipline="Electrical
             "Classification is already frozen for this sheet.", title="Already frozen"
         )
 
-    # Effective category per current row (human if set else final) -- reuse get_sheet_categories'
-    # logic, don't fork it. Only rows with a non-blank effective category are stamped + banked.
-    cats = get_sheet_categories(boq_name, sheet_name, discipline)["categories"]
-    targets = [c for c in cats if (c.get("effective_category_id") or "").strip()]
+    # Resolved effective category per eligible row across ALL disciplines (Slice ST-1). Only rows
+    # with a non-blank resolved category are stamped + banked; each carries the RESOLVING discipline
+    # (the ladder winner's identity), so a multi-trade sheet stamps both vocabularies in one freeze.
+    targets = persist.resolved_category_stamp_targets(boq_name, sheet_name, cv)
 
     batch = "gtfreeze-" + frappe.generate_hash(length=12)
     user = frappe.session.user
     now = frappe.utils.now()
 
     try:
-        # (1) stamp human verdicts in place -- NO commit (the helper defers commit to us).
-        stamp_res = persist.stamp_human_verdicts_bulk(
-            boq_name, sheet_name, cv, discipline,
-            [{"excel_row": c["excel_row"], "human_category_id": c["effective_category_id"]}
-             for c in targets],
-            user=user,
-        )
-        # (2) bank one snapshot per categorised row -- source 'Frozen in product', shared batch.
-        for c in targets:
+        # (1) stamp human verdicts in place -- NO commit (the helper defers commit to us). Group the
+        # targets by their resolving discipline and reuse stamp_human_verdicts_bulk once per group,
+        # so each stamp lands on the ladder winner's is_current row identity.
+        by_disc = {}
+        for t in targets:
+            by_disc.setdefault(t["resolved_discipline"], []).append(
+                {"excel_row": t["excel_row"], "human_category_id": t["effective_category_id"]}
+            )
+        rows_stamped = 0
+        for disc, stamps in by_disc.items():
+            stamp_res = persist.stamp_human_verdicts_bulk(
+                boq_name, sheet_name, cv, disc, stamps, user=user
+            )
+            rows_stamped += stamp_res["stamped"]
+        # (2) bank one snapshot per stamped row -- source 'Frozen in product', shared batch, on the
+        # row's RESOLVING discipline.
+        for t in targets:
             doc = frappe.new_doc(_TRUTH_SNAPSHOT)
             doc.boq = boq_name
             doc.sheet_name = sheet_name  # VERBATIM (#152)
-            doc.excel_row = c["excel_row"]
-            doc.discipline = discipline
+            doc.excel_row = t["excel_row"]
+            doc.discipline = t["resolved_discipline"]
             doc.committed_version = cv
-            doc.label_category_id = c["effective_category_id"]
+            doc.label_category_id = t["effective_category_id"]
             doc.snapshot_batch = batch
             doc.source = _FROZEN_SNAPSHOT_SOURCE
             doc.snapshot_at = now
@@ -661,7 +682,7 @@ def freeze_classification(boq_name=None, sheet_name=None, discipline="Electrical
         raise
 
     return {
-        "rows_stamped": stamp_res["stamped"],
+        "rows_stamped": rows_stamped,
         "snapshots_banked": len(targets),
         "snapshot_batch": batch,
         "committed_version": cv,

@@ -265,6 +265,67 @@ def blank_category_eligible_rows(boq, sheet_name, committed_version, population=
     return blanks
 
 
+def resolved_category_stamp_targets(boq, sheet_name, committed_version):
+    """Eligible rows (node_type in {Line Item, Preamble}) whose RESOLVED effective category is
+    NON-BLANK across EVERY discipline that classified the sheet -- the freeze STAMP set (Slice ST-1,
+    owner Option A 2026-07-26). The exact INVERSE of blank_category_eligible_rows: same eligible
+    NODE denominator, same multi-engine resolve_row_ladder, same fail-open guard (a never-classified
+    row resolves to "" -> blank -> NOT a target). Each target carries the RESOLVING discipline (the
+    ladder winner's identity) so the caller stamps + banks on THAT engine's is_current row.
+
+    Non-blank criterion = the ladder's EFFECTIVE CATEGORY (index [0]) is set -- byte-consistent with
+    the emptiness test blank_category_eligible_rows uses, so a single-discipline sheet's stamp set
+    equals the old single-discipline get_sheet_categories effective set (a review row has a blank
+    effective and is skipped either way).
+
+    Returns [{excel_row, effective_category_id, resolved_discipline}], sorted by excel_row. Empty
+    when the sheet is uncommitted. sheet_name VERBATIM (#152).
+    """
+    sheet_doc = _current_sheet_doc(boq, sheet_name, committed_version)
+    if not sheet_doc:
+        return []
+
+    nodes = frappe.get_all(
+        _BOQ_NODES,
+        filters={"boq": boq, "sheet": sheet_doc, "is_current": 1},
+        fields=["source_row_number", "node_type"],
+    )
+    eligible = [
+        n["source_row_number"]
+        for n in nodes
+        if (n.get("node_type") or "").strip() in _ELIGIBLE_NODE_TYPES
+    ]
+
+    # Every discipline's current votes for the version, grouped by excel_row (NO discipline filter --
+    # the multi-engine denominator). Mirrors blank_category_eligible_rows' read exactly.
+    cat_rows = frappe.get_all(
+        _ROW_CATEGORY,
+        filters={
+            "boq": boq, "sheet_name": sheet_name,
+            "committed_version": committed_version, "is_current": 1,
+        },
+        fields=["excel_row", "discipline", "routing", "human_category_id",
+                "human_verdict_at", "ai_confidence", "final_category_id"],
+    )
+    votes_by_row = {}
+    for r in cat_rows:
+        votes_by_row.setdefault(r["excel_row"], {})[r["discipline"]] = r
+
+    targets = []
+    for excel_row in eligible:
+        eff, _source, rdisc, _conflict, _human_cat, _human_disc = resolve_row_ladder(
+            votes_by_row.get(excel_row, {})
+        )
+        if (eff or "").strip():
+            targets.append({
+                "excel_row": excel_row,
+                "effective_category_id": eff,
+                "resolved_discipline": rdisc,
+            })
+    targets.sort(key=lambda e: e["excel_row"])
+    return targets
+
+
 def _identity_filters(boq, sheet_name, excel_row, committed_version, discipline):
     """The identity filter for one classification record. sheet_name VERBATIM (#152);
     discipline is part of the identity (a second engine coexists as its own current)."""

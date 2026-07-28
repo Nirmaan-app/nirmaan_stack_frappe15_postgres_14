@@ -13825,3 +13825,185 @@ control on screen.
 Sec.6 priceability correction; the stale `review_screen.py` comment; the Abhishek `patches.txt` migrate heads-up;
 the owner's branch-naming decision. The admin override's eventual REMOVAL stays conditioned on classification
 engines covering all disciplines.
+
+## Build slice ST-1 (freeze_classification stamps the MULTI-ENGINE resolved read -- owner Option A 2026-07-26) COMPLETE
+
+**What shipped.** `freeze_classification` no longer sources its stamp targets from the SINGLE-DISCIPLINE
+`get_sheet_categories`; it now reads the MULTI-ENGINE resolved read, so a sheet classified under two (or N)
+disciplines stamps rows from EVERY vocabulary in ONE freeze -- each on the ladder winner's `is_current` row. This
+closes the R2a recon asymmetry (the freeze COUNT already read the resolved ladder via `get_freeze_summary`, but the
+STAMP still read one discipline). Owner ruled Option A (resolved-read stamping), forward-looking only -- any existing
+stamped inaccuracy is ACCEPTED, no audit.
+
+**The new service helper (owner-locked).** `persist.resolved_category_stamp_targets(boq, sheet_name, committed_version)`
+-- the exact INVERSE of `persist.blank_category_eligible_rows`: same eligible NODE denominator (`node_type` in
+{Line Item, Preamble}), same `persist.resolve_row_ladder`, same fail-open guard (a never-classified row resolves to
+`""` -> blank -> NOT a target). Returns `[{excel_row, effective_category_id, resolved_discipline}]` for the NON-blank
+rows only. Lives in the service layer beside its twin so both share the ONE ladder (no service->api import; mirrors
+the 1a relocation).
+
+**The freeze rewrite (`classify.freeze_classification`, in scope).**
+- Stamp SOURCE repointed: `targets = persist.resolved_category_stamp_targets(boq, sheet, cv)`.
+- Stamps GROUPED by `resolved_discipline`, reusing the no-commit `persist.stamp_human_verdicts_bulk` once per group,
+  so each stamp lands on the ladder winner's identity (human wins > auto-accepted > higher-confidence auto > blank).
+- Snapshots carry the per-row `resolved_discipline` (was the call param), `label_category_id = effective_category_id`.
+- `rows_stamped` now summed across the discipline groups; `snapshots_banked = len(targets)`; return shape unchanged.
+- Validation, cv-resolution, already-frozen guard, the `frozen_by/at` flag write, and the atomic single end-commit +
+  rollback are ALL UNCHANGED.
+
+**Discipline-parameter disposition (spec item 3, resolved WITHOUT a STOP).** The `discipline` param is KEPT in the
+signature and STILL drives `engines.is_discipline_available(discipline)` -- removing that guard would let a freeze with
+an unavailable discipline succeed where it previously threw (an observable behaviour change -> a spec-3 STOP), so it
+was deliberately preserved. The param no longer selects which rows are stamped (whole-sheet by construction) -- it is
+accepted-but-unused for the stamp set, mirroring `get_freeze_summary`'s existing disposition. The frontend already
+calls `freeze_classification({boq_name, sheet_name})` with NO discipline arg (defaults to "Electrical", always
+available), so no frontend behaviour changes.
+
+**`get_sheet_categories` BYTE-UNTOUCHED (the freeze trap).** It is not edited; it now backs ONLY the tests' regression
+pin. A new pin (`test_get_sheet_categories_stays_single_discipline`) asserts that on a multi-trade sheet it still
+returns ONLY the asked discipline's rows.
+
+**Fifth-surface one number.** snapshot_count == `resolved_category_stamp_targets` count == the resolved non-blank
+eligible count == the complement of `get_freeze_summary`'s blank counts. Pinned by
+`test_freeze_multitrade_fifth_surface_one_number`.
+
+**Single-trade equivalence (spec item 5).** On a one-discipline sheet the resolved stamp source equals the old
+single-discipline `get_sheet_categories` non-blank source (same excel_rows, same effective labels, same resolving
+discipline). Pinned by `test_freeze_single_trade_equivalence`; the pre-existing `test_freeze_sets_flag_stamps_and_banks`
+(discipline="Electrical", 3 stamped, labels earthing/db_switchgear) stays green unchanged.
+
+**Tests (`test_classify`, +7 -> 77).** New in `TestFreezeClassification`:
+`test_freeze_multitrade_stamps_both_vocabularies` (both vocab, ONE batch, per-row resolving discipline),
+`test_freeze_multitrade_human_precedence_and_placement` (human wins + lands on the resolving discipline's row; the
+non-resolving discipline's row is NOT stamped), `test_freeze_multitrade_blank_rows_skipped` (blank rows get no stamp,
+no snapshot, no minted record), `test_freeze_multitrade_fifth_surface_one_number`, `test_freeze_single_trade_equivalence`,
+`test_get_sheet_categories_stays_single_discipline`, `test_freeze_multitrade_rollback_holds` (a mid-batch failure on a
+multi-trade freeze writes NOTHING -- 0 snapshots, flag unset, in-place stamps rolled back). All 8 pre-existing freeze
+tests stay green (the resolved ladder reproduces the Auto-accepted + one-human single-trade fixture exactly).
+
+**Counts (in-container, bench-verified).** `test_classify` 70 -> **77**; `test_pricing` **230 -> 230** (regression --
+persist is on its consumption path, zero change). Both OK.
+
+**Browser live-cert (`admins@nirmaan.app`; SYNTHETIC only, real product path for classify + freeze).** AI settings
+`enabled=1` confirmed (precondition). Bench + vite restarted; full de-stale ritual (storage/caches/SW cleared, tab
+closed + reopened, root-then-deep load); bundle marker = the category-gate amber banner + `Override the check`
+control rendered on the gated sheet.
+- **V1** built SYNTHETIC `BOQ-26-00143` / sheet `ST1 Two Trade` (server-seeded committed sheet, owner-chosen path): 3
+  Preambles (`ELECTRICAL WORKS`/`HVAC WORKS`/`GENERAL AND CONTINGENCY`) + 7 Line Items spanning electrical + HVAC
+  descriptions, rows 14/15 deliberate blanks. Pricing editor loaded it; 10 rows need a category.
+- **V2** classified BOTH engines (Electrical + HVAC, whole sheet) via the Classify dialog. Completed: 6/10 auto (Elec
+  7 `earthing` / 8 `panels` / 9 `wiring_cabling`; HVAC 11 `hvac_ducting` / 12 `hvac_vrf` / 13 `hvac_piping`), 4 review.
+  Resolved review rows via the picker: HUMAN Electrical `earthing` on row 6, HUMAN HVAC `hvac_chw_units` on row 10
+  (one human per discipline). Rows 14/15 left blank.
+- **V3** FROZE via the browser button (confirm reported "1 preamble and 1 line item" blank); frozen state rendered
+  ("Frozen - 27-Jul-2026 - admins@nirmaan.app", Unfreeze button, Classify disabled).
+- **V4** DB: 8 snapshots, ONE batch `gtfreeze-4ac32cbe8bf0`, source "Frozen in product" -- Electrical vocab
+  {earthing, earthing, panels, wiring_cabling} AND HVAC vocab {hvac_chw_units, hvac_ducting, hvac_piping, hvac_vrf}.
+  Both vocabularies -> the fix landed (a single-discipline stamp would have been Electrical-only).
+- **V5** snapshot count 8 == `resolved_category_stamp_targets` 8; blank 2 (row 14 Preamble, row 15 Line Item);
+  8 + 2 = 10 eligible; freeze dialog said "1 preamble + 1 line item". All surfaces agree.
+- **V6** row 6 stamped `earthing` on the ELECTRICAL row; row 10 stamped `hvac_chw_units` on the HVAC row; auto rows
+  stamped on their engines; row 12 resolved to HVAC (`hvac_vrf`) and its Electrical `is_current` row was left
+  UNSTAMPED (stamp lands on the resolving discipline only).
+- **V7** rows 14 & 15: no human on either discipline, 0 snapshots.
+- **V8** INHERITANCE: unfreeze -> whole-sheet re-classify (both engines) -> re-freeze. Humans stranded (not carried
+  forward, as designed). Second batch `gtfreeze-125b750c3f18` with 6 snapshots (fresh autos, both vocabularies); the
+  original 8-row batch stayed PERMANENT (14 total snapshots, 2 batches). Fresh resolved read, new batch.
+- **V9** SINGLE-TRADE regression: SYNTHETIC `BOQ-26-00144` / `ST1 Single Trade` (Electrical only). Classified
+  Electrical, froze. 3 snapshots, ONE batch, ALL Electrical (earthing/panels/wiring_cabling on rows 7/8/9); blank rows
+  6 & 10 skipped (0 snapshots). Equivalent to pre-change single-discipline behaviour.
+- **V10** CLEANUP: both synthetic BoQs + all sheets/nodes/qty-children/Row Category/Truth Snapshot records + both
+  synthetic Projects DELETED; residual check = **0**. No real BoQ touched at any point.
+- **Harness note:** the classify progress modal reached its terminal "Classification complete" state correctly (not
+  stuck) this run; completion + freeze were verified via DB throughout regardless.
+
+**Files.** `nirmaan_stack/services/boq_category/persist.py` (+`resolved_category_stamp_targets`),
+`nirmaan_stack/api/boq/wizard/classify.py` (`freeze_classification` body + docstring + the stale HV-10 comment),
+`nirmaan_stack/api/boq/wizard/test_classify.py` (+7 tests). Docs: this plan + root `CLAUDE.md` freeze invariant.
+`get_sheet_categories`, `get_freeze_summary`, all frontend, `patches.txt`, `settings.local.json` UNTOUCHED.
+
+## Build slice U1 (the rate-helper CHASSIS -- stub-driven, DEV-only) COMPLETE
+
+**What shipped.** The frontend chassis for in-editor rate suggestions: a "Suggest rates" button, per-rate-cell
+suggestion badges, and a page-level panel that renders a typed helper CONTRACT generically -- driven by a DEV stub.
+Session 1 of the locked U1+U2 box. Everything is DEV-only (guardrail G1) and NON-persistent (G2); the stub dies at
+U2, replaced by the real telemetry + earthing-import helper. New code lives in `src/pages/boq-wizard/rate-helper/`.
+
+**The registry contract (guardrail G3, N-generic).** `rateHelperTypes.ts`: a `RateHelper` = `{id, label,
+compute(ctx, attrOverrides?) -> Suggestion | NoSuggestion}`. A `Suggestion` carries `values` per rate-kind, a
+one-line `basis`, and STRUCTURED `workings` (editable `attributes` [id/label/options/value], `matchedRows`,
+`derivation` lines, `finalValues` per kind). `NoSuggestion` carries a `reason`. **The panel renders ONLY the
+contract -- zero helper-specific rendering**, so a new helper is a registry edit, never a panel change.
+`rateHelperRegistry.ts` registers THREE: the live stub `Pricing sheet` + two ALWAYS-decline helpers
+(`Previously priced BoQs` -> "No priced corpus for this category yet"; `Qty breakdown + live data` -> "Helper not
+built -- planned") whose greyed cards PROVE the N-generic rendering. `stubRateHelper.ts` is canned + synchronous:
+suggestions on some categories both kinds (earthing), a supply-only one (wiring_cabling), a no-table reason
+(panels), and an editable-attributes set that reaches an honest "no match" WITHOUT collapsing (earthing Copper|50x6
+-> empty values + attributes preserved).
+
+**D8 gate-chain REUSE (never re-derived).** The button consumes the SAME predicates a rate write does, read straight
+from the existing page vars (`SheetPricingPage.tsx`): `locked` (=> `onSaveRate` withheld), `formulasComplete`
+(`areFormulasComplete`), `categoryGateOpen` (`isCategoryGateOpen`, which already folds the admin override).
+`suggestRatesReason` surfaces the FIRST failing reason (title/tooltip); disabled when the chain says no. Running it
+evaluates registered helpers over rate-editable rows into a page-owned `suggestionsByExcelRow` Map (`buildSuggestions`
+in `rateSuggestionModel.ts`). Synchronous in U1 -- no modal/poller (that skeleton arrives in U2).
+
+**The ONE write path (item 6): a NEW `PricingGridHandle.applyRate(excelRow, col, value)`.** The existing
+`proposedRates` channel is DISPLAY-ONLY ("a proposal is never sent to the server"), so it was not a write path.
+`applyRate` wraps the grid's existing typed-commit flow. **CRITICAL (a race found + fixed during the cert):
+`applyRate` mirrors the typed `onChange` EXACTLY -- optimistic `setDraftRates` + clear proposal + the SAME 1s
+debounced `scheduleAutoSave` -- it does NOT call `commitRate` synchronously.** A synchronous commit raced the
+page's `dirty -> ensureLockAcquired` (which the typed path fires first, then commits on blur/debounce), tripping a
+spurious "taken over by another user" banner on every Use. Deferring the commit lets the lock acquire first, so
+"Use this value" is byte-identical to typing: same optimistic draft, undo history, `mutate()` refetch,
+in-flight/takeover handling, and the `onSaveRate`/locked gate. No second save path, no endpoint.
+
+**Badge + panel + memo shield (item 7, the P1 pattern).** The badge is a small count chip in the rate cell's
+existing right-aligned flex strip (beside the priced dot); its own `onClick` `stopPropagation` opens the panel, so a
+bare cell click still just places the cursor (the input is untouched). After a Use: chip -> Check (page-session
+`used`). The grid receives per-row ONLY its own `rowSuggestions` entry (`RowSuggestions {byCol: {col: {count,
+used}}}`), compared BY VALUE via `rowSuggestionsEqual` in `pricingRowPropsAreEqual`; the grid-level
+`rowSuggestionsByExcelRow` Map + the reference-stable `onSuggestionBadgeClick` callback change only on a run / a Use
+(like `categoriesByExcelRow`), NEVER on keystroke -- so a run re-renders only the rows that got a badge, and a Use
+re-renders only that one row (`markSuggestionUsed` rebuilds a new Map but reuses every other entry's reference,
+mirroring the gate-arc boolean-flip precedent). The panel mounts at PAGE level in a horizontal flex row around the
+grid slot INSIDE the full-screen wrapper (grid keeps its own horizontal scroll + the frozen two-pane split +
+virtualization -- all internal, untouched); EMBEDDED mode drops `max-w-5xl` (widen-while-open) and restores on close.
+Panel state keyed by the durable `(excelRow, col)` -- col is the stable Excel column letter that DETERMINES the
+rate-kind (1:1 on scalar/per-area sheets), never a window index.
+
+**Dev-flag mechanism (item 8).** `rateHelperFlag.ts`: `RATE_HELPER_ENABLED = import.meta.env.DEV && localStorage
+"nirmaan-rate-helper-off" !== "true"`, evaluated ONCE at module load (a stable const, memo-safe). A production
+`vite build` sets `import.meta.env.DEV = false` -> the feature is UNREACHABLE in a shipped bundle (no button, no
+badges, no panel). The localStorage kill-switch toggles it OFF at runtime for verification (V10) without a rebuild
+(next page load); it can only turn the feature OFF, never ON in prod.
+
+**Gates (in-container, bench-verified).** vitest **932 -> 952** (+20 for the pure leaves: stub compute incl. the
+recompute + no-match paths, registry resolution + dead-helper declines, kind mapping, `buildSuggestions` per-kind
+badging, `markSuggestionUsed` identity preservation, `rowSuggestionsEqual`). tsc: boq-wizard **0 new** (total 3240
+pre-existing debt unchanged). vite build exit 0.
+
+**Browser cert (`admins@nirmaan.app`, SYNTHETIC `BOQ-26-00144` -- LEFT INTACT for the owner's EXIT-CRITERIA review
+per owner instruction; NOT deleted).** Sheets `U1 Open` (fully categorised + formulas complete -> gate OPEN) +
+`U1 Shut` (1 blank category -> gate SHUT). V1 built; V2 button disabled on Shut with "Every eligible row needs a
+category first" + enabled on Open; V3 badges only on rate-editable stub-suggested rows, per-kind (row 7 earthing
+supply+install, row 8 wiring_cabling supply-only, row 9 panels none, preamble none); V4 typing on a badged cell
+saves normally (275 typed into badged row-8 supply); V5 panel scoped to (row, kind) with all 3 cards + the two dead
+reasons; V6 workings render, attribute edit recomputes live (50x6 -> 210), reaches honest "no match" (Copper|50x6,
+attributes preserved), final field pre-filled + freely overridable (999); V7 Use lands the value through the real
+save (row 7 supply 999 + install 45, DB-confirmed, "Saved as of ...", undo reverts to a new pricing_version like a
+typed value); V8 chip -> check; V9 both pane modes -- frozen two-pane badges/panel/Use all work, embedded
+widen-while-open; V10 flag OFF -> no button/badges/panel; V11 reload wipes suggestions but the saved rates remain.
+**Seeding gotcha (env, not code): `save_amount_formula` acquires the single-editor pricing lock as its caller, so
+seeding formulas as Administrator left a stale lock -- cleared out-of-band.** V12 cleanup INTENTIONALLY SKIPPED
+(owner will manually review the synthetic BoQ); the feature is left flag-ON on `U1 Open`.
+
+**U1 exit state / what U2 replaces.** The chassis (registry contract, badge, panel, `applyRate` write, D8 reuse,
+dev flag) is DONE. U2 replaces the STUB with the real helper (telemetry + earthing rate-table import) and adds the
+async run skeleton (modal + poller over a real server run, mirroring the Classify pattern). The stub file
+(`stubRateHelper.ts`) + its test die at U2; the contract + panel + badge + write path stay.
+
+**Files.** NEW `frontend/src/pages/boq-wizard/rate-helper/` (rateHelperTypes.ts, stubRateHelper.ts,
+rateHelperRegistry.ts, rateHelperFlag.ts, rateSuggestionModel.ts, RateHelperPanel.tsx + 3 `.test.ts`). Edited
+`PricingGrid.tsx` (applyRate handle + badge + row-suggestion prop/comparator) + `SheetPricingPage.tsx` (button,
+run/badge/use handlers, panel mount, widen-while-open). No backend, no endpoints, no persistence.

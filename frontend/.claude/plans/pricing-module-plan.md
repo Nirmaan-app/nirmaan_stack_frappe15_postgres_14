@@ -1000,6 +1000,155 @@ Networking NOT corrupted (155 cells), single save v23→24. Cleanup: Electrical 
   arithmetic uses the same IEEE ops, and any true mismatch would only mean a one-recalc-late display, not a
   wrong persisted `f`.
 
+## PW-FS — Dropdown scroll cap + full-screen mode (2026-07-28)
+
+Two additive UI changes to `PricingWorkbookPage` (the shared HVAC / Electrical / ELV page). No backend, no
+doctype, no engine change. tsc 0 errors in slice files; build ✓; vitest **170 → 178** (new
+`pricingHelpers.test.ts`, 8). Full live matrix a–i PASSED on a Vite-restarted `:8080` (owner-run de-stale;
+the in-container watcher never sees a Windows-mount edit, so a restart is mandatory — proven again this
+slice: the served transformed module was byte-stale until restart, `hasFullScreen:false → true`).
+
+### Commit 1 — data-validation dropdown height cap (`pricing.css`)
+
+- **Mechanism (DIAG 2026-07-27):** Luckysheet renders the `#luckysheet-dataVerification-dropdown-List` at its
+  FULL content height with `max-height:none; overflow:visible`, so a long range-sourced list is not an internal
+  scroll container AND is JS-placed off-screen from the uncapped height. The fix is a bare-ID rule
+  `#luckysheet-dataVerification-dropdown-List { max-height: 300px; overflow-y: auto; }`, imported ONCE by
+  `PricingWorkbookPage`. **Capped height fixes BOTH scroll and placement** — Luckysheet measures the element's
+  actual (now-capped) rendered height when it positions the list, so a 300px list lands on-screen.
+- **Specificity: Tier 1 (bare ID, no `!important` needed) — VERIFIED live.** The built/served page applied
+  `max-height:300px` from the plain `#id` selector (the vendored script-injected styles do not set a competing
+  rule at ≥ ID specificity). No `html`-prefix or `!important` escalation was required.
+- **Accepted residual (bottom-edge overhang):** a long list opened from a cell LOW in the viewport still opens
+  downward anchored to the cell, so the capped 300px can extend past the viewport bottom (measured I41: 71px
+  overhang) — but it stays internally scrollable so every option is reachable. Owner-accepted (DIAG).
+- **Backwards-compat:** the rule touches ONLY the Luckysheet dropdown container. Short lists are unaffected —
+  a 2-option list renders at its natural 58px with NO scrollbar (`overflow-y:auto` shows a bar only when
+  content exceeds the cap). Proven live (O39 "Wire,Cable").
+- **Live proof (Electrical I10, 106-option `'Unique Linkages reference sheet'!$B$2:$B$107`, in full-screen +
+  Sandbox):** list opens on-screen, scrollbar present, wheel scrolls, LAST option reachable + selects
+  (`I10 = "63A RCCB 300mA(FP)"`); discarded on Exit Sandbox. Cap CSS confirmed active on all three pages
+  (HVAC + ELV computed `max-height:300px`).
+
+### Commit 2 — full-screen mode
+
+- **Mechanism = root-className FLIP (RECON 2026-07-27, the wizard Slice-4c pattern), NOT the native Fullscreen
+  API, NOT a portal.** One `expanded` `useState`; the page root swaps
+  `flex flex-col h-[calc(100vh-100px)]` ↔ `fixed inset-0 z-50 flex flex-col bg-background` via the pure
+  `pricingRootClass(expanded)` (`pricingHelpers.ts`, unit-tested). ONE JSX tree — the action bar + sandbox
+  band stay the fixed-height first children, the sheet slot stays `relative flex-1`, and the engine-mount +
+  watermark siblings are untouched, so NOTHING remounts (engine instance / checkout lock / sandbox / drafts
+  all survive).
+- **HARD RULE 1 — never reparent `#pricing-workbook-luckysheet`.** The watermark is a React SIBLING overlay
+  (`absolute inset-0 z-10`) of the mount div; a className flip on an ANCESTOR keeps the whole subtree, so the
+  watermark survives (proven: tiled + on top in FS and after exit). Reparenting the container (e.g. into a
+  portal) would strand it.
+- **HARD RULE 2 — never the native Fullscreen API.** The save-advisory / import-report dialogs are Radix,
+  portalled to `document.body` at `z-50`; against a `z-50` page overlay the DOM-order tie-break puts the
+  body-appended dialog ON TOP (proven live: the INDEX advisory rendered above the overlay). The native API
+  would hide those dialogs (they portal outside the fullscreened node).
+- **`luckysheet.resize()` REQUIRED both directions.** The engine sizes its canvas at `create()` and only
+  re-measures on its OWN window-resize listener; a container-only className flip does not fire it, so a
+  `useEffect([expanded])` calls `requestAnimationFrame(() => window.luckysheet?.resize?.())` (guarded on
+  `sheetInitedRef`) on enter AND exit. Proven: canvas fills the viewport on enter and restores on exit across
+  Electrical / HVAC / ELV; at 90% zoom (dpr 0.9) the repaint is crisp (canvas buffer matches CSS 1:1, no blur).
+- **Esc semantics (`shouldExitPricingFullscreenOnEsc`, pure, co-located — NOT imported from boq-wizard):** a
+  window keydown listener mounted only while expanded; exits on a BARE Escape, and returns false on
+  `e.defaultPrevented` or when `activeElement` is INPUT/TEXTAREA. **Engine nuance (Luckysheet-specific,
+  reported):** Luckysheet `stopPropagation`s Escape at its grid contenteditable, so the window listener never
+  fires while the GRID has focus — i.e. Esc exits when focus is OUTSIDE the grid (right after entering, or the
+  action bar) and is inert inside the grid; the "Exit full screen" button is the universal exit. This
+  satisfies the matrix (Esc exits ✓; Esc-in-cell-editor does not ✓; button works ✓) with the specced
+  predicate unchanged. A capture-phase listener would make in-grid Esc exit but would also yank the user out
+  mid-cell-edit (contenteditable, not INPUT/TEXTAREA) and fire alongside dropdown-dismiss — rejected; button +
+  outside-grid Esc is the accepted behaviour. (Owner may revisit.)
+- **Toggle:** an always-rendered (when `status` is ready/loading) outline button in the action bar,
+  Maximize2/Minimize2, `aria-pressed`, Esc named in the title; orthogonal to editability/sandbox.
+- **No lifecycle change:** the `beforeunload`/release wiring is ref-keyed + unmount-driven and layout-agnostic;
+  a className flip never unmounts, so it is untouched (recon-verified, held live: Edit→enter FS→Save advisory→
+  Cancel→clear→Release all worked from within FS; Electrical stayed v5).
+
+### Standing maintenance riders (carried, not this slice)
+
+- **SUMIFS verified** — the probe table passed on all cases; no normalizer work owed.
+- **Electrical baseline v2 superseded by the new master import** — the older v2 snapshot is stale vs the
+  current master; RE-SNAPSHOT at the next maintenance touch (do not trust the old baseline for a regression
+  diff).
+- **Import-normalizer candidate: `FALSE()`→`0` / `TRUE()`→`1`** (the v6-prep LibreOffice lesson) — a future
+  normalizer rule to consider; not implemented.
+
+## PW-DS — Type-to-search in data-validation dropdowns (2026-07-28)
+
+Long range-sourced dropdowns (e.g. Electrical `I10` = 106 options) were unsearchable — the user had to
+scroll the (now 300px-capped) list to find a value. PW-DS adds a filter box inside the dropdown popup.
+
+**Governing recon:** the 2026-07-28 type-to-search RECON (full report on the owner's Desktop). Every
+load-bearing fact was proven against the live DOM and re-verified in this slice's live matrix.
+
+### Design — an APP-LEVEL DOM augmentation (no vendored change)
+
+- **Module:** `pricingDropdownSearch.ts` exports `installDropdownSearch(): () => void` (returns the
+  uninstaller) plus two PURE unit-tested helpers (`filterOptions`, `nextVisibleIndex`). Wired by ONE
+  `useEffect([])` in `PricingWorkbookPage.tsx` — install on mount, uninstall (observer disconnect + remove any
+  live injected nodes) on unmount. Idempotent install guard (module-scoped `installed` flag).
+- **Observer-driven, re-inject-per-open (self-cleaning cleanup contract).** A `MutationObserver` on
+  `document.body` (`{childList, subtree}`) detects the popup opening; the callback is O(1) in the common case
+  (one `getElementById` + one inline-`display` read) and only augments when the pricing dropdown is actually
+  open, has options, and is not yet augmented. Body-scoped + engine-agnostic so it survives every engine
+  re-init (edit / release / sandbox / import destroy + recreate the popup container). Recon Q5: the engine
+  **rebuilds the popup's `.dropdown-List-item` children on every open** (childList: N removed + N added, then
+  `display:block`), which auto-wipes our injected input — so we simply re-inject each open and never need to
+  clean up on close.
+- **The injected input MUST carry `luckysheet-mousedown-cancel` (LOAD-BEARING, recon-proven by a NEGATIVE
+  probe).** Without that class the engine's global mousedown handler dismisses the popup and steals focus to
+  the cell editor the instant the input is clicked. This is the one hard requirement.
+- **Filter semantics:** the pure `filterOptions(texts, query)` — case-insensitive substring on the TRIMMED
+  query, empty query = all, returns a boolean mask PARALLEL to the input (hide/show via `display`, NEVER a
+  re-sort). Zero matches → a muted, non-clickable "No matches" row (not a `.dropdown-List-item`, so the
+  engine's delegated click handler ignores it). Selection stays the engine's own DELEGATED-on-`document`
+  handler (`click` → `.dropdown-List-item`) — hiding non-matches leaves survivors clickable, and Enter fires a
+  synthetic `.click()` so the engine performs the cell write. Click-to-select without typing is untouched.
+- **Own keyboard nav (the engine has NONE — recon Q6: arrows fall through to the GRID).** On the input,
+  ArrowUp/ArrowDown move a highlight over VISIBLE items (pure `nextVisibleIndex`, clamped, scrolled into view
+  within the 300px cap); Enter selects the highlighted row **or, with no explicit highlight, the FIRST visible
+  row** (so Enter-straight-after-typing picks the top match — the live-matrix item-d fix); Escape closes
+  (mirror the engine's dismiss: `display:none` + remove the input). All FOUR keys `stopPropagation` +
+  `preventDefault`, or the arrows would move the grid selection and close the popup.
+- **CSS (`pricing.css`):** the sticky full-width input, the highlight class, the muted no-matches row. Plain
+  hex (not Tailwind tokens) on purpose — this styles the vendored Luckysheet light-theme popup DOM, consistent
+  with the existing bare-ID 300px cap rule. The sticky input's ~30px sits INSIDE the 300px cap (recon Q4); no
+  cap change.
+
+### Fallback shapes on record (not needed — the injected input works)
+
+If the injected-input coexistence ever breaks in a future engine version: (a) a document-level keystroke
+capture with no visible input, filtering the open list and echoing the typed buffer in a chip; or (b) a
+floating search chip positioned NEXT to the popup rather than inside it.
+
+### Verification
+
+- **Gates:** tsc `--noEmit` (0 errors in slice files); `yarn build` OK (known-benign chunk-size warning;
+  vendored libs stay unbundled — `PricingWorkbookPage` chunk ~60 KB). Vitest 960 → **976** (+16, one new
+  file `pricingDropdownSearch.test.ts` covering `filterOptions` case/substring/order/empty/no-match/trim +
+  the never-reorder negative, and `nextVisibleIndex` sparse-mask/clamp/seed/empty→-1).
+- **Live matrix (Sandbox, all three workbooks):** a) I10 (106 opts) opens with the box focused, "rccb"→18,
+  click writes + closes, reopen = fresh empty box; b) type "mccb", ArrowDown×3 highlights the 3rd visible +
+  scrolls, Enter writes it, **grid selection did NOT move during arrows**; c) "zzzz" → "No matches",
+  backspace restores; d) short list O39 (Wire/Cable) — box appears, "w"+Enter selects Wire (first-visible
+  fallback), click-without-typing still works; e) full-screen — search+select works identically inside the
+  flipped subtree; f) cell-edit non-regression — no popup, normal edit + Esc-cancel, the augmentation does not
+  interfere (a leftover input lives only inside the hidden container, inert); g) cross-workbook — HVAC + ELV
+  (incl. the ELV 195-source Sprinkler dropdown) filter + select; h) dismissal — click inside stays open
+  (class exemption), click outside closes (engine behavior preserved); i) end state — all sandboxes exited,
+  all locks NULL, all three versions unchanged (Electrical v5 / HVAC v1 / ELV v1).
+- **One fix cycle:** item-d Enter-with-no-highlight originally no-op'd; fixed to fall back to the first
+  visible option; a + f re-verified green after.
+
+### Backwards-compat
+
+Pure DOM augmentation — the engine's delegated click-to-select is untouched; with no popup open there is zero
+interference with normal grid/cell editing; no vendored change, no backend, no doctype.
+
 ## PM-3+ / remaining module queue
 
 - **Univer spike**, then the production go-live sequence.

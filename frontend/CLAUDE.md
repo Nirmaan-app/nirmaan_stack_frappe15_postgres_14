@@ -447,6 +447,22 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   `AlertDialog`; both `mutate()` to re-read the flag (the `lock_sheet`/`handleToggleLock` pattern). While frozen,
   `onCategoryClick` short-circuits with a brief inline message via a `classificationFrozenRef` — the callback stays
   REFERENCE-STABLE (row-memo anti-defeat rule); NEVER thread a per-row `frozen` prop through `pricingRowPropsAreEqual`.
+- **Rate-helper chassis (U1, DEV-only, `rate-helper/`; full detail in the plan doc's "Build slice U1"):** the
+  "Suggest rates" button + per-cell badges + the page-level panel that renders a typed helper CONTRACT generically
+  (`RateHelper.compute -> Suggestion | NoSuggestion`; the panel has ZERO helper-specific rendering — a new helper is
+  a registry edit). Load-bearing invariants: (1) **DEV gate `RATE_HELPER_ENABLED` (`import.meta.env.DEV` + a
+  localStorage kill-switch) — a prod `vite build` makes the whole feature unreachable**, so it must guard the button,
+  the grid props (`rowSuggestionsByExcelRow`/`onSuggestionBadgeClick` passed only when enabled), and the panel mount.
+  (2) The ONE write is **`PricingGridHandle.applyRate(excelRow, col, value)`, which MUST mirror the typed `onChange`
+  EXACTLY — optimistic `setDraftRates` + clear proposal + the SAME 1s debounced `scheduleAutoSave`, NEVER a
+  synchronous `commitRate`**: a synchronous commit races the page's `dirty -> ensureLockAcquired` and trips a spurious
+  takeover; deferring makes "Use this value" byte-identical to typing (undo/mutate/takeover/locked-gate all inherited).
+  (3) Memo shield (P1): the grid gets per-row ONLY its `rowSuggestions` entry compared BY VALUE (`rowSuggestionsEqual`),
+  never the whole Map; `rowSuggestionsByExcelRow` + `onSuggestionBadgeClick` change only on a run/Use (like
+  `categoriesByExcelRow`), never on keystroke. (4) The button's enable chain **REUSES the rate-write gate
+  (`!locked && formulasComplete && categoryGateOpen`) — never re-derived** — surfacing the first failing reason as the
+  title. (5) The badge lives in the rate cell's right-aligned flex strip with `stopPropagation`, so a bare cell click
+  still just places the cursor. Nothing persists (page-session only; a reload wipes suggestions). The STUB dies at U2.
 - **Socket reconnect self-heal must be reconnect-GATED + debounced (T1, owner-verified):** a `socket.on("connect", ...)`
   handler that refetches (`mutate()`/`mutateCategories()`) MUST NOT fire on every connect — the initial mount connect
   double-fetches (the SWR mount fetch already ran) and a flapping dev socket then refetches on every reconnect, and
@@ -775,7 +791,35 @@ status / decisions: `frontend/.claude/plans/pricing-module-plan.md`.
   small bodies, no reason to change. Watermark opacity is **0.22** (PM-6, darker; still `#D03B45`).
 - **Watermark** = pointer-events-none data-URI-SVG overlay in the **Nirmaan brand red `#D03B45`** (full name +
   email, tiled ~30°, font 21/weight 600, opacity 0.22 per PM-6) in BOTH read-only and edit modes; must never
-  block sheet interaction. Keyed on the USER, not the workbook — it needs no per-workbook parametrization.
+  block sheet interaction. Keyed on the USER, not the workbook — it needs no per-workbook parametrization. It
+  is a **React SIBLING** of the engine mount (both `absolute inset-0` inside one `relative flex-1`) — NEVER
+  reparent `#pricing-workbook-luckysheet` or the watermark strands.
+- **Dropdown height cap (`pricing.css`, imported once by `PricingWorkbookPage`):** a bare-ID rule
+  `#luckysheet-dataVerification-dropdown-List { max-height: 300px; overflow-y: auto; }` makes long
+  range-sourced data-validation dropdowns scroll INTERNALLY instead of rendering at full content height
+  (unscrollable + JS-placed off-screen). Capping the height also fixes placement (the engine measures the
+  capped element). Short lists are unaffected (natural height, no scrollbar). Bare-ID specificity wins over the
+  vendored script-injected styles — no `!important` needed. Accepted residual: a list opened low in the
+  viewport can overhang the bottom edge but stays scrollable.
+- **Dropdown type-to-search (PW-DS) is an APP-LEVEL DOM augmentation (`pricingDropdownSearch.ts`), never a
+  vendored change.** `installDropdownSearch()` (one `useEffect([])` in `PricingWorkbookPage`) runs a
+  `document.body` `MutationObserver` that, on each dropdown open, prepends a filter `<input>` into
+  `#luckysheet-dataVerification-dropdown-List`. **The input MUST carry `luckysheet-mousedown-cancel`** — without
+  it the engine's global mousedown handler dismisses the popup and steals focus (recon-proven). Selection stays
+  the engine's own document-delegated `.dropdown-List-item` click (filtering only toggles `display`); the module
+  owns arrow/Enter/Escape nav since the engine has none. Pure `filterOptions` / `nextVisibleIndex` are
+  unit-tested. NEVER move this into the vendored `pricing_libs`.
+- **Full-screen (PW-FS) = root-className FLIP, NOT the native Fullscreen API, NOT a portal.** An `expanded`
+  `useState` swaps the page root between `flex flex-col h-[calc(100vh-100px)]` and
+  `fixed inset-0 z-50 flex flex-col bg-background` (pure `pricingRootClass`) — ONE JSX tree, nothing remounts
+  (engine / lock / sandbox / watermark survive). Native API is BANNED (the Radix save/import dialogs portal to
+  `document.body` at `z-50` and would be hidden behind a fullscreened node; against a `z-50` overlay DOM-order
+  puts them on top). **`window.luckysheet.resize()` MUST fire on BOTH enter and exit** (a `useEffect([expanded])`
+  rAF, guarded on the sheet-inited ref) — the engine's own window-resize listener does not fire on a
+  container-only change. Esc-exit uses the pure co-located `shouldExitPricingFullscreenOnEsc` (bare Esc; false
+  on `defaultPrevented`; false on INPUT/TEXTAREA) — do NOT import the wizard's twin (the module stays
+  standalone). NOTE: Luckysheet `stopPropagation`s Escape at its grid, so Esc exits only when focus is OUTSIDE
+  the grid; the toggle button is the universal exit.
 - **Access strings (PM-1 DB-verified, profile side):** `PricingRoute` guard + the sidebar spread both gate on
   Administrator OR role_profile `Nirmaan Admin Profile` / `Nirmaan Estimates Executive Profile`. The backend
   (`api/pricing/workbook.py`) also accepts the `Nirmaan Estimates Executive` Role and is the real enforcement

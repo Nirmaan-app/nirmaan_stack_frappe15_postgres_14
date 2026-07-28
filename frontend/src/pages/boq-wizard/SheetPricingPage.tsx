@@ -105,6 +105,7 @@ import {
   isCategoryGateOpen,
   isGridOnlySheet,
   isMasterSetBlank,
+  isRateDescriptor,
   isTakeoverError,
   orderCommittedSheets,
   shouldExitFullscreenOnEsc,
@@ -128,6 +129,17 @@ import { buildChildrenByParent, collapsedAncestors, collapsibleParents, isHidden
 import { mergeRowsPreservingIdentity } from "./rowMerge";
 import { SheetDataGrid } from "./SheetDataGrid";
 import { SummaryPanel } from "./SummaryPanel";
+// U1 rate-helper chassis (DEV ONLY -- guardrail G1: dies at U2).
+import { RATE_HELPER_ENABLED } from "./rate-helper/rateHelperFlag";
+import type { RowSuggestions } from "./rate-helper/rateHelperTypes";
+import {
+  buildRowContext,
+  buildSuggestions,
+  markSuggestionUsed,
+  rateKindOfDescriptor,
+  rateKindsOf,
+} from "./rate-helper/rateSuggestionModel";
+import { RateHelperPanel } from "./rate-helper/RateHelperPanel";
 
 // Slice 3c: "saved as of" uses the CLIENT clock at save-success (save_cell_price returns no
 // timestamp). HH:MM, mirroring SheetReviewPage's fmtSavedTime shape (client-clock seeded).
@@ -741,6 +753,18 @@ const SheetPricingPage = () => {
   // editing on non-priceable rows for THIS sheet THIS session AND sends allow_non_priceable
   // to save_cell_price so the server accepts those writes. Resets per sheet (below).
   const [override, setOverride] = useState(false);
+  // ── U1 rate-helper (DEV, guardrail G1/G2 -- page-session only, NEVER persisted) ──
+  // suggestionsByExcelRow: built by pressing "Suggest rates" (reference-stable per run/use);
+  // helperPanel: the open panel scoped to a rate cell (durable excelRow + col -> the kind). Both
+  // reset on a sheet switch (below). A reload wipes them -- no persistence.
+  const [suggestionsByExcelRow, setSuggestionsByExcelRow] = useState<Map<number, RowSuggestions>>(
+    () => new Map(),
+  );
+  const [helperPanel, setHelperPanel] = useState<{
+    excelRow: number;
+    col: string;
+    kind: string;
+  } | null>(null);
   // Single-editor lock (slice B): a mid-edit takeover (a save rejected with the
   // BOQ_PRICING_LOCKED marker -- another user acquired the lock) flips this true; the page
   // becomes read-only + shows the takeover banner until a fresh editable payload arrives.
@@ -859,6 +883,8 @@ const SheetPricingPage = () => {
     setCopyForwardOpen(false); // copy-forward dialog is per-sheet
     setCopyForwardMsg(null);
     setOverride(false); // Slice 3e: the override is per-sheet per-session -- reset on switch
+    setSuggestionsByExcelRow(new Map()); // U1 rate-helper: suggestions are per-sheet, page-session
+    setHelperPanel(null);
     setReviewOpen(false); // Slice 4a: the review-list strip is per-sheet
     setShowDismissed(false); // Slice 4b-ACKNOWLEDGE: the show-dismissed toggle is per-sheet
     setShowOnlyUnpriced(false); // Slice 4b-A: the unpriced filter is per-sheet
@@ -1831,6 +1857,63 @@ const SheetPricingPage = () => {
   // the GATE opens regardless. Only this BOOLEAN reaches the grid (never the count -- a count changes
   // on every pick and would re-render every row; the boolean flips only when editability flips).
   const categoryGateOpen = isCategoryGateOpen(categoryBlankCount, categoryGateOverride);
+
+  // ── U1 rate-helper (DEV): D8 gate REUSE + run / badge-click / use handlers. The enable chain is
+  // EXACTLY what a rate write consumes -- !locked (locked => onSaveRate withheld), formulasComplete,
+  // categoryGateOpen -- read straight from the existing vars, never re-derived. Disabled surfaces
+  // the first failing reason (title). Synchronous: the run builds suggestionsByExcelRow in place. ──
+  const suggestRatesReason: string | null =
+    pricedLoading || pricedError
+      ? "Loading..."
+      : commitVersion === null
+        ? "Sheet is not committed"
+        : locked
+          ? "Sheet is locked / read-only"
+          : !formulasComplete
+            ? "Declare amount formulas first"
+            : !categoryGateOpen
+              ? "Every eligible row needs a category first"
+              : null;
+  const suggestRatesDisabled = suggestRatesReason !== null;
+
+  const runSuggestRates = useCallback(() => {
+    setSuggestionsByExcelRow(
+      buildSuggestions(rows, columnDescriptors, override, categoriesByExcelRow),
+    );
+    setHelperPanel(null);
+  }, [rows, columnDescriptors, override, categoriesByExcelRow]);
+
+  const handleSuggestionBadgeClick = useCallback(
+    (excelRow: number, col: string, _cellEl: HTMLElement) => {
+      const d = columnDescriptors.find((dd) => dd.col === col);
+      const kind = d ? rateKindOfDescriptor(d) : null;
+      if (!kind) return;
+      setHelperPanel({ excelRow, col, kind });
+    },
+    [columnDescriptors],
+  );
+
+  const handleUseSuggestion = useCallback(
+    (col: string, value: number) => {
+      if (!helperPanel) return;
+      gridRef.current?.applyRate(helperPanel.excelRow, col, value);
+      setSuggestionsByExcelRow((prev) => markSuggestionUsed(prev, helperPanel.excelRow, col));
+      setHelperPanel(null);
+    },
+    [helperPanel],
+  );
+
+  // The open panel's row context, built from the SAME page data buildSuggestions used.
+  const helperPanelCtx = useMemo(() => {
+    if (!helperPanel) return null;
+    const row = rows.find((r) => r.source_row_number === helperPanel.excelRow);
+    if (!row) return null;
+    const rateKinds = rateKindsOf(columnDescriptors.filter(isRateDescriptor));
+    return buildRowContext(row, rateKinds, categoriesByExcelRow.get(helperPanel.excelRow));
+  }, [helperPanel, rows, columnDescriptors, categoriesByExcelRow]);
+  // The panel is open only with the flag on, a scoped cell, and a resolvable row context.
+  const helperPanelOpen = RATE_HELPER_ENABLED && helperPanel !== null && helperPanelCtx !== null;
+
   // AMENDMENT C / C3: the carry button's state, from the PURE helper (ADR-0010 F4 -- the rule is
   // unit-tested; this page only renders it). `locked` already folds the deliberate lock, a
   // takeover, a foreign holder AND history mode, so one flag covers every read-only reason.
@@ -2025,7 +2108,11 @@ const SheetPricingPage = () => {
       className={cn(
         expanded
           ? "fixed inset-0 z-50 flex flex-col space-y-4 overflow-auto bg-background p-4"
-          : "flex-1 space-y-4 max-w-5xl mx-auto pt-6 pb-10 px-4",
+          : // U1 rate-helper: embedded is capped at max-w-5xl, but WIDEN while the suggestion panel
+            // is open (it is cramped otherwise) and restore the cap on close.
+            helperPanelOpen
+            ? "flex-1 space-y-4 w-full mx-auto pt-6 pb-10 px-4"
+            : "flex-1 space-y-4 max-w-5xl mx-auto pt-6 pb-10 px-4",
       )}
     >
       {/* ── Version ribbon (read-only history browser) -- the OUTERMOST band, ABOVE the top
@@ -2626,6 +2713,24 @@ const SheetPricingPage = () => {
               {frozenAt ? ` · ${formatDate(frozenAt)}` : ""}
               {frozenBy ? ` · ${frozenBy}` : ""}
             </span>
+          )}
+
+          {/* ── U1 rate-helper (DEV ONLY, guardrail G1): "Suggest rates". Sits after Freeze (owner
+              ruling: classify -> freeze -> suggest). D8: consumes the SAME gate chain rate writes do
+              -- locked / formulasComplete / categoryGateOpen -- REUSED, never re-derived; disabled
+              with the reason surfaced. Synchronous in U1 (no modal/poller -- that arrives in U2). ── */}
+          {RATE_HELPER_ENABLED && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              disabled={suggestRatesDisabled}
+              onClick={runSuggestRates}
+              title={suggestRatesReason ?? "Suggest rates for editable rows"}
+            >
+              <Sparkles className="h-4 w-4" />
+              Suggest rates
+            </Button>
           )}
 
           {/* ── CL-2: "show only needs-review" view filter (rows whose category verdict is an
@@ -3312,6 +3417,12 @@ const SheetPricingPage = () => {
           (the grid keeps its own viewport-rem cap, byte-for-byte the prior behaviour). */}
       {!pricedLoading && !pricedError && (
         <div className={cn(expanded && "flex min-h-0 flex-1 flex-col")}>
+        {/* U1 rate-helper: a horizontal flex row around the grid slot (grid left flex-1 min-w-0,
+            panel right fixed width). The grid keeps its OWN horizontal scroll + the frozen two-pane
+            split + virtualization -- all internal to PricingGrid, untouched. Absent panel => the
+            wrappers are inert (no class), byte-identical to before. */}
+        <div className={cn(helperPanelOpen && "flex min-h-0 flex-1 items-start gap-3")}>
+        <div className={cn(helperPanelOpen && "min-w-0 flex-1")}>
         {isGridOnly ? (
           <SheetDataGrid
             // Faithful committed grid (general specs) -- READ-ONLY reference, all rows at
@@ -3376,6 +3487,12 @@ const SheetPricingPage = () => {
             hasRun={categoriesByExcelRow.size > 0}
             categoryLabelById={categoryLabelById}
             onCategoryClick={locked ? undefined : onCategoryClick}
+            // U1 rate-helper (DEV): the per-row suggestion badges + the page-owned open callback.
+            // Both are withheld when the flag is off (feature does not exist). onSuggestionBadgeClick
+            // is a stable useCallback; rowSuggestionsByExcelRow changes only on a run / a "Use this
+            // value" (like categoriesByExcelRow) -- never on keystroke, so the memo shield holds.
+            rowSuggestionsByExcelRow={RATE_HELPER_ENABLED ? suggestionsByExcelRow : undefined}
+            onSuggestionBadgeClick={RATE_HELPER_ENABLED ? handleSuggestionBadgeClick : undefined}
             // F3: the amount-column formula header label + builder. columnFormulas drives the
             // `f = ...` label; onSaveFormula is withheld when locked (header renders read-only).
             columnFormulas={columnFormulas}
@@ -3418,6 +3535,20 @@ const SheetPricingPage = () => {
             virtualized={virtualized}
           />
         )}
+        </div>
+        {/* U1 rate-helper: the page-owned suggestion panel, fixed width right, INSIDE the
+            full-screen wrapper so it survives the expanded overlay. */}
+        {helperPanelOpen && helperPanel && helperPanelCtx && (
+          <RateHelperPanel
+            excelRow={helperPanel.excelRow}
+            col={helperPanel.col}
+            kind={helperPanel.kind}
+            ctx={helperPanelCtx}
+            onUse={handleUseSuggestion}
+            onClose={() => setHelperPanel(null)}
+          />
+        )}
+        </div>
         </div>
       )}
     </div>
