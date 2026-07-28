@@ -475,6 +475,26 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   editable fill (never minting a badge), any OTHER category (or none) gets a "coming soon" NoSuggestion, gated on
   `ctx.category === config.category_id` (only `wiring_cabling` is defined this slice); (d) `RateHelperPanel`'s
   empty choice attrs carry a `— select —` placeholder so a blank never masquerades as its first option.
+- **Rate-helper panel/strip/workings refinements (RM-3a, `RateHelperPanel.tsx` / `SheetPricingPage.tsx` /
+  `PricingGrid.tsx` cell-strip; full detail in the plan doc's "Build slice RM-3a"):** three owner-locked
+  invariants. (1) **TWO-MODE panel mount** (supersedes the single flex-row mount that shrank the grid): a
+  `RateHelperPanel` `variant` prop — `"overlay"` in FULL-SCREEN is a viewport-`fixed inset-y-0 right-0 z-[60]`
+  drawer rendered OUTSIDE the flex row (the grid's width/columns/horizontal-scroll stay BYTE-UNCHANGED on
+  open/close), `"embedded"` (default) stays IN the flex row keeping the certed widen-while-open
+  (`max-w-5xl` → `w-full`) but now `sticky top-4` so it rides the viewport; a scroll-into-view guard fires
+  ONLY when the panel is genuinely off-screen (never yanks a sticky-pinned panel, never touches horizontal
+  scroll). The page gates the flex-row + grid-shrink wrappers on `helperPanelOpen && !expanded` and renders
+  the overlay panel on `expanded`. (2) **Colour-picker icon is HOVER/FOCUS-ONLY** (owner option (a), an
+  action not status): `opacity-0 group-hover:opacity-100 focus:opacity-100 focus-visible:opacity-100`, so the
+  3 descriptor `<td>`s that host `colorPicker` carry `group`; the priced dot + badge/used-check + sparkle
+  opener stay PERSISTENT (strip `gap-0.5`). Colour-selection logic is unchanged (CSS + `group` markers only).
+  (3) **GROUPED workings contract (generic, guardrail G3):** `WorkingsSection.sections?: WorkingsGroup[]`
+  (`{label, derivation, finals, matchedRows?, attributes?}`) — the panel renders each group as its own block
+  with the SHARED extracted attributes ONCE above; **ABSENT `sections` ⇒ flat rendering, byte-identical to
+  before (single-group suggestions stay backward-shaped)**. `pricingSheetHelper` emits two groups on a CABLE
+  row (`Cable — per Mtr` / `Termination — per Set`) and flat (no `sections`) on a termination row; groups are
+  DISPLAY-ONLY (the applied value is still `Suggestion.values`). **Memo shield untouched** — no new per-row
+  grid prop, `pricingRowPropsAreEqual` unchanged.
 - **Socket reconnect self-heal must be reconnect-GATED + debounced (T1, owner-verified):** a `socket.on("connect", ...)`
   handler that refetches (`mutate()`/`mutateCategories()`) MUST NOT fire on every connect — the initial mount connect
   double-fetches (the SWR mount fetch already ran) and a flapping dev socket then refetches on every reconnect, and
