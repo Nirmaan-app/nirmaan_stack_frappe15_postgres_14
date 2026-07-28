@@ -495,6 +495,27 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   row (`Cable — per Mtr` / `Termination — per Set`) and flat (no `sections`) on a termination row; groups are
   DISPLAY-ONLY (the applied value is still `Suggestion.values`). **Memo shield untouched** — no new per-row
   grid prop, `pricingRowPropsAreEqual` unchanged.
+- **Rate-helper embedded panel-as-default + grid scroll conventions (RM-3b, `RateHelperPanel.tsx` /
+  `SheetPricingPage.tsx` / `PricingGrid.tsx`; full detail in the plan doc's "Build slice RM-3b"):** three
+  owner-locked layout invariants. (1) **EMBEDDED panel-as-default:** the embedded rate-helper panel is
+  ALWAYS MOUNTED (no open/close, NO close X in embedded — the X renders only for `variant="overlay"`); its
+  props `excelRow/col/kind/ctx` are OPTIONAL and absent => an empty-state card. The page derives
+  `embeddedPanel = RATE_HELPER_ENABLED && !expanded`; when true the embedded page is PERMANENTLY widened
+  (`w-full`, superseding RM-3a's widen-while-open there) and the flex row is always on. A badge/sparkle click
+  SELECTS a row (replacing the previous) via the existing `helperPanel` page state. (2) **FULL-SCREEN sticky
+  header + native bottom H-scrollbar (owner-locked):** the two panel-row wrappers between the grid slot and
+  the grid container MUST carry `expanded && "flex min-h-0 flex-1 flex-col"` so the flex chain reaches the
+  grid container and it BOUNDS to the viewport as the internal scroller — that is what keeps the (already
+  `sticky top-0`) header visible AND puts the native H-scrollbar at the viewport bottom, in classic +
+  virtualized + frozen split (both panes' headers pixel-aligned). Without it the outer `.fixed.inset-0`
+  wrapper scrolls and the header scrolls away — do NOT let those wrappers go empty-class in full-screen.
+  (3) **EMBEDDED always-visible H-scrollbar = a SYNCED PROXY bar:** a `sticky bottom-0` thin bar rendered as a
+  SIBLING of the scroll container (spacer width = `twoPane ? scrollPaneTableWidth : totalWidth`), two-way
+  `scrollLeft`-synced to the active X-scroller (`scrollPaneRef` when split, else `containerRef`) via a
+  re-entrancy-latched effect; rendered ONLY embedded (`!expanded`) — full-screen uses the native bounded
+  scrollbar. Same viewport-pinned-H-scrollbar FAMILY, realized per-mode. **Memo shield untouched** — the
+  proxy + `expanded` gate are GRID-LEVEL; no new per-row prop, `pricingRowPropsAreEqual` + the virtualizer
+  math unchanged (only its containers' styling).
 - **Socket reconnect self-heal must be reconnect-GATED + debounced (T1, owner-verified):** a `socket.on("connect", ...)`
   handler that refetches (`mutate()`/`mutateCategories()`) MUST NOT fire on every connect — the initial mount connect
   double-fetches (the SWR mount fetch already ran) and a flapping dev socket then refetches on every reconnect, and
