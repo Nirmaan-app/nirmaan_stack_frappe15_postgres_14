@@ -516,6 +516,30 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   scrollbar. Same viewport-pinned-H-scrollbar FAMILY, realized per-mode. **Memo shield untouched** — the
   proxy + `expanded` gate are GRID-LEVEL; no new per-row prop, `pricingRowPropsAreEqual` + the virtualizer
   math unchanged (only its containers' styling).
+- **Rate-helper single-bar + full-screen push panel + collapsible top block (RM-3c, `PricingGrid.tsx` /
+  `RateHelperPanel.tsx` / `SheetPricingPage.tsx`; full detail in the plan doc's "Build slice RM-3c"):** three
+  owner-locked layout invariants. (A) **Embedded = ONE horizontal scrollbar.** The single-pane container +
+  the frozen scrolling pane carry `boq-embed-hidehbar` when `!expanded`; a scoped `<style>` inside PricingGrid
+  (NOT `index.css`) does `::-webkit-scrollbar:horizontal{display:none;height:0}` -- suppresses ONLY the native
+  H-bar, keeps the V-bar + `overflow-x:auto` capability. **Cross-browser shape: blink/webkit clean; Firefox
+  has no per-axis control so it keeps a below-fold native H-bar (proxy stays primary).** The proxy width +
+  spacer are LIVE-MEASURED from the ACTIVE scroller via a ResizeObserver (`hScrollMetrics`) -- proxy width =
+  `scroller.clientWidth` (kills the V-bar clamp), spacer = `scroller.scrollWidth` (kills the frozen
+  short-scroll); do NOT revert to the one-shot column-width sum. (B) **Full-screen panel is a PUSH panel**
+  (`RateHelperPanel` variant `push`, supersedes the RM-3a fixed overlay): an IN-FLOW flex sibling of the grid,
+  so `#4` is a flex ROW [ grid column | push panel ] and `#3` the grid COLUMN (`min-w-0 flex-1 flex-col`); the
+  grid narrows by exactly the panel width and the bounded scroller / sticky header / native H-bar keep working
+  at reduced width. A left-edge drag handle (`role="separator"`, focusable) resizes -- clamp `[280, 50% of the
+  wrapper]`, double-click resets to the DEFAULT **300**, Arrow keys nudge, width persisted to
+  **`nirmaan-rate-helper-panel-w`**. Push keeps its close X; embedded panel-as-default is untouched. (C)
+  **Full-screen COLLAPSIBLE top block:** everything above the grid (title + both ribbons + banners + panels)
+  is one `space-y-4` block that `hidden`s when `expanded && topCollapsed` so the grid-slot fills vertically; a
+  SLIM RAIL (`expanded && topCollapsed`) re-expands in one click and shows the truncated sheet name + a
+  compact chip per active blocking/visible banner (**the category chip surfaces whenever blanks exist -- in the
+  blocking OR override-informational form -- so collapsing never hides state**). **Escape re-expands first**
+  (a second Escape exits full-screen -- never trapped). Persisted to **`nirmaan-fullscreen-top-collapsed`**.
+  EMBEDDED is untouched (`topCollapsed` only bites while `expanded`). **Memo shield + virtualizer math
+  untouched** across all three.
 - **Socket reconnect self-heal must be reconnect-GATED + debounced (T1, owner-verified):** a `socket.on("connect", ...)`
   handler that refetches (`mutate()`/`mutateCategories()`) MUST NOT fire on every connect — the initial mount connect
   double-fetches (the SWR mount fetch already ran) and a flapping dev socket then refetches on every reconnect, and
