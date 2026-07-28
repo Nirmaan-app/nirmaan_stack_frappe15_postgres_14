@@ -882,6 +882,24 @@ const SheetPricingPage = () => {
   // sheets is the useful behaviour; the per-sheet reset effect below leaves it alone).
   const [expanded, setExpanded] = useState(false);
 
+  // RM-3c item C: in FULL-SCREEN, the whole top block (title row + both ribbons + banners + summary/
+  // review panels) is one COLLAPSIBLE block so the grid can fill the wrapper vertically. Persisted
+  // per session (localStorage). Embedded is unaffected (the collapse only applies while `expanded`).
+  const [topCollapsed, setTopCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("nirmaan-fullscreen-top-collapsed") === "1";
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("nirmaan-fullscreen-top-collapsed", topCollapsed ? "1" : "0");
+    } catch {
+      /* storage unavailable -- collapse state simply is not persisted */
+    }
+  }, [topCollapsed]);
+
   // Frozen-left Slice 1 ("Fork A"): pin the 5 anchor columns (through Description) into a frozen
   // pane while the descriptor + Remarks columns scroll horizontally. Page-owned per-sheet toggle
   // (reset on a tab switch below); default OFF = today's single table. Passed to the PricingGrid
@@ -1200,11 +1218,15 @@ const SheetPricingPage = () => {
   useEffect(() => {
     if (!expanded) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (shouldExitFullscreenOnEsc(e, document.activeElement)) setExpanded(false);
+      if (!shouldExitFullscreenOnEsc(e, document.activeElement)) return;
+      // RM-3c item C: while the top block is collapsed, Esc RE-EXPANDS it first (the user is never
+      // trapped) rather than exiting full-screen; a second Esc then exits.
+      if (topCollapsed) setTopCollapsed(false);
+      else setExpanded(false);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [expanded]);
+  }, [expanded, topCollapsed]);
 
   // Realtime lock updates (A2): flip read-only / free the instant ANOTHER user acquires or
   // releases this sheet's lock. Screen-scoped listener (BoqHubPage pattern): register on the
@@ -1965,6 +1987,32 @@ const SheetPricingPage = () => {
   // on every pick and would re-render every row; the boolean flips only when editability flips).
   const categoryGateOpen = isCategoryGateOpen(categoryBlankCount, categoryGateOverride);
 
+  // RM-3c item C: when the top block is collapsed in full-screen, the slim rail must still surface any
+  // BLOCKING state (so collapsing never hides it). One compact chip per active blocker.
+  const collapsedBannerChips = useMemo(() => {
+    const chips: string[] = [];
+    if (isViewingHistory) chips.push("Viewing history");
+    else if (takenOver) chips.push("Taken over - read only");
+    else if (isLocked) chips.push("Locked - read only");
+    if (classificationFrozen) chips.push("Classification frozen");
+    if (!locked && !formulasComplete) chips.push("Formulas incomplete");
+    // The category banner is VISIBLE whenever there are blanks -- in its blocking form OR its
+    // override-active informational form (this sheet). Surface it in either case so collapsing never
+    // hides the fact; note when the gate is overridden.
+    if (!locked && categoryBlankCount > 0)
+      chips.push(`${categoryBlankCount} without category${categoryGateOverride ? " (override)" : ""}`);
+    return chips;
+  }, [
+    isViewingHistory,
+    takenOver,
+    isLocked,
+    classificationFrozen,
+    locked,
+    formulasComplete,
+    categoryBlankCount,
+    categoryGateOverride,
+  ]);
+
   // ── U1 rate-helper (DEV): D8 gate REUSE + run / badge-click / use handlers. The enable chain is
   // EXACTLY what a rate write consumes -- !locked (locked => onSaveRate withheld), formulasComplete,
   // categoryGateOpen -- read straight from the existing vars, never re-derived. Disabled surfaces
@@ -2361,6 +2409,26 @@ const SheetPricingPage = () => {
             : "flex-1 space-y-4 max-w-5xl mx-auto pt-6 pb-10 px-4",
       )}
     >
+      {/* RM-3c item C: the FULL-SCREEN collapsible TOP BLOCK -- everything above the grid (title row +
+          both ribbons + banners + summary/review panels). A chevron collapses it so the grid fills the
+          wrapper vertically; the slim rail (below) always allows one-click re-expand. `space-y-4`
+          preserves the inter-band gaps that used to come from the wrapper. EMBEDDED is untouched:
+          `topCollapsed` only bites while `expanded`, so the block never hides and the layout is
+          byte-unchanged. */}
+      <div className={cn("space-y-4", expanded && topCollapsed && "hidden")}>
+        {expanded && (
+          <div className="flex items-center justify-end">
+            <button
+              type="button"
+              onClick={() => setTopCollapsed(true)}
+              className="flex items-center gap-1 rounded-md border px-2 py-1 text-xs text-muted-foreground hover:bg-muted focus:outline-none focus:ring-2 focus:ring-ring"
+              aria-label="Collapse the toolbar area"
+              aria-expanded={!topCollapsed}
+            >
+              <ChevronUp className="h-4 w-4" /> Collapse toolbars
+            </button>
+          </div>
+        )}
       {/* ── Version ribbon (read-only history browser) -- the OUTERMOST band, ABOVE the top
           ribbon. Shows on ALL sheet types (it sits above the {!isGridOnly} bottom-ribbon gate);
           renders only when 2+ committed versions exist. Selecting an earlier version drops the
@@ -3663,6 +3731,38 @@ const SheetPricingPage = () => {
           )}
         </div>
       )}
+      </div>
+      {/* RM-3c item C: SLIM re-expand rail -- shown only when the full-screen top block is collapsed.
+          One click (or Escape) re-expands; shows the truncated sheet name + a compact indicator for any
+          BLOCKING banner (locked / taken-over / frozen / formula gate / uncategorised) so collapsing
+          never hides state. Keyboard-focusable. */}
+      {expanded && topCollapsed && (
+        <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-2 py-1">
+          <button
+            type="button"
+            onClick={() => setTopCollapsed(false)}
+            className="flex shrink-0 items-center gap-1 rounded px-1 py-0.5 text-xs font-medium text-muted-foreground hover:bg-muted focus:outline-none focus:ring-2 focus:ring-ring"
+            aria-label="Expand the toolbar area"
+            aria-expanded={false}
+          >
+            <ChevronDown className="h-4 w-4" />
+            <span className="max-w-[40vw] truncate">{sheetName?.trim() || "Sheet"}</span>
+          </button>
+          {collapsedBannerChips.length > 0 && (
+            <div className="flex min-w-0 items-center gap-2 overflow-x-auto">
+              {collapsedBannerChips.map((c) => (
+                <span
+                  key={c}
+                  className="flex shrink-0 items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
+                >
+                  <AlertTriangle className="h-3 w-3" />
+                  {c}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── Grid ──────────────────────────────────────────────────────────────── */}
       {pricedLoading && (
@@ -3692,10 +3792,14 @@ const SheetPricingPage = () => {
               so the grid container below actually BOUNDS to the viewport and becomes the internal
               scroller -- that is what makes the sticky header stay put (RM-3b item 3) and the native
               horizontal scrollbar sit at the viewport bottom (item 4). Without this the outer fixed
-              wrapper scrolled instead and the header scrolled away. The overlay drawer renders OUTSIDE
-              this row (below), so the grid width/columns/scroll stay byte-unchanged. */}
-        <div className={cn(embeddedPanel && "flex min-h-0 flex-1 items-start gap-3", expanded && "flex min-h-0 flex-1 flex-col")}>
-        <div className={cn(embeddedPanel && "min-w-0 flex-1", expanded && "flex min-h-0 flex-1 flex-col")}>
+              wrapper scrolled instead and the header scrolled away.
+            - RM-3c: full-screen's panel is now a PUSH panel INSIDE this row, so `#4` is a flex ROW
+              [ grid column | push panel ] and `#3` is the grid COLUMN (min-w-0 flex-1, still a flex-col
+              so the grid container bounds vertically via the row's stretched height). The grid narrows
+              by exactly the panel width; the bounded scroller / sticky header / native H-scrollbar keep
+              working at the reduced width. */}
+        <div className={cn(embeddedPanel && "flex min-h-0 flex-1 items-start gap-3", expanded && "flex min-h-0 flex-1")}>
+        <div className={cn(embeddedPanel && "min-w-0 flex-1", expanded && "flex min-h-0 flex-1 min-w-0 flex-col")}>
         {isGridOnly ? (
           <SheetDataGrid
             // Faithful committed grid (general specs) -- READ-ONLY reference, all rows at
@@ -3825,12 +3929,13 @@ const SheetPricingPage = () => {
             onClose={() => setHelperPanel(null)}
           />
         )}
-        </div>
-        {/* FULL-SCREEN overlay drawer -- OUTSIDE the flex row, viewport-fixed above the z-50 wrapper
-            (Defect 1a). The grid width/columns/scroll are untouched because the panel is out of flow. */}
+        {/* RM-3c: FULL-SCREEN PUSH panel -- INSIDE the flex row (a flex sibling of the grid column), so
+            it occupies real layout width and the grid narrows by exactly the panel width. A left-edge
+            drag handle resizes it (persisted). Rendered only on a selection (no panel-as-default in
+            full-screen). Supersedes the RM-3a fixed overlay drawer. */}
         {helperPanelOpen && expanded && helperPanel && helperPanelCtx && (
           <RateHelperPanel
-            variant="overlay"
+            variant="push"
             excelRow={helperPanel.excelRow}
             col={helperPanel.col}
             kind={helperPanel.kind}
@@ -3840,6 +3945,7 @@ const SheetPricingPage = () => {
             onClose={() => setHelperPanel(null)}
           />
         )}
+        </div>
         </div>
       )}
     </div>

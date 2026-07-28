@@ -5,13 +5,31 @@
  * overridable final-value field, and "Use this value"). Zero helper-specific rendering lives here,
  * so a new helper needs no panel change. Nothing persists (guardrail G2).
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { X, ChevronRight, ChevronDown, Sparkles, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { resolveRateHelpers } from "./rateHelperRegistry";
 import { isSuggestion, type RateHelper, type RateHelperRowContext } from "./rateHelperTypes";
+
+// RM-3c item B: the FULL-SCREEN panel is a resizable PUSH panel (occupies real layout width, narrows
+// the grid). Width persists per-user across sessions. The default is meaningfully below the RM-3a
+// overlay drawer's 320px so the grid gets more room; min is the readable floor, max is 50% of the
+// wrapper (computed live). Arrow keys nudge by PANEL_RESIZE_STEP.
+const PANEL_WIDTH_STORAGE_KEY = "nirmaan-rate-helper-panel-w";
+const DEFAULT_PANEL_WIDTH = 300;
+const MIN_PANEL_WIDTH = 280;
+const PANEL_RESIZE_STEP = 16;
+
+function readStoredPanelWidth(): number {
+  try {
+    const raw = Number(localStorage.getItem(PANEL_WIDTH_STORAGE_KEY));
+    return Number.isFinite(raw) && raw >= MIN_PANEL_WIDTH ? raw : DEFAULT_PANEL_WIDTH;
+  } catch {
+    return DEFAULT_PANEL_WIDTH;
+  }
+}
 
 /** Telemetry + write payload the page needs when a suggested value is used. */
 export interface UseMeta {
@@ -47,12 +65,12 @@ interface RateHelperPanelProps {
   /** Apply a value to the (excelRow, col) rate cell through the real save path + record telemetry. */
   onUse: (col: string, value: number, meta: UseMeta) => void;
   onClose: () => void;
-  /** RM-3a two-mode mount (Defect 1). `overlay` = a viewport-fixed right-pinned drawer floating ABOVE
-   * the grid (full-screen mode -- the grid width/columns/scroll stay untouched). `embedded` (default)
-   * = a sticky in-flow panel that rides the viewport as the page scrolls. RM-3b: the embedded panel
-   * is ALWAYS MOUNTED (panel-as-default) -- no close X, and it shows an empty-state card until a row
-   * is selected; the overlay drawer keeps its close X. */
-  variant?: "embedded" | "overlay";
+  /** Two-mode mount. `push` (RM-3c, full-screen) = an IN-FLOW resizable panel that occupies real layout
+   * width at the right of the full-screen flex row, narrowing the grid (supersedes the RM-3a fixed
+   * overlay drawer); it keeps a close X and has a left-edge drag handle. `embedded` (default) = the
+   * RM-3b ALWAYS-MOUNTED sticky in-flow panel-as-default -- no close X, an empty-state card until a row
+   * is selected. */
+  variant?: "embedded" | "push";
 }
 
 export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onClose, variant = "embedded" }: RateHelperPanelProps) {
@@ -83,6 +101,50 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
     [ctx, attrOverrides, helpers],
   );
 
+  // RM-3c item B: PUSH-panel width (persisted across sessions). Only meaningful for variant="push";
+  // the embedded panel keeps its fixed w-80. The width drives the panel's own box; the grid (a flex
+  // sibling with flex-1) narrows automatically, so no width prop crosses to the grid.
+  const isPush = variant === "push";
+  const [panelWidth, setPanelWidth] = useState<number>(() =>
+    variant === "push" ? readStoredPanelWidth() : DEFAULT_PANEL_WIDTH,
+  );
+  useEffect(() => {
+    if (!isPush) return;
+    try {
+      localStorage.setItem(PANEL_WIDTH_STORAGE_KEY, String(panelWidth));
+    } catch {
+      /* storage unavailable -- width simply is not persisted */
+    }
+  }, [isPush, panelWidth]);
+  // Clamp to [MIN, 50% of the wrapper]. The wrapper is the panel's parent (the full-screen flex row).
+  const clampWidth = (w: number) => {
+    const parentW = asideRef.current?.parentElement?.getBoundingClientRect().width ?? window.innerWidth;
+    const maxW = Math.max(MIN_PANEL_WIDTH, Math.floor(parentW * 0.5));
+    return Math.max(MIN_PANEL_WIDTH, Math.min(maxW, Math.round(w)));
+  };
+  const startResize = (e: ReactMouseEvent) => {
+    e.preventDefault();
+    const onMove = (ev: globalThis.MouseEvent) => {
+      const right = asideRef.current?.getBoundingClientRect().right ?? window.innerWidth;
+      setPanelWidth(clampWidth(right - ev.clientX)); // handle is the LEFT edge; drag left => wider
+    };
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  };
+  const onHandleKeyDown = (e: ReactKeyboardEvent) => {
+    if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      setPanelWidth((w) => clampWidth(w + PANEL_RESIZE_STEP)); // wider
+    } else if (e.key === "ArrowRight") {
+      e.preventDefault();
+      setPanelWidth((w) => clampWidth(w - PANEL_RESIZE_STEP)); // narrower
+    }
+  };
+
   const setAttr = (helperId: string, attrId: string, value: string) => {
     setAttrOverrides((prev) => ({
       ...prev,
@@ -101,26 +163,43 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
     <aside
       ref={asideRef}
       className={cn(
-        "flex w-80 flex-col bg-background",
-        variant === "overlay"
-          ? // Full-screen: a viewport-fixed drawer pinned to the right, full height, floating ABOVE
-            // the grid (z above the z-50 full-screen wrapper) with a lift shadow. Fixed => the grid
-            // keeps its width/columns/scroll and this stays fully visible regardless of scroll.
-            "fixed inset-y-0 right-0 z-[60] border-l shadow-2xl"
-          : // Embedded: an in-flow sticky panel that rides the viewport (sensible top offset), bounded
-            // so its body scrolls internally rather than growing the page.
-            "sticky top-4 max-h-[calc(100vh-2rem)] shrink-0 self-start rounded-md border shadow-lg",
+        "flex flex-col bg-background",
+        isPush
+          ? // RM-3c full-screen: an IN-FLOW push panel -- a flex sibling of the grid, so it occupies
+            // real width and the grid narrows by exactly this width. `relative` anchors the left-edge
+            // drag handle; `min-h-0` lets the body scroll within the flex row's height.
+            "relative shrink-0 min-h-0 border-l"
+          : // Embedded: an in-flow sticky panel that rides the viewport, fixed w-80, bounded so its
+            // body scrolls internally rather than growing the page.
+            "w-80 sticky top-4 max-h-[calc(100vh-2rem)] shrink-0 self-start rounded-md border shadow-lg",
       )}
+      style={isPush ? { width: `${panelWidth}px` } : undefined}
       aria-label="Rate suggestions"
     >
+      {isPush && (
+        // RM-3c: left-edge DRAG HANDLE -- drag resizes live (clamp 280..50%), double-click resets to
+        // the default, Arrow keys nudge (focusable; no mouse-only trap).
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize suggestions panel"
+          aria-valuenow={panelWidth}
+          aria-valuemin={MIN_PANEL_WIDTH}
+          tabIndex={0}
+          onMouseDown={startResize}
+          onDoubleClick={() => setPanelWidth(clampWidth(DEFAULT_PANEL_WIDTH))}
+          onKeyDown={onHandleKeyDown}
+          className="absolute left-0 top-0 z-10 h-full w-1.5 cursor-col-resize touch-none select-none bg-border/40 hover:bg-primary/40 focus:bg-primary/50 focus:outline-none"
+        />
+      )}
       <header className="flex items-center justify-between border-b px-3 py-2">
         <div className="flex items-center gap-1.5 text-sm font-medium">
           <Sparkles className="h-4 w-4 text-primary" />
           <span>Rate suggestions</span>
         </div>
         {/* RM-3b: the embedded panel is always mounted (panel-as-default) -- no close X. Only the
-            full-screen overlay drawer keeps a close affordance. */}
-        {variant === "overlay" && (
+            full-screen PUSH panel keeps a close affordance. */}
+        {isPush && (
           <button
             type="button"
             onClick={onClose}

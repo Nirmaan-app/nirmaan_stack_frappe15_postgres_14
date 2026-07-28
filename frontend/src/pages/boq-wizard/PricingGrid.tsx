@@ -4259,12 +4259,36 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
     descWidthKeys.reduce((s, k) => s + widthOf(k), 0) +
     widthOf(REMARKS_WIDTH_KEY);
 
-  // RM-3b item 2: the embedded horizontal-scrollbar PROXY. Its inner spacer is exactly the X-scroller's
-  // content width (single = the whole table; split = the scrolling pane only), so its scrollbar range
-  // mirrors the real one. Full-screen relies on the native bottom scrollbar (the bounded container),
-  // so the proxy renders only when NOT expanded.
-  const hScrollContentWidth = twoPane ? scrollPaneTableWidth : totalWidth;
+  // RM-3b/RM-3c item A: the embedded horizontal-scrollbar PROXY is the SINGLE bar (the scroller's own
+  // native H-bar is suppressed below -- boq-embed-hidehbar). Full-screen keeps its native bar (the
+  // bounded container), so the proxy renders only when NOT expanded.
   const showHScrollProxy = !expanded;
+  // RM-3c: LIVE-measured metrics of the ACTIVE X-scroller (single container OR the frozen scrolling
+  // pane) via a ResizeObserver -- NOT a one-shot column-width sum. The proxy's visible width is set to
+  // the scroller's clientWidth (kills the ~15px end clamp: the vertical-scrollbar width no longer leaks
+  // into the proxy's range) and the spacer to the scroller's REAL scrollWidth (kills the frozen
+  // short-scroll). Grid-level state -- re-renders only on a genuine size change (guarded no-op), never
+  // per keystroke; no per-row prop, comparator + virtualizer math untouched.
+  const [hScrollMetrics, setHScrollMetrics] = useState({ clientWidth: 0, scrollWidth: 0 });
+  useEffect(() => {
+    if (!showHScrollProxy) return;
+    const scroller = twoPaneRef.current ? scrollPaneRef.current : containerRef.current;
+    if (!scroller) return;
+    const measure = () =>
+      setHScrollMetrics((m) => {
+        const clientWidth = scroller.clientWidth;
+        const scrollWidth = scroller.scrollWidth;
+        return m.clientWidth === clientWidth && m.scrollWidth === scrollWidth
+          ? m
+          : { clientWidth, scrollWidth };
+      });
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(scroller);
+    const table = scroller.querySelector("table");
+    if (table) ro.observe(table); // content-width changes (column resize / hide) move scrollWidth
+    return () => ro.disconnect();
+  }, [showHScrollProxy, twoPane, totalWidth, scrollPaneTableWidth]);
   // Two-way scrollLeft sync between the proxy bar and the REAL X-scroller (LAYOUT ONLY -- no data /
   // prop / virtualizer-math change). A re-entrancy latch stops the mirror from ping-ponging. Re-wired
   // when the mode, the active pane, or the content width changes.
@@ -4293,7 +4317,7 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
       proxy.removeEventListener("scroll", fromProxy);
       scroller.removeEventListener("scroll", fromScroller);
     };
-  }, [showHScrollProxy, twoPane, hScrollContentWidth]);
+  }, [showHScrollProxy, twoPane, hScrollMetrics.scrollWidth]);
 
   // V1-FIX-2b: after a column resize / autofit re-wraps the FROZEN Description, the scrolling pane's
   // <tr> is UNCHANGED, so its ResizeObserver stays silent and the shared measureElement never
@@ -4758,14 +4782,24 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
   // spacer is the X-scroller's content width, so its thumb tracks the real scroll (synced by the effect
   // above, both ways). Rendered only embedded; full-screen uses the native bounded-container scrollbar.
   const hScrollProxy = showHScrollProxy ? (
-    <div
-      ref={hScrollProxyRef}
-      className="sticky bottom-0 z-30 overflow-x-auto overflow-y-hidden border-t border-border bg-background/95"
-      style={{ height: 14 }}
-      aria-hidden
-    >
-      <div style={{ width: `${hScrollContentWidth}px`, height: 1 }} />
-    </div>
+    <>
+      {/* RM-3c item A: suppress the scroller's OWN native horizontal scrollbar so the sticky proxy is
+          the SINGLE bar. Scoped `::-webkit-scrollbar:horizontal` (Chrome/Edge/Safari = blink/webkit) --
+          hides ONLY the H-bar, the vertical bar + native X scroll capability (wheel/trackpad) stay.
+          Cross-browser shape: Firefox has no per-axis scrollbar control (`scrollbar-width` is
+          all-or-nothing), so it retains a below-fold native H-bar with the proxy as the primary bar. */}
+      <style>{".boq-embed-hidehbar::-webkit-scrollbar:horizontal{display:none;height:0}"}</style>
+      <div
+        ref={hScrollProxyRef}
+        className="sticky bottom-0 z-30 overflow-x-auto overflow-y-hidden border-t border-border bg-background/95"
+        // width = the scroller's clientWidth (so the proxy range == the real range, no V-bar clamp);
+        // spacer = the scroller's real scrollWidth (full extent, both panes).
+        style={{ height: 14, width: hScrollMetrics.clientWidth || undefined }}
+        aria-hidden
+      >
+        <div style={{ width: `${hScrollMetrics.scrollWidth || totalWidth}px`, height: 1 }} />
+      </div>
+    </>
   ) : null;
 
   // ── Two-pane split. CLASSIC: freeze on AND heights captured (`split`). VIRTUALIZED: freeze on
@@ -4825,7 +4859,7 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
               }}
               className={cn(
                 "overflow-auto flex-1 min-w-0",
-                expanded ? "min-h-0" : "max-h-[calc(100vh-14rem)]",
+                expanded ? "min-h-0" : "max-h-[calc(100vh-14rem)] boq-embed-hidehbar",
               )}
             >
               <table
@@ -4871,7 +4905,8 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
         "rounded-md border border-border overflow-auto",
         // Slice 4c: full-screen relaxes the viewport-rem cap to fill the expanded flex-col
         // root (the page gives this container's slot flex-1 min-h-0). Embedded keeps the cap.
-        expanded ? "flex-1 min-h-0" : "max-h-[calc(100vh-14rem)]",
+        // RM-3c: embedded suppresses this container's native H-bar (the proxy is the single bar).
+        expanded ? "flex-1 min-h-0" : "max-h-[calc(100vh-14rem)] boq-embed-hidehbar",
       )}
     >
       {/* Resize: table-fixed makes the <colgroup> widths AUTHORITATIVE; the explicit px total
