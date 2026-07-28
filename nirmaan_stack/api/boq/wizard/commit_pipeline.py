@@ -764,6 +764,21 @@ def _write_committed_boq_sheet(
     bs.column_headers = json.dumps(cfg.get("column_headers") or {})
     bs.area_dimensions = json.dumps(cfg.get("area_dimensions") or [])
 
+    # R2: the LOSSLESS config snapshot, alongside (never instead of) the six fields above.
+    # Those six were the whole committed record of the config, so every parser-tuning key the
+    # user set on the config screen but they do not cover -- skip_top_rows_after_header,
+    # top_header_rows_override, rate_only_markers_override, level_1_style_override, and the
+    # frontend-only skip_row_definitions -- died at commit. A revision seeds by INVERTING this
+    # snapshot (revision_carry._committed_data_sheet), so those settings silently reset to
+    # default on every revised sheet. Measured on the dev bench: 46 / 44 / 13 sheets carried a
+    # non-default value for the first three.
+    #
+    # Stored VERBATIM (a snapshot that normalises is not a snapshot) and READ-ONLY: the six
+    # columns stay authoritative for what they cover -- `treat_as` in particular is derived from
+    # the commit DISPOSITION here, not from cfg, so the two can legitimately disagree and the
+    # column must win. The reader enforces that; do not "reconcile" them at write time.
+    bs.sheet_config_snapshot = json.dumps(cfg or {})
+
     bs.commit_version = commit_version
     bs.is_current = 1
     bs.committed_at = committed_at

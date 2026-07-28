@@ -127,26 +127,48 @@ def _committed_data_sheet(source_boq: str, source_sheet: str) -> CommittedDataSh
     header_row / header_row_count / treat_as + the JSON column_role_map / column_headers /
     area_dimensions. `sheet_name` is deliberately OMITTED -- production blobs omit it and the
     parser injects it at validation time (`parse_run._validate_sheet_blob`).
+
+    R2 -- the six keys above were ALL the config a revision could inherit, so every parser-tuning
+    key outside them (skip_top_rows_after_header, top_header_rows_override,
+    rate_only_markers_override, level_1_style_override, skip_row_definitions) silently reset to
+    default on the revised sheet. `sheet_config_snapshot` now supplies them. THE MERGE RULE, and
+    it is load-bearing in both directions:
+
+      * the SNAPSHOT contributes only the EXTRA keys -- the six above are re-applied on top from
+        the columns, which stay authoritative. `treat_as` is the reason this is not academic: the
+        column is derived from the commit DISPOSITION while the snapshot holds whatever the draft
+        blob said, so letting the snapshot win could seed a general-specs `treat_as` onto a data
+        sheet.
+      * `sheet_name` is STRIPPED. It is the ORIGINAL's name and this blob seeds the REVISION;
+        both parse entry points overwrite it from the draft anyway, so it is inert either way --
+        but storing another sheet's name in a revision's config is a trap for the next reader.
+        (`test_clean_matched_sheet_diagnosed_clean_with_rectified_seed` pins its absence.)
+
+    A pre-R2 committed sheet has NO snapshot -> extras is {} -> the result is byte-identical to
+    the previous behaviour. That fallback is permanent, not transitional: those sheets' tuning
+    was never captured and cannot be recovered.
     """
     row = frappe.db.get_value(
         "BoQ Sheet",
         {"boq": source_boq, "sheet_name": source_sheet, "is_current": 1},
         ["header_row", "header_row_count", "treat_as",
-         "column_role_map", "column_headers", "area_dimensions"],
+         "column_role_map", "column_headers", "area_dimensions", "sheet_config_snapshot"],
         as_dict=True,
     )
     if not row or row.treat_as != "data" or not row.header_row:
         return None
     role_map = _as_dict(row.column_role_map)
     header_row_count = row.header_row_count or 1
-    config = {
+    config = dict(_as_dict(row.sheet_config_snapshot))
+    config.pop("sheet_name", None)
+    config.update({
         "header_row": row.header_row,
         "header_row_count": header_row_count,
         "treat_as": "data",
         "column_role_map": role_map,
         "column_headers": _as_dict(row.column_headers),  # dead data ({}), carried verbatim
         "area_dimensions": _as_list(row.area_dimensions),
-    }
+    })
     return CommittedDataSheet(
         config=config, role_map=role_map,
         header_row=row.header_row, header_row_count=header_row_count,
