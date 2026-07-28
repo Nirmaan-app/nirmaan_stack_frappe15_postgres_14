@@ -1,13 +1,20 @@
 /**
  * Vendor Invoice activity summary for the reconciliation screen.
  *
- * Three measures (added / auto-approved / manually approved) across three
- * windows (today / 7 days / 30 days), each as value + count. GLOBAL by design —
- * it never follows the table's search, facets or pagination, so the numbers mean
- * the same thing on all four tabs. That mirrors how PaymentSummaryCards behaves
- * on the payments screen.
+ * A standing backlog band (invoices awaiting approval right now) over three FLOW
+ * measures (added / auto-approved / manually approved) across three windows
+ * (today / 7 days / 30 days), each as value + count.
  *
- * All 18 numbers come from ONE aggregate query
+ * The backlog is separated deliberately: it is a LEVEL, not a flow. "Pending
+ * today" is not a meaningful question, so it gets its own band rather than a
+ * fourth row in the window grid, where it could only repeat one number three
+ * times or leave two cells blank.
+ *
+ * GLOBAL by design — it never follows the table's search, facets or pagination,
+ * so the numbers mean the same thing on all four tabs. That mirrors how
+ * PaymentSummaryCards behaves on the payments screen.
+ *
+ * All 20 numbers come from ONE aggregate query
  * (`get_vendor_invoice_totals.get_invoice_dashboard_stats`). The visual language
  * intentionally echoes PaymentSummaryCards; the tile primitives are duplicated
  * locally rather than shared, because extracting them is an ADR-0010 F3 refactor
@@ -18,7 +25,7 @@ import { useFrappeDocTypeEventListener, useFrappeGetCall } from "frappe-react-sd
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { TailSpin } from "react-loader-spinner";
-import { FileText, Info, Sparkles, UserCheck } from "lucide-react";
+import { Clock, FileText, Info, Sparkles, UserCheck } from "lucide-react";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 const STATS_METHOD =
@@ -43,6 +50,9 @@ export interface InvoiceDashboardStats {
     manual_7d_amount: number;
     manual_30d_count: number;
     manual_30d_amount: number;
+    /** Standing backlog — awaiting approval right now, no time window. */
+    pending_approval_count: number;
+    pending_approval_amount: number;
 }
 
 type MeasureKey = "added" | "auto" | "manual";
@@ -97,27 +107,34 @@ const pick = (
     count: stats[`${measure}_${window}_count` as keyof InvoiceDashboardStats] ?? 0,
 });
 
+/**
+ * One window's figure. Amount and count share a SINGLE line — stacking them was
+ * what made each row tall, and the count reads fine as a trailing "· n" once the
+ * amount carries the weight. Zero-count cells recede rather than shouting a ₹0.
+ */
 const MetricCell: React.FC<{
     amount: number;
     count: number;
     accent: string;
-    emphasise?: boolean;
-}> = ({ amount, count, accent, emphasise }) => (
-    <div className="min-w-0">
-        <div
-            className={`tabular-nums font-semibold truncate ${emphasise ? "text-sm" : "text-xs"
-                } ${count > 0 ? "text-slate-800 dark:text-slate-100" : "text-slate-400 dark:text-slate-600"}`}
-        >
-            {formatToRoundedIndianRupee(amount)}
+}> = ({ amount, count, accent }) => {
+    const idle = count === 0;
+    return (
+        <div className="min-w-0 flex items-baseline gap-1.5">
+            <span
+                className={`text-xs tabular-nums font-semibold truncate ${idle ? "text-slate-400 dark:text-slate-600" : "text-slate-800 dark:text-slate-100"
+                    }`}
+            >
+                {formatToRoundedIndianRupee(amount)}
+            </span>
+            <span
+                className={`text-[10px] tabular-nums shrink-0 ${idle ? "text-slate-300 dark:text-slate-700" : accent
+                    }`}
+            >
+                · {count}
+            </span>
         </div>
-        <div
-            className={`text-[10px] tabular-nums ${count > 0 ? accent : "text-slate-400 dark:text-slate-600"
-                }`}
-        >
-            {count} {count === 1 ? "invoice" : "invoices"}
-        </div>
-    </div>
-);
+    );
+};
 
 export const InvoiceSummaryCards: React.FC = () => {
     const {
@@ -188,11 +205,37 @@ export const InvoiceSummaryCards: React.FC = () => {
                     Invoice Summary
                 </CardTitle>
             </CardHeader>
-            <CardContent className="px-4 sm:px-5 pb-4 pt-0">
+            <CardContent className="px-4 sm:px-5 pb-3 pt-0">
                 <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden">
+                    {/* Standing backlog, given its own band ABOVE the window grid.
+                        The three rows below are FLOW — what happened in a period.
+                        This is STOCK — what is queued right now — so it has no
+                        today/7d/30d reading, and forcing it into those columns
+                        would mean either repeating one number three times or
+                        leaving two cells empty. It also happens to be the number
+                        someone opening this screen most wants, so it leads. */}
+                    <div className="flex items-center gap-2 px-3 py-2 bg-amber-50/70 dark:bg-amber-950/20 border-b border-amber-200/70 dark:border-amber-900/50">
+                        <Clock className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+                        <span className="text-[11px] font-medium text-amber-900 dark:text-amber-200 truncate">
+                            Pending Invoice Approvals
+                        </span>
+                        <span className="ml-auto flex items-baseline gap-2 shrink-0">
+                            <span className="text-sm font-bold tabular-nums text-amber-900 dark:text-amber-200">
+                                {stats.pending_approval_count}
+                            </span>
+                            <span className="text-[10px] text-amber-700/80 dark:text-amber-400/80">
+                                {stats.pending_approval_count === 1 ? "invoice" : "invoices"}
+                            </span>
+                            <span className="text-amber-300 dark:text-amber-800">|</span>
+                            <span className="text-sm font-bold tabular-nums text-amber-900 dark:text-amber-200">
+                                {formatToRoundedIndianRupee(stats.pending_approval_amount)}
+                            </span>
+                        </span>
+                    </div>
+
                     {/* Window header — hidden on the narrowest screens, where each
                         measure stacks its own labelled 3-up grid instead. */}
-                    <div className="hidden sm:grid grid-cols-[minmax(0,1.4fr)_repeat(3,minmax(0,1fr))] gap-3 px-3 py-1.5 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700">
+                    <div className="hidden sm:grid grid-cols-[minmax(0,1.4fr)_repeat(3,minmax(0,1fr))] gap-3 px-3 py-1 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700">
                         <span className="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
                             Metric
                         </span>
@@ -212,7 +255,7 @@ export const InvoiceSummaryCards: React.FC = () => {
                             className="flex border-b border-slate-100 dark:border-slate-800 last:border-b-0"
                         >
                             <div className={`w-1 shrink-0 ${measure.stripe}`} />
-                            <div className="flex-1 min-w-0 px-3 py-2">
+                            <div className="flex-1 min-w-0 px-3 py-1.5">
                                 {/* Desktop: label + 3 window columns on one row */}
                                 <div className="hidden sm:grid grid-cols-[minmax(0,1.4fr)_repeat(3,minmax(0,1fr))] gap-3 items-center">
                                     <div className="flex items-center gap-1.5 min-w-0 group">
@@ -237,14 +280,13 @@ export const InvoiceSummaryCards: React.FC = () => {
                                                 amount={amount}
                                                 count={count}
                                                 accent={measure.accent}
-                                                emphasise={w.key === "30d"}
                                             />
                                         );
                                     })}
                                 </div>
 
                                 {/* Mobile: label above its own labelled 3-up grid */}
-                                <div className="sm:hidden space-y-1.5">
+                                <div className="sm:hidden space-y-1">
                                     <div className="flex items-center gap-1.5">
                                         {measure.icon}
                                         <span className="text-xs font-medium text-slate-700 dark:text-slate-300">

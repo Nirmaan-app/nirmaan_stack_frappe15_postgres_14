@@ -398,6 +398,13 @@ def get_invoice_dashboard_stats():
       - AUTO APPROVED : status Approved AND auto_approved = 1
       - MANUAL APPROVED: status Approved AND auto_approved != 1
 
+    Plus one STOCK measure with no time dimension:
+      - PENDING APPROVAL: status Pending, right now (count + amount)
+
+    That last one is deliberately not windowed. A backlog is a level, not a flow —
+    "pending today" is not a meaningful question, so it is returned as a single
+    pair and the UI gives it its own band rather than a row in the window grid.
+
     Windows are today, the last 7 days and the last 30 days, each INCLUSIVE of
     today — matching `get_payment_dashboard_stats`' `add_days(today, -6)` /
     `-29` convention so the two summary cards on adjacent screens mean the same
@@ -486,7 +493,11 @@ def get_invoice_dashboard_stats():
             ) AS manual_30d_count,
             COALESCE(SUM(invoice_amount) FILTER (
                 WHERE status = 'Approved' AND is_auto <> 1 AND actioned_on >= %(thirty)s
-            ), 0) AS manual_30d_amount
+            ), 0) AS manual_30d_amount,
+
+            -- Standing backlog: awaiting approval right now, no time window.
+            COUNT(*) FILTER (WHERE status = 'Pending')                             AS pending_approval_count,
+            COALESCE(SUM(invoice_amount) FILTER (WHERE status = 'Pending'), 0)     AS pending_approval_amount
         FROM inv
         """,
         params,
