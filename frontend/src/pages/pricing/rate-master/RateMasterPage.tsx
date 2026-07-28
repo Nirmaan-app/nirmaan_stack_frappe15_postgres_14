@@ -17,8 +17,9 @@ import { useUserData } from "@/hooks/useUserData";
 import { RATE_MASTER_DISCIPLINES } from "./rateMasterRegistry";
 import { RateMasterDataViewer } from "./RateMasterDataViewer";
 import { RateMasterDerivation } from "./RateMasterDerivation";
+import { RateMasterPipelines } from "./RateMasterPipelines";
 import { isRateMasterAdmin } from "./rateMasterEdit";
-import type { GetConfigResponse, GetItemsResponse } from "./rateMasterTypes";
+import type { GetConfigResponse, GetItemsResponse, RateCategoryConfig } from "./rateMasterTypes";
 
 const ITEMS_METHOD = "nirmaan_stack.api.boq.rate_master.get_rate_master_items";
 const CONFIG_METHOD = "nirmaan_stack.api.boq.rate_master.get_rate_category_config";
@@ -27,6 +28,8 @@ const UPDATE_PARAM_METHOD = "nirmaan_stack.api.boq.rate_master.update_rate_confi
 const UPDATE_ITEM_METHOD = "nirmaan_stack.api.boq.rate_master.update_rate_master_item";
 const CREATE_ITEM_METHOD = "nirmaan_stack.api.boq.rate_master.create_rate_master_item";
 const DEACTIVATE_ITEM_METHOD = "nirmaan_stack.api.boq.rate_master.deactivate_rate_master_item";
+// RM-4b: admin-only whole-config STRUCTURE replace (validated server-side; the authority).
+const UPDATE_CONFIG_METHOD = "nirmaan_stack.api.boq.rate_master.update_rate_config";
 
 export function RateMasterPage() {
   const [disciplineId, setDisciplineId] = useState(RATE_MASTER_DISCIPLINES[0]?.discipline ?? "");
@@ -67,6 +70,7 @@ export function RateMasterPage() {
   const { call: callSaveItem } = useFrappePostCall(UPDATE_ITEM_METHOD);
   const { call: callCreateItem } = useFrappePostCall(CREATE_ITEM_METHOD);
   const { call: callDeactivateItem } = useFrappePostCall(DEACTIVATE_ITEM_METHOD);
+  const { call: callSaveConfig } = useFrappePostCall(UPDATE_CONFIG_METHOD);
 
   // Each write refetches its collection so the derivation/viewer recompute live (the persistence split
   // then carries edited params/rates into the next pricing-panel compute with no re-run).
@@ -108,6 +112,16 @@ export function RateMasterPage() {
       await mutateItems();
     },
     [callDeactivateItem, mutateItems]
+  );
+  // RM-4b: whole-config structure replace. The server re-validates (the authority); on success the
+  // config refetch flows the new structure into the Derivation + Data tabs and the helper (no re-run).
+  const onSaveConfig = useCallback(
+    async (nextConfig: RateCategoryConfig) => {
+      if (!configName) throw new Error("No config loaded.");
+      await callSaveConfig({ name: configName, config: JSON.stringify(nextConfig) });
+      await mutateConfig();
+    },
+    [callSaveConfig, configName, mutateConfig]
   );
   const categoryLabel =
     config?.category_display ??
@@ -166,6 +180,7 @@ export function RateMasterPage() {
           <TabsList>
             <TabsTrigger value="viewer">Data Viewer</TabsTrigger>
             <TabsTrigger value="derivation">Derivation</TabsTrigger>
+            <TabsTrigger value="pipelines">Pipelines</TabsTrigger>
           </TabsList>
           <TabsContent value="viewer" className="mt-3">
             <RateMasterDataViewer
@@ -185,6 +200,14 @@ export function RateMasterPage() {
               config={config}
               isAdmin={isAdmin}
               onSaveParam={onSaveParam}
+            />
+          </TabsContent>
+          <TabsContent value="pipelines" className="mt-3">
+            <RateMasterPipelines
+              items={items}
+              config={config}
+              isAdmin={isAdmin}
+              onSaveConfig={onSaveConfig}
             />
           </TabsContent>
         </Tabs>

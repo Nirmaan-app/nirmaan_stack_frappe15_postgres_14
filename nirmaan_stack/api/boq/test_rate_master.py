@@ -18,6 +18,15 @@ Coverage map (behavior -> test):
   - endpoints: shape + kind filter + active-only                             -> test_06
   - endpoints: login required (Guest denied)                                 -> test_07
   - config integrity: attribute defs + all four pipelines survive round trip -> test_08
+  - RM-4a param-value edits (config param + item rate/attr + create + deactivate) -> test_09..14
+  - RM-4b whole-config replace: valid replace audited + seeds goldens          -> test_15
+  - RM-4b validation: unknown step type rejected, no write                     -> test_16
+  - RM-4b validation: malformed condition predicate / non-number param         -> test_17
+  - RM-4b: non-admin PermissionError, no write                                 -> test_18
+  - RM-4b reference guard: removing a referenced definition rejected (named)   -> test_19
+  - RM-4b validation: unknown top-level key rejected                           -> test_20
+  - RM-4b: identity repoint (discipline/category_id) rejected                  -> test_21
+  - RM-4b: a valid add-step + add-param replace persists                       -> test_22
 """
 
 import copy
@@ -444,3 +453,130 @@ class TestRateMaster(FrappeTestCase):
         self.assertEqual(frappe.db.get_value("BoQ Rate Master Item", made, "active"), 0)
         # audited
         self.assertGreaterEqual(len(self._versions("BoQ Rate Master Item", made)), 1)
+
+    # ---- RM-4b: whole-config structure editing (update_rate_config) ----
+    def _full_config(self, cfg_name):
+        return _obj(frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config"))
+
+    _GOLDENS = [
+        {"attrs": {"material": "COPPER", "insulation": "UNARMOURED", "core": 1, "thickness_sqmm": 6},
+         "expect": {"cable_boq": {"supply_per_mtr": 120, "install_per_mtr": 20},
+                    "termination_boq": {"supply_per_set": 80, "install_per_set": 20},
+                    "cable_bcs": {"bcs_supply_per_mtr": 87}}},
+        {"attrs": {"material": "COPPER", "insulation": "ARMOURED", "core": 3, "thickness_sqmm": 2.5},
+         "expect": {"cable_boq": {"supply_per_mtr": 200, "install_per_mtr": 28},
+                    "cable_bcs": {"bcs_supply_per_mtr": 150}}},
+    ]
+
+    def test_15_whole_config_replace_audited_and_seeds_goldens(self):
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._real_payload(disc))
+        cfg_name = self._config_name(disc)
+        self.assertEqual(len(self._versions("BoQ Rate Category Config", cfg_name)), 0)
+
+        cfg = self._full_config(cfg_name)
+        cfg["goldens"] = self._GOLDENS  # seed goldens as config data (RM-4b)
+        res = rate_master.update_rate_config(name=cfg_name, config=json.dumps(cfg))
+        self.assertTrue(res["ok"])
+        self.assertEqual(len(res["config"]["goldens"]), 2)
+        # persisted + audited (first Version doc, diff captures the config field)
+        stored = self._full_config(cfg_name)
+        self.assertIn("goldens", stored)
+        versions = self._versions("BoQ Rate Category Config", cfg_name)
+        self.assertEqual(len(versions), 1)
+        changed = {c[0] for c in json.loads(versions[0]["data"]).get("changed", [])}
+        self.assertIn("config", changed)
+
+    def test_16_unknown_step_type_rejected_no_write(self):
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._real_payload(disc))
+        cfg_name = self._config_name(disc)
+        before = frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config")
+        cfg = self._full_config(cfg_name)
+        cfg["pipelines"]["cable_boq"]["steps"].append({"step": "quantum_flux", "target": "x"})
+        with self.assertRaises(frappe.ValidationError) as cm:
+            rate_master.update_rate_config(name=cfg_name, config=json.dumps(cfg))
+        self.assertIn("quantum_flux", str(cm.exception))
+        self.assertEqual(frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config"), before)
+
+    def test_17_malformed_condition_predicate_rejected(self):
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._real_payload(disc))
+        cfg_name = self._config_name(disc)
+        before = frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config")
+        cfg = self._full_config(cfg_name)
+        # a range/in predicate OBJECT is not executable by the interpreter -> rejected
+        cfg["pipelines"]["cable_boq"]["steps"][1]["conditions"][0]["when"] = {"insulation": {"in": ["ARMOURED"]}}
+        with self.assertRaises(frappe.ValidationError):
+            rate_master.update_rate_config(name=cfg_name, config=json.dumps(cfg))
+        self.assertEqual(frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config"), before)
+        # a params-value non-number is likewise rejected
+        cfg2 = self._full_config(cfg_name)
+        cfg2["pipelines"]["cable_boq"]["steps"][1]["conditions"][0]["params"]["discount"] = "cheap"
+        with self.assertRaises(frappe.ValidationError):
+            rate_master.update_rate_config(name=cfg_name, config=json.dumps(cfg2))
+
+    def test_18_non_admin_rejected_no_write(self):
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._real_payload(disc))
+        cfg_name = self._config_name(disc)
+        before = frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config")
+        cfg = self._full_config(cfg_name)
+        original = frappe.session.user
+        try:
+            frappe.set_user("Guest")
+            with self.assertRaises(frappe.PermissionError):
+                rate_master.update_rate_config(name=cfg_name, config=json.dumps(cfg))
+        finally:
+            frappe.set_user(original)
+        self.assertEqual(frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config"), before)
+
+    def test_19_reference_guard_rejects_removing_referenced_definition(self):
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._real_payload(disc))
+        cfg_name = self._config_name(disc)
+        before = frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config")
+        cfg = self._full_config(cfg_name)
+        # insulation is referenced by cable_boq / cable_bcs apply_effective_multiplier conditions
+        cfg["attribute_definitions"] = [d for d in cfg["attribute_definitions"] if d["id"] != "insulation"]
+        with self.assertRaises(frappe.ValidationError) as cm:
+            rate_master.update_rate_config(name=cfg_name, config=json.dumps(cfg))
+        msg = str(cm.exception)
+        self.assertIn("insulation", msg)
+        self.assertIn("referenced by", msg)
+        self.assertEqual(frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config"), before)
+
+    def test_20_unknown_top_level_key_rejected(self):
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._real_payload(disc))
+        cfg_name = self._config_name(disc)
+        before = frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config")
+        cfg = self._full_config(cfg_name)
+        cfg["surprise_key"] = 1
+        with self.assertRaises(frappe.ValidationError) as cm:
+            rate_master.update_rate_config(name=cfg_name, config=json.dumps(cfg))
+        self.assertIn("surprise_key", str(cm.exception))
+        self.assertEqual(frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config"), before)
+
+    def test_21_identity_repoint_rejected(self):
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._real_payload(disc))
+        cfg_name = self._config_name(disc)
+        cfg = self._full_config(cfg_name)
+        cfg["discipline"] = "SOMETHING_ELSE"
+        with self.assertRaises(frappe.ValidationError):
+            rate_master.update_rate_config(name=cfg_name, config=json.dumps(cfg))
+
+    def test_22_valid_structure_add_step_and_param_persists(self):
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._real_payload(disc))
+        cfg_name = self._config_name(disc)
+        cfg = self._full_config(cfg_name)
+        # add a NEW param to an existing condition (was RM-4b-forbidden as RM-4a param-add) + a step
+        cfg["pipelines"]["cable_boq"]["steps"][1]["conditions"][0]["params"]["surcharge"] = 0.02
+        cfg["pipelines"]["cable_boq"]["steps"].append({"step": "roundup", "target": "supply_per_mtr", "params": {"digits": 0}})
+        res = rate_master.update_rate_config(name=cfg_name, config=json.dumps(cfg))
+        self.assertTrue(res["ok"])
+        stored = self._full_config(cfg_name)
+        self.assertEqual(stored["pipelines"]["cable_boq"]["steps"][1]["conditions"][0]["params"]["surcharge"], 0.02)
+        self.assertEqual(stored["pipelines"]["cable_boq"]["steps"][-1]["step"], "roundup")

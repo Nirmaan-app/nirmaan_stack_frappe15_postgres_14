@@ -13,6 +13,7 @@ shadowing; user-facing strings are passed plain.)
 """
 
 import json
+import re
 
 import frappe
 
@@ -690,3 +691,241 @@ def deactivate_rate_master_item(name=None):
         doc.save(ignore_permissions=True, ignore_version=False)  # AUDITED
         frappe.db.commit()
     return {"ok": True, "active": 0}
+
+
+# ── RM-4b: rate-master STRUCTURE EDITING (admin-only) ─────────────────────────────────────────────
+# ONE whole-config replace endpoint: update_rate_config(name, config). This LIFTS the RM-4a
+# "PARAM VALUES ONLY" boundary -- creating/deleting params, steps, conditions, and attribute
+# definitions is now in scope. The submitted config is STRUCTURALLY VALIDATED server-side BEFORE any
+# write (admin gate first): known step types only (the interpreter vocabulary); params dicts of finite
+# numbers; conditions + component_band bands well-formed; attribute_definitions well-formed; a
+# REFERENCE GUARD rejects removing a definition any pipeline references; no unknown top-level keys.
+# The interpreter's EXECUTION semantics are OUT OF SCOPE and untouched -- validation accepts exactly the
+# shapes the pure interpreter (ratePipelineInterpreter.ts) executes: a condition `when` is
+# {attribute: scalar} EXACT-match (the only stored + executable shape -- range/in predicate OBJECTS are
+# rejected, since the interpreter would silently never match them), and component_band bands are
+# comparator strings ('<35' / '>=35'). Valid -> the audited doc.save recipe (Version diff). Invalid ->
+# a named validation error, NO write. GOLDENS live in the config as a "goldens" array (attrs + expected
+# finals per pipeline); the frontend preview gate computes them against a draft before save.
+_KNOWN_STEP_TYPES = {
+    "match_master_row", "apply_effective_multiplier", "scale", "roundup",
+    "component", "component_band", "sum_components", "install_as_ratio",
+}
+_KNOWN_CONFIG_KEYS = {
+    "discipline", "category_id", "category_display", "pairing_rule",
+    "attribute_definitions", "pipelines", "bcs_surfacing", "normalization_rule", "goldens",
+}
+_BAND_WHEN_RE = re.compile(r"^(<=|>=|<|>)\s*-?\d+(\.\d+)?$")
+
+
+def _is_finite_number(v):
+    """True only for a real finite int/float (rejects bool, None, NaN, +/-Inf, strings)."""
+    if isinstance(v, bool) or v is None or not isinstance(v, (int, float)):
+        return False
+    return v == v and v not in (float("inf"), float("-inf"))
+
+
+def _vthrow(msg):
+    frappe.throw(msg, title="Invalid config")
+
+
+def _validate_params(params, where):
+    if not isinstance(params, dict):
+        _vthrow(f"{where}: params must be an object.")
+    for k, v in params.items():
+        if not _is_finite_number(v):
+            _vthrow(f"{where}: parameter '{k}' must be a finite number.")
+
+
+def _validate_config(cfg):
+    """Full structural validation of a whole category config. Returns the map of attribute id ->
+    referencing-locations (for the reference guard). Raises a named frappe.ValidationError on the first
+    problem; the caller writes NOTHING on a raise."""
+    if not isinstance(cfg, dict):
+        _vthrow("config must be an object.")
+    unknown = set(cfg.keys()) - _KNOWN_CONFIG_KEYS
+    if unknown:
+        _vthrow(f"Unknown top-level config key(s): {', '.join(sorted(unknown))}.")
+
+    # attribute_definitions ------------------------------------------------------------------
+    defs = cfg.get("attribute_definitions")
+    if not isinstance(defs, list):
+        _vthrow("attribute_definitions must be a list.")
+    def_ids = set()
+    for i, d in enumerate(defs):
+        if not isinstance(d, dict):
+            _vthrow(f"attribute_definitions[{i}] must be an object.")
+        did = d.get("id")
+        if not isinstance(did, str) or not did.strip():
+            _vthrow(f"attribute_definitions[{i}] needs a non-empty string id.")
+        if did in def_ids:
+            _vthrow(f"Duplicate attribute definition id '{did}'.")
+        def_ids.add(did)
+        if not isinstance(d.get("label"), str) or not d.get("label"):
+            _vthrow(f"attribute definition '{did}' needs a label.")
+        if d.get("type") not in ("choice", "number"):
+            _vthrow(f"attribute definition '{did}' type must be 'choice' or 'number'.")
+        if d.get("type") == "choice" and (not isinstance(d.get("values"), list) or not d.get("values")):
+            _vthrow(f"choice attribute '{did}' needs a non-empty values list.")
+
+    # pipelines ------------------------------------------------------------------------------
+    pipelines = cfg.get("pipelines")
+    if not isinstance(pipelines, dict) or not pipelines:
+        _vthrow("pipelines must be a non-empty object.")
+    referenced = {}  # attr id -> [locations] (for the reference guard's named error)
+
+    def _ref(attr, loc):
+        referenced.setdefault(attr, []).append(loc)
+
+    for pid, p in pipelines.items():
+        if not isinstance(p, dict):
+            _vthrow(f"pipeline '{pid}' must be an object.")
+        if not isinstance(p.get("output"), list) or not all(isinstance(o, str) for o in p["output"]):
+            _vthrow(f"pipeline '{pid}': output must be a list of strings.")
+        steps = p.get("steps")
+        if not isinstance(steps, list) or not steps:
+            _vthrow(f"pipeline '{pid}': steps must be a non-empty list.")
+        for si, s in enumerate(steps):
+            where = f"pipeline '{pid}' step {si}"
+            if not isinstance(s, dict):
+                _vthrow(f"{where}: must be an object.")
+            st = s.get("step")
+            if st not in _KNOWN_STEP_TYPES:
+                _vthrow(f"{where}: unknown step type '{st}'.")
+            if st == "match_master_row":
+                params = s.get("params")
+                if not isinstance(params, dict) or not isinstance(params.get("kind"), str) or not params.get("kind"):
+                    _vthrow(f"{where}: match_master_row needs params.kind (a string).")
+            elif st == "apply_effective_multiplier":
+                for key in ("target", "result", "formula"):
+                    if not isinstance(s.get(key), str) or not s.get(key):
+                        _vthrow(f"{where}: apply_effective_multiplier needs a string '{key}'.")
+                conds = s.get("conditions")
+                if not isinstance(conds, list) or not conds:
+                    _vthrow(f"{where}: needs a non-empty conditions list.")
+                for ci, c in enumerate(conds):
+                    if not isinstance(c, dict):
+                        _vthrow(f"{where} condition {ci}: must be an object.")
+                    when = c.get("when")
+                    if not isinstance(when, dict) or not when:
+                        _vthrow(f"{where} condition {ci}: 'when' must be a non-empty object of attribute = value.")
+                    for wk, wv in when.items():
+                        if isinstance(wv, (dict, list)):
+                            _vthrow(
+                                f"{where} condition {ci}: predicate '{wk}' must be an exact value "
+                                "(attribute = value); range/in predicates are not executable."
+                            )
+                        _ref(wk, f"{where} condition {ci}")
+                    _validate_params(c.get("params"), f"{where} condition {ci}")
+            elif st == "scale":
+                for key in ("target", "result", "formula"):
+                    if not isinstance(s.get(key), str) or not s.get(key):
+                        _vthrow(f"{where}: scale needs a string '{key}'.")
+                _validate_params(s.get("params"), where)
+            elif st == "roundup":
+                if not isinstance(s.get("target"), str) or not s.get("target"):
+                    _vthrow(f"{where}: roundup needs a string 'target'.")
+                params = s.get("params")
+                if not isinstance(params, dict) or not _is_finite_number(params.get("digits")):
+                    _vthrow(f"{where}: roundup needs params.digits (a finite number).")
+            elif st == "component":
+                for key in ("name", "target", "formula"):
+                    if not isinstance(s.get(key), str) or not s.get(key):
+                        _vthrow(f"{where}: component needs a string '{key}'.")
+                _validate_params(s.get("params"), where)
+            elif st == "component_band":
+                for key in ("name", "band_on", "formula"):
+                    if not isinstance(s.get(key), str) or not s.get(key):
+                        _vthrow(f"{where}: component_band needs a string '{key}'.")
+                _ref(s["band_on"], f"{where} (band_on)")
+                bands = s.get("bands")
+                if not isinstance(bands, list) or not bands:
+                    _vthrow(f"{where}: component_band needs a non-empty bands list.")
+                for bi, b in enumerate(bands):
+                    if not isinstance(b, dict):
+                        _vthrow(f"{where} band {bi}: must be an object.")
+                    if not isinstance(b.get("when"), str) or not _BAND_WHEN_RE.match(b["when"].strip()):
+                        _vthrow(f"{where} band {bi}: 'when' must be a comparator like '<35' or '>=35'.")
+                    if not isinstance(b.get("target"), str) or not b.get("target"):
+                        _vthrow(f"{where} band {bi}: needs a string 'target'.")
+                _validate_params(s.get("params"), where)
+            elif st == "sum_components":
+                if not isinstance(s.get("result"), str) or not s.get("result"):
+                    _vthrow(f"{where}: sum_components needs a string 'result'.")
+            elif st == "install_as_ratio":
+                if not isinstance(s.get("result"), str) or not s.get("result"):
+                    _vthrow(f"{where}: install_as_ratio needs a string 'result'.")
+                params = s.get("params")
+                if not isinstance(params, dict) or not _is_finite_number(params.get("ratio")):
+                    _vthrow(f"{where}: install_as_ratio needs params.ratio (a finite number).")
+
+    # REFERENCE GUARD: every attr a pipeline references must be defined (names where each is used) ----
+    missing = {a: locs for a, locs in referenced.items() if a not in def_ids}
+    if missing:
+        parts = [f"'{a}' (referenced by {', '.join(locs)})" for a, locs in sorted(missing.items())]
+        _vthrow(
+            "These attributes are referenced by a pipeline but not defined: "
+            + "; ".join(parts)
+            + ". Add the definition, or remove the references first."
+        )
+
+    # goldens (optional) ---------------------------------------------------------------------
+    goldens = cfg.get("goldens")
+    if goldens is not None:
+        if not isinstance(goldens, list):
+            _vthrow("goldens must be a list.")
+        for gi, g in enumerate(goldens):
+            if not isinstance(g, dict):
+                _vthrow(f"goldens[{gi}] must be an object.")
+            if not isinstance(g.get("attrs"), dict) or not g.get("attrs"):
+                _vthrow(f"goldens[{gi}] needs a non-empty attrs object.")
+            expect = g.get("expect")
+            if not isinstance(expect, dict) or not expect:
+                _vthrow(f"goldens[{gi}] needs a non-empty expect object.")
+            for epid, emap in expect.items():
+                if epid not in pipelines:
+                    _vthrow(f"goldens[{gi}] expects unknown pipeline '{epid}'.")
+                if not isinstance(emap, dict) or not emap:
+                    _vthrow(f"goldens[{gi}] expect['{epid}'] must be a non-empty object.")
+                for ek, ev in emap.items():
+                    if not _is_finite_number(ev):
+                        _vthrow(f"goldens[{gi}] expect['{epid}']['{ek}'] must be a finite number.")
+
+    return referenced
+
+
+@frappe.whitelist(methods=["POST"])
+def update_rate_config(name=None, config=None):
+    """ADMIN-ONLY (RM-4b): replace a category config's WHOLE config JSON after full server-side
+    structural validation. Lifts the RM-4a param-values-only boundary -- add/remove params, steps,
+    conditions, and attribute definitions. The submitted config.discipline/category_id must match the
+    stored doc's (no identity repoint). Audited (doc.save -> Version diff). Returns {ok, config}.
+    URL: .../rate_master.update_rate_config"""
+    _require_rate_admin()  # BEFORE resolution/write
+    if not name:
+        frappe.throw("name is required.", title="Missing field: name")
+    cfg = _parse_json(config, None)
+    if not isinstance(cfg, dict):
+        frappe.throw("config must be an object.", title="Invalid value")
+
+    doc = frappe.get_doc(CONFIG_DOCTYPE, name)  # 404s cleanly if missing
+    # identity guard: the submitted config must not repoint discipline/category_id
+    if cfg.get("discipline") != doc.discipline:
+        frappe.throw(
+            f"config.discipline '{cfg.get('discipline')}' does not match this config's discipline "
+            f"'{doc.discipline}'.",
+            title="Invalid config",
+        )
+    if cfg.get("category_id") != doc.category_id:
+        frappe.throw(
+            f"config.category_id '{cfg.get('category_id')}' does not match this config's category_id "
+            f"'{doc.category_id}'.",
+            title="Invalid config",
+        )
+
+    _validate_config(cfg)  # raises a named ValidationError on any problem -- NO write on raise
+
+    doc.config = json.dumps(cfg)
+    doc.save(ignore_permissions=True, ignore_version=False)  # AUDITED (track_changes -> Version diff)
+    frappe.db.commit()
+    return {"ok": True, "config": cfg}
