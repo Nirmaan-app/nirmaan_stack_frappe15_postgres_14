@@ -929,6 +929,35 @@ status / decisions: `frontend/.claude/plans/pricing-module-plan.md`.
   ALREADY-SCANNED sheets so Continue never re-runs the 400 ms re-entry pass. Keep the module side-effect free —
   PW-2b's consent-based fixing is meant to be a caller change, not a rewrite.
 
+### Rate Master (RM-2) -- Frontend Conventions
+
+The pricing helper's read surface, SEPARATE from the pricing workbook pages. Lives in
+`src/pages/pricing/rate-master/`. Reads the RM-1 endpoints (`nirmaan_stack.api.boq.rate_master.
+get_rate_master_items` / `get_rate_category_config`) as-is -- NO backend coupling. Full as-built lives
+in the plan doc.
+
+- **The page home is owner option (a):** a `Rate Master` route (`/rate-master`) beside the pricing
+  workbooks, `PricingRoute`-guarded (UI gate only; the endpoints' login requirement is the enforcement),
+  lazy + `export { RateMasterPage as Component }`. `rateMasterRegistry.ts` is registry-shaped like
+  `pricingWorkbooks.ts` (Electrical today); the sidebar registration is the SAME four registry-driven
+  touches the pricing workbooks use (role-gated item, `allKeys`, `groupMappings`, flat-label Set).
+- **`ratePipelineInterpreter.ts` is THE single compute source (owner-locked) -- a PURE TS module with NO
+  React imports.** It executes the stored pipeline step vocabulary (`match_master_row`,
+  `apply_effective_multiplier` with conditions, `scale`, `component`, `component_band`, `sum_components`,
+  `install_as_ratio`, `roundup`) and produces per-step traces + finals. **Formulas are read FROM the
+  config and evaluated by a tiny safe arithmetic evaluator (no `eval()`, CSP-safe) -- never hardcode the
+  arithmetic.** EXACT matching on canonical values (no case-insensitive matching anywhere). **RM-3's
+  pricer-facing helper consumes this module UNCHANGED -- there must never be a second implementation of
+  this arithmetic.** The four RM-1 goldens are its standing test fixtures.
+- **Dynamic columns come FROM the config's `attribute_definitions`** (kind, brand, one column per
+  definition, the rate fields present, unit, source) -- never a hardcoded column list.
+- **Unknown step type = an explicit "unsupported" state, never a silent skip** (forward-compat honesty for
+  future step types). A combination with no master row renders an honest no-match with zero computed values.
+- **BCS pipelines ARE shown here** (internal transparency surface); only the pricer-facing helper defers BCS.
+- **The viewer search is CASE-SENSITIVE across all displayed cell values** -- the data is canonical
+  UPPERCASE, so a mixed-case query intentionally finds nothing (mirrors the RM ethos: no case-insensitive
+  matching anywhere).
+
 ## Important Notes
 
 - **Frappe Backend Required**: This frontend cannot run standalone; it requires a Frappe backend (see `../CLAUDE.md` for backend documentation)
