@@ -796,6 +796,18 @@ export const appRoutes: RouteObject[] = [
             ],
           },
 
+          // Rate Master (RM-2) -- the pricing helper's read surface (viewer + derivation).
+          // Owner option (a): beside the pricing workbooks, PricingRoute-guarded, lazy +
+          // Suspense per the admin-tool convention. One page today (Electrical); the page
+          // is registry-shaped (rate-master/rateMasterRegistry.ts) for more disciplines.
+          {
+            path: "rate-master",
+            element: <PricingRoute />,
+            children: [
+              { index: true, lazy: () => import("@/pages/pricing/rate-master/RateMasterPage") },
+            ],
+          },
+
           { path: "pdf", element: <PDF /> }, // Should PDF rendering be a route? Or triggered differently?
           { path: "milestone-update", element: <NewMilestones /> },
           // Commented out routes from original:
