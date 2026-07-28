@@ -91,7 +91,9 @@ describe("makePricingSheetHelper -- goldens via the RM-2 interpreter", () => {
     expect(r.values.supply_rate).toBe(120);
     expect(r.values.install_rate).toBe(20);
     expect(r.values.combined_rate).toBe(140); // combined-rate column = supply + install
-    expect(r.workings.derivation.some((d) => d.includes("Paired termination") && d.includes("80"))).toBe(true);
+    // RM-3a: the paired termination now renders as its OWN labelled group, not a flat derivation line.
+    expect(r.workings.sections?.map((s) => s.label)).toEqual(["Cable — per Mtr", "Termination — per Set"]);
+    expect(r.workings.sections?.[1].finals.supply_per_set).toBe(80);
   });
 
   it("COPPER/ARMOURED/3C/2.5 -> 200 / 28", () => {
@@ -177,6 +179,44 @@ describe("makePricingSheetHelper -- goldens via the RM-2 interpreter", () => {
     const r = helper.compute({ ...ctx(99, "misc"), category: null });
     expect(r.kind).toBe("none");
     if (r.kind === "none") expect(r.reason.toLowerCase()).toContain("coming soon");
+  });
+});
+
+// RM-3a: grouped workings -- a cable row splits into TWO labelled groups (Cable / Termination), each
+// with its own final values; a termination row stays a SINGLE flat block (no `sections`, backward-shaped).
+describe("RM-3a grouped workings (cable = two groups; termination = one, backward-shaped)", () => {
+  it("a cable row emits TWO labelled groups, each with its OWN finals; shared attributes render once above", () => {
+    const map = buildExtractionByRow([
+      { excel_row: 2, attributes: ext({ material: "COPPER", insulation: "UNARMOURED", core: 1, thickness_sqmm: 6 }) },
+    ]);
+    const helper = makePricingSheetHelper({ config: CONFIG, items: ITEMS, extractionByRow: map });
+    const r = helper.compute(ctx(2, "XLPE cable 1C x 6 sqmm"));
+    if (!isSuggestion(r)) throw new Error("expected suggestion");
+    const sections = r.workings.sections!;
+    expect(sections).toHaveLength(2);
+    expect(sections[0].label).toBe("Cable — per Mtr");
+    expect(sections[1].label).toBe("Termination — per Set");
+    // each group carries its OWN final values -- cable per-Mtr, termination per-Set (distinct blocks).
+    expect(sections[0].finals.supply_per_mtr).toBe(120);
+    expect(sections[0].finals.install_per_mtr).toBe(20);
+    expect(sections[1].finals.supply_per_set).toBe(80);
+    expect(sections[1].finals.install_per_set).toBe(20);
+    // the SHARED extracted attributes live ONCE on top-level workings, not duplicated per group.
+    expect(r.workings.attributes.map((a) => a.id)).toContain("material");
+    expect(sections[0].attributes).toBeUndefined();
+  });
+
+  it("a termination row is a SINGLE flat group -- no `sections` (renders exactly as today)", () => {
+    const map = buildExtractionByRow([
+      { excel_row: 5, attributes: ext({ material: "COPPER", insulation: "UNARMOURED", core: 1, thickness_sqmm: 6 }) },
+    ]);
+    const helper = makePricingSheetHelper({ config: CONFIG, items: ITEMS, extractionByRow: map });
+    const r = helper.compute(ctx(5, "Cable end termination gland + lug 1C x 6"));
+    if (!isSuggestion(r)) throw new Error("expected suggestion");
+    // no grouped sections -> the panel renders the flat matchedRows/derivation exactly as before.
+    expect(r.workings.sections).toBeUndefined();
+    expect(r.workings.derivation.length).toBeGreaterThan(0);
+    expect(r.values.supply_rate).toBe(80);
   });
 });
 

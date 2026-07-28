@@ -1312,7 +1312,11 @@ function ColorPicker({
           onKeyDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
           title="Highlight color"
-          className="absolute left-0.5 top-0.5 z-[5] h-3 w-3 rounded-sm border border-border opacity-40 hover:opacity-100"
+          // RM-3a Defect 2 (owner option (a)): the colour picker is an ACTION, not status -- hidden at
+          // rest, revealed on CELL hover (the parent <td> carries `group`) AND on keyboard focus
+          // (focus-visible, so it is never a mouse-only trap). When a colour IS set the swatch still
+          // shows the chosen colour once revealed.
+          className="absolute left-0.5 top-0.5 z-[5] h-3 w-3 rounded-sm border border-border opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100 focus-visible:opacity-100"
         >
           {current ? (
             <span className={cn("block h-full w-full rounded-sm", swatchClassForToken(current))} />
@@ -2597,7 +2601,7 @@ const PricingGridRow = memo(function PricingGridRow({
                     : undefined
               }
               className={cn(
-                "relative px-1 py-1 align-top",
+                "group relative px-1 py-1 align-top",
                 colorBorderClass,
                 priced &&
                   (needsReview
@@ -2607,7 +2611,10 @@ const PricingGridRow = memo(function PricingGridRow({
               )}
             >
               {colorPicker}
-              <div className="flex items-center justify-end gap-1">
+              {/* RM-3a Defect 2: priced dot + suggestion badge / used-check / sparkle opener stay
+                  PERSISTENT, tightened into one compact right-aligned cluster (the colour picker is
+                  the hover/focus-only action at top-left, above). */}
+              <div className="flex items-center justify-end gap-0.5">
                 {priced && (
                   <span
                     aria-hidden
@@ -2736,7 +2743,7 @@ const PricingGridRow = memo(function PricingGridRow({
                 divergeTitle ?? (isBroken ? "Check formula" : needsRate ? "Needs a rate" : undefined)
               }
               className={cn(
-                "relative px-2 py-1.5 text-right align-top tabular-nums",
+                "group relative px-2 py-1.5 text-right align-top tabular-nums",
                 colorBorderClass,
                 cellNavClass(colIndex),
               )}
@@ -2792,7 +2799,7 @@ const PricingGridRow = memo(function PricingGridRow({
                   : undefined
             }
             className={cn(
-              "relative px-2 py-1.5 text-right align-top tabular-nums",
+              "group relative px-2 py-1.5 text-right align-top tabular-nums",
               colorBorderClass,
               priced &&
                 (needsReview

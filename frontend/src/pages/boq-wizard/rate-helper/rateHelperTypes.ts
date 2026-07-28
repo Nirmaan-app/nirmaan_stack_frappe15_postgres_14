@@ -43,6 +43,23 @@ export interface ExtractionRow {
   attributes: Record<string, ExtractedAttr>;
 }
 
+/** One LABELLED group of workings (RM-3a). Lets a helper split a suggestion into visually distinct
+ * blocks (e.g. Cable vs Termination) that the panel renders each as its OWN section (header + own
+ * derivation + own final values). DISPLAY-ONLY: the applied value still comes from Suggestion.values,
+ * never a group's finals. */
+export interface WorkingsGroup {
+  /** Section header shown above the block (e.g. "Cable -- per Mtr"). */
+  label: string;
+  /** Derivation lines for THIS group, one string per line. */
+  derivation: string[];
+  /** This group's OWN final values (display-only), keyed by the helper's output/label name. */
+  finals: Record<string, number>;
+  /** Optional group-scoped matched-row line(s). */
+  matchedRows?: string[];
+  /** Optional group-scoped attributes (unused this slice; SHARED attrs live on WorkingsSection). */
+  attributes?: WorkingsAttribute[];
+}
+
 /** The STRUCTURED workings a Suggestion carries -- rendered generically by the panel. */
 export interface WorkingsSection {
   /** Editable attributes; a change re-runs compute with the edited values. */
@@ -53,6 +70,11 @@ export interface WorkingsSection {
   derivation: string[];
   /** The final computed value per rate-kind (the panel pre-fills the final-value field from this). */
   finalValues: Partial<Record<RateKind, number>>;
+  /** RM-3a: when present (>= 1), the panel renders these LABELLED groups (each its own block) INSTEAD
+   * of the flat matchedRows/derivation; the shared `attributes` above still render ONCE above the
+   * groups. ABSENT => flat rendering, byte-identical to pre-RM-3a -- so single-group suggestions stay
+   * backward-shaped (the pricing-sheet helper omits `sections` on termination rows). */
+  sections?: WorkingsGroup[];
 }
 
 /** A helper produced a suggestion. */

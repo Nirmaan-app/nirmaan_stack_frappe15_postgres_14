@@ -5,10 +5,11 @@
  * overridable final-value field, and "Use this value"). Zero helper-specific rendering lives here,
  * so a new helper needs no panel change. Nothing persists (guardrail G2).
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { X, ChevronRight, ChevronDown, Sparkles, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import { resolveRateHelpers } from "./rateHelperRegistry";
 import { isSuggestion, type RateHelper, type RateHelperRowContext } from "./rateHelperTypes";
 
@@ -44,14 +45,31 @@ interface RateHelperPanelProps {
   /** Apply a value to the (excelRow, col) rate cell through the real save path + record telemetry. */
   onUse: (col: string, value: number, meta: UseMeta) => void;
   onClose: () => void;
+  /** RM-3a two-mode mount (Defect 1). `overlay` = a viewport-fixed right-pinned drawer floating ABOVE
+   * the grid (full-screen mode -- the grid width/columns/scroll stay untouched). `embedded` (default)
+   * = a sticky in-flow panel that rides the viewport as the page scrolls. */
+  variant?: "embedded" | "overlay";
 }
 
-export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onClose }: RateHelperPanelProps) {
+export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onClose, variant = "embedded" }: RateHelperPanelProps) {
   // Panel-session state ONLY (never persisted): per-helper attribute edits, which card is expanded,
   // and a per-helper final-value override (undefined => track the computed value).
   const [attrOverrides, setAttrOverrides] = useState<Record<string, Record<string, string>>>({});
   const [expanded, setExpanded] = useState<string | null>(null);
   const [finalOverride, setFinalOverride] = useState<Record<string, string>>({});
+
+  // Defect 1c: scroll-into-view GUARD on open / when the target cell changes -- but ONLY when the
+  // panel is genuinely off-screen. A sticky embedded panel deep in a scrolled sheet is already pinned
+  // at the viewport top (so this no-ops and never yanks the user away from the clicked row), and the
+  // overlay drawer is viewport-fixed (always visible). We never touch horizontal scroll.
+  const asideRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const el = asideRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const outOfView = r.bottom <= 0 || r.top >= window.innerHeight;
+    if (outOfView) el.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [excelRow, col]);
 
   const evaluations = useMemo(
     () => resolveRateHelpers(ctx, attrOverrides, helpers),
@@ -74,7 +92,18 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
 
   return (
     <aside
-      className="flex w-80 shrink-0 flex-col rounded-md border bg-background"
+      ref={asideRef}
+      className={cn(
+        "flex w-80 flex-col bg-background",
+        variant === "overlay"
+          ? // Full-screen: a viewport-fixed drawer pinned to the right, full height, floating ABOVE
+            // the grid (z above the z-50 full-screen wrapper) with a lift shadow. Fixed => the grid
+            // keeps its width/columns/scroll and this stays fully visible regardless of scroll.
+            "fixed inset-y-0 right-0 z-[60] border-l shadow-2xl"
+          : // Embedded: an in-flow sticky panel that rides the viewport (sensible top offset), bounded
+            // so its body scrolls internally rather than growing the page.
+            "sticky top-4 max-h-[calc(100vh-2rem)] shrink-0 self-start rounded-md border shadow-lg",
+      )}
       aria-label="Rate suggestions"
     >
       <header className="flex items-center justify-between border-b px-3 py-2">
@@ -95,7 +124,7 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
         Row {excelRow} &middot; {kindLabel(kind)} rate
       </div>
 
-      <div className="flex-1 space-y-2 overflow-y-auto p-3">
+      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
         {evaluations.map(({ helper, result }) => {
           const isOpen = expanded === helper.id;
           if (!isSuggestion(result)) {
@@ -187,19 +216,60 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                     </div>
                   )}
 
-                  {result.workings.matchedRows.length > 0 && (
-                    <ul className="space-y-0.5 text-xs text-muted-foreground">
-                      {result.workings.matchedRows.map((m, i) => (
-                        <li key={i}>{m}</li>
+                  {result.workings.sections && result.workings.sections.length > 0 ? (
+                    // RM-3a: LABELLED groups -- each rendered as its OWN separated block (header +
+                    // card/divider + own derivation lines + own final values), so a cable row's
+                    // Cable and Termination workings read as visually distinct sections. The shared
+                    // EXTRACTED attributes already render ONCE above (they belong to the row, not a
+                    // group). ABSENT `sections` => the flat rendering below, byte-identical to before.
+                    <div className="space-y-1.5">
+                      {result.workings.sections.map((g, gi) => (
+                        <div key={gi} className="rounded-md border bg-muted/30 px-2 py-1.5">
+                          <div className="text-xs font-semibold text-foreground">{g.label}</div>
+                          {g.matchedRows && g.matchedRows.length > 0 && (
+                            <ul className="mt-0.5 space-y-0.5 text-xs text-muted-foreground">
+                              {g.matchedRows.map((m, i) => (
+                                <li key={i}>{m}</li>
+                              ))}
+                            </ul>
+                          )}
+                          {g.derivation.length > 0 && (
+                            <ul className="mt-0.5 space-y-0.5 text-xs text-muted-foreground">
+                              {g.derivation.map((line, i) => (
+                                <li key={i}>{line}</li>
+                              ))}
+                            </ul>
+                          )}
+                          {Object.keys(g.finals).length > 0 && (
+                            <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
+                              {Object.entries(g.finals).map(([k, v]) => (
+                                <span key={k} className="tabular-nums">
+                                  <span className="text-muted-foreground">{k}</span>{" "}
+                                  <span className="font-semibold text-foreground">{v}</span>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       ))}
-                    </ul>
-                  )}
-                  {result.workings.derivation.length > 0 && (
-                    <ul className="space-y-0.5 text-xs text-muted-foreground">
-                      {result.workings.derivation.map((line, i) => (
-                        <li key={i}>{line}</li>
-                      ))}
-                    </ul>
+                    </div>
+                  ) : (
+                    <>
+                      {result.workings.matchedRows.length > 0 && (
+                        <ul className="space-y-0.5 text-xs text-muted-foreground">
+                          {result.workings.matchedRows.map((m, i) => (
+                            <li key={i}>{m}</li>
+                          ))}
+                        </ul>
+                      )}
+                      {result.workings.derivation.length > 0 && (
+                        <ul className="space-y-0.5 text-xs text-muted-foreground">
+                          {result.workings.derivation.map((line, i) => (
+                            <li key={i}>{line}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </>
                   )}
 
                   <div className="flex items-center gap-2 pt-1">

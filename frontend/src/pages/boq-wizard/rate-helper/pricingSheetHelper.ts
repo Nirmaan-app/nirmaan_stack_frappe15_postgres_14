@@ -27,6 +27,7 @@ import type {
   RateHelper,
   RateHelperRowContext,
   WorkingsAttribute,
+  WorkingsGroup,
 } from "./rateHelperTypes";
 
 export const PRICING_SHEET_HELPER_ID = "pricing_sheet";
@@ -210,18 +211,45 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       derivation.push(`Pipeline '${primaryId}' has an unsupported step.`);
     }
 
-    // Owner option (b): on a CABLE row, ALSO show the paired termination as a reference line.
+    // RM-3a GROUPED WORKINGS (owner option (b), made visually distinct): on a CABLE row the panel
+    // shows the Cable pipeline AND the paired Termination as TWO separate LABELLED blocks, each with
+    // its own derivation + own final values. A TERMINATION row keeps a SINGLE flat block (no
+    // `sections`) -- backward-shaped, byte-identical to pre-RM-3a. The groups are DISPLAY-ONLY; the
+    // applied value still comes from `values` (Suggestion.values), never a group's finals. The flat
+    // `derivation`/`matchedRows` still carry the CABLE lines (the paired line moved into its group).
+    let sections: WorkingsGroup[] | undefined;
     if (!termination) {
+      const cableFinals: Record<string, number> = {};
+      if (result.status === "ok") {
+        for (const o of result.outputs) cableFinals[o] = result.finals[o];
+        if (typeof values.combined_rate === "number") cableFinals.combined_per_mtr = values.combined_rate;
+      }
+      const cableGroup: WorkingsGroup = {
+        label: "Cable — per Mtr",
+        derivation: [...derivation],
+        finals: cableFinals,
+        matchedRows: [...matchedRows],
+      };
+      const termGroup: WorkingsGroup = {
+        label: "Termination — per Set",
+        derivation: [],
+        finals: {},
+      };
       const term = pipelines["termination_boq"] as Pipeline | undefined;
       if (term) {
         const tr = runPipeline("termination_boq", term, items, selected);
         if (tr.status === "ok") {
-          const parts = tr.outputs.map((o) => `${o} ${tr.finals[o]}`).join(", ");
-          derivation.push(`Paired termination: ${parts}`);
+          for (const o of tr.outputs) {
+            termGroup.finals[o] = tr.finals[o];
+            termGroup.derivation.push(`${o} = ${tr.finals[o]}`);
+          }
         } else {
-          derivation.push("Paired termination: no matching rate row.");
+          termGroup.derivation.push("No matching termination rate row.");
         }
+      } else {
+        termGroup.derivation.push("No termination pipeline in the config.");
       }
+      sections = [cableGroup, termGroup];
     }
 
     return {
@@ -237,6 +265,7 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
         matchedRows,
         derivation,
         finalValues: { ...values },
+        ...(sections ? { sections } : {}),
       },
     };
   }

@@ -3681,12 +3681,14 @@ const SheetPricingPage = () => {
           (the grid keeps its own viewport-rem cap, byte-for-byte the prior behaviour). */}
       {!pricedLoading && !pricedError && (
         <div className={cn(expanded && "flex min-h-0 flex-1 flex-col")}>
-        {/* U1 rate-helper: a horizontal flex row around the grid slot (grid left flex-1 min-w-0,
-            panel right fixed width). The grid keeps its OWN horizontal scroll + the frozen two-pane
-            split + virtualization -- all internal to PricingGrid, untouched. Absent panel => the
-            wrappers are inert (no class), byte-identical to before. */}
-        <div className={cn(helperPanelOpen && "flex min-h-0 flex-1 items-start gap-3")}>
-        <div className={cn(helperPanelOpen && "min-w-0 flex-1")}>
+        {/* RM-3a Defect 1: the rate-helper panel is a two-mode mount.
+            - EMBEDDED (not full-screen): keep the certed widen-while-open -- the grid shrinks (flex-1
+              min-w-0) and the outer wrapper widens to w-full, and the STICKY panel rides in this row.
+            - FULL-SCREEN (expanded): the grid keeps FULL width (these wrappers stay inert) and the
+              panel renders as a fixed OVERLAY drawer OUTSIDE this row, so the grid's width/columns/
+              horizontal-scroll are byte-unchanged on open/close. */}
+        <div className={cn(helperPanelOpen && !expanded && "flex min-h-0 flex-1 items-start gap-3")}>
+        <div className={cn(helperPanelOpen && !expanded && "min-w-0 flex-1")}>
         {isGridOnly ? (
           <SheetDataGrid
             // Faithful committed grid (general specs) -- READ-ONLY reference, all rows at
@@ -3800,10 +3802,11 @@ const SheetPricingPage = () => {
           />
         )}
         </div>
-        {/* U1 rate-helper: the page-owned suggestion panel, fixed width right, INSIDE the
-            full-screen wrapper so it survives the expanded overlay. */}
-        {helperPanelOpen && helperPanel && helperPanelCtx && (
+        {/* EMBEDDED sticky panel -- INSIDE the flex row so the page widens + the panel rides the
+            viewport (Defect 1b). Rendered only when NOT full-screen. */}
+        {helperPanelOpen && !expanded && helperPanel && helperPanelCtx && (
           <RateHelperPanel
+            variant="embedded"
             excelRow={helperPanel.excelRow}
             col={helperPanel.col}
             kind={helperPanel.kind}
@@ -3814,6 +3817,20 @@ const SheetPricingPage = () => {
           />
         )}
         </div>
+        {/* FULL-SCREEN overlay drawer -- OUTSIDE the flex row, viewport-fixed above the z-50 wrapper
+            (Defect 1a). The grid width/columns/scroll are untouched because the panel is out of flow. */}
+        {helperPanelOpen && expanded && helperPanel && helperPanelCtx && (
+          <RateHelperPanel
+            variant="overlay"
+            excelRow={helperPanel.excelRow}
+            col={helperPanel.col}
+            kind={helperPanel.kind}
+            ctx={helperPanelCtx}
+            helpers={helperList}
+            onUse={handleUseSuggestion}
+            onClose={() => setHelperPanel(null)}
+          />
+        )}
         </div>
       )}
     </div>
