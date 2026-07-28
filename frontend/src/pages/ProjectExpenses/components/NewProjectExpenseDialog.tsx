@@ -37,6 +37,7 @@ import { ExpenseType } from "@/types/NirmaanStack/ExpenseType";
 
 // --- Utils & State ---
 import { parseNumber } from "@/utils/parseNumber";
+import { getExpenseSubmitLabel } from "@/utils/expenseApproval";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { queryKeys, getProjectExpenseTypeListOptions } from "@/config/queryKeys";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
@@ -346,6 +347,10 @@ export const NewProjectExpenseDialog: React.FC<NewProjectExpenseDialogProps> = (
     const selectedExpenseTypeLabel = expenseTypeOptions.find(option => option.value === formState.type)?.label || "Select an expense type...";
     // When the selected type is user-defined (e.g. Accommodation), the ₹15k cap is lifted.
     const isAmountUncapped = isUncappedExpenseType(formState.type, expenseTypeOptions);
+    // The submit label names the path this expense will actually take: a small
+    // positive amount is auto-approved on save ("Raise Expense"), anything else
+    // -- ≥ ₹5,000, a refund, or a blank amount -- goes to an approver.
+    const submitLabel = getExpenseSubmitLabel(formState.amount);
 
     return (
         <AlertDialog open={newProjectExpenseDialog} onOpenChange={(isOpen) => !isOpen && handleDialogClose()}>
@@ -495,7 +500,7 @@ export const NewProjectExpenseDialog: React.FC<NewProjectExpenseDialogProps> = (
                 <AlertDialogFooter>
                     {isLoadingOverall ? <div className="flex justify-end w-full"><TailSpin color="#4f46e5" height={28} width={28} /></div> : <>
                         <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction onClick={(e) => { e.preventDefault(); handleSubmit(); }} disabled={isSubmitDisabled}>Save Expense</AlertDialogAction>
+                        <AlertDialogAction onClick={(e) => { e.preventDefault(); handleSubmit(); }} disabled={isSubmitDisabled}>{submitLabel}</AlertDialogAction>
                     </>}
                 </AlertDialogFooter>
             </AlertDialogContent>

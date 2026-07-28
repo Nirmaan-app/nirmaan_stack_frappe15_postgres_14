@@ -59,7 +59,7 @@
   },
   {
    "fieldname": "description",
-   "fieldtype": "Data",
+   "fieldtype": "Text",
    "label": "Description"
   },
   {

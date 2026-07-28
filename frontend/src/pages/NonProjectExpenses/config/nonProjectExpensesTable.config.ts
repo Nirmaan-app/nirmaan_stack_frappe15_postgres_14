@@ -8,6 +8,8 @@ export const DEFAULT_NPE_FIELDS_TO_FETCH: (keyof NonProjectExpenses | 'name' | '
     "creation",
     "modified",
     "owner",
+    // Drives the "Last Modified By" column on the Paid tab (who last touched the row).
+    "modified_by",
     "status",
     "type",
     "description",

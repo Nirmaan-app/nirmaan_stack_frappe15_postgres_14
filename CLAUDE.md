@@ -207,7 +207,7 @@ Why `[:19]` truncation: `frappe.utils.now()` returns microsecond-precision strin
 | `nirmaan_stack/public/` | Compiled frontend assets — edit source in `frontend/src/` instead |
 | `services/file_extractor.py` | Intentionally deleted — do not recreate |
 
-**Sanctioned exception:** A doctype JSON field's `fieldtype` MAY be changed via a deliberate, reviewed, committed CC edit + `bench migrate` when a schema constraint must be corrected (e.g. `source_file_url` Data->Small Text, fix 3815ea3f, 2026-05-30). Any such change must be isolated to the minimum field diff and explicitly noted here.
+**Sanctioned exception:** A doctype JSON field's `fieldtype` MAY be changed via a deliberate, reviewed, committed CC edit + `bench migrate` when a schema constraint must be corrected (e.g. `source_file_url` Data->Small Text, fix 3815ea3f, 2026-05-30; `description` Data->Text on BOTH `Project Expenses` and `Non Project Expenses`, 2026-07-28 — all four expense dialogs already rendered a `<Textarea>` against a `varchar(140)` column, so a >140-char description hard-failed the save with Frappe's `CharacterLengthExceededError`). Any such change must be isolated to the minimum field diff and explicitly noted here.
 
 ---
 
