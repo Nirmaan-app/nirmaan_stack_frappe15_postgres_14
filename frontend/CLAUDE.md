@@ -1057,6 +1057,23 @@ in the plan doc.
   filtering never drift. Composition: **AND across columns, OR within a column**; a global `Clear filters (N)`
   control shows the active-column count and resets. Purely CLIENT-SIDE over the already-loaded active items
   -- no new query, no backend change, read-only (composes cleanly with the RM-4a admin editing above).
+- **RM-4b structure editor -- the THIRD tab "Pipelines" (`RateMasterPipelines.tsx` + `rateMasterStructure.ts`).**
+  LIFTS the RM-4a param-values-only line: add/remove params, steps, conditions, and attribute definitions.
+  READ-ONLY structural view for everyone (attribute-definitions table + each pipeline as its ordered step
+  list + the stored goldens); ADMIN EDIT MODE (owner option (a): hide-not-disable) with step
+  add(vocabulary picker)/remove/reorder, per-step param add/remove/rename, condition-branch + component-band
+  add/remove/edit, attribute-definition add/edit/remove (a referenced def's remove button DISABLES via the
+  client mirror `referencedAttrIds`; the server guard's verbatim error still surfaces on save), and the
+  brand `selector` flag as an editable checkbox. **THE PREVIEW GATE (`rateMasterStructure.ts`, pure +
+  vitested):** before save the page computes ALL config goldens against the DRAFT (the SAME pure
+  `ratePipelineInterpreter` + live items) and shows a pass/delta table; unchanged -> green "Save", any delta
+  -> "Save with N changed goldens" opening an AlertDialog that lists the deltas and requires an explicit
+  confirm (**confirm-NOT-block** -- deltas impossible to miss, never forbidden). `evaluateGoldens` WRAPS the
+  interpreter in try/catch so a transiently invalid draft reports `got=null` instead of crashing the preview
+  (it does NOT change the interpreter). Save calls `update_rate_config` (the server re-validates -- the
+  authority); the refetch flows the new structure into the Derivation + Data tabs and the pricing helper
+  with no code + no AI re-run (persistence split). **Goldens are CONFIG DATA** seeded via the endpoint; the
+  vitest golden files stay independent pins. Full as-built + cert: plan doc "Build slice RM-4b".
 
 ## Important Notes
 

@@ -366,6 +366,22 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   `import_batch="manual-"+hash` / `source_sheet="Manual entry"` / `source_row=0`; `deactivate` sets
   `active=0` (RETAINED, never deleted). Frontend HIDES every affordance for non-admins (`isRateMasterAdmin`;
   the server is authoritative). The first `Version` docs for the two rate-master doctypes now exist.
+- **RM-4b structure editor (ADMIN-ONLY; full as-built in the plan doc's "Build slice RM-4b").** ONE
+  `@frappe.whitelist(methods=["POST"])` write `update_rate_config(name, config)` in `api/boq/rate_master.py`
+  LIFTS the RM-4a param-values-only boundary — add/remove params, steps, conditions, and attribute
+  definitions. Admin-gated FIRST (`pricing._is_nirmaan_admin`), then FULL server-side STRUCTURAL VALIDATION
+  (`_validate_config`) before the SAME audited `doc.save(ignore_version=False)` recipe; valid → write, invalid
+  → a NAMED `ValidationError`, NO write. Validation: known step types ONLY (the 8-member interpreter
+  vocabulary); every `params` a map of FINITE numbers; conditions are `{attribute: scalar}` EXACT-match
+  predicates (**the ONLY shape the pure interpreter executes** — a `{in:[...]}` / `{gte/lt}` predicate OBJECT
+  is REJECTED, since the interpreter would silently never match it and changing its semantics is OUT OF
+  SCOPE); component_band bands are comparator strings; attribute_definitions well-formed; **a REFERENCE GUARD
+  rejects removing a definition any pipeline condition/`band_on` references, naming every referencing
+  location**; no unknown top-level keys; an identity guard forbids repointing discipline/category_id.
+  **GOLDENS-AS-CONFIG-DATA:** the config carries a `goldens` array (attrs + expected finals per pipeline)
+  seeded via ONE audited endpoint call; the vitest golden files stay INDEPENDENT pins. The frontend Pipelines
+  tab's PREVIEW GATE computes the goldens against a draft before save (confirm-not-block). Interpreter
+  EXECUTION semantics untouched. Tests `test_rate_master` 14→22.
 - **Benchmark data (owner ruling):** the committed data asset is the **28-Jul benchmark workbook**
   (`rate_master_wiring_cabling_v3.json`) — the reference going forward, superseding the earlier 25-Jul
   reference. A benchmark refresh is a `replace=True` re-import of a new asset (freeze-and-supersede: the
