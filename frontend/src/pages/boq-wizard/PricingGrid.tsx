@@ -62,7 +62,7 @@ import {
   type SetStateAction,
 } from "react";
 import { debounce, type DebouncedFunc } from "lodash";
-import { Palette, MessageSquare, AlertTriangle, Flag, Scale, ChevronRight, Check } from "lucide-react";
+import { Palette, MessageSquare, AlertTriangle, Flag, Scale, ChevronRight, Check, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -2617,43 +2617,63 @@ const PricingGridRow = memo(function PricingGridRow({
                     )}
                   />
                 )}
-                {/* U1 rate-helper: the suggestion badge. Its own click (stopPropagation) opens the
-                    panel; a bare click on the input beside it still just places the cursor. */}
-                {onSuggestionBadgeClick && rowSuggestions?.byCol[d.col] && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onSuggestionBadgeClick(
-                        row.source_row_number,
-                        d.col,
-                        e.currentTarget as HTMLElement,
-                      );
-                    }}
-                    className={cn(
-                      "inline-flex h-4 min-w-[16px] shrink-0 items-center justify-center rounded-full px-1 text-[10px] font-semibold leading-none",
-                      rowSuggestions.byCol[d.col].used
-                        ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
-                        : "bg-primary/15 text-primary hover:bg-primary/25",
-                    )}
-                    title={
-                      rowSuggestions.byCol[d.col].used
-                        ? "Suggested value used"
-                        : `${rowSuggestions.byCol[d.col].count} rate suggestion(s)`
-                    }
-                    aria-label={
-                      rowSuggestions.byCol[d.col].used
-                        ? "Suggested value used"
-                        : "Open rate suggestions"
-                    }
-                  >
-                    {rowSuggestions.byCol[d.col].used ? (
-                      <Check className="h-3 w-3" />
-                    ) : (
-                      rowSuggestions.byCol[d.col].count
-                    )}
-                  </button>
-                )}
+                {/* U1 rate-helper: the suggestion badge (a run produced N suggestions for this cell)
+                    OR, when this rate-editable cell has NO badge, an always-on FAINT opener so the
+                    pricer can bring up the helper and fill attributes by hand (owner request). Both
+                    stopPropagation, so a bare click on the input beside it still places the cursor. */}
+                {onSuggestionBadgeClick &&
+                  (rowSuggestions?.byCol[d.col] ? (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSuggestionBadgeClick(
+                          row.source_row_number,
+                          d.col,
+                          e.currentTarget as HTMLElement,
+                        );
+                      }}
+                      className={cn(
+                        "inline-flex h-4 min-w-[16px] shrink-0 items-center justify-center rounded-full px-1 text-[10px] font-semibold leading-none",
+                        rowSuggestions.byCol[d.col].used
+                          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+                          : "bg-primary/15 text-primary hover:bg-primary/25",
+                      )}
+                      title={
+                        rowSuggestions.byCol[d.col].used
+                          ? "Suggested value used"
+                          : `${rowSuggestions.byCol[d.col].count} rate suggestion(s)`
+                      }
+                      aria-label={
+                        rowSuggestions.byCol[d.col].used
+                          ? "Suggested value used"
+                          : "Open rate suggestions"
+                      }
+                    >
+                      {rowSuggestions.byCol[d.col].used ? (
+                        <Check className="h-3 w-3" />
+                      ) : (
+                        rowSuggestions.byCol[d.col].count
+                      )}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSuggestionBadgeClick(
+                          row.source_row_number,
+                          d.col,
+                          e.currentTarget as HTMLElement,
+                        );
+                      }}
+                      className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-muted-foreground/40 hover:bg-primary/10 hover:text-primary"
+                      title="Fill attributes to price this row"
+                      aria-label="Open rate helper"
+                    >
+                      <Sparkles className="h-3 w-3" />
+                    </button>
+                  ))}
                 <Input
                   {...inputFocusProps(colIndex)}
                   type="text"

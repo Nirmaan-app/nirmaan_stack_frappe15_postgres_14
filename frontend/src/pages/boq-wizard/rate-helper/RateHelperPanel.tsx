@@ -6,11 +6,21 @@
  * so a new helper needs no panel change. Nothing persists (guardrail G2).
  */
 import { useMemo, useState } from "react";
-import { X, ChevronRight, ChevronDown, Sparkles } from "lucide-react";
+import { X, ChevronRight, ChevronDown, Sparkles, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { resolveRateHelpers } from "./rateHelperRegistry";
-import { isSuggestion, type RateHelperRowContext } from "./rateHelperTypes";
+import { isSuggestion, type RateHelper, type RateHelperRowContext } from "./rateHelperTypes";
+
+/** Telemetry + write payload the page needs when a suggested value is used. */
+export interface UseMeta {
+  helperId: string;
+  kind: string;
+  /** The attribute values as used (after any manual correction in the panel). */
+  correctedAttributes: Record<string, string>;
+  /** The interpreter-computed value for this kind (before any manual final override). */
+  computedValue: number | null;
+}
 
 const KIND_LABELS: Record<string, string> = {
   supply_rate: "Supply",
@@ -29,12 +39,14 @@ interface RateHelperPanelProps {
   /** The clicked cell's rate-kind (the panel is scoped to this kind). */
   kind: string;
   ctx: RateHelperRowContext;
-  /** Apply a value to the (excelRow, col) rate cell through the real save path. */
-  onUse: (col: string, value: number) => void;
+  /** The page-built helper list (real pricing-sheet helper prepended); default = the static two. */
+  helpers?: RateHelper[];
+  /** Apply a value to the (excelRow, col) rate cell through the real save path + record telemetry. */
+  onUse: (col: string, value: number, meta: UseMeta) => void;
   onClose: () => void;
 }
 
-export function RateHelperPanel({ excelRow, col, kind, ctx, onUse, onClose }: RateHelperPanelProps) {
+export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onClose }: RateHelperPanelProps) {
   // Panel-session state ONLY (never persisted): per-helper attribute edits, which card is expanded,
   // and a per-helper final-value override (undefined => track the computed value).
   const [attrOverrides, setAttrOverrides] = useState<Record<string, Record<string, string>>>({});
@@ -42,8 +54,8 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, onUse, onClose }: Ra
   const [finalOverride, setFinalOverride] = useState<Record<string, string>>({});
 
   const evaluations = useMemo(
-    () => resolveRateHelpers(ctx, attrOverrides),
-    [ctx, attrOverrides],
+    () => resolveRateHelpers(ctx, attrOverrides, helpers),
+    [ctx, attrOverrides, helpers],
   );
 
   const setAttr = (helperId: string, attrId: string, value: string) => {
@@ -131,13 +143,32 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, onUse, onClose }: Ra
                     <div className="space-y-1.5">
                       {result.workings.attributes.map((a) => (
                         <label key={a.id} className="flex items-center justify-between gap-2 text-xs">
-                          <span className="text-muted-foreground">{a.label}</span>
+                          <span className="flex items-center gap-1 text-muted-foreground">
+                            {a.label}
+                            {typeof a.confidence === "number" && (
+                              <span className="tabular-nums text-[10px] opacity-70">
+                                {Math.round(a.confidence * 100)}%
+                              </span>
+                            )}
+                            {a.corroborated && (
+                              <CheckCircle2
+                                className="h-3 w-3 text-emerald-600 dark:text-emerald-400"
+                                aria-label="corroborated by pattern"
+                              />
+                            )}
+                          </span>
                           {a.options ? (
                             <select
                               className="h-7 rounded border bg-background px-1 text-xs"
                               value={a.value}
                               onChange={(e) => setAttr(helper.id, a.id, e.target.value)}
                             >
+                              {/* An EMPTY value (the AI could not read it, or a manual row) must not
+                                  masquerade as the first option -- show an explicit unset placeholder
+                                  so the pricer knows this attribute still needs a pick. */}
+                              <option value="" disabled>
+                                — select —
+                              </option>
                               {a.options.map((o) => (
                                 <option key={o} value={o}>
                                   {o}
@@ -185,7 +216,16 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, onUse, onClose }: Ra
                       size="sm"
                       className="h-8"
                       disabled={!canUse}
-                      onClick={() => onUse(col, finalNum)}
+                      onClick={() =>
+                        onUse(col, finalNum, {
+                          helperId: helper.id,
+                          kind,
+                          correctedAttributes: Object.fromEntries(
+                            result.workings.attributes.map((a) => [a.id, a.value]),
+                          ),
+                          computedValue: typeof computed === "number" ? computed : null,
+                        })
+                      }
                     >
                       Use this value
                     </Button>

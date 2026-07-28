@@ -129,9 +129,10 @@ import { buildChildrenByParent, collapsedAncestors, collapsibleParents, isHidden
 import { mergeRowsPreservingIdentity } from "./rowMerge";
 import { SheetDataGrid } from "./SheetDataGrid";
 import { SummaryPanel } from "./SummaryPanel";
-// U1 rate-helper chassis (DEV ONLY -- guardrail G1: dies at U2).
+// Rate-helper (DEV ONLY -- guardrail G1). RM-3: the helper is REAL (server extraction + the RM-2
+// interpreter client-side) with a persisted, version-keyed run; the U1 stub is gone.
 import { RATE_HELPER_ENABLED } from "./rate-helper/rateHelperFlag";
-import type { RowSuggestions } from "./rate-helper/rateHelperTypes";
+import type { ExtractionRow, RowSuggestions } from "./rate-helper/rateHelperTypes";
 import {
   buildRowContext,
   buildSuggestions,
@@ -139,7 +140,15 @@ import {
   rateKindOfDescriptor,
   rateKindsOf,
 } from "./rate-helper/rateSuggestionModel";
-import { RateHelperPanel } from "./rate-helper/RateHelperPanel";
+import { RateHelperPanel, type UseMeta } from "./rate-helper/RateHelperPanel";
+import { buildHelperList } from "./rate-helper/rateHelperRegistry";
+import {
+  buildExtractionByRow,
+  isRunForVersion,
+  makePricingSheetHelper,
+} from "./rate-helper/pricingSheetHelper";
+import { RateSuggestProgressModal } from "./rate-helper/RateSuggestProgressModal";
+import type { RateCategoryConfig, RateMasterItem } from "@/pages/pricing/rate-master/rateMasterTypes";
 
 // Slice 3c: "saved as of" uses the CLIENT clock at save-success (save_cell_price returns no
 // timestamp). HH:MM, mirroring SheetReviewPage's fmtSavedTime shape (client-clock seeded).
@@ -275,6 +284,49 @@ function ClassifyStatusPoller({
   useEffect(() => {
     if (msg) onStatus(discipline, msg);
   }, [msg, discipline, onStatus]);
+  return null;
+}
+
+// RM-3: the suggest-run status shape (get_suggest_status), mirroring the classify poll.
+interface SuggestRunResultRow {
+  excel_row: number;
+  description?: string;
+  attributes: Record<string, { value: string | number | null; confidence: number; corroborated?: boolean }>;
+}
+interface SuggestStatusResponse {
+  state: "running" | "done" | "idle";
+  done?: number;
+  total?: number;
+  status?: string;
+  ai_status?: string;
+  run_id?: string;
+  committed_version?: number;
+  results?: SuggestRunResultRow[];
+}
+
+/** RM-3: poll the suggest-run status for one sheet (cloned from ClassifyStatusPoller). `running`
+ * gates the 3s refresh; a non-running instance fetches once on mount (recovery). Renders no DOM. */
+function SuggestStatusPoller({
+  boq,
+  sheetName,
+  running,
+  onStatus,
+}: {
+  boq: string;
+  sheetName: string;
+  running: boolean;
+  onStatus: (msg: SuggestStatusResponse) => void;
+}) {
+  const { data } = useFrappeGetCall<{ message: SuggestStatusResponse }>(
+    "nirmaan_stack.api.boq.rate_master.get_suggest_status",
+    { boq, sheet_name: sheetName },
+    `boq-suggest-status::${boq}::${sheetName}`,
+    { refreshInterval: running ? 3000 : 0 },
+  );
+  const msg = data?.message;
+  useEffect(() => {
+    if (msg) onStatus(msg);
+  }, [msg, onStatus]);
   return null;
 }
 
@@ -422,6 +474,42 @@ const SheetPricingPage = () => {
     "nirmaan_stack.api.boq.wizard.classify.list_engines",
     {},
     boqId && sheetName ? "boq-classify-engines" : null,
+  );
+
+  // ── RM-3 rate-helper data (DEV-gated fetches; all null-keyed off when the flag/ids are absent) ──
+  // The RM-1 config + master (once per page, SWR-cached) feed the RM-2 interpreter CLIENT-SIDE.
+  const rmEnabled = RATE_HELPER_ENABLED && !!boqId && !!sheetName;
+  const { data: rmConfigData } = useFrappeGetCall<{ message: { config: RateCategoryConfig | null } }>(
+    "nirmaan_stack.api.boq.rate_master.get_rate_category_config",
+    { discipline: "Electrical", category_id: "wiring_cabling" },
+    RATE_HELPER_ENABLED ? "boq-rm-config-electrical-wiring" : null,
+  );
+  const { data: rmItemsData } = useFrappeGetCall<{ message: { items: RateMasterItem[] } }>(
+    "nirmaan_stack.api.boq.rate_master.get_rate_master_items",
+    { discipline: "Electrical" },
+    RATE_HELPER_ENABLED ? "boq-rm-items-electrical" : null,
+  );
+  // The ACTIVE suggestion run for this sheet (persistence -- version-keyed on load).
+  const { data: activeRunData, mutate: mutateActiveRun } = useFrappeGetCall<{
+    message: { run: { run_id: string; committed_version: number; ai_status: string; results: SuggestRunResultRow[]; run_at?: string } | null };
+  }>(
+    "nirmaan_stack.api.boq.rate_master.get_active_suggestion_run",
+    { boq: boqId ?? "", sheet_name: sheetName ?? "" },
+    rmEnabled ? undefined : null,
+  );
+  // This sheet's Use events (used-state restore).
+  const { data: suggestEventsData, mutate: mutateSuggestEvents } = useFrappeGetCall<{
+    message: { events: Array<{ excel_row: number; col: string; kind: string; run_id: string }> };
+  }>(
+    "nirmaan_stack.api.boq.rate_master.get_suggestion_events",
+    { boq: boqId ?? "", sheet_name: sheetName ?? "" },
+    rmEnabled ? undefined : null,
+  );
+  const { call: startSuggestCall } = useFrappePostCall(
+    "nirmaan_stack.api.boq.rate_master.start_suggest",
+  );
+  const { call: recordSuggestEventCall } = useFrappePostCall(
+    "nirmaan_stack.api.boq.rate_master.record_rate_suggestion_event",
   );
   const engineLabelByDiscipline = useMemo<Record<string, string>>(() => {
     const m: Record<string, string> = {};
@@ -765,6 +853,21 @@ const SheetPricingPage = () => {
     col: string;
     kind: string;
   } | null>(null);
+  // RM-3 suggest run: the run whose extraction drives the badges/panel (from the active run on
+  // load [version-keyed] OR a just-completed press). The async run's modal/poll state mirrors the
+  // classify run. `usedPairsRef` = the (row:col) pairs marked used (server events on load + this
+  // session's Uses), applied when the badge map is (re)built so a rebuild never loses a check.
+  const [suggestRun, setSuggestRun] = useState<{ runId: string; committedVersion: number; results: SuggestRunResultRow[] } | null>(null);
+  const [suggestModalOpen, setSuggestModalOpen] = useState(false);
+  const [suggestRunning, setSuggestRunning] = useState(false);
+  const [suggestProgress, setSuggestProgress] = useState<{ done: number; total: number } | null>(null);
+  const [suggestSummary, setSuggestSummary] = useState<{ status?: string; ai_status?: string; results?: unknown[]; run_id?: string } | null>(null);
+  const suggestRunningRef = useRef(false);
+  suggestRunningRef.current = suggestRunning;
+  const usedPairsRef = useRef<Set<string>>(new Set());
+  // Idempotent run-adoption: the last adopted run key (run_id::cv, or null). Guards the persistence
+  // effect from re-creating a NEW suggestRun object on every SWR reference churn (which loops).
+  const adoptedRunKeyRef = useRef<string | null | undefined>(undefined);
   // Single-editor lock (slice B): a mid-edit takeover (a save rejected with the
   // BOQ_PRICING_LOCKED marker -- another user acquired the lock) flips this true; the page
   // becomes read-only + shows the takeover banner until a fresh editable payload arrives.
@@ -883,8 +986,12 @@ const SheetPricingPage = () => {
     setCopyForwardOpen(false); // copy-forward dialog is per-sheet
     setCopyForwardMsg(null);
     setOverride(false); // Slice 3e: the override is per-sheet per-session -- reset on switch
-    setSuggestionsByExcelRow(new Map()); // U1 rate-helper: suggestions are per-sheet, page-session
+    setSuggestionsByExcelRow(new Map()); // rate-helper: suggestions are per-sheet, page-session
     setHelperPanel(null);
+    // RM-3: the run + used-pairs are per-sheet; the persistence effect re-adopts the new sheet's
+    // active run (version-keyed) and its Use events after the fetches land.
+    setSuggestRun(null);
+    usedPairsRef.current = new Set();
     setReviewOpen(false); // Slice 4a: the review-list strip is per-sheet
     setShowDismissed(false); // Slice 4b-ACKNOWLEDGE: the show-dismissed toggle is per-sheet
     setShowOnlyUnpriced(false); // Slice 4b-A: the unpriced filter is per-sheet
@@ -1876,12 +1983,114 @@ const SheetPricingPage = () => {
               : null;
   const suggestRatesDisabled = suggestRatesReason !== null;
 
-  const runSuggestRates = useCallback(() => {
-    setSuggestionsByExcelRow(
-      buildSuggestions(rows, columnDescriptors, override, categoriesByExcelRow),
-    );
+  // RM-3: config + master (SWR) feed the RM-2 interpreter CLIENT-SIDE (the single compute source).
+  const rmConfig = rmConfigData?.message?.config ?? null;
+  const rmItems = useMemo(() => rmItemsData?.message?.items ?? [], [rmItemsData]);
+  // The run's extraction, keyed by excel_row.
+  const extractionByRow = useMemo<Map<number, ExtractionRow>>(
+    () => buildExtractionByRow(suggestRun?.results ?? []),
+    [suggestRun],
+  );
+  // The page-built REAL helper (closure over config + master + the run's extraction). Null until a
+  // run + config are present -> before any run there are no badges. RATE_HELPER_ENABLED gates it.
+  const pricingSheetHelper = useMemo(
+    () =>
+      RATE_HELPER_ENABLED && rmConfig && suggestRun
+        ? makePricingSheetHelper({ config: rmConfig, items: rmItems, extractionByRow })
+        : null,
+    [rmConfig, rmItems, extractionByRow, suggestRun],
+  );
+  const helperList = useMemo(() => buildHelperList(pricingSheetHelper), [pricingSheetHelper]);
+
+  // PERSISTENCE (owner ruling): adopt the active run on load IFF its committed_version == the
+  // sheet's CURRENT version (version keying -- never suggest against rows that may have changed).
+  // IDEMPOTENT via adoptedRunKeyRef: only setState when the run identity (run_id::cv) actually
+  // changes, so a mere SWR reference churn does NOT re-create suggestRun (which would loop).
+  const activeRunForVersion = activeRunData?.message?.run ?? null;
+  const activeRunKey =
+    activeRunForVersion && isRunForVersion(activeRunForVersion.committed_version, commitVersion)
+      ? `${activeRunForVersion.run_id}::${activeRunForVersion.committed_version}`
+      : null;
+  useEffect(() => {
+    if (!RATE_HELPER_ENABLED) return;
+    if (adoptedRunKeyRef.current === activeRunKey) return; // no identity change -> no churn
+    adoptedRunKeyRef.current = activeRunKey;
+    const run = activeRunData?.message?.run ?? null;
+    if (activeRunKey && run) {
+      setSuggestRun({ runId: run.run_id, committedVersion: run.committed_version, results: run.results });
+    } else {
+      setSuggestRun(null);
+    }
+    // activeRunData read inside is fine: it only matters when activeRunKey (its identity) changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeRunKey]);
+
+  // A PRIMITIVE signature of this sheet's Use events -- stable by value across SWR reference churn,
+  // so the rebuild effect below only re-runs on a real content change (never on every render).
+  const suggestEventsKey = useMemo(() => {
+    const evs = suggestEventsData?.message?.events ?? [];
+    return evs.map((e) => `${e.excel_row}:${e.col}`).sort().join("|");
+  }, [suggestEventsData]);
+
+  // ONE rebuild effect (badge map from the run + rows, re-applying the recorded used pairs). The
+  // EMPTY-MAP GUARD (`prev.size === 0 ? prev`) is load-bearing: without it, a render before a run set
+  // a NEW empty Map every time -> re-render -> "Maximum update depth exceeded". All deps are stable
+  // (suggestRun is adopted idempotently; suggestEventsKey is a primitive), so it runs once per change.
+  useEffect(() => {
+    if (!RATE_HELPER_ENABLED) return;
+    if (suggestEventsKey) {
+      for (const pair of suggestEventsKey.split("|")) usedPairsRef.current.add(pair.replace(":", "::"));
+    }
+    if (!suggestRun || !pricingSheetHelper) {
+      setSuggestionsByExcelRow((prev) => (prev.size === 0 ? prev : new Map()));
+      return;
+    }
+    let map = buildSuggestions(rows, columnDescriptors, override, categoriesByExcelRow, helperList);
+    for (const pair of usedPairsRef.current) {
+      const [er, col] = pair.split("::");
+      map = markSuggestionUsed(map, Number(er), col);
+    }
+    setSuggestionsByExcelRow(map);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [suggestRun, pricingSheetHelper, rows, columnDescriptors, override, categoriesByExcelRow, helperList, suggestEventsKey]);
+
+  // The suggest status handler (poll + socket funnel here). done WINS; on success adopt the run.
+  const onSuggestStatus = useCallback(
+    (msg: SuggestStatusResponse) => {
+      if (msg.state === "running") {
+        if (typeof msg.done === "number" && typeof msg.total === "number") {
+          setSuggestProgress({ done: msg.done, total: msg.total });
+        }
+        return;
+      }
+      if (msg.state === "done") {
+        setSuggestRunning(false);
+        setSuggestSummary({ status: msg.status, ai_status: msg.ai_status, results: msg.results, run_id: msg.run_id });
+        if (msg.status === "success" && typeof msg.committed_version === "number" && msg.run_id) {
+          usedPairsRef.current = new Set(); // a NEW run supersedes -> no used pairs yet
+          setSuggestRun({ runId: msg.run_id, committedVersion: msg.committed_version, results: msg.results ?? [] });
+          void mutateActiveRun();
+          void mutateSuggestEvents();
+        }
+      }
+    },
+    [mutateActiveRun, mutateSuggestEvents],
+  );
+
+  // ASYNC press: enqueue the run, open the blocking modal; the poll/socket drive it to terminal.
+  const runSuggestRates = useCallback(async () => {
     setHelperPanel(null);
-  }, [rows, columnDescriptors, override, categoriesByExcelRow]);
+    setSuggestSummary(null);
+    setSuggestProgress(null);
+    setSuggestRunning(true);
+    setSuggestModalOpen(true);
+    try {
+      await startSuggestCall({ boq: boqId, sheet_name: sheetName });
+    } catch {
+      setSuggestRunning(false);
+      setSuggestSummary({ status: "error" });
+    }
+  }, [startSuggestCall, boqId, sheetName]);
 
   const handleSuggestionBadgeClick = useCallback(
     (excelRow: number, col: string, _cellEl: HTMLElement) => {
@@ -1893,14 +2102,47 @@ const SheetPricingPage = () => {
     [columnDescriptors],
   );
 
+  // USE: apply the value + optimistically mark used + record the Use telemetry (fire-and-forget).
   const handleUseSuggestion = useCallback(
-    (col: string, value: number) => {
+    (col: string, value: number, meta: UseMeta) => {
       if (!helperPanel) return;
-      gridRef.current?.applyRate(helperPanel.excelRow, col, value);
-      setSuggestionsByExcelRow((prev) => markSuggestionUsed(prev, helperPanel.excelRow, col));
+      const excelRow = helperPanel.excelRow;
+      gridRef.current?.applyRate(excelRow, col, value);
+      usedPairsRef.current.add(`${excelRow}::${col}`);
+      setSuggestionsByExcelRow((prev) => markSuggestionUsed(prev, excelRow, col));
+      const ext = extractionByRow.get(excelRow);
+      const extractedAttributes: Record<string, unknown> = {};
+      const extractedConfidences: Record<string, number> = {};
+      if (ext) {
+        for (const [k, cell] of Object.entries(ext.attributes)) {
+          extractedAttributes[k] = cell.value;
+          extractedConfidences[k] = cell.confidence;
+        }
+      }
+      void recordSuggestEventCall({
+        boq: boqId,
+        sheet_name: sheetName,
+        excel_row: excelRow,
+        col,
+        kind: meta.kind,
+        helper_id: meta.helperId,
+        category_id: categoriesByExcelRow.get(excelRow)?.effective_category_id ?? "",
+        run_id: suggestRun?.runId ?? "",
+        extracted_attributes: extractedAttributes,
+        extracted_confidences: extractedConfidences,
+        corrected_attributes: meta.correctedAttributes,
+        computed_value: meta.computedValue,
+        used_value: value,
+      })
+        .then(() => {
+          void mutateSuggestEvents();
+        })
+        .catch(() => {
+          /* telemetry never blocks the save */
+        });
       setHelperPanel(null);
     },
-    [helperPanel],
+    [helperPanel, extractionByRow, boqId, sheetName, categoriesByExcelRow, suggestRun, recordSuggestEventCall, mutateSuggestEvents],
   );
 
   // The open panel's row context, built from the SAME page data buildSuggestions used.
@@ -2945,6 +3187,28 @@ const SheetPricingPage = () => {
           setClassifyProgress(null);
         }}
       />
+      {/* RM-3: the suggest-run modal + status poller (recovery on mount; 3s poll while running). */}
+      {RATE_HELPER_ENABLED && boqId && sheetName && (
+        <SuggestStatusPoller
+          boq={boqId}
+          sheetName={sheetName}
+          running={suggestRunning}
+          onStatus={onSuggestStatus}
+        />
+      )}
+      {RATE_HELPER_ENABLED && (
+        <RateSuggestProgressModal
+          open={suggestModalOpen}
+          running={suggestRunning}
+          sheetName={(sheetName ?? "").trim()}
+          progress={suggestProgress}
+          summary={suggestSummary}
+          onClose={() => {
+            setSuggestModalOpen(false);
+            setSuggestProgress(null);
+          }}
+        />
+      )}
       {!classifyRunning && !classifyModalOpen && classifySummary && classifySummary.status === "error" && (
         <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -3544,6 +3808,7 @@ const SheetPricingPage = () => {
             col={helperPanel.col}
             kind={helperPanel.kind}
             ctx={helperPanelCtx}
+            helpers={helperList}
             onUse={handleUseSuggestion}
             onClose={() => setHelperPanel(null)}
           />

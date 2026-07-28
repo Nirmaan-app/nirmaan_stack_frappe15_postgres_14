@@ -16,12 +16,31 @@
 export type RateKind = string;
 
 /** One editable attribute in a helper's workings. `options` present => a select; absent => free text.
- * Editing an attribute re-runs the helper's compute (panel-session only). */
+ * Editing an attribute re-runs the helper's compute (panel-session only). RM-3: choice/number attrs
+ * carry the AI `confidence` and a `corroborated` tick (regex agreed) for display -- never gating. */
 export interface WorkingsAttribute {
   id: string;
   label: string;
   options?: string[];
   value: string;
+  /** AI confidence 0..1 for the EXTRACTED value (absent for a manually-added attr). */
+  confidence?: number;
+  /** The regex corroborator agreed with the AI value (display-only tick). */
+  corroborated?: boolean;
+}
+
+/** One row's AI-extracted attributes from a suggestion run (RM-3). The value is null when the AI
+ * could not determine it (honest partial); confidence is per-attribute; corroborated is the
+ * display-only regex-agreement tick. */
+export interface ExtractedAttr {
+  value: string | number | null;
+  confidence: number;
+  corroborated?: boolean;
+}
+export interface ExtractionRow {
+  excelRow: number;
+  description?: string;
+  attributes: Record<string, ExtractedAttr>;
 }
 
 /** The STRUCTURED workings a Suggestion carries -- rendered generically by the panel. */
@@ -39,8 +58,13 @@ export interface WorkingsSection {
 /** A helper produced a suggestion. */
 export interface Suggestion {
   kind: "suggestion";
-  /** Suggested value per rate-kind. A kind absent here => this helper has no value for that kind. */
+  /** Suggested value per rate-kind. A kind absent here => this helper has no COMPUTED value for
+   * that kind yet (e.g. a partial extraction missing an attribute). */
   values: Partial<Record<RateKind, number>>;
+  /** The rate-kinds this helper CAN price for the row (even when the current value is missing due
+   * to a partial extraction) -- so a partial row still BADGES (the pricer opens the panel to
+   * complete it). Absent => fall back to `values` for badge counting (the two dead helpers). */
+  producibleKinds?: RateKind[];
   /** One-line basis (what the suggestion rests on). */
   basis: string;
   workings: WorkingsSection;
