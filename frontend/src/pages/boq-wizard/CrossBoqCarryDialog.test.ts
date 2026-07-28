@@ -28,6 +28,7 @@ import {
   buildLayersPayload,
   nothingToCarry,
   carrySelectionSummary,
+  rateWriteCount,
   type LayerChoices,
 } from "./CrossBoqCarryDialog";
 import { CARRY_LAYER_KEYS } from "./boqTypes";
@@ -719,5 +720,65 @@ describe("carrySelectionSummary (the 'Will carry ...' line)", () => {
     for (const key of CARRY_LAYER_KEYS) {
       expect(line).toContain(LAYER_LABEL[key].toLowerCase());
     }
+  });
+});
+
+// ── AMENDMENT E follow-up: the "Will carry ..." line must count WRITES, not selection ──────
+// Found by the live E2E: on a re-run every conflict is pre-selected with Keep, so the dialog
+// promised "Will carry 12 rates" and the apply answered "Nothing was carried. 12 existing rates
+// left as they were." The layer half already respected the choice, so one sentence disagreed
+// with itself.
+describe("rateWriteCount (what the apply will actually write)", () => {
+  const k = (r: number) => cellKey("Electrical", { dest_excel_row: r, area: null, rate_kind: "combined_rate" });
+  const mixed = sheet({
+    plan: [
+      row({ dest_excel_row: 10, outcome: 2 }),                      // clean
+      row({ dest_excel_row: 11, outcome: 2 }),                      // clean
+      row({ dest_excel_row: 12, outcome: 3, current_rate: 999 }),   // conflict
+      row({ dest_excel_row: 13, outcome: 3, current_rate: 888 }),   // conflict
+      row({ dest_excel_row: 14, outcome: 1, skip_reason: "removed" }), // hard skip
+    ],
+  });
+  const all = new Set([k(10), k(11), k(12), k(13), k(14)]);
+
+  it("counts a selected clean copy", () => {
+    expect(rateWriteCount(mixed, new Set([k(10), k(11)]), {})).toBe(2);
+  });
+
+  it("does NOT count a selected conflict left on Keep -- it writes nothing", () => {
+    expect(rateWriteCount(mixed, new Set([k(12), k(13)]), {})).toBe(0);
+  });
+
+  it("counts a selected conflict once Overwrite is armed", () => {
+    expect(rateWriteCount(mixed, new Set([k(12), k(13)]), { [k(12)]: true })).toBe(1);
+  });
+
+  // THE regression: everything selected, every conflict on Keep -> only the clean rows write.
+  it("counts only the clean rows when all are selected and no conflict is armed", () => {
+    expect(rateWriteCount(mixed, all, {})).toBe(2);
+  });
+
+  it("never counts a hard skip, selected or not", () => {
+    expect(rateWriteCount(mixed, new Set([k(14)]), { [k(14)]: true })).toBe(0);
+  });
+
+  it("is 0 for an unselected plan and for a missing sheet", () => {
+    expect(rateWriteCount(mixed, new Set(), {})).toBe(0);
+    expect(rateWriteCount(null, all, {})).toBe(0);
+    expect(rateWriteCount(undefined, all, {})).toBe(0);
+  });
+
+  it("the all-Keep re-run case reports NOTHING rather than the selection size", () => {
+    const carried = sheet({
+      plan: [10, 11, 12].map((r) => row({ dest_excel_row: r, outcome: 3, current_rate: 5 })),
+    });
+    const sel = new Set([10, 11, 12].map(k));
+    expect(sel.size).toBe(3);                          // all selected ...
+    expect(rateWriteCount(carried, sel, {})).toBe(0);  // ... and none of them write
+    // and so the sentence promises nothing, matching the apply's own answer
+    const none = Object.fromEntries(
+      CARRY_LAYER_KEYS.map((key) => [key, { carry: false, overwrite: false }]),
+    ) as LayerChoices;
+    expect(carrySelectionSummary(rateWriteCount(carried, sel, {}), carried, none)).toBe("");
   });
 });
