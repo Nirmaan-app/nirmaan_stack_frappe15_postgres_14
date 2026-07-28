@@ -1034,6 +1034,21 @@ in the plan doc.
 - **The viewer search is CASE-SENSITIVE across all displayed cell values** -- the data is canonical
   UPPERCASE, so a mixed-case query intentionally finds nothing (mirrors the RM ethos: no case-insensitive
   matching anywhere).
+- **RM-4a editing is ADMIN-ONLY (owner option (a); full detail in the plan doc's "Build slice RM-4a").**
+  Estimates sees everything READ-ONLY -- every edit affordance is `{isAdmin && ...}` (HIDDEN, never
+  disabled), gated by the pure `isRateMasterAdmin(role, userId)` in `rateMasterEdit.ts` (mirrors
+  `canAdminOverride` / the server `_is_nirmaan_admin`; false while `role` is "Loading"/"Error"). The server
+  (four `api/boq/rate_master.py` write endpoints) is authoritative. **PARAM VALUES ONLY** -- pipeline
+  STRUCTURE / condition / attribute-definition editing is RM-4b. **Derivation tab:** each NUMERIC param in a
+  step's `detail` cell is an inline edit (`InlineParamEdit`: pencil -> input, Enter saves / Escape cancels);
+  the condition `when` + string params (e.g. `kind`) stay read-only. The matched-condition path is
+  re-derived by `matchedConditionIndex` (config + matched item, EXACTLY as the interpreter matches) so the
+  interpreter is NEVER touched. **Data tab:** an admin ACTIONS column (inline row rate/attr edit; deactivate
+  via AlertDialog confirm -- freeze-and-supersede, dropped from active view, NEVER deleted) + an `AddItemDialog`
+  built from the attribute definitions + rate keys; manual rows carry "Manual entry" provenance. Each write
+  refetches its collection so the derivation/viewer recompute live -- and the persistence split carries the
+  edit into the next pricing-panel compute with NO AI re-run. The interpreter goldens stay the invariant any
+  edit must still reproduce after an edit-and-revert.
 
 ## Important Notes
 

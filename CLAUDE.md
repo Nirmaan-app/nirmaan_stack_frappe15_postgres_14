@@ -348,7 +348,24 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   (`active=0`, rows retained) and loads fresh — idempotent, no duplicate active rows. Import runs
   service-side (`services/boq_rate_master/loader.py`); RM-1 ships NO write endpoint. Reads are the
   login-required, active-only endpoints in `api/boq/rate_master.py` (`get_rate_master_items` /
-  `get_rate_category_config`); editors are RM-4.
+  `get_rate_category_config`); the editors are RM-4a (SHIPPED — see below).
+- **RM-4a editing endpoints (ADMIN-ONLY, owner option (a); full as-built in the plan doc's "Build slice
+  RM-4a").** Four `@frappe.whitelist(methods=["POST"])` writes in `api/boq/rate_master.py`:
+  `update_rate_config_param` / `update_rate_master_item` / `create_rate_master_item` /
+  `deactivate_rate_master_item`. ALL gate on the IMPORTED `pricing._is_nirmaan_admin` (never a re-minted
+  copy), admin gate BEFORE any target resolution or write (`frappe.PermissionError` otherwise). **The
+  AUDITED write recipe is `doc.save(ignore_permissions=True, ignore_version=False)`** (get_doc → json.loads
+  → mutate the parsed dict → json.dumps → save → commit): both doctypes are `track_changes:1` with
+  DICT-valued JSON only (config/attributes/rates — no BoQ-Sheet-style list-valued field), so `doc.save` is
+  safe AND records a `Version` diff. **`set_value` is FORBIDDEN for these edits — it bypasses the doc
+  lifecycle, so it skips the Version audit.** The explicit `ignore_version=False` is load-bearing (Frappe
+  defaults `ignore_version = frappe.flags.in_test`, so without it the audit Version is suppressed under
+  `bench run-tests`). **PARAM VALUES ONLY** (numeric; the addressed `config.pipelines[id].steps[i].params` /
+  `.conditions[j].params` path must ALREADY exist — adding/removing a param, editing conditions, or
+  attribute definitions is RM-4b → validation error, no write). A manual `create` stamps provenance
+  `import_batch="manual-"+hash` / `source_sheet="Manual entry"` / `source_row=0`; `deactivate` sets
+  `active=0` (RETAINED, never deleted). Frontend HIDES every affordance for non-admins (`isRateMasterAdmin`;
+  the server is authoritative). The first `Version` docs for the two rate-master doctypes now exist.
 - **Benchmark data (owner ruling):** the committed data asset is the **28-Jul benchmark workbook**
   (`rate_master_wiring_cabling_v3.json`) — the reference going forward, superseding the earlier 25-Jul
   reference. A benchmark refresh is a `replace=True` re-import of a new asset (freeze-and-supersede: the
