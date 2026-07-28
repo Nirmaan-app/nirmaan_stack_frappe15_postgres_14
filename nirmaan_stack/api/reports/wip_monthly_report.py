@@ -162,32 +162,46 @@ def _period_day_set(cstart, cend):
     return days
 
 
-def _compliance_metrics(active_days, dpr_days, inv_days):
-    """Day-based DPR + Inventory compliance for one active-day set.
+def _compliance_metrics(active_days, dpr_days, inv_report_count):
+    """DPR (day-based) + Inventory (volume-based) compliance for one active-day set.
 
-    ``active_days`` is the set of active calendar dates; ``dpr_days`` / ``inv_days``
-    are the project's distinct DPR / Inventory report dates in the month.
+    ``active_days`` is the set of active calendar dates; ``dpr_days`` is the project's
+    distinct DPR report dates in the month; ``inv_report_count`` is a plain COUNT of
+    inventory report DOCUMENTS (see below — the caller decides its scope).
 
     DPR (DAILY, Sundays excluded): the working days are the active non-Sunday days.
     ``total_dpr_days`` = working days that have a DPR, ``missing_dpr_days`` = working
     days without one — so ``active_working_days == total + missing`` by construction.
 
-    Inventory (WEEKLY, Mondays): ``expected_inventory`` = active Mondays;
-    ``actual_inventory`` = active Mondays whose inventory report is dated on that
-    exact Monday; ``missing_inventory`` = expected − actual.
+    Inventory (WEEKLY cadence, VOLUME actual): ``expected_inventory`` = active Mondays
+    (one report expected per active week); ``actual_inventory`` = how many inventory
+    reports were actually FILED; ``missing_inventory`` = the shortfall, CLAMPED at 0.
+
+    The clamp is required, not cosmetic — ``actual`` is an unbounded document count and
+    routinely exceeds ``expected`` on live data (a project filing 6 reports against 5
+    active Mondays would otherwise render −1). Same reason ``missing_dn`` /
+    ``missing_dc`` are clamped.
+
+    NOTE (owner ruling): ``actual_inventory`` counts DOCUMENTS, not covered Mondays. It
+    deliberately no longer keys on the report landing on its Monday, so a project filing
+    on a cadence other than Monday is no longer penalised — and, by the same token, the
+    strict-Monday cadence signal is no longer surfaced by this report.
+
+    A count (rather than a date set) is taken because a document count is NOT
+    recoverable from a set of dates — dedup has already happened. Passing the scalar
+    also keeps the scope policy at the call site, where it is visible.
     """
     working = {d for d in active_days if d.weekday() != SUNDAY}
     mondays = {d for d in active_days if d.weekday() == MONDAY}
     total_dpr = len(working & dpr_days)
     expected_inv = len(mondays)
-    actual_inv = len(mondays & inv_days)
     return {
         "active_working_days": len(working),
         "total_dpr_days": total_dpr,
         "missing_dpr_days": len(working) - total_dpr,
         "expected_inventory": expected_inv,
-        "actual_inventory": actual_inv,
-        "missing_inventory": expected_inv - actual_inv,
+        "actual_inventory": inv_report_count,
+        "missing_inventory": max(0, expected_inv - inv_report_count),
     }
 
 
@@ -214,6 +228,54 @@ def _distinct_dates_by_project(table, date_col, project_ids, month_start, month_
     for r in rows:
         out.setdefault(r.project, set()).add(getdate(r.d))
     return out
+
+
+def _report_dates_by_project(table, date_col, project_ids, month_start, month_end_excl):
+    """Per-project LIST of business dates in the month — ONE ENTRY PER DOCUMENT.
+
+    Deliberately NOT deduped (contrast ``_distinct_dates_by_project``, which the
+    day-based DPR metric still uses): the inventory ``actual`` is a document COUNT, so
+    two reports filed on the same day must count twice. Returning dates rather than a
+    bare count lets the caller bucket the same rows per stint.
+    """
+    if not project_ids:
+        return {}
+    rows = frappe.db.sql(
+        f'''
+        SELECT project, COALESCE({date_col}, creation::date) AS d
+        FROM "{table}"
+        WHERE project IN %(ids)s
+          AND COALESCE({date_col}, creation::date) >= %(start)s
+          AND COALESCE({date_col}, creation::date) <  %(end)s
+        ''',
+        {"ids": tuple(project_ids), "start": month_start, "end": month_end_excl},
+        as_dict=True,
+    )
+    out = {}
+    for r in rows:
+        out.setdefault(r.project, []).append(getdate(r.d))
+    return out
+
+
+# A Delivery Note whose PO is Non-Billable can NEVER acquire a DC — the DC/MIR upload
+# path rejects Non-Billable POs outright (see api/delivery_challans_data.py). Counting
+# such DNs as "missing a DC" is permanently unclearable, so they are subtracted out of
+# the G5 gap. Two joins-worth of care:
+#   * matched on the legacy ``procurement_order`` Link, NOT ``parent_docname`` — the DN
+#     polymorphism migration is only partly applied, so ``parent_docname`` is NULL on
+#     every row while ``procurement_order`` is reliably set.
+#   * only the EXPLICIT 'Non-Billable' string counts; a blank billing_status means
+#     Billable (procurement_orders.py leaves it empty for an item-less PO), matching
+#     the frontend convention everywhere.
+# ITM-parented DNs have no PO, so they do not match and stay in the gap (owner call).
+_NON_BILLABLE_DN_CLAUSE = '''
+          AND is_return = 0
+          AND EXISTS (
+              SELECT 1 FROM "tabProcurement Orders" po
+              WHERE po.name = "tabDelivery Notes".procurement_order
+                AND po.billing_status = 'Non-Billable'
+          )
+'''
 
 
 def _lifetime_counts_by_project(table, project_ids, extra=""):
@@ -309,12 +371,15 @@ def get_wip_monthly_report(month=None):
     if not active_ids:
         return {"month": month, "rows": []}
 
-    # DPR / Inventory (G2/G3): month-scoped, day-based — each project's distinct
-    # report-date SETS, intersected with the active-day set below.
+    # DPR (G2): month-scoped and DAY-based — distinct report-date SETS, intersected
+    # with the active-day set below.
+    # Inventory (G3): month-scoped and VOLUME-based — one entry per DOCUMENT, so the
+    # dates are NOT deduped and are NOT intersected with the active window on the
+    # project row (owner ruling: count every report dated in the month).
     dpr_table, dpr_col = _SPEC_BY_KEY["dpr"]
     inv_table, inv_col = _SPEC_BY_KEY["inventory"]
     dpr_dates = _distinct_dates_by_project(dpr_table, dpr_col, active_ids, month_start, month_end_excl)
-    inv_dates = _distinct_dates_by_project(inv_table, inv_col, active_ids, month_start, month_end_excl)
+    inv_report_dates = _report_dates_by_project(inv_table, inv_col, active_ids, month_start, month_end_excl)
 
     # PO-dispatch (G4) + DC (G5): LIFETIME totals, NOT month-scoped. DISPATCHED_PO_STATUSES
     # is a code constant (no user input) so its literals are safe to inline.
@@ -323,6 +388,12 @@ def get_wip_monthly_report(month=None):
         "tabProcurement Orders", active_ids, f"AND status IN ({status_in})"
     )
     total_dn = _lifetime_counts_by_project("tabDelivery Notes", active_ids, "AND is_return = 0")
+    # Subtracted out of the G5 gap only — `total_dn` above stays the FULL count, so the
+    # displayed Total DN / Total DC / Missing DC do not visibly reconcile (owner chose
+    # to keep this subtraction implicit rather than add a column).
+    non_billable_dn = _lifetime_counts_by_project(
+        "tabDelivery Notes", active_ids, _NON_BILLABLE_DN_CLAUSE
+    )
     total_dc = _lifetime_counts_by_project(
         "tabPO Delivery Documents", active_ids,
         "AND type = 'Delivery Challan' AND parent_doctype = 'Procurement Orders'",
@@ -332,7 +403,7 @@ def get_wip_monthly_report(month=None):
     for pid, periods in proj_periods.items():
         p = proj_map[pid]
         pdpr = dpr_dates.get(pid, set())
-        pinv = inv_dates.get(pid, set())
+        pinv = inv_report_dates.get(pid, [])
 
         all_days = set()
         per_stint_days = []
@@ -348,7 +419,12 @@ def get_wip_monthly_report(month=None):
                 "start": pr["start"].isoformat(),
                 "end": "ongoing" if pr["end"] is None else pr["end"].isoformat(),
                 "days": pr["days"],
-                **_compliance_metrics(sdays, pdpr, pinv),
+                # A stint counts only the reports dated inside ITS OWN window, while the
+                # project row counts the whole month — so the stints can sum to LESS than
+                # the parent when a report was filed while the project was inactive.
+                # That is intended (it follows from the whole-month scope ruling) and is
+                # the one place the "per-stint sums to parent" property no longer holds.
+                **_compliance_metrics(sdays, pdpr, sum(1 for d in pinv if d in sdays)),
             }
             for pr, sdays in zip(periods, per_stint_days)
         ]
@@ -361,7 +437,8 @@ def get_wip_monthly_report(month=None):
                 "project": pid,
                 "project_name": p.project_name or pid,
                 "days_active": sum(pr["days"] for pr in periods),
-                **_compliance_metrics(all_days, pdpr, pinv),
+                # Whole-month document count — NOT intersected with the active window.
+                **_compliance_metrics(all_days, pdpr, len(pinv)),
                 "active_start": periods[0]["start"].isoformat(),
                 "active_end": "ongoing" if periods[-1]["end"] is None else periods[-1]["end"].isoformat(),
                 "stints": len(periods),
@@ -370,9 +447,12 @@ def get_wip_monthly_report(month=None):
                 "dispatched_po": n_dispatched,
                 "total_dn": n_dn,
                 "missing_dn": max(0, n_dispatched - n_dn),
-                # G5 — DC compliance (lifetime). Missing = total DN − total DC, clamped at 0.
+                # G5 — DC compliance (lifetime). Missing = total DN − Non-Billable DN −
+                # total DC, clamped at 0. The Non-Billable term removes DNs that can
+                # never acquire a DC (see _NON_BILLABLE_DN_CLAUSE); the clamp still does
+                # real work — several live projects go negative before it.
                 "total_dc": n_dc,
-                "missing_dc": max(0, n_dn - n_dc),
+                "missing_dc": max(0, n_dn - non_billable_dn.get(pid, 0) - n_dc),
                 "periods": child_periods,
             }
         )

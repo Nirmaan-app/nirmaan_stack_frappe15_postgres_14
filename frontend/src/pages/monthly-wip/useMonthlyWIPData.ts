@@ -8,8 +8,12 @@ export interface WipCompliance {
   total_dpr_days: number;      // working days that have a DPR
   missing_dpr_days: number;    // working days without a DPR (total + missing == working days)
   expected_inventory: number;  // active Mondays (one inventory expected each)
-  actual_inventory: number;    // active Mondays whose inventory report is dated that Monday
-  missing_inventory: number;   // expected − actual
+  // COUNT of inventory report DOCUMENTS — not "Mondays covered". Any weekday counts, and
+  // it is UNBOUNDED, so it can legitimately exceed `expected_inventory` (over-delivery).
+  // On a project row it counts every report dated in the month, active window or not;
+  // on a stint it counts only reports dated inside that stint's window.
+  actual_inventory: number;
+  missing_inventory: number;   // max(0, expected − actual) — clamped, so never negative
 }
 
 /** One active stint (WIP or Handover) within the selected month. */
@@ -35,7 +39,11 @@ export interface WipMonthlyRow extends WipCompliance {
   missing_dn: number;     // max(0, dispatched_po − total_dn)
   // G5 — DC compliance (LIFETIME, month-independent):
   total_dc: number;       // Delivery Challan docs (PO-parented)
-  missing_dc: number;     // max(0, total_dn − total_dc)
+  // max(0, total_dn − DNs whose PO is Non-Billable − total_dc). A Non-Billable PO can
+  // never acquire a DC (the upload path rejects it), so those DNs are subtracted out.
+  // That subtrahend is deliberately NOT surfaced (owner: keep it implicit), so
+  // total_dn − total_dc will NOT equal missing_dc on screen.
+  missing_dc: number;
   periods: WipPeriod[];
 }
 
