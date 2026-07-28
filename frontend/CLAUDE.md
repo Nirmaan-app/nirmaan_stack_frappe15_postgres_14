@@ -27,7 +27,35 @@ yarn build
 ```bash
 yarn test-local
 # Opens Cypress E2E tests in Chrome browser
+
+yarn test
+# vitest, environment: "node" -- unit tests only. NOT run by CI (.github/workflows/ci.yml runs
+# the Python bench suite only), so this is a LOCAL gate.
 ```
+
+**There is NO DOM test environment** — no jsdom / happy-dom / `@testing-library`, a deliberate
+choice recorded in `vitest.config.ts`. **Load-bearing consequence:** anything whose correctness is
+a React *semantic* — a component mounting, unmounting, or preserving state across a render — is
+STRUCTURALLY untestable here; only pure in/out helpers can be covered, and a pure helper extracted
+from such a component passes happily while the component itself misbehaves. (Same trap the Pricing
+Module records at PW-2b-i: the tests assert the emitted formula TEXT and cannot see that the engine
+mis-reads it at runtime.) When a change turns on a React semantic, the honest verification is a
+live browser A/B — revert, reproduce, restore, re-verify — not a unit test.
+
+**App-shell invariant (guarded by nothing but this note + a comment in the file):** the navigation
+reset in `components/common/ErrorBoundaryWrapper.tsx` MUST NOT be a React `key`. A changing `key`
+is an unmount instruction, and that boundary wraps `<Outlet />` in `MainLayout` — keying it on the
+location rebuilds EVERY routed page on EVERY navigation, and silently destroys page state on a
+same-route param change (the BoQ pricing editor's sheet-tab strip is exactly that shape). Reset it
+by comparing a `resetKey` prop instead.
+
+> **DEFERRED — owner reminder:** add a DOM environment so the invariant above can be pinned by a
+> test. Agreed scope: `jsdom` ONLY (no `@testing-library`), a per-file `// @vitest-environment
+> jsdom` docblock so the global `environment: "node"` and every existing suite stay untouched, and
+> one test file whose primary case is *a same-route param change must not remount the child*.
+> ⚠️ Pin **`jsdom@^26`** — jsdom 27+ requires Node >= 22 and the dev container runs Node 20.
+> ⚠️ Install INSIDE the container (host `node_modules` is linux-arm64). An interrupted `yarn add`
+> PRUNES `node_modules` and breaks the runner — recover with `yarn install --frozen-lockfile`.
 
 ### Preview Production Build
 ```bash
@@ -292,13 +320,29 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   source_boq` — with no original the action does not exist, so a disabled button would be a lie), then loading, then
   no-mapped-source, then **locked**, then the formula gate, then nothing-to-carry. It calls `gridRef.current?.flush()`
   BEFORE opening — the carry writes underneath the grid and a pending draft saved afterwards would overwrite a carried
-  rate. **AMENDMENT D: the dialog is RATES-ONLY.** The "Annotations & categories" block, its per-layer Keep/Overwrite
-  toggles and the eight pure layer helpers are DELETED, along with the `layers` POST field and the `CrossBoqCarryLayer*`
-  types — do not reintroduce them. Readiness is `counts.clean + counts.conflict > 0` (annotations no longer make the
-  button ready), and the destructive footer reports **armed RATE overwrites** via the pure `armedRateOverwrites` —
-  it was re-pointed, NOT deleted, because otherwise removing the layers would have removed the only "there is no undo"
-  warning while the destructive action remained. Emerald is BANNED inside the dialog — it means priced/succeeded in
+  rate. **AMENDMENT E (2026-07-28) REVERSED Amendment D: the dialog carries the four non-rate layers again, OPT-IN.**
+  An "Also carry" block (single-sheet mode ONLY; hidden when the server sends no `sheet.layers`, disabled when the
+  formula gate blocks the sheet) offers one row per `CARRY_LAYER_KEYS` entry with a Keep/Overwrite pair shown only when
+  `kept > 0`. **Defaults categories ON, the three annotation layers OFF — a UI default living ONLY in
+  `initialLayerChoices()`; never push it into the server** (an omitted `layers` payload is rates-only, which is exactly
+  what a pre-E client keeps getting). The plan walks every layer with overwrite OFF, so
+  `layerMoveCount = carried + (overwrite ? kept : 0)`. **Three gates had to widen to BOTH axes, and each matters:**
+  `nothingToCarry` replaces `selectedCount === 0` (unticking every rate but leaving Categories ticked is real work);
+  the destructive footer counts rates and layer records **separately** (they are not the same kind of loss); and
+  `summarizeSheetCarry`'s "Nothing was carried." branch keys off every axis (a category-only carry is the LIKELIEST
+  shape — a revision whose rates all conflict can still take the whole category set). Readiness is still
+  `counts.clean + counts.conflict > 0`. Emerald is BANNED inside the dialog — it means priced/succeeded in
   this screen and belongs to the button + the post-apply line.
+- **The "carried" verdict state (Amendment E, owner ruling 2026-07-28):** `deriveVerdictState` gains `"carried"`,
+  rendered as sky text + `CornerDownRight` + a `carried from <BOQ>` tooltip. It marks **EVERY carried row, machine or
+  human** — provenance is the axis, and "who decided it" does not answer "was this inherited?"; the check therefore sits
+  ABOVE the human check. Its one input is `SheetCategoryRow.carried_from_boq`, which `resolvedToSheetCategoryRow` MUST
+  pass through — unlike `cross_engine_conflict`/`review_priority`/`votes` (telemetry, deliberately dropped), this is
+  provenance, and dropping it fails SILENTLY (every carried row renders as locally decided). Both gates built on
+  `deriveVerdictState` are unaffected and test-pinned: `isRowEditable` (`!== "unclassified"`, so a carried row stays
+  correctable) and `isMasterSetBlank` (`=== "unclassified"`, so an inherited category still opens the rate gate).
+  ⚠️ `SheetPricingPage`'s `onApplied` MUST call `mutateCategories()` — Amendment D had removed it as a dead
+  round-trip, and that reasoning expired with the layer it was based on.
 - **Formula engine arc F1–F4 (COMPLETE):** PURE `amountFormula.ts` (evaluate) + `AmountFormulaBuilder.tsx` /
   `formulaTokens.ts` (author; click-to-insert, NO literals) + `PricingGrid.evaluateAmountCell` (compute;
   formula-wins-else-pairing, draft-aware, fail-safe BLANK on any missing operand — never a stale number).
@@ -348,14 +392,50 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   editable"). `hasRun` is a GRID-LEVEL prop = `categoriesByExcelRow.size > 0` (page passes it; same size>0 truth that
   gates the filter button) — it is DELIBERATELY NOT in `pricingRowPropsAreEqual` (a pure function of the already-compared
   `categoriesByExcelRow`, so it never flips without that map's ref changing). The Category cell shows an amber FILL
-  (`bg-amber-50 dark:bg-amber-950/30`, the grid's attention-fill token) when (a) an eligible cell has a BLANK effective
-  category (`unclassified`, with or without a record), or (b) a `needs_review` cell HAS a category — case (b) ALSO
-  switches text to high-contrast `text-black dark:text-white` (amber-on-amber was illegible) and keeps its amber dot. The
-  fill CLEARS automatically when a category is set (effective non-blank → state leaves `unclassified`/`needs_review`); do
-  NOT add clearing code. Backend: `set_row_category`→`persist.set_human_verdict` UPSERTS (creates a `BoQ Row Category`
-  when none exists) so a verdict on a no-record eligible row persists. The "Check Category" filter button is the CL-3
-  needs-review filter RENAMED (visible label only — `showNeedsReview`/`isNeedsReviewCategory`/the `"Needs review"`
-  routing literal are unchanged).
+  (`bg-amber-50 dark:bg-amber-950/30`, the grid's attention-fill token) exactly when the **ONE shared predicate
+  `isMasterSetBlank(row, cat)` = `isPriceableType(row.node_type) && deriveVerdictState(cat) === "unclassified"`**
+  (exported from `PricingGrid`) is true — an ELIGIBLE row (Line Item / Preamble) whose category cell is EMPTY
+  (`unclassified`: with OR without a record, incl. never-classified no-record rows). The old `|| needs_review` disjunct
+  was DROPPED from the fill (unreachable from resolved data — a resolved review row has a blank effective, which
+  short-circuits to `unclassified` — and the owner ruled amber == master-set-blank). The fill CLEARS automatically when a
+  category is set (effective non-blank → state leaves `unclassified`); do NOT add clearing code. Backend:
+  `set_row_category`→`persist.set_human_verdict` UPSERTS (creates a `BoQ Row Category` when none exists) so a verdict on a
+  no-record eligible row persists. **The "Check Category" view filter uses the SAME `isMasterSetBlank` predicate, so the
+  filter shows EXACTLY what amber shows (owner-locked) — including never-classified eligible rows.** It REPLACED the
+  RETIRED `isNeedsReviewCategory`, which returned FALSE for a never-classified row and so could not surface the rows the
+  widened "empty is empty" gate now counts. `isPriceableType` TRIMS `node_type` so the client master set is byte-identical
+  to the server's stripped eligible set. Amber and the filter, being one predicate, can never drift.
+- **Category-gate VISIBLE half -- the live count, banner + cell gating (four surfaces, ONE predicate).**
+  The page derives a LIVE blank COUNT via `PricingGrid.countMasterSetBlankRows(rows, categoriesByExcelRow)`
+  -- the SAME `isMasterSetBlank` the amber fill + Check-Category filter use, now a FOURTH surface. It
+  **iterates the ROWS array, NEVER the categories map** (a never-classified row is absent from the map but
+  must still count -- the fail-open the backend guards). Memoise it on `[rows, categoriesByExcelRow]` (which
+  already folds the optimistic overrides), so it recomputes only on a fetch/pick/clear, never per keystroke.
+  **Only the BOOLEAN `categoryGateOpen = isCategoryGateOpen(count, override)` reaches `PricingGrid` -- NEVER
+  the count.** A count changes on every pick and would re-render every row; the boolean flips only when
+  editability actually flips (which IS when every row's editability changes -- the correct time to re-render
+  all rows). It is threaded like `formulasComplete`: a `PricingGridProps` boolean (default true), a row prop
+  in `pricingRowPropsAreEqual`, ANDed OUTSIDE `isRateEditableRow` in ALL THREE rate-write gates (the inline
+  cell edit, `rateWritableAt` paste, `isDeltaWritable` undo/redo) so "Price any row" can never reach past it.
+  **DELIBERATE asymmetry: the count keeps counting under the override (an admin sees how many remain) but the
+  gate opens.** The category-pick handler writes an optimistic override for BOTH a pick AND a clear
+  (`buildOptimisticVerdict`): a clear yields a BLANK verdict (effective "" -> `isMasterSetBlank` TRUE) so the
+  count RISES instantly and the sheet re-locks in the same interaction (closing the drops-on-pick /
+  rises-late-on-clear window); it reverts on save failure via the existing `dropOverride`, and the refetch
+  reconciles an auto-machine reversion. The amber BANNER (owner-approved copy, a distinct OVERRIDE variant
+  naming `category_override_by`/`category_override_at` via `formatDate`) shows the count and NAMES the existing
+  "Check Category" control -- **no new button, no click-to-jump** (owner ruling). `GetPricedRowsResponse`
+  declares the G2a/G2b/G2e payload keys (`eligible_blank_category_count`, `categories_complete`,
+  `category_gate_override`/`_by`/`_at`/`_reason`). **The admin set/clear override CONTROL SHIPPED in G3b** --
+  two contextual buttons IN the banner (SET = `Override the check` -> a reason `Popover`, OPTIONAL reason +
+  `N/250` counter, no confirmation; CLEAR = `Remove override`), both gated on the pure exported
+  `canAdminOverride(role, userId)` (role-resolved AND admin, MIRRORS `_is_nirmaan_admin` by construction --
+  CONVENIENCE ONLY, server authoritative; the `role !== "Loading"` guard prevents a flash). Reason is
+  normalised by the pure exported `normalizeOverrideReason` (client cap 250 + blank->null). Banners render
+  for everyone; controls are admin-only. Override is TEMPORARY -- every G3b block carries a delete marker
+  (removal condition: once classification engines cover all disciplines). **The refusal messages drop the pre-G2e "priceable"/"rate-editable" wording**
+  (those terms stay correct only for the SEPARATE priceability gate). Because the client gate makes rate cells
+  read-only, a UI save cannot be ATTEMPTED while locked -- the server save-refusal message is a backstop.
 - **Multi-engine category resolution (HV-10, N-GENERIC -- no discipline named in the pathway):** the
   pricing editor reads `get_sheet_categories_resolved(boq, sheet_name)` (NOT the single-discipline
   `get_sheet_categories`, which is UNTOUCHED so `freeze_classification`/`get_freeze_summary` keep
@@ -411,6 +491,22 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   `AlertDialog`; both `mutate()` to re-read the flag (the `lock_sheet`/`handleToggleLock` pattern). While frozen,
   `onCategoryClick` short-circuits with a brief inline message via a `classificationFrozenRef` — the callback stays
   REFERENCE-STABLE (row-memo anti-defeat rule); NEVER thread a per-row `frozen` prop through `pricingRowPropsAreEqual`.
+- **Rate-helper chassis (U1, DEV-only, `rate-helper/`; full detail in the plan doc's "Build slice U1"):** the
+  "Suggest rates" button + per-cell badges + the page-level panel that renders a typed helper CONTRACT generically
+  (`RateHelper.compute -> Suggestion | NoSuggestion`; the panel has ZERO helper-specific rendering — a new helper is
+  a registry edit). Load-bearing invariants: (1) **DEV gate `RATE_HELPER_ENABLED` (`import.meta.env.DEV` + a
+  localStorage kill-switch) — a prod `vite build` makes the whole feature unreachable**, so it must guard the button,
+  the grid props (`rowSuggestionsByExcelRow`/`onSuggestionBadgeClick` passed only when enabled), and the panel mount.
+  (2) The ONE write is **`PricingGridHandle.applyRate(excelRow, col, value)`, which MUST mirror the typed `onChange`
+  EXACTLY — optimistic `setDraftRates` + clear proposal + the SAME 1s debounced `scheduleAutoSave`, NEVER a
+  synchronous `commitRate`**: a synchronous commit races the page's `dirty -> ensureLockAcquired` and trips a spurious
+  takeover; deferring makes "Use this value" byte-identical to typing (undo/mutate/takeover/locked-gate all inherited).
+  (3) Memo shield (P1): the grid gets per-row ONLY its `rowSuggestions` entry compared BY VALUE (`rowSuggestionsEqual`),
+  never the whole Map; `rowSuggestionsByExcelRow` + `onSuggestionBadgeClick` change only on a run/Use (like
+  `categoriesByExcelRow`), never on keystroke. (4) The button's enable chain **REUSES the rate-write gate
+  (`!locked && formulasComplete && categoryGateOpen`) — never re-derived** — surfacing the first failing reason as the
+  title. (5) The badge lives in the rate cell's right-aligned flex strip with `stopPropagation`, so a bare cell click
+  still just places the cursor. Nothing persists (page-session only; a reload wipes suggestions). The STUB dies at U2.
 - **Socket reconnect self-heal must be reconnect-GATED + debounced (T1, owner-verified):** a `socket.on("connect", ...)`
   handler that refetches (`mutate()`/`mutateCategories()`) MUST NOT fire on every connect — the initial mount connect
   double-fetches (the SWR mount fetch already ran) and a flapping dev socket then refetches on every reconnect, and
@@ -739,7 +835,35 @@ status / decisions: `frontend/.claude/plans/pricing-module-plan.md`.
   small bodies, no reason to change. Watermark opacity is **0.22** (PM-6, darker; still `#D03B45`).
 - **Watermark** = pointer-events-none data-URI-SVG overlay in the **Nirmaan brand red `#D03B45`** (full name +
   email, tiled ~30°, font 21/weight 600, opacity 0.22 per PM-6) in BOTH read-only and edit modes; must never
-  block sheet interaction. Keyed on the USER, not the workbook — it needs no per-workbook parametrization.
+  block sheet interaction. Keyed on the USER, not the workbook — it needs no per-workbook parametrization. It
+  is a **React SIBLING** of the engine mount (both `absolute inset-0` inside one `relative flex-1`) — NEVER
+  reparent `#pricing-workbook-luckysheet` or the watermark strands.
+- **Dropdown height cap (`pricing.css`, imported once by `PricingWorkbookPage`):** a bare-ID rule
+  `#luckysheet-dataVerification-dropdown-List { max-height: 300px; overflow-y: auto; }` makes long
+  range-sourced data-validation dropdowns scroll INTERNALLY instead of rendering at full content height
+  (unscrollable + JS-placed off-screen). Capping the height also fixes placement (the engine measures the
+  capped element). Short lists are unaffected (natural height, no scrollbar). Bare-ID specificity wins over the
+  vendored script-injected styles — no `!important` needed. Accepted residual: a list opened low in the
+  viewport can overhang the bottom edge but stays scrollable.
+- **Dropdown type-to-search (PW-DS) is an APP-LEVEL DOM augmentation (`pricingDropdownSearch.ts`), never a
+  vendored change.** `installDropdownSearch()` (one `useEffect([])` in `PricingWorkbookPage`) runs a
+  `document.body` `MutationObserver` that, on each dropdown open, prepends a filter `<input>` into
+  `#luckysheet-dataVerification-dropdown-List`. **The input MUST carry `luckysheet-mousedown-cancel`** — without
+  it the engine's global mousedown handler dismisses the popup and steals focus (recon-proven). Selection stays
+  the engine's own document-delegated `.dropdown-List-item` click (filtering only toggles `display`); the module
+  owns arrow/Enter/Escape nav since the engine has none. Pure `filterOptions` / `nextVisibleIndex` are
+  unit-tested. NEVER move this into the vendored `pricing_libs`.
+- **Full-screen (PW-FS) = root-className FLIP, NOT the native Fullscreen API, NOT a portal.** An `expanded`
+  `useState` swaps the page root between `flex flex-col h-[calc(100vh-100px)]` and
+  `fixed inset-0 z-50 flex flex-col bg-background` (pure `pricingRootClass`) — ONE JSX tree, nothing remounts
+  (engine / lock / sandbox / watermark survive). Native API is BANNED (the Radix save/import dialogs portal to
+  `document.body` at `z-50` and would be hidden behind a fullscreened node; against a `z-50` overlay DOM-order
+  puts them on top). **`window.luckysheet.resize()` MUST fire on BOTH enter and exit** (a `useEffect([expanded])`
+  rAF, guarded on the sheet-inited ref) — the engine's own window-resize listener does not fire on a
+  container-only change. Esc-exit uses the pure co-located `shouldExitPricingFullscreenOnEsc` (bare Esc; false
+  on `defaultPrevented`; false on INPUT/TEXTAREA) — do NOT import the wizard's twin (the module stays
+  standalone). NOTE: Luckysheet `stopPropagation`s Escape at its grid, so Esc exits only when focus is OUTSIDE
+  the grid; the toggle button is the universal exit.
 - **Access strings (PM-1 DB-verified, profile side):** `PricingRoute` guard + the sidebar spread both gate on
   Administrator OR role_profile `Nirmaan Admin Profile` / `Nirmaan Estimates Executive Profile`. The backend
   (`api/pricing/workbook.py`) also accepts the `Nirmaan Estimates Executive` Role and is the real enforcement

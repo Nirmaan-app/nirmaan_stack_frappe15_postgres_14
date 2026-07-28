@@ -15,6 +15,7 @@ def sidebar_counts(user: str) -> str:
         "Nirmaan PMO Executive Profile",
         "Nirmaan Accountant Profile",  # Accountants need access to all projects for financial operations
         "Nirmaan Accountant Lead Profile",  # Accountant Leads mirror Accountant access
+        "Nirmaan Estimates Executive Profile"
     ]
     user_role = frappe.get_value("Nirmaan Users", user, "role_profile") if user != "Administrator" else None
     is_full_access = user == "Administrator" or user_role in full_access_roles

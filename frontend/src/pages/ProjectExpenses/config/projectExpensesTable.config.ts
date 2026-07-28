@@ -11,6 +11,8 @@ export const DEFAULT_PE_FIELDS_TO_FETCH: (keyof ProjectExpenses | 'name' | 'owne
     "name",
     "creation",
     "owner",
+    // Drives the "Last Modified By" column on the Paid tab (who last touched the row).
+    "modified_by",
     "status",
     "projects",
     "type",

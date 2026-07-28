@@ -24,6 +24,35 @@ Date: 2026-07-17
 > Design of record with ten worked scenarios: `docs/boq/revised-boq-carry-amendment.html`.
 > Implementation waves: `docs/boq/HANDOFF-revised-boq-carry-amendment.md` §6.
 
+> ### ⚠️ AMENDMENT E — 2026-07-28, owner-directed
+>
+> **The per-sheet carry moves categories and annotations again — opt-in, and attributed.**
+> Amendment E reverses **Amendment D** (which had deleted the four non-rate layers outright) and,
+> for the cross-BoQ carry path only, reverses **Slice G2c**'s category gate. Detail block below,
+> under D8.
+>
+> **The single sentence:**
+>
+> > *Carry rates from original* moves the rates **and** any of the four row-addressed layers the
+> > user ticks — category ON by default, the three annotation layers OFF — and every carried record
+> > is stamped with the BoQ, version and time it came from.
+>
+> **Why this is not simply "undo Amendment D".** Amendment D's complaint was precise and correct: a
+> carried record arrived **un-asked-for** and **un-attributed**, so it was indistinguishable from
+> one written on the revision. Amendment E restores the carry with *both* halves answered — opt-in
+> per layer (asked-for) and a provenance stamp that is **keyword-required** on the write path
+> (attributed). Restoring only one half would reproduce the original defect exactly.
+>
+> **The gate that had to move.** G2c gated both rate-carry paths on the destination's categories
+> being complete. Once the action *carries* categories, that gate blocks its own remedy — a freshly
+> committed revision has **zero** category rows, so the gate is shut, so the carry that would
+> populate them cannot run. `save_cell_price` and `apply_copy_forward` **keep** the gate: it exists
+> to stop a *hand-typed* rate landing on an uncategorised row, and a carry moves known values from a
+> known-good source. Do not "restore consistency" by re-adding it to the carry path.
+>
+> **The COMMIT seam is unchanged** — a revision commit still stamps the D2 provenance triple and
+> carries nothing. Everything here is the explicit per-sheet action.
+
 > ### ⚠️ AMENDMENT C — 2026-07-23, owner-directed
 >
 > **A revision commit carries NOTHING.** Amendment C supersedes **D8** (which had the commit
@@ -665,6 +694,84 @@ revised parse exactly where the file context changed, i.e. where the new parse i
 
 ### D8 — Annotation/formula/category carry: the re-arm taxonomy IS the carry taxonomy ([T8](https://github.com/Nirmaan-app/nirmaan_stack_frappe15_postgres_14/issues/1094))
 
+> ## ⚠️ AMENDED 2026-07-28 (Amendment E) — owner-directed: the layers come back, opt-in + attributed
+>
+> **What is reversed.** Amendment D, in full. The per-sheet *Carry rates from original* action moves
+> rates **and** any ticked subset of the four row-addressed layers. **Amount Formula still never
+> carries** (decision 5, owner-reaffirmed: *"formula must be defined by users and only after this
+> the carry rates from original button will open up"*) and the re-armed computed set still never
+> carries.
+>
+> | Layer | D8 (original) | Amendment C | Amendment D | **Amendment E** |
+> |---|---|---|---|---|
+> | **Amount Formula** | carried at commit | never | never | **never** *(unchanged)* |
+> | Category | carried at commit | per-sheet, opt-in | never | **per-sheet, opt-in, default ON** |
+> | Remark · Colour · `remark` dismissal | carried at commit | per-sheet, opt-in | never | **per-sheet, opt-in, default OFF** |
+> | The re-armed set (4 computed dismissals + reconciliation choice) | never | never | never | **never** *(unchanged)* |
+> | Rates (D9) | — | per-sheet action | per-sheet action | per-sheet action *(unchanged)* |
+>
+> **The six locked decisions.**
+>
+> 1. **Row set** = `node_type ∈ {Line Item, Preamble}`, trimmed — the same eligible master set the
+>    category gate counts.
+> 2. **Fields** = the 16 payload fields (machine ×8, human ×3, provenance ×3, `description`,
+>    `classified_at`). **`review_priority` is EXCLUDED** — it is telemetry about a routing decision
+>    made against the *source's* rows, and carrying it would assert something about this revision
+>    that was never computed here.
+> 3. **Model** = machine→machine, human→human, **split preserved**, plus a carry provenance stamp,
+>    plus a distinct "carried" state in the UI.
+> 4. **Scope = REVISION ONLY.** No same-BoQ re-commit carry (limitation accepted — see below).
+> 5. **Formulas never carry**; their hand-declaration remains the gate that opens the button.
+> 6. **Rates + categories land in ONE ungated action.** Annotations opt-in default OFF, category
+>    default ON *in the dialog* — the asymmetry is a **UI default, never a backend one**.
+>
+> **Attribution is structural, not conventional.** On `persist.carry_row_categories` the
+> `carried_from_boq` / `carried_from_version` / `carried_at` stamp is a **keyword-REQUIRED**
+> argument, so no code path can produce an unstamped carried record. A caller that wants an
+> unstamped write wants `write_row_categories`. Do not soften this to an optional kwarg — the
+> whole amendment rests on a carried record being tellable apart from a local one.
+>
+> **⚠️ The carried `human_verdict_at` keeps the SOURCE's (older) timestamp — do not "freshen" it.**
+> `resolve_row_ladder` breaks a human-vs-human tie across disciplines on the *most recent* verdict,
+> so keeping it old is precisely what makes a verdict made **on the revision** outrank a carried
+> one, with no precedence code anywhere. Freshening it to the carry time silently inverts that.
+> Pinned by `test_human_verdict_timestamp_is_carried_verbatim_not_freshened`.
+>
+> **New in the engine, not merely restored.** A **destination-eligibility guard** in the walker:
+> write only where the *destination* row is Line Item / Preamble. The old commit-seam carry
+> structurally could not need this (its destination was always freshly parsed); a post-commit carry
+> can, and a category on a non-eligible row pollutes both the grid and the classifier's evaluation
+> corpus.
+>
+> **Two supporting fixes rode this work.** (R1) Frappe **strips every value** in an `["in", [...]]`
+> filter (`db_query.py`), so `read_committed_work_packages` and `revision._carry_counts` silently
+> dropped every whitespace-bearing sheet name — the `#152 VERBATIM` hazard, in the one place an `=`
+> comparison would have been safe. `_carry_counts` was the worse site: the mapping screen reported
+> **0** carryable rates while the carry itself went ahead and carried them (122 rates / 87
+> classifications under-reported on `BOQ-26-00099`) — the `count == carry` invariant failing in the
+> direction *the screen promises nothing and the carry delivers*. (R2) `_write_committed_boq_sheet`
+> pinned only 6 config keys, and a revision is seeded by **inverting that snapshot**, so
+> `top_header_rows_override` (46 sheets), `skip_top_rows_after_header` (44) and
+> `skip_row_definitions` (13) were silently reset on every revision. Fixed by an additive
+> `BoQ Sheet.sheet_config_snapshot`; **the six columns stay authoritative over the snapshot** — in
+> particular `treat_as` is derived from the commit *disposition*, so a snapshot that won could seed
+> `master_preamble` onto a data sheet and drop it out of the parse. **Forward-only:** already
+> committed sheets keep a NULL snapshot and the six-key fallback permanently.
+>
+> **UI ruling (owner, 2026-07-28): EVERY carried row is marked**, machine or human — provenance is
+> the axis being reported, and "who decided it" does not answer "was this inherited?". The cost is
+> accepted: on a freshly carried sheet most rows read sky and the auto-vs-human distinction is not
+> visible on those rows until they are worked through.
+>
+> **Limitations accepted.** Re-commit still strands everything (scope is revision-only, decision 4)
+> — and with **256 sheets on the bench carrying more than one commit version versus 11 revision
+> BoQs**, that is the *more* common case; the R3 engine would serve it with only a second call site.
+> R2 is forward-only. Three migrations ride this work (R2, R3, R5): a prod deploy needs
+> `bench --site <site> migrate` **before** any commit or carry runs.
+
+> ## ⚠️ SUPERSEDED 2026-07-28 by Amendment E — the block below is retained as the record of why
+> ## the layers were removed, which is still the reason they came back opt-in + attributed
+>
 > ## ⚠️ AMENDED 2026-07-23 (Amendment D) — owner-directed: the carry moves RATES ONLY
 >
 > **What is reversed.** Amendment C's four-layer annotation carry, in full. The per-sheet

@@ -91,17 +91,21 @@ import {
 import { ClassifyProgressModal, aiStatusWarning } from "./ClassifyProgressModal";
 import {
   ClassifySheetDialog,
-  isNeedsReviewCategory,
   reduceProgress,
   skipRollupText,
 } from "./ClassifySheetDialog";
 import {
   PricingGrid,
+  buildOptimisticVerdict,
   buildSearchHits,
   classificationVisible,
+  countMasterSetBlankRows,
   deriveSaveStatus,
   hideableDescriptors,
+  isCategoryGateOpen,
   isGridOnlySheet,
+  isMasterSetBlank,
+  isRateDescriptor,
   isTakeoverError,
   orderCommittedSheets,
   shouldExitFullscreenOnEsc,
@@ -125,6 +129,17 @@ import { buildChildrenByParent, collapsedAncestors, collapsibleParents, isHidden
 import { mergeRowsPreservingIdentity } from "./rowMerge";
 import { SheetDataGrid } from "./SheetDataGrid";
 import { SummaryPanel } from "./SummaryPanel";
+// U1 rate-helper chassis (DEV ONLY -- guardrail G1: dies at U2).
+import { RATE_HELPER_ENABLED } from "./rate-helper/rateHelperFlag";
+import type { RowSuggestions } from "./rate-helper/rateHelperTypes";
+import {
+  buildRowContext,
+  buildSuggestions,
+  markSuggestionUsed,
+  rateKindOfDescriptor,
+  rateKindsOf,
+} from "./rate-helper/rateSuggestionModel";
+import { RateHelperPanel } from "./rate-helper/RateHelperPanel";
 
 // Slice 3c: "saved as of" uses the CLIENT clock at save-success (save_cell_price returns no
 // timestamp). HH:MM, mirroring SheetReviewPage's fmtSavedTime shape (client-clock seeded).
@@ -274,6 +289,32 @@ export function shouldRefetchOnConnect(
   now: number,
 ): boolean {
   return state.sawDisconnect && now - state.lastRefetchAt >= RECONNECT_REFETCH_DEBOUNCE_MS;
+}
+
+// Slice G3b: client mirror of the server's _CATEGORY_OVERRIDE_REASON_MAX_LEN (pricing.py). The server
+// caps it too -- BOTH, not either. Delete with the override control.
+export const CATEGORY_OVERRIDE_REASON_MAX_LEN = 250;
+
+/**
+ * Slice G3b: may the current user SEE the admin override control? True iff the role has RESOLVED
+ * (not the "Loading" sentinel -- so the control never flashes in before disappearing) AND the user is
+ * an admin, MIRRORING the server's _is_nirmaan_admin (Administrator OR role_profile "Nirmaan Admin
+ * Profile"; useUserData maps Administrator -> "Nirmaan Admin Profile"). CONVENIENCE ONLY -- the server
+ * (set/clear_category_override) is authoritative. Pure -- unit-tested. Delete with the override.
+ */
+export function canAdminOverride(role: string, userId: string): boolean {
+  if (role === "Loading") return false;
+  return userId === "Administrator" || role === "Nirmaan Admin Profile";
+}
+
+/**
+ * Slice G3b: normalise the OPTIONAL reason for submission -- client-cap to the max length (belt to the
+ * input's maxLength suspenders; the server caps too), trim, and map blank to null (a blank reason is
+ * VALID; the server stores NULL). Pure -- unit-tested. Delete with the override.
+ */
+export function normalizeOverrideReason(raw: string): string | null {
+  const trimmed = raw.slice(0, CATEGORY_OVERRIDE_REASON_MAX_LEN).trim();
+  return trimmed || null;
 }
 
 const SheetPricingPage = () => {
@@ -525,6 +566,14 @@ const SheetPricingPage = () => {
   const { call: setRowCategory } = useFrappePostCall(
     "nirmaan_stack.api.boq.wizard.classify.set_row_category",
   );
+  // Slice G3b: the admin category-gate override set/clear endpoints (server enforces admin via
+  // _is_nirmaan_admin; the client role check is convenience only). Delete with the override.
+  const { call: setCategoryOverrideCall } = useFrappePostCall(
+    "nirmaan_stack.api.boq.wizard.pricing.set_category_override",
+  );
+  const { call: clearCategoryOverrideCall } = useFrappePostCall(
+    "nirmaan_stack.api.boq.wizard.pricing.clear_category_override",
+  );
   // In-flight guard for the lock toggle (disables it during the POST).
   const [lockToggling, setLockToggling] = useState(false);
 
@@ -556,7 +605,13 @@ const SheetPricingPage = () => {
   // user acquires / releases. The server throw (BOQ_PRICING_LOCKED in every save_* endpoint)
   // stays the durable enforcement; this is only the UX accelerator.
   const { socket } = useContext(FrappeContext) as FrappeConfig;
-  const { user_id: currentUser } = useUserData();
+  // Slice G3b: `role` is read from the SAME already-warm useUserData() call (no new fetch). Control
+  // visibility flows through the pure `canAdminOverride` helper (see its docstring) -- role-resolved AND
+  // admin. CONVENIENCE ONLY; the server is authoritative. Delete `showCategoryOverrideControl` + the
+  // `role` read + everything marked "G3b" when the override is removed (owner commitment: once
+  // classification engines cover all disciplines).
+  const { user_id: currentUser, role } = useUserData();
+  const showCategoryOverrideControl = canAdminOverride(role, currentUser);
   const { call: acquirePricingLock } = useFrappePostCall(
     "nirmaan_stack.api.boq.wizard.pricing.acquire_pricing_lock",
   );
@@ -698,6 +753,18 @@ const SheetPricingPage = () => {
   // editing on non-priceable rows for THIS sheet THIS session AND sends allow_non_priceable
   // to save_cell_price so the server accepts those writes. Resets per sheet (below).
   const [override, setOverride] = useState(false);
+  // ── U1 rate-helper (DEV, guardrail G1/G2 -- page-session only, NEVER persisted) ──
+  // suggestionsByExcelRow: built by pressing "Suggest rates" (reference-stable per run/use);
+  // helperPanel: the open panel scoped to a rate cell (durable excelRow + col -> the kind). Both
+  // reset on a sheet switch (below). A reload wipes them -- no persistence.
+  const [suggestionsByExcelRow, setSuggestionsByExcelRow] = useState<Map<number, RowSuggestions>>(
+    () => new Map(),
+  );
+  const [helperPanel, setHelperPanel] = useState<{
+    excelRow: number;
+    col: string;
+    kind: string;
+  } | null>(null);
   // Single-editor lock (slice B): a mid-edit takeover (a save rejected with the
   // BOQ_PRICING_LOCKED marker -- another user acquired the lock) flips this true; the page
   // becomes read-only + shows the takeover banner until a fresh editable payload arrives.
@@ -803,10 +870,23 @@ const SheetPricingPage = () => {
   // carry stale into the new sheet. Reset it when :sheetName changes. The grid itself is
   // key-remounted on sheetName (drafts flush-on-unmount to the OLD sheet, the new grid
   // starts clean), and hasUnsaved re-derives from the remounted grid's onDirtyChange.
-  // inFlight is DELIBERATELY NOT reset: a flush-on-unmount save from the old grid
-  // increments/decrements it in a pair, so a hard reset to 0 would underflow when that
-  // in-flight save's finally runs (and "Saving..." on the new sheet during the flush is
-  // honest -- a save IS in flight).
+  //
+  // THIS EFFECT IS THE ONLY RESET MECHANISM and always was meant to be. Until the app-shell
+  // ErrorBoundary fix (components/common/ErrorBoundaryWrapper.tsx) it was shadowed: that
+  // boundary keyed itself on `location`, so every navigation -- including a sheet-tab switch --
+  // remounted the whole page and threw away all state regardless of what this effect did. Any
+  // per-sheet state added below MUST be reset here; nothing else will do it.
+  //
+  // Two families are DELIBERATELY NOT reset:
+  //   - In-flight request flags (inFlight, lockToggling, freezeToggling, overrideSubmitting).
+  //     Each is cleared by its own finally. inFlight specifically: a flush-on-unmount save from
+  //     the old grid increments/decrements in a pair, so a hard reset to 0 would underflow when
+  //     that save's finally runs (and "Saving..." on the new sheet during the flush is honest --
+  //     a save IS in flight). Forcing the others false mid-POST would re-enable a button while
+  //     the old sheet's request is still running.
+  //   - Session-scoped view preferences (`expanded` full-screen, `virtualized`). These are
+  //     properties of the EDITOR SESSION, not of the sheet -- staying maximized across a sheet
+  //     switch is the point. Do not "fix" them by adding them here.
   useEffect(() => {
     setSaveError(null);
     setLastSavedAt(null);
@@ -815,7 +895,14 @@ const SheetPricingPage = () => {
     setSelectedVersion(null); // version-view: a new sheet always opens on its live version
     setCopyForwardOpen(false); // copy-forward dialog is per-sheet
     setCopyForwardMsg(null);
+    // AMENDMENT C / C3: the cross-BOQ carry is copy-forward's twin and is per-sheet for the same
+    // reason -- carryMsg names a count of rates carried into THIS sheet, so it must not survive
+    // onto the next one.
+    setCarryOpen(false);
+    setCarryMsg(null);
     setOverride(false); // Slice 3e: the override is per-sheet per-session -- reset on switch
+    setSuggestionsByExcelRow(new Map()); // U1 rate-helper: suggestions are per-sheet, page-session
+    setHelperPanel(null);
     setReviewOpen(false); // Slice 4a: the review-list strip is per-sheet
     setShowDismissed(false); // Slice 4b-ACKNOWLEDGE: the show-dismissed toggle is per-sheet
     setShowOnlyUnpriced(false); // Slice 4b-A: the unpriced filter is per-sheet
@@ -847,6 +934,13 @@ const SheetPricingPage = () => {
     setCollapsed(new Set()); // collapse/expand is per-sheet -- a tab switch starts fully expanded
     setFrozen(false); // Frozen-left Slice 1: freeze is per-sheet -- a tab switch starts unfrozen
     setHistoryState({ canUndo: false, canRedo: false }); // Slice B: undo history is per-sheet/version (grid remounts)
+    // Classification freeze confirms: modal AlertDialogs (the tab strip sits behind the overlay,
+    // so neither can be open at switch time) -- reset anyway because freezeConfirm CARRIES the
+    // old sheet's uncategorised counts as its payload.
+    setFreezeConfirm(null);
+    setUnfreezeConfirm(false);
+    // NOTE: the G3b override popover has its OWN [sheetName] reset, inside the self-contained
+    // G3b block below (that block must stay deletable in one cut -- owner commitment).
   }, [sheetName]);
 
   // Toolbar Part 1 -- search: reset the hit pointer to the first hit whenever the query changes
@@ -1241,6 +1335,12 @@ const SheetPricingPage = () => {
   const classificationFrozen = activeMessage?.classification_frozen ?? false;
   const frozenBy = activeMessage?.frozen_by ?? null;
   const frozenAt = activeMessage?.frozen_at ?? null;
+  // Slice G3a: the admin category-gate override state (DISPLAY only -- the set/clear control is G3b).
+  // The server also returns `eligible_blank_category_count` / `categories_complete` (G2e) -- the page
+  // derives its OWN live count below from isMasterSetBlank; these are the load-time parity source.
+  const categoryGateOverride = activeMessage?.category_gate_override ?? false;
+  const categoryOverrideBy = activeMessage?.category_override_by ?? null;
+  const categoryOverrideAt = activeMessage?.category_override_at ?? null;
   classificationFrozenRef.current = classificationFrozen;
   // Loading/error track the ACTIVE source (the history fetch while in history mode).
   const pricedLoading = isViewingHistory ? historyData === undefined : pricedData === undefined;
@@ -1375,30 +1475,29 @@ const SheetPricingPage = () => {
     }
     setPickerState(null);
     setSaveError(null);
-    let didOverride = false;
-    if (id) {
-      // Optimistic: a human pick wins the ladder -> render "your pick" instantly.
-      const cur = categoriesByExcelRow.get(excelRow);
-      const base: SheetCategoryRow = cur ?? {
-        excel_row: excelRow,
-        rule_category_id: "",
-        ai_category_id: "",
-        final_category_id: "",
-        routing: "Auto-accepted",
-        routing_reason: "",
-        human_category_id: "",
-        effective_category_id: "",
-      };
-      const optimistic: SheetCategoryRow = {
-        ...base,
-        excel_row: excelRow,
-        routing: "Auto-accepted",
-        human_category_id: id,
-        effective_category_id: id,
-      };
-      setCategoryOverrides((prev) => new Map(prev).set(excelRow, optimistic));
-      didOverride = true;
-    }
+    // Optimistic override for BOTH a pick AND a clear (Slice G3a Scope 5), so the LIVE count updates
+    // instantly. A pick shows the human verdict (non-blank effective -> isMasterSetBlank FALSE ->
+    // count DROPS). A clear shows the BLANK state (effective "" -> deriveVerdictState "unclassified"
+    // -> isMasterSetBlank TRUE -> count RISES) so the sheet re-locks in the SAME interaction instead
+    // of briefly appearing unlocked until the refetch reconciles. (Server-side a clear reverts to the
+    // machine verdict; for an auto-machine row the optimistic blank over-reports for the round-trip
+    // only, corrected by mutateCategories -- it never UNDER-reports, so the gate never wrongly opens.)
+    const cur = categoriesByExcelRow.get(excelRow);
+    const base: SheetCategoryRow = cur ?? {
+      excel_row: excelRow,
+      rule_category_id: "",
+      ai_category_id: "",
+      final_category_id: "",
+      routing: "Auto-accepted",
+      routing_reason: "",
+      human_category_id: "",
+      effective_category_id: "",
+    };
+    // buildOptimisticVerdict (pure, tested): a pick sets a non-blank effective (count drops); a clear
+    // sets a blank effective (count rises). `base` already carries excel_row.
+    const optimistic = buildOptimisticVerdict(base, id);
+    setCategoryOverrides((prev) => new Map(prev).set(excelRow, optimistic));
+    const didOverride = true;
     const dropOverride = () =>
       setCategoryOverrides((prev) => {
         if (!prev.has(excelRow)) return prev;
@@ -1422,6 +1521,64 @@ const SheetPricingPage = () => {
       setSaveError(
         getFrappeError(e) || "Could not save the category verdict. Please try again.",
       );
+    }
+  };
+
+  // ── Slice G3b: the admin category-gate OVERRIDE control (set / clear) ───────────────────────────
+  // Self-contained so it can be deleted in ONE cut when the override is removed (owner commitment).
+  // NO confirmation dialog: the reason popover IS data entry, not an "are you sure" step (owner
+  // ruling). Reason is OPTIONAL (blank is valid). Errors (incl. PermissionError) surface the SERVER's
+  // message inline via the existing saveError banner -- never swallowed, never replaced with generic
+  // copy. On success, mutate() refetches so the banner + rate-cell state flip with no page reload.
+  const [overridePopoverOpen, setOverridePopoverOpen] = useState(false);
+  const [overrideReason, setOverrideReason] = useState("");
+  const [overrideSubmitting, setOverrideSubmitting] = useState(false);
+  // Per-sheet reset (kept HERE, not in the main [sheetName] effect above, so the G3b block stays
+  // deletable in one cut). The reason entry is a NON-modal Popover, so the sheet-tab strip IS
+  // clickable while it is open -- without this, a reason typed for one sheet would stay on screen
+  // and submit against the next one. overrideSubmitting is excluded on purpose: its finally clears
+  // it, and forcing it false mid-POST would re-enable the button while that request is in flight.
+  useEffect(() => {
+    setOverridePopoverOpen(false);
+    setOverrideReason("");
+  }, [sheetName]);
+  const handleSetCategoryOverride = async () => {
+    if (commitVersion === null) return;
+    setSaveError(null);
+    setOverrideSubmitting(true);
+    try {
+      await setCategoryOverrideCall({
+        boq_name: boqId,
+        sheet_name: sheetName, // VERBATIM (#152)
+        committed_version: commitVersion,
+        // Client cap is belt-and-braces (the input maxLength blocks it too); the server caps as well.
+        // Blank -> null (server stores NULL). Pure helper -- unit-tested.
+        reason: normalizeOverrideReason(overrideReason),
+      });
+      setOverridePopoverOpen(false);
+      setOverrideReason("");
+      void mutate();
+    } catch (e) {
+      setSaveError(getFrappeError(e) || "Could not override the category check. Please try again.");
+    } finally {
+      setOverrideSubmitting(false);
+    }
+  };
+  const handleClearCategoryOverride = async () => {
+    if (commitVersion === null) return;
+    setSaveError(null);
+    setOverrideSubmitting(true);
+    try {
+      await clearCategoryOverrideCall({
+        boq_name: boqId,
+        sheet_name: sheetName, // VERBATIM (#152)
+        committed_version: commitVersion,
+      });
+      void mutate();
+    } catch (e) {
+      setSaveError(getFrappeError(e) || "Could not clear the override. Please try again.");
+    } finally {
+      setOverrideSubmitting(false);
     }
   };
 
@@ -1717,6 +1874,80 @@ const SheetPricingPage = () => {
   // columns (trivially complete). Passed to the grid as one boolean prop (ANDed OUTSIDE the
   // override) + drives the "declare formulas" banner.
   const formulasComplete = areFormulasComplete(columnDescriptors, columnFormulas);
+  // Slice G3a: the LIVE count of ELIGIBLE master-set rows whose category cell is EMPTY, from the SAME
+  // isMasterSetBlank predicate the amber fill + Check-Category filter use (four surfaces, ONE
+  // predicate -- never a second emptiness test). Iterate the ROWS array, NOT categoriesByExcelRow: a
+  // never-classified row is ABSENT from the map (Recon 5/6) but MUST be counted -- keying off the map
+  // would miss it (the fail-open the backend already guards). useMemo'd on the SAME deps as
+  // categoriesByExcelRow (which folds catData + the optimistic overrides) plus rows, so it recomputes
+  // only on a fetch / pick / clear, never per keystroke. At load this equals the server's
+  // eligible_blank_category_count (parity, verified in the cert).
+  const categoryBlankCount = useMemo(
+    () => countMasterSetBlankRows(rows, categoriesByExcelRow),
+    [rows, categoriesByExcelRow],
+  );
+  // The gate OPENS when zero blanks remain OR the admin override is set. DELIBERATE asymmetry: the
+  // COUNT keeps counting blanks even under the override (an admin should see how many remain), but
+  // the GATE opens regardless. Only this BOOLEAN reaches the grid (never the count -- a count changes
+  // on every pick and would re-render every row; the boolean flips only when editability flips).
+  const categoryGateOpen = isCategoryGateOpen(categoryBlankCount, categoryGateOverride);
+
+  // ── U1 rate-helper (DEV): D8 gate REUSE + run / badge-click / use handlers. The enable chain is
+  // EXACTLY what a rate write consumes -- !locked (locked => onSaveRate withheld), formulasComplete,
+  // categoryGateOpen -- read straight from the existing vars, never re-derived. Disabled surfaces
+  // the first failing reason (title). Synchronous: the run builds suggestionsByExcelRow in place. ──
+  const suggestRatesReason: string | null =
+    pricedLoading || pricedError
+      ? "Loading..."
+      : commitVersion === null
+        ? "Sheet is not committed"
+        : locked
+          ? "Sheet is locked / read-only"
+          : !formulasComplete
+            ? "Declare amount formulas first"
+            : !categoryGateOpen
+              ? "Every eligible row needs a category first"
+              : null;
+  const suggestRatesDisabled = suggestRatesReason !== null;
+
+  const runSuggestRates = useCallback(() => {
+    setSuggestionsByExcelRow(
+      buildSuggestions(rows, columnDescriptors, override, categoriesByExcelRow),
+    );
+    setHelperPanel(null);
+  }, [rows, columnDescriptors, override, categoriesByExcelRow]);
+
+  const handleSuggestionBadgeClick = useCallback(
+    (excelRow: number, col: string, _cellEl: HTMLElement) => {
+      const d = columnDescriptors.find((dd) => dd.col === col);
+      const kind = d ? rateKindOfDescriptor(d) : null;
+      if (!kind) return;
+      setHelperPanel({ excelRow, col, kind });
+    },
+    [columnDescriptors],
+  );
+
+  const handleUseSuggestion = useCallback(
+    (col: string, value: number) => {
+      if (!helperPanel) return;
+      gridRef.current?.applyRate(helperPanel.excelRow, col, value);
+      setSuggestionsByExcelRow((prev) => markSuggestionUsed(prev, helperPanel.excelRow, col));
+      setHelperPanel(null);
+    },
+    [helperPanel],
+  );
+
+  // The open panel's row context, built from the SAME page data buildSuggestions used.
+  const helperPanelCtx = useMemo(() => {
+    if (!helperPanel) return null;
+    const row = rows.find((r) => r.source_row_number === helperPanel.excelRow);
+    if (!row) return null;
+    const rateKinds = rateKindsOf(columnDescriptors.filter(isRateDescriptor));
+    return buildRowContext(row, rateKinds, categoriesByExcelRow.get(helperPanel.excelRow));
+  }, [helperPanel, rows, columnDescriptors, categoriesByExcelRow]);
+  // The panel is open only with the flag on, a scoped cell, and a resolvable row context.
+  const helperPanelOpen = RATE_HELPER_ENABLED && helperPanel !== null && helperPanelCtx !== null;
+
   // AMENDMENT C / C3: the carry button's state, from the PURE helper (ADR-0010 F4 -- the rule is
   // unit-tested; this page only renders it). `locked` already folds the deliberate lock, a
   // takeover, a foreign holder AND history mode, so one flag covers every read-only reason.
@@ -1767,9 +1998,11 @@ const SheetPricingPage = () => {
   const passesViewFilter = (r: PricedRow) =>
     (!showOnlyUnpriced ||
       (isPriceableLine(r, columnDescriptors) && !isFullyPriced(r, columnDescriptors))) &&
-    // CL-2: "show only needs-review" keeps rows whose category verdict is an unresolved
-    // Needs-review (VIEW-ONLY -- it never touches counts / Summary / the review-flag feed).
-    (!showNeedsReview || isNeedsReviewCategory(categoriesByExcelRow.get(r.source_row_number))) &&
+    // Slice G2e: the "Check Category" filter keeps rows in the MASTER SET whose category cell is
+    // EMPTY -- the SAME shared predicate the grid's amber fill uses (isMasterSetBlank), so the
+    // filter shows EXACTLY what amber shows (owner ruling; it now surfaces never-classified eligible
+    // rows the old isNeedsReviewCategory missed). VIEW-ONLY -- never touches counts / Summary / feed.
+    (!showNeedsReview || isMasterSetBlank(r, categoriesByExcelRow.get(r.source_row_number))) &&
     classificationVisible(r.effective_classification, rowTypeToggles);
   const anyViewFilter = showOnlyUnpriced || showNeedsReview || !noRowTypeHidden;
   // displayRows: the view filter AND collapse, composed in ONE page-side pass (R4). VIEW-ONLY --
@@ -1909,7 +2142,11 @@ const SheetPricingPage = () => {
       className={cn(
         expanded
           ? "fixed inset-0 z-50 flex flex-col space-y-4 overflow-auto bg-background p-4"
-          : "flex-1 space-y-4 max-w-5xl mx-auto pt-6 pb-10 px-4",
+          : // U1 rate-helper: embedded is capped at max-w-5xl, but WIDEN while the suggestion panel
+            // is open (it is cramped otherwise) and restore the cap on close.
+            helperPanelOpen
+            ? "flex-1 space-y-4 w-full mx-auto pt-6 pb-10 px-4"
+            : "flex-1 space-y-4 max-w-5xl mx-auto pt-6 pb-10 px-4",
       )}
     >
       {/* ── Version ribbon (read-only history browser) -- the OUTERMOST band, ABOVE the top
@@ -1978,9 +2215,13 @@ const SheetPricingPage = () => {
           onApplied={(summary, needsNewValues) => {
             setCarryMsg(summarizeSheetCarry(summary, needsNewValues));
             setCarryOpen(false);
-            // AMENDMENT D: rates only -- no `mutateCategories()`. The carry can no longer change
-            // a category, so refetching them here would be a wasted round-trip.
             void mutate();
+            // AMENDMENT E: the carry CAN change categories again (the `categories` layer is ticked
+            // by default), so the resolved read must be refetched or the grid renders the pre-carry
+            // verdicts -- no "carried" cue, and a stale blank count keeping the rate gate shut on
+            // rows that were just categorised. Amendment D had removed this call as a dead
+            // round-trip; that reasoning expired with the layer it was based on.
+            void mutateCategories();
           }}
         />
       )}
@@ -2512,6 +2753,24 @@ const SheetPricingPage = () => {
             </span>
           )}
 
+          {/* ── U1 rate-helper (DEV ONLY, guardrail G1): "Suggest rates". Sits after Freeze (owner
+              ruling: classify -> freeze -> suggest). D8: consumes the SAME gate chain rate writes do
+              -- locked / formulasComplete / categoryGateOpen -- REUSED, never re-derived; disabled
+              with the reason surfaced. Synchronous in U1 (no modal/poller -- that arrives in U2). ── */}
+          {RATE_HELPER_ENABLED && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              disabled={suggestRatesDisabled}
+              onClick={runSuggestRates}
+              title={suggestRatesReason ?? "Suggest rates for editable rows"}
+            >
+              <Sparkles className="h-4 w-4" />
+              Suggest rates
+            </Button>
+          )}
+
           {/* ── CL-2: "show only needs-review" view filter (rows whose category verdict is an
               unresolved Needs-review). VIEW-ONLY, mirrors the Show-unpriced toggle. ── */}
           <Button
@@ -2942,6 +3201,88 @@ const SheetPricingPage = () => {
         </div>
       )}
 
+      {/* ── CATEGORY GATE banner (Slice G3a) ─────────────────────────────────────
+          Shown when the live blank count > 0 (mirrors the formula-banner conditions). Two
+          owner-approved variants: LOCK (the gate is shut) vs OVERRIDE (an admin unlocked it anyway --
+          the count STILL shows the blanks). It NAMES the existing "Check Category" toolbar control; it
+          does NOT add a button and there is no click-to-jump (owner ruling). Amber-note styling,
+          verbatim from the formula banner. */}
+      {!isGridOnly && !locked && !pricedLoading && !pricedError && categoryBlankCount > 0 && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-xs text-amber-900 dark:text-amber-100 flex-wrap">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-700 dark:text-amber-300" />
+          {categoryGateOverride ? (
+            <>
+              <span>
+                Category check overridden by {categoryOverrideBy ?? "an admin"}
+                {categoryOverrideAt ? ` on ${formatDate(categoryOverrideAt)}` : ""}.{" "}
+                {categoryBlankCount} row{categoryBlankCount === 1 ? "" : "s"} still{" "}
+                {categoryBlankCount === 1 ? "has" : "have"} no category &mdash; rate editing is unlocked
+                anyway.
+              </span>
+              {/* G3b: CLEAR control (admin-only, role-resolved). No confirmation -- clearing re-locks,
+                  it fails safe. */}
+              {showCategoryOverrideControl && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 px-2 text-xs"
+                  disabled={overrideSubmitting}
+                  onClick={handleClearCategoryOverride}
+                >
+                  {overrideSubmitting ? "Removing…" : "Remove override"}
+                </Button>
+              )}
+            </>
+          ) : (
+            <>
+              <span>
+                {categoryBlankCount} row{categoryBlankCount === 1 ? "" : "s"} still{" "}
+                {categoryBlankCount === 1 ? "needs" : "need"} a category. Rate editing is locked until
+                every line item and preamble has one. Use the Check Category filter to find them.
+              </span>
+              {/* G3b: SET control (admin-only, role-resolved). The reason popover IS the interaction --
+                  no "are you sure" step (owner ruling); reason is OPTIONAL. */}
+              {showCategoryOverrideControl && (
+                <Popover open={overridePopoverOpen} onOpenChange={setOverridePopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" size="sm" className="h-6 px-2 text-xs">
+                      Override the check
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-72 space-y-2 p-3">
+                    <p className="text-xs font-medium text-foreground">Override the category check</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Unlocks rate editing despite blank categories. Reason is optional.
+                    </p>
+                    <Input
+                      value={overrideReason}
+                      onChange={(e) => setOverrideReason(e.target.value)}
+                      maxLength={CATEGORY_OVERRIDE_REASON_MAX_LEN}
+                      placeholder="Reason (optional)"
+                      className="h-8 text-xs"
+                      disabled={overrideSubmitting}
+                    />
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[10px] text-muted-foreground">
+                        {overrideReason.length}/{CATEGORY_OVERRIDE_REASON_MAX_LEN}
+                      </span>
+                      <Button
+                        size="sm"
+                        className="h-7 px-3 text-xs"
+                        disabled={overrideSubmitting}
+                        onClick={handleSetCategoryOverride}
+                      >
+                        {overrideSubmitting ? "Overriding…" : "Override"}
+                      </Button>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
       {/* ── Inline save error (a save throw surfaces here; the cell keeps your input). */}
       {!isGridOnly && saveError && (
         <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-destructive/40 bg-destructive/10 text-xs text-destructive flex-wrap">
@@ -3114,6 +3455,12 @@ const SheetPricingPage = () => {
           (the grid keeps its own viewport-rem cap, byte-for-byte the prior behaviour). */}
       {!pricedLoading && !pricedError && (
         <div className={cn(expanded && "flex min-h-0 flex-1 flex-col")}>
+        {/* U1 rate-helper: a horizontal flex row around the grid slot (grid left flex-1 min-w-0,
+            panel right fixed width). The grid keeps its OWN horizontal scroll + the frozen two-pane
+            split + virtualization -- all internal to PricingGrid, untouched. Absent panel => the
+            wrappers are inert (no class), byte-identical to before. */}
+        <div className={cn(helperPanelOpen && "flex min-h-0 flex-1 items-start gap-3")}>
+        <div className={cn(helperPanelOpen && "min-w-0 flex-1")}>
         {isGridOnly ? (
           <SheetDataGrid
             // Faithful committed grid (general specs) -- READ-ONLY reference, all rows at
@@ -3178,6 +3525,12 @@ const SheetPricingPage = () => {
             hasRun={categoriesByExcelRow.size > 0}
             categoryLabelById={categoryLabelById}
             onCategoryClick={locked ? undefined : onCategoryClick}
+            // U1 rate-helper (DEV): the per-row suggestion badges + the page-owned open callback.
+            // Both are withheld when the flag is off (feature does not exist). onSuggestionBadgeClick
+            // is a stable useCallback; rowSuggestionsByExcelRow changes only on a run / a "Use this
+            // value" (like categoriesByExcelRow) -- never on keystroke, so the memo shield holds.
+            rowSuggestionsByExcelRow={RATE_HELPER_ENABLED ? suggestionsByExcelRow : undefined}
+            onSuggestionBadgeClick={RATE_HELPER_ENABLED ? handleSuggestionBadgeClick : undefined}
             // F3: the amount-column formula header label + builder. columnFormulas drives the
             // `f = ...` label; onSaveFormula is withheld when locked (header renders read-only).
             columnFormulas={columnFormulas}
@@ -3192,6 +3545,10 @@ const SheetPricingPage = () => {
             // TRUE for a trivially-complete sheet. onSaveFormula stays live so the holder can
             // declare formulas while rates are locked.
             formulasComplete={formulasComplete}
+            // CATEGORY GATE (G3a, per-sheet): when false the grid renders ALL rate cells read-only,
+            // ANDed OUTSIDE the override exactly like formulasComplete. Only the BOOLEAN is passed
+            // (never the count) so a category pick that does not flip the gate re-renders no rows.
+            categoryGateOpen={categoryGateOpen}
             editable={editable}
             lockInfo={lockInfo}
             // Slice 4c: relax the grid's height cap to fill the full-screen slot. LAYOUT-ONLY --
@@ -3216,6 +3573,20 @@ const SheetPricingPage = () => {
             virtualized={virtualized}
           />
         )}
+        </div>
+        {/* U1 rate-helper: the page-owned suggestion panel, fixed width right, INSIDE the
+            full-screen wrapper so it survives the expanded overlay. */}
+        {helperPanelOpen && helperPanel && helperPanelCtx && (
+          <RateHelperPanel
+            excelRow={helperPanel.excelRow}
+            col={helperPanel.col}
+            kind={helperPanel.kind}
+            ctx={helperPanelCtx}
+            onUse={handleUseSuggestion}
+            onClose={() => setHelperPanel(null)}
+          />
+        )}
+        </div>
         </div>
       )}
     </div>

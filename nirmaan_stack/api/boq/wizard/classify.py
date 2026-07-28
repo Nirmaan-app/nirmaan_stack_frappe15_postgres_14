@@ -24,6 +24,7 @@ from frappe.utils.background_jobs import get_job_status
 
 from nirmaan_stack.services.boq_category import engines, orchestrator, persist
 from nirmaan_stack.services.boq_category.runner import load_ruleset
+from nirmaan_stack.api.boq.wizard import pricing  # G2d: re-classify clears the category-gate override
 
 _ROW_CATEGORY = "BoQ Row Category"
 _BOQ_SHEET = "BoQ Sheet"
@@ -250,12 +251,18 @@ def _classify_worker(boq=None, sheet_name=None, discipline="Electrical", scope=N
             boq, sheet_name, discipline, row_filter=row_filter, progress_cb=_progress
         )
         frappe.db.commit()  # commit BEFORE publish (CLAUDE.md rule)
+        # G2d: on a SUCCESSFUL WHOLE-SHEET re-classify, clear the category-gate override for this
+        # sheet. Placed AFTER the classify commit, never fails the run (see helper). Per-engine by
+        # design -- each engine's worker clears independently (there is no single all-engines
+        # completion point); a range/partial run leaves the override intact.
+        override_cleared = _clear_override_after_reclassify(boq, sheet_name, scope)
         payload = {
             "status": "success",
             "boq_name": boq,
             "sheet_name": sheet_name,
             "discipline": discipline,
             **summary,
+            "category_override_cleared": override_cleared,  # additive; after **summary so it wins
         }
     except Exception:
         frappe.db.rollback()
@@ -268,6 +275,41 @@ def _classify_worker(boq=None, sheet_name=None, discipline="Electrical", scope=N
             "error_code": "classify_failed",
         }
     _publish_classify_event(boq, sheet_name, discipline, user, payload)
+
+
+def _clear_override_after_reclassify(boq, sheet_name, scope) -> bool:
+    """G2d: clear the category-gate override after a SUCCESSFUL WHOLE-SHEET re-classify.
+
+    RATIONALE: re-classification changes which rows have categories, so an override granted against
+    the OLD category picture must not silently carry forward -- the admin re-asserts against the new
+    state.
+
+    - Only a WHOLE-SHEET run clears (scope mode 'sheet'); a partial row-range run leaves the override
+      INTACT (it only touched some rows).
+    - IDEMPOTENT: a sheet with no override is a clean no-op (returns False).
+    - MUST NOT fail the classify run: on ANY error, log and return False so the classification result
+      stands. The gate fails SAFE -- an uncleared override only leaves rate editing unlocked, which the
+      admin already chose.
+
+    Returns True iff an override was actually present and has now been cleared. PER-ENGINE by design:
+    each engine's worker calls this independently (there is no single all-engines completion point),
+    so a multi-engine whole-sheet re-classify clears once per engine and an override re-set between two
+    engines' completions is wiped by the later one.
+    """
+    try:
+        if not (scope and scope.get("mode") == "sheet"):
+            return False
+        committed_version = _resolve_committed_version(boq, sheet_name)
+        if committed_version is None:
+            return False
+        return bool(
+            pricing.reset_category_gate_override_on_reclassify(boq, sheet_name, committed_version)
+        )
+    except Exception:
+        frappe.log_error(
+            title="BoQ re-classify override clear failed", message=frappe.get_traceback()
+        )
+        return False
 
 
 def _publish_classify_progress(boq, sheet_name, discipline, user, done, total):
@@ -363,8 +405,9 @@ def get_sheet_categories(boq=None, sheet_name=None, discipline="Electrical"):
 
 # ---------------------------------------------------------------------------
 # HV-10 multi-engine per-row resolution. get_sheet_categories (above) is the
-# SINGLE-DISCIPLINE reader and is UNTOUCHED -- freeze_classification and
-# get_freeze_summary keep calling it positionally with one discipline. This new
+# SINGLE-DISCIPLINE reader and is BYTE-UNTOUCHED -- it now backs ONLY the tests'
+# regression pin (Slice ST-1 repointed freeze_classification onto the resolved
+# read, and get_freeze_summary already reads the resolved ladder). This
 # endpoint is the MERGED reader the pricing editor consumes: it reads every
 # discipline's current rows in ONE index-covered query and resolves an effective
 # verdict PER ROW via the owner-locked ladder.
@@ -380,62 +423,11 @@ _RESOLVED_VOTE_FIELDS = (
 )
 
 
-def _resolve_row_ladder(votes):
-    """Apply the owner-locked per-row resolution ladder to one row's per-discipline votes.
-
-    votes: {discipline: {..._RESOLVED_VOTE_FIELDS..., human_category_id, human_verdict_at}}
-
-    Ladder (owner 2026-07-22/23):
-      1. HUMAN wins. A discipline whose human_category_id is set. If MULTIPLE disciplines carry a
-         human verdict, the MOST RECENT (human_verdict_at) wins; ties break on discipline name
-         (deterministic ordering only -- NOT a hardcoded discipline, so the pathway stays generic).
-      2. else AUTO-ACCEPTED beats needs-review.
-      3. else if MULTIPLE auto-accepts: HIGHER ai_confidence wins, and cross_engine_conflict=True.
-         Confidence ties break on discipline name (deterministic).
-      4. else (all disciplines say review): effective category BLANK (the blank-review law).
-
-    cross_engine_conflict is TELEMETRY-ONLY: computed here at read time, NEVER persisted and (owner
-    ruling) NEVER rendered. It is True ONLY in branch 3.
-
-    Returns (effective_category_id, effective_source, resolved_discipline, conflict,
-             human_category_id, human_discipline).
-    """
-    # 1. Human verdict on any discipline -> most-recent wins.
-    humans = [
-        (d, v) for d, v in votes.items() if (v.get("human_category_id") or "").strip()
-    ]
-    if humans:
-        # sort by (human_verdict_at, discipline) descending on time, ascending name as tiebreak
-        humans.sort(key=lambda dv: ((dv[1].get("human_verdict_at") or ""), _neg_key(dv[0])),
-                    reverse=True)
-        d, v = humans[0]
-        cat = (v.get("human_category_id") or "").strip()
-        return cat, "human", d, False, cat, d
-
-    # 2/3. Auto-accepted disciplines.
-    autos = [(d, v) for d, v in votes.items() if (v.get("routing") or "") == "Auto-accepted"]
-    if autos:
-        # highest ai_confidence; discipline name as a deterministic tiebreak
-        autos.sort(key=lambda dv: (_conf(dv[1]), _neg_key(dv[0])), reverse=True)
-        d, v = autos[0]
-        conflict = len(autos) > 1
-        return (v.get("final_category_id") or ""), "auto", d, conflict, "", None
-
-    # 4. All review -> blank.
-    return "", "blank", None, False, "", None
-
-
-def _conf(v):
-    try:
-        return float(v.get("ai_confidence") or 0.0)
-    except (TypeError, ValueError):
-        return 0.0
-
-
-def _neg_key(name):
-    """A reversible sort helper: under reverse=True we want ASCENDING discipline name as the
-    tiebreak, so invert the string ordering. Deterministic; names are data, never branched on."""
-    return tuple(-ord(c) for c in (name or ""))
+# The per-row resolution ladder (resolve_row_ladder + _conf + _neg_key) was RELOCATED to the
+# service layer (persist.resolve_row_ladder, Slice 1a) so both this endpoint AND the shared
+# blank-category helper (persist.blank_category_eligible_rows) resolve rows through ONE ladder
+# without a service->api import. Behaviour is byte-identical; get_sheet_categories_resolved below
+# calls persist.resolve_row_ladder.
 
 
 @frappe.whitelist()
@@ -470,6 +462,9 @@ def get_sheet_categories_resolved(boq=None, sheet_name=None):
             "excel_row", "discipline", "rule_category_id", "ai_category_id", "ai_confidence",
             "final_category_id", "routing", "routing_reason", "review_priority",
             "human_category_id", "human_verdict_at",
+            # ADR-0014 Amendment E: carry provenance, so the grid can show a carried verdict as
+            # carried rather than as the reviewer's own pick.
+            "carried_from_boq",
         ],
         order_by="excel_row asc",
     )
@@ -485,7 +480,7 @@ def get_sheet_categories_resolved(boq=None, sheet_name=None):
     categories = []
     for excel_row in sorted(by_row):
         votes = by_row[excel_row]
-        eff, source, rdisc, conflict, human_cat, human_disc = _resolve_row_ladder(votes)
+        eff, source, rdisc, conflict, human_cat, human_disc = persist.resolve_row_ladder(votes)
         categories.append({
             "excel_row": excel_row,
             "effective_category_id": eff,
@@ -494,6 +489,13 @@ def get_sheet_categories_resolved(boq=None, sheet_name=None):
             "cross_engine_conflict": conflict,
             "human_category_id": human_cat,
             "human_discipline": human_disc,
+            # The ORIGINAL this row's EFFECTIVE verdict was carried from, else None. Read off the
+            # discipline that actually RESOLVED the row, not "any vote is carried": a row can be
+            # carried in one engine and classified locally in another, and only the one the user
+            # is looking at should read as carried. None on everything classified or picked here.
+            "carried_from_boq": (
+                (votes.get(rdisc) or {}).get("carried_from_boq") if rdisc else None
+            ),
             "votes": {
                 d: {f: v.get(f) for f in _RESOLVED_VOTE_FIELDS}
                 for d, v in votes.items()
@@ -583,38 +585,36 @@ def get_category_catalog(discipline="Electrical"):
 
 
 # ── Freeze / Unfreeze classification ───────────────────────────────────────────────
-def _eligible_nodes(boq, sheet_name, committed_version):
-    """The current committed eligible rows (node_type in {Line Item, Preamble}, is_current=1) for
-    the sheet, as [{excel_row, node_type}]. excel_row = BOQ Nodes.source_row_number. Empty when the
-    sheet is uncommitted. Mirrors the orchestrator's eligible-node read."""
-    sheet_doc = _current_sheet_name(boq, sheet_name, committed_version)
-    if not sheet_doc:
-        return []
-    nodes = frappe.get_all(
-        "BOQ Nodes",
-        filters={"boq": boq, "sheet": sheet_doc, "is_current": 1},
-        fields=["source_row_number", "node_type"],
-    )
-    return [
-        {"excel_row": n["source_row_number"], "node_type": (n.get("node_type") or "").strip()}
-        for n in nodes
-        if (n.get("node_type") or "").strip() in orchestrator._CLASSIFY_NT
-    ]
+# (The former _eligible_nodes reader was folded into persist.blank_category_eligible_rows,
+#  Slice 1a -- the eligible-node read + the multi-engine blank resolution now live together in
+#  ONE shared service helper so get_freeze_summary and a future rate-edit gate cannot drift.)
 
 
 @frappe.whitelist(methods=["POST"])
 def freeze_classification(boq_name=None, sheet_name=None, discipline="Electrical"):
     """FREEZE a committed sheet's classification. THREE effects, all in ONE atomic transaction:
-      1. stamp every categorised eligible row's EFFECTIVE category (human if set else final) into
+      1. stamp every eligible row whose RESOLVED effective category is non-blank into
          human_category_id IN PLACE (persist.stamp_human_verdicts_bulk, the set_human_verdict
-         idiom -- NOT freeze-and-supersede);
-      2. bank one BoQ Category Truth Snapshot row per categorised eligible row (source
-         'Frozen in product', ONE shared snapshot_batch for the event);
+         idiom -- NOT freeze-and-supersede), ON THE RESOLVING DISCIPLINE'S is_current row;
+      2. bank one BoQ Category Truth Snapshot row per stamped row (source 'Frozen in product', ONE
+         shared snapshot_batch for the event), carrying that row's RESOLVING discipline;
       3. set classification_frozen / frozen_by / frozen_at on the is_current=1 BoQ Sheet.
-    Rows WITHOUT a category are skipped from stamping + banking (by design; get_freeze_summary
-    reports how many). While frozen, set_row_category AND start_classify are rejected; PRICING is
-    untouched. ATOMIC: one commit at the end; any failure rolls back so NOTHING is written.
-    Returns {rows_stamped, snapshots_banked, snapshot_batch, committed_version}.
+
+    Slice ST-1 (owner Option A, 2026-07-26): the stamp SOURCE is the MULTI-ENGINE resolved read
+    (persist.resolved_category_stamp_targets -- the same resolve_row_ladder the freeze COUNT and
+    get_sheet_categories_resolved use), NOT the single-discipline get_sheet_categories. So a sheet
+    classified under two disciplines stamps rows from BOTH vocabularies in one freeze, each on the
+    ladder winner's identity; and snapshot_count == the resolved non-blank eligible count ==
+    get_freeze_summary's number (ONE fifth-surface number). On a single-discipline sheet this is
+    equivalent to the old path. The `discipline` parameter is now used ONLY for the availability
+    guard below (mirrors get_freeze_summary's accepted-but-unused disposition); it no longer selects
+    which rows are stamped -- the freeze is whole-sheet by construction. get_sheet_categories is left
+    BYTE-UNTOUCHED.
+
+    Rows WITHOUT a non-blank resolved category are skipped from stamping + banking (by design;
+    get_freeze_summary reports how many). While frozen, set_row_category AND start_classify are
+    rejected; PRICING is untouched. ATOMIC: one commit at the end; any failure rolls back so NOTHING
+    is written. Returns {rows_stamped, snapshots_banked, snapshot_batch, committed_version}.
     URL: /api/method/nirmaan_stack.api.boq.wizard.classify.freeze_classification
     """
     if not boq_name:
@@ -638,32 +638,40 @@ def freeze_classification(boq_name=None, sheet_name=None, discipline="Electrical
             "Classification is already frozen for this sheet.", title="Already frozen"
         )
 
-    # Effective category per current row (human if set else final) -- reuse get_sheet_categories'
-    # logic, don't fork it. Only rows with a non-blank effective category are stamped + banked.
-    cats = get_sheet_categories(boq_name, sheet_name, discipline)["categories"]
-    targets = [c for c in cats if (c.get("effective_category_id") or "").strip()]
+    # Resolved effective category per eligible row across ALL disciplines (Slice ST-1). Only rows
+    # with a non-blank resolved category are stamped + banked; each carries the RESOLVING discipline
+    # (the ladder winner's identity), so a multi-trade sheet stamps both vocabularies in one freeze.
+    targets = persist.resolved_category_stamp_targets(boq_name, sheet_name, cv)
 
     batch = "gtfreeze-" + frappe.generate_hash(length=12)
     user = frappe.session.user
     now = frappe.utils.now()
 
     try:
-        # (1) stamp human verdicts in place -- NO commit (the helper defers commit to us).
-        stamp_res = persist.stamp_human_verdicts_bulk(
-            boq_name, sheet_name, cv, discipline,
-            [{"excel_row": c["excel_row"], "human_category_id": c["effective_category_id"]}
-             for c in targets],
-            user=user,
-        )
-        # (2) bank one snapshot per categorised row -- source 'Frozen in product', shared batch.
-        for c in targets:
+        # (1) stamp human verdicts in place -- NO commit (the helper defers commit to us). Group the
+        # targets by their resolving discipline and reuse stamp_human_verdicts_bulk once per group,
+        # so each stamp lands on the ladder winner's is_current row identity.
+        by_disc = {}
+        for t in targets:
+            by_disc.setdefault(t["resolved_discipline"], []).append(
+                {"excel_row": t["excel_row"], "human_category_id": t["effective_category_id"]}
+            )
+        rows_stamped = 0
+        for disc, stamps in by_disc.items():
+            stamp_res = persist.stamp_human_verdicts_bulk(
+                boq_name, sheet_name, cv, disc, stamps, user=user
+            )
+            rows_stamped += stamp_res["stamped"]
+        # (2) bank one snapshot per stamped row -- source 'Frozen in product', shared batch, on the
+        # row's RESOLVING discipline.
+        for t in targets:
             doc = frappe.new_doc(_TRUTH_SNAPSHOT)
             doc.boq = boq_name
             doc.sheet_name = sheet_name  # VERBATIM (#152)
-            doc.excel_row = c["excel_row"]
-            doc.discipline = discipline
+            doc.excel_row = t["excel_row"]
+            doc.discipline = t["resolved_discipline"]
             doc.committed_version = cv
-            doc.label_category_id = c["effective_category_id"]
+            doc.label_category_id = t["effective_category_id"]
             doc.snapshot_batch = batch
             doc.source = _FROZEN_SNAPSHOT_SOURCE
             doc.snapshot_at = now
@@ -684,7 +692,7 @@ def freeze_classification(boq_name=None, sheet_name=None, discipline="Electrical
         raise
 
     return {
-        "rows_stamped": stamp_res["stamped"],
+        "rows_stamped": rows_stamped,
         "snapshots_banked": len(targets),
         "snapshot_batch": batch,
         "committed_version": cv,
@@ -725,9 +733,16 @@ def unfreeze_classification(boq_name=None, sheet_name=None):
 @frappe.whitelist()
 def get_freeze_summary(boq_name=None, sheet_name=None, discipline="Electrical"):
     """Read-only pre-freeze summary. Counts eligible rows (node_type in {Line Item, Preamble})
-    that have NO effective category, split by node_type, and reports the current freeze state.
-    Returns {uncategorised_preambles, uncategorised_line_items, frozen, frozen_by, frozen_at,
+    whose RESOLVED effective category is blank, split by node_type, and reports the current freeze
+    state. Returns {uncategorised_preambles, uncategorised_line_items, frozen, frozen_by, frozen_at,
     committed_version}. Graceful zeros for an uncommitted sheet.
+
+    Slice 1a: the blank counts read the MULTI-ENGINE resolved ladder via the shared
+    persist.blank_category_eligible_rows -- so a row categorised under ANOTHER discipline is NOT
+    counted blank (the single-discipline get_sheet_categories over-counted it), and a row with NO
+    BoQ Row Category record at all IS counted blank (the fail-open guard). The `discipline`
+    parameter is ACCEPTED for backward compatibility but is NO LONGER USED (the count resolves
+    across every discipline); on a single-discipline sheet the counts are unchanged.
     URL: /api/method/nirmaan_stack.api.boq.wizard.classify.get_freeze_summary
     """
     if not boq_name:
@@ -742,20 +757,10 @@ def get_freeze_summary(boq_name=None, sheet_name=None, discipline="Electrical"):
             "frozen": False, "frozen_by": None, "frozen_at": None, "committed_version": None,
         }
 
-    # Effective category by excel_row (missing row -> treated as blank / uncategorised).
-    cats = get_sheet_categories(boq_name, sheet_name, discipline)["categories"]
-    effective_by_row = {
-        c["excel_row"]: (c.get("effective_category_id") or "").strip() for c in cats
-    }
-
-    preambles = line_items = 0
-    for node in _eligible_nodes(boq_name, sheet_name, cv):
-        if effective_by_row.get(node["excel_row"], ""):
-            continue  # categorised
-        if node["node_type"] == "Preamble":
-            preambles += 1
-        elif node["node_type"] == "Line Item":
-            line_items += 1
+    # Eligible rows whose RESOLVED effective category is blank (all disciplines; no-record = blank).
+    blanks = persist.blank_category_eligible_rows(boq_name, sheet_name, cv)
+    preambles = sum(1 for b in blanks if b["node_type"] == "Preamble")
+    line_items = sum(1 for b in blanks if b["node_type"] == "Line Item")
 
     bs_name = _current_sheet_name(boq_name, sheet_name, cv)
     fields = frappe.db.get_value(

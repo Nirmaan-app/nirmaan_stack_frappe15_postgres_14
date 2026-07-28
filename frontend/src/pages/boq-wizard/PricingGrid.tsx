@@ -62,7 +62,7 @@ import {
   type SetStateAction,
 } from "react";
 import { debounce, type DebouncedFunc } from "lodash";
-import { Palette, MessageSquare, AlertTriangle, Flag, Scale, ChevronRight, Check } from "lucide-react";
+import { Palette, MessageSquare, AlertTriangle, Flag, Scale, ChevronRight, Check, CornerDownRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -172,6 +172,7 @@ import type {
   SheetCategoryRow,
 } from "./boqTypes";
 import { deriveVerdictState, isRowEditable, labelFor } from "./CategoryVerdictPicker";
+import { type RowSuggestions, rowSuggestionsEqual } from "./rate-helper/rateHelperTypes";
 
 // Depth indent step -- mirrors ReviewTree.INDENT_PX (kept in sync; the pricing grid does
 // not import ReviewTree per design v1.3 Sec.4 path b).
@@ -469,9 +470,86 @@ export function isColumnVisible(
  * (VERBATIM). Every other type ("Other" -- note/spacer/subtotal/header_repeat), as well as a
  * null/undefined node_type (old/absent payload), is non-priceable. Keys on the SAME field the
  * server guard uses (save_cell_price), so the two axes can never drift. Pure -- unit-tested.
+ * Slice G2e: TRIMS node_type before matching -- the server's eligible-set filter strips node_type
+ * (persist.blank_category_eligible_rows), so trimming here keeps the master set byte-identical on
+ * both sides (Recon 6 Q3d: the client used to compare raw, the server stripped).
  */
 export function isPriceableType(nodeType: string | null | undefined): boolean {
-  return nodeType === "Preamble" || nodeType === "Line Item";
+  const t = (nodeType ?? "").trim();
+  return t === "Preamble" || t === "Line Item";
+}
+
+/**
+ * Slice G2e -- the ONE shared "this row is in the MASTER SET and its category cell is EMPTY"
+ * predicate. It drives BOTH the grid's amber Category-cell fill AND the page's Check-Category view
+ * filter, so they can never drift apart (owner ruling 2026-07-25: the filter must show EXACTLY what
+ * amber shows). Master set = isPriceableType(node_type) (Line Item / Preamble, trimmed);
+ * EMPTY = deriveVerdictState(cat) === "unclassified" -- which covers a never-classified row
+ * (cat === undefined), a classified-and-blank row, and a whitespace-only id (deriveVerdictState
+ * trims, matching the server's strip). Needs the ROW (for node_type), not just the category.
+ * Replaces the retired isNeedsReviewCategory, which returned FALSE for a never-classified row and so
+ * could not surface rows the widened gate now counts (Recon 6 Q8). Pure -- unit-tested.
+ */
+export function isMasterSetBlank(
+  row: Pick<PricedRow, "node_type">,
+  cat: SheetCategoryRow | undefined,
+): boolean {
+  return isPriceableType(row.node_type) && deriveVerdictState(cat) === "unclassified";
+}
+
+/**
+ * Slice G3a: the LIVE count of ELIGIBLE master-set rows whose category cell is EMPTY -- the number
+ * the banner shows and what drives categoryGateOpen. Iterates the ROWS array, NEVER the categories
+ * map: a never-classified row is ABSENT from the map but MUST be counted (isMasterSetBlank treats an
+ * undefined cat as blank) -- keying off the map would miss it, the fail-open the backend already
+ * guards. Uses the SAME isMasterSetBlank predicate as the amber fill + the Check-Category filter
+ * (four surfaces, ONE predicate). Pure -- unit-tested.
+ */
+export function countMasterSetBlankRows(
+  rows: readonly Pick<PricedRow, "node_type" | "source_row_number">[],
+  categoriesByExcelRow: ReadonlyMap<number, SheetCategoryRow>,
+): number {
+  let n = 0;
+  for (const r of rows) {
+    if (isMasterSetBlank(r, categoriesByExcelRow.get(r.source_row_number))) n += 1;
+  }
+  return n;
+}
+
+/**
+ * Slice G3a: the category gate OPENS when zero master-set rows are blank OR the admin override is
+ * set. DELIBERATE asymmetry: the count keeps counting blanks under the override (an admin sees how
+ * many remain), but the gate opens regardless. Pure -- unit-tested.
+ */
+export function isCategoryGateOpen(blankCount: number, override: boolean): boolean {
+  return blankCount === 0 || override;
+}
+
+/**
+ * Slice G3a: build the optimistic SheetCategoryRow for a verdict PICK (`humanId` non-empty) or a
+ * CLEAR (`humanId === ""`), folded onto the row's current resolved entry `base`. A pick sets a
+ * NON-blank effective (isMasterSetBlank -> FALSE, the live count DROPS); a clear sets a BLANK
+ * effective (isMasterSetBlank -> TRUE, the count RISES) so the sheet re-locks in the same
+ * interaction rather than briefly appearing unlocked until the refetch. Pure -- unit-tested.
+ */
+export function buildOptimisticVerdict(
+  base: SheetCategoryRow,
+  humanId: string,
+): SheetCategoryRow {
+  return humanId
+    ? {
+        ...base,
+        routing: "Auto-accepted",
+        human_category_id: humanId,
+        effective_category_id: humanId,
+      }
+    : {
+        ...base,
+        routing: "Needs review",
+        human_category_id: "",
+        final_category_id: "",
+        effective_category_id: "",
+      };
 }
 
 /**
@@ -1458,6 +1536,18 @@ interface PricingGridProps {
    */
   formulasComplete?: boolean;
   /**
+   * CATEGORY GATE (Slice G3a, per-SHEET boolean). When FALSE, NO rate cell is editable -- ANDed
+   * OUTSIDE isRateEditableRow, exactly like formulasComplete, so the `override` (INSIDE
+   * isRateEditableRow) can NEVER reach past it: an eligible row with a blank category locks the whole
+   * sheet, override or not. The page derives it as (blank-count === 0 OR the admin category-gate
+   * override is set) from the SAME isMasterSetBlank predicate the amber fill + Check-Category filter
+   * use. Default TRUE (back-compat: absent => open, so existing callers/tests are unaffected). Only
+   * this BOOLEAN reaches the grid -- NEVER the count (a count changes on every pick and would
+   * re-render all rows; the boolean flips only when the gate actually flips, which IS when every
+   * row's editability changes).
+   */
+  categoryGateOpen?: boolean;
+  /**
    * Slice 4a: save one row's remark (save_row_remark + mutate). ABSENT => remarks render
    * read-only (the page withholds it when locked/taken-over, mirroring onSaveRate).
    */
@@ -1538,6 +1628,20 @@ interface PricingGridProps {
    */
   onCategoryClick?: (excelRow: number, cellEl: HTMLElement) => void;
   /**
+   * U1 rate-helper (dev): page-owned suggestion state per Excel row (built by pressing "Suggest
+   * rates"). A reference-stable Map that changes only on a run / a "Use this value" (like
+   * categoriesByExcelRow) -- NEVER on keystroke. Each row reads ONLY its own entry (by value in the
+   * comparator), so a rebuild re-renders just the rows whose badges changed. ABSENT/empty => no badges.
+   */
+  rowSuggestionsByExcelRow?: Map<number, RowSuggestions>;
+  /**
+   * U1 rate-helper (dev): open the suggestion panel for a rate cell (Excel row + column letter +
+   * the clicked cell element for scoping). Reference-stable (page useCallback) -> memo-safe. The
+   * badge's own onClick calls it with stopPropagation, so a bare cell click still just places the
+   * cursor. ABSENT => no badges are interactive (the feature is off).
+   */
+  onSuggestionBadgeClick?: (excelRow: number, col: string, cellEl: HTMLElement) => void;
+  /**
    * CL-3: id -> label for the Category cell's DISPLAY (from classify.get_category_catalog). A
    * reference-stable Map (page-built, changes only on fetch, never on keystroke) -> memo-safe.
    * ABSENT/empty => the cell falls back to the raw category id (labelFor).
@@ -1611,6 +1715,11 @@ export interface PricingGridHandle {
   undo: () => void;
   /** Slice B: redo the most recently undone rate gesture (no-op when nothing to redo / read-only). */
   redo: () => void;
+  /** U1 rate-helper: apply a value to a rate cell (excelRow + Excel column letter) through the SAME
+   * commitRate path a typed value takes -- optimistic draft, undo history, in-flight/takeover,
+   * autosave/refetch. No-op if the cell is not an editable rate cell (onSaveRate withheld => locked).
+   * The ONE write the "Use this value" affordance calls; it adds no second save path. */
+  applyRate: (excelRow: number, col: string, value: number) => void;
 }
 
 // ── Editor perf fix: PricingGrid row-level memoization (recon items 1+2) ─────────
@@ -1660,6 +1769,8 @@ const EMPTY_CATEGORY_MAP: Map<number, SheetCategoryRow> = new Map();
 // CL-3: a stable empty id->label map for the default (no catalog fetched) case -- a shared
 // reference so the row memo is never defeated by a fresh Map per render.
 const EMPTY_CATEGORY_LABEL_MAP: Map<string, string> = new Map();
+// U1 rate-helper: stable empty default so an absent prop never churns the memo.
+const EMPTY_SUGGESTIONS_MAP: Map<number, RowSuggestions> = new Map();
 
 /** Shallow string-map equality (key set + values). Pure -- unit-tested. */
 function shallowEqualStrMap(a: Record<string, string>, b: Record<string, string>): boolean {
@@ -1894,9 +2005,19 @@ interface PricingGridRowProps {
   /** CL-3: open the verdict picker for a classified row's Category cell (page-owned, ref-stable).
    *  undefined => the cell is display-only (no click-to-edit). */
   onCategoryClick?: (excelRow: number, cellEl: HTMLElement) => void;
+  /** U1 rate-helper: this row's OWN suggestion entry (from rowSuggestionsByExcelRow.get(excelRow)).
+   *  Compared BY VALUE (rowSuggestionsEqual) in pricingRowPropsAreEqual, so a whole-Map rebuild only
+   *  re-renders rows whose badge state changed. undefined => this row has no badges. */
+  rowSuggestions?: RowSuggestions;
+  /** U1 rate-helper: reference-stable page callback the badge calls (stopPropagation). undefined =>
+   *  feature off. */
+  onSuggestionBadgeClick?: (excelRow: number, col: string, cellEl: HTMLElement) => void;
   override: boolean;
   /** MANDATORY amount-formula gate (per-SHEET boolean -- flips identically for all rows). */
   formulasComplete: boolean;
+  /** CATEGORY GATE (Slice G3a, per-SHEET boolean -- flips identically for all rows, like
+   *  formulasComplete). FALSE => every rate cell read-only regardless of the override. */
+  categoryGateOpen: boolean;
   onSaveRate?: (cell: RateCellSaveArgs, rate: number) => Promise<void>;
   onSaveColor?: (args: ColorSaveArgs[]) => Promise<void>;
   onSaveRemark?: (args: RemarkSaveArgs) => Promise<void>;
@@ -1969,8 +2090,11 @@ export function pricingRowPropsAreEqual(
     prev.hasRun === next.hasRun &&
     prev.categoryLabelById === next.categoryLabelById &&
     prev.onCategoryClick === next.onCategoryClick &&
+    rowSuggestionsEqual(prev.rowSuggestions, next.rowSuggestions) &&
+    prev.onSuggestionBadgeClick === next.onSuggestionBadgeClick &&
     prev.override === next.override &&
     prev.formulasComplete === next.formulasComplete &&
+    prev.categoryGateOpen === next.categoryGateOpen &&
     prev.onSaveRate === next.onSaveRate &&
     prev.onSaveColor === next.onSaveColor &&
     prev.onSaveRemark === next.onSaveRemark &&
@@ -2034,8 +2158,11 @@ const PricingGridRow = memo(function PricingGridRow({
   hasRun,
   categoryLabelById,
   onCategoryClick,
+  rowSuggestions,
+  onSuggestionBadgeClick,
   override,
   formulasComplete,
+  categoryGateOpen,
   onSaveRate,
   onSaveColor,
   onSaveRemark,
@@ -2348,6 +2475,11 @@ const PricingGridRow = memo(function PricingGridRow({
         const label = labelFor(effective, categoryLabelById);
         const needsReview = state === "needs_review";
         const isHuman = state === "human";
+        // Amendment E: the verdict arrived by the cross-BoQ carry -- machine or human (owner
+        // ruling 2026-07-28: provenance is the axis, so EVERY inherited row is marked). Rendered
+        // distinctly from `isHuman` because emerald + a tick reads as "your pick", which on a
+        // carried row attributes to this reviewer a decision made on another BoQ entirely.
+        const isCarried = state === "carried";
         // CL-6: eligibility (Preamble/Line Item) is the click + amber-fill axis. A non-eligible row
         // (node_type "Other" -- notes/subtotals) is never clickable and never amber.
         const eligible = isPriceableType(row.node_type);
@@ -2355,18 +2487,31 @@ const PricingGridRow = memo(function PricingGridRow({
         // eligible blank cell on a sheet that has been classified at least once). Nothing is
         // clickable on a never-run sheet; a non-eligible row is never clickable.
         const editable = !!onCategoryClick && (isRowEditable(cat) || (eligible && hasRun));
-        // Amber "needs a category" FILL: (a) an eligible cell with a BLANK effective category
-        // (unclassified -- shows with OR without a record, incl. no-record rows), and (b) a
-        // needs-review cell that HAS a category. Clears automatically once a category is set
-        // (effective goes non-blank -> state leaves unclassified/needs_review).
-        const uncategorizedEligible = eligible && state === "unclassified";
-        const amberFill =
-          uncategorizedEligible || needsReview ? "bg-amber-50 dark:bg-amber-950/30" : undefined;
+        // Amber "needs a category" FILL (Slice G2e): IS the shared master-set-blank predicate -- an
+        // ELIGIBLE row whose category cell is EMPTY (unclassified: with OR without a record, incl.
+        // no-record rows). This is the SAME predicate the page's Check-Category filter uses
+        // (isMasterSetBlank), so amber and the filter can never drift. The old `|| needsReview`
+        // disjunct is DROPPED: `needs_review` is unreachable from resolved data
+        // (resolvedToSheetCategoryRow sets routing "Needs review" only when the effective is blank,
+        // and deriveVerdictState short-circuits a blank effective to "unclassified" first -- Recon 6
+        // Q8c), and the owner ruled amber == master-set-blank so a non-eligible needs_review row must
+        // never be amber. (The needsReview var still drives the dot/text-colour below -- an
+        // unreachable-but-harmless cell affordance, left untouched.) Clears automatically once a
+        // category is set (effective goes non-blank -> state leaves "unclassified").
+        const amberFill = isMasterSetBlank(row, cat)
+          ? "bg-amber-50 dark:bg-amber-950/30"
+          : undefined;
         return (
           <td
             {...tdFocusProps(colIndex)}
             data-colkey="category"
-            title={isHuman ? `${label} (your pick)` : label || undefined}
+            title={
+              isHuman
+                ? `${label} (your pick)`
+                : isCarried
+                  ? `${label} (carried from ${cat?.carried_from_boq})`
+                  : label || undefined
+            }
             onClick={
               editable
                 ? (e) => onCategoryClick?.(row.source_row_number, e.currentTarget as HTMLElement)
@@ -2380,7 +2525,9 @@ const PricingGridRow = memo(function PricingGridRow({
                 ? "text-black dark:text-white"
                 : isHuman
                   ? "text-emerald-700 dark:text-emerald-300"
-                  : "text-foreground",
+                  : isCarried
+                    ? "text-sky-700 dark:text-sky-300"
+                    : "text-foreground",
               amberFill,
               editable && "cursor-pointer hover:bg-muted/40",
               cellNavClass(colIndex),
@@ -2397,6 +2544,12 @@ const PricingGridRow = memo(function PricingGridRow({
                 <Check
                   aria-hidden
                   className="h-3 w-3 shrink-0 text-emerald-600 dark:text-emerald-400"
+                />
+              )}
+              {isCarried && (
+                <CornerDownRight
+                  aria-hidden
+                  className="h-3 w-3 shrink-0 text-sky-600 dark:text-sky-400"
                 />
               )}
               <span className="truncate">{label}</span>
@@ -2440,6 +2593,7 @@ const PricingGridRow = memo(function PricingGridRow({
         if (
           onSaveRate &&
           formulasComplete &&
+          categoryGateOpen &&
           isRateDescriptor(d) &&
           isRateEditableRow(row, override)
         ) {
@@ -2481,6 +2635,43 @@ const PricingGridRow = memo(function PricingGridRow({
                       needsReview ? "bg-amber-500" : "bg-emerald-500",
                     )}
                   />
+                )}
+                {/* U1 rate-helper: the suggestion badge. Its own click (stopPropagation) opens the
+                    panel; a bare click on the input beside it still just places the cursor. */}
+                {onSuggestionBadgeClick && rowSuggestions?.byCol[d.col] && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSuggestionBadgeClick(
+                        row.source_row_number,
+                        d.col,
+                        e.currentTarget as HTMLElement,
+                      );
+                    }}
+                    className={cn(
+                      "inline-flex h-4 min-w-[16px] shrink-0 items-center justify-center rounded-full px-1 text-[10px] font-semibold leading-none",
+                      rowSuggestions.byCol[d.col].used
+                        ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+                        : "bg-primary/15 text-primary hover:bg-primary/25",
+                    )}
+                    title={
+                      rowSuggestions.byCol[d.col].used
+                        ? "Suggested value used"
+                        : `${rowSuggestions.byCol[d.col].count} rate suggestion(s)`
+                    }
+                    aria-label={
+                      rowSuggestions.byCol[d.col].used
+                        ? "Suggested value used"
+                        : "Open rate suggestions"
+                    }
+                  >
+                    {rowSuggestions.byCol[d.col].used ? (
+                      <Check className="h-3 w-3" />
+                    ) : (
+                      rowSuggestions.byCol[d.col].count
+                    )}
+                  </button>
                 )}
                 <Input
                   {...inputFocusProps(colIndex)}
@@ -2677,7 +2868,7 @@ PricingGridRow.displayName = "PricingGridRow";
 // grid props identity-stable (the 12 useMemo/useCallback wraps -- esp. `rows`/`displayRows`); a
 // future non-stable prop silently kills the shield (see frontend/CLAUDE.md).
 export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(function PricingGrid(
-  { rows, columnDescriptors, onSaveRate, onBatchWrite, onDirtyChange, onHistoryChange, override = false, formulasComplete = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], categoriesByExcelRow = EMPTY_CATEGORY_MAP, hasRun = false, categoryLabelById = EMPTY_CATEGORY_LABEL_MAP, onCategoryClick, onSaveReconChoice, hiddenCols, currentHitExcelRow = null, collapsed, childrenByParent, onToggleCollapse, onRevealRow, frozen = false, virtualized = false },
+  { rows, columnDescriptors, onSaveRate, onBatchWrite, onDirtyChange, onHistoryChange, override = false, formulasComplete = true, categoryGateOpen = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], categoriesByExcelRow = EMPTY_CATEGORY_MAP, hasRun = false, categoryLabelById = EMPTY_CATEGORY_LABEL_MAP, onCategoryClick, rowSuggestionsByExcelRow = EMPTY_SUGGESTIONS_MAP, onSuggestionBadgeClick, onSaveReconChoice, hiddenCols, currentHitExcelRow = null, collapsed, childrenByParent, onToggleCollapse, onRevealRow, frozen = false, virtualized = false },
   ref,
 ) {
   // Cluster B: per-cell reconciliation choice map (per-SHEET; reference-stable across a keystroke
@@ -2979,6 +3170,41 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
       });
   }, [onSaveRate, displayDescriptors]);
 
+  // U1 rate-helper: apply a value to a rate cell (excelRow + Excel column letter) EXACTLY as a
+  // typed value -- optimistic draft (cell shows it at once) + clear any proposal + the SAME 1s
+  // debounced autosave the onChange handler schedules (inlined here because scheduleAutoSave is
+  // declared below). Deferring the commit rather than committing synchronously is load-bearing: the
+  // draft flips the sheet dirty, which fires the page's ensureLockAcquired BEFORE the save runs, so
+  // "Use this value" never races lock acquisition (a synchronous commit did -> spurious takeover).
+  // It inherits the identical bookkeeping typing has: undo history, mutate refetch, in-flight /
+  // takeover, and the onSaveRate (locked) gate via autoSaveCellRef -> commitRate. No second save path.
+  const applyRate = useCallback(
+    (excelRow: number, col: string, value: number) => {
+      if (!onSaveRate) return;
+      const row = rowsRef.current.find((r) => r.source_row_number === excelRow);
+      const d = displayDescriptors.find((dd) => dd.col === col);
+      if (!row || !d || !isRateDescriptor(d)) return;
+      const key = cellKey(row.row_index, d.col);
+      const str = String(value);
+      setDraftRates((prev) => ({ ...prev, [key]: str }));
+      setProposedRates((prev) => {
+        if (prev[key] === undefined) return prev;
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+      let deb = debouncersRef.current.get(key);
+      if (!deb) {
+        deb = debounce(() => autoSaveCellRef.current(row.row_index, d.col), AUTOSAVE_MS);
+        debouncersRef.current.set(key, deb);
+      }
+      deb();
+    },
+    [onSaveRate, displayDescriptors],
+  );
+  const applyRateRef = useRef(applyRate);
+  applyRateRef.current = applyRate;
+
   // Slice 3c: keep the latest-state commit closure + draft snapshot fresh for the
   // debounce/flush (refs avoid stale captures). Runs after every render.
   useEffect(() => {
@@ -3175,11 +3401,15 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
     return d && isRateDescriptor(d) ? "rate" : "other";
   };
   // Is the rate cell at (row, c) actually writable? Mirrors the inline edit gate EXACTLY: the cell
-  // axis (isRateDescriptor) + the sheet gate (formulasComplete, ANDed OUTSIDE) + the row axis
-  // (isRateEditableRow incl. the override). A paste can no more bypass these than a keystroke can.
+  // axis (isRateDescriptor) + the sheet gates (formulasComplete + categoryGateOpen, both ANDed
+  // OUTSIDE) + the row axis (isRateEditableRow incl. the override). A paste can no more bypass these
+  // than a keystroke can.
   const rateWritableAt = (row: PricedRow, c: number): boolean => {
     const d = descriptorAt(c);
-    return !!d && isRateDescriptor(d) && formulasComplete && isRateEditableRow(row, override);
+    return (
+      !!d && isRateDescriptor(d) && formulasComplete && categoryGateOpen &&
+      isRateEditableRow(row, override)
+    );
   };
   // Read one cell's copyable value (the optimistic draft when present, else the saved value). Returns
   // a SKIP hole (null) for a non-copyable cell (anchor / amount / qty / out-of-range).
@@ -3504,13 +3734,13 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
 
   // Is this delta's target still a writable rate cell NOW? Resolve the row by excel row + the
   // descriptor by col over the FULL set (column-hide must NOT block an undo), then apply the SAME
-  // server-mirrored gate (rate descriptor + formulasComplete + isRateEditableRow).
+  // server-mirrored gate (rate descriptor + formulasComplete + categoryGateOpen + isRateEditableRow).
   const isDeltaWritable = (delta: RateDelta): boolean => {
     const row = rows.find((r) => r.source_row_number === delta.cell.excelRow);
     if (!row) return false;
     const dd = displayDescriptors.find((x) => x.col === delta.cell.colLetter);
     if (!dd || !isRateDescriptor(dd)) return false;
-    return formulasComplete && isRateEditableRow(row, override);
+    return formulasComplete && categoryGateOpen && isRateEditableRow(row, override);
   };
 
   // Replay one entry: write each still-writable delta's newRate (undo passes invert(entry), so its
@@ -3812,6 +4042,9 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
       // via refs (synced each render), so the handle need not rebuild when rows/override change.
       undo: () => undoRef.current(),
       redo: () => redoRef.current(),
+      // U1 rate-helper: delegate to the latest applyRate via a ref (like undo/redo) so the handle
+      // need not rebuild when rows/descriptors change.
+      applyRate: (excelRow, col, value) => applyRateRef.current(excelRow, col, value),
     }),
     [jumpToRow],
   );
@@ -4354,8 +4587,11 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
       hasRun={hasRun}
       categoryLabelById={categoryLabelById}
       onCategoryClick={onCategoryClick}
+      rowSuggestions={rowSuggestionsByExcelRow.get(row.source_row_number)}
+      onSuggestionBadgeClick={onSuggestionBadgeClick}
       override={override}
       formulasComplete={formulasComplete}
+      categoryGateOpen={categoryGateOpen}
       onSaveRate={onSaveRate}
       onSaveColor={onSaveColor}
       onSaveRemark={onSaveRemark}

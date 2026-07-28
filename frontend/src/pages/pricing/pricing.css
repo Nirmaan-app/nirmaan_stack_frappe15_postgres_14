@@ -1,0 +1,36 @@
+/* Fix: long range-sourced data-validation dropdowns were unscrollable
+   (rendered at full content height, no internal scroll, clipped
+   off-screen). DIAG 2026-07-27. */
+#luckysheet-dataVerification-dropdown-List { max-height: 300px; overflow-y: auto; }
+
+/* PW-DS: type-to-search input injected into the dropdown popup by
+   pricingDropdownSearch.ts. Plain hex (not Tailwind tokens) on purpose: this styles
+   the vendored Luckysheet light-theme popup DOM, which is not app-theme-tokenized --
+   consistent with the bare-ID cap rule above. The sticky input's ~30px sits INSIDE
+   the 300px cap (recon Q4); no cap change needed. */
+.pricing-dropdown-search {
+	position: sticky;
+	top: 0;
+	z-index: 2;
+	box-sizing: border-box;
+	width: 100%;
+	padding: 6px 10px;
+	border: none;
+	border-bottom: 1px solid #e5e7eb;
+	outline: none;
+	font-size: 12px;
+	line-height: 18px;
+	background: #ffffff;
+	color: #111827;
+}
+.pricing-dropdown-search::placeholder { color: #9ca3af; }
+/* Keyboard-highlighted option (own nav -- the engine has none). */
+.dropdown-List-item.pricing-dropdown-search-hl { background: #e8f0fe; }
+/* Muted, non-clickable zero-results row. */
+.pricing-dropdown-search-nomatch {
+	padding: 6px 10px;
+	font-size: 12px;
+	color: #9ca3af;
+	cursor: default;
+	user-select: none;
+}

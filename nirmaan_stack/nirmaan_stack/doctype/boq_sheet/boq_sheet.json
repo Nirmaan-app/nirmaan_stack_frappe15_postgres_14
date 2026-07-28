@@ -20,6 +20,7 @@
   "column_role_map",
   "column_headers",
   "area_dimensions",
+  "sheet_config_snapshot",
   "parse_vintage_section",
   "last_parsed_at",
   "commit_version_section",
@@ -35,6 +36,11 @@
   "classification_frozen",
   "frozen_by",
   "frozen_at",
+  "category_override_section",
+  "category_gate_override",
+  "category_override_by",
+  "category_override_at",
+  "category_override_reason",
   "revision_provenance_section",
   "source_boq",
   "source_commit_version",
@@ -129,6 +135,13 @@
    "fieldname": "area_dimensions",
    "fieldtype": "JSON",
    "label": "Area Dimensions"
+  },
+  {
+   "description": "LOSSLESS snapshot of the draft's sheet_config as it stood at commit (R2, ADR-0014 D5). The six render-config values above remain the AUTHORITATIVE committed record for what they cover; this blob exists solely to preserve the parser-tuning keys they do NOT cover -- skip_top_rows_after_header, top_header_rows_override, rate_only_markers_override, level_1_style_override, and the frontend-only skip_row_definitions -- which a revision seed (revision_carry._committed_data_sheet, which inverts this snapshot) would otherwise silently reset to default. NULL on every sheet committed before R2: readers MUST fall back to the six columns, never assume this is present.",
+   "fieldname": "sheet_config_snapshot",
+   "fieldtype": "JSON",
+   "label": "Sheet Config Snapshot",
+   "read_only": 1
   },
   {
    "fieldname": "parse_vintage_section",
@@ -227,6 +240,38 @@
    "read_only": 1
   },
   {
+   "fieldname": "category_override_section",
+   "fieldtype": "Section Break",
+   "label": "Category Gate Override"
+  },
+  {
+   "default": "0",
+   "description": "Admin-only, PERSISTED, per-sheet-per-committed-version escape from the rate-editable category gate (Slice G2b). When 0, save_cell_price REJECTS any rate write while >=1 rate-editable row (Line Item always; qty-bearing Preamble) has a blank RESOLVED category -- ABSOLUTE against the 'Price any row' priceability override (owner ruling; only the formula gate is also absolute). When 1, the gate is bypassed for this sheet+version. Set/cleared by set_category_override / clear_category_override (admin-only, _is_nirmaan_admin) via frappe.db.set_value (NOT doc.save -- the list-valued area_dimensions JSON throws on a full save). TEMPORARY BY DESIGN: to be removed once classification engines cover all disciplines. Re-commit INVALIDATES: a new commit_version inserts a fresh BoQ Sheet row that defaults category_gate_override=0.",
+   "fieldname": "category_gate_override",
+   "fieldtype": "Check",
+   "label": "Category Gate Override"
+  },
+  {
+   "description": "The admin user who last SET the override (frappe.session.user). Cleared on clear_category_override. Typed Data + read_only to mirror locked_by / frozen_by.",
+   "fieldname": "category_override_by",
+   "fieldtype": "Data",
+   "label": "Category Override By",
+   "read_only": 1
+  },
+  {
+   "description": "When the override was last set (now_datetime()). Cleared on clear_category_override.",
+   "fieldname": "category_override_at",
+   "fieldtype": "Datetime",
+   "label": "Category Override At",
+   "read_only": 1
+  },
+  {
+   "description": "OPTIONAL short reason the admin recorded for the override (capped server-side at _CATEGORY_OVERRIDE_REASON_MAX_LEN, mirroring the remark cap). NULL when absent; cleared when the override is cleared. NOT read_only -- the admin authors it.",
+   "fieldname": "category_override_reason",
+   "fieldtype": "Small Text",
+   "label": "Category Override Reason"
+  },
+  {
    "fieldname": "revision_provenance_section",
    "fieldtype": "Section Break",
    "label": "Revision Provenance"
@@ -256,7 +301,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-18 00:00:00.000000",
+ "modified": "2026-07-28 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "BoQ Sheet",

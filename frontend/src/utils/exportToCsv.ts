@@ -156,11 +156,16 @@ const getCellValue = (row: any, column: ColumnDef<any, any>): string | number | 
  * @param filename - The desired filename (without .csv extension).
  * @param data - The array of data objects (or rows) to export.
  * @param columns - The Tanstack Table column definitions to determine headers and accessors.
+ * @param options - Optional. `groupHeaders` maps a column's accessorKey/id to a group
+ *   label; when provided, a group-header row is emitted ABOVE the column-name row
+ *   (merged-cell style — label once at each group's first column, "" elsewhere).
+ *   Omit it and the output is byte-identical to before.
  */
 export const exportToCsv = <TData extends RowData>(
     filename: string,
     data: TData[],
-    columns: ColumnDef<TData, any>[]
+    columns: ColumnDef<TData, any>[],
+    options?: { groupHeaders?: Record<string, string> }
 ) => {
     if (!data || data.length === 0) {
         console.warn('No data provided for CSV export.');
@@ -210,6 +215,14 @@ export const exportToCsv = <TData extends RowData>(
             return 'Unknown Column';
         });
 
+        // 2b. Optional group-header row, aligned to the SAME exportable columns.
+        const groupRow = options?.groupHeaders
+            ? exportableColumns.map(col => {
+                  const key = String((col as any).accessorKey ?? col.id ?? '');
+                  return options.groupHeaders![key] ?? '';
+              })
+            : null;
+
         // 3. Extract Row Data using getCellValue
         const rows = data.map(rowDataItem => // rowDataItem is an individual object from your TData[]
             exportableColumns.map(col => getCellValue(rowDataItem, col))
@@ -217,7 +230,7 @@ export const exportToCsv = <TData extends RowData>(
 
         // 4. Convert data (including headers) to CSV string
         const csvString = unparse(
-            [headers, ...rows],
+            groupRow ? [groupRow, headers, ...rows] : [headers, ...rows],
             {
                 skipEmptyLines: true,
             }

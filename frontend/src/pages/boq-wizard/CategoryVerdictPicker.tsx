@@ -21,18 +21,36 @@ import type { EngineCatalog, SheetCategoryRow } from "./boqTypes";
 /**
  * The verdict "state" of a category row -- drives the grid cell's visual treatment + editability.
  *   unclassified -- no effective verdict (blank / skipped / not classified). NOT editable.
+ *   carried      -- the verdict arrived via the cross-BoQ revision carry, not from this sheet.
+ *                   Editable like any other verdict.
  *   human        -- the user set an explicit human_category_id (trimmed non-empty). The "edited" cue.
  *   needs_review -- routed to review with no human pick yet (the amber cue).
  *   auto         -- an auto-accepted machine verdict.
- * ORDER MATTERS: a blank effective short-circuits to "unclassified" first; a trimmed human pick
- * wins next; then the routing.
+ *
+ * ORDER MATTERS: a blank effective short-circuits to "unclassified" first; then PROVENANCE
+ * (carried) outranks decision-type; then a local human pick; then the routing.
+ *
+ * ⚠️ "carried" covers EVERY carried row, machine or human (ADR-0014 Amendment E, owner ruling
+ * 2026-07-28). Provenance is the axis being reported: a reviewer auditing a revision wants to see
+ * at a glance which rows were INHERITED from the original versus decided on this sheet, and that
+ * question is not answered by who decided them. The cost is accepted and is real -- on a freshly
+ * carried sheet most rows read sky, and the auto-vs-human distinction is not visible on those rows
+ * until the carried ones are worked through.
+ *
+ * ⚠️ The one ordering interaction worth naming: a CARRIED row that is also routed "Needs review"
+ * with no human pick now reads "carried" rather than "needs_review". That combination is
+ * unreachable from the resolved read -- a resolved review row has a BLANK effective, which
+ * short-circuits to "unclassified" two lines above -- so no amber review cue is actually masked.
+ * If a future read makes it reachable, review is an ACTION signal and should win; move the routing
+ * check above the provenance check at that point.
  */
 export function deriveVerdictState(
   cat: SheetCategoryRow | undefined,
-): "unclassified" | "auto" | "needs_review" | "human" {
+): "unclassified" | "auto" | "needs_review" | "human" | "carried" {
   if (!cat) return "unclassified";
   const effective = (cat.effective_category_id ?? "").trim();
   if (!effective) return "unclassified";
+  if (cat.carried_from_boq) return "carried";
   if ((cat.human_category_id ?? "").trim()) return "human";
   if (cat.routing === "Needs review") return "needs_review";
   return "auto";

@@ -25,28 +25,24 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 import { DataTable } from "@/components/data-table/new-data-table";
 import { useUserData } from "@/hooks/useUserData";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
+import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 import { useOrderTotals } from "@/hooks/useOrderTotals";
 import { useOrderPayments } from "@/hooks/useOrderPayments";
 import { useTotalInvoicedByDocument } from "../hooks/useTotalInvoicedByDocument";
-import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
-import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 import { useFacetValues } from "@/hooks/useFacetValues";
+import { invoiceRowClassName } from "../utils/invoiceRowStyle";
 
 const URL_SYNC_KEY = "inv_pending";
 
 export const PendingTasksTable: React.FC = () => {
     const { role, user_id } = useUserData();
-    const { ceoHoldProjectIds } = useCEOHoldProjects();
 
+    // Rows tint red once a Pending invoice has aged past INVOICE_AGING_RED_DAYS.
+    // This REPLACED the CEO-Hold tint (owner decision, 2026-07-27) — the row
+    // background is one binary channel and it now belongs to aging.
     const getRowClassName = useCallback(
-        (row: any) => {
-            const projectId = row.original.project;
-            if (projectId && ceoHoldProjectIds.has(projectId)) {
-                return CEO_HOLD_ROW_CLASSES;
-            }
-            return undefined;
-        },
-        [ceoHoldProjectIds]
+        (row: any) => invoiceRowClassName(row.original),
+        []
     );
 
     // --- Fetch Attachments (Supporting Data) ---
@@ -87,7 +83,19 @@ export const PendingTasksTable: React.FC = () => {
 
     const { getTotalAmount, getDeliveredAmount, getVendorName } = useOrderTotals();
     const { getAmount } = useOrderPayments();
-    const { getTotalInvoiced, getInvoicesFor } = useTotalInvoicedByDocument();
+    const { getTotalInvoiced } = useTotalInvoicedByDocument();
+
+    // Resolves uploaded_by -> full name for the "Invoice Added By" column.
+    // Same shape as TaskHistoryTable's resolver, which already backs "Actioned By".
+    const { data: usersList } = useUsersList();
+    const getUserName = useCallback(
+        (id: string | undefined): string => {
+            if (!id) return "";
+            if (id === "Administrator") return "Administrator";
+            return usersList?.find((user) => user.name === id)?.full_name || id;
+        },
+        [usersList]
+    );
 
     // --- Column Definitions ---
     const columns = React.useMemo(
@@ -102,7 +110,7 @@ export const PendingTasksTable: React.FC = () => {
                 getDeliveredAmount,
                 getVendorName,
                 getTotalInvoiced,
-                getInvoicesFor
+                getUserName
             ),
         [
             openConfirmationDialog,
@@ -114,7 +122,7 @@ export const PendingTasksTable: React.FC = () => {
             getDeliveredAmount,
             getVendorName,
             getTotalInvoiced,
-            getInvoicesFor,
+            getUserName,
         ]
     );
 

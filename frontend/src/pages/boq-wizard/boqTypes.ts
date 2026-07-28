@@ -871,6 +871,26 @@ export interface GetPricedRowsResponse {
   frozen_by: string | null;
   /** When the classification was frozen (null when not frozen). */
   frozen_at: string | null;
+  /**
+   * CATEGORY GATE payload (Slices G2a/G2b/G2e). `eligible_blank_category_count` = the count of
+   * ELIGIBLE master-set rows (node_type Line Item / Preamble) whose RESOLVED category is blank
+   * ("empty is empty"); `categories_complete` = (count === 0). This is the SAME population +
+   * number `get_freeze_summary` counts. The page derives the count client-side from the shared
+   * `isMasterSetBlank` predicate (so it can update live); these server values are the load-time
+   * parity source. 0 / true for an uncommitted / grid-only sheet.
+   */
+  eligible_blank_category_count: number;
+  categories_complete: boolean;
+  /**
+   * The admin category-gate OVERRIDE state for this committed version (Slice G2b). When
+   * `category_gate_override` is true the gate is OPEN despite blanks; the other three describe who
+   * set it, when, and an optional reason. G3a DISPLAYS these (the set/clear control is G3b). All
+   * false / null for an uncommitted / grid-only sheet or when the override is unset.
+   */
+  category_gate_override: boolean;
+  category_override_by: string | null;
+  category_override_at: string | null;
+  category_override_reason: string | null;
 }
 
 // ── Slice 4b-A: the computed review-flag layer (Cluster A) ───────────────────────
@@ -1333,17 +1353,51 @@ export interface CrossBoqCarrySheet {
   counts: CrossBoqCarryCounts;
   formulas_complete: boolean;
   needs_new_value_count: number;
+  /** Amendment E: what each layer WOULD do, planned with overwrite OFF. EVERY layer is planned
+   *  regardless of what the user has ticked -- the dialog cannot offer a choice it has no counts
+   *  for. Optional so a response from an older server does not break the dialog. */
+  layers?: Partial<Record<CarryLayerKey, CarryLayerOutcome>>;
 }
 
-/** Response shape of apply_sheet_carry (AMENDMENT C, C2) -- synchronous, so the summary comes
- *  straight back instead of a job id. AMENDMENT D removed the `layers` block: the carry moves
- *  rates and nothing else. */
+/** ADR-0014 Amendment E: the non-rate layers the per-sheet carry can move. Order is the DISPLAY
+ *  order in the dialog. Mirrors committed_carry.LAYER_KEYS -- keep the two in step. */
+export const CARRY_LAYER_KEYS = [
+  "categories",
+  "remarks",
+  "colors",
+  "remark_dismissals",
+] as const;
+export type CarryLayerKey = (typeof CARRY_LAYER_KEYS)[number];
+
+/** One layer's per-sheet outcome. ONE shape for every layer, so the UI reads a uniform result.
+ *  `ineligible` is categories-only (the destination row cannot hold a category) and `dropped` is
+ *  colours-only (the column letter did not survive); both are 0 elsewhere, by construction. */
+export interface CarryLayerOutcome {
+  carried: number;
+  replaced: number;
+  kept: number;
+  unmatched: number;
+  ineligible: number;
+  dropped: number;
+}
+
+/** The user's per-layer choice, posted as `layers`. Absent or carry:false = that layer does not
+ *  run at all. Category is offered ON by default in the dialog, the annotations OFF -- that
+ *  asymmetry is a UI default, not a backend one (an omitted payload carries nothing). */
+export interface CarryLayerChoice {
+  carry: boolean;
+  overwrite: boolean;
+}
+
+/** Response shape of apply_sheet_carry -- synchronous, so the summary comes straight back instead
+ *  of a job id. AMENDMENT E restored `layers`: it reports ONLY the layers that actually ran. */
 export interface ApplySheetCarryResponse {
   ok: boolean;
   copied: number;
   conflicts_overwritten: number;
   conflicts_kept: number;
   skipped: Record<string, number>;
+  layers: Partial<Record<CarryLayerKey, CarryLayerOutcome>>;
 }
 
 /** Response shape of get_cross_boq_carry_plan. */
@@ -1544,6 +1598,13 @@ export interface SheetCategoryRow {
   routing_reason: string;
   human_category_id: string;
   effective_category_id: string;
+  /** ADR-0014 Amendment E: the ORIGINAL this row's EFFECTIVE verdict was carried from, else null.
+   *  Drives the distinct "carried" cell state, which marks EVERY inherited row (owner ruling
+   *  2026-07-28 -- provenance, not decision-type, is the axis being reported). Without it a
+   *  carried human verdict renders as emerald "your pick", claiming the reviewer made a decision
+   *  someone else made on another BoQ -- the un-attributed arrival Amendment D deleted the carry
+   *  over. */
+  carried_from_boq?: string | null;
 }
 
 /**
@@ -1574,6 +1635,9 @@ export interface ResolvedSheetCategory {
   cross_engine_conflict: boolean;
   human_category_id: string;
   human_discipline: string | null;
+  /** Amendment E: provenance of the verdict that RESOLVED this row (not "any vote is carried") --
+   *  a row can be carried in one engine and classified locally in another. */
+  carried_from_boq: string | null;
   votes: Record<string, ResolvedVote>;
 }
 

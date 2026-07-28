@@ -29,6 +29,11 @@ import { useUserData } from "@/hooks/useUserData";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { parseNumber } from "@/utils/parseNumber";
+import {
+  FUTURE_INVOICE_DATE_MESSAGE,
+  isFutureInvoiceDate,
+  toLocalDateString,
+} from "@/utils/invoiceDate";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import {
   useFrappeFileUpload,
@@ -710,6 +715,18 @@ export function InvoiceDialog<T extends DocumentType>({
       return;
     }
 
+    // Hard-block a future invoice date. Mirrors the server's
+    // `_check_invoice_date_not_future`; the button is already disabled, this
+    // guards the keyboard / programmatic path.
+    if (isFutureInvoiceDate(invoiceData.date)) {
+      toast({
+        title: "Invalid Invoice Date",
+        description: FUTURE_INVOICE_DATE_MESSAGE,
+        variant: "destructive",
+      });
+      return;
+    }
+
     // Attachment is optional in Edit mode if one already exists
     if (!isEditMode && !selectedAttachment) {
         toast({
@@ -761,6 +778,14 @@ export function InvoiceDialog<T extends DocumentType>({
       });
       return;
     }
+    if (isFutureInvoiceDate(invoiceData.date)) {
+      toast({
+        title: "Invalid Invoice Date",
+        description: FUTURE_INVOICE_DATE_MESSAGE,
+        variant: "destructive",
+      });
+      return;
+    }
     if (!isEditMode && !selectedAttachment) {
       toast({
         title: "Validation Error",
@@ -800,6 +825,14 @@ export function InvoiceDialog<T extends DocumentType>({
   };
 
   const validationState = getValidationState();
+
+  // Future-dated invoices are hard-blocked. The server
+  // (`_check_invoice_date_not_future`) is the real boundary — this gate just
+  // refuses before a round-trip and explains why inline. Recomputed per render
+  // so correcting the date clears the block immediately.
+  const invoiceDateIsFuture = isFutureInvoiceDate(invoiceData.date);
+  // Shared with the date input's `max` so the hint and the gate agree.
+  const todayLocal = toLocalDateString();
 
   // Live amount overage check — recomputes against the current value in the
   // amount field, so editing the value clears or re-triggers the warning.
@@ -1139,15 +1172,23 @@ export function InvoiceDialog<T extends DocumentType>({
                         date: e.target.value,
                       }));
                     }}
-                    max={new Date().toISOString().split("T")[0]}
+                    max={todayLocal}
                     className={cn(
                       "pl-10",
                       autofilledFields.has("date") &&
-                        "bg-amber-50 border-amber-300 focus-visible:ring-amber-400"
+                        "bg-amber-50 border-amber-300 focus-visible:ring-amber-400",
+                      invoiceDateIsFuture &&
+                        "border-red-500 focus-visible:ring-red-400"
                     )}
                     disabled={isLoading || isAutofilling}
                   />
                 </div>
+                {invoiceDateIsFuture && (
+                  <p className="text-xs text-red-600 flex items-center gap-1">
+                    <AlertTriangle className="h-3 w-3 shrink-0" />
+                    {FUTURE_INVOICE_DATE_MESSAGE}
+                  </p>
+                )}
               </div>
 
               {/* Invoice Amount */}
@@ -1305,7 +1346,8 @@ export function InvoiceDialog<T extends DocumentType>({
                     validationState === "checking" ||
                     !!liveAmountValidation?.wouldExceed ||
                     supplierGstinMismatch ||
-                    receiverGstinMismatch
+                    receiverGstinMismatch ||
+                    invoiceDateIsFuture
                   }
                 >
                   {!isEditMode && lineMatch

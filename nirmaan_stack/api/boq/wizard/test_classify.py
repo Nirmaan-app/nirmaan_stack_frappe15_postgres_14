@@ -38,7 +38,6 @@ from frappe.tests.utils import FrappeTestCase
 from nirmaan_stack.api.boq.wizard import classify
 from nirmaan_stack.api.boq.wizard.classify import (
     _classify_worker,
-    _resolve_row_ladder,
     get_classify_status,
     get_sheet_categories,
     get_sheet_categories_resolved,
@@ -46,7 +45,11 @@ from nirmaan_stack.api.boq.wizard.classify import (
     set_row_category,
     start_classify,
 )
+from nirmaan_stack.api.boq.wizard import pricing  # G2d: re-classify clears the category-gate override
 from nirmaan_stack.services.boq_category import engines, orchestrator, persist
+# Slice 1a: the resolution ladder was relocated classify -> persist (service layer). Import it
+# under its former name so the existing TestResolveRowLadder cases exercise the SAME function.
+from nirmaan_stack.services.boq_category.persist import resolve_row_ladder as _resolve_row_ladder
 from nirmaan_stack.services.boq_category.runner import classify_line
 from nirmaan_stack.api.boq.wizard.test_review_screen import _cleanup_project, _make_project
 
@@ -611,6 +614,192 @@ class TestClassifyWorker(FrappeTestCase):
         pub.assert_called_once()
 
 
+# ── G2d: RE-CLASSIFY CLEARS THE CATEGORY-GATE OVERRIDE ─────────────────────────────
+class TestReclassifyClearsOverride(FrappeTestCase):
+    """G2d: a SUCCESSFUL WHOLE-SHEET re-classify clears the category-gate override on that sheet's
+    current committed version. A range/partial run, a failed run, and set_row_category do NOT clear;
+    the clear is idempotent, sheet-isolated, and never fails the classification run. The orchestrator
+    is mocked so the tests exercise the worker's clear wiring, not real classification.
+
+    PER-ENGINE EDGE (test_multi_engine_each_engine_clears_independently): a re-classify is fired once
+    per selected engine (ClassifySheetDialog loops start_classify), each spawning its own worker with
+    no all-engines completion barrier -- so an override re-set between two engines' completions is
+    wiped by the later engine. This test asserts that real behaviour."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.project = _make_project()
+        cls.boq = _new_boq(cls.project.name, "Reclassify Clear BoQ")
+        cls.sheetA = "ClearFixA "  # VERBATIM trailing space (#152)
+        cls.sheetB = "ClearFixB "
+        _new_sheet(cls.boq, cls.sheetA)
+        _new_sheet(cls.boq, cls.sheetB)
+        cls.disc = "Electrical"
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete(_ROW_CATEGORY, {"boq": cls.boq})
+        frappe.db.delete("BoQ Sheet", {"boq": cls.boq})
+        frappe.db.commit()
+        _cleanup_project(cls.project.name)
+        super().tearDownClass()
+
+    def tearDown(self):
+        for s in (self.sheetA, self.sheetB):
+            self._reset_override(s)
+            for d in (self.disc, "HVAC"):  # the multi-engine test also runs the HVAC worker
+                frappe.cache().delete_value(classify._status_key(self.boq, s, d))
+                frappe.cache().delete_value(classify._marker_key(self.boq, s, d))
+        frappe.db.delete(_ROW_CATEGORY, {"boq": self.boq})
+        frappe.db.commit()
+
+    # ── override fixture helpers ──
+    def _set_override(self, sheet_name, reason="G2d cert"):
+        name = classify._current_sheet_name(self.boq, sheet_name, 1)
+        frappe.db.set_value(
+            "BoQ Sheet", name,
+            {
+                "category_gate_override": 1,
+                "category_override_by": "Administrator",
+                "category_override_at": frappe.utils.now_datetime(),
+                "category_override_reason": reason,
+            },
+            update_modified=False,
+        )
+        frappe.db.commit()
+
+    def _reset_override(self, sheet_name):
+        name = classify._current_sheet_name(self.boq, sheet_name, 1)
+        frappe.db.set_value(
+            "BoQ Sheet", name,
+            {
+                "category_gate_override": 0, "category_override_by": None,
+                "category_override_at": None, "category_override_reason": None,
+            },
+            update_modified=False,
+        )
+        frappe.db.commit()
+
+    def _override(self, sheet_name):
+        name = classify._current_sheet_name(self.boq, sheet_name, 1)
+        return frappe.db.get_value(
+            "BoQ Sheet", name,
+            ["category_gate_override", "category_override_by",
+             "category_override_at", "category_override_reason"],
+            as_dict=True,
+        )
+
+    def _assert_cleared(self, sheet_name):
+        row = self._override(sheet_name)
+        self.assertEqual(row["category_gate_override"], 0)
+        self.assertIsNone(row["category_override_by"])
+        self.assertIsNone(row["category_override_at"])
+        self.assertIsNone(row["category_override_reason"])
+
+    def _assert_set(self, sheet_name):
+        row = self._override(sheet_name)
+        self.assertEqual(row["category_gate_override"], 1)
+        self.assertEqual(row["category_override_by"], "Administrator")
+
+    _FAKE_SUMMARY = {
+        "total_in_range": 1, "eligible_classified": 1, "needs_review": 0, "auto_accepted": 1,
+        "skipped_total": 0, "skipped_by_reason": {}, "committed_version": 1, "sheet_warnings": [],
+    }
+
+    def _run_worker(self, sheet_name, scope, *, fail=False, discipline=None):
+        orch = mock.patch(
+            "nirmaan_stack.api.boq.wizard.classify.orchestrator.classify_sheet_rows",
+            side_effect=RuntimeError("boom") if fail else None,
+            return_value=None if fail else self._FAKE_SUMMARY,
+        )
+        disc = discipline or self.disc
+        with orch, mock.patch("frappe.publish_realtime"), mock.patch("frappe.log_error"):
+            _classify_worker(
+                boq=self.boq, sheet_name=sheet_name, discipline=disc,
+                scope=scope, user="Administrator",
+            )
+        # The worker keys its terminal payload by the ACTUAL discipline it ran.
+        return frappe.cache().get_value(classify._status_key(self.boq, sheet_name, disc))
+
+    # ── (a) POSITIVE: whole-sheet success clears a set override ──
+    def test_whole_sheet_success_clears_override(self):
+        self._set_override(self.sheetA)
+        term = self._run_worker(self.sheetA, {"mode": "sheet"})
+        self.assertEqual(term["status"], "success")
+        self.assertTrue(term["category_override_cleared"])
+        self._assert_cleared(self.sheetA)
+
+    # ── (b) NEGATIVE: a failed run leaves the override intact ──
+    def test_failed_run_leaves_override_intact(self):
+        self._set_override(self.sheetA)
+        term = self._run_worker(self.sheetA, {"mode": "sheet"}, fail=True)
+        self.assertEqual(term["status"], "error")
+        self.assertNotIn("category_override_cleared", term)  # only the success payload carries it
+        self._assert_set(self.sheetA)
+
+    # ── (b2) NEGATIVE: a partial row-range run does NOT clear ──
+    def test_range_run_does_not_clear(self):
+        self._set_override(self.sheetA)
+        term = self._run_worker(self.sheetA, {"mode": "range", "start": 1, "end": 2})
+        self.assertEqual(term["status"], "success")
+        self.assertFalse(term["category_override_cleared"])
+        self._assert_set(self.sheetA)
+
+    # ── (c) NEGATIVE: set_row_category does NOT clear an active override ──
+    def test_set_row_category_does_not_clear(self):
+        self._set_override(self.sheetA)
+        set_row_category(
+            boq=self.boq, sheet_name=self.sheetA, excel_row=11,
+            human_category_id="earthing", discipline=self.disc,
+        )
+        self._assert_set(self.sheetA)
+
+    # ── (d) IDEMPOTENT: whole-sheet success with no override is a clean no-op ──
+    def test_no_override_whole_sheet_is_clean_noop(self):
+        self._reset_override(self.sheetA)  # ensure absent
+        term = self._run_worker(self.sheetA, {"mode": "sheet"})
+        self.assertEqual(term["status"], "success")
+        self.assertFalse(term["category_override_cleared"])
+        self._assert_cleared(self.sheetA)  # still clear, no crash
+
+    # ── (e) ISOLATION: clearing sheet A does not touch sheet B ──
+    def test_clear_is_sheet_isolated(self):
+        self._set_override(self.sheetA)
+        self._set_override(self.sheetB)
+        self._run_worker(self.sheetA, {"mode": "sheet"})
+        self._assert_cleared(self.sheetA)
+        self._assert_set(self.sheetB)
+
+    # ── (f) RESILIENCE: a clear failure never fails the classification run ──
+    def test_clear_failure_never_fails_classification(self):
+        self._set_override(self.sheetA)
+        with mock.patch(
+            "nirmaan_stack.api.boq.wizard.pricing.reset_category_gate_override_on_reclassify",
+            side_effect=RuntimeError("clear blew up"),
+        ):
+            term = self._run_worker(self.sheetA, {"mode": "sheet"})
+        self.assertEqual(term["status"], "success")  # classify stands despite the clear failing
+        self.assertFalse(term["category_override_cleared"])  # the except returned False
+        self._assert_set(self.sheetA)  # override untouched because the clear raised
+
+    # ── PER-ENGINE EDGE: each engine's worker clears independently (owner-requested) ──
+    def test_multi_engine_each_engine_clears_independently(self):
+        # Engine A (Electrical) completes -> clears.
+        self._set_override(self.sheetA)
+        term_a = self._run_worker(self.sheetA, {"mode": "sheet"}, discipline="Electrical")
+        self.assertTrue(term_a["category_override_cleared"])
+        self._assert_cleared(self.sheetA)
+        # An admin re-SETS the override in the gap before the second engine finishes.
+        self._set_override(self.sheetA)
+        # Engine B (HVAC) completes -> clears the just-re-set override AGAIN. This is the real,
+        # reported behaviour: with no all-engines barrier, the later engine wipes it.
+        term_b = self._run_worker(self.sheetA, {"mode": "sheet"}, discipline="HVAC")
+        self.assertTrue(term_b["category_override_cleared"])
+        self._assert_cleared(self.sheetA)
+
+
 # ── GET_SHEET_CATEGORIES ─────────────────────────────────────────────────────────
 class TestGetSheetCategories(FrappeTestCase):
     @classmethod
@@ -1062,3 +1251,326 @@ class TestFreezeClassification(FrappeTestCase):
             frappe.db.count(classify._TRUTH_SNAPSHOT, {"boq": self.boq, "sheet_name": sheet}), 0
         )
         self.assertFalse((self._human_by_row(sheet).get(11) or "").strip())
+
+    # ── Slice ST-1: freeze stamps the MULTI-ENGINE resolved read (owner Option A, 2026-07-26) ──
+    def _seed_multitrade(self):
+        """A fresh committed sheet classified under TWO disciplines:
+          10 Preamble  -- Electrical auto (earthing)          -> stamped Electrical
+          11 Line Item -- Electrical auto (earthing)          -> stamped Electrical
+          12 Line Item -- HVAC auto (hvac_ducting)            -> stamped HVAC
+          13 Line Item -- Electrical HUMAN (db_switchgear)    -> stamped Electrical (human wins)
+          14 Line Item -- HVAC HUMAN (hvac_vrf)               -> stamped HVAC (human wins)
+          15 Line Item -- NO category record (blank)          -> skipped
+          16 Preamble  -- NO category record (blank)          -> skipped
+          17 Other     -- spacer (ineligible)
+        Resolved non-blank eligible = {10,11,12,13,14} (5), across BOTH vocabularies. Returns sheet."""
+        sheet = "FZMT " + frappe.generate_hash(length=6)
+        sd = _new_sheet(self.boq, sheet)
+        p = _node(self.boq, sd, "Preamble", 10, None, "SECTION", 1, level=0)
+        _node(self.boq, sd, "Line Item", 11, p, "earth strip", 2)
+        _node(self.boq, sd, "Line Item", 12, p, "supply air duct", 3)
+        _node(self.boq, sd, "Line Item", 13, p, "lt panel", 4)
+        _node(self.boq, sd, "Line Item", 14, p, "vrf outdoor unit", 5)
+        _node(self.boq, sd, "Line Item", 15, p, "uncategorised li", 6)
+        _node(self.boq, sd, "Preamble", 16, None, "UNCAT SECTION", 7, level=0)
+        _node(self.boq, sd, "Other", 17, p, "", 8, row_class="spacer")
+        frappe.db.commit()
+        # Electrical auto rows (10, 11) + HVAC auto row (12, hvac vocabulary).
+        persist.write_row_categories(
+            self.boq, sheet, 1, "Electrical", [_cat_row(10), _cat_row(11)]
+        )
+        persist.write_row_categories(
+            self.boq, sheet, 1, "HVAC",
+            [_cat_row(12, rule_category_id="hvac_ducting", ai_category_id="hvac_ducting",
+                      final_category_id="hvac_ducting", routing_reason="consensus -- hvac_ducting")],
+        )
+        # Human verdicts, one per discipline (UPSERT -- rows 13/14 have no prior classify record).
+        persist.set_human_verdict(self.boq, sheet, 13, 1, "Electrical", "db_switchgear")
+        persist.set_human_verdict(self.boq, sheet, 14, 1, "HVAC", "hvac_vrf")
+        return sheet
+
+    def _snaps(self, sheet):
+        return frappe.get_all(
+            classify._TRUTH_SNAPSHOT,
+            filters={"boq": self.boq, "sheet_name": sheet},
+            fields=["excel_row", "label_category_id", "discipline", "snapshot_batch", "source"],
+        )
+
+    def _current_human(self, sheet, excel_row, discipline):
+        rows = frappe.get_all(
+            _ROW_CATEGORY,
+            filters={"boq": self.boq, "sheet_name": sheet, "excel_row": excel_row,
+                     "discipline": discipline, "is_current": 1},
+            fields=["human_category_id"],
+        )
+        return (rows[0]["human_category_id"] or "").strip() if rows else None
+
+    def test_freeze_multitrade_stamps_both_vocabularies(self):
+        """The fix itself: ONE freeze stamps rows from BOTH disciplines' vocabularies, each on its
+        RESOLVING discipline's row, banked in ONE snapshot batch. Called with discipline='Electrical'
+        (the frontend default) yet HVAC rows are stamped too -- the param no longer gates the set."""
+        sheet = self._seed_multitrade()
+        res = classify.freeze_classification(self.boq, sheet, "Electrical")
+        self.assertEqual(res["rows_stamped"], 5)
+        self.assertEqual(res["snapshots_banked"], 5)
+        snaps = self._snaps(sheet)
+        self.assertEqual(len(snaps), 5)
+        self.assertEqual(len({s["snapshot_batch"] for s in snaps}), 1)  # ONE shared batch
+        by = {s["excel_row"]: s for s in snaps}
+        self.assertEqual(set(by), {10, 11, 12, 13, 14})  # 15/16 blank -> not banked
+        # Both vocabularies present, each on the resolving discipline.
+        self.assertEqual(by[11]["label_category_id"], "earthing")
+        self.assertEqual(by[11]["discipline"], "Electrical")
+        self.assertEqual(by[12]["label_category_id"], "hvac_ducting")
+        self.assertEqual(by[12]["discipline"], "HVAC")
+        self.assertEqual({s["discipline"] for s in snaps}, {"Electrical", "HVAC"})
+
+    def test_freeze_multitrade_human_precedence_and_placement(self):
+        """Each human-verdict row is stamped with its HUMAN category, annotated on the RESOLVING
+        discipline's is_current row identity (not the freeze-call discipline)."""
+        sheet = self._seed_multitrade()
+        classify.freeze_classification(self.boq, sheet, "Electrical")
+        # Human categories survive as the stamped effective, on their own discipline's row.
+        self.assertEqual(self._current_human(sheet, 13, "Electrical"), "db_switchgear")
+        self.assertEqual(self._current_human(sheet, 14, "HVAC"), "hvac_vrf")
+        # Auto HVAC row 12 stamped on the HVAC row; there is NO Electrical row for 12 to stamp.
+        self.assertEqual(self._current_human(sheet, 12, "HVAC"), "hvac_ducting")
+        self.assertIsNone(self._current_human(sheet, 12, "Electrical"))
+        by = {s["excel_row"]: s for s in self._snaps(sheet)}
+        self.assertEqual(by[13]["label_category_id"], "db_switchgear")
+        self.assertEqual(by[13]["discipline"], "Electrical")
+        self.assertEqual(by[14]["label_category_id"], "hvac_vrf")
+        self.assertEqual(by[14]["discipline"], "HVAC")
+
+    def test_freeze_multitrade_blank_rows_skipped(self):
+        """The deliberately-blank eligible rows (15 Line Item, 16 Preamble) get NO stamp and NO
+        snapshot, and no Row Category record is minted for them."""
+        sheet = self._seed_multitrade()
+        classify.freeze_classification(self.boq, sheet, "Electrical")
+        by = {s["excel_row"]: s for s in self._snaps(sheet)}
+        self.assertNotIn(15, by)
+        self.assertNotIn(16, by)
+        # No record was minted for either blank row (any discipline).
+        for r in (15, 16):
+            self.assertEqual(
+                frappe.db.count(_ROW_CATEGORY, {"boq": self.boq, "sheet_name": sheet, "excel_row": r}),
+                0,
+            )
+
+    def test_freeze_multitrade_fifth_surface_one_number(self):
+        """ONE number: snapshots_banked == the resolved non-blank stamp-target count, and it is the
+        exact complement of get_freeze_summary's blank counts over the eligible set."""
+        sheet = self._seed_multitrade()
+        targets = persist.resolved_category_stamp_targets(self.boq, sheet, 1)
+        summ = classify.get_freeze_summary(self.boq, sheet, "Electrical")
+        blanks = summ["uncategorised_preambles"] + summ["uncategorised_line_items"]
+        self.assertEqual(blanks, 2)  # row 15 (line item) + row 16 (preamble)
+        res = classify.freeze_classification(self.boq, sheet, "Electrical")
+        self.assertEqual(res["snapshots_banked"], len(targets))     # snapshot == resolved non-blank
+        self.assertEqual(res["snapshots_banked"], 5)
+        # eligible master set (10-16 = 7 rows) == non-blank (5) + blank (2): one consistent picture.
+        self.assertEqual(res["snapshots_banked"] + blanks, 7)
+
+    def test_freeze_single_trade_equivalence(self):
+        """Spec item 5: on a one-discipline sheet the resolved stamp source is EQUIVALENT to the old
+        single-discipline get_sheet_categories source (same excel_rows, same effective labels)."""
+        sheet = self._seed()  # the original single-Electrical fixture
+        # OLD source: non-blank rows of the single-discipline reader (still byte-untouched).
+        old_cats = classify.get_sheet_categories(self.boq, sheet, "Electrical")["categories"]
+        old_nonblank = {
+            c["excel_row"]: (c["effective_category_id"] or "").strip()
+            for c in old_cats if (c.get("effective_category_id") or "").strip()
+        }
+        # NEW source: the resolved stamp targets.
+        new_targets = {
+            t["excel_row"]: t["effective_category_id"]
+            for t in persist.resolved_category_stamp_targets(self.boq, sheet, 1)
+        }
+        self.assertEqual(new_targets, old_nonblank)
+        self.assertEqual(new_targets, {10: "earthing", 11: "earthing", 12: "db_switchgear"})
+        # And every resolving discipline is the single trade.
+        self.assertTrue(all(
+            t["resolved_discipline"] == "Electrical"
+            for t in persist.resolved_category_stamp_targets(self.boq, sheet, 1)
+        ))
+
+    def test_get_sheet_categories_stays_single_discipline(self):
+        """Regression pin (the freeze trap): get_sheet_categories is byte-untouched -- asked for
+        Electrical on a multi-trade sheet it returns ONLY Electrical rows, never HVAC's."""
+        sheet = self._seed_multitrade()
+        elec = classify.get_sheet_categories(self.boq, sheet, "Electrical")["categories"]
+        rows = {c["excel_row"] for c in elec}
+        self.assertIn(11, rows)          # Electrical auto row present
+        self.assertNotIn(12, rows)       # HVAC-only row absent
+        self.assertNotIn(14, rows)       # HVAC human row absent
+        hvac = classify.get_sheet_categories(self.boq, sheet, "HVAC")["categories"]
+        hrows = {c["excel_row"] for c in hvac}
+        self.assertIn(12, hrows)
+        self.assertNotIn(11, hrows)
+
+    def test_freeze_multitrade_rollback_holds(self):
+        """Negative: a mid-batch failure on a multi-trade freeze writes NOTHING -- zero snapshots,
+        the flag stays unset, and the in-place stamps on the auto rows (blank before) roll back."""
+        sheet = self._seed_multitrade()
+        real_new_doc = frappe.new_doc
+        state = {"n": 0}
+
+        def boom(doctype, *a, **k):
+            if doctype == classify._TRUTH_SNAPSHOT:
+                state["n"] += 1
+                if state["n"] == 3:  # blow up after the 2nd snapshot inserted
+                    raise RuntimeError("induced mid-batch failure (multi-trade)")
+            return real_new_doc(doctype, *a, **k)
+
+        with mock.patch.object(frappe, "new_doc", side_effect=boom):
+            with self.assertRaises(RuntimeError):
+                classify.freeze_classification(self.boq, sheet, "Electrical")
+        self.assertFalse(persist.is_sheet_classification_frozen(self.boq, sheet, 1))
+        self.assertEqual(
+            frappe.db.count(classify._TRUTH_SNAPSHOT, {"boq": self.boq, "sheet_name": sheet}), 0
+        )
+        # Rows 10/11 (Electrical auto) + 12 (HVAC auto) had blank human before freeze -> rolled back.
+        self.assertFalse((self._current_human(sheet, 11, "Electrical") or ""))
+        self.assertFalse((self._current_human(sheet, 12, "HVAC") or ""))
+
+
+class TestFreezeSummaryResolved(FrappeTestCase):
+    """Slice 1a: get_freeze_summary's blank counts read the MULTI-ENGINE resolved ladder
+    (persist.blank_category_eligible_rows) instead of the single-discipline get_sheet_categories.
+
+    Behaviours protected:
+      (a) POSITIVE  -- a row categorised under discipline B only is NOT counted blank when the
+          summary is asked with discipline A.
+      (b) NEGATIVE/LOAD-BEARING -- an eligible row with NO BoQ Row Category record at all IS
+          counted blank (the fail-open guard: never-classified rows are ABSENT from the resolved
+          read, so the count must key on the eligible NODE set, not on returned rows).
+      (c) an eligible row blank on EVERY discipline IS counted blank.
+      (d) a SINGLE-discipline sheet's counts are UNCHANGED versus the old behaviour (compat pin;
+          also pinned independently by TestFreezeClassification.test_uncategorised_skipped_but_counted).
+      (e) the Preamble vs Line Item split is still reported correctly.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.project = _make_project()
+        cls.boq = _new_boq(cls.project.name, "FreezeSummaryResolved BoQ")
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete(_ROW_CATEGORY, {"boq": cls.boq})
+        frappe.db.delete("BOQ Nodes", {"boq": cls.boq})
+        frappe.db.delete("BoQ Sheet", {"boq": cls.boq})
+        frappe.db.commit()
+        _cleanup_project(cls.project.name)
+        super().tearDownClass()
+
+    def _seed_multi(self):
+        """A committed sheet with eligible rows across TWO disciplines:
+          20 Line Item -> HVAC only, auto-accepted (final=hvac_ducting)  -> NOT blank
+          21 Preamble  -> Electrical only, auto-accepted (final=earthing) -> NOT blank
+          22 Line Item -> NO BoQ Row Category record at all               -> blank (fail-open)
+          23 Line Item -> BOTH disciplines, both Needs review (final="")  -> blank
+          25 Preamble  -> NO record                                        -> blank
+          24 Other spacer                                                  -> ineligible
+        Expected blanks: {22, 23, 25} -> preambles=1 (25), line_items=2 (22, 23). Returns sheet_name."""
+        sheet = "FZR " + frappe.generate_hash(length=6)
+        sd = _new_sheet(self.boq, sheet)
+        p = _node(self.boq, sd, "Preamble", 21, None, "SECTION", 1, level=0)
+        _node(self.boq, sd, "Line Item", 20, p, "hvac duct", 2)
+        _node(self.boq, sd, "Line Item", 22, p, "never classified li", 3)
+        _node(self.boq, sd, "Line Item", 23, p, "review both", 4)
+        _node(self.boq, sd, "Preamble", 25, None, "UNCAT SECTION", 5, level=0)
+        _node(self.boq, sd, "Other", 24, p, "", 6, row_class="spacer")
+        frappe.db.commit()
+        # 20 categorised under HVAC only (auto-accepted, non-blank final).
+        persist.write_row_categories(
+            self.boq, sheet, 1, "HVAC",
+            [_cat_row(20, rule_category_id="hvac_ducting", ai_category_id="hvac_ducting",
+                      final_category_id="hvac_ducting", routing="Auto-accepted")],
+        )
+        # 21 categorised under Electrical only (default _cat_row: auto-accepted, final=earthing).
+        persist.write_row_categories(self.boq, sheet, 1, "Electrical", [_cat_row(21)])
+        # 23 present under BOTH disciplines, both Needs review (blank on each).
+        persist.write_row_categories(
+            self.boq, sheet, 1, "Electrical",
+            [_cat_row(23, rule_category_id="", ai_category_id="", final_category_id="",
+                      routing="Needs review")],
+        )
+        persist.write_row_categories(
+            self.boq, sheet, 1, "HVAC",
+            [_cat_row(23, rule_category_id="", ai_category_id="", final_category_id="",
+                      routing="Needs review")],
+        )
+        # 22 and 25 -> intentionally NO BoQ Row Category record.
+        return sheet
+
+    def test_helper_blank_set_resolves_across_disciplines(self):
+        """Direct helper contract: the blank eligible set is exactly {22, 23, 25} -- 20 (HVAC-only)
+        and 21 (Electrical-only) are categorised and excluded; 22/25 (no record) and 23 (review on
+        both) are blank. Covers (a), (b), (c) at the helper level."""
+        sheet = self._seed_multi()
+        blanks = persist.blank_category_eligible_rows(self.boq, sheet, 1)
+        self.assertEqual({b["excel_row"] for b in blanks}, {22, 23, 25})
+        # 20 (categorised under the OTHER discipline) and 21 are NOT blank.
+        self.assertNotIn(20, {b["excel_row"] for b in blanks})
+        self.assertNotIn(21, {b["excel_row"] for b in blanks})
+
+    def test_summary_positive_other_discipline_not_blank(self):
+        """(a) POSITIVE -- asked with discipline 'Electrical', the HVAC-only row 20 is NOT counted
+        blank. Old single-discipline behaviour would have counted it (no Electrical record)."""
+        sheet = self._seed_multi()
+        summ = classify.get_freeze_summary(self.boq, sheet, "Electrical")
+        # line_items blank = {22, 23} only (NOT 20). Old behaviour would have been 3.
+        self.assertEqual(summ["uncategorised_line_items"], 2)
+        self.assertEqual(summ["uncategorised_preambles"], 1)  # {25}; NOT 21 (Electrical-categorised)
+
+    def test_discipline_param_ignored(self):
+        """The `discipline` parameter is accepted but no longer restricts the count: asking with
+        'Electrical' vs 'HVAC' yields identical blank counts (resolved across all disciplines)."""
+        sheet = self._seed_multi()
+        e = classify.get_freeze_summary(self.boq, sheet, "Electrical")
+        h = classify.get_freeze_summary(self.boq, sheet, "HVAC")
+        self.assertEqual(e["uncategorised_line_items"], h["uncategorised_line_items"])
+        self.assertEqual(e["uncategorised_preambles"], h["uncategorised_preambles"])
+
+    def test_never_classified_row_is_blank(self):
+        """(b) NEGATIVE/LOAD-BEARING -- row 22 has NO BoQ Row Category record at all and MUST be
+        counted blank (fail-open). A count scanning only returned category rows would miss it."""
+        sheet = self._seed_multi()
+        blanks = {b["excel_row"] for b in persist.blank_category_eligible_rows(self.boq, sheet, 1)}
+        self.assertIn(22, blanks)
+
+    def test_blank_on_every_discipline_is_blank(self):
+        """(c) row 23 is Needs review on BOTH disciplines (blank on each) -> counted blank."""
+        sheet = self._seed_multi()
+        blanks = {b["excel_row"] for b in persist.blank_category_eligible_rows(self.boq, sheet, 1)}
+        self.assertIn(23, blanks)
+
+    def test_preamble_line_item_split(self):
+        """(e) the blank split is by node_type: 1 Preamble (25) and 2 Line Items (22, 23)."""
+        sheet = self._seed_multi()
+        summ = classify.get_freeze_summary(self.boq, sheet, "Electrical")
+        self.assertEqual(summ["uncategorised_preambles"], 1)
+        self.assertEqual(summ["uncategorised_line_items"], 2)
+
+    def test_single_discipline_counts_unchanged(self):
+        """(d) COMPAT PIN -- a single-discipline (Electrical) sheet counts exactly as the old
+        get_sheet_categories-emptiness behaviour: 30 categorised (not blank), 31 Needs review
+        (blank line item), 32 no-record (blank preamble)."""
+        sheet = "FZS " + frappe.generate_hash(length=6)
+        sd = _new_sheet(self.boq, sheet)
+        p = _node(self.boq, sd, "Preamble", 30, None, "SECTION", 1, level=0)
+        _node(self.boq, sd, "Line Item", 31, p, "review li", 2)
+        _node(self.boq, sd, "Preamble", 32, None, "UNCAT SECTION", 3, level=0)
+        frappe.db.commit()
+        persist.write_row_categories(self.boq, sheet, 1, "Electrical", [_cat_row(30)])  # auto-accepted
+        persist.write_row_categories(
+            self.boq, sheet, 1, "Electrical",
+            [_cat_row(31, rule_category_id="", ai_category_id="", final_category_id="",
+                      routing="Needs review")],
+        )
+        # 32 -> no record.
+        summ = classify.get_freeze_summary(self.boq, sheet, "Electrical")
+        self.assertEqual(summ["uncategorised_preambles"], 1)   # row 32 (no record)
+        self.assertEqual(summ["uncategorised_line_items"], 1)  # row 31 (needs review)

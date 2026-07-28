@@ -99,6 +99,56 @@ sections; all 5 columns verified via `has_column`.
   ₹5,000 backend auto-approve threshold (that still applies). No backend cap enforcement
   exists.
 
+### Description widened to `Text` (2026-07-28, migrate-carrying)
+`description` was `Data` on BOTH doctypes → PostgreSQL `varchar(140)`, while **all four
+dialogs already rendered a `<Textarea>`** (`NewProjectExpenseDialog` / `EditProjectExpenseDialog`
+/ `NewNonProjectExpense` / `EditNonProjectExpense`). Frappe's `Document._validate_length()`
+does **not** truncate an over-long `Data` value — it **throws** `CharacterLengthExceededError`
+— so the 141st character was a hard save failure. Changed to `fieldtype: "Text"` (a
+CLAUDE.md **sanctioned exception**, one-key diff per JSON) + `bench migrate`.
+Verified post-migrate: both columns are PG `text`, `character_maximum_length` NULL, all
+2,574 Project + 698 Non-Project rows intact (max stored length unchanged at 81 / 110).
+No frontend change was needed. Description is the **default search field** on both tables
+(`PE_SEARCHABLE_FIELDS[0]` / `NPE_SEARCHABLE_FIELDS[0]`) — `LIKE` behaves identically on
+`text`, so search is unaffected.
+
+### Create-button label names the path the expense will take (2026-07-28)
+The two CREATE dialogs' submit buttons were static (`Save Expense` / `Add Expense`). They now
+read **"Raise Expense"** when the expense will auto-approve on save and **"Send for Approval"**
+otherwise. The rule lives in ONE pure module, `frontend/src/utils/expenseApproval.ts`
+(`EXPENSE_AUTO_APPROVE_LIMIT`, `isAutoApprovedExpenseAmount`, `getExpenseSubmitLabel`,
+`EXPENSE_SUBMIT_LABELS`) — ADR-0010 F1/F4, unit-tested in `expenseApproval.test.ts` (10 tests).
+
+**Owner ruling: the label mirrors the BACKEND predicate `0 < amount < 5000` exactly, NOT the
+looser phrase "under 5,000".** Two edges depend on it and must not be "simplified":
+- **Exactly ₹5,000 → "Send for Approval"** — the backend comparison is a strict `<`.
+- **A refund (negative amount, which Non-Project explicitly supports) → "Send for Approval"** —
+  it is "less than 5000" but takes the full `Requested → Approved → Paid` path.
+- A blank / unparseable amount → "Send for Approval" (`parseNumber` yields 0, which fails `> 0`).
+
+Edit dialogs are untouched (create-only scope). ⚠️ `AUTO_APPROVE_LIMIT = 5000` now exists in
+**three** places — both doctype `.py` files and this TS module. The backend is authoritative;
+the TS copy exists only to describe the outcome to the user.
+
+### Paid-tab "Last Modified By" column (2026-07-28)
+A `modified_by` column on the **Paid tab of both lists** — the settlement audit trail (who
+actually saved the row into `Paid`, vs Project's `Payment By` which is who the payment is
+*attributed* to; Non-Project has no `payment_by` field at all). Faceted like Created By:
+`modified_by` was **already** in the backend `LINK_FIELD_MAP` (`api/data_table/constants.py`
+→ `User.full_name`) and already in `STANDARD_FIELDS`, so the self-fetching facet resolves real
+names with **zero backend change** — only the column's `facetMeta` + a `modified_by` entry in
+each page's `facetOverrides`. Added `modified_by` to both `*_FIELDS_TO_FETCH`.
+**Excluded when `disableActions`** — i.e. hidden from the embedded project-detail Misc-Expenses
+view and from the Non-Project Outflow report, both of which are also Paid-scoped but are
+financial summaries, not audit surfaces (same precedent as the Status column).
+
+### Project Expenses "All" tab: Payment By dropped, Created By is the identity (2026-07-28)
+The All tab rendered **both** Created By and Payment By; Payment By was blank for every
+`Requested`/`Approved` row. Owner call: **Payment By is Paid-tab only** (settlement
+attribution) and the All tab keeps **Created By** — who raised the payment request. This also
+re-aligns the code with `projectExpensesColumns.tsx`'s own header contract, which had already
+documented Payment By as Paid-only while the code had drifted.
+
 ---
 
 ## What was IMPROVED / CHANGED
@@ -142,8 +192,10 @@ List-page **summary cards stay tab-scoped** (they reflect the active status tab)
 - **Project-detail "Misc. Project Expenses" tab** (embedded `ProjectExpensesList`, `projectId`
   present): `Paid`-only, status tabs hidden, Actions column hidden — a clean read-only view.
   The standalone `/expense` module is unchanged.
-- **Approved tab:** Procurement Executive + HR Executive see **no Actions column** (both
-  lists) — on `Approved` their only capability was Mark-as-Paid, which they don't have.
+- **Approved tab:** Procurement Executive sees **no Actions column** (both lists) — on
+  `Approved` the only capability is Mark-as-Paid, which they don't have. (HR Executive was in
+  this suppression until 2026-07-28; it was removed when HR gained Mark-as-Paid — the two edits
+  are a PAIR, since un-gating the button without un-hiding the column renders it invisible.)
 
 ### UX polish
 - Pill tabs (active = primary/red, inactive = gray, with count badges); standalone lists grow
@@ -176,14 +228,17 @@ Primary actions render inline; secondary (Requested-only) sit in a `⋯` overflo
 | Requested | Delete (inline) | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Requested | Record Invoice (⋯) | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Requested | Edit (⋯) | ✅ | ✅ | ❌ | ✅ | ✅ |
-| Approved | Mark as Paid (inline) | ✅ | ❌ | ✅ | ❌ | ❌ |
+| Approved | Mark as Paid (inline) | ✅ | ❌ | ✅ | ❌ | ✅ |
 | Approved | Delete (inline) | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Paid | Edit (inline) | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Paid | Delete (inline) | ✅ | ❌ | ❌ | ❌ | ❌ |
-| All | per row, by row status | ✅ | ❌ | ❌ | ❌ | ❌ |
+| All | per row, by row status | ✅ | ❌ | ✅ | ❌ | ✅ |
 
-**Actions column visibility:** Requested → all 5; Approved → Admin/PMO/Accountant\*
-(hidden for Procurement & HR); Paid → Admin only; All → Admin only.
+**Actions column visibility:** Requested → all 5; Approved → Admin/PMO/Accountant\*/HR
+(hidden for Procurement); Paid → Admin only; All → Admin + Accountant\* + HR.
+The **All** tab mixes statuses and every button inside the cell is already gated by the
+ROW's status, so opening the column to Accountant\*/HR surfaces exactly the Mark-as-Paid
+they have on the Approved tab — no new capability, just a second surface for it.
 
 ### Project Expenses — actions per tab
 Same profiles/gating, all actions inline (no `⋯` menu), and **Accountant\* CAN Edit a
@@ -198,10 +253,10 @@ dialog.
 | Requested | Edit | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Requested | Approve | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Requested | Delete | ✅ | ❌ | ❌ | ❌ | ❌ |
-| Approved | Mark as Paid | ✅ | ❌ | ✅ | ❌ | ❌ |
+| Approved | Mark as Paid | ✅ | ❌ | ✅ | ❌ | ✅ |
 | Approved | Delete | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Paid | Edit / Delete | ✅ | ❌ | ❌ | ❌ | ❌ |
-| All | per row, by row status | ✅ | ❌ | ❌ | ❌ | ❌ |
+| All | per row, by row status | ✅ | ❌ | ✅ | ❌ | ✅ |
 
 Actions column visibility: same rule as Non-Project.
 
@@ -209,13 +264,23 @@ Actions column visibility: same rule as Non-Project.
 - **Accountant\* Edit split:** can Edit a Requested **Project** expense but not a Requested
   **Non-Project** one (their Non-Project Requested action is *Record Invoice* instead).
 - **Approve = Admin only; Delete = Admin only** in both tables.
-- Enforcement is **frontend-only** (button/column visibility) — no backend `validate` gate.
+- **HR Executive can Mark as Paid but still lands on the `Requested` tab by default**
+  (only Accountant\* defaults to `Approved`) — deliberate, owner call 2026-07-28.
+- Enforcement is **frontend-only** (button/column visibility) — no backend `validate` gate…
+  **with one caveat that IS a real backend gate:** the `Nirmaan HR Executive` *Role* has
+  `write = 0` on both expense doctypes. Mark-as-Paid works only because the
+  `Nirmaan HR Executive Profile` *also* carries **System Manager**, and Frappe permissions are
+  a UNION across roles. ⚠️ **`Nirmaan HR Lead Profile` = `[Nirmaan HR Lead, Nirmaan HR Executive]`
+  with NO System Manager, so it has genuinely no write.** It is not matched by the
+  `role === "Nirmaan HR Executive Profile"` check, so it is safe today (0 such users) — but
+  do NOT extend any write action to HR Lead without adding a real DocPerm first.
 
 ---
 
 ## Key files
 
 - Doctypes: `doctype/project_expenses/`, `doctype/non_project_expenses/` (`.json` + `.py`).
+- Auto-approval rule (FE mirror): `frontend/src/utils/expenseApproval.ts` (+ `.test.ts`).
 - Backend calc/controllers: `integrations/controllers/project_cashflow_hold_update.py`,
   `api/payments/get_project_payment_summary.py`, `api/po_adjustments/adjustment_logic.py`,
   `hooks.py` (doc_events).

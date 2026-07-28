@@ -28,6 +28,7 @@ import frappe
 from nirmaan_stack.api.boq.wizard.revision_carry import (
     carry_config_dispositions,
     carry_work_packages,
+    current_committed_sheets,
     read_committed_work_packages,
 )
 from nirmaan_stack.integrations.controllers.boqs import next_boq_version
@@ -455,10 +456,14 @@ def _carry_counts(source_boq: str, source_sheet_names) -> dict:
     # rate count and the classification count are anchored to the same committed version the carry
     # itself reads. A sheet with no current committed row (never committed, or a general-specs
     # source with no BoQ Sheet at all) is absent here and contributes 0 to both.
-    current_sheets = frappe.get_all(
-        "BoQ Sheet",
-        filters={"boq": source_boq, "sheet_name": ["in", sheet_names], "is_current": 1},
-        fields=["name", "sheet_name", "commit_version"],
+    # Names filtered in PYTHON via the shared reader -- a Frappe `["in", [...]]` filter STRIPS
+    # every value, so a whitespace-bearing sheet name (#152) matched nothing and this count
+    # reported 0 for a sheet the carry then happily landed rates on. That is the count==carry
+    # invariant W6 was written for, failing in the opposite direction: the screen promised
+    # nothing and the carry delivered. `_resolve_sheet_carry` reads its source with `=`, which is
+    # NOT stripped, which is exactly why only this side was wrong.
+    current_sheets = current_committed_sheets(
+        source_boq, sheet_names, fields=["name", "sheet_name", "commit_version"]
     )
 
     rates = 0

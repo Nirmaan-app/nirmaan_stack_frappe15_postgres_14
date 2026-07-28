@@ -242,3 +242,38 @@ export function firstFreeColumn(sheet: any): string {
 	for (const c of sheet?.celldata || []) if (typeof c?.c === "number" && c.c > max) max = c.c;
 	return indexToCol(max + 2);
 }
+
+// ── Full-screen mode (PW-FS) ──────────────────────────────────────────────────
+// The pricing page's full-screen is a CSS root-className flip (RECON 2026-07-27,
+// the wizard Slice-4c mechanism): ONE JSX tree, no portal, no remount, so the
+// engine instance / lock / sandbox / watermark all survive. These pure helpers
+// are co-located here on purpose -- the pricing module is deliberately standalone
+// (PW-1), so it does NOT import the wizard's equivalent from boq-wizard/.
+
+/** The two class strings the page root flips between (single source of truth). */
+export const PRICING_ROOT_CLASS_NORMAL = "flex flex-col h-[calc(100vh-100px)]";
+export const PRICING_ROOT_CLASS_FULLSCREEN = "fixed inset-0 z-50 flex flex-col bg-background";
+
+/** The root wrapper className for the current full-screen state. Pure. */
+export function pricingRootClass(expanded: boolean): string {
+	return expanded ? PRICING_ROOT_CLASS_FULLSCREEN : PRICING_ROOT_CLASS_NORMAL;
+}
+
+/**
+ * Should an Escape keypress EXIT the pricing full-screen? PURE -- unit-tested. Mirrors
+ * the wizard's `shouldExitFullscreenOnEsc` semantics (kept local, not imported):
+ *   - only a bare Escape,
+ *   - never when `e.defaultPrevented` (a popup/dropdown already consumed the Esc),
+ *   - never while an <input>/<textarea> is focused (a cell editor owns its own Esc --
+ *     don't yank the user out mid-edit).
+ */
+export function shouldExitPricingFullscreenOnEsc(
+	e: { key: string; defaultPrevented: boolean },
+	activeElement: Element | null
+): boolean {
+	if (e.key !== "Escape") return false;
+	if (e.defaultPrevented) return false;
+	const tag = activeElement?.tagName;
+	if (tag === "INPUT" || tag === "TEXTAREA") return false;
+	return true;
+}

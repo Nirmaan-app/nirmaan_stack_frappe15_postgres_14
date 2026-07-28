@@ -1,5 +1,5 @@
 import { AlertTriangle } from 'lucide-react';
-import React, { Component, ReactNode, useEffect } from 'react';
+import React, { Component, ReactNode } from 'react';
 import { useLocation } from 'react-router-dom'; // Import useLocation from React Router
 
 // Error fallback component
@@ -51,6 +51,13 @@ const ErrorFallback = ({ error, resetErrorBoundary }: { error: Error, resetError
 
 interface Props {
   children: ReactNode;
+  /**
+   * Opaque token identifying the current navigation. When it CHANGES while the boundary is
+   * in its error state, the boundary clears that state so the newly-routed page gets a fresh
+   * try. It must NEVER be used as a React `key` on this component -- see the note on
+   * ErrorBoundaryWithNavigationReset below.
+   */
+  resetKey: string;
 }
 
 interface State {
@@ -73,6 +80,15 @@ class ErrorBoundaryWrapper extends Component<Props, State> {
     console.error("ErrorBoundary caught an error", error, errorInfo);
   }
 
+  // Clear a caught error when the app navigates, so a crashed screen does not stick around on
+  // the next route. Gated on `hasError` -- on a healthy boundary this is a no-op, which is the
+  // whole point: navigation must not disturb a subtree that never crashed.
+  componentDidUpdate(prevProps: Props) {
+    if (this.state.hasError && prevProps.resetKey !== this.props.resetKey) {
+      this.setState({ hasError: false, error: null });
+    }
+  }
+
   resetErrorBoundary = () => {
     this.setState({ hasError: false, error: null });
   };
@@ -88,17 +104,30 @@ class ErrorBoundaryWrapper extends Component<Props, State> {
   }
 }
 
-// Wrapper Component to reset the boundary on navigation
+/**
+ * Wrapper Component to reset the boundary on navigation.
+ *
+ * This wraps <Outlet /> in MainLayout, so its child subtree is EVERY routed page in the app.
+ *
+ * DO NOT reset it by bumping a React `key` on ErrorBoundaryWrapper. A changing `key` is an
+ * unmount+remount instruction, so that pattern tore down and rebuilt the whole routed page on
+ * every navigation -- once on first mount (the effect fires on mount too) and again on every
+ * location change, in production as well as dev. Two consequences it caused:
+ *   - every page mounted, unmounted and remounted on load and on each navigation;
+ *   - a same-route param change (e.g. the BoQ pricing editor's sheet-tab strip, which navigates
+ *     /pricing/:sheetName -> /pricing/:otherSheet) destroyed all of that page's useState, even
+ *     though React itself keeps the component mounted across a param change. That is what
+ *     silently dropped the pricing editor out of full screen on a sheet switch.
+ *
+ * `resetKey` reproduces the old reset SEMANTICS without the remount: location.key is a fresh
+ * value per history entry, so ANY navigation (including re-navigating to the same URL) clears a
+ * crashed screen, while a healthy subtree is left completely alone. urlStateManager's raw
+ * history.replaceState writes do not create a new location and so do not reset -- unchanged.
+ */
 const ErrorBoundaryWithNavigationReset = ({ children }: { children: ReactNode }) => {
   const location = useLocation();
-  const [key, setKey] = React.useState(0);
 
-  // Detect route changes and reset the error boundary
-  useEffect(() => {
-    setKey((prevKey) => prevKey + 1); // Change key on route change to reset the Error Boundary
-  }, [location]);
-
-  return <ErrorBoundaryWrapper key={key}>{children}</ErrorBoundaryWrapper>;
+  return <ErrorBoundaryWrapper resetKey={location.key}>{children}</ErrorBoundaryWrapper>;
 };
 
 export default ErrorBoundaryWithNavigationReset;
