@@ -349,6 +349,12 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   service-side (`services/boq_rate_master/loader.py`); RM-1 ships NO write endpoint. Reads are the
   login-required, active-only endpoints in `api/boq/rate_master.py` (`get_rate_master_items` /
   `get_rate_category_config`); editors are RM-4.
+- **Benchmark data (owner ruling):** the committed data asset is the **28-Jul benchmark workbook**
+  (`rate_master_wiring_cabling_v3.json`) — the reference going forward, superseding the earlier 25-Jul
+  reference. A benchmark refresh is a `replace=True` re-import of a new asset (freeze-and-supersede: the
+  prior `rmbulk-` batch goes inactive, rows retained). NOTE: `loader.DEFAULT_DATA_FILE` is version-pinned
+  to the asset filename (a known wart flagged for a future de-pinning slice), so a rename forces a loader
+  edit in lockstep.
 - **Pipelines are STORED CONFIG, not code:** the four derivation pipelines (cable/termination × BoQ/BCS)
   live in the config JSON and are interpreted downstream — RM-1 stores them faithfully; no interpreter
   ships this slice. Owner-decoded shapes: effective = `(1-discount)*(1+markup)`; termination = lug +
