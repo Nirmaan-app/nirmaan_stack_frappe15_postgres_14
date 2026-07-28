@@ -2155,6 +2155,10 @@ const SheetPricingPage = () => {
   }, [helperPanel, rows, columnDescriptors, categoriesByExcelRow]);
   // The panel is open only with the flag on, a scoped cell, and a resolvable row context.
   const helperPanelOpen = RATE_HELPER_ENABLED && helperPanel !== null && helperPanelCtx !== null;
+  // RM-3b: the embedded rate-helper panel is a PERMANENT part of the embedded layout (panel-as-default)
+  // whenever the feature is on and we are not full-screen. It is always mounted (empty state until a
+  // badge/sparkle selects a row), so the embedded page is permanently widened + a flex row.
+  const embeddedPanel = RATE_HELPER_ENABLED && !expanded;
 
   // AMENDMENT C / C3: the carry button's state, from the PURE helper (ADR-0010 F4 -- the rule is
   // unit-tested; this page only renders it). `locked` already folds the deliberate lock, a
@@ -2350,9 +2354,9 @@ const SheetPricingPage = () => {
       className={cn(
         expanded
           ? "fixed inset-0 z-50 flex flex-col space-y-4 overflow-auto bg-background p-4"
-          : // U1 rate-helper: embedded is capped at max-w-5xl, but WIDEN while the suggestion panel
-            // is open (it is cramped otherwise) and restore the cap on close.
-            helperPanelOpen
+          : // RM-3b: the embedded rate-helper panel is ALWAYS mounted (panel-as-default), so the page
+            // is PERMANENTLY widened when the feature is on; prod (feature off) keeps the centered cap.
+            embeddedPanel
             ? "flex-1 space-y-4 w-full mx-auto pt-6 pb-10 px-4"
             : "flex-1 space-y-4 max-w-5xl mx-auto pt-6 pb-10 px-4",
       )}
@@ -3681,14 +3685,17 @@ const SheetPricingPage = () => {
           (the grid keeps its own viewport-rem cap, byte-for-byte the prior behaviour). */}
       {!pricedLoading && !pricedError && (
         <div className={cn(expanded && "flex min-h-0 flex-1 flex-col")}>
-        {/* RM-3a Defect 1: the rate-helper panel is a two-mode mount.
-            - EMBEDDED (not full-screen): keep the certed widen-while-open -- the grid shrinks (flex-1
-              min-w-0) and the outer wrapper widens to w-full, and the STICKY panel rides in this row.
-            - FULL-SCREEN (expanded): the grid keeps FULL width (these wrappers stay inert) and the
-              panel renders as a fixed OVERLAY drawer OUTSIDE this row, so the grid's width/columns/
-              horizontal-scroll are byte-unchanged on open/close. */}
-        <div className={cn(helperPanelOpen && !expanded && "flex min-h-0 flex-1 items-start gap-3")}>
-        <div className={cn(helperPanelOpen && !expanded && "min-w-0 flex-1")}>
+        {/* RM-3a/RM-3b: the rate-helper panel mount + the FULL-SCREEN flex chain.
+            - EMBEDDED (feature on): the panel is ALWAYS mounted (panel-as-default), so this is a
+              PERMANENT flex row -- grid (flex-1 min-w-0) beside the sticky panel; the page is widened.
+            - FULL-SCREEN (expanded): these two wrappers MUST propagate the flex column (min-h-0 flex-1)
+              so the grid container below actually BOUNDS to the viewport and becomes the internal
+              scroller -- that is what makes the sticky header stay put (RM-3b item 3) and the native
+              horizontal scrollbar sit at the viewport bottom (item 4). Without this the outer fixed
+              wrapper scrolled instead and the header scrolled away. The overlay drawer renders OUTSIDE
+              this row (below), so the grid width/columns/scroll stay byte-unchanged. */}
+        <div className={cn(embeddedPanel && "flex min-h-0 flex-1 items-start gap-3", expanded && "flex min-h-0 flex-1 flex-col")}>
+        <div className={cn(embeddedPanel && "min-w-0 flex-1", expanded && "flex min-h-0 flex-1 flex-col")}>
         {isGridOnly ? (
           <SheetDataGrid
             // Faithful committed grid (general specs) -- READ-ONLY reference, all rows at
@@ -3802,15 +3809,17 @@ const SheetPricingPage = () => {
           />
         )}
         </div>
-        {/* EMBEDDED sticky panel -- INSIDE the flex row so the page widens + the panel rides the
-            viewport (Defect 1b). Rendered only when NOT full-screen. */}
-        {helperPanelOpen && !expanded && helperPanel && helperPanelCtx && (
+        {/* RM-3b: the EMBEDDED panel is ALWAYS mounted (panel-as-default) whenever the feature is on
+            and we are not full-screen -- INSIDE the flex row so the page stays widened + the panel
+            rides the viewport. It shows an empty-state card until a badge/sparkle selects a row; the
+            selection (helperPanel/helperPanelCtx) is passed only once resolved. No close X in embedded. */}
+        {embeddedPanel && (
           <RateHelperPanel
             variant="embedded"
-            excelRow={helperPanel.excelRow}
-            col={helperPanel.col}
-            kind={helperPanel.kind}
-            ctx={helperPanelCtx}
+            excelRow={helperPanelOpen ? helperPanel!.excelRow : undefined}
+            col={helperPanelOpen ? helperPanel!.col : undefined}
+            kind={helperPanelOpen ? helperPanel!.kind : undefined}
+            ctx={helperPanelOpen ? helperPanelCtx! : undefined}
             helpers={helperList}
             onUse={handleUseSuggestion}
             onClose={() => setHelperPanel(null)}

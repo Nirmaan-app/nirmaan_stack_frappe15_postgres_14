@@ -2996,6 +2996,11 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
   const rowResizeRef = useRef<{ rowIndex: number; startY: number; startHeight: number } | null>(null);
   const frozenPaneRef = useRef<HTMLDivElement | null>(null);
   const scrollPaneRef = useRef<HTMLDivElement | null>(null);
+  // RM-3b item 2: the always-visible embedded horizontal scrollbar is a SYNCED PROXY bar (a sticky
+  // element pinned to the bottom of the visible grid area). This ref backs the two-way scrollLeft sync
+  // with the real X-scroller (scrollPaneRef when split, else containerRef). Full-screen uses the native
+  // bottom scrollbar (the flex chain bounds the container there), so the proxy is embedded-only.
+  const hScrollProxyRef = useRef<HTMLDivElement | null>(null);
   const splitRef = useRef(false);
   // V1: mirrors `twoPane` (two-pane vs single) for the virtualizer's getScrollElement + the flip
   // re-anchor -- a ref so those closures always read the current mode without re-registering.
@@ -4254,6 +4259,42 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
     descWidthKeys.reduce((s, k) => s + widthOf(k), 0) +
     widthOf(REMARKS_WIDTH_KEY);
 
+  // RM-3b item 2: the embedded horizontal-scrollbar PROXY. Its inner spacer is exactly the X-scroller's
+  // content width (single = the whole table; split = the scrolling pane only), so its scrollbar range
+  // mirrors the real one. Full-screen relies on the native bottom scrollbar (the bounded container),
+  // so the proxy renders only when NOT expanded.
+  const hScrollContentWidth = twoPane ? scrollPaneTableWidth : totalWidth;
+  const showHScrollProxy = !expanded;
+  // Two-way scrollLeft sync between the proxy bar and the REAL X-scroller (LAYOUT ONLY -- no data /
+  // prop / virtualizer-math change). A re-entrancy latch stops the mirror from ping-ponging. Re-wired
+  // when the mode, the active pane, or the content width changes.
+  useEffect(() => {
+    if (!showHScrollProxy) return;
+    const proxy = hScrollProxyRef.current;
+    const scroller = twoPaneRef.current ? scrollPaneRef.current : containerRef.current;
+    if (!proxy || !scroller) return;
+    let syncing = false;
+    const fromProxy = () => {
+      if (syncing) return;
+      syncing = true;
+      scroller.scrollLeft = proxy.scrollLeft;
+      syncing = false;
+    };
+    const fromScroller = () => {
+      if (syncing) return;
+      syncing = true;
+      proxy.scrollLeft = scroller.scrollLeft;
+      syncing = false;
+    };
+    proxy.addEventListener("scroll", fromProxy, { passive: true });
+    scroller.addEventListener("scroll", fromScroller, { passive: true });
+    fromScroller(); // seed the proxy thumb to the current scroll position
+    return () => {
+      proxy.removeEventListener("scroll", fromProxy);
+      scroller.removeEventListener("scroll", fromScroller);
+    };
+  }, [showHScrollProxy, twoPane, hScrollContentWidth]);
+
   // V1-FIX-2b: after a column resize / autofit re-wraps the FROZEN Description, the scrolling pane's
   // <tr> is UNCHANGED, so its ResizeObserver stays silent and the shared measureElement never
   // re-fires -> the virtualizer keeps stale sizes and the two panes drift (measured live: ~300px on
@@ -4711,6 +4752,22 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
     </DropdownMenu>
   );
 
+  // RM-3b item 2: the embedded always-visible horizontal scrollbar. A thin `sticky bottom-0` bar
+  // rendered as a SIBLING of the scroll container (so it is not clipped by the pane's overflow and it
+  // pins to the bottom of the visible grid area / viewport while the grid is on screen). Its inner
+  // spacer is the X-scroller's content width, so its thumb tracks the real scroll (synced by the effect
+  // above, both ways). Rendered only embedded; full-screen uses the native bounded-container scrollbar.
+  const hScrollProxy = showHScrollProxy ? (
+    <div
+      ref={hScrollProxyRef}
+      className="sticky bottom-0 z-30 overflow-x-auto overflow-y-hidden border-t border-border bg-background/95"
+      style={{ height: 14 }}
+      aria-hidden
+    >
+      <div style={{ width: `${hScrollContentWidth}px`, height: 1 }} />
+    </div>
+  ) : null;
+
   // ── Two-pane split. CLASSIC: freeze on AND heights captured (`split`). VIRTUALIZED: freeze on
   //    (`twoPane = frozen`), windowed. Same JSX; the <tbody> content routes through renderTbody. ──
   if (twoPane) {
@@ -4796,6 +4853,7 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
           </div>
         </CollapseContext.Provider>
       </div>
+      {hScrollProxy}
       </VirtualizedContext.Provider>
     );
   }
@@ -4846,6 +4904,7 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
       </table>
       </CollapseContext.Provider>
     </div>
+    {hScrollProxy}
     </VirtualizedContext.Provider>
   );
 }));

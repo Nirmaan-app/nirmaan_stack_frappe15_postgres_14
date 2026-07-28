@@ -34,12 +34,14 @@ export function kindLabel(kind: string): string {
 }
 
 interface RateHelperPanelProps {
-  excelRow: number;
+  /** RM-3b: OPTIONAL -- absent => the empty-state placeholder (embedded panel-as-default, no row
+   * selected yet). Present together (excelRow + col + kind + ctx) => a row is loaded. */
+  excelRow?: number;
   /** The clicked rate cell's Excel column letter -- the Use write target. */
-  col: string;
+  col?: string;
   /** The clicked cell's rate-kind (the panel is scoped to this kind). */
-  kind: string;
-  ctx: RateHelperRowContext;
+  kind?: string;
+  ctx?: RateHelperRowContext;
   /** The page-built helper list (real pricing-sheet helper prepended); default = the static two. */
   helpers?: RateHelper[];
   /** Apply a value to the (excelRow, col) rate cell through the real save path + record telemetry. */
@@ -47,11 +49,15 @@ interface RateHelperPanelProps {
   onClose: () => void;
   /** RM-3a two-mode mount (Defect 1). `overlay` = a viewport-fixed right-pinned drawer floating ABOVE
    * the grid (full-screen mode -- the grid width/columns/scroll stay untouched). `embedded` (default)
-   * = a sticky in-flow panel that rides the viewport as the page scrolls. */
+   * = a sticky in-flow panel that rides the viewport as the page scrolls. RM-3b: the embedded panel
+   * is ALWAYS MOUNTED (panel-as-default) -- no close X, and it shows an empty-state card until a row
+   * is selected; the overlay drawer keeps its close X. */
   variant?: "embedded" | "overlay";
 }
 
 export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onClose, variant = "embedded" }: RateHelperPanelProps) {
+  // RM-3b: a row is loaded iff we have its context. Absent => the empty-state placeholder.
+  const hasSelection = ctx != null && excelRow != null && col != null && kind != null;
   // Panel-session state ONLY (never persisted): per-helper attribute edits, which card is expanded,
   // and a per-helper final-value override (undefined => track the computed value).
   const [attrOverrides, setAttrOverrides] = useState<Record<string, Record<string, string>>>({});
@@ -64,15 +70,16 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
   // overlay drawer is viewport-fixed (always visible). We never touch horizontal scroll.
   const asideRef = useRef<HTMLElement>(null);
   useEffect(() => {
+    if (!hasSelection) return; // empty state never scrolls the page
     const el = asideRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
     const outOfView = r.bottom <= 0 || r.top >= window.innerHeight;
     if (outOfView) el.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }, [excelRow, col]);
+  }, [excelRow, col, hasSelection]);
 
   const evaluations = useMemo(
-    () => resolveRateHelpers(ctx, attrOverrides, helpers),
+    () => (ctx ? resolveRateHelpers(ctx, attrOverrides, helpers) : []),
     [ctx, attrOverrides, helpers],
   );
 
@@ -111,19 +118,35 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
           <Sparkles className="h-4 w-4 text-primary" />
           <span>Rate suggestions</span>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded p-0.5 text-muted-foreground hover:bg-muted"
-          aria-label="Close suggestions"
-        >
-          <X className="h-4 w-4" />
-        </button>
+        {/* RM-3b: the embedded panel is always mounted (panel-as-default) -- no close X. Only the
+            full-screen overlay drawer keeps a close affordance. */}
+        {variant === "overlay" && (
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded p-0.5 text-muted-foreground hover:bg-muted"
+            aria-label="Close suggestions"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        )}
       </header>
-      <div className="border-b px-3 py-1.5 text-xs text-muted-foreground">
-        Row {excelRow} &middot; {kindLabel(kind)} rate
-      </div>
+      {hasSelection && (
+        <div className="border-b px-3 py-1.5 text-xs text-muted-foreground">
+          Row {excelRow} &middot; {kindLabel(kind!)} rate
+        </div>
+      )}
 
+      {!hasSelection && (
+        // RM-3b empty state (embedded panel-as-default): a quiet placeholder until a row is picked.
+        <div className="min-h-0 flex-1 overflow-y-auto p-3">
+          <div className="rounded-md border border-dashed bg-muted/30 px-3 py-6 text-center text-xs text-muted-foreground">
+            Click a suggestion badge or the sparkle on a rate cell to load that row.
+          </div>
+        </div>
+      )}
+
+      {hasSelection && (
       <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
         {evaluations.map(({ helper, result }) => {
           const isOpen = expanded === helper.id;
@@ -138,7 +161,7 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
               </div>
             );
           }
-          const computed = result.values[kind];
+          const computed = result.values[kind!]; // non-null: this block only renders with a selection
           const finalStr =
             finalOverride[helper.id] ?? (typeof computed === "number" ? String(computed) : "");
           const finalNum = Number.parseFloat(finalStr);
@@ -287,9 +310,9 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                       className="h-8"
                       disabled={!canUse}
                       onClick={() =>
-                        onUse(col, finalNum, {
+                        onUse(col!, finalNum, {
                           helperId: helper.id,
-                          kind,
+                          kind: kind!,
                           correctedAttributes: Object.fromEntries(
                             result.workings.attributes.map((a) => [a.id, a.value]),
                           ),
@@ -306,6 +329,7 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
           );
         })}
       </div>
+      )}
     </aside>
   );
 }
