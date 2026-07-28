@@ -327,6 +327,40 @@ editor (Luckysheet-as-static-assets planned) whose workbook state is persisted s
 
 ---
 
+## BoQ Rate Master (RM-1)
+
+Backend rate-master for the pricing helper (the standalone estimation data behind cable/termination
+rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backend.md`.
+
+- **Two committed doctypes hold it:** `BoQ Rate Master Item` — discipline-wide priced-item master,
+  addressed by `(discipline, kind)`, with a keyed `attributes` JSON (matched EXACT) + a keyed `rates`
+  JSON (the raw list/base rates); and `BoQ Rate Category Config` — per-`(discipline, category_id)`, the
+  whole config as one JSON blob (attribute definitions + derivation pipelines + `normalization_rule`).
+  **JSON fields, not child tables**, per the app's flexible/UI-driven-data rule. Both `track_changes: 1`;
+  minimal controllers each declaring a composite read index (`[discipline, kind, brand]` /
+  `[discipline, category_id]`) via `on_doctype_update`.
+- **Canonical-UPPERCASE normalization at ingest (owner-locked):** the loader uppercases `material` /
+  `insulation` on import so messy future workbook exports self-clean at the boundary; ALL downstream
+  matching is EXACT on canonical values — there is NO case-insensitive matching anywhere.
+- **Batch-provenance import, freeze-and-supersede:** every row of one import carries ONE `import_batch`
+  (prefix `rmbulk-`), mirroring `BoQ Category Truth Snapshot`'s gtbulk provenance. A re-run against
+  existing active data for a discipline REFUSES cleanly; `--replace` deactivates the prior batch
+  (`active=0`, rows retained) and loads fresh — idempotent, no duplicate active rows. Import runs
+  service-side (`services/boq_rate_master/loader.py`); RM-1 ships NO write endpoint. Reads are the
+  login-required, active-only endpoints in `api/boq/rate_master.py` (`get_rate_master_items` /
+  `get_rate_category_config`); editors are RM-4.
+- **Pipelines are STORED CONFIG, not code:** the four derivation pipelines (cable/termination × BoQ/BCS)
+  live in the config JSON and are interpreted downstream — RM-1 stores them faithfully; no interpreter
+  ships this slice. Owner-decoded shapes: effective = `(1-discount)*(1+markup)`; termination = lug +
+  banded gland (`thickness_sqmm` < 35 vs ≥ 35); BCS = discounted product cost + 5% wastage, no install
+  (electrical labour is per-sqft, added at project level). The four faithfulness goldens (e.g.
+  COPPER/UNARMOURED/1C/6.0 → cable 120/20, termination 80/20, BCS 87) are the STANDING instrument any
+  pipeline change must still reproduce EXACTLY.
+- **Migrate obligation grows:** these two doctypes add to the pullers' migrate obligation (Abhishek
+  heads-up) — pulling requires a DB migrate.
+
+---
+
 ## Reference Docs
 
 | Domain | File |
