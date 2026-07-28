@@ -462,7 +462,19 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   `categoriesByExcelRow`), never on keystroke. (4) The button's enable chain **REUSES the rate-write gate
   (`!locked && formulasComplete && categoryGateOpen`) — never re-derived** — surfacing the first failing reason as the
   title. (5) The badge lives in the rate cell's right-aligned flex strip with `stopPropagation`, so a bare cell click
-  still just places the cursor. Nothing persists (page-session only; a reload wipes suggestions). The STUB dies at U2.
+  still just places the cursor.
+- **Rate-helper WENT REAL (RM-3, `pricingSheetHelper.ts`; full detail in the plan doc's "Build slice RM-3"):**
+  the stub is DELETED; the `Pricing sheet` helper is a page-built closure over a PERSISTED, version-keyed
+  server extraction run that COMPUTES the rate CLIENT-SIDE via the RM-2 `runPipeline` UNCHANGED (the single
+  compute source — a rate/param change flows in live with no re-run; only extracted attributes persist). The run
+  itself IS persisted (unlike U1's page-session badges): `get_active_suggestion_run` loads it on open with no
+  press, and `record_rate_suggestion_event` banks Use telemetry. Load-bearing additions: (a) a PARTIAL in-run row
+  still badges via `Suggestion.producibleKinds`; (b) a FAINT always-on opener renders on every rate-editable cell
+  WITHOUT a badge (owner: bring up the helper on badge-less cells) — a pure render change, no new row prop, memo
+  shield intact; (c) attributes are CATEGORY-SCOPED — a not-in-run row of the helper's category gets a blank
+  editable fill (never minting a badge), any OTHER category (or none) gets a "coming soon" NoSuggestion, gated on
+  `ctx.category === config.category_id` (only `wiring_cabling` is defined this slice); (d) `RateHelperPanel`'s
+  empty choice attrs carry a `— select —` placeholder so a blank never masquerades as its first option.
 - **Socket reconnect self-heal must be reconnect-GATED + debounced (T1, owner-verified):** a `socket.on("connect", ...)`
   handler that refetches (`mutate()`/`mutateCategories()`) MUST NOT fire on every connect — the initial mount connect
   double-fetches (the SWR mount fetch already ran) and a flapping dev socket then refetches on every reconnect, and
