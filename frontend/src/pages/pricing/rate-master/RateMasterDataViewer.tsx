@@ -6,10 +6,12 @@
 // by design -- this is an admin table, not the editor.
 
 import { useMemo, useState } from "react";
-import { Pencil, Trash2, Check, X, Plus } from "lucide-react";
+import { Pencil, Trash2, Check, X, Plus, Filter } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -84,6 +86,48 @@ export function RateMasterDataViewer({
 
   const batchId = items[0]?.import_batch ?? "(none)";
 
+  // Per-column faceted filters: a unified column model (key + how to read the cell) drives BOTH the
+  // distinct-value dropdowns and the row predicate, so a new attribute/rate column self-registers.
+  const columns = useMemo(
+    () => [
+      { key: "kind", get: (it: RateMasterItem) => it.kind },
+      { key: "brand", get: (it: RateMasterItem) => it.brand },
+      ...attrCols.map((d) => ({ key: `attr:${d.id}`, get: (it: RateMasterItem) => it.attributes?.[d.id] })),
+      ...rateCols.map((k) => ({ key: `rate:${k}`, get: (it: RateMasterItem) => it.rates?.[k] })),
+      { key: "unit", get: (it: RateMasterItem) => it.unit },
+      { key: "source_sheet", get: (it: RateMasterItem) => it.source_sheet },
+      { key: "source_row", get: (it: RateMasterItem) => it.source_row },
+    ],
+    [attrCols, rateCols],
+  );
+  const distinctByColumn = useMemo(() => {
+    const m: Record<string, string[]> = {};
+    for (const c of columns) {
+      const set = new Set<string>();
+      for (const it of items) {
+        const v = cellText(c.get(it));
+        if (v !== "") set.add(v);
+      }
+      m[c.key] = Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    }
+    return m;
+  }, [columns, items]);
+  const getForColumn = useMemo(() => {
+    const m: Record<string, (it: RateMasterItem) => unknown> = {};
+    for (const c of columns) m[c.key] = c.get;
+    return m;
+  }, [columns]);
+  // Selected values per column (empty / absent => that column does not filter).
+  const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
+  const setColumnFilter = (key: string, next: string[]) =>
+    setColumnFilters((p) => {
+      const n = { ...p };
+      if (next.length) n[key] = next;
+      else delete n[key];
+      return n;
+    });
+  const activeColumnFilterCount = Object.keys(columnFilters).length;
+
   // Precompute a per-row searchable string over EVERY displayed cell.
   const rows = useMemo(() => {
     return items.map((it) => {
@@ -101,12 +145,18 @@ export function RateMasterDataViewer({
   }, [items, attrCols, rateCols]);
 
   const filtered = useMemo(() => {
+    const filterEntries = Object.entries(columnFilters);
     return rows.filter((r) => {
       if (kind !== "all" && r.it.kind !== kind) return false;
       if (search && !r.haystack.includes(search)) return false; // CASE-SENSITIVE
+      // per-column facets: a row passes iff its cell value is in EVERY active column's selected set (AND
+      // across columns, OR within a column).
+      for (const [key, sel] of filterEntries) {
+        if (!sel.includes(cellText(getForColumn[key]?.(r.it)))) return false;
+      }
       return true;
     });
-  }, [rows, kind, search]);
+  }, [rows, kind, search, columnFilters, getForColumn]);
 
   // RM-4a edit handlers -----------------------------------------------------------------------------
   const beginEdit = (it: RateMasterItem) => {
@@ -177,6 +227,19 @@ export function RateMasterDataViewer({
     }
   };
 
+  // A column header = its label + a per-column faceted filter (funnel -> search + checkbox list).
+  const hdr = (colKey: string, label: string, rightAlign = false) => (
+    <div className={cn("flex items-center gap-1", rightAlign && "justify-end")}>
+      <span>{label}</span>
+      <ColumnFilter
+        label={label}
+        values={distinctByColumn[colKey] ?? []}
+        selected={columnFilters[colKey] ?? []}
+        onChange={(next) => setColumnFilter(colKey, next)}
+      />
+    </div>
+  );
+
   return (
     <div className="space-y-3">
       {/* header line: batch id + item count */}
@@ -201,6 +264,12 @@ export function RateMasterDataViewer({
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
+        {/* clear every per-column filter at once (shown only when some are active) */}
+        {activeColumnFilterCount > 0 && (
+          <Button size="sm" variant="ghost" onClick={() => setColumnFilters({})}>
+            <X className="mr-1 h-3.5 w-3.5" /> Clear filters ({activeColumnFilterCount})
+          </Button>
+        )}
         {/* RM-4a: admin-only Add control (HIDDEN for non-admins). */}
         {isAdmin && onCreateItem && (
           <Button size="sm" variant="outline" onClick={() => setAddOpen(true)}>
@@ -214,17 +283,17 @@ export function RateMasterDataViewer({
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>kind</TableHead>
-              <TableHead>brand</TableHead>
+              <TableHead>{hdr("kind", "kind")}</TableHead>
+              <TableHead>{hdr("brand", "brand")}</TableHead>
               {attrCols.map((d) => (
-                <TableHead key={d.id}>{d.label}</TableHead>
+                <TableHead key={d.id}>{hdr(`attr:${d.id}`, d.label)}</TableHead>
               ))}
               {rateCols.map((k) => (
-                <TableHead key={k} className="text-right">{k}</TableHead>
+                <TableHead key={k} className="text-right">{hdr(`rate:${k}`, k, true)}</TableHead>
               ))}
-              <TableHead>unit</TableHead>
-              <TableHead>source sheet</TableHead>
-              <TableHead className="text-right">row</TableHead>
+              <TableHead>{hdr("unit", "unit")}</TableHead>
+              <TableHead>{hdr("source_sheet", "source sheet")}</TableHead>
+              <TableHead className="text-right">{hdr("source_row", "row", true)}</TableHead>
               {canEdit && <TableHead className="text-right">actions</TableHead>}
             </TableRow>
           </TableHeader>
@@ -471,5 +540,85 @@ function AddItemDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// Per-column faceted filter: a funnel button in the column header opens a popover with a type-to-search
+// box + a checkbox list of that column's DISTINCT values. Multi-select (OR within the column; the table
+// composes columns with AND). A count badge + Clear show when active. Values come from the live data.
+function ColumnFilter({
+  label,
+  values,
+  selected,
+  onChange,
+}: {
+  label: string;
+  values: string[];
+  selected: string[];
+  onChange: (next: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const shown = useMemo(
+    () => (q ? values.filter((v) => v.toLowerCase().includes(q.toLowerCase())) : values),
+    [values, q],
+  );
+  const active = selected.length > 0;
+  const toggle = (v: string) =>
+    onChange(selected.includes(v) ? selected.filter((x) => x !== v) : [...selected, v]);
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (!o) setQ("");
+      }}
+    >
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label={`Filter ${label}`}
+          className={cn(
+            "inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-muted-foreground hover:bg-muted focus:outline-none focus:ring-1 focus:ring-ring",
+            active && "text-primary",
+          )}
+        >
+          <Filter className="h-3 w-3" />
+          {active && <span className="text-[10px] font-semibold tabular-nums">{selected.length}</span>}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-56 p-2">
+        <Input
+          autoFocus
+          className="h-7 text-xs"
+          placeholder={`Search ${label}...`}
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+        />
+        <div className="mt-2 max-h-56 space-y-0.5 overflow-y-auto">
+          {shown.length === 0 && (
+            <div className="px-1 py-2 text-xs text-muted-foreground">No values.</div>
+          )}
+          {shown.map((v) => (
+            <label
+              key={v}
+              className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 text-xs hover:bg-muted"
+            >
+              <input type="checkbox" checked={selected.includes(v)} onChange={() => toggle(v)} />
+              <span className="truncate">{v}</span>
+            </label>
+          ))}
+        </div>
+        {active && (
+          <button
+            type="button"
+            className="mt-2 w-full rounded border px-2 py-1 text-xs text-muted-foreground hover:bg-muted"
+            onClick={() => onChange([])}
+          >
+            Clear ({selected.length})
+          </button>
+        )}
+      </PopoverContent>
+    </Popover>
   );
 }
