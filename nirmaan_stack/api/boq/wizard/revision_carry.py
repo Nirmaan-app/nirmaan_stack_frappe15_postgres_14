@@ -86,6 +86,37 @@ def _as_list(val) -> list:
     return val if isinstance(val, list) else []
 
 
+def current_committed_sheets(source_boq: str, sheet_names=None, fields=None) -> list:
+    """A BoQ's CURRENT committed `BoQ Sheet` rows, optionally restricted to `sheet_names`.
+
+    ⚠️ THE RESTRICTION IS APPLIED IN PYTHON, NEVER THROUGH A FRAPPE `["in", [...]]` FILTER.
+    `DatabaseQuery.prepare_filter_condition` STRIPS every value of an `in` list --
+    `frappe/model/db_query.py`: `[escape((cstr(v) or "").strip()) for v in values]` -- so a real
+    sheet name carrying leading/trailing whitespace matches NOTHING and drops out of the result
+    with no error. Sheet names DO carry whitespace in production data (#152 exists for exactly
+    this), so an `in`-filtered read here is a silent data loss, not a theoretical one: it dropped
+    'FDA ' / 'PA ' / 'ACCESS ' / 'CCTV  ' from the work-package carry on live revisions.
+
+    An `=` comparison is NOT stripped, which is why the single-sheet readers
+    (`_committed_data_sheet`, `cross_boq_carry._resolve_sheet_carry`) were never affected -- and
+    why the mapping screen could report zero carryable rates for a sheet the carry then landed.
+
+    ONE home for both callers (`read_committed_work_packages` here + `revision._carry_counts`), so
+    the count and the carry cannot diverge again. Same shape as
+    `cross_boq_carry._dest_committed_sheets`, which already filtered in Python and was correct.
+    sheet_name VERBATIM (#152).
+    """
+    rows = frappe.get_all(
+        "BoQ Sheet",
+        filters={"boq": source_boq, "is_current": 1},
+        fields=fields or ["name", "sheet_name"],
+    )
+    if sheet_names is None:
+        return rows
+    wanted = set(sheet_names)
+    return [r for r in rows if r.sheet_name in wanted]
+
+
 def _committed_data_sheet(source_boq: str, source_sheet: str) -> CommittedDataSheet | None:
     """The original's CURRENT committed DATA config, or None when nothing is carryable.
 
@@ -271,18 +302,16 @@ def read_committed_work_packages(source_boq: str, source_sheets) -> dict:
     the committed sheet's docname, the same shape `review_screen.get_committed_rows` already uses.
 
     A general-specs source has no `BoQ Sheet` row at all and simply drops out. sheet_name VERBATIM
-    (#152). Sheets with no assignments are OMITTED (not returned as []), mirroring
-    `update_sheet_draft.get_boq_work_packages`.
+    (#152) -- resolved through `current_committed_sheets`, which filters the names in PYTHON; a
+    Frappe `["in", [...]]` filter strips them and silently loses every whitespace-bearing sheet
+    (see that function's note). Sheets with no assignments are OMITTED (not returned as []),
+    mirroring `update_sheet_draft.get_boq_work_packages`.
     """
     names = list(source_sheets or [])
     if not names:
         return {}
 
-    sheets = frappe.get_all(
-        "BoQ Sheet",
-        filters={"boq": source_boq, "sheet_name": ["in", names], "is_current": 1},
-        fields=["name", "sheet_name"],
-    )
+    sheets = current_committed_sheets(source_boq, names)
     if not sheets:
         return {}
     sheet_by_docname = {s.name: s.sheet_name for s in sheets}
