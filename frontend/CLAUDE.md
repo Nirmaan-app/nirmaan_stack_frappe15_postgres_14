@@ -1049,6 +1049,14 @@ in the plan doc.
   refetches its collection so the derivation/viewer recompute live -- and the persistence split carries the
   edit into the next pricing-panel compute with NO AI re-run. The interpreter goldens stay the invariant any
   edit must still reproduce after an edit-and-revert.
+- **Data Viewer per-column-header faceted filters (`RateMasterDataViewer.tsx`):** EVERY column header
+  (kind / brand / every category attribute / every rate key / unit / source sheet / row) carries a filter
+  funnel opening a `ColumnFilter` Popover -- a type-to-search box over that column's DISTINCT values + a
+  checkbox multi-select. A unified `columns` model (`{key, get}`) is the SINGLE source for both the
+  distinct-values dropdowns (`distinctByColumn`) and the row predicate (`getForColumn`), so headers and
+  filtering never drift. Composition: **AND across columns, OR within a column**; a global `Clear filters (N)`
+  control shows the active-column count and resets. Purely CLIENT-SIDE over the already-loaded active items
+  -- no new query, no backend change, read-only (composes cleanly with the RM-4a admin editing above).
 
 ## Important Notes
 
