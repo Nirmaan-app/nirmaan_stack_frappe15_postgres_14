@@ -326,6 +326,142 @@ def resolved_category_stamp_targets(boq, sheet_name, committed_version):
     return targets
 
 
+def eligible_excel_rows(boq, sheet_name, committed_version) -> set:
+    """The ELIGIBLE MASTER SET as a set of excel_rows: node_type in {Line Item, Preamble}
+    (owner-locked, "empty is empty"). Empty set when the sheet is uncommitted.
+
+    Exists so the revision category carry can ask "may this DESTINATION row hold a category?"
+    without minting a second definition of eligibility -- it reads the same
+    `_ELIGIBLE_NODE_TYPES` + `_current_sheet_doc` that `blank_category_eligible_rows` does
+    (ADR-0010 B2: one owner per concept). The two answer DIFFERENT questions over the same
+    population -- that one counts BLANKS, this one enumerates MEMBERS -- so neither can be
+    expressed in terms of the other without a wasted ladder pass. sheet_name VERBATIM (#152).
+    """
+    sheet_doc = _current_sheet_doc(boq, sheet_name, committed_version)
+    if not sheet_doc:
+        return set()
+    return {
+        n["source_row_number"]
+        for n in frappe.get_all(
+            _BOQ_NODES,
+            filters={"boq": boq, "sheet": sheet_doc, "is_current": 1},
+            fields=["source_row_number", "node_type"],
+        )
+        if (n.get("node_type") or "").strip() in _ELIGIBLE_NODE_TYPES
+    }
+
+
+#: Every field the revision carry READS off a source classification record and re-writes onto the
+#: destination. Identity (`boq`/`sheet_name`/`committed_version`) is re-keyed by the caller, so it
+#: is absent; `excel_row` + `discipline` ARE here because the carry re-maps the former and fans out
+#: on the latter. `review_priority` is deliberately EXCLUDED -- it is telemetry about a routing
+#: decision made against the source's rows, and stamping it onto a different sheet's rows would be
+#: asserting doubt nobody measured. Lifecycle (`category_version` / `is_current`) is minted fresh.
+CARRY_READ_FIELDS = [
+    "excel_row", "discipline",
+    "rule_category_id", "rule_band", "rule_score",
+    "ai_category_id", "ai_confidence", "final_category_id",
+    "routing", "routing_reason",
+    "human_category_id", "human_verdict_at", "human_verdict_by",
+    "rules_version", "prompt_version", "model", "description", "classified_at",
+]
+
+
+def current_category_keys(boq, sheet_name, committed_version) -> set:
+    """The set of (excel_row, discipline) that ALREADY hold a current classification at one
+    committed version. ONE query -- the presence map a carry consults before writing.
+    sheet_name VERBATIM (#152)."""
+    rows = frappe.get_all(
+        _ROW_CATEGORY,
+        filters={
+            "boq": boq, "sheet_name": sheet_name,
+            "committed_version": committed_version, "is_current": 1,
+        },
+        fields=["excel_row", "discipline"],
+    )
+    return {(r.excel_row, r.discipline) for r in rows}
+
+
+def carry_row_categories(
+    boq, sheet_name, committed_version, rows, *, source_boq, source_version, overwrite=False
+):
+    """Carry a batch of source category rows onto a committed version (ADR-0014 Amendment E).
+
+    PRESERVES THE FIELD SPLIT -- machine -> machine, human -> human -- copying the whole
+    CARRY_READ_FIELDS set verbatim. NEVER routes a machine label into `human_category_id`: that
+    would replicate the freeze bug (#1096) inside carry, and it is also the difference between
+    "the engine decided this" and "a person decided this", which the pricing grid renders
+    differently and a reviewer acts on differently.
+
+    PROVENANCE IS MANDATORY, not optional. `source_boq` / `source_version` are keyword-REQUIRED so
+    no code path can produce an unstamped carried record: an unattributed carried annotation is
+    exactly what Amendment D deleted this feature over, and a stamp that a caller may omit is a
+    stamp that will eventually be omitted. A caller wanting an UNstamped write wants
+    `write_row_categories`, which is a different operation (a classify run's own output).
+
+    Freezes any prior current for the identity via set_value(is_current=0) -- NEVER doc.save --
+    and inserts at max(category_version) + 1, exactly like `write_row_categories`. The CALLER is
+    responsible for presence-filtering (see `current_category_keys`) and for destination
+    ELIGIBILITY (see `eligible_excel_rows`): a row reaching here is one the caller decided to
+    write, so `overwrite` here only documents intent and asserts the freeze-first path.
+
+    Each row dict carries the CARRY_READ_FIELDS keys, with `excel_row` ALREADY re-mapped to the
+    destination address by the caller's D6 twin. Returns the count written. sheet_name VERBATIM
+    (#152). NO commit -- the caller owns the transaction."""
+    carried_at = frappe.utils.now()
+    count = 0
+    for r in rows:
+        excel_row = r["excel_row"]
+        discipline = r["discipline"]
+        prior = _current_names(boq, sheet_name, excel_row, committed_version, discipline)
+        for name in prior:
+            frappe.db.set_value(_ROW_CATEGORY, name, "is_current", 0)
+
+        doc = frappe.new_doc(_ROW_CATEGORY)
+        doc.boq = boq
+        doc.sheet_name = sheet_name  # VERBATIM (#152)
+        doc.excel_row = excel_row
+        doc.committed_version = committed_version
+        doc.discipline = discipline
+        # Machine layer (verbatim).
+        doc.rule_category_id = r.get("rule_category_id") or ""
+        doc.rule_band = r.get("rule_band") or ""
+        doc.rule_score = r.get("rule_score")
+        doc.ai_category_id = r.get("ai_category_id") or ""
+        doc.ai_confidence = r.get("ai_confidence")
+        doc.final_category_id = r.get("final_category_id") or ""
+        doc.routing = r.get("routing")
+        doc.routing_reason = r.get("routing_reason")
+        # Human layer (verbatim -- NEVER folded into the machine fields, and vice-versa).
+        doc.human_category_id = r.get("human_category_id") or ""
+        # Carried VERBATIM and therefore OLDER than anything picked on this sheet. That age is
+        # load-bearing, not incidental: resolve_row_ladder breaks a human-vs-human tie across
+        # disciplines on the most recent human_verdict_at, so a locally-made verdict outranks a
+        # carried one with no extra code. Do NOT "freshen" this to the carry time.
+        doc.human_verdict_at = r.get("human_verdict_at")
+        doc.human_verdict_by = r.get("human_verdict_by")
+        # Provenance of the CLASSIFICATION (carried, not re-stamped -- this is the SAME
+        # classification, not a re-run).
+        doc.rules_version = r.get("rules_version")
+        doc.prompt_version = r.get("prompt_version")
+        doc.model = r.get("model")
+        doc.description = r.get("description")
+        # Provenance of the CARRY (fresh -- this is what makes the record honest about its origin).
+        doc.carried_from_boq = source_boq
+        doc.carried_from_version = source_version
+        doc.carried_at = carried_at
+        # max(prior) + 1, NEVER a hardcoded 1: a frozen prior can exist with no current (a
+        # re-classify supersedes), and re-using 1 would collide.
+        doc.category_version = _next_version(
+            boq, sheet_name, excel_row, committed_version, discipline
+        )
+        doc.is_current = 1
+        doc.classified_at = r.get("classified_at") or frappe.utils.now()
+        doc.insert(ignore_permissions=True)
+        count += 1
+    return count
+
+
 def _identity_filters(boq, sheet_name, excel_row, committed_version, discipline):
     """The identity filter for one classification record. sheet_name VERBATIM (#152);
     discipline is part of the identity (a second engine coexists as its own current)."""

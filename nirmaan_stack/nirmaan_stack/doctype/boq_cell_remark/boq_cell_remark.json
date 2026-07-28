@@ -18,7 +18,11 @@
   "remark_version_section",
   "remark_version",
   "is_current",
-  "remarked_at"
+  "remarked_at",
+  "carry_provenance_section",
+  "carried_from_boq",
+  "carried_from_version",
+  "carried_at"
  ],
  "fields": [
   {
@@ -112,12 +116,39 @@
    "fieldtype": "Datetime",
    "label": "Remarked At",
    "read_only": 1
+  },
+  {
+   "fieldname": "carry_provenance_section",
+   "fieldtype": "Section Break",
+   "label": "Carry Provenance"
+  },
+  {
+   "description": "Set ONLY on a remark created by the cross-BoQ revision carry: the ORIGINAL BoQ it was copied from. NULL on anything written on this sheet. ADR-0014 Amendment D deleted the annotation carry precisely because a carried record was indistinguishable from a locally-written one in the Review block; this field is what makes it distinguishable, so it must be present on every carried row.",
+   "fieldname": "carried_from_boq",
+   "fieldtype": "Link",
+   "label": "Carried From BoQ",
+   "options": "BOQs",
+   "read_only": 1
+  },
+  {
+   "description": "The SOURCE sheet's committed_version this was copied from. NULL when not carried.",
+   "fieldname": "carried_from_version",
+   "fieldtype": "Int",
+   "label": "Carried From Version",
+   "read_only": 1
+  },
+  {
+   "description": "When the carry ran. NULL when not carried.",
+   "fieldname": "carried_at",
+   "fieldtype": "Datetime",
+   "label": "Carried At",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "istable": 0,
  "links": [],
- "modified": "2026-06-21 00:00:00.000000",
+ "modified": "2026-07-28 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "BoQ Cell Remark",
