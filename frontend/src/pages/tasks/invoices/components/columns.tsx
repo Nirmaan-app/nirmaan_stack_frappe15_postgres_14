@@ -380,7 +380,9 @@ const getCommonColumns = (
     // Returns sum of `invoice_amount` for all Vendor Invoices with same parent
     // (document_type + document_name) AND status in ['Pending', 'Approved'].
     // Same scope as `_existing_invoiced_sum` used by autofill validation.
-    getTotalInvoiced?: (docName: string, docType: string) => number
+    getTotalInvoiced?: (docName: string, docType: string) => number,
+    // Resolves a user id to a display name, for the "Invoice Added By" column.
+    getUserName?: (id: string | undefined) => string
 ): ColumnDef<VendorInvoice>[] => [
         {
             accessorKey: "document_name",
@@ -426,6 +428,34 @@ const getCommonColumns = (
             meta: {
                 exportHeaderName: "Type",
                 exportValue: (row: VendorInvoice) => row.document_type === "Procurement Orders" ? "PO" : "WO"
+            }
+        },
+        {
+            // Who entered the invoice. Reads `uploaded_by`, NOT `owner`: on 2,864 of
+            // 5,042 live rows `owner` is "Administrator" (a bulk-load artifact) while
+            // `uploaded_by` carries the actual person. The PO/WO Invoices tabs already
+            // surface this same field as "Invoice Uploaded By".
+            accessorKey: "uploaded_by",
+            id: "uploaded_by",
+            header: ({ column }) => (
+                <DataTableColumnHeader
+                    column={column}
+                    title={<span className="whitespace-normal leading-tight inline-block">Invoice Added By</span>}
+                />
+            ),
+            cell: ({ row }) => {
+                const userId = row.original.uploaded_by;
+                if (!userId) return <span className="text-gray-400 italic">—</span>;
+                return <div className="font-medium">{getUserName?.(userId) || userId}</div>;
+            },
+            size: 150,
+            enableColumnFilter: true,
+            filterFn: (row, id, value) => value.includes(row.getValue(id)),
+            meta: {
+                facet: { field: "uploaded_by", title: "Invoice Added By" } satisfies FacetDeclaration,
+                exportHeaderName: "Invoice Added By",
+                exportValue: (row: VendorInvoice) =>
+                    getUserName?.(row.uploaded_by) || row.uploaded_by || ""
             }
         },
         {
@@ -643,9 +673,10 @@ export const getPendingTaskColumns = (
     getAmount?: (orderId: string, statuses: string[]) => number,
     getDeliveredAmount?: (orderId: string, type: string) => number,
     getVendorName?: (orderId: string, type: string) => string,
-    getTotalInvoiced?: (docName: string, docType: string) => number
+    getTotalInvoiced?: (docName: string, docType: string) => number,
+    getUserName?: (id: string | undefined) => string
 ): ColumnDef<VendorInvoice>[] => [
-        ...getCommonColumns(attachmentsMap, getTotalAmount, getAmount, getDeliveredAmount, getVendorName, getTotalInvoiced),
+        ...getCommonColumns(attachmentsMap, getTotalAmount, getAmount, getDeliveredAmount, getVendorName, getTotalInvoiced, getUserName),
         {
             id: "actions",
             header: () => <div className="">Actions</div>,
@@ -712,7 +743,7 @@ export const getTaskHistoryColumns = (
     getVendorName?: (orderId: string, type: string) => string,
     getTotalInvoiced?: (docName: string, docType: string) => number
 ): ColumnDef<VendorInvoice>[] => [
-        ...getCommonColumns(attachmentsMap, getTotalAmount, getAmount, getDeliveredAmount, getVendorName, getTotalInvoiced),
+        ...getCommonColumns(attachmentsMap, getTotalAmount, getAmount, getDeliveredAmount, getVendorName, getTotalInvoiced, getUserName),
         {
             accessorKey: "status",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
