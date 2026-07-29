@@ -3,7 +3,7 @@
  "sha256_prefix": "6a652282c5a07c7f",
  "extracted_at": "2026-07-29",
  "discipline": "Electrical",
- "provenance": "E-ALL chat decode 2026-07-29: every pipeline decoded from the ALL ITEM WISE RATE block formulas + assumption cells; oracles = the blocks' displayed outputs at their current selector states; v2: formulas normalized to the interpreter contract (base+exact params), machine-format goldens (RM-4b attrs+expect), misc param fixed at source, conditional-component chamber shape (feature 4); v3 (owner rulings 2026-07-29): the guiding sheet is the AUTHORITY on finalized rules - UPS removed entirely (Floor BOX misdecode corrected -> popup_boxes per-module config added), LMS kept as DATA ONLY with empty pipelines (owner authors in-system), light_fixtures/panels stay out; retired_kinds/retired_category_ids added for the loader; v4 (owner 2026-07-29): miscellaneous rebuilt SELF-CONTAINED from the guiding block itself (rates = BoQ direct; BCS supply = BoQ x 0.8 [/1.25]; BCS install = 0); the Miscelleneous background sheet no longer feeds the import; v5: item_kinds declared per config (drives per-category viewer/add-form scoping; LMS included; wiring derives from its pipelines); v6: identity_attribute_id declared on the four item-identity configs (drives the EA-2 identity extraction mode)",
+ "provenance": "E-ALL chat decode 2026-07-29: every pipeline decoded from the ALL ITEM WISE RATE block formulas + assumption cells; oracles = the blocks' displayed outputs at their current selector states; v2: formulas normalized to the interpreter contract (base+exact params), machine-format goldens (RM-4b attrs+expect), misc param fixed at source, conditional-component chamber shape (feature 4); v3 (owner rulings 2026-07-29): the guiding sheet is the AUTHORITY on finalized rules - UPS removed entirely (Floor BOX misdecode corrected -> popup_boxes per-module config added), LMS kept as DATA ONLY with empty pipelines (owner authors in-system), light_fixtures/panels stay out; retired_kinds/retired_category_ids added for the loader; v4 (owner 2026-07-29): miscellaneous rebuilt SELF-CONTAINED from the guiding block itself (rates = BoQ direct; BCS supply = BoQ x 0.8 [/1.25]; BCS install = 0); the Miscelleneous background sheet no longer feeds the import; v5: item_kinds declared per config (drives per-category viewer/add-form scoping; LMS included; wiring derives from its pipelines); v6: identity_attribute_id declared on the four item-identity configs (drives the EA-2 identity extraction mode); v7: cabletray_raceway REBUILT from the guiding block's own formulas (chat misread corrected; oracle 431/120/297/0) - new attrs (cover/installation_type/floor_cutting/floor_refilling), install-by-width items (10), conditional-component adders, three oracle goldens; the old flagged tray pipeline is dead",
  "items": [
   {
    "kind": "earthing_item",
@@ -14001,6 +14001,156 @@
     "sheet": "ALL ITEM WISE RATE",
     "row": 25
    }
+  },
+  {
+   "kind": "tray_install_rate",
+   "brand": "Generic",
+   "unit": "Rmt",
+   "attributes": {
+    "width_mm": 50.0
+   },
+   "rates": {
+    "install_rate": 25.0
+   },
+   "source": {
+    "sheet": "CableTray_Raceway",
+    "row": 17
+   }
+  },
+  {
+   "kind": "tray_install_rate",
+   "brand": "Generic",
+   "unit": "Rmt",
+   "attributes": {
+    "width_mm": 100.0
+   },
+   "rates": {
+    "install_rate": 30.0
+   },
+   "source": {
+    "sheet": "CableTray_Raceway",
+    "row": 18
+   }
+  },
+  {
+   "kind": "tray_install_rate",
+   "brand": "Generic",
+   "unit": "Rmt",
+   "attributes": {
+    "width_mm": 150.0
+   },
+   "rates": {
+    "install_rate": 35.0
+   },
+   "source": {
+    "sheet": "CableTray_Raceway",
+    "row": 19
+   }
+  },
+  {
+   "kind": "tray_install_rate",
+   "brand": "Generic",
+   "unit": "Rmt",
+   "attributes": {
+    "width_mm": 200.0
+   },
+   "rates": {
+    "install_rate": 40.0
+   },
+   "source": {
+    "sheet": "CableTray_Raceway",
+    "row": 20
+   }
+  },
+  {
+   "kind": "tray_install_rate",
+   "brand": "Generic",
+   "unit": "Rmt",
+   "attributes": {
+    "width_mm": 250.0
+   },
+   "rates": {
+    "install_rate": 45.0
+   },
+   "source": {
+    "sheet": "CableTray_Raceway",
+    "row": 21
+   }
+  },
+  {
+   "kind": "tray_install_rate",
+   "brand": "Generic",
+   "unit": "Rmt",
+   "attributes": {
+    "width_mm": 300.0
+   },
+   "rates": {
+    "install_rate": 55.0
+   },
+   "source": {
+    "sheet": "CableTray_Raceway",
+    "row": 22
+   }
+  },
+  {
+   "kind": "tray_install_rate",
+   "brand": "Generic",
+   "unit": "Rmt",
+   "attributes": {
+    "width_mm": 350.0
+   },
+   "rates": {
+    "install_rate": 65.0
+   },
+   "source": {
+    "sheet": "CableTray_Raceway",
+    "row": 23
+   }
+  },
+  {
+   "kind": "tray_install_rate",
+   "brand": "Generic",
+   "unit": "Rmt",
+   "attributes": {
+    "width_mm": 400.0
+   },
+   "rates": {
+    "install_rate": 75.0
+   },
+   "source": {
+    "sheet": "CableTray_Raceway",
+    "row": 24
+   }
+  },
+  {
+   "kind": "tray_install_rate",
+   "brand": "Generic",
+   "unit": "Rmt",
+   "attributes": {
+    "width_mm": 450.0
+   },
+   "rates": {
+    "install_rate": 85.0
+   },
+   "source": {
+    "sheet": "CableTray_Raceway",
+    "row": 25
+   }
+  },
+  {
+   "kind": "tray_install_rate",
+   "brand": "Generic",
+   "unit": "Rmt",
+   "attributes": {
+    "width_mm": 600.0
+   },
+   "rates": {
+    "install_rate": 95.0
+   },
+   "source": {
+    "sheet": "CableTray_Raceway",
+    "row": 26
+   }
   }
  ],
  "category_configs": [
@@ -14368,17 +14518,42 @@
      "label": "Cover",
      "type": "choice",
      "values": [
-      "WITHOUT",
-      "COVER_ONLY",
-      "WITH"
+      "Yes",
+      "No"
+     ]
+    },
+    {
+     "id": "installation_type",
+     "label": "Installation Type",
+     "type": "choice",
+     "values": [
+      "Floor",
+      "Ceiling"
+     ]
+    },
+    {
+     "id": "floor_cutting",
+     "label": "Floor Cutting",
+     "type": "choice",
+     "values": [
+      "Yes",
+      "No"
+     ]
+    },
+    {
+     "id": "floor_refilling",
+     "label": "Floor Refilling",
+     "type": "choice",
+     "values": [
+      "Yes",
+      "No"
      ]
     }
    ],
    "pipelines": {
-    "tray_boq": {
+    "tray_boq_supply": {
      "output": [
-      "supply_per_rmt",
-      "install_per_rmt"
+      "supply_per_rmt"
      ],
      "steps": [
       {
@@ -14388,26 +14563,84 @@
        }
       },
       {
-       "step": "component_band",
+       "step": "component",
        "name": "base",
-       "band_on": "cover",
-       "bands": [
-        {
-         "when": "WITHOUT",
-         "target": "without_cover_list"
-        },
-        {
-         "when": "COVER_ONLY",
-         "target": "cover_only_list"
-        },
-        {
-         "when": "WITH",
-         "target": "with_cover_list"
-        }
-       ],
+       "target": "without_cover_list",
        "params": {},
        "formula": "base",
-       "explain": "cover option selects the rate column"
+       "explain": "tray base rate (without-cover column)"
+      },
+      {
+       "step": "component",
+       "name": "cover",
+       "target": "cover_only_list",
+       "conditions": [
+        {
+         "when": {
+          "cover": "Yes"
+         },
+         "params": {
+          "factor": 1.0
+         }
+        },
+        {
+         "when": {
+          "cover": "No"
+         },
+         "params": {
+          "factor": 0.0
+         }
+        }
+       ],
+       "formula": "base*factor",
+       "explain": "cover rate added when cover selected"
+      },
+      {
+       "step": "component",
+       "name": "ceiling_accessories",
+       "conditions": [
+        {
+         "when": {
+          "installation_type": "Ceiling"
+         },
+         "params": {
+          "accessories_per_mtr": 106.0
+         }
+        },
+        {
+         "when": {
+          "installation_type": "Floor"
+         },
+         "params": {
+          "accessories_per_mtr": 0.0
+         }
+        }
+       ],
+       "formula": "accessories_per_mtr",
+       "explain": "ceiling install adds the accessories set (rods/channels/bolts per metre)"
+      },
+      {
+       "step": "component",
+       "name": "floor_refilling",
+       "conditions": [
+        {
+         "when": {
+          "floor_refilling": "Yes"
+         },
+         "params": {
+          "refill_rate": 180.0
+         }
+        },
+        {
+         "when": {
+          "floor_refilling": "No"
+         },
+         "params": {
+          "refill_rate": 0.0
+         }
+        }
+       ],
+       "formula": "refill_rate"
       },
       {
        "step": "sum_components",
@@ -14426,31 +14659,202 @@
        "step": "roundup",
        "target": "supply_per_rmt",
        "params": {
-        "digits": -1
+        "digits": 0
        }
-      },
+      }
+     ]
+    },
+    "tray_boq_install": {
+     "output": [
+      "install_per_rmt"
+     ],
+     "steps": [
       {
-       "step": "scale",
-       "target": "supply_per_rmt",
-       "result": "install_per_rmt",
+       "step": "match_master_row",
        "params": {
-        "install_ratio": 0.2
+        "kind": "tray_install_rate"
        },
-       "formula": "base*install_ratio"
+       "explain": "install rate by tray width"
       },
       {
-       "step": "roundup",
-       "target": "install_per_rmt",
+       "step": "component",
+       "name": "width_install",
+       "target": "install_rate",
        "params": {
-        "digits": -1
+        "per_run_factor": 4.0
+       },
+       "formula": "base*per_run_factor"
+      },
+      {
+       "step": "component",
+       "name": "floor_cutting",
+       "conditions": [
+        {
+         "when": {
+          "floor_cutting": "Yes"
+         },
+         "params": {
+          "cutting_rate": 200.0,
+          "markup": 0.45
+         }
+        },
+        {
+         "when": {
+          "floor_cutting": "No"
+         },
+         "params": {
+          "cutting_rate": 0.0,
+          "markup": 0.45
+         }
+        }
+       ],
+       "formula": "cutting_rate*(1+markup)"
+      },
+      {
+       "step": "sum_components",
+       "result": "install_per_rmt"
+      }
+     ]
+    },
+    "tray_bcs": {
+     "output": [
+      "bcs_supply"
+     ],
+     "steps": [
+      {
+       "step": "match_master_row",
+       "params": {
+        "kind": "cable_tray"
        }
+      },
+      {
+       "step": "component",
+       "name": "base",
+       "target": "without_cover_list",
+       "params": {},
+       "formula": "base"
+      },
+      {
+       "step": "component",
+       "name": "cover",
+       "target": "cover_only_list",
+       "conditions": [
+        {
+         "when": {
+          "cover": "Yes"
+         },
+         "params": {
+          "factor": 1.0
+         }
+        },
+        {
+         "when": {
+          "cover": "No"
+         },
+         "params": {
+          "factor": 0.0
+         }
+        }
+       ],
+       "formula": "base*factor"
+      },
+      {
+       "step": "component",
+       "name": "ceiling_accessories",
+       "conditions": [
+        {
+         "when": {
+          "installation_type": "Ceiling"
+         },
+         "params": {
+          "accessories_per_mtr": 106.0
+         }
+        },
+        {
+         "when": {
+          "installation_type": "Floor"
+         },
+         "params": {
+          "accessories_per_mtr": 0.0
+         }
+        }
+       ],
+       "formula": "accessories_per_mtr"
+      },
+      {
+       "step": "component",
+       "name": "floor_refilling",
+       "conditions": [
+        {
+         "when": {
+          "floor_refilling": "Yes"
+         },
+         "params": {
+          "refill_rate": 180.0
+         }
+        },
+        {
+         "when": {
+          "floor_refilling": "No"
+         },
+         "params": {
+          "refill_rate": 0.0
+         }
+        }
+       ],
+       "formula": "refill_rate"
+      },
+      {
+       "step": "sum_components",
+       "result": "bcs_supply"
+      }
+     ]
+    },
+    "tray_bcs_install": {
+     "output": [
+      "bcs_install"
+     ],
+     "steps": [
+      {
+       "step": "match_master_row",
+       "params": {
+        "kind": "cable_tray"
+       }
+      },
+      {
+       "step": "component",
+       "name": "bcs_cutting",
+       "conditions": [
+        {
+         "when": {
+          "floor_cutting": "Yes"
+         },
+         "params": {
+          "cutting_rate": 200.0
+         }
+        },
+        {
+         "when": {
+          "floor_cutting": "No"
+         },
+         "params": {
+          "cutting_rate": 0.0
+         }
+        }
+       ],
+       "formula": "cutting_rate"
+      },
+      {
+       "step": "sum_components",
+       "result": "bcs_install"
       }
      ]
     }
    },
-   "notes": "PIPELINE PARAMS FLAGGED: mirrored from the JB/raceway block (S1=0.45, S2=0.2) - the main tray table has no guiding display oracle; verify at cert (params owner-editable via the Derivation tab). Accessories composite (ceiling block) = EA-4.",
+   "notes": "REBUILT 2026-07-29 from the guiding block's OWN formulas (the earlier no-oracle claim was a chat misread - N4/O4 IS the tray configurator, oracle 431/120/297/0): supply = (without-cover base + cover-if-Yes + ceiling-accessories-if-Ceiling + refill-if-Yes) x1.45 roundup units; install = width-table rate x4 + cutting x1.45 if Yes; BCS = pre-markup base; BCS install = cutting only. The accessories set (106/mtr = rod 40 + channel 30 + bolts 16 + clamps 20, each qty x 2/3 x rate) stored as a scalar param, owner-editable. Sheet's cover-thickness selector does not enter any formula - not modelled. The with_cover_list column remains on items as reference data only.",
    "item_kinds": [
-    "cable_tray"
+    "cable_tray",
+    "tray_install_rate"
    ]
   },
   {
@@ -15203,19 +15607,75 @@
    {
     "id": "t1",
     "attrs": {
-     "tray_type": "Solid",
+     "tray_type": "Perforated",
      "material": "GI",
-     "thickness_mm": 1.0,
+     "thickness_mm": 1.6,
      "width_mm": 100.0,
-     "cover": "WITH"
+     "cover": "Yes",
+     "installation_type": "Floor",
+     "floor_cutting": "No",
+     "floor_refilling": "No"
     },
     "expect": {
-     "tray_boq": {
-      "supply_per_rmt": 280.0,
-      "install_per_rmt": 60.0
+     "tray_boq_supply": {
+      "supply_per_rmt": 431.0
+     },
+     "tray_boq_install": {
+      "install_per_rmt": 120.0
+     },
+     "tray_bcs": {
+      "bcs_supply": 297.0
+     },
+     "tray_bcs_install": {
+      "bcs_install": 0.0
      }
     },
-    "flag": "params mirrored from the JB block - no sheet oracle; owner-editable"
+    "oracle": "MATCHES DISPLAY (the guiding block's current state)"
+   },
+   {
+    "id": "t2",
+    "attrs": {
+     "tray_type": "Perforated",
+     "material": "GI",
+     "thickness_mm": 1.6,
+     "width_mm": 100.0,
+     "cover": "No",
+     "installation_type": "Ceiling",
+     "floor_cutting": "No",
+     "floor_refilling": "No"
+    },
+    "expect": {
+     "tray_boq_supply": {
+      "supply_per_rmt": 415.0
+     },
+     "tray_boq_install": {
+      "install_per_rmt": 120.0
+     },
+     "tray_bcs": {
+      "bcs_supply": 286.0
+     }
+    }
+   },
+   {
+    "id": "t3",
+    "attrs": {
+     "tray_type": "Perforated",
+     "material": "GI",
+     "thickness_mm": 1.6,
+     "width_mm": 100.0,
+     "cover": "Yes",
+     "installation_type": "Floor",
+     "floor_cutting": "Yes",
+     "floor_refilling": "No"
+    },
+    "expect": {
+     "tray_boq_install": {
+      "install_per_rmt": 410.0
+     },
+     "tray_bcs_install": {
+      "bcs_install": 200.0
+     }
+    }
    }
   ],
   "industrial_sockets": [

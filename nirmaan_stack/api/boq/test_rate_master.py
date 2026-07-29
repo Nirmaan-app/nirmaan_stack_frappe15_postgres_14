@@ -63,7 +63,7 @@ class TestRateMaster(FrappeTestCase):
             cls.raw = json.load(fh)
         # EA-1/EA-1b: the all-categories (E-ALL) asset, loaded by path (DEFAULT_DATA_FILE stays wiring).
         cls.eall_path = os.path.join(
-            os.path.dirname(loader.__file__), "data", "rate_master_electrical_all_v6.json"
+            os.path.dirname(loader.__file__), "data", "rate_master_electrical_all_v7.json"
         )
         with open(cls.eall_path, "r", encoding="utf-8") as fh:
             cls.eall = json.load(fh)
@@ -604,9 +604,10 @@ class TestRateMaster(FrappeTestCase):
     def test_23_eall_multi_config_load_counts_and_goldens_merge(self):
         disc = self._new_disc()
         r = loader.load_rate_master(payload=self._eall_payload(disc))
-        # per-kind counts land EXACTLY (EA-1b v4: ups removed, popup_box_module added -> 754)
-        self.assertEqual(r["items_total"], 754)
+        # per-kind counts land EXACTLY (EA-2b v7: +10 tray_install_rate rows -> 764)
+        self.assertEqual(r["items_total"], 764)
         self.assertEqual(r["items_by_kind"]["cable_tray"], 450)
+        self.assertEqual(r["items_by_kind"]["tray_install_rate"], 10)  # EA-2b: the width->install-rate table
         self.assertEqual(r["items_by_kind"]["db_switchgear_item"], 137)
         self.assertEqual(r["items_by_kind"]["earthing_item"], 25)
         self.assertEqual(r["items_by_kind"]["popup_box_module"], 1)
@@ -662,9 +663,9 @@ class TestRateMaster(FrappeTestCase):
         with self.assertRaises(frappe.ValidationError):
             loader.load_rate_master(payload=self._eall_payload(disc))
 
-        # replace supersedes ONLY the E-ALL scope (754 items / 10 configs), never wiring
+        # replace supersedes ONLY the E-ALL scope (764 items / 10 configs, EA-2b v7), never wiring
         r2 = loader.load_rate_master(payload=self._eall_payload(disc), replace=True)
-        self.assertEqual(r2["items_deactivated"], 754)
+        self.assertEqual(r2["items_deactivated"], 764)
         self.assertEqual(r2["configs_deactivated"], 10)
         # THE NAMED INVARIANT: wiring cable/termination still active + wiring_cabling config still active
         self.assertEqual(
@@ -674,7 +675,7 @@ class TestRateMaster(FrappeTestCase):
             frappe.db.count("BoQ Rate Category Config", {"discipline": disc, "category_id": "wiring_cabling", "active": 1}),
             1,
         )
-        # a fresh active E-ALL batch: 754 items, 10 configs
+        # a fresh active E-ALL batch: 764 items, 10 configs
         self.assertEqual(self._active_items(disc, kind="cable_tray"), 450)
         self.assertEqual(
             frappe.db.count("BoQ Rate Category Config", {"discipline": disc, "category_id": "earthing", "active": 1}),

@@ -196,34 +196,115 @@ describe("forward-compat: unknown step type", () => {
 // The FIVE wiring goldens above are the regression pins for all four; these fixtures are the real
 // E-ALL config shapes (eall_import_electrical_v2.json) reduced to the row(s) each golden needs.
 
-describe("EA-1 (1) component_band string-equality bands (tray cover selector)", () => {
-  const TRAY: Pipeline = {
-    output: ["supply_per_rmt", "install_per_rmt"],
+// EA-2b: the CORRECTED cable-tray config (v7). The old single `tray_boq` pipeline (golden 280/60,
+// install = supply x0.2, cover via component_band) was WRONG and is DELETED. The real config is FOUR
+// pipelines (supply / install / bcs / bcs_install) using conditional `component` adders (cover /
+// ceiling-accessories 106 / refill 180 / cutting 200) + a width-table install match (kind
+// tray_install_rate, x4). These are the oracle-backed goldens t1/t2/t3 (t1 = the guiding block's
+// displayed state), pinned independently of the config-data goldens.
+describe("EA-2b corrected cable-tray config (4 pipelines, oracle goldens t1/t2/t3)", () => {
+  const cond = (attr: string, yes: Record<string, number>, no: Record<string, number>, vy = "Yes", vn = "No") => [
+    { when: { [attr]: vy }, params: yes },
+    { when: { [attr]: vn }, params: no },
+  ];
+  const PIPELINES: Record<string, Pipeline> = {
+    tray_boq_supply: {
+      output: ["supply_per_rmt"],
+      steps: [
+        { step: "match_master_row", params: { kind: "cable_tray" } },
+        { step: "component", name: "base", target: "without_cover_list", params: {}, formula: "base" },
+        { step: "component", name: "cover", target: "cover_only_list", conditions: cond("cover", { factor: 1.0 }, { factor: 0.0 }), formula: "base*factor" },
+        { step: "component", name: "ceiling_accessories", conditions: cond("installation_type", { accessories_per_mtr: 106.0 }, { accessories_per_mtr: 0.0 }, "Ceiling", "Floor"), formula: "accessories_per_mtr" },
+        { step: "component", name: "floor_refilling", conditions: cond("floor_refilling", { refill_rate: 180.0 }, { refill_rate: 0.0 }), formula: "refill_rate" },
+        { step: "sum_components", result: "supply_per_rmt" },
+        { step: "scale", target: "supply_per_rmt", result: "supply_per_rmt", params: { markup: 0.45 }, formula: "base*(1+markup)" },
+        { step: "roundup", target: "supply_per_rmt", params: { digits: 0 } },
+      ],
+    },
+    tray_boq_install: {
+      output: ["install_per_rmt"],
+      steps: [
+        { step: "match_master_row", params: { kind: "tray_install_rate" } },
+        { step: "component", name: "width_install", target: "install_rate", params: { per_run_factor: 4.0 }, formula: "base*per_run_factor" },
+        { step: "component", name: "floor_cutting", conditions: cond("floor_cutting", { cutting_rate: 200.0, markup: 0.45 }, { cutting_rate: 0.0, markup: 0.45 }), formula: "cutting_rate*(1+markup)" },
+        { step: "sum_components", result: "install_per_rmt" },
+      ],
+    },
+    tray_bcs: {
+      output: ["bcs_supply"],
+      steps: [
+        { step: "match_master_row", params: { kind: "cable_tray" } },
+        { step: "component", name: "base", target: "without_cover_list", params: {}, formula: "base" },
+        { step: "component", name: "cover", target: "cover_only_list", conditions: cond("cover", { factor: 1.0 }, { factor: 0.0 }), formula: "base*factor" },
+        { step: "component", name: "ceiling_accessories", conditions: cond("installation_type", { accessories_per_mtr: 106.0 }, { accessories_per_mtr: 0.0 }, "Ceiling", "Floor"), formula: "accessories_per_mtr" },
+        { step: "component", name: "floor_refilling", conditions: cond("floor_refilling", { refill_rate: 180.0 }, { refill_rate: 0.0 }), formula: "refill_rate" },
+        { step: "sum_components", result: "bcs_supply" },
+      ],
+    },
+    tray_bcs_install: {
+      output: ["bcs_install"],
+      steps: [
+        { step: "match_master_row", params: { kind: "cable_tray" } },
+        { step: "component", name: "bcs_cutting", conditions: cond("floor_cutting", { cutting_rate: 200.0 }, { cutting_rate: 0.0 }), formula: "cutting_rate" },
+        { step: "sum_components", result: "bcs_install" },
+      ],
+    },
+  };
+  const TRAY_ROW: RateMasterItem = { discipline: "Electrical", kind: "cable_tray", attributes: { tray_type: "Perforated", material: "GI", thickness_mm: 1.6, width_mm: 100 }, rates: { without_cover_list: 180, cover_only_list: 117, with_cover_list: 297 } };
+  const INSTALL_ROW: RateMasterItem = { discipline: "Electrical", kind: "tray_install_rate", attributes: { width_mm: 100 }, rates: { install_rate: 30 } };
+  const ITEMS = [TRAY_ROW, INSTALL_ROW];
+  const sel = (o: Record<string, string | number> = {}) => ({
+    tray_type: "Perforated", material: "GI", thickness_mm: 1.6, width_mm: 100,
+    cover: "Yes", installation_type: "Floor", floor_cutting: "No", floor_refilling: "No", ...o,
+  });
+
+  it("t1 (cover Yes / Floor / no cut / no refill) -> supply 431, install 120, bcs 297, bcs_install 0", () => {
+    const s = sel();
+    expect(runPipeline("tray_boq_supply", PIPELINES.tray_boq_supply, ITEMS, s).finals).toEqual({ supply_per_rmt: 431 });
+    expect(runPipeline("tray_boq_install", PIPELINES.tray_boq_install, ITEMS, s).finals).toEqual({ install_per_rmt: 120 });
+    expect(runPipeline("tray_bcs", PIPELINES.tray_bcs, ITEMS, s).finals).toEqual({ bcs_supply: 297 });
+    expect(runPipeline("tray_bcs_install", PIPELINES.tray_bcs_install, ITEMS, s).finals).toEqual({ bcs_install: 0 });
+  });
+  it("t2 (cover No / Ceiling) -> supply 415, install 120, bcs 286", () => {
+    const s = sel({ cover: "No", installation_type: "Ceiling" });
+    expect(runPipeline("tray_boq_supply", PIPELINES.tray_boq_supply, ITEMS, s).finals).toEqual({ supply_per_rmt: 415 });
+    expect(runPipeline("tray_boq_install", PIPELINES.tray_boq_install, ITEMS, s).finals).toEqual({ install_per_rmt: 120 });
+    expect(runPipeline("tray_bcs", PIPELINES.tray_bcs, ITEMS, s).finals).toEqual({ bcs_supply: 286 });
+  });
+  it("t3 (cover Yes / Floor / cutting Yes) -> install 410, bcs_install 200", () => {
+    const s = sel({ floor_cutting: "Yes" });
+    expect(runPipeline("tray_boq_install", PIPELINES.tray_boq_install, ITEMS, s).finals).toEqual({ install_per_rmt: 410 });
+    expect(runPipeline("tray_bcs_install", PIPELINES.tray_bcs_install, ITEMS, s).finals).toEqual({ bcs_install: 200 });
+  });
+  it("a width with no tray_install_rate row -> honest no_match on install (never a zero default)", () => {
+    const r = runPipeline("tray_boq_install", PIPELINES.tray_boq_install, ITEMS, sel({ width_mm: 999 }));
+    expect(r.status).toBe("no_match");
+    expect(r.finals).toEqual({});
+  });
+});
+
+// string-equality component_band is still a supported interpreter feature (no shipped config uses it
+// after EA-2b -- the tray moved to conditional `component`); a minimal synthetic pin keeps it covered.
+describe("component_band string-equality bands (synthetic, feature pin)", () => {
+  const P: Pipeline = {
+    output: ["v"],
     steps: [
       { step: "match_master_row", params: { kind: "cable_tray" } },
-      { step: "component_band", name: "base", band_on: "cover", bands: [
-        { when: "WITHOUT", target: "without_cover_list" },
-        { when: "COVER_ONLY", target: "cover_only_list" },
-        { when: "WITH", target: "with_cover_list" },
+      { step: "component_band", name: "b", band_on: "cover", bands: [
+        { when: "Yes", target: "cover_only_list" },
+        { when: "No", target: "without_cover_list" },
       ], params: {}, formula: "base" },
-      { step: "sum_components", result: "supply_per_rmt" },
-      { step: "scale", target: "supply_per_rmt", result: "supply_per_rmt", params: { markup: 0.45 }, formula: "base*(1+markup)" },
-      { step: "roundup", target: "supply_per_rmt", params: { digits: -1 } },
-      { step: "scale", target: "supply_per_rmt", result: "install_per_rmt", params: { install_ratio: 0.2 }, formula: "base*install_ratio" },
-      { step: "roundup", target: "install_per_rmt", params: { digits: -1 } },
+      { step: "sum_components", result: "v" },
     ],
   };
-  const ITEM: RateMasterItem = { discipline: "Electrical", kind: "cable_tray", attributes: { tray_type: "Solid", material: "GI", thickness_mm: 1, width_mm: 100 }, rates: { without_cover_list: 116, cover_only_list: 72, with_cover_list: 188 } };
-  const s = (cover: string) => ({ tray_type: "Solid", material: "GI", thickness_mm: 1, width_mm: 100, cover });
-
-  it("cover=WITH selects with_cover_list (188) -> golden 280 / 60", () => {
-    expect(runPipeline("tray_boq", TRAY, [ITEM], s("WITH")).finals).toEqual({ supply_per_rmt: 280, install_per_rmt: 60 });
+  const ITEM: RateMasterItem = { discipline: "Electrical", kind: "cable_tray", attributes: { tray_type: "Perforated", material: "GI", thickness_mm: 1.6, width_mm: 100 }, rates: { without_cover_list: 180, cover_only_list: 117 } };
+  const s = (cover: string) => ({ tray_type: "Perforated", material: "GI", thickness_mm: 1.6, width_mm: 100, cover });
+  it("selects the band whose `when` matches the selection exactly", () => {
+    expect(runPipeline("x", P, [ITEM], s("Yes")).finals).toEqual({ v: 117 });
+    expect(runPipeline("x", P, [ITEM], s("No")).finals).toEqual({ v: 180 });
   });
-  it("cover=WITHOUT selects without_cover_list (116) -> 170 / 40 (a different band)", () => {
-    expect(runPipeline("tray_boq", TRAY, [ITEM], s("WITHOUT")).finals).toEqual({ supply_per_rmt: 170, install_per_rmt: 40 });
-  });
-  it("an unknown cover value matches no band -> honest no_match, zero finals", () => {
-    const r = runPipeline("tray_boq", TRAY, [ITEM], s("GOLD_PLATED"));
+  it("an unknown band value -> honest no_match, zero finals", () => {
+    const r = runPipeline("x", P, [ITEM], s("GOLD_PLATED"));
     expect(r.status).toBe("no_match");
     expect(r.finals).toEqual({});
   });
