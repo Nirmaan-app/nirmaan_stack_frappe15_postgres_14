@@ -15100,3 +15100,119 @@ RENAMED: `data/rate_master_electrical_all_v4.json -> _v5.json`. Docs: this entry
 Out of scope (untouched): the Derivation/Pipelines tabs, the interpreter, the helper, run/persistence, the
 RM-4 endpoint BEHAVIOUR (only the config-key allowlist was touched, per the prompt's explicit clause),
 patches.txt, `.claude/settings.local.json`.
+
+## Build slice EA-2 (N-category extraction + item-identity mode + helper activation + 3 riders) COMPLETE
+
+Session 2 of the E-ALL box. Branch `feature/boq-pricing-helper`. No new doctypes. The pricing helper
+goes from wiring-only to ALL categories; a new "item-identity" extraction mode matches a row to a
+category's item catalog; three RM-4b/Derivation/Data-Viewer riders ship.
+
+### Asset v5 -> v6 (`rate_master_electrical_all_v6.json`, sha256 prefix `e2efb012c584ded5`, 754 items, 10 configs)
+Identical to v5 EXCEPT the four item-identity configs now declare `identity_attribute_id` +
+`matching_mode: "item_identity"` (switches_sockets/db_switchgear -> `item`; miscellaneous/
+lighting_mgmt_system -> `description`). Imported `replace=True` (scoped supersede); WIRING UNTOUCHED
+(wiring config sha `8e749f7aa8bf3ed7` unchanged, cable+termination 588 active unchanged). The test
+fixture path `test_rate_master.py:63` moved v5 -> v6.
+
+### Backend -- N-category extraction (`services/boq_rate_master/extraction.py`, rewritten)
+The `CATEGORY_ID`/`DISCIPLINE` module constants are now run-scoped (kept only as the backward-compat
+default of the no-arg `get_extraction_attribute_defs()`). New helpers: `config_is_eligible` (non-empty
+pipelines AND definitions -> LMS empty-pipelines auto-excluded, NO special case),
+`_load_active_configs(disciplines)`, `catalog_values(discipline, cfg)` (distinct identity-attr values
+across the category's active master items -- LIVE, never hardcoded), `build_attribute_defs(cfg,
+catalog)` (identity def flagged identity:true + values := catalog when item-identity),
+`select_prompt_text(cfg)` (mode switch). `_resolved_categories` now returns (category_id, discipline)
+per row (via `resolve_row_ladder` index 2). `assemble_population` spans ALL eligible categories,
+tagging each row category_id+discipline. `run_extraction` groups rows by (discipline, category_id),
+builds each group's defs/catalog/prompt, batches SINGLE-CATEGORY 20-row, progress counts across all
+categories; results carry category_id per row; the envelope dropped the now-ambiguous top-level
+category_id/attribute_definitions (nothing consumed them). `_extract_batch` gained a batch_ids guard
+(only emits rows in THIS batch -- defensive + makes the multi-category merge deterministic;
+single-category byte-identical). Signatures run_extraction/_extract_batch/assemble_population/
+get_extraction_attribute_defs() preserved for the RM-3 tests.
+
+### Backend -- the identity prompt asset
+`services/boq_category/prompts/boq_rate_item_identity_prompt.md` (new, verbatim from the owner). The
+model matches each row to the category's catalog (the identity:true attribute's allowed values ARE the
+item names), composes row + ancestors before matching, accepts unambiguous synonyms, and returns NULL
+for assemblies/multi-item rows (the refuse-composites rule) and when two catalog items remain
+plausible. `_coerce_value` enforces catalog membership for free (choice-in-values), so an
+out-of-catalog AI value -> null with no new code.
+
+### Backend -- the relaxed validator + pass-through keys (`api/boq/rate_master.py`)
+`_validate_config`: the empty-pipelines rejection is RELAXED (pipelines may be {} -- a DATA-ONLY
+config, the LMS authoring path; a NON-empty pipelines object is still validated fully).
+`_KNOWN_CONFIG_KEYS` gained FOUR pass-through keys identity_attribute_id, matching_mode, notes,
+pipeline_labels (stored verbatim, NOT structurally validated -- exactly like item_kinds). REQUIRED,
+not scope creep: RM-4b resubmits the WHOLE config, so editing an item-identity config (which carries
+these keys) OR the wiring pipeline_labels edit would be rejected as an unknown key without them
+(owner-approved Decision 1). The suggest endpoints are category-agnostic (the worker stores
+env["results"], now carrying category_id, unchanged).
+
+### Backend -- the audited wiring pipeline_labels edit
+One `update_rate_config` call added pipeline_labels = {cable_boq: "Cable per Mtr", termination_boq:
+"Termination per Set"} (em-dash in the real values) to the production wiring config -> Version doc
+`o1rjktsmh3` (owner Administrator, changed field config). Wiring config sha `8e749f7aa8bf3ed7` ->
+`c10509deb4af11dd` (the NEW wiring-untouched baseline for EA-2b/2c). The helper's group labels are now
+CONFIG DATA, not code.
+
+### Frontend -- N-category helper (`rate-helper/pricingSheetHelper.ts` + `SheetPricingPage.tsx`)
+`makePricingSheetHelper` accepts EITHER a legacy single `config` (RM-3 tests) OR `configsByCategory`
+(the page); `resolveConfig(category)` looks it up (legacy serves only its own category). Eligibility
+gate = `isEligibleConfig` (pipelines + defs); a non-eligible/unknown category -> "coming soon"
+(LMS, point_wiring, panels, light_fixtures). GENERIC path: one group per NON-BCS pipeline
+(`nonBcsPipelines`, ids containing "bcs" never surfaced), labelled `pipeline_labels?.[id] ??
+prettifyPipelineId(id)`; values come from the FIRST non-BCS pipeline. WIRING SPECIAL CASE
+(category_id === "wiring_cabling", owner Decision 2 -- TEMPORARY, EA-4 designs the generic
+pairing/assembly mechanism and wiring migrates onto it then): the paired Cable + Termination display
+kept, but labels now from pipeline_labels. The page fetches all 11 registry configs via a child
+`RateConfigFetcher` (the HV-10 EngineCatalogFetcher N-fetch pattern) into a load-once
+`configsByCategory` Map; the single wiring-only fetch is gone; helper gated on configsByCategory.size
+> 0 && suggestRun. `RateCategoryConfig` gained typed optionals pipeline_labels/matching_mode/
+identity_attribute_id/notes.
+
+### Frontend -- the three riders
+- R1 Add-pipeline (`RateMasterPipelines.tsx` + `blankPipeline` in `rateMasterStructure.ts`): an
+  edit-mode "Add pipeline" control (validated lowercase id + output keys -> blankPipeline(outputs,
+  categoryItemKinds(cfg)[0]) = a validator-minimal {output, [match_master_row(kind)]}), then edited via
+  the existing AddStep. Works on an EMPTY-pipelines config -> the LMS in-system authoring path.
+- R2 Number input (`RateMasterDerivation.tsx`): number-type defs render a free numeric input with the
+  data-present distinct values as a datalist (`distinctNumberValues`), killing the empty unusable
+  Select for module_count/kva.
+- R3 Sticky header (`RateMasterDataViewer.tsx`): the Data-tab header row is sticky-top; the
+  sticky-left actions CORNER gets z-30. DEFECT FOUND IN CERT + FIXED: Tailwind top-0 was overridden to
+  top:auto (a global Ant Design table reset), silently defeating position:sticky; a scoped style rule
+  `.rm-data-hidehbar thead th{position:sticky;top:0;background:...}` (z left to the cell classes)
+  forces it. Verified live (headerStuck true, corner z 30).
+
+### Cert (browser + server; synthetic real-AI; Part 2 live-BoQ deferred to EA-3)
+- Backend: test_rate_master 26 -> 28 (relaxed validator; pass-through keys + pipeline_labels audited),
+  test_rate_suggest 10 -> 11 (multi-category population + identity mode + catalog + mode switch + LMS
+  excluded + category_id + catalog coercion). test_01 updated (population now spans categories,
+  pre-EA-2 [2,3] -> [2,3,4]). All green.
+- Real-AI synthetic run (5 categories + LMS + blank, live Anthropic): population = the 5 eligible only
+  (LMS empty-pipelines + blank excluded); ai_status "ran"; every result carried category_id; composite
+  switches row -> item NULL (refuse-composites on real AI); misc "Rubber mat..." -> "Rubber Mat"
+  (catalog match); conduit bare "25 mm dia" -> size_mm 25 (ancestor-composed); wiring unchanged. 0
+  residual after cleanup.
+- Browser (fresh vite, de-staled): Y5c sticky header pinned under scroll; Y5b popup_boxes
+  module_count=12 -> supply 10800 / install 1200; Y5a LMS empty -> add lms_boq via the affordance ->
+  preview gate honestly empty -> Save (Version doc) -> revert to {} accepted by the relaxed validator,
+  config byte-identical to pre-edit (sha ff4eb2ac371cb7a7). Bundle marker (Add pipeline) present.
+- Frontend: vitest 75 -> 83 (N-category compute gate, BCS-never-a-group, LMS coming-soon, label
+  helpers, blankPipeline validator-shape, distinctNumberValues). tsc 0 NEW (my files clean; the ~3241
+  pre-existing project-wide errors are unrelated). Build exit 0.
+
+### The classification-vocabulary gap (standing queue item)
+popup_boxes + lighting_mgmt_system have ZERO resolved rows in production -- the Electrical CLASSIFIER
+does not emit these two category ids yet (they exist as rate-master categories from EA-1; LMS is also
+data-only). The rate helper is ready for them; they need a classifier vocabulary update before any
+production row resolves to them.
+
+### Files
+BACKEND: extraction.py (rewrite), prompts/boq_rate_item_identity_prompt.md (new), api/boq/rate_master.py
+(validator), data/rate_master_electrical_all_v6.json (rename from v5), test_rate_master.py,
+test_rate_suggest.py. FRONTEND: pricingSheetHelper.ts(+test), SheetPricingPage.tsx, rateMasterTypes.ts,
+rateMasterStructure.ts(+test), RateMasterPipelines.tsx, RateMasterDerivation.tsx, RateMasterDataViewer.tsx.
+Out of scope (untouched): run/persistence doctypes, interpreter execution semantics, classify machinery,
+telemetry shape, patches.txt, .claude/settings.local.json.

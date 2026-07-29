@@ -1102,16 +1102,27 @@ in the plan doc.
   conditions on the SELECTION, formula may be param-only — unmatched → HONEST no-compute, never a zero
   adder). **The five wiring goldens are the standing regression pins for every addition.** The Rate Master
   category selector is REGISTRY-driven (`rateMasterRegistry.ts` lists all eleven Electrical categories),
-  NOT config-read. The pricing-sheet helper (`pricingSheetHelper.ts`) stays WIRING-ONLY and returns its
-  `{kind:"none", "…coming soon."}` guard for any other category (honest no-compute — the category-scoped
-  helper is a later slice). **HONEST-PARTIAL (owner-locked):** a `scale` step whose target rate is missing
+  NOT config-read. **EA-2: the pricing-sheet helper (`pricingSheetHelper.ts`) is N-CATEGORY** — it resolves
+  the config PER row category (`configsByCategory`, fetched by a child `RateConfigFetcher` for all 11
+  registry categories in `SheetPricingPage.tsx`); a category with no ELIGIBLE config (pipelines + defs, so
+  an empty-pipelines LMS is excluded) returns the `{kind:"none", "…coming soon."}` guard. Groups render ONE
+  per NON-BCS pipeline (ids containing "bcs" NEVER surface), labelled `config.pipeline_labels?.[id]` (config
+  data) else `prettifyPipelineId(id)`; `values` come from the FIRST non-BCS pipeline. **The `wiring_cabling`
+  paired Cable+Termination display stays a TEMPORARY named-category special-case (owner Decision 2) — EA-4
+  designs the generic pairing/assembly mechanism and wiring migrates then; do NOT extend it.** The helper
+  Deps accept EITHER a single `config` (legacy RM-3 tests) OR `configsByCategory`; keep the memo shield
+  (every grid input identity-stable). **HONEST-PARTIAL (owner-locked):** a `scale` step whose target rate is missing
   (`null`/`NaN`) SKIPS that output (it stays absent, renders `-`), NEVER inventing a 0; the pipeline's other
   outputs still compute — so a source row carrying supply but not install (or vice-versa; the misc CEIG /
   AS Built rows) prices only what exists. **Empty-pipelines configs render honestly with ZERO frontend
   changes:** a config with `pipelines: {}` (a DATA-ONLY category such as `lighting_mgmt_system`, authored
   in-system later) shows its data + attribute definitions on the Data / Derivation / Pipelines tabs and the
-  preview gate with no derivation output and no crash. (Authoring a NEW pipeline into an empty config is not
-  yet supported by the Pipelines-tab editor — no add-pipeline affordance — an EA-2 gap.)
+  preview gate with no derivation output and no crash. **EA-2 SHIPPED the authoring path:** the Pipelines-tab
+  edit mode has an **Add-pipeline** control (validated id + output keys -> a validator-minimal pipeline via
+  `blankPipeline`, seeded with `match_master_row`), so a NEW pipeline can be authored into an empty config;
+  the RM-4b `distinctNumberValues` datalist makes number attributes (e.g. module_count) a free numeric input
+  in the Derivation tab; and the Data-Viewer header row is sticky-top (a scoped `<style>` forces `top:0`
+  because a global Ant Design table reset overrides Tailwind's `top-0`).
 
 ## Important Notes
 

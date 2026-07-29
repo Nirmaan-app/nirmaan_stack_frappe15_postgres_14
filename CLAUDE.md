@@ -416,9 +416,14 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   value-from-attribute shape). A category may be committed DATA-ONLY (empty `pipelines: {}` — attribute
   definitions + items, no derivation) when its ruleset is not yet authored; **lighting_mgmt_system** is the
   first, to be authored in-system later (the loader + all four surfaces + the preview gate tolerate empty
-  pipelines honestly — no derivation output, no crash). Authoring a NEW pipeline into an empty config is NOT
-  yet supported by the RM-4b editor (no add-pipeline affordance; the server `_validate_config` also rejects
-  empty pipelines on save) — a known EA-2 gap.
+  pipelines honestly — no derivation output, no crash). **EA-2 SHIPPED the in-system authoring path:**
+  `_validate_config` now ACCEPTS empty `pipelines: {}` (a non-empty pipelines object is still fully
+  validated), and the RM-4b Pipelines tab has an **Add-pipeline affordance** (id + output keys -> a
+  validator-minimal `{output, [match_master_row]}` via `blankPipeline`, then edited via AddStep).
+  `_KNOWN_CONFIG_KEYS` also gained FOUR pass-through keys (`identity_attribute_id`, `matching_mode`,
+  `notes`, `pipeline_labels`) stored VERBATIM and NOT structurally validated (like `item_kinds`) —
+  REQUIRED because RM-4b resubmits the whole config, so an item-identity config (or the wiring
+  `pipeline_labels` edit) would otherwise be rejected as an unknown key.
 - **Retired-scope supersede (loader, owner-locked).** A multi-config payload may declare `retired_kinds` /
   `retired_category_ids` — kinds/categories dropped from THIS payload that a `replace=True` must ALSO
   deactivate (a second scoped-supersede beyond the payload's own kinds/categories), so a retired
@@ -466,8 +471,27 @@ invariants:
   cable is UNARMOURED, and insulation DEFAULTS to UNARMOURED when neither armoured nor unarmoured is stated.
 - **Frontend attributes are CATEGORY-SCOPED (owner):** the `Pricing sheet` helper shows the row's CATEGORY
   attributes; a category with no attribute set defined yet shows a "coming soon" note, not the wrong fields.
-  A badge-less rate-editable cell exposes an always-on faint opener for manual fill. Only `wiring_cabling`
-  is defined this slice.
+  A badge-less rate-editable cell exposes an always-on faint opener for manual fill.
+- **EA-2 -- extraction + helper are N-CATEGORY (owner-locked).** The runner is no longer wiring-only: the
+  population spans EVERY category on the sheet whose active config has BOTH non-empty pipelines AND
+  attribute definitions (an empty-pipelines DATA-ONLY config like `lighting_mgmt_system` is excluded
+  automatically -- NO special case); batches are SINGLE-CATEGORY (each carries its category's defs +
+  prompt), and results carry `category_id` per row. **MODE SWITCH** (config.`matching_mode`): an
+  `item_identity` category injects the SECOND prompt asset
+  (`prompts/boq_rate_item_identity_prompt.md`) and flags the identity attribute (`identity_attribute_id`)
+  `identity:true` with its allowed values := the LIVE item catalog (distinct identity-attr values across
+  the category's active master items -- NEVER hardcoded); `_coerce_value` enforces catalog membership, so
+  an out-of-catalog value -> null. The identity prompt's REFUSE-COMPOSITES rule (an assembly / multi-item
+  row -> null) is owner-locked. The helper (`pricingSheetHelper.ts`) resolves the config PER row category
+  (`configsByCategory`, all 11 registry categories fetched via a child `RateConfigFetcher`); a category
+  with no eligible config -> "coming soon". Groups render ONE per NON-BCS pipeline (ids containing "bcs"
+  are NEVER surfaced -- owner deferral), labelled `config.pipeline_labels?.[id]` (CONFIG DATA, added to
+  wiring by an audited RM-4b edit) else a prettified id. **The `wiring_cabling` paired Cable+Termination
+  display is a TEMPORARY owner special-case (Decision 2) with a NAMED SUCCESSOR: EA-4 designs the generic
+  pairing/assembly mechanism and wiring migrates onto it then -- do NOT extend the named-category branch.**
+- **CLASSIFICATION-VOCABULARY GAP (standing):** `popup_boxes` + `lighting_mgmt_system` are rate-master
+  categories the Electrical CLASSIFIER does not emit yet, so ZERO production rows resolve to them; the
+  helper is ready but they need a classifier vocabulary update first.
 
 ---
 
