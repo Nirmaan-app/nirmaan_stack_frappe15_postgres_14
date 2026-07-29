@@ -26,6 +26,10 @@ TENDERING_MANAGER_ROLES = {
     # defensively against this app's inconsistent role/role-profile naming.
     "Nirmaan Estimates Executive",
     "Nirmaan Estimates Executive Profile",
+    # Billing Executive mirrors Estimates Executive (minus pricing). Role is
+    # "Nirmaan Billing Executive"; the Profile variant is added defensively.
+    "Nirmaan Billing Executive",
+    "Nirmaan Billing Executive Profile",
 }
 
 

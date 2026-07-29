@@ -71,7 +71,8 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
     const { gstOptions, isLoading: isGstLoading } = useGstOptions();
 
     const isPMUser = role === "Nirmaan Project Manager Profile"
-    const isEstimatesExecutive = role === "Nirmaan Estimates Executive Profile"
+    // Billing Executive mirrors Estimates Executive's view-only WO treatment (minus pricing).
+    const isEstimatesExecutive = role === "Nirmaan Estimates Executive Profile" || role === "Nirmaan Billing Executive Profile"
 
     const id = accountsPage ? params.id : params.srId;
 

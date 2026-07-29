@@ -41,6 +41,7 @@ const PROJECT_EXEMPT_ROLES = [
   "Nirmaan Accountant Profile",
   "Nirmaan Accountant Lead Profile",
   "Nirmaan Estimates Executive Profile",
+  "Nirmaan Billing Executive Profile",
   "Nirmaan Design Lead Profile",
 ];
 
@@ -222,7 +223,7 @@ export default function Profile() {
   // Project count for stats
   const projectCount = useMemo(() => {
     if (
-      ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Estimates Executive Profile"].includes(
+      ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Billing Executive Profile"].includes(
         data?.role_profile || ""
       )
     ) {
