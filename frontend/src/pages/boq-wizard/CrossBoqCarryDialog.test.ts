@@ -17,6 +17,12 @@ import {
   CARRY_DISABLED_REASON,
   armedRateOverwrites,
   summarizeSheetCarry,
+  rateWriteCount,
+} from "./CrossBoqCarryDialog";
+// WBC-W1-S1: the layer-choice block + its pure helpers moved to the shared CarryLayers module so a
+// second carry surface (the within-BoQ CopyForwardDialog) can reuse them. Import paths only -- every
+// assertion below is unchanged, which is what makes this suite the proof the move changed nothing.
+import {
   LAYER_LABEL,
   initialLayerChoices,
   layerOutcomeFor,
@@ -28,9 +34,8 @@ import {
   buildLayersPayload,
   nothingToCarry,
   carrySelectionSummary,
-  rateWriteCount,
   type LayerChoices,
-} from "./CrossBoqCarryDialog";
+} from "./CarryLayers";
 import { CARRY_LAYER_KEYS } from "./boqTypes";
 import type {
   ApplySheetCarryResponse,
