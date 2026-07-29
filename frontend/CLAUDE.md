@@ -1074,6 +1074,21 @@ in the plan doc.
   authority); the refetch flows the new structure into the Derivation + Data tabs and the pricing helper
   with no code + no AI re-run (persistence split). **Goldens are CONFIG DATA** seeded via the endpoint; the
   vitest golden files stay independent pins. Full as-built + cert: plan doc "Build slice RM-4b".
+- **Interpreter step vocabulary (owner-locked, MINIMAL; full detail in the plan doc's "Build slice EA-1").**
+  The pure `ratePipelineInterpreter.ts` is the SINGLE compute source; there is NO loose-formula
+  generalization (that is how silently-wrong sneaks in) — the stored configs normalize every formula to
+  `base` = the step's target value + EXACT param names. Beyond the wiring set it supports: `component_band`
+  STRING-EQUALITY bands (`chooseBand`; band_on read from the matched item, falling back to the selection)
+  alongside the legacy numeric comparator bands; a `scale` value-from-attribute multiply (a `*_from_attr`
+  param binds the selected attribute — missing/non-numeric → HONEST `no_match`, never a zero default);
+  `match_master_row` on the stored-vs-selected INTERSECTION (a row matches on the keys it carries, exact
+  where they overlap — wiring is byte-unchanged); a conditional `component` (params via attribute
+  conditions on the SELECTION, formula may be param-only — unmatched → HONEST no-compute, never a zero
+  adder). **The five wiring goldens are the standing regression pins for every addition.** The Rate Master
+  category selector is REGISTRY-driven (`rateMasterRegistry.ts` lists all eleven Electrical categories),
+  NOT config-read. The pricing-sheet helper (`pricingSheetHelper.ts`) stays WIRING-ONLY and returns its
+  `{kind:"none", "…coming soon."}` guard for any other category (honest no-compute — the category-scoped
+  helper is a later slice).
 
 ## Important Notes
 

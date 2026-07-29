@@ -382,6 +382,27 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   seeded via ONE audited endpoint call; the vitest golden files stay INDEPENDENT pins. The frontend Pipelines
   tab's PREVIEW GATE computes the goldens against a draft before save (confirm-not-block). Interpreter
   EXECUTION semantics untouched. Tests `test_rate_master` 14→22.
+- **Multi-category import + scoped supersede (owner-locked; full detail in the plan doc's "Build slice
+  EA-1").** A rate-master payload may carry a `category_configs` LIST (each config a `BoQ Rate Category
+  Config` row, discipline stamped from the top-level payload, per-category goldens merged in as RM-4b
+  config-data); `loader.load_rate_master` branches to `_load_multi` and the single-config path is
+  unchanged. **Idempotency is SCOPED to the payload's item KINDS + config category_ids, NEVER the whole
+  discipline (`_deactivate_scope`): a `replace=True` supersedes only that scope, so importing the
+  non-wiring Electrical categories can NEVER deactivate a wiring (cable/termination, wiring_cabling) row —
+  the WIRING-UNTOUCHED invariant.** Non-wiring Electrical categories are loaded by PATH from a separate
+  asset; `DEFAULT_DATA_FILE` stays the wiring asset.
+- **Interpreter step vocabulary (owner-locked, MINIMAL — no loose-formula generalization; the asset
+  normalizes every formula to `base` = the step's target value + EXACT param names).** Beyond the wiring
+  set, the pure `ratePipelineInterpreter.ts` supports: `component_band` STRING-EQUALITY bands (band_on read
+  from the matched item, falling back to the selection) alongside the legacy numeric comparator bands; a
+  `scale` value-from-attribute multiply (a `*_from_attr` param binds the selected attribute's value;
+  missing/non-numeric → HONEST no-compute, never a zero default); `match_master_row` on the
+  stored-vs-selected INTERSECTION (a row matches on the keys it carries, exact where they overlap — wiring,
+  whose key sets coincide, is unchanged); and a conditional `component` (params resolved by attribute
+  conditions on the selection, formula may be param-only — an unmatched condition is an HONEST no-compute).
+  **The wiring goldens are the standing regression pins.** The Rate Master category selector is
+  REGISTRY-driven (`rateMasterRegistry.ts`), not config-read. The pricing-sheet helper stays wiring-only
+  and shows its category coming-soon note for other categories (honest no-compute).
 - **Benchmark data (owner ruling):** the committed data asset is the **28-Jul benchmark workbook**
   (`rate_master_wiring_cabling_v3.json`) — the reference going forward, superseding the earlier 25-Jul
   reference. A benchmark refresh is a `replace=True` re-import of a new asset (freeze-and-supersede: the

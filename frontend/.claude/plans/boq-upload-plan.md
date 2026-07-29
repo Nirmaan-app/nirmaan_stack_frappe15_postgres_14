@@ -14834,3 +14834,106 @@ semantics, the registry, run/persistence, wizard endpoints beyond the `_is_nirma
 patches.txt, `.claude/settings.local.json`. NOTE: goldens are seeded into the DB via the endpoint, NOT the
 `data/` asset -- a future benchmark re-import (`--replace`) would need them re-seeded (flagged for a later
 slice, consistent with the "seed via the endpoint" instruction).
+
+## Build slice EA-1 (the all-categories Electrical import) COMPLETE
+
+Session 1 of the E-ALL box. Branch `feature/boq-pricing-helper`. Imports the 10 non-wiring Electrical
+categories (756 items) beside the existing wiring_cabling, and teaches the pure interpreter the FOUR
+bounded vocabulary shapes those categories need. NO new doctypes, NO migrate. The STOP-and-fix at Phase 0
+was correct: v1 of the asset had two authoring defects (a `uplift`/`boq_uplift` formula-var mismatch and
+loose target-alias formulas); the owner NORMALIZED the asset to the interpreter's actual contract
+(`base` = the step's target value; params by EXACT name) and shipped v2 (sha256 `ffa5a51c...647a2038`).
+
+### The asset (committed to data/, byte-identical, loaded BY PATH)
+`services/boq_rate_master/data/rate_master_electrical_all_v2.json` (sha256
+`ffa5a51c717514c837b6f88e9c2cca2acb5f4781af661f3e4d119396647a2038`, 299828 bytes). `DEFAULT_DATA_FILE`
+stays pointing at the wiring asset (the known wart is NOT repointed); the E-ALL asset is loaded by explicit
+path. Shape: `discipline` (top-level) + `items` (756 across 11 kinds) + `category_configs` (LIST of 10) +
+`goldens` (per-category, RM-4b machine contract) + `excluded_categories` (informational).
+
+### Loader -- the multi-config path (`services/boq_rate_master/loader.py`)
+`load_rate_master` now BRANCHES: a payload carrying `category_configs` (list) routes to `_load_multi`; the
+single-`category_config` wiring path is byte-unchanged. `_load_multi`:
+- Each config lands as its OWN `BoQ Rate Category Config` row -- discipline STAMPED from the top-level
+  payload (configs carry none), category_id from the config.
+- Per-category GOLDENS from the top-level `goldens[category_id]` are MERGED into each config's JSON under
+  a `goldens` key (the RM-4b goldens-as-config-data convention) -- so the Pipelines-tab preview gate + the
+  frozen readers see them with zero extra plumbing.
+- SCOPED idempotency (`_deactivate_scope`): refuse if any of the payload's item KINDS or config
+  category_ids are already ACTIVE (not the whole discipline); `replace=True` supersedes ONLY those kinds +
+  category_ids. **THE WIRING-UNTOUCHED INVARIANT:** the E-ALL scope's kinds (earthing_item, cable_tray,
+  conduit, ... -- 11) and category_ids (earthing, cabletray_raceway, ... -- 10) are DISJOINT from wiring's
+  (cable/termination, wiring_cabling), so a replace of the E-ALL scope never deactivates a wiring row.
+- Normalization unchanged (material/insulation uppercased at ingest; item-identity strings stored
+  verbatim). Item/config shape validation extracted to shared `_validate_items` / `_validate_one_config`.
+Tests (`api/boq/test_rate_master.py` 22 -> 24): test_23 multi-config load (counts EXACT -- cable_tray 450,
+db_switchgear_item 137, ...; ONE shared batch; 10 active configs; discipline stamped INTO the config JSON;
+goldens merged in the RM-4b `{id, attrs, expect}` shape); test_24 the WIRING-UNTOUCHED invariant (load
+wiring, then E-ALL loads with no scope overlap, second E-ALL refuses, `replace=True` supersedes ONLY the
+756 items / 10 configs, wiring cable+termination + wiring_cabling config all still active).
+
+### Interpreter -- FOUR bounded vocabulary additions (`ratePipelineInterpreter.ts` + test)
+Each is MINIMAL (no loose-formula generalization -- that is how silently-wrong sneaks in; the asset's
+formulas are normalized to `base` + exact param names). The FIVE wiring goldens are the regression pins.
+1. **component_band string-equality bands** (`chooseBand`): a non-comparator `when` matches the band_on
+   value by EXACT string equality (the tray `cover` = WITHOUT/COVER_ONLY/WITH); the legacy numeric
+   comparator bands (`<35`/`>=35`, the wiring gland) are tried only when the value is numeric. band_on is
+   read from the matched item's attributes, FALLING BACK to the selection (the tray `cover` is a
+   pipeline-level choice not stored on the row; the gland `thickness_sqmm` is on the row). The chosen
+   column is bound under `base` (+ legacy `gland_list` + its own name).
+2. **value-from-attribute multiply** (scale): a param key ending `_from_attr` carries an ATTRIBUTE ID whose
+   SELECTED value is bound into the formula under the key's base name (`kva_from_attr: "kva"` -> bind
+   `kva`; UPS `base*kva`). A missing / non-numeric attr is an HONEST no-compute (`no_match`, zero finals),
+   never a zero default. Plain numeric params bind by exact name (unchanged).
+3. **match_master_row on the stored-vs-selected INTERSECTION**: every key the ROW carries must equal the
+   selection; keys the row does not carry (a pipeline-level `kva`/`cover`) are ignored. Exact match where
+   keys overlap. For wiring the row's key set == the selection's, so it is byte-equivalent to the prior
+   every-selected-key match (goldens unchanged).
+4. **conditional component**: a `component` may resolve its params via attribute conditions matched on the
+   SELECTED attributes (the earthing chamber keyed on `with_chamber` -> params `{adder}`), and its formula
+   may be PARAM-ONLY with no target (`"adder"`). An unmatched condition is an HONEST no-compute -- NEVER a
+   zero-adder default. A plain component binds the target under `base` AND its own name (the wiring `lug`
+   component's formula references `lug_list`).
+Tests (`ratePipelineInterpreter.test.ts` 11 -> 22): tray cover WITH 280/60 + WITHOUT 170/40 + unknown-cover
+no_match; UPS kva=12 10800/1200 + missing/non-numeric kva no_match; intersection match (pricing_mode-only
+row matches a kva selection; a conflicting overlapping key blocks it); earthing chamber Without 340.75 +
+With 4690.75 + unmatched-chamber no_match. ALL 17 asset goldens were pre-verified against a Python port of
+the exact new logic before the vitest was written.
+
+### Frontend -- the RM-2 page category selector (Finding 6, confirmed in scope)
+`rateMasterRegistry.ts`: `RATE_MASTER_DISCIPLINES` extended to list all ELEVEN Electrical categories
+(wiring + the 10). The selector is REGISTRY-driven (not config-read -- the Phase-0 (c) hypothesis was
+wrong), so this small data edit is required; the picker still enriches each label from the config's own
+`category_display` on load. NO helper changes (EA-2's job).
+
+### Helper seam (Phase-0 (d) + V5, report-only -- HONEST, no silently-wrong)
+`pages/boq-wizard/rate-helper/pricingSheetHelper.ts` is WIRING-SPECIFIC: it guards `ctx.category !==
+config.category_id` and returns `{kind:"none", reason:"...coming soon."}` for any other category, and its
+primary pipeline ids are hard-coded `cable_boq`/`termination_boq`. So on a committed sheet the sparkle
+manual-fill for a NON-wiring category shows the coming-soon note -- an honest no-compute, never a confident
+wrong value. EA-1 leaves the helper untouched (EA-2 wires the category-scoped helper).
+
+### Category pipeline sources (decoded, with flags)
+earthing (chamber adder = Earthing!D26, conditional component), conduit_piping (list x0.7 boq / x0.5 bcs),
+junction_box_raceway (list x1.45, install 0.2), cabletray_raceway (cover-band -> x1.45, install 0.2 --
+params FLAGGED: mirrored from the JB block, no sheet oracle, owner-editable), ups (flat per-kVA 900/100,
+kva_from_attr -- ups_reference 2 rows imported for later, not yet wired), industrial_sockets (x0.98 /
+install 0.35 -- the guiding 8886 display is socket + a PAIRED MCB from DB&Switchgear, a cross-category
+composite -> EA-4), switches_sockets (x0.3625 / bcs 0.25), db_switchgear (x0.495 / bcs 0.3 -- build-up +
+override table = EA-4), miscellaneous (bcs x1.3 boq uplift), lighting_mgmt_system (direct vendor rate x1.0
+per brand -- FLAGGED, multiplier owner-editable). EA-4 composites BANKED: indsocket MCB pairing, DB
+build-up + override table, switches point-BOM, tray accessories. Excluded-with-reason: popup_boxes +
+light_fixtures (no rate table in the 28-Jul benchmark -- the helper's coming-soon stands), point_wiring +
+panels (configurator class -> EA-4).
+
+### Gates
+backend `test_rate_master` 22 -> 24; `test_pricing` 230 unchanged. Full vitest 1010 -> 1021 (+11
+interpreter). tsc 3240 baseline, 0 new. vite build exit 0.
+
+### Files
+MODIFIED: `services/boq_rate_master/loader.py`, `api/boq/test_rate_master.py`,
+`frontend/.../rate-master/{ratePipelineInterpreter.ts, ratePipelineInterpreter.test.ts, rateMasterTypes.ts,
+rateMasterRegistry.ts}`. NEW: `services/boq_rate_master/data/rate_master_electrical_all_v2.json`. Docs: this
+entry + root `CLAUDE.md` + `frontend/CLAUDE.md`. Out of scope (untouched): the extraction engine + prompts,
+run/persistence, the registry [the discipline registry IS touched -- Finding 6], all wizard endpoints, the
+pricing-sheet helper, patches.txt, `.claude/settings.local.json`.
