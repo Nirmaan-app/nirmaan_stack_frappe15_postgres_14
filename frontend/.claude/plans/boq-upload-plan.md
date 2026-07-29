@@ -15020,3 +15020,83 @@ MODIFIED: `services/boq_rate_master/loader.py`, `api/boq/test_rate_master.py`,
 `data/rate_master_electrical_all_v2.json -> _v4.json`. Docs: this entry + root `CLAUDE.md` +
 `frontend/CLAUDE.md`. Out of scope (untouched): the extraction engine, run/persistence, the pricing-sheet
 helper, the RM-4b editor's add-pipeline gap (EA-2), patches.txt, `.claude/settings.local.json`.
+
+## Build slice EA-1c (Data-Viewer UX -- category-scoped + sticky actions + proxy H-bar) COMPLETE
+
+Micro-slice on the Rate Master Data tab. Branch `feature/boq-pricing-helper`. feat + docs. FRONTEND + a
+data-only asset bump (v4 -> v5). NO new doctypes, NO migrate. Four owner observations from the EA-1 glance.
+
+### Asset v4 -> v5 (`rate_master_electrical_all_v5.json`, sha256 `001b2ddc22d168e1...951e46`)
+Identical to v4 EXCEPT each config now declares top-level `item_kinds` (the master-item kinds belonging to
+that category; single-kind each, LMS included). Renamed the committed asset; re-loaded with `replace=True`
+(scoped supersede; WIRING UNTOUCHED -- verified again).
+
+### The four changes (`RateMasterDataViewer.tsx`)
+1. **CATEGORY-SCOPED rows + columns.** The Data tab shows ONLY the selected category's items. The kinds
+   come from `categoryItemKinds(config)` (NEW pure helper in `rateMasterStructure.ts`, vitested): declared
+   `item_kinds` if present, ELSE derived from the pipelines' `match_master_row` params (the legacy wiring
+   config predates item_kinds -> {cable, termination}). `scopedItems = items.filter(kind in categoryKinds)`
+   drives every derivation (rate columns first-seen over ITS items, kind chips, filters, rows, the item
+   count badge). The kind column + chips render ONLY when the category spans >1 kind. A category switch
+   resets the kind/search/column filters; a stale column-filter key is skipped (never a phantom no-match).
+2. **ACTIONS first + sticky-left.** The edit/deactivate actions column moved to the FIRST column and is
+   `position: sticky; left: 0` (a solid bg + z-index) -- visible at any horizontal scroll. Admin-only
+   (hide-not-disable): a non-admin renders NO actions column at all (no ghost gutter -- the `{canEdit && ...}`
+   gate on both the header + the cells), exactly the RM-4a pattern (the `isRateMasterAdmin` helper is
+   vitested; the server re-gates).
+3. **The single PROXY H-scrollbar** (the RM-3b pattern from `PricingGrid.tsx`): the real scroller
+   (`overflow-auto` + a bounded `max-h`) suppresses its native H-bar (`rm-data-hidehbar` webkit CSS, X-scroll
+   capability kept), and a sticky-bottom proxy `<div>` mirrors its scrollLeft TWO-WAY (a latch stops the
+   ping-pong). The proxy's visible width == the scroller's `clientWidth` (V-bar leak accounted) and its
+   spacer == the scroller's `scrollWidth` (full extent), both LIVE-measured via a ResizeObserver (scroller +
+   its table). `border-t` only on the proxy (a left/right border would shrink its content width so
+   proxyMax != scrollerMax). Rendered only when the content actually overflows horizontally.
+4. **CATEGORY-SCOPED add form.** The Add-row form's fields = the category's attribute definitions (choice ->
+   selects of the stored values; number -> numeric input) + ITS rate keys + unit. kind is preselected
+   read-only text when the category has ONE kind, a select when several; brand defaulted but editable.
+   Manual provenance stamping unchanged. The dialog is keyed by category so its state is fresh per category.
+
+### item_kinds acceptance -- the one cross-cutting note (flagged)
+The E-ALL configs now carry a top-level `item_kinds`. The LOADER validator is pass-through (no change). BUT
+the RM-4b whole-config validator `_validate_config` (`api/boq/rate_master.py`) rejects UNKNOWN top-level keys
+-- so without accepting item_kinds, any RM-4b Pipelines-tab SAVE of an E-ALL config would break with
+"Unknown top-level config key(s): item_kinds". The prompt explicitly authorized "the config validator needs
+to accept item_kinds" (and `test_rate_master.py` for a config-key assertion), so `item_kinds` was added to
+`_KNOWN_CONFIG_KEYS` (a validation ALLOWLIST entry -- pass-through, not validated; NOT an RM-4 endpoint
+behaviour change). The prompt named loader.py for this; the actual config validator lives in rate_master.py
+-- stated here for transparency. Test: test_26 (update_rate_config accepts a config carrying item_kinds).
+
+### Gates
+frontend vitest: full 1026 -> 1031 (+5 categoryItemKinds; zero regressions). backend `test_rate_master`
+25 -> 26 (+test_26); `test_pricing` 230 unchanged. tsc 3240 baseline, 0 new. vite build exit 0.
+
+### Cert (live, production Electrical + eleven categories on screen)
+- **X1** v5 live: batch `rmbulk-b92b066695d0`, 754 items, TEN configs carry item_kinds; WIRING UNTOUCHED
+  (cable 292 / termination 296 / config sha `5e7da739...4c4bb`).
+- **X2** SCOPING (three quoted): CableTray shows ONLY its 450 rows + tray columns (Type/Material/Thickness/
+  Width/Cover + without/cover_only/with_cover_list) -- NO lug_list, NO supply_base, kind column HIDDEN
+  (single kind); Wiring shows cable+termination kinds (chips all/cable/termination) with its five rate
+  columns (list_price_per_mtr/install_base_per_mtr/lug_list/gland_band1/gland_band2); LMS shows 24 rows with
+  brand/Item(description)/rate only.
+- **X3** ACTIONS: renders FIRST (bundle marker) + stays sticky-left during a wide horizontal scroll
+  (`actionsStickyStaysLeft`: the actions <td>'s left edge stays pinned to the scroller's left at scrollLeft
+  350); absent entirely for a non-admin path (the `{canEdit && ...}` gate + the vitested `isRateMasterAdmin`).
+- **X4** SCROLLBAR: exactly ONE bar (native suppressed via `rm-data-hidehbar`, proxy is the bar), full extent
+  `proxyMax == containerMax == 786`, two-way synced (scroller follows the proxy and vice-versa). (A momentary
+  dev-server stale-bundle showed a 2px border eat; the on-disk `border-t` fix + a clean vite restart measured
+  the exact equality; the build ships the fix.)
+- **X5** ADD FORM: on conduit_piping -> Conduit Type (choice) + Size mm (number) + list_price_per_mtr + unit,
+  kind PRESELECTED read-only "conduit"; on wiring -> the four attrs + a cable/termination kind SELECT. Created
+  ONE test conduit row (list_price 99999, showing 12 -> 13), verified it rendered, DEACTIVATED it via the
+  sticky actions column (confirm dialog -> dropped from active), then HARD-DELETED it (BRMI-26-156939, Manual
+  entry / manual- batch) -- ZERO residual (conduit back to 12 active; 0 active manual E-ALL rows).
+- **X6** suites green; git clean apart from standing noise; ZERO net business writes -- wiring + BoQ Cell
+  Pricing (12397) + Suggestion Events (2) untouched.
+
+### Files
+MODIFIED: `frontend/.../rate-master/{RateMasterDataViewer.tsx, rateMasterStructure.ts(+.test.ts),
+rateMasterTypes.ts}`, `api/boq/rate_master.py` (item_kinds allowlist), `api/boq/test_rate_master.py`.
+RENAMED: `data/rate_master_electrical_all_v4.json -> _v5.json`. Docs: this entry + `frontend/CLAUDE.md`.
+Out of scope (untouched): the Derivation/Pipelines tabs, the interpreter, the helper, run/persistence, the
+RM-4 endpoint BEHAVIOUR (only the config-key allowlist was touched, per the prompt's explicit clause),
+patches.txt, `.claude/settings.local.json`.

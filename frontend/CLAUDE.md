@@ -1057,6 +1057,22 @@ in the plan doc.
   filtering never drift. Composition: **AND across columns, OR within a column**; a global `Clear filters (N)`
   control shows the active-column count and resets. Purely CLIENT-SIDE over the already-loaded active items
   -- no new query, no backend change, read-only (composes cleanly with the RM-4a admin editing above).
+- **Data Viewer is CATEGORY-SCOPED (`RateMasterDataViewer.tsx`, owner-locked).** The tab shows ONLY the
+  selected category's items + columns. The category's kinds come from `categoryItemKinds(config)`
+  (`rateMasterStructure.ts`, pure + vitested): the config's declared `item_kinds` if present, ELSE derived
+  from the pipelines' `match_master_row` params (the legacy wiring config predates item_kinds ->
+  {cable, termination}). `scopedItems = items.filter(kind in categoryKinds)` drives every derivation (rate
+  columns first-seen over ITS items, kind chips, filters, the count badge). The KIND column + chips render
+  ONLY when the category spans >1 kind. **A top-level `item_kinds` config key is accepted by the RM-4b
+  `_validate_config` allowlist** (else editing an E-ALL config would break). **Actions column is FIRST and
+  `sticky left-0`** (visible at any H-scroll); admin hide-not-disable is unchanged -- a non-admin renders NO
+  actions column (no ghost gutter). **The always-visible horizontal scrollbar is the RM-3b PROXY pattern**
+  (from `PricingGrid.tsx`, now the STANDING single-bar rule for ALL wide tables): the real scroller
+  suppresses its native H-bar (a `*-hidehbar` webkit CSS class, X-scroll capability kept) and a sticky-bottom
+  proxy mirrors its `scrollLeft` two-way, with the proxy's visible width == the scroller's `clientWidth`
+  (V-bar leak accounted) and a spacer == `scrollWidth`, both live-measured via a ResizeObserver;
+  `border-t`-only on the proxy so proxyMax == scrollerMax. The Add-row form is likewise category-scoped (its
+  attribute definitions + rate keys + kind preselected read-only for one kind, a select for several).
 - **RM-4b structure editor -- the THIRD tab "Pipelines" (`RateMasterPipelines.tsx` + `rateMasterStructure.ts`).**
   LIFTS the RM-4a param-values-only line: add/remove params, steps, conditions, and attribute definitions.
   READ-ONLY structural view for everyone (attribute-definitions table + each pipeline as its ordered step
