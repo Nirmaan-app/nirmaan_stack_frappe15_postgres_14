@@ -42,6 +42,7 @@ export const STEP_VOCABULARY = [
   "scale",
   "roundup",
   "component",
+  "component_ref",
   "component_band",
   "sum_components",
   "install_as_ratio",
@@ -120,6 +121,8 @@ export function blankStep(type: StepType): PipelineStep {
       return { step: "roundup", target: "", params: { digits: 0 } };
     case "component":
       return { step: "component", name: "", target: "", formula: "", params: {} };
+    case "component_ref":
+      return { step: "component_ref", name: "", ref: { kind: "", attributes: {} }, target: "", formula: "base", params: {} };
     case "component_band":
       return { step: "component_band", name: "", band_on: "", bands: [], params: {} };
     case "sum_components":

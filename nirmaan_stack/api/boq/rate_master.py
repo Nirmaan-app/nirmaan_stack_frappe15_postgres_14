@@ -709,7 +709,7 @@ def deactivate_rate_master_item(name=None):
 # finals per pipeline); the frontend preview gate computes them against a draft before save.
 _KNOWN_STEP_TYPES = {
     "match_master_row", "apply_effective_multiplier", "scale", "roundup",
-    "component", "component_band", "sum_components", "install_as_ratio",
+    "component", "component_ref", "component_band", "sum_components", "install_as_ratio",
 }
 _KNOWN_CONFIG_KEYS = {
     "discipline", "category_id", "category_display", "pairing_rule",
@@ -842,6 +842,42 @@ def _validate_config(cfg):
                     if not isinstance(s.get(key), str) or not s.get(key):
                         _vthrow(f"{where}: component needs a string '{key}'.")
                 _validate_params(s.get("params"), where)
+            elif st == "component_ref":
+                # EA-2c: base from a referenced master row (ref.kind + optional ref.attributes), else
+                # the component contract. Top-level params OPTIONAL (a conditional ref carries none).
+                for key in ("name", "target", "formula"):
+                    if not isinstance(s.get(key), str) or not s.get(key):
+                        _vthrow(f"{where}: component_ref needs a string '{key}'.")
+                ref = s.get("ref")
+                if not isinstance(ref, dict) or not isinstance(ref.get("kind"), str) or not ref.get("kind"):
+                    _vthrow(f"{where}: component_ref needs ref.kind (a string).")
+                ref_attrs = ref.get("attributes")
+                if ref_attrs is not None:
+                    if not isinstance(ref_attrs, dict):
+                        _vthrow(f"{where}: component_ref ref.attributes must be an object of attribute = value.")
+                    for ak, av in ref_attrs.items():
+                        if isinstance(av, (dict, list)):
+                            _vthrow(f"{where}: component_ref ref.attributes['{ak}'] must be an exact value.")
+                if s.get("params") is not None:
+                    _validate_params(s.get("params"), where)
+                conds = s.get("conditions")
+                if conds is not None:
+                    if not isinstance(conds, list):
+                        _vthrow(f"{where}: component_ref conditions must be a list.")
+                    for ci, c in enumerate(conds):
+                        if not isinstance(c, dict):
+                            _vthrow(f"{where} condition {ci}: must be an object.")
+                        when = c.get("when")
+                        if not isinstance(when, dict) or not when:
+                            _vthrow(f"{where} condition {ci}: 'when' must be a non-empty object of attribute = value.")
+                        for wk, wv in when.items():
+                            if isinstance(wv, (dict, list)):
+                                _vthrow(
+                                    f"{where} condition {ci}: predicate '{wk}' must be an exact value "
+                                    "(attribute = value); range/in predicates are not executable."
+                                )
+                            _ref(wk, f"{where} condition {ci}")
+                        _validate_params(c.get("params"), f"{where} condition {ci}")
             elif st == "component_band":
                 for key in ("name", "band_on", "formula"):
                     if not isinstance(s.get(key), str) or not s.get(key):

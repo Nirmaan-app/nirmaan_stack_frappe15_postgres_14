@@ -122,6 +122,15 @@ function fmt(v: number | undefined): string {
 }
 
 function detailFor(s: StepTrace): string {
+  // EA-2c: component_ref names the referenced row (e.g. "Bus bar") so the trace shows WHICH row
+  // supplied the base, alongside its resolved params.
+  if (s.refItem) {
+    const p = s.params && Object.keys(s.params).length
+      ? " -- " + Object.entries(s.params).map(([k, v]) => `${k} ${v}`).join(", ")
+      : "";
+    const cond = s.matchedCondition ? ` (${s.matchedCondition})` : "";
+    return `ref: ${s.refItem}${p}${cond}`;
+  }
   if (s.matchedCondition) return s.matchedCondition;
   if (s.bandChosen) return s.bandChosen;
   if (s.params && Object.keys(s.params).length) {

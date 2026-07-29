@@ -349,6 +349,74 @@ export function runPipeline(
         produced: { key: s.name, value },
         runningValues: { ...snapshot(), ...componentEntries(components) },
       });
+    } else if (stepType === "component_ref") {
+      const s = raw as import("./rateMasterTypes").ComponentRefStep;
+      // EA-2c: `base` comes from a SEPARATELY-REFERENCED row matched by kind AND every ref attribute
+      // (exact canonical, this discipline). UNIQUE resolution: zero OR multiple matches is an HONEST
+      // no-compute (never zero-by-default, never pick-first). Here ref = {earthing_item, type "Bus bar"}
+      // -> the existing Bus bar row (one row, two roles: a selectable item AND this adder).
+      const refAttrs = s.ref?.attributes ?? {};
+      const refRows = items.filter(
+        (it) =>
+          it.kind === s.ref?.kind &&
+          (!matchedItem || it.discipline === matchedItem.discipline) &&
+          Object.entries(refAttrs).every(([k, v]) => it.attributes?.[k] === v)
+      );
+      const refName =
+        Object.values(refAttrs).filter((v) => v !== null && v !== undefined && v !== "").join(" ") ||
+        (refRows[0] ? Object.values(refRows[0].attributes ?? {}).filter((v) => v !== null && v !== undefined && v !== "").join(" ") : "") ||
+        refRows[0]?.name ||
+        s.ref?.kind;
+      if (refRows.length !== 1) {
+        steps.push({
+          step: stepType,
+          label: s.explain || `component: ${s.name}`,
+          refItem: refName,
+          matchedCondition: `ref ${s.ref?.kind}: ${refRows.length === 0 ? "no" : refRows.length} matching row(s) -- not computed`,
+          runningValues: { ...snapshot(), ...componentEntries(components) },
+        });
+        return { pipelineId, outputs: pipeline.output, status: "no_match", steps, finals: {}, matchedItem, note: pipeline.note };
+      }
+      const refRow = refRows[0];
+      const baseVal = refRow.rates?.[s.target];
+      if (typeof baseVal !== "number" || !Number.isFinite(baseVal)) {
+        steps.push({
+          step: stepType,
+          label: s.explain || `component: ${s.name}`,
+          refItem: refName,
+          matchedCondition: `${s.target} not on the referenced row -- not computed`,
+          runningValues: { ...snapshot(), ...componentEntries(components) },
+        });
+        return { pipelineId, outputs: pipeline.output, status: "no_match", steps, finals: {}, matchedItem, note: pipeline.note };
+      }
+      const env: Record<string, number> = { base: baseVal, [s.target]: baseVal };
+      let refParams: Record<string, number> = s.params ?? {};
+      if (Array.isArray(s.conditions)) {
+        const cond = s.conditions.find((c) =>
+          Object.entries(c.when).every(([k, v]) => selected[k] === v)
+        );
+        if (!cond) {
+          steps.push({
+            step: stepType,
+            label: s.explain || `component: ${s.name} (no matching condition)`,
+            refItem: refName,
+            runningValues: { ...snapshot(), ...componentEntries(components) },
+          });
+          return { pipelineId, outputs: pipeline.output, status: "no_match", steps, finals: {}, matchedItem, note: pipeline.note };
+        }
+        refParams = cond.params ?? {};
+      }
+      for (const [k, v] of Object.entries(refParams)) if (typeof v === "number") env[k] = v;
+      const value = evalFormula(s.formula, env);
+      components[s.name] = value;
+      steps.push({
+        step: stepType,
+        label: s.explain || `component: ${s.name}`,
+        params: refParams,
+        refItem: refName,
+        produced: { key: s.name, value },
+        runningValues: { ...snapshot(), ...componentEntries(components) },
+      });
     } else if (stepType === "component_band") {
       const s = raw as import("./rateMasterTypes").ComponentBandStep;
       // band_on may be an ITEM attribute (the wiring gland's thickness_sqmm) OR a pipeline-level

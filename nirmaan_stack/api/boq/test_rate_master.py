@@ -34,6 +34,8 @@ Coverage map (behavior -> test):
   - EA-2: relaxed validator -- empty pipelines accepted; bad non-empty rejected -> test_27
   - EA-2: pass-through keys (matching_mode/identity_attribute_id/notes/
     pipeline_labels) accepted + a pipeline_labels edit audited (Version doc)     -> test_28
+  - EA-2c: the earthing config's component_ref step round-trips through the
+    RM-4b validator (accepted); a component_ref missing ref.kind is rejected     -> test_29
 """
 
 import copy
@@ -63,7 +65,7 @@ class TestRateMaster(FrappeTestCase):
             cls.raw = json.load(fh)
         # EA-1/EA-1b: the all-categories (E-ALL) asset, loaded by path (DEFAULT_DATA_FILE stays wiring).
         cls.eall_path = os.path.join(
-            os.path.dirname(loader.__file__), "data", "rate_master_electrical_all_v7.json"
+            os.path.dirname(loader.__file__), "data", "rate_master_electrical_all_v9.json"
         )
         with open(cls.eall_path, "r", encoding="utf-8") as fh:
             cls.eall = json.load(fh)
@@ -726,6 +728,32 @@ class TestRateMaster(FrappeTestCase):
         res = rate_master.update_rate_config(name=cfg_name, config=json.dumps(cfg))
         self.assertTrue(res["ok"])
         self.assertEqual(self._full_config(cfg_name)["item_kinds"], ["cable", "termination"])
+
+    # ---- EA-2c: the component_ref step is a first-class RM-4b vocabulary member ----
+    def test_29_component_ref_config_roundtrips(self):
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._eall_payload(disc))
+        cfg_name = frappe.db.get_value(
+            "BoQ Rate Category Config", {"discipline": disc, "category_id": "earthing", "active": 1}, "name"
+        )
+        cfg = _obj(frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config"))
+        # sanity: the earthing config really carries a QUALIFIED component_ref (ref.kind + ref.attributes)
+        refs = [s for p in cfg["pipelines"].values() for s in p["steps"] if s["step"] == "component_ref"]
+        self.assertTrue(refs)
+        self.assertEqual(refs[0]["ref"]["attributes"], {"type": "Bus bar"})
+        # the RM-4b validator ACCEPTS component_ref -> the whole earthing config round-trips
+        res = rate_master.update_rate_config(name=cfg_name, config=json.dumps(cfg))
+        self.assertTrue(res["ok"])
+        # NEGATIVE: a component_ref missing ref.kind is rejected, no write
+        before = frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config")
+        bad = copy.deepcopy(_obj(before))  # deep copy -- _obj returns `before` itself when it is a dict
+        for p in bad["pipelines"].values():
+            for s in p["steps"]:
+                if s["step"] == "component_ref":
+                    s.pop("ref", None)
+        with self.assertRaises(frappe.ValidationError):
+            rate_master.update_rate_config(name=cfg_name, config=json.dumps(bad))
+        self.assertEqual(frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config"), before)
 
     # ---- EA-2: relaxed empty-pipelines validator + pass-through keys ----
     def test_27_relaxed_empty_pipelines_accepted_bad_nonempty_rejected(self):

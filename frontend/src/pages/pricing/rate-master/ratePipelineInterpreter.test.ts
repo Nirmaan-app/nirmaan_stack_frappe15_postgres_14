@@ -442,3 +442,74 @@ describe("EA-1b self-contained miscellaneous (boq direct; bcs = boq*0.8, install
     expect(r.finals.install).toBeUndefined();
   });
 });
+
+// EA-2c (revised): component_ref -- a component whose base comes from a QUALIFIED referenced master
+// row (kind + attributes). The busbar adder references the EXISTING "Bus bar" earthing_item row (ONE
+// ROW, TWO ROLES: a selectable item AND this adder). Resolution must be UNIQUE (zero OR multiple ->
+// honest no-compute). Supersedes the (dead) earth-chamber ruling.
+describe("EA-2c component_ref (Bus bar as a qualified referenced row)", () => {
+  const BUSBAR_REF = {
+    step: "component_ref" as const, name: "busbar",
+    ref: { kind: "earthing_item", attributes: { type: "Bus bar" } }, target: "supply_base",
+    conditions: [
+      { when: { with_busbar: "With" }, params: { factor: 1.0 } },
+      { when: { with_busbar: "Without" }, params: { factor: 0.0 } },
+    ],
+    formula: "base*factor",
+  };
+  const EARTHING_BOQ: Pipeline = {
+    output: ["supply", "install"],
+    steps: [
+      { step: "match_master_row", params: { kind: "earthing_item" } },
+      { step: "component", name: "base_supply", target: "supply_base", params: {}, formula: "base" },
+      BUSBAR_REF,
+      { step: "sum_components", result: "supply" },
+      { step: "scale", target: "supply", result: "supply", params: { markup: 0.45 }, formula: "base*(1+markup)" },
+      { step: "scale", target: "install_base", result: "install", params: { markup: 0.45 }, formula: "base*(1+markup)" },
+    ],
+  };
+  const EARTHING_BCS: Pipeline = {
+    output: ["bcs_supply"],
+    steps: [
+      { step: "match_master_row", params: { kind: "earthing_item" } },
+      { step: "component", name: "base_supply", target: "supply_base", params: {}, formula: "base" },
+      BUSBAR_REF,
+      { step: "sum_components", result: "bcs_supply" },
+    ],
+  };
+  const STRIP: RateMasterItem = { discipline: "Electrical", kind: "earthing_item", attributes: { material: "GI", type: "50 x 6 MM Earth Strip" }, rates: { supply_base: 235, install_base: 55 } };
+  const BUSBAR: RateMasterItem = { discipline: "Electrical", kind: "earthing_item", attributes: { material: "BUS BAR", type: "Bus bar" }, rates: { supply_base: 3000, install_base: 20 } };
+  const ITEMS = [STRIP, BUSBAR];
+  const sel = (o: Record<string, string> = {}) => ({ material: "GI", type: "50 x 6 MM Earth Strip", with_busbar: "With", ...o });
+
+  it("e2 (With Bus bar) -> supply 4690.75 / install 79.75 / bcs 3235; the trace NAMES 'Bus bar'", () => {
+    const r = runPipeline("earthing_boq", EARTHING_BOQ, ITEMS, sel());
+    expect(r.finals).toEqual({ supply: 4690.75, install: 79.75 });
+    const refStep = r.steps.find((s) => s.step === "component_ref");
+    expect(refStep?.refItem).toBe("Bus bar");
+    expect(runPipeline("earthing_bcs", EARTHING_BCS, ITEMS, sel()).finals).toEqual({ bcs_supply: 3235 });
+  });
+  it("e1 (Without Bus bar) -> supply 340.75 / install 79.75 / bcs 235 (adder 0)", () => {
+    expect(runPipeline("earthing_boq", EARTHING_BOQ, ITEMS, sel({ with_busbar: "Without" })).finals).toEqual({ supply: 340.75, install: 79.75 });
+    expect(runPipeline("earthing_bcs", EARTHING_BCS, ITEMS, sel({ with_busbar: "Without" })).finals).toEqual({ bcs_supply: 235 });
+  });
+  it("ONE ROW TWO ROLES: the Bus bar row selected AS the item prices normally (3000*1.45=4350 / 20*1.45=29)", () => {
+    const r = runPipeline("earthing_boq", EARTHING_BOQ, ITEMS, { material: "BUS BAR", type: "Bus bar", with_busbar: "Without" });
+    expect(r.finals).toEqual({ supply: 4350, install: 29 });
+  });
+  it("EDIT FLOWS EVERYWHERE: a new Bus bar rate flows into BOTH roles (5415.75 as adder, 5075 as item)", () => {
+    const items2 = [STRIP, { ...BUSBAR, rates: { supply_base: 3500, install_base: 20 } }];
+    expect(runPipeline("earthing_boq", EARTHING_BOQ, items2, sel()).finals.supply).toBe((235 + 3500) * 1.45); // 5415.75
+    expect(runPipeline("earthing_boq", EARTHING_BOQ, items2, { material: "BUS BAR", type: "Bus bar", with_busbar: "Without" }).finals.supply).toBe(3500 * 1.45); // 5075
+  });
+  it("MISSING ref -> honest no_match (no Bus bar row; never a zero default)", () => {
+    const r = runPipeline("earthing_boq", EARTHING_BOQ, [STRIP], sel());
+    expect(r.status).toBe("no_match");
+    expect(r.finals).toEqual({});
+  });
+  it("AMBIGUOUS ref -> honest no_match (two Bus bar rows; never pick-first)", () => {
+    const r = runPipeline("earthing_boq", EARTHING_BOQ, [STRIP, BUSBAR, { ...BUSBAR, rates: { supply_base: 9999, install_base: 20 } }], sel());
+    expect(r.status).toBe("no_match");
+    expect(r.finals).toEqual({});
+  });
+});

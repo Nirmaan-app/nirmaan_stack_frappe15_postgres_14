@@ -75,6 +75,23 @@ export interface ComponentStep {
   conditions?: { when: Record<string, string | number>; params: Record<string, number> }[];
   explain?: string;
 }
+// EA-2c: a component whose `base` comes from a SEPARATELY-REFERENCED master row (matched by kind AND
+// optional qualifying attributes), NOT the selection-matched row. Resolution must be UNIQUE within the
+// discipline: zero OR multiple matches is an HONEST no-compute (never zero-by-default, never
+// pick-first). The referenced row's `target` rate binds as `base`; conditions/params/formula per the
+// component contract. This is the ASSEMBLY PRIMITIVE's simplest form (EA-4's BOM steps extend it:
+// referenced item x quantity) AND makes "shared items stored once" kinetic -- e.g. the Bus bar row
+// prices both AS a selectable earthing item AND as the adder inside any other earthing selection.
+export interface ComponentRefStep {
+  step: "component_ref";
+  name: string;
+  ref: { kind: string; attributes?: Record<string, string | number> };
+  target: string;
+  params?: Record<string, number>;
+  formula: string;
+  conditions?: { when: Record<string, string | number>; params: Record<string, number> }[];
+  explain?: string;
+}
 export interface ComponentBandStep {
   step: "component_band";
   name: string;
@@ -102,6 +119,7 @@ export type PipelineStep =
   | ScaleStep
   | RoundupStep
   | ComponentStep
+  | ComponentRefStep
   | ComponentBandStep
   | SumComponentsStep
   | InstallAsRatioStep
@@ -170,6 +188,9 @@ export interface StepTrace {
   matchedCondition?: string;
   /** For component_band: the band chosen, e.g. "thickness_sqmm 50 >= 35 -> gland_band2_list". */
   bandChosen?: string;
+  /** For component_ref: the NAME of the referenced master row resolved at runtime (e.g. "Bus bar"),
+   * so the trace shows WHICH row supplied the base. */
+  refItem?: string;
   /** The named value produced/changed by this step (key -> value). */
   produced?: { key: string; value: number };
   /** Snapshot of every named value after this step (for the running-value column). */

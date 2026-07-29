@@ -3,7 +3,7 @@
  "sha256_prefix": "6a652282c5a07c7f",
  "extracted_at": "2026-07-29",
  "discipline": "Electrical",
- "provenance": "E-ALL chat decode 2026-07-29: every pipeline decoded from the ALL ITEM WISE RATE block formulas + assumption cells; oracles = the blocks' displayed outputs at their current selector states; v2: formulas normalized to the interpreter contract (base+exact params), machine-format goldens (RM-4b attrs+expect), misc param fixed at source, conditional-component chamber shape (feature 4); v3 (owner rulings 2026-07-29): the guiding sheet is the AUTHORITY on finalized rules - UPS removed entirely (Floor BOX misdecode corrected -> popup_boxes per-module config added), LMS kept as DATA ONLY with empty pipelines (owner authors in-system), light_fixtures/panels stay out; retired_kinds/retired_category_ids added for the loader; v4 (owner 2026-07-29): miscellaneous rebuilt SELF-CONTAINED from the guiding block itself (rates = BoQ direct; BCS supply = BoQ x 0.8 [/1.25]; BCS install = 0); the Miscelleneous background sheet no longer feeds the import; v5: item_kinds declared per config (drives per-category viewer/add-form scoping; LMS included; wiring derives from its pipelines); v6: identity_attribute_id declared on the four item-identity configs (drives the EA-2 identity extraction mode); v7: cabletray_raceway REBUILT from the guiding block's own formulas (chat misread corrected; oracle 431/120/297/0) - new attrs (cover/installation_type/floor_cutting/floor_refilling), install-by-width items (10), conditional-component adders, three oracle goldens; the old flagged tray pipeline is dead",
+ "provenance": "E-ALL chat decode 2026-07-29: every pipeline decoded from the ALL ITEM WISE RATE block formulas + assumption cells; oracles = the blocks' displayed outputs at their current selector states; v2: formulas normalized to the interpreter contract (base+exact params), machine-format goldens (RM-4b attrs+expect), misc param fixed at source, conditional-component chamber shape (feature 4); v3 (owner rulings 2026-07-29): the guiding sheet is the AUTHORITY on finalized rules - UPS removed entirely (Floor BOX misdecode corrected -> popup_boxes per-module config added), LMS kept as DATA ONLY with empty pipelines (owner authors in-system), light_fixtures/panels stay out; retired_kinds/retired_category_ids added for the loader; v4 (owner 2026-07-29): miscellaneous rebuilt SELF-CONTAINED from the guiding block itself (rates = BoQ direct; BCS supply = BoQ x 0.8 [/1.25]; BCS install = 0); the Miscelleneous background sheet no longer feeds the import; v5: item_kinds declared per config (drives per-category viewer/add-form scoping; LMS included; wiring derives from its pipelines); v6: identity_attribute_id declared on the four item-identity configs (drives the EA-2 identity extraction mode); v7: cabletray_raceway REBUILT from the guiding block's own formulas (chat misread corrected; oracle 431/120/297/0) - new attrs (cover/installation_type/floor_cutting/floor_refilling), install-by-width items (10), conditional-component adders, three oracle goldens; the old flagged tray pipeline is dead; v8 (owner ruling): Earth Chamber Works as an explicit referenced master item (kind earthing_chamber); the earthing chamber component becomes a component_ref step (the assembly primitive's simplest form - EA-4 builds on it); v9 (owner correction 2026-07-29): the earthing adder is the EXISTING Bus bar row via a QUALIFIED component_ref (kind+attributes) - the Earth Chamber Works item is dead; attribute renamed with_busbar; golden arithmetic unchanged",
  "items": [
   {
    "kind": "earthing_item",
@@ -14190,8 +14190,8 @@
      ]
     },
     {
-     "id": "with_chamber",
-     "label": "With chamber",
+     "id": "with_busbar",
+     "label": "With Bus bar",
      "type": "choice",
      "values": [
       "With",
@@ -14220,28 +14220,35 @@
        "formula": "base"
       },
       {
-       "step": "component",
-       "name": "chamber",
+       "step": "component_ref",
+       "name": "busbar",
+       "ref": {
+        "kind": "earthing_item",
+        "attributes": {
+         "type": "Bus bar"
+        }
+       },
+       "target": "supply_base",
        "conditions": [
         {
          "when": {
-          "with_chamber": "With"
+          "with_busbar": "With"
          },
          "params": {
-          "adder": 3000.0
+          "factor": 1.0
          }
         },
         {
          "when": {
-          "with_chamber": "Without"
+          "with_busbar": "Without"
          },
          "params": {
-          "adder": 0.0
+          "factor": 0.0
          }
         }
        ],
-       "formula": "adder",
-       "explain": "earth chamber adder (Earthing!D26) when selected"
+       "formula": "base*factor",
+       "explain": "the Bus bar row's own supply rate, added when a bus bar is included in the earthing scope"
       },
       {
        "step": "sum_components",
@@ -14287,27 +14294,35 @@
        "formula": "base"
       },
       {
-       "step": "component",
-       "name": "chamber",
+       "step": "component_ref",
+       "name": "busbar",
+       "ref": {
+        "kind": "earthing_item",
+        "attributes": {
+         "type": "Bus bar"
+        }
+       },
+       "target": "supply_base",
        "conditions": [
         {
          "when": {
-          "with_chamber": "With"
+          "with_busbar": "With"
          },
          "params": {
-          "adder": 3000.0
+          "factor": 1.0
          }
         },
         {
          "when": {
-          "with_chamber": "Without"
+          "with_busbar": "Without"
          },
          "params": {
-          "adder": 0.0
+          "factor": 0.0
          }
         }
        ],
-       "formula": "adder"
+       "formula": "base*factor",
+       "explain": "the Bus bar row's own supply rate, added when a bus bar is included in the earthing scope"
       },
       {
        "step": "sum_components",
@@ -14316,7 +14331,7 @@
      ]
     }
    },
-   "notes": "markup ON TOP (oracle 3000*1.45=4350); coverage caveat stands (stations/welds/busbar-composites honest-blank); no rounding in the sheet's earthing formulas",
+   "notes": "2026-07-29 owner correction (supersedes the chamber ruling): the D26 adder means ADD A BUS BAR - the pipeline references the EXISTING Bus bar master row (shared item, stored once; edit that row and the adder follows). The 'Earth Chamber Works' item is dead; the attribute is with_busbar.",
    "item_kinds": [
     "earthing_item"
    ]
@@ -15541,7 +15556,7 @@
     "attrs": {
      "material": "GI",
      "type": "50 x 6 MM Earth Strip",
-     "with_chamber": "Without"
+     "with_busbar": "Without"
     },
     "expect": {
      "earthing_boq": {
@@ -15558,7 +15573,7 @@
     "attrs": {
      "material": "GI",
      "type": "50 x 6 MM Earth Strip",
-     "with_chamber": "With"
+     "with_busbar": "With"
     },
     "expect": {
      "earthing_boq": {
@@ -15568,7 +15583,8 @@
      "earthing_bcs": {
       "bcs_supply": 3235.0
      }
-    }
+    },
+    "oracle": "busbar adder = the existing Bus bar row's supply (3000); (235+3000)*1.45 - one price, one home"
    }
   ],
   "conduit_piping": [
