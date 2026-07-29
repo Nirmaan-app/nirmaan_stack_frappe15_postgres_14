@@ -18,7 +18,7 @@ import { useServerDataTable } from "@/hooks/useServerDataTable";
 import { formatDate } from "@/utils/FormatDate";
 import { FacetDeclaration } from "@/components/data-table/facetConfig";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
-import { getRoleColors, ROLE_OPTIONS } from "@/utils/roleColors";
+import { getRoleColors, getRoleLabel, ROLE_OPTIONS } from "@/utils/roleColors";
 import { RoleBadge, UserRowActions } from "./components";
 import { cn } from "@/lib/utils";
 
@@ -62,6 +62,35 @@ export const USER_DATE_COLUMNS: string[] = ["creation", "modified"];
 
 // Re-export for backwards compatibility
 export const USER_ROLE_PROFILE_OPTIONS = ROLE_OPTIONS;
+
+// Build the role chips DYNAMICALLY from the counts the backend returns.
+// `get_user_role_counts` already enumerates every "Nirmaan%" Role Profile, so a
+// NEW role appears here with zero code change: getRoleLabel() derives a readable
+// label and getRoleColors() supplies a neutral fallback colour. ROLE_OPTIONS is
+// used ONLY as a preferred-ORDER hint -- known roles keep their curated order;
+// any role not listed is appended, sorted by label. Add a ROLE_COLORS entry only
+// if you want a branded colour instead of the neutral fallback.
+// Only roles that ACTUALLY have users (count > 0) are shown.
+const ROLE_DISPLAY_ORDER = ROLE_OPTIONS.map((r) => r.value);
+
+export const buildRoleRows = (
+  roleCounts: Record<string, number>
+): { value: string; label: string; count: number }[] =>
+  Object.keys(roleCounts)
+    .filter((value) => (roleCounts[value] ?? 0) > 0)
+    .sort((a, b) => {
+      const ia = ROLE_DISPLAY_ORDER.indexOf(a);
+      const ib = ROLE_DISPLAY_ORDER.indexOf(b);
+      if (ia !== -1 && ib !== -1) return ia - ib; // both curated -> keep order
+      if (ia !== -1) return -1; // curated roles before uncurated
+      if (ib !== -1) return 1;
+      return getRoleLabel(a).localeCompare(getRoleLabel(b)); // new roles: A-Z
+    })
+    .map((value) => ({
+      value,
+      label: getRoleLabel(value),
+      count: roleCounts[value] ?? 0,
+    }));
 
 // --- Helper: RoleCountPill ---
 interface RoleCountPillProps {
@@ -120,12 +149,10 @@ const RoleCountPill: React.FC<RoleCountPillProps> = ({
 const CompactRoleSummary: React.FC<{ roleCounts: Record<string, number> }> = ({
   roleCounts,
 }) => {
-  // Show top 3 roles by count as colored dots with numbers
-  const topRoles = ROLE_OPTIONS.map((role) => ({
-    ...role,
-    count: roleCounts[role.value] ?? 0,
-  }))
-    .filter((r) => r.count > 0)
+  // Show top 4 roles by count as colored dots with numbers (dynamic set;
+  // buildRoleRows already excludes roles with zero users).
+  const activeRoles = buildRoleRows(roleCounts);
+  const topRoles = [...activeRoles]
     .sort((a, b) => b.count - a.count)
     .slice(0, 4);
 
@@ -142,7 +169,7 @@ const CompactRoleSummary: React.FC<{ roleCounts: Record<string, number> }> = ({
           </div>
         );
       })}
-      {ROLE_OPTIONS.length > 4 && (
+      {activeRoles.length > 4 && (
         <span className="text-xs text-muted-foreground">...</span>
       )}
     </div>
@@ -273,12 +300,12 @@ const UsersSummaryCard: React.FC = () => {
           ) : (
             /* Tablet: Horizontal scroll | Desktop: Wrap */
             <div className="lg:flex lg:flex-wrap lg:gap-2 md:flex md:gap-2 md:overflow-x-auto md:pb-1 md:-mb-1 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent">
-              {ROLE_OPTIONS.map((role) => (
+              {buildRoleRows(roleCounts).map((role) => (
                 <RoleCountPill
                   key={role.value}
                   roleValue={role.value}
                   roleLabel={role.label}
-                  count={roleCounts[role.value] ?? 0}
+                  count={role.count}
                 />
               ))}
             </div>
@@ -307,12 +334,12 @@ const UsersSummaryCard: React.FC = () => {
               </div>
             ) : (
               <div className="flex flex-wrap gap-1.5">
-                {ROLE_OPTIONS.map((role) => (
+                {buildRoleRows(roleCounts).map((role) => (
                   <RoleCountPill
                     key={role.value}
                     roleValue={role.value}
                     roleLabel={role.label}
-                    count={roleCounts[role.value] ?? 0}
+                    count={role.count}
                     compact
                   />
                 ))}
