@@ -14937,3 +14937,86 @@ rateMasterRegistry.ts}`. NEW: `services/boq_rate_master/data/rate_master_electri
 entry + root `CLAUDE.md` + `frontend/CLAUDE.md`. Out of scope (untouched): the extraction engine + prompts,
 run/persistence, the registry [the discipline registry IS touched -- Finding 6], all wizard endpoints, the
 pricing-sheet helper, patches.txt, `.claude/settings.local.json`.
+
+## Build slice EA-1b (guiding-sheet authority + misc self-containment) COMPLETE
+
+Corrective micro-slice on EA-1 (same session). Branch `feature/boq-pricing-helper`. feat `006bcde3` + docs
+(this entry). NO new doctypes, NO migrate. Owner rulings (2026-07-29): (a) THE GUIDING-SHEET AUTHORITY RULE
+-- only a category with a block on the **ALL ITEM WISE RATE** sheet carries finalized rules; the chat audit
+found the EA-1 "UPS" decode was a misread **Floor BOX** block; (b) the **Misc block is SELF-CONTAINED** --
+its hardcoded rates ARE the BoQ rates, no background-sheet dependency.
+
+### Asset v2 -> v4 (`rate_master_electrical_all_v4.json`, sha256 `e9fcb2421444...01ad8`, 754 items)
+v1/v2/v3 dead. Deltas: **UPS removed** (items + config + goldens); **popup_boxes added** (the corrected
+Floor BOX decode -- 1 `popup_box_module` @ 900/100 per module, priced via the EXISTING value-from-attribute
+shape `module_count_from_attr`; golden `module_count=12 -> 10800/1200`); **lighting_mgmt_system DATA-ONLY**
+(`pipelines: {}` + 24 Lutron/Zen items kept -- the owner authors its ruleset in-system later); **miscellaneous
+rebuilt SELF-CONTAINED** (items carry `boq_supply`/`boq_install` -- these ARE the BoQ rates; `misc_boq` direct
+factor 1.0; `misc_bcs`: `bcs_supply = boq*0.8` [=/1.25, the 25%-markup form], `bcs_install = 0` by rule).
+New top-level `retired_kinds`/`retired_category_ids`. excluded: ups (by ruling), light_fixtures + panels
+(stay out), point_wiring (EA-4).
+
+### Loader -- the retired-scope extension (`services/boq_rate_master/loader.py`)
+`_load_multi` reads `retired_kinds` + `retired_category_ids`; on `replace=True` it ALSO
+`_deactivate_scope`s them (a SECOND scoped-supersede beyond the payload's own kinds/categories) so a
+retired kind/category left active from a prior batch (ups after the Floor BOX fix) is superseded instead of
+orphan-active. Logged: `retired_items_deactivated` / `retired_configs_deactivated` in the summary.
+Freeze-and-supersede, rows retained, **wiring still untouched** (the invariant is unchanged). `_validate_one_config`
+now TOLERATES an EMPTY `pipelines: {}` (a data-only config -- LMS). Tests: test_23/24 updated for v4 (754,
+no ups, LMS empty pipelines); **test_25** = the retired scope (a prior-batch ups item + config are
+deactivated on the v4 replace, RETAINED not deleted; nothing else touched).
+
+### Interpreter -- the HONEST-PARTIAL guard (`ratePipelineInterpreter.ts`)
+The `scale` step now SKIPS its output when the target rate is missing (`null`/`NaN`/absent) -- the output
+stays absent (renders `-`), NEVER invented as `0`. The pipeline's OTHER outputs still compute. This is a
+CORRECTNESS/honesty fix (a `null` rate would otherwise evaluate `null*factor === 0` -- silently-wrong), and
+it is what makes the misc **CEIG** (no supply) and **AS Built** (no install) rows compute only their
+existing half. No other step changed; the five wiring goldens + all EA-1 goldens are unchanged. +5 vitest
+(popup 10800/1200; misc Spray Painting 234/104 + BCS 187.2/0; Glass Box 2000/500 + BCS 1600/0; CEIG +
+AS Built honest-partial). Pre-verified against a Python port before the vitest.
+
+### Empty-pipelines tolerance -- where changes were needed
+ONLY the loader validator (`_validate_one_config`). The FRONTEND needed ZERO changes: the Data tab
+(discipline-wide), the Derivation tab (`runAllPipelines` over `Object.entries({})` -> no cards), the
+Pipelines tab (`Object.entries({})` -> no pipeline cards, attribute defs + goldens still render) and the
+preview gate (`evaluateGoldens` over an absent/empty goldens list) all handle `pipelines: {}` honestly and
+without a crash -- proven in cert W3. The RM-2 helper stays wiring-only (coming-soon). Registry: ups ->
+popup_boxes (LMS kept).
+
+### W4 gap (report-only -- EA-2 rider): LMS in-system authoring
+The RM-4b Pipelines-tab edit mode offers add-ATTRIBUTE + edit-existing-pipeline-STEPS, but has **NO
+add-PIPELINE affordance** -- so the owner cannot author a NEW pipeline into the empty LMS config with the
+current editor (and RM-4b's server `_validate_config` also still rejects an empty-pipelines config on a
+`update_rate_config` save). BOTH are EA-2 riders; per W4 I did NOT build them.
+
+### Gates
+backend `test_rate_master` 24 -> 25; `test_pricing` 230 unchanged. Interpreter vitest 22 -> 27; full vitest
+1021 -> 1026 (+5). tsc 3240 baseline, 0 new. vite build exit 0.
+
+### Cert (live, production Electrical; every point evidenced)
+- **W1** post-load: batch `rmbulk-ac7929027050`, 754 E-ALL items active -- per-kind EXACT (earthing 25,
+  conduit 12, junction_box 6, cable_tray 450, industrial_socket 28, switch_socket_item 58,
+  db_switchgear_item 137, misc_item 13, lms_item 24, popup_box_module 1); **UPS 0 active** (items AND config
+  -- via the retired scope: 3 items + 1 config deactivated, retained); LMS config active with `pipelines ==
+  {}`; ten configs active; **WIRING UNTOUCHED** (cable 292 / termination 296 / config sha
+  `5e7da739...4c4bb`).
+- **W2** goldens: popup 12 modules -> 10800/1200 (preview gate); misc Spray Painting -> BoQ 234/104 AND BCS
+  187.2/0 on the Derivation tab (the old x1.3-background-sheet rule is GONE -- misc pipelines now target
+  `boq_supply`/`boq_install`, never the old bcs rate keys); Glass Box 2000/500 + BCS 1600/0 (vitest);
+  earthing chamber 4690.75 + conduit 42/10 unchanged (byte-identical configs, vitest); the five wiring pins
+  green.
+- **W3** LMS honest-everywhere: listed in the selector; Data tab shows its 24 rows (brands Lutron / Zen
+  Control); Derivation tab shows NO pipeline output (honest empty, no crash); Pipelines tab renders the
+  empty config (attribute defs, no pipeline cards, no crash).
+- **W4** report-only: no add-pipeline affordance (above) -> EA-2 rider.
+- **W5** misc honest-partial on the Derivation tab: CEIG (no supply) -> supply `-`, install 225000; AS Built
+  (no install) -> supply 24500, install `-`. No invented values, no crash.
+- **W6** git clean apart from standing noise; wiring + BoQ Cell Pricing (12397) + Suggestion Events (2)
+  untouched.
+
+### Files
+MODIFIED: `services/boq_rate_master/loader.py`, `api/boq/test_rate_master.py`,
+`frontend/.../rate-master/{ratePipelineInterpreter.ts,.test.ts, rateMasterRegistry.ts}`. RENAMED:
+`data/rate_master_electrical_all_v2.json -> _v4.json`. Docs: this entry + root `CLAUDE.md` +
+`frontend/CLAUDE.md`. Out of scope (untouched): the extraction engine, run/persistence, the pricing-sheet
+helper, the RM-4b editor's add-pipeline gap (EA-2), patches.txt, `.claude/settings.local.json`.

@@ -402,7 +402,29 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   conditions on the selection, formula may be param-only — an unmatched condition is an HONEST no-compute).
   **The wiring goldens are the standing regression pins.** The Rate Master category selector is
   REGISTRY-driven (`rateMasterRegistry.ts`), not config-read. The pricing-sheet helper stays wiring-only
-  and shows its category coming-soon note for other categories (honest no-compute).
+  and shows its category coming-soon note for other categories (honest no-compute). A `scale` step whose
+  TARGET RATE is missing (`null`/`NaN`) SKIPS that output (renders absent, never invented as 0) while the
+  pipeline's other outputs still compute — the HONEST-PARTIAL rule (a source row with supply but no install,
+  or vice-versa, prices only what exists).
+- **THE GUIDING-SHEET AUTHORITY RULE (owner-locked standing law, 2026-07-29).** A rate-master category gets
+  FINALIZED rules ONLY if it has a block on the **ALL ITEM WISE RATE** sheet; no block → no rules. Every
+  future category/discipline inherits this. **Corollary:** where the guiding block carries its rates
+  DIRECTLY, the block IS the table (no background-sheet dependency) — **miscellaneous** is the first such
+  case (its items carry `boq_supply`/`boq_install` that ARE the BoQ rates; `misc_boq` is direct factor 1.0,
+  `misc_bcs` = `boq*0.8` with install 0). The EA-1 "UPS" decode was a misread **Floor BOX** block: UPS is
+  removed (excluded-by-ruling) and **popup_boxes** is the corrected decode (per-module, the
+  value-from-attribute shape). A category may be committed DATA-ONLY (empty `pipelines: {}` — attribute
+  definitions + items, no derivation) when its ruleset is not yet authored; **lighting_mgmt_system** is the
+  first, to be authored in-system later (the loader + all four surfaces + the preview gate tolerate empty
+  pipelines honestly — no derivation output, no crash). Authoring a NEW pipeline into an empty config is NOT
+  yet supported by the RM-4b editor (no add-pipeline affordance; the server `_validate_config` also rejects
+  empty pipelines on save) — a known EA-2 gap.
+- **Retired-scope supersede (loader, owner-locked).** A multi-config payload may declare `retired_kinds` /
+  `retired_category_ids` — kinds/categories dropped from THIS payload that a `replace=True` must ALSO
+  deactivate (a second scoped-supersede beyond the payload's own kinds/categories), so a retired
+  kind/category left active from a prior batch (e.g. ups after the Floor BOX correction) is superseded rather
+  than left orphan-active. Freeze-and-supersede (rows retained), logged in the load summary; the
+  wiring-untouched invariant is unaffected.
 - **Benchmark data (owner ruling):** the committed data asset is the **28-Jul benchmark workbook**
   (`rate_master_wiring_cabling_v3.json`) — the reference going forward, superseding the earlier 25-Jul
   reference. A benchmark refresh is a `replace=True` re-import of a new asset (freeze-and-supersede: the

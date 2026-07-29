@@ -1088,7 +1088,14 @@ in the plan doc.
   category selector is REGISTRY-driven (`rateMasterRegistry.ts` lists all eleven Electrical categories),
   NOT config-read. The pricing-sheet helper (`pricingSheetHelper.ts`) stays WIRING-ONLY and returns its
   `{kind:"none", "…coming soon."}` guard for any other category (honest no-compute — the category-scoped
-  helper is a later slice).
+  helper is a later slice). **HONEST-PARTIAL (owner-locked):** a `scale` step whose target rate is missing
+  (`null`/`NaN`) SKIPS that output (it stays absent, renders `-`), NEVER inventing a 0; the pipeline's other
+  outputs still compute — so a source row carrying supply but not install (or vice-versa; the misc CEIG /
+  AS Built rows) prices only what exists. **Empty-pipelines configs render honestly with ZERO frontend
+  changes:** a config with `pipelines: {}` (a DATA-ONLY category such as `lighting_mgmt_system`, authored
+  in-system later) shows its data + attribute definitions on the Data / Derivation / Pipelines tabs and the
+  preview gate with no derivation output and no crash. (Authoring a NEW pipeline into an empty config is not
+  yet supported by the Pipelines-tab editor — no add-pipeline affordance — an EA-2 gap.)
 
 ## Important Notes
 
