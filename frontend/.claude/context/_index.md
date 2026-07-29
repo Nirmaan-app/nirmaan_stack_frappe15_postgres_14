@@ -8,15 +8,37 @@ This directory contains reference documentation for the Nirmaan Stack frontend. 
 
 | Plan | Feature | Status |
 |------|---------|--------|
-| [boq-upload-plan.md](../plans/boq-upload-plan.md) | BoQ Upload & Management | Phases 1.x + 3 + 4 complete; Phase 5 (commit + pricing editor) active. Live status + full per-slice as-built detail. |
+| [boq/README.md](../plans/boq/README.md) | BoQ Upload & Management — **design spec** (§1–16). Start here. | Phases 1.x + 3 + 4 complete; Phase 5 (commit + pricing editor) active. |
+| [boq/_slices.md](../plans/boq/_slices.md) | BoQ **slice index** — 167 as-built records, one row each. Find a slice here, then open its fragment. | Rotated 2026-07-29 from the former single-file plan doc. |
+| [boq/phasing.md](../plans/boq/phasing.md) | BoQ phase plan + per-phase status. Grep, don't load. | — |
+| [boq/known-issues.md](../plans/boq/known-issues.md) | BoQ known parser issues register (17.1–17.53). Grep, don't load. | — |
+| [boq/decisions/](../plans/boq/decisions/) | BoQ decisions log, chunked by month. Grep, don't load. | — |
 
 ---
 
 ## Available Context Files
 
+### BoQ frontend — split by surface (2026-07-29)
+
+Load only the surface you are working on. Backend: `../../.claude/context/domain/boq-backend.md`
+
+| File | Surface | When to Load |
+|------|---------|--------------|
+| [domain/boq-frontend-wizard-upload.md](./domain/boq-frontend-wizard-upload.md) | Upload wizard | Entry points, project picker, upload screen, drop zone, `uploadStatus` lifecycle, socket listeners, parse-completion modal, on-mount + reconnect recovery |
+| [domain/boq-frontend-hub.md](./domain/boq-frontend-hub.md) | Hub | Hub route, back-navigation, cards, button set, general-specs derivation, ParseRunDialog, dirty markers, visual conventions |
+| [domain/boq-frontend-sheet-config.md](./domain/boq-frontend-sheet-config.md) | Sheet config / spoke | SheetConfigPanel, spoke shell, SheetDataGrid, column-role mapping, SheetSearchView, RestructureModal, `confirmedFields` keys |
+| [domain/boq-frontend-review-screen.md](./domain/boq-frontend-review-screen.md) | Review screen | ReviewTree contract, `wizard_status` + Finalized freeze, exports, C-flag dismissal, find-&-filter, detail-panel layout, Force Re-parse |
+| [domain/boq-frontend-pricing-grid.md](./domain/boq-frontend-pricing-grid.md) | Pricing — grid contract | Keyboard-nav matrix, row memoization, read-only gating, asymmetric rate-edit gate, Esc-to-exit, annotation rendering |
+| [domain/boq-frontend-pricing-rollup.md](./domain/boq-frontend-pricing-rollup.md) | Pricing — rollup & reconciliation | `pricingRollup` + SummaryPanel, `priceability.ts`, incomplete subtotals, Cluster B store, DOC-0 flip |
+| [domain/boq-frontend-pricing-layout.md](./domain/boq-frontend-pricing-layout.md) | Pricing — layout & nav | SheetPricingPage, parent click-to-jump, frozen-left panes, two-pane split, scroll/jump retarget |
+| [domain/boq-frontend-pricing-controls.md](./domain/boq-frontend-pricing-controls.md) | Pricing — controls & commit | Collapse/expand all, per-sheet lock/unlock, `pricingRowPropsAreEqual`, hub footer toolbar, CommitDialog preflight, Review S2 / ADR-0008 |
+| [domain/boq-frontend-revised-boq.md](./domain/boq-frontend-revised-boq.md) | Revised BoQ / ADR-0014 | Hub card redesign, header two-row refactor, Revised BoQ S2–S4, Amendments B–E, template review + quantity keyboard nav |
+| [domain/boq-frontend-as-built-log.md](./domain/boq-frontend-as-built-log.md) | ⚠️ HISTORICAL | Quarantined rolling as-built narrative. **Do not load, do not extend.** Per-slice detail belongs in `plans/boq/slices/`; pending a duplication check |
+
+### Other domains
+
 | File | Domain | When to Load |
 |------|--------|--------------|
-| [domain/boq-frontend.md](./domain/boq-frontend.md) | BoQ frontend | Upload wizard + pricing editor + review-screen conventions, full per-slice as-built detail (relocated from frontend/CLAUDE.md 2026-06-25). Backend: `../../.claude/context/domain/boq-backend.md` |
 | [data-tables.md](./data-tables.md) | DataTable System | useServerDataTable hook, DataTable component, export, backend API, search strategies |
 | [coding-standards.md](./coding-standards.md) | Standards | Date formats, react-select patterns, Radix dialog fixes |
 | [react-patterns.md](./react-patterns.md) | React | useEffect anti-patterns, TanStack Table deps, Vercel best practices |
@@ -27,6 +49,10 @@ This directory contains reference documentation for the Nirmaan Stack frontend. 
 | [domain/invoices.md](./domain/invoices.md) | Invoices | PO/SR invoices, 2B reconciliation, date filters |
 | [domain/milestones.md](./domain/milestones.md) | Milestones | Daily progress reports, zone tracking, work headers |
 | [domain/projects.md](./domain/projects.md) | Projects | Project status lifecycle, ProjectSelect component, status restrictions |
+| [domain/po-revisions.md](./domain/po-revisions.md) | PO Revisions | PO revision lifecycle, revision commits and carry behaviour |
+| [domain/po-merge.md](./domain/po-merge.md) | PO Merge | Merging purchase orders, merge constraints and side effects |
+| [domain/vendor-hold.md](./domain/vendor-hold.md) | Vendor Hold | Vendor hold status, blocked operations, guard hooks |
+| [domain/commissioning-report-templates.md](./domain/commissioning-report-templates.md) | Commissioning Reports | Commissioning report templates and generation |
 | [domain/ceo-hold.md](./domain/ceo-hold.md) | CEO Hold | Project hold status, blocked operations, guard hooks |
 | [domain/delivery-notes.md](./domain/delivery-notes.md) | Delivery Notes | DN doctype, DN Item child table, APIs, received_quantity, 51-point linkage map |
 | [domain/po-status-map.md](./domain/po-status-map.md) | PO Status | Full PO status lifecycle, all codebase usage (28 frontend + 19 backend files), cross-module linkages, DataTable/API call map |
