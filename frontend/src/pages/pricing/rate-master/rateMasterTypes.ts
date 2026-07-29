@@ -49,7 +49,10 @@ export interface ScaleStep {
   step: "scale";
   target: string;
   result: string;
-  params: Record<string, number>;
+  // EA-1: a param key ending in `_from_attr` carries an ATTRIBUTE ID (string) whose selected value is
+  // bound into the formula under the key's base name (e.g. `kva_from_attr: "kva"` -> bind `kva`).
+  // Plain numeric params are bound by their exact name.
+  params: Record<string, number | string>;
   formula: string;
   explain?: string;
 }
@@ -62,9 +65,14 @@ export interface RoundupStep {
 export interface ComponentStep {
   step: "component";
   name: string;
-  target: string;
-  params: Record<string, number>;
+  /** Absent for a conditional / param-only component (e.g. the earthing chamber adder). */
+  target?: string;
+  params?: Record<string, number>;
   formula: string;
+  // EA-1: a component may resolve its params via attribute conditions, matched on the SELECTED
+  // attributes (like apply_effective_multiplier) -- e.g. the earthing chamber adder keyed on
+  // with_chamber. An unmatched condition is an HONEST no-compute (never a zero default).
+  conditions?: { when: Record<string, string | number>; params: Record<string, number> }[];
   explain?: string;
 }
 export interface ComponentBandStep {

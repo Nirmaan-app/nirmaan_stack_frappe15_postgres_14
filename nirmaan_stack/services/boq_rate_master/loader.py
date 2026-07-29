@@ -52,13 +52,8 @@ def _load_payload(payload=None, path=None):
         return json.load(fh)
 
 
-def _validate_payload(payload):
-    """Light shape validation -- raise on anything structurally wrong. Does NOT assert
-    data-specific counts (those are the caller's / test's concern)."""
-    if not isinstance(payload, dict):
-        frappe.throw("Rate-master payload must be a JSON object.")
-
-    items = payload.get("items")
+def _validate_items(items):
+    """Validate the shared item-list shape (used by both the single- and multi-config paths)."""
     if not isinstance(items, list) or not items:
         frappe.throw("Rate-master payload has no 'items' list.")
     for idx, it in enumerate(items):
@@ -72,6 +67,32 @@ def _validate_payload(payload):
             frappe.throw("items[%d] is missing a 'rates' object." % idx)
         if not isinstance(it.get("source"), dict):
             frappe.throw("items[%d] is missing a 'source' object." % idx)
+
+
+def _validate_one_config(cfg, label):
+    """Validate one category-config's required shape (discipline is stamped by the caller, so it is
+    NOT required on the config itself)."""
+    if not isinstance(cfg, dict):
+        frappe.throw("%s is not an object." % label)
+    if not (cfg.get("category_id") or "").strip():
+        frappe.throw("%s is missing 'category_id'." % label)
+    if not isinstance(cfg.get("attribute_definitions"), list) or not cfg["attribute_definitions"]:
+        frappe.throw("%s is missing 'attribute_definitions'." % label)
+    pipelines = cfg.get("pipelines")
+    if not isinstance(pipelines, dict) or not pipelines:
+        frappe.throw("%s is missing 'pipelines'." % label)
+    for pname, pl in pipelines.items():
+        if not isinstance(pl, dict) or not isinstance(pl.get("steps"), list) or not pl["steps"]:
+            frappe.throw("%s pipeline '%s' has no 'steps'." % (label, pname))
+
+
+def _validate_payload(payload):
+    """Light shape validation -- raise on anything structurally wrong. Does NOT assert
+    data-specific counts (those are the caller's / test's concern)."""
+    if not isinstance(payload, dict):
+        frappe.throw("Rate-master payload must be a JSON object.")
+
+    _validate_items(payload.get("items"))
 
     cfg = payload.get("category_config")
     if not isinstance(cfg, dict):
@@ -125,6 +146,37 @@ def _deactivate_prior(discipline, category_id):
     return n_items, n_cfg
 
 
+def _deactivate_scope(discipline, kinds, category_ids):
+    """EA-1 SCOPED freeze-and-supersede: deactivate the prior active items whose KIND is in `kinds`
+    and the prior active configs whose category_id is in `category_ids` -- and NOTHING else. This is
+    the wiring-untouched invariant: the E-ALL scope's kinds (earthing_item, cable_tray, ...) and
+    category_ids (earthing, cabletray_raceway, ...) are disjoint from wiring's (cable/termination,
+    wiring_cabling), so a replace of the E-ALL scope never deactivates a wiring row. Returns
+    (items_deactivated, configs_deactivated)."""
+    n_items = frappe.db.count(
+        ITEM_DOCTYPE, {"discipline": discipline, "active": 1, "kind": ["in", list(kinds)]}
+    )
+    n_cfg = frappe.db.count(
+        CONFIG_DOCTYPE,
+        {"discipline": discipline, "active": 1, "category_id": ["in", list(category_ids)]},
+    )
+    if kinds:
+        kph = ", ".join(["%s"] * len(kinds))
+        frappe.db.sql(
+            'UPDATE "tabBoQ Rate Master Item" SET active = 0 '
+            "WHERE discipline = %s AND active = 1 AND kind IN (" + kph + ")",
+            [discipline, *kinds],
+        )
+    if category_ids:
+        cph = ", ".join(["%s"] * len(category_ids))
+        frappe.db.sql(
+            'UPDATE "tabBoQ Rate Category Config" SET active = 0 '
+            "WHERE discipline = %s AND active = 1 AND category_id IN (" + cph + ")",
+            [discipline, *category_ids],
+        )
+    return n_items, n_cfg
+
+
 def load_rate_master(payload=None, path=None, replace=False):
     """Load the rate-master payload. Returns a summary dict on success; raises
     frappe.ValidationError on a non-replace re-run against existing active data.
@@ -132,7 +184,11 @@ def load_rate_master(payload=None, path=None, replace=False):
     Summary keys: status, batch, discipline, category_id, cable/termination/<kind> counts
     (as `items_by_kind`), items_total, config_loaded (1), items_deactivated, configs_deactivated.
     """
-    payload = _validate_payload(_load_payload(payload, path))
+    payload = _load_payload(payload, path)
+    # EA-1: the E-ALL shape carries a LIST of category_configs (+ top-level per-category goldens).
+    if isinstance(payload.get("category_configs"), list):
+        return _load_multi(payload, replace)
+    payload = _validate_payload(payload)
     cfg = payload["category_config"]
     discipline = cfg["discipline"].strip()
     category_id = cfg["category_id"].strip()
@@ -198,6 +254,115 @@ def load_rate_master(payload=None, path=None, replace=False):
         "items_by_kind": by_kind,
         "items_total": sum(by_kind.values()),
         "config_loaded": 1,
+        "items_deactivated": items_deactivated,
+        "configs_deactivated": configs_deactivated,
+    }
+
+
+def _load_multi(payload, replace):
+    """EA-1: load the all-categories (E-ALL) payload -- a LIST of category_configs + top-level
+    per-category goldens. Each config lands as its own BoQ Rate Category Config row (discipline stamped
+    from the top-level payload; category_id from the config), with its per-category goldens MERGED into
+    the config JSON as the RM-4b goldens-as-config-data convention. Idempotency is SCOPED to the
+    payload's item kinds + config category_ids (via _deactivate_scope), so a replace never touches the
+    wiring batch. Normalization (material/insulation uppercase) is unchanged."""
+    discipline = (payload.get("discipline") or "").strip()
+    if not discipline:
+        frappe.throw("E-ALL payload is missing top-level 'discipline'.")
+    configs = payload["category_configs"]
+    if not configs:
+        frappe.throw("E-ALL payload has an empty 'category_configs' list.")
+    _validate_items(payload.get("items"))
+    for idx, c in enumerate(configs):
+        _validate_one_config(c, "category_configs[%d]" % idx)
+
+    goldens_by_cat = payload.get("goldens") or {}
+    if not isinstance(goldens_by_cat, dict):
+        frappe.throw("E-ALL 'goldens' must be an object keyed by category_id.")
+
+    items = payload["items"]
+    payload_kinds = sorted({it["kind"].strip() for it in items})
+    payload_cat_ids = [c["category_id"].strip() for c in configs]
+    if len(set(payload_cat_ids)) != len(payload_cat_ids):
+        frappe.throw("E-ALL category_configs contain duplicate category_ids.")
+
+    # SCOPED refuse: only this payload's kinds / category_ids block a non-replace re-run.
+    active_items_in_scope = frappe.db.count(
+        ITEM_DOCTYPE, {"discipline": discipline, "active": 1, "kind": ["in", payload_kinds]}
+    )
+    active_cfgs_in_scope = frappe.db.count(
+        CONFIG_DOCTYPE,
+        {"discipline": discipline, "active": 1, "category_id": ["in", payload_cat_ids]},
+    )
+    if (active_items_in_scope or active_cfgs_in_scope) and not replace:
+        frappe.throw(
+            "Rate master already loaded for %d of these kinds / %d of these categories under "
+            "discipline '%s'. Re-run with replace=True to supersede ONLY this scope."
+            % (active_items_in_scope, active_cfgs_in_scope, discipline),
+            title="Rate master scope already loaded",
+        )
+
+    items_deactivated = configs_deactivated = 0
+    if replace:
+        items_deactivated, configs_deactivated = _deactivate_scope(
+            discipline, payload_kinds, payload_cat_ids
+        )
+
+    batch = BATCH_PREFIX + frappe.generate_hash(length=12)
+
+    by_kind = {}
+    for it in items:
+        kind = it["kind"].strip()
+        attrs = _canonicalize_attributes(it["attributes"])
+        src = it.get("source") or {}
+        frappe.get_doc(
+            {
+                "doctype": ITEM_DOCTYPE,
+                "discipline": discipline,
+                "kind": kind,
+                "brand": it.get("brand"),
+                "unit": it.get("unit"),
+                "attributes": json.dumps(attrs),
+                "rates": json.dumps(it["rates"]),
+                "source_sheet": src.get("sheet"),
+                "source_row": src.get("row"),
+                "import_batch": batch,
+                "active": 1,
+            }
+        ).insert(ignore_permissions=True)
+        by_kind[kind] = by_kind.get(kind, 0) + 1
+
+    category_ids = []
+    for c in configs:
+        cfg = dict(c)
+        cfg["discipline"] = discipline  # stamp (configs carry no discipline of their own)
+        cat_id = cfg["category_id"].strip()
+        merged = goldens_by_cat.get(cat_id)
+        if merged is not None:
+            cfg["goldens"] = merged  # RM-4b goldens-as-config-data
+        frappe.get_doc(
+            {
+                "doctype": CONFIG_DOCTYPE,
+                "discipline": discipline,
+                "category_id": cat_id,
+                "config": json.dumps(cfg),
+                "source_workbook": payload.get("source_workbook"),
+                "import_batch": batch,
+                "active": 1,
+            }
+        ).insert(ignore_permissions=True)
+        category_ids.append(cat_id)
+
+    frappe.db.commit()
+
+    return {
+        "status": "loaded",
+        "batch": batch,
+        "discipline": discipline,
+        "category_ids": category_ids,
+        "items_by_kind": by_kind,
+        "items_total": sum(by_kind.values()),
+        "configs_loaded": len(configs),
         "items_deactivated": items_deactivated,
         "configs_deactivated": configs_deactivated,
     }

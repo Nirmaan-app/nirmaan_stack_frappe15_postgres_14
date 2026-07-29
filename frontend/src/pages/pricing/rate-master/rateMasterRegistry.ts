@@ -24,6 +24,20 @@ export const RATE_MASTER_DISCIPLINES: readonly RateMasterDisciplineEntry[] = [
   {
     discipline: "Electrical",
     label: "Electrical",
-    categories: [{ category_id: "wiring_cabling", label: "Wiring, Cabling & Termination" }],
+    // EA-1: all eleven Electrical categories. The label is a fallback; the picker shows each config's
+    // own category_display once it loads. (The category set is registry-driven, not config-read.)
+    categories: [
+      { category_id: "wiring_cabling", label: "Wiring, Cabling & Termination" },
+      { category_id: "earthing", label: "Earthing" },
+      { category_id: "conduit_piping", label: "Electrical Conduit" },
+      { category_id: "junction_box_raceway", label: "Junction Box for Raceway" },
+      { category_id: "cabletray_raceway", label: "CableTray & Raceway" },
+      { category_id: "ups", label: "UPS" },
+      { category_id: "industrial_sockets", label: "Industrial Socket" },
+      { category_id: "switches_sockets", label: "Switches and Sockets" },
+      { category_id: "db_switchgear", label: "DB and Switchgear" },
+      { category_id: "miscellaneous", label: "Miscellaneous" },
+      { category_id: "lighting_mgmt_system", label: "Lighting Management System" },
+    ],
   },
 ];

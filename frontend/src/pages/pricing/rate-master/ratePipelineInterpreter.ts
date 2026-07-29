@@ -129,7 +129,15 @@ export function roundUp(x: number, digits: number): number {
   return Math.ceil(x * factor - 1e-9) / factor;
 }
 
-/** EXACT match on canonical values across every selected attribute key. */
+/**
+ * Match the row for `kind` on the INTERSECTION of the row's stored attributes and the selected
+ * attributes: every key the ROW carries must equal the selection; keys the row does NOT carry (a
+ * pipeline-level choice such as `kva` or `cover`) are ignored. Matching stays EXACT on canonical
+ * values where the keys overlap. This lets a row that stores only its own identifying keys (e.g.
+ * ups_per_kva carrying pricing_mode only) match a richer selection. For wiring the row's key set and
+ * the selection's key set are identical, so this is byte-equivalent to the prior every-selected-key
+ * match -- the five wiring goldens are unchanged (regression pins). (EA-1 feature 3.)
+ */
 export function matchMasterRow(
   items: RateMasterItem[],
   kind: string,
@@ -138,7 +146,7 @@ export function matchMasterRow(
   return items.find(
     (it) =>
       it.kind === kind &&
-      Object.keys(selected).every((k) => it.attributes[k] === selected[k])
+      Object.keys(it.attributes).every((k) => !(k in selected) || it.attributes[k] === selected[k])
   );
 }
 
@@ -154,6 +162,27 @@ function bandTargetFor(bands: { when: string; target: string }[], value: number)
     } else if (w.startsWith(">")) {
       if (value > parseFloat(w.slice(1))) return { target: b.target, label: `${value} > ${parseFloat(w.slice(1))}` };
     }
+  }
+  return undefined;
+}
+
+/**
+ * Choose a band by the band_on value, supporting BOTH string-equality bands (a non-comparator `when`,
+ * matched EXACTLY against the value as a string -- e.g. the tray `cover` = WITH/WITHOUT/COVER_ONLY)
+ * AND the legacy numeric comparator bands (`<35` / `>=35`, the wiring gland band). String-equality is
+ * tried first; a comparator band is only considered when the value is numeric. Returns undefined when
+ * nothing matches (an HONEST no-compute upstream). (EA-1 feature 1.)
+ */
+function chooseBand(bands: { when: string; target: string }[], rawVal: unknown): { target: string; label: string } | undefined {
+  const sval = String(rawVal);
+  for (const b of bands) {
+    const w = b.when.trim();
+    if (!/^(<=|>=|<|>)/.test(w) && w === sval) return { target: b.target, label: b.when };
+  }
+  const num = Number(rawVal);
+  if (Number.isFinite(num)) {
+    const c = bandTargetFor(bands, num);
+    if (c) return c;
   }
   return undefined;
 }
@@ -230,7 +259,32 @@ export function runPipeline(
       });
     } else if (stepType === "scale") {
       const s = raw as import("./rateMasterTypes").ScaleStep;
-      const value = evalFormula(s.formula, { base: ctx[s.target], ...s.params });
+      const env: Record<string, number> = { base: ctx[s.target] };
+      let attrMissing: string | null = null;
+      for (const [pk, pv] of Object.entries(s.params ?? {})) {
+        if (pk.endsWith("_from_attr")) {
+          // EA-1 feature 2: bind the identifier (key minus `_from_attr`) to the SELECTED attribute's
+          // numeric value; a missing / non-numeric attr is an HONEST no-compute (not a zero default).
+          const ident = pk.slice(0, -"_from_attr".length);
+          const av = selected[String(pv)];
+          if (typeof av !== "number" || !Number.isFinite(av)) {
+            attrMissing = String(pv);
+            break;
+          }
+          env[ident] = av;
+        } else if (typeof pv === "number") {
+          env[pk] = pv;
+        }
+      }
+      if (attrMissing !== null) {
+        steps.push({
+          step: stepType,
+          label: `attribute '${attrMissing}' missing or non-numeric -- no value computed`,
+          runningValues: snapshot(),
+        });
+        return { pipelineId, outputs: pipeline.output, status: "no_match", steps, finals: {}, matchedItem, note: pipeline.note };
+      }
+      const value = evalFormula(s.formula, env);
       ctx[s.result] = value;
       steps.push({
         step: stepType,
@@ -252,24 +306,51 @@ export function runPipeline(
       });
     } else if (stepType === "component") {
       const s = raw as import("./rateMasterTypes").ComponentStep;
-      const value = evalFormula(s.formula, { [s.target]: ctx[s.target], ...s.params });
+      const env: Record<string, number> = {};
+      if (s.target !== undefined) {
+        // Bind the target value under BOTH `base` (the normalized contract) and its own name (the
+        // legacy wiring `lug` component's formula references `lug_list`).
+        env.base = ctx[s.target];
+        env[s.target] = ctx[s.target];
+      }
+      let params: Record<string, number> = s.params ?? {};
+      if (Array.isArray(s.conditions)) {
+        // EA-1 feature 4: a conditional component resolves its params by the SELECTED attributes
+        // (e.g. the earthing chamber keyed on with_chamber). An unmatched condition is an HONEST
+        // no-compute -- never a zero default.
+        const cond = s.conditions.find((c) =>
+          Object.entries(c.when).every(([k, v]) => selected[k] === v)
+        );
+        if (!cond) {
+          steps.push({ step: stepType, label: s.explain || `component: ${s.name} (no matching condition)`, runningValues: { ...snapshot(), ...componentEntries(components) } });
+          return { pipelineId, outputs: pipeline.output, status: "no_match", steps, finals: {}, matchedItem, note: pipeline.note };
+        }
+        params = cond.params ?? {};
+      }
+      for (const [k, v] of Object.entries(params)) if (typeof v === "number") env[k] = v;
+      const value = evalFormula(s.formula, env);
       components[s.name] = value;
       steps.push({
         step: stepType,
         label: s.explain || `component: ${s.name}`,
-        params: s.params,
+        params,
         produced: { key: s.name, value },
         runningValues: { ...snapshot(), ...componentEntries(components) },
       });
     } else if (stepType === "component_band") {
       const s = raw as import("./rateMasterTypes").ComponentBandStep;
-      const bandVal = Number(matchedItem?.attributes[s.band_on]);
-      const chosen = bandTargetFor(s.bands, bandVal);
+      // band_on may be an ITEM attribute (the wiring gland's thickness_sqmm) OR a pipeline-level
+      // SELECTED choice not stored on the row (the tray `cover`); prefer the item's value, fall back
+      // to the selection. chooseBand handles string-equality AND numeric comparator bands.
+      const bandRaw = matchedItem?.attributes[s.band_on] ?? selected[s.band_on];
+      const chosen = chooseBand(s.bands, bandRaw);
       if (!chosen) {
         steps.push({ step: stepType, label: s.explain || `component: ${s.name}`, runningValues: snapshot() });
         return { pipelineId, outputs: pipeline.output, status: "no_match", steps, finals: {}, matchedItem, note: pipeline.note };
       }
-      const value = evalFormula(s.formula, { gland_list: ctx[chosen.target], [chosen.target]: ctx[chosen.target], ...s.params });
+      // Bind the chosen column under `base` (the normalized contract), plus the legacy `gland_list`
+      // and the column's own name (the wiring gland formula references gland_list).
+      const value = evalFormula(s.formula, { base: ctx[chosen.target], gland_list: ctx[chosen.target], [chosen.target]: ctx[chosen.target], ...s.params });
       components[s.name] = value;
       steps.push({
         step: stepType,

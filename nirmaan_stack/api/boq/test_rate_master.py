@@ -27,10 +27,13 @@ Coverage map (behavior -> test):
   - RM-4b validation: unknown top-level key rejected                           -> test_20
   - RM-4b: identity repoint (discipline/category_id) rejected                  -> test_21
   - RM-4b: a valid add-step + add-param replace persists                       -> test_22
+  - EA-1: multi-config load -- counts, shared batch, 10 configs, goldens merge -> test_23
+  - EA-1: SCOPED replace supersedes only the E-ALL scope, WIRING UNTOUCHED     -> test_24
 """
 
 import copy
 import json
+import os
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -53,6 +56,12 @@ class TestRateMaster(FrappeTestCase):
         super().setUpClass()
         with open(loader.DEFAULT_DATA_FILE, "r", encoding="utf-8") as fh:
             cls.raw = json.load(fh)
+        # EA-1: the all-categories (E-ALL) asset, loaded by path (DEFAULT_DATA_FILE stays wiring).
+        cls.eall_path = os.path.join(
+            os.path.dirname(loader.__file__), "data", "rate_master_electrical_all_v2.json"
+        )
+        with open(cls.eall_path, "r", encoding="utf-8") as fh:
+            cls.eall = json.load(fh)
         cls._disciplines = set()
 
     @classmethod
@@ -580,3 +589,83 @@ class TestRateMaster(FrappeTestCase):
         stored = self._full_config(cfg_name)
         self.assertEqual(stored["pipelines"]["cable_boq"]["steps"][1]["conditions"][0]["params"]["surcharge"], 0.02)
         self.assertEqual(stored["pipelines"]["cable_boq"]["steps"][-1]["step"], "roundup")
+
+    # ---- EA-1: the all-categories (E-ALL) multi-config load ----
+    def _eall_payload(self, discipline):
+        p = copy.deepcopy(type(self).eall)
+        p["discipline"] = discipline  # loader stamps every item + config from this
+        return p
+
+    def test_23_eall_multi_config_load_counts_and_goldens_merge(self):
+        disc = self._new_disc()
+        r = loader.load_rate_master(payload=self._eall_payload(disc))
+        # per-kind counts land EXACTLY (the INPUT block)
+        self.assertEqual(r["items_total"], 756)
+        self.assertEqual(r["items_by_kind"]["cable_tray"], 450)
+        self.assertEqual(r["items_by_kind"]["db_switchgear_item"], 137)
+        self.assertEqual(r["items_by_kind"]["earthing_item"], 25)
+        self.assertEqual(r["items_by_kind"]["ups_per_kva"], 1)
+        self.assertEqual(r["configs_loaded"], 10)
+        # ONE shared batch across the whole scope (items + configs)
+        item_batches = {
+            x.import_batch
+            for x in frappe.get_all("BoQ Rate Master Item", filters={"discipline": disc}, fields=["import_batch"])
+        }
+        self.assertEqual(item_batches, {r["batch"]})
+        # 10 active configs, discipline stamped INTO the config JSON, per-category goldens merged
+        cfgs = frappe.get_all(
+            "BoQ Rate Category Config", filters={"discipline": disc, "active": 1}, fields=["category_id", "config"]
+        )
+        self.assertEqual(len(cfgs), 10)
+        by_cat = {c["category_id"]: _obj(c["config"]) for c in cfgs}
+        self.assertEqual(by_cat["earthing"]["discipline"], disc)
+        self.assertIn("goldens", by_cat["earthing"])
+        self.assertEqual(len(by_cat["earthing"]["goldens"]), 2)  # e1 + e2
+        g = by_cat["earthing"]["goldens"][0]
+        # RM-4b machine contract: {id, attrs, expect: {pipeline_id: {output_key: number}}}
+        self.assertIn("attrs", g)
+        self.assertIn("expect", g)
+        self.assertIn("earthing_boq", g["expect"])
+
+    def test_24_eall_scoped_replace_preserves_wiring(self):
+        disc = self._new_disc()
+        # wiring loaded first under this discipline (kinds cable/termination, category wiring_cabling)
+        loader.load_rate_master(payload=self._real_payload(disc))
+        wiring_active = self._active_items(disc, kind="cable") + self._active_items(disc, kind="termination")
+        self.assertEqual(wiring_active, 588)
+        wiring_cfg_active = frappe.db.count(
+            "BoQ Rate Category Config", {"discipline": disc, "category_id": "wiring_cabling", "active": 1}
+        )
+        self.assertEqual(wiring_cfg_active, 1)
+
+        # E-ALL loads WITHOUT replace -- its kinds/categories are disjoint from wiring, no scope overlap
+        r1 = loader.load_rate_master(payload=self._eall_payload(disc))
+        self.assertEqual(r1["configs_loaded"], 10)
+        self.assertEqual(r1["items_deactivated"], 0)
+        # wiring UNTOUCHED
+        self.assertEqual(
+            self._active_items(disc, kind="cable") + self._active_items(disc, kind="termination"), 588
+        )
+
+        # a SECOND E-ALL load now refuses (its scope is active)
+        with self.assertRaises(frappe.ValidationError):
+            loader.load_rate_master(payload=self._eall_payload(disc))
+
+        # replace supersedes ONLY the E-ALL scope (756 items / 10 configs), never wiring
+        r2 = loader.load_rate_master(payload=self._eall_payload(disc), replace=True)
+        self.assertEqual(r2["items_deactivated"], 756)
+        self.assertEqual(r2["configs_deactivated"], 10)
+        # THE NAMED INVARIANT: wiring cable/termination still active + wiring_cabling config still active
+        self.assertEqual(
+            self._active_items(disc, kind="cable") + self._active_items(disc, kind="termination"), 588
+        )
+        self.assertEqual(
+            frappe.db.count("BoQ Rate Category Config", {"discipline": disc, "category_id": "wiring_cabling", "active": 1}),
+            1,
+        )
+        # a fresh active E-ALL batch: 756 items, 10 configs
+        self.assertEqual(self._active_items(disc, kind="cable_tray"), 450)
+        self.assertEqual(
+            frappe.db.count("BoQ Rate Category Config", {"discipline": disc, "category_id": "earthing", "active": 1}),
+            1,
+        )

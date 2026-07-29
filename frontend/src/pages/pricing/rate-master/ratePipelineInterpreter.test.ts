@@ -191,3 +191,114 @@ describe("forward-compat: unknown step type", () => {
     expect(r.finals).toEqual({});
   });
 });
+
+// ── EA-1: the four bounded vocabulary additions (each with an HONEST failure mode) ──────────────────
+// The FIVE wiring goldens above are the regression pins for all four; these fixtures are the real
+// E-ALL config shapes (eall_import_electrical_v2.json) reduced to the row(s) each golden needs.
+
+describe("EA-1 (1) component_band string-equality bands (tray cover selector)", () => {
+  const TRAY: Pipeline = {
+    output: ["supply_per_rmt", "install_per_rmt"],
+    steps: [
+      { step: "match_master_row", params: { kind: "cable_tray" } },
+      { step: "component_band", name: "base", band_on: "cover", bands: [
+        { when: "WITHOUT", target: "without_cover_list" },
+        { when: "COVER_ONLY", target: "cover_only_list" },
+        { when: "WITH", target: "with_cover_list" },
+      ], params: {}, formula: "base" },
+      { step: "sum_components", result: "supply_per_rmt" },
+      { step: "scale", target: "supply_per_rmt", result: "supply_per_rmt", params: { markup: 0.45 }, formula: "base*(1+markup)" },
+      { step: "roundup", target: "supply_per_rmt", params: { digits: -1 } },
+      { step: "scale", target: "supply_per_rmt", result: "install_per_rmt", params: { install_ratio: 0.2 }, formula: "base*install_ratio" },
+      { step: "roundup", target: "install_per_rmt", params: { digits: -1 } },
+    ],
+  };
+  const ITEM: RateMasterItem = { discipline: "Electrical", kind: "cable_tray", attributes: { tray_type: "Solid", material: "GI", thickness_mm: 1, width_mm: 100 }, rates: { without_cover_list: 116, cover_only_list: 72, with_cover_list: 188 } };
+  const s = (cover: string) => ({ tray_type: "Solid", material: "GI", thickness_mm: 1, width_mm: 100, cover });
+
+  it("cover=WITH selects with_cover_list (188) -> golden 280 / 60", () => {
+    expect(runPipeline("tray_boq", TRAY, [ITEM], s("WITH")).finals).toEqual({ supply_per_rmt: 280, install_per_rmt: 60 });
+  });
+  it("cover=WITHOUT selects without_cover_list (116) -> 170 / 40 (a different band)", () => {
+    expect(runPipeline("tray_boq", TRAY, [ITEM], s("WITHOUT")).finals).toEqual({ supply_per_rmt: 170, install_per_rmt: 40 });
+  });
+  it("an unknown cover value matches no band -> honest no_match, zero finals", () => {
+    const r = runPipeline("tray_boq", TRAY, [ITEM], s("GOLD_PLATED"));
+    expect(r.status).toBe("no_match");
+    expect(r.finals).toEqual({});
+  });
+});
+
+describe("EA-1 (2) value-from-attribute multiply (UPS per-kVA)", () => {
+  const UPS: Pipeline = {
+    output: ["supply", "install"],
+    steps: [
+      { step: "match_master_row", params: { kind: "ups_per_kva" } },
+      { step: "scale", target: "supply_per_kva", result: "supply", params: { kva_from_attr: "kva" }, formula: "base*kva" },
+      { step: "scale", target: "install_per_kva", result: "install", params: { kva_from_attr: "kva" }, formula: "base*kva" },
+    ],
+  };
+  const ITEM: RateMasterItem = { discipline: "Electrical", kind: "ups_per_kva", attributes: { pricing_mode: "PER_KVA" }, rates: { supply_per_kva: 900, install_per_kva: 100 } };
+
+  it("kva=12 -> 900*12 / 100*12 = golden 10800 / 1200", () => {
+    expect(runPipeline("ups_boq", UPS, [ITEM], { kva: 12 }).finals).toEqual({ supply: 10800, install: 1200 });
+  });
+  it("a MISSING kva attribute is an HONEST no-compute (no_match), never zero", () => {
+    const r = runPipeline("ups_boq", UPS, [ITEM], {});
+    expect(r.status).toBe("no_match");
+    expect(r.finals).toEqual({});
+  });
+  it("a NON-NUMERIC kva attribute is an HONEST no-compute", () => {
+    const r = runPipeline("ups_boq", UPS, [ITEM], { kva: "twelve" });
+    expect(r.status).toBe("no_match");
+    expect(r.finals).toEqual({});
+  });
+});
+
+describe("EA-1 (3) match_master_row on the stored-vs-selected intersection", () => {
+  const PL: Pipeline = { output: ["supply"], steps: [
+    { step: "match_master_row", params: { kind: "ups_per_kva" } },
+    { step: "scale", target: "supply_per_kva", result: "supply", params: { kva_from_attr: "kva" }, formula: "base*kva" },
+  ] };
+  const ITEM: RateMasterItem = { discipline: "Electrical", kind: "ups_per_kva", attributes: { pricing_mode: "PER_KVA" }, rates: { supply_per_kva: 900, install_per_kva: 100 } };
+
+  it("a row carrying only pricing_mode matches a kva-only selection (key not on the row is ignored)", () => {
+    expect(runPipeline("ups_boq", PL, [ITEM], { kva: 5 }).finals).toEqual({ supply: 4500 });
+  });
+  it("an OVERLAPPING key that conflicts blocks the match (exact match where keys overlap)", () => {
+    const r = runPipeline("ups_boq", PL, [ITEM], { kva: 5, pricing_mode: "PER_UNIT" });
+    expect(r.status).toBe("no_match");
+    expect(r.finals).toEqual({});
+  });
+});
+
+describe("EA-1 (4) conditional component (earthing chamber adder)", () => {
+  const EARTH: Pipeline = {
+    output: ["supply", "install"],
+    steps: [
+      { step: "match_master_row", params: { kind: "earthing_item" } },
+      { step: "component", name: "base_supply", target: "supply_base", formula: "base" },
+      { step: "component", name: "chamber", conditions: [
+        { when: { with_chamber: "With" }, params: { adder: 3000 } },
+        { when: { with_chamber: "Without" }, params: { adder: 0 } },
+      ], formula: "adder" },
+      { step: "sum_components", result: "supply" },
+      { step: "scale", target: "supply", result: "supply", params: { markup: 0.45 }, formula: "base*(1+markup)" },
+      { step: "scale", target: "install_base", result: "install", params: { markup: 0.45 }, formula: "base*(1+markup)" },
+    ],
+  };
+  const ITEM: RateMasterItem = { discipline: "Electrical", kind: "earthing_item", attributes: { material: "GI", type: "50 x 6 MM Earth Strip" }, rates: { supply_base: 235, install_base: 55 } };
+  const s = (chamber: string) => ({ material: "GI", type: "50 x 6 MM Earth Strip", with_chamber: chamber });
+
+  it("with_chamber=Without -> (235+0)*1.45 = golden 340.75 / 79.75", () => {
+    expect(runPipeline("earthing_boq", EARTH, [ITEM], s("Without")).finals).toEqual({ supply: 340.75, install: 79.75 });
+  });
+  it("with_chamber=With -> (235+3000)*1.45 = golden 4690.75 / 79.75", () => {
+    expect(runPipeline("earthing_boq", EARTH, [ITEM], s("With")).finals).toEqual({ supply: 4690.75, install: 79.75 });
+  });
+  it("an unmatched with_chamber is an HONEST no-compute (no_match) -- NEVER a zero-adder default", () => {
+    const r = runPipeline("earthing_boq", EARTH, [ITEM], s("Maybe"));
+    expect(r.status).toBe("no_match");
+    expect(r.finals).toEqual({});
+  });
+});
