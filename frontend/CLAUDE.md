@@ -1100,7 +1100,14 @@ in the plan doc.
   `match_master_row` on the stored-vs-selected INTERSECTION (a row matches on the keys it carries, exact
   where they overlap — wiring is byte-unchanged); a conditional `component` (params via attribute
   conditions on the SELECTION, formula may be param-only — unmatched → HONEST no-compute, never a zero
-  adder). **The five wiring goldens are the standing regression pins for every addition.** The Rate Master
+  adder). **A `component` may carry BOTH a `target` (base bound from the matched row) AND `conditions`
+  (params from the selection) in one step** — e.g. the tray `cover` (`base*factor`); this shape needed no
+  interpreter change. **EA-2b — the CORRECTED cable-tray config is FOUR pipelines** (`tray_boq_supply` /
+  `tray_boq_install` / `tray_bcs` / `tray_bcs_install`): conditional-`component` adders (cover /
+  ceiling-accessories 106 / refill 180 / cutting 200) + a **width-table install match** (kind
+  `tray_install_rate`, ×4). The old single `tray_boq` (install = supply ×0.2, golden 280/60) was WRONG and
+  is DELETED; the oracle goldens t1/t2/t3 (431/120/297/0, 415/120/286, 410/200) are the standing pins (the
+  dead 280/60 interpreter-test fixture was replaced). **The five wiring goldens are the standing regression pins for every addition.** The Rate Master
   category selector is REGISTRY-driven (`rateMasterRegistry.ts` lists all eleven Electrical categories),
   NOT config-read. **EA-2: the pricing-sheet helper (`pricingSheetHelper.ts`) is N-CATEGORY** — it resolves
   the config PER row category (`configsByCategory`, fetched by a child `RateConfigFetcher` for all 11

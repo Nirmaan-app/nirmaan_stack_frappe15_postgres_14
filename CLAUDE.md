@@ -400,7 +400,14 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   stored-vs-selected INTERSECTION (a row matches on the keys it carries, exact where they overlap — wiring,
   whose key sets coincide, is unchanged); and a conditional `component` (params resolved by attribute
   conditions on the selection, formula may be param-only — an unmatched condition is an HONEST no-compute).
-  **The wiring goldens are the standing regression pins.** The Rate Master category selector is
+  A conditional `component` may ALSO carry a `target` (base from the matched row) together with its
+  conditions (e.g. the tray `cover`, `base*factor`) — this shape needed no interpreter change.
+  **EA-2b — the CORRECTED cable-tray config is FOUR pipelines** (supply/install/bcs/bcs_install):
+  conditional-component adders (cover / ceiling 106 / refill 180 / cutting 200) + a **width-table install
+  match** (kind `tray_install_rate`, ×4). The old single `tray_boq` (install = supply ×0.2, golden 280/60)
+  was WRONG and is DELETED; oracle goldens t1/t2/t3 (431/120/297/0, 415/120/286, 410/200) are the pins,
+  machine-verified (config-data preview gate + vitest + live Derivation), so the tray is OFF the manual
+  verification list. **The wiring goldens are the standing regression pins.** The Rate Master category selector is
   REGISTRY-driven (`rateMasterRegistry.ts`), not config-read. The pricing-sheet helper stays wiring-only
   and shows its category coming-soon note for other categories (honest no-compute). A `scale` step whose
   TARGET RATE is missing (`null`/`NaN`) SKIPS that output (renders absent, never invented as 0) while the

@@ -15216,3 +15216,58 @@ test_rate_suggest.py. FRONTEND: pricingSheetHelper.ts(+test), SheetPricingPage.t
 rateMasterStructure.ts(+test), RateMasterPipelines.tsx, RateMasterDerivation.tsx, RateMasterDataViewer.tsx.
 Out of scope (untouched): run/persistence doctypes, interpreter execution semantics, classify machinery,
 telemetry shape, patches.txt, .claude/settings.local.json.
+
+## Build slice EA-2b (the CORRECTED cable-tray config) COMPLETE
+
+A DATA-only correction (asset v6 -> v7). The chat had misread the guiding block's tray section as an
+EA-4 composite; re-examination against the block's own formulas (owner-prompted) showed N4/O4 IS the
+tray configurator with a displayed oracle (431/120/297/0). The shipped tray pipeline was WRONG
+(install especially: it did supply x0.2; the truth is a width-table x4). This slice replaces it.
+**NO interpreter change** was needed (the STOP condition did not trip): the four tray pipelines use
+only existing steps, and the one non-obvious shape -- a `component` with BOTH a `target` (base from the
+matched row) AND `conditions` (params from the selection, e.g. `cover` -> factor) -- is already
+supported by the interpreter (it binds `base` from target then resolves params from the matched
+condition). The interpreter authors had even anticipated "the tray `cover`".
+
+### Asset v6 -> v7 (`rate_master_electrical_all_v7.json`, sha256 prefix `101f2458ccb48194`, 764 items)
+Delta vs v6: the cabletray_raceway config REBUILT -- 8 attribute definitions (adds `cover` Yes/No,
+`installation_type` Floor/Ceiling, `floor_cutting` Yes/No, `floor_refilling` Yes/No), FOUR pipelines,
+`item_kinds` now [cable_tray, tray_install_rate], TEN new `tray_install_rate` items (width -> rate,
+50..600 mm: 25/30/35/40/45/55/65/75/85/95), and THREE oracle-backed goldens (t1 = the block's
+displayed state). Items 754 -> 764. Imported `replace=True` (scoped); **WIRING UNTOUCHED** (wiring
+config sha `c10509deb4af11dd` unchanged, cable+termination 588 active, pipeline_labels from EA-2 intact).
+
+### The four-pipeline tray shape (all conditional adders use the EA-2 feature-4 `component`)
+- `tray_boq_supply` -> supply_per_rmt: match cable_tray; `base` = without_cover_list; `cover` =
+  cover_only_list x (Yes 1.0 / No 0.0); `ceiling_accessories` = 106 when Ceiling else 0; `floor_refilling`
+  = 180 when Yes else 0; sum; scale x1.45 markup; roundup UNITS.
+- `tray_boq_install` -> install_per_rmt: match **tray_install_rate by width** (INTERSECTION); `width_install`
+  = install_rate x4; `floor_cutting` = 200 x1.45 when Yes else 0; sum.
+- `tray_bcs` -> bcs_supply: the pre-markup base (supply minus the scale/roundup).
+- `tray_bcs_install` -> bcs_install: the cutting term only (200 when Yes else 0), no markup.
+
+### Cert (browser + server; READ-ONLY on BoQs; every point evidenced)
+- Z1: v7 live -- 764 items (tray_install_rate 10 active), tray config carries 4 pipelines + 8 defs + 3
+  goldens; wiring sha `c10509deb4af11dd` unchanged with the EA-2 pipeline_labels still present.
+- Z2: GOLDEN t1 ON SCREEN (Derivation tab, Perforated / GI / 1.6 / 100 / cover Yes / Floor / no cutting /
+  no refilling) -> supply 431, install 120, BCS 297, BCS install 0 (read from the DOM tiles).
+- Z3: t2 (Ceiling, no cover) -> 415 / 120 / BCS 286; t3 (cutting Yes) -> install 410, BCS install 200 --
+  the matched conditions render readably in the step traces (factor 1, refill_rate 180, cutting_rate 200
+  markup 0.45, ...).
+- Z4: Data tab shows both kinds under the category (450 cable_tray + 10 tray_install_rate = 460) with
+  scoped columns; the preview gate on an untouched tray draft shows all NINE golden checks green (t1/t2/t3).
+- Z5: backend test_rate_master 28 (counts 754 -> 764, + a tray_install_rate 10 assertion),
+  test_rate_suggest 11; vitest 83 -> 86; tsc 0 new; build exit 0. **The old tray golden 280/60 is DEAD:**
+  the `ratePipelineInterpreter.test.ts` fixture that pinned it (a single `tray_boq` pipeline, install =
+  supply x0.2, cover via component_band) was REPLACED with the corrected 4-pipeline oracle test (t1/t2/t3 +
+  an honest no-match) + a synthetic component_band feature pin (string-equality bands are still a supported
+  interpreter feature no shipped config uses now).
+
+### Tray is now MACHINE-VERIFIED (off the owner's manual verification list)
+The tray config's correctness is pinned three ways: the config-data goldens (preview gate), the
+independent vitest oracle test, and the live Derivation. It no longer needs manual spot-checking.
+
+### Files
+BACKEND: `data/rate_master_electrical_all_v7.json` (rename from v6), `test_rate_master.py` (fixture path +
+counts 754 -> 764 + tray_install_rate assertion). FRONTEND: `ratePipelineInterpreter.test.ts` (dead
+tray golden replaced). NO interpreter/helper/endpoint code changed. Out of scope: everything else.
