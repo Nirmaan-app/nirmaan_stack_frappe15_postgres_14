@@ -30,6 +30,7 @@ Coverage map (behavior -> test):
   - EA-1: multi-config load -- counts, shared batch, 10 configs, goldens merge -> test_23
   - EA-1: SCOPED replace supersedes only the E-ALL scope, WIRING UNTOUCHED     -> test_24
   - EA-1b: retired-scope (ups) also deactivated on replace, else untouched     -> test_25
+  - EA-1c: update_rate_config accepts a top-level item_kinds (Data-tab scope)   -> test_26
 """
 
 import copy
@@ -59,7 +60,7 @@ class TestRateMaster(FrappeTestCase):
             cls.raw = json.load(fh)
         # EA-1/EA-1b: the all-categories (E-ALL) asset, loaded by path (DEFAULT_DATA_FILE stays wiring).
         cls.eall_path = os.path.join(
-            os.path.dirname(loader.__file__), "data", "rate_master_electrical_all_v4.json"
+            os.path.dirname(loader.__file__), "data", "rate_master_electrical_all_v5.json"
         )
         with open(cls.eall_path, "r", encoding="utf-8") as fh:
             cls.eall = json.load(fh)
@@ -709,3 +710,15 @@ class TestRateMaster(FrappeTestCase):
         self.assertEqual(frappe.db.count("BoQ Rate Master Item", {"discipline": disc, "kind": "ups_per_kva"}), 1)
         # and the E-ALL scope itself is freshly active
         self.assertEqual(self._active_items(disc, kind="cable_tray"), 450)
+
+    def test_26_update_rate_config_accepts_item_kinds(self):
+        # EA-1c: the config carries a top-level item_kinds (Data-tab scoping); the RM-4b whole-config
+        # validator must ACCEPT it (else editing any E-ALL config's pipelines would break).
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._real_payload(disc))
+        cfg_name = self._config_name(disc)
+        cfg = self._full_config(cfg_name)
+        cfg["item_kinds"] = ["cable", "termination"]
+        res = rate_master.update_rate_config(name=cfg_name, config=json.dumps(cfg))
+        self.assertTrue(res["ok"])
+        self.assertEqual(self._full_config(cfg_name)["item_kinds"], ["cable", "termination"])

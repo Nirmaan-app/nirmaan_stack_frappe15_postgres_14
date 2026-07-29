@@ -714,6 +714,7 @@ _KNOWN_STEP_TYPES = {
 _KNOWN_CONFIG_KEYS = {
     "discipline", "category_id", "category_display", "pairing_rule",
     "attribute_definitions", "pipelines", "bcs_surfacing", "normalization_rule", "goldens",
+    "item_kinds",  # EA-1c: the category's master-item kinds (Data-tab scoping); pass-through, not validated
 }
 _BAND_WHEN_RE = re.compile(r"^(<=|>=|<|>)\s*-?\d+(\.\d+)?$")
 

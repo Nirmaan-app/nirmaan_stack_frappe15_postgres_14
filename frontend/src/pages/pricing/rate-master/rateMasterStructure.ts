@@ -151,6 +151,30 @@ export function referencedAttrIds(config: RateCategoryConfig): Set<string> {
   return out;
 }
 
+/**
+ * EA-1c: the master-item kinds belonging to a category, used to SCOPE the Data tab to just this
+ * category's items/columns. Fallback order: the config's declared `item_kinds` if present; else derive
+ * from the pipelines' `match_master_row` `params.kind` (the legacy wiring config predates item_kinds --
+ * its pipelines match `cable` + `termination`). Returns [] only for a config with neither (an
+ * empty-pipelines config that also declares no item_kinds -- the caller then shows nothing to scope).
+ */
+export function categoryItemKinds(config: RateCategoryConfig): string[] {
+  const declared = config.item_kinds;
+  if (Array.isArray(declared) && declared.length) {
+    return declared.filter((k): k is string => typeof k === "string" && k.length > 0);
+  }
+  const kinds: string[] = [];
+  for (const pl of Object.values(config.pipelines ?? {})) {
+    for (const raw of pl.steps ?? []) {
+      const s = raw as { step: string; params?: { kind?: string } };
+      if (s.step === "match_master_row" && s.params?.kind && !kinds.includes(s.params.kind)) {
+        kinds.push(s.params.kind);
+      }
+    }
+  }
+  return kinds;
+}
+
 /** A blank attribute definition (choice with one empty value slot, or a number). */
 export function blankAttributeDefinition(type: "choice" | "number"): AttributeDefinition {
   return type === "choice"

@@ -121,6 +121,9 @@ export interface RateCategoryConfig {
   attribute_definitions: AttributeDefinition[];
   pipelines: Record<string, Pipeline>;
   normalization_rule?: string;
+  /** EA-1c: the master-item kinds belonging to this category (used to scope the Data tab). Absent on the
+   * legacy wiring config -- there the kinds are derived from the pipelines' match_master_row params. */
+  item_kinds?: string[];
   [k: string]: unknown;
 }
 

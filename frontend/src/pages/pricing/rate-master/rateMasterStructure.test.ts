@@ -7,6 +7,7 @@ import type { RateCategoryConfig, RateMasterItem } from "./rateMasterTypes";
 import {
   STEP_VOCABULARY,
   blankStep,
+  categoryItemKinds,
   cloneConfig,
   evaluateGoldens,
   goldenDeltas,
@@ -136,5 +137,37 @@ describe("cloneConfig", () => {
     const clone = cloneConfig(cfg);
     (clone.pipelines.cable_boq.steps[0] as { params: { kind: string } }).params.kind = "MUTATED";
     expect((cfg.pipelines.cable_boq.steps[0] as { params: { kind: string } }).params.kind).toBe("cable");
+  });
+});
+
+describe("EA-1c categoryItemKinds (Data-tab scoping)", () => {
+  it("returns declared item_kinds when present", () => {
+    const cfg = makeConfig();
+    (cfg as { item_kinds?: string[] }).item_kinds = ["lms_item"];
+    expect(categoryItemKinds(cfg)).toEqual(["lms_item"]);
+  });
+  it("returns MULTIPLE declared item_kinds verbatim", () => {
+    const cfg = makeConfig();
+    (cfg as { item_kinds?: string[] }).item_kinds = ["popup_box_module", "extra_kind"];
+    expect(categoryItemKinds(cfg)).toEqual(["popup_box_module", "extra_kind"]);
+  });
+  it("falls back to pipeline match_master_row kinds when item_kinds is absent (legacy wiring)", () => {
+    const cfg = makeConfig(); // has cable_boq matching kind 'cable'
+    cfg.pipelines.termination_boq = {
+      output: ["s"],
+      steps: [{ step: "match_master_row", params: { kind: "termination" } }],
+    };
+    expect(new Set(categoryItemKinds(cfg))).toEqual(new Set(["cable", "termination"]));
+  });
+  it("ignores an empty item_kinds and derives from pipelines instead", () => {
+    const cfg = makeConfig();
+    (cfg as { item_kinds?: string[] }).item_kinds = [];
+    expect(categoryItemKinds(cfg)).toEqual(["cable"]);
+  });
+  it("returns [] for a config with neither item_kinds nor a matching pipeline", () => {
+    const cfg = makeConfig();
+    (cfg as { item_kinds?: string[] }).item_kinds = undefined;
+    cfg.pipelines = {};
+    expect(categoryItemKinds(cfg)).toEqual([]);
   });
 });
