@@ -195,10 +195,32 @@ export function RateMasterDerivation({ items, config, isAdmin, onSaveParam }: Pr
         <CardContent>
           <div className="flex flex-wrap gap-4">
             {selectableDefs.map((d) => {
-              const options =
-                d.type === "choice"
-                  ? (d.values ?? []).map((v) => String(v))
-                  : (numberValues[d.id] ?? []).map((v) => String(v));
+              if (d.type === "number") {
+                // EA-2 rider 2: a FREE numeric input with the data-present distinct values offered as
+                // datalist SUGGESTIONS -- a number attribute with no matching data (e.g. module_count)
+                // still accepts any typed number, instead of rendering an empty, unusable Select.
+                const listId = `rmnum-${d.id}`;
+                const suggestions = numberValues[d.id] ?? [];
+                return (
+                  <div key={d.id} className="flex flex-col gap-1">
+                    <label className="text-xs text-muted-foreground">{d.label}</label>
+                    <input
+                      type="number"
+                      list={listId}
+                      value={String(selected[d.id] ?? "")}
+                      onChange={(e) => setAttr(d, e.target.value)}
+                      placeholder={`Enter ${d.label}`}
+                      className="h-8 w-44 rounded border bg-background px-3 text-sm"
+                    />
+                    <datalist id={listId}>
+                      {suggestions.map((v) => (
+                        <option key={v} value={String(v)} />
+                      ))}
+                    </datalist>
+                  </div>
+                );
+              }
+              const options = (d.values ?? []).map((v) => String(v));
               return (
                 <div key={d.id} className="flex flex-col gap-1">
                   <label className="text-xs text-muted-foreground">{d.label}</label>

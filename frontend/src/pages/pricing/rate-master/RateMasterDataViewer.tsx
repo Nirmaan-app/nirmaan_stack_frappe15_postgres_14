@@ -357,25 +357,32 @@ export function RateMasterDataViewer({
         )}
       </div>
 
-      {/* table -- EA-1c change 3: native H-bar hidden (proxy below is the single bar). */}
-      <style>{".rm-data-hidehbar::-webkit-scrollbar:horizontal{display:none;height:0}"}</style>
+      {/* table -- EA-1c change 3: native H-bar hidden (proxy below is the single bar).
+          EA-2 rider 3: force the sticky header's top:0 with a scoped rule -- the Tailwind `top-0`
+          utility is overridden to `top:auto` here (a global table reset from Ant Design), which
+          silently defeated `position:sticky`. z-index is left to the cell classes (z-20 / corner
+          z-30). The container is the scroller (max-h), so this pins the header under vertical scroll. */}
+      <style>{".rm-data-hidehbar::-webkit-scrollbar:horizontal{display:none;height:0}.rm-data-hidehbar thead th{position:sticky;top:0;background:hsl(var(--background))}"}</style>
       <div ref={scrollRef} className="overflow-auto rounded border rm-data-hidehbar max-h-[calc(100vh-19rem)]">
         <Table>
           <TableHeader>
             <TableRow>
-              {/* EA-1c change 2: actions FIRST + sticky-left (absent entirely for non-admins). */}
-              {canEdit && <TableHead className="sticky left-0 z-20 bg-background text-right">actions</TableHead>}
-              {showKindCol && <TableHead>{hdr("kind", "kind")}</TableHead>}
-              <TableHead>{hdr("brand", "brand")}</TableHead>
+              {/* EA-1c change 2: actions FIRST + sticky-left (absent entirely for non-admins).
+                  EA-2 rider 3: the whole header row is ALSO sticky-top; the actions CORNER cell gets
+                  z-30 so it wins over both the sticky row (z-20) and the sticky body column (z-10) and
+                  never ghosts. */}
+              {canEdit && <TableHead className="sticky left-0 top-0 z-30 bg-background text-right">actions</TableHead>}
+              {showKindCol && <TableHead className="sticky top-0 z-20 bg-background">{hdr("kind", "kind")}</TableHead>}
+              <TableHead className="sticky top-0 z-20 bg-background">{hdr("brand", "brand")}</TableHead>
               {attrCols.map((d) => (
-                <TableHead key={d.id}>{hdr(`attr:${d.id}`, d.label)}</TableHead>
+                <TableHead key={d.id} className="sticky top-0 z-20 bg-background">{hdr(`attr:${d.id}`, d.label)}</TableHead>
               ))}
               {rateCols.map((k) => (
-                <TableHead key={k} className="text-right">{hdr(`rate:${k}`, k, true)}</TableHead>
+                <TableHead key={k} className="sticky top-0 z-20 bg-background text-right">{hdr(`rate:${k}`, k, true)}</TableHead>
               ))}
-              <TableHead>{hdr("unit", "unit")}</TableHead>
-              <TableHead>{hdr("source_sheet", "source sheet")}</TableHead>
-              <TableHead className="text-right">{hdr("source_row", "row", true)}</TableHead>
+              <TableHead className="sticky top-0 z-20 bg-background">{hdr("unit", "unit")}</TableHead>
+              <TableHead className="sticky top-0 z-20 bg-background">{hdr("source_sheet", "source sheet")}</TableHead>
+              <TableHead className="sticky top-0 z-20 bg-background text-right">{hdr("source_row", "row", true)}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>

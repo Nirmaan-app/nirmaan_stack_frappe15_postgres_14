@@ -8,8 +8,10 @@ committed-sheet fixture helpers. NO live AI -- the Anthropic client is MOCKED ev
 fail-closed paths patch the settings singleton.
 
 Coverage map (behavior -> test):
-  - population assembly: rate-editable wiring_cabling rows only, with ancestor headers        -> test_01
-  - non-wiring rows + qty-less Preamble excluded                                              -> test_01
+  - EA-2 population: rate-editable rows across ALL eligible categories, each category_id-tagged -> test_01
+  - qty-less Preamble excluded (not rate-editable)                                             -> test_01
+  - EA-2 N-category run: identity mode + live-catalog injection + prompt mode-switch;
+    LMS (empty pipelines) + blank category excluded; results carry category_id; catalog coercion -> test_11
   - extraction payload/response parse (mock client): choice-vocab + number coercion           -> test_02
   - run_extraction "ran" with a mock client -> attributes + corroborated flags                -> test_03
   - regex corroborator: agree -> corroborated True; disagree/absent -> False                  -> test_03/test_04
@@ -109,8 +111,13 @@ class TestRateSuggest(FrappeTestCase):
         cv, rows = extraction.assemble_population(self.boq, self.sheet_name)
         self.assertEqual(cv, self.cv)
         got = sorted(r["excel_row"] for r in rows)
-        self.assertEqual(got, [2, 3])  # wiring rate-editable Line Items only
+        # EA-2: the population spans EVERY eligible category -- the wiring Line Items 2/3 AND the
+        # earthing Line Item 4 (earthing is an eligible config: non-empty pipelines + defs). Row 5 is
+        # a qty-less Preamble (not rate-editable) -> excluded. (Pre-EA-2 this returned [2, 3] only.)
+        self.assertEqual(got, [2, 3, 4])
         by_row = {r["excel_row"]: r for r in rows}
+        self.assertEqual(by_row[2]["category_id"], "wiring_cabling")
+        self.assertEqual(by_row[4]["category_id"], "earthing")
         # ancestry: the section header flows into anc_headers (section context for inheritance)
         self.assertTrue(any("COPPER ARMOURED CABLES" in h for h in by_row[2]["anc_headers"]))
 
@@ -284,3 +291,60 @@ class TestRateSuggest(FrappeTestCase):
         ):
             with self.assertRaises(frappe.ValidationError):
                 rate_master.start_suggest(boq=self.boq, sheet_name=self.sheet_name)
+
+    # ---- EA-2: N-category population + item-identity mode (uses the live v6 Electrical configs) ----
+    def test_11_ea2_multicategory_and_identity(self):
+        sheet = "MultiCat"
+        sd = _new_sheet(self.boq, sheet, commit_version=1)
+        hdr = _node(self.boq, sd, "Preamble", 20, None, "SWITCHES AND SOCKETS", 20)
+        _node(self.boq, sd, "Line Item", 21, hdr, "10A 1 way switch", 21, qty=1)          # switches (identity)
+        _node(self.boq, sd, "Line Item", 22, None, "25mm dia FRLS PVC conduit", 22, qty=1)  # conduit (attribute)
+        _node(self.boq, sd, "Line Item", 23, None, "Wireless occupancy sensor ceiling mount", 23, qty=1)  # LMS
+        _node(self.boq, sd, "Line Item", 24, None, "Totally uncategorised widget", 24, qty=1)  # blank
+        frappe.db.commit()
+        _insert_cat(self.boq, sheet, 1, 21, "switches_sockets")
+        _insert_cat(self.boq, sheet, 1, 22, "conduit_piping")
+        _insert_cat(self.boq, sheet, 1, 23, "lighting_mgmt_system")  # empty pipelines -> NOT eligible
+        # row 24: no BoQ Row Category -> blank -> excluded
+        frappe.db.commit()
+
+        # (a) population spans switches + conduit ONLY; LMS (empty pipelines) + blank excluded
+        cv, rows = extraction.assemble_population(self.boq, sheet)
+        self.assertEqual(cv, 1)
+        cats = {r["excel_row"]: r["category_id"] for r in rows}
+        self.assertEqual(cats, {21: "switches_sockets", 22: "conduit_piping"})
+
+        # (b) the switches config is item-identity: identity flag + LIVE catalog injected (not hardcoded)
+        configs = extraction._load_active_configs({"Electrical"})
+        sw_cfg = configs[("Electrical", "switches_sockets")]
+        catalog = extraction.catalog_values("Electrical", sw_cfg)
+        self.assertIn("10A 1 WAY SWITCH", catalog)  # sourced from the active master items
+        sw_defs = extraction.build_attribute_defs(sw_cfg, catalog)
+        iden = [d for d in sw_defs if d.get("identity")]
+        self.assertEqual(len(iden), 1)
+        self.assertEqual(iden[0]["id"], "item")
+        self.assertEqual(iden[0]["values"], catalog)
+
+        # (c) the MODE SWITCH: identity prompt for switches, attribute prompt for conduit
+        self.assertIn("rate-item catalog", extraction.select_prompt_text(sw_cfg))
+        conduit_cfg = configs[("Electrical", "conduit_piping")]
+        self.assertNotIn("rate-item catalog", extraction.select_prompt_text(conduit_cfg))
+
+        # (d) a full run (mock client): an identity value IN the catalog is kept; results carry category_id
+        client = _fake_extract({
+            21: {"item": ("10A 1 WAY SWITCH", 0.9)},
+            22: {"size_mm": (25, 0.9)},
+        })
+        env = extraction.run_extraction(self.boq, sheet, client=client)
+        self.assertEqual(env["ai_status"], "ran")
+        r21 = next(r for r in env["results"] if r["excel_row"] == 21)
+        self.assertEqual(r21["category_id"], "switches_sockets")
+        self.assertEqual(r21["attributes"]["item"]["value"], "10A 1 WAY SWITCH")
+        r22 = next(r for r in env["results"] if r["excel_row"] == 22)
+        self.assertEqual(r22["category_id"], "conduit_piping")
+
+        # (e) NEGATIVE: an identity value NOT in the catalog coerces to None (unknown / refuse-composite)
+        client2 = _fake_extract({21: {"item": ("NONEXISTENT WIDGET", 0.9)}, 22: {"size_mm": (25, 0.9)}})
+        env2 = extraction.run_extraction(self.boq, sheet, client=client2)
+        r21b = next(r for r in env2["results"] if r["excel_row"] == 21)
+        self.assertIsNone(r21b["attributes"]["item"]["value"])

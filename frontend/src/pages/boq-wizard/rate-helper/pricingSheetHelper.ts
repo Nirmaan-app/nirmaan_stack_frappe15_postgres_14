@@ -1,18 +1,28 @@
 /**
- * RM-3 REAL "Pricing sheet" helper (replaces the U1 stub).
+ * RM-3 REAL "Pricing sheet" helper (replaces the U1 stub) -- EA-2 N-category.
  *
  * The server EXTRACTS attributes (per row, persisted in a run); this helper COMPUTES the rate
  * CLIENT-SIDE from the CURRENT master/config via the RM-2 interpreter -- the SINGLE compute source,
  * imported UNCHANGED from pages/pricing/rate-master. So a rate/param change flows in live without
  * re-running the AI (values always recompute; only the extracted attributes persist).
  *
- * It is a CLOSURE over the page's data (config + master items + the run's extraction-by-row), built
- * once per page and passed as the helper list to buildSuggestions / the panel. Nothing here persists.
+ * It is a CLOSURE over the page's data (the category configs + master items + the run's
+ * extraction-by-row), built once per page and passed as the helper list to buildSuggestions / the
+ * panel. Nothing here persists.
  *
- * Owner option (b): a CABLE row shows the cable pipelines AND the PAIRED termination side by side (a
- * display-only reference line); a TERMINATION row shows termination alone. BCS pipelines are NOT
- * surfaced in the helper (owner deferral). Attributes the AI could not read render EMPTY for the
- * pricer to complete -- completing them re-runs the interpreter live (honest partial).
+ * EA-2: the helper is N-CATEGORY. The config used for a row is resolved FROM THE ROW'S CATEGORY
+ * (`configsByCategory`, the registry's eleven). A row computes iff that category has an ELIGIBLE
+ * config (non-empty pipelines AND definitions) and the run carries the row. Groups render ONE per
+ * NON-BCS pipeline (pipeline ids containing "bcs" are never surfaced -- owner deferral), labelled
+ * from `config.pipeline_labels?.[id] ?? prettify(id)`. Honest states: blank-fill for an in-category
+ * row outside the run; "coming soon" ONLY for a category with no eligible config (LMS empty
+ * pipelines, point_wiring, panels, light_fixtures, or none).
+ *
+ * WIRING SPECIAL CASE (owner Decision 2, TEMPORARY -- EA-4 designs the generic pairing/assembly
+ * mechanism and wiring migrates onto it then): the `wiring_cabling` category keeps its paired
+ * Cable + Termination side-by-side display and its cable-vs-termination "primary pipeline" choice.
+ * Its group LABELS come from `pipeline_labels` (config data), so only the pairing BEHAVIOUR is
+ * special-cased, not the strings. Every OTHER category goes through the generic path.
  */
 import { runPipeline } from "@/pages/pricing/rate-master/ratePipelineInterpreter";
 import type {
@@ -31,10 +41,11 @@ import type {
 } from "./rateHelperTypes";
 
 export const PRICING_SHEET_HELPER_ID = "pricing_sheet";
+const WIRING_CATEGORY_ID = "wiring_cabling";
 
-/** The rate-kinds the pricing-sheet helper can price for a wiring row (supply/install separately,
- * or a single combined column). Declared on every suggestion so a PARTIAL row (an attribute the AI
- * could not read) still badges -- the pricer opens the panel to complete it. */
+/** The rate-kinds the pricing-sheet helper can price. Declared on every in-run suggestion so a
+ * PARTIAL row (an attribute the AI could not read) still badges -- the pricer opens the panel to
+ * complete it. */
 const PRODUCIBLE_KINDS = ["supply_rate", "install_rate", "combined_rate"];
 
 /** VERSION KEYING (owner ruling): a stored run only shows when its committed_version equals the
@@ -65,8 +76,41 @@ export function buildExtractionByRow(
   return m;
 }
 
+/** A pipeline id is surfaced in the helper iff it is NOT a BCS pipeline (owner deferral). PURE. */
+export function isBcsPipelineId(id: string): boolean {
+  return id.toLowerCase().includes("bcs");
+}
+
+/** Group label for a pipeline: the config's `pipeline_labels` when present (config data), else a
+ * prettified id. PURE. */
+export function prettifyPipelineId(id: string): string {
+  return id.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+export function pipelineLabel(config: RateCategoryConfig, id: string): string {
+  return config.pipeline_labels?.[id] ?? prettifyPipelineId(id);
+}
+
+/** The non-BCS pipelines of a config, in declaration order. PURE. */
+export function nonBcsPipelines(config: RateCategoryConfig): Array<[string, Pipeline]> {
+  return Object.entries(config.pipelines ?? {}).filter(([id]) => !isBcsPipelineId(id));
+}
+
+/** A category participates in the helper iff its config has BOTH non-empty pipelines AND non-empty
+ * attribute definitions (an empty-pipelines DATA-ONLY config -- e.g. lighting_mgmt_system -- is not
+ * eligible; it shows "coming soon"). PURE. */
+export function isEligibleConfig(config: RateCategoryConfig | null | undefined): boolean {
+  return (
+    !!config &&
+    Object.keys(config.pipelines ?? {}).length > 0 &&
+    (config.attribute_definitions ?? []).length > 0
+  );
+}
+
 interface Deps {
-  config: RateCategoryConfig;
+  /** Legacy single-category form (RM-3 tests): the ONE config this helper serves. */
+  config?: RateCategoryConfig;
+  /** EA-2 N-category form (the page): resolve the config FROM the row's category. */
+  configsByCategory?: Map<string, RateCategoryConfig>;
   items: RateMasterItem[];
   /** excel_row -> the run's extraction for that row. */
   extractionByRow: Map<number, ExtractionRow>;
@@ -100,31 +144,33 @@ function kindForOutput(output: string): string | null {
 }
 
 export function makePricingSheetHelper(deps: Deps): RateHelper {
-  const { config, items, extractionByRow } = deps;
-  const defs = selectableDefs(config);
-  const pipelines = config.pipelines ?? {};
+  const { config, configsByCategory, items, extractionByRow } = deps;
+
+  /** Resolve the config for a row's category. N-category: look it up in the map. Legacy single-config:
+   * serve it ONLY for its own category (a different / null category -> none -> coming soon). */
+  function resolveConfig(category: string | null): RateCategoryConfig | null {
+    if (configsByCategory) return (category && configsByCategory.get(category)) || null;
+    if (config && category && config.category_id === category) return config;
+    return null;
+  }
 
   function compute(ctx: RateHelperRowContext, overrides?: Record<string, string>): HelperResult {
     const ext = extractionByRow.get(ctx.excelRow);
     const inRun = !!ext;
 
-    // CATEGORY-SCOPED attributes (owner): the fields shown are the row's CATEGORY's attributes, not
-    // a fixed set. This helper defines exactly ONE category (config.category_id); a row of any other
-    // category -- or none yet -- has no attribute set defined, so we show a "coming soon" note rather
-    // than the wrong (wiring) fields. An in-run row is always this category by construction, so the
-    // gate only guards the manual (not-in-run) path. A second category = a second config, later.
-    if (!inRun && ctx.category !== config.category_id) {
+    // CATEGORY-SCOPED (owner): the fields shown are the row's CATEGORY's attributes. A row whose
+    // category has no ELIGIBLE config (unknown category, or a DATA-ONLY empty-pipelines config such
+    // as lighting_mgmt_system) shows a "coming soon" note rather than the wrong fields. An in-run row
+    // always resolves to its own eligible category by construction.
+    const cfg = resolveConfig(ctx.category);
+    if (!isEligibleConfig(cfg)) {
       return {
         kind: "none",
         reason: "Rate attributes for this category haven't been defined yet — coming soon.",
       };
     }
-
-    // MANUAL FILL (owner request): a row of THIS category that is NOT in the run is still priceable
-    // by hand. We proceed with an EMPTY extraction so the panel shows blank, editable attribute
-    // fields; filling them re-runs the SAME interpreter live. Such a row NEVER mints a badge
-    // (producibleKinds omitted below) -- it is reached only via the always-on cell opener, so it
-    // stays "badge-less" until used.
+    const category = cfg!;
+    const defs = selectableDefs(category);
 
     // Build the workings attributes (pre-filled from extraction, overridable) + the selected map.
     const workingsAttrs: WorkingsAttribute[] = [];
@@ -147,12 +193,6 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       });
     }
 
-    const termination = isTerminationRow(ctx.description);
-    const attrLine = workingsAttrs
-      .filter((a) => a.value !== "")
-      .map((a) => `${a.label} = ${a.value}`)
-      .join(", ");
-
     // Honest partial: an attribute the AI could not read (in-run) OR a manual row (not in the run)
     // -> keep attributes editable, no value. An IN-RUN partial still BADGES (producibleKinds) so the
     // pricer can open it; a MANUAL row must NOT badge (omit producibleKinds) -- it is reached only
@@ -164,7 +204,7 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
         ...(inRun ? { producibleKinds: PRODUCIBLE_KINDS } : {}),
         basis: inRun
           ? "Complete the missing attributes to price"
-          : "Fill the cable attributes to price this row",
+          : "Fill the attributes to price this row",
         workings: {
           attributes: workingsAttrs,
           matchedRows: [],
@@ -178,97 +218,170 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       };
     }
 
-    // Primary pipeline for this row (BCS deferred -- never surfaced).
-    const primaryId = termination ? "termination_boq" : "cable_boq";
-    const primary = pipelines[primaryId] as Pipeline | undefined;
-    if (!primary) {
-      return { kind: "none", reason: `No ${primaryId} pipeline in the config` };
+    const attrLine = workingsAttrs
+      .filter((a) => a.value !== "")
+      .map((a) => `${a.label} = ${a.value}`)
+      .join(", ");
+
+    // WIRING SPECIAL CASE (owner Decision 2, temporary): paired Cable + Termination display and the
+    // cable-vs-termination primary choice. Group labels come from config.pipeline_labels.
+    if (category.category_id === WIRING_CATEGORY_ID) {
+      return computeWiring(category, items, selected, ctx, workingsAttrs, attrLine);
     }
-    const result = runPipeline(primaryId, primary, items, selected);
+
+    // GENERIC PATH: run every NON-BCS pipeline; each is one group (labelled from config data / a
+    // prettified id). Values (the appliable supply/install/combined) come from the FIRST non-BCS
+    // pipeline (the category's primary), so a single-pipeline category prices exactly that pipeline.
+    const surfaced = nonBcsPipelines(category);
+    if (surfaced.length === 0) {
+      return { kind: "none", reason: `No priceable pipeline in the ${category.category_id} config` };
+    }
     const values: Record<string, number> = {};
-    const derivation: string[] = [];
-    const matchedRows: string[] = [];
-
-    if (result.status === "ok") {
-      for (const o of result.outputs) {
-        const kind = kindForOutput(o);
-        if (kind) values[kind] = result.finals[o];
-        derivation.push(`${o} = ${result.finals[o]}`);
-      }
-      // A sheet may carry a single COMBINED rate column instead of separate supply/install. The
-      // combined rate = supply + install (the total per-unit rate), so it always has a value when
-      // both are present.
-      if (typeof values.supply_rate === "number" && typeof values.install_rate === "number") {
-        values.combined_rate = values.supply_rate + values.install_rate;
-        derivation.push(`combined_rate = supply + install = ${values.combined_rate}`);
-      }
-      matchedRows.push(
-        `Matched ${termination ? "termination" : "cable"} rate row for ${attrLine}.`,
-      );
-    } else if (result.status === "no_match") {
-      derivation.push(`No ${termination ? "termination" : "cable"} rate row matches ${attrLine}.`);
-    } else {
-      derivation.push(`Pipeline '${primaryId}' has an unsupported step.`);
-    }
-
-    // RM-3a GROUPED WORKINGS (owner option (b), made visually distinct): on a CABLE row the panel
-    // shows the Cable pipeline AND the paired Termination as TWO separate LABELLED blocks, each with
-    // its own derivation + own final values. A TERMINATION row keeps a SINGLE flat block (no
-    // `sections`) -- backward-shaped, byte-identical to pre-RM-3a. The groups are DISPLAY-ONLY; the
-    // applied value still comes from `values` (Suggestion.values), never a group's finals. The flat
-    // `derivation`/`matchedRows` still carry the CABLE lines (the paired line moved into its group).
-    let sections: WorkingsGroup[] | undefined;
-    if (!termination) {
-      const cableFinals: Record<string, number> = {};
-      if (result.status === "ok") {
-        for (const o of result.outputs) cableFinals[o] = result.finals[o];
-        if (typeof values.combined_rate === "number") cableFinals.combined_per_mtr = values.combined_rate;
-      }
-      const cableGroup: WorkingsGroup = {
-        label: "Cable — per Mtr",
-        derivation: [...derivation],
-        finals: cableFinals,
-        matchedRows: [...matchedRows],
-      };
-      const termGroup: WorkingsGroup = {
-        label: "Termination — per Set",
-        derivation: [],
-        finals: {},
-      };
-      const term = pipelines["termination_boq"] as Pipeline | undefined;
-      if (term) {
-        const tr = runPipeline("termination_boq", term, items, selected);
-        if (tr.status === "ok") {
-          for (const o of tr.outputs) {
-            termGroup.finals[o] = tr.finals[o];
-            termGroup.derivation.push(`${o} = ${tr.finals[o]}`);
+    const sections: WorkingsGroup[] = [];
+    const flatDerivation: string[] = [];
+    const flatMatched: string[] = [];
+    surfaced.forEach(([pid, pl], idx) => {
+      const res = runPipeline(pid, pl as Pipeline, items, selected);
+      const finals: Record<string, number> = {};
+      const derivation: string[] = [];
+      if (res.status === "ok") {
+        for (const o of res.outputs) {
+          finals[o] = res.finals[o];
+          derivation.push(`${o} = ${res.finals[o]}`);
+          if (idx === 0) {
+            const kind = kindForOutput(o);
+            if (kind) values[kind] = res.finals[o];
           }
-        } else {
-          termGroup.derivation.push("No matching termination rate row.");
         }
+        if (
+          idx === 0 &&
+          typeof values.supply_rate === "number" &&
+          typeof values.install_rate === "number"
+        ) {
+          values.combined_rate = values.supply_rate + values.install_rate;
+          derivation.push(`combined_rate = supply + install = ${values.combined_rate}`);
+        }
+        if (idx === 0) flatMatched.push(`Matched ${pid} for ${attrLine}.`);
+      } else if (res.status === "no_match") {
+        derivation.push(`No ${pid} rate row matches ${attrLine}.`);
       } else {
-        termGroup.derivation.push("No termination pipeline in the config.");
+        derivation.push(`Pipeline '${pid}' has an unsupported step.`);
       }
-      sections = [cableGroup, termGroup];
-    }
+      if (idx === 0) flatDerivation.push(...derivation);
+      sections.push({ label: pipelineLabel(category, pid), derivation, finals });
+    });
 
     return {
       kind: "suggestion",
       values,
       producibleKinds: PRODUCIBLE_KINDS,
-      basis:
-        result.status === "ok"
-          ? `Rate master: wiring_cabling @ ${attrLine}`
-          : "no match for these attributes",
+      basis: Object.keys(values).length
+        ? `Rate master: ${category.category_id} @ ${attrLine}`
+        : "no match for these attributes",
       workings: {
         attributes: workingsAttrs,
-        matchedRows,
-        derivation,
+        matchedRows: flatMatched,
+        derivation: flatDerivation,
         finalValues: { ...values },
-        ...(sections ? { sections } : {}),
+        sections,
       },
     };
   }
 
   return { id: PRICING_SHEET_HELPER_ID, label: "Pricing sheet", compute };
+}
+
+/** The wiring paired Cable + Termination computation (owner Decision 2, temporary). Extracted so the
+ * generic path stays clean. Group labels come from the config's pipeline_labels. */
+function computeWiring(
+  config: RateCategoryConfig,
+  items: RateMasterItem[],
+  selected: Record<string, string | number>,
+  ctx: RateHelperRowContext,
+  workingsAttrs: WorkingsAttribute[],
+  attrLine: string,
+): HelperResult {
+  const pipelines = config.pipelines ?? {};
+  const termination = isTerminationRow(ctx.description);
+
+  const primaryId = termination ? "termination_boq" : "cable_boq";
+  const primary = pipelines[primaryId] as Pipeline | undefined;
+  if (!primary) {
+    return { kind: "none", reason: `No ${primaryId} pipeline in the config` };
+  }
+  const result = runPipeline(primaryId, primary, items, selected);
+  const values: Record<string, number> = {};
+  const derivation: string[] = [];
+  const matchedRows: string[] = [];
+
+  if (result.status === "ok") {
+    for (const o of result.outputs) {
+      const kind = kindForOutput(o);
+      if (kind) values[kind] = result.finals[o];
+      derivation.push(`${o} = ${result.finals[o]}`);
+    }
+    if (typeof values.supply_rate === "number" && typeof values.install_rate === "number") {
+      values.combined_rate = values.supply_rate + values.install_rate;
+      derivation.push(`combined_rate = supply + install = ${values.combined_rate}`);
+    }
+    matchedRows.push(`Matched ${termination ? "termination" : "cable"} rate row for ${attrLine}.`);
+  } else if (result.status === "no_match") {
+    derivation.push(`No ${termination ? "termination" : "cable"} rate row matches ${attrLine}.`);
+  } else {
+    derivation.push(`Pipeline '${primaryId}' has an unsupported step.`);
+  }
+
+  // A CABLE row shows the Cable pipeline AND the paired Termination as TWO labelled blocks; a
+  // TERMINATION row keeps a SINGLE flat block (no `sections`, backward-shaped). Labels are config data.
+  let sections: WorkingsGroup[] | undefined;
+  if (!termination) {
+    const cableFinals: Record<string, number> = {};
+    if (result.status === "ok") {
+      for (const o of result.outputs) cableFinals[o] = result.finals[o];
+      if (typeof values.combined_rate === "number") cableFinals.combined_per_mtr = values.combined_rate;
+    }
+    const cableGroup: WorkingsGroup = {
+      label: pipelineLabel(config, "cable_boq"),
+      derivation: [...derivation],
+      finals: cableFinals,
+      matchedRows: [...matchedRows],
+    };
+    const termGroup: WorkingsGroup = {
+      label: pipelineLabel(config, "termination_boq"),
+      derivation: [],
+      finals: {},
+    };
+    const term = pipelines["termination_boq"] as Pipeline | undefined;
+    if (term) {
+      const tr = runPipeline("termination_boq", term, items, selected);
+      if (tr.status === "ok") {
+        for (const o of tr.outputs) {
+          termGroup.finals[o] = tr.finals[o];
+          termGroup.derivation.push(`${o} = ${tr.finals[o]}`);
+        }
+      } else {
+        termGroup.derivation.push("No matching termination rate row.");
+      }
+    } else {
+      termGroup.derivation.push("No termination pipeline in the config.");
+    }
+    sections = [cableGroup, termGroup];
+  }
+
+  return {
+    kind: "suggestion",
+    values,
+    producibleKinds: PRODUCIBLE_KINDS,
+    basis:
+      result.status === "ok"
+        ? `Rate master: ${config.category_id} @ ${attrLine}`
+        : "no match for these attributes",
+    workings: {
+      attributes: workingsAttrs,
+      matchedRows,
+      derivation,
+      finalValues: { ...values },
+      ...(sections ? { sections } : {}),
+    },
+  };
 }

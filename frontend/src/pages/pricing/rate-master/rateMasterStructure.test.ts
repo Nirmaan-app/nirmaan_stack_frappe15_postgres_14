@@ -6,9 +6,11 @@ import { describe, it, expect } from "vitest";
 import type { RateCategoryConfig, RateMasterItem } from "./rateMasterTypes";
 import {
   STEP_VOCABULARY,
+  blankPipeline,
   blankStep,
   categoryItemKinds,
   cloneConfig,
+  distinctNumberValues,
   evaluateGoldens,
   goldenDeltas,
   referencedAttrIds,
@@ -169,5 +171,42 @@ describe("EA-1c categoryItemKinds (Data-tab scoping)", () => {
     (cfg as { item_kinds?: string[] }).item_kinds = undefined;
     cfg.pipelines = {};
     expect(categoryItemKinds(cfg)).toEqual([]);
+  });
+});
+
+// EA-2 rider 1: the Add-pipeline builder produces a validator-shaped pipeline (output list + a
+// non-empty steps list whose single step is a known type with a non-empty params.kind).
+describe("blankPipeline (EA-2 add-pipeline builder)", () => {
+  it("produces a validator-minimal pipeline the server accepts", () => {
+    const p = blankPipeline(["supply_per_no", "install_per_no"], "db_item");
+    expect(p.output).toEqual(["supply_per_no", "install_per_no"]);
+    expect(p.steps).toHaveLength(1);
+    const s = p.steps[0] as { step: string; params: { kind: string } };
+    expect(STEP_VOCABULARY).toContain(s.step);           // a KNOWN step type
+    expect(s.step).toBe("match_master_row");
+    expect(typeof s.params.kind).toBe("string");
+    expect(s.params.kind.length).toBeGreaterThan(0);     // non-empty kind (validator requirement)
+  });
+
+  it("filters blank output keys and defaults the kind to 'item' when unknown", () => {
+    const p = blankPipeline(["rate", "", "  "]);
+    expect(p.output).toEqual(["rate"]);
+    expect((p.steps[0] as { params: { kind: string } }).params.kind).toBe("item");
+  });
+});
+
+// EA-2 rider 2: the number-input suggestion list = the distinct numeric values present in the items.
+describe("distinctNumberValues (EA-2 number-input suggestions)", () => {
+  const items: RateMasterItem[] = [
+    { discipline: "Electrical", kind: "popup_box_module", attributes: { module_count: 12 }, rates: {} },
+    { discipline: "Electrical", kind: "popup_box_module", attributes: { module_count: 6 }, rates: {} },
+    { discipline: "Electrical", kind: "popup_box_module", attributes: { module_count: 12 }, rates: {} },
+    { discipline: "Electrical", kind: "popup_box_module", attributes: { note: "x" }, rates: {} },
+  ];
+  it("returns distinct numeric values ascending", () => {
+    expect(distinctNumberValues(items, "module_count")).toEqual([6, 12]);
+  });
+  it("is empty for an attribute with no numeric data (the module_count-with-no-data case)", () => {
+    expect(distinctNumberValues(items, "kva")).toEqual([]);
   });
 });

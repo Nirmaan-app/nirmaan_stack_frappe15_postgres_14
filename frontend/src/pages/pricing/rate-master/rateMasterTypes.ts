@@ -124,6 +124,14 @@ export interface RateCategoryConfig {
   /** EA-1c: the master-item kinds belonging to this category (used to scope the Data tab). Absent on the
    * legacy wiring config -- there the kinds are derived from the pipelines' match_master_row params. */
   item_kinds?: string[];
+  /** EA-2: display labels for the pricing-helper's pipeline groups -- CONFIG DATA, not code (the helper
+   * reads pipeline_labels?.[id] ?? a prettified id). Wiring carries {cable_boq, termination_boq}. */
+  pipeline_labels?: Record<string, string>;
+  /** EA-2: "item_identity" switches server extraction to catalog matching (the identity attribute's
+   * values ARE the item catalog). Absent / anything else => the attribute-extraction mode. */
+  matching_mode?: string;
+  identity_attribute_id?: string | null;
+  notes?: string;
   [k: string]: unknown;
 }
 

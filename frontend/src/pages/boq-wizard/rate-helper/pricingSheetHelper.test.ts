@@ -4,7 +4,14 @@ import { describe, it, expect } from "vitest";
 import type { Pipeline, RateCategoryConfig, RateMasterItem } from "@/pages/pricing/rate-master/rateMasterTypes";
 import type { ExtractionRow, RateHelperRowContext } from "./rateHelperTypes";
 import { isSuggestion } from "./rateHelperTypes";
-import { buildExtractionByRow, isRunForVersion, makePricingSheetHelper } from "./pricingSheetHelper";
+import {
+  buildExtractionByRow,
+  isRunForVersion,
+  makePricingSheetHelper,
+  nonBcsPipelines,
+  pipelineLabel,
+  prettifyPipelineId,
+} from "./pricingSheetHelper";
 
 // cable_boq + termination_boq (verbatim shape from RM-1 config; BCS omitted -- not surfaced).
 const PIPELINES: Record<string, Pipeline> = {
@@ -53,6 +60,8 @@ const CONFIG: RateCategoryConfig = {
     { id: "brand", label: "Brand", type: "choice", values: ["Polycab"], selector: false },
   ],
   pipelines: PIPELINES,
+  // EA-2: the group labels are CONFIG DATA now (the audited wiring pipeline_labels edit).
+  pipeline_labels: { cable_boq: "Cable — per Mtr", termination_boq: "Termination — per Set" },
 };
 
 function cable(material: string, insulation: string, core: number, th: number, list: number, install: number): RateMasterItem {
@@ -217,6 +226,81 @@ describe("RM-3a grouped workings (cable = two groups; termination = one, backwar
     expect(r.workings.sections).toBeUndefined();
     expect(r.workings.derivation.length).toBeGreaterThan(0);
     expect(r.values.supply_rate).toBe(80);
+  });
+});
+
+// EA-2: N-category. A configsByCategory map resolves the config from the ROW's category; a generic
+// (non-wiring) category renders ONE group per NON-BCS pipeline with config/prettified labels; an
+// empty-pipelines (LMS) category declines "coming soon".
+describe("EA-2 N-category compute gate + BCS exclusion + labels", () => {
+  const DB_CONFIG: RateCategoryConfig = {
+    discipline: "Electrical", category_id: "db_switchgear",
+    attribute_definitions: [{ id: "item", label: "Item", type: "choice", values: ["40A FP MCCB"] }],
+    pipelines: {
+      db_boq: {
+        output: ["supply_per_no", "install_per_no"],
+        steps: [
+          { step: "match_master_row", params: { kind: "db_item" } },
+          { step: "scale", target: "supply_base", result: "supply_per_no", params: { markup: 0 }, formula: "base*(1+markup)" },
+          { step: "scale", target: "install_base", result: "install_per_no", params: { markup: 0 }, formula: "base*(1+markup)" },
+        ],
+      },
+      db_bcs: {  // a BCS pipeline -- must NEVER render as a helper group
+        output: ["bcs_per_no"],
+        steps: [
+          { step: "match_master_row", params: { kind: "db_item" } },
+          { step: "scale", target: "supply_base", result: "bcs_per_no", params: { markup: 0 }, formula: "base*(1+markup)" },
+        ],
+      },
+    },
+    pipeline_labels: { db_boq: "DB — per No" },
+  };
+  const DB_ITEMS: RateMasterItem[] = [
+    { discipline: "Electrical", kind: "db_item", attributes: { item: "40A FP MCCB" }, rates: { supply_base: 500, install_base: 50 } },
+  ];
+  const LMS_CONFIG: RateCategoryConfig = {
+    discipline: "Electrical", category_id: "lighting_mgmt_system",
+    attribute_definitions: [{ id: "description", label: "Description", type: "choice", values: ["X"] }],
+    pipelines: {},  // DATA-ONLY -> not eligible -> coming soon
+  };
+  const byCat = new Map<string, RateCategoryConfig>([
+    ["db_switchgear", DB_CONFIG],
+    ["lighting_mgmt_system", LMS_CONFIG],
+  ]);
+
+  it("a DB-item in-run row computes via db_boq -- ONE non-BCS group, config label; db_bcs is never a group", () => {
+    const map = buildExtractionByRow([{ excel_row: 10, attributes: ext({ item: "40A FP MCCB" }) }]);
+    const helper = makePricingSheetHelper({ configsByCategory: byCat, items: DB_ITEMS, extractionByRow: map });
+    const r = helper.compute({ excelRow: 10, description: "40A FP MCCB", nodeType: "Line Item", category: "db_switchgear", discipline: "Electrical", rateKinds: ["supply_rate", "install_rate"] });
+    if (!isSuggestion(r)) throw new Error("expected suggestion");
+    expect(r.values.supply_rate).toBe(500);
+    expect(r.values.install_rate).toBe(50);
+    expect(r.values.combined_rate).toBe(550);
+    // exactly ONE group (db_boq); the BCS pipeline is filtered out entirely.
+    expect(r.workings.sections).toHaveLength(1);
+    expect(r.workings.sections![0].label).toBe("DB — per No");
+    // no group derived from a bcs pipeline (its output key never appears in any group finals)
+    expect(r.workings.sections!.some((s) => "bcs_per_no" in s.finals)).toBe(false);
+  });
+
+  it("an empty-pipelines (LMS) category declines coming-soon", () => {
+    const helper = makePricingSheetHelper({ configsByCategory: byCat, items: DB_ITEMS, extractionByRow: new Map() });
+    const r = helper.compute({ excelRow: 11, description: "occupancy sensor", nodeType: "Line Item", category: "lighting_mgmt_system", discipline: "Electrical", rateKinds: [] });
+    expect(r.kind).toBe("none");
+    if (r.kind === "none") expect(r.reason.toLowerCase()).toContain("coming soon");
+  });
+
+  it("a category with no config at all declines coming-soon", () => {
+    const helper = makePricingSheetHelper({ configsByCategory: byCat, items: DB_ITEMS, extractionByRow: new Map() });
+    const r = helper.compute({ excelRow: 12, description: "x", nodeType: "Line Item", category: "point_wiring", discipline: "Electrical", rateKinds: [] });
+    expect(r.kind).toBe("none");
+  });
+
+  it("pipeline labels: config data wins, else a prettified id; BCS ids are excluded from the surfaced set", () => {
+    expect(pipelineLabel(DB_CONFIG, "db_boq")).toBe("DB — per No");
+    expect(pipelineLabel(DB_CONFIG, "db_install")).toBe("Db Install"); // prettified fallback
+    expect(prettifyPipelineId("conduit_boq")).toBe("Conduit Boq");
+    expect(nonBcsPipelines(DB_CONFIG).map(([id]) => id)).toEqual(["db_boq"]); // db_bcs excluded
   });
 });
 

@@ -149,6 +149,7 @@ import {
 } from "./rate-helper/pricingSheetHelper";
 import { RateSuggestProgressModal } from "./rate-helper/RateSuggestProgressModal";
 import type { RateCategoryConfig, RateMasterItem } from "@/pages/pricing/rate-master/rateMasterTypes";
+import { RATE_MASTER_DISCIPLINES } from "@/pages/pricing/rate-master/rateMasterRegistry";
 
 // Slice 3c: "saved as of" uses the CLIENT clock at save-success (save_cell_price returns no
 // timestamp). HH:MM, mirroring SheetReviewPage's fmtSavedTime shape (client-clock seeded).
@@ -253,6 +254,37 @@ function EngineCatalogFetcher({
   useEffect(() => {
     if (cats) onLoaded(discipline, cats);
   }, [cats, discipline, onLoaded]);
+  return null;
+}
+
+// EA-2: the rate-master category configs the pricing helper may resolve, one per registry category
+// (all Electrical). Fetched by a RateConfigFetcher child each -- the same hook-safe N-fetch shape as
+// EngineCatalogFetcher -- into configsByCategory. Registry-driven: a new category flows through with
+// no code change here.
+const RATE_MASTER_CONFIG_TARGETS: Array<{ discipline: string; categoryId: string }> =
+  RATE_MASTER_DISCIPLINES.flatMap((d) =>
+    d.categories.map((c) => ({ discipline: d.discipline, categoryId: c.category_id })),
+  );
+
+/** EA-2: fetch ONE category's rate config and report it up. Renders no DOM; one hook per instance. */
+function RateConfigFetcher({
+  discipline,
+  categoryId,
+  onLoaded,
+}: {
+  discipline: string;
+  categoryId: string;
+  onLoaded: (categoryId: string, config: RateCategoryConfig | null) => void;
+}) {
+  const { data } = useFrappeGetCall<{ message: { config: RateCategoryConfig | null } }>(
+    "nirmaan_stack.api.boq.rate_master.get_rate_category_config",
+    { discipline, category_id: categoryId },
+    `boq-rm-config::${discipline}::${categoryId}`,
+  );
+  const config = data?.message?.config;
+  useEffect(() => {
+    if (config !== undefined) onLoaded(categoryId, config ?? null);
+  }, [config, categoryId, onLoaded]);
   return null;
 }
 
@@ -479,10 +511,23 @@ const SheetPricingPage = () => {
   // ── RM-3 rate-helper data (DEV-gated fetches; all null-keyed off when the flag/ids are absent) ──
   // The RM-1 config + master (once per page, SWR-cached) feed the RM-2 interpreter CLIENT-SIDE.
   const rmEnabled = RATE_HELPER_ENABLED && !!boqId && !!sheetName;
-  const { data: rmConfigData } = useFrappeGetCall<{ message: { config: RateCategoryConfig | null } }>(
-    "nirmaan_stack.api.boq.rate_master.get_rate_category_config",
-    { discipline: "Electrical", category_id: "wiring_cabling" },
-    RATE_HELPER_ENABLED ? "boq-rm-config-electrical-wiring" : null,
+  // EA-2: N-category configs, accumulated from child RateConfigFetchers (hook-safe N-fetch, mirroring
+  // the HV-10 catalog fetchers) so the helper can resolve a config PER row category. Load-once per
+  // category (a settled Map -> a stable helper); the single wiring-only fetch is gone.
+  const [configsByCategory, setConfigsByCategory] = useState<Map<string, RateCategoryConfig>>(
+    () => new Map(),
+  );
+  const handleRateConfigLoaded = useCallback(
+    (categoryId: string, config: RateCategoryConfig | null) => {
+      if (!config) return;
+      setConfigsByCategory((prev) => {
+        if (prev.has(categoryId)) return prev;
+        const next = new Map(prev);
+        next.set(categoryId, config);
+        return next;
+      });
+    },
+    [],
   );
   const { data: rmItemsData } = useFrappeGetCall<{ message: { items: RateMasterItem[] } }>(
     "nirmaan_stack.api.boq.rate_master.get_rate_master_items",
@@ -2031,22 +2076,23 @@ const SheetPricingPage = () => {
               : null;
   const suggestRatesDisabled = suggestRatesReason !== null;
 
-  // RM-3: config + master (SWR) feed the RM-2 interpreter CLIENT-SIDE (the single compute source).
-  const rmConfig = rmConfigData?.message?.config ?? null;
+  // RM-3/EA-2: the N-category configs + master (SWR) feed the RM-2 interpreter CLIENT-SIDE (the single
+  // compute source). The helper resolves a config PER row category from configsByCategory.
   const rmItems = useMemo(() => rmItemsData?.message?.items ?? [], [rmItemsData]);
   // The run's extraction, keyed by excel_row.
   const extractionByRow = useMemo<Map<number, ExtractionRow>>(
     () => buildExtractionByRow(suggestRun?.results ?? []),
     [suggestRun],
   );
-  // The page-built REAL helper (closure over config + master + the run's extraction). Null until a
-  // run + config are present -> before any run there are no badges. RATE_HELPER_ENABLED gates it.
+  // The page-built REAL helper (closure over the category configs + master + the run's extraction).
+  // Null until a run + at least one config are present -> before any run there are no badges.
+  // RATE_HELPER_ENABLED gates it.
   const pricingSheetHelper = useMemo(
     () =>
-      RATE_HELPER_ENABLED && rmConfig && suggestRun
-        ? makePricingSheetHelper({ config: rmConfig, items: rmItems, extractionByRow })
+      RATE_HELPER_ENABLED && configsByCategory.size > 0 && suggestRun
+        ? makePricingSheetHelper({ configsByCategory, items: rmItems, extractionByRow })
         : null,
-    [rmConfig, rmItems, extractionByRow, suggestRun],
+    [configsByCategory, rmItems, extractionByRow, suggestRun],
   );
   const helperList = useMemo(() => buildHelperList(pricingSheetHelper), [pricingSheetHelper]);
 
@@ -3337,6 +3383,17 @@ const SheetPricingPage = () => {
       {ranDisciplines.map((d) => (
         <EngineCatalogFetcher key={`cat-${d}`} discipline={d} onLoaded={handleCatalogLoaded} />
       ))}
+      {/* EA-2: one rate-config fetcher per registry category (DEV-gated with the whole helper). */}
+      {RATE_HELPER_ENABLED
+        ? RATE_MASTER_CONFIG_TARGETS.map((t) => (
+            <RateConfigFetcher
+              key={`rmcfg-${t.discipline}-${t.categoryId}`}
+              discipline={t.discipline}
+              categoryId={t.categoryId}
+              onLoaded={handleRateConfigLoaded}
+            />
+          ))
+        : null}
       {boqId && sheetName
         ? statusPollDisciplines.map((d) => (
             <ClassifyStatusPoller

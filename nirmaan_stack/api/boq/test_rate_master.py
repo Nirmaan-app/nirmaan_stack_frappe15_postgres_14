@@ -31,6 +31,9 @@ Coverage map (behavior -> test):
   - EA-1: SCOPED replace supersedes only the E-ALL scope, WIRING UNTOUCHED     -> test_24
   - EA-1b: retired-scope (ups) also deactivated on replace, else untouched     -> test_25
   - EA-1c: update_rate_config accepts a top-level item_kinds (Data-tab scope)   -> test_26
+  - EA-2: relaxed validator -- empty pipelines accepted; bad non-empty rejected -> test_27
+  - EA-2: pass-through keys (matching_mode/identity_attribute_id/notes/
+    pipeline_labels) accepted + a pipeline_labels edit audited (Version doc)     -> test_28
 """
 
 import copy
@@ -60,7 +63,7 @@ class TestRateMaster(FrappeTestCase):
             cls.raw = json.load(fh)
         # EA-1/EA-1b: the all-categories (E-ALL) asset, loaded by path (DEFAULT_DATA_FILE stays wiring).
         cls.eall_path = os.path.join(
-            os.path.dirname(loader.__file__), "data", "rate_master_electrical_all_v5.json"
+            os.path.dirname(loader.__file__), "data", "rate_master_electrical_all_v6.json"
         )
         with open(cls.eall_path, "r", encoding="utf-8") as fh:
             cls.eall = json.load(fh)
@@ -722,3 +725,48 @@ class TestRateMaster(FrappeTestCase):
         res = rate_master.update_rate_config(name=cfg_name, config=json.dumps(cfg))
         self.assertTrue(res["ok"])
         self.assertEqual(self._full_config(cfg_name)["item_kinds"], ["cable", "termination"])
+
+    # ---- EA-2: relaxed empty-pipelines validator + pass-through keys ----
+    def test_27_relaxed_empty_pipelines_accepted_bad_nonempty_rejected(self):
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._real_payload(disc))
+        cfg_name = self._config_name(disc)
+        cfg = self._full_config(cfg_name)
+        # (a) EA-2: an EMPTY pipelines dict is now ACCEPTED (the LMS in-system authoring path). Its
+        # goldens must also empty (goldens reference pipelines).
+        cfg["pipelines"] = {}
+        cfg["goldens"] = []
+        res = rate_master.update_rate_config(name=cfg_name, config=json.dumps(cfg))
+        self.assertTrue(res["ok"])
+        self.assertEqual(self._full_config(cfg_name)["pipelines"], {})
+        # (b) a NON-empty but structurally BAD pipeline is STILL rejected, no write
+        before = frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config")
+        bad = self._full_config(cfg_name)
+        bad["pipelines"] = {"x": {"output": ["y"], "steps": [{"step": "quantum_flux"}]}}
+        with self.assertRaises(frappe.ValidationError):
+            rate_master.update_rate_config(name=cfg_name, config=json.dumps(bad))
+        self.assertEqual(frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config"), before)
+
+    def test_28_pass_through_keys_and_pipeline_labels_audited(self):
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._real_payload(disc))
+        cfg_name = self._config_name(disc)
+        self.assertEqual(len(self._versions("BoQ Rate Category Config", cfg_name)), 0)
+        cfg = self._full_config(cfg_name)
+        # EA-2 pass-through keys: accepted by the allowlist, stored verbatim (NOT structurally
+        # validated) -- exactly like item_kinds. pipeline_labels is the wiring-helper label source.
+        cfg["pipeline_labels"] = {"cable_boq": "Cable — per Mtr", "termination_boq": "Termination — per Set"}
+        cfg["matching_mode"] = "item_identity"
+        cfg["identity_attribute_id"] = "material"
+        cfg["notes"] = "authored by test"
+        res = rate_master.update_rate_config(name=cfg_name, config=json.dumps(cfg))
+        self.assertTrue(res["ok"])
+        stored = self._full_config(cfg_name)
+        self.assertEqual(stored["pipeline_labels"]["cable_boq"], "Cable — per Mtr")
+        self.assertEqual(stored["matching_mode"], "item_identity")
+        self.assertEqual(stored["notes"], "authored by test")
+        # AUDIT: a Version doc records the config diff
+        versions = self._versions("BoQ Rate Category Config", cfg_name)
+        self.assertEqual(len(versions), 1)
+        changed = {c[0] for c in json.loads(versions[0]["data"]).get("changed", [])}
+        self.assertIn("config", changed)

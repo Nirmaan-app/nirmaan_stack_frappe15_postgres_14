@@ -715,6 +715,11 @@ _KNOWN_CONFIG_KEYS = {
     "discipline", "category_id", "category_display", "pairing_rule",
     "attribute_definitions", "pipelines", "bcs_surfacing", "normalization_rule", "goldens",
     "item_kinds",  # EA-1c: the category's master-item kinds (Data-tab scoping); pass-through, not validated
+    # EA-2 pass-through keys (stored VERBATIM, NOT structurally validated -- exactly like item_kinds).
+    # An item-identity config carries identity_attribute_id + matching_mode + notes, and the helper
+    # reads pipeline_labels; the RM-4b editor resubmits the WHOLE config, so these must be accepted or
+    # editing/authoring an EA-2 config would be rejected as an unknown key.
+    "identity_attribute_id", "matching_mode", "notes", "pipeline_labels",
 }
 _BAND_WHEN_RE = re.compile(r"^(<=|>=|<|>)\s*-?\d+(\.\d+)?$")
 
@@ -770,9 +775,12 @@ def _validate_config(cfg):
             _vthrow(f"choice attribute '{did}' needs a non-empty values list.")
 
     # pipelines ------------------------------------------------------------------------------
+    # EA-2: an EMPTY pipelines dict is ACCEPTED -- a DATA-ONLY config (definitions + items, no
+    # derivation yet), the owner's in-system authoring path (e.g. lighting_mgmt_system). A NON-empty
+    # pipelines object is still validated fully, pipeline by pipeline, below.
     pipelines = cfg.get("pipelines")
-    if not isinstance(pipelines, dict) or not pipelines:
-        _vthrow("pipelines must be a non-empty object.")
+    if not isinstance(pipelines, dict):
+        _vthrow("pipelines must be an object.")
     referenced = {}  # attr id -> [locations] (for the reference guard's named error)
 
     def _ref(attr, loc):

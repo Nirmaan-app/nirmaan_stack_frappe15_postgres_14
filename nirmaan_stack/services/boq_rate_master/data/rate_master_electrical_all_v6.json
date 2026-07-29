@@ -3,7 +3,7 @@
  "sha256_prefix": "6a652282c5a07c7f",
  "extracted_at": "2026-07-29",
  "discipline": "Electrical",
- "provenance": "E-ALL chat decode 2026-07-29: every pipeline decoded from the ALL ITEM WISE RATE block formulas + assumption cells; oracles = the blocks' displayed outputs at their current selector states; v2: formulas normalized to the interpreter contract (base+exact params), machine-format goldens (RM-4b attrs+expect), misc param fixed at source, conditional-component chamber shape (feature 4); v3 (owner rulings 2026-07-29): the guiding sheet is the AUTHORITY on finalized rules - UPS removed entirely (Floor BOX misdecode corrected -> popup_boxes per-module config added), LMS kept as DATA ONLY with empty pipelines (owner authors in-system), light_fixtures/panels stay out; retired_kinds/retired_category_ids added for the loader; v4 (owner 2026-07-29): miscellaneous rebuilt SELF-CONTAINED from the guiding block itself (rates = BoQ direct; BCS supply = BoQ x 0.8 [/1.25]; BCS install = 0); the Miscelleneous background sheet no longer feeds the import; v5: item_kinds declared per config (drives per-category viewer/add-form scoping; LMS included; wiring derives from its pipelines)",
+ "provenance": "E-ALL chat decode 2026-07-29: every pipeline decoded from the ALL ITEM WISE RATE block formulas + assumption cells; oracles = the blocks' displayed outputs at their current selector states; v2: formulas normalized to the interpreter contract (base+exact params), machine-format goldens (RM-4b attrs+expect), misc param fixed at source, conditional-component chamber shape (feature 4); v3 (owner rulings 2026-07-29): the guiding sheet is the AUTHORITY on finalized rules - UPS removed entirely (Floor BOX misdecode corrected -> popup_boxes per-module config added), LMS kept as DATA ONLY with empty pipelines (owner authors in-system), light_fixtures/panels stay out; retired_kinds/retired_category_ids added for the loader; v4 (owner 2026-07-29): miscellaneous rebuilt SELF-CONTAINED from the guiding block itself (rates = BoQ direct; BCS supply = BoQ x 0.8 [/1.25]; BCS install = 0); the Miscelleneous background sheet no longer feeds the import; v5: item_kinds declared per config (drives per-category viewer/add-form scoping; LMS included; wiring derives from its pipelines); v6: identity_attribute_id declared on the four item-identity configs (drives the EA-2 identity extraction mode)",
  "items": [
   {
    "kind": "earthing_item",
@@ -14691,7 +14691,8 @@
    "notes": "single-item pricing; the point-BOM composite (sockets+plate build) = EA-4",
    "item_kinds": [
     "switch_socket_item"
-   ]
+   ],
+   "identity_attribute_id": "item"
   },
   {
    "category_id": "db_switchgear",
@@ -14926,7 +14927,8 @@
    "notes": "single-item pricing; the DB BOM build-up + install-override table = EA-4",
    "item_kinds": [
     "db_switchgear_item"
-   ]
+   ],
+   "identity_attribute_id": "item"
   },
   {
    "category_id": "miscellaneous",
@@ -15026,7 +15028,8 @@
    "notes": "SELF-CONTAINED (owner 2026-07-29): the ALL ITEM WISE RATE Misc block is the rate table - no background-sheet dependency; rates ARE BoQ supply/install; BCS supply = BoQ/1.25, BCS install = 0. Rows with a missing rate import as-is and compute honestly.",
    "item_kinds": [
     "misc_item"
-   ]
+   ],
+   "identity_attribute_id": "description"
   },
   {
    "category_id": "lighting_mgmt_system",
@@ -15072,7 +15075,9 @@
    "notes": "DATA ONLY by owner ruling 2026-07-29: rate data loaded (Lutron/Zen brand rows); NO pipelines shipped - the owner authors the ruleset directly in-system via the Pipelines tab (RM-4b). Until then the category is honest no-compute everywhere.",
    "item_kinds": [
     "lms_item"
-   ]
+   ],
+   "matching_mode": "item_identity",
+   "identity_attribute_id": "description"
   },
   {
    "category_id": "popup_boxes",

@@ -181,3 +181,32 @@ export function blankAttributeDefinition(type: "choice" | "number"): AttributeDe
     ? { id: "", label: "", type: "choice", values: [] }
     : { id: "", label: "", type: "number" };
 }
+
+/**
+ * EA-2 (rider 1): a validator-MINIMAL pipeline for the Add-pipeline affordance. The server
+ * `_validate_config` requires `output` (a list of strings) + a NON-empty `steps` list whose every
+ * step is a known type; a single `match_master_row` (the natural first step -- it selects the item to
+ * price) is the one blankStep the server accepts UNEDITED (its params.kind is a non-empty string).
+ * The author then adds the real computation steps via the existing AddStep machinery. This is what
+ * makes authoring a pipeline into an EMPTY-pipelines config (the LMS path) possible.
+ */
+export function blankPipeline(outputKeys: string[], kind?: string): Pipeline {
+  const first = blankStep("match_master_row") as PipelineStep & { params: { kind: string } };
+  first.params = { kind: kind && kind.trim() ? kind.trim() : "item" };
+  return { output: outputKeys.filter((k) => k.trim().length > 0), steps: [first] };
+}
+
+/**
+ * EA-2 (rider 2): the distinct numeric values present in the loaded items for a NUMBER attribute,
+ * ascending -- the datalist suggestions behind the Derivation tab's free numeric input (so a defined
+ * number attribute with no data, e.g. module_count, still accepts a typed value instead of an empty
+ * Select). PURE.
+ */
+export function distinctNumberValues(items: RateMasterItem[], attrId: string): number[] {
+  const set = new Set<number>();
+  for (const it of items) {
+    const v = it.attributes?.[attrId];
+    if (typeof v === "number" && Number.isFinite(v)) set.add(v);
+  }
+  return Array.from(set).sort((a, b) => a - b);
+}
