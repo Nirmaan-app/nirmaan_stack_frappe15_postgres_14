@@ -407,7 +407,16 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   match** (kind `tray_install_rate`, ×4). The old single `tray_boq` (install = supply ×0.2, golden 280/60)
   was WRONG and is DELETED; oracle goldens t1/t2/t3 (431/120/297/0, 415/120/286, 410/200) are the pins,
   machine-verified (config-data preview gate + vitest + live Derivation), so the tray is OFF the manual
-  verification list. **The wiring goldens are the standing regression pins.** The Rate Master category selector is
+  verification list. **EA-2c — `component_ref` (a NEW step): base from a SEPARATELY-REFERENCED master row**
+  matched by `ref.kind` AND every `ref.attributes` (exact canonical, this discipline). UNIQUE resolution:
+  zero OR multiple matches is an HONEST no-compute (never zero-by-default, never pick-first); the referenced
+  row's `target` binds as `base`, then conditions/params/formula per the component contract; the trace names
+  the referenced row (`StepTrace.refItem`). It is a first-class vocabulary member (client STEP_VOCABULARY +
+  server `_KNOWN_STEP_TYPES`/`_validate_config`). **Owner correction: the earthing adder ADDS A BUS BAR (the
+  existing Bus bar earthing_item row), NOT an earth chamber** (the chamber attempt was reverted, asset v8
+  skipped v7->v9). This is ONE ROW, TWO ROLES (requirement #7, shared items stored once): the Bus bar row
+  prices both as a selectable item AND as the adder; an edit to it flows into both. **component_ref is the
+  ASSEMBLY PRIMITIVE's simplest form — EA-4's BOM steps extend it (referenced item × quantity).** **The wiring goldens are the standing regression pins.** The Rate Master category selector is
   REGISTRY-driven (`rateMasterRegistry.ts`), not config-read. The pricing-sheet helper stays wiring-only
   and shows its category coming-soon note for other categories (honest no-compute). A `scale` step whose
   TARGET RATE is missing (`null`/`NaN`) SKIPS that output (renders absent, never invented as 0) while the

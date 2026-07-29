@@ -15271,3 +15271,68 @@ independent vitest oracle test, and the live Derivation. It no longer needs manu
 BACKEND: `data/rate_master_electrical_all_v7.json` (rename from v6), `test_rate_master.py` (fixture path +
 counts 754 -> 764 + tray_install_rate assertion). FRONTEND: `ratePipelineInterpreter.test.ts` (dead
 tray golden replaced). NO interpreter/helper/endpoint code changed. Out of scope: everything else.
+
+## Build slice EA-2c (the ADD-A-BUS-BAR adder via a qualified component_ref) COMPLETE
+
+Owner correction (2026-07-29/30): the earthing adder means ADD A BUS BAR, not an earth chamber. The
+FIRST EA-2c attempt (a new `earthing_chamber` "Earth Chamber Works" item + a kind-only component_ref,
+asset v8) was STOPPED by the owner and FULLY REVERTED (code + asset + DB) -- v8 never lands; the asset
+dir skips v8 (v7 -> v9). The referenced item is the EXISTING **Bus bar** earthing_item row (supply_base
+3000), so the adder is "the Bus bar row priced again inside another earthing selection" -- ONE ROW, TWO
+ROLES (requirement #7, shared items stored once, made kinetic): the Bus bar row prices BOTH as a
+selectable earthing item AND as the adder.
+
+### Pre-flight (the revert left a clean state, evidenced)
+Before building: git = standing noise only, tip `fa0fd8ad` (EA-2b), no stray EA-2c refs. The v8 load HAD
+run before the stop (live earthing config referenced the then-unimplemented component_ref), so the revert
+RESTORED v7 via `replace=True` (764 items, earthing config back to component/component), deactivated then
+DELETED the orphan `earthing_chamber` row (zero anywhere), **wiring sha `c10509deb4af11dd` unchanged
+throughout**.
+
+### Asset v7 -> v9 (`rate_master_electrical_all_v9.json`, sha256 prefix `fe0390f093d17135`, 764 items -- NO new item)
+Delta vs v7: the earthing config's third attribute is `with_busbar` (With/Without, label "With Bus bar");
+the adder in earthing_boq AND earthing_bcs is the NEW `component_ref` step, qualified to the Bus bar row.
+No new items (the Bus bar row already existed among the 25 earthing_item). Imported `replace=True` (scoped);
+WIRING sha unchanged; tray (EA-2b) config byte-identical.
+
+### The new step -- component_ref (interpreter + trace + validator + vocabulary)
+`{"step":"component_ref","name":"busbar","ref":{"kind":"earthing_item","attributes":{"type":"Bus bar"}},
+"target":"supply_base",conditions:[with_busbar With->factor 1 / Without->factor 0],"formula":"base*factor"}`.
+- **Interpreter (`ratePipelineInterpreter.ts`):** base comes from a SEPARATELY-REFERENCED master row
+  matched by `ref.kind` AND every `ref.attributes` (exact canonical, this discipline). Resolution must be
+  UNIQUE -- zero OR multiple matches is an HONEST no-compute (never zero-by-default, never pick-first). The
+  referenced row's `target` binds as `base`; conditions/params/formula per the existing component contract.
+  A new `StepTrace.refItem` carries the referenced row's name.
+- **Trace (`RateMasterDerivation.tsx`):** `detailFor` renders `ref: <name>` -- names the referenced row
+  (the qualifying attribute values, e.g. "Bus bar").
+- **Vocabulary:** added to the client `STEP_VOCABULARY` + `blankStep` (RM-4b editor) AND the server
+  `_KNOWN_STEP_TYPES` + a `_validate_config` branch (name/target/formula strings; ref.kind string;
+  ref.attributes optional exact-value map; conditions per feature-4; top-level params OPTIONAL). So the
+  earthing config stays RM-4b-editable and client/server agree.
+
+### Cert (browser + server; READ-ONLY on BoQs; every point evidenced)
+- Q1: v9 live -- 764 items, ZERO earthing_chamber rows anywhere (the orphan deleted), earthing defs show
+  `with_busbar`, both pipelines carry the qualified component_ref, wiring sha `c10509deb4af11dd` unchanged,
+  tray config + goldens byte-identical to EA-2b (cable_tray 450 + tray_install_rate 10 active).
+- Q2: Derivation, GI / 50 x 6 MM Earth Strip / With Bus bar -> supply 4690.75 / install 79.75 / bcs 3235;
+  the trace names "Bus bar" (busbar = 3000). Without -> 340.75 / 79.75 / 235. AND the Bus bar row selected
+  AS the earthing item (BUS BAR / Bus bar / Without) -> 4350 (3000*1.45) / install 29 (20*1.45) -- ONE ROW,
+  TWO ROLES, both live.
+- Q3: EDIT-FLOWS-EVERYWHERE -- Data-tab (admin) edit the Bus bar row supply 3000 -> 3500; BOTH roles
+  followed with ZERO config change: the With-Bus-bar derivation -> (235+3500)*1.45 = 5415.75 AND the
+  busbar-as-item derivation -> 3500*1.45 = 5075. Reverted to 3000 (rates byte-restored {3000, 20}); 2
+  audited Version docs (the edit `ofcvnfpaui` + the revert `s1qeq06oh8`).
+- Q4/Q5: vitest interpreter 30 -> 36 (e1/e2 goldens; one-row-two-roles; edit-flows; MISSING-ref no_match;
+  AMBIGUOUS-ref [two matching rows] no_match). test_rate_master 28 -> 29 (component_ref config round-trips;
+  a component_ref missing ref.kind rejected). test_rate_suggest 11. tsc 0 new; build exit 0.
+
+### EA-4 lineage (docs note)
+component_ref is the ASSEMBLY PRIMITIVE's simplest form -- EA-4's BOM steps extend it (referenced item x
+quantity). And it makes "shared items stored once" (requirement #7) kinetic: one Bus bar row, two roles.
+
+### Files
+BACKEND: `data/rate_master_electrical_all_v9.json` (rename from v7, v8 skipped), `api/boq/rate_master.py`
+(_KNOWN_STEP_TYPES + _validate_config component_ref branch), `test_rate_master.py` (fixture path v7->v9 +
+test_29). FRONTEND: `ratePipelineInterpreter.ts` (the step), `ratePipelineInterpreter.test.ts`,
+`rateMasterTypes.ts` (ComponentRefStep + StepTrace.refItem), `RateMasterDerivation.tsx` (detailFor),
+`rateMasterStructure.ts` (STEP_VOCABULARY + blankStep). The dead EA-2c chamber attempt (v8) left NO source.

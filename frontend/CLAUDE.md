@@ -1107,7 +1107,16 @@ in the plan doc.
   ceiling-accessories 106 / refill 180 / cutting 200) + a **width-table install match** (kind
   `tray_install_rate`, ×4). The old single `tray_boq` (install = supply ×0.2, golden 280/60) was WRONG and
   is DELETED; the oracle goldens t1/t2/t3 (431/120/297/0, 415/120/286, 410/200) are the standing pins (the
-  dead 280/60 interpreter-test fixture was replaced). **The five wiring goldens are the standing regression pins for every addition.** The Rate Master
+  dead 280/60 interpreter-test fixture was replaced). **EA-2c — `component_ref` (a NEW interpreter step):
+  base from a SEPARATELY-REFERENCED master row** matched by `ref.kind` AND every `ref.attributes` (exact
+  canonical, this discipline); UNIQUE resolution (zero OR multiple -> HONEST no-compute); the referenced
+  row's `target` binds as `base`, conditions/params/formula per the component contract; the trace names the
+  referenced row (`StepTrace.refItem`, rendered by `detailFor`). First-class vocabulary member
+  (STEP_VOCABULARY + blankStep + the server validator). **Owner: the earthing adder ADDS A BUS BAR (the
+  existing Bus bar earthing_item row), NOT an earth chamber** (the chamber attempt was reverted; asset
+  skipped v8, v7->v9). ONE ROW, TWO ROLES: the Bus bar row prices both as a selectable item AND as the
+  adder; an edit flows into both. **component_ref is the ASSEMBLY PRIMITIVE's simplest form — EA-4's BOM
+  steps extend it (referenced item × quantity).** **The five wiring goldens are the standing regression pins for every addition.** The Rate Master
   category selector is REGISTRY-driven (`rateMasterRegistry.ts` lists all eleven Electrical categories),
   NOT config-read. **EA-2: the pricing-sheet helper (`pricingSheetHelper.ts`) is N-CATEGORY** — it resolves
   the config PER row category (`configsByCategory`, fetched by a child `RateConfigFetcher` for all 11
