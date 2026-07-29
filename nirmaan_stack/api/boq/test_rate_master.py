@@ -29,6 +29,7 @@ Coverage map (behavior -> test):
   - RM-4b: a valid add-step + add-param replace persists                       -> test_22
   - EA-1: multi-config load -- counts, shared batch, 10 configs, goldens merge -> test_23
   - EA-1: SCOPED replace supersedes only the E-ALL scope, WIRING UNTOUCHED     -> test_24
+  - EA-1b: retired-scope (ups) also deactivated on replace, else untouched     -> test_25
 """
 
 import copy
@@ -56,9 +57,9 @@ class TestRateMaster(FrappeTestCase):
         super().setUpClass()
         with open(loader.DEFAULT_DATA_FILE, "r", encoding="utf-8") as fh:
             cls.raw = json.load(fh)
-        # EA-1: the all-categories (E-ALL) asset, loaded by path (DEFAULT_DATA_FILE stays wiring).
+        # EA-1/EA-1b: the all-categories (E-ALL) asset, loaded by path (DEFAULT_DATA_FILE stays wiring).
         cls.eall_path = os.path.join(
-            os.path.dirname(loader.__file__), "data", "rate_master_electrical_all_v2.json"
+            os.path.dirname(loader.__file__), "data", "rate_master_electrical_all_v4.json"
         )
         with open(cls.eall_path, "r", encoding="utf-8") as fh:
             cls.eall = json.load(fh)
@@ -599,12 +600,13 @@ class TestRateMaster(FrappeTestCase):
     def test_23_eall_multi_config_load_counts_and_goldens_merge(self):
         disc = self._new_disc()
         r = loader.load_rate_master(payload=self._eall_payload(disc))
-        # per-kind counts land EXACTLY (the INPUT block)
-        self.assertEqual(r["items_total"], 756)
+        # per-kind counts land EXACTLY (EA-1b v4: ups removed, popup_box_module added -> 754)
+        self.assertEqual(r["items_total"], 754)
         self.assertEqual(r["items_by_kind"]["cable_tray"], 450)
         self.assertEqual(r["items_by_kind"]["db_switchgear_item"], 137)
         self.assertEqual(r["items_by_kind"]["earthing_item"], 25)
-        self.assertEqual(r["items_by_kind"]["ups_per_kva"], 1)
+        self.assertEqual(r["items_by_kind"]["popup_box_module"], 1)
+        self.assertNotIn("ups_per_kva", r["items_by_kind"])  # UPS removed by the Floor BOX correction
         self.assertEqual(r["configs_loaded"], 10)
         # ONE shared batch across the whole scope (items + configs)
         item_batches = {
@@ -626,6 +628,11 @@ class TestRateMaster(FrappeTestCase):
         self.assertIn("attrs", g)
         self.assertIn("expect", g)
         self.assertIn("earthing_boq", g["expect"])
+        # EA-1b: the LMS config loads DATA-ONLY -- empty pipelines, active, items present
+        self.assertIn("lighting_mgmt_system", by_cat)
+        self.assertEqual(by_cat["lighting_mgmt_system"]["pipelines"], {})
+        self.assertEqual(r["items_by_kind"]["lms_item"], 24)
+        self.assertNotIn("ups", by_cat)  # no UPS config
 
     def test_24_eall_scoped_replace_preserves_wiring(self):
         disc = self._new_disc()
@@ -651,9 +658,9 @@ class TestRateMaster(FrappeTestCase):
         with self.assertRaises(frappe.ValidationError):
             loader.load_rate_master(payload=self._eall_payload(disc))
 
-        # replace supersedes ONLY the E-ALL scope (756 items / 10 configs), never wiring
+        # replace supersedes ONLY the E-ALL scope (754 items / 10 configs), never wiring
         r2 = loader.load_rate_master(payload=self._eall_payload(disc), replace=True)
-        self.assertEqual(r2["items_deactivated"], 756)
+        self.assertEqual(r2["items_deactivated"], 754)
         self.assertEqual(r2["configs_deactivated"], 10)
         # THE NAMED INVARIANT: wiring cable/termination still active + wiring_cabling config still active
         self.assertEqual(
@@ -663,9 +670,42 @@ class TestRateMaster(FrappeTestCase):
             frappe.db.count("BoQ Rate Category Config", {"discipline": disc, "category_id": "wiring_cabling", "active": 1}),
             1,
         )
-        # a fresh active E-ALL batch: 756 items, 10 configs
+        # a fresh active E-ALL batch: 754 items, 10 configs
         self.assertEqual(self._active_items(disc, kind="cable_tray"), 450)
         self.assertEqual(
             frappe.db.count("BoQ Rate Category Config", {"discipline": disc, "category_id": "earthing", "active": 1}),
             1,
         )
+
+    def test_25_eall_retired_scope_deactivated_on_replace(self):
+        disc = self._new_disc()
+        # simulate a PRIOR batch that carried UPS (now retired by the Floor BOX correction): a
+        # ups_per_kva item + a ups config, both active.
+        frappe.get_doc({
+            "doctype": "BoQ Rate Master Item", "discipline": disc, "kind": "ups_per_kva",
+            "attributes": "{}", "rates": "{}", "import_batch": "prior-eall", "active": 1,
+        }).insert(ignore_permissions=True)
+        frappe.get_doc({
+            "doctype": "BoQ Rate Category Config", "discipline": disc, "category_id": "ups",
+            "config": "{}", "import_batch": "prior-eall", "active": 1,
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        # first v4 load (no replace) leaves the retired UPS rows untouched (not in the payload scope)
+        loader.load_rate_master(payload=self._eall_payload(disc))
+        self.assertEqual(self._active_items(disc, kind="ups_per_kva"), 1)
+
+        # replace ALSO supersedes the retired scope
+        r = loader.load_rate_master(payload=self._eall_payload(disc), replace=True)
+        self.assertEqual(r["retired_kinds"], ["ups_per_kva", "ups_reference"])
+        self.assertEqual(r["retired_category_ids"], ["ups"])
+        self.assertGreaterEqual(r["retired_items_deactivated"], 1)
+        self.assertGreaterEqual(r["retired_configs_deactivated"], 1)
+        # UPS item + config now inactive (RETAINED, never deleted)
+        self.assertEqual(self._active_items(disc, kind="ups_per_kva"), 0)
+        self.assertEqual(
+            frappe.db.count("BoQ Rate Category Config", {"discipline": disc, "category_id": "ups", "active": 1}), 0
+        )
+        self.assertEqual(frappe.db.count("BoQ Rate Master Item", {"discipline": disc, "kind": "ups_per_kva"}), 1)
+        # and the E-ALL scope itself is freshly active
+        self.assertEqual(self._active_items(disc, kind="cable_tray"), 450)

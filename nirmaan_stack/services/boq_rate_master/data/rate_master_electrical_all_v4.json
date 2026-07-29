@@ -3,7 +3,7 @@
  "sha256_prefix": "6a652282c5a07c7f",
  "extracted_at": "2026-07-29",
  "discipline": "Electrical",
- "provenance": "E-ALL chat decode 2026-07-29: every pipeline decoded from the ALL ITEM WISE RATE block formulas + assumption cells; oracles = the blocks' displayed outputs at their current selector states; v2: formulas normalized to the interpreter contract (base+exact params), machine-format goldens (RM-4b attrs+expect), misc param fixed at source, conditional-component chamber shape (feature 4)",
+ "provenance": "E-ALL chat decode 2026-07-29: every pipeline decoded from the ALL ITEM WISE RATE block formulas + assumption cells; oracles = the blocks' displayed outputs at their current selector states; v2: formulas normalized to the interpreter contract (base+exact params), machine-format goldens (RM-4b attrs+expect), misc param fixed at source, conditional-component chamber shape (feature 4); v3 (owner rulings 2026-07-29): the guiding sheet is the AUTHORITY on finalized rules - UPS removed entirely (Floor BOX misdecode corrected -> popup_boxes per-module config added), LMS kept as DATA ONLY with empty pipelines (owner authors in-system), light_fixtures/panels stay out; retired_kinds/retired_category_ids added for the loader; v4 (owner 2026-07-29): miscellaneous rebuilt SELF-CONTAINED from the guiding block itself (rates = BoQ direct; BCS supply = BoQ x 0.8 [/1.25]; BCS install = 0); the Miscelleneous background sheet no longer feeds the import",
  "items": [
   {
    "kind": "earthing_item",
@@ -9713,58 +9713,6 @@
    }
   },
   {
-   "kind": "ups_per_kva",
-   "brand": "Generic",
-   "unit": "kVA",
-   "attributes": {
-    "pricing_mode": "PER_KVA"
-   },
-   "rates": {
-    "supply_per_kva": 900.0,
-    "install_per_kva": 100.0
-   },
-   "source": {
-    "sheet": "ALL ITEM WISE RATE",
-    "row": 5
-   }
-  },
-  {
-   "kind": "ups_reference",
-   "brand": "Generic",
-   "unit": "Nos",
-   "attributes": {
-    "ups_type": "Online",
-    "kva": 3.0,
-    "phase": 1.0,
-    "backup": "30 min"
-   },
-   "rates": {
-    "list_price": 27030.0
-   },
-   "source": {
-    "sheet": "UPS",
-    "row": 2
-   }
-  },
-  {
-   "kind": "ups_reference",
-   "brand": "Generic",
-   "unit": "Nos",
-   "attributes": {
-    "ups_type": "",
-    "kva": 20.0,
-    "phase": 3.0,
-    "backup": "30 min"
-   },
-   "rates": {
-    "list_price": 213750.0
-   },
-   "source": {
-    "sheet": "UPS",
-    "row": 5
-   }
-  },
-  {
    "kind": "industrial_socket",
    "brand": "Generic",
    "unit": "Nos",
@@ -13447,214 +13395,6 @@
    }
   },
   {
-   "kind": "misc_item",
-   "brand": "Generic",
-   "unit": "Nos",
-   "attributes": {
-    "description": "Rubber Mat"
-   },
-   "rates": {
-    "bcs_supply": 1650.0,
-    "bcs_install": null
-   },
-   "source": {
-    "sheet": "Miscelleneous",
-    "row": 5
-   }
-  },
-  {
-   "kind": "misc_item",
-   "brand": "Generic",
-   "unit": "Nos",
-   "attributes": {
-    "description": "Gloves"
-   },
-   "rates": {
-    "bcs_supply": 100.0,
-    "bcs_install": null
-   },
-   "source": {
-    "sheet": "Miscelleneous",
-    "row": 6
-   }
-  },
-  {
-   "kind": "misc_item",
-   "brand": "Generic",
-   "unit": "Nos",
-   "attributes": {
-    "description": "Danger Board"
-   },
-   "rates": {
-    "bcs_supply": 480.0,
-    "bcs_install": null
-   },
-   "source": {
-    "sheet": "Miscelleneous",
-    "row": 7
-   }
-  },
-  {
-   "kind": "misc_item",
-   "brand": "Generic",
-   "unit": "Nos",
-   "attributes": {
-    "description": "SLD Board"
-   },
-   "rates": {
-    "bcs_supply": 1125.0,
-    "bcs_install": null
-   },
-   "source": {
-    "sheet": "Miscelleneous",
-    "row": 8
-   }
-  },
-  {
-   "kind": "misc_item",
-   "brand": "Generic",
-   "unit": "Nos",
-   "attributes": {
-    "description": "Glass Box"
-   },
-   "rates": {
-    "bcs_supply": 1125.0,
-    "bcs_install": null
-   },
-   "source": {
-    "sheet": "Miscelleneous",
-    "row": 9
-   }
-  },
-  {
-   "kind": "misc_item",
-   "brand": "Generic",
-   "unit": "Nos",
-   "attributes": {
-    "description": "First Aid"
-   },
-   "rates": {
-    "bcs_supply": 1500.0,
-    "bcs_install": null
-   },
-   "source": {
-    "sheet": "Miscelleneous",
-    "row": 10
-   }
-  },
-  {
-   "kind": "misc_item",
-   "brand": "Generic",
-   "unit": "Sft",
-   "attributes": {
-    "description": "Temporary"
-   },
-   "rates": {
-    "bcs_supply": 98000.0,
-    "bcs_install": null
-   },
-   "source": {
-    "sheet": "Miscelleneous",
-    "row": 11
-   }
-  },
-  {
-   "kind": "misc_item",
-   "brand": "Generic",
-   "unit": "Nos",
-   "attributes": {
-    "description": "Fire Sealent"
-   },
-   "rates": {
-    "bcs_supply": 2500.0,
-    "bcs_install": null
-   },
-   "source": {
-    "sheet": "Miscelleneous",
-    "row": 12
-   }
-  },
-  {
-   "kind": "misc_item",
-   "brand": "Generic",
-   "unit": "Nos",
-   "attributes": {
-    "description": "CEIG"
-   },
-   "rates": {
-    "bcs_supply": 125000.0,
-    "bcs_install": null
-   },
-   "source": {
-    "sheet": "Miscelleneous",
-    "row": 13
-   }
-  },
-  {
-   "kind": "misc_item",
-   "brand": "Generic",
-   "unit": "Sqft",
-   "attributes": {
-    "description": "Spray Painting"
-   },
-   "rates": {
-    "bcs_supply": 180.0,
-    "bcs_install": 80.0
-   },
-   "source": {
-    "sheet": "Miscelleneous",
-    "row": 14
-   }
-  },
-  {
-   "kind": "misc_item",
-   "brand": "Generic",
-   "unit": "Nos",
-   "attributes": {
-    "description": "AS Built"
-   },
-   "rates": {
-    "bcs_supply": 12250.0,
-    "bcs_install": null
-   },
-   "source": {
-    "sheet": "Miscelleneous",
-    "row": 15
-   }
-  },
-  {
-   "kind": "misc_item",
-   "brand": "Generic",
-   "unit": "KGS",
-   "attributes": {
-    "description": "MS Fabricated Items"
-   },
-   "rates": {
-    "bcs_supply": 125.0,
-    "bcs_install": null
-   },
-   "source": {
-    "sheet": "Miscelleneous",
-    "row": 16
-   }
-  },
-  {
-   "kind": "misc_item",
-   "brand": "Generic",
-   "unit": "250",
-   "attributes": {
-    "description": "Floor Cutting and Chipping"
-   },
-   "rates": {
-    "bcs_supply": 120.0,
-    "bcs_install": null
-   },
-   "source": {
-    "sheet": "Miscelleneous",
-    "row": 17
-   }
-  },
-  {
    "kind": "lms_item",
    "brand": "Lutron",
    "unit": "Nos.",
@@ -14036,6 +13776,230 @@
    "source": {
     "sheet": "LMS - List Price",
     "row": 22
+   }
+  },
+  {
+   "kind": "popup_box_module",
+   "brand": "Generic",
+   "unit": "Module",
+   "attributes": {
+    "pricing_mode": "PER_MODULE"
+   },
+   "rates": {
+    "supply_per_module": 900.0,
+    "install_per_module": 100.0
+   },
+   "source": {
+    "sheet": "ALL ITEM WISE RATE",
+    "row": 5
+   }
+  },
+  {
+   "kind": "misc_item",
+   "brand": "Generic",
+   "unit": "Nos",
+   "attributes": {
+    "description": "Rubber Mat"
+   },
+   "rates": {
+    "boq_supply": 3200.0,
+    "boq_install": 500.0
+   },
+   "source": {
+    "sheet": "ALL ITEM WISE RATE",
+    "row": 13
+   }
+  },
+  {
+   "kind": "misc_item",
+   "brand": "Generic",
+   "unit": "Nos",
+   "attributes": {
+    "description": "Gloves"
+   },
+   "rates": {
+    "boq_supply": 600.0,
+    "boq_install": 100.0
+   },
+   "source": {
+    "sheet": "ALL ITEM WISE RATE",
+    "row": 14
+   }
+  },
+  {
+   "kind": "misc_item",
+   "brand": "Generic",
+   "unit": "Nos",
+   "attributes": {
+    "description": "Danger Board"
+   },
+   "rates": {
+    "boq_supply": 1500.0,
+    "boq_install": 500.0
+   },
+   "source": {
+    "sheet": "ALL ITEM WISE RATE",
+    "row": 15
+   }
+  },
+  {
+   "kind": "misc_item",
+   "brand": "Generic",
+   "unit": "Nos",
+   "attributes": {
+    "description": "SLD Board"
+   },
+   "rates": {
+    "boq_supply": 2000.0,
+    "boq_install": 500.0
+   },
+   "source": {
+    "sheet": "ALL ITEM WISE RATE",
+    "row": 16
+   }
+  },
+  {
+   "kind": "misc_item",
+   "brand": "Generic",
+   "unit": "Nos",
+   "attributes": {
+    "description": "Glass Box"
+   },
+   "rates": {
+    "boq_supply": 2000.0,
+    "boq_install": 500.0
+   },
+   "source": {
+    "sheet": "ALL ITEM WISE RATE",
+    "row": 17
+   }
+  },
+  {
+   "kind": "misc_item",
+   "brand": "Generic",
+   "unit": "Nos",
+   "attributes": {
+    "description": "First Aid"
+   },
+   "rates": {
+    "boq_supply": 2000.0,
+    "boq_install": 500.0
+   },
+   "source": {
+    "sheet": "ALL ITEM WISE RATE",
+    "row": 18
+   }
+  },
+  {
+   "kind": "misc_item",
+   "brand": "Generic",
+   "unit": "Sqft",
+   "attributes": {
+    "description": "Temporary"
+   },
+   "rates": {
+    "boq_supply": 122500.0,
+    "boq_install": 24500.0
+   },
+   "source": {
+    "sheet": "ALL ITEM WISE RATE",
+    "row": 19
+   }
+  },
+  {
+   "kind": "misc_item",
+   "brand": "Generic",
+   "unit": "Sqft",
+   "attributes": {
+    "description": "Fire Sealent"
+   },
+   "rates": {
+    "boq_supply": 5000.0,
+    "boq_install": 2500.0
+   },
+   "source": {
+    "sheet": "ALL ITEM WISE RATE",
+    "row": 20
+   }
+  },
+  {
+   "kind": "misc_item",
+   "brand": "Generic",
+   "unit": "Nos",
+   "attributes": {
+    "description": "CEIG"
+   },
+   "rates": {
+    "boq_supply": null,
+    "boq_install": 225000.0
+   },
+   "source": {
+    "sheet": "ALL ITEM WISE RATE",
+    "row": 21
+   }
+  },
+  {
+   "kind": "misc_item",
+   "brand": "Generic",
+   "unit": "Sqft",
+   "attributes": {
+    "description": "Spray Painting"
+   },
+   "rates": {
+    "boq_supply": 234.0,
+    "boq_install": 104.0
+   },
+   "source": {
+    "sheet": "ALL ITEM WISE RATE",
+    "row": 22
+   }
+  },
+  {
+   "kind": "misc_item",
+   "brand": "Generic",
+   "unit": "Nos",
+   "attributes": {
+    "description": "AS Built"
+   },
+   "rates": {
+    "boq_supply": 24500.0,
+    "boq_install": null
+   },
+   "source": {
+    "sheet": "ALL ITEM WISE RATE",
+    "row": 23
+   }
+  },
+  {
+   "kind": "misc_item",
+   "brand": "Generic",
+   "unit": "KGS",
+   "attributes": {
+    "description": "MS Fabricated Items"
+   },
+   "rates": {
+    "boq_supply": 165.0,
+    "boq_install": 35.0
+   },
+   "source": {
+    "sheet": "ALL ITEM WISE RATE",
+    "row": 24
+   }
+  },
+  {
+   "kind": "misc_item",
+   "brand": "Generic",
+   "unit": "Mtr",
+   "attributes": {
+    "description": "Floor Cutting and Chipping"
+   },
+   "rates": {
+    "boq_supply": 315.0,
+    "boq_install": 150.0
+   },
+   "source": {
+    "sheet": "ALL ITEM WISE RATE",
+    "row": 25
    }
   }
  ],
@@ -14476,53 +14440,6 @@
     }
    },
    "notes": "PIPELINE PARAMS FLAGGED: mirrored from the JB/raceway block (S1=0.45, S2=0.2) - the main tray table has no guiding display oracle; verify at cert (params owner-editable via the Derivation tab). Accessories composite (ceiling block) = EA-4."
-  },
-  {
-   "category_id": "ups",
-   "category_display": "UPS",
-   "attribute_definitions": [
-    {
-     "id": "kva",
-     "label": "kVA",
-     "type": "number"
-    }
-   ],
-   "pipelines": {
-    "ups_boq": {
-     "output": [
-      "supply",
-      "install"
-     ],
-     "steps": [
-      {
-       "step": "match_master_row",
-       "params": {
-        "kind": "ups_per_kva"
-       }
-      },
-      {
-       "step": "scale",
-       "target": "supply_per_kva",
-       "result": "supply",
-       "params": {
-        "kva_from_attr": "kva"
-       },
-       "formula": "base*kva",
-       "explain": "flat per-kVA pricing per the guiding block"
-      },
-      {
-       "step": "scale",
-       "target": "install_per_kva",
-       "result": "install",
-       "params": {
-        "kva_from_attr": "kva"
-       },
-       "formula": "base*kva"
-      }
-     ]
-    }
-   },
-   "notes": "OWNER CONFIRM: the guiding block prices UPS flat per-kVA (900/100, ceiling-5 on the total); the UPS detail table (2 rows) imported as kind=ups_reference for later use - which governs?"
   },
   {
    "category_id": "industrial_sockets",
@@ -15031,22 +14948,22 @@
       },
       {
        "step": "scale",
-       "target": "bcs_supply",
+       "target": "boq_supply",
        "result": "supply",
        "params": {
-        "boq_uplift": 1.3
+        "factor": 1.0
        },
-       "formula": "base*boq_uplift",
-       "explain": "BoQ uplift on the stored BCS rate (sheet stores BCS; the block applies 1.3)"
+       "formula": "base*factor",
+       "explain": "the guiding block's rate IS the BoQ supply (self-contained; owner 2026-07-29)"
       },
       {
        "step": "scale",
-       "target": "bcs_install",
+       "target": "boq_install",
        "result": "install",
        "params": {
-        "boq_uplift": 1.3
+        "factor": 1.0
        },
-       "formula": "base*boq_uplift"
+       "formula": "base*factor"
       }
      ]
     },
@@ -15063,23 +14980,29 @@
        }
       },
       {
-       "step": "component",
-       "name": "s",
-       "target": "bcs_supply",
-       "params": {},
-       "formula": "base"
+       "step": "scale",
+       "target": "boq_supply",
+       "result": "bcs_supply",
+       "params": {
+        "bcs_factor": 0.8
+       },
+       "formula": "base*bcs_factor",
+       "explain": "BCS = BoQ / 1.25 (25% markup assumed; owner 2026-07-29); 0.8 = 1/1.25 exact"
       },
       {
-       "step": "component",
-       "name": "i",
-       "target": "bcs_install",
-       "params": {},
-       "formula": "base"
+       "step": "scale",
+       "target": "boq_install",
+       "result": "bcs_install",
+       "params": {
+        "zero": 0.0
+       },
+       "formula": "base*zero",
+       "explain": "BCS install = 0 by owner rule (electrical labour is per-sqft)"
       }
      ]
     }
    },
-   "notes": "FLAG: one guiding cell uses x1.25 (floor cutting) vs the standard 1.3 - uplift is a param, owner-editable"
+   "notes": "SELF-CONTAINED (owner 2026-07-29): the ALL ITEM WISE RATE Misc block is the rate table - no background-sheet dependency; rates ARE BoQ supply/install; BCS supply = BoQ/1.25, BCS install = 0. Rows with a missing rate import as-is and compute honestly."
   },
   {
    "category_id": "lighting_mgmt_system",
@@ -15121,33 +15044,55 @@
      "selector": true
     }
    ],
-   "matching_mode": "item_identity",
+   "pipelines": {},
+   "notes": "DATA ONLY by owner ruling 2026-07-29: rate data loaded (Lutron/Zen brand rows); NO pipelines shipped - the owner authors the ruleset directly in-system via the Pipelines tab (RM-4b). Until then the category is honest no-compute everywhere."
+  },
+  {
+   "category_id": "popup_boxes",
+   "category_display": "Pop up Boxes",
+   "attribute_definitions": [
+    {
+     "id": "module_count",
+     "label": "Module count",
+     "type": "number"
+    }
+   ],
    "pipelines": {
-    "lms_boq": {
+    "popup_boq": {
      "output": [
-      "supply"
+      "supply",
+      "install"
      ],
      "steps": [
       {
        "step": "match_master_row",
        "params": {
-        "kind": "lms_item"
+        "kind": "popup_box_module"
        }
       },
       {
        "step": "scale",
-       "target": "rate",
+       "target": "supply_per_module",
        "result": "supply",
        "params": {
-        "multiplier": 1.0
+        "module_count_from_attr": "module_count"
        },
-       "formula": "base*multiplier",
-       "explain": "direct vendor rate; multiplier param for future margin"
+       "formula": "base*module_count",
+       "explain": "floor/pop-up box priced per module count (guiding Floor BOX block)"
+      },
+      {
+       "step": "scale",
+       "target": "install_per_module",
+       "result": "install",
+       "params": {
+        "module_count_from_attr": "module_count"
+       },
+       "formula": "base*module_count"
       }
      ]
     }
    },
-   "notes": "FLAG: no guiding-block oracle for LMS - direct vendor rates, multiplier 1.0 default, owner-editable"
+   "notes": "decoded from the guiding sheet's Floor BOX block (previously misread as UPS - corrected 2026-07-29); oracle: 12 modules -> 10800/1200/12000"
   }
  ],
  "goldens": {
@@ -15238,20 +15183,6 @@
     "flag": "params mirrored from the JB block - no sheet oracle; owner-editable"
    }
   ],
-  "ups": [
-   {
-    "id": "u1",
-    "attrs": {
-     "kva": 12.0
-    },
-    "expect": {
-     "ups_boq": {
-      "supply": 10800.0,
-      "install": 1200.0
-     }
-    }
-   }
-  ],
   "industrial_sockets": [
    {
     "id": "i1",
@@ -15318,44 +15249,66 @@
       "install": 104.0
      },
      "misc_bcs": {
-      "bcs_supply": 180.0,
-      "bcs_install": 80.0
+      "bcs_supply": 187.2,
+      "bcs_install": 0.0
+     }
+    }
+   },
+   {
+    "id": "m2",
+    "attrs": {
+     "description": "Glass Box"
+    },
+    "expect": {
+     "misc_boq": {
+      "supply": 2000.0,
+      "install": 500.0
+     },
+     "misc_bcs": {
+      "bcs_supply": 1600.0,
+      "bcs_install": 0.0
      }
     }
    }
   ],
-  "lighting_mgmt_system": [
+  "popup_boxes": [
    {
-    "id": "l1",
+    "id": "p1",
     "attrs": {
-     "description": "Supply, Installation, Testing & Commissioning of Wireless Occupancy/Vacancy Sensor for rooms with a frequency of 865 MHz, Ceiling mount, infrared, 37.2 sq m (400 sq ft), battery-powered, 102 mm (4.0 in) diameter, white. Similar to LRF5-OCR2B-P-WH",
-     "brand": "Lutron"
+     "module_count": 12.0
     },
     "expect": {
-     "lms_boq": {
-      "supply": 7200.0
+     "popup_boq": {
+      "supply": 10800.0,
+      "install": 1200.0
      }
-    },
-    "flag": "direct vendor rate - no margin oracle; multiplier owner-editable"
+    }
    }
   ]
  },
  "excluded_categories": [
   {
-   "category_id": "popup_boxes",
-   "reason": "no rate table in the 28-Jul benchmark - the helper's category-scoped coming-soon stands"
+   "category_id": "ups",
+   "reason": "NOT on the ALL ITEM WISE RATE sheet (the 'UPS' block was a misread Floor BOX block) - owner ruling 2026-07-29: removed entirely"
   },
   {
    "category_id": "light_fixtures",
-   "reason": "no rate table in the 28-Jul benchmark - coming-soon stands"
-  },
-  {
-   "category_id": "point_wiring",
-   "reason": "configurator class - EA-4 (SUMPRODUCT circuit build-up)"
+   "reason": "no guiding block - stays out (owner ruling)"
   },
   {
    "category_id": "panels",
-   "reason": "configurator class - EA-4 (BOM; overlaps the LT-panel estimator)"
+   "reason": "no guiding block - stays out; EA-4 configurator scope = point_wiring + in-block composites only (owner ruling)"
+  },
+  {
+   "category_id": "point_wiring",
+   "reason": "on the guiding sheet; configurator class - EA-4"
   }
+ ],
+ "retired_kinds": [
+  "ups_per_kva",
+  "ups_reference"
+ ],
+ "retired_category_ids": [
+  "ups"
  ]
 }

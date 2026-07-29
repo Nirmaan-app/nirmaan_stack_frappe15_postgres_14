@@ -79,8 +79,10 @@ def _validate_one_config(cfg, label):
     if not isinstance(cfg.get("attribute_definitions"), list) or not cfg["attribute_definitions"]:
         frappe.throw("%s is missing 'attribute_definitions'." % label)
     pipelines = cfg.get("pipelines")
-    if not isinstance(pipelines, dict) or not pipelines:
-        frappe.throw("%s is missing 'pipelines'." % label)
+    # EA-1b: an EMPTY pipelines dict is allowed -- a DATA-ONLY config (definitions + items, no
+    # derivation yet; e.g. lighting_mgmt_system, whose ruleset the owner authors in-system later).
+    if not isinstance(pipelines, dict):
+        frappe.throw("%s 'pipelines' must be an object." % label)
     for pname, pl in pipelines.items():
         if not isinstance(pl, dict) or not isinstance(pl.get("steps"), list) or not pl["steps"]:
             frappe.throw("%s pipeline '%s' has no 'steps'." % (label, pname))
@@ -280,6 +282,13 @@ def _load_multi(payload, replace):
     if not isinstance(goldens_by_cat, dict):
         frappe.throw("E-ALL 'goldens' must be an object keyed by category_id.")
 
+    # EA-1b: retired scope -- kinds / category_ids dropped from THIS payload that must be superseded on
+    # a replace (else they stay orphan-active from a prior batch, e.g. ups after the Floor BOX fix).
+    retired_kinds = payload.get("retired_kinds") or []
+    retired_cat_ids = payload.get("retired_category_ids") or []
+    if not isinstance(retired_kinds, list) or not isinstance(retired_cat_ids, list):
+        frappe.throw("E-ALL 'retired_kinds' / 'retired_category_ids' must be lists.")
+
     items = payload["items"]
     payload_kinds = sorted({it["kind"].strip() for it in items})
     payload_cat_ids = [c["category_id"].strip() for c in configs]
@@ -303,10 +312,16 @@ def _load_multi(payload, replace):
         )
 
     items_deactivated = configs_deactivated = 0
+    retired_items_deactivated = retired_configs_deactivated = 0
     if replace:
         items_deactivated, configs_deactivated = _deactivate_scope(
             discipline, payload_kinds, payload_cat_ids
         )
+        # ALSO supersede the retired scope (outside the payload; freeze-and-supersede, rows retained).
+        if retired_kinds or retired_cat_ids:
+            retired_items_deactivated, retired_configs_deactivated = _deactivate_scope(
+                discipline, retired_kinds, retired_cat_ids
+            )
 
     batch = BATCH_PREFIX + frappe.generate_hash(length=12)
 
@@ -365,4 +380,8 @@ def _load_multi(payload, replace):
         "configs_loaded": len(configs),
         "items_deactivated": items_deactivated,
         "configs_deactivated": configs_deactivated,
+        "retired_kinds": list(retired_kinds),
+        "retired_category_ids": list(retired_cat_ids),
+        "retired_items_deactivated": retired_items_deactivated,
+        "retired_configs_deactivated": retired_configs_deactivated,
     }

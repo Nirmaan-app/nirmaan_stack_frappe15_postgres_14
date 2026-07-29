@@ -32,7 +32,7 @@ export const RATE_MASTER_DISCIPLINES: readonly RateMasterDisciplineEntry[] = [
       { category_id: "conduit_piping", label: "Electrical Conduit" },
       { category_id: "junction_box_raceway", label: "Junction Box for Raceway" },
       { category_id: "cabletray_raceway", label: "CableTray & Raceway" },
-      { category_id: "ups", label: "UPS" },
+      { category_id: "popup_boxes", label: "Pop-up / Floor Boxes" },
       { category_id: "industrial_sockets", label: "Industrial Socket" },
       { category_id: "switches_sockets", label: "Switches and Sockets" },
       { category_id: "db_switchgear", label: "DB and Switchgear" },

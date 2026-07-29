@@ -302,3 +302,62 @@ describe("EA-1 (4) conditional component (earthing chamber adder)", () => {
     expect(r.finals).toEqual({});
   });
 });
+
+// ── EA-1b: popup_boxes (reuses attr-multiply), self-contained misc, and the HONEST-PARTIAL guard ────
+
+describe("EA-1b popup_boxes (per-module, reuses the value-from-attribute shape)", () => {
+  const POPUP: Pipeline = {
+    output: ["supply", "install"],
+    steps: [
+      { step: "match_master_row", params: { kind: "popup_box_module" } },
+      { step: "scale", target: "supply_per_module", result: "supply", params: { module_count_from_attr: "module_count" }, formula: "base*module_count" },
+      { step: "scale", target: "install_per_module", result: "install", params: { module_count_from_attr: "module_count" }, formula: "base*module_count" },
+    ],
+  };
+  const ITEM: RateMasterItem = { discipline: "Electrical", kind: "popup_box_module", attributes: { pricing_mode: "PER_MODULE" }, rates: { supply_per_module: 900, install_per_module: 100 } };
+  it("module_count=12 -> 900*12 / 100*12 = golden 10800 / 1200", () => {
+    expect(runPipeline("popup_boq", POPUP, [ITEM], { module_count: 12 }).finals).toEqual({ supply: 10800, install: 1200 });
+  });
+});
+
+describe("EA-1b self-contained miscellaneous (boq direct; bcs = boq*0.8, install 0) + HONEST PARTIAL", () => {
+  const MISC_BOQ: Pipeline = { output: ["supply", "install"], steps: [
+    { step: "match_master_row", params: { kind: "misc_item" } },
+    { step: "scale", target: "boq_supply", result: "supply", params: { factor: 1.0 }, formula: "base*factor" },
+    { step: "scale", target: "boq_install", result: "install", params: { factor: 1.0 }, formula: "base*factor" },
+  ] };
+  const MISC_BCS: Pipeline = { output: ["bcs_supply", "bcs_install"], steps: [
+    { step: "match_master_row", params: { kind: "misc_item" } },
+    { step: "scale", target: "boq_supply", result: "bcs_supply", params: { bcs_factor: 0.8 }, formula: "base*bcs_factor" },
+    { step: "scale", target: "boq_install", result: "bcs_install", params: { zero: 0.0 }, formula: "base*zero" },
+  ] };
+  const ITEMS_M: RateMasterItem[] = [
+    { discipline: "Electrical", kind: "misc_item", attributes: { description: "Spray Painting" }, rates: { boq_supply: 234, boq_install: 104 } },
+    { discipline: "Electrical", kind: "misc_item", attributes: { description: "Glass Box" }, rates: { boq_supply: 2000, boq_install: 500 } },
+    { discipline: "Electrical", kind: "misc_item", attributes: { description: "CEIG" }, rates: { boq_supply: null as unknown as number, boq_install: 225000 } },
+    { discipline: "Electrical", kind: "misc_item", attributes: { description: "AS Built" }, rates: { boq_supply: 24500, boq_install: null as unknown as number } },
+  ];
+  const sel = (description: string) => ({ description });
+
+  it("Spray Painting -> BoQ 234/104 AND BCS 187.2/0 (no old x1.3 background-sheet rule)", () => {
+    expect(runPipeline("misc_boq", MISC_BOQ, ITEMS_M, sel("Spray Painting")).finals).toEqual({ supply: 234, install: 104 });
+    const bcs = runPipeline("misc_bcs", MISC_BCS, ITEMS_M, sel("Spray Painting")).finals;
+    expect(bcs.bcs_supply).toBeCloseTo(187.2, 10);
+    expect(bcs.bcs_install).toBe(0);
+  });
+  it("Glass Box -> BoQ 2000/500, BCS 1600/0", () => {
+    expect(runPipeline("misc_boq", MISC_BOQ, ITEMS_M, sel("Glass Box")).finals).toEqual({ supply: 2000, install: 500 });
+    expect(runPipeline("misc_bcs", MISC_BCS, ITEMS_M, sel("Glass Box")).finals).toEqual({ bcs_supply: 1600, bcs_install: 0 });
+  });
+  it("CEIG (no supply) computes ONLY install -- supply is ABSENT, never invented 0", () => {
+    const r = runPipeline("misc_boq", MISC_BOQ, ITEMS_M, sel("CEIG"));
+    expect(r.finals).toEqual({ install: 225000 });      // supply key absent
+    expect(r.finals.supply).toBeUndefined();
+    expect(r.status).toBe("ok");                          // honest partial, not a crash / no_match
+  });
+  it("AS Built (no install) computes ONLY supply -- install is ABSENT, never invented 0", () => {
+    const r = runPipeline("misc_boq", MISC_BOQ, ITEMS_M, sel("AS Built"));
+    expect(r.finals).toEqual({ supply: 24500 });          // install key absent
+    expect(r.finals.install).toBeUndefined();
+  });
+});

@@ -284,6 +284,18 @@ export function runPipeline(
         });
         return { pipelineId, outputs: pipeline.output, status: "no_match", steps, finals: {}, matchedItem, note: pipeline.note };
       }
+      const baseVal = ctx[s.target];
+      if (typeof baseVal !== "number" || !Number.isFinite(baseVal)) {
+        // EA-1b HONEST PARTIAL: the source row has no value for this target rate (e.g. a misc row that
+        // carries supply but not install, or vice-versa). Do NOT invent one (never 0 / NaN) -- skip
+        // THIS output; it stays absent (renders "-"). The pipeline's other outputs still compute.
+        steps.push({
+          step: stepType,
+          label: `${s.target} not available on this row -- ${s.result} not computed`,
+          runningValues: snapshot(),
+        });
+        continue;
+      }
       const value = evalFormula(s.formula, env);
       ctx[s.result] = value;
       steps.push({
