@@ -4599,6 +4599,25 @@ class TestCopyForwardLayers(FrappeTestCase):
             "boq": self.boq, "sheet_name": amt, "committed_version": 2}), 0,
             "the formula gate fires BEFORE the layer carry -- nothing was written")
 
+    def test_a_lock_held_by_another_user_refuses_before_any_layer_is_written(self):
+        """R2 acquires the single-editor lock BEFORE the layer writes, so a lock held by someone else
+        must stop the carry with nothing written -- not even a carried annotation. This also records a
+        deliberate consequence of the reorder: when a sheet is BOTH contended and uncategorised, the
+        lock message now wins where the category message used to. The failure mode is unchanged (the
+        carry is refused and writes nothing); only which of two simultaneous faults is named moved,
+        and it moved because R2 fixes the acquire before the gate."""
+        other = frappe.db.get_value(
+            "User", {"name": ["not in", [frappe.session.user, "Guest"]], "enabled": 1}, "name")
+        self.assertTrue(other, "need a second real User to play the competing lock holder")
+        acquire_or_refresh(self.boq, self.SHEET, 2, other, frappe.utils.now_datetime())
+        frappe.db.commit()
+        with self.assertRaises(frappe.ValidationError) as cm:
+            self._apply(self._choices("categories", "remarks", "colors", "remark_dismissals"))
+        self.assertIn(_LOCK_HELD_MARKER, str(cm.exception), "reject carries the lock marker")
+        self.assertIsNone(self._dest_rate(50))
+        for dt in (self._ROW_CATEGORY, _REMARK_DT, _COLOR_DT, _DISMISSAL_DT):
+            self.assertEqual(self._dest_count(dt), 0, f"nothing written past the lock: {dt}")
+
     # ── R1: the four layers, opt-in ──────────────────────────────────────────────────
     def test_omitted_layers_is_rates_only(self):
         """The backend default is "no layers at all" -- a client that never learned about layers keeps
