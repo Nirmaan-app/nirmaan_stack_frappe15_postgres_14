@@ -770,3 +770,83 @@ describe("EA-4a assembly engine -- HONEST no-compute negatives", () => {
     expect(runPipeline("pw_boq_supply", broken, PW_ITEMS, PW1).status).toBe("no_match");
   });
 });
+
+// ---- EA-4b: switches_point (6-line assembly) + industrial_sockets (paired-MCB, interlocked/None) ----
+const swRef = (name: string, family: string, itemAttr: string, qtyAttr: string, colour: string, ifBack = false) => ({
+  step: "component_ref" as const, name, ref: { kind: "switch_socket_item", family, item: itemAttr, colour }, target: "list_price",
+  rate_stages: [{ mult: 1 }], qty: ifBack ? { if_attr: { back_box: "Yes" }, then: 1, else: 0 } : { from_attr: qtyAttr }, none_skips: true,
+});
+const SWPT_LINES = [
+  swRef("switch", "Switch", "@switch_item", "switch_qty", "@colour"),
+  swRef("socket1", "Socket", "@socket1_item", "socket1_qty", "@colour"),
+  swRef("socket2", "Socket", "@socket2_item", "socket2_qty", "@colour"),
+  swRef("blank", "Switch", "@blank_item", "blank_qty", "@colour"),
+  swRef("plate", "Grid and Face Plates", "@plate_item", "plate_qty", "@colour"),
+  swRef("back_box", "Back Box", "@plate_item", "", "NA", true),
+];
+const SWPT_SUPPLY: Pipeline = { output: ["supply"], steps: [...SWPT_LINES, { step: "sum_components", result: "supply" }, { step: "scale", target: "supply", result: "supply", params: { m: 0.3625 }, formula: "base*m" }, { step: "roundup", target: "supply", params: { digits: -1 } }] };
+const SWPT_INSTALL: Pipeline = { output: ["install"], steps: [...SWPT_LINES, { step: "sum_components", result: "supply" }, { step: "scale", target: "supply", result: "supply", params: { m: 0.3625 }, formula: "base*m" }, { step: "roundup", target: "supply", params: { digits: -1 } }, { step: "scale", target: "supply", result: "install", params: { m: 0.2 }, formula: "base*m" }, { step: "roundup", target: "install", params: { digits: -1 } }] };
+const SWPT_BCS: Pipeline = { output: ["bcs_supply"], steps: [...SWPT_LINES, { step: "sum_components", result: "bcs_supply" }, { step: "scale", target: "bcs_supply", result: "bcs_supply", params: { m: 0.25 }, formula: "base*m" }, { step: "roundup", target: "bcs_supply", params: { digits: -1 } }] };
+const SWI: RateMasterItem[] = [
+  ssItem("Switch", "16A 1 WAY SWITCH- With Indicator", "White", 360), ssItem("Socket", "6A/16A 3-Pin Socket", "White", 425),
+  ssItem("Socket", "USB Charger - C+C Type", "White", 2283), ssItem("Switch", "1M Blanker", "White", 61),
+  ssItem("Grid and Face Plates", "6M", "White", 302), ssItem("Back Box", "6M", "NA", 247),
+];
+const SP1 = { switch_item: "16A 1 WAY SWITCH- With Indicator", switch_qty: 2, socket1_item: "6A/16A 3-Pin Socket", socket1_qty: 1, socket2_item: "USB Charger - C+C Type", socket2_qty: 2, blank_item: "1M Blanker", blank_qty: 2, plate_item: "6M", plate_qty: 1, colour: "White", back_box: "Yes" };
+
+const INDSOCK_BOQ: Pipeline = { output: ["supply"], steps: [
+  { step: "component_ref", name: "socket", ref: { kind: "industrial_socket", item: "@item", enclosure: "@enclosure", rating: "@rating", pole: "@pole" }, target: "list_price", rate_stages: [{ mult: 0.98, round: "up0" }], qty: 1 },
+  { step: "component_ref", name: "paired_mcb", ref: { kind: "db_switchgear_item", family: "Switchgear", item: "@paired_mcb" }, target: "list_price", rate_stages: [{ mult: 0.495, round: "up0" }], qty: { if_attr: { item: "Industrial Socket with Socket Outlet Interlocked" }, then: 0, else: 1 }, none_skips: true },
+  { step: "sum_components", result: "supply" },
+] };
+const INDSOCK_INSTALL: Pipeline = { output: ["install"], steps: [...INDSOCK_BOQ.steps, { step: "scale", target: "supply", result: "install", params: { m: 0.35 }, formula: "base*m" }, { step: "roundup", target: "install", params: { digits: -1 } }] };
+const II: RateMasterItem[] = [
+  { discipline: "Electrical", kind: "industrial_socket", attributes: { item: "Plug + Socket in Enclosure Box", enclosure: "IP44/54 - Splash Proof", rating: "16/20A", pole: "3 Pin / 2P+E" }, rates: { list_price: 2240 } },
+  { discipline: "Electrical", kind: "industrial_socket", attributes: { item: "Industrial Socket with Socket Outlet Interlocked", enclosure: "IP44/54 - Splash Proof", rating: "16/20A", pole: "3 Pin / 2P+E" }, rates: { list_price: 10520 } },
+  { discipline: "Electrical", kind: "db_switchgear_item", attributes: { family: "Switchgear", item: "6A SP MCB C CURVE" }, rates: { list_price: 449 } },
+];
+const IBASE = { enclosure: "IP44/54 - Splash Proof", rating: "16/20A", pole: "3 Pin / 2P+E" };
+
+describe("EA-4b switches_point (6-line assembly)", () => {
+  it("sp1 (White items) -> supply 2320 / install 470 / BCS 1600", () => {
+    expect(runPipeline("s", SWPT_SUPPLY, SWI, SP1).finals).toEqual({ supply: 2320 });
+    expect(runPipeline("i", SWPT_INSTALL, SWI, SP1).finals).toEqual({ install: 470 });
+    expect(runPipeline("b", SWPT_BCS, SWI, SP1).finals).toEqual({ bcs_supply: 1600 });
+  });
+  it("socket2=None -> its line 0 (a switch-only-ish point still prices)", () => {
+    const r = runPipeline("s", SWPT_SUPPLY, SWI, { ...SP1, socket2_item: "None", socket2_qty: 0 });
+    expect(r.status).toBe("ok");
+    expect(r.steps.find((x) => x.produced?.key === "socket2")?.produced?.value).toBe(0);
+    // supply drops by the socket2 line (USB 2283x2=4566 raw): (6382-4566)*0.3625=658.3 -> 660
+    expect(r.finals).toEqual({ supply: 660 });
+  });
+  it("plate=None greys+zeroes plate AND back_box (keyed @plate_item)", () => {
+    const r = runPipeline("s", SWPT_SUPPLY, SWI, { ...SP1, plate_item: "None", plate_qty: 0 });
+    expect(r.steps.find((x) => x.produced?.key === "plate")?.produced?.value).toBe(0);
+    expect(r.steps.find((x) => x.produced?.key === "back_box")?.produced?.value).toBe(0);
+  });
+});
+
+describe("EA-4b industrial_sockets paired-MCB (None default / interlocked)", () => {
+  it("socket-only (paired_mcb='None' -- the extraction default) -> MCB line 0 -> supply 2196 / install 770", () => {
+    const attrs = { ...IBASE, item: "Plug + Socket in Enclosure Box", paired_mcb: "None" };
+    expect(runPipeline("i", INDSOCK_BOQ, II, attrs).finals).toEqual({ supply: 2196 });
+    expect(runPipeline("j", INDSOCK_INSTALL, II, attrs).finals.install).toBe(770);
+    const r = runPipeline("i", INDSOCK_BOQ, II, attrs);
+    expect(r.steps.find((x) => x.produced?.key === "paired_mcb")?.produced?.value).toBe(0);
+  });
+  it("non-interlocked WITH a paired MCB -> socket 2196 + MCB 223 = 2419", () => {
+    const r = runPipeline("i", INDSOCK_BOQ, II, { ...IBASE, item: "Plug + Socket in Enclosure Box", paired_mcb: "6A SP MCB C CURVE" });
+    expect(r.finals).toEqual({ supply: 2419 });
+    expect(r.steps.find((x) => x.produced?.key === "paired_mcb")?.produced?.value).toBe(223);
+  });
+  it("INTERLOCKED socket -> MCB line 0 via the if_attr gate (even with a paired MCB set)", () => {
+    const r = runPipeline("i", INDSOCK_BOQ, II, { ...IBASE, item: "Industrial Socket with Socket Outlet Interlocked", paired_mcb: "6A SP MCB C CURVE" });
+    expect(r.steps.find((x) => x.produced?.key === "paired_mcb")?.produced?.value).toBe(0);
+    expect(r.finals).toEqual({ supply: 10310 }); // 10520*0.98=10309.6 -> ceil 10310
+  });
+  it("absent paired_mcb (no default) stays an HONEST no_match -- absent=unknown, not None", () => {
+    const r = runPipeline("i", INDSOCK_BOQ, II, { ...IBASE, item: "Plug + Socket in Enclosure Box" });
+    expect(r.status).toBe("no_match");
+  });
+});

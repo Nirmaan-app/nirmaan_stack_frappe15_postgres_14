@@ -41,6 +41,9 @@ export const RATE_MASTER_DISCIPLINES: readonly RateMasterDisciplineEntry[] = [
       // EA-DIFF: point_wiring is DATA-ONLY (empty pipelines) -- renders coming-soon exactly like LMS.
       // Its config banks the 29-Jul EA-4 oracle (1869/735/2604) in its notes.
       { category_id: "point_wiring", label: "Point Wiring" },
+      // EA-4b: switches_point is the 6-line switch/socket/plate/box assembly (distinct from
+      // switches_sockets); goldens sp1 2320/470/1600. A new category needs its registry line.
+      { category_id: "switches_point", label: "Switches Point" },
     ],
   },
 ];
