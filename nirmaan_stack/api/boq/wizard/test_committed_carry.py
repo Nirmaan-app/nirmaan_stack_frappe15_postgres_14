@@ -59,7 +59,12 @@ def _commit_sheet(boq, sheet_name, role_map_json, commit_version=1, is_current=1
 
 
 def _node(boq, sheet_docname, node_type, description, source_row_number, sort_order, level=None,
-          commit_version=1, is_current=1):
+          commit_version=1, is_current=1, code=None):
+    """`code` is the committed node's SERIAL NUMBER (commit_pipeline maps review `sl_no_value` ->
+    `code`). It defaults to None because most fixtures here predate WBC-S11 and are deliberately
+    left serial-less -- with no serial there is nothing for Amendment G's second pass to act on, so
+    those fixtures keep asserting the pure position rule. Only a test that means to exercise pass 2
+    sets it."""
     n = frappe.new_doc("BOQ Nodes")
     n.sheet = sheet_docname
     n.boq = boq
@@ -69,6 +74,8 @@ def _node(boq, sheet_docname, node_type, description, source_row_number, sort_or
     n.description = description
     n.source_row_number = source_row_number
     n.sort_order = sort_order
+    if code is not None:
+        n.code = code
     if level is not None:
         n.level = level
     if node_type == "Line Item":
@@ -343,13 +350,21 @@ class TestCommitOverlayCarry(FrappeTestCase):
 
 
 class TestCommitOverlayShiftStopsCarry(FrappeTestCase):
-    """⚠️ ADR-0014 Amendment B. A row whose Excel position SHIFTED does not carry its annotations,
-    even though its description is byte-identical.
+    """⚠️ ADR-0014 Amendment B. A row whose Excel position SHIFTED does not carry, even though its
+    description is byte-identical -- **unless it has a serial number to be recognised by**.
 
     This is the inverse of what this file used to assert. Under the old description-only key a +10
     shift still paired, which is precisely how annotations (and, at the review tier, parenting)
-    could follow a row that the revision had actually moved. The row-level carry and the
-    committed-tier annotation carry share ONE matcher, so this property must hold on both.
+    could follow a row that the revision had actually moved.
+
+    ⚠️ WBC-S11 / AMENDMENT G widened this fixture rather than weakening it. It now carries BOTH
+    shapes of moved row side by side, because the difference between them is the entire feature:
+
+      "Moved Item"  3 -> 7   NO serial on either side  -> still NOT a twin
+      "Serial Item" 4 -> 8   serial "3.2" on both      -> IS a twin, via pass 2
+
+    Without the second row this class would keep passing after Amendment G for the wrong reason:
+    the fixture would simply contain nothing for pass 2 to act on.
     """
 
     SHEET = "Shift"
@@ -362,15 +377,18 @@ class TestCommitOverlayShiftStopsCarry(FrappeTestCase):
         cls.src_sheet = _commit_sheet(cls.original.name, cls.SHEET, _role_map({"D": "Civil"}))
         _node(cls.original.name, cls.src_sheet, "Line Item", "Stable Item", 2, 0)
         _node(cls.original.name, cls.src_sheet, "Line Item", "Moved Item", 3, 1)
+        _node(cls.original.name, cls.src_sheet, "Line Item", "Serial Item", 4, 2, code="3.2")
         _mk_remark(cls.original.name, cls.SHEET, 1, 2, "stays")
         _mk_remark(cls.original.name, cls.SHEET, 1, 3, "should NOT follow the move")
 
         cls.rev = _make_revision(cls.project.name, cls.original.name).name
         _seed_revision_draft(cls.rev, cls.SHEET, cls.SHEET)
         cls.dest_sheet = _commit_sheet(cls.rev, cls.SHEET, _role_map({"D": "Civil"}))
-        # "Stable Item" holds row 2; "Moved Item" has slipped to row 7 (same text, new place).
+        # "Stable Item" holds row 2; "Moved Item" slipped to row 7 (same text, no serial);
+        # "Serial Item" slipped to row 8 carrying the SAME serial.
         _node(cls.rev, cls.dest_sheet, "Line Item", "Stable Item", 2, 0)
         _node(cls.rev, cls.dest_sheet, "Line Item", "Moved Item", 7, 1)
+        _node(cls.rev, cls.dest_sheet, "Line Item", "Serial Item", 8, 2, code="3.2")
         frappe.db.commit()
 
         _carry_all(
@@ -384,15 +402,29 @@ class TestCommitOverlayShiftStopsCarry(FrappeTestCase):
         _cleanup_project(cls.project.name)
         super().tearDownClass()
 
-    def test_the_shifted_row_is_not_a_twin(self):
-        """Amendment B's key in one assertion: "Stable Item" holds row 2 on both sides and pairs;
-        "Moved Item" slipped 3 -> 7 with byte-identical text and does NOT. AMENDMENT D re-pointed
-        this class at the MATCH itself -- it used to assert the property through the remark carry,
-        which no longer exists, but the matcher is shared with the rate carry so the property still
-        has to hold."""
+    def test_the_shifted_row_without_a_serial_is_not_a_twin(self):
+        """Amendment B's key: "Stable Item" holds row 2 on both sides and pairs by POSITION;
+        "Moved Item" slipped 3 -> 7 with byte-identical text and does NOT, because it has no serial
+        for Amendment G's second pass to use. AMENDMENT D re-pointed this class at the MATCH itself
+        -- it used to assert the property through the remark carry, which no longer exists, but the
+        matcher is shared with the rate carry so the property still has to hold."""
         twin = committed_carry._excel_twin_map(
             self.original.name, self.src_sheet, self.rev, self.dest_sheet)
-        self.assertEqual(twin, {2: 2})
+        self.assertNotIn(3, twin, "no serial -> the shift still stops the carry")
+        self.assertEqual(twin[2], 2, "the unmoved row pairs by position, as it always did")
+
+    def test_the_shifted_row_WITH_a_matching_serial_is_a_twin(self):
+        """AMENDMENT G, end to end through the real committed nodes: 4 -> 8 pairs on serial "3.2"
+        + identical description. This is the behaviour the slice exists to add."""
+        twin = committed_carry._excel_twin_map(
+            self.original.name, self.src_sheet, self.rev, self.dest_sheet)
+        self.assertEqual(twin, {2: 2, 4: 8})
+
+    def test_the_match_reports_the_serial_pair_as_a_serial_pair(self):
+        match = committed_carry.committed_excel_row_match(
+            self.original.name, self.src_sheet, self.rev, self.dest_sheet)
+        self.assertEqual(match.serial_matched, frozenset({4}),
+                         "row 2 paired by position and must not be reported as serial-matched")
 
     def test_no_remark_carries_at_all(self):
         self.assertEqual(
@@ -1205,4 +1237,156 @@ class TestVersionAddressedTwinMatch(FrappeTestCase):
         self.assertEqual(
             list(inspect.signature(committed_carry.committed_excel_row_match).parameters),
             ["source_boq", "source_sheet_docname", "dest_boq", "dest_sheet_docname"],
+        )
+
+
+class TestSerialSecondPassBoundary(FrappeTestCase):
+    """WBC-S11 / ADR-0014 **Amendment G** -- the whole boundary, in one fixture.
+
+    THE SAME moved-but-serialled row is seeded into both committed-tier shapes, so the two entry
+    points are compared on identical data and the difference can only be the flag:
+
+      `committed_excel_row_match`         (cross-BoQ carry -- rates AND opt-in layers)  -> PAIRS it
+      `version_addressed_excel_row_match` (within-BoQ copy-forward)                     -> does NOT
+
+    Why the within-BoQ half must keep failing to pair is an OWNER RULING, not an oversight, and it
+    is the property most likely to be broken later by someone "restoring consistency" between two
+    functions that look like near-twins. That is what these tests are for.
+
+    The negative shapes are exercised here against REAL committed nodes rather than only in the
+    pure matcher's tests, because the projection from `BOQ Nodes.code` onto `MatchRow.serial` is
+    itself a place a blank could be introduced silently.
+    """
+
+    CUR_A = "G Cur A "        # VERBATIM trailing space (#152)
+    CUR_B = "G Cur B "
+    WITHIN = "G Within "
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        cls.boq = _make_boq(cls.test_project.name).name
+        rm = _role_map({"D": "Phase 1"})
+
+        # ── the CROSS-BoQ shape: two CURRENT sheets ────────────────────────────────
+        cls.cur_a = _commit_sheet(cls.boq, cls.CUR_A, rm)
+        _node(cls.boq, cls.cur_a, "Line Item", "Anchor", 10, 0, code="1")
+        _node(cls.boq, cls.cur_a, "Line Item", "Serial Moved", 11, 1, code="2.5")
+        _node(cls.boq, cls.cur_a, "Line Item", "No Serial Moved", 12, 2)
+        _node(cls.boq, cls.cur_a, "Line Item", "Reserialled", 13, 3, code="7")
+        # A duplicated (serial, description) pair on the SOURCE side -> untrustworthy, drops.
+        _node(cls.boq, cls.cur_a, "Line Item", "Dup Pair", 14, 4, code="9")
+        _node(cls.boq, cls.cur_a, "Line Item", "Dup Pair", 15, 5, code="9")
+        cls.cur_b = _commit_sheet(cls.boq, cls.CUR_B, rm)
+        _node(cls.boq, cls.cur_b, "Line Item", "Anchor", 10, 0, code="1")
+        _node(cls.boq, cls.cur_b, "Line Item", "Serial Moved", 40, 1, code="2.5")
+        _node(cls.boq, cls.cur_b, "Line Item", "No Serial Moved", 41, 2)
+        _node(cls.boq, cls.cur_b, "Line Item", "Reserialled", 42, 3, code="8")
+        _node(cls.boq, cls.cur_b, "Line Item", "Dup Pair", 43, 4, code="9")
+
+        # ── the WITHIN-BoQ shape: a SUPERSEDED v1 + the CURRENT v2 of ONE sheet ────
+        # Byte-identical row content to CUR_A -> CUR_B above, so the two entry points differ only
+        # in what they are allowed to do with it.
+        cls.v1 = _commit_sheet(cls.boq, cls.WITHIN, rm, commit_version=1, is_current=0)
+        _node(cls.boq, cls.v1, "Line Item", "Anchor", 10, 0, commit_version=1, is_current=0,
+              code="1")
+        _node(cls.boq, cls.v1, "Line Item", "Serial Moved", 11, 1, commit_version=1, is_current=0,
+              code="2.5")
+        cls.v2 = _commit_sheet(cls.boq, cls.WITHIN, rm, commit_version=2, is_current=1)
+        _node(cls.boq, cls.v2, "Line Item", "Anchor", 10, 0, commit_version=2, is_current=1,
+              code="1")
+        _node(cls.boq, cls.v2, "Line Item", "Serial Moved", 40, 1, commit_version=2, is_current=1,
+              code="2.5")
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        _wipe_boqs(cls.test_project.name)
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    # ── the cross-BoQ entry point: pass 2 is ON ────────────────────────────────────
+    def test_the_cross_boq_entry_point_pairs_a_moved_row_on_its_serial(self):
+        match = committed_carry.committed_excel_row_match(
+            self.boq, self.cur_a, self.boq, self.cur_b)
+        self.assertEqual(match.original_to_revised, {10: 10, 11: 40})
+        self.assertEqual(match.serial_matched, frozenset({11}))
+
+    def test_a_moved_row_with_no_serial_stays_unmatched(self):
+        match = committed_carry.committed_excel_row_match(
+            self.boq, self.cur_a, self.boq, self.cur_b)
+        self.assertNotIn(12, match.original_to_revised)
+        self.assertIn(12, match.unmatched_original())
+
+    def test_a_moved_row_whose_serial_CHANGED_stays_unmatched(self):
+        match = committed_carry.committed_excel_row_match(
+            self.boq, self.cur_a, self.boq, self.cur_b)
+        self.assertNotIn(13, match.original_to_revised)
+
+    def test_a_duplicated_serial_pair_on_the_source_side_pairs_nothing(self):
+        """Live shape: 'a' occurs 999 times across current nodes, 'i)' 71 times inside ONE sheet.
+        The (serial, description) PAIR usually disambiguates, but when it does not, BOTH rows drop
+        -- a bad serial must lose a match, never create a wrong one."""
+        match = committed_carry.committed_excel_row_match(
+            self.boq, self.cur_a, self.boq, self.cur_b)
+        self.assertNotIn(14, match.original_to_revised)
+        self.assertNotIn(15, match.original_to_revised)
+        self.assertNotIn(43, match.revised_to_original)
+
+    # ── the within-BoQ entry point: pass 2 is OFF, by owner ruling ─────────────────
+    def test_the_within_boq_entry_point_does_NOT_pair_the_same_moved_row(self):
+        """⚠️ THE BOUNDARY. Identical rows, identical serials, identical shift -- and this entry
+        point must still return only the position match. `pricing.apply_copy_forward` is the sole
+        consumer, and the owner ruled it keeps the strict rule.
+
+        If this test fails, someone has widened `version_addressed_excel_row_match` (or made the
+        flag a property of `_content_match_rows` instead of the match call), and the within-BoQ
+        copy-forward has silently started carrying moved rows."""
+        match = committed_carry.version_addressed_excel_row_match(
+            self.boq, self.v1, self.boq, self.v2)
+        self.assertEqual(match.original_to_revised, {10: 10})
+        self.assertEqual(match.serial_matched, frozenset())
+        self.assertEqual(match.unmatched_original(), frozenset({11}))
+
+    def test_both_entry_points_see_the_same_serials(self):
+        """Guards the one way the test above could pass for a hollow reason: if the serial never
+        reached `MatchRow` on the within-BoQ reader, the pin would hold with the flag ON too. Both
+        readers share `_content_match_rows`, so assert the projection directly."""
+        rows = committed_carry._match_rows_from_nodes_at_version(self.boq, self.v1)
+        self.assertEqual(
+            {r.excel_row: r.serial for r in rows}, {10: "1", 11: "2.5"},
+            "the within-BoQ reader carries serials too -- it just is not allowed to match on them",
+        )
+
+    # ── consumers #3 and #4: nobody else may turn the flag on ─────────────────────
+    def test_exactly_one_production_call_site_enables_the_second_pass(self):
+        """The whole of the boundary for the two consumers that have no fixture here: the within-BoQ
+        copy-forward (`pricing._copy_forward_match`) and the PARSE-TIME classification + parenting
+        carry (`review_carry`). Both are protected by the flag defaulting to False, so the property
+        worth pinning is that no second call site ever turns it on.
+
+        Scanning source is deliberate. A behavioural mirror would need a full parse-worker fixture
+        to assert a NEGATIVE, and would still not catch a THIRD consumer added later -- which is
+        exactly the regression this slice invites.
+
+        Matched on the AST, not on raw text: the first draft of this test grepped for the literal
+        and flagged `row_match.py`, which only MENTIONS the flag in a docstring. A pin that a
+        comment can trip is a pin people learn to ignore."""
+        import ast
+        import pathlib
+
+        pkg = pathlib.Path(committed_carry.__file__).resolve().parents[3]
+        hits = []
+        for path in pkg.rglob("*.py"):
+            if path.name.startswith("test_"):
+                continue
+            for node in ast.walk(ast.parse(path.read_text())):
+                if isinstance(node, ast.Call) and any(
+                    kw.arg == "serial_second_pass" for kw in node.keywords
+                ):
+                    hits.append(path.relative_to(pkg).as_posix())
+        self.assertEqual(
+            sorted(set(hits)), ["api/boq/wizard/committed_carry.py"],
+            "Amendment G is enabled on the cross-BoQ carry's entry point and nowhere else",
         )

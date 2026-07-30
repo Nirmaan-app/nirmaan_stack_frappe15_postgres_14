@@ -70,8 +70,11 @@ _NODE = "BOQ Nodes"
 _ROW_CATEGORY = "BoQ Row Category"
 
 # Committed BOQ Nodes fields the excel-row twin map reads (both sides). source_row_number = the
-# durable Excel address; description feeds the pure D6 match.
-_NODE_MATCH_FIELDS = ["source_row_number", "description", "level"]
+# durable Excel address; description feeds the pure D6 match; `code` is the SERIAL NUMBER and feeds
+# AMENDMENT G's opt-in second pass (commit_pipeline maps review `sl_no_value` -> `code`, so on a
+# committed node the serial is always `code` -- BOTH sides of every carry here read committed nodes,
+# so there is no cross-field translation anywhere).
+_NODE_MATCH_FIELDS = ["source_row_number", "description", "level", "code"]
 
 
 def stamp_revision_provenance(
@@ -144,10 +147,20 @@ def committed_excel_row_match(source_boq, source_sheet_docname, dest_boq, dest_s
     the matcher entirely, and both remaining inputs (`source_row_number`, `description`) are
     immutable after parse and are not functions of the tree. That equivalence is exactly what lets
     the committed tier RE-DERIVE the copied set with no new schema -- so never reintroduce a
-    tree-derived input here. Only matched pairs appear in the twin map; an unmatched row is absent."""
+    tree-derived input here. Only matched pairs appear in the twin map; an unmatched row is absent.
+
+    ⚠️ AMENDMENT G (WBC-S11, owner-directed): **this is the ONE production call site that enables the
+    serial second pass**, so a row that MOVED still carries when its serial number and description
+    both survive. Everything `cross_boq_carry` does with a sheet pair reads this single result --
+    the rate plan, the "needs a new value" count, and the opt-in layer carry (categories / remarks /
+    colours / dismissals) -- and the owner ruled they all move together: the boundary is structure
+    vs. everything else, and the structural risk lives in the parse-time carry, not here. See
+    `row_match`'s module docstring for the full ruling. `version_addressed_excel_row_match` below
+    MUST NOT enable it; that is an owner ruling, not an oversight, and it is pinned by
+    `test_the_within_boq_entry_point_does_NOT_pair_the_same_moved_row`."""
     orig = _match_rows_from_nodes(source_boq, source_sheet_docname)
     rev = _match_rows_from_nodes(dest_boq, dest_sheet_docname)
-    return match_rows(orig, rev)
+    return match_rows(orig, rev, serial_second_pass=True)
 
 
 def _excel_twin_map(source_boq, source_sheet_docname, dest_boq, dest_sheet_docname) -> dict:
@@ -183,7 +196,15 @@ def version_addressed_excel_row_match(
 
     Returns the full `RowMatchResult`, exactly like the original -- the rate carry needs the per-row
     outcome, not just the twin map. Only matched pairs appear in `original_to_revised`; within one
-    BoQ a pair is always (row N -> row N), because `match_rows` joins on the SAME Excel position."""
+    BoQ a pair is always (row N -> row N), because `match_rows` joins on the SAME Excel position.
+
+    ⚠️ AMENDMENT G: this entry point does **NOT** enable the serial second pass, and that absence is
+    LOAD-BEARING. `pricing.apply_copy_forward` is its only consumer and the owner ruled the
+    within-BoQ copy-forward keeps the strict position rule, so a moved row does not carry here even
+    with a byte-identical serial. The nodes DO carry their serials (`_content_match_rows` projects
+    them on both readers) -- what differs is permission to use them, which is decided here and
+    nowhere else. Do NOT "restore consistency" with `committed_excel_row_match` by adding the flag:
+    that reads as a one-word tidy-up and is a silent behaviour change to a separate feature."""
     orig = _match_rows_from_nodes_at_version(source_boq, source_sheet_docname)
     rev = _match_rows_from_nodes_at_version(dest_boq, dest_sheet_docname)
     return match_rows(orig, rev)
@@ -225,6 +246,10 @@ def _content_match_rows(nodes) -> list:
             row_id=n.source_row_number,
             excel_row=n.source_row_number,
             description=n.description or "",
+            # AMENDMENT G's pass-2 key half. Projected on BOTH readers on purpose: "which committed
+            # rows enter a match, and what do they look like" stays ONE definition, and whether the
+            # serial may be USED is decided at the `match_rows` call, not by withholding the data.
+            serial=n.code or "",
         )
         for n in nodes
         if n.source_row_number is not None and normalize_n2(n.description)

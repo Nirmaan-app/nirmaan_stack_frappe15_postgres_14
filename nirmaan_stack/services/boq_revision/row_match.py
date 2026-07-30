@@ -53,19 +53,31 @@ IDENTICAL -- and that is what lets the committed tier re-derive the `Copied` set
 
 ⚠️ AMENDMENT G (WBC-S11, 2026-07-30, owner-directed): an OPT-IN SECOND PASS on
 `serial number + description`, for rows that MOVED. `serial_second_pass` defaults to **False**, so
-three of this module's four consumers are unaffected BY CONSTRUCTION and not by care:
+the consumers that must not have it are unaffected BY CONSTRUCTION and not by care:
 
-    consumer                                                    second pass
-    cross-BoQ RATE carry (cross_boq_carry.apply_sheet_carry)        ON
-    cross-BoQ opt-in LAYER carry (categories/remarks/colours)       off
-    within-BoQ copy-forward (pricing.apply_copy_forward)            off
-    parse-time classification + parenting carry (review_carry)      off
+    call site                                                        second pass
+    committed_carry.committed_excel_row_match                            ON
+      -> cross_boq_carry: the RATE carry AND the opt-in layer carry
+         (categories / remarks / colours / dismissals) read ONE match
+    committed_carry.version_addressed_excel_row_match                    off
+      -> pricing.apply_copy_forward, the within-BoQ copy-forward
+    review_carry.merge_revision_review_carry                             off
+      -> the PARSE-TIME classification + parenting carry
 
-THE BOUNDARY, and it is the load-bearing part. Position is the ENTIRE safety argument above, and it
-buys one specific thing: a row can never be re-parented under a stale or superseded heading. A wrong
-RATE is a visible number a human catches in the pricing grid; a wrong PARENT is a structural fault
-that propagates silently through every descendant. **They do not deserve the same caution**, so only
-the rate carry relaxes position -- and it relaxes it into a key that still has to agree on the words.
+THE BOUNDARY is **structure vs. everything else** -- NOT rates vs. layers (owner ruling
+2026-07-30, correcting the slice's own opening framing). Position is the entire safety argument
+above, and it buys one specific thing: a row can never be re-parented under a stale or superseded
+heading. A wrong RATE is a visible number a human catches in the pricing grid; a wrong PARENT is a
+structural fault that propagates silently through every descendant. **They do not deserve the same
+caution.** That structural risk lives in the parse-time carry, which stays strict.
+
+Categories, remarks, colours and dismissals are ROW-ADDRESSED ANNOTATIONS, not parenting. Carrying
+them onto a row the match has ALREADY decided is the same row adds no structural risk the rate does
+not already carry -- so they ride the same match, and `cross_boq_carry` derives it once. Splitting
+the derivation to hold layers back would also have partly undone AMENDMENT E, whose whole point is
+that the carry moves categories and rates in ONE action so the category gate cannot block its own
+remedy; a moved row left priced-but-uncategorised would reinstate exactly the manual finishing step
+E removed.
 
 This is a deliberate, owner-approved, narrowly-scoped exception to the "do not loosen this back
 toward a diff or a walk" warning above, NOT drift. What makes it safe rather than a re-run of the
