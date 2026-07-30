@@ -84,6 +84,69 @@ describe("deriveVerdictState", () => {
   });
 });
 
+// ── ADR-0014 Amendment E: the "carried" state ──────────────────────────────────────
+// Owner ruling 2026-07-28: PROVENANCE is the axis, so EVERY row inherited from the original reads
+// "carried" -- machine or human. These pin that, and pin that the two gates built on this function
+// (editability, master-set-blank) are unaffected by the new state.
+describe("deriveVerdictState -- carried (Amendment E)", () => {
+  it("is carried for a HUMAN verdict that arrived by the carry", () => {
+    expect(
+      deriveVerdictState(
+        cat({
+          effective_category_id: "ELE-1",
+          human_category_id: "ELE-1",
+          carried_from_boq: "BOQ-26-00066",
+        }),
+      ),
+    ).toBe("carried");
+  });
+
+  // This is the half the owner widened: pre-ruling a carried machine verdict read "auto".
+  it("is carried for a MACHINE verdict that arrived by the carry", () => {
+    expect(
+      deriveVerdictState(
+        cat({
+          effective_category_id: "ELE-1",
+          routing: "Auto-accepted",
+          carried_from_boq: "BOQ-26-00066",
+        }),
+      ),
+    ).toBe("carried");
+  });
+
+  it("stays human for a local pick with no carry provenance", () => {
+    expect(
+      deriveVerdictState(
+        cat({ effective_category_id: "ELE-1", human_category_id: "ELE-1", carried_from_boq: null }),
+      ),
+    ).toBe("human");
+  });
+
+  it("stays auto for a local machine verdict", () => {
+    expect(
+      deriveVerdictState(
+        cat({ effective_category_id: "ELE-1", routing: "Auto-accepted", carried_from_boq: null }),
+      ),
+    ).toBe("auto");
+  });
+
+  // Provenance NEVER outranks emptiness: a blank effective is still a row that needs a category,
+  // which is what the gate counts and what the amber fill marks.
+  it("is UNCLASSIFIED when the effective verdict is blank, even with provenance set", () => {
+    expect(
+      deriveVerdictState(cat({ effective_category_id: "", carried_from_boq: "BOQ-26-00066" })),
+    ).toBe("unclassified");
+    expect(
+      deriveVerdictState(cat({ effective_category_id: "   ", carried_from_boq: "BOQ-26-00066" })),
+    ).toBe("unclassified");
+  });
+
+  it("treats an absent carried_from_boq field exactly as a local verdict (back-compat)", () => {
+    expect(deriveVerdictState(cat({ effective_category_id: "ELE-1", human_category_id: "ELE-1" })))
+      .toBe("human");
+  });
+});
+
 describe("isRowEditable", () => {
   it("is true for a classified row (auto / needs_review / human)", () => {
     expect(isRowEditable(cat({ effective_category_id: "ELE-1", routing: "Auto-accepted" }))).toBe(
@@ -94,6 +157,30 @@ describe("isRowEditable", () => {
     ).toBe(true);
     expect(
       isRowEditable(cat({ effective_category_id: "ELE-1", human_category_id: "ELE-1" })),
+    ).toBe(true);
+  });
+
+  // Amendment E safety: this gate keys off `!== "unclassified"`, so a new state is editable BY
+  // CONSTRUCTION -- but a carried row is precisely the one a reviewer needs to be able to correct,
+  // so it is pinned rather than left to the implementation detail.
+  it("is true for a carried row -- an inherited verdict must stay correctable", () => {
+    expect(
+      isRowEditable(
+        cat({
+          effective_category_id: "ELE-1",
+          human_category_id: "ELE-1",
+          carried_from_boq: "BOQ-26-00066",
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isRowEditable(
+        cat({
+          effective_category_id: "ELE-1",
+          routing: "Auto-accepted",
+          carried_from_boq: "BOQ-26-00066",
+        }),
+      ),
     ).toBe(true);
   });
 

@@ -478,6 +478,7 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
           type: { additionalFilters: dateFilters },
           status: { additionalFilters: dateFilters },
           owner: { additionalFilters: dateFilters },
+          modified_by: { additionalFilters: dateFilters },
         }}
         dateFilterColumns={NPE_DATE_COLUMNS}
         showExportButton={true}

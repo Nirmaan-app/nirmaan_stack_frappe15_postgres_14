@@ -47,6 +47,7 @@ import { ExpenseType } from "@/types/NirmaanStack/ExpenseType";
 
 // --- Utils & State ---
 import { parseNumber } from "@/utils/parseNumber";
+import { getExpenseSubmitLabel } from "@/utils/expenseApproval";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { queryKeys, getNonProjectExpenseTypeListOptions } from "@/config/queryKeys";
 
@@ -347,6 +348,10 @@ export const NewNonProjectExpense: React.FC<NewNonProjectExpenseProps> = ({ refe
     const isSubmitDisabled = isLoadingOverall || isAutofilling || !formState.type || !formState.description.trim() || !formState.amount || (recordPaymentDetails && (!formState.payment_date || !formState.invoice_date)) || (recordInvoiceDetails && !formState.invoice_date) || (recordInvoiceDetails && !!invoiceAttachmentFile && !formState.invoice_ref.trim());
 
     const selectedExpenseTypeLabel = expenseTypeOptionsForCommand.find(option => option.value === formState.type)?.label || "Select Expense Type...";
+    // The submit label names the path this expense will actually take: a small
+    // positive amount is auto-approved on save ("Raise Expense"), anything else
+    // -- ≥ ₹5,000, a refund, or a blank amount -- goes to an approver.
+    const submitLabel = getExpenseSubmitLabel(formState.amount);
 
     return (
         <AlertDialog open={newNonProjectExpenseDialog} onOpenChange={(isOpen) => !isOpen && closeDialogAndReset()}>
@@ -549,7 +554,7 @@ export const NewNonProjectExpense: React.FC<NewNonProjectExpenseProps> = ({ refe
                     ) : (
                         <>
                             <AlertDialogCancel asChild><Button variant="outline" onClick={closeDialogAndReset}>Cancel</Button></AlertDialogCancel>
-                            <Button onClick={handleSubmit} disabled={isSubmitDisabled}>Add Expense</Button>
+                            <Button onClick={handleSubmit} disabled={isSubmitDisabled}>{submitLabel}</Button>
                         </>
                     )}
                 </AlertDialogFooter>

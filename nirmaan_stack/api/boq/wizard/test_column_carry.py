@@ -26,6 +26,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.boq.wizard.revision import confirm_revision_mapping
+from nirmaan_stack.api.boq.wizard.revision_carry import current_committed_sheets
 from nirmaan_stack.api.boq.wizard.test_revision_entry import (
     _cleanup_project,
     _make_boq,
@@ -54,16 +55,26 @@ _ROLE_MAP = {
 _HEADER = {"A": "S.No", "B": "Description", "C": "Unit", "D": "Qty", "E": "Rate", "F": "Amount"}
 _UNIVERSE = set("ABCDEF")
 
+# R1: a source sheet name carrying a TRAILING SPACE -- the live-data shape (#152) that a Frappe
+# `["in", [...]]` filter silently dropped from the work-package carry. Deliberately not a tidy
+# name: the whole point is that it survives untrimmed, end to end.
+_PADDED_SHEET = "Padded Data "
+
 
 def _commit_data_sheet(
     boq, sheet, role_map=_ROLE_MAP, header_cells=_HEADER,
     header_row=1, header_row_count=1, column_headers=None, area_dimensions=None,
-    with_header_row=True, version=1,
+    with_header_row=True, version=1, config_snapshot=None,
 ):
     """Commit a DATA sheet: a current grid (+ header grid row) AND a current BoQ Sheet.
 
     `with_header_row=False` mimics a template-origin original whose committed grid was
     inverted from the role map and carries NO header row (no D5 text baseline).
+
+    `config_snapshot=None` (the default) mimics a PRE-R2 committed sheet -- the column is NULL,
+    exactly as it is on all 829 sheets committed before the field existed. Every pre-existing
+    caller therefore keeps exercising the permanent fallback path, which is the point: the
+    R2 change must be inert without a snapshot, and the whole suite proves it for free.
     """
     grid = frappe.new_doc("BoQ Committed Sheet Grid")
     grid.boq = boq
@@ -86,6 +97,8 @@ def _commit_data_sheet(
     bs.column_role_map = frappe.as_json(role_map)
     bs.column_headers = frappe.as_json(column_headers or {})
     bs.area_dimensions = frappe.as_json(area_dimensions or [])
+    if config_snapshot is not None:
+        bs.sheet_config_snapshot = frappe.as_json(config_snapshot)
     bs.is_current = 1
     bs.commit_version = version
     bs.committed_at = frappe.utils.now()
@@ -362,6 +375,157 @@ class TestConfigColumnCarry(FrappeTestCase):
         self.assertIn(drafts["Make List"].sheet_config or "", ("", "null", None))
 
 
+# R2: the parser-tuning keys that live in `SheetConfig` but have NO column on `BoQ Sheet`, so
+# before the snapshot they died at commit and every revised sheet reset them to default.
+# `skip_row_definitions` is the pointed one -- it is not even in the `SheetConfig` model
+# (SheetConfigPanel writes it; the parser consumes the flat `skip_top_rows_after_header`), so a
+# fix that added one column per model field could never have carried it.
+_TUNING = {
+    "skip_top_rows_after_header": [7, 8],
+    "top_header_rows_override": [1, 2],
+    "rate_only_markers_override": ["LS"],
+    "level_1_style_override": "roman",
+    "skip_row_definitions": [{"kind": "range", "start": 7, "end": 8}],
+}
+
+
+class TestConfigSnapshotCarry(FrappeTestCase):
+    """R2 -- `BoQ Sheet.sheet_config_snapshot` makes the committed config LOSSLESS.
+
+    `_committed_data_sheet` seeds a revision by INVERTING the commit snapshot, so whatever commit
+    failed to capture, a revision could not inherit. Commit captured six keys; `SheetConfig` has
+    more. Measured on the dev bench: 46 sheets carried a non-default `top_header_rows_override`,
+    44 a non-default `skip_top_rows_after_header`, 13 a non-empty `skip_row_definitions` -- all
+    silently reset on any revision of them.
+
+    Isolated in its own class with its own project: `TestConfigColumnCarry`'s fixture deliberately
+    commits WITHOUT a snapshot (the pre-R2 shape), and that is coverage worth keeping intact.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.project = _make_project()
+        cls.original = _make_boq(cls.project.name, origin="upload", boq_name="SNAPSHOT ORIG")
+        # header_row 5 so `top_header_rows_override` [1, 2] is realistic -- SheetConfig's
+        # cross-field validator requires every entry to be < header_row.
+        _commit_data_sheet(
+            cls.original.name, "Tuned", header_row=5,
+            config_snapshot={
+                "sheet_name": "Tuned",          # the ORIGINAL's name -- must be stripped
+                "header_row": 5,
+                "header_row_count": 1,
+                "treat_as": "data",
+                "column_role_map": _ROLE_MAP,
+                "column_headers": {},
+                "area_dimensions": [],
+                **_TUNING,
+            },
+        )
+
+    @classmethod
+    def tearDownClass(cls):
+        for boq in frappe.get_all("BOQs", filters={"project": cls.project.name}, fields=["name"]):
+            frappe.db.delete("BoQ Sheet", {"boq": boq.name})
+        frappe.db.commit()
+        _cleanup_project(cls.project.name)
+        super().tearDownClass()
+
+    def _seed_cfg(self, sheet="Tuned"):
+        """The config blob seeded onto the revision's draft for `sheet`."""
+        rev = _make_revision(self.project.name, self.original.name)
+        with patch(_READ_TABS, return_value=[sheet]), patch(
+            _READ_COLS,
+            return_value={sheet: {"header_cells": dict(_HEADER), "universe": set("ABCDEF")}},
+        ):
+            confirm_revision_mapping(
+                rev.name, [{"sheet_name": sheet, "source_sheet_name": sheet}]
+            )
+        draft = {d.sheet_name: d for d in frappe.get_doc("BOQs", rev.name).sheet_drafts}[sheet]
+        return frappe.parse_json(draft.sheet_config)
+
+    def test_parser_tuning_keys_carry_from_the_snapshot(self):
+        """The whole point: a revised sheet inherits the tuning its original was configured with,
+        instead of silently reverting to defaults the user never chose."""
+        cfg = self._seed_cfg()
+        for key, expected in _TUNING.items():
+            self.assertEqual(cfg[key], expected, f"{key} did not carry")
+
+    def test_the_six_columns_win_over_the_snapshot(self):
+        """The merge rule, in the direction that can actually cause harm. `treat_as` on the
+        committed row is derived from the commit DISPOSITION, not from the draft blob, so the two
+        CAN disagree -- and a snapshot that won would seed `master_preamble` onto a data sheet and
+        take it out of the parse entirely. The columns are authoritative for what they cover."""
+        orig = _make_boq(self.project.name, origin="upload", boq_name="SNAPSHOT LIAR")
+        _commit_data_sheet(
+            orig.name, "Tuned", header_row=5,
+            config_snapshot={
+                "treat_as": "master_preamble",   # disagrees with the committed column
+                "header_row": 99,                # disagrees
+                "header_row_count": 2,           # disagrees
+                "column_role_map": {},           # disagrees
+                "area_dimensions": ["Tower A"],  # disagrees
+                **_TUNING,
+            },
+        )
+        rev = _make_revision(self.project.name, orig.name)
+        with patch(_READ_TABS, return_value=["Tuned"]), patch(
+            _READ_COLS,
+            return_value={"Tuned": {"header_cells": dict(_HEADER), "universe": set("ABCDEF")}},
+        ):
+            confirm_revision_mapping(
+                rev.name, [{"sheet_name": "Tuned", "source_sheet_name": "Tuned"}]
+            )
+        draft = frappe.get_doc("BOQs", rev.name).sheet_drafts[0]
+        cfg = frappe.parse_json(draft.sheet_config)
+        self.assertEqual(cfg["treat_as"], "data")
+        self.assertEqual(cfg["header_row"], 5)
+        self.assertEqual(cfg["header_row_count"], 1)
+        self.assertEqual(cfg["column_role_map"], _ROLE_MAP)
+        self.assertEqual(cfg["area_dimensions"], [])
+        # ...while the keys the columns do NOT cover still come through.
+        self.assertEqual(cfg["skip_top_rows_after_header"], _TUNING["skip_top_rows_after_header"])
+
+    def test_snapshot_sheet_name_is_stripped(self):
+        """The snapshot holds the ORIGINAL's `sheet_name`; this blob seeds the REVISION. Both
+        parse entry points overwrite it from the draft, so it is inert -- but storing another
+        sheet's name in a revision's config is a trap, and the 6-key contract says it is absent.
+
+        The first assertion is what makes the second one mean anything: it proves the SOURCE
+        actually carries a `sheet_name` to strip. Without it this test passes even when the
+        snapshot is not read at all, which is precisely how it behaved when checked against a
+        deliberately broken reader."""
+        source = frappe.db.get_value(
+            "BoQ Sheet",
+            {"boq": self.original.name, "sheet_name": "Tuned", "is_current": 1},
+            "sheet_config_snapshot",
+        )
+        self.assertEqual(frappe.parse_json(source).get("sheet_name"), "Tuned")
+        self.assertNotIn("sheet_name", self._seed_cfg())
+
+    def test_sheet_committed_before_r2_seeds_exactly_the_six_keys(self):
+        """The PERMANENT fallback. A sheet committed before the field existed has a NULL snapshot
+        and must seed byte-identically to pre-R2 behaviour -- those 829 rows' tuning was never
+        captured and cannot be recovered, so the fallback is the contract, not a migration step."""
+        orig = _make_boq(self.project.name, origin="upload", boq_name="PRE-R2 ORIG")
+        _commit_data_sheet(orig.name, "Legacy")  # config_snapshot omitted -> column stays NULL
+        rev = _make_revision(self.project.name, orig.name)
+        with patch(_READ_TABS, return_value=["Legacy"]), patch(
+            _READ_COLS,
+            return_value={"Legacy": {"header_cells": dict(_HEADER), "universe": set("ABCDEF")}},
+        ):
+            confirm_revision_mapping(
+                rev.name, [{"sheet_name": "Legacy", "source_sheet_name": "Legacy"}]
+            )
+        draft = frappe.get_doc("BOQs", rev.name).sheet_drafts[0]
+        cfg = frappe.parse_json(draft.sheet_config)
+        self.assertEqual(
+            set(cfg),
+            {"header_row", "header_row_count", "treat_as",
+             "column_role_map", "column_headers", "area_dimensions"},
+        )
+
+
 def _add_work_packages(boq, sheet, work_headers):
     """Attach work packages to an ORIGINAL's CURRENT committed BoQ Sheet (the grandchild table).
 
@@ -429,13 +593,23 @@ class TestWorkPackageCarry(FrappeTestCase):
             wh.insert(ignore_permissions=True)
             cls.headers.append(name)
         _add_work_packages(cls.original.name, "Data", cls.headers)
+        # R1: a second committed source whose name carries a trailing space, with its OWN work
+        # header -- so a pass here proves the assignment came from the PADDED sheet and could not
+        # have leaked from 'Data'. Kept out of `cls.headers` so the 'Data' order assertion above
+        # stays an exact-list comparison.
+        _commit_data_sheet(cls.original.name, _PADDED_SHEET)
+        cls.padded_header = f"WP Padded {frappe.generate_hash(length=4)}"
+        padded_wh = frappe.new_doc("Work Headers")
+        padded_wh.work_header_name = cls.padded_header
+        padded_wh.insert(ignore_permissions=True)
+        _add_work_packages(cls.original.name, _PADDED_SHEET, [cls.padded_header])
         frappe.db.commit()
 
     @classmethod
     def tearDownClass(cls):
         for boq in frappe.get_all("BOQs", filters={"project": cls.project.name}, fields=["name"]):
             frappe.db.delete("BoQ Sheet", {"boq": boq.name})
-        for name in cls.headers:
+        for name in [*cls.headers, cls.padded_header]:
             frappe.delete_doc("Work Headers", name, force=True, ignore_permissions=True)
         frappe.db.commit()
         _cleanup_project(cls.project.name)
@@ -469,6 +643,38 @@ class TestWorkPackageCarry(FrappeTestCase):
         draft = frappe.get_doc("BOQs", rev).sheet_drafts[0]
         self.assertEqual(draft.wizard_status, "Pending")
         self.assertGreaterEqual(len(_draft_work_packages(rev, "Data")), 1)
+
+    def test_source_sheet_name_with_trailing_space_still_carries(self):
+        """R1 REGRESSION -- the live-data failure, reproduced.
+
+        `read_committed_work_packages` resolved its source sheets through a Frappe
+        `["in", [...]]` filter, and `DatabaseQuery.prepare_filter_condition` STRIPS every value in
+        that list. A committed sheet named 'PA ' therefore matched nothing, returned no work
+        packages, and the revision draft landed EMPTY -- with no error anywhere. Because
+        `SheetConfigPanel` disables the Config-Done checkbox without at least one work package,
+        that sheet could then never be attested, parsed or committed.
+
+        Observed on BOQ-26-00215: 'FDA ' / 'PA ' / 'ACCESS ' / 'CCTV  ' all carried nothing while
+        'FPS' / 'FE' / 'RODENT' carried correctly -- perfectly correlated with a trailing space in
+        the SOURCE name."""
+        rev = self._confirm(
+            [_PADDED_SHEET],
+            [{"sheet_name": _PADDED_SHEET, "source_sheet_name": _PADDED_SHEET}],
+            {_PADDED_SHEET: {"header_cells": dict(_HEADER), "universe": set("ABCDEF")}},
+        )
+        self.assertEqual(_draft_work_packages(rev, _PADDED_SHEET), [self.padded_header])
+
+    def test_current_committed_sheets_matches_names_verbatim(self):
+        """The invariant one layer below the carry, pinned directly, so a refactor back to a
+        Frappe `["in", [...]]` filter fails HERE -- with an obvious cause -- instead of surfacing
+        as a silently empty carry two call sites away.
+
+        Both directions matter: the padded name must MATCH (no stripping), and its trimmed
+        spelling must NOT (the reader stays exact -- #152 is verbatim matching, not lenient
+        matching, and a fix that made it lenient would pair the wrong sheets)."""
+        rows = current_committed_sheets(self.original.name, [_PADDED_SHEET])
+        self.assertEqual([r.sheet_name for r in rows], [_PADDED_SHEET])
+        self.assertEqual(current_committed_sheets(self.original.name, [_PADDED_SHEET.strip()]), [])
 
     def test_declared_new_sheet_carries_none(self):
         """A New sheet claims no original, so there is nothing to carry -- it is configured from

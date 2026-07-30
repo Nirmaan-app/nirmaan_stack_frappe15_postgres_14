@@ -267,7 +267,7 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(role == "Nirmaan Project Lead Profile" || role == "Nirmaan Accountant Profile" || role == "Nirmaan Accountant Lead Profile" || role == "Nirmaan Procurement Executive Profile" || role == "Nirmaan Project Manager Profile" || role == "Nirmaan Estimates Executive Profile"
+    ...(role == "Nirmaan Project Lead Profile" || role == "Nirmaan Accountant Profile" || role == "Nirmaan Accountant Lead Profile" || role == "Nirmaan Procurement Executive Profile" || role == "Nirmaan Project Manager Profile" || role == "Nirmaan Estimates Executive Profile" || role == "Nirmaan Billing Executive Profile"
       ? [
         {
           key: "/projects",
@@ -389,7 +389,7 @@ export function NewSidebar() {
     //   ]
     // : []),
 
-    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Project Lead Profile"].includes(role as string)
+    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Billing Executive Profile", "Nirmaan Project Lead Profile"].includes(role as string)
       ? [
         {
           key: '/item-price',
@@ -446,7 +446,9 @@ export function NewSidebar() {
       "Nirmaan PMO Executive Profile",
       "Nirmaan Project Lead Profile",
       "Nirmaan Accountant Profile",
-      "Nirmaan Accountant Lead Profile"
+      "Nirmaan Accountant Lead Profile",
+      "Nirmaan Estimates Executive Profile",
+      "Nirmaan Billing Executive Profile"
     ].includes(role as string)
       ? [
         {
@@ -472,7 +474,7 @@ export function NewSidebar() {
       ]
       : []),
 
-    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Procurement Executive Profile"].includes(role as string)
+    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Billing Executive Profile", "Nirmaan Procurement Executive Profile"].includes(role as string)
       ? [
         {
           key: '/work-order-rate-card',
@@ -593,7 +595,7 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Project Lead Profile"].includes(role as string)
+    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Billing Executive Profile", "Nirmaan Project Lead Profile"].includes(role as string)
       ? [
         {
           key: '/tds-repository',

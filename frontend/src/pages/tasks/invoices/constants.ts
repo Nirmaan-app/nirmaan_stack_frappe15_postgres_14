@@ -11,10 +11,16 @@ export const INVOICE_TASK_TAB_OPTIONS = [
   { label: "Invoice Action History", value: INVOICE_TASK_TABS.HISTORY },
 ] as const;
 
-/** Tab options for invoice type tabs */
+/**
+ * Tab options for invoice type tabs.
+ *
+ * These two tabs are the RECONCILIATION views (2B reconciliation status, proof,
+ * reconciled-by/date), as distinct from the approval-flow tabs above — the
+ * labels say "Recon" so the split is legible from the tab strip alone.
+ */
 export const INVOICE_TYPE_TAB_OPTIONS = [
-  { label: "WO Invoices", value: INVOICE_TASK_TABS.SR_INVOICES },
-  { label: "PO Invoices", value: INVOICE_TASK_TABS.PO_INVOICES },
+  { label: "WO Invoices Recon", value: INVOICE_TASK_TABS.SR_INVOICES },
+  { label: "PO Invoice Recon", value: INVOICE_TASK_TABS.PO_INVOICES },
 ] as const;
 
 /**

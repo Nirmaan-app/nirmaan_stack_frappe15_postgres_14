@@ -48,4 +48,5 @@ export const PO_ADMIN_ROLES = [
 
 export const PO_ESTIMATES_ROLES = [
     "Nirmaan Estimates Executive Profile",
+    "Nirmaan Billing Executive Profile",
 ];

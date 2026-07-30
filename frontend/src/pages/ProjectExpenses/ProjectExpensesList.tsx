@@ -454,6 +454,7 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
           payment_by: { additionalFilters: staticFilters },
           type: { additionalFilters: staticFilters },
           owner: { additionalFilters: staticFilters },
+          modified_by: { additionalFilters: staticFilters },
           status: { additionalFilters: staticFilters },
         }}
         showExportButton={true}

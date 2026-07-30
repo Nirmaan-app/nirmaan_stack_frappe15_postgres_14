@@ -502,6 +502,38 @@ describe("isMasterSetBlank", () => {
     expect(isMasterSetBlank(row("Line Item"), mcat({ effective_category_id: "   " }))).toBe(true);
   });
 
+  // ADR-0014 Amendment E. This predicate is the client half of the category GATE, so a carried
+  // row must read exactly like any other row displaying a category -- provenance is a rendering
+  // concern and must never leak into whether the sheet's rates unlock. If a carried row were
+  // counted blank the gate would stay shut on rows the carry had just filled.
+  it("Amendment E: FALSE for a carried row -- an inherited category is still a category", () => {
+    expect(
+      isMasterSetBlank(
+        row("Line Item"),
+        mcat({ effective_category_id: "db_switchgear", carried_from_boq: "BOQ-26-00066" }),
+      ),
+    ).toBe(false);
+    expect(
+      isMasterSetBlank(
+        row("Preamble"),
+        mcat({
+          effective_category_id: "x",
+          human_category_id: "x",
+          carried_from_boq: "BOQ-26-00066",
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("Amendment E: provenance never rescues a BLANK row from the gate", () => {
+    expect(
+      isMasterSetBlank(
+        row("Line Item"),
+        mcat({ effective_category_id: "", carried_from_boq: "BOQ-26-00066" }),
+      ),
+    ).toBe(true);
+  });
+
   it("node_type whitespace still resolves to the master set (Scope 3 trim)", () => {
     expect(isMasterSetBlank(row(" Line Item " as PricedRow["node_type"]), undefined)).toBe(true);
   });

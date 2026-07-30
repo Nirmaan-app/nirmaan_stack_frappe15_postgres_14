@@ -101,7 +101,7 @@ export const RenderRightActionButton = ({
           Add <span className="hidden md:flex pl-1">New PR</span>
         </Button>)
     );
-  } else if (locationPath === "/service-requests" && role !== "Nirmaan Estimates Executive Profile") {
+  } else if (locationPath === "/service-requests" && role !== "Nirmaan Estimates Executive Profile" && role !== "Nirmaan Billing Executive Profile") {
     return (
       <Button
         className="sm:mr-4 mr-2"
@@ -111,7 +111,7 @@ export const RenderRightActionButton = ({
         Add <span className="hidden md:flex pl-1">New WO</span>
       </Button>
     );
-  } else if (locationPath === "/service-requests-list" && selectedProject && role !== "Nirmaan Project Manager Profile" && role !== "Nirmaan Estimates Executive Profile") {
+  } else if (locationPath === "/service-requests-list" && selectedProject && role !== "Nirmaan Project Manager Profile" && role !== "Nirmaan Estimates Executive Profile" && role !== "Nirmaan Billing Executive Profile") {
     return (
       <Button
         className="sm:mr-4 mr-2"

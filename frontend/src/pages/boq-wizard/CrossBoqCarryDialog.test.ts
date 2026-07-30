@@ -17,13 +17,33 @@ import {
   CARRY_DISABLED_REASON,
   armedRateOverwrites,
   summarizeSheetCarry,
+  LAYER_LABEL,
+  initialLayerChoices,
+  layerOutcomeFor,
+  layerHasWork,
+  layerMoveCount,
+  layerCountsText,
+  layerSkipNote,
+  armedLayerReplacements,
+  buildLayersPayload,
+  nothingToCarry,
+  carrySelectionSummary,
+  rateWriteCount,
+  type LayerChoices,
 } from "./CrossBoqCarryDialog";
+import { CARRY_LAYER_KEYS } from "./boqTypes";
 import type {
   ApplySheetCarryResponse,
+  CarryLayerOutcome,
   CrossBoqCarryDecision,
   CrossBoqCarryPlanRow,
   CrossBoqCarrySheet,
 } from "./boqTypes";
+
+/** A planned layer outcome. Every field defaults to 0 so a test names only what it is about. */
+function outcome(over: Partial<CarryLayerOutcome> = {}): CarryLayerOutcome {
+  return { carried: 0, replaced: 0, kept: 0, unmatched: 0, ineligible: 0, dropped: 0, ...over };
+}
 
 function row(over: Partial<CrossBoqCarryPlanRow> = {}): CrossBoqCarryPlanRow {
   return {
@@ -318,7 +338,7 @@ describe("armedRateOverwrites (the destructive footer)", () => {
 
 describe("summarizeSheetCarry (the post-apply line)", () => {
   const res = (over: Partial<ApplySheetCarryResponse> = {}): ApplySheetCarryResponse => ({
-    ok: true, copied: 0, conflicts_overwritten: 0, conflicts_kept: 0, skipped: {},
+    ok: true, copied: 0, conflicts_overwritten: 0, conflicts_kept: 0, skipped: {}, layers: {},
     ...over,
   });
 
@@ -327,10 +347,54 @@ describe("summarizeSheetCarry (the post-apply line)", () => {
       .toBe("Carried 12 rates.");
   });
 
-  // AMENDMENT D: the line used to append "and N items" for the annotation layers. The carry
-  // moves rates only, so the sentence is rates-only too.
-  it("reports rates alone -- there is no annotation total to append", () => {
+  // AMENDMENT E: a layer that did not run is ABSENT from `layers`, so the sentence stays
+  // rates-only -- which is also exactly what a pre-E client keeps getting.
+  it("reports rates alone when no layer ran", () => {
     expect(summarizeSheetCarry(res({ copied: 5 }), 0)).toBe("Carried 5 rates.");
+  });
+
+  it("names each layer that landed something, alongside the rates", () => {
+    expect(
+      summarizeSheetCarry(
+        res({ copied: 5, layers: { categories: outcome({ carried: 140, replaced: 3 }) } }),
+        0,
+      ),
+    ).toBe("Carried 5 rates and 143 categories.");
+  });
+
+  it("joins three landed axes the way a person would", () => {
+    expect(
+      summarizeSheetCarry(
+        res({
+          copied: 2,
+          layers: {
+            categories: outcome({ carried: 10 }),
+            remarks: outcome({ carried: 4 }),
+          },
+        }),
+        0,
+      ),
+    ).toBe("Carried 2 rates, 10 categories and 4 remarks.");
+  });
+
+  // The regression this branch exists for: a freshly committed revision whose rates ALL conflict
+  // can still take the whole category set. Reporting "Nothing was carried." there is flatly false.
+  it("does NOT say 'nothing' when a layer landed but no rate did", () => {
+    expect(
+      summarizeSheetCarry(res({ layers: { categories: outcome({ carried: 143 }) } }), 0),
+    ).toBe("Carried 143 categories.");
+  });
+
+  it("ignores a layer that ran but moved nothing", () => {
+    expect(
+      summarizeSheetCarry(res({ copied: 5, layers: { colors: outcome({ dropped: 9 }) } }), 0),
+    ).toBe("Carried 5 rates.");
+  });
+
+  it("still says 'nothing' when every axis is empty", () => {
+    expect(
+      summarizeSheetCarry(res({ layers: { categories: outcome({ unmatched: 12 }) } }), 0),
+    ).toBe("Nothing was carried.");
   });
 
   it("uses the singular for exactly one rate", () => {
@@ -353,5 +417,368 @@ describe("summarizeSheetCarry (the post-apply line)", () => {
 
   it("survives a missing payload", () => {
     expect(summarizeSheetCarry(undefined, 0)).toBe("Nothing was carried.");
+  });
+});
+
+// ── AMENDMENT E: the opt-in non-rate layers ────────────────────────────────────────
+
+/** A sheet carrying a planned `layers` block. */
+function layered(layers: CrossBoqCarrySheet["layers"]): CrossBoqCarrySheet {
+  return sheet({ layers });
+}
+
+/** Start from the shipped defaults and override individual layers. */
+function choices(over: Partial<LayerChoices> = {}): LayerChoices {
+  return { ...initialLayerChoices(), ...over };
+}
+
+describe("initialLayerChoices (the shipped defaults)", () => {
+  it("ticks CATEGORIES and leaves the three annotation layers off (owner decision 6)", () => {
+    const c = initialLayerChoices();
+    expect(c.categories).toEqual({ carry: true, overwrite: false });
+    expect(c.remarks).toEqual({ carry: false, overwrite: false });
+    expect(c.colors).toEqual({ carry: false, overwrite: false });
+    expect(c.remark_dismissals).toEqual({ carry: false, overwrite: false });
+  });
+
+  it("never defaults ANY layer to overwrite -- Keep is the safe default on every axis", () => {
+    for (const key of CARRY_LAYER_KEYS) {
+      expect(initialLayerChoices()[key].overwrite).toBe(false);
+    }
+  });
+
+  it("returns a FRESH object each call, so resetting one dialog cannot mutate another", () => {
+    const a = initialLayerChoices();
+    a.categories.carry = false;
+    expect(initialLayerChoices().categories.carry).toBe(true);
+  });
+
+  it("covers every key in CARRY_LAYER_KEYS -- a new layer cannot be silently unhandled", () => {
+    const c = initialLayerChoices();
+    for (const key of CARRY_LAYER_KEYS) expect(c[key]).toBeDefined();
+    expect(Object.keys(c).sort()).toEqual([...CARRY_LAYER_KEYS].sort());
+  });
+});
+
+describe("layerOutcomeFor / layerHasWork", () => {
+  it("reads the planned outcome for a layer", () => {
+    const s = layered({ categories: outcome({ carried: 12 }) });
+    expect(layerOutcomeFor(s, "categories")?.carried).toBe(12);
+  });
+
+  // A pre-Amendment-E server sends no `layers` key at all; the dialog must degrade, not throw.
+  it("is null when the server sent no layers block at all", () => {
+    expect(layerOutcomeFor(sheet(), "categories")).toBeNull();
+    expect(layerOutcomeFor(null, "categories")).toBeNull();
+    expect(layerOutcomeFor(undefined, "remarks")).toBeNull();
+  });
+
+  it("is null for a layer missing from a block that has other layers", () => {
+    expect(layerOutcomeFor(layered({ categories: outcome() }), "colors")).toBeNull();
+  });
+
+  it("has work when rows would be WRITTEN", () => {
+    expect(layerHasWork(outcome({ carried: 3 }))).toBe(true);
+  });
+
+  // `kept` alone is still a real choice: nothing copies, but Overwrite would replace those rows.
+  it("has work when rows would only be REPLACED by arming overwrite", () => {
+    expect(layerHasWork(outcome({ kept: 4 }))).toBe(true);
+  });
+
+  it("has NO work when every destination row is unmatched / ineligible / dropped", () => {
+    expect(layerHasWork(outcome({ unmatched: 20, ineligible: 5, dropped: 9 }))).toBe(false);
+  });
+
+  it("has no work for a missing outcome", () => {
+    expect(layerHasWork(null)).toBe(false);
+    expect(layerHasWork(undefined)).toBe(false);
+  });
+});
+
+describe("layerMoveCount (what a layer actually writes)", () => {
+  it("writes only the fresh rows with Keep", () => {
+    expect(layerMoveCount(outcome({ carried: 10, kept: 4 }), false)).toBe(10);
+  });
+
+  // Arming Overwrite moves `kept` into `replaced` WITHOUT changing the walk's total.
+  it("writes the fresh rows plus the displaced ones with Overwrite", () => {
+    expect(layerMoveCount(outcome({ carried: 10, kept: 4 }), true)).toBe(14);
+  });
+
+  it("is 0 for a missing outcome, armed or not", () => {
+    expect(layerMoveCount(null, true)).toBe(0);
+    expect(layerMoveCount(undefined, false)).toBe(0);
+  });
+
+  it("ignores rows that could never land", () => {
+    expect(layerMoveCount(outcome({ unmatched: 7, ineligible: 2, dropped: 1 }), true)).toBe(0);
+  });
+});
+
+describe("layerCountsText / layerSkipNote (the per-row copy)", () => {
+  it("reports both halves of the choice", () => {
+    expect(layerCountsText(outcome({ carried: 12, kept: 3 }))).toBe("12 to copy · 3 already set");
+  });
+
+  it("omits a zero half rather than printing '0 already set'", () => {
+    expect(layerCountsText(outcome({ carried: 12 }))).toBe("12 to copy");
+    expect(layerCountsText(outcome({ kept: 3 }))).toBe("3 already set");
+  });
+
+  it("is empty when the layer has nothing to offer (the row renders disabled instead)", () => {
+    expect(layerCountsText(outcome({ unmatched: 40 }))).toBe("");
+    expect(layerCountsText(null)).toBe("");
+  });
+
+  it("warns that a colour cannot carry when its column did not survive", () => {
+    expect(layerSkipNote("colors", outcome({ carried: 2, dropped: 9 })))
+      .toBe("9 skipped — that column is not in the revision");
+  });
+
+  it("warns that a category cannot land on a non-eligible destination row", () => {
+    expect(layerSkipNote("categories", outcome({ carried: 2, ineligible: 5 })))
+      .toBe("5 skipped — those rows cannot hold a category");
+  });
+
+  // Each drop reason belongs to exactly one layer; the others report 0 by construction.
+  it("says nothing for a layer with no structural drops", () => {
+    expect(layerSkipNote("remarks", outcome({ carried: 5, unmatched: 3 }))).toBe("");
+    expect(layerSkipNote("categories", outcome({ dropped: 9 }))).toBe("");
+    expect(layerSkipNote("colors", outcome({ ineligible: 9 }))).toBe("");
+    expect(layerSkipNote("remark_dismissals", null)).toBe("");
+  });
+});
+
+describe("armedLayerReplacements (the destructive footer's layer half)", () => {
+  const s = layered({
+    categories: outcome({ carried: 10, kept: 6 }),
+    remarks: outcome({ carried: 2, kept: 4 }),
+  });
+
+  it("counts nothing while every layer is on Keep", () => {
+    expect(armedLayerReplacements(s, choices())).toBe(0);
+  });
+
+  it("counts the displaced records of an armed layer", () => {
+    expect(
+      armedLayerReplacements(s, choices({ categories: { carry: true, overwrite: true } })),
+    ).toBe(6);
+  });
+
+  it("sums across several armed layers", () => {
+    expect(
+      armedLayerReplacements(
+        s,
+        choices({
+          categories: { carry: true, overwrite: true },
+          remarks: { carry: true, overwrite: true },
+        }),
+      ),
+    ).toBe(10);
+  });
+
+  // The armed flag is meaningless on a layer that is not carrying -- it writes nothing at all.
+  it("ignores an armed layer that is NOT ticked to carry", () => {
+    expect(
+      armedLayerReplacements(s, choices({ remarks: { carry: false, overwrite: true } })),
+    ).toBe(0);
+  });
+
+  it("counts nothing when the server sent no layer counts", () => {
+    expect(
+      armedLayerReplacements(sheet(), choices({ categories: { carry: true, overwrite: true } })),
+    ).toBe(0);
+  });
+});
+
+describe("buildLayersPayload (the wire)", () => {
+  it("sends only the ticked layers -- an untouched layer is omitted, not carry:false", () => {
+    expect(buildLayersPayload(initialLayerChoices())).toEqual({
+      categories: { carry: true, overwrite: false },
+    });
+  });
+
+  it("carries the overwrite flag of a ticked layer", () => {
+    expect(
+      buildLayersPayload(choices({ remarks: { carry: true, overwrite: true } })),
+    ).toEqual({
+      categories: { carry: true, overwrite: false },
+      remarks: { carry: true, overwrite: true },
+    });
+  });
+
+  // Rates-only is a legitimate ask, and is exactly the Amendment D behaviour.
+  it("is EMPTY when every layer is unticked", () => {
+    const none = Object.fromEntries(
+      CARRY_LAYER_KEYS.map((k) => [k, { carry: false, overwrite: false }]),
+    ) as LayerChoices;
+    expect(buildLayersPayload(none)).toEqual({});
+  });
+
+  it("never leaks an overwrite flag from an unticked layer", () => {
+    const payload = buildLayersPayload(choices({ colors: { carry: false, overwrite: true } }));
+    expect(payload.colors).toBeUndefined();
+  });
+});
+
+describe("nothingToCarry (the apply gate, both axes)", () => {
+  const s = layered({ categories: outcome({ carried: 140 }) });
+
+  it("is false while any rate cell is selected", () => {
+    const none = Object.fromEntries(
+      CARRY_LAYER_KEYS.map((k) => [k, { carry: false, overwrite: false }]),
+    ) as LayerChoices;
+    expect(nothingToCarry(3, s, none)).toBe(false);
+  });
+
+  // THE regression this helper exists for: the pre-E gate was `selectedCount === 0`, which
+  // refused a category-only carry -- real work, on the axis the amendment is about.
+  it("is FALSE with zero rates but a carrying layer that would write", () => {
+    expect(nothingToCarry(0, s, initialLayerChoices())).toBe(false);
+  });
+
+  it("is true with zero rates and every layer unticked", () => {
+    const none = Object.fromEntries(
+      CARRY_LAYER_KEYS.map((k) => [k, { carry: false, overwrite: false }]),
+    ) as LayerChoices;
+    expect(nothingToCarry(0, s, none)).toBe(true);
+  });
+
+  // Ticking a layer that cannot move anything is not work, and must not enable a no-op apply.
+  it("is TRUE when the only ticked layer would write nothing", () => {
+    const empty = layered({ categories: outcome({ unmatched: 50 }) });
+    expect(nothingToCarry(0, empty, initialLayerChoices())).toBe(true);
+  });
+
+  it("is false when a ticked layer writes only because Overwrite is armed", () => {
+    const keptOnly = layered({ categories: outcome({ kept: 6 }) });
+    expect(nothingToCarry(0, keptOnly, initialLayerChoices())).toBe(true);
+    expect(
+      nothingToCarry(0, keptOnly, choices({ categories: { carry: true, overwrite: true } })),
+    ).toBe(false);
+  });
+
+  it("is true when the server sent no layer counts and no rate is selected", () => {
+    expect(nothingToCarry(0, sheet(), initialLayerChoices())).toBe(true);
+  });
+});
+
+describe("carrySelectionSummary (the 'Will carry ...' line)", () => {
+  const s = layered({
+    categories: outcome({ carried: 140, kept: 3 }),
+    remarks: outcome({ carried: 4 }),
+  });
+
+  it("names rates alone when no layer is ticked", () => {
+    const none = Object.fromEntries(
+      CARRY_LAYER_KEYS.map((k) => [k, { carry: false, overwrite: false }]),
+    ) as LayerChoices;
+    expect(carrySelectionSummary(12, s, none)).toBe("12 rates");
+  });
+
+  it("joins rates and one layer with 'and'", () => {
+    expect(carrySelectionSummary(12, s, initialLayerChoices())).toBe("12 rates and 140 categories");
+  });
+
+  it("uses commas then a final 'and' for three parts", () => {
+    expect(
+      carrySelectionSummary(12, s, choices({ remarks: { carry: true, overwrite: false } })),
+    ).toBe("12 rates, 140 categories and 4 remarks");
+  });
+
+  it("adds the displaced rows to a layer's figure once Overwrite is armed", () => {
+    expect(
+      carrySelectionSummary(0, s, choices({ categories: { carry: true, overwrite: true } })),
+    ).toBe("143 categories");
+  });
+
+  it("uses the singular for exactly one rate", () => {
+    expect(carrySelectionSummary(1, sheet(), initialLayerChoices())).toBe("1 rate");
+  });
+
+  it("omits a ticked layer that would move nothing -- never promise an empty layer", () => {
+    const empty = layered({ categories: outcome({ unmatched: 9 }) });
+    expect(carrySelectionSummary(2, empty, initialLayerChoices())).toBe("2 rates");
+  });
+
+  it("is empty when nothing at all is selected (the caller hides the line)", () => {
+    const none = Object.fromEntries(
+      CARRY_LAYER_KEYS.map((k) => [k, { carry: false, overwrite: false }]),
+    ) as LayerChoices;
+    expect(carrySelectionSummary(0, s, none)).toBe("");
+  });
+
+  it("labels every layer from the shared LAYER_LABEL map, lowercased", () => {
+    const all = layered(
+      Object.fromEntries(CARRY_LAYER_KEYS.map((k) => [k, outcome({ carried: 1 })])),
+    );
+    const every = Object.fromEntries(
+      CARRY_LAYER_KEYS.map((k) => [k, { carry: true, overwrite: false }]),
+    ) as LayerChoices;
+    const line = carrySelectionSummary(0, all, every);
+    for (const key of CARRY_LAYER_KEYS) {
+      expect(line).toContain(LAYER_LABEL[key].toLowerCase());
+    }
+  });
+});
+
+// ── AMENDMENT E follow-up: the "Will carry ..." line must count WRITES, not selection ──────
+// Found by the live E2E: on a re-run every conflict is pre-selected with Keep, so the dialog
+// promised "Will carry 12 rates" and the apply answered "Nothing was carried. 12 existing rates
+// left as they were." The layer half already respected the choice, so one sentence disagreed
+// with itself.
+describe("rateWriteCount (what the apply will actually write)", () => {
+  const k = (r: number) => cellKey("Electrical", { dest_excel_row: r, area: null, rate_kind: "combined_rate" });
+  const mixed = sheet({
+    plan: [
+      row({ dest_excel_row: 10, outcome: 2 }),                      // clean
+      row({ dest_excel_row: 11, outcome: 2 }),                      // clean
+      row({ dest_excel_row: 12, outcome: 3, current_rate: 999 }),   // conflict
+      row({ dest_excel_row: 13, outcome: 3, current_rate: 888 }),   // conflict
+      row({ dest_excel_row: 14, outcome: 1, skip_reason: "removed" }), // hard skip
+    ],
+  });
+  const all = new Set([k(10), k(11), k(12), k(13), k(14)]);
+
+  it("counts a selected clean copy", () => {
+    expect(rateWriteCount(mixed, new Set([k(10), k(11)]), {})).toBe(2);
+  });
+
+  it("does NOT count a selected conflict left on Keep -- it writes nothing", () => {
+    expect(rateWriteCount(mixed, new Set([k(12), k(13)]), {})).toBe(0);
+  });
+
+  it("counts a selected conflict once Overwrite is armed", () => {
+    expect(rateWriteCount(mixed, new Set([k(12), k(13)]), { [k(12)]: true })).toBe(1);
+  });
+
+  // THE regression: everything selected, every conflict on Keep -> only the clean rows write.
+  it("counts only the clean rows when all are selected and no conflict is armed", () => {
+    expect(rateWriteCount(mixed, all, {})).toBe(2);
+  });
+
+  it("never counts a hard skip, selected or not", () => {
+    expect(rateWriteCount(mixed, new Set([k(14)]), { [k(14)]: true })).toBe(0);
+  });
+
+  it("is 0 for an unselected plan and for a missing sheet", () => {
+    expect(rateWriteCount(mixed, new Set(), {})).toBe(0);
+    expect(rateWriteCount(null, all, {})).toBe(0);
+    expect(rateWriteCount(undefined, all, {})).toBe(0);
+  });
+
+  it("the all-Keep re-run case reports NOTHING rather than the selection size", () => {
+    const carried = sheet({
+      plan: [10, 11, 12].map((r) => row({ dest_excel_row: r, outcome: 3, current_rate: 5 })),
+    });
+    const sel = new Set([10, 11, 12].map(k));
+    expect(sel.size).toBe(3);                          // all selected ...
+    expect(rateWriteCount(carried, sel, {})).toBe(0);  // ... and none of them write
+    // and so the sentence promises nothing, matching the apply's own answer
+    const none = Object.fromEntries(
+      CARRY_LAYER_KEYS.map((key) => [key, { carry: false, overwrite: false }]),
+    ) as LayerChoices;
+    expect(carrySelectionSummary(rateWriteCount(carried, sel, {}), carried, none)).toBe("");
   });
 });

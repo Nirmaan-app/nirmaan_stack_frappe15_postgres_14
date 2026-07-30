@@ -1353,17 +1353,51 @@ export interface CrossBoqCarrySheet {
   counts: CrossBoqCarryCounts;
   formulas_complete: boolean;
   needs_new_value_count: number;
+  /** Amendment E: what each layer WOULD do, planned with overwrite OFF. EVERY layer is planned
+   *  regardless of what the user has ticked -- the dialog cannot offer a choice it has no counts
+   *  for. Optional so a response from an older server does not break the dialog. */
+  layers?: Partial<Record<CarryLayerKey, CarryLayerOutcome>>;
 }
 
-/** Response shape of apply_sheet_carry (AMENDMENT C, C2) -- synchronous, so the summary comes
- *  straight back instead of a job id. AMENDMENT D removed the `layers` block: the carry moves
- *  rates and nothing else. */
+/** ADR-0014 Amendment E: the non-rate layers the per-sheet carry can move. Order is the DISPLAY
+ *  order in the dialog. Mirrors committed_carry.LAYER_KEYS -- keep the two in step. */
+export const CARRY_LAYER_KEYS = [
+  "categories",
+  "remarks",
+  "colors",
+  "remark_dismissals",
+] as const;
+export type CarryLayerKey = (typeof CARRY_LAYER_KEYS)[number];
+
+/** One layer's per-sheet outcome. ONE shape for every layer, so the UI reads a uniform result.
+ *  `ineligible` is categories-only (the destination row cannot hold a category) and `dropped` is
+ *  colours-only (the column letter did not survive); both are 0 elsewhere, by construction. */
+export interface CarryLayerOutcome {
+  carried: number;
+  replaced: number;
+  kept: number;
+  unmatched: number;
+  ineligible: number;
+  dropped: number;
+}
+
+/** The user's per-layer choice, posted as `layers`. Absent or carry:false = that layer does not
+ *  run at all. Category is offered ON by default in the dialog, the annotations OFF -- that
+ *  asymmetry is a UI default, not a backend one (an omitted payload carries nothing). */
+export interface CarryLayerChoice {
+  carry: boolean;
+  overwrite: boolean;
+}
+
+/** Response shape of apply_sheet_carry -- synchronous, so the summary comes straight back instead
+ *  of a job id. AMENDMENT E restored `layers`: it reports ONLY the layers that actually ran. */
 export interface ApplySheetCarryResponse {
   ok: boolean;
   copied: number;
   conflicts_overwritten: number;
   conflicts_kept: number;
   skipped: Record<string, number>;
+  layers: Partial<Record<CarryLayerKey, CarryLayerOutcome>>;
 }
 
 /** Response shape of get_cross_boq_carry_plan. */
@@ -1564,6 +1598,13 @@ export interface SheetCategoryRow {
   routing_reason: string;
   human_category_id: string;
   effective_category_id: string;
+  /** ADR-0014 Amendment E: the ORIGINAL this row's EFFECTIVE verdict was carried from, else null.
+   *  Drives the distinct "carried" cell state, which marks EVERY inherited row (owner ruling
+   *  2026-07-28 -- provenance, not decision-type, is the axis being reported). Without it a
+   *  carried human verdict renders as emerald "your pick", claiming the reviewer made a decision
+   *  someone else made on another BoQ -- the un-attributed arrival Amendment D deleted the carry
+   *  over. */
+  carried_from_boq?: string | null;
 }
 
 /**
@@ -1594,6 +1635,9 @@ export interface ResolvedSheetCategory {
   cross_engine_conflict: boolean;
   human_category_id: string;
   human_discipline: string | null;
+  /** Amendment E: provenance of the verdict that RESOLVED this row (not "any vote is carried") --
+   *  a row can be carried in one engine and classified locally in another. */
+  carried_from_boq: string | null;
   votes: Record<string, ResolvedVote>;
 }
 

@@ -37,7 +37,11 @@
   "lifecycle_section",
   "category_version",
   "is_current",
-  "classified_at"
+  "classified_at",
+  "carry_provenance_section",
+  "carried_from_boq",
+  "carried_from_version",
+  "carried_at"
  ],
  "fields": [
   {
@@ -248,12 +252,39 @@
    "fieldtype": "Datetime",
    "label": "Classified At",
    "read_only": 1
+  },
+  {
+   "fieldname": "carry_provenance_section",
+   "fieldtype": "Section Break",
+   "label": "Carry Provenance"
+  },
+  {
+   "description": "Set ONLY on a record created by the cross-BoQ revision carry: the ORIGINAL BoQ this classification was copied from. NULL on every record written by a classify run or a human verdict. This is what makes a carried verdict distinguishable from one earned on this sheet -- the absence of exactly this was ADR-0014 Amendment D's stated reason for deleting the carry (annotations arrived 'un-asked-for and un-attributed'), so it must be written on every carried row without exception.",
+   "fieldname": "carried_from_boq",
+   "fieldtype": "Link",
+   "label": "Carried From BoQ",
+   "options": "BOQs",
+   "read_only": 1
+  },
+  {
+   "description": "The SOURCE sheet's committed_version this classification was copied from. NULL when not carried.",
+   "fieldname": "carried_from_version",
+   "fieldtype": "Int",
+   "label": "Carried From Version",
+   "read_only": 1
+  },
+  {
+   "description": "When the carry ran. NOT the same as classified_at, which is carried verbatim from the source and therefore stays OLDER -- that age is load-bearing: resolve_row_ladder breaks a human-vs-human tie on human_verdict_at, so a locally-made verdict outranks a carried one for free.",
+   "fieldname": "carried_at",
+   "fieldtype": "Datetime",
+   "label": "Carried At",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "istable": 0,
  "links": [],
- "modified": "2026-07-06 00:00:00.000000",
+ "modified": "2026-07-28 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "BoQ Row Category",

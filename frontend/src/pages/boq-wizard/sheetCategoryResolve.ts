@@ -11,17 +11,25 @@ import type {
 
 /**
  * Adapt a server-resolved row onto the grid's SheetCategoryRow shape, so PricingGrid +
- * deriveVerdictState + isNeedsReviewCategory render UNCHANGED (no new visual states).
+ * deriveVerdictState render off the same triple they always have.
  *
  * The ladder already picked the effective verdict; we only translate its `effective_source` into
  * the (effective_category_id, human_category_id, routing) triple the existing pure renderers read:
  *   - "human" -> human wins  -> deriveVerdictState = "human"        (emerald "your pick")
  *   - "auto"  -> a category  -> routing "Auto-accepted"            -> "auto"
  *   - "blank" -> no category -> routing "Needs review", blank      -> "unclassified" + amber, and
- *                counts in the Check-Category filter (isNeedsReviewCategory true)
+ *                counts in the Check-Category filter (isMasterSetBlank true)
  *
  * cross_engine_conflict, review_priority and the per-discipline votes are DELIBERATELY DROPPED --
  * they are telemetry and MUST NOT reach any rendered surface (owner ruling).
+ *
+ * ⚠️ ADR-0014 Amendment E adds `carried_from_boq`, which is NOT telemetry and MUST reach the
+ * surface: it is the ONE input to the "carried" cell state, which marks every row inherited from
+ * the original. Without it a carried verdict renders identically to one decided on this sheet --
+ * for a HUMAN verdict that means emerald "your pick", attributing to this reviewer a decision
+ * someone else made on another BoQ. That indistinguishability is what made Amendment D delete the
+ * annotation carry outright, so dropping this field here would re-create the defect the whole
+ * amendment exists to avoid.
  */
 export function resolvedToSheetCategoryRow(r: ResolvedSheetCategory): SheetCategoryRow {
   const isBlank = r.effective_source === "blank";
@@ -34,6 +42,7 @@ export function resolvedToSheetCategoryRow(r: ResolvedSheetCategory): SheetCateg
     routing_reason: "",
     human_category_id: r.human_category_id ?? "",
     effective_category_id: r.effective_category_id ?? "",
+    carried_from_boq: r.carried_from_boq ?? null,
   };
 }
 

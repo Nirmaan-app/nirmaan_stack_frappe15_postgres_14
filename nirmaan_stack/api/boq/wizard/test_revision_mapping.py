@@ -21,6 +21,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.boq.wizard.revision import (
+    _carry_counts,
     _read_revised_tab_names,
     confirm_revision_mapping,
     get_removed_source_sheets,
@@ -240,6 +241,29 @@ class TestRevisionMappingProposal(FrappeTestCase):
         _make_pricing_row(self.original.name, "Electrical", 30, "F", committed_version=3)
         p = self._proposal(["Electrical"])
         self.assertEqual(p["carry_counts"]["rates"], 1)
+
+    def test_zone1_counts_see_a_sheet_name_carrying_whitespace(self):
+        """R1 REGRESSION. Frappe's `["in", [...]]` filter STRIPS every value
+        (`db_query.prepare_filter_condition`), so a committed sheet whose name carries leading or
+        trailing whitespace -- which #152 exists because production names DO -- matched nothing
+        here and the count reported 0. `_resolve_sheet_carry` reads its source with `=`, which is
+        NOT stripped, so the carry then went ahead and landed those rates.
+
+        That is the count==carry invariant failing in the direction W6 never covered: the screen
+        promised NOTHING and the carry DELIVERED. Measured on live data before the fix, the
+        work-package twin of this bug silently dropped 'FDA ' / 'PA ' / 'ACCESS ' / 'CCTV  '.
+
+        `_carry_counts` is called DIRECTLY: the defect is in the counter, not in the pairing above
+        it, and going through the proposal would need a committed grid row that would change
+        `test_zone1_identity_and_committed_sheets`'s sheet set."""
+        _reset_carry_layers(self.original.name)
+        padded = "Padded Sheet "  # trailing space -- VERBATIM (#152), never trimmed
+        _make_pricing_row(self.original.name, padded, 5, "F")
+        sheet = _make_boq_sheet(self.original.name, padded)
+        _make_node(sheet.name, "line_item")
+        counts = _carry_counts(self.original.name, [padded])
+        self.assertEqual(counts["rates"], 1)
+        self.assertEqual(counts["classifications"], 1)
 
     def test_zone1_counts_exclude_an_unclaimed_original_sheet(self):
         """An original sheet no revised tab claims carries NOTHING. Counting it is a lie -- the

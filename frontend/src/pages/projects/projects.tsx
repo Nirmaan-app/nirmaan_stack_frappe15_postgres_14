@@ -272,6 +272,7 @@ export const Projects: React.FC<ProjectsProps> = ({
       "Nirmaan Sales Executive Profile",
       "Nirmaan Sales Lead Profile",
       "Nirmaan Estimates Executive Profile",
+      "Nirmaan Billing Executive Profile",
     ].includes(role);
 
   // Tab toggle: "projects" (default operational list) vs "tendering" (stub list).

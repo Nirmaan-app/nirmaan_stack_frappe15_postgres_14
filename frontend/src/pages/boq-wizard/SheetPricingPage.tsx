@@ -991,10 +991,23 @@ const SheetPricingPage = () => {
   // carry stale into the new sheet. Reset it when :sheetName changes. The grid itself is
   // key-remounted on sheetName (drafts flush-on-unmount to the OLD sheet, the new grid
   // starts clean), and hasUnsaved re-derives from the remounted grid's onDirtyChange.
-  // inFlight is DELIBERATELY NOT reset: a flush-on-unmount save from the old grid
-  // increments/decrements it in a pair, so a hard reset to 0 would underflow when that
-  // in-flight save's finally runs (and "Saving..." on the new sheet during the flush is
-  // honest -- a save IS in flight).
+  //
+  // THIS EFFECT IS THE ONLY RESET MECHANISM and always was meant to be. Until the app-shell
+  // ErrorBoundary fix (components/common/ErrorBoundaryWrapper.tsx) it was shadowed: that
+  // boundary keyed itself on `location`, so every navigation -- including a sheet-tab switch --
+  // remounted the whole page and threw away all state regardless of what this effect did. Any
+  // per-sheet state added below MUST be reset here; nothing else will do it.
+  //
+  // Two families are DELIBERATELY NOT reset:
+  //   - In-flight request flags (inFlight, lockToggling, freezeToggling, overrideSubmitting).
+  //     Each is cleared by its own finally. inFlight specifically: a flush-on-unmount save from
+  //     the old grid increments/decrements in a pair, so a hard reset to 0 would underflow when
+  //     that save's finally runs (and "Saving..." on the new sheet during the flush is honest --
+  //     a save IS in flight). Forcing the others false mid-POST would re-enable a button while
+  //     the old sheet's request is still running.
+  //   - Session-scoped view preferences (`expanded` full-screen, `virtualized`). These are
+  //     properties of the EDITOR SESSION, not of the sheet -- staying maximized across a sheet
+  //     switch is the point. Do not "fix" them by adding them here.
   useEffect(() => {
     setSaveError(null);
     setLastSavedAt(null);
@@ -1003,6 +1016,11 @@ const SheetPricingPage = () => {
     setSelectedVersion(null); // version-view: a new sheet always opens on its live version
     setCopyForwardOpen(false); // copy-forward dialog is per-sheet
     setCopyForwardMsg(null);
+    // AMENDMENT C / C3: the cross-BOQ carry is copy-forward's twin and is per-sheet for the same
+    // reason -- carryMsg names a count of rates carried into THIS sheet, so it must not survive
+    // onto the next one.
+    setCarryOpen(false);
+    setCarryMsg(null);
     setOverride(false); // Slice 3e: the override is per-sheet per-session -- reset on switch
     setSuggestionsByExcelRow(new Map()); // rate-helper: suggestions are per-sheet, page-session
     setHelperPanel(null);
@@ -1041,6 +1059,13 @@ const SheetPricingPage = () => {
     setCollapsed(new Set()); // collapse/expand is per-sheet -- a tab switch starts fully expanded
     setFrozen(false); // Frozen-left Slice 1: freeze is per-sheet -- a tab switch starts unfrozen
     setHistoryState({ canUndo: false, canRedo: false }); // Slice B: undo history is per-sheet/version (grid remounts)
+    // Classification freeze confirms: modal AlertDialogs (the tab strip sits behind the overlay,
+    // so neither can be open at switch time) -- reset anyway because freezeConfirm CARRIES the
+    // old sheet's uncategorised counts as its payload.
+    setFreezeConfirm(null);
+    setUnfreezeConfirm(false);
+    // NOTE: the G3b override popover has its OWN [sheetName] reset, inside the self-contained
+    // G3b block below (that block must stay deletable in one cut -- owner commitment).
   }, [sheetName]);
 
   // Toolbar Part 1 -- search: reset the hit pointer to the first hit whenever the query changes
@@ -1637,6 +1662,15 @@ const SheetPricingPage = () => {
   const [overridePopoverOpen, setOverridePopoverOpen] = useState(false);
   const [overrideReason, setOverrideReason] = useState("");
   const [overrideSubmitting, setOverrideSubmitting] = useState(false);
+  // Per-sheet reset (kept HERE, not in the main [sheetName] effect above, so the G3b block stays
+  // deletable in one cut). The reason entry is a NON-modal Popover, so the sheet-tab strip IS
+  // clickable while it is open -- without this, a reason typed for one sheet would stay on screen
+  // and submit against the next one. overrideSubmitting is excluded on purpose: its finally clears
+  // it, and forcing it false mid-POST would re-enable the button while that request is in flight.
+  useEffect(() => {
+    setOverridePopoverOpen(false);
+    setOverrideReason("");
+  }, [sheetName]);
   const handleSetCategoryOverride = async () => {
     if (commitVersion === null) return;
     setSaveError(null);
@@ -2495,9 +2529,13 @@ const SheetPricingPage = () => {
           onApplied={(summary, needsNewValues) => {
             setCarryMsg(summarizeSheetCarry(summary, needsNewValues));
             setCarryOpen(false);
-            // AMENDMENT D: rates only -- no `mutateCategories()`. The carry can no longer change
-            // a category, so refetching them here would be a wasted round-trip.
             void mutate();
+            // AMENDMENT E: the carry CAN change categories again (the `categories` layer is ticked
+            // by default), so the resolved read must be refetched or the grid renders the pre-carry
+            // verdicts -- no "carried" cue, and a stale blank count keeping the rate gate shut on
+            // rows that were just categorised. Amendment D had removed this call as a dead
+            // round-trip; that reasoning expired with the layer it was based on.
+            void mutateCategories();
           }}
         />
       )}

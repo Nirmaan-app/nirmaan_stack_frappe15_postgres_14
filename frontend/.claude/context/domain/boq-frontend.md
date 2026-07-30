@@ -1920,6 +1920,101 @@ removal would have left the dialog summing `undefined`.
 
 ---
 
+## ⚠️ ADR-0014 Amendment E (2026-07-28) — the layer block returns, opt-in + attributed
+
+Owner-directed reversal of Amendment D. Backend: `.claude/context/domain/boq-backend.md`
+§ Amendment E.
+
+### The dialog's "Also carry" block (`CrossBoqCarryDialog.tsx`)
+
+**Single-sheet mode ONLY** — the hub's whole-BoQ button was removed at Amendment C, so the pricing
+editor is the one launch point a layer choice can come from. Disabled wholesale when the sheet is
+blocked by the formula gate (the server refuses the whole call). Hidden entirely when `sheet.layers`
+is absent, so a pre-Amendment-E server degrades to a working rate carry rather than four dead rows.
+
+**Defaults: `categories` ON, the three annotation layers OFF.** ⚠️ The asymmetry is a **UI default
+and lives only in `initialLayerChoices()`** — the backend carries nothing it is not explicitly asked
+for, so an omitted payload is rates-only, which is exactly the Amendment D behaviour a client that
+never learned about layers keeps getting. Do not push this default down into the server.
+
+**New pure helpers** (all vitest-covered, ADR-0010 F4): `LAYER_LABEL` / `LAYER_HINT`,
+`initialLayerChoices`, `layerOutcomeFor`, `layerHasWork`, `layerMoveCount`, `layerCountsText`,
+`layerSkipNote`, `armedLayerReplacements`, `buildLayersPayload`, `nothingToCarry`,
+`carrySelectionSummary`.
+
+**Reading the plan's counts.** The plan walks every layer with **overwrite OFF**, so `carried` =
+rows that would be written and `kept` = rows the destination already holds. Arming Overwrite moves
+`kept` into `replaced` **without changing the walk's total** — hence `layerMoveCount(outcome,
+overwrite) = carried + (overwrite ? kept : 0)`. A layer with `carried + kept === 0` renders
+**disabled** ("Nothing to carry"), and the Keep/Overwrite pair appears only when `kept > 0` —
+there is no choice to offer when nothing would be displaced.
+
+**Three gates changed shape, and each matters:**
+
+- **`nothingToCarry` replaces `selectedCount === 0`.** The pre-E gate spanned only the rate axis, so
+  unticking every rate while leaving Categories ticked — real work — would have disabled the apply
+  button. It also refuses to enable on a ticked layer that would move nothing.
+- **The destructive footer spans both axes again**, counting rates and layer records **separately**:
+  "12 rates" and "8 remarks" are not the same kind of loss, and one merged number would hide which
+  the user actually armed.
+- **`summarizeSheetCarry`'s "Nothing was carried." branch now keys off EVERY axis.** A category-only
+  carry is the likeliest shape of all — a freshly committed revision whose rates all conflict can
+  still take the whole category set — and reporting "nothing" there is flatly false.
+
+**The button no longer names its payload** (`"Carry"` in single mode); a `Will carry 12 rates and
+140 categories.` line above the footer says exactly what will move. **Emerald stays banned inside
+the dialog** — it means priced/succeeded on this screen and belongs to the button + post-apply line.
+
+### The "carried" verdict state
+
+`deriveVerdictState` gains `"carried"`, driven by the one new `SheetCategoryRow.carried_from_boq`
+field, which `sheetCategoryResolve.resolvedToSheetCategoryRow` passes through from
+`get_sheet_categories_resolved` (surfaced for the discipline that **resolved** the row — a row can
+be carried in one engine and local in another). `PricingGrid` renders it as **sky text +
+`CornerDownRight` + a `carried from <BOQ>` tooltip**.
+
+⚠️ **Owner ruling 2026-07-28: EVERY carried row is marked, machine or human.** Provenance is the
+axis being reported; "who decided it" does not answer "was this inherited?". The check therefore
+sits **above** the human check in `deriveVerdictState`. The cost is real and accepted — on a freshly
+carried sheet most rows read sky and the auto-vs-human distinction is not visible on those rows
+until they are worked through.
+
+⚠️ **`carried_from_boq` is provenance, NOT telemetry** — unlike `cross_engine_conflict` /
+`review_priority` / `votes`, which the adapter deliberately drops, this field MUST reach the
+surface. Dropping it fails silently: every carried row simply renders as locally decided.
+
+**Ordering note:** a carried row also routed "Needs review" with no human pick now reads `"carried"`
+rather than `"needs_review"`. That combination is **unreachable from the resolved read** (a resolved
+review row has a blank effective, which short-circuits to `"unclassified"` first), so no amber
+review cue is masked. If a future read makes it reachable, review is an ACTION signal and should
+win — move the routing check above the provenance check then.
+
+**Both gates built on this function are unaffected, and are pinned by test:** `isRowEditable` keys
+off `!== "unclassified"` (a carried row stays correctable) and `isMasterSetBlank` off
+`=== "unclassified"` (an inherited category is still a category, so the rate gate opens).
+
+### The consumer fix Amendment D's cleanup left behind
+
+`SheetPricingPage`'s `onApplied` had dropped `void mutateCategories()` with the comment *"the carry
+can no longer change a category, so refetching them here would be a wasted round-trip"*. **That
+reasoning expired with the layer it was based on** — it is restored. Without it the grid renders the
+pre-carry verdicts after an apply: no "carried" cue, and a stale blank count keeping the rate gate
+shut on rows the carry had just filled.
+
+> ⚠️ **Generalisable lesson.** A reversal-of-a-reversal must sweep for the *optimisations justified
+> by the deletion*, not just the deleted feature's call sites. Grepping `layers` finds the feature;
+> it does not find code that was **narrowed** because the feature was gone.
+> `git grep -in "amendment d"` was the sweep that found this.
+
+**Verification.** 1061 vitest across 45 files (was 999); `tsc` clean; residence holding at
+40/0/8/116/207. Each new behaviour was verified by **deliberately breaking it and confirming the
+tests failed** — the widening break failed *only* the machine-verdict case while the human case kept
+passing, confirming the test targets the widening rather than the feature in general.
+
+---
+
+## ⚠️ SUPERSEDED 2026-07-28 by Amendment E (above) — retained as the record of WHY the layers were removed, which is why they returned opt-in + attributed
+
 ## ⚠️ ADR-0014 Amendment D (2026-07-23) — the carry dialog is RATES-ONLY
 
 Amendment C's "Annotations & categories" block is DELETED from `CrossBoqCarryDialog.tsx` (1085 →

@@ -25,25 +25,20 @@ import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { useOrderTotals } from "@/hooks/useOrderTotals";
 import { useOrderPayments } from "@/hooks/useOrderPayments";
 import { useTotalInvoicedByDocument } from "../hooks/useTotalInvoicedByDocument";
-import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
-import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 import { useFacetValues } from "@/hooks/useFacetValues";
+import { invoiceRowClassName } from "../utils/invoiceRowStyle";
 
 const URL_SYNC_KEY = "inv_history";
 
 export const TaskHistoryTable: React.FC = () => {
     const { role, user_id } = useUserData();
-    const { ceoHoldProjectIds } = useCEOHoldProjects();
 
+    // Same aging rule as the Pending table (one shared pure definition, so the
+    // two cannot drift). This table also lists Approved/Rejected rows, where the
+    // rule is a no-op by design — age only means something while still Pending.
     const getRowClassName = useCallback(
-        (row: any) => {
-            const projectId = row.original.project;
-            if (projectId && ceoHoldProjectIds.has(projectId)) {
-                return CEO_HOLD_ROW_CLASSES;
-            }
-            return undefined;
-        },
-        [ceoHoldProjectIds]
+        (row: any) => invoiceRowClassName(row.original),
+        []
     );
 
     const { data: usersList } = useUsersList();
@@ -132,7 +127,7 @@ export const TaskHistoryTable: React.FC = () => {
         []
     );
 
-    const { getTotalInvoiced, getInvoicesFor } = useTotalInvoicedByDocument();
+    const { getTotalInvoiced } = useTotalInvoicedByDocument();
 
     // Columns for history view
     const columns = React.useMemo(
@@ -144,8 +139,7 @@ export const TaskHistoryTable: React.FC = () => {
                 getDeliveredAmount,
                 getAmount,
                 getVendorName,
-                getTotalInvoiced,
-                getInvoicesFor
+                getTotalInvoiced
             ),
         [
             getUserName,
@@ -155,7 +149,6 @@ export const TaskHistoryTable: React.FC = () => {
             getDeliveredAmount,
             getVendorName,
             getTotalInvoiced,
-            getInvoicesFor,
         ]
     );
 
