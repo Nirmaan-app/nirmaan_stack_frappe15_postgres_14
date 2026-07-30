@@ -30,6 +30,11 @@ import type {
  * someone else made on another BoQ. That indistinguishability is what made Amendment D delete the
  * annotation carry outright, so dropping this field here would re-create the defect the whole
  * amendment exists to avoid.
+ *
+ * ⚠️ Amendment F (R3) adds `carried_from_version`, the other half of that pair, on the same
+ * not-telemetry footing. Within ONE BoQ it is the only half that carries information -- the source
+ * and the destination are the same BoQ there, so naming the BoQ names what the reader is already
+ * looking at.
  */
 export function resolvedToSheetCategoryRow(r: ResolvedSheetCategory): SheetCategoryRow {
   const isBlank = r.effective_source === "blank";
@@ -43,6 +48,11 @@ export function resolvedToSheetCategoryRow(r: ResolvedSheetCategory): SheetCateg
     human_category_id: r.human_category_id ?? "",
     effective_category_id: r.effective_category_id ?? "",
     carried_from_boq: r.carried_from_boq ?? null,
+    // Amendment F (R3): the VERSION half of the provenance pair, passed through for the same
+    // reason -- and within one BoQ it is the ONLY half that says anything, since there the source
+    // and the destination are the same BoQ. `?? null` normalises only absent/null; a legitimate 0
+    // (the server's NOT-NULL Int default on an uncarried row) passes through VERBATIM.
+    carried_from_version: r.carried_from_version ?? null,
   };
 }
 

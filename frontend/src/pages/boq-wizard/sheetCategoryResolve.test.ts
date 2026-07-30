@@ -21,6 +21,7 @@ function resolved(over: Partial<ResolvedSheetCategory>): ResolvedSheetCategory {
     human_category_id: "",
     human_discipline: null,
     carried_from_boq: null,
+    carried_from_version: null,
     votes: {},
     ...over,
   };
@@ -108,6 +109,54 @@ describe("resolvedToSheetCategoryRow (adapter -> grid shape)", () => {
     const bare = resolved({ effective_source: "auto", effective_category_id: "x" });
     delete (bare as unknown as Record<string, unknown>).carried_from_boq;
     expect(resolvedToSheetCategoryRow(bare).carried_from_boq).toBeNull();
+  });
+
+  // ── ADR-0014 Amendment F, ruling R3 ───────────────────────────────────────────────
+  // carried_from_version is the OTHER half of the provenance pair, and within one BoQ it is the
+  // only informative half: the source and the destination ARE the same BoQ there, so
+  // carried_from_boq names the document the reader is already looking at. It rides the same
+  // not-telemetry path as carried_from_boq and must reach the grid for the same reason.
+  it("PASSES carried_from_version through for a carried HUMAN verdict", () => {
+    const r = resolvedToSheetCategoryRow(
+      resolved({
+        effective_source: "human",
+        effective_category_id: "x",
+        human_category_id: "x",
+        carried_from_boq: "BOQ-26-00066",
+        carried_from_version: 2,
+      }),
+    );
+    expect(r.carried_from_version).toBe(2);
+  });
+
+  it("passes carried_from_version through for a carried MACHINE verdict too", () => {
+    const r = resolvedToSheetCategoryRow(
+      resolved({
+        effective_source: "auto",
+        effective_category_id: "x",
+        carried_from_boq: "BOQ-26-00066",
+        carried_from_version: 5,
+      }),
+    );
+    expect(r.carried_from_version).toBe(5);
+  });
+
+  // The server column is `bigint NOT NULL DEFAULT 0`, so an uncarried row that HAS a resolving
+  // discipline arrives as 0, not null. The adapter passes that through VERBATIM rather than
+  // coercing it -- carried_from_boq is what says "carried at all", so 0 is never read on its own
+  // and inventing a null here would be inventing a semantic the server never sent.
+  it("preserves an uncarried row's 0 verbatim -- it does not coerce it to null", () => {
+    const r = resolvedToSheetCategoryRow(
+      resolved({ effective_source: "auto", effective_category_id: "x", carried_from_version: 0 }),
+    );
+    expect(r.carried_from_boq).toBeNull();
+    expect(r.carried_from_version).toBe(0);
+  });
+
+  it("normalises a missing carried_from_version to null, never undefined", () => {
+    const bare = resolved({ effective_source: "auto", effective_category_id: "x" });
+    delete (bare as unknown as Record<string, unknown>).carried_from_version;
+    expect(resolvedToSheetCategoryRow(bare).carried_from_version).toBeNull();
   });
 });
 

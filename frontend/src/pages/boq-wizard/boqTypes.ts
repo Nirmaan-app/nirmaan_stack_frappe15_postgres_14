@@ -1613,6 +1613,13 @@ export interface SheetCategoryRow {
    *  someone else made on another BoQ -- the un-attributed arrival Amendment D deleted the carry
    *  over. */
   carried_from_boq?: string | null;
+  /** ADR-0014 Amendment F (ruling R3): the source VERSION of that same carry. It is the
+   *  informative half WITHIN one BoQ -- there the source and destination are the same BoQ, so
+   *  `carried_from_boq` names the document the reader is already looking at and tells them
+   *  nothing. Read off the resolving discipline, exactly like `carried_from_boq`. An uncarried
+   *  row that resolved arrives as 0 (the server column is a NOT-NULL Int); `carried_from_boq` is
+   *  what says "carried at all", so this is never read on its own. */
+  carried_from_version?: number | null;
 }
 
 /**
@@ -1646,6 +1653,10 @@ export interface ResolvedSheetCategory {
   /** Amendment E: provenance of the verdict that RESOLVED this row (not "any vote is carried") --
    *  a row can be carried in one engine and classified locally in another. */
   carried_from_boq: string | null;
+  /** Amendment F (R3): the VERSION half of that same pair, read off the SAME resolving
+   *  discipline. null when the row resolved blank (no resolving discipline to read it off);
+   *  0 when the resolving discipline's row was never carried (NOT-NULL Int on the server). */
+  carried_from_version: number | null;
   votes: Record<string, ResolvedVote>;
 }
 
