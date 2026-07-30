@@ -149,6 +149,34 @@ export function RateMasterDerivation({ items, config, isAdmin, onSaveParam }: Pr
     [config]
   );
 
+  // EA-4a: a choice def may resolve its allowed values FROM the live master (values_from) rather than a
+  // static `values` list -- point_wiring's switch/socket/plate selects, keyed by family. Resolve them
+  // here from `items` (the FULL discipline set the page passes), the SAME live read the backend uses.
+  const valuesFromOptions = useMemo(() => {
+    const out: Record<string, string[]> = {};
+    for (const d of selectableDefs) {
+      const vf = d.values_from;
+      if (!vf) continue;
+      const seen = new Set<string>();
+      const opts: string[] = [];
+      for (const it of items) {
+        if (it.kind !== vf.kind) continue;
+        const a = it.attributes ?? {};
+        if (!Object.entries(vf.where ?? {}).every(([k, v]) => a[k] === v)) continue;
+        const raw = a[vf.attr];
+        const val = typeof raw === "string" ? raw.trim() : raw;
+        if (val !== undefined && val !== null && val !== "" && !seen.has(String(val))) {
+          seen.add(String(val));
+          opts.push(String(val));
+        }
+      }
+      out[d.id] = opts;
+    }
+    return out;
+  }, [selectableDefs, items]);
+  const optionsFor = (d: AttributeDefinition): string[] =>
+    d.values_from ? (valuesFromOptions[d.id] ?? []) : (d.values ?? []).map((v) => String(v));
+
   // distinct number-attr values present in the data, sorted ascending
   const numberValues = useMemo(() => {
     const out: Record<string, number[]> = {};
@@ -164,15 +192,25 @@ export function RateMasterDerivation({ items, config, isAdmin, onSaveParam }: Pr
     return out;
   }, [selectableDefs, items]);
 
-  // default selection = the first item's attributes (guarantees at least one match on load)
+  // default selection: the first item's attributes (guarantees a match for a category that owns its
+  // rows). EA-4a: an ASSEMBLY category (point_wiring) owns NO rows of its own, so items[0] doesn't carry
+  // its defs -- seed each unfilled def from its `default`, then the config's first stored golden (so the
+  // Derivation opens in a COMPUTABLE state showing the golden), then the first option (incl. values_from),
+  // then the first data number.
   const [selected, setSelected] = useState<Record<string, string | number>>(() => {
     const init: Record<string, string | number> = {};
     const seed = items[0]?.attributes ?? {};
+    const golden0 = (config.goldens as Array<{ attrs?: Record<string, string | number> }> | undefined)?.[0]?.attrs ?? {};
     for (const d of selectableDefs) {
       if (seed[d.id] !== undefined) {
         init[d.id] = seed[d.id];
-      } else if (d.type === "choice" && d.values?.length) {
-        init[d.id] = d.values[0];
+      } else if (d.default !== undefined) {
+        init[d.id] = d.default;
+      } else if (golden0[d.id] !== undefined) {
+        init[d.id] = golden0[d.id];
+      } else if (d.type === "choice") {
+        const opts = optionsFor(d);
+        if (opts.length) init[d.id] = opts[0];
       } else if (d.type === "number" && numberValues[d.id]?.length) {
         init[d.id] = numberValues[d.id][0];
       }
@@ -229,10 +267,17 @@ export function RateMasterDerivation({ items, config, isAdmin, onSaveParam }: Pr
                   </div>
                 );
               }
-              const options = (d.values ?? []).map((v) => String(v));
+              const options = optionsFor(d);
               return (
                 <div key={d.id} className="flex flex-col gap-1">
-                  <label className="text-xs text-muted-foreground">{d.label}</label>
+                  <label className="text-xs text-muted-foreground">
+                    {d.label}
+                    {d.default !== undefined && (
+                      <span className="ml-1 rounded bg-amber-100 px-1 text-[10px] text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                        default {String(d.default)}
+                      </span>
+                    )}
+                  </label>
                   <Select value={String(selected[d.id] ?? "")} onValueChange={(v) => setAttr(d, v)}>
                     <SelectTrigger className="h-8 w-44">
                       <SelectValue placeholder={`Select ${d.label}`} />

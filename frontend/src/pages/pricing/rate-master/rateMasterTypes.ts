@@ -14,6 +14,14 @@ export interface AttributeDefinition {
   /** brand carries selector:false -- shown but not selectable. Absent => selectable. */
   selector?: boolean;
   note?: string;
+  // EA-4a: a choice whose allowed values are RESOLVED FROM the live master (distinct `attr` values of the
+  // `kind` rows matching `where`), exactly like the item-identity catalogs. The BACKEND resolves these at
+  // extraction-prompt injection; the Derivation resolves them for the select options (see values_from
+  // resolution in RateMasterDerivation). When present the config carries no static `values`.
+  values_from?: { kind: string; attr: string; where?: Record<string, string | number> };
+  // EA-4a: the extraction default for this attribute (used server-side to fill a value the row text does
+  // not positively identify; a result attribute so filled carries `defaulted: true`). Display-only here.
+  default?: string | number;
 }
 
 /** One master item row (attributes/rates are parsed objects from the endpoint). */
@@ -82,14 +90,58 @@ export interface ComponentStep {
 // component contract. This is the ASSEMBLY PRIMITIVE's simplest form (EA-4's BOM steps extend it:
 // referenced item x quantity) AND makes "shared items stored once" kinetic -- e.g. the Bus bar row
 // prices both AS a selectable earthing item AND as the adder inside any other earthing selection.
+// EA-4a: the assembly-engine extensions to component_ref (the ASSEMBLY PRIMITIVE, EA-2c, extended to
+// "referenced item x quantity"). A rate stage multiplies the running rate and OPTIONALLY rounds AFTER that
+// stage -- `up0` = Excel ROUNDUP to units, `up-1` = to tens; a stage without `round` leaves the rate
+// unrounded (this per-stage rounding is what makes the sheet's "round the supply rate, then x0.2 unrounded"
+// faithful -- the switch-install 155 x 0.2 = 31 case). ONE new step (circuit_fit) sizes the conduit + counts
+// circuits; component_ref gains @attr / @fitted_size ref bindings + rate_stages + qty.
+export interface RateStage {
+  mult: number;
+  round?: "up0" | "up-1";
+}
+/** The quantity multiplier for an assembly component_ref: a literal, a selected attribute, a circuit_fit
+ * binding, or a boolean-attribute switch. A missing from_attr/from_fit source is an HONEST no-compute. */
+export type QtySpec =
+  | number
+  | { from_attr: string }
+  | { from_fit: string }
+  | { if_attr: Record<string, string | number>; then: number; else: number };
+
 export interface ComponentRefStep {
   step: "component_ref";
   name: string;
-  ref: { kind: string; attributes?: Record<string, string | number> };
+  // EA-2c legacy: ref = {kind, attributes:{...}} matched exact + priced by `formula` over `base`.
+  // EA-4a assembly: ref = {kind, <attr>:<value>...} inline, where a value may be a literal, "@<attr>"
+  // (bound from the selection) or "@fitted_size" (from circuit_fit); priced by rate_stages x qty (no
+  // `formula`). The interpreter branches on the PRESENCE of rate_stages/qty.
+  ref: { kind: string; attributes?: Record<string, string | number>; [attr: string]: unknown };
   target: string;
   params?: Record<string, number>;
-  formula: string;
+  /** EA-2c legacy pricing. Absent on the EA-4a assembly shape (rate_stages x qty priced instead). */
+  formula?: string;
   conditions?: { when: Record<string, string | number>; params: Record<string, number> }[];
+  // EA-4a assembly pricing:
+  rate_stages?: RateStage[];
+  qty?: QtySpec;
+  explain?: string;
+}
+// EA-4a: sizes the conduit for a point-wiring circuit and counts how many circuits fit. overall_dia =
+// Sum over wire_specs of sqrt(sqmm/pi)*2*core; fitted_size = the smallest `sizes` whose usable dia
+// (size * usable[conduit_type][i]) >= overall_dia (largest if none fit); circuits = ROUNDDOWN(usable/dia);
+// conduit_qty = ROUNDUP(length/circuits). BINDS its results (by `binds` = [fitted_size, circuits,
+// conduit_qty]) into the run scope for later @fitted_size / from_fit reads. Any missing/zero input attr,
+// unknown conduit_type, or circuits <= 0 is an HONEST missing-attr no-compute (never a guess).
+export interface CircuitFitStep {
+  step: "circuit_fit";
+  params: {
+    sizes: number[];
+    usable: Record<string, number[]>;
+    wire_specs: [string, string][];
+    length_attr: string;
+    conduit_type_attr: string;
+  };
+  binds: string[];
   explain?: string;
 }
 export interface ComponentBandStep {
@@ -123,6 +175,7 @@ export type PipelineStep =
   | ComponentBandStep
   | SumComponentsStep
   | InstallAsRatioStep
+  | CircuitFitStep
   // forward-compat: an unknown future step type still parses as an object with a `step` string.
   | { step: string; [k: string]: unknown };
 

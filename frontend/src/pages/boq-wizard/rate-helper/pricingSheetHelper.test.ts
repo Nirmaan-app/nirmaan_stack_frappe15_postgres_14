@@ -5,6 +5,7 @@ import type { Pipeline, RateCategoryConfig, RateMasterItem } from "@/pages/prici
 import type { ExtractionRow, RateHelperRowContext } from "./rateHelperTypes";
 import { isSuggestion } from "./rateHelperTypes";
 import {
+  attributeOptions,
   buildExtractionByRow,
   isRunForVersion,
   makePricingSheetHelper,
@@ -310,5 +311,154 @@ describe("version keying (no-show on mismatch)", () => {
     expect(isRunForVersion(1, 2)).toBe(false); // re-commit -> stored run no longer shows
     expect(isRunForVersion(null, 1)).toBe(false);
     expect(isRunForVersion(1, null)).toBe(false);
+  });
+});
+
+// ---- EA-4a: the assembly helper prices a point_wiring row (per-component workings render) ----
+const PW_CF = {
+  step: "circuit_fit" as const,
+  params: {
+    sizes: [25, 32, 50], usable: { PVC: [0.55, 0.55, 0.55], MS: [0.45, 0.45, 0.47] },
+    wire_specs: [["wire1_core", "wire1_thickness_sqmm"], ["wire2_core", "wire2_thickness_sqmm"]] as [string, string][],
+    length_attr: "circuit_length_m", conduit_type_attr: "conduit_type",
+  },
+  binds: ["fitted_size", "circuits", "conduit_qty"],
+};
+function pwcref(name: string, ref: Record<string, string | number>, target: string, rate_stages: Array<{ mult: number; round?: "up0" | "up-1" }>, qty: unknown) {
+  return { step: "component_ref" as const, name, ref, target, rate_stages, qty };
+}
+const wRef = (c: string, t: string) => ({ kind: "cable", material: "COPPER", insulation: "UNARMOURED", core: c, thickness_sqmm: t });
+const cdRef = { kind: "conduit", conduit_type: "@conduit_type", size_mm: "@fitted_size" };
+const sRef = (f: string, i: string, c: string) => ({ kind: "switch_socket_item", family: f, item: i, colour: c });
+function pwPipe(output: string, wireMult: number, wireTarget: string, condStages: Array<{ mult: number; round?: "up0" }>, ssStages: (n: string) => Array<{ mult: number; round?: "up0" }>, result: string): Pipeline {
+  return {
+    output: [output],
+    steps: [
+      PW_CF,
+      pwcref("wire1", wRef("@wire1_core", "@wire1_thickness_sqmm"), wireTarget, [{ mult: wireMult, round: "up0" }], { from_attr: "circuit_length_m" }),
+      pwcref("wire2", wRef("@wire2_core", "@wire2_thickness_sqmm"), wireTarget, [{ mult: wireMult, round: "up0" }], { from_attr: "circuit_length_m" }),
+      pwcref("conduit", cdRef, "list_price_per_mtr", condStages, { from_fit: "conduit_qty" }),
+      pwcref("switch", sRef("Switch", "@switch_item", "@colour"), "list_price", ssStages("switch"), { from_attr: "switch_qty" }),
+      pwcref("socket", sRef("Socket", "@socket_item", "@colour"), "list_price", ssStages("socket"), { from_attr: "socket_qty" }),
+      pwcref("plate", sRef("Grid and Face Plates", "@plate_item", "@colour"), "list_price", ssStages("plate"), { from_attr: "plate_qty" }),
+      pwcref("back_box", sRef("Back Box", "@plate_item", "NA"), "list_price", ssStages("back_box"), { if_attr: { back_box: "Yes" }, then: 1, else: 0 }),
+      { step: "sum_components", result },
+    ],
+  };
+}
+const PW_CONFIG: RateCategoryConfig = {
+  discipline: "Electrical", category_id: "point_wiring", item_kinds: [],
+  attribute_definitions: [
+    { id: "wire1_core", label: "Wire1 core", type: "number" }, { id: "wire1_thickness_sqmm", label: "Wire1 sqmm", type: "number" },
+    { id: "wire2_core", label: "Wire2 core", type: "number" }, { id: "wire2_thickness_sqmm", label: "Wire2 sqmm", type: "number" },
+    { id: "circuit_length_m", label: "Length", type: "number" }, { id: "switch_qty", label: "Switch qty", type: "number" },
+    { id: "socket_qty", label: "Socket qty", type: "number" }, { id: "plate_qty", label: "Plate qty", type: "number" },
+    { id: "conduit_type", label: "Conduit", type: "choice", values: ["PVC", "MS"] },
+    { id: "switch_item", label: "Switch", type: "choice", values_from: { kind: "switch_socket_item", attr: "item", where: { family: "Switch" } } },
+    { id: "socket_item", label: "Socket", type: "choice", values_from: { kind: "switch_socket_item", attr: "item", where: { family: "Socket" } } },
+    { id: "plate_item", label: "Plate", type: "choice", values_from: { kind: "switch_socket_item", attr: "item", where: { family: "Grid and Face Plates" } } },
+    { id: "colour", label: "Colour", type: "choice", values: ["White", "Grey"] }, { id: "back_box", label: "Back box", type: "choice", values: ["Yes", "No"] },
+  ],
+  pipelines: {
+    pw_boq_supply: pwPipe("supply", 0.602, "list_price_per_mtr", [{ mult: 0.7, round: "up0" }], () => [{ mult: 0.3625, round: "up0" }], "supply"),
+    pw_boq_install: {
+      output: ["install"],
+      steps: [
+        PW_CF,
+        pwcref("wire1", wRef("@wire1_core", "@wire1_thickness_sqmm"), "install_base_per_mtr", [{ mult: 2.0, round: "up0" }], { from_attr: "circuit_length_m" }),
+        pwcref("wire2", wRef("@wire2_core", "@wire2_thickness_sqmm"), "install_base_per_mtr", [{ mult: 2.0, round: "up0" }], { from_attr: "circuit_length_m" }),
+        pwcref("conduit", cdRef, "list_price_per_mtr", [{ mult: 0.7 }, { mult: 0.2, round: "up0" }], { from_fit: "conduit_qty" }),
+        pwcref("switch", sRef("Switch", "@switch_item", "@colour"), "list_price", [{ mult: 0.3625, round: "up0" }, { mult: 0.2 }], { from_attr: "switch_qty" }),
+        pwcref("socket", sRef("Socket", "@socket_item", "@colour"), "list_price", [{ mult: 0.0725, round: "up0" }], { from_attr: "socket_qty" }),
+        pwcref("plate", sRef("Grid and Face Plates", "@plate_item", "@colour"), "list_price", [{ mult: 0.0725, round: "up0" }], { from_attr: "plate_qty" }),
+        pwcref("back_box", sRef("Back Box", "@plate_item", "NA"), "list_price", [{ mult: 0.0725, round: "up0" }], { if_attr: { back_box: "Yes" }, then: 1, else: 0 }),
+        { step: "sum_components", result: "install" },
+      ],
+    },
+    pw_bcs: pwPipe("bcs_supply", 0.4515, "list_price_per_mtr", [{ mult: 0.5, round: "up0" }], () => [{ mult: 0.25, round: "up0" }], "bcs_supply"),
+  },
+};
+function pcbl(core: number, th: number, list: number, install: number): RateMasterItem {
+  return { discipline: "Electrical", kind: "cable", attributes: { material: "COPPER", insulation: "UNARMOURED", core, thickness_sqmm: th }, rates: { list_price_per_mtr: list, install_base_per_mtr: install } };
+}
+const PW_HELPER_ITEMS: RateMasterItem[] = [
+  pcbl(1, 2.5, 82.95, 10), pcbl(1, 1.5, 50.45, 10),
+  { discipline: "Electrical", kind: "conduit", attributes: { conduit_type: "PVC", size_mm: 25 }, rates: { list_price_per_mtr: 60 } },
+  { discipline: "Electrical", kind: "switch_socket_item", attributes: { family: "Switch", item: "16A 1 WAY SWITCH- With Indicator", colour: "Grey" }, rates: { list_price: 427 } },
+  { discipline: "Electrical", kind: "switch_socket_item", attributes: { family: "Socket", item: "6A/16A 3-Pin Socket", colour: "Grey" }, rates: { list_price: 514 } },
+  { discipline: "Electrical", kind: "switch_socket_item", attributes: { family: "Grid and Face Plates", item: "3M", colour: "Grey" }, rates: { list_price: 235 } },
+  { discipline: "Electrical", kind: "switch_socket_item", attributes: { family: "Back Box", item: "3M", colour: "NA" }, rates: { list_price: 158 } },
+];
+const PW_EXT = {
+  wire1_core: { value: 1, confidence: 0.9 }, wire1_thickness_sqmm: { value: 2.5, confidence: 0.9 },
+  wire2_core: { value: 1, confidence: 0.9 }, wire2_thickness_sqmm: { value: 1.5, confidence: 0.9 },
+  circuit_length_m: { value: 15, confidence: 0.9, defaulted: true }, switch_qty: { value: 1, confidence: 0.9, defaulted: true },
+  socket_qty: { value: 1, confidence: 0.9 }, plate_qty: { value: 1, confidence: 0.9 },
+  conduit_type: { value: "PVC", confidence: 0.9 }, switch_item: { value: "16A 1 WAY SWITCH- With Indicator", confidence: 0.9 },
+  socket_item: { value: "6A/16A 3-Pin Socket", confidence: 0.9 }, plate_item: { value: "3M", confidence: 0.9 },
+  colour: { value: "Grey", confidence: 0.9 }, back_box: { value: "Yes", confidence: 0.9, defaulted: true },
+};
+
+describe("makePricingSheetHelper -- EA-4a point_wiring assembly", () => {
+  it("prices the pw1 golden row: supply 1869, install 735, combined 2604 (+ per-component workings)", () => {
+    const map = buildExtractionByRow([{ excel_row: 40, attributes: PW_EXT as never }]);
+    const helper = makePricingSheetHelper({ configsByCategory: new Map([["point_wiring", PW_CONFIG]]), items: PW_HELPER_ITEMS, extractionByRow: map });
+    const r = helper.compute({ ...ctx(40, "Point wiring for a light point"), category: "point_wiring" });
+    expect(isSuggestion(r)).toBe(true);
+    if (!isSuggestion(r)) return;
+    expect(r.values.supply_rate).toBe(1869);
+    expect(r.values.install_rate).toBe(735);
+    expect(r.values.combined_rate).toBe(2604);
+    // per-component build-up surfaced (the bill), not just the total
+    const supplySection = r.workings.sections?.find((s) => s.label.toLowerCase().includes("supply"));
+    expect((supplySection?.matchedRows ?? []).some((m) => m.includes("wire1") && m.includes("750"))).toBe(true);
+    // defaulted attrs surfaced
+    expect(r.workings.derivation.some((d) => d.includes("defaulted"))).toBe(true);
+  });
+  it("a PW row missing a wire size is honest-partial (fill to price), never a guess", () => {
+    const partial = { ...PW_EXT, wire1_thickness_sqmm: { value: null, confidence: 0.2 } };
+    const map = buildExtractionByRow([{ excel_row: 41, attributes: partial as never }]);
+    const helper = makePricingSheetHelper({ configsByCategory: new Map([["point_wiring", PW_CONFIG]]), items: PW_HELPER_ITEMS, extractionByRow: map });
+    const r = helper.compute({ ...ctx(41, "Point wiring"), category: "point_wiring" });
+    expect(isSuggestion(r)).toBe(true);
+    if (!isSuggestion(r)) return;
+    expect(r.values.combined_rate).toBeUndefined();
+  });
+
+  // EA-4a values_from: a switch/socket/plate def has NO static `values` -- its options must resolve
+  // FROM the live master (the SAME read the Derivation screen + the backend prompt use). Pre-fix the
+  // panel dropdowns were EMPTY, so an AI-extracted item could not display and a partial row could not
+  // be completed.
+  const SWITCH_DEF = PW_CONFIG.attribute_definitions.find((d) => d.id === "switch_item")!;
+  // a second switch so the resolved catalog carries >1 option (mirrors the real 10A/16A shape)
+  const PW_ITEMS_2SW: RateMasterItem[] = [
+    ...PW_HELPER_ITEMS,
+    { discipline: "Electrical", kind: "switch_socket_item", attributes: { family: "Switch", item: "10A 1 WAY SWITCH", colour: "Grey" }, rates: { list_price: 142 } },
+  ];
+
+  it("attributeOptions resolves a values_from choice from the live master (by kind + where), distinct", () => {
+    expect(SWITCH_DEF.values).toBeUndefined(); // no static list -- pre-fix this yielded []
+    expect(attributeOptions(SWITCH_DEF, PW_ITEMS_2SW)).toEqual([
+      "16A 1 WAY SWITCH- With Indicator",
+      "10A 1 WAY SWITCH",
+    ]);
+    // a static-`values` choice is unchanged (conduit_type -> PVC/MS)
+    const conduit = PW_CONFIG.attribute_definitions.find((d) => d.id === "conduit_type")!;
+    expect(attributeOptions(conduit, PW_ITEMS_2SW)).toEqual(["PVC", "MS"]);
+  });
+
+  it("an AI-extracted item NOT in the def's `values` but IN the resolved catalog DISPLAYS in the panel", () => {
+    // the AI read a switch the def has no static option for; only values_from resolution can show it
+    const extWithCatalogSwitch = { ...PW_EXT, switch_item: { value: "10A 1 WAY SWITCH", confidence: 0.9 } };
+    const map = buildExtractionByRow([{ excel_row: 42, attributes: extWithCatalogSwitch as never }]);
+    const helper = makePricingSheetHelper({ configsByCategory: new Map([["point_wiring", PW_CONFIG]]), items: PW_ITEMS_2SW, extractionByRow: map });
+    const r = helper.compute({ ...ctx(42, "Point wiring for a light point"), category: "point_wiring" });
+    expect(isSuggestion(r)).toBe(true);
+    if (!isSuggestion(r)) return;
+    const sw = r.workings.attributes.find((a) => a.id === "switch_item")!;
+    expect(sw.options).toEqual(expect.arrayContaining(["16A 1 WAY SWITCH- With Indicator", "10A 1 WAY SWITCH"]));
+    // the extracted value is AMONG the options -> the <select> can render it selected (it DISPLAYS)
+    expect(sw.value).toBe("10A 1 WAY SWITCH");
+    expect(sw.options).toContain(sw.value);
   });
 });

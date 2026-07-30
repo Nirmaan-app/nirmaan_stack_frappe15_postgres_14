@@ -126,6 +126,31 @@ function selectableDefs(config: RateCategoryConfig): AttributeDefinition[] {
   return (config.attribute_definitions ?? []).filter((d) => d.selector !== false);
 }
 
+/** EA-4a: the panel options for a choice def. A def may resolve its allowed values FROM the live
+ * master (`values_from`) rather than a static `values` list -- point_wiring's switch/socket/plate
+ * selects, keyed by family. Resolve them here from `items` (the discipline set the page passes),
+ * the SAME live read the backend injects into the extraction prompt AND the RateMaster Derivation
+ * screen uses -- so an AI-extracted item that is NOT in `values` (there is none) still has a matching
+ * option and DISPLAYS, and a partial row can be completed from the catalog. PURE. */
+export function attributeOptions(def: AttributeDefinition, items: RateMasterItem[]): string[] {
+  const vf = def.values_from;
+  if (!vf) return (def.values ?? []).map((v) => String(v));
+  const seen = new Set<string>();
+  const opts: string[] = [];
+  for (const it of items) {
+    if (it.kind !== vf.kind) continue;
+    const a = it.attributes ?? {};
+    if (!Object.entries(vf.where ?? {}).every(([k, v]) => a[k] === v)) continue;
+    const raw = a[vf.attr];
+    const val = typeof raw === "string" ? raw.trim() : raw;
+    if (val !== undefined && val !== null && val !== "" && !seen.has(String(val))) {
+      seen.add(String(val));
+      opts.push(String(val));
+    }
+  }
+  return opts;
+}
+
 /** Coerce a stringy attribute value to what the interpreter matches on (number for number attrs). */
 function coerceForMatch(def: AttributeDefinition, raw: string | number | null): string | number | null {
   if (raw === null || raw === undefined || raw === "") return null;
@@ -136,10 +161,12 @@ function coerceForMatch(def: AttributeDefinition, raw: string | number | null): 
   return String(raw);
 }
 
-/** Map a pipeline output key -> the sheet rate-kind it fills. */
+/** Map a pipeline output key -> the sheet rate-kind it fills. EA-4a: the assembly categories name their
+ * outputs `supply` / `install` (no per-unit suffix), so match those EXACTLY as well as the legacy
+ * `supply_*` / `install_*` (conduit/wiring per-mtr, switches per-set). */
 function kindForOutput(output: string): string | null {
-  if (output.startsWith("supply_")) return "supply_rate";
-  if (output.startsWith("install_")) return "install_rate";
+  if (output === "supply" || output.startsWith("supply_")) return "supply_rate";
+  if (output === "install" || output.startsWith("install_")) return "install_rate";
   return null;
 }
 
@@ -175,6 +202,7 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
     // Build the workings attributes (pre-filled from extraction, overridable) + the selected map.
     const workingsAttrs: WorkingsAttribute[] = [];
     const selected: Record<string, string | number> = {};
+    const defaulted: string[] = []; // EA-4a: attrs the extraction filled from a config default
     let missing = false;
     for (const d of defs) {
       const cell = ext?.attributes[d.id];
@@ -183,10 +211,16 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       const coerced = coerceForMatch(d, rawValue as string | number | null);
       if (coerced === null) missing = true;
       else selected[d.id] = coerced;
+      // A defaulted attribute is one the model filled from the config default (no positive text
+      // identification); the pricer should see WHICH values came from a default, not read (EA-4a). An
+      // override (the pricer typed it) clears the defaulted mark.
+      if (overridden === undefined && coerced !== null && (cell as { defaulted?: boolean })?.defaulted) {
+        defaulted.push(`${d.label}=${coerced}`);
+      }
       workingsAttrs.push({
         id: d.id,
         label: d.label,
-        options: d.type === "choice" ? (d.values ?? []).map(String) : undefined,
+        options: d.type === "choice" ? attributeOptions(d, items) : undefined,
         value: coerced === null ? "" : String(coerced),
         confidence: cell?.confidence,
         corroborated: cell?.corroborated,
@@ -244,32 +278,45 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       const res = runPipeline(pid, pl as Pipeline, items, selected);
       const finals: Record<string, number> = {};
       const derivation: string[] = [];
+      const matchedRows: string[] = [];
       if (res.status === "ok") {
         for (const o of res.outputs) {
           finals[o] = res.finals[o];
           derivation.push(`${o} = ${res.finals[o]}`);
-          if (idx === 0) {
-            const kind = kindForOutput(o);
-            if (kind) values[kind] = res.finals[o];
-          }
+          // EA-4a: a category may split supply + install across SEPARATE pipelines (point_wiring's
+          // pw_boq_supply / pw_boq_install, cabletray). Take each rate-kind from the FIRST pipeline
+          // that produces it -- a single combined pipeline (conduit) still fills both from its one pass.
+          const kind = kindForOutput(o);
+          if (kind && values[kind] === undefined) values[kind] = res.finals[o];
         }
-        if (
-          idx === 0 &&
-          typeof values.supply_rate === "number" &&
-          typeof values.install_rate === "number"
-        ) {
-          values.combined_rate = values.supply_rate + values.install_rate;
-          derivation.push(`combined_rate = supply + install = ${values.combined_rate}`);
+        // EA-4a: the assembly categories expose their per-component build-up as the step traces; surface
+        // each component line (name = value) in the group so the pricer sees the bill, not just the total.
+        for (const st of res.steps) {
+          if (st.produced && st.refItem) matchedRows.push(`${st.produced.key}: ${st.refItem} = ${st.produced.value}`);
         }
-        if (idx === 0) flatMatched.push(`Matched ${pid} for ${attrLine}.`);
+        flatMatched.push(`Matched ${pid} for ${attrLine}.`);
       } else if (res.status === "no_match") {
         derivation.push(`No ${pid} rate row matches ${attrLine}.`);
       } else {
         derivation.push(`Pipeline '${pid}' has an unsupported step.`);
       }
       if (idx === 0) flatDerivation.push(...derivation);
-      sections.push({ label: pipelineLabel(category, pid), derivation, finals });
+      sections.push({ label: pipelineLabel(category, pid), derivation, finals, ...(matchedRows.length ? { matchedRows } : {}) });
     });
+    // Combine AFTER scanning every pipeline -- supply + install may come from different pipelines
+    // (point_wiring / cabletray). A single combined pipeline (conduit) also lands here; the combined
+    // line is added to its one group so its in-group display is unchanged.
+    if (typeof values.supply_rate === "number" && typeof values.install_rate === "number") {
+      values.combined_rate = values.supply_rate + values.install_rate;
+      const combinedLine = `combined_rate = supply + install = ${values.combined_rate}`;
+      flatDerivation.push(combinedLine);
+      if (sections.length === 1) sections[0].derivation.push(combinedLine);
+    }
+    // EA-4a: surface the attributes that came from a config default (not positively read from the text)
+    // so the pricer sees, and can correct, every defaulted value before using the rate.
+    if (defaulted.length) {
+      flatDerivation.push(`(defaulted -- no positive text identification): ${defaulted.join(", ")}`);
+    }
 
     return {
       kind: "suggestion",

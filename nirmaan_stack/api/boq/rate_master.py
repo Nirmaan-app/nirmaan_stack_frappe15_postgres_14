@@ -710,6 +710,9 @@ def deactivate_rate_master_item(name=None):
 _KNOWN_STEP_TYPES = {
     "match_master_row", "apply_effective_multiplier", "scale", "roundup",
     "component", "component_ref", "component_band", "sum_components", "install_as_ratio",
+    # EA-4a: the assembly engine's conduit-sizing step (component_ref is EXTENDED in place, so it stays
+    # the same step type -- only circuit_fit is a new type).
+    "circuit_fit",
 }
 _KNOWN_CONFIG_KEYS = {
     "discipline", "category_id", "category_display", "pairing_rule",
@@ -723,6 +726,9 @@ _KNOWN_CONFIG_KEYS = {
     # EA-DIFF: synonyms = {attr_id: {variant: canonical}} (e.g. conduit_type GI->MS). Pass-through;
     # consumed by the extraction injection + coercion, never structurally validated here.
     "synonyms",
+    # EA-4a: extraction_defaults = {attr_id: default | {default, text_overrides}}. Pass-through; consumed
+    # by the extraction prompt injection (defaults + the raceway text-override), never validated here.
+    "extraction_defaults",
 }
 _BAND_WHEN_RE = re.compile(r"^(<=|>=|<|>)\s*-?\d+(\.\d+)?$")
 
@@ -774,8 +780,14 @@ def _validate_config(cfg):
             _vthrow(f"attribute definition '{did}' needs a label.")
         if d.get("type") not in ("choice", "number"):
             _vthrow(f"attribute definition '{did}' type must be 'choice' or 'number'.")
-        if d.get("type") == "choice" and (not isinstance(d.get("values"), list) or not d.get("values")):
-            _vthrow(f"choice attribute '{did}' needs a non-empty values list.")
+        # EA-4a: a choice may declare `values_from` (allowed values resolved from the live master at
+        # extraction time) INSTEAD of a static `values` list -- point_wiring's switch/socket/plate selects.
+        if (
+            d.get("type") == "choice"
+            and not d.get("values_from")
+            and (not isinstance(d.get("values"), list) or not d.get("values"))
+        ):
+            _vthrow(f"choice attribute '{did}' needs a non-empty values list (or values_from).")
 
     # pipelines ------------------------------------------------------------------------------
     # EA-2: an EMPTY pipelines dict is ACCEPTED -- a DATA-ONLY config (definitions + items, no
@@ -846,11 +858,31 @@ def _validate_config(cfg):
                         _vthrow(f"{where}: component needs a string '{key}'.")
                 _validate_params(s.get("params"), where)
             elif st == "component_ref":
-                # EA-2c: base from a referenced master row (ref.kind + optional ref.attributes), else
-                # the component contract. Top-level params OPTIONAL (a conditional ref carries none).
-                for key in ("name", "target", "formula"):
+                # EA-2c legacy: base from a referenced row (ref.kind + optional ref.attributes) priced by
+                # `formula`. EA-4a assembly: ref attrs INLINE (values literal | "@attr" | "@fitted_size"),
+                # priced by rate_stages x qty (no formula). name + target always required; formula required
+                # ONLY for the legacy shape.
+                is_assembly = s.get("rate_stages") is not None or s.get("qty") is not None
+                required = ("name", "target") if is_assembly else ("name", "target", "formula")
+                for key in required:
                     if not isinstance(s.get(key), str) or not s.get(key):
                         _vthrow(f"{where}: component_ref needs a string '{key}'.")
+                if is_assembly:
+                    rs = s.get("rate_stages")
+                    if rs is not None:
+                        if not isinstance(rs, list):
+                            _vthrow(f"{where}: component_ref rate_stages must be a list.")
+                        for ri, stage in enumerate(rs):
+                            if not isinstance(stage, dict) or not _is_finite_number(stage.get("mult")):
+                                _vthrow(f"{where}: rate_stages[{ri}] needs a finite 'mult'.")
+                            if stage.get("round") is not None and stage.get("round") not in ("up0", "up-1"):
+                                _vthrow(f"{where}: rate_stages[{ri}].round must be 'up0' or 'up-1'.")
+                    q = s.get("qty")
+                    if q is not None and not (
+                        _is_finite_number(q)
+                        or (isinstance(q, dict) and ("from_attr" in q or "from_fit" in q or "if_attr" in q))
+                    ):
+                        _vthrow(f"{where}: component_ref qty must be a number or a from_attr/from_fit/if_attr object.")
                 ref = s.get("ref")
                 if not isinstance(ref, dict) or not isinstance(ref.get("kind"), str) or not ref.get("kind"):
                     _vthrow(f"{where}: component_ref needs ref.kind (a string).")
@@ -906,6 +938,34 @@ def _validate_config(cfg):
                 params = s.get("params")
                 if not isinstance(params, dict) or not _is_finite_number(params.get("ratio")):
                     _vthrow(f"{where}: install_as_ratio needs params.ratio (a finite number).")
+            elif st == "circuit_fit":
+                # EA-4a: sizes the conduit + counts circuits. params.wire_specs reference attribute ids
+                # (each a [core_attr, thickness_attr] pair) -> the reference guard covers them; length_attr
+                # + conduit_type_attr likewise. sizes/usable are finite-number tables (structure, not attrs).
+                p = s.get("params")
+                if not isinstance(p, dict):
+                    _vthrow(f"{where}: circuit_fit needs a params object.")
+                if not isinstance(p.get("sizes"), list) or not all(_is_finite_number(x) for x in p.get("sizes") or []):
+                    _vthrow(f"{where}: circuit_fit params.sizes must be a list of finite numbers.")
+                if not isinstance(p.get("usable"), dict):
+                    _vthrow(f"{where}: circuit_fit params.usable must be an object of conduit_type -> fractions.")
+                for ct, fracs in p["usable"].items():
+                    if not isinstance(fracs, list) or not all(_is_finite_number(x) for x in fracs):
+                        _vthrow(f"{where}: circuit_fit usable['{ct}'] must be a list of finite numbers.")
+                specs = p.get("wire_specs")
+                if not isinstance(specs, list) or not specs:
+                    _vthrow(f"{where}: circuit_fit needs a non-empty wire_specs list.")
+                for wi, pair in enumerate(specs):
+                    if not isinstance(pair, list) or len(pair) != 2 or not all(isinstance(x, str) and x for x in pair):
+                        _vthrow(f"{where}: circuit_fit wire_specs[{wi}] must be a [core_attr, thickness_attr] pair.")
+                    _ref(pair[0], f"{where} (wire_specs)")
+                    _ref(pair[1], f"{where} (wire_specs)")
+                for key in ("length_attr", "conduit_type_attr"):
+                    if not isinstance(p.get(key), str) or not p.get(key):
+                        _vthrow(f"{where}: circuit_fit needs a string '{key}'.")
+                    _ref(p[key], f"{where} ({key})")
+                if not isinstance(s.get("binds"), list) or not all(isinstance(b, str) and b for b in s.get("binds") or []):
+                    _vthrow(f"{where}: circuit_fit needs a 'binds' list of strings.")
 
     # REFERENCE GUARD: every attr a pipeline references must be defined (names where each is used) ----
     missing = {a: locs for a, locs in referenced.items() if a not in def_ids}

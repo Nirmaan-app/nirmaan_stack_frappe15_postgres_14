@@ -46,6 +46,9 @@ export const STEP_VOCABULARY = [
   "component_band",
   "sum_components",
   "install_as_ratio",
+  // EA-4a: the assembly engine's conduit-sizing step (component_ref is extended in place, so it stays one
+  // vocabulary entry; only circuit_fit is new).
+  "circuit_fit",
 ] as const;
 
 export type StepType = (typeof STEP_VOCABULARY)[number];
@@ -129,6 +132,12 @@ export function blankStep(type: StepType): PipelineStep {
       return { step: "sum_components", result: "" };
     case "install_as_ratio":
       return { step: "install_as_ratio", result: "", params: { ratio: 0.25 } };
+    case "circuit_fit":
+      return {
+        step: "circuit_fit",
+        params: { sizes: [], usable: {}, wire_specs: [], length_attr: "", conduit_type_attr: "" },
+        binds: ["fitted_size", "circuits", "conduit_qty"],
+      };
     default:
       return { step: type };
   }

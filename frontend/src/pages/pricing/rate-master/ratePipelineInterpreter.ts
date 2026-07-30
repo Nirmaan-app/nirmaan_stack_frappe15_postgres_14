@@ -129,6 +129,49 @@ export function roundUp(x: number, digits: number): number {
   return Math.ceil(x * factor - 1e-9) / factor;
 }
 
+// ---------- EA-4a assembly helpers (used only by circuit_fit + the assembly component_ref) ----------
+
+/** Compact number for trace strings: integer as-is, else 2 decimals (drops trailing zeros). */
+function fmtNum(v: number): string {
+  return Number.isInteger(v) ? String(v) : String(Number(v.toFixed(2)));
+}
+
+/** Apply one rate stage's optional roundup. `up0` = ROUNDUP to units, `up-1` = to tens; absent => unrounded. */
+function roundByMode(x: number, mode?: "up0" | "up-1"): number {
+  if (mode === "up0") return roundUp(x, 0);
+  if (mode === "up-1") return roundUp(x, -1);
+  return x;
+}
+
+/** Walk a component_ref's rate_stages: rate *= mult, then optional per-stage roundup (in order). */
+function stageRate(base: number, stages: import("./rateMasterTypes").RateStage[] | undefined): number {
+  let r = base;
+  for (const st of stages ?? []) r = roundByMode(r * st.mult, st.round);
+  return r;
+}
+
+/** Resolve an assembly component_ref qty. Returns null for an HONEST missing-attr no-compute (a from_attr
+ * / from_fit source that is absent or non-numeric) -- never a guessed 0. */
+function resolveQty(
+  qty: import("./rateMasterTypes").QtySpec | undefined,
+  selected: Record<string, string | number>,
+  ctx: Record<string, number>
+): number | null {
+  if (qty === undefined) return 1;
+  if (typeof qty === "number") return qty;
+  if ("from_attr" in qty) {
+    const v = Number(selected[qty.from_attr]);
+    return Number.isFinite(v) ? v : null;
+  }
+  if ("from_fit" in qty) {
+    const v = ctx[qty.from_fit];
+    return typeof v === "number" && Number.isFinite(v) ? v : null;
+  }
+  // if_attr: a boolean-style switch on a selected attribute (e.g. back_box Yes -> 1 else 0).
+  const on = Object.entries(qty.if_attr).every(([k, val]) => selected[k] === val);
+  return on ? qty.then : qty.else;
+}
+
 /**
  * Match the row for `kind` on the INTERSECTION of the row's stored attributes and the selected
  * attributes: every key the ROW carries must equal the selection; keys the row does NOT carry (a
@@ -359,8 +402,152 @@ export function runPipeline(
         produced: { key: s.name, value },
         runningValues: { ...snapshot(), ...componentEntries(components) },
       });
+    } else if (stepType === "circuit_fit") {
+      // EA-4a: size the conduit + count circuits for a point-wiring run. overall_dia = Sum
+      // sqrt(sqmm/pi)*2*core over wire_specs; fitted_size = smallest size whose usable dia (size *
+      // usable[conduit_type][i]) >= dia (largest if none fit); circuits = ROUNDDOWN(usable_dia/dia);
+      // conduit_qty = ROUNDUP(length/circuits). BINDS the three results by `binds` for later @fitted_size /
+      // from_fit reads. Any missing/zero input, unknown conduit_type, or circuits <= 0 -> HONEST no-compute.
+      const s = raw as import("./rateMasterTypes").CircuitFitStep;
+      const p = s.params;
+      let overallDia = 0;
+      let miss: string | null = null;
+      for (const [coreAttr, thickAttr] of p.wire_specs) {
+        const core = Number(selected[coreAttr]);
+        const thick = Number(selected[thickAttr]);
+        if (!Number.isFinite(core) || core <= 0 || !Number.isFinite(thick) || thick <= 0) {
+          miss = `${coreAttr}/${thickAttr}`;
+          break;
+        }
+        overallDia += Math.sqrt(thick / Math.PI) * 2 * core;
+      }
+      const ctype = selected[p.conduit_type_attr];
+      const usable = ctype != null ? p.usable[String(ctype)] : undefined;
+      const length = Number(selected[p.length_attr]);
+      if (miss !== null) {
+        steps.push({ step: stepType, label: `attribute '${miss}' missing or non-positive -- no value computed`, runningValues: snapshot() });
+        return { pipelineId, outputs: pipeline.output, status: "no_match", steps, finals: {}, matchedItem, note: pipeline.note };
+      }
+      if (!usable) {
+        steps.push({ step: stepType, label: `conduit_type '${String(ctype)}' has no usable fractions -- no value computed`, runningValues: snapshot() });
+        return { pipelineId, outputs: pipeline.output, status: "no_match", steps, finals: {}, matchedItem, note: pipeline.note };
+      }
+      if (!Number.isFinite(length) || length <= 0 || overallDia <= 0) {
+        steps.push({ step: stepType, label: `${p.length_attr} missing/zero or zero overall diameter -- no value computed`, runningValues: snapshot() });
+        return { pipelineId, outputs: pipeline.output, status: "no_match", steps, finals: {}, matchedItem, note: pipeline.note };
+      }
+      let fittedSize = p.sizes[p.sizes.length - 1];
+      let fittedUsable = p.sizes[p.sizes.length - 1] * usable[p.sizes.length - 1];
+      for (let i = 0; i < p.sizes.length; i++) {
+        const ud = p.sizes[i] * usable[i];
+        if (ud >= overallDia) {
+          fittedSize = p.sizes[i];
+          fittedUsable = ud;
+          break;
+        }
+      }
+      const circuits = Math.floor(fittedUsable / overallDia);
+      if (circuits <= 0) {
+        steps.push({ step: stepType, label: `no circuit fits the conduit (dia ${overallDia.toFixed(3)}) -- no value computed`, runningValues: snapshot() });
+        return { pipelineId, outputs: pipeline.output, status: "no_match", steps, finals: {}, matchedItem, note: pipeline.note };
+      }
+      const conduitQty = roundUp(length / circuits, 0);
+      const binds = s.binds ?? ["fitted_size", "circuits", "conduit_qty"];
+      const vals = [fittedSize, circuits, conduitQty];
+      binds.forEach((b, i) => { if (i < vals.length) ctx[b] = vals[i]; });
+      steps.push({
+        step: stepType,
+        label: s.explain || "circuit fit",
+        matchedCondition: `dia ${overallDia.toFixed(3)} -> ${fittedSize}mm, ${circuits} circuits, conduit qty ${conduitQty}`,
+        runningValues: snapshot(),
+      });
     } else if (stepType === "component_ref") {
       const s = raw as import("./rateMasterTypes").ComponentRefStep;
+      // EA-4a ASSEMBLY SHAPE (referenced item x quantity): detected by the presence of rate_stages / qty.
+      // ref carries the match attrs INLINE (values literal | "@<attr>" from the selection | "@fitted_size"
+      // from circuit_fit); base = matched row's `target`; rate = rate_stages walk (per-stage roundup); qty
+      // per QtySpec; value = staged_rate x qty. UNIQUE resolution (EA-2c): zero/multiple -> honest
+      // no-compute. A null @attr / a missing qty source -> honest missing-attr (never a guess).
+      if (s.rate_stages !== undefined || s.qty !== undefined) {
+        const resolved: Record<string, string | number> = {};
+        let bindMiss: string | null = null;
+        for (const [k, rawVal] of Object.entries(s.ref)) {
+          if (k === "kind" || k === "attributes") continue;
+          let val: string | number;
+          if (typeof rawVal === "string" && rawVal.startsWith("@")) {
+            const src = rawVal.slice(1);
+            const bound = src === "fitted_size" ? ctx["fitted_size"] : selected[src];
+            if (bound === undefined || bound === null || (typeof bound === "number" && !Number.isFinite(bound))) {
+              bindMiss = src;
+              break;
+            }
+            val = bound;
+          } else {
+            val = rawVal as string | number;
+          }
+          resolved[k] = val;
+        }
+        if (bindMiss !== null) {
+          steps.push({
+            step: stepType,
+            label: s.explain || `component: ${s.name}`,
+            matchedCondition: `${s.name}: '${bindMiss}' not provided -- not computed`,
+            runningValues: { ...snapshot(), ...componentEntries(components) },
+          });
+          return { pipelineId, outputs: pipeline.output, status: "no_match", steps, finals: {}, matchedItem, note: pipeline.note };
+        }
+        const refRows = items.filter(
+          (it) =>
+            it.kind === s.ref.kind &&
+            Object.entries(resolved).every(([k, v]) => it.attributes?.[k] === v)
+        );
+        const refLabel = Object.values(resolved).filter((v) => v !== "" && v !== "NA").join(" ") || s.ref.kind;
+        if (refRows.length !== 1) {
+          steps.push({
+            step: stepType,
+            label: s.explain || `component: ${s.name}`,
+            refItem: refLabel,
+            matchedCondition: `ref ${s.ref.kind}: ${refRows.length === 0 ? "no" : refRows.length} matching row(s) -- not computed`,
+            runningValues: { ...snapshot(), ...componentEntries(components) },
+          });
+          return { pipelineId, outputs: pipeline.output, status: "no_match", steps, finals: {}, matchedItem, note: pipeline.note };
+        }
+        const base = refRows[0].rates?.[s.target];
+        if (typeof base !== "number" || !Number.isFinite(base)) {
+          steps.push({
+            step: stepType,
+            label: s.explain || `component: ${s.name}`,
+            refItem: refLabel,
+            matchedCondition: `${s.target} not on the referenced row -- not computed`,
+            runningValues: { ...snapshot(), ...componentEntries(components) },
+          });
+          return { pipelineId, outputs: pipeline.output, status: "no_match", steps, finals: {}, matchedItem, note: pipeline.note };
+        }
+        const qty = resolveQty(s.qty, selected, ctx);
+        if (qty === null) {
+          steps.push({
+            step: stepType,
+            label: s.explain || `component: ${s.name}`,
+            refItem: refLabel,
+            matchedCondition: `${s.name}: quantity not provided -- not computed`,
+            runningValues: { ...snapshot(), ...componentEntries(components) },
+          });
+          return { pipelineId, outputs: pipeline.output, status: "no_match", steps, finals: {}, matchedItem, note: pipeline.note };
+        }
+        const rate = stageRate(base, s.rate_stages);
+        const value = rate * qty;
+        components[s.name] = value;
+        steps.push({
+          step: stepType,
+          label: s.explain || `component: ${s.name}`,
+          refItem: refLabel,
+          matchedCondition: `rate ${fmtNum(rate)} x qty ${fmtNum(qty)}`,
+          produced: { key: s.name, value },
+          runningValues: { ...snapshot(), ...componentEntries(components) },
+        });
+        continue;
+      }
+      // EA-2c LEGACY SHAPE (ref.attributes + formula) -- byte-unchanged below.
       // EA-2c: `base` comes from a SEPARATELY-REFERENCED row matched by kind AND every ref attribute
       // (exact canonical, this discipline). UNIQUE resolution: zero OR multiple matches is an HONEST
       // no-compute (never zero-by-default, never pick-first). Here ref = {earthing_item, type "Bus bar"}
@@ -417,7 +604,9 @@ export function runPipeline(
         refParams = cond.params ?? {};
       }
       for (const [k, v] of Object.entries(refParams)) if (typeof v === "number") env[k] = v;
-      const value = evalFormula(s.formula, env);
+      // The LEGACY (EA-2c) shape always carries a formula (the assembly shape returned via `continue`
+      // above); an empty formula degrades honestly through the Option-C guard rather than mis-computing.
+      const value = evalFormula(s.formula ?? "", env);
       components[s.name] = value;
       steps.push({
         step: stepType,

@@ -142,11 +142,46 @@ def catalog_values(discipline, cfg):
 
 
 # ── attribute-definition injection ──────────────────────────────────────────────────
-def build_attribute_defs(cfg, catalog=None):
+def values_from_catalog(discipline, spec):
+    """EA-4a: resolve an attribute's allowed values FROM the live master -- the distinct `attr` values
+    across the `kind` rows matching every key in `where` (exact). The SAME live-read shape as the
+    item-identity catalog (catalog_values), for a NON-identity choice whose options are another
+    category's rows (point_wiring's switch/socket/plate selects, keyed by family). Empty when the spec
+    is malformed or no discipline -- an HONEST empty select, never a hardcoded list."""
+    if not discipline or not isinstance(spec, dict):
+        return []
+    kind = spec.get("kind")
+    attr = spec.get("attr")
+    if not kind or not attr:
+        return []
+    where = spec.get("where") or {}
+    rows = frappe.get_all(
+        _MASTER_ITEM,
+        filters={"discipline": discipline, "kind": kind, "active": 1},
+        fields=["attributes"],
+    )
+    out, seen = [], set()
+    for r in rows:
+        a = r["attributes"] if isinstance(r["attributes"], dict) else json.loads(r["attributes"] or "{}")
+        if not all(a.get(k) == v for k, v in where.items()):
+            continue
+        v = a.get(attr)
+        if isinstance(v, str):
+            v = v.strip()
+        if v not in (None, "") and v not in seen:
+            seen.add(v)
+            out.append(v)
+    return out
+
+
+def build_attribute_defs(cfg, catalog=None, discipline=None):
     """The attribute definitions injected into the AI prompt for one config. Selectable defs only
     (exclude selector:false, e.g. brand). When the config is item-identity, the identity attribute
-    carries {"identity": true} and its `values` = the live catalog (overriding any stored values);
-    all other choice defs keep their stored `values`."""
+    carries {"identity": true} and its `values` = the live catalog (overriding any stored values); a
+    def with `values_from` (EA-4a) gets its `values` resolved from the live master exactly like the
+    identity catalog; all other choice defs keep their stored `values`. A def with an `extraction`
+    `default` (EA-4a) carries it through so the prompt can offer it as the no-positive-identification
+    fallback (the actual default set lives in cfg.extraction_defaults, injected in _extract_batch)."""
     identity = cfg.get("identity_attribute_id") if cfg.get("matching_mode") == "item_identity" else None
     out = []
     for d in cfg.get("attribute_definitions") or []:
@@ -156,8 +191,12 @@ def build_attribute_defs(cfg, catalog=None):
         if identity and d["id"] == identity:
             entry["identity"] = True
             entry["values"] = list(catalog or [])
+        elif d.get("values_from"):
+            entry["values"] = values_from_catalog(discipline, d["values_from"])
         elif d.get("values"):
             entry["values"] = d["values"]
+        if d.get("default") is not None:
+            entry["default"] = d["default"]
         out.append(entry)
     return out
 
@@ -308,15 +347,21 @@ def _coerce_value(defn, raw, synonyms_for_attr=None):
     return sval
 
 
-def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=None):
+def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=None, defaults=None):
     """One extraction batch call with retry/backoff. Returns {excel_row: {attr_id: {value,
-    confidence}}} for the batch's OWN rows only. Ports ai_voter._ai_batch mechanics (<=20 rows, 3
-    attempts, sleep 2*attempt).
+    confidence[, defaulted]}}} for the batch's OWN rows only. Ports ai_voter._ai_batch mechanics
+    (<=20 rows, 3 attempts, sleep 2*attempt).
 
     EA-DIFF: when `synonyms` ({attr_id: {variant: canonical}}) is configured for the category, a
-    SYNONYMS section + one guidance line are appended to the injected payload (the .md prompt ASSETS
-    stay untouched -- the guidance lives in this wrapper). Absent synonyms -> byte-identical to before.
-    _coerce_value ALSO maps variant->canonical (defence in depth)."""
+    SYNONYMS section + one guidance line are appended (the .md prompt ASSETS stay untouched -- the
+    guidance lives in this wrapper). _coerce_value ALSO maps variant->canonical (defence in depth).
+
+    EA-4a: when `defaults` (cfg.extraction_defaults: {attr_id: default | {default, text_overrides}})
+    is configured, a DEFAULTS section + one guidance line are appended -- where the row text gives NO
+    positive identification of a default-carrying attribute the model returns the default with moderate
+    confidence and `defaulted: true`; a text_override word in the row text IS a positive identification
+    of that override value. That per-attribute `defaulted` flag is carried into the result (coercion
+    keeps the value; this wrapper keeps the flag). Absent synonyms AND defaults -> byte-identical."""
     payload_items = [_ai_item(r) for r in rows_batch]
     content = (
         prompt_text
@@ -328,6 +373,15 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
             "\n\nSYNONYMS: where a row states a variant key, extract the mapped canonical value "
             "(these are price-interchangeable per business rule).\n"
             + json.dumps(synonyms, ensure_ascii=False)
+        )
+    if defaults:
+        content += (
+            "\n\nDEFAULTS: where an attribute below has a default and the row text gives NO positive "
+            "identification, return the default with moderate confidence AND set that attribute's "
+            "\"defaulted\": true. For an attribute whose default is an object with text_overrides: when "
+            "the row text contains the given word, that override value IS the positive identification "
+            "(return it normally, defaulted false).\n"
+            + json.dumps(defaults, ensure_ascii=False)
         )
     content += "\n\nROWS:\n" + json.dumps(payload_items, ensure_ascii=False)
     batch_ids = {r["excel_row"] for r in rows_batch}
@@ -357,6 +411,11 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
                     except (TypeError, ValueError):
                         conf = 0.0
                     row_out[aid] = {"value": value, "confidence": max(0.0, min(1.0, conf))}
+                    # EA-4a: keep the model's per-attribute `defaulted` flag (only when the value
+                    # survived coercion -- a defaulted value is one of the allowed values, so this
+                    # simply marks WHY it is present). Absent/false -> flag omitted (byte-compat).
+                    if defaults and value is not None and bool(cell.get("defaulted")):
+                        row_out[aid]["defaulted"] = True
                 out[rid] = row_out
             return out
         except Exception as exc:
@@ -472,9 +531,10 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None):
         cfg = configs.get((disc, cat)) or {}
         catalog = catalog_values(disc, cfg) if cfg.get("matching_mode") == "item_identity" else None
         group_ctx[(disc, cat)] = {
-            "defs": build_attribute_defs(cfg, catalog),
+            "defs": build_attribute_defs(cfg, catalog, disc),  # EA-4a: disc resolves values_from
             "prompt": select_prompt_text(cfg),
             "synonyms": cfg.get("synonyms"),  # EA-DIFF: {attr_id: {variant: canonical}} or None
+            "defaults": cfg.get("extraction_defaults"),  # EA-4a: {attr_id: default | {default, ...}} or None
         }
 
     def _defs_for(r):
@@ -506,7 +566,7 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None):
         gc = group_ctx[(disc, cat)]
         for b in range(0, len(grp_rows), _BATCH):
             batch = grp_rows[b : b + _BATCH]
-            ai_out.update(_extract_batch(client, model, gc["prompt"], gc["defs"], batch, gc["synonyms"]))
+            ai_out.update(_extract_batch(client, model, gc["prompt"], gc["defs"], batch, gc["synonyms"], gc["defaults"]))
             done += len(batch)
             if progress_cb:
                 progress_cb(min(done, total), total)

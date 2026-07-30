@@ -549,3 +549,164 @@ describe("EA-2c component_ref (Bus bar as a qualified referenced row)", () => {
     expect(r.finals).toEqual({});
   });
 });
+
+// ---- EA-4a: the ASSEMBLY ENGINE (circuit_fit + component_ref rate_stages x qty) -- point_wiring live ----
+// Fixture rates mirror the live v13 masters (cable/conduit from the wiring batch, switch_socket from E-ALL,
+// verified 2026-07-30). The interpreter must reproduce the banked oracle pw1 (1869/735/1370) AND the
+// mirror-computed pw2 (1823/722.2/1342 -- MS -> 3 circuits; the FRACTIONAL install 722.2 is the regression
+// that proves per-STAGE rounding: switch install rounds the supply rate THEN x0.2 unrounded).
+
+const PW_CIRCUIT_FIT = {
+  step: "circuit_fit" as const,
+  params: {
+    sizes: [25, 32, 50],
+    usable: { PVC: [0.55, 0.55, 0.55], MS: [0.45, 0.45, 0.47] },
+    wire_specs: [["wire1_core", "wire1_thickness_sqmm"], ["wire2_core", "wire2_thickness_sqmm"]] as [string, string][],
+    length_attr: "circuit_length_m",
+    conduit_type_attr: "conduit_type",
+  },
+  binds: ["fitted_size", "circuits", "conduit_qty"],
+};
+type Stage = { mult: number; round?: "up0" | "up-1" };
+type Qty = number | { from_attr: string } | { from_fit: string } | { if_attr: Record<string, string | number>; then: number; else: number };
+function cref(name: string, ref: Record<string, string | number>, target: string, rate_stages: Stage[], qty: Qty) {
+  return { step: "component_ref" as const, name, ref, target, rate_stages, qty };
+}
+const wireRef = (core: string, th: string) => ({ kind: "cable", material: "COPPER", insulation: "UNARMOURED", core, thickness_sqmm: th });
+const conduitRef = { kind: "conduit", conduit_type: "@conduit_type", size_mm: "@fitted_size" };
+const ssRef = (family: string, item: string, colour: string) => ({ kind: "switch_socket_item", family, item, colour });
+
+const PW_PIPELINES: Record<string, Pipeline> = {
+  pw_boq_supply: {
+    output: ["supply"],
+    steps: [
+      PW_CIRCUIT_FIT,
+      cref("wire1", wireRef("@wire1_core", "@wire1_thickness_sqmm"), "list_price_per_mtr", [{ mult: 0.602, round: "up0" }], { from_attr: "circuit_length_m" }),
+      cref("wire2", wireRef("@wire2_core", "@wire2_thickness_sqmm"), "list_price_per_mtr", [{ mult: 0.602, round: "up0" }], { from_attr: "circuit_length_m" }),
+      cref("conduit", conduitRef, "list_price_per_mtr", [{ mult: 0.7, round: "up0" }], { from_fit: "conduit_qty" }),
+      cref("switch", ssRef("Switch", "@switch_item", "@colour"), "list_price", [{ mult: 0.3625, round: "up0" }], { from_attr: "switch_qty" }),
+      cref("socket", ssRef("Socket", "@socket_item", "@colour"), "list_price", [{ mult: 0.3625, round: "up0" }], { from_attr: "socket_qty" }),
+      cref("plate", ssRef("Grid and Face Plates", "@plate_item", "@colour"), "list_price", [{ mult: 0.3625, round: "up0" }], { from_attr: "plate_qty" }),
+      cref("back_box", ssRef("Back Box", "@plate_item", "NA"), "list_price", [{ mult: 0.3625, round: "up0" }], { if_attr: { back_box: "Yes" }, then: 1, else: 0 }),
+      { step: "sum_components", result: "supply" },
+    ],
+  },
+  pw_boq_install: {
+    output: ["install"],
+    steps: [
+      PW_CIRCUIT_FIT,
+      cref("wire1", wireRef("@wire1_core", "@wire1_thickness_sqmm"), "install_base_per_mtr", [{ mult: 2.0, round: "up0" }], { from_attr: "circuit_length_m" }),
+      cref("wire2", wireRef("@wire2_core", "@wire2_thickness_sqmm"), "install_base_per_mtr", [{ mult: 2.0, round: "up0" }], { from_attr: "circuit_length_m" }),
+      cref("conduit", conduitRef, "list_price_per_mtr", [{ mult: 0.7 }, { mult: 0.2, round: "up0" }], { from_fit: "conduit_qty" }),
+      cref("switch", ssRef("Switch", "@switch_item", "@colour"), "list_price", [{ mult: 0.3625, round: "up0" }, { mult: 0.2 }], { from_attr: "switch_qty" }),
+      cref("socket", ssRef("Socket", "@socket_item", "@colour"), "list_price", [{ mult: 0.0725, round: "up0" }], { from_attr: "socket_qty" }),
+      cref("plate", ssRef("Grid and Face Plates", "@plate_item", "@colour"), "list_price", [{ mult: 0.0725, round: "up0" }], { from_attr: "plate_qty" }),
+      cref("back_box", ssRef("Back Box", "@plate_item", "NA"), "list_price", [{ mult: 0.0725, round: "up0" }], { if_attr: { back_box: "Yes" }, then: 1, else: 0 }),
+      { step: "sum_components", result: "install" },
+    ],
+  },
+  pw_bcs: {
+    output: ["bcs_supply"],
+    steps: [
+      PW_CIRCUIT_FIT,
+      cref("wire1", wireRef("@wire1_core", "@wire1_thickness_sqmm"), "list_price_per_mtr", [{ mult: 0.4515, round: "up0" }], { from_attr: "circuit_length_m" }),
+      cref("wire2", wireRef("@wire2_core", "@wire2_thickness_sqmm"), "list_price_per_mtr", [{ mult: 0.4515, round: "up0" }], { from_attr: "circuit_length_m" }),
+      cref("conduit", conduitRef, "list_price_per_mtr", [{ mult: 0.5, round: "up0" }], { from_fit: "conduit_qty" }),
+      cref("switch", ssRef("Switch", "@switch_item", "@colour"), "list_price", [{ mult: 0.25, round: "up0" }], { from_attr: "switch_qty" }),
+      cref("socket", ssRef("Socket", "@socket_item", "@colour"), "list_price", [{ mult: 0.25, round: "up0" }], { from_attr: "socket_qty" }),
+      cref("plate", ssRef("Grid and Face Plates", "@plate_item", "@colour"), "list_price", [{ mult: 0.25, round: "up0" }], { from_attr: "plate_qty" }),
+      cref("back_box", ssRef("Back Box", "@plate_item", "NA"), "list_price", [{ mult: 0.25, round: "up0" }], { if_attr: { back_box: "Yes" }, then: 1, else: 0 }),
+      { step: "sum_components", result: "bcs_supply" },
+    ],
+  },
+};
+
+function cbl(core: number, th: number, list: number, install: number): RateMasterItem {
+  return { discipline: "Electrical", kind: "cable", attributes: { material: "COPPER", insulation: "UNARMOURED", core, thickness_sqmm: th }, rates: { list_price_per_mtr: list, install_base_per_mtr: install } };
+}
+function cdt(ct: string, size: number, list: number): RateMasterItem {
+  return { discipline: "Electrical", kind: "conduit", attributes: { conduit_type: ct, size_mm: size }, rates: { list_price_per_mtr: list } };
+}
+function ssItem(family: string, item: string, colour: string, list: number): RateMasterItem {
+  return { discipline: "Electrical", kind: "switch_socket_item", attributes: { family, item, colour }, rates: { list_price: list } };
+}
+const PW_ITEMS: RateMasterItem[] = [
+  cbl(1, 2.5, 82.95, 10), cbl(1, 1.5, 50.45, 10),
+  cdt("PVC", 25, 60), cdt("MS", 25, 85), cdt("MS", 32, 120), cdt("MS", 50, 240),
+  ssItem("Switch", "16A 1 WAY SWITCH- With Indicator", "Grey", 427), ssItem("Switch", "16A 1 WAY SWITCH- With Indicator", "White", 360),
+  ssItem("Socket", "6A/16A 3-Pin Socket", "Grey", 514), ssItem("Socket", "6A 3-Pin Socket", "White", 282),
+  ssItem("Grid and Face Plates", "3M", "Grey", 235), ssItem("Grid and Face Plates", "3M", "White", 204),
+  ssItem("Back Box", "3M", "NA", 158),
+];
+const PW1: Record<string, string | number> = {
+  wire1_core: 1, wire1_thickness_sqmm: 2.5, wire2_core: 1, wire2_thickness_sqmm: 1.5, circuit_length_m: 15,
+  conduit_type: "PVC", switch_item: "16A 1 WAY SWITCH- With Indicator", switch_qty: 1, socket_item: "6A/16A 3-Pin Socket",
+  socket_qty: 1, plate_item: "3M", plate_qty: 1, colour: "Grey", back_box: "Yes",
+};
+const PW2: Record<string, string | number> = { ...PW1, conduit_type: "MS", socket_item: "6A 3-Pin Socket", colour: "White", back_box: "No" };
+
+describe("EA-4a assembly engine -- point_wiring goldens", () => {
+  it("pw1 (PVC, banked oracle) -> supply 1869 / install 735 / BCS 1370", () => {
+    expect(runPipeline("pw_boq_supply", PW_PIPELINES.pw_boq_supply, PW_ITEMS, PW1).finals).toEqual({ supply: 1869 });
+    expect(runPipeline("pw_boq_install", PW_PIPELINES.pw_boq_install, PW_ITEMS, PW1).finals).toEqual({ install: 735 });
+    expect(runPipeline("pw_bcs", PW_PIPELINES.pw_bcs, PW_ITEMS, PW1).finals).toEqual({ bcs_supply: 1370 });
+  });
+  it("pw2 (MS -> 3 circuits, no back box) -> supply 1823 / install 722.2 / BCS 1342 (fractional install)", () => {
+    expect(runPipeline("pw_boq_supply", PW_PIPELINES.pw_boq_supply, PW_ITEMS, PW2).finals).toEqual({ supply: 1823 });
+    // 722.2 = per-STAGE rounding: switch install = ceil(360*0.3625)=131, then *0.2 UNROUNDED = 26.2
+    expect(runPipeline("pw_boq_install", PW_PIPELINES.pw_boq_install, PW_ITEMS, PW2).finals.install).toBeCloseTo(722.2, 6);
+    expect(runPipeline("pw_bcs", PW_PIPELINES.pw_bcs, PW_ITEMS, PW2).finals).toEqual({ bcs_supply: 1342 });
+  });
+  it("per-component supply trace matches the banked oracle line values", () => {
+    const r = runPipeline("pw_boq_supply", PW_PIPELINES.pw_boq_supply, PW_ITEMS, PW1);
+    const line = (name: string) => r.steps.find((s) => s.produced?.key === name)?.produced?.value;
+    expect(line("wire1")).toBe(750);
+    expect(line("wire2")).toBe(465);
+    expect(line("conduit")).toBe(168); // 42 x 4
+    expect(line("switch")).toBe(155);
+    expect(line("socket")).toBe(187);
+    expect(line("plate")).toBe(86);
+    expect(line("back_box")).toBe(58);
+  });
+  it("circuit_fit binds fitted_size / circuits / conduit_qty (PVC -> 25mm, 4 circuits, qty 4; MS -> 3, qty 5)", () => {
+    const fit = (attrs: Record<string, string | number>) =>
+      runPipeline("pw_boq_supply", PW_PIPELINES.pw_boq_supply, PW_ITEMS, attrs).steps[0].matchedCondition ?? "";
+    expect(fit(PW1)).toContain("25mm");
+    expect(fit(PW1)).toContain("4 circuits");
+    expect(fit(PW1)).toContain("conduit qty 4");
+    expect(fit(PW2)).toContain("3 circuits");
+    expect(fit(PW2)).toContain("conduit qty 5");
+  });
+});
+
+describe("EA-4a assembly engine -- HONEST no-compute negatives", () => {
+  it("MISSING referenced row (no MS conduit) -> honest no_match, zero finals", () => {
+    const items = PW_ITEMS.filter((it) => !(it.kind === "conduit" && it.attributes.conduit_type === "MS"));
+    const r = runPipeline("pw_boq_supply", PW_PIPELINES.pw_boq_supply, items, PW2);
+    expect(r.status).toBe("no_match");
+    expect(r.finals).toEqual({});
+  });
+  it("null @attr (socket_item cleared) -> honest missing-attr no_match, never a guess", () => {
+    const attrs = { ...PW1, socket_item: null as unknown as string };
+    const r = runPipeline("pw_boq_supply", PW_PIPELINES.pw_boq_supply, PW_ITEMS, attrs);
+    expect(r.status).toBe("no_match");
+    expect(r.finals).toEqual({});
+  });
+  it("unknown conduit_type -> circuit_fit honest no_match", () => {
+    const r = runPipeline("pw_boq_supply", PW_PIPELINES.pw_boq_supply, PW_ITEMS, { ...PW1, conduit_type: "XLPE" });
+    expect(r.status).toBe("no_match");
+    expect(r.finals).toEqual({});
+  });
+  it("missing wire attr -> circuit_fit honest no_match (never a zero-diameter default)", () => {
+    const r = runPipeline("pw_boq_supply", PW_PIPELINES.pw_boq_supply, PW_ITEMS, { ...PW1, wire1_thickness_sqmm: 0 });
+    expect(r.status).toBe("no_match");
+  });
+  it("MALFORMED circuit_fit (usable missing every conduit_type) -> Option-C never-throws (no_match, no crash)", () => {
+    const broken: Pipeline = {
+      output: ["supply"],
+      steps: [{ ...PW_CIRCUIT_FIT, params: { ...PW_CIRCUIT_FIT.params, usable: {} } }, { step: "sum_components", result: "supply" }],
+    };
+    expect(() => runPipeline("pw_boq_supply", broken, PW_ITEMS, PW1)).not.toThrow();
+    expect(runPipeline("pw_boq_supply", broken, PW_ITEMS, PW1).status).toBe("no_match");
+  });
+});
