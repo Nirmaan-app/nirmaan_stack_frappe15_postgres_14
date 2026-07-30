@@ -1620,6 +1620,11 @@ export interface SheetCategoryRow {
    *  row that resolved arrives as 0 (the server column is a NOT-NULL Int); `carried_from_boq` is
    *  what says "carried at all", so this is never read on its own. */
   carried_from_version?: number | null;
+  /** ADR-0014 Amendment F (ruling R16): did the carry come from a DIFFERENT BoQ? Decided by the
+   *  SERVER, which is the only place holding both operands -- the grid is never told which BoQ it
+   *  is rendering. null means the server said nothing (a pre-R16 payload), which the tooltip
+   *  treats as the cross-BoQ case, i.e. the behaviour that shipped first. */
+  carried_from_other_boq?: boolean | null;
 }
 
 /**
@@ -1657,6 +1662,9 @@ export interface ResolvedSheetCategory {
    *  discipline. null when the row resolved blank (no resolving discipline to read it off);
    *  0 when the resolving discipline's row was never carried (NOT-NULL Int on the server). */
   carried_from_version: number | null;
+  /** Amendment F (R16): whether that source was a DIFFERENT BoQ. Server-derived -- no client can
+   *  compute it, because the pricing grid is never told which BoQ it is rendering. */
+  carried_from_other_boq: boolean | null;
   votes: Record<string, ResolvedVote>;
 }
 
