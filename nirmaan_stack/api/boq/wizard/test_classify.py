@@ -1028,6 +1028,112 @@ class TestGetSheetCategoriesResolved(FrappeTestCase):
         self.assertEqual(res["categories"], [])
 
 
+# ── R3: carry provenance on the resolved read (WBC-S3b) ──────────────────────────
+class TestResolvedCarryProvenance(FrappeTestCase):
+    """`carried_from_version` must reach the resolved read beside `carried_from_boq`.
+
+    Owner ruling R3 (ADR-0014 Amendment F): within ONE BoQ, provenance is expressed by VERSION,
+    not by BoQ -- "carried from BOQ-26-00099" while sitting in BOQ-26-00099 names the thing the
+    reader is already looking at. `persist.carry_row_categories` has always STAMPED the version;
+    it was simply never read back, so the informative half of the pair was unreachable.
+
+    Both halves are read off the RESOLVING discipline (`rdisc`), never "any vote is carried": a
+    row can be carried in one engine and classified locally in another, and only the verdict the
+    user is actually looking at should read as carried.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.project = _make_project()
+        cls.source_boq = _new_boq(cls.project.name, "Carry Source BoQ")
+        cls.boq = _new_boq(cls.project.name, "Carry Dest BoQ")
+        cls.sheet = "ResCarry "  # VERBATIM trailing space (#152)
+        _new_sheet(cls.boq, cls.sheet)
+        cls.source_version = 3
+
+        # r10 -- carried Electrical auto-accept, nothing else on the row: Electrical resolves.
+        persist.carry_row_categories(
+            cls.boq, cls.sheet, 1,
+            [_cat_row(10, discipline="Electrical", rule_category_id="panels",
+                      ai_category_id="panels", final_category_id="panels",
+                      routing="Auto-accepted", ai_confidence=0.95)],
+            source_boq=cls.source_boq, source_version=cls.source_version,
+        )
+        # r11 -- classified HERE, never carried.
+        persist.write_row_categories(cls.boq, cls.sheet, 1, "Electrical", [
+            _cat_row(11, rule_category_id="panels", ai_category_id="panels",
+                     final_category_id="panels", routing="Auto-accepted", ai_confidence=0.95),
+        ])
+        # r12 -- carried in Electrical (low confidence) AND classified here in HVAC (high): the
+        # ladder resolves HVAC, so the row must NOT report Electrical's carried provenance.
+        persist.carry_row_categories(
+            cls.boq, cls.sheet, 1,
+            [_cat_row(12, discipline="Electrical", rule_category_id="panels",
+                      ai_category_id="panels", final_category_id="panels",
+                      routing="Auto-accepted", ai_confidence=0.50)],
+            source_boq=cls.source_boq, source_version=cls.source_version,
+        )
+        persist.write_row_categories(cls.boq, cls.sheet, 1, "HVAC", [
+            _cat_row(12, rule_category_id="hvac_piping", ai_category_id="hvac_piping",
+                     final_category_id="hvac_piping", routing="Auto-accepted", ai_confidence=0.99),
+        ])
+        # r13 -- carried but routed to review: the ladder resolves nothing, so there is no
+        # resolving discipline to read provenance off.
+        persist.carry_row_categories(
+            cls.boq, cls.sheet, 1,
+            [_cat_row(13, discipline="Electrical", rule_category_id="panels",
+                      ai_category_id="earthing", final_category_id="",
+                      routing="Needs review", ai_confidence=0.60)],
+            source_boq=cls.source_boq, source_version=cls.source_version,
+        )
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete(_ROW_CATEGORY, {"boq": cls.boq})
+        frappe.db.delete("BoQ Sheet", {"boq": cls.boq})
+        frappe.db.commit()
+        _cleanup_project(cls.project.name)
+        super().tearDownClass()
+
+    def _rows(self):
+        res = get_sheet_categories_resolved(boq=self.boq, sheet_name=self.sheet)
+        return {c["excel_row"]: c for c in res["categories"]}
+
+    def test_carried_row_surfaces_the_source_version(self):
+        row = self._rows()[10]
+        self.assertEqual(row["resolved_discipline"], "Electrical")
+        self.assertEqual(row["carried_from_boq"], self.source_boq)
+        self.assertEqual(row["carried_from_version"], self.source_version)
+
+    def test_locally_classified_row_carries_no_version(self):
+        """The pair must agree: no source BoQ means no source version to report.
+
+        The column is `bigint NOT NULL DEFAULT 0` (verified against the live schema), so an
+        uncarried row reads 0, NOT None -- pinned exactly so the two never quietly swap."""
+        row = self._rows()[11]
+        self.assertIsNone(row["carried_from_boq"])
+        self.assertEqual(row["carried_from_version"], 0)
+
+    def test_version_is_read_off_the_resolving_discipline(self):
+        """The load-bearing half of R3: a row carried in a LOSING engine must not report that
+        engine's version. Reading "any vote is carried" would show the reader a version that had
+        nothing to do with the verdict in front of them."""
+        row = self._rows()[12]
+        self.assertEqual(row["resolved_discipline"], "HVAC")
+        self.assertIsNone(row["carried_from_boq"])
+        self.assertNotEqual(row["carried_from_version"], self.source_version)
+        self.assertEqual(row["carried_from_version"], 0)
+
+    def test_blank_resolved_row_reports_neither_half(self):
+        row = self._rows()[13]
+        self.assertEqual(row["effective_source"], "blank")
+        self.assertIsNone(row["resolved_discipline"])
+        self.assertIsNone(row["carried_from_boq"])
+        self.assertIsNone(row["carried_from_version"])
+
+
 # ── SET_ROW_CATEGORY ─────────────────────────────────────────────────────────────
 class TestSetRowCategory(FrappeTestCase):
     @classmethod

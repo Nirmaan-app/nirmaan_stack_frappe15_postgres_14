@@ -439,6 +439,8 @@ def get_sheet_categories_resolved(boq=None, sheet_name=None):
       resolved_discipline (of the effective verdict; None when blank),
       cross_engine_conflict (bool, COMPUTED, telemetry-only, never rendered),
       human_category_id, human_discipline (when a human verdict resolved the row),
+      carried_from_boq / carried_from_version (the carry-provenance PAIR of the verdict that
+              RESOLVED the row -- both None when the row resolved blank),
       votes: {discipline: {rule_category_id, ai_category_id, ai_confidence, final_category_id,
               routing, review_priority}} ]}
 
@@ -464,7 +466,10 @@ def get_sheet_categories_resolved(boq=None, sheet_name=None):
             "human_category_id", "human_verdict_at",
             # ADR-0014 Amendment E: carry provenance, so the grid can show a carried verdict as
             # carried rather than as the reviewer's own pick.
-            "carried_from_boq",
+            # Amendment F / R3: the VERSION half of the same pair. Within ONE BoQ the source and
+            # the destination ARE the same BoQ, so carried_from_boq alone names the document the
+            # reader is already looking at; the version is the only informative half there.
+            "carried_from_boq", "carried_from_version",
         ],
         order_by="excel_row asc",
     )
@@ -495,6 +500,13 @@ def get_sheet_categories_resolved(boq=None, sheet_name=None):
             # is looking at should read as carried. None on everything classified or picked here.
             "carried_from_boq": (
                 (votes.get(rdisc) or {}).get("carried_from_boq") if rdisc else None
+            ),
+            # The VERSION half of the pair (R3), read off the SAME resolving discipline for the
+            # same reason: a row carried in a LOSING engine must not report that engine's version.
+            # An Int field, so an uncarried row reads 0 rather than None -- the two halves are
+            # read together and carried_from_boq is what says "this row was carried at all".
+            "carried_from_version": (
+                (votes.get(rdisc) or {}).get("carried_from_version") if rdisc else None
             ),
             "votes": {
                 d: {f: v.get(f) for f in _RESOLVED_VOTE_FIELDS}
