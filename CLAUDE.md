@@ -434,8 +434,23 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   **`values_from` is resolved in BOTH surfaces** — `RateMasterDerivation` AND the editor helper
   (`pricingSheetHelper.attributeOptions`, options from the live master by kind+where) — so an AI-extracted
   item with no static `values` still DISPLAYS in the panel select and a partial row completes from the
-  catalog. EA-4b (DB build-up, switches point, tray accessories, indsock+MCB pairing) rides these primitives.
-  **The wiring + point_wiring goldens are the standing regression pins.** The Rate Master category selector is
+  catalog. **EA-4a-r SHIPPED the NONE mechanism (owner-locked):** a composite component may be POSITIVELY
+  ABSENT -- the sentinel string `"None"` (distinct from blank=unknown) makes that line an EXPLICIT ZERO
+  (`export const NONE_SENTINEL`). Config: an attr def carries `allow_none` + `disables_when_none` (the dependent
+  attr ids greyed/cleared when it is None -- e.g. plate_item -> [plate_qty, back_box]); a `component_ref` carries
+  `none_skips` (a ref @attr resolving to "None" -> the component is 0, fired BEFORE the ref lookup, so
+  `socket_item="None"` doesn't abort; back_box binds @plate_item so plate=None zeroes it too); `circuit_fit`
+  carries `optional_wire_when_none` (that wire is omitted from the dia -> single-wire fit). **The None affordance
+  is GENERIC + input-appropriate:** a CHOICE def offers "None" at the top of its select; a NUMBER def offers a
+  "None" CHECKBOX beside the numeric input (checked -> sentinel + input greys/clears) -- both in the Derivation
+  AND the editor panel. `coerceForMatch`/`_coerce_value` PRESERVE "None" for an allow_none def (number included).
+  Extraction injects "None" as a valid value + a guidance line ("None when the bill names no such component;
+  null only when too vague"); `extraction_none_guidance` may be a custom string OR a truthy flag. Goldens: **pw3**
+  (switch-only, socket="None") -> supply **1682**; single-wire (wire2="None") -> **1362**. A switch-only light
+  point (socket null, no None) stays honest no-compute until the None is set. EA-4b (DB build-up, switches point,
+  tray accessories, indsock+MCB pairing) rides these primitives + the None mechanism.
+  **The wiring + point_wiring goldens are the standing regression pins; the wiring-asset invariant sha is
+  `dcc9b2ea69f072bb` (the earlier `c10509…` was a stale carry-error).** The Rate Master category selector is
   REGISTRY-driven (`rateMasterRegistry.ts`), not config-read. The pricing-sheet helper stays wiring-only
   and shows its category coming-soon note for other categories (honest no-compute). A `scale` step whose
   TARGET RATE is missing (`null`/`NaN`) SKIPS that output (renders absent, never invented as 0) while the

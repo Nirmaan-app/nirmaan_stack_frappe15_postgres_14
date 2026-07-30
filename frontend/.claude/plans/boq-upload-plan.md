@@ -15577,3 +15577,65 @@ switches "point" bundle, tray accessories, and the industrial-socket + MCB pairi
 the same assembly primitives (circuit_fit / component_ref). EA-4a-r (the `None` socket) is the immediate
 next step. `popup_boxes` + `lighting_mgmt_system` remain blocked on a classifier-vocabulary update (the
 helper is ready; zero production rows resolve to them yet).
+
+## Build slice EA-4a-r (THE NONE MECHANISM -- composite optional components) COMPLETE
+
+**Composite categories now support POSITIVELY-ABSENT components.** Runs on EA-4a's tip. Full session
+evidence: `ea4ar_report_2026-07-31.md` (Desktop); the wire2-affordance fork the owner ruled on:
+`ea4ar_question_2026-07-31.md`.
+
+**None = POSITIVE ABSENCE, distinct from blank = UNKNOWN (owner-locked).** The sentinel is the string
+`"None"`. A component set to it contributes an EXPLICIT ZERO (not a no-compute, not a missing-attr); a blank
+stays an honest missing-attr. Generic + config-driven, so EA-4b's DB build-up + switches point inherit it.
+
+**Interpreter (`ratePipelineInterpreter.ts`):** (a) a `component_ref` carrying `none_skips: true` whose ref
+binds any `@attr` resolving to `"None"` -> the component is an EXPLICIT ZERO, trace `"None -> 0"`; this fires
+BEFORE the ref lookup, so `socket_item="None"` (no such master row) yields 0 instead of aborting the pipeline;
+back_box binds `@plate_item`, so plate=None zeroes back_box by the SAME rule (the keyed dependency falls out
+for free, no special-case). (b) `circuit_fit.params.optional_wire_when_none` names the thickness attr of an
+OPTIONAL wire; when it is `"None"` that wire is omitted from the overall_dia sum (a single-wire point fits on
+wire1 alone). `export const NONE_SENTINEL = "None"`.
+
+**Types (`rateMasterTypes.ts`):** `allow_none` + `disables_when_none` (AttributeDefinition), `none_skips`
+(ComponentRefStep), `optional_wire_when_none` (CircuitFitStep params).
+
+**Render -- the None affordances (owner-specified, GENERIC):** a CHOICE allow_none def offers `"None"` at the
+TOP of its select (`optionsFor`/`attributeOptions`); a NUMBER allow_none def offers a **"None" checkbox**
+beside the numeric input (the input-appropriate analogue -- checked => the sentinel + the numeric field
+greys/clears; unchecked => normal free-numeric entry). Selecting None DISABLES + CLEARS the
+`disables_when_none` targets (greyed) in BOTH the RateMaster Derivation configurator AND the editor panel.
+`coerceForMatch` / `_coerce_value` PRESERVE `"None"` for an allow_none def (a number one included, where
+`Number("None")`=NaN / `float("None")` would otherwise drop it). WorkingsAttribute gained `disabled` +
+`allowNone` (the two extra F3 files -- `rateHelperTypes.ts` + `RateHelperPanel.tsx` -- owner-accepted in scope).
+
+**Extraction (`extraction.py`):** an allow_none def injects `"None"` as a valid value + one OPTIONAL-COMPONENTS
+guidance line ("return None when the row's enumerated bill names NO such component; null/blank only when too
+vague"). `extraction_none_guidance` may be a CUSTOM string OR a truthy FLAG (e.g. `True` -> the default
+wording) -- **the flag form is what the v14 config ships, and a real-AI N4 run caught the original
+`guidance = none_guidance or default` bug (True -> `"..."+True` TypeError) that the unit tests missed; fixed to
+`isinstance(str) and strip() else default`.** `_coerce_value` accepts `"None"` for an allow_none def.
+
+**api validator (`api/boq/rate_master.py`):** `extraction_none_guidance` added to `_KNOWN_CONFIG_KEYS`;
+`allow_none`/`disables_when_none`/`none_skips` shape-checked pass-through; `optional_wire_when_none`
+reference-guarded (like circuit_fit's other attr keys).
+
+**Asset v13 -> v14** (`rate_master_electrical_all_v14.json`, sha256 prefix `03e9cb6717b7d12b`, 768 items / 11
+configs) loaded `replace=True` -> batch `rmbulk-16d97a325823`. point_wiring gains allow_none on
+{switch_item, socket_item, plate_item, wire2_thickness_sqmm} + none_skips on {wire2, switch, socket, plate,
+back_box} + optional_wire_when_none + golden **pw3** (switch-only, socket="None") -> supply **1682**.
+**Wiring batch `rmbulk-f676a178e05a` UNCHANGED** (cable 292 + termination 296; all 5 wiring goldens GREEN).
+
+**WIRING SHA CORRECTION (owner-confirmed):** the wiring invariant going forward is the current on-disk sha
+`dcc9b2ea69f072bb`; the `c10509deb4af11dd` carried in prompts was STALE from before the EA-2 pipeline_labels
+edit. Wiring is UNDISTURBED (batch id + counts + 5 goldens all hold).
+
+**GATES:** vitest ratePipelineInterpreter 47 -> **52** (pw3 1682, single-wire 1362, plate->back_box, non-none_skips
+honest, pw1 regression), pricingSheetHelper 20 -> **24** (None option render, number-None affordance x2, disable/clear),
+tsc **0-new** (3236), vite build **exit 0**; backend test_rate_suggest 12, test_rate_master 30, test_pricing 230
+(unchanged). **CERT N1-N5 all GREEN on screen** (v14 live + None affordances; pw3 1682 "None -> 0" + pw1 1869;
+socket/plate->back_box/wire2-single-wire disabling in BOTH surfaces; real-AI N4: "6A switch, no socket" ->
+socket_item `'None'` + wire2 `'None'`, vague "wiring point" -> honest null).
+
+**EA-4b remaining:** the DB build-up, switches point, tray accessories, indsock+MCB pairing -- each inherits the
+None mechanism + the assembly primitives. `popup_boxes` + `lighting_mgmt_system` stay blocked on a classifier
+vocabulary update.

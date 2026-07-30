@@ -1182,8 +1182,18 @@ in the plan doc.
   is resolved in the editor helper too (owner Option 1):** `pricingSheetHelper.attributeOptions` (pure,
   exported) mirrors the Derivation resolution — options from the live master by `kind` + `where` — so an
   AI-extracted item with no static `values` DISPLAYS in the panel select and a partial row completes from the
-  catalog (the switch/socket/plate dropdowns were empty before). **A switch-only light point (socket_item
-  null) is an HONEST NON-COMPUTE — the EA-4a-r acceptance case, not a defect.** **The wiring + point_wiring goldens are the standing regression pins for every addition.** The Rate Master
+  catalog (the switch/socket/plate dropdowns were empty before). **EA-4a-r SHIPPED the NONE mechanism
+  (owner-locked):** the sentinel string `"None"` (`NONE_SENTINEL`, exported from `ratePipelineInterpreter`) is
+  POSITIVE ABSENCE, distinct from blank=unknown -> that component line is an EXPLICIT ZERO. A `component_ref`
+  `none_skips` zeroes a line whose ref binds an `@attr`=="None" (fired before the ref lookup; back_box binds
+  @plate_item, so plate=None zeroes it too); `circuit_fit.optional_wire_when_none` drops that wire from the dia
+  (single-wire fit). **The affordance is GENERIC + input-appropriate:** a CHOICE allow_none def offers "None" at
+  the top of its select (`optionsFor`/`attributeOptions`); a NUMBER allow_none def offers a "None" CHECKBOX
+  beside the numeric input (checked -> sentinel + input greys/clears) -- both in RateMaster Derivation AND the
+  editor panel; `WorkingsAttribute` gained `disabled` + `allowNone`. `coerceForMatch` PRESERVES "None" for an
+  allow_none def (number included). Selecting None greys+clears the `disables_when_none` targets. Goldens: pw3
+  (socket="None") -> supply 1682; single-wire (wire2="None") -> 1362. **A switch-only light point (socket_item
+  null, no None set) is an HONEST NON-COMPUTE — became priceable via the None sentinel at EA-4a-r.** **The wiring + point_wiring goldens are the standing regression pins for every addition.** The Rate Master
   category selector is REGISTRY-driven (`rateMasterRegistry.ts` lists all eleven Electrical categories),
   NOT config-read. **EA-2: the pricing-sheet helper (`pricingSheetHelper.ts`) is N-CATEGORY** — it resolves
   the config PER row category (`configsByCategory`, fetched by a child `RateConfigFetcher` for all 11
