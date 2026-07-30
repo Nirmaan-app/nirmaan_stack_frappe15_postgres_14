@@ -169,3 +169,15 @@
 | Build slice G2d (clear the override on re-classify + close three test gaps) COMPLETE -- CATEGORY | — | — | [record](slices/build-slice-g2d-clear-the-override-on-re-classify-close-three-te.md) |
 | Build slice ST-1 (freeze_classification stamps the MULTI-ENGINE resolved read -- owner Option A  | 2026-07-26 | — | [record](slices/2026-07-26-build-slice-st-1-freeze-classification-stamps-the-multi-engine-r.md) |
 | Build slice U1 (the rate-helper CHASSIS -- stub-driven, DEV-only) COMPLETE | — | — | [record](slices/build-slice-u1-the-rate-helper-chassis-stub-driven-dev-only-comp.md) |
+| WBC-S6 (within-BoQ carry parity R1-R18: layers, version provenance, server-side cross-BoQ, doc corrections) | 2026-07-29 | 8835c2b8 | [record](slices/2026-07-29-within-boq-carry-parity.md) |
+| WBC-S6c -- structural carve of both CLAUDE.md files into router + 11 on-demand surfaces (177.8 KB -> 35.3 KB auto-loaded); repair band; corpus-derived ceilings; fragment chaining | 2026-07-30 | - | [record](slices/2026-07-30-structural-carve-claude-md.md) |
+| Build slice RM-1 (rate-master schema + initial load) COMPLETE | 2026-07-28 | — | [record](slices/2026-07-28-build-slice-rm-1-rate-master-schema-initial-load-complete.md) |
+| Build slice RM-2 (rate-master read surface -- viewer + derivation) COMPLETE | 2026-07-28 | — | [record](slices/2026-07-28-build-slice-rm-2-rate-master-read-surface-viewer-derivatio.md) |
+| Build slice RM-2b (re-import the 28-Jul benchmark data) COMPLETE | 2026-07-28 | — | [record](slices/2026-07-28-build-slice-rm-2b-re-import-the-28-jul-benchmark-data-comp.md) |
+| Build slice RM-3 (extraction engine + the helper goes REAL + run persistence) COMPLETE | 2026-07-28 | — | [record](slices/2026-07-28-build-slice-rm-3-extraction-engine-the-helper-goes-real-ru.md) |
+| Build slice RM-3a (panel overlay/sticky mount + hover-only colour icon + grouped workings) COMPLETE | 2026-07-28 | — | [record](slices/2026-07-28-build-slice-rm-3a-panel-overlaysticky-mount-hover-only-col.md) |
+| Build slice RM-3b (embedded panel-as-default + sticky full-screen header + always-visible H-scrollbars) COMPLETE | 2026-07-28 | — | [record](slices/2026-07-28-build-slice-rm-3b-embedded-panel-as-default-sticky-full-sc.md) |
+| Build slice RM-3c (single embedded H-scrollbar + full-screen push panel with resize + collapsible top block) COMPLETE | 2026-07-29 | — | [record](slices/2026-07-29-build-slice-rm-3c-single-embedded-h-scrollbar-full-screen.md) |
+| Build slice RM-4a (admin-only parameter editing + the data editor) COMPLETE | 2026-07-29 | — | [record](slices/2026-07-29-build-slice-rm-4a-admin-only-parameter-editing-the-data-ed.md) |
+| Build slice RM-4a-filter (Data Viewer per-column-header faceted filters) COMPLETE | 2026-07-29 | — | [record](slices/2026-07-29-build-slice-rm-4a-filter-data-viewer-per-column-header-fac.md) |
+| Build slice RM-4b (the structure editor -- pipelines + attribute definitions) COMPLETE | 2026-07-29 | — | [record](slices/2026-07-29-build-slice-rm-4b-the-structure-editor-pipelines-attribute.md) |

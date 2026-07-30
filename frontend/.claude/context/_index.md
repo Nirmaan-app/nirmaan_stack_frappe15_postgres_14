@@ -35,6 +35,19 @@ Load only the surface you are working on. Backend: `../../.claude/context/domain
 | [domain/boq-frontend-revised-boq.md](./domain/boq-frontend-revised-boq.md) | Revised BoQ / ADR-0014 | Hub card redesign, header two-row refactor, Revised BoQ S2–S4, Amendments B–E, template review + quantity keyboard nav |
 | [domain/boq-frontend-as-built-log.md](./domain/boq-frontend-as-built-log.md) | ⚠️ HISTORICAL | Quarantined rolling as-built narrative. **Do not load, do not extend.** Per-slice detail belongs in `plans/boq/slices/`; pending a duplication check |
 
+### Surface conventions — carved from `frontend/CLAUDE.md` (2026-07-30)
+
+`frontend/CLAUDE.md` is auto-loaded on every session, so it is now a **router**: invariants and guardrails only. The per-surface conventions it used to carry live here and are read on demand. Nothing was dropped in the carve — every content line was verified present against `git show HEAD:frontend/CLAUDE.md`.
+
+| File | Surface | When to Load |
+|------|---------|--------------|
+| [conventions/frontend-pricing-editor.md](./conventions/frontend-pricing-editor.md) | Pricing editor — LOAD-BEARING | Touching `PricingGrid.tsx` / `SheetPricingPage.tsx`: keyboard nav, row memoisation, rate-edit gating, verdict states (incl. the three-input `"carried"` state), formula engine F1–F4, carry / copy-forward |
+| [conventions/frontend-pricing-module.md](./conventions/frontend-pricing-module.md) | Pricing module (HVAC / Electrical / ELV) | Workbooks, rate resolution, checkout, frozen baselines |
+| [conventions/frontend-gotchas.md](./conventions/frontend-gotchas.md) | Cross-cutting gotchas | Before any non-trivial frontend change — build output, multi-tenancy, service worker, role gating, hold statuses, project scoping |
+| [conventions/frontend-rate-master.md](./conventions/frontend-rate-master.md) | Rate Master (RM-2) | Pipelines, structure editing, registry |
+| [conventions/frontend-wizard.md](./conventions/frontend-wizard.md) | Wizard shell | Hub / spoke / review-screen conventions |
+| [conventions/frontend-review-invariants.md](./conventions/frontend-review-invariants.md) | Review screen invariants | Touching `ReviewTree.tsx` — the load-bearing rules (distinct from the reference surface `domain/boq-frontend-review-screen.md`) |
+
 ### Other domains
 
 | File | Domain | When to Load |
