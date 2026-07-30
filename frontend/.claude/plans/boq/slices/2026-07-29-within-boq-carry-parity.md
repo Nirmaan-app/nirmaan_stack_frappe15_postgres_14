@@ -20,6 +20,13 @@
 > superseded** (a 2,000 B repair band, sized from THIS arc's +133 B incident), **backlog #2 closed**
 > (the prose moved and is correct at `frontend-pricing-editor.md:61-79`). Nothing in the backlog is
 > outstanding. ⚠️ **F6 is separately stale — flagged, not corrected** (see the findings preamble).
+>
+> ➡️ **CONTINUED IN [`…-parity-part2.md`](2026-07-29-within-boq-carry-parity-part2.md)** — this file
+> reached its 32,000 B ceiling. Part 2 holds **S8** (a pre-existing `develop` defect: the pricing
+> editor rendered the CURRENT version's categories against an OLDER version's rows — 106 contradicted
+> rows measured in production), rulings **R20–R23**, and **S9**'s first bench-verified test counts.
+> **R22 lifted the facts-doc freeze, so F6 is now CORRECTED in part 2** — and its own "actual is 1188
+> across 50" was itself stale; measured at `f215d6a9` it is **1222 across 53**.
 
 ---
 
@@ -118,13 +125,9 @@ superseded, **F2 and F8 re-checked and still standing** (no `typecheck` script i
 `frontend/package.json` — only `build`/`test`/`preview`/`test-local`, none of which invokes `tsc`;
 both dead doc paths still absent). **F1 and F5 were NOT re-checked by S7** — F1 is a code claim
 carried by the five-agent verification pass, F5 is a process observation with nothing to check
-against. **F6 has been OVERTAKEN and is left uncorrected here, deliberately:** `.claude/facts/handover.md`
-no longer records "vitest 976 across 46 files" at all — its current fold (`:46`) quotes NO count and
-says *"Tests — UNVERIFIED at this fold… v5.90's `976 / 230 / 70 / 50` are now historical, not
-current. Bench-verify before quoting any number."* F6's *conclusion* therefore survives in a
-stronger form (do not cite that doc for a test count) while its stated *evidence* is stale. It sits
-outside S7's authorised correction set (F3/F7/F9/backlog #2), and the facts doc is owner-ruled
-untouchable, so it is FLAGGED, not edited.
+against. **F6 was OVERTAKEN at S7 and left FLAGGED; S9 has now CORRECTED it** — the facts doc was
+refolded at `5de64ed8` (v5.91, `status: current`), quotes no count, and explicitly asks for the
+numbers it lacked; **R22** lifted the freeze that kept S7 out. See F6 below, and part 2.
 
 **F1 — the freeze authorship gap (pre-existing, not introduced here).**
 `persist.stamp_human_verdicts_bulk` writes `human_category_id`, `human_verdict_at = now` and
@@ -160,10 +163,11 @@ as derivable when independent arithmetic gives a ~280–400px band; "twelve chan
 eleven (4 + 7, counted off the pre-image). None changed a verdict. All were caught by reviewers
 re-counting rather than reading. Report cases and assertions as separate numbers, always.
 
-**F6 — the facts doc is stale on a metric this arc reports.** `.claude/facts/handover.md` records
-vitest **976 across 46 files**; actual is **1188 across 50** (1173 before S3b). It is also
-modified-and-uncommitted in the tree, owner-attributed, and the owner has ruled it stays untouched.
-No executor claim citing it is verified.
+**F6 — ✅ CORRECTED 2026-07-30 (S9).** As written: *the facts doc is stale on a metric this arc
+reports* — it recorded vitest **976 across 46 files**, and was owner-ruled untouchable. Both halves
+are now gone: the doc was refolded at `5de64ed8` and **R22** lifted the freeze. ⚠️ **F6's own
+replacement figure — "actual is 1188 across 50" — was ITSELF stale** by the time it was read.
+Measured at `f215d6a9`: **1222 across 53, zero skips**. Full disposition in part 2.
 
 **F7 — ~~three reference/convention docs are permanently uncorrectable at their size ceilings.~~
 OBSOLETE 2026-07-30 (S7): the carve F7 called for HAPPENED, on the same day.** All three trunks were
@@ -262,6 +266,8 @@ which accepted the write. It is not duplicated here.
 | S6b | **R17 correct-and-prune.** Sizes: `CLAUDE.md` 63,829→**63,117** (−712) · `frontend/CLAUDE.md` 104,028→**91,286** (−12,742) · `boq-backend.md` 188,177→**187,338** (−839). All 14 dangling refs repointed (`plans/boq/`, `boq-frontend-*`); 3 of 4 falsehoods fixed (#2 hook-denied, F9); 2 EXTRA falsehoods found + fixed in `CLAUDE.md` (`_categories_gate_ok` documented as `population="rate_editable"` — code passes `"eligible"` at all 3 call sites; `"rate_editable"` has ZERO live call sites) | docs only | **PARTIAL** — #2 outstanding |
 | ~~S4~~ | ~~precedence flip~~ | **PARKED (R10)** | | |
 | S6 | **ADR-0014 Amendment F** + reference docs | ADR written 2026-07-30 | docs only — no suite implicated | **PARTIAL** — ADR ✅; 3 files hook-denied + 2 files do not exist (F7/F8) |
+| S8 | **Version-scoped category read** (detail in **part 2**). Fixes a defect PRE-EXISTING on `develop`: history mode rendered the CURRENT version's categories against an OLDER version's rows — measured 106 contradicted + 181 wrongly-blank rows on `BOQ-26-00133`. R20 twin endpoint `get_version_sheet_categories`; display follows the viewed version, the **gate does not** | `8d70f5f0` `f215d6a9` | `test_classify` 83 → **94 OK**, zero skips; vitest unchanged (React semantic, no DOM env); tsc 0 in both touched files | needs live A/B — R23 |
+| S9 | **Record and verify.** S8 recorded (part 2), R20–R23 registered, ADR-0014 Amendment F extended, F6 corrected, first bench-verified counts in the facts doc | docs only | **All suites OBSERVED GREEN** at `f215d6a9` — see the part-2 table | — |
 | S7 | **Record-truth cleanup.** F3 corrected · F7 obsolete · F9 superseded · backlog #2 closed · `pricing.py` citation `:2950`→`:3146` · global-hooks caveat · F6 flagged. **One comment-only code edit:** `_apply_sheet_carry`'s docstring said "RATES ONLY (Amendment D)" while the body carries layers (Amendment E) | | `test_cross_boq_carry` **60 → 60 OK**, zero skips (comment-only; unchanged as expected) | **CLOSES THE ARC's doc debt** |
 
 S3b scope: `classify.py` (+ field list and emit), `test_classify.py`, `boqTypes.ts`,

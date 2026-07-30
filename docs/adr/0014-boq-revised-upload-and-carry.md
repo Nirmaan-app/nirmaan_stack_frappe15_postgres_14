@@ -45,6 +45,11 @@ Date: 2026-07-17
 > path keeps a gate that the cross-BoQ path no longer has. That asymmetry is deliberate.
 >
 > **No migration.** Every provenance field this amendment needs already shipped with Amendment E.
+>
+> **Also carried on this lane (R21):** a fix for a defect **pre-existing on `develop`** and unrelated
+> to the carry — the pricing editor rendered the CURRENT version's categories against an OLDER
+> version's rows in history mode (106 contradicted rows measured in production). Fixed by a version
+> **twin** endpoint (R20). See *"R20 / R21 — the version-scoped category read"* below.
 
 > ### ⚠️ AMENDMENT E — 2026-07-28, owner-directed
 >
@@ -828,6 +833,8 @@ revised parse exactly where the file context changed, i.e. where the new parse i
 > | **R14** | The cross-BoQ single-sheet bare **"Carry"** label stands (Amendment E upheld). ⚠️ Holds at the LABEL only — that button's `disabled` expression *did* change under R15. |
 > | **R15** | ⚠️ **Reverses a parked code comment.** The apply button is gated on **WRITES, not selection**. |
 > | **R16** | The same-BoQ-vs-cross-BoQ decision is made **SERVER-SIDE**. |
+> | **R20** | The version-scoped category read is a separate **TWIN endpoint**, not a parameter on the live reader. One shared private body, so the two cannot drift. |
+> | **R21** | The S8 fix lands on `feature/boq-within-boq-carry` rather than its own branch, even though the defect is pre-existing on `develop`. |
 >
 > ### R2 — the gate moved, the invariant did not *(reverses G2c)*
 >
@@ -978,11 +985,60 @@ revised parse exactly where the file context changed, i.e. where the new parse i
 > are **enforced by a compiler no automated gate runs**. Repo-wide baseline at the time of writing is
 > ~3236 errors, so simply switching one on is not a small change.
 >
+> ### R20 / R21 — the version-scoped category read *(a pre-existing defect, fixed on this lane)*
+>
+> **This one was not caused by the amendment; it was found while building it.** Browsing an older
+> committed version, the pricing editor rendered the **CURRENT** version's category verdicts against
+> the **OLDER** version's rows. `classify.get_sheet_categories_resolved` (`classify.py:528`) has no
+> version parameter — it resolves `_resolve_committed_version` (`:558`) and answers for whatever is
+> current — and the page's SWR key carried no version either, so switching version did not even
+> refetch. Measured in production on `BOQ-26-00133 | 'B- BOQ- Elec.'`, viewing v1 while v2 is current:
+> **106 rows disagreed and 181 more were wrongly blank**. ⚠️ **Nothing was lost** — v1's 561 rows were
+> intact throughout; the reader could not be *asked* for them, so the remedy is a read path, never a
+> repair.
+>
+> **It shipped on `develop`, weeks before this branch.** The version-view history browser landed at
+> `184caed3` (2026-06-26); HV-10 put the category reader into the page at `76a41050` (2026-07-22) and
+> **never wired it to the version selector**. Both are on `develop`. **No ADR records a decision to
+> scope it that way** — this was an omission, which is why it is recorded here as a *fix* and not as a
+> further amendment: there is nothing to reverse.
+>
+> **R20 — a twin, not a parameter.** `classify.get_version_sheet_categories` (`:565`, whitelisted)
+> takes an explicit `committed_version`. It mirrors the shape this repo **already established for the
+> ROWS at this same seam** — `pricing.get_priced_rows` (`pricing.py:2196`) beside
+> `pricing.get_version_priced_rows` (`:2475`). The two category readers cannot drift because the whole
+> resolution body was extracted to `classify._resolved_categories_at_version` (`:433`) and both end in
+> a call to it (live `:561`, twin `:599`). The twin reuses `pricing._coerce_int` (`:597`) rather than
+> minting a second coercion, so both version twins reject a bad version with the *same* message, and
+> an unknown version returns **graceful empty** exactly as `get_version_priced_rows` does.
+>
+> ⚠️ **The constraint that makes this correct: DISPLAY follows the viewed version, the GATE does not.**
+> In history mode the page deliberately holds **two** category reads at once, and this must not be
+> "tidied up" into one. Display must follow the version being **viewed**, or the Category column lies.
+> The **gate** must stay on the **current** version, because it governs *writes* and writes always land
+> on the current version — a gate computed from a historical version's categories would be a **worse**
+> defect than the one being fixed, letting a rate land on an uncategorised current row merely because
+> some older version happened to be complete. This is why the live reader must **never** gain a version
+> parameter, and it is recorded in that reader's own docstring (`classify.py:531-536`), which is what a
+> future editor reads immediately before trying to add one.
+>
+> **R21 — it lands on this lane.** A separate branch was defensible, since the defect predates the arc
+> and is unrelated to the carry. The owner ruled for `feature/boq-within-boq-carry`: the arc is about
+> to be certified in a browser and the certifier will be sitting in exactly this screen, so splitting
+> it would certify the fix nowhere.
+>
 > ### Verification
 >
-> Backend, independently observed rather than self-reported: `test_pricing` **255**,
-> `test_committed_carry` **49**, `test_cross_boq_carry` **60**, `test_classify` **83** — all OK, zero
-> skips. Frontend: vitest **1188 across 50 files**, zero skips. **No migration.**
+> Backend, independently observed rather than self-reported, **re-measured 2026-07-30 at `f215d6a9`**:
+> `test_pricing` **255**, `test_committed_carry` **49**, `test_cross_boq_carry` **60**, `test_classify`
+> **94** (83 before S8's 11 twin cases) — all OK, zero skips. The `boq_category` service suite adds
+> **235** across 5 modules, OK, zero skips. Frontend: vitest **1222 across 53 files**, zero skips;
+> `tsc --noEmit` **3,236** repo-wide (the unchanged pre-existing baseline), 0 in either file S8 touched.
+> **No migration.**
+>
+> ⚠️ The earlier figures in this block (`test_classify` 83, vitest **1188 across 50**) were correct when
+> written and are now historical. A test count is a measurement with a date — cite the commit it was
+> measured at, or do not cite it.
 >
 > ⚠️ **Owner live-certification is a precondition for push and was NOT started when this block was
 > written.** Three items in it are structurally uncoverable by any test in this repo: the footer at
