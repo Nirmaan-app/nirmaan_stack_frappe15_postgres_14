@@ -503,7 +503,9 @@ def _apply_sheet_carry(ctx: _SheetCarry, decisions, user, layers=None):
     """Apply ONE sheet's carry decisions. Returns (summary, None) on success (committed) or
     (None, reason) for a known-gate block ('locked_deliberate' | 'formulas_incomplete' | 'locked').
     An UNEXPECTED error propagates to the caller (the synchronous endpoint's rollback). Mirrors
-    `pricing.apply_copy_forward`'s inner logic, cross-BOQ. RATES ONLY (Amendment D).
+    `pricing.apply_copy_forward`'s inner logic, cross-BOQ. Carries RATES **plus** any opt-in subset
+    of `LAYER_KEYS` passed in `layers` (ADR-0014 Amendment E, which REVERSED Amendment D's
+    rates-only rule) -- the layers ride the SAME transaction as the rates; see `_carry_layers`.
 
     The server RE-DERIVES the plan (via `_classify_carry` over a fresh D6 match) keyed by
     (dest_excel_row, area, rate_kind) -- a client-supplied outcome / target col / rate is NEVER

@@ -13,6 +13,13 @@
 > `SIZE CEILING` hook and two do not exist — see **F7 / F8** and **"S6 doc-correction backlog"** below.
 > The as-built detail that could not land in the reference docs is recorded in this fragment instead,
 > which is the destination the hook itself names.
+>
+> ✅ **S7 (2026-07-30) CLOSED that gap and made this register true again.** The 2026-07-30 repo carve
+> plus a same-day hook patch obsoleted the blockers: **F3 corrected** (the scope guard now whitelists
+> its own state file), **F7 obsolete** (all three over-ceiling docs carved into routers), **F9
+> superseded** (a 2,000 B repair band, sized from THIS arc's +133 B incident), **backlog #2 closed**
+> (the prose moved and is correct at `frontend-pricing-editor.md:61-79`). Nothing in the backlog is
+> outstanding. ⚠️ **F6 is separately stale — flagged, not corrected** (see the findings preamble).
 
 ---
 
@@ -61,7 +68,11 @@ Three rulings reverse shipped decisions — **R2, R5, R15**.
 ## Load-bearing recon findings
 
 1. **The category gate already deadlocked this button before the arc.** It gates on the DESTINATION
-   (`pricing.py:2950`, against `current_version`); every layer's identity includes
+   (`pricing.py:3146` — recon read it at `:2950` BEFORE this arc's own R2 commit moved it; the
+   citation drifted because we edited the very line we had cited, which is the general lesson:
+   **a line number recorded in a fragment is invalidated by the slice that fragment describes**,
+   so cite the SYMBOL (`_categories_gate_ok` inside `apply_copy_forward`) and treat the number as
+   perishable), against `current_version`; every layer's identity includes
    `committed_version`, so a re-commit mints a version with zero category rows;
    `blank_category_eligible_rows` counts a never-classified row as blank because it keys on the
    eligible `BOQ Nodes` set (`persist.py:202-206, 260-263`) and filters by `committed_version`
@@ -92,6 +103,29 @@ Three rulings reverse shipped decisions — **R2, R5, R15**.
 
 ## Findings that outlive this arc
 
+> ⚠️ **The hooks named in F3 / F4 / F7 / F9 are PERSONAL/GLOBAL — `~/.claude/hooks/`
+> (`nirmaan_guard_scope.py`, `nirmaan_ceilings.py`, `nirmaan_guard_doc_size.py`,
+> `nirmaan_guard_push.py`, `nirmaan_context_digest.py`) — and are NOT committed to this repo.**
+> The repo's own `.claude/hooks/README.md` documents only two things: `guard_claude_md.py` and the
+> `.githooks/commit-msg` conventional-commit hook. **On another machine, or for another
+> contributor, those four findings may not apply at all** — the guard that produced them may be
+> absent, or at a different version. Treat them as observations about ONE operator's tooling on a
+> dated day, never as repo invariants. This is also why F3 and F9 went stale within days: the
+> tooling was patched out from under them, and nothing in the repo records that.
+
+**S7 (2026-07-30) re-verified the findings below against current tooling.** F3 corrected, F7 and F9
+superseded, **F2 and F8 re-checked and still standing** (no `typecheck` script in
+`frontend/package.json` — only `build`/`test`/`preview`/`test-local`, none of which invokes `tsc`;
+both dead doc paths still absent). **F1 and F5 were NOT re-checked by S7** — F1 is a code claim
+carried by the five-agent verification pass, F5 is a process observation with nothing to check
+against. **F6 has been OVERTAKEN and is left uncorrected here, deliberately:** `.claude/facts/handover.md`
+no longer records "vitest 976 across 46 files" at all — its current fold (`:46`) quotes NO count and
+says *"Tests — UNVERIFIED at this fold… v5.90's `976 / 230 / 70 / 50` are now historical, not
+current. Bench-verify before quoting any number."* F6's *conclusion* therefore survives in a
+stronger form (do not cite that doc for a test count) while its stated *evidence* is stale. It sits
+outside S7's authorised correction set (F3/F7/F9/backlog #2), and the facts doc is owner-ruled
+untouchable, so it is FLAGGED, not edited.
+
 **F1 — the freeze authorship gap (pre-existing, not introduced here).**
 `persist.stamp_human_verdicts_bulk` writes `human_category_id`, `human_verdict_at = now` and
 `human_verdict_by` onto EVERY resolved non-blank row it stamps — carried or not, human-decided or
@@ -106,11 +140,16 @@ The honest remedy is a verdict-provenance field, not another badge patch.
 Repo-wide baseline is ~3236 errors. The shared frontend types introduced in this arc are sound
 today but are enforced by a compiler no automated gate runs.
 
-**F3 — `guard_scope.py` cannot rotate its own state file.** `.claude/state/current-slice.json` is
-never in its own `files_in_scope`, so once a slice is open the declaration is unrotatable from
-inside the tree — by a builder OR by the planner. Even the documented close-by-empty-scope path is
-denied. Every rotation in this arc required the owner to edit the file by hand. Fix: always permit
-writes to that file, or at minimum permit a write whose new `files_in_scope` is `[]`.
+**F3 — ~~`guard_scope.py` cannot rotate its own state file.~~ CORRECTED 2026-07-30 (S7): the fix
+F3 asked for now exists.** `nirmaan_guard_scope.py:108-120` declares
+`CONTROL_PLANE = (".claude/state/*", ".claude/state/**")` and unions it into `allowed`, with the
+comment *"The state file is the guard's CONTROL PLANE, never the work… Always allow it"* and an
+explicit statement of the tradeoff (an agent can widen its own scope; the guard's job is catching
+the write you did not mean to make, not defeating a determined one). **The finding was TRUE when
+written** — every rotation earlier in this arc genuinely was denied and required the owner to edit
+the file by hand — so it is recorded as corrected, not deleted. S7 rotated its own state file with
+no denial. ⚠️ Do not re-derive the old conclusion from the arc's earlier slices: they ran against
+an older hook.
 
 **F4 — a hook denies `git stash push`**, matching the substring "push". False positive; it cost a
 builder its plan to verify intermediate commits. Tighten the pattern to `git push`.
@@ -126,18 +165,23 @@ vitest **976 across 46 files**; actual is **1188 across 50** (1173 before S3b). 
 modified-and-uncommitted in the tree, owner-attributed, and the owner has ruled it stays untouched.
 No executor claim citing it is verified.
 
-**F7 — three of the four reference/convention docs are ALREADY over their size ceilings, so no
-correction can be written to any of them.** Every S6 edit to them was denied by the `SIZE CEILING`
-hook. Measured 2026-07-30: `CLAUDE.md` **64 KB** (ceiling 40, 1.6×) · `frontend/CLAUDE.md` **104 KB**
-(ceiling 40, 2.6×) · `.claude/context/domain/boq-backend.md` **184 KB** (ceiling 80, 2.3×). The ADR
-(108 KB) has **no** ceiling — ADRs are not context files — which is why Amendment F itself landed.
-The hook permits **shrinking** from above a ceiling but blocks **any** growth, including a one-clause
-correction of a false sentence. **This is a documentation deadlock of the same shape as R2's
-category-gate deadlock:** the guard that keeps these files small now prevents the edits that would
-make them *correct*, and correctness edits are not the bloat it was written to stop. Four sentences
-are therefore knowingly left false (backlog below). **The remedy is the surface split
-`boq-frontend.md` already received at `61f82798`**; `boq-backend.md` is the obvious next candidate and
-both `CLAUDE.md` files need a carve of their own. Until then, S6-class slices cannot close.
+**F7 — ~~three reference/convention docs are permanently uncorrectable at their size ceilings.~~
+OBSOLETE 2026-07-30 (S7): the carve F7 called for HAPPENED, on the same day.** All three trunks were
+cut down to routers and their content rehomed:
+
+| Doc | At S6 (F7) | Now | Content moved to |
+|---|---|---|---|
+| `CLAUDE.md` | 64 KB (1.6× a 40 KB ceiling) | **19.0 KB** | `.claude/context/conventions/backend-active-features.md` (37.7 KB) |
+| `frontend/CLAUDE.md` | 104 KB (2.6×) | **16.3 KB** | `frontend/.claude/context/conventions/frontend-pricing-editor.md` (41.9 KB) + siblings |
+| `.claude/context/domain/boq-backend.md` | 184 KB (2.3×) | **1.7 KB** (pure router) | `boq-backend-{wizard-endpoints,revised-boq,slice-changelog,doctypes-and-rules,operations}.md` |
+
+**The deadlock F7 described is gone**, and by the route F7 itself named ("the remedy is the surface
+split `boq-frontend.md` already received at `61f82798`"). All three now sit well UNDER their
+ceilings, so an ordinary correction lands with no special handling. **The ceiling VALUES also moved**
+— `CLAUDE.md` is now warn 20,000 / deny 30,000 (was a flat 40 KB), so do not reason from F7's
+numbers. Retained as a record because the reasoning still holds in general: *a guard that keeps a
+file small can block the edit that makes it correct* — which is exactly what F9's repair band was
+then built to answer.
 
 **F8 — two in-scope doc paths no longer exist; both were dissolved by the two commits this branch was
 cut from.** The branch is cut from `develop @ 61f82798`, and that commit plus its parent `15e9b81e`
@@ -148,20 +192,25 @@ are exactly the two that removed them:
 | `frontend/.claude/context/domain/boq-frontend.md` | **deleted at `61f82798`** (287 KB → 10 surface files) | `domain/boq-frontend-revised-boq.md` (ADR-0014 amendments) · `-pricing-controls.md` (dialogs) · `-pricing-grid.md` (tooltip) |
 | `frontend/.claude/plans/boq-upload-plan.md` | **rotated at `15e9b81e`** | `frontend/.claude/plans/boq/` — `README.md`, `_slices.md`, `phasing.md`, `known-issues.md`, `decisions/`, `slices/` |
 
-**F9 — the size guard is enforced PER TOOL CALL, so a correction can only land beside contiguous rot.**
-`nirmaan_guard_doc_size.py` allows a write iff `projected <= current` (any growth past the ceiling is
-denied), and it computes `projected` for ONE `Edit` from that edit's own `old_string`/`new_string`. It
-sums across edits only for `MultiEdit` — **which is not available in this harness.** So R17's "one
-net-shrinking edit per file" is achievable only when the prune and the correction sit in a SINGLE
-contiguous span. At S6b that held for `CLAUDE.md` (both falsehoods and the rot were inside one line) and
-for `boq-backend.md` (subsection heading paid for the ⚠️ line), and FAILED for backlog #2: the two carry
-bullets in `frontend/CLAUDE.md` are the only copy in the repo (0/20 and 0/10 lines duplicated), and the
-whole pricing-editor + wizard-conventions region around them is likewise 0% duplicated, so there is no
-adjacent byte to spend. The 12.7 KB of genuinely duplicated wizard prose sits ~270 lines away — a single
-edit spanning both would be ~43 KB of hand-reproduced text. **Remedy: split the BoQ conventions out of
-`frontend/CLAUDE.md` into the surface docs (the same carve `boq-frontend.md` got at `61f82798`), or run
-the slice in a harness with `MultiEdit`.** Not a hook defect — the guard is right that the file is 2.3×
-its ceiling; it is a granularity mismatch.
+**F9 — ~~the size guard is enforced PER TOOL CALL, so a correction can only land beside contiguous
+rot.~~ SUPERSEDED 2026-07-30 (S7): the tooling now has a REPAIR BAND built for exactly this.**
+`~/.claude/hooks/nirmaan_ceilings.py` sets `REPAIR_DELTA = 2_000` under a comment headed *"REPAIR
+BAND (load-bearing, added 2026-07-30)"* whose rationale **cites THIS ARC's incident by its numbers**:
+*"Sized from the real blocked correction (+133 B) with an order of magnitude of headroom: comfortably
+fits a factual fix or a redirect note, nowhere near enough to re-grow a document. A file in repair
+mode is TRACKED (the digest reports it), not silently forgiven."* So an over-ceiling file may still
+grow by up to 2,000 B **per tool call** — a one-clause correction of a false sentence now lands
+without needing an adjacent prunable byte. **The per-call granularity F9 described is still real; it
+simply no longer bites**, because the band is per-call too. The mechanism F9 recommended as the
+remedy (the carve) ALSO shipped — see F7.
+
+⚠️ **Do not infer from F9 that you must hunt for adjacent prose to delete.** That instruction was
+correct only under the pre-repair-band guard. R17's "one net-shrinking edit per file" was the
+workaround for a constraint that no longer exists; it is NOT a standing doc-hygiene rule, and
+applying it now would delete good prose to buy bytes you already have. What survives from R17 is its
+hard limit, which is unconditional: **never paraphrase or degrade a correction, or drop owner
+rationale, to fit a ceiling** — if a fix genuinely needs more than the band, the carve is overdue,
+so report and stop.
 
 ⚠️ **Re-creating either file would directly undo those two commits** and was not attempted. None of
 the real destinations is in the S6 `files_in_scope`, so writing them is a `guard_scope.py` denial — a
@@ -171,12 +220,12 @@ dangling, and F7 blocks fixing them too.
 
 ---
 
-## S6 doc-correction backlog — CLOSED at S6b except #2
+## S6 doc-correction backlog — FULLY CLOSED (#1/#3/#4 at S6b, #2 at S7)
 
 | # | File | False statement | Outcome at S6b |
 |---|---|---|---|
 | 1 | `CLAUDE.md` | carry gate *"checked ONCE up front … and BEFORE the lock acquire"* | ✅ **FIXED.** Now states the gate is checked ONCE per call, and that the two seams differ DELIBERATELY: cross-BoQ REMOVED it (Amdt E), within-BoQ REORDERED it (Amdt F) to after the lock acquire and after the layer carry, one transaction, rollback on refusal; formula gate keeps precedence in both. |
-| 2 | `frontend/CLAUDE.md` | carried-verdict cue *"Its one input is `SheetCategoryRow.carried_from_boq`"* | ❌ **STILL FALSE — accepted DEBT (R18 attempted, STOPPED).** R18 authorised tightening the prose AROUND it to pay for it. Measured best after losslessly tightening BOTH carry bullets, dropping the optional F1 note and maximally compressing the new text: **+133 B over the 3,329 B span** (313-342). Nothing in that span is duplicated in the `boq-frontend-*` surfaces, ADR-0014 or this fragment (0/30 lines), so no lossless dedup exists; closing the last 133 B would mean paraphrasing owner rationale prose, which the hard limit forbids. No edit was attempted. Wording is drafted: three inputs (`carried_from_boq`, `carried_from_version`, server-derived `carried_from_other_boq`); tooltip reads "carried from Version N" within a BoQ vs "carried from BOQ-…" across one; **R16 — decided SERVER-SIDE** in `get_sheet_categories_resolved`; the STATE still keys on `carried_from_boq` alone. |
+| 2 | ~~`frontend/CLAUDE.md`~~ → `frontend-pricing-editor.md` | carried-verdict cue *"Its one input is `SheetCategoryRow.carried_from_boq`"* | ✅ **CLOSED 2026-07-30 (S7) — the debt was PAID by the carve, not by another byte-squeeze.** The prose moved out of `frontend/CLAUDE.md` into `.claude/context/conventions/frontend-pricing-editor.md`, where it is now correct at **`:61-79`**, headed *"inputs corrected 2026-07-30 per R3/R16"*. It documents exactly the drafted wording: **three inputs** — `carried_from_boq` (and that the STATE still keys on this field ALONE), `carried_from_version` (R3), and `carried_from_other_boq` (R16, *"derived SERVER-SIDE… Do not re-derive cross-BoQ-ness from a string compare in the frontend"*) — plus the two-flavour tooltip, `carried from Version N` within a BoQ vs `carried from BOQ-…` across one, naming the pre-R16 bug. Nothing is owed. **Lesson: the blocked +133 B was never the real problem** — the file being 2.6× its ceiling was, and the structural fix dissolved the byte problem entirely. |
 | 3 | `frontend/CLAUDE.md` | *"`nothingToCarry` replaces `selectedCount === 0`"* | ✅ **FIXED.** Now: the apply gate is `carryWriteCount(...) === 0` (**R15 deleted `nothingToCarry`**), not `selectedCount === 0`. Paid for by correcting the same bullet's stale header `Amendment C + Amendment D` → `Amendment C + E`. |
 | 4 | `boq-backend.md` | *"`save_cell_price` and `apply_copy_forward` KEEP the gate **and are untouched**"* | ✅ **FIXED** (concise form, budget-limited): *"Both KEEP the gate; `save_cell_price` untouched, `apply_copy_forward`'s REORDERED (Amendment F)."* The **position** detail was omitted for want of bytes — it lives in ADR-0014 Amendment F and in `pricing.apply_copy_forward`'s own docstring, which records `was: lock → formulas → CATEGORY GATE → acquire → rates` / `now: lock → formulas → acquire → CARRY LAYERS → CATEGORY GATE → rates`. |
 
@@ -213,6 +262,7 @@ which accepted the write. It is not duplicated here.
 | S6b | **R17 correct-and-prune.** Sizes: `CLAUDE.md` 63,829→**63,117** (−712) · `frontend/CLAUDE.md` 104,028→**91,286** (−12,742) · `boq-backend.md` 188,177→**187,338** (−839). All 14 dangling refs repointed (`plans/boq/`, `boq-frontend-*`); 3 of 4 falsehoods fixed (#2 hook-denied, F9); 2 EXTRA falsehoods found + fixed in `CLAUDE.md` (`_categories_gate_ok` documented as `population="rate_editable"` — code passes `"eligible"` at all 3 call sites; `"rate_editable"` has ZERO live call sites) | docs only | **PARTIAL** — #2 outstanding |
 | ~~S4~~ | ~~precedence flip~~ | **PARKED (R10)** | | |
 | S6 | **ADR-0014 Amendment F** + reference docs | ADR written 2026-07-30 | docs only — no suite implicated | **PARTIAL** — ADR ✅; 3 files hook-denied + 2 files do not exist (F7/F8) |
+| S7 | **Record-truth cleanup.** F3 corrected · F7 obsolete · F9 superseded · backlog #2 closed · `pricing.py` citation `:2950`→`:3146` · global-hooks caveat · F6 flagged. **One comment-only code edit:** `_apply_sheet_carry`'s docstring said "RATES ONLY (Amendment D)" while the body carries layers (Amendment E) | | `test_cross_boq_carry` **60 → 60 OK**, zero skips (comment-only; unchanged as expected) | **CLOSES THE ARC's doc debt** |
 
 S3b scope: `classify.py` (+ field list and emit), `test_classify.py`, `boqTypes.ts`,
 `sheetCategoryResolve.ts` (this is where `resolvedToSheetCategoryRow` lives — NOT
