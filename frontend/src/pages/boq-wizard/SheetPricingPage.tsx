@@ -2501,6 +2501,11 @@ const SheetPricingPage = () => {
             );
             setSelectedVersion(null); // back to the live, editable version
             void mutate(); // refetch the live rows so the copied rates appear
+            // WBC-W3-S5: the copy-forward CAN change categories now (the `categories` layer is
+            // ticked by default), so the resolved read must be refetched or the grid renders the
+            // pre-copy verdicts -- no "carried" cue, and a stale blank count keeping the rate gate
+            // shut on rows that were just categorised. Same reasoning as the cross-BoQ carry below.
+            void mutateCategories();
           }}
         />
       )}
