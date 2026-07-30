@@ -439,8 +439,9 @@ def get_sheet_categories_resolved(boq=None, sheet_name=None):
       resolved_discipline (of the effective verdict; None when blank),
       cross_engine_conflict (bool, COMPUTED, telemetry-only, never rendered),
       human_category_id, human_discipline (when a human verdict resolved the row),
-      carried_from_boq / carried_from_version (the carry-provenance PAIR of the verdict that
-              RESOLVED the row -- both None when the row resolved blank),
+      carried_from_boq / carried_from_version / carried_from_other_boq (the carry provenance of
+              the verdict that RESOLVED the row: the source BoQ, the source version, and whether
+              that source was a DIFFERENT BoQ -- all three None when the row resolved blank),
       votes: {discipline: {rule_category_id, ai_category_id, ai_confidence, final_category_id,
               routing, review_priority}} ]}
 
@@ -486,6 +487,13 @@ def get_sheet_categories_resolved(boq=None, sheet_name=None):
     for excel_row in sorted(by_row):
         votes = by_row[excel_row]
         eff, source, rdisc, conflict, human_cat, human_disc = persist.resolve_row_ladder(votes)
+        # ALL THREE carry-provenance keys are read off the discipline that actually RESOLVED the
+        # row -- never "any vote is carried": a row can be carried in one engine and classified
+        # locally in another, and only the verdict the user is looking at should read as carried.
+        # Hoisted so that invariant is stated ONCE and the three keys cannot drift apart; None
+        # throughout when nothing resolved the row.
+        rvote = (votes.get(rdisc) or {}) if rdisc else None
+        carried_from = rvote.get("carried_from_boq") if rvote is not None else None
         categories.append({
             "excel_row": excel_row,
             "effective_category_id": eff,
@@ -494,19 +502,24 @@ def get_sheet_categories_resolved(boq=None, sheet_name=None):
             "cross_engine_conflict": conflict,
             "human_category_id": human_cat,
             "human_discipline": human_disc,
-            # The ORIGINAL this row's EFFECTIVE verdict was carried from, else None. Read off the
-            # discipline that actually RESOLVED the row, not "any vote is carried": a row can be
-            # carried in one engine and classified locally in another, and only the one the user
-            # is looking at should read as carried. None on everything classified or picked here.
-            "carried_from_boq": (
-                (votes.get(rdisc) or {}).get("carried_from_boq") if rdisc else None
-            ),
-            # The VERSION half of the pair (R3), read off the SAME resolving discipline for the
-            # same reason: a row carried in a LOSING engine must not report that engine's version.
-            # An Int field, so an uncarried row reads 0 rather than None -- the two halves are
-            # read together and carried_from_boq is what says "this row was carried at all".
+            # The ORIGINAL this row's EFFECTIVE verdict was carried from, else None.
+            "carried_from_boq": carried_from,
+            # The VERSION half of the pair (R3). An Int field, so an uncarried row reads 0 rather
+            # than None -- carried_from_boq is what says "this row was carried at all".
             "carried_from_version": (
-                (votes.get(rdisc) or {}).get("carried_from_version") if rdisc else None
+                rvote.get("carried_from_version") if rvote is not None else None
+            ),
+            # R16: DID THE CARRY CROSS BoQs? Derived here because this endpoint is the only place
+            # holding both operands -- the viewed BoQ and the source. No consumer can answer it:
+            # the pricing grid is never told which BoQ it is rendering (BOQ Nodes rows carry no
+            # `boq` key), and a client that guessed from version-presence would be wrong the
+            # moment a cross-BoQ carry also surfaced its version.
+            #
+            # Keys off carried_from_boq, NEVER off carried_from_version: 0 is what an UNCARRIED
+            # row reads on that NOT-NULL Int column, so version-truthiness would misread a carry
+            # stamped at version 0 as no carry at all.
+            "carried_from_other_boq": (
+                (bool(carried_from) and carried_from != boq) if rvote is not None else None
             ),
             "votes": {
                 d: {f: v.get(f) for f in _RESOLVED_VOTE_FIELDS}

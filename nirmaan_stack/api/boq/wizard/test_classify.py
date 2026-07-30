@@ -1087,6 +1087,25 @@ class TestResolvedCarryProvenance(FrappeTestCase):
                       routing="Needs review", ai_confidence=0.60)],
             source_boq=cls.source_boq, source_version=cls.source_version,
         )
+        # r14 -- carried from an earlier version of THIS SAME BoQ (the within-BoQ version carry,
+        # pricing.apply_copy_forward). This is the case R3/R16 exist for.
+        persist.carry_row_categories(
+            cls.boq, cls.sheet, 1,
+            [_cat_row(14, discipline="Electrical", rule_category_id="panels",
+                      ai_category_id="panels", final_category_id="panels",
+                      routing="Auto-accepted", ai_confidence=0.95)],
+            source_boq=cls.boq, source_version=2,
+        )
+        # r15 -- a cross-BoQ carry whose stamped VERSION is 0. Degenerate on purpose: it is the
+        # input that separates "carried" answered from carried_from_boq (correct) from "carried"
+        # answered from version truthiness (wrong).
+        persist.carry_row_categories(
+            cls.boq, cls.sheet, 1,
+            [_cat_row(15, discipline="Electrical", rule_category_id="panels",
+                      ai_category_id="panels", final_category_id="panels",
+                      routing="Auto-accepted", ai_confidence=0.95)],
+            source_boq=cls.source_boq, source_version=0,
+        )
         frappe.db.commit()
 
     @classmethod
@@ -1106,6 +1125,7 @@ class TestResolvedCarryProvenance(FrappeTestCase):
         self.assertEqual(row["resolved_discipline"], "Electrical")
         self.assertEqual(row["carried_from_boq"], self.source_boq)
         self.assertEqual(row["carried_from_version"], self.source_version)
+        self.assertIs(row["carried_from_other_boq"], True)
 
     def test_locally_classified_row_carries_no_version(self):
         """The pair must agree: no source BoQ means no source version to report.
@@ -1115,6 +1135,7 @@ class TestResolvedCarryProvenance(FrappeTestCase):
         row = self._rows()[11]
         self.assertIsNone(row["carried_from_boq"])
         self.assertEqual(row["carried_from_version"], 0)
+        self.assertIs(row["carried_from_other_boq"], False)
 
     def test_version_is_read_off_the_resolving_discipline(self):
         """The load-bearing half of R3: a row carried in a LOSING engine must not report that
@@ -1125,6 +1146,7 @@ class TestResolvedCarryProvenance(FrappeTestCase):
         self.assertIsNone(row["carried_from_boq"])
         self.assertNotEqual(row["carried_from_version"], self.source_version)
         self.assertEqual(row["carried_from_version"], 0)
+        self.assertIs(row["carried_from_other_boq"], False)
 
     def test_blank_resolved_row_reports_neither_half(self):
         row = self._rows()[13]
@@ -1132,6 +1154,27 @@ class TestResolvedCarryProvenance(FrappeTestCase):
         self.assertIsNone(row["resolved_discipline"])
         self.assertIsNone(row["carried_from_boq"])
         self.assertIsNone(row["carried_from_version"])
+        self.assertIsNone(row["carried_from_other_boq"])
+
+    # ── R16: the cross-BoQ-ness of the carry, decided server-side ─────────────────
+    def test_within_boq_carry_is_not_from_another_boq(self):
+        """A carry from an earlier version of the SAME BoQ. Both raw halves stay emitted (a
+        consumer that wants the source BoQ id on a same-BoQ carry still has it); the derived
+        signal is what says the source is not somewhere else."""
+        row = self._rows()[14]
+        self.assertEqual(row["carried_from_boq"], self.boq)
+        self.assertEqual(row["carried_from_version"], 2)
+        self.assertIs(row["carried_from_other_boq"], False)
+
+    def test_carry_stamped_at_version_zero_is_still_a_carry(self):
+        """`carried_from_version` is a NOT-NULL Int, so 0 is what an UNCARRIED row reads. The
+        derived signal must therefore ask carried_from_boq whether the row was carried at all --
+        asking the version would call this cross-BoQ carry 'not carried' and silently downgrade
+        it to the within-BoQ wording."""
+        row = self._rows()[15]
+        self.assertEqual(row["carried_from_boq"], self.source_boq)
+        self.assertEqual(row["carried_from_version"], 0)
+        self.assertIs(row["carried_from_other_boq"], True)
 
 
 # ── SET_ROW_CATEGORY ─────────────────────────────────────────────────────────────
