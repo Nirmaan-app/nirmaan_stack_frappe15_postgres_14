@@ -729,6 +729,9 @@ _KNOWN_CONFIG_KEYS = {
     # EA-4a: extraction_defaults = {attr_id: default | {default, text_overrides}}. Pass-through; consumed
     # by the extraction prompt injection (defaults + the raceway text-override), never validated here.
     "extraction_defaults",
+    # EA-4a-r: extraction_none_guidance = optional per-config wording for the "None" (positive-absence)
+    # prompt line. Pass-through; consumed by the extraction injection, never structurally validated here.
+    "extraction_none_guidance",
 }
 _BAND_WHEN_RE = re.compile(r"^(<=|>=|<|>)\s*-?\d+(\.\d+)?$")
 
@@ -788,6 +791,13 @@ def _validate_config(cfg):
             and (not isinstance(d.get("values"), list) or not d.get("values"))
         ):
             _vthrow(f"choice attribute '{did}' needs a non-empty values list (or values_from).")
+        # EA-4a-r: allow_none (bool) marks a POSITIVELY-ABSENT-capable component; disables_when_none is the
+        # list of dependent attr ids greyed/cleared when it is set to "None" (pass-through, shape-checked).
+        if "allow_none" in d and not isinstance(d.get("allow_none"), bool):
+            _vthrow(f"attribute '{did}' allow_none must be true/false.")
+        dwn = d.get("disables_when_none")
+        if dwn is not None and (not isinstance(dwn, list) or not all(isinstance(x, str) and x for x in dwn)):
+            _vthrow(f"attribute '{did}' disables_when_none must be a list of attribute ids.")
 
     # pipelines ------------------------------------------------------------------------------
     # EA-2: an EMPTY pipelines dict is ACCEPTED -- a DATA-ONLY config (definitions + items, no
@@ -883,6 +893,9 @@ def _validate_config(cfg):
                         or (isinstance(q, dict) and ("from_attr" in q or "from_fit" in q or "if_attr" in q))
                     ):
                         _vthrow(f"{where}: component_ref qty must be a number or a from_attr/from_fit/if_attr object.")
+                    # EA-4a-r: none_skips (bool) -> a ref @attr resolving to "None" makes this an explicit zero.
+                    if "none_skips" in s and not isinstance(s.get("none_skips"), bool):
+                        _vthrow(f"{where}: component_ref none_skips must be true/false.")
                 ref = s.get("ref")
                 if not isinstance(ref, dict) or not isinstance(ref.get("kind"), str) or not ref.get("kind"):
                     _vthrow(f"{where}: component_ref needs ref.kind (a string).")
@@ -966,6 +979,13 @@ def _validate_config(cfg):
                     _ref(p[key], f"{where} ({key})")
                 if not isinstance(s.get("binds"), list) or not all(isinstance(b, str) and b for b in s.get("binds") or []):
                     _vthrow(f"{where}: circuit_fit needs a 'binds' list of strings.")
+                # EA-4a-r: optional_wire_when_none names the thickness attr of an OPTIONAL wire (omitted from
+                # the dia when it is "None"). Reference-guard it like the other attr keys.
+                own = p.get("optional_wire_when_none")
+                if own is not None:
+                    if not isinstance(own, str) or not own:
+                        _vthrow(f"{where}: circuit_fit optional_wire_when_none must be an attribute id.")
+                    _ref(own, f"{where} (optional_wire_when_none)")
 
     # REFERENCE GUARD: every attr a pipeline references must be defined (names where each is used) ----
     missing = {a: locs for a, locs in referenced.items() if a not in def_ids}

@@ -22,6 +22,11 @@ export interface AttributeDefinition {
   // EA-4a: the extraction default for this attribute (used server-side to fill a value the row text does
   // not positively identify; a result attribute so filled carries `defaulted: true`). Display-only here.
   default?: string | number;
+  // EA-4a-r: this component may be POSITIVELY ABSENT (the "None" sentinel -- distinct from blank/unknown).
+  // allow_none -> the select offers a "None" option; disables_when_none lists the dependent attr ids that
+  // are greyed + cleared when this def is set to "None" (e.g. plate_item -> [plate_qty, back_box]).
+  allow_none?: boolean;
+  disables_when_none?: string[];
 }
 
 /** One master item row (attributes/rates are parsed objects from the endpoint). */
@@ -124,6 +129,9 @@ export interface ComponentRefStep {
   // EA-4a assembly pricing:
   rate_stages?: RateStage[];
   qty?: QtySpec;
+  // EA-4a-r: when set, a ref @attr resolving to the "None" sentinel makes this component an EXPLICIT ZERO
+  // (positive absence), not a no-compute. (back_box binds @plate_item, so plate=None zeroes it too.)
+  none_skips?: boolean;
   explain?: string;
 }
 // EA-4a: sizes the conduit for a point-wiring circuit and counts how many circuits fit. overall_dia =
@@ -140,6 +148,9 @@ export interface CircuitFitStep {
     wire_specs: [string, string][];
     length_attr: string;
     conduit_type_attr: string;
+    // EA-4a-r: the thickness attr of an OPTIONAL wire; when it resolves to the "None" sentinel that wire
+    // is omitted from the overall_dia sum (a single-wire point fits on wire1 alone).
+    optional_wire_when_none?: string;
   };
   binds: string[];
   explain?: string;

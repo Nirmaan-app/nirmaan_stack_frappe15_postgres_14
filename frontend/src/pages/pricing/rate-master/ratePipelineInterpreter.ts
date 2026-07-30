@@ -131,6 +131,10 @@ export function roundUp(x: number, digits: number): number {
 
 // ---------- EA-4a assembly helpers (used only by circuit_fit + the assembly component_ref) ----------
 
+/** EA-4a-r: the POSITIVE-ABSENCE sentinel. A composite component set to this value contributes ZERO
+ * (distinct from blank/undefined, which stays an honest missing-attr). Emitted only for allow_none defs. */
+export const NONE_SENTINEL = "None";
+
 /** Compact number for trace strings: integer as-is, else 2 decimals (drops trailing zeros). */
 function fmtNum(v: number): string {
   return Number.isInteger(v) ? String(v) : String(Number(v.toFixed(2)));
@@ -413,6 +417,11 @@ export function runPipeline(
       let overallDia = 0;
       let miss: string | null = null;
       for (const [coreAttr, thickAttr] of p.wire_specs) {
+        // EA-4a-r: an OPTIONAL wire set to the "None" sentinel is POSITIVELY ABSENT -- omit it from the dia
+        // (a single-wire point fits on wire1 alone). Its disabled core attr is not read.
+        if (p.optional_wire_when_none && thickAttr === p.optional_wire_when_none && selected[thickAttr] === NONE_SENTINEL) {
+          continue;
+        }
         const core = Number(selected[coreAttr]);
         const thick = Number(selected[thickAttr]);
         if (!Number.isFinite(core) || core <= 0 || !Number.isFinite(thick) || thick <= 0) {
@@ -469,6 +478,29 @@ export function runPipeline(
       // per QtySpec; value = staged_rate x qty. UNIQUE resolution (EA-2c): zero/multiple -> honest
       // no-compute. A null @attr / a missing qty source -> honest missing-attr (never a guess).
       if (s.rate_stages !== undefined || s.qty !== undefined) {
+        // EA-4a-r: a none_skips component whose ref binds a None-able attr set to the "None" sentinel is
+        // POSITIVELY ABSENT -> an EXPLICIT ZERO line (NOT a no-compute, NOT a missing-attr). This fires
+        // BEFORE the ref lookup, so socket_item="None" (no such master row) yields 0 instead of aborting
+        // the whole pipeline. back_box binds @plate_item, so plate=None zeroes back_box by the same rule.
+        if (
+          s.none_skips &&
+          Object.entries(s.ref).some(
+            ([k, rawVal]) =>
+              k !== "kind" && k !== "attributes" &&
+              typeof rawVal === "string" && rawVal.startsWith("@") &&
+              selected[rawVal.slice(1)] === NONE_SENTINEL,
+          )
+        ) {
+          components[s.name] = 0;
+          steps.push({
+            step: stepType,
+            label: s.explain || `component: ${s.name}`,
+            matchedCondition: "None -> 0",
+            produced: { key: s.name, value: 0 },
+            runningValues: { ...snapshot(), ...componentEntries(components) },
+          });
+          continue;
+        }
         const resolved: Record<string, string | number> = {};
         let bindMiss: string | null = null;
         for (const [k, rawVal] of Object.entries(s.ref)) {

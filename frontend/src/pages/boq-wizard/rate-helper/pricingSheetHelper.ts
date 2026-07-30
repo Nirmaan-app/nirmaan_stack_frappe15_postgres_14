@@ -24,7 +24,7 @@
  * Its group LABELS come from `pipeline_labels` (config data), so only the pairing BEHAVIOUR is
  * special-cased, not the strings. Every OTHER category goes through the generic path.
  */
-import { runPipeline } from "@/pages/pricing/rate-master/ratePipelineInterpreter";
+import { NONE_SENTINEL, runPipeline } from "@/pages/pricing/rate-master/ratePipelineInterpreter";
 import type {
   AttributeDefinition,
   Pipeline,
@@ -134,26 +134,33 @@ function selectableDefs(config: RateCategoryConfig): AttributeDefinition[] {
  * option and DISPLAYS, and a partial row can be completed from the catalog. PURE. */
 export function attributeOptions(def: AttributeDefinition, items: RateMasterItem[]): string[] {
   const vf = def.values_from;
-  if (!vf) return (def.values ?? []).map((v) => String(v));
-  const seen = new Set<string>();
-  const opts: string[] = [];
-  for (const it of items) {
-    if (it.kind !== vf.kind) continue;
-    const a = it.attributes ?? {};
-    if (!Object.entries(vf.where ?? {}).every(([k, v]) => a[k] === v)) continue;
-    const raw = a[vf.attr];
-    const val = typeof raw === "string" ? raw.trim() : raw;
-    if (val !== undefined && val !== null && val !== "" && !seen.has(String(val))) {
-      seen.add(String(val));
-      opts.push(String(val));
+  const base: string[] = [];
+  if (!vf) {
+    base.push(...(def.values ?? []).map((v) => String(v)));
+  } else {
+    const seen = new Set<string>();
+    for (const it of items) {
+      if (it.kind !== vf.kind) continue;
+      const a = it.attributes ?? {};
+      if (!Object.entries(vf.where ?? {}).every(([k, v]) => a[k] === v)) continue;
+      const raw = a[vf.attr];
+      const val = typeof raw === "string" ? raw.trim() : raw;
+      if (val !== undefined && val !== null && val !== "" && !seen.has(String(val))) {
+        seen.add(String(val));
+        base.push(String(val));
+      }
     }
   }
-  return opts;
+  // EA-4a-r: an allow_none def offers the "None" sentinel (positive absence) at the TOP of the list.
+  return def.allow_none ? [NONE_SENTINEL, ...base] : base;
 }
 
 /** Coerce a stringy attribute value to what the interpreter matches on (number for number attrs). */
 function coerceForMatch(def: AttributeDefinition, raw: string | number | null): string | number | null {
   if (raw === null || raw === undefined || raw === "") return null;
+  // EA-4a-r: the "None" sentinel is POSITIVE ABSENCE -- preserve it verbatim for an allow_none def (even a
+  // number one, where Number("None") would otherwise coerce it to null and lose the signal).
+  if (def.allow_none && raw === NONE_SENTINEL) return NONE_SENTINEL;
   if (def.type === "number") {
     const n = typeof raw === "number" ? raw : Number(raw);
     return Number.isFinite(n) ? n : null;
@@ -199,6 +206,22 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
     const category = cfg!;
     const defs = selectableDefs(category);
 
+    // EA-4a-r: which defs are DISABLED because an allow_none controller is set to "None" (positive
+    // absence) -- e.g. plate_item="None" disables plate_qty AND back_box. A controller can disable a def
+    // that appears BEFORE it in the list (wire2_thickness_sqmm controls wire2_core), so resolve in a
+    // pre-pass. A disabled target is greyed + cleared and is NOT treated as an unknown (never blocks).
+    const valueOfDef = (d: AttributeDefinition): string | number | null => {
+      const ov = overrides?.[d.id];
+      const raw = ov !== undefined ? ov : ext?.attributes[d.id]?.value ?? null;
+      return coerceForMatch(d, raw as string | number | null);
+    };
+    const disabledByNone = new Set<string>();
+    for (const d of defs) {
+      if (d.allow_none && d.disables_when_none && valueOfDef(d) === NONE_SENTINEL) {
+        for (const t of d.disables_when_none) disabledByNone.add(t);
+      }
+    }
+
     // Build the workings attributes (pre-filled from extraction, overridable) + the selected map.
     const workingsAttrs: WorkingsAttribute[] = [];
     const selected: Record<string, string | number> = {};
@@ -207,14 +230,16 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
     for (const d of defs) {
       const cell = ext?.attributes[d.id];
       const overridden = overrides?.[d.id];
-      const rawValue = overridden !== undefined ? overridden : cell?.value ?? null;
+      const disabled = disabledByNone.has(d.id);
+      const rawValue = disabled ? null : overridden !== undefined ? overridden : cell?.value ?? null;
       const coerced = coerceForMatch(d, rawValue as string | number | null);
-      if (coerced === null) missing = true;
+      // A disabled target is POSITIVELY absent (its controller is None) -- clear it, do NOT flag missing.
+      if (coerced === null) { if (!disabled) missing = true; }
       else selected[d.id] = coerced;
       // A defaulted attribute is one the model filled from the config default (no positive text
       // identification); the pricer should see WHICH values came from a default, not read (EA-4a). An
       // override (the pricer typed it) clears the defaulted mark.
-      if (overridden === undefined && coerced !== null && (cell as { defaulted?: boolean })?.defaulted) {
+      if (!disabled && overridden === undefined && coerced !== null && (cell as { defaulted?: boolean })?.defaulted) {
         defaulted.push(`${d.label}=${coerced}`);
       }
       workingsAttrs.push({
@@ -222,8 +247,10 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
         label: d.label,
         options: d.type === "choice" ? attributeOptions(d, items) : undefined,
         value: coerced === null ? "" : String(coerced),
-        confidence: cell?.confidence,
-        corroborated: cell?.corroborated,
+        confidence: disabled ? undefined : cell?.confidence,
+        corroborated: disabled ? undefined : cell?.corroborated,
+        disabled: disabled || undefined,
+        allowNone: d.allow_none || undefined,
       });
     }
 

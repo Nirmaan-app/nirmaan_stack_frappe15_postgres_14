@@ -13,7 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { AttributeDefinition, RateCategoryConfig, RateMasterItem, StepTrace } from "./rateMasterTypes";
-import { runAllPipelines } from "./ratePipelineInterpreter";
+import { NONE_SENTINEL, runAllPipelines } from "./ratePipelineInterpreter";
 import { isEditableParam, matchedConditionIndex, parseFiniteInput } from "./rateMasterEdit";
 
 interface Props {
@@ -174,8 +174,11 @@ export function RateMasterDerivation({ items, config, isAdmin, onSaveParam }: Pr
     }
     return out;
   }, [selectableDefs, items]);
-  const optionsFor = (d: AttributeDefinition): string[] =>
-    d.values_from ? (valuesFromOptions[d.id] ?? []) : (d.values ?? []).map((v) => String(v));
+  const optionsFor = (d: AttributeDefinition): string[] => {
+    const base = d.values_from ? (valuesFromOptions[d.id] ?? []) : (d.values ?? []).map((v) => String(v));
+    // EA-4a-r: an allow_none def offers the "None" sentinel (positive absence) at the TOP.
+    return d.allow_none ? [NONE_SENTINEL, ...base] : base;
+  };
 
   // distinct number-attr values present in the data, sorted ascending
   const numberValues = useMemo(() => {
@@ -219,11 +222,35 @@ export function RateMasterDerivation({ items, config, isAdmin, onSaveParam }: Pr
   });
 
   const setAttr = (def: AttributeDefinition, raw: string) => {
-    setSelected((prev) => ({
-      ...prev,
-      [def.id]: def.type === "number" ? Number(raw) : raw,
-    }));
+    setSelected((prev) => {
+      // EA-4a-r: preserve the "None" sentinel verbatim for an allow_none def (never Number("None")=NaN);
+      // an empty number (e.g. unchecking None) clears to "" (not 0); CLEAR its disables_when_none targets.
+      const val =
+        def.allow_none && raw === NONE_SENTINEL
+          ? NONE_SENTINEL
+          : def.type === "number"
+            ? raw === "" ? "" : Number(raw)
+            : raw;
+      const next = { ...prev, [def.id]: val };
+      if (def.allow_none) {
+        for (const t of def.disables_when_none ?? []) {
+          if (val === NONE_SENTINEL) delete next[t];
+        }
+      }
+      return next;
+    });
   };
+
+  // EA-4a-r: defs greyed because an allow_none controller is set to "None" (positive absence).
+  const disabledByNone = useMemo(() => {
+    const s = new Set<string>();
+    for (const d of selectableDefs) {
+      if (d.allow_none && d.disables_when_none && selected[d.id] === NONE_SENTINEL) {
+        for (const t of d.disables_when_none) s.add(t);
+      }
+    }
+    return s;
+  }, [selectableDefs, selected]);
 
   const results = useMemo(
     () => runAllPipelines(config, items, selected),
@@ -248,16 +275,32 @@ export function RateMasterDerivation({ items, config, isAdmin, onSaveParam }: Pr
                 // still accepts any typed number, instead of rendering an empty, unusable Select.
                 const listId = `rmnum-${d.id}`;
                 const suggestions = numberValues[d.id] ?? [];
+                const isNone = selected[d.id] === NONE_SENTINEL;
                 return (
                   <div key={d.id} className="flex flex-col gap-1">
-                    <label className="text-xs text-muted-foreground">{d.label}</label>
+                    <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                      {d.label}
+                      {/* EA-4a-r: a NUMBER allow_none def offers "None" (positive absence) as a checkbox --
+                          the input-appropriate analogue of a choice def's top-of-list "None". */}
+                      {d.allow_none && (
+                        <label className="flex items-center gap-0.5 text-[10px]">
+                          <input
+                            type="checkbox"
+                            checked={isNone}
+                            onChange={(e) => setAttr(d, e.target.checked ? NONE_SENTINEL : "")}
+                          />
+                          None
+                        </label>
+                      )}
+                    </label>
                     <input
                       type="number"
                       list={listId}
-                      value={String(selected[d.id] ?? "")}
+                      value={isNone ? "" : String(selected[d.id] ?? "")}
                       onChange={(e) => setAttr(d, e.target.value)}
-                      placeholder={`Enter ${d.label}`}
-                      className="h-8 w-44 rounded border bg-background px-3 text-sm"
+                      disabled={disabledByNone.has(d.id) || isNone}
+                      placeholder={isNone ? "None" : `Enter ${d.label}`}
+                      className="h-8 w-44 rounded border bg-background px-3 text-sm disabled:opacity-50"
                     />
                     <datalist id={listId}>
                       {suggestions.map((v) => (
@@ -278,8 +321,8 @@ export function RateMasterDerivation({ items, config, isAdmin, onSaveParam }: Pr
                       </span>
                     )}
                   </label>
-                  <Select value={String(selected[d.id] ?? "")} onValueChange={(v) => setAttr(d, v)}>
-                    <SelectTrigger className="h-8 w-44">
+                  <Select value={String(selected[d.id] ?? "")} onValueChange={(v) => setAttr(d, v)} disabled={disabledByNone.has(d.id)}>
+                    <SelectTrigger className="h-8 w-44 disabled:opacity-50">
                       <SelectValue placeholder={`Select ${d.label}`} />
                     </SelectTrigger>
                     <SelectContent>

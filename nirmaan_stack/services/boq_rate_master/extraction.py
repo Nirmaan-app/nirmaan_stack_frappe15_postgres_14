@@ -197,6 +197,11 @@ def build_attribute_defs(cfg, catalog=None, discipline=None):
             entry["values"] = d["values"]
         if d.get("default") is not None:
             entry["default"] = d["default"]
+        # EA-4a-r: an allow_none def may be POSITIVELY ABSENT -- "None" is a valid extracted value (added
+        # to the allowed set so _coerce_value keeps it) and the flag rides through for the prompt guidance.
+        if d.get("allow_none"):
+            entry["allow_none"] = True
+            entry["values"] = [*(entry.get("values") or []), "None"]
         out.append(entry)
     return out
 
@@ -331,6 +336,10 @@ def _coerce_value(defn, raw, synonyms_for_attr=None):
     per business rule."""
     if raw is None:
         return None
+    # EA-4a-r: the "None" sentinel is POSITIVE ABSENCE -- preserve it verbatim for an allow_none def (a
+    # number one included, where float("None") would raise and drop the signal). Distinct from null/blank.
+    if defn.get("allow_none") and str(raw) == "None":
+        return "None"
     if defn["type"] == "number":
         try:
             v = float(raw)
@@ -347,7 +356,7 @@ def _coerce_value(defn, raw, synonyms_for_attr=None):
     return sval
 
 
-def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=None, defaults=None):
+def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=None, defaults=None, none_guidance=None):
     """One extraction batch call with retry/backoff. Returns {excel_row: {attr_id: {value,
     confidence[, defaulted]}}} for the batch's OWN rows only. Ports ai_voter._ai_batch mechanics
     (<=20 rows, 3 attempts, sleep 2*attempt).
@@ -382,6 +391,21 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
             "the row text contains the given word, that override value IS the positive identification "
             "(return it normally, defaulted false).\n"
             + json.dumps(defaults, ensure_ascii=False)
+        )
+    # EA-4a-r: an allow_none attribute may be POSITIVELY ABSENT. "None" is a distinct answer from
+    # null/blank: None = the row's enumerated bill names no such component; null = too vague to tell.
+    none_defs = [d["id"] for d in attr_defs if d.get("allow_none")]
+    if none_defs:
+        # none_guidance may be a CUSTOM string (used verbatim) or a truthy FLAG (e.g. True -> use the
+        # default wording); anything not a non-empty string falls back to the default line.
+        guidance = none_guidance if isinstance(none_guidance, str) and none_guidance.strip() else (
+            'return "None" when the row\'s enumerated bill names NO such component (positive absence -- a '
+            "real light point may have a switch and plate but no socket, or a single wire and no second wire); "
+            "return null/blank ONLY when the row is too vague to tell."
+        )
+        content += (
+            '\n\nOPTIONAL COMPONENTS (may be "None"): ' + guidance + "\n"
+            + json.dumps(none_defs, ensure_ascii=False)
         )
     content += "\n\nROWS:\n" + json.dumps(payload_items, ensure_ascii=False)
     batch_ids = {r["excel_row"] for r in rows_batch}
@@ -535,6 +559,7 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None):
             "prompt": select_prompt_text(cfg),
             "synonyms": cfg.get("synonyms"),  # EA-DIFF: {attr_id: {variant: canonical}} or None
             "defaults": cfg.get("extraction_defaults"),  # EA-4a: {attr_id: default | {default, ...}} or None
+            "none_guidance": cfg.get("extraction_none_guidance"),  # EA-4a-r: optional per-config None wording
         }
 
     def _defs_for(r):
@@ -566,7 +591,7 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None):
         gc = group_ctx[(disc, cat)]
         for b in range(0, len(grp_rows), _BATCH):
             batch = grp_rows[b : b + _BATCH]
-            ai_out.update(_extract_batch(client, model, gc["prompt"], gc["defs"], batch, gc["synonyms"], gc["defaults"]))
+            ai_out.update(_extract_batch(client, model, gc["prompt"], gc["defs"], batch, gc["synonyms"], gc["defaults"], gc["none_guidance"]))
             done += len(batch)
             if progress_cb:
                 progress_cb(min(done, total), total)

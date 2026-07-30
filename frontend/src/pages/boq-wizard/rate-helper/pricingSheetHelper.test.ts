@@ -462,3 +462,74 @@ describe("makePricingSheetHelper -- EA-4a point_wiring assembly", () => {
     expect(sw.options).toContain(sw.value);
   });
 });
+
+// ---- EA-4a-r: the None mechanism in the editor helper (options + disable/clear) ----
+describe("makePricingSheetHelper -- EA-4a-r None (positive absence)", () => {
+  it("attributeOptions prepends 'None' for an allow_none def; a plain choice is unchanged", () => {
+    const socketDef = { id: "socket_item", label: "Socket", type: "choice" as const, allow_none: true, values_from: { kind: "switch_socket_item", attr: "item", where: { family: "Socket" } } };
+    const opts = attributeOptions(socketDef, PW_HELPER_ITEMS);
+    expect(opts[0]).toBe("None");
+    expect(opts).toContain("6A/16A 3-Pin Socket");
+    const plain = { id: "colour", label: "Colour", type: "choice" as const, values: ["White", "Grey"] };
+    expect(attributeOptions(plain, PW_HELPER_ITEMS)).toEqual(["White", "Grey"]);
+  });
+
+  it("extraction socket_item='None' -> socket_qty is greyed (disabled) + cleared; None is preserved as the value", () => {
+    const cfg: RateCategoryConfig = {
+      discipline: "Electrical", category_id: "point_wiring", item_kinds: [],
+      attribute_definitions: [
+        { id: "socket_item", label: "Socket", type: "choice", allow_none: true, disables_when_none: ["socket_qty"], values_from: { kind: "switch_socket_item", attr: "item", where: { family: "Socket" } } },
+        { id: "socket_qty", label: "Socket qty", type: "number" },
+      ],
+      pipelines: { p: { output: ["x"], steps: [
+        { step: "component_ref", name: "socket", ref: { kind: "switch_socket_item", family: "Socket", item: "@socket_item", colour: "Grey" }, target: "list_price", rate_stages: [{ mult: 1 }], qty: { from_attr: "socket_qty" }, none_skips: true },
+        { step: "sum_components", result: "x" },
+      ] } },
+    };
+    const map = buildExtractionByRow([{ excel_row: 50, attributes: { socket_item: { value: "None", confidence: 0.9 }, socket_qty: { value: 1, confidence: 0.9 } } as never }]);
+    const helper = makePricingSheetHelper({ configsByCategory: new Map([["point_wiring", cfg]]), items: PW_HELPER_ITEMS, extractionByRow: map });
+    const r = helper.compute({ ...ctx(50, "light point controlled by one switch"), category: "point_wiring" });
+    expect(isSuggestion(r)).toBe(true);
+    if (!isSuggestion(r)) return;
+    const socketItem = r.workings.attributes.find((a) => a.id === "socket_item")!;
+    expect(socketItem.options?.[0]).toBe("None");
+    expect(socketItem.value).toBe("None"); // preserved, not coerced away
+    const socketQty = r.workings.attributes.find((a) => a.id === "socket_qty")!;
+    expect(socketQty.disabled).toBe(true);
+    expect(socketQty.value).toBe(""); // cleared
+  });
+});
+
+// ---- EA-4a-r: the number-typed allow_none affordance (the "None" checkbox analogue) ----
+describe("makePricingSheetHelper -- EA-4a-r allow_none NUMBER def (None checkbox affordance)", () => {
+  const cfg: RateCategoryConfig = {
+    discipline: "Electrical", category_id: "point_wiring", item_kinds: [],
+    attribute_definitions: [
+      { id: "wire2_thickness_sqmm", label: "Wire2 sqmm", type: "number", allow_none: true, disables_when_none: ["wire2_core"] },
+      { id: "wire2_core", label: "Wire2 core", type: "number" },
+    ],
+    pipelines: { p: { output: ["x"], steps: [{ step: "sum_components", result: "x" }] } },
+  };
+  it("a normal numeric value carries the allowNone flag (panel renders the checkbox) + the number", () => {
+    const m = buildExtractionByRow([{ excel_row: 60, attributes: { wire2_thickness_sqmm: { value: 1.5, confidence: 0.9 }, wire2_core: { value: 1, confidence: 0.9 } } as never }]);
+    const h = makePricingSheetHelper({ configsByCategory: new Map([["point_wiring", cfg]]), items: PW_HELPER_ITEMS, extractionByRow: m });
+    const r = h.compute({ ...ctx(60, "point"), category: "point_wiring" });
+    expect(isSuggestion(r)).toBe(true); if (!isSuggestion(r)) return;
+    const w = r.workings.attributes.find((a) => a.id === "wire2_thickness_sqmm")!;
+    expect(w.allowNone).toBe(true);
+    expect(w.options).toBeUndefined(); // a NUMBER def -> no select options; the checkbox is the affordance
+    expect(w.value).toBe("1.5");
+  });
+  it("setting the number def to 'None' yields the sentinel + disables/clears its dependent (wire2_core)", () => {
+    const m = buildExtractionByRow([{ excel_row: 61, attributes: { wire2_thickness_sqmm: { value: "None", confidence: 0.9 }, wire2_core: { value: 1, confidence: 0.9 } } as never }]);
+    const h = makePricingSheetHelper({ configsByCategory: new Map([["point_wiring", cfg]]), items: PW_HELPER_ITEMS, extractionByRow: m });
+    const r = h.compute({ ...ctx(61, "point"), category: "point_wiring" });
+    expect(isSuggestion(r)).toBe(true); if (!isSuggestion(r)) return;
+    const w = r.workings.attributes.find((a) => a.id === "wire2_thickness_sqmm")!;
+    expect(w.allowNone).toBe(true);
+    expect(w.value).toBe("None"); // sentinel preserved -> the checkbox renders checked
+    const core = r.workings.attributes.find((a) => a.id === "wire2_core")!;
+    expect(core.disabled).toBe(true);
+    expect(core.value).toBe("");
+  });
+});

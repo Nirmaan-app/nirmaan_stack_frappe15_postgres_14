@@ -564,13 +564,16 @@ const PW_CIRCUIT_FIT = {
     wire_specs: [["wire1_core", "wire1_thickness_sqmm"], ["wire2_core", "wire2_thickness_sqmm"]] as [string, string][],
     length_attr: "circuit_length_m",
     conduit_type_attr: "conduit_type",
+    optional_wire_when_none: "wire2_thickness_sqmm", // EA-4a-r: wire2 may be positively absent
   },
   binds: ["fitted_size", "circuits", "conduit_qty"],
 };
 type Stage = { mult: number; round?: "up0" | "up-1" };
 type Qty = number | { from_attr: string } | { from_fit: string } | { if_attr: Record<string, string | number>; then: number; else: number };
+// EA-4a-r: these components are None-able (their ref binds an allow_none attr) -- match the v14 config.
+const NONE_ABLE = new Set(["wire2", "switch", "socket", "plate", "back_box"]);
 function cref(name: string, ref: Record<string, string | number>, target: string, rate_stages: Stage[], qty: Qty) {
-  return { step: "component_ref" as const, name, ref, target, rate_stages, qty };
+  return { step: "component_ref" as const, name, ref, target, rate_stages, qty, ...(NONE_ABLE.has(name) ? { none_skips: true } : {}) };
 }
 const wireRef = (core: string, th: string) => ({ kind: "cable", material: "COPPER", insulation: "UNARMOURED", core, thickness_sqmm: th });
 const conduitRef = { kind: "conduit", conduit_type: "@conduit_type", size_mm: "@fitted_size" };
@@ -644,6 +647,10 @@ const PW1: Record<string, string | number> = {
   socket_qty: 1, plate_item: "3M", plate_qty: 1, colour: "Grey", back_box: "Yes",
 };
 const PW2: Record<string, string | number> = { ...PW1, conduit_type: "MS", socket_item: "6A 3-Pin Socket", colour: "White", back_box: "No" };
+// EA-4a-r: pw3 -- a switch-only light point (socket POSITIVELY ABSENT). socket line -> 0; supply = pw1 - 187.
+const PW3: Record<string, string | number> = { ...PW1, socket_item: "None", socket_qty: 0 };
+// EA-4a-r: a single-wire point (wire2 positively absent). circuit_fit omits wire2 -> larger circuit count.
+const PW_SINGLE_WIRE: Record<string, string | number> = { ...PW1, wire2_thickness_sqmm: "None", wire2_core: "" };
 
 describe("EA-4a assembly engine -- point_wiring goldens", () => {
   it("pw1 (PVC, banked oracle) -> supply 1869 / install 735 / BCS 1370", () => {
@@ -676,6 +683,59 @@ describe("EA-4a assembly engine -- point_wiring goldens", () => {
     expect(fit(PW1)).toContain("conduit qty 4");
     expect(fit(PW2)).toContain("3 circuits");
     expect(fit(PW2)).toContain("conduit qty 5");
+  });
+});
+
+describe("EA-4a-r None mechanism -- positive absence (None) vs blank (unknown)", () => {
+  it("pw3 switch-only light point (socket=None) -> supply 1682; the socket line is an explicit 'None -> 0'", () => {
+    const r = runPipeline("pw_boq_supply", PW_PIPELINES.pw_boq_supply, PW_ITEMS, PW3);
+    expect(r.finals).toEqual({ supply: 1682 }); // pw1 1869 - the 187 socket line
+    const socket = r.steps.find((s) => s.produced?.key === "socket");
+    expect(socket?.produced?.value).toBe(0);
+    expect(socket?.matchedCondition).toBe("None -> 0");
+    // the real components are untouched (switch/plate/back_box still priced)
+    const line = (name: string) => r.steps.find((s) => s.produced?.key === name)?.produced?.value;
+    expect(line("switch")).toBe(155);
+    expect(line("plate")).toBe(86);
+    expect(line("back_box")).toBe(58);
+  });
+
+  it("pw1 is UNCHANGED by the None flags (they never trigger when every component is real) -- regression", () => {
+    expect(runPipeline("pw_boq_supply", PW_PIPELINES.pw_boq_supply, PW_ITEMS, PW1).finals).toEqual({ supply: 1869 });
+    expect(runPipeline("pw_boq_install", PW_PIPELINES.pw_boq_install, PW_ITEMS, PW1).finals).toEqual({ install: 735 });
+    expect(runPipeline("pw_bcs", PW_PIPELINES.pw_bcs, PW_ITEMS, PW1).finals).toEqual({ bcs_supply: 1370 });
+  });
+
+  it("a single-wire point (wire2=None) fits on wire1 ALONE -> more circuits, wire2 line 0, supply 1362", () => {
+    const r = runPipeline("pw_boq_supply", PW_PIPELINES.pw_boq_supply, PW_ITEMS, PW_SINGLE_WIRE);
+    // circuit_fit drops wire2 from the dia: overall_dia ~1.784 (vs pw1's 3.166) -> 7 circuits, conduit qty 3
+    expect(r.steps[0].matchedCondition).toContain("7 circuits");
+    expect(r.steps[0].matchedCondition).toContain("conduit qty 3");
+    const line = (name: string) => r.steps.find((s) => s.produced?.key === name)?.produced?.value;
+    expect(line("wire2")).toBe(0);
+    expect(line("wire1")).toBe(750); // 50 x 15
+    expect(line("conduit")).toBe(126); // 42 x 3
+    // wire1 750 + wire2 0 + conduit 126 + switch 155 + socket 187 + plate 86 + back_box 58
+    expect(r.finals).toEqual({ supply: 1362 });
+  });
+
+  it("plate=None zeroes BOTH plate AND back_box (back_box binds @plate_item) -- the keyed dependency", () => {
+    const attrs = { ...PW1, plate_item: "None", plate_qty: 0 };
+    const r = runPipeline("pw_boq_supply", PW_PIPELINES.pw_boq_supply, PW_ITEMS, attrs);
+    const line = (name: string) => r.steps.find((s) => s.produced?.key === name)?.produced?.value;
+    expect(line("plate")).toBe(0);
+    expect(line("back_box")).toBe(0);
+    expect(r.finals).toEqual({ supply: 1869 - 86 - 58 }); // 1725
+  });
+
+  it("a None on a NON-none_skips component stays an HONEST no-compute (positive absence needs the flag)", () => {
+    // a one-step pipeline whose component_ref has NO none_skips; feeding its identity "None" must NOT zero --
+    // there is no master row for item "None", so it is an honest no_match (never a silent 0).
+    const plainRef = { step: "component_ref" as const, name: "adder", ref: ssRef("Switch", "@switch_item", "@colour"), target: "list_price", rate_stages: [{ mult: 1 }], qty: 1 };
+    const pipe: Pipeline = { output: ["x"], steps: [plainRef, { step: "sum_components", result: "x" }] };
+    const r = runPipeline("plain", pipe, PW_ITEMS, { ...PW1, switch_item: "None" });
+    expect(r.status).toBe("no_match");
+    expect(r.finals).toEqual({});
   });
 });
 
