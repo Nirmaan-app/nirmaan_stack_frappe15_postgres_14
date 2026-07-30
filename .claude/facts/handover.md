@@ -43,8 +43,19 @@ folded: 2026-07-30
   - **7 MODIFIED doctypes:** `boq_sheet`, `boq_row_category`, `boq_cell_color`, `boq_cell_dismissal`, `boq_cell_remark`, `project_expenses`, `non_project_expenses`
   - **2 `[MIGRATE]`-tagged commits:** `0fe9c6a2` (carry engine for categories + annotations, required provenance), `2a99d370` (lossless committed `sheet_config` snapshot)
   - `nirmaan_stack/patches.txt` is **unchanged in this range** and clean — but a teammate pulling this still needs `bench migrate`. **The Abhishek heads-up is OWED and is now much larger than the G2b item v5.90 tracked.**
-- **Tests — UNVERIFIED at this fold.** No count is quoted, because they cannot be run from the host and v5.90's numbers predate 26 test-file changes. What *is* verified: **26 test files touched in range** (10 added, 15 modified, 1 deleted — `stubRateHelper.test.ts`, retired by the real rate helper); repo currently tracks **53** frontend `*.test.ts(x)` and **162** backend `test_*.py`. **Bench-verify before quoting any number.** v5.90's `976 / 230 / 70 / 50` are now historical, not current.
-- **tsc:** UNVERIFIED this fold (in-container gate). v5.90's ~3,240 pre-existing floor is the last known value.
+- **Tests — ✅ BENCH-VERIFIED 2026-07-30, measured at `f215d6a9`** (4 commits past `recorded_tip`; ruling **R22**). All OBSERVED in-container via the bench runner, **not self-reported**. Cases and assertions given separately (assertions are static call-site counts):
+
+  | Suite | Cases | Assertions | Result |
+  |---|---|---|---|
+  | `api.boq.wizard.test_pricing` | 255 | 787 | OK |
+  | `api.boq.wizard.test_committed_carry` | 49 | 101 | OK |
+  | `api.boq.wizard.test_cross_boq_carry` | 60 | 152 | OK |
+  | `api.boq.wizard.test_classify` | 94 | 303 | OK |
+  | `services.boq_category.tests` (5 modules: decay 12 · hv2-voter 14 · routing-policy 23 · runner-electrical 82 · runner-hvac 104) | **235** | 442 | OK |
+  | **vitest** (in-container) | **1222** across **53** files | 2216 `expect(` | passed |
+
+  **Zero skips anywhere.** Every backend suite's `Ran N` equals its `def test_` count, so nothing was silently filtered. ⚠️ `test_pricing` prints a SQL traceback + duplicate-key line from `test_atomicity_concurrent_first_edit_exactly_one_winner` — that is the suite deliberately racing the pricing lock; the noise is the assertion working, and the suite reports `OK`. **v5.90's `976 / 230 / 70 / 50` are historical.** Also historical: the interim `1188 / 50` quoted mid-arc.
+- **tsc:** ✅ **3,236 error lines repo-wide**, measured by hand in-container at `f215d6a9` — the pre-existing baseline, unchanged. **Nothing in the repo runs tsc automatically** (no `typecheck` script; `build` is `vite build`/esbuild, which strips types without checking; CI runs the bench suite only), so this figure is only ever as fresh as the last manual run.
 - **AI toggle:** not exercised in this range. HV-11 tracker armed, no known flips. Engine health stays untrusted until monitored.
 - **Deferred items:** **still 5 / 5 — AT CEILING.** Item (b) is *partially* discharged (10 stranded Rate Master records recovered into the plan tree); item (d) has **escalated** — 4 new doctypes landed while the merge new-doctype inventory remains unread.
 - **Open risks:** 25 commits unpushed and unreplicated on any remote; migration heads-up owed; the pricing module is LIVE in production; `boq-backend-wizard-endpoints.md` sits in the size warn band (65.6 KB) as a flat block with no structural split available.
@@ -81,7 +92,7 @@ Electrical content = the NEW team master (v7 lineage, imported via Replace from 
 
 1. **Get the 25 commits off this machine.** They exist on exactly one disk, include the whole R1–R18 carry arc and the docs restructure, and nothing is replicated. Clean fast-forward onto `develop`, owner-gated, from HOST PowerShell (#53).
 2. **Send the migration heads-up to Abhishek** — now covering 4 new doctypes + 7 modified + the two `[MIGRATE]` commits, not just the G2b item. Name the merge order; `bench migrate` is required after pull. **This gates the push** (Full-tier rule).
-3. **Bench-verify the test counts** and record them here. The doc currently quotes none on purpose; the first session with a container should close that, because every downstream A11/B5 claim depends on it.
+3. ~~**Bench-verify the test counts** and record them here.~~ ✅ **DONE 2026-07-30** — recorded in the dashboard above, measured at `f215d6a9`. Re-verify after the next code-bearing slice; the numbers are a measurement with a date, not a standing fact.
 4. **U2** — earthing wired real, stub deleted. The 2-session box has one session left; exit criterion per rate-helper §7a. (`stubRateHelper.test.ts` is already deleted in this range, so the stub retirement is partly done — verify what remains.)
 5. **Close a deferred item before adding one** — register is at ceiling, and (d) *merge new-doctype inventory unread* is now the load-bearing one given the 4 new doctypes.
 6. Residuals: retire throwaway estimator tests; **Google sharing revocation — the containment endpoint, still owed**; v5.89 arc-close leftovers (Pricing-Editor §6 correction, stale `review_screen.py` comment, PR-description note); carve `boq-backend-wizard-endpoints.md` if a structural split appears.
