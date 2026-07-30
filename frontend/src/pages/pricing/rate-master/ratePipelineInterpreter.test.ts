@@ -192,6 +192,42 @@ describe("forward-compat: unknown step type", () => {
   });
 });
 
+// EA-DIFF Option C: runPipeline's "never throws on data shape" contract is ENFORCED. The exact defect
+// that crashed the db_switchgear Derivation tab + the pricing helper -- a `scale` step carrying
+// `conditions` (a shape `scale` does not bind, only `component` does), so its formula references an
+// unbound identifier -- must degrade to the honest `unsupported` status, NEVER throw to the error
+// boundary. A well-formed pipeline is unaffected.
+describe("EA-DIFF Option C: a data-shape formula error degrades to unsupported, never throws", () => {
+  it("a scale carrying conditions (unbound identifier) -> unsupported, no throw", () => {
+    const pl: Pipeline = {
+      output: ["install"],
+      steps: [
+        { step: "match_master_row", params: { kind: "cable" } },
+        // `effective_multiplier` / `install_ratio` live inside conditions[].params -- the `scale`
+        // handler binds ONLY top-level params, so the formula references unbound identifiers.
+        {
+          step: "scale",
+          target: "list_price_per_mtr",
+          result: "install",
+          formula: "base*effective_multiplier*install_ratio",
+          conditions: [{ when: { material: "COPPER" }, params: { effective_multiplier: 0.5, install_ratio: 0.15 } }],
+        } as unknown as Pipeline["steps"][number],
+      ],
+    };
+    let r: ReturnType<typeof runPipeline> | undefined;
+    expect(() => { r = runPipeline("db_like", pl, ITEMS, sel("COPPER", "UNARMOURED", 1.0, 6.0)); }).not.toThrow();
+    expect(r!.status).toBe("unsupported");
+    expect(r!.finals).toEqual({});
+    expect(r!.steps.some((s) => s.unsupported && /could not be evaluated/i.test(s.label))).toBe(true);
+  });
+
+  it("a well-formed pipeline is unaffected (still computes ok)", () => {
+    const r = runPipeline("cable_boq", PIPELINES.cable_boq, ITEMS, sel("COPPER", "UNARMOURED", 1.0, 6.0));
+    expect(r.status).toBe("ok");
+    expect(r.finals).toEqual({ supply_per_mtr: 120, install_per_mtr: 20 });
+  });
+});
+
 // ── EA-1: the four bounded vocabulary additions (each with an HONEST failure mode) ──────────────────
 // The FIVE wiring goldens above are the regression pins for all four; these fixtures are the real
 // E-ALL config shapes (eall_import_electrical_v2.json) reduced to the row(s) each golden needs.

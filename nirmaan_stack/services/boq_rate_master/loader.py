@@ -349,6 +349,9 @@ def _load_multi(payload, replace):
 
     category_ids = []
     for c in configs:
+        # The WHOLE config blob is stored (json.dumps below), so pass-through keys ride through with no
+        # loader change -- item_kinds, pipeline_labels, matching_mode/identity_attribute_id/notes, and
+        # (EA-DIFF) `synonyms` {attr_id: {variant: canonical}} consumed by extraction.
         cfg = dict(c)
         cfg["discipline"] = discipline  # stamp (configs carry no discipline of their own)
         cat_id = cfg["category_id"].strip()

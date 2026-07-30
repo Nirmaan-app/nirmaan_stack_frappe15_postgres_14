@@ -178,6 +178,18 @@ export function categoryItemKinds(config: RateCategoryConfig): string[] {
   return kinds;
 }
 
+/**
+ * EA-DIFF (owner-observed D5 defect): the SENTINEL for a category that owns NO data rows of its own --
+ * its resolved kind set is EMPTY (declared `item_kinds:[]` AND no pipeline-derivable `match_master_row`
+ * kind). point_wiring is the first such category (a composite whose pricing derives from OTHER
+ * categories' items). The Data tab MUST render an honest empty state for these, NEVER the
+ * discipline-wide all-items list. A category with any resolved kind (incl. LMS -> `["lms_item"]`,
+ * empty pipelines but declared kinds) is NOT empty-scope. PURE.
+ */
+export function isCategoryDataScopeEmpty(config: RateCategoryConfig): boolean {
+  return categoryItemKinds(config).length === 0;
+}
+
 /** A blank attribute definition (choice with one empty value slot, or a number). */
 export function blankAttributeDefinition(type: "choice" | "number"): AttributeDefinition {
   return type === "choice"

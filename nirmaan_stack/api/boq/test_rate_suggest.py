@@ -21,6 +21,8 @@ Coverage map (behavior -> test):
   - get_active_suggestion_run active-only (POS) + guest denied (NEG)                            -> test_08
   - record_rate_suggestion_event insert + validation (NEG: guest, missing field)               -> test_09
   - start_suggest D8 gate re-check (NEG: uncommitted, formulas incomplete)                      -> test_10
+  - EA-DIFF synonyms: injected into the prompt payload when configured, absent otherwise;
+    _coerce_value maps variant->canonical (GI->MS); a non-configured category is untouched       -> test_12
 """
 
 import json
@@ -348,3 +350,42 @@ class TestRateSuggest(FrappeTestCase):
         env2 = extraction.run_extraction(self.boq, sheet, client=client2)
         r21b = next(r for r in env2["results"] if r["excel_row"] == 21)
         self.assertIsNone(r21b["attributes"]["item"]["value"])
+
+    # ---- EA-DIFF: synonyms injection + coercion (GI -> MS for conduit_type) ----
+    def test_12_ea_diff_synonyms(self):
+        # (a) _coerce_value maps a configured variant to its canonical BEFORE the allowed-values check.
+        defn = {"id": "conduit_type", "type": "choice", "values": ["PVC", "MS"]}
+        # WITHOUT synonyms: a variant "GI" is out-of-vocab -> None (honest blank).
+        self.assertIsNone(extraction._coerce_value(defn, "GI"))
+        # WITH synonyms {GI: MS}: "GI" maps to the canonical "MS" and passes the vocab check.
+        self.assertEqual(extraction._coerce_value(defn, "GI", {"GI": "MS"}), "MS")
+        # a canonical value is unaffected; an unmapped out-of-vocab value still blanks.
+        self.assertEqual(extraction._coerce_value(defn, "MS", {"GI": "MS"}), "MS")
+        self.assertIsNone(extraction._coerce_value(defn, "COPPER", {"GI": "MS"}))
+
+        # (b) _extract_batch INJECTS a SYNONYMS section into the prompt payload when configured, and the
+        # returned variant is coerced to the canonical. Capture the content the client received.
+        sink = []
+
+        def responder(call, kwargs):
+            sink.append(kwargs["messages"][0]["content"])
+            return _Resp(json.dumps([{"id": 22, "attributes": {"conduit_type": {"value": "GI", "confidence": 0.9}}}]))
+
+        client = _FakeClient(responder)
+        rows = [{"excel_row": 22, "description": "25mm dia GI conduit", "anc_headers": [], "anc_texts": []}]
+        out = extraction._extract_batch(client, "m", "P", [defn], rows, {"conduit_type": {"GI": "MS"}})
+        self.assertIn("SYNONYMS", sink[0])
+        self.assertIn('"GI"', sink[0])
+        self.assertEqual(out[22]["conduit_type"]["value"], "MS")  # variant coerced to canonical
+
+        # (c) NEGATIVE: a non-configured category (synonyms=None, the default) is byte-untouched --
+        # NO SYNONYMS section, and the out-of-vocab "GI" blanks honestly.
+        sink2 = []
+
+        def responder2(call, kwargs):
+            sink2.append(kwargs["messages"][0]["content"])
+            return _Resp(json.dumps([{"id": 22, "attributes": {"conduit_type": {"value": "GI", "confidence": 0.9}}}]))
+
+        out2 = extraction._extract_batch(_FakeClient(responder2), "m", "P", [defn], rows)
+        self.assertNotIn("SYNONYMS", sink2[0])
+        self.assertIsNone(out2[22]["conduit_type"]["value"])

@@ -1,9 +1,9 @@
 {
- "source_workbook": "Electrical_pricing_-_28_Jul_2026.xlsx",
- "sha256_prefix": "6a652282c5a07c7f",
+ "source_workbook": "Electrical_pricing_-_29_Jul_2026.xlsx",
+ "sha256_prefix": "10fee5d9f4328e31",
  "extracted_at": "2026-07-29",
  "discipline": "Electrical",
- "provenance": "E-ALL chat decode 2026-07-29: every pipeline decoded from the ALL ITEM WISE RATE block formulas + assumption cells; oracles = the blocks' displayed outputs at their current selector states; v2: formulas normalized to the interpreter contract (base+exact params), machine-format goldens (RM-4b attrs+expect), misc param fixed at source, conditional-component chamber shape (feature 4); v3 (owner rulings 2026-07-29): the guiding sheet is the AUTHORITY on finalized rules - UPS removed entirely (Floor BOX misdecode corrected -> popup_boxes per-module config added), LMS kept as DATA ONLY with empty pipelines (owner authors in-system), light_fixtures/panels stay out; retired_kinds/retired_category_ids added for the loader; v4 (owner 2026-07-29): miscellaneous rebuilt SELF-CONTAINED from the guiding block itself (rates = BoQ direct; BCS supply = BoQ x 0.8 [/1.25]; BCS install = 0); the Miscelleneous background sheet no longer feeds the import; v5: item_kinds declared per config (drives per-category viewer/add-form scoping; LMS included; wiring derives from its pipelines); v6: identity_attribute_id declared on the four item-identity configs (drives the EA-2 identity extraction mode); v7: cabletray_raceway REBUILT from the guiding block's own formulas (chat misread corrected; oracle 431/120/297/0) - new attrs (cover/installation_type/floor_cutting/floor_refilling), install-by-width items (10), conditional-component adders, three oracle goldens; the old flagged tray pipeline is dead; v8 (owner ruling): Earth Chamber Works as an explicit referenced master item (kind earthing_chamber); the earthing chamber component becomes a component_ref step (the assembly primitive's simplest form - EA-4 builds on it); v9 (owner correction 2026-07-29): the earthing adder is the EXISTING Bus bar row via a QUALIFIED component_ref (kind+attributes) - the Earth Chamber Works item is dead; attribute renamed with_busbar; golden arithmetic unchanged",
+ "provenance": "E-ALL chat decode 2026-07-29: every pipeline decoded from the ALL ITEM WISE RATE block formulas + assumption cells; oracles = the blocks' displayed outputs at their current selector states; v2: formulas normalized to the interpreter contract (base+exact params), machine-format goldens (RM-4b attrs+expect), misc param fixed at source, conditional-component chamber shape (feature 4); v3 (owner rulings 2026-07-29): the guiding sheet is the AUTHORITY on finalized rules - UPS removed entirely (Floor BOX misdecode corrected -> popup_boxes per-module config added), LMS kept as DATA ONLY with empty pipelines (owner authors in-system), light_fixtures/panels stay out; retired_kinds/retired_category_ids added for the loader; v4 (owner 2026-07-29): miscellaneous rebuilt SELF-CONTAINED from the guiding block itself (rates = BoQ direct; BCS supply = BoQ x 0.8 [/1.25]; BCS install = 0); the Miscelleneous background sheet no longer feeds the import; v5: item_kinds declared per config (drives per-category viewer/add-form scoping; LMS included; wiring derives from its pipelines); v6: identity_attribute_id declared on the four item-identity configs (drives the EA-2 identity extraction mode); v7: cabletray_raceway REBUILT from the guiding block's own formulas (chat misread corrected; oracle 431/120/297/0) - new attrs (cover/installation_type/floor_cutting/floor_refilling), install-by-width items (10), conditional-component adders, three oracle goldens; the old flagged tray pipeline is dead; v8 (owner ruling): Earth Chamber Works as an explicit referenced master item (kind earthing_chamber); the earthing chamber component becomes a component_ref step (the assembly primitive's simplest form - EA-4 builds on it); v9 (owner correction 2026-07-29): the earthing adder is the EXISTING Bus bar row via a QUALIFIED component_ref (kind+attributes) - the Earth Chamber Works item is dead; attribute renamed with_busbar; golden arithmetic unchanged; v10 (the 29-Jul diff cycle): BENCHMARK = Electrical_pricing_-_29_Jul_2026.xlsx (data diff vs 28-Jul = float-precision noise + the point-wiring revision only); conduit definition-over-data (PVC/MS; 4 GI rows retired; founding synonym GI->MS, conduit-scoped); DB install branch fix (per-DB table x1.5 as db_install_rate items + three-way pipeline split); point_wiring config added data-only with the full decoded recipe + banked oracle (1869/735/2604) for EA-4; v11: the point_wiring pseudo-golden removed (a placeholder-pipeline golden would trip the RM-4b validator on any future edit) - the banked oracle (1869/735/2604) remains in the config notes; EA-4 mints real goldens; v12 (2026-07-30): db_install_nondb restructured to the supported component+conditions shape (chat authoring error at v10 - scale does not support conditions); semantics unchanged (family exclusion preserved); goldens d1/d2 unchanged",
  "items": [
   {
    "kind": "earthing_item",
@@ -556,70 +556,6 @@
    "source": {
     "sheet": "Conduit & Piping",
     "row": 10
-   }
-  },
-  {
-   "kind": "conduit",
-   "brand": "Generic",
-   "unit": "Mtr",
-   "attributes": {
-    "conduit_type": "GI",
-    "size_mm": 20.0
-   },
-   "rates": {
-    "list_price_per_mtr": 65.0
-   },
-   "source": {
-    "sheet": "Conduit & Piping",
-    "row": 11
-   }
-  },
-  {
-   "kind": "conduit",
-   "brand": "Generic",
-   "unit": "Mtr",
-   "attributes": {
-    "conduit_type": "GI",
-    "size_mm": 25.0
-   },
-   "rates": {
-    "list_price_per_mtr": 85.0
-   },
-   "source": {
-    "sheet": "Conduit & Piping",
-    "row": 12
-   }
-  },
-  {
-   "kind": "conduit",
-   "brand": "Generic",
-   "unit": "Mtr",
-   "attributes": {
-    "conduit_type": "GI",
-    "size_mm": 32.0
-   },
-   "rates": {
-    "list_price_per_mtr": 120.0
-   },
-   "source": {
-    "sheet": "Conduit & Piping",
-    "row": 13
-   }
-  },
-  {
-   "kind": "conduit",
-   "brand": "Generic",
-   "unit": "Mtr",
-   "attributes": {
-    "conduit_type": "GI",
-    "size_mm": 50.0
-   },
-   "rates": {
-    "list_price_per_mtr": 240.0
-   },
-   "source": {
-    "sheet": "Conduit & Piping",
-    "row": 14
    }
   },
   {
@@ -14151,6 +14087,126 @@
     "sheet": "CableTray_Raceway",
     "row": 26
    }
+  },
+  {
+   "kind": "db_install_rate",
+   "brand": "Generic",
+   "unit": "Nos",
+   "attributes": {
+    "item": "SPN DB 6WAY"
+   },
+   "rates": {
+    "install_rate": 500.0
+   },
+   "source": {
+    "sheet": "DB & Switchgear",
+    "row": 11
+   }
+  },
+  {
+   "kind": "db_install_rate",
+   "brand": "Generic",
+   "unit": "Nos",
+   "attributes": {
+    "item": "SPN DB 8WAY"
+   },
+   "rates": {
+    "install_rate": 500.0
+   },
+   "source": {
+    "sheet": "DB & Switchgear",
+    "row": 12
+   }
+  },
+  {
+   "kind": "db_install_rate",
+   "brand": "Generic",
+   "unit": "Nos",
+   "attributes": {
+    "item": "SPN DB 12WAY"
+   },
+   "rates": {
+    "install_rate": 500.0
+   },
+   "source": {
+    "sheet": "DB & Switchgear",
+    "row": 13
+   }
+  },
+  {
+   "kind": "db_install_rate",
+   "brand": "Generic",
+   "unit": "Nos",
+   "attributes": {
+    "item": "SPN DB 16WAY"
+   },
+   "rates": {
+    "install_rate": 500.0
+   },
+   "source": {
+    "sheet": "DB & Switchgear",
+    "row": 14
+   }
+  },
+  {
+   "kind": "db_install_rate",
+   "brand": "Generic",
+   "unit": "Nos",
+   "attributes": {
+    "item": "TPN DB 6WAY (DOUBLE DOOR IP 43)"
+   },
+   "rates": {
+    "install_rate": 850.0
+   },
+   "source": {
+    "sheet": "DB & Switchgear",
+    "row": 15
+   }
+  },
+  {
+   "kind": "db_install_rate",
+   "brand": "Generic",
+   "unit": "Nos",
+   "attributes": {
+    "item": "TPN DB 8WAY (DOUBLE DOOR IP 43)"
+   },
+   "rates": {
+    "install_rate": 1000.0
+   },
+   "source": {
+    "sheet": "DB & Switchgear",
+    "row": 16
+   }
+  },
+  {
+   "kind": "db_install_rate",
+   "brand": "Generic",
+   "unit": "Nos",
+   "attributes": {
+    "item": "TPN DB 12WAY (DOUBLE DOOR IP 43)"
+   },
+   "rates": {
+    "install_rate": 1000.0
+   },
+   "source": {
+    "sheet": "DB & Switchgear",
+    "row": 17
+   }
+  },
+  {
+   "kind": "db_install_rate",
+   "brand": "Generic",
+   "unit": "Nos",
+   "attributes": {
+    "item": "TPN DB 16WAY (DOUBLE DOOR IP 43)"
+   },
+   "rates": {
+    "install_rate": 1200.0
+   },
+   "source": {
+    "sheet": "DB & Switchgear",
+    "row": 18
+   }
   }
  ],
  "category_configs": [
@@ -14345,9 +14401,8 @@
      "label": "Conduit Type",
      "type": "choice",
      "values": [
-      "GI",
-      "MS",
-      "PVC"
+      "PVC",
+      "MS"
      ]
     },
     {
@@ -14422,7 +14477,13 @@
    },
    "item_kinds": [
     "conduit"
-   ]
+   ],
+   "synonyms": {
+    "conduit_type": {
+     "GI": "MS"
+    }
+   },
+   "notes": " | 2026-07-29 owner rulings: GI removed from selection (the 29-Jul file's dropdown change); GI and MS are PRICE-INTERCHANGEABLE FOR CONDUITS ONLY - extraction maps GI->MS via the synonyms field (the founding synonym-map entry); the 4 GI data rows are retired (inactive in the superseded batch). DEFINITION-OVER-DATA principle: the definition's values are the selectable universe."
   },
   {
    "category_id": "junction_box_raceway",
@@ -15275,8 +15336,7 @@
    "pipelines": {
     "db_boq": {
      "output": [
-      "supply",
-      "install"
+      "supply"
      ],
      "steps": [
       {
@@ -15300,15 +15360,50 @@
        "params": {
         "digits": -1
        }
+      }
+     ]
+    },
+    "db_install_nondb": {
+     "output": [
+      "install"
+     ],
+     "steps": [
+      {
+       "step": "match_master_row",
+       "params": {
+        "kind": "db_switchgear_item"
+       }
       },
       {
-       "step": "scale",
-       "target": "supply",
-       "result": "install",
-       "params": {
-        "install_ratio": 0.15
-       },
-       "formula": "base*install_ratio"
+       "step": "component",
+       "name": "install_base",
+       "target": "list_price",
+       "conditions": [
+        {
+         "when": {
+          "family": "Switchgear"
+         },
+         "params": {
+          "effective_multiplier": 0.495,
+          "install_ratio": 0.15
+         }
+        },
+        {
+         "when": {
+          "family": "Enclosure Box"
+         },
+         "params": {
+          "effective_multiplier": 0.495,
+          "install_ratio": 0.15
+         }
+        }
+       ],
+       "formula": "base*effective_multiplier*install_ratio",
+       "explain": "install = 15% of the BoQ supply; the conditions EXCLUDE the DB family (DB installs price via db_install_db only)"
+      },
+      {
+       "step": "sum_components",
+       "result": "install"
       },
       {
        "step": "roundup",
@@ -15316,6 +15411,30 @@
        "params": {
         "digits": -1
        }
+      }
+     ]
+    },
+    "db_install_db": {
+     "output": [
+      "install"
+     ],
+     "steps": [
+      {
+       "step": "match_master_row",
+       "params": {
+        "kind": "db_install_rate"
+       },
+       "explain": "the per-DB install table (matched by item)"
+      },
+      {
+       "step": "scale",
+       "target": "install_rate",
+       "result": "install",
+       "params": {
+        "factor": 1.5
+       },
+       "formula": "base*factor",
+       "explain": "the DB install-table rate x 1.5 (the guiding block's DB branch)"
       }
      ]
     },
@@ -15337,15 +15456,15 @@
        "params": {
         "bcs_factor": 0.3
        },
-       "formula": "base*bcs_factor",
-       "explain": "(1-0.7 discount), no markup"
+       "formula": "base*bcs_factor"
       }
      ]
     }
    },
-   "notes": "single-item pricing; the DB BOM build-up + install-override table = EA-4",
+   "notes": "single-item pricing; the DB BOM build-up + install-override table = EA-4 | 2026-07-29 correction (29-Jul formula re-read): install BRANCHES by family - Switchgear/Enclosure at 15% of supply (db_install_nondb); DB-family items at the per-DB install table x1.5 (db_install_db; honest no-compute when the table lacks the item). The multi-item BUILD-UP install = EA-4. | 2026-07-30: db_install_nondb rebuilt in the component+conditions shape (the scale+conditions form was a chat authoring error - scale never supported conditions). The family conditions are LOAD-BEARING: they exclude the DB family so a DB row never gets a competing 15% install beside its table rate.",
    "item_kinds": [
-    "db_switchgear_item"
+    "db_switchgear_item",
+    "db_install_rate"
    ],
    "identity_attribute_id": "item"
   },
@@ -15547,6 +15666,92 @@
    "item_kinds": [
     "popup_box_module"
    ]
+  },
+  {
+   "category_id": "point_wiring",
+   "category_display": "Point Wiring",
+   "item_kinds": [],
+   "attribute_definitions": [
+    {
+     "id": "wire1_thickness_sqmm",
+     "label": "Wire 1 thickness (sqmm)",
+     "type": "number"
+    },
+    {
+     "id": "wire1_count",
+     "label": "Wire 1 runs",
+     "type": "number"
+    },
+    {
+     "id": "wire2_thickness_sqmm",
+     "label": "Wire 2 thickness (sqmm)",
+     "type": "number"
+    },
+    {
+     "id": "wire2_count",
+     "label": "Wire 2 runs",
+     "type": "number"
+    },
+    {
+     "id": "wire_length_m",
+     "label": "Wire length (m)",
+     "type": "number"
+    },
+    {
+     "id": "conduit_type",
+     "label": "Conduit type",
+     "type": "choice",
+     "values": [
+      "PVC",
+      "MS"
+     ]
+    },
+    {
+     "id": "switch_item",
+     "label": "Switch",
+     "type": "choice",
+     "values": []
+    },
+    {
+     "id": "switch_qty",
+     "label": "Switch qty",
+     "type": "number"
+    },
+    {
+     "id": "socket_item",
+     "label": "Socket",
+     "type": "choice",
+     "values": []
+    },
+    {
+     "id": "socket_qty",
+     "label": "Socket qty",
+     "type": "number"
+    },
+    {
+     "id": "plate_item",
+     "label": "Frame/Face plate",
+     "type": "choice",
+     "values": []
+    },
+    {
+     "id": "back_box",
+     "label": "Back box",
+     "type": "choice",
+     "values": [
+      "Yes",
+      "No"
+     ]
+    },
+    {
+     "id": "colour",
+     "label": "Colour",
+     "type": "choice",
+     "values": []
+    }
+   ],
+   "pipelines": {},
+   "notes": "DATA-ONLY until EA-4 (the assembly engine). DECODED RECIPE (29-Jul benchmark, oracle 1869/735/2604): CIRCUIT FIT: overall_dia = sum over wires of sqrt(sqmm/pi)*2*count; conduit = smallest size whose usable dia fits (PVC 55%; MS 45% at 25/32, 47% at 50); circuits_per_conduit = ROUNDDOWN(usable/overall_dia). SUPPLY BOM x qty: Wire1 = cable BoQ rate(COPPER/UNARMOURED, thickness) x length; Wire2 same; Conduit = conduit BoQ rate(type, fitted size) x ROUNDUP(length/circuits); Switch = list x 0.3625 x qty; Socket = list x 0.3625 x qty; Plate = list x 0.3625 x qty; Back box = list x L6 multiplier if Yes. INSTALL BOM (rows 22-28) mirrors with install rates -> 735. BCS columns use the BCS multipliers. All components REFERENCE the live master tables (component_ref x qty) - the EA-4 engine adds the circuit-fit computed step; everything else exists."
   }
  ],
  "goldens": {
@@ -15739,13 +15944,27 @@
     },
     "expect": {
      "db_boq": {
-      "supply": 1990.0,
+      "supply": 1990.0
+     },
+     "db_install_nondb": {
       "install": 300.0
      },
      "db_bcs": {
       "bcs_supply": 1203.0
      }
     }
+   },
+   {
+    "id": "d2",
+    "attrs": {
+     "item": "TPN DB 8WAY (DOUBLE DOOR IP 43)"
+    },
+    "expect": {
+     "db_install_db": {
+      "install": 1500.0
+     }
+    },
+    "oracle": "the guiding DB branch: install-table 1000 x 1.5 (the composite display 3660 = 2440x1.5 validates the x1.5)"
    }
   ],
   "miscellaneous": [

@@ -720,6 +720,9 @@ _KNOWN_CONFIG_KEYS = {
     # reads pipeline_labels; the RM-4b editor resubmits the WHOLE config, so these must be accepted or
     # editing/authoring an EA-2 config would be rejected as an unknown key.
     "identity_attribute_id", "matching_mode", "notes", "pipeline_labels",
+    # EA-DIFF: synonyms = {attr_id: {variant: canonical}} (e.g. conduit_type GI->MS). Pass-through;
+    # consumed by the extraction injection + coercion, never structurally validated here.
+    "synonyms",
 }
 _BAND_WHEN_RE = re.compile(r"^(<=|>=|<|>)\s*-?\d+(\.\d+)?$")
 

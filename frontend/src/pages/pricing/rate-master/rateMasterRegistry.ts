@@ -38,6 +38,9 @@ export const RATE_MASTER_DISCIPLINES: readonly RateMasterDisciplineEntry[] = [
       { category_id: "db_switchgear", label: "DB and Switchgear" },
       { category_id: "miscellaneous", label: "Miscellaneous" },
       { category_id: "lighting_mgmt_system", label: "Lighting Management System" },
+      // EA-DIFF: point_wiring is DATA-ONLY (empty pipelines) -- renders coming-soon exactly like LMS.
+      // Its config banks the 29-Jul EA-4 oracle (1869/735/2604) in its notes.
+      { category_id: "point_wiring", label: "Point Wiring" },
     ],
   },
 ];

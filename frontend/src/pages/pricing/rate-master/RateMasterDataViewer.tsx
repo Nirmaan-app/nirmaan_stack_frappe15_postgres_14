@@ -21,7 +21,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { RateCategoryConfig, RateMasterItem } from "./rateMasterTypes";
 import { parseFiniteInput } from "./rateMasterEdit";
-import { categoryItemKinds } from "./rateMasterStructure";
+import { categoryItemKinds, isCategoryDataScopeEmpty } from "./rateMasterStructure";
 
 interface Props {
   items: RateMasterItem[];
@@ -66,12 +66,18 @@ export function RateMasterDataViewer({
 
   // EA-1c change 1: SCOPE the Data tab to the selected category's items. The kinds come from the
   // config's declared item_kinds, else (legacy wiring) derived from its pipelines' match_master_row.
-  // The `items` prop is discipline-wide; we show only rows whose kind belongs to this category. A
-  // config with no derivable kinds (shouldn't happen for a real config) falls back to all rows.
+  // The `items` prop is discipline-wide; we show only rows whose kind belongs to this category.
+  // EA-DIFF (owner-observed D5 defect): a category whose resolved kind set is EMPTY -- declared
+  // item_kinds:[] AND no pipeline-derivable kind (point_wiring, the first kind-less category) -- owns
+  // NO data rows of its own; its pricing derives from OTHER categories' items. It MUST render an honest
+  // empty state, NEVER fall through to the discipline-wide all-items list (the old `: items` fallback,
+  // which surfaced all 1356 rows with mixed columns). LMS (item_kinds:["lms_item"], empty pipelines)
+  // still resolves a kind, so it is UNCHANGED.
   const categoryKinds = useMemo(() => categoryItemKinds(config), [config]);
+  const emptyScope = useMemo(() => isCategoryDataScopeEmpty(config), [config]);
   const scopedItems = useMemo(
-    () => (categoryKinds.length ? items.filter((it) => categoryKinds.includes(it.kind)) : items),
-    [items, categoryKinds]
+    () => (emptyScope ? [] : items.filter((it) => categoryKinds.includes(it.kind))),
+    [items, categoryKinds, emptyScope]
   );
   // The kind column + chips only appear when the category spans MORE THAN ONE kind.
   const showKindCol = categoryKinds.length > 1;
@@ -318,6 +324,22 @@ export function RateMasterDataViewer({
       />
     </div>
   );
+
+  // EA-DIFF: kind-less category -> honest empty state (zero rows, no chips, no Add-row, a note). It
+  // NEVER renders the all-items list. A category may legitimately own no data rows of its own.
+  if (emptyScope) {
+    return (
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="font-medium">{disciplineLabel} / {categoryLabel}</span>
+          <Badge variant="outline">0 items</Badge>
+        </div>
+        <div className="rounded border border-dashed p-6 text-sm text-muted-foreground">
+          This category has no data rows of its own &mdash; its pricing derives from other categories&rsquo; items.
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-3">

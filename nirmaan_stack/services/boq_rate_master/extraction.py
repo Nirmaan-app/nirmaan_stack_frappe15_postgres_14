@@ -281,10 +281,15 @@ def _ai_item(row):
     }
 
 
-def _coerce_value(defn, raw):
+def _coerce_value(defn, raw, synonyms_for_attr=None):
     """Coerce/validate one extracted value against its definition. choice -> must be an allowed
     value (else None; for an identity attribute the allowed values ARE the catalog); number -> a
-    float/int (else None); null stays None."""
+    float/int (else None); null stays None.
+
+    EA-DIFF: `synonyms_for_attr` ({variant: canonical}) maps a returned variant to its canonical BEFORE
+    the choice check -- defence in depth, so a model that echoes the row's variant (e.g. GI) still
+    lands on the canonical (MS) even though the .md prompt was told to map it. Price-interchangeable
+    per business rule."""
     if raw is None:
         return None
     if defn["type"] == "number":
@@ -294,25 +299,37 @@ def _coerce_value(defn, raw):
             return None
         return int(v) if v == int(v) else v
     # choice (incl. the identity catalog)
-    allowed = defn.get("values")
     sval = str(raw)
+    if synonyms_for_attr and sval in synonyms_for_attr:
+        sval = str(synonyms_for_attr[sval])  # variant -> canonical, before the allowed-values check
+    allowed = defn.get("values")
     if allowed and sval not in allowed:
         return None
     return sval
 
 
-def _extract_batch(client, model, prompt_text, attr_defs, rows_batch):
+def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=None):
     """One extraction batch call with retry/backoff. Returns {excel_row: {attr_id: {value,
     confidence}}} for the batch's OWN rows only. Ports ai_voter._ai_batch mechanics (<=20 rows, 3
-    attempts, sleep 2*attempt)."""
+    attempts, sleep 2*attempt).
+
+    EA-DIFF: when `synonyms` ({attr_id: {variant: canonical}}) is configured for the category, a
+    SYNONYMS section + one guidance line are appended to the injected payload (the .md prompt ASSETS
+    stay untouched -- the guidance lives in this wrapper). Absent synonyms -> byte-identical to before.
+    _coerce_value ALSO maps variant->canonical (defence in depth)."""
     payload_items = [_ai_item(r) for r in rows_batch]
     content = (
         prompt_text
         + "\n\nATTRIBUTE_DEFINITIONS:\n"
         + json.dumps(attr_defs, ensure_ascii=False)
-        + "\n\nROWS:\n"
-        + json.dumps(payload_items, ensure_ascii=False)
     )
+    if synonyms:
+        content += (
+            "\n\nSYNONYMS: where a row states a variant key, extract the mapped canonical value "
+            "(these are price-interchangeable per business rule).\n"
+            + json.dumps(synonyms, ensure_ascii=False)
+        )
+    content += "\n\nROWS:\n" + json.dumps(payload_items, ensure_ascii=False)
     batch_ids = {r["excel_row"] for r in rows_batch}
     defs_by_id = {d["id"]: d for d in attr_defs}
     last = None
@@ -334,7 +351,7 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch):
                 row_out = {}
                 for aid, defn in defs_by_id.items():
                     cell = attrs.get(aid) or {}
-                    value = _coerce_value(defn, cell.get("value"))
+                    value = _coerce_value(defn, cell.get("value"), (synonyms or {}).get(aid))
                     try:
                         conf = float(cell.get("confidence"))
                     except (TypeError, ValueError):
@@ -454,7 +471,11 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None):
     for (disc, cat), _grp in groups.items():
         cfg = configs.get((disc, cat)) or {}
         catalog = catalog_values(disc, cfg) if cfg.get("matching_mode") == "item_identity" else None
-        group_ctx[(disc, cat)] = {"defs": build_attribute_defs(cfg, catalog), "prompt": select_prompt_text(cfg)}
+        group_ctx[(disc, cat)] = {
+            "defs": build_attribute_defs(cfg, catalog),
+            "prompt": select_prompt_text(cfg),
+            "synonyms": cfg.get("synonyms"),  # EA-DIFF: {attr_id: {variant: canonical}} or None
+        }
 
     def _defs_for(r):
         return group_ctx[(r["discipline"], r["category_id"])]["defs"]
@@ -485,7 +506,7 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None):
         gc = group_ctx[(disc, cat)]
         for b in range(0, len(grp_rows), _BATCH):
             batch = grp_rows[b : b + _BATCH]
-            ai_out.update(_extract_batch(client, model, gc["prompt"], gc["defs"], batch))
+            ai_out.update(_extract_batch(client, model, gc["prompt"], gc["defs"], batch, gc["synonyms"]))
             done += len(batch)
             if progress_cb:
                 progress_cb(min(done, total), total)

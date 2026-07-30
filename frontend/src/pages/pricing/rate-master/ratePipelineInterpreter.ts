@@ -214,8 +214,18 @@ export function runPipeline(
 
   const snapshot = () => ({ ...ctx });
 
+  // Option C (owner-approved scope addition, EA-DIFF): enforce runPipeline's own "never throws on data
+  // shape" contract. A data-shape problem in a step formula -- an unbound identifier, a malformed
+  // expression (e.g. a `scale` that carries `conditions` whose params the `scale` step never binds, so
+  // the formula references an identifier that is not in scope) -- must degrade to the honest
+  // `unsupported` status for THIS pipeline, so the Rate Master Derivation tab AND the pricing helper
+  // render the honest state and NEVER hit the React error boundary. Contract enforcement, not new
+  // vocabulary; a well-formed pipeline is byte-unaffected.
+  let lastStepType = "";
+  try {
   for (const raw of pipeline.steps) {
     const stepType = (raw as { step: string }).step;
+    lastStepType = stepType;
 
     if (stepType === "match_master_row") {
       const s = raw as import("./rateMasterTypes").MatchMasterRowStep;
@@ -473,6 +483,16 @@ export function runPipeline(
       });
       return { pipelineId, outputs: pipeline.output, status: "unsupported", steps, finals: {}, matchedItem, note: pipeline.note };
     }
+  }
+  } catch (err) {
+    // Data-shape throw (unbound identifier / malformed formula) -> honest `unsupported`, never a crash.
+    steps.push({
+      step: lastStepType || "(formula)",
+      label: `formula could not be evaluated -- ${err instanceof Error ? err.message : String(err)}`,
+      runningValues: snapshot(),
+      unsupported: true,
+    });
+    return { pipelineId, outputs: pipeline.output, status: "unsupported", steps, finals: {}, matchedItem, note: pipeline.note };
   }
 
   const finals: Record<string, number> = {};

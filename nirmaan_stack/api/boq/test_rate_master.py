@@ -65,7 +65,7 @@ class TestRateMaster(FrappeTestCase):
             cls.raw = json.load(fh)
         # EA-1/EA-1b: the all-categories (E-ALL) asset, loaded by path (DEFAULT_DATA_FILE stays wiring).
         cls.eall_path = os.path.join(
-            os.path.dirname(loader.__file__), "data", "rate_master_electrical_all_v9.json"
+            os.path.dirname(loader.__file__), "data", "rate_master_electrical_all_v12.json"
         )
         with open(cls.eall_path, "r", encoding="utf-8") as fh:
             cls.eall = json.load(fh)
@@ -606,26 +606,34 @@ class TestRateMaster(FrappeTestCase):
     def test_23_eall_multi_config_load_counts_and_goldens_merge(self):
         disc = self._new_disc()
         r = loader.load_rate_master(payload=self._eall_payload(disc))
-        # per-kind counts land EXACTLY (EA-2b v7: +10 tray_install_rate rows -> 764)
-        self.assertEqual(r["items_total"], 764)
+        # per-kind counts land EXACTLY (EA-DIFF v11: -4 GI conduit rows, +8 db_install_rate -> 768)
+        self.assertEqual(r["items_total"], 768)
         self.assertEqual(r["items_by_kind"]["cable_tray"], 450)
         self.assertEqual(r["items_by_kind"]["tray_install_rate"], 10)  # EA-2b: the width->install-rate table
         self.assertEqual(r["items_by_kind"]["db_switchgear_item"], 137)
+        self.assertEqual(r["items_by_kind"]["db_install_rate"], 8)  # EA-DIFF: the per-DB install table
+        self.assertEqual(r["items_by_kind"]["conduit"], 8)  # EA-DIFF: GI conduit rows excluded (was 12)
         self.assertEqual(r["items_by_kind"]["earthing_item"], 25)
         self.assertEqual(r["items_by_kind"]["popup_box_module"], 1)
         self.assertNotIn("ups_per_kva", r["items_by_kind"])  # UPS removed by the Floor BOX correction
-        self.assertEqual(r["configs_loaded"], 10)
+        # GI conduit rows are EXCLUDED (retired via replace) -> zero active conduit carries conduit_type GI
+        conduit_gi = [
+            c for c in frappe.get_all("BoQ Rate Master Item", filters={"discipline": disc, "kind": "conduit"}, fields=["attributes"])
+            if _obj(c.attributes).get("conduit_type") == "GI"
+        ]
+        self.assertEqual(len(conduit_gi), 0)
+        self.assertEqual(r["configs_loaded"], 11)  # EA-DIFF: + point_wiring (data-only)
         # ONE shared batch across the whole scope (items + configs)
         item_batches = {
             x.import_batch
             for x in frappe.get_all("BoQ Rate Master Item", filters={"discipline": disc}, fields=["import_batch"])
         }
         self.assertEqual(item_batches, {r["batch"]})
-        # 10 active configs, discipline stamped INTO the config JSON, per-category goldens merged
+        # 11 active configs, discipline stamped INTO the config JSON, per-category goldens merged
         cfgs = frappe.get_all(
             "BoQ Rate Category Config", filters={"discipline": disc, "active": 1}, fields=["category_id", "config"]
         )
-        self.assertEqual(len(cfgs), 10)
+        self.assertEqual(len(cfgs), 11)
         by_cat = {c["category_id"]: _obj(c["config"]) for c in cfgs}
         self.assertEqual(by_cat["earthing"]["discipline"], disc)
         self.assertIn("goldens", by_cat["earthing"])
@@ -639,6 +647,10 @@ class TestRateMaster(FrappeTestCase):
         self.assertIn("lighting_mgmt_system", by_cat)
         self.assertEqual(by_cat["lighting_mgmt_system"]["pipelines"], {})
         self.assertEqual(r["items_by_kind"]["lms_item"], 24)
+        # EA-DIFF: point_wiring is DATA-ONLY too -- empty pipelines, active, banked EA-4 oracle in notes
+        self.assertIn("point_wiring", by_cat)
+        self.assertEqual(by_cat["point_wiring"]["pipelines"], {})
+        self.assertIn("1869", json.dumps(by_cat["point_wiring"].get("notes", "")))
         self.assertNotIn("ups", by_cat)  # no UPS config
 
     def test_24_eall_scoped_replace_preserves_wiring(self):
@@ -654,7 +666,7 @@ class TestRateMaster(FrappeTestCase):
 
         # E-ALL loads WITHOUT replace -- its kinds/categories are disjoint from wiring, no scope overlap
         r1 = loader.load_rate_master(payload=self._eall_payload(disc))
-        self.assertEqual(r1["configs_loaded"], 10)
+        self.assertEqual(r1["configs_loaded"], 11)
         self.assertEqual(r1["items_deactivated"], 0)
         # wiring UNTOUCHED
         self.assertEqual(
@@ -665,10 +677,10 @@ class TestRateMaster(FrappeTestCase):
         with self.assertRaises(frappe.ValidationError):
             loader.load_rate_master(payload=self._eall_payload(disc))
 
-        # replace supersedes ONLY the E-ALL scope (764 items / 10 configs, EA-2b v7), never wiring
+        # replace supersedes ONLY the E-ALL scope (768 items / 11 configs, EA-DIFF v11), never wiring
         r2 = loader.load_rate_master(payload=self._eall_payload(disc), replace=True)
-        self.assertEqual(r2["items_deactivated"], 764)
-        self.assertEqual(r2["configs_deactivated"], 10)
+        self.assertEqual(r2["items_deactivated"], 768)
+        self.assertEqual(r2["configs_deactivated"], 11)
         # THE NAMED INVARIANT: wiring cable/termination still active + wiring_cabling config still active
         self.assertEqual(
             self._active_items(disc, kind="cable") + self._active_items(disc, kind="termination"), 588
@@ -677,7 +689,7 @@ class TestRateMaster(FrappeTestCase):
             frappe.db.count("BoQ Rate Category Config", {"discipline": disc, "category_id": "wiring_cabling", "active": 1}),
             1,
         )
-        # a fresh active E-ALL batch: 764 items, 10 configs
+        # a fresh active E-ALL batch: 768 items, 11 configs
         self.assertEqual(self._active_items(disc, kind="cable_tray"), 450)
         self.assertEqual(
             frappe.db.count("BoQ Rate Category Config", {"discipline": disc, "category_id": "earthing", "active": 1}),
@@ -754,6 +766,21 @@ class TestRateMaster(FrappeTestCase):
         with self.assertRaises(frappe.ValidationError):
             rate_master.update_rate_config(name=cfg_name, config=json.dumps(bad))
         self.assertEqual(frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config"), before)
+
+    # ---- EA-DIFF: the synonyms key is a first-class RM-4b pass-through ----
+    def test_30_update_rate_config_accepts_synonyms(self):
+        # EA-DIFF: a config may carry a top-level `synonyms` map ({attr_id: {variant: canonical}}) --
+        # the extraction prompt injects it and _coerce_value maps it (defence in depth). The RM-4b
+        # whole-config validator must ACCEPT it verbatim (pass-through, not structurally validated),
+        # exactly like item_kinds / pipeline_labels, else editing the conduit config would break.
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._real_payload(disc))
+        cfg_name = self._config_name(disc)
+        cfg = self._full_config(cfg_name)
+        cfg["synonyms"] = {"conduit_type": {"GI": "MS"}}
+        res = rate_master.update_rate_config(name=cfg_name, config=json.dumps(cfg))
+        self.assertTrue(res["ok"])
+        self.assertEqual(self._full_config(cfg_name)["synonyms"], {"conduit_type": {"GI": "MS"}})
 
     # ---- EA-2: relaxed empty-pipelines validator + pass-through keys ----
     def test_27_relaxed_empty_pipelines_accepted_bad_nonempty_rejected(self):

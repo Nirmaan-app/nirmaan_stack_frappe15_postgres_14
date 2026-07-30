@@ -9,6 +9,7 @@ import {
   blankPipeline,
   blankStep,
   categoryItemKinds,
+  isCategoryDataScopeEmpty,
   cloneConfig,
   distinctNumberValues,
   evaluateGoldens,
@@ -171,6 +172,29 @@ describe("EA-1c categoryItemKinds (Data-tab scoping)", () => {
     (cfg as { item_kinds?: string[] }).item_kinds = undefined;
     cfg.pipelines = {};
     expect(categoryItemKinds(cfg)).toEqual([]);
+  });
+});
+
+// EA-DIFF: the empty-scope sentinel -- a category owning no data rows of its own (point_wiring) must
+// resolve TRUE so the Data tab renders an honest empty state, NEVER the discipline-wide all-items list.
+describe("EA-DIFF isCategoryDataScopeEmpty (Data-tab empty-scope sentinel)", () => {
+  it("is TRUE for a kind-less category: empty item_kinds AND empty pipelines (point_wiring)", () => {
+    const cfg = makeConfig();
+    (cfg as { item_kinds?: string[] }).item_kinds = [];
+    cfg.pipelines = {};
+    expect(isCategoryDataScopeEmpty(cfg)).toBe(true);
+    expect(categoryItemKinds(cfg)).toEqual([]); // the sentinel keys on the empty resolved set
+  });
+  it("is FALSE for LMS: declared item_kinds ['lms_item'] with empty pipelines (still owns its rows)", () => {
+    const cfg = makeConfig();
+    (cfg as { item_kinds?: string[] }).item_kinds = ["lms_item"];
+    cfg.pipelines = {};
+    expect(isCategoryDataScopeEmpty(cfg)).toBe(false);
+  });
+  it("is FALSE for a normal category deriving a kind from its pipelines (wiring/conduit)", () => {
+    const cfg = makeConfig(); // cable_boq matches kind 'cable'
+    (cfg as { item_kinds?: string[] }).item_kinds = undefined;
+    expect(isCategoryDataScopeEmpty(cfg)).toBe(false);
   });
 });
 
