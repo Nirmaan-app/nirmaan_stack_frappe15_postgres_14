@@ -1030,6 +1030,17 @@ in the plan doc.
   definition, the rate fields present, unit, source) -- never a hardcoded column list.
 - **Unknown step type = an explicit "unsupported" state, never a silent skip** (forward-compat honesty for
   future step types). A combination with no master row renders an honest no-match with zero computed values.
+- **`runPipeline` NEVER throws on data shape (EA-DIFF Option C, owner-locked):** the step loop is wrapped so a
+  data-shape formula throw (an unbound identifier / malformed expression -- e.g. a `scale` step carrying
+  `conditions`, a shape only `component` binds) DEGRADES to the honest `unsupported` status for that pipeline;
+  the Derivation tab AND the pricing helper render the honest state and NEVER hit the React error boundary. A
+  well-formed pipeline is byte-unaffected. Contract enforcement, not new vocabulary.
+- **Data-Viewer empty-scope rule (EA-DIFF, owner ADDENDUM):** a category whose resolved kind set is EMPTY
+  (declared `item_kinds:[]` AND no pipeline-derivable kind -- `point_wiring`, the first kind-less category)
+  renders an HONEST EMPTY STATE (0 items, no kind chips, no Add-row, a "no data rows of its own" note) via the
+  pure `rateMasterStructure.isCategoryDataScopeEmpty(config)`. It MUST NEVER fall through to the discipline-wide
+  all-items list (the pre-EA-DIFF `: items` fallback surfaced all rows with mixed columns). LMS
+  (`item_kinds:["lms_item"]`, empty pipelines) resolves a kind -> UNCHANGED.
 - **BCS pipelines ARE shown here** (internal transparency surface); only the pricer-facing helper defers BCS.
 - **The viewer search is CASE-SENSITIVE across all displayed cell values** -- the data is canonical
   UPPERCASE, so a mixed-case query intentionally finds nothing (mirrors the RM ethos: no case-insensitive

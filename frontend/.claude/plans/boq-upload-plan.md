@@ -15336,3 +15336,107 @@ BACKEND: `data/rate_master_electrical_all_v9.json` (rename from v7, v8 skipped),
 test_29). FRONTEND: `ratePipelineInterpreter.ts` (the step), `ratePipelineInterpreter.test.ts`,
 `rateMasterTypes.ts` (ComponentRefStep + StepTrace.refItem), `RateMasterDerivation.tsx` (detailFor),
 `rateMasterStructure.ts` (STEP_VOCABULARY + blankStep). The dead EA-2c chamber attempt (v8) left NO source.
+
+## Build slice EA-DIFF (the 29-Jul truth-file cycle: synonyms + point_wiring + GI-conduit + DB three-way split) COMPLETE
+
+The 29-Jul benchmark supersedes the earlier E-ALL asset. Owner-dated 2026-07-30. Asset lineage: v9 -> v12
+(v10 and v11 skipped; v11 was built and imported live during cert, then superseded mid-slice by the owner's
+db_switchgear correction -- see the STOP below). Final asset `rate_master_electrical_all_v12.json`
+(sha256 prefix `a0e5684cacd23269`, 768 items, 11 category configs). Wiring sha `c10509deb4af11dd`
+UNCHANGED across every import (the standing wiring-untouched invariant).
+
+### The four data changes (all in the v12 E-ALL asset)
+- **Synonyms (conduit).** The conduit_piping config carries a top-level `synonyms` map
+  `{"conduit_type": {"GI": "MS"}}` -- price-interchangeable variants per business rule. Consumed TWO ways
+  (defence in depth): `extraction._extract_batch` appends a SYNONYMS section + one guidance line to the
+  injected prompt payload when configured (the `.md` prompt assets stay UNTOUCHED -- the guidance lives in
+  the wrapper), and `extraction._coerce_value(defn, raw, synonyms_for_attr)` maps a returned variant to its
+  canonical BEFORE the allowed-values check. ABSENT synonyms -> byte-identical to before.
+- **GI conduit rows EXCLUDED.** conduit went 12 -> 8 active rows (GI conduit dropped; `conduit_type` values
+  are now [PVC, MS]). A GI conduit description now resolves to the MS row via the synonym, not a GI row.
+- **DB install three-way split.** db_switchgear gains a `db_install_rate` kind (8 rows) + the pipelines
+  `db_install_db` (DB-family: match db_install_rate -> scale x1.5) and `db_install_nondb`
+  (switchgear/enclosure: 15% of the BoQ supply). See the STOP + the component-shape correction below.
+- **point_wiring (data-only category).** A new `point_wiring` category with `pipelines: {}` (authored
+  in-system later) + 13 attribute definitions + a banked EA-4 ORACLE `1869 / 735 / 2604` in `config.notes`
+  (the reference finals a future point_wiring pipeline must reproduce). Added to the registry
+  (`rateMasterRegistry.ts`) so it renders in the Rate Master selector.
+
+### STOP + owner ruling (db_switchgear DB three-way split crashed the interpreter)
+Discovered during the D4 live cert: the v11 `db_install_nondb` pipeline used a **`scale` step carrying
+`conditions`** -- a shape the interpreter's `scale` handler does NOT bind (only `component` /
+`apply_effective_multiplier` resolve `conditions[].params`), so the formula referenced an unbound
+`effective_multiplier`, `evalFormula` threw UNCAUGHT, and `runAllPipelines` white-screened both the Rate
+Master Derivation tab AND the pricing helper. This CONTRADICTED the earlier "DB split uses only existing
+interpreter steps -- STOP-check PASSED" claim (a chat authoring error). STOPPED, wrote a Desktop question
+file, waited. Owner ruling (2026-07-30):
+- **Option A-flat REJECTED** -- the conditions are LOAD-BEARING (they EXCLUDE the DB family from the 15%
+  rule; a flat scale would give DB-family rows two competing install answers).
+- **Option A APPROVED in COMPONENT shape (the v12 asset):** db_install_nondb is rebuilt as
+  `match_master_row -> component (target list_price, conditions Switchgear/Enclosure Box with
+  {effective_multiplier 0.495, install_ratio 0.15}, formula base*effective_multiplier*install_ratio,
+  name install_base) -> sum_components -> roundup(-1)`. A DB-family row matches NO condition -> honest
+  no-compute for THIS pipeline (the intended exclusion; the EA-1 feature-4 contract). Goldens d1/d2
+  unchanged.
+- **Option C APPROVED as an EXPLICIT SCOPE ADDITION (interpreter robustness, NAMED):** enforce
+  `runPipeline`'s own "never throws on data shape" contract. The step loop is wrapped so an unbound
+  identifier / malformed formula (any same-class data-shape throw) DEGRADES to the honest `unsupported`
+  status for that pipeline; the page + helper render the honest state, NEVER the React error boundary.
+  Contract enforcement, not new vocabulary -- a well-formed pipeline is byte-unaffected. **Option B
+  (teach `scale` conditions) stays REJECTED.**
+
+### The empty-scope Data Viewer fix (owner ADDENDUM, in-slice)
+Owner observed during the live cert: selecting point_wiring in the Data Viewer rendered ALL 1356 discipline
+items with mixed columns. Root cause: the category-scoping fallback `categoryKinds.length ? filter : items`
+fell through to the discipline-wide all-items list for a category whose resolved kind set is EMPTY
+(declared `item_kinds: []` AND no pipeline-derivable kind -- point_wiring is the first kind-less category).
+FIX: a NEW pure sentinel `rateMasterStructure.isCategoryDataScopeEmpty(config)` (`categoryItemKinds(config)
+.length === 0`); `RateMasterDataViewer` renders an HONEST EMPTY STATE for it -- 0 items, no kind chips, no
+Add-row, a note "This category has no data rows of its own -- its pricing derives from other categories'
+items." It NEVER falls through to all-items. LMS (`item_kinds: ["lms_item"]`, empty pipelines) resolves a
+kind -> UNCHANGED.
+
+### Cert (browser D1-D5 + server D6; READ-ONLY on real BoQs except the throwaway D3 synthetic sheet)
+- **D1 v12 live** -- conduit batch (v12), `conduit_type` = [PVC, MS] (no GI), synonyms
+  `{conduit_type:{GI:MS}}`, point_wiring in the selector, cable_tray 450 / tray_install_rate 10 / earthing
+  25 unchanged, WIRING sha `c10509deb4af11dd` UNCHANGED (588 items).
+- **D2 conduit compute** -- live Derivation: PVC 25 -> supply 42 / install 10 (8.40 roundup) / bcs 30.
+  Data Viewer PVC/MS only.
+- **D3 REAL-AI synonym run** -- a throwaway synthetic committed sheet with ONE "25mm dia GI conduit" Line
+  Item (qty 100, classified conduit_piping). The REAL extraction (`ai_status: ran`, live key) returned
+  `conduit_type = {value: "MS", confidence: 0.95}` + `size_mm = 25` -- the synonym GI->MS end-to-end
+  through the real model. PRICES AT MS: conduit_type MS / size 25 -> supply 59.50 / install 20 / bcs 42.50
+  (the MS list-85 rates, DISTINCT from PVC's list-60 42/10/30). Cleanup zero-residual (0 nodes, BOQ gone).
+- **D4 DB branches (v12 component shape + Option C)** -- (a) DB & Switchgear Derivation renders WITHOUT
+  crash; (b) 63A FP MCB D CURVE -> db_boq supply 1990 + db_install_nondb install 300
+  (base x 0.495 x 0.15, roundup) + db_bcs 1203; (c) TPN DB 8WAY (DOUBLE DOOR IP 43) -> db_install_db
+  install 1500 (table 1000 x 1.5); (d) a DB-family item shows install ONLY from db_install_db --
+  db_install_nondb's trace: match_master_row matched the db_switchgear_item row, then `component` found NO
+  matching condition (DB excluded) -> no values computed; (e) VTPN DB 8WAY WITH MCB INCOMER (DB-family,
+  ABSENT from the install table) -> install honestly no-compute OVERALL (db_install_db no db_install_rate
+  row + db_install_nondb DB-excluded).
+- **D5 point_wiring (Rate Master selector + addendum empty state)** -- Point Wiring renders the honest
+  empty state (0 items, the note, NO Add-row, NO kind chips); LMS still 24; conduit still 8. Oracle
+  `1869 / 735 / 2604` banked in point_wiring `config.notes`.
+- **D6 suites** -- test_rate_master 30, test_rate_suggest 12, test_pricing 230; vitest rate-master 67
+  (interpreter 38 incl. the 2 Option C tests, structure 21 incl. the 3 empty-scope sentinel tests, edit 8)
+  + rate-helper 30; tsc 0-new; vite build exit 0.
+
+### Env caveat (Windows bind-mount)
+Vite in the container does NOT pick up host-side source edits (the Windows->container inotify gap): a
+host edit leaves vite serving the stale transform even after a browser hard-reload + a container-side
+`touch`. A vite RESTART is required to serve edited frontend source. The DB data (v12) is server-side, so
+it flows via the endpoints with no vite involvement. Full de-stale ritual (clear site data + re-login) was
+run once at cert start.
+
+### Files
+BACKEND: `data/rate_master_electrical_all_v12.json` (rename from v9; v10/v11 skipped -- v11 was a live
+mid-slice intermediate superseded by the db_switchgear correction), `services/boq_rate_master/extraction.py`
+(synonyms injection + `_coerce_value` synonym mapping), `api/boq/rate_master.py` (`_KNOWN_CONFIG_KEYS` +=
+`synonyms`), `services/boq_rate_master/loader.py` (comment only), `test_rate_master.py` (fixture path v9->v12,
+counts 764->768, conduit 8 + db_install_rate 8 + GI-0 + configs 11 assertions, point_wiring data-only +
+oracle, test_30 synonyms round-trip), `test_rate_suggest.py` (test_12 synonyms injection + coercion).
+FRONTEND: `rateMasterRegistry.ts` (point_wiring entry), `RateMasterDataViewer.tsx` (empty-scope honest
+state), `rateMasterStructure.ts` (`isCategoryDataScopeEmpty` sentinel), `rateMasterStructure.test.ts`
+(+3 sentinel tests), `ratePipelineInterpreter.ts` (Option C try/catch honest-degrade),
+`ratePipelineInterpreter.test.ts` (+2 Option C tests).

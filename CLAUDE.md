@@ -452,6 +452,26 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   prior `rmbulk-` batch goes inactive, rows retained). NOTE: `loader.DEFAULT_DATA_FILE` is version-pinned
   to the asset filename (a known wart flagged for a future de-pinning slice), so a rename forces a loader
   edit in lockstep.
+- **29-Jul truth-file cycle (EA-DIFF, owner-locked, current E-ALL benchmark = `rate_master_electrical_all_v12.json`,
+  sha256 prefix `a0e5684cacd23269`, 768 items / 11 configs; asset lineage v9->v12, v10/v11 skipped):** four
+  data changes + two owner-ruled invariants. (1) **Synonyms** — a config may carry top-level `synonyms`
+  `{attr_id:{variant:canonical}}` (conduit `{conduit_type:{GI:MS}}`); consumed TWICE (defence in depth) — the
+  extraction prompt INJECTION (`extraction._extract_batch`, `.md` assets untouched) AND `_coerce_value`
+  variant->canonical mapping BEFORE the allowed-values check. ABSENT => byte-identical. (2) **GI conduit rows
+  EXCLUDED** (`conduit_type` now [PVC,MS]); a GI row prices at MS via the synonym. (3) **point_wiring** — a
+  DATA-ONLY category (`pipelines:{}`, `item_kinds:[]`) with a banked EA-4 oracle `1869/735/2604` in
+  `config.notes`; it is the FIRST kind-less category. (4) **DB install three-way split** (db_switchgear): kind
+  `db_install_rate` + pipelines `db_install_db` (DB-family, scale x1.5) / `db_install_nondb` (switchgear+enclosure,
+  15% of BoQ supply). **OWNER-RULED SHAPE (load-bearing):** `db_install_nondb` MUST be a **`component` step with
+  `conditions`** (NOT `scale` — the interpreter's `scale` does NOT bind `conditions`, only `component` /
+  `apply_effective_multiplier` do; a `scale`+conditions ships an unbound identifier that throws). Its conditions
+  EXCLUDE the DB family (a DB row matches no condition -> honest no-compute, so DB install comes ONLY from
+  `db_install_db`). **THE DEMOTION-STYLE LESSON: `scale` binds only top-level `params`; conditional params require
+  `component`.** (5) **Interpreter robustness (Option C, owner scope-add):** `runPipeline`'s "never throws on data
+  shape" contract is ENFORCED — a data-shape formula throw (unbound identifier / malformed) DEGRADES to the honest
+  `unsupported` status, page + helper NEVER hit the error boundary. The Data-Viewer **empty-scope** rule
+  (`rateMasterStructure.isCategoryDataScopeEmpty`): a kind-less category renders an honest empty state (0 rows,
+  note, no Add-row), NEVER the discipline-wide all-items list; LMS (declares `item_kinds`) is unchanged.
 - **Pipelines are STORED CONFIG, not code:** the four derivation pipelines (cable/termination × BoQ/BCS)
   live in the config JSON and are interpreted downstream — RM-1 stores them faithfully; no interpreter
   ships this slice. Owner-decoded shapes: effective = `(1-discount)*(1+markup)`; termination = lug +
