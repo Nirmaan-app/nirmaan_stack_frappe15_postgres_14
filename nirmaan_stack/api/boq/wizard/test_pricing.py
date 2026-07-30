@@ -47,7 +47,7 @@ from nirmaan_stack.api.boq.wizard.pricing import (
 )
 from nirmaan_stack.api.boq.wizard.commit_gate import get_committed_state
 from nirmaan_stack.api.boq.wizard.classify import get_freeze_summary
-from nirmaan_stack.api.boq.wizard import pricing
+from nirmaan_stack.api.boq.wizard import committed_carry, pricing
 from nirmaan_stack.services.boq_category import persist
 from nirmaan_stack.api.boq.wizard import pricing_lock
 from nirmaan_stack.api.boq.wizard.pricing_lock import (
@@ -4399,6 +4399,349 @@ class TestCopyForwardCategoryGate(FrappeTestCase):
             )
         finally:
             frappe.db.rollback()
+
+
+class TestCopyForwardLayers(FrappeTestCase):
+    """WBC S2 / ADR-0014 Amendment F R1+R2 -- the WITHIN-BoQ version carry moves rates PLUS an opt-in,
+    provenance-stamped subset of committed_carry.LAYER_KEYS, and the category gate moves from a
+    pre-flight check to a POST-CARRY one inside the same transaction.
+
+    R2 reverses the G2c ordering. The invariant is unchanged in words -- no rate may land on an
+    uncategorised row -- but the moment of judgement moves, so the guard can no longer block its own
+    remedy: a destination version has zero category rows the instant it is committed, which shut the
+    gate on the very carry that would populate them.
+
+        before:  lock -> formulas -> CATEGORY GATE -> acquire -> rates -> commit
+        after:   lock -> formulas -> acquire -> CARRY LAYERS -> CATEGORY GATE -> rates -> commit
+
+    Fixture: sheet "CFL Fix ", scalar rate map, no amount columns (trivially formula-complete, so the
+    CATEGORY gate is what bites). Source v1 is superseded and carries every layer; destination v2 is
+    current and starts completely blank -- no categories at all, which is precisely the state the old
+    ordering could not recover from. sheet_name VERBATIM (#152)."""
+
+    _SHEET_DT = "BoQ Sheet"
+    _ROW_CATEGORY = "BoQ Row Category"
+    _MAP = {
+        "B": {"role": "description", "area": None},
+        "C": {"role": "unit", "area": None},
+        "D": {"role": "rate_combined", "area": None},
+    }
+    SHEET = "CFL Fix "  # VERBATIM trailing space (#152)
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "Copy-Forward Layers BoQ"
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq = boq.name
+
+        TestCopyForward._seed_sheet(cls.boq, cls.SHEET, 2, 1, cls._MAP, [
+            {"srn": 50, "node_type": "Line Item", "description": "Item A", "qty": 5.0},
+            {"srn": 51, "node_type": "Line Item", "description": "Item B", "qty": 5.0},
+        ])
+        cls.dest_sheet_v2 = frappe.db.get_value(
+            cls._SHEET_DT, {"boq": cls.boq, "sheet_name": cls.SHEET, "commit_version": 2}, "name")
+        TestCopyForward._seed_sheet(cls.boq, cls.SHEET, 1, 0, cls._MAP, [
+            {"srn": 50, "node_type": "Line Item", "description": "Item A", "qty": 5.0},
+            {"srn": 51, "node_type": "Line Item", "description": "Item B", "qty": 5.0},
+        ])
+        TestCopyForward._price(cls.boq, cls.SHEET, 1, 50, "D", None, "combined_rate", 150.0)
+        TestCopyForward._price(cls.boq, cls.SHEET, 1, 51, "D", None, "combined_rate", 151.0)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        for dt in (cls._ROW_CATEGORY, _REMARK_DT, _COLOR_DT, _DISMISSAL_DT):
+            frappe.db.delete(dt, {"boq": cls.boq})
+        cleanup_committed_fixture(cls.boq)
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        """Reset to: destination v2 completely blank (no rates, NO categories, no annotations,
+        override OFF, unlocked, not classification-frozen), source v1 carrying every layer."""
+        frappe.db.delete(_PRICING, {"boq": self.boq, "committed_version": 2})
+        for dt in (self._ROW_CATEGORY, _REMARK_DT, _COLOR_DT, _DISMISSAL_DT):
+            frappe.db.delete(dt, {"boq": self.boq})
+        frappe.db.delete(_LOCK_DT, {"boq": self.boq})
+        frappe.db.set_value(self._SHEET_DT, self.dest_sheet_v2, {
+            "category_gate_override": 0, "classification_frozen": 0}, update_modified=False)
+        self._seed_source_layers()
+        frappe.db.commit()
+
+    # ── source-side layer seeding ────────────────────────────────────────────────────
+    def _seed_source_layers(self, category_rows=(50, 51)):
+        persist.write_row_categories(self.boq, self.SHEET, 1, "Electrical", [
+            {"excel_row": er, "rule_category_id": "", "ai_category_id": "",
+             "final_category_id": "db_switchgear", "routing": "Auto-accepted"}
+            for er in category_rows
+        ])
+        self._mk(_REMARK_DT, excel_row=50, remark="carried note", remark_version=1,
+                 remarked_at=frappe.utils.now())
+        self._mk(_COLOR_DT, excel_row=50, col_letter="D", color="orange", color_version=1,
+                 colored_at=frappe.utils.now())
+        self._mk(_DISMISSAL_DT, excel_row=50, flag_kind="remark", dismissal_version=1,
+                 dismissed_at=frappe.utils.now(), is_finalized=0)
+
+    def _mk(self, doctype, **fields):
+        d = frappe.new_doc(doctype)
+        d.boq = self.boq
+        d.sheet_name = self.SHEET  # VERBATIM (#152)
+        d.committed_version = 1
+        d.is_current = 1
+        for k, v in fields.items():
+            setattr(d, k, v)
+        d.insert(ignore_permissions=True)
+        return d.name
+
+    # ── call helpers ─────────────────────────────────────────────────────────────────
+    @staticmethod
+    def _choices(*keys, overwrite=False):
+        return {k: {"carry": True, "overwrite": overwrite} for k in keys}
+
+    def _apply(self, layers=None, rows=(50,)):
+        kwargs = {
+            "boq_name": self.boq, "sheet_name": self.SHEET, "from_version": 1,
+            "decisions": json.dumps([
+                {"excel_row": r, "area": None, "rate_kind": "combined_rate"} for r in rows]),
+        }
+        if layers is not None:
+            kwargs["layers"] = json.dumps(layers)
+        return apply_copy_forward(**kwargs)
+
+    def _dest_rate(self, excel_row):
+        return frappe.db.get_value(_PRICING, {
+            "boq": self.boq, "sheet_name": self.SHEET, "committed_version": 2,
+            "excel_row": excel_row, "col_letter": "D", "is_current": 1, "is_filled": 1}, "rate")
+
+    def _dest_count(self, doctype):
+        return frappe.db.count(doctype, {
+            "boq": self.boq, "sheet_name": self.SHEET, "committed_version": 2, "is_current": 1})
+
+    # ── R2: the gate now judges POST-carry state ─────────────────────────────────────
+    def test_r2_carried_categories_open_the_gate_for_the_rates(self):
+        """THE POINT OF THE WHOLE SLICE. The destination has no categories at all, so the old
+        pre-flight gate refused this call outright. Now the categories arrive first and the gate,
+        judging the state the carry produced, lets the rates through -- in ONE action."""
+        res = self._apply(self._choices("categories"), rows=(50, 51))
+        self.assertEqual(res["copied"], 2)
+        self.assertEqual(self._dest_rate(50), 150.0)
+        self.assertEqual(self._dest_rate(51), 151.0)
+        self.assertEqual(res["layers"]["categories"]["carried"], 2)
+
+    def test_r2_without_the_category_layer_the_gate_still_refuses(self):
+        """The gate did not weaken. Untick categories and the destination stays blank, so the same
+        call is refused with the same G3a message family."""
+        with self.assertRaises(frappe.ValidationError) as cm:
+            self._apply(self._choices("remarks"))
+        self.assertIn("Nothing was copied", str(cm.exception))
+        self.assertIsNone(self._dest_rate(50))
+
+    def test_r2_incomplete_source_categories_refuse_and_roll_back_every_layer(self):
+        """R2's explicit condition: if the SOURCE's own categories are incomplete the gate must still
+        refuse -- and the rollback must take the carried layers with it, not just the rates. Source
+        row 51 has no category, so destination row 51 is still blank after the carry."""
+        frappe.db.delete(self._ROW_CATEGORY, {"boq": self.boq, "excel_row": 51})
+        frappe.db.commit()
+        with self.assertRaises(frappe.ValidationError):
+            self._apply(self._choices("categories", "remarks", "colors", "remark_dismissals"),
+                        rows=(50, 51))
+        self.assertIsNone(self._dest_rate(50), "no rate landed")
+        self.assertEqual(self._dest_count(self._ROW_CATEGORY), 0,
+                         "the carried category rolled back with the rates")
+        self.assertEqual(self._dest_count(_REMARK_DT), 0, "the carried remark rolled back")
+        self.assertEqual(self._dest_count(_COLOR_DT), 0, "the carried colour rolled back")
+        self.assertEqual(self._dest_count(_DISMISSAL_DT), 0, "the carried dismissal rolled back")
+
+    def test_r2_a_refused_carry_leaves_a_preexisting_destination_rate_byte_identical(self):
+        """The refusal message still promises "Your existing rates are untouched." R2 moved the gate
+        to AFTER a write, so that promise now needs re-proving on the new ordering."""
+        TestCopyForward._price(self.boq, self.SHEET, 2, 50, "D", None, "combined_rate", 777.0)
+        frappe.db.commit()
+        before = frappe.db.count(_PRICING, {
+            "boq": self.boq, "sheet_name": self.SHEET, "committed_version": 2,
+            "excel_row": 50, "col_letter": "D"})
+        with self.assertRaises(frappe.ValidationError):
+            self._apply(self._choices("remarks"))
+        self.assertEqual(self._dest_rate(50), 777.0, "byte-identical")
+        self.assertEqual(frappe.db.count(_PRICING, {
+            "boq": self.boq, "sheet_name": self.SHEET, "committed_version": 2,
+            "excel_row": 50, "col_letter": "D"}), before,
+            "no superseded history row minted by the refused attempt")
+
+    def test_r2_the_formula_gate_keeps_precedence_over_everything(self):
+        """The mandatory amount-formula gate is ABSOLUTE and still runs FIRST -- before the lock, the
+        layers and the category gate. Nothing may be carried on a formula-incomplete sheet."""
+        amt = "CFL Amt "
+        amt_map = dict(self._MAP, F={"role": "amount_total", "area": None})
+        TestCopyForward._seed_sheet(self.boq, amt, 2, 1, amt_map, [
+            {"srn": 60, "node_type": "Line Item", "description": "Amt A", "qty": 5.0}])
+        TestCopyForward._seed_sheet(self.boq, amt, 1, 0, amt_map, [
+            {"srn": 60, "node_type": "Line Item", "description": "Amt A", "qty": 5.0}])
+        TestCopyForward._price(self.boq, amt, 1, 60, "D", None, "combined_rate", 300.0)
+        persist.write_row_categories(self.boq, amt, 1, "Electrical", [
+            {"excel_row": 60, "rule_category_id": "", "ai_category_id": "",
+             "final_category_id": "db_switchgear", "routing": "Auto-accepted"}])
+        frappe.db.commit()
+        with self.assertRaises(frappe.ValidationError) as cm:
+            apply_copy_forward(
+                boq_name=self.boq, sheet_name=amt, from_version=1,
+                decisions=json.dumps([
+                    {"excel_row": 60, "area": None, "rate_kind": "combined_rate"}]),
+                layers=json.dumps(self._choices("categories")),
+            )
+        self.assertIn("formula", str(cm.exception).lower())
+        self.assertEqual(frappe.db.count(self._ROW_CATEGORY, {
+            "boq": self.boq, "sheet_name": amt, "committed_version": 2}), 0,
+            "the formula gate fires BEFORE the layer carry -- nothing was written")
+
+    # ── R1: the four layers, opt-in ──────────────────────────────────────────────────
+    def test_omitted_layers_is_rates_only(self):
+        """The backend default is "no layers at all" -- a client that never learned about layers keeps
+        getting exactly the old behaviour. The destination is categorised through the live gate here
+        because with no category layer requested there is nothing to open it."""
+        _categorise_fixture_eligible_rows(self.boq, self.SHEET, 2)
+        res = self._apply()
+        self.assertEqual(res["copied"], 1)
+        self.assertEqual(res["layers"], {})
+        self.assertEqual(self._dest_count(_REMARK_DT), 0)
+        self.assertEqual(self._dest_count(_COLOR_DT), 0)
+        self.assertEqual(self._dest_count(_DISMISSAL_DT), 0)
+
+    def test_each_layer_carries_when_ticked(self):
+        res = self._apply(self._choices("categories", "remarks", "colors", "remark_dismissals"))
+        self.assertEqual(res["layers"]["categories"]["carried"], 2)
+        self.assertEqual(res["layers"]["remarks"]["carried"], 1)
+        self.assertEqual(res["layers"]["colors"]["carried"], 1)
+        self.assertEqual(res["layers"]["remark_dismissals"]["carried"], 1)
+        self.assertEqual(self._dest_count(self._ROW_CATEGORY), 2)
+        self.assertEqual(self._dest_count(_REMARK_DT), 1)
+        self.assertEqual(self._dest_count(_COLOR_DT), 1)
+        self.assertEqual(self._dest_count(_DISMISSAL_DT), 1)
+
+    def test_an_unticked_layer_does_not_run_at_all(self):
+        """An absent or carry-False layer is skipped ENTIRELY and omitted from the result, so the
+        summary reports what actually ran rather than rows of zeros the caller must interpret."""
+        res = self._apply({"categories": {"carry": True},
+                           "remarks": {"carry": False},
+                           "colors": {"carry": False}})
+        self.assertEqual(set(res["layers"]), {"categories"})
+        self.assertEqual(self._dest_count(_REMARK_DT), 0)
+        self.assertEqual(self._dest_count(_COLOR_DT), 0)
+        self.assertEqual(self._dest_count(_DISMISSAL_DT), 0)
+
+    def test_every_carried_record_is_provenance_stamped(self):
+        """Amendment E's attribution half, inherited by this seam. Within one BoQ carried_from_boq is
+        that same BoQ, and carried_from_version is what makes the record honest -- it is the only
+        field that says WHICH version this came from."""
+        self._apply(self._choices("categories", "remarks", "colors", "remark_dismissals"))
+        for dt in (self._ROW_CATEGORY, _REMARK_DT, _COLOR_DT, _DISMISSAL_DT):
+            rows = frappe.get_all(dt, filters={
+                "boq": self.boq, "sheet_name": self.SHEET, "committed_version": 2, "is_current": 1},
+                fields=["name", "carried_from_boq", "carried_from_version", "carried_at"])
+            self.assertTrue(rows, dt)
+            for r in rows:
+                self.assertEqual(r.carried_from_boq, self.boq, dt)
+                self.assertEqual(r.carried_from_version, 1, dt)
+                self.assertIsNotNone(r.carried_at, dt)
+
+    def test_a_carried_human_verdict_keeps_the_sources_older_timestamp(self):
+        """Load-bearing, not incidental: resolve_row_ladder breaks a human-vs-human tie on the most
+        recent human_verdict_at, so keeping the carried one OLD is exactly what makes a verdict made
+        on this version outrank a carried one, with no precedence code anywhere."""
+        frappe.db.set_value(self._ROW_CATEGORY, frappe.db.get_value(self._ROW_CATEGORY, {
+            "boq": self.boq, "committed_version": 1, "excel_row": 50}, "name"), {
+            "human_category_id": "db_switchgear", "human_verdict_at": "2020-01-01 00:00:00"},
+            update_modified=False)
+        frappe.db.commit()
+        self._apply(self._choices("categories"))
+        carried = frappe.db.get_value(self._ROW_CATEGORY, {
+            "boq": self.boq, "committed_version": 2, "excel_row": 50, "is_current": 1},
+            ["human_category_id", "human_verdict_at"], as_dict=True)
+        self.assertEqual(carried.human_category_id, "db_switchgear")
+        self.assertEqual(str(carried.human_verdict_at), "2020-01-01 00:00:00")
+
+    def test_formulas_never_carry_in_this_seam_either(self):
+        """ADR-0014 Amendment C, unchanged by R1: formulas are hand-declared per sheet and never
+        carry, in either seam. `formulas` is not a layer key, and asking for it is dropped silently
+        rather than throwing -- so this doubles as the guard that a formula carry cannot be smuggled
+        in through the layers payload."""
+        self.assertNotIn("formulas", committed_carry.LAYER_KEYS)
+        res = self._apply({"categories": {"carry": True}, "formulas": {"carry": True}})
+        self.assertNotIn("formulas", res["layers"])
+        self.assertEqual(frappe.db.count(_FORMULA_DT, {
+            "boq": self.boq, "sheet_name": self.SHEET, "committed_version": 2}), 0)
+
+    def test_a_classification_frozen_destination_takes_no_category_write(self):
+        """The classification freeze guard lives in `carry_category_layer` and is the ONLY one on that
+        path -- routing this seam through `walk_layers` inherits it rather than duplicating it. Frozen
+        is category-only: the rates still carry, and the sheet is silently left uncategorised (so the
+        gate then refuses the rates -- which is the honest outcome, not a bug)."""
+        _categorise_fixture_eligible_rows(self.boq, self.SHEET, 2)
+        frappe.db.set_value(self._SHEET_DT, self.dest_sheet_v2, "classification_frozen", 1,
+                            update_modified=False)
+        frappe.db.commit()
+        before = self._dest_count(self._ROW_CATEGORY)
+        res = self._apply(self._choices("categories", "remarks"))
+        self.assertEqual(res["layers"]["categories"], committed_carry.zero_layer_outcome(),
+                         "a frozen destination takes no category write and reports zeros")
+        self.assertEqual(self._dest_count(self._ROW_CATEGORY), before)
+        self.assertEqual(res["layers"]["remarks"]["carried"], 1, "annotations are unaffected")
+        self.assertEqual(res["copied"], 1, "rates are unaffected by the classification freeze")
+
+    def test_replay_is_idempotent_across_rates_and_layers(self):
+        """Running the same carry twice is safe. Rates freeze-and-supersede to one current row;
+        layers see the destination record they wrote last time and KEEP it (overwrite not armed)."""
+        first = self._apply(self._choices("categories", "remarks", "colors", "remark_dismissals"))
+        self.assertEqual(first["layers"]["remarks"]["carried"], 1)
+        second = self._apply(self._choices("categories", "remarks", "colors", "remark_dismissals"))
+        self.assertEqual(second["layers"]["remarks"]["kept"], 1, "the second run keeps, not doubles")
+        self.assertEqual(second["layers"]["categories"]["kept"], 2)
+        self.assertEqual(self._dest_rate(50), 150.0)
+        for dt, n in ((self._ROW_CATEGORY, 2), (_REMARK_DT, 1), (_COLOR_DT, 1), (_DISMISSAL_DT, 1)):
+            self.assertEqual(self._dest_count(dt), n, f"exactly one current record per identity: {dt}")
+        self.assertEqual(frappe.db.count(_PRICING, {
+            "boq": self.boq, "sheet_name": self.SHEET, "committed_version": 2,
+            "excel_row": 50, "col_letter": "D", "is_current": 1}), 1)
+
+    def test_overwrite_supersedes_a_destination_record(self):
+        # Categories ride along on the first call because the destination starts uncategorised and the
+        # gate is unconditional -- a remarks-only carry into a blank sheet is refused (see
+        # test_r2_without_the_category_layer_the_gate_still_refuses). This is also what the dialog
+        # does: categories default ON.
+        self._apply(self._choices("categories", "remarks"))
+        res = self._apply(self._choices("remarks", overwrite=True))
+        self.assertEqual(res["layers"]["remarks"]["replaced"], 1)
+        self.assertEqual(self._dest_count(_REMARK_DT), 1, "still exactly one current")
+        self.assertEqual(frappe.db.count(_REMARK_DT, {
+            "boq": self.boq, "committed_version": 2, "is_current": 0}), 1, "the prior is frozen")
+
+    # ── the plan endpoint's per-layer preview ────────────────────────────────────────
+    def test_the_plan_previews_every_layer_without_writing(self):
+        """Every layer is planned regardless of what the user has ticked -- the dialog cannot offer a
+        choice it has no counts for, and a layer the user has not yet considered is exactly the one
+        whose numbers they need to see. PURE READ."""
+        res = get_copy_forward_plan(boq_name=self.boq, sheet_name=self.SHEET, from_version=1)
+        self.assertEqual(set(res["layers"]), set(committed_carry.LAYER_KEYS))
+        self.assertEqual(res["layers"]["categories"]["carried"], 2)
+        self.assertEqual(res["layers"]["remarks"]["carried"], 1)
+        self.assertEqual(res["layers"]["colors"]["carried"], 1)
+        self.assertEqual(res["layers"]["remark_dismissals"]["carried"], 1)
+        for dt in (self._ROW_CATEGORY, _REMARK_DT, _COLOR_DT, _DISMISSAL_DT):
+            self.assertEqual(self._dest_count(dt), 0, f"the plan wrote nothing: {dt}")
+
+    def test_the_plan_reports_kept_for_a_destination_record_that_already_exists(self):
+        """overwrite=False is the planning assumption (Keep is the default), so `kept` tells the dialog
+        how many destination rows already hold a record. Arming Overwrite moves those into `replaced`
+        at apply time WITHOUT changing the total -- the dialog needs both numbers to be honest."""
+        self._apply(self._choices("categories", "remarks"))  # categories open the gate (see above)
+        layers = get_copy_forward_plan(
+            boq_name=self.boq, sheet_name=self.SHEET, from_version=1)["layers"]
+        self.assertEqual(layers["remarks"], dict(committed_carry.zero_layer_outcome(), kept=1))
 
 
 class TestRateEditableBlankCount(FrappeTestCase):

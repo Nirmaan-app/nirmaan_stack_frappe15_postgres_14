@@ -2749,7 +2749,9 @@ def get_copy_forward_plan(boq_name=None, sheet_name=None, from_version=None) -> 
     target must be priceable WITHOUT the override), and the dest empty/filled check are ALL computed
     here (the single source of truth; apply re-derives the same). PURE READ.
 
-    Returns {plan, from_version, current_version, current_formulas_complete, counts}.
+    Returns {plan, from_version, current_version, current_formulas_complete, counts, layers}.
+    `layers` (ADR-0014 Amendment F R1) previews what each non-rate layer would do -- see
+    `_copy_forward_layer_preview`.
     URL: /api/method/nirmaan_stack.api.boq.wizard.pricing.get_copy_forward_plan"""
     if not boq_name:
         frappe.throw("boq_name is required.", title="Missing field: boq_name")
@@ -2788,6 +2790,9 @@ def get_copy_forward_plan(boq_name=None, sheet_name=None, from_version=None) -> 
             _sheet_formulas_complete(boq_name, sheet_name, current_version)
         ),
         "counts": counts,
+        "layers": _copy_forward_layer_preview(
+            boq_name, sheet_name, from_version, current_version
+        ),
     }
 
 
@@ -2856,6 +2861,43 @@ def _copy_forward_match(boq_name, sheet_name, from_version, current_version):
         _committed_sheet_docname(boq_name, sheet_name, from_version),
         boq_name,
         _committed_sheet_docname(boq_name, sheet_name, current_version),
+    )
+
+
+def _copy_forward_carry_ctx(boq_name, sheet_name, from_version, current_version):
+    """The layer engine's context for the WITHIN-BoQ version pair. One place builds it, so the plan
+    and the write cannot describe different sheet-versions.
+
+    Same BoQ, same sheet name, DIFFERENT versions -- the mirror image of the cross-BoQ carry's
+    context (different BoQs, possibly different sheet names). The layer engine itself is blind to the
+    distinction: it addresses records by (boq, sheet_name, committed_version, excel_row), and all
+    three of those differ between the two sides here exactly as they do there."""
+    return committed_carry.build_carry_ctx(
+        source_boq=boq_name,
+        source_sheet_name=sheet_name,
+        source_version=from_version,
+        dest_boq=boq_name,
+        dest_sheet_name=sheet_name,
+        dest_version=current_version,
+        twin=_copy_forward_match(
+            boq_name, sheet_name, from_version, current_version
+        ).original_to_revised,
+    )
+
+
+def _copy_forward_layer_preview(boq_name, sheet_name, from_version, current_version) -> dict:
+    """What each non-rate layer WOULD do, in the API's vocabulary. PURE READ -- every walk runs with
+    apply=False.
+
+    EVERY layer is planned regardless of what the user has ticked: the dialog cannot offer a choice it
+    has no counts for, and a layer the user has not yet considered is exactly the one whose numbers
+    they need to see. `overwrite=False` is the planning assumption (Keep is the default), so `kept`
+    reports how many destination rows already hold a record; arming Overwrite moves those into
+    `replaced` at apply time WITHOUT changing the total."""
+    return committed_carry.walk_layers(
+        _copy_forward_carry_ctx(boq_name, sheet_name, from_version, current_version),
+        {key: {"carry": True, "overwrite": False} for key in committed_carry.LAYER_KEYS},
+        apply=False,
     )
 
 
@@ -2969,20 +3011,51 @@ def _build_copy_forward_plan(boq_name, sheet_name, from_version, current_version
 
 
 @frappe.whitelist(methods=["POST"])
-def apply_copy_forward(boq_name=None, sheet_name=None, from_version=None, decisions=None) -> dict:
-    """WRITE, ATOMIC. Copy the user-selected source rates into the CURRENT committed version.
+def apply_copy_forward(boq_name=None, sheet_name=None, from_version=None, decisions=None,
+                       layers=None) -> dict:
+    """WRITE, ATOMIC. Copy the user-selected source rates -- and any ticked non-rate LAYERS -- into the
+    CURRENT committed version.
     `decisions` (a JSON string or list over HTTP) = [{excel_row, area, rate_kind, overwrite}, ...]
     -- presence in the list = "copy this cell"; `overwrite` matters ONLY for a conflict (outcome 3).
 
     The server RE-DERIVES every row's outcome + target column + source rate via the SHARED classifier
     (_build_copy_forward_plan) -- a client-supplied outcome / target col / rate is NEVER trusted, so a
-    crafted POST cannot write a wrong column or an outcome-1 row. Sheet-level gates (deliberate lock,
-    mandatory amount-formula) are checked ONCE up front (a failure aborts the WHOLE apply). ONE
-    single-editor-lock acquire on the current version + ONE commit; on ANY error the whole apply ROLLS
-    BACK (no half-written copy). Writes reuse _write_cell_price_record (freeze-and-supersede + re-arms).
+    crafted POST cannot write a wrong column or an outcome-1 row. ONE single-editor-lock acquire on
+    the current version + ONE commit; on ANY error the whole apply ROLLS BACK (no half-written copy).
+    Writes reuse _write_cell_price_record (freeze-and-supersede + re-arms).
+
+    ⚠️ AMENDMENT F R1: `layers` = {layer_key: {"carry", "overwrite"}}, restricted to
+    `committed_carry.LAYER_KEYS` -- an unknown key is dropped silently so the two sides of the wire can
+    learn about a layer at different times. Omitted / {} -> rates only, byte-identical to the previous
+    behaviour. Layers ride the SAME transaction as the rates: one commit, one rollback, never a
+    half-state. Every carried record is provenance-stamped (`carried_from_boq` = this same BoQ,
+    `carried_from_version` = the source version); FORMULAS never carry, in either seam.
+
+    ⚠️ AMENDMENT F R2 REORDERS THE GATES, reversing the G2c ruling that this path keeps a PRE-FLIGHT
+    category gate:
+
+        was:  lock -> formulas -> CATEGORY GATE -> acquire -> rates -> commit
+        now:  lock -> formulas -> acquire -> CARRY LAYERS -> CATEGORY GATE -> rates -> commit
+
+    The invariant is unchanged WORD FOR WORD -- no rate may land on an uncategorised row. Only the
+    MOMENT OF JUDGEMENT moves, and it has to: every layer's identity includes `committed_version`, so
+    a re-commit mints a destination with zero category rows, and a gate judging PRE-carry state was
+    shutting on the very carry that would populate them. Judging POST-carry state, the guard can no
+    longer block its own remedy.
+
+    Nothing was weakened. If the SOURCE's own categories are incomplete the gate still REFUSES, and
+    the rollback takes the carried layers with it -- there is no path to a rate on a blank row. The
+    mandatory amount-formula gate KEEPS PRECEDENCE and still runs first, before the lock and the
+    layers. The gate is UNCONDITIONAL: an annotations-only carry (no rate decisions) into an
+    uncategorised destination is refused too, exactly as it was before.
+
+    Layers run BEFORE the rate loop here, where `cross_boq_carry` runs them after. Deliberate, and
+    safe: R2 fixes this order, and nothing couples them -- a rate write re-arms only the four COMPUTED
+    dismissal kinds (never `remark`, the one kind that carries) and reconciliation choices, which
+    never carry.
 
     Returns {ok, copied, conflicts_overwritten, conflicts_kept,
-             skipped: {non_match, no_rate_column, non_priceable, invalid}}.
+             skipped: {non_match, no_rate_column, non_priceable, invalid}, layers}.
     URL: /api/method/nirmaan_stack.api.boq.wizard.pricing.apply_copy_forward"""
     if not boq_name:
         frappe.throw("boq_name is required.", title="Missing field: boq_name")
@@ -3002,6 +3075,7 @@ def apply_copy_forward(boq_name=None, sheet_name=None, from_version=None, decisi
     decisions = decisions or []
     if not isinstance(decisions, list):
         frappe.throw("decisions must be a list.", title="Invalid decisions")
+    layers = coerce_layers(layers)  # ONE coercion, shared with the cross-BOQ carry
 
     current_version = frappe.db.get_value(
         _BOQ_SHEET, {"boq": boq_name, "sheet_name": sheet_name, "is_current": 1}, "commit_version"
@@ -3023,26 +3097,52 @@ def apply_copy_forward(boq_name=None, sheet_name=None, from_version=None, decisi
         "conflicts_overwritten": 0,
         "conflicts_kept": 0,
         "skipped": {"non_match": 0, "no_rate_column": 0, "non_priceable": 0, "invalid": 0},
+        "layers": {},
     }
 
     try:
         # SHEET-LEVEL gates -- checked ONCE (a locked sheet / incomplete formulas aborts the WHOLE
         # apply, nothing written). Inside the try so any throw rolls back uniformly.
         _guard_sheet_not_locked(boq_name, sheet_name, current_version)
+        # The MANDATORY amount-formula gate is ABSOLUTE and keeps PRECEDENCE over the category gate
+        # (owner-locked). It runs FIRST -- before the lock and before any layer write -- so a
+        # formula-incomplete sheet costs one cheap read and mutates nothing.
         if not _sheet_formulas_complete(boq_name, sheet_name, current_version):
             frappe.throw(
                 "Every amount column on the current version needs a declared formula before any "
                 "rate can be copied. Define the missing amount formulas first.",
                 title="Formulas incomplete",
             )
-        # CATEGORY GATE (Slice G2c) -- carried rates land on the DESTINATION (current version), so
-        # the DESTINATION's categories govern, exactly as on the save path. Sheet-level, checked
-        # ONCE here (never per row); the admin override is the only escape. Placed AFTER the formula
-        # gate (which keeps precedence) and BEFORE the single-editor acquire, inside the try so it
-        # rolls back uniformly and nothing is written on a block. It throws a COPY-FORWARD-voiced
-        # message (naming the destination + saying nothing was copied + how to re-run) over the
-        # SHARED _categories_gate_ok condition -- NOT _guard_categories_complete, whose save-path
-        # wording ("rate editing is locked") is wrong for a batch carry and is owner-locked.
+        # ONE single-editor-lock acquire on the CURRENT version for the whole batch -- taken BEFORE
+        # the layer writes (R2), so every write in this transaction is made under the lock.
+        acquire_or_refresh(
+            boq_name, sheet_name, current_version, frappe.session.user, now_datetime()
+        )
+
+        # THE NON-RATE LAYERS (Amendment F R1), on the SAME transaction as the rates. Runs BEFORE the
+        # category gate ON PURPOSE -- see R2 in the docstring: a carried category is what OPENS the
+        # gate, so a gate judging pre-carry state was blocking its own remedy. `walk_layers` is the
+        # SHARED dispatch the cross-BOQ carry uses, so a layer cannot be planned one way here and
+        # applied another way there -- and the classification-freeze guard inside
+        # `carry_category_layer` (the ONLY one on that path) is inherited rather than duplicated.
+        if layers:
+            summary["layers"] = committed_carry.walk_layers(
+                _copy_forward_carry_ctx(boq_name, sheet_name, from_version, current_version),
+                layers,
+                apply=True,
+            )
+        # CATEGORY GATE (Slice G2c, REORDERED by Amendment F R2) -- carried rates land on the
+        # DESTINATION (current version), so the DESTINATION's categories govern, exactly as on the
+        # save path. Sheet-level, checked ONCE here (never per row); the admin override is the only
+        # escape. It now judges the state the layer carry ABOVE produced, which is the whole point:
+        # the read sees uncommitted writes made earlier in this transaction (proven by
+        # test_k_gate_sees_uncommitted_category_writes_in_the_same_transaction). A refusal rolls the
+        # carried layers back along with everything else -- nothing is written on a block.
+        #
+        # It throws a COPY-FORWARD-voiced message (naming the destination + saying nothing was copied
+        # + how to re-run) over the SHARED _categories_gate_ok condition -- NOT
+        # _guard_categories_complete, whose save-path wording ("rate editing is locked") is wrong for
+        # a batch carry and is owner-locked.
         if not _categories_gate_ok(boq_name, sheet_name, current_version):
             frappe.throw(
                 f"Nothing was copied. The destination sheet '{sheet_name}' still has rows without a "
@@ -3052,10 +3152,6 @@ def apply_copy_forward(boq_name=None, sheet_name=None, from_version=None, decisi
                 f"is complete.",
                 title="Categories incomplete",
             )
-        # ONE single-editor-lock acquire on the CURRENT version for the whole batch.
-        acquire_or_refresh(
-            boq_name, sheet_name, current_version, frappe.session.user, now_datetime()
-        )
 
         for d in decisions:
             if not isinstance(d, dict):
