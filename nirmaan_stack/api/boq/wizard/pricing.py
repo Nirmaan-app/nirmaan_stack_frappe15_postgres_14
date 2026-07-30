@@ -333,10 +333,13 @@ def _categories_gate_ok(boq_name, sheet_name, committed_version) -> bool:
     Short-circuits when the override is set (no blank query then). Otherwise reuses the counter with
     the DEFAULT population='eligible' -- the SAME function + population get_freeze_summary counts and
     get_priced_rows surfaces (eligible_blank_category_count), so the gate, the freeze count, the
-    banner, and every caller can never disagree. Each caller applies its OWN messaging idiom over
-    this ONE condition: the save path throws via _guard_categories_complete (save-path wording);
-    apply_copy_forward throws its own copy-forward-voiced message inline; cross_boq_carry maps a
-    False to its reason tuple ('categories_incomplete'). sheet_name VERBATIM (#152)."""
+    banner, and every caller can never disagree. sheet_name VERBATIM (#152).
+
+    CALLERS, as of WBC-S10 -- exactly one, `api/boq/rate_master.py`. NEITHER carry path calls it any
+    more: Amendment E removed the gate from `cross_boq_carry` (it never mapped False to a
+    'categories_incomplete' reason -- that reason code does not exist), and S10 removed it from
+    `apply_copy_forward`. The SAVE path does not call it either; it throws via the separate
+    _guard_categories_complete, which threads the blank COUNT into its message."""
     if _get_category_gate_override(boq_name, sheet_name, committed_version):
         return True
     return not blank_category_eligible_rows(
@@ -645,11 +648,14 @@ def _resolve_and_guard_cell(boq_name, sheet_name, excel_row, committed_version, 
     failure (reject-mutates-nothing). Factored out of save_cell_price (UNCHANGED order/behaviour).
     NO lock acquire, NO write, NO commit.
 
-    This is the PER-CELL save path. The two rate carry-forward paths do NOT call it: they gate ONCE
-    up front at the SHEET level, then loop calling _resolve_committed_cell (resolve only) + the
-    shared writer -- apply_copy_forward (this file) and cross_boq_carry._apply_sheet_carry both run
-    the deliberate-lock + formula + category gates as a single sheet-level block (Slice G2c), because
-    those gates are inherently sheet-level and a per-cell call would re-run them K times."""
+    This is the PER-CELL save path, and the ONLY path that runs the CATEGORY gate. The two rate
+    carry-forward paths do NOT call it: they gate ONCE up front at the SHEET level, then loop calling
+    _resolve_committed_cell (resolve only) + the shared writer -- apply_copy_forward (this file) and
+    cross_boq_carry._apply_sheet_carry both run the deliberate-lock + formula gates as a single
+    sheet-level block, because those gates are inherently sheet-level and a per-cell call would re-run
+    them K times. Neither carry path runs the category gate: Amendment E removed it from the cross-BoQ
+    carry and WBC-S10 from the within-BoQ copy, on the owner's rule that the gate stops a HAND-TYPED
+    rate landing on an uncategorised row while a copy moves known values from a known-good source."""
     # The cell must exist in the committed tier (also yields the node pointer + node_type).
     node = _resolve_committed_cell(boq_name, sheet_name, excel_row, committed_version)
     node_name = node["name"]
@@ -3031,28 +3037,34 @@ def apply_copy_forward(boq_name=None, sheet_name=None, from_version=None, decisi
     half-state. Every carried record is provenance-stamped (`carried_from_boq` = this same BoQ,
     `carried_from_version` = the source version); FORMULAS never carry, in either seam.
 
-    ⚠️ AMENDMENT F R2 REORDERS THE GATES, reversing the G2c ruling that this path keeps a PRE-FLIGHT
-    category gate:
+    ⚠️ WBC-S10 (owner ruling) REMOVES THE CATEGORY GATE FROM THIS PATH. The sequence is now:
 
-        was:  lock -> formulas -> CATEGORY GATE -> acquire -> rates -> commit
-        now:  lock -> formulas -> acquire -> CARRY LAYERS -> CATEGORY GATE -> rates -> commit
+        lock -> formulas -> acquire -> CARRY LAYERS -> rates -> commit
 
-    The invariant is unchanged WORD FOR WORD -- no rate may land on an uncategorised row. Only the
-    MOMENT OF JUDGEMENT moves, and it has to: every layer's identity includes `committed_version`, so
-    a re-commit mints a destination with zero category rows, and a gate judging PRE-carry state was
-    shutting on the very carry that would populate them. Judging POST-carry state, the guard can no
-    longer block its own remedy.
+    (G2c had put a PRE-FLIGHT category gate before the acquire; Amendment F R2 moved it after the
+    layer carry; S10 deletes it.)
 
-    Nothing was weakened. If the SOURCE's own categories are incomplete the gate still REFUSES, and
-    the rollback takes the carried layers with it -- there is no path to a rate on a blank row. The
-    mandatory amount-formula gate KEEPS PRECEDENCE and still runs first, before the lock and the
-    layers. The gate is UNCONDITIONAL: an annotations-only carry (no rate decisions) into an
-    uncategorised destination is refused too, exactly as it was before.
+    The owner's reasoning, and it is the SAME reasoning already recorded in `cross_boq_carry` for the
+    revision carry: the gate exists to stop a HAND-TYPED rate landing on an uncategorised row. A copy
+    moves known values from a known-good source, which is a different risk. This is NOT a reversal of
+    Amendment E -- it is that same logic extended to the same-sheet copy.
+
+    Rates still cannot be EDITED until the categories are complete. That protection lives in
+    `_guard_categories_complete` on the SAVE path (`save_cell_price`) and is untouched here. A copy
+    into an uncategorised destination therefore arrives with rates VISIBLE but rate editing LOCKED,
+    the amber banner naming the rows still missing a category -- exactly the shape the revision carry
+    already produces.
+
+    SCOPE, and it is narrow: `save_cell_price` KEEPS the gate, and `_categories_gate_ok` itself stays
+    (it is still `rate_master`'s condition). Do not "restore consistency" by re-adding it here.
+
+    The mandatory amount-formula gate is UNAFFECTED and KEEPS PRECEDENCE -- it still runs FIRST,
+    before the lock and the layers, so a formula-incomplete sheet costs one cheap read and mutates
+    nothing.
 
     Layers run BEFORE the rate loop here, where `cross_boq_carry` runs them after. Deliberate, and
-    safe: R2 fixes this order, and nothing couples them -- a rate write re-arms only the four COMPUTED
-    dismissal kinds (never `remark`, the one kind that carries) and reconciliation choices, which
-    never carry.
+    safe: nothing couples them -- a rate write re-arms only the four COMPUTED dismissal kinds (never
+    `remark`, the one kind that carries) and reconciliation choices, which never carry.
 
     Returns {ok, copied, conflicts_overwritten, conflicts_kept,
              skipped: {non_match, no_rate_column, non_priceable, invalid}, layers}.
@@ -3104,9 +3116,10 @@ def apply_copy_forward(boq_name=None, sheet_name=None, from_version=None, decisi
         # SHEET-LEVEL gates -- checked ONCE (a locked sheet / incomplete formulas aborts the WHOLE
         # apply, nothing written). Inside the try so any throw rolls back uniformly.
         _guard_sheet_not_locked(boq_name, sheet_name, current_version)
-        # The MANDATORY amount-formula gate is ABSOLUTE and keeps PRECEDENCE over the category gate
-        # (owner-locked). It runs FIRST -- before the lock and before any layer write -- so a
-        # formula-incomplete sheet costs one cheap read and mutates nothing.
+        # The MANDATORY amount-formula gate is ABSOLUTE and owner-locked. It runs FIRST -- before the
+        # lock and before any layer write -- so a formula-incomplete sheet costs one cheap read and
+        # mutates nothing. It is the ONLY content gate left on this path (WBC-S10 removed the
+        # category one); a locked sheet and a lock held by another user are the other two refusals.
         if not _sheet_formulas_complete(boq_name, sheet_name, current_version):
             frappe.throw(
                 "Every amount column on the current version needs a declared formula before any "
@@ -3119,10 +3132,8 @@ def apply_copy_forward(boq_name=None, sheet_name=None, from_version=None, decisi
             boq_name, sheet_name, current_version, frappe.session.user, now_datetime()
         )
 
-        # THE NON-RATE LAYERS (Amendment F R1), on the SAME transaction as the rates. Runs BEFORE the
-        # category gate ON PURPOSE -- see R2 in the docstring: a carried category is what OPENS the
-        # gate, so a gate judging pre-carry state was blocking its own remedy. `walk_layers` is the
-        # SHARED dispatch the cross-BOQ carry uses, so a layer cannot be planned one way here and
+        # THE NON-RATE LAYERS (Amendment F R1), on the SAME transaction as the rates. `walk_layers` is
+        # the SHARED dispatch the cross-BOQ carry uses, so a layer cannot be planned one way here and
         # applied another way there -- and the classification-freeze guard inside
         # `carry_category_layer` (the ONLY one on that path) is inherited rather than duplicated.
         if layers:
@@ -3131,28 +3142,6 @@ def apply_copy_forward(boq_name=None, sheet_name=None, from_version=None, decisi
                 layers,
                 apply=True,
             )
-        # CATEGORY GATE (Slice G2c, REORDERED by Amendment F R2) -- carried rates land on the
-        # DESTINATION (current version), so the DESTINATION's categories govern, exactly as on the
-        # save path. Sheet-level, checked ONCE here (never per row); the admin override is the only
-        # escape. It now judges the state the layer carry ABOVE produced, which is the whole point:
-        # the read sees uncommitted writes made earlier in this transaction (proven by
-        # test_k_gate_sees_uncommitted_category_writes_in_the_same_transaction). A refusal rolls the
-        # carried layers back along with everything else -- nothing is written on a block.
-        #
-        # It throws a COPY-FORWARD-voiced message (naming the destination + saying nothing was copied
-        # + how to re-run) over the SHARED _categories_gate_ok condition -- NOT
-        # _guard_categories_complete, whose save-path wording ("rate editing is locked") is wrong for
-        # a batch carry and is owner-locked.
-        if not _categories_gate_ok(boq_name, sheet_name, current_version):
-            frappe.throw(
-                f"Nothing was copied. The destination sheet '{sheet_name}' still has rows without a "
-                f"category - every line item and preamble needs one. Your existing rates are "
-                f"untouched. Categorise the destination, then run the copy-forward again and the "
-                f"rates will come across. An admin can override this to copy before classification "
-                f"is complete.",
-                title="Categories incomplete",
-            )
-
         for d in decisions:
             if not isinstance(d, dict):
                 summary["skipped"]["invalid"] += 1

@@ -17,11 +17,15 @@
  * annotation layers OFF. That asymmetry is a UI default owned by `initialLayerChoices()` -- an
  * omitted `layers` payload is rates only, which is exactly what a pre-S5 client kept getting.
  *
- * ⚠️ Amendment F R2 moved the server's category gate to AFTER the layer carry, so ticking Categories
- * can OPEN a gate that was shut. This dialog deliberately does NOT promise that: the source's own
- * categories may be incomplete, in which case the server still refuses and rolls the whole
- * transaction back. R8 keeps that gate UNCONDITIONAL -- an annotations-only carry into an
- * uncategorised destination is refused too, and the server's refusal is what the user reads.
+ * ⚠️ WBC-S10 removed the server's category gate from this path entirely (G2c added it, Amendment F
+ * R2 reordered it, S10 deleted it). A copy into an uncategorised destination now SUCCEEDS: the rates
+ * land, and rate EDITING stays locked on the pricing grid until the categories are complete. So this
+ * dialog says nothing about categories, and there is nothing to say -- there was never any category
+ * messaging here to remove, only this note to correct.
+ *
+ * The one gate this dialog still mirrors is the MANDATORY amount-formula gate: `!formulasComplete`
+ * both raises the amber banner and disables the layer block + the apply button, because the server
+ * refuses the whole call -- layers included -- while it is unmet.
  *
  * WBC-S3a is a TRUTH-AND-FIT pass over the above, changing no carry behaviour: the box is bounded to
  * the viewport so its footer cannot go off-screen (R-fit), the apply button reports WRITES across
