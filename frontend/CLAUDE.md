@@ -379,8 +379,8 @@ All BoQ wizard / pricing frontend code lives in `src/pages/boq-wizard/`. This se
   (`isRowEditable`). The cell shows the human-readable LABEL (`labelFor`, id fallback) + 3 states via `deriveVerdictState`
   (auto / amber needs-review / emerald "your pick" human verdict). Selecting calls `set_row_category` (`""`=clear) with an
   OPTIMISTIC `categoryOverrides` patch folded into the reference-stable `categoriesByExcelRow` map + `mutateCategories`
-  reconcile + revert-on-error. The needs-review filter is UNCHANGED (a human verdict auto-drops the row via
-  `isNeedsReviewCategory`). Catalog + labels come from the read-only `get_category_catalog(discipline)` endpoint. The
+  reconcile + revert-on-error. The Check-Category filter drops a row once it has a verdict
+  (`isMasterSetBlank`). Catalog + labels come from the read-only `get_category_catalog(discipline)` endpoint. The
   two-engine overlap-conflict fork stays PARKED. `get_category_catalog` labels the ids -- never invent labels client-side.
 - **Blank-eligible clickability + amber "needs a category" fill (CL-6):** the click/Enter editability gate is
   `!!onCategoryClick && (isRowEditable(cat) || (isPriceableType(row.node_type) && hasRun))` — an ELIGIBLE
@@ -442,7 +442,7 @@ All BoQ wizard / pricing frontend code lives in `src/pages/boq-wizard/`. This se
   computed, never persisted, NEVER rendered** (owner ruling, same as `review_priority`); the pure
   `resolvedToSheetCategoryRow` adapter (`sheetCategoryResolve.ts`) DROPS it so it can't reach a
   rendered surface, and maps each resolved row onto the grid's `SheetCategoryRow` so `PricingGrid` +
-  `deriveVerdictState` + `isNeedsReviewCategory` render UNCHANGED (blank rows still blank + amber).
+  `deriveVerdictState` + `isMasterSetBlank` render UNCHANGED (blank rows still blank + amber).
   `ranDisciplines` (the read's `disciplines[]`) drives: one `get_category_catalog` per ran-discipline
   (via child `EngineCatalogFetcher` -- the hook-safe N-dynamic-fetch pattern) into the grouped
   picker (`buildSheetEngineCatalogs`), and per-running-discipline status polling (one child
