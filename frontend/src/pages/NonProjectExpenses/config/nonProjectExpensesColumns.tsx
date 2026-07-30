@@ -96,22 +96,27 @@ export const getNonProjectExpenseColumns = ({
   const canRecordInvoice =
     isAdmin || isPMO || isAccountant || isProcurement || isHR;
   const canApprove = isAdmin; // Requested -> Approved (Admin only)
-  const canMarkPaid = isAdmin || isAccountant; // Approved -> Paid (records payment)
+  const canMarkPaid = isAdmin || isAccountant || isHR; // Approved -> Paid (records payment)
   const canEdit = isAdmin || isPMO || isProcurement || isHR; // Requested-row edit
   const canDelete = isAdmin; // Delete is Admin only
 
   // Actions column visibility: shown only to users who can act on the tab's rows.
-  // Requested/Approved show it to everyone (gated per button); Paid/All -> Admin only.
+  // Requested/Approved show it to everyone (gated per button); Paid -> Admin only.
   // In report/embedded mode the Actions column is hidden entirely.
   const canSeeActionsColumn = disableActions
     ? false
-    : statusTab === "Paid" || statusTab === "All"
+    : statusTab === "Paid"
       ? isAdmin
-      // Approved tab: Procurement/HR have no available action here (Mark-as-Paid
-      // is Admin/Accountant), so hide the empty Actions column for them.
-      : statusTab === "Approved" && (isProcurement || isHR)
-        ? false
-        : true;
+      : statusTab === "All"
+        // The All tab mixes statuses; every button inside the cell is already
+        // gated by the ROW's status, so opening the column to Accountant/HR
+        // surfaces exactly the Mark-as-Paid they have on the Approved tab.
+        ? isAdmin || isAccountant || isHR
+        // Approved tab: Procurement has no available action here (Mark-as-Paid is
+        // Admin/Accountant/HR), so hide the empty Actions column for them.
+        : statusTab === "Approved" && isProcurement
+          ? false
+          : true;
 
   // Invoice Ref opens the invoice attachment — only on the Paid and All tabs.
   const invoiceRefClickable = statusTab === "Paid" || statusTab === "All";
@@ -324,6 +329,28 @@ export const getNonProjectExpenseColumns = ({
     },
   };
 
+  // Who last touched the row. Non-Project has no `payment_by` field, so on the
+  // Paid tab this is the settlement audit trail: the user whose save flipped the
+  // row to Paid (or a later Admin correction).
+  const lastModifiedByColumn: ColumnDef<NonProjectExpenses> = {
+    accessorKey: "modified_by",
+    header: "Last Modified By",
+    size: 160,
+    cell: ({ row }) => (
+      <div className="truncate" title={getUserName(row.original.modified_by)}>
+        {getUserName(row.original.modified_by)}
+      </div>
+    ),
+    enableColumnFilter: true,
+    meta: {
+      // `modified_by` is already in the backend's LINK_FIELD_MAP (User.full_name),
+      // so the self-fetching facet lists real names, not raw login ids.
+      ...facetMeta({ field: "modified_by", title: "Last Modified By" }),
+      exportHeaderName: "Last Modified By",
+      exportValue: (row: NonProjectExpenses) => getUserName(row.modified_by),
+    },
+  };
+
   const invoiceAttachColumn: ColumnDef<NonProjectExpenses> = {
     id: "invoice_attach",
     header: "Inv. Attach",
@@ -505,6 +532,10 @@ export const getNonProjectExpenseColumns = ({
       ? [paymentDateColumn, paymentRefColumn, paymentAttachColumn]
       : []),
     createdByColumn,
+    // Last Modified By is a settlement audit trail — the standalone Paid tab only.
+    // Excluded from report mode (disableActions), which is also Paid-scoped but is
+    // an outflow report, not an audit surface — same precedent as the Status column.
+    ...(statusTab === "Paid" && !disableActions ? [lastModifiedByColumn] : []),
     ...(canSeeActionsColumn ? [actionsColumn] : []),
   ];
 };

@@ -6,6 +6,7 @@ import { HRDashboard } from "@/components/layout/dashboards/dashboard-hr";
 import { ProjectLead } from "@/components/layout/dashboards/dashboard-pl";
 import { ProjectManager } from "@/components/layout/dashboards/dashboard-pm";
 import { EstimatesExecutive } from "@/components/layout/dashboards/estimates-executive-dashboard";
+import { BillingExecutive } from "@/components/layout/dashboards/billing-executive-dashboard";
 import ProcurementDashboard from "@/components/layout/dashboards/procurement-dashboard";
 import { DesignDashboard } from "@/components/layout/dashboards/design-dashboard";
 import { SalesDashboard } from "@/components/layout/dashboards/dashboard-sales";
@@ -55,7 +56,7 @@ export default function Dashboard() {
         <>
 
             {(role === 'Nirmaan Admin Profile' || role === 'Nirmaan PMO Executive Profile') && <DefaultDashboard />}
-            {(has_project === "false" && !["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Design Lead Profile", "Nirmaan Design Executive Profile", "Nirmaan HR Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Sales Executive Profile", "Nirmaan Sales Lead Profile"].includes(role)) ?
+            {(has_project === "false" && !["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Billing Executive Profile", "Nirmaan Design Lead Profile", "Nirmaan Design Executive Profile", "Nirmaan HR Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Sales Executive Profile", "Nirmaan Sales Lead Profile"].includes(role)) ?
                 <Alert className="flex flex-col max-md:w-[80%] max-lg:w-[60%] w-[50%] mx-auto justify-center max-md:mt-[40%] mt-[20%]">
                     <div className="flex gap-2 items-center">
                         <RocketIcon className="h-4 w-4" />
@@ -72,6 +73,7 @@ export default function Dashboard() {
                     {role === 'Nirmaan Project Lead Profile' && <ProjectLead />}
                     {role === 'Nirmaan Procurement Executive Profile' && <ProcurementDashboard />}
                     {role === 'Nirmaan Estimates Executive Profile' && <EstimatesExecutive />}
+                    {role === 'Nirmaan Billing Executive Profile' && <BillingExecutive />}
                     {(role === 'Nirmaan Accountant Profile' || role === 'Nirmaan Accountant Lead Profile') && <Accountant />}
                     {(role === "Nirmaan Design Lead Profile" || role === "Nirmaan Design Executive Profile") && <DesignDashboard />}
                     {role === "Nirmaan HR Executive Profile" && <HRDashboard />}

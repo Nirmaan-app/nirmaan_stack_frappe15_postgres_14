@@ -11,6 +11,7 @@ Updated in v3.0 to use Vendor Invoices doctype instead of Task + JSON.
 
 import frappe
 from frappe.model.document import Document
+from frappe.utils import getdate, today
 from typing import Optional
 import json
 
@@ -81,6 +82,11 @@ def update_invoice_data(
             frappe.throw(f"Invalid JSON format provided for invoice_data: {invoice_data}")
         except ValueError as ve:
             frappe.throw(str(ve))
+
+        # Hard-block future-dated invoices. Unlike the overage check below this
+        # applies to Service Requests too, and to edits as well as creates —
+        # a future invoice date is never legitimate on either document type.
+        _check_invoice_date_not_future(new_invoice_entry_data.get("date"))
 
         # Hard-block amount overage on POs. Even if the frontend allowed a submit
         # (older clients, manual API calls), the server rejects when the total of
@@ -647,4 +653,40 @@ def _check_po_amount_overage(po_name: str, new_amount, exclude_invoice_id: Optio
             f"Total invoiced amount would be ₹{would_be_total:,.2f}, which exceeds "
             f"the PO total of ₹{po_total:,.2f}. Already invoiced ₹{existing:,.2f}. "
             f"Please revise the amount before submitting."
+        )
+
+
+def _check_invoice_date_not_future(invoice_date):
+    """Reject the request if the invoice is dated after today.
+
+    Applies to Procurement Orders AND Service Requests, on create AND edit —
+    deliberately broader than `_check_po_amount_overage`, which is PO-only.
+    A future invoice date is always a data-entry slip or an OCR misread; there
+    is no legitimate case for it on either document type.
+
+    `_auto_approve.evaluate_auto_approve_eligibility` gate 11 detects the same
+    condition, but only routes the invoice to manual review — and reviewers
+    approved them anyway (3 such rows reached Approved in production). This is
+    the durable block; gate 11 stays as defence in depth.
+
+    Raises via `frappe.throw` so the caller's outer `except frappe.ValidationError`
+    returns the message to the frontend toast.
+    """
+    if not invoice_date:
+        return  # required-field validation upstream already covers emptiness
+
+    try:
+        parsed = getdate(invoice_date)
+    except Exception:
+        frappe.throw(
+            f"Invoice date '{invoice_date}' could not be read as a date. "
+            f"Please enter it in YYYY-MM-DD format."
+        )
+
+    today_date = getdate(today())
+    if parsed > today_date:
+        frappe.throw(
+            f"Invoice date {parsed.strftime('%d-%b-%Y')} is in the future. "
+            f"An invoice cannot be dated after today ({today_date.strftime('%d-%b-%Y')}). "
+            f"Please correct the date before submitting."
         )

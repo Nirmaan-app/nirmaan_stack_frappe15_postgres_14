@@ -80,9 +80,16 @@ export const VendorDeliveryNotesTable: React.FC<VendorDeliveryNotesTableProps> =
           <DataTableColumnHeader column={column} title="DN ID" />
         ),
         cell: ({ row }) => (
-          <div className="font-medium text-sm">{row.original.name}</div>
+          <div className="flex items-center gap-1.5">
+            <span className="font-medium text-sm">{row.original.name}</span>
+            <ItemsHoverCard
+              parentDoc={row.original}
+              parentDoctype="Delivery Notes"
+              childTableName="items"
+            />
+          </div>
         ),
-        size: 150,
+        size: 190,
       },
       {
         accessorKey: "procurement_order",
@@ -102,9 +109,11 @@ export const VendorDeliveryNotesTable: React.FC<VendorDeliveryNotesTableProps> =
               >
                 {poId}
               </Link>
+              {/* Book on PO ID shows the SOURCE PO's full item list (ordered qty + rate),
+                  not this DN's delivered subset — that lives on the DN ID book. */}
               <ItemsHoverCard
-                parentDoc={row.original}
-                parentDoctype="Delivery Notes"
+                parentDoc={{ name: poId }}
+                parentDoctype="Procurement Orders"
                 childTableName="items"
               />
             </div>

@@ -23,7 +23,12 @@ import { formatDate } from 'date-fns';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import SITEURL from "@/constants/siteURL";
 import { parseNumber } from "@/utils/parseNumber";
+import { cn } from "@/lib/utils";
 import { FacetDeclaration } from "@/components/data-table/facetConfig";
+import {
+    describeApprovalNarrative,
+    summariseSkipReasons,
+} from "@/pages/tasks/invoices/utils/autoApproveReasons";
 import { humanizeEntityType, formatEntityValue, confColorClass } from "@/pages/tasks/invoices/utils/autofillEntityDisplay";
 /**
  * Maps Document AI entity types (snake_case) to human-readable labels.
@@ -121,8 +126,6 @@ const InvoiceAmtHoverCell: React.FC<{
     const { poItemsByRow, poItemsById } = usePoItemTotals(invoice.document_name, candidate);
 
     const amount = formatToRoundedIndianRupee(parseNumber(invoice.invoice_amount));
-    // Clicking opens the dialog for THIS invoice only (not the whole document).
-    const dialogInvoices = [invoice];
 
     return (
         <>
@@ -178,7 +181,6 @@ const InvoiceAmtHoverCell: React.FC<{
         <InvoiceDataDialog
             open={dialogOpen}
             onOpenChange={setDialogOpen}
-            vendorInvoices={dialogInvoices}
             visibleStatuses={["Pending", "Approved", "Rejected"]}
             project={invoice.project}
             poNumber={invoice.document_name}
@@ -190,46 +192,179 @@ const InvoiceAmtHoverCell: React.FC<{
 };
 
 /**
- * "Invoice Total" cell — the running total for the parent PO/SR, clickable to
- * open the InvoiceDataDialog (the same dialog the All-POs table uses) listing
- * that document's invoices + per-invoice item mapping. The invoice list is
- * already in memory (from useTotalInvoicedByDocument) — the dialog only fetches
- * PO items / line mappings when opened.
+ * ₹ tolerance before an invoiced total counts as breaching the parent's value.
+ * MUST match the backend's `_check_po_amount_overage` threshold in
+ * `api/delivery_notes/update_invoice_data.py` — what shows amber here is
+ * exactly what the server would reject the next invoice for.
+ */
+const OVERAGE_TOLERANCE_RUPEES = 10;
+
+/**
+ * "Invoiced on PO/WO" cell — the running total of every Pending + Approved
+ * invoice on this row's PARENT document, rendered as a fraction of the parent's
+ * own value so remaining headroom is readable at a glance.
+ *
+ * Note the scope: this is a GROUP aggregate shown at row altitude, so it repeats
+ * identically across every row of the same parent. The "(all invoices)"
+ * sub-header and the denominator are what keep that legible — without them it
+ * reads as a duplicate of the row's own "Invoice Amt".
+ *
+ * Clicking opens the InvoiceDataDialog (the same dialog the All-POs table uses)
+ * listing that document's invoices + per-invoice item mapping. The invoice list
+ * is already in memory (from useTotalInvoicedByDocument) — the dialog only
+ * fetches PO items / line mappings when opened.
  */
 const InvoiceTotalCell: React.FC<{
     invoice: VendorInvoice;
     getTotalInvoiced?: (docName: string, docType: string) => number;
-    getInvoicesFor?: (docName: string, docType: string) => VendorInvoice[];
     getVendorName?: (orderId: string, type: string) => string;
-}> = ({ invoice, getTotalInvoiced, getInvoicesFor, getVendorName }) => {
+    /** Parent PO/WO value incl. GST — the fraction's denominator. */
+    parentTotal?: number;
+}> = ({ invoice, getTotalInvoiced, getVendorName, parentTotal }) => {
     const [open, setOpen] = useState(false);
 
     if (!getTotalInvoiced) return <span className="text-gray-400 italic">—</span>;
     const total = getTotalInvoiced(invoice.document_name, invoice.document_type);
     if (!total) return <span className="text-gray-400 italic">—</span>;
 
-    const invoices = getInvoicesFor?.(invoice.document_name, invoice.document_type) || [];
+    // No parent value (0 / unset / still loading) → show the total alone rather
+    // than a meaningless "/ ₹0".
+    const denominator = parentTotal && parentTotal > 0 ? parentTotal : null;
+    const isOverage =
+        denominator !== null && total > denominator + OVERAGE_TOLERANCE_RUPEES;
 
     return (
         <>
             <div
-                className="underline cursor-pointer text-blue-600 hover:text-blue-800"
+                className={cn(
+                    "cursor-pointer",
+                    isOverage
+                        ? "text-amber-700 hover:text-amber-900"
+                        : "text-blue-600 hover:text-blue-800"
+                )}
                 onClick={() => setOpen(true)}
-                title="View invoices for this document"
+                title={
+                    denominator !== null
+                        ? `${formatToRoundedIndianRupee(total)} invoiced of ${formatToRoundedIndianRupee(denominator)}${isOverage ? " — exceeds the order value" : ""}. Click to view invoices.`
+                        : "View invoices for this document"
+                }
             >
-                {formatToRoundedIndianRupee(total)}
+                <span className="underline">{formatToRoundedIndianRupee(total)}</span>
+                {denominator !== null && (
+                    <span className="text-gray-500 whitespace-nowrap">
+                        {" / "}
+                        {formatToRoundedIndianRupee(denominator)}
+                    </span>
+                )}
             </div>
             <InvoiceDataDialog
                 open={open}
                 onOpenChange={setOpen}
-                vendorInvoices={invoices}
                 visibleStatuses={["Pending", "Approved"]}
-                project={invoice.project || invoices[0]?.project}
+                project={invoice.project}
                 poNumber={invoice.document_name}
                 documentType={invoice.document_type}
                 vendor={getVendorName?.(invoice.document_name, invoice.document_type)}
             />
         </>
+    );
+};
+
+/**
+ * "Not Auto-Approved Reason" cell — why the system did NOT auto-approve this
+ * invoice.
+ *
+ * `auto_approve_skip_reasons` has been persisted since the 13-gate check
+ * shipped, and until now nothing rendered it. The tiering + cascade collapse
+ * live in the pure `autoApproveReasons` module; this cell only paints them.
+ */
+const AutoApproveReasonCell: React.FC<{ invoice: VendorInvoice }> = ({ invoice }) => {
+    const summary = summariseSkipReasons(invoice);
+    const narrative = describeApprovalNarrative(invoice, summary);
+
+    if (narrative === "auto") {
+        return (
+            <Badge variant="green" className="text-[10px] px-1.5 py-0 whitespace-nowrap">
+                Auto-approved
+            </Badge>
+        );
+    }
+    if (narrative === "clean") {
+        return <span className="text-gray-400 italic">—</span>;
+    }
+
+    // Eligibility-only rows (a manual entry / a WO) were never candidates —
+    // state that plainly instead of dressing it as a failure.
+    if (summary.flags.length === 0) {
+        return (
+            <span className="text-[11px] text-gray-500">
+                {summary.eligibility.map((r) => r.label).join(" · ")}
+            </span>
+        );
+    }
+
+    const top = summary.flags[0];
+    const extra = summary.flags.length - 1;
+    const tone =
+        summary.highestTier === "blocker"
+            ? "text-red-700 bg-red-50 border-red-200"
+            : summary.highestTier === "check"
+                ? "text-amber-800 bg-amber-50 border-amber-200"
+                : "text-gray-600 bg-gray-50 border-gray-200";
+
+    return (
+        <HoverCard openDelay={150} closeDelay={100}>
+            <HoverCardTrigger asChild>
+                <div className={cn("inline-flex items-center gap-1 rounded border px-1.5 py-0.5 cursor-default max-w-[210px]", tone)}>
+                    <span className="text-[11px] truncate">{top.label}</span>
+                    {extra > 0 && (
+                        <span className="text-[10px] font-semibold shrink-0">+{extra}</span>
+                    )}
+                </div>
+            </HoverCardTrigger>
+            <HoverCardContent className="w-80 p-0 overflow-hidden" align="end">
+                <div className="bg-gray-50 border-b px-3 py-2">
+                    <span className="text-xs font-medium text-gray-900">
+                        {narrative === "approved-with-flags"
+                            ? "Approved despite these flags"
+                            : "Not auto-approved because"}
+                    </span>
+                </div>
+                <ul className="p-2 space-y-1">
+                    {summary.flags.map((reason) => (
+                        <li key={reason.token} className="flex items-start gap-1.5 text-[11px]">
+                            <span
+                                className={cn(
+                                    "mt-1 h-1.5 w-1.5 rounded-full shrink-0",
+                                    reason.tier === "blocker"
+                                        ? "bg-red-500"
+                                        : reason.tier === "check"
+                                            ? "bg-amber-500"
+                                            : "bg-gray-400"
+                                )}
+                            />
+                            <span className="text-gray-800">{reason.label}</span>
+                        </li>
+                    ))}
+                </ul>
+                {(summary.eligibility.length > 0 || summary.suppressedCount > 0) && (
+                    <div className="border-t px-3 py-2 text-[10px] text-gray-500 space-y-0.5">
+                        {summary.eligibility.map((r) => (
+                            <div key={r.token}>{r.label}</div>
+                        ))}
+                        {summary.suppressedCount > 0 && (
+                            <div>
+                                {summary.suppressedCount} further AI check
+                                {summary.suppressedCount === 1 ? "" : "s"} not applicable
+                            </div>
+                        )}
+                    </div>
+                )}
+                <div className="border-t bg-gray-50 px-3 py-1.5 text-[10px] text-gray-500">
+                    Recorded when the invoice was created; not re-checked after edits.
+                </div>
+            </HoverCardContent>
+        </HoverCard>
     );
 };
 
@@ -246,8 +381,8 @@ const getCommonColumns = (
     // (document_type + document_name) AND status in ['Pending', 'Approved'].
     // Same scope as `_existing_invoiced_sum` used by autofill validation.
     getTotalInvoiced?: (docName: string, docType: string) => number,
-    // Returns the individual invoices composing that total (for the hover breakdown).
-    getInvoicesFor?: (docName: string, docType: string) => VendorInvoice[]
+    // Resolves a user id to a display name, for the "Invoice Added By" column.
+    getUserName?: (id: string | undefined) => string
 ): ColumnDef<VendorInvoice>[] => [
         {
             accessorKey: "document_name",
@@ -293,6 +428,34 @@ const getCommonColumns = (
             meta: {
                 exportHeaderName: "Type",
                 exportValue: (row: VendorInvoice) => row.document_type === "Procurement Orders" ? "PO" : "WO"
+            }
+        },
+        {
+            // Who entered the invoice. Reads `uploaded_by`, NOT `owner`: on 2,864 of
+            // 5,042 live rows `owner` is "Administrator" (a bulk-load artifact) while
+            // `uploaded_by` carries the actual person. The PO/WO Invoices tabs already
+            // surface this same field as "Invoice Uploaded By".
+            accessorKey: "uploaded_by",
+            id: "uploaded_by",
+            header: ({ column }) => (
+                <DataTableColumnHeader
+                    column={column}
+                    title={<span className="whitespace-normal leading-tight inline-block">Invoice Added By</span>}
+                />
+            ),
+            cell: ({ row }) => {
+                const userId = row.original.uploaded_by;
+                if (!userId) return <span className="text-gray-400 italic">—</span>;
+                return <div className="font-medium">{getUserName?.(userId) || userId}</div>;
+            },
+            size: 150,
+            enableColumnFilter: true,
+            filterFn: (row, id, value) => value.includes(row.getValue(id)),
+            meta: {
+                facet: { field: "uploaded_by", title: "Invoice Added By" } satisfies FacetDeclaration,
+                exportHeaderName: "Invoice Added By",
+                exportValue: (row: VendorInvoice) =>
+                    getUserName?.(row.uploaded_by) || row.uploaded_by || ""
             }
         },
         {
@@ -417,26 +580,34 @@ const getCommonColumns = (
             }
         },
         {
-            // Running total invoiced against this row's parent PO/SR — sum of
-            // invoice_amount for all Pending+Approved invoices with same
-            // (document_type + document_name). Same value across all rows of
-            // the same parent, matches `_existing_invoiced_sum` used by autofill
-            // validation. Reviewers can compare this against the PO total to
-            // see how much of the order has been invoiced so far.
+            // Running total invoiced against this row's PARENT PO/WO — the sum of
+            // invoice_amount across every Pending+Approved invoice sharing this
+            // (document_type + document_name), shown over the parent's own value.
+            //
+            // Identical to the server's `_existing_invoiced_sum`, so the fraction
+            // is exactly what `_check_po_amount_overage` compares when it accepts
+            // or rejects the next invoice on this order.
             id: "total_invoiced_for_parent",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Invoice Total" />,
+            header: ({ column }) => (
+                <DataTableColumnHeader
+                    column={column}
+                    title={<span className="whitespace-normal leading-tight inline-block">Invoiced on PO/WO<br />(all invoices)</span>}
+                />
+            ),
             cell: ({ row }) => (
                 <InvoiceTotalCell
                     invoice={row.original}
                     getTotalInvoiced={getTotalInvoiced}
-                    getInvoicesFor={getInvoicesFor}
                     getVendorName={getVendorName}
+                    parentTotal={parseNumber(
+                        getTotalAmount?.(row.original.document_name, row.original.document_type)?.totalWithTax
+                    )}
                 />
             ),
-            size: 160,
+            size: 190,
             enableSorting: false,
             meta: {
-                exportHeaderName: "Invoice Total (Pending + Approved)",
+                exportHeaderName: "Invoiced on PO/WO (Pending + Approved)",
                 exportValue: (row: VendorInvoice) =>
                     getTotalInvoiced
                         ? getTotalInvoiced(row.document_name, row.document_type)
@@ -460,6 +631,34 @@ const getCommonColumns = (
                 exportValue: (row: VendorInvoice) => row.invoice_date
             }
         },
+        {
+            // Why the system didn't auto-approve. Reads `auto_approve_skip_reasons`,
+            // which the 13-gate check has been writing since it shipped but nothing
+            // rendered. On the history table it also exposes flags a human approved
+            // past. Both fields are already in the table's fetch list.
+            id: "auto_approve_skip_reasons",
+            header: ({ column }) => (
+                <DataTableColumnHeader
+                    column={column}
+                    title={<span className="whitespace-normal leading-tight inline-block">Not Auto-Approved<br />Reason</span>}
+                />
+            ),
+            cell: ({ row }) => <AutoApproveReasonCell invoice={row.original} />,
+            size: 220,
+            enableSorting: false,
+            meta: {
+                exportHeaderName: "Not Auto-Approved Reason",
+                exportValue: (row: VendorInvoice) => {
+                    if (row.auto_approved === 1) return "Auto-approved";
+                    const summary = summariseSkipReasons(row);
+                    const parts = [
+                        ...summary.flags.map((r) => r.label),
+                        ...summary.eligibility.map((r) => r.label),
+                    ];
+                    return parts.join("; ");
+                }
+            }
+        },
     ];
 
 /**
@@ -475,9 +674,9 @@ export const getPendingTaskColumns = (
     getDeliveredAmount?: (orderId: string, type: string) => number,
     getVendorName?: (orderId: string, type: string) => string,
     getTotalInvoiced?: (docName: string, docType: string) => number,
-    getInvoicesFor?: (docName: string, docType: string) => VendorInvoice[]
+    getUserName?: (id: string | undefined) => string
 ): ColumnDef<VendorInvoice>[] => [
-        ...getCommonColumns(attachmentsMap, getTotalAmount, getAmount, getDeliveredAmount, getVendorName, getTotalInvoiced, getInvoicesFor),
+        ...getCommonColumns(attachmentsMap, getTotalAmount, getAmount, getDeliveredAmount, getVendorName, getTotalInvoiced, getUserName),
         {
             id: "actions",
             header: () => <div className="">Actions</div>,
@@ -542,10 +741,9 @@ export const getTaskHistoryColumns = (
     getDeliveredAmount?: (orderId: string, type: string) => number,
     getAmount?: (orderId: string, statuses: string[]) => number,
     getVendorName?: (orderId: string, type: string) => string,
-    getTotalInvoiced?: (docName: string, docType: string) => number,
-    getInvoicesFor?: (docName: string, docType: string) => VendorInvoice[]
+    getTotalInvoiced?: (docName: string, docType: string) => number
 ): ColumnDef<VendorInvoice>[] => [
-        ...getCommonColumns(attachmentsMap, getTotalAmount, getAmount, getDeliveredAmount, getVendorName, getTotalInvoiced, getInvoicesFor),
+        ...getCommonColumns(attachmentsMap, getTotalAmount, getAmount, getDeliveredAmount, getVendorName, getTotalInvoiced, getUserName),
         {
             accessorKey: "status",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,

@@ -38,6 +38,7 @@ export const VendorApprovedQuotesTable: React.FC<
       "name",
       "item_id",
       "quote",
+      "quantity",
       "creation",
       "procurement_order",
       "unit",

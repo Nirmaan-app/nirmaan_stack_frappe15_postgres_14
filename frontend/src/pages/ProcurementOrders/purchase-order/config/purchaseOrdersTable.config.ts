@@ -43,7 +43,7 @@ export const getReleasePOSelectStaticFilters = (tab: string, role?: string): Arr
     ];
 
     if (tab === "All POs") {
-        if (role === "Nirmaan Estimates Executive Profile") {
+        if (role === "Nirmaan Estimates Executive Profile" || role === "Nirmaan Billing Executive Profile") {
             return [["status", "in", ["PO Approved", "Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"]]];
         }
         else return [];

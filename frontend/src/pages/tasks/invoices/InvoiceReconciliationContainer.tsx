@@ -5,6 +5,7 @@ import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { getUrlStringParam } from '@/hooks/useServerDataTable';
 import { urlStateManager } from '@/utils/urlStateManager';
 
+const InvoiceSummaryCards = React.lazy(() => import('./components/InvoiceSummaryCards'));
 const TaskHistoryTable = React.lazy(() => import('./components/TaskHistoryTable'));
 const PendingTasksTable = React.lazy(() => import('./components/PendingTasksTable'));
 const AllPoInvocies=React.lazy(()=>import('./components/PoInvoices'))
@@ -106,7 +107,16 @@ export default function InvoiceReconciliationContainer() {
                     </div>
                 </div>
             </div>
-                
+
+            {/* Global activity summary — identical on every tab (it never follows
+                the tables' filters). Sits BELOW the tab strip so navigation is the
+                first thing reachable on the screen. Suspended separately from the
+                tables so a slow summary never delays them. */}
+            <div className="pb-4">
+                <Suspense fallback={null}>
+                    <InvoiceSummaryCards />
+                </Suspense>
+            </div>
 
                 <Suspense fallback={
                     <LoadingFallback />

@@ -397,7 +397,11 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   const isPrivilegedUser = PRIVILEGED_ROLES.includes(role);
   const isAccountant = role === "Nirmaan Accountant Profile" || role === "Nirmaan Accountant Lead Profile";
   const isProcurementExecutive = role === "Nirmaan Procurement Executive Profile";
-  const isEstimatesExecutive = role === "Nirmaan Estimates Executive Profile";
+  // Billing Executive is a view-only mirror of Estimates Executive (minus pricing/BoQ) --
+  // it inherits every Estimates-Executive gate on this page EXCEPT BoQ (see the BoQ
+  // tab exclusion below).
+  const isEstimatesExecutive = role === "Nirmaan Estimates Executive Profile" || role === "Nirmaan Billing Executive Profile";
+  const isBilling = role === "Nirmaan Billing Executive Profile";
   const isProjectManager = role === "Nirmaan Project Manager Profile";
   const isSales = role === "Nirmaan Sales Executive Profile" || role === "Nirmaan Sales Lead Profile";
 
@@ -434,24 +438,29 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   ]), []);
 
   // Allowed tabs for Estimates Executive
-  const estimatesExecutiveAllowedTabs = useMemo<Set<ProjectPageTabValue>>(() => new Set([
-    PROJECT_PAGE_TABS.WORK_REPORT,
-    PROJECT_PAGE_TABS.SCHEDULE,
-    PROJECT_PAGE_TABS.SEVEN_DAY_PLANNING,
-    PROJECT_PAGE_TABS.CRITICAL_POS,
-    PROJECT_PAGE_TABS.DESIGN_TRACKER,
-    PROJECT_PAGE_TABS.FINANCIALS,
-    PROJECT_PAGE_TABS.SR_SUMMARY,
-    PROJECT_PAGE_TABS.PO_SUMMARY,
-    PROJECT_PAGE_TABS.MATERIAL_USAGE,
-    PROJECT_PAGE_TABS.TRANSFER_MEMOS,
-    PROJECT_PAGE_TABS.ESTIMATES,
-    PROJECT_PAGE_TABS.DC_MIR,
-    PROJECT_PAGE_TABS.TDS_REPOSITORY,
-    PROJECT_PAGE_TABS.BULK_DOWNLOAD,
-    PROJECT_PAGE_TABS.COMMISSION_REPORT,
-    PROJECT_PAGE_TABS.BOQ,
-  ]), []);
+  const estimatesExecutiveAllowedTabs = useMemo<Set<ProjectPageTabValue>>(() => {
+    const tabs = new Set<ProjectPageTabValue>([
+      PROJECT_PAGE_TABS.WORK_REPORT,
+      PROJECT_PAGE_TABS.SCHEDULE,
+      PROJECT_PAGE_TABS.SEVEN_DAY_PLANNING,
+      PROJECT_PAGE_TABS.CRITICAL_POS,
+      PROJECT_PAGE_TABS.DESIGN_TRACKER,
+      PROJECT_PAGE_TABS.FINANCIALS,
+      PROJECT_PAGE_TABS.SR_SUMMARY,
+      PROJECT_PAGE_TABS.PO_SUMMARY,
+      PROJECT_PAGE_TABS.MATERIAL_USAGE,
+      PROJECT_PAGE_TABS.TRANSFER_MEMOS,
+      PROJECT_PAGE_TABS.ESTIMATES,
+      PROJECT_PAGE_TABS.DC_MIR,
+      PROJECT_PAGE_TABS.TDS_REPOSITORY,
+      PROJECT_PAGE_TABS.BULK_DOWNLOAD,
+      PROJECT_PAGE_TABS.COMMISSION_REPORT,
+      PROJECT_PAGE_TABS.BOQ,
+    ]);
+    // Billing Executive has no BoQ access -- hide the BoQ tab (it would 403 on BOQs).
+    if (isBilling) tabs.delete(PROJECT_PAGE_TABS.BOQ);
+    return tabs;
+  }, [isBilling]);
 
   // Redirect users to allowed tab if on restricted tab
   useEffect(() => {

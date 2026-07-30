@@ -27,7 +27,35 @@ yarn build
 ```bash
 yarn test-local
 # Opens Cypress E2E tests in Chrome browser
+
+yarn test
+# vitest, environment: "node" -- unit tests only. NOT run by CI (.github/workflows/ci.yml runs
+# the Python bench suite only), so this is a LOCAL gate.
 ```
+
+**There is NO DOM test environment** — no jsdom / happy-dom / `@testing-library`, a deliberate
+choice recorded in `vitest.config.ts`. **Load-bearing consequence:** anything whose correctness is
+a React *semantic* — a component mounting, unmounting, or preserving state across a render — is
+STRUCTURALLY untestable here; only pure in/out helpers can be covered, and a pure helper extracted
+from such a component passes happily while the component itself misbehaves. (Same trap the Pricing
+Module records at PW-2b-i: the tests assert the emitted formula TEXT and cannot see that the engine
+mis-reads it at runtime.) When a change turns on a React semantic, the honest verification is a
+live browser A/B — revert, reproduce, restore, re-verify — not a unit test.
+
+**App-shell invariant (guarded by nothing but this note + a comment in the file):** the navigation
+reset in `components/common/ErrorBoundaryWrapper.tsx` MUST NOT be a React `key`. A changing `key`
+is an unmount instruction, and that boundary wraps `<Outlet />` in `MainLayout` — keying it on the
+location rebuilds EVERY routed page on EVERY navigation, and silently destroys page state on a
+same-route param change (the BoQ pricing editor's sheet-tab strip is exactly that shape). Reset it
+by comparing a `resetKey` prop instead.
+
+> **DEFERRED — owner reminder:** add a DOM environment so the invariant above can be pinned by a
+> test. Agreed scope: `jsdom` ONLY (no `@testing-library`), a per-file `// @vitest-environment
+> jsdom` docblock so the global `environment: "node"` and every existing suite stay untouched, and
+> one test file whose primary case is *a same-route param change must not remount the child*.
+> ⚠️ Pin **`jsdom@^26`** — jsdom 27+ requires Node >= 22 and the dev container runs Node 20.
+> ⚠️ Install INSIDE the container (host `node_modules` is linux-arm64). An interrupted `yarn add`
+> PRUNES `node_modules` and breaks the runner — recover with `yarn install --frozen-lockfile`.
 
 ### Preview Production Build
 ```bash
@@ -292,13 +320,29 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   source_boq` — with no original the action does not exist, so a disabled button would be a lie), then loading, then
   no-mapped-source, then **locked**, then the formula gate, then nothing-to-carry. It calls `gridRef.current?.flush()`
   BEFORE opening — the carry writes underneath the grid and a pending draft saved afterwards would overwrite a carried
-  rate. **AMENDMENT D: the dialog is RATES-ONLY.** The "Annotations & categories" block, its per-layer Keep/Overwrite
-  toggles and the eight pure layer helpers are DELETED, along with the `layers` POST field and the `CrossBoqCarryLayer*`
-  types — do not reintroduce them. Readiness is `counts.clean + counts.conflict > 0` (annotations no longer make the
-  button ready), and the destructive footer reports **armed RATE overwrites** via the pure `armedRateOverwrites` —
-  it was re-pointed, NOT deleted, because otherwise removing the layers would have removed the only "there is no undo"
-  warning while the destructive action remained. Emerald is BANNED inside the dialog — it means priced/succeeded in
+  rate. **AMENDMENT E (2026-07-28) REVERSED Amendment D: the dialog carries the four non-rate layers again, OPT-IN.**
+  An "Also carry" block (single-sheet mode ONLY; hidden when the server sends no `sheet.layers`, disabled when the
+  formula gate blocks the sheet) offers one row per `CARRY_LAYER_KEYS` entry with a Keep/Overwrite pair shown only when
+  `kept > 0`. **Defaults categories ON, the three annotation layers OFF — a UI default living ONLY in
+  `initialLayerChoices()`; never push it into the server** (an omitted `layers` payload is rates-only, which is exactly
+  what a pre-E client keeps getting). The plan walks every layer with overwrite OFF, so
+  `layerMoveCount = carried + (overwrite ? kept : 0)`. **Three gates had to widen to BOTH axes, and each matters:**
+  `nothingToCarry` replaces `selectedCount === 0` (unticking every rate but leaving Categories ticked is real work);
+  the destructive footer counts rates and layer records **separately** (they are not the same kind of loss); and
+  `summarizeSheetCarry`'s "Nothing was carried." branch keys off every axis (a category-only carry is the LIKELIEST
+  shape — a revision whose rates all conflict can still take the whole category set). Readiness is still
+  `counts.clean + counts.conflict > 0`. Emerald is BANNED inside the dialog — it means priced/succeeded in
   this screen and belongs to the button + the post-apply line.
+- **The "carried" verdict state (Amendment E, owner ruling 2026-07-28):** `deriveVerdictState` gains `"carried"`,
+  rendered as sky text + `CornerDownRight` + a `carried from <BOQ>` tooltip. It marks **EVERY carried row, machine or
+  human** — provenance is the axis, and "who decided it" does not answer "was this inherited?"; the check therefore sits
+  ABOVE the human check. Its one input is `SheetCategoryRow.carried_from_boq`, which `resolvedToSheetCategoryRow` MUST
+  pass through — unlike `cross_engine_conflict`/`review_priority`/`votes` (telemetry, deliberately dropped), this is
+  provenance, and dropping it fails SILENTLY (every carried row renders as locally decided). Both gates built on
+  `deriveVerdictState` are unaffected and test-pinned: `isRowEditable` (`!== "unclassified"`, so a carried row stays
+  correctable) and `isMasterSetBlank` (`=== "unclassified"`, so an inherited category still opens the rate gate).
+  ⚠️ `SheetPricingPage`'s `onApplied` MUST call `mutateCategories()` — Amendment D had removed it as a dead
+  round-trip, and that reasoning expired with the layer it was based on.
 - **Formula engine arc F1–F4 (COMPLETE):** PURE `amountFormula.ts` (evaluate) + `AmountFormulaBuilder.tsx` /
   `formulaTokens.ts` (author; click-to-insert, NO literals) + `PricingGrid.evaluateAmountCell` (compute;
   formula-wins-else-pairing, draft-aware, fail-safe BLANK on any missing operand — never a stale number).

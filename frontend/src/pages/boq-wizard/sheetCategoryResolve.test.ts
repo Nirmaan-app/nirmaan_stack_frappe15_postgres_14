@@ -20,6 +20,7 @@ function resolved(over: Partial<ResolvedSheetCategory>): ResolvedSheetCategory {
     cross_engine_conflict: false,
     human_category_id: "",
     human_discipline: null,
+    carried_from_boq: null,
     votes: {},
     ...over,
   };
@@ -64,6 +65,49 @@ describe("resolvedToSheetCategoryRow (adapter -> grid shape)", () => {
     expect("cross_engine_conflict" in r).toBe(false);
     expect("votes" in r).toBe(false);
     expect("review_priority" in r).toBe(false);
+  });
+
+  // ── ADR-0014 Amendment E ──────────────────────────────────────────────────────────
+  // carried_from_boq is the ONE non-telemetry field added to the resolved read, and it MUST reach
+  // the grid: it is the sole input to the "carried" cell state. Dropping it here fails silently --
+  // every carried row would simply render as locally decided, which is the exact
+  // indistinguishability Amendment D deleted the annotation carry over.
+  it("PASSES carried_from_boq through -- it is provenance, not telemetry", () => {
+    const r = resolvedToSheetCategoryRow(
+      resolved({
+        effective_source: "human",
+        effective_category_id: "x",
+        human_category_id: "x",
+        carried_from_boq: "BOQ-26-00066",
+      }),
+    );
+    expect(r.carried_from_boq).toBe("BOQ-26-00066");
+  });
+
+  it("passes provenance through for a carried MACHINE verdict too", () => {
+    const r = resolvedToSheetCategoryRow(
+      resolved({
+        effective_source: "auto",
+        effective_category_id: "x",
+        carried_from_boq: "BOQ-26-00066",
+      }),
+    );
+    expect(r.carried_from_boq).toBe("BOQ-26-00066");
+  });
+
+  it("is null for a locally decided row", () => {
+    const r = resolvedToSheetCategoryRow(
+      resolved({ effective_source: "auto", effective_category_id: "x" }),
+    );
+    expect(r.carried_from_boq).toBeNull();
+  });
+
+  // The adapter normalises an absent field to null so the grid's `cat.carried_from_boq` check is
+  // a plain truthiness test with no undefined case to reason about.
+  it("normalises a missing provenance field to null, never undefined", () => {
+    const bare = resolved({ effective_source: "auto", effective_category_id: "x" });
+    delete (bare as unknown as Record<string, unknown>).carried_from_boq;
+    expect(resolvedToSheetCategoryRow(bare).carried_from_boq).toBeNull();
   });
 });
 

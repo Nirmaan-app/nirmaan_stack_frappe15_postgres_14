@@ -1,18 +1,17 @@
-import React, { useMemo, useCallback } from "react";
-import { ColumnDef, Row } from "@tanstack/react-table";
+import React, { useMemo, useState } from "react";
+import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
-import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
-import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 import { useFrappeGetCall, useFrappeGetDocList } from "frappe-react-sdk";
 import memoize from "lodash/memoize";
-import { Info, Calendar, Edit2, FileText, CheckCircle2, FileCheck2, CircleDashed, CircleCheck } from "lucide-react";
+import { Info, Calendar, ChevronRight, Edit2, FileText, CheckCircle2, FileCheck2, CircleDashed, CircleCheck } from "lucide-react";
 
 // --- UI Components ---
 import { DataTable } from '@/components/data-table/new-data-table';
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { TableSkeleton } from "@/components/ui/skeleton";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
@@ -103,20 +102,10 @@ export const SrInvoices: React.FC<SrInvoicesProps> = ({ vendorId, vendorName }) 
     const { role } = useUserData();
     const canUpdateReconciliation = ["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan PMO Executive Profile"].includes(role || "");
 
-    // --- CEO Hold Projects ---
-    const { ceoHoldProjectIds } = useCEOHoldProjects();
 
-    // CEO Hold row highlighting
-    const getRowClassName = useCallback(
-        (row: Row<SrInvoiceItem>) => {
-            const projectId = row.original.project;
-            if (projectId && ceoHoldProjectIds.has(projectId)) {
-                return CEO_HOLD_ROW_CLASSES;
-            }
-            return undefined;
-        },
-        [ceoHoldProjectIds]
-    );
+    // Summary card open/closed. Defaults OPEN so the screen looks unchanged
+    // on arrival; the header keeps the pending count visible either way.
+    const [summaryOpen, setSummaryOpen] = useState(true);
 
     // --- API Call for ALL SR Invoices ---
     const { data: invoicesData, isLoading: invoicesDataLoading, mutate: mutateInvoices } = useFrappeGetCall<AllSrInvoicesDataCallResponse>(
@@ -795,6 +784,54 @@ export const SrInvoices: React.FC<SrInvoicesProps> = ({ vendorId, vendorName }) 
 
         return (
             <Card className="border-0 shadow-sm bg-gradient-to-br from-slate-50 to-white dark:from-slate-900 dark:to-slate-800">
+                <Collapsible open={summaryOpen} onOpenChange={setSummaryOpen}>
+                    {/* The header is the ONE surface that survives a collapse, so it
+                        carries the pending-reconciliation count — the number that
+                        decides whether the body is worth opening. It never renders as
+                        a bare title: >0 pending reads amber, 0 pending reads emerald
+                        "All reconciled", so the header always answers "is there work
+                        here?". Same trigger at every breakpoint. */}
+                    <CollapsibleTrigger asChild>
+                        <button
+                            type="button"
+                            className="w-full text-left rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/60"
+                            aria-label={`${summaryOpen ? "Collapse" : "Expand"} reconciliation summary`}
+                        >
+                            <div className="flex items-center gap-2 px-4 sm:px-5 py-3">
+                                <ChevronRight
+                                    className={`h-4 w-4 shrink-0 text-slate-400 dark:text-slate-500 transition-transform duration-200 ${summaryOpen ? "rotate-90" : ""}`}
+                                />
+                                <span className="text-sm sm:text-base font-semibold tracking-tight text-slate-800 dark:text-slate-200 truncate">
+                                    {vendorId ? "Vendor WO Invoices" : "WO Invoice Reconciliation Summary"}
+                                </span>
+                                <div className="ml-auto flex items-center gap-1.5 shrink-0">
+                                    {pendingReconciliation > 0 ? (
+                                        <span className="inline-flex items-baseline gap-1 px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 border border-amber-200 dark:border-amber-800">
+                                            <span className="text-xs font-bold tabular-nums text-amber-800 dark:text-amber-300">
+                                                {pendingReconciliation}
+                                            </span>
+                                            <span className="text-[10px] font-medium text-amber-700 dark:text-amber-400">
+                                                pending reconciliation
+                                            </span>
+                                        </span>
+                                    ) : totalInvoices > 0 ? (
+                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900">
+                                            <CheckCircle2 className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
+                                            <span className="text-[10px] font-medium text-emerald-700 dark:text-emerald-400">
+                                                All reconciled
+                                            </span>
+                                        </span>
+                                    ) : null}
+                                    {hasFilters && (
+                                        <span className="hidden sm:inline-flex px-2 py-0.5 text-[10px] font-medium bg-cyan-100 dark:bg-cyan-900/40 text-cyan-700 dark:text-cyan-300 rounded-full">
+                                            Filtered
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+                        </button>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent className="overflow-hidden data-[state=open]:animate-collapse-down data-[state=closed]:animate-collapse-up">
                 {/* ===== COMPACT MOBILE VIEW ===== */}
                 <div className="sm:hidden">
                     <CardContent className="p-3">
@@ -855,31 +892,24 @@ export const SrInvoices: React.FC<SrInvoicesProps> = ({ vendorId, vendorName }) 
 
                 {/* ===== EXPANDED DESKTOP VIEW ===== */}
                 <div className="hidden sm:block">
-                    <CardHeader className="pb-2 pt-4 px-5">
-                        <div className="flex items-center justify-between">
-                            <CardTitle className="text-base font-semibold tracking-tight text-slate-800 dark:text-slate-200">
-                                {vendorId ? "Vendor SR Invoices" : "SR Invoices Summary"}
-                            </CardTitle>
-                            {hasFilters && (
-                                <div className="flex flex-wrap gap-1.5 items-center">
-                                    <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500 uppercase tracking-wider">Filtered:</span>
-                                    {searchTerm && (
-                                        <span className="px-2 py-0.5 text-[10px] font-medium bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-full">
-                                            "{searchTerm}"
-                                        </span>
-                                    )}
-                                    {columnFilters.map(filter => (
-                                        <span
-                                            key={filter.id}
-                                            className="px-2 py-0.5 text-[10px] font-medium bg-cyan-100 dark:bg-cyan-900/40 text-cyan-700 dark:text-cyan-300 rounded-full capitalize"
-                                        >
-                                            {filter.id.replace(/_/g, ' ')}
-                                        </span>
-                                    ))}
-                                </div>
+                    {hasFilters && (
+                        <div className="flex flex-wrap gap-1.5 items-center px-5 pt-1 pb-2">
+                            <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500 uppercase tracking-wider">Filtered:</span>
+                            {searchTerm && (
+                                <span className="px-2 py-0.5 text-[10px] font-medium bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-full">
+                                    "{searchTerm}"
+                                </span>
                             )}
+                            {columnFilters.map(filter => (
+                                <span
+                                    key={filter.id}
+                                    className="px-2 py-0.5 text-[10px] font-medium bg-cyan-100 dark:bg-cyan-900/40 text-cyan-700 dark:text-cyan-300 rounded-full capitalize"
+                                >
+                                    {filter.id.replace(/_/g, ' ')}
+                                </span>
+                            ))}
                         </div>
-                    </CardHeader>
+                    )}
                     <CardContent className="px-5 pb-4 pt-0">
                         <div className="grid grid-cols-3 gap-3">
                             {/* Card 1: Total Invoices */}
@@ -948,9 +978,11 @@ export const SrInvoices: React.FC<SrInvoicesProps> = ({ vendorId, vendorName }) 
                         </div>
                     </CardContent>
                 </div>
+                    </CollapsibleContent>
+                </Collapsible>
             </Card>
         );
-    }, [dynamicSummary, columnFilters, searchTerm, vendorId]);
+    }, [dynamicSummary, columnFilters, searchTerm, vendorId, summaryOpen]);
 
     // --- Loading State ---
     const isDataLoading = invoicesDataLoading || attachmentsDataLoading || projectloading || vendorsLoading || usersLoading || isGstLoading;
@@ -986,7 +1018,6 @@ export const SrInvoices: React.FC<SrInvoicesProps> = ({ vendorId, vendorName }) 
                     vendorName ? `${vendorName}_SR_Invoices` : "SR_Invoices"
                 }
                 summaryCard={summaryCard}
-                getRowClassName={getRowClassName}
             />
 
             {/* Reconciliation Dialog */}

@@ -1,6 +1,8 @@
 # Monthly WIP & Handover Report — Full Plan (as-built)
 
-**Feature:** For a selected month, list every project that was **active** (in `WIP` **or** `Handover` status) that month, with — for that month — how many **days it was active** (WIP + Handover combined), the **active start/end** dates, per-project **status chips**, and monthly **counts of DPR, Inventory, DC, DN**. Collapsible per-project rows expand to per-stint sub-rows, each labeled with its status.
+> **⚠️ 2026-07-24 — the table was reworked from raw document COUNTS to a 5-group / 15-column COMPLIANCE view (+ a senior-dev refactor). §§2–6 below describe the ORIGINAL build; the current column set, semantics and owner rulings are in [§7 — Compliance rework](#7--compliance-rework-2026-07-24) which is now the source of truth for the table. The active-days engine (§2) and placement (§3) are unchanged.**
+
+**Feature:** For a selected month, list every project that was **active** (in `WIP` **or** `Handover` status) that month, with — for that month — how many **days it was active** (WIP + Handover combined), the **active start/end** dates, per-project **status chips**, and (post-rework) **DPR / Inventory compliance** plus **lifetime PO-dispatch / DC** figures. Collapsible per-project rows expand to per-stint sub-rows, each labeled with its status.
 
 **Placement:** it is a **report type inside the Reports hub** — *Reports → Projects tab → Report Type dropdown → "Monthly WIP"* — **not** a sidebar item or standalone route.
 
@@ -141,3 +143,151 @@ Everything derives from immutable history, so Plan A reproduces past months iden
 - **Placement = report type in the Reports hub → Projects tab** (reversed the earlier "dedicated sidebar item + `/monthly-wip` page" decision — sidebar item + route removed).
 - Layout = month dropdown, collapsible per-project rows → per-stint sub-rows, project name (not id) + clickable, search + sort, status chips, count columns named `… Count`.
 - Persistence = **Plan A only for now**; Plan B **designed & deferred**, trigger = **auto monthly cron**.
+
+---
+
+## 7 — Compliance rework (2026-07-24)
+
+The four raw document counts (DPR / Inventory / DC / DN) were replaced by a **two-tier grouped header, 5 groups / 15 columns**. The month-scoped DC/DN count columns were **removed**; DC/DN now live in the two new **lifetime** groups. Owner-ruled across an interactive session; every decision below is deliberate — do **not** "fix" them.
+
+### Final layout
+
+| G1 · Project | G2 · DPR — Daily (excl. Sun) | G3 · Inventory — Weekly (Mon) | G4 · PO Dispatch — Lifetime | G5 · DC — Lifetime |
+|---|---|---|---|---|
+| Project · Active Start · Active End | Active Days · Total DPR · Missing DPR | Expected · Actual · Missing | Dispatched · Total DN · Missing DN | Total DC · Missing DC |
+
+### Metric semantics (owner-locked)
+
+- **Active Days = active WORKING days = active calendar days − Sundays.** Redefined so **`Active Days == Total DPR + Missing DPR`** exactly. This DELIBERATELY breaks the tie to the Active End − Active Start span and makes the number smaller than the old calendar count. Backend still keeps `days_active` (full calendar, incl. Sundays) internally; the displayed value is the new `active_working_days`.
+- **DPR — daily, Sundays excluded.** `Total DPR` = active working days with ≥1 DPR (distinct days, **not** a doc count; a Sunday DPR is not counted). `Missing DPR` = working days with none.
+- **Inventory — weekly cadence, VOLUME actual.** ⚠️ **SUPERSEDED 2026-07-28 — see [§8](#8--inventory-actual--volume--missing-dc-non-billable-2026-07-28).** `Expected` = active Mondays; `Actual` = a **COUNT of inventory report documents**; `Missing` = `max(0, Expected − Actual)`. *(Was, until 2026-07-28: `Actual` = active Mondays whose `report_date` is exactly that Monday — strict over week-window. That strict-Monday rule is GONE.)*
+- **G4 & G5 are LIFETIME (whole-project, month-INDEPENDENT).** They are identical for a project no matter which month is picked; the row set is still month-gated. Shown **only** on the project row — **stint sub-rows render "—"**.
+  - `Dispatched` = POs in `DISPATCHED_PO_STATUSES = (Partially Dispatched, Dispatched, Partially Delivered, Delivered)` — excludes Merged / PO Approved / Cancelled / Inactive. (PO `status` is **free-text**, no Select options.)
+  - `Total DN` = **raw** `Delivery Notes` doc count, **returns excluded** (`is_return = 0`).
+  - `Total DC` = `PO Delivery Documents` where `type='Delivery Challan' AND parent_doctype='Procurement Orders'` (excludes ITM + Material Inspection Reports).
+  - ⚠️ `Missing DC`'s formula was changed on 2026-07-28 — see [§8](#8--inventory-actual--volume--missing-dc-non-billable-2026-07-28).
+  - `Missing DN = max(0, Dispatched − Total DN)`; `Missing DC = max(0, Total DN − Total DC)`. **Both clamped at 0** — a PO carries several DNs and DC can exceed DN, so the raw subtraction routinely goes negative (verified: nearly all live rows have DN > Dispatched → Missing DN = 0). **Not a reconciling triad** — three independent numbers.
+
+### Backend — `api/reports/wip_monthly_report.py`
+
+- New pure helpers (unit-tested, no DB): `_period_day_set(cstart, cend)` (calendar dates of a stint window, entry-in/exit-out) and `_compliance_metrics(active_days, dpr_days, inv_days)` (`MONDAY=0`/`SUNDAY=6`; the 6 day-based fields).
+- DPR/Inventory fetch **distinct `report_date` SETS per project** (`_distinct_dates_by_project`) and intersect with the active-day set — **per row AND per stint**.
+- G4/G5 via `_lifetime_counts_by_project(table, ids, extra)` — `COUNT(*) GROUP BY project`, **no date filter**. `DISPATCHED_PO_STATUSES` literals are inlined (code constant, no user input).
+- The old month-scoped `_counts_by_project` / `_dates_by_project` were **deleted** (dead once DC/DN went lifetime).
+- Row shape now: `days_active` (internal) · `active_working_days` · `total_dpr_days` · `missing_dpr_days` · `expected_inventory` · `actual_inventory` · `missing_inventory` · `dispatched_po` · `total_dn` · `missing_dn` · `total_dc` · `missing_dc` · `periods[]` (each stint carries the 6 day-based fields only — **no** G4/G5).
+
+### Frontend — `MonthlyWIPPage.tsx` (+ `useMonthlyWIPData.ts`) — senior-dev refactor
+
+- **Column-config-driven.** `NUMERIC_COLUMNS` (11 entries: `key`/`label`/`groupStart`/`emphasize`/`lifetime`) + `COLUMN_GROUPS` (the 5 group headers) are the single source of truth — the two-tier header, every body cell, sorting and the group dividers all derive from them. Adding/renaming/reordering a column = one edit.
+- **Extracted presentational cells:** `StartCell` / `EndCell` (shared by project + stint rows, `small` prop), `NumberCell` (align/emphasis/`tabular-nums`/group-edge), `DashCell` (stint lifetime "—"); module-level `numFmt`. Types split `ComplianceField` (on stints) vs `LifetimeField` (project only) so stint cells are type-safe.
+- **Fit-to-viewport columns (no horizontal scroll on a laptop):** `Table className="table-fixed"` + a `<colgroup>` whose widths are **PERCENTAGES** (`COL_W` = chevron 2% / project 14% / date 9% / numeric 6%; sum 100), so the table always fills exactly the available width and scales with it — the 15 columns never overflow into a horizontal scroll. Numeric cells/headers trim shadcn's `p-4` to `!px-2`; numeric headers are `text-xs` + `break-words` so they wrap in the tight columns. Labels shortened (group header carries context): "Total DPR", "Missing DPR", "Expected", "Actual", "Missing", "Disp.", "Total DN", … Project cell is `break-words`. (Was fixed-px + `overflow-x-auto` scroll; changed 2026-07-24 on the "view laptop fully" request.)
+- **Grid / group separation:** `GROUP_EDGE` (`border-l-2 border-muted-foreground/40`) on each group's first column = a darker 2px divider between the 5 groups; `LEAN_EDGE` (`border-l border-border/50`) on every other column = a faint 1px rule between the in-between columns. Both run continuously through the header band + every body row. The group-header tier is a banded row (`bg-muted/60`, uppercase semibold labels); the leftmost collapse-chevron gutter carries the same `bg-muted/60` top-to-bottom (header + rows) as one strip. Summary line trimmed to just the project count (the per-metric totals were removed).
+- **Export = current view.** `handleExport` now flattens **`displayRows`** (current sort + search), not the raw `rows` — WYSIWYG. Export columns include all 15 metrics (full names + "(lifetime)" suffix on G4/G5); G4/G5 are blank on stint rows. The CSV also carries a **group-header row** above the column names (merged-cell style, aligned to each group's first column) via a new backward-compatible `options.groupHeaders` param on the shared `utils/exportToCsv.ts` (`EXPORT_GROUP_HEADERS` on the page maps accessorKey → group label; omitting the param leaves every other caller byte-identical).
+- **Stint sub-rows** are tinted **light blue** (`bg-sky-50 dark:bg-sky-950/30`, matching the WIP chip), hover-locked so they don't flip to the default row-hover.
+- Summary line: `DPR days X · missing Y · Inventory a/b · dispatched POs Z · missing DN M · missing DC N`. Subtitle states G4/G5 are lifetime / month-independent.
+
+### Verification
+
+- **Backend: 15/15 unit tests pass** (5 new: Sunday exclusion + reconciliation, Monday-only inventory, empty set). Live Jul-2026: **0 invariant violations** (both day-based sums reconcile, per-stint sums to parent, working ≤ calendar; G4/G5 formulas correct, absent from stint periods). **Month-independence: 0 mismatches** across 28 projects present in both Jun & Jul. Backend cleanup proven behaviour-neutral (identical output before/after).
+- **Frontend: `tsc` clean** for the two files (project-wide pre-existing errors unchanged; app builds via Vite).
+
+### Rework decision log (2026-07-24)
+
+- Active Days redefined to **working days** (Sundays out) so the DPR triad sums exactly — accepted the broken tie to the date span.
+- DPR daily / Sundays excluded; Inventory weekly / **Monday-dated only** (strict, not week-window).
+- G4 `Total DN` = **raw DN doc count** (owner picked this over "distinct POs with a DN"); returns excluded.
+- G5 = **document counts** (`Missing DC = Total DN − Total DC`).
+- Missing DN & Missing DC **clamped at 0** (raw subtraction goes negative by design).
+- The month-scoped DC/DN columns were **removed** (replaced by the lifetime groups), not kept alongside.
+- Refactor to column-config + fixed-width compact numeric columns + export-the-current-view.
+
+---
+
+## 8 — Inventory `Actual` → volume + `Missing DC` non-billable (2026-07-28)
+
+Two independent owner-directed metric changes, plus the project facet filter. **No column was
+added or removed — the 5-group / 15-column layout of §7 is untouched**, so there is no width
+rebalance and no export-shape change. Only what three numbers *mean* changed.
+
+### 8.1 Inventory `Actual` = a document COUNT (supersedes §7's strict-Monday rule)
+
+`actual_inventory` was "active Mondays covered by a report dated exactly that Monday". It is now
+a plain **COUNT of `Remaining Items Report` documents whose `report_date` falls in the month**.
+
+- **`Expected` is unchanged** (active Mondays — the weekly cadence expectation).
+- **`Missing` = `max(0, Expected − Actual)`.** ⚠️ **The clamp is load-bearing, not cosmetic** —
+  `Actual` is now unbounded and exceeds `Expected` on live data (Alorica Jun-2026: 5 active
+  Mondays, 6 reports filed → −1 unclamped). Same reason `missing_dn` / `missing_dc` are clamped.
+- **Scope = the WHOLE MONTH on a project row** — NOT intersected with the active window (owner
+  ruling). A report filed while the project was inactive still counts. **A stint sub-row counts
+  only reports dated inside its own window**, so ⚠️ **stints can sum to LESS than the parent** —
+  the one place §7's verified "per-stint sums to parent" no longer holds. (Measured: 0
+  occurrences in Jun/Jul 2026, but it is reachable.)
+- **No `status` filter** — matches the pre-existing query's behaviour. All 230 live rows are
+  `Submitted`; the Select does permit `Draft`, which would silently count. Noted, not fixed.
+
+**⚠️ What this gives up:** the cadence signal. A project filing five Friday reports now reads
+`Expected 5 / Actual 5 / Missing 0` — fully compliant, having never hit an expected Monday.
+§7's "owner chose strict over week-window" is deliberately reversed. Raised before building and
+confirmed. **Do not "restore" the Monday test.**
+
+**Why the pure helper's signature changed.** `_compliance_metrics(active_days, dpr_days,
+inv_days)` → `(active_days, dpr_days, inv_report_count)`. A document count is **not recoverable
+from a set of dates** — dedup has already happened — so the scalar has to be threaded in. It also
+puts the whole-month-vs-stint scope policy at the *call site*, where it is visible, rather than
+inside the helper. New DB helper `_report_dates_by_project` returns a **non-deduped LIST** (one
+entry per document); `_distinct_dates_by_project` survives untouched for DPR, which is still
+genuinely day-based. **DPR is completely unchanged** and its
+`total + missing == active_working_days` reconciliation still holds (verified: 0 broken rows).
+
+### 8.2 `Missing DC` excludes DNs against Non-Billable POs
+
+`Missing DC = max(0, Total DN − (DNs whose PO is Non-Billable) − Total DC)`.
+
+**Rationale:** `api/delivery_challans_data.py` rejects DC/MIR upload against a Non-Billable PO,
+so such a DN can **never** acquire a DC. Counting it as "missing" is permanently unclearable.
+21% of live non-return DNs (1,178 / 5,574) are in this state.
+
+Three details are load-bearing:
+- ⚠️ **Join on the legacy `procurement_order` Link, NOT `parent_docname`.** The DN
+  `parent_doctype`/`parent_docname` polymorphism migration is only PARTLY applied:
+  `parent_docname` is NULL on **all 703** rows that have `parent_doctype` set, and
+  `parent_doctype` itself is NULL on **4,867 of 5,574** rows. `procurement_order` is reliably
+  populated (0 NULLs). Root `CLAUDE.md` defers that migration to "Phase 2" — until it lands,
+  `parent_docname` is unusable for DNs.
+- **Only the EXPLICIT `'Non-Billable'` string counts.** A blank `billing_status` means Billable
+  (`procurement_orders.py` leaves it empty for an item-less PO), matching the frontend
+  convention. No blanks exist in live data, but the Select permits them.
+- **ITM-parented DNs (4 rows system-wide) are NOT excluded** — they have no PO, so they stay in
+  the gap. Owner call: not worth widening the formula for 4 rows.
+
+**The subtrahend is deliberately NOT surfaced** (owner chose implicit over a new column). ⚠️
+Consequence: `Total DN − Total DC ≠ Missing DC` on screen, and the gap can be large (ANSR
+Gurugram: 249 DN, 1 DC, Missing 184 — the 64 Non-Billable DNs are invisible). This is the same
+"three independent numbers, not a reconciling triad" disposition §7 already records for G4/G5.
+
+### Verification (2026-07-28)
+
+- **Backend: 17/17 unit tests pass** (was 15; the 3 inventory cases rewritten, 2 added — the
+  over-delivery clamp and a filed-while-inactive case). `bench --site localhost run-tests
+  --module nirmaan_stack.api.reports.test_wip_monthly_report`.
+- **Live Jun/Jul 2026, all invariants hold:** 0 negative `missing_*` values; 0 broken DPR
+  reconciliations; 0 rows where a stint sum exceeds its parent. Inventory `Actual` 37 → **44**
+  (Jun) and 27 → **34** (Jul), matching the pre-build prediction exactly. Over-delivery is now
+  visible on 1 row per month (Alorica Jun, Material Depot Kompally Jul) where it was previously
+  capped and invisible.
+- **`Missing DC` over the month row set: 1,358 → 847 (Jun) and 1,361 → 846 (Jul)** — ~38% lower,
+  24–25 of 29 rows changed. Across ALL projects: 3,997 → 3,085. Nine to ten projects per month
+  drop to exactly 0 despite DN > DC — they were fully compliant all along.
+- **Frontend `tsc` clean.** Frontend change is comments only (field names, labels, layout and
+  export shape all unchanged).
+- ⚠️ **NOT verified in a browser.** No DOM test environment exists in this repo.
+
+### Decision log (2026-07-28)
+
+- Inventory `Actual` = document count, **replacing** the Monday-coverage number (not added beside it).
+- Scope = every report dated in the month, active window or not.
+- `Missing` follows `Actual`, clamped at 0 — the volume triad, accepting the loss of the cadence signal.
+- `Missing DC` subtracts Non-Billable DNs; the subtrahend stays **implicit** (no new column).
+- ITM-parented DNs stay in the `Missing DC` gap.
+- Project facet filter: client-side over the fetched rows, keyed on docname, cleared on month switch.

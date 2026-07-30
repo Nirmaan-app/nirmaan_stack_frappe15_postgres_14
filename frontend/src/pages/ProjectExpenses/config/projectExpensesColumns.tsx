@@ -5,8 +5,10 @@
 //
 // Column visibility is driven by the active status tab:
 //   - "Project"  -> only on the global list (no projectId)
-//   - "Created By" (owner)      -> all tabs EXCEPT "Paid"
-//   - "Payment By" + "Payment Date" -> only on the "Paid" tab
+//   - "Created By" (owner)      -> all tabs EXCEPT "Paid" (incl. "All": who raised it)
+//   - "Payment By"              -> only on the "Paid" tab (settlement attribution)
+//   - "Last Modified By"        -> only on the standalone "Paid" tab (audit trail)
+//   - Payment date / ref / attach -> "Paid" + "All"
 //   - "Status"   -> only on the "All" tab (other tabs are already status-scoped)
 // The faceted-filter / date-filter wiring in ProjectExpensesList keys off these
 // column ids (projects, type, vendor, owner, payment_by, status, payment_date).
@@ -90,23 +92,26 @@ export const getProjectExpenseColumns = ({
   const canEditRequested =
     isAdmin || isPMO || isAccountant || isProcurement || isHR;
   const canApprove = isAdmin; // Requested -> Approved (Admin only)
-  const canMarkPaid = isAdmin || isAccountant; // Approved -> Paid (Accountant now allowed)
+  const canMarkPaid = isAdmin || isAccountant || isHR; // Approved -> Paid (Accountant + HR)
   const canDelete = isAdmin; // Delete is Admin only (PMO removed)
 
   // --- Actions column visibility (scoped to the Paid and All tabs) ---
   // The column shows only for users who can actually act on the tab's rows:
   //   - Paid tab: Edit/Delete are Admin-only, so only Admin sees it.
-  //   - All tab:  Admin, plus Accountant (who can Mark as Paid the Approved rows).
+  //   - All tab:  Admin, plus Accountant/HR (who can Mark as Paid the Approved rows).
   // Requested/Approved tabs are left unchanged (column always present).
   const canSeeActionsColumn = disableActions
     ? false
     : statusTab === "Paid"
       ? isAdmin
       : statusTab === "All"
-        ? isAdmin
-        // Approved tab: Procurement/HR have no available action here (Mark-as-Paid
-        // is Admin/Accountant), so hide the empty Actions column for them.
-        : statusTab === "Approved" && (isProcurement || isHR)
+        // The All tab mixes statuses; every button inside the cell is already
+        // gated by the ROW's status, so opening the column to Accountant/HR
+        // surfaces exactly the Mark-as-Paid they have on the Approved tab.
+        ? isAdmin || isAccountant || isHR
+        // Approved tab: Procurement has no available action here (Mark-as-Paid is
+        // Admin/Accountant/HR), so hide the empty Actions column for them.
+        : statusTab === "Approved" && isProcurement
           ? false
           : true;
 
@@ -224,6 +229,28 @@ export const getProjectExpenseColumns = ({
     meta: {
       ...facetMeta({ field: "owner", title: "Created By" }),
       exportValue: (row: ProjectExpenses) => getUserName(row.owner),
+    },
+  };
+
+  // Who last touched the row. On the Paid tab this is the settlement audit trail:
+  // "Payment By" is who the payment is attributed to, while this is the user whose
+  // save actually flipped the row (Mark as Paid, or a later Admin correction).
+  const lastModifiedByColumn: ColumnDef<ProjectExpenses> = {
+    accessorKey: "modified_by",
+    header: "Last Modified By",
+    size: 160,
+    cell: ({ row }) => (
+      <div className="truncate" title={getUserName(row.original.modified_by)}>
+        {getUserName(row.original.modified_by)}
+      </div>
+    ),
+    enableColumnFilter: true,
+    meta: {
+      // `modified_by` is already in the backend's LINK_FIELD_MAP (User.full_name),
+      // so the self-fetching facet lists real names, not raw login ids.
+      ...facetMeta({ field: "modified_by", title: "Last Modified By" }),
+      exportHeaderName: "Last Modified By",
+      exportValue: (row: ProjectExpenses) => getUserName(row.modified_by),
     },
   };
 
@@ -515,8 +542,15 @@ export const getProjectExpenseColumns = ({
       ? [paymentDateColumn, paymentRefColumn, paymentAttachColumn]
       : []),
     ...(statusTab !== "Paid" ? [createdByColumn] : []),
-    // Payment By shows on Paid + All (blank for non-paid rows on All).
-    ...(statusTab === "Paid" || statusTab === "All" ? [paymentByColumn] : []),
+    // Payment By is SETTLEMENT attribution, so it belongs to the Paid tab only.
+    // On the mixed All tab it was blank for every Requested/Approved row; the
+    // useful identity there is "Created By" (rendered above, since All !== Paid)
+    // — who raised the payment request. Owner call: All keeps Created By only.
+    ...(statusTab === "Paid" ? [paymentByColumn] : []),
+    // Last Modified By is a settlement audit trail — the standalone Paid tab only.
+    // Excluded from the embedded/read-only project view (disableActions), which is
+    // also Paid-scoped but is a clean financial summary, not an audit surface.
+    ...(statusTab === "Paid" && !disableActions ? [lastModifiedByColumn] : []),
     ...(statusTab === "All" ? [statusColumn] : []),
     ...(canSeeActionsColumn ? [actionsColumn] : []),
   ];

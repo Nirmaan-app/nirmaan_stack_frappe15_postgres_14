@@ -56,6 +56,11 @@ class _FakeWB:
 _TEST_PROJECT = "_TEST_BOQ_PROJECT_COMMIT_PIPELINE"
 
 # A draft sheet_config blob -- the snapshot source pinned onto the committed BoQ Sheet.
+#
+# R2: the last four keys are parser-tuning settings with NO column on `BoQ Sheet`. They are in
+# this fixture precisely so the commit path is exercised with a REALISTIC blob -- before R2 they
+# were dropped on the floor here and the tests could not see it, because every assertion below
+# named one of the six keys that did survive.
 _CFG = {
     "header_row": 5,
     "header_row_count": 2,
@@ -65,6 +70,10 @@ _CFG = {
     },
     "column_headers": {"A": "Sl. No", "C": "Description"},
     "area_dimensions": ["Zone A", "Zone B"],
+    "skip_top_rows_after_header": [7, 8],
+    "top_header_rows_override": [1, 2],
+    "level_1_style_override": "roman",
+    "skip_row_definitions": [{"kind": "range", "start": 7, "end": 8}],
 }
 
 # Synthetic faithful grid rows -- one per source classification family, in order.
@@ -246,6 +255,25 @@ class TestCommitPipeline(FrappeTestCase):
         self.assertEqual(self._pj(bs.column_role_map), _CFG["column_role_map"])
         self.assertEqual(self._pj(bs.column_headers), _CFG["column_headers"])
         self.assertEqual(self._pj(bs.area_dimensions), _CFG["area_dimensions"])
+
+    def test_config_snapshot_is_lossless(self):
+        """R2 -- `sheet_config_snapshot` captures the draft blob WHOLE, so the keys the six
+        columns do not cover survive the commit and a revision can inherit them.
+
+        Asserted as full equality, not key-by-key: the contract is 'everything', and a
+        key-by-key assertion is exactly what let the original loss go unnoticed -- each of the
+        six that survived had a test, and the ones that did not had none."""
+        res = self._commit("HVAC", "finalized")
+        bs = frappe.get_doc(_SHEET, res["boq_sheet_name"])
+        self.assertEqual(self._pj(bs.sheet_config_snapshot), _CFG)
+
+    def test_config_snapshot_captured_on_a_general_specs_sheet_too(self):
+        """A grid-only sheet gets the snapshot as well. `_committed_data_sheet` refuses to seed
+        from it (treat_as != data), so this is not carry fuel -- it is the honest record of what
+        the sheet was committed with, and the write path must not special-case dispositions."""
+        res = self._commit("SOW", "general_specs")
+        bs = frappe.get_doc(_SHEET, res["boq_sheet_name"])
+        self.assertEqual(self._pj(bs.sheet_config_snapshot), _CFG)
 
     def test_snapshot_on_grid_only_general_specs_sheet(self):
         # The case the node path never created before: a grid-only sheet still gets
