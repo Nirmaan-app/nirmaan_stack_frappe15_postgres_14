@@ -1,0 +1,18 @@
+{
+  "generated": "2026-07-30",
+  "source": "in-system Electrical Pricing workbook (29-Jul), saved state, read via Sandbox (read-only, discarded)",
+  "leg2_mode": "A -- Phase 0(d) verified the sheet RECOMPUTES: conduit Type PVC->MS recomputed List Price 60->85 (MS 25 list) live",
+  "exclusion_statement": "COMPOSITES ARE NOT SYSTEM-TESTED IN EA-3 (no assembly engine exists yet). These are EA-4's cert oracles -- the composite finals the future engine must reproduce EXACTLY. What EA-3 DID test: the composites' INGREDIENTS (Legs 1-2, the rate-per-item pipelines, 76/76 harness + dual-render), their HONEST REFUSAL (Leg 3, the identity-category null + coming-soon + blank-stays-blank), and this oracle bank.",
+  "composites": {
+    "point_wiring": {
+      "supply": 1869, "install": 735, "total": 2604,
+      "supply_buildup": {"Wire1": {"rate": 50, "qty": 15, "amt": 750}, "Wire2": {"rate": 31, "qty": 15, "amt": 465}, "Conduit": {"rate": 42, "qty": 4, "amt": 168}, "Switch": {"rate": 155, "qty": 1, "amt": 155}, "Socket": {"rate": 187, "qty": 1, "amt": 187}, "FrameFacePlate": {"rate": 86, "qty": 1, "amt": 86}, "BackBox": {"rate": 58, "qty": 1, "amt": 58}},
+      "install_buildup": {"Wire1": {"rate": 20, "qty": 15, "amt": 300}, "Wire2": {"rate": 20, "qty": 15, "amt": 300}, "Conduit": {"rate": 9, "qty": 4, "amt": 36}, "Switch": {"rate": 31, "qty": 1, "amt": 31}, "Socket": {"rate": 38, "qty": 1, "amt": 38}, "FrameFacePlate_plus_BackBox": {"amt": 30}},
+      "cells": {"supply": "Point Wiring!F18 (=SUM F12:F18) / AIWR!N33", "install": "Point Wiring!F29 (=SUM F22:F28) / AIWR!O33", "total": "AIWR!P33 (=SUM N34:O34)"}
+    },
+    "db_switchgear": {"supply": 24360, "install": 3660, "total": 28020, "cells": "ALL ITEM WISE RATE row 3, cols 7/8/9 (Supply/Install/Total)"},
+    "switches_sockets": {"supply": 2320, "install": 470, "total": 2790, "cells": "ALL ITEM WISE RATE row 3, cols 1/2/3"},
+    "cabletray_raceway": {"supply": 431, "install": 120, "total": 551, "note": "matches the EA-2b tray oracle t1 supply/install (431/120)", "cells": "ALL ITEM WISE RATE row 3, cols 13/14/15"},
+    "wiring_cabling": {"item": "Cable/Wire", "supply_per_mtr": 120, "install_per_mtr": 20, "total": 140, "note": "the standing wiring golden COPPER/UNARMOURED/1C/6.0 (cable 120/20)", "cells": "ALL ITEM WISE RATE row 3, cols 18/19/20"}
+  }
+}
