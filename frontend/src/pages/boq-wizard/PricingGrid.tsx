@@ -62,7 +62,7 @@ import {
   type SetStateAction,
 } from "react";
 import { debounce, type DebouncedFunc } from "lodash";
-import { Palette, MessageSquare, AlertTriangle, Flag, Scale, ChevronRight, Check, CornerDownRight } from "lucide-react";
+import { Palette, MessageSquare, AlertTriangle, Flag, Scale, ChevronRight, Check, CornerDownRight, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -1312,7 +1312,11 @@ function ColorPicker({
           onKeyDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
           title="Highlight color"
-          className="absolute left-0.5 top-0.5 z-[5] h-3 w-3 rounded-sm border border-border opacity-40 hover:opacity-100"
+          // RM-3a Defect 2 (owner option (a)): the colour picker is an ACTION, not status -- hidden at
+          // rest, revealed on CELL hover (the parent <td> carries `group`) AND on keyboard focus
+          // (focus-visible, so it is never a mouse-only trap). When a colour IS set the swatch still
+          // shows the chosen colour once revealed.
+          className="absolute left-0.5 top-0.5 z-[5] h-3 w-3 rounded-sm border border-border opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100 focus-visible:opacity-100"
         >
           {current ? (
             <span className={cn("block h-full w-full rounded-sm", swatchClassForToken(current))} />
@@ -2616,7 +2620,7 @@ const PricingGridRow = memo(function PricingGridRow({
                     : undefined
               }
               className={cn(
-                "relative px-1 py-1 align-top",
+                "group relative px-1 py-1 align-top",
                 colorBorderClass,
                 priced &&
                   (needsReview
@@ -2626,7 +2630,10 @@ const PricingGridRow = memo(function PricingGridRow({
               )}
             >
               {colorPicker}
-              <div className="flex items-center justify-end gap-1">
+              {/* RM-3a Defect 2: priced dot + suggestion badge / used-check / sparkle opener stay
+                  PERSISTENT, tightened into one compact right-aligned cluster (the colour picker is
+                  the hover/focus-only action at top-left, above). */}
+              <div className="flex items-center justify-end gap-0.5">
                 {priced && (
                   <span
                     aria-hidden
@@ -2636,43 +2643,63 @@ const PricingGridRow = memo(function PricingGridRow({
                     )}
                   />
                 )}
-                {/* U1 rate-helper: the suggestion badge. Its own click (stopPropagation) opens the
-                    panel; a bare click on the input beside it still just places the cursor. */}
-                {onSuggestionBadgeClick && rowSuggestions?.byCol[d.col] && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onSuggestionBadgeClick(
-                        row.source_row_number,
-                        d.col,
-                        e.currentTarget as HTMLElement,
-                      );
-                    }}
-                    className={cn(
-                      "inline-flex h-4 min-w-[16px] shrink-0 items-center justify-center rounded-full px-1 text-[10px] font-semibold leading-none",
-                      rowSuggestions.byCol[d.col].used
-                        ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
-                        : "bg-primary/15 text-primary hover:bg-primary/25",
-                    )}
-                    title={
-                      rowSuggestions.byCol[d.col].used
-                        ? "Suggested value used"
-                        : `${rowSuggestions.byCol[d.col].count} rate suggestion(s)`
-                    }
-                    aria-label={
-                      rowSuggestions.byCol[d.col].used
-                        ? "Suggested value used"
-                        : "Open rate suggestions"
-                    }
-                  >
-                    {rowSuggestions.byCol[d.col].used ? (
-                      <Check className="h-3 w-3" />
-                    ) : (
-                      rowSuggestions.byCol[d.col].count
-                    )}
-                  </button>
-                )}
+                {/* U1 rate-helper: the suggestion badge (a run produced N suggestions for this cell)
+                    OR, when this rate-editable cell has NO badge, an always-on FAINT opener so the
+                    pricer can bring up the helper and fill attributes by hand (owner request). Both
+                    stopPropagation, so a bare click on the input beside it still places the cursor. */}
+                {onSuggestionBadgeClick &&
+                  (rowSuggestions?.byCol[d.col] ? (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSuggestionBadgeClick(
+                          row.source_row_number,
+                          d.col,
+                          e.currentTarget as HTMLElement,
+                        );
+                      }}
+                      className={cn(
+                        "inline-flex h-4 min-w-[16px] shrink-0 items-center justify-center rounded-full px-1 text-[10px] font-semibold leading-none",
+                        rowSuggestions.byCol[d.col].used
+                          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+                          : "bg-primary/15 text-primary hover:bg-primary/25",
+                      )}
+                      title={
+                        rowSuggestions.byCol[d.col].used
+                          ? "Suggested value used"
+                          : `${rowSuggestions.byCol[d.col].count} rate suggestion(s)`
+                      }
+                      aria-label={
+                        rowSuggestions.byCol[d.col].used
+                          ? "Suggested value used"
+                          : "Open rate suggestions"
+                      }
+                    >
+                      {rowSuggestions.byCol[d.col].used ? (
+                        <Check className="h-3 w-3" />
+                      ) : (
+                        rowSuggestions.byCol[d.col].count
+                      )}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSuggestionBadgeClick(
+                          row.source_row_number,
+                          d.col,
+                          e.currentTarget as HTMLElement,
+                        );
+                      }}
+                      className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-muted-foreground/40 hover:bg-primary/10 hover:text-primary"
+                      title="Fill attributes to price this row"
+                      aria-label="Open rate helper"
+                    >
+                      <Sparkles className="h-3 w-3" />
+                    </button>
+                  ))}
                 <Input
                   {...inputFocusProps(colIndex)}
                   type="text"
@@ -2735,7 +2762,7 @@ const PricingGridRow = memo(function PricingGridRow({
                 divergeTitle ?? (isBroken ? "Check formula" : needsRate ? "Needs a rate" : undefined)
               }
               className={cn(
-                "relative px-2 py-1.5 text-right align-top tabular-nums",
+                "group relative px-2 py-1.5 text-right align-top tabular-nums",
                 colorBorderClass,
                 cellNavClass(colIndex),
               )}
@@ -2791,7 +2818,7 @@ const PricingGridRow = memo(function PricingGridRow({
                   : undefined
             }
             className={cn(
-              "relative px-2 py-1.5 text-right align-top tabular-nums",
+              "group relative px-2 py-1.5 text-right align-top tabular-nums",
               colorBorderClass,
               priced &&
                 (needsReview
@@ -2988,6 +3015,11 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
   const rowResizeRef = useRef<{ rowIndex: number; startY: number; startHeight: number } | null>(null);
   const frozenPaneRef = useRef<HTMLDivElement | null>(null);
   const scrollPaneRef = useRef<HTMLDivElement | null>(null);
+  // RM-3b item 2: the always-visible embedded horizontal scrollbar is a SYNCED PROXY bar (a sticky
+  // element pinned to the bottom of the visible grid area). This ref backs the two-way scrollLeft sync
+  // with the real X-scroller (scrollPaneRef when split, else containerRef). Full-screen uses the native
+  // bottom scrollbar (the flex chain bounds the container there), so the proxy is embedded-only.
+  const hScrollProxyRef = useRef<HTMLDivElement | null>(null);
   const splitRef = useRef(false);
   // V1: mirrors `twoPane` (two-pane vs single) for the virtualizer's getScrollElement + the flip
   // re-anchor -- a ref so those closures always read the current mode without re-registering.
@@ -4246,6 +4278,66 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
     descWidthKeys.reduce((s, k) => s + widthOf(k), 0) +
     widthOf(REMARKS_WIDTH_KEY);
 
+  // RM-3b/RM-3c item A: the embedded horizontal-scrollbar PROXY is the SINGLE bar (the scroller's own
+  // native H-bar is suppressed below -- boq-embed-hidehbar). Full-screen keeps its native bar (the
+  // bounded container), so the proxy renders only when NOT expanded.
+  const showHScrollProxy = !expanded;
+  // RM-3c: LIVE-measured metrics of the ACTIVE X-scroller (single container OR the frozen scrolling
+  // pane) via a ResizeObserver -- NOT a one-shot column-width sum. The proxy's visible width is set to
+  // the scroller's clientWidth (kills the ~15px end clamp: the vertical-scrollbar width no longer leaks
+  // into the proxy's range) and the spacer to the scroller's REAL scrollWidth (kills the frozen
+  // short-scroll). Grid-level state -- re-renders only on a genuine size change (guarded no-op), never
+  // per keystroke; no per-row prop, comparator + virtualizer math untouched.
+  const [hScrollMetrics, setHScrollMetrics] = useState({ clientWidth: 0, scrollWidth: 0 });
+  useEffect(() => {
+    if (!showHScrollProxy) return;
+    const scroller = twoPaneRef.current ? scrollPaneRef.current : containerRef.current;
+    if (!scroller) return;
+    const measure = () =>
+      setHScrollMetrics((m) => {
+        const clientWidth = scroller.clientWidth;
+        const scrollWidth = scroller.scrollWidth;
+        return m.clientWidth === clientWidth && m.scrollWidth === scrollWidth
+          ? m
+          : { clientWidth, scrollWidth };
+      });
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(scroller);
+    const table = scroller.querySelector("table");
+    if (table) ro.observe(table); // content-width changes (column resize / hide) move scrollWidth
+    return () => ro.disconnect();
+  }, [showHScrollProxy, twoPane, totalWidth, scrollPaneTableWidth]);
+  // Two-way scrollLeft sync between the proxy bar and the REAL X-scroller (LAYOUT ONLY -- no data /
+  // prop / virtualizer-math change). A re-entrancy latch stops the mirror from ping-ponging. Re-wired
+  // when the mode, the active pane, or the content width changes.
+  useEffect(() => {
+    if (!showHScrollProxy) return;
+    const proxy = hScrollProxyRef.current;
+    const scroller = twoPaneRef.current ? scrollPaneRef.current : containerRef.current;
+    if (!proxy || !scroller) return;
+    let syncing = false;
+    const fromProxy = () => {
+      if (syncing) return;
+      syncing = true;
+      scroller.scrollLeft = proxy.scrollLeft;
+      syncing = false;
+    };
+    const fromScroller = () => {
+      if (syncing) return;
+      syncing = true;
+      proxy.scrollLeft = scroller.scrollLeft;
+      syncing = false;
+    };
+    proxy.addEventListener("scroll", fromProxy, { passive: true });
+    scroller.addEventListener("scroll", fromScroller, { passive: true });
+    fromScroller(); // seed the proxy thumb to the current scroll position
+    return () => {
+      proxy.removeEventListener("scroll", fromProxy);
+      scroller.removeEventListener("scroll", fromScroller);
+    };
+  }, [showHScrollProxy, twoPane, hScrollMetrics.scrollWidth]);
+
   // V1-FIX-2b: after a column resize / autofit re-wraps the FROZEN Description, the scrolling pane's
   // <tr> is UNCHANGED, so its ResizeObserver stays silent and the shared measureElement never
   // re-fires -> the virtualizer keeps stale sizes and the two panes drift (measured live: ~300px on
@@ -4703,6 +4795,32 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
     </DropdownMenu>
   );
 
+  // RM-3b item 2: the embedded always-visible horizontal scrollbar. A thin `sticky bottom-0` bar
+  // rendered as a SIBLING of the scroll container (so it is not clipped by the pane's overflow and it
+  // pins to the bottom of the visible grid area / viewport while the grid is on screen). Its inner
+  // spacer is the X-scroller's content width, so its thumb tracks the real scroll (synced by the effect
+  // above, both ways). Rendered only embedded; full-screen uses the native bounded-container scrollbar.
+  const hScrollProxy = showHScrollProxy ? (
+    <>
+      {/* RM-3c item A: suppress the scroller's OWN native horizontal scrollbar so the sticky proxy is
+          the SINGLE bar. Scoped `::-webkit-scrollbar:horizontal` (Chrome/Edge/Safari = blink/webkit) --
+          hides ONLY the H-bar, the vertical bar + native X scroll capability (wheel/trackpad) stay.
+          Cross-browser shape: Firefox has no per-axis scrollbar control (`scrollbar-width` is
+          all-or-nothing), so it retains a below-fold native H-bar with the proxy as the primary bar. */}
+      <style>{".boq-embed-hidehbar::-webkit-scrollbar:horizontal{display:none;height:0}"}</style>
+      <div
+        ref={hScrollProxyRef}
+        className="sticky bottom-0 z-30 overflow-x-auto overflow-y-hidden border-t border-border bg-background/95"
+        // width = the scroller's clientWidth (so the proxy range == the real range, no V-bar clamp);
+        // spacer = the scroller's real scrollWidth (full extent, both panes).
+        style={{ height: 14, width: hScrollMetrics.clientWidth || undefined }}
+        aria-hidden
+      >
+        <div style={{ width: `${hScrollMetrics.scrollWidth || totalWidth}px`, height: 1 }} />
+      </div>
+    </>
+  ) : null;
+
   // ── Two-pane split. CLASSIC: freeze on AND heights captured (`split`). VIRTUALIZED: freeze on
   //    (`twoPane = frozen`), windowed. Same JSX; the <tbody> content routes through renderTbody. ──
   if (twoPane) {
@@ -4760,7 +4878,7 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
               }}
               className={cn(
                 "overflow-auto flex-1 min-w-0",
-                expanded ? "min-h-0" : "max-h-[calc(100vh-14rem)]",
+                expanded ? "min-h-0" : "max-h-[calc(100vh-14rem)] boq-embed-hidehbar",
               )}
             >
               <table
@@ -4788,6 +4906,7 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
           </div>
         </CollapseContext.Provider>
       </div>
+      {hScrollProxy}
       </VirtualizedContext.Provider>
     );
   }
@@ -4805,7 +4924,8 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
         "rounded-md border border-border overflow-auto",
         // Slice 4c: full-screen relaxes the viewport-rem cap to fill the expanded flex-col
         // root (the page gives this container's slot flex-1 min-h-0). Embedded keeps the cap.
-        expanded ? "flex-1 min-h-0" : "max-h-[calc(100vh-14rem)]",
+        // RM-3c: embedded suppresses this container's native H-bar (the proxy is the single bar).
+        expanded ? "flex-1 min-h-0" : "max-h-[calc(100vh-14rem)] boq-embed-hidehbar",
       )}
     >
       {/* Resize: table-fixed makes the <colgroup> widths AUTHORITATIVE; the explicit px total
@@ -4838,6 +4958,7 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
       </table>
       </CollapseContext.Provider>
     </div>
+    {hScrollProxy}
     </VirtualizedContext.Provider>
   );
 }));

@@ -7,7 +7,30 @@ import {
   rateKindOfDescriptor,
   rateKindsOf,
 } from "./rateSuggestionModel";
-import { rowSuggestionsEqual, type RowSuggestions } from "./rateHelperTypes";
+import { rowSuggestionsEqual, type HelperResult, type RateHelper, type RowSuggestions } from "./rateHelperTypes";
+
+// A mock "real" helper (the stub is gone): earthing/hvac_ducting price supply+install;
+// wiring_cabling is supply-only; anything else declines.
+const mockHelper: RateHelper = {
+  id: "pricing_sheet",
+  label: "Pricing sheet",
+  compute: (c): HelperResult => {
+    const tables: Record<string, string[]> = {
+      earthing: ["supply_rate", "install_rate"],
+      hvac_ducting: ["supply_rate", "install_rate"],
+      wiring_cabling: ["supply_rate"],
+    };
+    const kinds = c.category ? tables[c.category] : undefined;
+    if (!kinds) return { kind: "none", reason: "no table" };
+    const values: Record<string, number> = {};
+    for (const k of kinds) values[k] = 100;
+    return {
+      kind: "suggestion", values, basis: "b",
+      workings: { attributes: [], matchedRows: [], derivation: [], finalValues: { ...values } },
+    };
+  },
+};
+const HELPERS = [mockHelper];
 
 const supplyDesc = {
   col: "E",
@@ -88,7 +111,7 @@ describe("buildSuggestions", () => {
       [8, cat("panels")], // no table -> no badge
       [9, cat("earthing")], // Other -> not rate-editable
     ]);
-    const map = buildSuggestions(rows, descriptors, false, categories);
+    const map = buildSuggestions(rows, descriptors, false, categories, HELPERS);
     expect([...map.keys()]).toEqual([7]);
     expect(map.get(7)!.byCol).toEqual({
       E: { count: 1, used: false },
@@ -99,12 +122,12 @@ describe("buildSuggestions", () => {
   it("supply-only category badges only the supply cell (per-kind independence)", () => {
     const rows = [row(11, "Line Item")];
     const categories = new Map<number, SheetCategoryRow>([[11, cat("wiring_cabling")]]);
-    const map = buildSuggestions(rows, descriptors, false, categories);
+    const map = buildSuggestions(rows, descriptors, false, categories, HELPERS);
     expect(Object.keys(map.get(11)!.byCol)).toEqual(["E"]); // no install badge
   });
 
   it("a never-classified row (absent from the category map) gets no badge", () => {
-    const map = buildSuggestions([row(12, "Line Item")], descriptors, false, new Map());
+    const map = buildSuggestions([row(12, "Line Item")], descriptors, false, new Map(), HELPERS);
     expect(map.has(12)).toBe(false);
   });
 });
@@ -119,6 +142,7 @@ describe("markSuggestionUsed (memo-shield friendly)", () => {
         [7, cat("earthing")],
         [8, cat("hvac_ducting")],
       ]),
+      HELPERS,
     );
     const entry8Before = base.get(8);
     const next = markSuggestionUsed(base, 7, "E");
@@ -134,6 +158,7 @@ describe("markSuggestionUsed (memo-shield friendly)", () => {
       [supplyDesc],
       false,
       new Map([[7, cat("earthing")]]),
+      HELPERS,
     );
     expect(markSuggestionUsed(base, 7, "Z")).toBe(base); // no such col
     const used = markSuggestionUsed(base, 7, "E");

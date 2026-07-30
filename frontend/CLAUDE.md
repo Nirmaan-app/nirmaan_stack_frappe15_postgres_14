@@ -506,7 +506,84 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   `categoriesByExcelRow`), never on keystroke. (4) The button's enable chain **REUSES the rate-write gate
   (`!locked && formulasComplete && categoryGateOpen`) — never re-derived** — surfacing the first failing reason as the
   title. (5) The badge lives in the rate cell's right-aligned flex strip with `stopPropagation`, so a bare cell click
-  still just places the cursor. Nothing persists (page-session only; a reload wipes suggestions). The STUB dies at U2.
+  still just places the cursor.
+- **Rate-helper WENT REAL (RM-3, `pricingSheetHelper.ts`; full detail in the plan doc's "Build slice RM-3"):**
+  the stub is DELETED; the `Pricing sheet` helper is a page-built closure over a PERSISTED, version-keyed
+  server extraction run that COMPUTES the rate CLIENT-SIDE via the RM-2 `runPipeline` UNCHANGED (the single
+  compute source — a rate/param change flows in live with no re-run; only extracted attributes persist). The run
+  itself IS persisted (unlike U1's page-session badges): `get_active_suggestion_run` loads it on open with no
+  press, and `record_rate_suggestion_event` banks Use telemetry. Load-bearing additions: (a) a PARTIAL in-run row
+  still badges via `Suggestion.producibleKinds`; (b) a FAINT always-on opener renders on every rate-editable cell
+  WITHOUT a badge (owner: bring up the helper on badge-less cells) — a pure render change, no new row prop, memo
+  shield intact; (c) attributes are CATEGORY-SCOPED — a not-in-run row of the helper's category gets a blank
+  editable fill (never minting a badge), any OTHER category (or none) gets a "coming soon" NoSuggestion, gated on
+  `ctx.category === config.category_id` (only `wiring_cabling` is defined this slice); (d) `RateHelperPanel`'s
+  empty choice attrs carry a `— select —` placeholder so a blank never masquerades as its first option.
+- **Rate-helper panel/strip/workings refinements (RM-3a, `RateHelperPanel.tsx` / `SheetPricingPage.tsx` /
+  `PricingGrid.tsx` cell-strip; full detail in the plan doc's "Build slice RM-3a"):** three owner-locked
+  invariants. (1) **TWO-MODE panel mount** (supersedes the single flex-row mount that shrank the grid): a
+  `RateHelperPanel` `variant` prop — `"overlay"` in FULL-SCREEN is a viewport-`fixed inset-y-0 right-0 z-[60]`
+  drawer rendered OUTSIDE the flex row (the grid's width/columns/horizontal-scroll stay BYTE-UNCHANGED on
+  open/close), `"embedded"` (default) stays IN the flex row keeping the certed widen-while-open
+  (`max-w-5xl` → `w-full`) but now `sticky top-4` so it rides the viewport; a scroll-into-view guard fires
+  ONLY when the panel is genuinely off-screen (never yanks a sticky-pinned panel, never touches horizontal
+  scroll). The page gates the flex-row + grid-shrink wrappers on `helperPanelOpen && !expanded` and renders
+  the overlay panel on `expanded`. (2) **Colour-picker icon is HOVER/FOCUS-ONLY** (owner option (a), an
+  action not status): `opacity-0 group-hover:opacity-100 focus:opacity-100 focus-visible:opacity-100`, so the
+  3 descriptor `<td>`s that host `colorPicker` carry `group`; the priced dot + badge/used-check + sparkle
+  opener stay PERSISTENT (strip `gap-0.5`). Colour-selection logic is unchanged (CSS + `group` markers only).
+  (3) **GROUPED workings contract (generic, guardrail G3):** `WorkingsSection.sections?: WorkingsGroup[]`
+  (`{label, derivation, finals, matchedRows?, attributes?}`) — the panel renders each group as its own block
+  with the SHARED extracted attributes ONCE above; **ABSENT `sections` ⇒ flat rendering, byte-identical to
+  before (single-group suggestions stay backward-shaped)**. `pricingSheetHelper` emits two groups on a CABLE
+  row (`Cable — per Mtr` / `Termination — per Set`) and flat (no `sections`) on a termination row; groups are
+  DISPLAY-ONLY (the applied value is still `Suggestion.values`). **Memo shield untouched** — no new per-row
+  grid prop, `pricingRowPropsAreEqual` unchanged.
+- **Rate-helper embedded panel-as-default + grid scroll conventions (RM-3b, `RateHelperPanel.tsx` /
+  `SheetPricingPage.tsx` / `PricingGrid.tsx`; full detail in the plan doc's "Build slice RM-3b"):** three
+  owner-locked layout invariants. (1) **EMBEDDED panel-as-default:** the embedded rate-helper panel is
+  ALWAYS MOUNTED (no open/close, NO close X in embedded — the X renders only for `variant="overlay"`); its
+  props `excelRow/col/kind/ctx` are OPTIONAL and absent => an empty-state card. The page derives
+  `embeddedPanel = RATE_HELPER_ENABLED && !expanded`; when true the embedded page is PERMANENTLY widened
+  (`w-full`, superseding RM-3a's widen-while-open there) and the flex row is always on. A badge/sparkle click
+  SELECTS a row (replacing the previous) via the existing `helperPanel` page state. (2) **FULL-SCREEN sticky
+  header + native bottom H-scrollbar (owner-locked):** the two panel-row wrappers between the grid slot and
+  the grid container MUST carry `expanded && "flex min-h-0 flex-1 flex-col"` so the flex chain reaches the
+  grid container and it BOUNDS to the viewport as the internal scroller — that is what keeps the (already
+  `sticky top-0`) header visible AND puts the native H-scrollbar at the viewport bottom, in classic +
+  virtualized + frozen split (both panes' headers pixel-aligned). Without it the outer `.fixed.inset-0`
+  wrapper scrolls and the header scrolls away — do NOT let those wrappers go empty-class in full-screen.
+  (3) **EMBEDDED always-visible H-scrollbar = a SYNCED PROXY bar:** a `sticky bottom-0` thin bar rendered as a
+  SIBLING of the scroll container (spacer width = `twoPane ? scrollPaneTableWidth : totalWidth`), two-way
+  `scrollLeft`-synced to the active X-scroller (`scrollPaneRef` when split, else `containerRef`) via a
+  re-entrancy-latched effect; rendered ONLY embedded (`!expanded`) — full-screen uses the native bounded
+  scrollbar. Same viewport-pinned-H-scrollbar FAMILY, realized per-mode. **Memo shield untouched** — the
+  proxy + `expanded` gate are GRID-LEVEL; no new per-row prop, `pricingRowPropsAreEqual` + the virtualizer
+  math unchanged (only its containers' styling).
+- **Rate-helper single-bar + full-screen push panel + collapsible top block (RM-3c, `PricingGrid.tsx` /
+  `RateHelperPanel.tsx` / `SheetPricingPage.tsx`; full detail in the plan doc's "Build slice RM-3c"):** three
+  owner-locked layout invariants. (A) **Embedded = ONE horizontal scrollbar.** The single-pane container +
+  the frozen scrolling pane carry `boq-embed-hidehbar` when `!expanded`; a scoped `<style>` inside PricingGrid
+  (NOT `index.css`) does `::-webkit-scrollbar:horizontal{display:none;height:0}` -- suppresses ONLY the native
+  H-bar, keeps the V-bar + `overflow-x:auto` capability. **Cross-browser shape: blink/webkit clean; Firefox
+  has no per-axis control so it keeps a below-fold native H-bar (proxy stays primary).** The proxy width +
+  spacer are LIVE-MEASURED from the ACTIVE scroller via a ResizeObserver (`hScrollMetrics`) -- proxy width =
+  `scroller.clientWidth` (kills the V-bar clamp), spacer = `scroller.scrollWidth` (kills the frozen
+  short-scroll); do NOT revert to the one-shot column-width sum. (B) **Full-screen panel is a PUSH panel**
+  (`RateHelperPanel` variant `push`, supersedes the RM-3a fixed overlay): an IN-FLOW flex sibling of the grid,
+  so `#4` is a flex ROW [ grid column | push panel ] and `#3` the grid COLUMN (`min-w-0 flex-1 flex-col`); the
+  grid narrows by exactly the panel width and the bounded scroller / sticky header / native H-bar keep working
+  at reduced width. A left-edge drag handle (`role="separator"`, focusable) resizes -- clamp `[280, 50% of the
+  wrapper]`, double-click resets to the DEFAULT **300**, Arrow keys nudge, width persisted to
+  **`nirmaan-rate-helper-panel-w`**. Push keeps its close X; embedded panel-as-default is untouched. (C)
+  **Full-screen COLLAPSIBLE top block:** everything above the grid (title + both ribbons + banners + panels)
+  is one `space-y-4` block that `hidden`s when `expanded && topCollapsed` so the grid-slot fills vertically; a
+  SLIM RAIL (`expanded && topCollapsed`) re-expands in one click and shows the truncated sheet name + a
+  compact chip per active blocking/visible banner (**the category chip surfaces whenever blanks exist -- in the
+  blocking OR override-informational form -- so collapsing never hides state**). **Escape re-expands first**
+  (a second Escape exits full-screen -- never trapped). Persisted to **`nirmaan-fullscreen-top-collapsed`**.
+  EMBEDDED is untouched (`topCollapsed` only bites while `expanded`). **Memo shield + virtualizer math
+  untouched** across all three.
 - **Socket reconnect self-heal must be reconnect-GATED + debounced (T1, owner-verified):** a `socket.on("connect", ...)`
   handler that refetches (`mutate()`/`mutateCategories()`) MUST NOT fire on every connect — the initial mount connect
   double-fetches (the SWR mount fetch already ran) and a flapping dev socket then refetches on every reconnect, and
@@ -972,6 +1049,75 @@ status / decisions: `frontend/.claude/plans/pricing-module-plan.md`.
   `'Sheet (old)'` are not flagged. `handleSaveClick` scans then opens the dialog; `performSave` posts the
   ALREADY-SCANNED sheets so Continue never re-runs the 400 ms re-entry pass. Keep the module side-effect free —
   PW-2b's consent-based fixing is meant to be a caller change, not a rewrite.
+
+### Rate Master (RM-2) -- Frontend Conventions
+
+The pricing helper's read surface, SEPARATE from the pricing workbook pages. Lives in
+`src/pages/pricing/rate-master/`. Reads the RM-1 endpoints (`nirmaan_stack.api.boq.rate_master.
+get_rate_master_items` / `get_rate_category_config`) as-is -- NO backend coupling. Full as-built lives
+in the plan doc.
+
+- **The page home is owner option (a):** a `Rate Master` route (`/rate-master`) beside the pricing
+  workbooks, `PricingRoute`-guarded (UI gate only; the endpoints' login requirement is the enforcement),
+  lazy + `export { RateMasterPage as Component }`. `rateMasterRegistry.ts` is registry-shaped like
+  `pricingWorkbooks.ts` (Electrical today); the sidebar registration is the SAME four registry-driven
+  touches the pricing workbooks use (role-gated item, `allKeys`, `groupMappings`, flat-label Set).
+- **`ratePipelineInterpreter.ts` is THE single compute source (owner-locked) -- a PURE TS module with NO
+  React imports.** It executes the stored pipeline step vocabulary (`match_master_row`,
+  `apply_effective_multiplier` with conditions, `scale`, `component`, `component_band`, `sum_components`,
+  `install_as_ratio`, `roundup`) and produces per-step traces + finals. **Formulas are read FROM the
+  config and evaluated by a tiny safe arithmetic evaluator (no `eval()`, CSP-safe) -- never hardcode the
+  arithmetic.** EXACT matching on canonical values (no case-insensitive matching anywhere). **RM-3's
+  pricer-facing helper consumes this module UNCHANGED -- there must never be a second implementation of
+  this arithmetic.** The four RM-1 goldens are its standing test fixtures.
+- **Dynamic columns come FROM the config's `attribute_definitions`** (kind, brand, one column per
+  definition, the rate fields present, unit, source) -- never a hardcoded column list.
+- **Unknown step type = an explicit "unsupported" state, never a silent skip** (forward-compat honesty for
+  future step types). A combination with no master row renders an honest no-match with zero computed values.
+- **BCS pipelines ARE shown here** (internal transparency surface); only the pricer-facing helper defers BCS.
+- **The viewer search is CASE-SENSITIVE across all displayed cell values** -- the data is canonical
+  UPPERCASE, so a mixed-case query intentionally finds nothing (mirrors the RM ethos: no case-insensitive
+  matching anywhere).
+- **RM-4a editing is ADMIN-ONLY (owner option (a); full detail in the plan doc's "Build slice RM-4a").**
+  Estimates sees everything READ-ONLY -- every edit affordance is `{isAdmin && ...}` (HIDDEN, never
+  disabled), gated by the pure `isRateMasterAdmin(role, userId)` in `rateMasterEdit.ts` (mirrors
+  `canAdminOverride` / the server `_is_nirmaan_admin`; false while `role` is "Loading"/"Error"). The server
+  (four `api/boq/rate_master.py` write endpoints) is authoritative. **PARAM VALUES ONLY** -- pipeline
+  STRUCTURE / condition / attribute-definition editing is RM-4b. **Derivation tab:** each NUMERIC param in a
+  step's `detail` cell is an inline edit (`InlineParamEdit`: pencil -> input, Enter saves / Escape cancels);
+  the condition `when` + string params (e.g. `kind`) stay read-only. The matched-condition path is
+  re-derived by `matchedConditionIndex` (config + matched item, EXACTLY as the interpreter matches) so the
+  interpreter is NEVER touched. **Data tab:** an admin ACTIONS column (inline row rate/attr edit; deactivate
+  via AlertDialog confirm -- freeze-and-supersede, dropped from active view, NEVER deleted) + an `AddItemDialog`
+  built from the attribute definitions + rate keys; manual rows carry "Manual entry" provenance. Each write
+  refetches its collection so the derivation/viewer recompute live -- and the persistence split carries the
+  edit into the next pricing-panel compute with NO AI re-run. The interpreter goldens stay the invariant any
+  edit must still reproduce after an edit-and-revert.
+- **Data Viewer per-column-header faceted filters (`RateMasterDataViewer.tsx`):** EVERY column header
+  (kind / brand / every category attribute / every rate key / unit / source sheet / row) carries a filter
+  funnel opening a `ColumnFilter` Popover -- a type-to-search box over that column's DISTINCT values + a
+  checkbox multi-select. A unified `columns` model (`{key, get}`) is the SINGLE source for both the
+  distinct-values dropdowns (`distinctByColumn`) and the row predicate (`getForColumn`), so headers and
+  filtering never drift. Composition: **AND across columns, OR within a column**; a global `Clear filters (N)`
+  control shows the active-column count and resets. Purely CLIENT-SIDE over the already-loaded active items
+  -- no new query, no backend change, read-only (composes cleanly with the RM-4a admin editing above).
+- **RM-4b structure editor -- the THIRD tab "Pipelines" (`RateMasterPipelines.tsx` + `rateMasterStructure.ts`).**
+  LIFTS the RM-4a param-values-only line: add/remove params, steps, conditions, and attribute definitions.
+  READ-ONLY structural view for everyone (attribute-definitions table + each pipeline as its ordered step
+  list + the stored goldens); ADMIN EDIT MODE (owner option (a): hide-not-disable) with step
+  add(vocabulary picker)/remove/reorder, per-step param add/remove/rename, condition-branch + component-band
+  add/remove/edit, attribute-definition add/edit/remove (a referenced def's remove button DISABLES via the
+  client mirror `referencedAttrIds`; the server guard's verbatim error still surfaces on save), and the
+  brand `selector` flag as an editable checkbox. **THE PREVIEW GATE (`rateMasterStructure.ts`, pure +
+  vitested):** before save the page computes ALL config goldens against the DRAFT (the SAME pure
+  `ratePipelineInterpreter` + live items) and shows a pass/delta table; unchanged -> green "Save", any delta
+  -> "Save with N changed goldens" opening an AlertDialog that lists the deltas and requires an explicit
+  confirm (**confirm-NOT-block** -- deltas impossible to miss, never forbidden). `evaluateGoldens` WRAPS the
+  interpreter in try/catch so a transiently invalid draft reports `got=null` instead of crashing the preview
+  (it does NOT change the interpreter). Save calls `update_rate_config` (the server re-validates -- the
+  authority); the refetch flows the new structure into the Derivation + Data tabs and the pricing helper
+  with no code + no AI re-run (persistence split). **Goldens are CONFIG DATA** seeded via the endpoint; the
+  vitest golden files stay independent pins. Full as-built + cert: plan doc "Build slice RM-4b".
 
 ## Important Notes
 

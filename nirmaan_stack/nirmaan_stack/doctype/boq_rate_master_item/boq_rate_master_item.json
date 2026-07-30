@@ -1,0 +1,177 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "BRMI-.YY.-.#####",
+ "creation": "2026-07-28 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "identity_section",
+  "discipline",
+  "kind",
+  "brand",
+  "unit",
+  "attributes_rates_section",
+  "attributes",
+  "rates",
+  "provenance_section",
+  "source_sheet",
+  "source_row",
+  "import_batch",
+  "active"
+ ],
+ "fields": [
+  {
+   "fieldname": "identity_section",
+   "fieldtype": "Section Break",
+   "label": "Identity"
+  },
+  {
+   "description": "The engine/discipline this item master row belongs to (e.g. 'Electrical'). Discipline-wide: items are addressed by (discipline, kind), NOT by category_id -- the per-category config lives in BoQ Rate Category Config. Stamped from the import payload's category_config.discipline.",
+   "fieldname": "discipline",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Discipline",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "description": "The item kind within the discipline (e.g. 'cable', 'termination'). Part of the composite read index [discipline, kind, brand]; the read endpoint filters on (discipline, optional kind).",
+   "fieldname": "kind",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Kind",
+   "reqd": 1
+  },
+  {
+   "description": "Manufacturer brand (e.g. 'Polycab'). A day-one dimension; becomes a selector when multi-brand data loads. NOT a normalized attribute -- stored verbatim.",
+   "fieldname": "brand",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Brand"
+  },
+  {
+   "description": "Unit of measure for this item (e.g. 'Mtr' for cable, 'Set' for termination).",
+   "fieldname": "unit",
+   "fieldtype": "Data",
+   "label": "Unit"
+  },
+  {
+   "fieldname": "attributes_rates_section",
+   "fieldtype": "Section Break",
+   "label": "Attributes & Rates"
+  },
+  {
+   "description": "Opaque keyed attribute map used to match a master row for the selected line (e.g. {material, insulation, core, thickness_sqmm}). JSON (not exploded columns / child table) per the app's stated rule: flexible, UI-driven, read-whole data. Material/insulation values are CANONICAL UPPERCASE (normalized at import); matching downstream is EXACT on canonical values.",
+   "fieldname": "attributes",
+   "fieldtype": "JSON",
+   "label": "Attributes"
+  },
+  {
+   "description": "Opaque keyed rate map -- the raw list/base rates this row supplies to the category's derivation pipelines (e.g. cable: {list_price_per_mtr, install_base_per_mtr}; termination: {lug_list, gland_band1_list, gland_band2_list}). JSON per the same rule; the pipelines (stored in BoQ Rate Category Config) interpret these.",
+   "fieldname": "rates",
+   "fieldtype": "JSON",
+   "label": "Rates"
+  },
+  {
+   "fieldname": "provenance_section",
+   "fieldtype": "Section Break",
+   "label": "Provenance"
+  },
+  {
+   "description": "The source workbook sheet this row was extracted from (e.g. 'Wiring & cabling', 'Termination').",
+   "fieldname": "source_sheet",
+   "fieldtype": "Data",
+   "label": "Source Sheet"
+  },
+  {
+   "description": "The 1-based source row within the source sheet. With source_sheet, gives a faithful back-pointer to the origin workbook cell block.",
+   "fieldname": "source_row",
+   "fieldtype": "Int",
+   "label": "Source Row"
+  },
+  {
+   "description": "One shared batch id per import event (prefix 'rmbulk-'), stamped on every row loaded together -- mirrors BoQ Category Truth Snapshot's gtbulk batch-provenance. A --replace re-import deactivates the prior batch and mints a new one (freeze-and-supersede; rows are never deleted).",
+   "fieldname": "import_batch",
+   "fieldtype": "Data",
+   "in_standard_filter": 1,
+   "label": "Import Batch",
+   "search_index": 1
+  },
+  {
+   "default": "1",
+   "description": "Whether this row is the live/current version. A --replace re-import sets active=0 on the prior batch. Read endpoints return active rows ONLY.",
+   "fieldname": "active",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Active"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 0,
+ "links": [],
+ "modified": "2026-07-28 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "BoQ Rate Master Item",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Estimates Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan PMO Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Lead",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Procurement Executive",
+   "share": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

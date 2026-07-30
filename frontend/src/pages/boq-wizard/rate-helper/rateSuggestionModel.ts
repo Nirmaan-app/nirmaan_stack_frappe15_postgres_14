@@ -8,8 +8,8 @@
  */
 import type { ColumnDescriptor, PricedRow, SheetCategoryRow } from "../boqTypes";
 import { isRateDescriptor, isRateEditableRow } from "../PricingGrid";
-import type { RateHelperRowContext, RowSuggestions } from "./rateHelperTypes";
-import { suggestionCountForKind } from "./rateHelperRegistry";
+import type { RateHelper, RateHelperRowContext, RowSuggestions } from "./rateHelperTypes";
+import { RATE_HELPERS, suggestionCountForKind } from "./rateHelperRegistry";
 
 /** Scalar rate value_field -> rate-kind token (mirrors the grid's / backend's spelling). Per-area
  * rate descriptors already carry the kind in `rate_subkey` (supply_rate/install_rate/combined_rate). */
@@ -69,6 +69,7 @@ export function buildSuggestions(
   descriptors: ColumnDescriptor[],
   override: boolean,
   categoriesByExcelRow: Map<number, SheetCategoryRow>,
+  helpers: RateHelper[] = RATE_HELPERS,
 ): Map<number, RowSuggestions> {
   const rateDescriptors = descriptors.filter(isRateDescriptor);
   const kinds = rateKindsOf(rateDescriptors);
@@ -80,7 +81,7 @@ export function buildSuggestions(
     for (const d of rateDescriptors) {
       const kind = rateKindOfDescriptor(d);
       if (!kind) continue;
-      const count = suggestionCountForKind(ctx, kind);
+      const count = suggestionCountForKind(ctx, kind, helpers);
       if (count > 0) byCol[d.col] = { count, used: false };
     }
     if (Object.keys(byCol).length > 0) out.set(row.source_row_number, { byCol });
