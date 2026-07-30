@@ -2791,6 +2791,42 @@ def get_copy_forward_plan(boq_name=None, sheet_name=None, from_version=None) -> 
     }
 
 
+def coerce_layers(layers):
+    """The per-layer choice map for EITHER carry seam; may arrive as a JSON string over HTTP. Returns
+    {layer_key: {"carry": bool, "overwrite": bool}} restricted to `committed_carry.LAYER_KEYS` -- an
+    unknown key is dropped SILENTLY rather than throwing, so a layer that exists on one side of the
+    wire but not the other cannot break the call (the alternative would make every layer addition a
+    lock-step deploy). None / "" / {} -> {}, which means RATES ONLY: the exact behaviour a client that
+    never learned about layers keeps getting.
+
+    ONE coercion for BOTH carry endpoints (`cross_boq_carry.apply_sheet_carry` and
+    `apply_copy_forward`), because two readers of one wire shape drift, and a drift here means the
+    same payload is honoured on one carry and ignored on the other.
+
+    WHY IT LIVES IN `pricing`: `committed_carry` (which owns LAYER_KEYS) must not import `pricing` or
+    the pricing -> committed_carry -> pricing cycle closes, and `pricing` cannot import
+    `cross_boq_carry` for the same reason -- while `pricing` is already the shared carry-primitives
+    home `cross_boq_carry` imports from and already owns `_coerce_bool`. PURE (no DB)."""
+    if isinstance(layers, str):
+        try:
+            layers = json.loads(layers or "{}")
+        except (ValueError, TypeError):
+            frappe.throw("layers must be a JSON object.", title="Invalid layers")
+    layers = layers or {}
+    if not isinstance(layers, dict):
+        frappe.throw("layers must be an object keyed by layer.", title="Invalid layers")
+    out = {}
+    for key in committed_carry.LAYER_KEYS:
+        choice = layers.get(key)
+        if not isinstance(choice, dict):
+            continue
+        out[key] = {
+            "carry": _coerce_bool(choice.get("carry")),
+            "overwrite": _coerce_bool(choice.get("overwrite")),
+        }
+    return out
+
+
 def _committed_sheet_docname(boq_name, sheet_name, committed_version):
     """The `BoQ Sheet` docname for one committed version of a sheet -- CURRENT OR SUPERSEDED. The
     address the version-addressed row match takes on each side. sheet_name VERBATIM (#152)."""

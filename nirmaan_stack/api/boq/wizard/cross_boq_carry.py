@@ -660,30 +660,12 @@ def _coerce_sheet_names(sheet_names):
     return sheet_names
 
 
-def _coerce_layers(layers):
-    """The per-layer choice map; may arrive as a JSON string over HTTP. Returns
-    {layer_key: {"carry": bool, "overwrite": bool}} restricted to `committed_carry.LAYER_KEYS` --
-    an unknown key is dropped SILENTLY rather than throwing, so a layer that exists on one side of
-    the wire but not the other cannot break the call. None/{} -> {} (rates only, which is exactly
-    the Amendment D behaviour a client that never learned about layers will keep getting)."""
-    if isinstance(layers, str):
-        try:
-            layers = json.loads(layers or "{}")
-        except (ValueError, TypeError):
-            frappe.throw("layers must be a JSON object.", title="Invalid layers")
-    layers = layers or {}
-    if not isinstance(layers, dict):
-        frappe.throw("layers must be an object keyed by layer.", title="Invalid layers")
-    out = {}
-    for key in committed_carry.LAYER_KEYS:
-        choice = layers.get(key)
-        if not isinstance(choice, dict):
-            continue
-        out[key] = {
-            "carry": pricing._coerce_bool(choice.get("carry")),
-            "overwrite": pricing._coerce_bool(choice.get("overwrite")),
-        }
-    return out
+#: The per-layer choice map coercion. WBC S2 (Amendment F) gave the within-BoQ copy-forward the SAME
+#: `layers` wire shape, so the coercion moved to `pricing.coerce_layers` -- ONE reader for one wire
+#: shape, because two would drift and a drift means the same payload is honoured on one carry and
+#: ignored on the other. This is a BINDING, not a wrapper: there is no second function to keep in
+#: step, and `cross_boq_carry._coerce_layers` stays the name this module's callers and tests know.
+_coerce_layers = pricing.coerce_layers
 
 
 def _coerce_decisions_list(decisions):

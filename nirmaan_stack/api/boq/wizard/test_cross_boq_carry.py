@@ -1326,3 +1326,52 @@ class TestCrossBoqCarryCategoryGate(FrappeTestCase):
                 "boq": self.rev, "sheet_name": self.AMT_DEST, "committed_version": 1,
                 "excel_row": 20, "col_letter": "D"}),
             rows_before, "the refused carry minted no superseded history row")
+
+
+class TestLayerCoercionHasOneHome(FrappeTestCase):
+    """WBC S2 / ADR-0014 Amendment F -- the within-BoQ copy-forward accepts `layers` on the SAME wire
+    shape as this endpoint. Two endpoints reading one wire shape must not grow two readers: a drift
+    between them would mean the same payload is honoured on one carry and ignored on the other, which
+    is exactly the class of bug the shared `_classify_carry` / `walk_layers` split exists to prevent.
+
+    The coercion's home is `pricing.coerce_layers`. It cannot live in `committed_carry` (that module
+    must not import `pricing`, or pricing -> committed_carry -> pricing cycles) and `pricing` cannot
+    import `cross_boq_carry` at module level for the same reason -- while `pricing` is ALREADY the
+    shared carry-primitives home this module imports from (`_resolve_rate_carry_target`,
+    `_assert_carry_versions_distinct`, `_coerce_bool`, the `_CF_*` outcomes). Pure -- no DB."""
+
+    def test_cross_boq_delegates_to_the_one_coercion(self):
+        self.assertIs(cross_boq_carry._coerce_layers, pricing.coerce_layers)
+
+    def test_json_string_over_http_is_parsed(self):
+        self.assertEqual(
+            pricing.coerce_layers('{"categories": {"carry": true, "overwrite": false}}'),
+            {"categories": {"carry": True, "overwrite": False}},
+        )
+
+    def test_http_string_truthiness_on_both_flags(self):
+        """`_coerce_bool` semantics, inherited: over HTTP every value arrives as a string."""
+        self.assertEqual(
+            pricing.coerce_layers({"remarks": {"carry": "true", "overwrite": "0"}}),
+            {"remarks": {"carry": True, "overwrite": False}},
+        )
+
+    def test_omitted_and_empty_mean_rates_only(self):
+        for payload in (None, "", {}, "{}"):
+            self.assertEqual(pricing.coerce_layers(payload), {}, repr(payload))
+
+    def test_unknown_keys_are_dropped_silently(self):
+        self.assertNotIn("formulas", committed_carry.LAYER_KEYS)
+        self.assertEqual(
+            pricing.coerce_layers({"formulas": {"carry": True}, "colors": {"carry": True}}),
+            {"colors": {"carry": True, "overwrite": False}},
+        )
+
+    def test_a_non_dict_choice_is_ignored_not_coerced(self):
+        self.assertEqual(pricing.coerce_layers({"categories": True}), {})
+
+    def test_a_malformed_payload_throws(self):
+        with self.assertRaises(frappe.ValidationError):
+            pricing.coerce_layers("not json")
+        with self.assertRaises(frappe.ValidationError):
+            pricing.coerce_layers([1, 2, 3])
