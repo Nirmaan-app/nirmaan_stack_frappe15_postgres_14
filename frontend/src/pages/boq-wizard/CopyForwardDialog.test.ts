@@ -13,24 +13,30 @@ import {
   buildDecisions,
   outcomeMetaKey,
   rateWriteCount,
-  type CopyForwardPlanMessage,
+  summarizeCopyForward,
 } from "./CopyForwardDialog";
 import {
+  CARRY_DESTINATION_WITHIN_BOQ,
   LAYER_BLOCK_SUBTEXT_CROSS_BOQ,
   LAYER_BLOCK_SUBTEXT_WITHIN_BOQ,
   buildLayersPayload,
   carrySelectionSummary,
+  carryWriteCount,
   initialLayerChoices,
+  layerHint,
   layerOutcomeFor,
+  layerSkipNote,
   nothingToCarry,
   type CarryLayerSource,
   type LayerChoices,
 } from "./CarryLayers";
 import { CARRY_LAYER_KEYS } from "./boqTypes";
 import type {
+  ApplyCopyForwardResponse,
   CarryLayerOutcome,
   CopyForwardPlanRow,
   CrossBoqCarrySheet,
+  GetCopyForwardPlanResponse,
 } from "./boqTypes";
 
 function row(over: Partial<CopyForwardPlanRow> = {}): CopyForwardPlanRow {
@@ -64,8 +70,14 @@ function outcome(over: Partial<CarryLayerOutcome> = {}): CarryLayerOutcome {
 }
 
 /** A `get_copy_forward_plan` response as the dialog reads it. `layers` absent by default -- that is
- *  the pre-Amendment-F server, and the degradation path has to keep working. */
-function planMessage(over: Partial<CopyForwardPlanMessage> = {}): CopyForwardPlanMessage {
+ *  the pre-Amendment-F server, and the degradation path has to keep working.
+ *
+ *  WBC-S3a: typed as the DECLARED response now that `layers?` lives on `GetCopyForwardPlanResponse`
+ *  itself. S5 had to compose a local `CopyForwardPlanMessage` because `boqTypes.ts` was out of its
+ *  scope; that workaround is gone. */
+function planMessage(
+  over: Partial<GetCopyForwardPlanResponse> = {},
+): GetCopyForwardPlanResponse {
   return {
     plan: PLAN,
     from_version: 1,
@@ -186,7 +198,11 @@ describe("buildLayersPayload -- the `layers` field of the apply_copy_forward POS
       ...initialLayerChoices(),
       categories: { carry: false, overwrite: false },
     };
-    expect(buildLayersPayload(allOff)).toEqual({});
+    // WBC-S3a: toSTRICTEqual. Both of the original assertions shared one blind spot -- `toEqual({})`
+    // AND `JSON.stringify(...) === "{}"` are BOTH satisfied by `{categories: undefined}`, so neither
+    // could tell an omitted key from a key written as undefined.
+    expect(buildLayersPayload(allOff)).toStrictEqual({});
+    expect(Object.keys(buildLayersPayload(allOff))).toEqual([]);
     // The omitted-layer case ON THE WIRE: the server reads {} as "carry nothing but the rates",
     // which is exactly what a client that never learned about layers keeps getting.
     expect(JSON.stringify(buildLayersPayload(allOff))).toBe("{}");
@@ -305,5 +321,159 @@ describe("the layer block's subtext", () => {
       "Optional. Anything copied is marked with the BoQ it came from, so it stays tellable apart " +
         "from work done on this revision.",
     );
+  });
+});
+
+// ── WBC-S3a / R9: the destination noun inside the SHARED block's copy ──────────────
+// The colour hint and the colour skip note both said "the revision", which is a cross-BoQ fact:
+// within one BoQ there IS no revision, only an older and a current VERSION of the same sheet. The
+// noun is a parameter with the cross-BoQ wording as its default (the S5 subtext pattern), so this
+// surface passes its own and the other one is untouched.
+describe("the destination noun on the WITHIN-BoQ surface (R9)", () => {
+  it("names the current version, not a revision", () => {
+    expect(CARRY_DESTINATION_WITHIN_BOQ).toBe("the current version");
+    expect(CARRY_DESTINATION_WITHIN_BOQ).not.toContain("revision");
+  });
+
+  it("rewords the colour hint", () => {
+    expect(layerHint("colors", CARRY_DESTINATION_WITHIN_BOQ)).toBe(
+      "Colour marks. Only columns that still exist in the current version can carry.",
+    );
+  });
+
+  it("rewords the colour skip note", () => {
+    expect(layerSkipNote("colors", outcome({ dropped: 9 }), CARRY_DESTINATION_WITHIN_BOQ)).toBe(
+      "9 skipped — that column is not in the current version",
+    );
+  });
+
+  // Only the two strings that NAME the destination may differ between the surfaces; every other
+  // string in the block is one shared sentence and must stay literally identical.
+  it("changes nothing else -- every other hint is identical across the two surfaces", () => {
+    for (const key of CARRY_LAYER_KEYS) {
+      if (key === "colors") continue;
+      expect(layerHint(key, CARRY_DESTINATION_WITHIN_BOQ)).toBe(layerHint(key));
+    }
+  });
+
+  it("leaves the categories skip note identical across the two surfaces", () => {
+    const o = outcome({ ineligible: 5 });
+    expect(layerSkipNote("categories", o, CARRY_DESTINATION_WITHIN_BOQ)).toBe(
+      layerSkipNote("categories", o),
+    );
+  });
+});
+
+// ── WBC-S3a / R11: the apply button's count on THIS seam ───────────────────────────
+// The live defect: `initialSelection` pre-selects conflicts with overwrite=false, so the button
+// ("Copy 12 rates forward", from selected.size) could sit directly above a line reading "Will copy
+// 30 categories" -- and pressing it wrote zero rates. Both figures now come from one walk.
+describe("carryWriteCount over the copy-forward plan", () => {
+  it("counts writes across BOTH axes, never the selection size", () => {
+    const { selected, overwrite } = initialSelection(PLAN);
+    const message = planMessage({ layers: { categories: outcome({ carried: 30 }) } });
+    expect(selected.size).toBe(4); // what the OLD button reported
+    expect(carryWriteCount(rateWriteCount(PLAN, selected, overwrite), message, initialLayerChoices()))
+      .toBe(33); // 3 rate writes (the Keep conflict writes nothing) + 30 categories
+  });
+
+  // The exact contradiction R11 names: every rate is a conflict on Keep, so the rate axis is silent
+  // and only the layer moves. The button must not claim the rates.
+  it("reports the layer alone when every selected rate is a conflict on Keep", () => {
+    const conflictsOnly = [row({ excel_row: 20, outcome: 3, current_rate: 500 })];
+    const { selected, overwrite } = initialSelection(conflictsOnly);
+    const message = planMessage({
+      plan: conflictsOnly,
+      layers: { categories: outcome({ carried: 30 }) },
+    });
+    const rates = rateWriteCount(conflictsOnly, selected, overwrite);
+    expect(selected.size).toBe(1);
+    expect(rates).toBe(0);
+    expect(carryWriteCount(rates, message, initialLayerChoices())).toBe(30);
+    expect(carrySelectionSummary(rates, message, initialLayerChoices())).toBe("30 categories");
+  });
+
+  it("agrees with the 'Will copy ...' line it sits under, figure for figure", () => {
+    const { selected, overwrite } = initialSelection(PLAN);
+    const message = planMessage({ layers: { categories: outcome({ carried: 5 }) } });
+    const rates = rateWriteCount(PLAN, selected, overwrite);
+    const line = carrySelectionSummary(rates, message, initialLayerChoices());
+    expect(line).toBe("3 rates and 5 categories");
+    const namedTotal = [...line.matchAll(/\d+/g)].reduce((sum, m) => sum + Number(m[0]), 0);
+    expect(carryWriteCount(rates, message, initialLayerChoices())).toBe(namedTotal);
+  });
+
+  it("is 0 when the button is disabled anyway -- no rate, no layer", () => {
+    expect(carryWriteCount(0, planMessage(), initialLayerChoices())).toBe(0);
+  });
+});
+
+// ── WBC-S3a: the post-apply line ───────────────────────────────────────────────────
+// It reported rates only, so a categories-only copy -- the SAME likeliest shape the cross-BoQ seam
+// already answers -- read "Copied 0 rates into the current version." True, and useless. This mirrors
+// summarizeSheetCarry's multi-axis branch, in this surface's own voice.
+describe("summarizeCopyForward (the post-apply line)", () => {
+  const res = (over: Partial<ApplyCopyForwardResponse> = {}): ApplyCopyForwardResponse => ({
+    ok: true,
+    copied: 0,
+    conflicts_overwritten: 0,
+    conflicts_kept: 0,
+    skipped: { non_match: 0, no_rate_column: 0, non_priceable: 0, invalid: 0 },
+    ...over,
+  });
+
+  it("counts a clean copy and an overwrite as both landed", () => {
+    expect(summarizeCopyForward(res({ copied: 10, conflicts_overwritten: 2 }))).toBe(
+      "Copied 12 rates into the current version.",
+    );
+  });
+
+  it("uses the singular for exactly one rate", () => {
+    expect(summarizeCopyForward(res({ copied: 1 }))).toBe(
+      "Copied 1 rate into the current version.",
+    );
+  });
+
+  it("names each layer that landed, beside the rates", () => {
+    expect(
+      summarizeCopyForward(
+        res({ copied: 5, layers: { categories: outcome({ carried: 140, replaced: 3 }) } }),
+      ),
+    ).toBe("Copied 5 rates and 143 categories into the current version.");
+  });
+
+  // THE under-report this exists for.
+  it("does NOT say '0 rates' when only a layer landed", () => {
+    expect(summarizeCopyForward(res({ layers: { categories: outcome({ carried: 30 }) } }))).toBe(
+      "Copied 30 categories into the current version.",
+    );
+  });
+
+  it("ignores a layer that ran but moved nothing", () => {
+    expect(summarizeCopyForward(res({ copied: 5, layers: { colors: outcome({ dropped: 9 }) } })))
+      .toBe("Copied 5 rates into the current version.");
+  });
+
+  it("says so plainly when nothing landed at all", () => {
+    expect(summarizeCopyForward(res())).toBe("Nothing was copied into the current version.");
+  });
+
+  it("reports what was deliberately left alone", () => {
+    expect(summarizeCopyForward(res({ copied: 1, conflicts_kept: 3 }))).toBe(
+      "Copied 1 rate into the current version. 3 existing rates left as they were.",
+    );
+  });
+
+  it("rolls the four skip reasons into one figure", () => {
+    expect(
+      summarizeCopyForward(
+        res({ copied: 1, skipped: { non_match: 2, no_rate_column: 1, non_priceable: 0, invalid: 1 } }),
+      ),
+    ).toBe("Copied 1 rate into the current version. 4 rows skipped.");
+  });
+
+  it("survives a missing payload", () => {
+    expect(summarizeCopyForward(undefined)).toBe("Nothing was copied into the current version.");
+    expect(summarizeCopyForward(null)).toBe("Nothing was copied into the current version.");
   });
 });

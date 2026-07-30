@@ -70,7 +70,7 @@ import type {
 } from "./boqTypes";
 import { ROLE_LABELS } from "./boqTypes";
 import { VersionRibbon } from "./VersionRibbon";
-import { CopyForwardDialog } from "./CopyForwardDialog";
+import { CopyForwardDialog, summarizeCopyForward } from "./CopyForwardDialog";
 import {
   CROSS_BOQ_CARRY_PLAN_METHOD,
   CrossBoqCarryDialog,
@@ -2487,18 +2487,12 @@ const SheetPricingPage = () => {
           fromVersion={selectedVersion}
           onClose={() => setCopyForwardOpen(false)}
           onApplied={(summary: ApplyCopyForwardResponse) => {
-            const skipped =
-              summary.skipped.non_match +
-              summary.skipped.no_rate_column +
-              summary.skipped.non_priceable +
-              summary.skipped.invalid;
-            setCopyForwardMsg(
-              `Copied ${summary.copied} rate${summary.copied === 1 ? "" : "s"}` +
-                (summary.conflicts_overwritten ? `, overwrote ${summary.conflicts_overwritten}` : "") +
-                (summary.conflicts_kept ? `, kept ${summary.conflicts_kept}` : "") +
-                (skipped ? `, skipped ${skipped}` : "") +
-                " into the current version.",
-            );
+            // WBC-S3a: the line was hand-rolled here and reported RATES only, so a categories-only
+            // copy read "Copied 0 rates into the current version." -- true, and an under-report of
+            // work that did happen. It now goes through the pure `summarizeCopyForward`, which is
+            // `summarizeSheetCarry`'s multi-axis branch in this surface's voice (ADR-0010 F4: the
+            // page renders, the rule lives in a unit-tested module).
+            setCopyForwardMsg(summarizeCopyForward(summary));
             setSelectedVersion(null); // back to the live, editable version
             void mutate(); // refetch the live rows so the copied rates appear
             // WBC-W3-S5: the copy-forward CAN change categories now (the `categories` layer is
