@@ -118,7 +118,7 @@ unchanged.
 
 ### Fixture setup removed as newly-pointless
 
-Three `_categorise_fixture_eligible_rows` calls existed **only** to stop the removed gate refusing:
+Four `_categorise_fixture_eligible_rows` calls existed **only** to stop the removed gate refusing:
 `TestCopyForward.setUpClass`, `test_apply_re_resolves_drifted_column`, `test_omitted_layers_is_rates_only`,
 and `test_a_classification_frozen_destination_takes_no_category_write`. Removed with their comments —
 keeping the call would have required keeping a comment that is now false. Those tests now run against

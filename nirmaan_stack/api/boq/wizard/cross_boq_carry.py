@@ -40,9 +40,11 @@ gating it on categories being complete blocked its own remedy -- a fresh revisio
 rows -- and a revision with even one genuinely NEW line item could never satisfy a post-carry
 re-check either. Rates and categories now land in ONE ungated action; the gate then does its normal
 job on what follows (rate EDITING stays locked, the banner names the blanks, the user categorises,
-editing opens sheet-wide). `pricing.save_cell_price` and `pricing.apply_copy_forward` KEEP the gate:
-they write HAND-TYPED rates, which is a different risk from moving known values from a known-good
-source. Do not "restore consistency" by re-adding it here.
+editing opens sheet-wide). `pricing.save_cell_price` KEEPS the gate: it writes HAND-TYPED rates,
+which is a different risk from moving known values from a known-good source. WBC-S10 (2026-07-30)
+then removed the gate from `pricing.apply_copy_forward` on THIS SAME reasoning -- a copy is not a
+hand-typed rate either -- so the SAVE path is now the only rate write the gate stands in front of.
+Do not "restore consistency" by re-adding it here.
 
 SOURCE VERSION: rates carry from the source sheet's CURRENT committed version, version-PINNED --
 the same version the structure reads. **AMENDMENT C reversed W6/A10's
@@ -537,10 +539,12 @@ def _apply_sheet_carry(ctx: _SheetCarry, decisions, user, layers=None):
     # locked, the amber banner names the rows still missing a category, the user categorises them,
     # and editing opens sheet-wide exactly as in the normal phase.
     #
-    # SCOPE, and it is narrow: `pricing.save_cell_price` and `pricing.apply_copy_forward` KEEP the
-    # gate untouched. The distinction is what the gate is for -- it stops a HAND-TYPED rate landing
-    # on an uncategorised row; a carry moves known values from a known-good source, which is a
-    # different risk. Do not "restore consistency" by re-adding it here.
+    # SCOPE: `pricing.save_cell_price` KEEPS the gate untouched. The distinction is what the gate is
+    # for -- it stops a HAND-TYPED rate landing on an uncategorised row; a carry moves known values
+    # from a known-good source, which is a different risk. WBC-S10 (2026-07-30) applied that same
+    # distinction to `pricing.apply_copy_forward` and removed the gate there too, so the SAVE path is
+    # now the only rate write it stands in front of. Do not "restore consistency" by re-adding it
+    # here.
     try:
         # ONE single-editor-lock acquire on the dest version -- a lock held by ANOTHER user throws
         # (BOQ_PRICING_LOCKED) -> this sheet fails isolated.

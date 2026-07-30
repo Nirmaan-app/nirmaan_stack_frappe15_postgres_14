@@ -1093,9 +1093,11 @@ class TestCrossBoqCarryCategoryGate(FrappeTestCase):
     WHAT REPLACES IT: nothing on this path. The gate keeps working everywhere else and does its
     normal job on what follows -- the revision arrives with rates visible but rate EDITING locked,
     the banner names the rows still missing a category, the user categorises them, and editing
-    opens sheet-wide. `pricing.save_cell_price` and `pricing.apply_copy_forward` are UNTOUCHED and
-    keep their own G2c coverage; the distinction is that those write HAND-TYPED rates, while this
-    moves known values from a known-good source.
+    opens sheet-wide. `pricing.save_cell_price` is UNTOUCHED and keeps its own G2c coverage; the
+    distinction is that it writes HAND-TYPED rates, while this moves known values from a known-good
+    source. (WBC-S10, 2026-07-30, applied that same distinction to `pricing.apply_copy_forward` and
+    ungated it too -- a copy is not a hand-typed rate either. The SAVE path is now the only rate
+    write the gate stands in front of.)
 
     STILL GATED HERE, and now the only gate: the deliberate sheet lock and the mandatory
     amount-formula declaration.
@@ -1220,10 +1222,11 @@ class TestCrossBoqCarryCategoryGate(FrappeTestCase):
 
     # (d) INVERTED -- the admin override is now IRRELEVANT to this path.
     def test_d_admin_override_is_irrelevant_here(self):
-        """The override still exists and still governs `save_cell_price` / `apply_copy_forward`.
-        It simply has nothing left to unlock on THIS path, so the carry behaves identically with
-        it and without it. Asserted rather than assumed: an override that silently became a
-        precondition again would be invisible otherwise."""
+        """The override still exists and still governs `save_cell_price` (WBC-S10 ungated
+        `apply_copy_forward`, so the override has nothing left to unlock there either). It simply
+        has nothing left to unlock on THIS path, so the carry behaves identically with it and
+        without it. Asserted rather than assumed: an override that silently became a precondition
+        again would be invisible otherwise."""
         without = self._apply_inner_10()
         frappe.db.delete(_PRICING, {"boq": self.rev})
         pricing.set_category_override(

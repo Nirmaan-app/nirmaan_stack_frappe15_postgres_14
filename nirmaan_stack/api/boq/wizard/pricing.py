@@ -356,9 +356,10 @@ def _guard_categories_complete(boq_name, sheet_name, committed_version) -> None:
 
     Slice G3a: threads the BLANK COUNT into the message. The override + eligible-blank checks are the
     SAME as _categories_gate_ok (identical `_get_category_gate_override` + `blank_category_eligible_rows(
-    ..., "eligible")`); inlined here ONLY so the length of the blank list is in hand for the message
-    (the carry paths keep delegating to _categories_gate_ok, whose bool needs no count). sheet_name
-    VERBATIM (#152)."""
+    ..., "eligible")`); inlined here ONLY so the length of the blank list is in hand for the message.
+    NO carry path delegates to _categories_gate_ok any more -- Amendment E removed the gate from
+    `cross_boq_carry` and WBC-S10 removed it from `apply_copy_forward`, leaving this SAVE-path guard
+    as the whole of the category gate on rate writes. sheet_name VERBATIM (#152)."""
     if _get_category_gate_override(boq_name, sheet_name, committed_version):
         return
     blanks = blank_category_eligible_rows(
