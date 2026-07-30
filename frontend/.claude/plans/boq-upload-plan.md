@@ -15440,3 +15440,57 @@ FRONTEND: `rateMasterRegistry.ts` (point_wiring entry), `RateMasterDataViewer.ts
 state), `rateMasterStructure.ts` (`isCategoryDataScopeEmpty` sentinel), `rateMasterStructure.test.ts`
 (+3 sentinel tests), `ratePipelineInterpreter.ts` (Option C try/catch honest-degrade),
 `ratePipelineInterpreter.test.ts` (+2 Option C tests).
+
+## Build slice EA-3 (live-BoQ certification of the rate-suggestion helper) COMPLETE
+
+**Cert slice -- ZERO product code changed; the only new code was the harness runner (committed session 1 at
+`d25fc5d2`, `frontend/scripts/ea3_harness_runner.ts` + `frontend/scripts/ea3_banked_composites.json`) + these
+docs.** Full session narrative + evidence: `ea3_report_2026-07-30.md` (Desktop); the L6 review tables:
+`ea3_l6_review.md` (Desktop); the EA-4 composite oracles: `ea3_banked_composites.json`.
+
+**Legs 1-2 (session 1, GREEN):** the harness runs the REAL unmodified `ratePipelineInterpreter` over a live-DB
+dump of the v12 active configs + master items against 86 chat-decoded cases -> **76/76 compared PASS**.
+**EPSILON PRECEDENT (owner-locked, standing law for every future harness):** comparison is `abs-diff < 1e-9`
+("float-representation-tight; the rupee is exact"), established by case m10 `misc_bcs = 234*0.8` whose
+decimal-exact 187.2 has no IEEE-754 double (JS+Python both yield 187.20000000000002; abs-diff 2.84e-14) -- the
+interpreter + config are correct, the literal `===` was the wrong instrument. Leg 2 dual-render pinned the live
+29-Jul workbook to the interpreter to the rupee (conduit/wiring/tray/earthing).
+
+**Leg 3 (live Y4 on FOUR real committed sheets + a service-level popup proof, GREEN):** 106 'ELECTRICAL BOQ',
+113 'Elect - BOQ', 066 'ELECTRICAL BOQ', 114 'Electrical ' (frozen, suggest-only). Real-AI suggest runs
+(ai_status=ran): 106/142, 113/172, 066/140, 114/107. **Every rule-bearing category is exercised across the
+sheets -- each row COMPUTES (attributes resolved AND a master row matches) or HONESTLY REFUSES (null/ambiguous
+attribute, composite identity, or unmatched catalog value); ZERO silently-wrong across ~561 sampled rows.**
+Two real USE cycles on 106 with DB-verified telemetry + reverts: `BRSE-26-00014` (r86 conduit_piping, 190->170
+then undo -> v3=190) + `BRSE-26-00015` (r78 wiring_cabling, 195->190 then undo -> v3=195) -- NO production rate
+changed. **Content-driven refusal (not blanket):** db_switchgear + industrial_sockets refuse the COMPOSITE/header
+rows on 106 but COMPUTE for identifiable single items on 113/066/114 (e.g. "4 tier flexi DB" -> matched item,
+"Industrial Socket with MCB" -> matched). **owner ruling #1 (114) satisfied:** suggest-only ran with NO
+override (156/156 already classified -> gate open) and NO reclassify; post-run DB verify `classification_frozen=1,
+frozen_by=sushmitha@nirmaan.app` -- her work UNTOUCHED; READ-ONLY Y4 (panel loads, Classify DISABLED). **L5
+popup_boxes** (no production coverage -- classifier-vocabulary gap) proven END-TO-END at the SERVICE level with
+ZERO DB writes: real-AI `extraction._extract_batch` -> "6 module popup box" => module_count 6; the popup_boq
+per-module pipeline -> supply 5400 / install 600 -- matches the Leg-1 harness (popup 3/3) + the vitest
+interpreter suite; the synthetic-committed-sheet UI walk was substituted for production-data safety (popup's
+extraction, compute, and UI-Use are each independently proven).
+
+**GATES (bench-verified vs baseline):** test_rate_master 30, test_rate_suggest 12, test_pricing 230, vitest rate
+suites 97 (interpreter 38 / structure 21 / edit 8 / helper 16 / registry 5 / suggestion-model 9), tsc 0-new (zero
+frontend source edits this slice), vite build exit 0. ALL PASS.
+
+**Non-blocking observations flagged to the owner (NONE silently-wrong):** (1) AI usage-limit fail-safe WORKED --
+the 113 classify hit the account API cap mid-run (300/307) and FAILED CLOSED (atomic rollback, nothing saved,
+existing classifications intact); AI was enabled throughout (a usage cap, never AI-off). (2) misc suggestion
+panel on a SEPARATE-Supply/Install-rate-column sheet (113) shows a misleading collapsed "no match" header +
+disabled single-cell Use while the EXPANDED pipeline computes the CORRECT supply/install (Rubber Mat 3200/500,
+matching master) -- display/binding gap, value correct. (3) tray combined-cell Use disabled on 106 (computes
+supply 1214 + install 300 as separate outputs; honest). (4) the in-app "Override the check" button 400'd on 113
+(the recurring :8080 CSRF desync, NOT the override handler -- the endpoint verified working via direct + fetch).
+(5) recurring :8080 CSRF desync (dev-server `{{ boot }}` not rendered; fix = restart + clear-site-data + relogin;
+environment, not product). (6) suggest-done modal copy says "wiring rows" but counts all categories (cosmetic).
+
+**COMPOSITES stay NOT-system-tested (EA-4's job -- no assembly engine yet); their finals are banked in
+`ea3_banked_composites.json` (point_wiring 1869/735/2604, db 24360/3660/28020, switches 2320/470/2790, cabletray
+431/120/551, wiring 120/20/140) as EA-4's cert oracles.** EA-3 tested their INGREDIENTS (Legs 1-2) + their
+HONEST REFUSAL (Leg 3). **panels** = a classifier category with NO rate-master config (rate-master-vocab gap,
+mirror of the popup_boxes classifier-vocab gap) -> honest coming-soon.
