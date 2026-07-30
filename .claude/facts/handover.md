@@ -1,10 +1,10 @@
 ---
-recorded_tip: 21086546
-recorded_branch: develop
-recorded_date: 2026-07-28
-handover_version: v5.90
+recorded_tip: e7f4602f
+recorded_branch: feature/boq-within-boq-carry
+recorded_date: 2026-07-30
+handover_version: v5.91
 status: current
-folded: 2026-07-29
+folded: 2026-07-30
 ---
 
 # BoQ / Nirmaan Stack — Facts Doc (handover)
@@ -15,23 +15,51 @@ folded: 2026-07-29
 > **Rule (owner decision, v5.81).** The frontmatter + Status dashboard below are
 > the CURRENT record. Narrative history is NOT here — see *Sources* at the end.
 >
-> **Folded 2026-07-29** from `BOQ_Feature_Handover_2026-07-28_v5_90`. Every
-> commit named below was verified to exist in this repo at fold time.
+> **Folded 2026-07-30** (v5.90 → v5.91) **from git, not from a narrative doc.**
+> The previous fold was 75 commits behind. Every claim below was derived from
+> `git log`/`git diff` over `21086546..e7f4602f` in this checkout and is
+> reproducible with the command shown beside it. Where a fact could NOT be
+> verified from the host — anything needing a bench run — it is marked
+> **UNVERIFIED** rather than carried forward from v5.90.
 
 ## Status dashboard — CURRENT
 
-- **Recorded tip:** `21086546` — *docs(pricing): plan doc PW-DS fold* — 2026-07-28, PUSHED, in sync.
-- **Lane:** `feature/boq-pricing-helper`. **Verified merged 2026-07-29** — `21086546` is an ancestor of `develop`. *(v5.90 flagged "whether develop has moved since the cut was NOT verified" — this closes it.)*
-- **Drift at fold:** `develop` is **27 commits** ahead of the recorded tip (two of those are the 2026-07-29 docs-hygiene commits). The session-start hook re-derives this every session — trust the hook, not this line.
-- **Cycle lineage since `011fd5b1`** (feat+docs pairs, except PW-FS which is fix+feat+docs):
-  `efa8d620`+`0ac80ce3` (ST-1) → `bf3690b7`+`0a435fa8` (U1) → `5d3027e7`+`13fb35ed`+`be534037` (PW-FS) → `28e22450`+`21086546` (PW-DS)
-- **Migrations pending for teammates:** no NEW exposure this cycle (no doctype JSON changed in any of the five slices). The lane's standing migrate-carrying ×1 — G2b's four `BoQ Sheet` override columns — is unchanged and the **Abhishek heads-up REMAINS OWED**.
-- **Tests — frontend:** vitest **976** across 46 files (full in-container run, read live before/after at PW-DS: 960→976).
-- **Tests — backend:** `test_pricing` **230** · `test_classify` **70** · `test_cross_boq_carry` **50**, as of `011fd5b1`. ⚠️ **ST-1 may have moved `test_classify`** — bench-verify fresh before quoting ANY backend count.
-- **tsc:** repo floor ~**3,240** pre-existing; ZERO in touched files across all five slices.
-- **AI toggle:** not exercised this cycle. HV-11 tracker armed, no known flips. Engine health stays untrusted until monitored.
-- **Deferred items:** **5 / 5 — AT CEILING.** Stop deferring, start closing.
-- **Open risks:** the three side-arc UI commits are dev-lane-only until Abhishek's next train; the pricing module is LIVE in production.
+- **Recorded tip:** `e7f4602f` — *docs(context): carve the always-loaded docs into routers* — 2026-07-30. **UNPUSHED** (`git branch -r --contains e7f4602f` → 0 remote branches).
+- **Lane:** `feature/boq-within-boq-carry`, **25 commits ahead of `develop`**, merge-base *is* `develop` (`2bd6032f`) so the merge is a **clean fast-forward, no conflicts** (`git merge-tree --write-tree develop HEAD` returns a tree).
+- **Range folded:** `21086546..e7f4602f` — **69 non-merge commits, 369 files, +50,331 / −5,405**. Authors: Abhishek 42, **Nitesh 20**, Madhu 7.
+- **What landed since the last fold** (six arcs; the last fold named none of them):
+
+  | Arc | Commits | Author | State |
+  |---|---|---|---|
+  | **Rate Master + suggestion (RM-1 … RM-4b)** | 20 | Nitesh | **MERGED to `develop`** via PR #1133 (`2bd6032f`) |
+  | **Within-BoQ carry parity (R1–R18)** | 24 | Abhishek | on this lane, **unpushed** |
+  | Docs + context restructure | 7 | Abhishek | on this lane, unpushed |
+  | Expenses / invoice-recon | 6 | Abhishek | merged |
+  | Reports (Monthly WIP, inventory, Missing DC) | 3 | Abhishek / Madhu | merged |
+  | Roles (Billing Executive view-only mirror) | 2 | Madhu | merged |
+
+- **⚠️ MIGRATIONS PENDING FOR TEAMMATES — the v5.90 line "no NEW exposure this cycle" is FALSE for this range.** Verified via `git diff --name-status 21086546..HEAD -- '*/doctype/*/*.json'`:
+  - **4 NEW doctypes:** `boq_rate_category_config`, `boq_rate_master_item`, `boq_rate_suggestion_event`, `boq_rate_suggestion_run` (all from the Rate Master arc)
+  - **7 MODIFIED doctypes:** `boq_sheet`, `boq_row_category`, `boq_cell_color`, `boq_cell_dismissal`, `boq_cell_remark`, `project_expenses`, `non_project_expenses`
+  - **2 `[MIGRATE]`-tagged commits:** `0fe9c6a2` (carry engine for categories + annotations, required provenance), `2a99d370` (lossless committed `sheet_config` snapshot)
+  - `nirmaan_stack/patches.txt` is **unchanged in this range** and clean — but a teammate pulling this still needs `bench migrate`. **The Abhishek heads-up is OWED and is now much larger than the G2b item v5.90 tracked.**
+- **Tests — UNVERIFIED at this fold.** No count is quoted, because they cannot be run from the host and v5.90's numbers predate 26 test-file changes. What *is* verified: **26 test files touched in range** (10 added, 15 modified, 1 deleted — `stubRateHelper.test.ts`, retired by the real rate helper); repo currently tracks **53** frontend `*.test.ts(x)` and **162** backend `test_*.py`. **Bench-verify before quoting any number.** v5.90's `976 / 230 / 70 / 50` are now historical, not current.
+- **tsc:** UNVERIFIED this fold (in-container gate). v5.90's ~3,240 pre-existing floor is the last known value.
+- **AI toggle:** not exercised in this range. HV-11 tracker armed, no known flips. Engine health stays untrusted until monitored.
+- **Deferred items:** **still 5 / 5 — AT CEILING.** Item (b) is *partially* discharged (10 stranded Rate Master records recovered into the plan tree); item (d) has **escalated** — 4 new doctypes landed while the merge new-doctype inventory remains unread.
+- **Open risks:** 25 commits unpushed and unreplicated on any remote; migration heads-up owed; the pricing module is LIVE in production; `boq-backend-wizard-endpoints.md` sits in the size warn band (65.6 KB) as a flat block with no structural split available.
+
+### Context + plan layout (restructured 2026-07-29/30 — read this before looking for anything)
+
+| Where | What | Rule |
+|---|---|---|
+| `CLAUDE.md`, `frontend/CLAUDE.md` | **routers**, 19.0 KB + 16.3 KB | Invariants + a when-you-touch-X-read-Y table. Auto-loaded. Was 177.8 KB combined. |
+| `.claude/context/conventions/`, `frontend/.claude/context/conventions/` | 11 surfaces | How to **change** a surface. On demand. |
+| `.claude/context/domain/boq-backend.md` | **router**, 1.7 KB → 5 surfaces | Was 187.3 KB. |
+| `frontend/.claude/plans/boq/` | `README.md` trunk · `_slices.md` (180 rows) · `slices/` 179 write-once fragments · `phasing.md` / `known-issues.md` / `decisions/` registers | Fragments chain to `-part2.md`; registers are grepped, not loaded. |
+| `frontend/.claude/plans/boq/archive/boq-upload-plan-pre-split.md` | 1.35 MB | The pre-rotation monolith. **Historical only.** |
+
+Both `_index.md` files are authoritative; the session-start hook reports unindexed files. Neither `boq-frontend.md` nor `boq-upload-plan.md` exists any more — they were split at `61f82798` and rotated at `15e9b81e`.
 
 ### Deferred register (at ceiling)
 
@@ -51,10 +79,12 @@ Electrical content = the NEW team master (v7 lineage, imported via Replace from 
 
 ## Next action (strict order)
 
-1. **U2** — earthing wired real, stub deleted. The 2-session box has one session left; exit criterion per rate-helper §7a.
-2. **Prod deploy** of the three UI commits via Abhishek, **+ the G2b migrate heads-up (OWED since v5.89)**, + prod residuals: retire throwaway estimator tests; **Google sharing revocation — the containment endpoint, still owed**.
-3. v5.89 arc-close leftovers: Pricing-Editor §6 correction; the stale `review_screen.py` comment; the PR-description note.
-4. Production-era carries, unchanged.
+1. **Get the 25 commits off this machine.** They exist on exactly one disk, include the whole R1–R18 carry arc and the docs restructure, and nothing is replicated. Clean fast-forward onto `develop`, owner-gated, from HOST PowerShell (#53).
+2. **Send the migration heads-up to Abhishek** — now covering 4 new doctypes + 7 modified + the two `[MIGRATE]` commits, not just the G2b item. Name the merge order; `bench migrate` is required after pull. **This gates the push** (Full-tier rule).
+3. **Bench-verify the test counts** and record them here. The doc currently quotes none on purpose; the first session with a container should close that, because every downstream A11/B5 claim depends on it.
+4. **U2** — earthing wired real, stub deleted. The 2-session box has one session left; exit criterion per rate-helper §7a. (`stubRateHelper.test.ts` is already deleted in this range, so the stub retirement is partly done — verify what remains.)
+5. **Close a deferred item before adding one** — register is at ceiling, and (d) *merge new-doctype inventory unread* is now the load-bearing one given the 4 new doctypes.
+6. Residuals: retire throwaway estimator tests; **Google sharing revocation — the containment endpoint, still owed**; v5.89 arc-close leftovers (Pricing-Editor §6 correction, stale `review_screen.py` comment, PR-description note); carve `boq-backend-wizard-endpoints.md` if a structural split appears.
 
 **Checklist C is owed fresh at next resume** (agreement #41) against this dashboard.
 
@@ -137,19 +167,34 @@ Cited by number throughout the plan docs and prompts. Full text: §8 of the sour
 
 The §9 register (numbered findings, currently past #164) lives in the source handover — it is large and is a **grep target, not a load**. The parser-specific subset is mirrored in `frontend/.claude/plans/boq/known-issues.md`.
 
-## Standing noise
+## Standing noise — **PER MACHINE, not global** (corrected 2026-07-30)
 
-Mirror of `process-config.md`; re-confirm against `git status` before relying on it.
+⚠️ **The v5.90 list was machine-specific and unlabelled, which made it wrong wherever it was read.** Verified on 2026-07-30 in the macOS checkout: 5 of its 6 entries do not exist there, and one had the wrong path. A13 asks the executor to declare pre-existing noise, so a list that misfires produces either a false "clean tree" or a phantom finding. **Derive it from `git status` each session; treat the block below as a per-machine expectation, not a fact.**
 
+**Path correction, both machines:** `patches.txt` lives at **`nirmaan_stack/patches.txt`**, not the repo root. It is tracked, was **clean and unchanged** across `21086546..e7f4602f`, and is still Abhishek-owned — never edit it.
+
+**Nitesh's Windows / Docker checkout** (`C:\Users\nites\Documents\...` — the one the Environment Runbook below describes):
 ```
 modified:  .claude/settings.local.json
-modified:  patches.txt
+modified:  nirmaan_stack/patches.txt        <- when the migration train is moving
 untracked: _classification_review/          <- DO NOT DELETE
              contains hvac_corpus_export/ and hvac_set1_run_v0/ - scoring depends on them
 untracked: BOQ-26-00145_SOW_faithful.csv
 untracked: Handover doc.pdf
 untracked: tendering-won.patch
 ```
+
+**Abhishek's macOS checkout** (verified 2026-07-30 at `e7f4602f`; `_classification_review/` and the three untracked artefacts above are **not present here at all** — they are Nitesh-machine working data):
+```
+untracked: docs/boq/                        <- ~45 explainer HTML/MD + node-audit-src/, shots/
+untracked: docs/crm-merge/
+untracked: docs/adr/0012-crm-stack-unification.md
+untracked: docs/context-audit.html
+untracked: frontend/.claude/hooks/
+untracked: frontend/HANDOFF-pyopenssl-s3-deploy-issue.md
+```
+
+Also note: `.claude/projects/C--Users-nites-Documents-nirmaan-stack-frappe15-postgres-14/` (including a `memory/MEMORY.md`) is **committed into the repo** — a Claude Code session directory from Nitesh's machine travelling with the source. Not noise, but not obviously intended either; worth an owner call.
 
 ## Sources
 
