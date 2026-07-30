@@ -7,7 +7,9 @@ Two things live here, and neither of them is row content:
      commit does for a revision.
   2. `committed_excel_row_match` -- the shared committed-tier D6 row match between two committed
      sheets, keyed by the durable Excel address. The rate carry in `cross_boq_carry` is its only
-     production consumer.
+     production consumer. `version_addressed_excel_row_match` is its WITHIN-BoQ sibling (two
+     versions of ONE sheet), consumed by `pricing`'s copy-forward; they are separate entry points by
+     owner ruling, not one function behind a flag.
 
 ⚠️ AMENDMENT E (2026-07-28, owner-directed) restores ALL FOUR layers Amendment D deleted --
 category, remark, colour and `remark` dismissal -- to the explicit per-sheet action. Each is
@@ -157,14 +159,67 @@ def _excel_twin_map(source_boq, source_sheet_docname, dest_boq, dest_sheet_docna
     ).original_to_revised
 
 
+def version_addressed_excel_row_match(
+    source_boq, source_sheet_docname, dest_boq, dest_sheet_docname
+):
+    """The WITHIN-BoQ sibling of `committed_excel_row_match` -- same match, addressed by committed
+    sheet DOCNAME alone, with NO `is_current` filter on the nodes.
+
+    ⚠️ Read `committed_excel_row_match`'s docstring above for the load-bearing warning about what may
+    and may not feed this match (never a tree-derived input). That warning is deliberately NOT
+    restated here: one copy in the codebase, so it cannot be updated in one place and go stale in the
+    other.
+
+    WHY A SIBLING AND NOT A PARAMETER (owner ruling, ADR-0014 Amendment F R6): the two differ only in
+    node visibility, but the cross-BoQ entry point's `is_current` filter is load-bearing there -- it
+    is what stops that carry reading superseded nodes -- so it must not become optional. Within ONE
+    BoQ the source is an OLDER version of the same sheet, and a re-commit froze its nodes to
+    `is_current = 0`; the cross-BoQ matcher therefore sees NOTHING on the source side and returns an
+    empty twin map. That single filter is the whole difference.
+
+    Dropping it here is SAFE because the docname already pins the version: `BOQ Nodes.sheet` links
+    the version-specific `BoQ Sheet` row, and `is_current` is uniform per sheet docname. This is the
+    same reasoning `review_screen.get_committed_rows_at_version` states for its own version read.
+
+    Returns the full `RowMatchResult`, exactly like the original -- the rate carry needs the per-row
+    outcome, not just the twin map. Only matched pairs appear in `original_to_revised`; within one
+    BoQ a pair is always (row N -> row N), because `match_rows` joins on the SAME Excel position."""
+    orig = _match_rows_from_nodes_at_version(source_boq, source_sheet_docname)
+    rev = _match_rows_from_nodes_at_version(dest_boq, dest_sheet_docname)
+    return match_rows(orig, rev)
+
+
 def _match_rows_from_nodes(boq, sheet_docname) -> list:
-    """Build the pure `MatchRow` list from one side's committed content nodes (non-blank N2
-    description, keyed by source_row_number = the durable Excel address)."""
-    nodes = frappe.db.get_all(
-        _NODE,
-        filters={"boq": boq, "sheet": sheet_docname, "is_current": 1},
-        fields=_NODE_MATCH_FIELDS,
+    """Build the pure `MatchRow` list from one side's CURRENT committed content nodes. The cross-BoQ
+    reader -- `is_current = 1` is load-bearing here (see `version_addressed_excel_row_match`)."""
+    return _content_match_rows(
+        frappe.db.get_all(
+            _NODE,
+            filters={"boq": boq, "sheet": sheet_docname, "is_current": 1},
+            fields=_NODE_MATCH_FIELDS,
+        )
     )
+
+
+def _match_rows_from_nodes_at_version(boq, sheet_docname) -> list:
+    """The same list from a committed sheet addressed by DOCNAME ALONE -- current or superseded. The
+    within-BoQ reader; the docname pins the version, so `is_current` adds nothing but a blind spot."""
+    return _content_match_rows(
+        frappe.db.get_all(
+            _NODE,
+            filters={"boq": boq, "sheet": sheet_docname},
+            fields=_NODE_MATCH_FIELDS,
+        )
+    )
+
+
+def _content_match_rows(nodes) -> list:
+    """Project committed node rows onto the pure `MatchRow` list: keyed by `source_row_number` (the
+    durable Excel address), non-blank N2 description only.
+
+    The ONE definition of "which committed rows enter a match" -- shared by both readers above so the
+    two seams cannot disagree about what a content row is. Blank-description rows never enter (they
+    carry nothing and demand nothing); a node with no Excel address has no durable identity."""
     return [
         MatchRow(
             row_id=n.source_row_number,

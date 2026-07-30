@@ -1099,3 +1099,110 @@ class TestAnnotationCarryLayers(FrappeTestCase):
             frappe.db.count("BoQ Cell Remark", {"boq": self.rev, "excel_row": 2, "is_current": 0}),
             1,
         )
+
+
+class TestVersionAddressedTwinMatch(FrappeTestCase):
+    """WBC S2 / ADR-0014 Amendment F R6 -- the WITHIN-BoQ version carry needs the same committed-tier
+    D6 row match, but between two VERSIONS of one sheet in ONE BoQ. `committed_excel_row_match`
+    cannot serve that: it filters `BOQ Nodes.is_current = 1` on both sides, and within one BoQ the
+    source is an OLDER version whose nodes were frozen to `is_current = 0` at re-commit
+    (commit_pipeline). So the shared cross-BoQ entry point returns an EMPTY twin map within-BoQ --
+    that one filter is the whole blocker.
+
+    The owner ruled AGAINST merging the two behind a `current_only` flag, so this exercises a
+    separate version-addressed sibling and PINS the original's behaviour + signature beside it.
+
+    Fixture -- one BoQ, three committed sheets:
+      "WBC Twin " v1 (is_current=0, the superseded source) + v2 (is_current=1, the destination)
+      "WBC Cur A " / "WBC Cur B " -- two CURRENT sheets, the shape `committed_excel_row_match`
+      really serves, so the pin has a positive half as well as a negative one.
+    """
+
+    TWIN = "WBC Twin "     # VERBATIM trailing space (#152)
+    CUR_A = "WBC Cur A "
+    CUR_B = "WBC Cur B "
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        cls.boq = _make_boq(cls.test_project.name).name
+        rm = _role_map({"D": "Phase 1"})
+
+        # The within-BoQ pair: a SUPERSEDED v1 source + the CURRENT v2 destination.
+        cls.v1 = _commit_sheet(cls.boq, cls.TWIN, rm, commit_version=1, is_current=0)
+        _node(cls.boq, cls.v1, "Line Item", "Item A", 10, 0, commit_version=1, is_current=0)
+        _node(cls.boq, cls.v1, "Line Item", "Item B", 11, 1, commit_version=1, is_current=0)
+        _node(cls.boq, cls.v1, "Preamble", "Header", 12, 2, level=1,
+              commit_version=1, is_current=0)
+        cls.v2 = _commit_sheet(cls.boq, cls.TWIN, rm, commit_version=2, is_current=1)
+        _node(cls.boq, cls.v2, "Line Item", "Item A", 10, 0, commit_version=2, is_current=1)
+        _node(cls.boq, cls.v2, "Line Item", "Item B EDITED", 11, 1, commit_version=2, is_current=1)
+        _node(cls.boq, cls.v2, "Preamble", "Header", 12, 2, level=1,
+              commit_version=2, is_current=1)
+
+        # Two CURRENT sheets -- the cross-BoQ shape, for the freeze pin's positive half.
+        cls.cur_a = _commit_sheet(cls.boq, cls.CUR_A, rm)
+        _node(cls.boq, cls.cur_a, "Line Item", "Item A", 10, 0)
+        _node(cls.boq, cls.cur_a, "Line Item", "Item B", 11, 1)
+        cls.cur_b = _commit_sheet(cls.boq, cls.CUR_B, rm)
+        _node(cls.boq, cls.cur_b, "Line Item", "Item A", 10, 0)
+        _node(cls.boq, cls.cur_b, "Line Item", "Item B EDITED", 11, 1)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        _wipe_boqs(cls.test_project.name)
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    # ── the sibling: version-addressed, blind to is_current ───────────────────────────
+    def test_the_version_addressed_sibling_pairs_across_two_versions(self):
+        match = committed_carry.version_addressed_excel_row_match(
+            self.boq, self.v1, self.boq, self.v2
+        )
+        self.assertEqual(
+            match.original_to_revised, {10: 10, 12: 12},
+            "same position + same N2 description pairs; row 11 was reworded",
+        )
+        self.assertEqual(match.unmatched_original(), frozenset({11}))
+
+    def test_the_sibling_returns_the_full_match_result_not_just_the_twin_map(self):
+        """The rate carry needs `unmatched_revised()` too (the "needs a new value" figure), so the
+        sibling returns the whole RowMatchResult exactly as the original does."""
+        match = committed_carry.version_addressed_excel_row_match(
+            self.boq, self.v1, self.boq, self.v2
+        )
+        self.assertEqual(match.revised_to_original, {10: 10, 12: 12})
+        self.assertEqual(match.original_ids, frozenset({10, 11, 12}))
+        self.assertEqual(match.revised_ids, frozenset({10, 11, 12}))
+
+    # ── R6 FREEZE PIN: committed_excel_row_match is untouched, behaviour AND signature ─
+    def test_freeze_pin_committed_excel_row_match_still_ignores_frozen_nodes(self):
+        """The NEGATIVE half, and the reason the sibling exists at all. Deleting the `is_current`
+        filter from the cross-BoQ matcher would make this slice's problem disappear -- and would
+        silently let the cross-BoQ carry read superseded nodes. It must keep returning nothing here."""
+        self.assertEqual(
+            committed_carry.committed_excel_row_match(
+                self.boq, self.v1, self.boq, self.v2
+            ).original_to_revised,
+            {},
+            "the source side's nodes are all is_current=0 -> the cross-BoQ matcher sees none",
+        )
+
+    def test_freeze_pin_committed_excel_row_match_still_pairs_two_current_sheets(self):
+        """The POSITIVE half: on the shape it actually serves, the output is what it always was."""
+        match = committed_carry.committed_excel_row_match(
+            self.boq, self.cur_a, self.boq, self.cur_b
+        )
+        self.assertEqual(match.original_to_revised, {10: 10})
+        self.assertEqual(match.unmatched_original(), frozenset({11}))
+
+    def test_freeze_pin_committed_excel_row_match_signature(self):
+        """R6 pins the SIGNATURE as well as the behaviour -- the owner ruled against widening this
+        entry point with a flag, and a new keyword parameter is exactly how that ruling would erode."""
+        import inspect
+        self.assertEqual(
+            list(inspect.signature(committed_carry.committed_excel_row_match).parameters),
+            ["source_boq", "source_sheet_docname", "dest_boq", "dest_sheet_docname"],
+        )
