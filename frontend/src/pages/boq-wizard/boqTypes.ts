@@ -1277,6 +1277,10 @@ export interface GetCopyForwardPlanResponse {
     no_rate_column: number;
     non_priceable: number;
   };
+  /** ADR-0014 Amendment F R1: what each non-rate layer WOULD do, planned with overwrite OFF -- the
+   *  same preview `CrossBoqCarrySheet` carries, from the same shared walk. Optional so a response
+   *  from a pre-Amendment-F server degrades to the rate-only dialog instead of throwing. */
+  layers?: Partial<Record<CarryLayerKey, CarryLayerOutcome>>;
 }
 
 /** One user decision posted to apply_copy_forward. Presence = "copy this cell"; `overwrite` matters only for a conflict. */
@@ -1299,6 +1303,10 @@ export interface ApplyCopyForwardResponse {
     non_priceable: number;
     invalid: number;
   };
+  /** ADR-0014 Amendment F R1: what each non-rate layer ACTUALLY did, reporting ONLY the layers that
+   *  ran. Mirrors `ApplySheetCarryResponse.layers`, but OPTIONAL here -- a pre-Amendment-F server
+   *  sends no such key, and the post-apply line degrades to rates rather than reading undefined. */
+  layers?: Partial<Record<CarryLayerKey, CarryLayerOutcome>>;
 }
 
 // ── Cross-BOQ rate carry (S10 / #1106, ADR-0014 D9) ────────────────────────────────

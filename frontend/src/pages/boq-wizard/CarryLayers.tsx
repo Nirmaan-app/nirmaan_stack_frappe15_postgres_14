@@ -49,14 +49,38 @@ export const LAYER_LABEL: Record<CarryLayerKey, string> = {
   remark_dismissals: "Dismissed review flags",
 };
 
+/**
+ * What the carry is copying INTO, as the block's copy names it. Two of the block's sentences have to
+ * say this out loud, and the two surfaces do not agree on the word: across BoQs the destination is
+ * "the revision", but within ONE BoQ there is no revision at all -- only an older and a current
+ * VERSION of the same sheet, so "the revision" names nothing the user can see (owner ruling R9).
+ *
+ * Same shape S5 used for the block's subtext: a CROSS-BoQ default plus a per-surface variant, so
+ * the cross-BoQ dialog renders byte-identically without being touched.
+ *
+ * ⚠️ The within-BoQ wording is PENDING OWNER CONFIRMATION (WBC-S3a).
+ */
+export const CARRY_DESTINATION_CROSS_BOQ = "the revision";
+export const CARRY_DESTINATION_WITHIN_BOQ = "the current version";
+
 /** What each layer actually is, in the reviewer's vocabulary -- these are opt-in choices, so the
- *  dialog has to say what is being opted into. */
-export const LAYER_HINT: Record<CarryLayerKey, string> = {
-  categories: "The classification verdict on each row.",
-  remarks: "Notes written against a cell.",
-  colors: "Colour marks. Only columns that still exist in the revision can carry.",
-  remark_dismissals: "Review flags someone has already dismissed.",
-};
+ *  dialog has to say what is being opted into. Only COLOURS names the destination; the other three
+ *  are surface-independent and come back identical whatever is passed. */
+export function layerHint(
+  key: CarryLayerKey,
+  destination: string = CARRY_DESTINATION_CROSS_BOQ,
+): string {
+  switch (key) {
+    case "categories":
+      return "The classification verdict on each row.";
+    case "remarks":
+      return "Notes written against a cell.";
+    case "colors":
+      return `Colour marks. Only columns that still exist in ${destination} can carry.`;
+    case "remark_dismissals":
+      return "Review flags someone has already dismissed.";
+  }
+}
 
 /** The user's choice for every layer (the dialog always holds all four; the WIRE gets only the
  *  ticked ones -- see buildLayersPayload). */
@@ -132,10 +156,11 @@ export function layerCountsText(outcome: CarryLayerOutcome | null | undefined): 
 export function layerSkipNote(
   key: CarryLayerKey,
   outcome: CarryLayerOutcome | null | undefined,
+  destination: string = CARRY_DESTINATION_CROSS_BOQ,
 ): string {
   if (!outcome) return "";
   if (key === "colors" && outcome.dropped > 0) {
-    return `${outcome.dropped} skipped — that column is not in the revision`;
+    return `${outcome.dropped} skipped — that column is not in ${destination}`;
   }
   if (key === "categories" && outcome.ineligible > 0) {
     return `${outcome.ineligible} skipped — those rows cannot hold a category`;
@@ -205,6 +230,45 @@ export function countPhrase(n: number, singular: string, plural: string): string
 }
 
 /**
+ * ONE walk over everything the apply would write, producing BOTH the phrases the "Will copy ..."
+ * line reads out and the single figure the apply BUTTON reports. Private on purpose: the two public
+ * readers below are the interface, and they cannot disagree because there is only one walk.
+ *
+ * That is the whole point (owner ruling R11). The button used to name `selected.size` while the line
+ * named the writes, so the pair could contradict each other by the number of un-armed conflicts --
+ * "Copy 12 rates forward" sitting above "Will copy 30 categories", button enabled, apply writing no
+ * rates at all. A second count derived separately would eventually drift back into that.
+ */
+interface CarryWriteBreakdown {
+  /** One phrase per axis that would actually write something ("12 rates", "140 categories"). */
+  parts: string[];
+  /** The sum of the figures those phrases name. */
+  total: number;
+}
+
+function carryWriteBreakdown(
+  rateCellsThatWillWrite: number,
+  sheet: CarryLayerSource | null | undefined,
+  choices: LayerChoices,
+): CarryWriteBreakdown {
+  const parts: string[] = [];
+  let total = 0;
+  if (rateCellsThatWillWrite > 0) {
+    parts.push(countPhrase(rateCellsThatWillWrite, "rate", "rates"));
+    total += rateCellsThatWillWrite;
+  }
+  for (const key of CARRY_LAYER_KEYS) {
+    const choice = choices[key];
+    if (!choice?.carry) continue;
+    const n = layerMoveCount(layerOutcomeFor(sheet, key), !!choice.overwrite);
+    if (n === 0) continue;
+    parts.push(`${n} ${LAYER_LABEL[key].toLowerCase()}`);
+    total += n;
+  }
+  return { parts, total };
+}
+
+/**
  * The honest "what will move" line above the footer. Rates first, then each CARRYING layer that
  * would actually write something -- so the sentence never promises a layer that has nothing to do.
  * Returns "" when nothing would be written at all (the caller then hides the line).
@@ -217,16 +281,22 @@ export function carrySelectionSummary(
   sheet: CarryLayerSource | null | undefined,
   choices: LayerChoices,
 ): string {
-  const parts: string[] = [];
-  if (rateCellsThatWillWrite > 0) parts.push(countPhrase(rateCellsThatWillWrite, "rate", "rates"));
-  for (const key of CARRY_LAYER_KEYS) {
-    const choice = choices[key];
-    if (!choice?.carry) continue;
-    const n = layerMoveCount(layerOutcomeFor(sheet, key), !!choice.overwrite);
-    if (n === 0) continue;
-    parts.push(`${n} ${LAYER_LABEL[key].toLowerCase()}`);
-  }
-  return joinPhrases(parts);
+  return joinPhrases(carryWriteBreakdown(rateCellsThatWillWrite, sheet, choices).parts);
+}
+
+/**
+ * How many records the apply will write ACROSS BOTH AXES -- the figure the apply button names
+ * (owner ruling R11). By construction it is the sum of the figures `carrySelectionSummary` names
+ * directly above the button, so the two can never contradict each other.
+ *
+ * ⚠️ Same input rule as the line: pass `rateWriteCount(...)`, never `selected.size`.
+ */
+export function carryWriteCount(
+  rateCellsThatWillWrite: number,
+  sheet: CarryLayerSource | null | undefined,
+  choices: LayerChoices,
+): number {
+  return carryWriteBreakdown(rateCellsThatWillWrite, sheet, choices).total;
 }
 
 // ── The opt-in non-rate layers block ───────────────────────────────────────────────
@@ -262,6 +332,9 @@ export interface CarryLayersBlockProps {
   /** The one sentence that differs per surface (see the two consts above). Defaults to the
    *  cross-BoQ wording, so that caller needs no change. */
   subtext?: string;
+  /** What the carry writes INTO, as two of the layer rows name it (R9). Defaults to the cross-BoQ
+   *  wording for the same reason `subtext` does. */
+  destination?: string;
   onChange: (key: CarryLayerKey, next: CarryLayerChoice) => void;
 }
 
@@ -278,6 +351,7 @@ export function CarryLayersBlock({
   choices,
   disabled,
   subtext = LAYER_BLOCK_SUBTEXT_CROSS_BOQ,
+  destination = CARRY_DESTINATION_CROSS_BOQ,
   onChange,
 }: CarryLayersBlockProps) {
   // A pre-Amendment-E server sends no `layers` block at all. Hide the section rather than render
@@ -297,7 +371,7 @@ export function CarryLayersBlock({
           const hasWork = layerHasWork(outcome);
           const rowDisabled = disabled || !hasWork;
           const counts = layerCountsText(outcome);
-          const skipNote = layerSkipNote(key, outcome);
+          const skipNote = layerSkipNote(key, outcome, destination);
           // Overwrite is only a real choice when something would actually be displaced.
           const showOverwrite = !rowDisabled && choice?.carry && (outcome?.kept ?? 0) > 0;
 
@@ -326,7 +400,9 @@ export function CarryLayersBlock({
                     {hasWork ? counts : "Nothing to carry"}
                   </span>
                 </div>
-                <p className="mt-0.5 text-[11px] text-muted-foreground">{LAYER_HINT[key]}</p>
+                <p className="mt-0.5 text-[11px] text-muted-foreground">
+                  {layerHint(key, destination)}
+                </p>
                 {skipNote && (
                   <p className="mt-0.5 text-[11px] text-muted-foreground">{skipNote}</p>
                 )}
