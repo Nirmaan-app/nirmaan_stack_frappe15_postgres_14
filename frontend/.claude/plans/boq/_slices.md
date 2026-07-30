@@ -176,6 +176,7 @@
 | WBC-S8 (pricing editor showed the WRONG version's categories -- display follows the viewed version, the GATE stays on the current one) -- BACKFILLED at S10 | 2026-07-30 | f215d6a9 | [record](slices/2026-07-29-within-boq-carry-parity-part2.md) |
 | WBC-S9 (record and verify: S8 recorded, first bench-verified test counts in the arc, F6 corrected) -- BACKFILLED at S10 | 2026-07-30 | cb1241ba | [record](slices/2026-07-29-within-boq-carry-parity-part2.md) |
 | WBC-S10 -- ungate the within-BoQ copy-forward (category gate removed from apply_copy_forward ONLY; the save-path EDIT gate survives byte-identical) | 2026-07-30 | - | [record](slices/2026-07-30-wbc-s10-ungate-the-copy-forward.md) |
+| WBC-S11 -- serial-number second-pass match (ADR-0014 Amendment G: opt-in serial+description pass so a MOVED row carries; cross-BoQ carry only -- rates AND layers ride one match; within-BoQ + parse-time stay strict) | 2026-07-30 | - | [record](slices/2026-07-30-wbc-s11-serial-second-pass-match.md) |
 | Build slice RM-1 (rate-master schema + initial load) COMPLETE | 2026-07-28 | — | [record](slices/2026-07-28-build-slice-rm-1-rate-master-schema-initial-load-complete.md) |
 | Build slice RM-2 (rate-master read surface -- viewer + derivation) COMPLETE | 2026-07-28 | — | [record](slices/2026-07-28-build-slice-rm-2-rate-master-read-surface-viewer-derivatio.md) |
 | Build slice RM-2b (re-import the 28-Jul benchmark data) COMPLETE | 2026-07-28 | — | [record](slices/2026-07-28-build-slice-rm-2b-re-import-the-28-jul-benchmark-data-comp.md) |
