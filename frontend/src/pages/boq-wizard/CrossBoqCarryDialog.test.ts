@@ -37,7 +37,6 @@ import {
   layerSkipNote,
   armedLayerReplacements,
   buildLayersPayload,
-  nothingToCarry,
   carrySelectionSummary,
   type LayerChoices,
 } from "./CarryLayers";
@@ -664,45 +663,68 @@ describe("buildLayersPayload (the wire)", () => {
   });
 });
 
-describe("nothingToCarry (the apply gate, both axes)", () => {
+// ── WBC-S3a-rework / R15: the apply gate is the WRITE count ───────────────────────
+// It was `nothingToCarry(selected.size, ...)` -- a SECOND derivation, asking a different question
+// from the label and the "Will carry ..." line beside it. That helper is gone; the gate is now
+// `carryWriteCount(...) === 0`, the very figure the line reads out, so an enabled button always has
+// a sentence justifying it. Every scenario the old suite covered is kept below, restated as the
+// number the gate now reads (0 = shut).
+//
+// ⚠️ BOUNDARY: this pins the NUMBER, not the rendered `disabled` attribute. `environment: "node"`
+// with no jsdom/RTL is a deliberate repo choice, so a React `<Button disabled>` is structurally
+// unobservable here. That the component feeds this number to the gate is a LIVE check, not a test.
+describe("the apply gate -- carryWriteCount, not the selection size (R15)", () => {
   const s = layered({ categories: outcome({ carried: 140 }) });
+  const noLayers = Object.fromEntries(
+    CARRY_LAYER_KEYS.map((k) => [k, { carry: false, overwrite: false }]),
+  ) as LayerChoices;
 
-  it("is false while any rate cell is selected", () => {
-    const none = Object.fromEntries(
-      CARRY_LAYER_KEYS.map((k) => [k, { carry: false, overwrite: false }]),
-    ) as LayerChoices;
-    expect(nothingToCarry(3, s, none)).toBe(false);
+  it("is OPEN while any rate cell would write", () => {
+    expect(carryWriteCount(3, s, noLayers)).toBe(3);
   });
 
-  // THE regression this helper exists for: the pre-E gate was `selectedCount === 0`, which
-  // refused a category-only carry -- real work, on the axis the amendment is about.
-  it("is FALSE with zero rates but a carrying layer that would write", () => {
-    expect(nothingToCarry(0, s, initialLayerChoices())).toBe(false);
+  // Amendment E's own regression, unchanged in substance: the pre-E gate was `selectedCount === 0`,
+  // which refused a category-only carry -- real work, on the axis that amendment is about.
+  it("is OPEN with zero rates but a carrying layer that would write", () => {
+    expect(carryWriteCount(0, s, initialLayerChoices())).toBe(140);
   });
 
-  it("is true with zero rates and every layer unticked", () => {
-    const none = Object.fromEntries(
-      CARRY_LAYER_KEYS.map((k) => [k, { carry: false, overwrite: false }]),
-    ) as LayerChoices;
-    expect(nothingToCarry(0, s, none)).toBe(true);
+  it("is SHUT with zero rates and every layer unticked", () => {
+    expect(carryWriteCount(0, s, noLayers)).toBe(0);
   });
 
   // Ticking a layer that cannot move anything is not work, and must not enable a no-op apply.
-  it("is TRUE when the only ticked layer would write nothing", () => {
+  it("is SHUT when the only ticked layer would write nothing", () => {
     const empty = layered({ categories: outcome({ unmatched: 50 }) });
-    expect(nothingToCarry(0, empty, initialLayerChoices())).toBe(true);
+    expect(carryWriteCount(0, empty, initialLayerChoices())).toBe(0);
   });
 
-  it("is false when a ticked layer writes only because Overwrite is armed", () => {
+  it("opens when a ticked layer writes only because Overwrite is armed", () => {
     const keptOnly = layered({ categories: outcome({ kept: 6 }) });
-    expect(nothingToCarry(0, keptOnly, initialLayerChoices())).toBe(true);
+    expect(carryWriteCount(0, keptOnly, initialLayerChoices())).toBe(0);
     expect(
-      nothingToCarry(0, keptOnly, choices({ categories: { carry: true, overwrite: true } })),
-    ).toBe(false);
+      carryWriteCount(0, keptOnly, choices({ categories: { carry: true, overwrite: true } })),
+    ).toBe(6);
   });
 
-  it("is true when the server sent no layer counts and no rate is selected", () => {
-    expect(nothingToCarry(0, sheet(), initialLayerChoices())).toBe(true);
+  it("is SHUT when the server sent no layer counts and no rate would write", () => {
+    expect(carryWriteCount(0, sheet(), initialLayerChoices())).toBe(0);
+  });
+
+  // THE state R15 closes, in the shape review reached it: every conflict pre-ticked and left on
+  // Keep, no layer ticked. The old gate read a selection of 3 and ENABLED a button that named no
+  // figure and had no line above it; the write count reads 0 and shuts.
+  it("SHUTS on the all-Keep re-run the selection gate left open", () => {
+    const k = (r: number) =>
+      cellKey("Electrical", { dest_excel_row: r, area: null, rate_kind: "combined_rate" });
+    const carried = sheet({
+      plan: [10, 11, 12].map((r) => row({ dest_excel_row: r, outcome: 3, current_rate: 5 })),
+    });
+    const sel = new Set([10, 11, 12].map(k));
+    expect(sel.size).toBe(3); // what the OLD gate read -> enabled
+    const rates = rateWriteCount(carried, sel, {});
+    expect(carryWriteCount(rates, carried, noLayers)).toBe(0); // -> disabled
+    expect(carrySelectionSummary(rates, carried, noLayers)).toBe(""); // and nothing said above it
   });
 });
 

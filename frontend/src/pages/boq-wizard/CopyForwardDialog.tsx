@@ -66,7 +66,6 @@ import {
   countPhrase,
   initialLayerChoices,
   joinPhrases,
-  nothingToCarry,
   type CarryLayerSource,
   type LayerChoices,
 } from "./CarryLayers";
@@ -146,9 +145,11 @@ export function buildDecisions(
  * rates left as they were." The layer half has always respected the choice (`layerMoveCount`), so a
  * selection-based rate figure would put the two halves of one sentence at odds with each other.
  *
- * The apply GATE deliberately still keys off the selection (via `nothingToCarry`): pressing Copy on
- * an all-Keep version is a harmless no-op that reports honestly, and disabling it there would be a
- * separate behaviour change.
+ * ⚠️ The apply GATE reads this too, as of owner ruling R15 -- it used to key off the raw selection,
+ * and a comment here parked that as "a separate behaviour change". It was the same defect one layer
+ * down: with the selection gating and the writes labelling, the button could sit ENABLED, naming no
+ * figure, above no "Will copy" line at all (every conflict on Keep, no layer ticked). The gate is
+ * now `writeCount === 0`, so one number governs both the label and enablement.
  */
 export function rateWriteCount(
   plan: CopyForwardPlanRow[],
@@ -276,7 +277,6 @@ export function CopyForwardDialog({
   }, [plan]);
 
   const conflictCount = plan.filter((r) => r.outcome === 3).length;
-  const selectedCount = selected.size;
   /**
    * The layer choice is OFFERED only where the block renders -- inside the non-empty-plan branch. A
    * version with no priced rates shows the "nothing to copy" state and no block, so its layers must
@@ -286,9 +286,6 @@ export function CopyForwardDialog({
    * restriction.
    */
   const layerSource: CarryLayerSource | null = plan.length > 0 ? message : null;
-  // The apply gate spans BOTH axes: unticking every rate but leaving Categories ticked is real work,
-  // which the pre-S5 `selectedCount === 0` test would have refused.
-  const nothingToWrite = nothingToCarry(selectedCount, layerSource, layerChoices);
   // WRITES, not the selection -- see rateWriteCount. This is what the "Will copy ..." line reports.
   const rateWrites = useMemo(
     () => rateWriteCount(plan, selected, overwrite),
@@ -305,6 +302,15 @@ export function CopyForwardDialog({
     () => carryWriteCount(rateWrites, layerSource, layerChoices),
     [rateWrites, layerSource, layerChoices],
   );
+  /**
+   * The apply gate, owner ruling R15: ONE number governs the label and enablement. It spans both
+   * axes (unticking every rate but leaving Categories ticked is real work) and it counts WRITES, so
+   * an all-Keep re-run with nothing else ticked now disables rather than offering a no-op.
+   *
+   * This is deliberately `writeCount === 0` and not a second helper over the same inputs: a second
+   * derivation is exactly how the label and the gate came to answer one question from two sources.
+   */
+  const nothingToWrite = writeCount === 0;
 
   const toggleRow = (row: CopyForwardPlanRow) => {
     const key = cellKey(row);

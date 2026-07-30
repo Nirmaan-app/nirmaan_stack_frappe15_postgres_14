@@ -55,7 +55,6 @@ import {
   countPhrase,
   initialLayerChoices,
   joinPhrases,
-  nothingToCarry,
   type LayerChoices,
 } from "./CarryLayers";
 
@@ -341,9 +340,11 @@ export const SKIP_REASON_LABEL: Record<NonNullable<CrossBoqCarryPlanRow["skip_re
  * live on a re-run. The layer half already respected the choice (`layerMoveCount`), so the two
  * halves of one sentence disagreed with each other.
  *
- * The apply GATE deliberately still keys off the raw selection: pressing Carry on an all-Keep sheet
- * is a harmless no-op that reports honestly, and disabling the button there would be a separate
- * behaviour change.
+ * ⚠️ The apply GATE reads this too, as of owner ruling R15 -- it used to key off the raw selection,
+ * and a comment here parked that as "a separate behaviour change". It was the same defect one layer
+ * down: with the selection gating and the writes labelling, the button could sit ENABLED above no
+ * "Will carry" line at all (every conflict on Keep, no layer ticked). Both branches of this dialog
+ * now gate on their write count, so one number governs both what is said and what is offered.
  */
 export function rateWriteCount(
   sheet: CrossBoqCarrySheet | null | undefined,
@@ -442,10 +443,6 @@ export function CrossBoqCarryDialog({
     setError(null);
   }, [sheets]);
 
-  const selectedCount = selected.size;
-  // AMENDMENT E: the apply gate spans BOTH axes. Untick every rate but leave Categories ticked and
-  // that is real work -- the pre-E `selectedCount === 0` test would have refused it.
-  const nothingToWrite = single && nothingToCarry(selectedCount, sheet, layerChoices);
   const armedRates = useMemo(
     () => armedRateOverwrites(sheet, selected, overwrite),
     [sheet, selected, overwrite],
@@ -455,13 +452,22 @@ export function CrossBoqCarryDialog({
     [sheet, layerChoices],
   );
   // AMENDMENT E: the line reports what will actually be WRITTEN, so a conflict left on Keep is not
-  // counted. `selectedCount` still drives the apply gate -- see rateWriteCount's note.
+  // counted. R15: the apply gate reads the same figure -- see rateWriteCount's note.
   const rateWrites = useMemo(
     () => rateWriteCount(sheet, selected, overwrite),
     [sheet, selected, overwrite],
   );
   const selectionSummary = useMemo(
     () => carrySelectionSummary(rateWrites, sheet, layerChoices),
+    [rateWrites, sheet, layerChoices],
+  );
+  /**
+   * The SINGLE-sheet apply gate (R15). Its button deliberately names no figure (R14, owner-upheld),
+   * but the figure still has to govern enablement -- and it is the same one the "Will carry ..."
+   * line above the button reads out, so an enabled button always has a sentence to justify it.
+   */
+  const singleSheetWrites = useMemo(
+    () => carryWriteCount(rateWrites, sheet, layerChoices),
     [rateWrites, sheet, layerChoices],
   );
   // WBC-S3a / R11: the WHOLE-BoQ button's figure. Rates across every sheet, counted as WRITES --
@@ -666,7 +672,13 @@ export function CrossBoqCarryDialog({
           </Button>
           <Button
             onClick={handleApply}
-            disabled={running || isLoading || (single ? nothingToWrite : selectedCount === 0)}
+            /* R15: WRITES gate both branches. The whole-BoQ one kept `selectedCount === 0` while
+               its label already read `wholeBoqWrites` -- the same split, in dead-but-restorable
+               code (SheetPricingPage is its only render site and always passes `sheetName`). Left
+               wrong it would come back wrong the day the hub path is restored. */
+            disabled={
+              running || isLoading || (single ? singleSheetWrites === 0 : wholeBoqWrites === 0)
+            }
           >
             {running ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             {/* AMENDMENT E: the SINGLE-sheet button deliberately names no payload -- it may be

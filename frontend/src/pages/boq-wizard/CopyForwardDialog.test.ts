@@ -27,7 +27,6 @@ import {
   layerHint,
   layerOutcomeFor,
   layerSkipNote,
-  nothingToCarry,
   type CarryLayerSource,
   type LayerChoices,
 } from "./CarryLayers";
@@ -277,17 +276,38 @@ describe("carrySelectionSummary over the copy-forward plan", () => {
   });
 });
 
-describe("nothingToCarry -- the apply gate spans BOTH axes on this seam too", () => {
-  it("allows a layers-only apply: every rate un-ticked, but categories would still move", () => {
+// ── WBC-S3a-rework / R15: the apply gate is the WRITE count, on this seam too ──────
+// It was `nothingToCarry(selected.size, ...)`: a SECOND derivation over the same inputs, asking a
+// different question from the label directly above it. Reachable bad state, found in review --
+// every conflict left on Keep and no layer ticked: zero writes, no "Will copy ..." line at all, and
+// the Copy button still ENABLED. The gate is now `carryWriteCount(...) === 0`, one number for both.
+//
+// ⚠️ BOUNDARY: this pins the NUMBER the gate reads, never the rendered `disabled` attribute --
+// `environment: "node"` with no jsdom/RTL is a deliberate repo choice, so the button itself is
+// structurally unobservable here. The wiring is a live A/B check.
+describe("the apply gate -- carryWriteCount, not the selection size (R15)", () => {
+  it("stays OPEN for a layers-only apply: every rate un-ticked, categories would still move", () => {
     const message = planMessage({ layers: { categories: outcome({ carried: 3 }) } });
-    expect(nothingToCarry(0, message, initialLayerChoices())).toBe(false);
+    expect(carryWriteCount(0, message, initialLayerChoices())).toBe(3);
   });
-  it("refuses when neither axis would write anything", () => {
+  it("SHUTS when neither axis would write anything", () => {
     const message = planMessage({ layers: { categories: outcome() } });
-    expect(nothingToCarry(0, message, initialLayerChoices())).toBe(true);
+    expect(carryWriteCount(0, message, initialLayerChoices())).toBe(0);
   });
-  it("is never blocking while a rate would write", () => {
-    expect(nothingToCarry(1, planMessage(), initialLayerChoices())).toBe(false);
+  it("stays OPEN while a rate would write", () => {
+    expect(carryWriteCount(1, planMessage(), initialLayerChoices())).toBe(1);
+  });
+
+  // THE state R15 closes: the one conflict is pre-ticked and left on Keep, so the OLD gate read a
+  // selection of 1 and enabled a button that would have written nothing at all.
+  it("SHUTS on the all-Keep re-run the selection gate left open", () => {
+    const conflictsOnly = [row({ excel_row: 20, outcome: 3, current_rate: 500 })];
+    const { selected, overwrite } = initialSelection(conflictsOnly);
+    const message = planMessage({ plan: conflictsOnly, layers: { categories: outcome() } });
+    expect(selected.size).toBe(1); // what the OLD gate read -> enabled
+    const rates = rateWriteCount(conflictsOnly, selected, overwrite);
+    expect(carryWriteCount(rates, message, initialLayerChoices())).toBe(0); // -> disabled
+    expect(carrySelectionSummary(rates, message, initialLayerChoices())).toBe(""); // nothing said
   });
 });
 
@@ -307,7 +327,7 @@ describe("CarryLayerSource -- the shared block's structural parameter", () => {
   });
   it("degrades to no counts when the server sends no preview at all", () => {
     expect(layerOutcomeFor(planMessage(), "categories")).toBeNull();
-    expect(nothingToCarry(0, planMessage(), initialLayerChoices())).toBe(true);
+    expect(carryWriteCount(0, planMessage(), initialLayerChoices())).toBe(0); // gate SHUT
   });
 });
 

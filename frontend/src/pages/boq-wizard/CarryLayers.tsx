@@ -197,27 +197,6 @@ export function buildLayersPayload(
   return out;
 }
 
-/**
- * Is there NOTHING to carry? Replaces the pre-Amendment-E `selectedCount === 0` gate, which spanned
- * only the rate axis -- untick every rate but tick Categories and that is real work the apply
- * button would have refused.
- *
- * A layer counts only if it would actually move something: ticking Colours on a sheet whose colour
- * columns all vanished is not work, and must not enable an apply that would do nothing.
- */
-export function nothingToCarry(
-  selectedRateCells: number,
-  sheet: CarryLayerSource | null | undefined,
-  choices: LayerChoices,
-): boolean {
-  if (selectedRateCells > 0) return false;
-  return CARRY_LAYER_KEYS.every((key) => {
-    const choice = choices[key];
-    if (!choice?.carry) return true;
-    return layerMoveCount(layerOutcomeFor(sheet, key), !!choice.overwrite) === 0;
-  });
-}
-
 /** Join a list of phrases the way a person would: "a", "a and b", "a, b and c". */
 export function joinPhrases(parts: string[]): string {
   if (parts.length <= 1) return parts[0] ?? "";
