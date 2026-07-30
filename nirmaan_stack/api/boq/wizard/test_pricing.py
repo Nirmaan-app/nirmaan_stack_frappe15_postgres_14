@@ -4016,6 +4016,158 @@ class TestCopyForward(FrappeTestCase):
             get_copy_forward_plan(boq_name=self.boq, sheet_name=self.sheet, from_version=2)
 
 
+class TestCopyForwardN2Matching(FrappeTestCase):
+    """WBC S2 / ADR-0014 Amendment F R5 -- the within-BoQ copy-forward adopts the SHARED N2
+    description rule (committed_carry.version_addressed_excel_row_match) in place of its own raw
+    string comparison. The owner signed off on five behaviour changes with his eyes open; each one
+    gets a test here, because each one is a case where the button now does something different.
+
+        source desc     dest desc    before        after
+        'Item A '       'Item A'     no carry  ->  CARRIES   (trailing whitespace)
+        'Item A'        'item a'     no carry  ->  CARRIES   (case)
+        'Item  A'       'Item A'     no carry  ->  CARRIES   (internal whitespace run)
+        ' '             ' '          carries   ->  NO CARRY  (blank N2 never enters the index)
+        row dup'd       row          last wins ->  NO CARRY  (duplicate position dropped)
+
+    The blank row is seeded as a WHITESPACE-ONLY description, not an empty one: the BOQ Nodes
+    controller requires a description on Line Item / Preamble, so `''` is unreachable on a priceable
+    row, while `' '` is truthy for the controller, priceable, production-plausible (a stray Excel
+    space) and normalizes to blank under N2. It is the reachable form of the owner's fourth row.
+
+    Fixture: sheet "CFN2 Fix ", scalar rate map, no amount columns (trivially formula-complete) so
+    the MATCH is what bites. Source v1 is superseded (is_current=0), destination v2 is current --
+    the shape the version-addressed matcher exists for. sheet_name VERBATIM (#152)."""
+
+    _SHEET_DT = "BoQ Sheet"
+    _MAP = {
+        "B": {"role": "description", "area": None},
+        "C": {"role": "unit", "area": None},
+        "D": {"role": "rate_combined", "area": None},
+    }
+    SHEET = "CFN2 Fix "  # VERBATIM trailing space (#152)
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "Copy-Forward N2 Matching BoQ"
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq = boq.name
+
+        # DEST (current v2) -- the canonical spellings.
+        TestCopyForward._seed_sheet(cls.boq, cls.SHEET, 2, 1, cls._MAP, [
+            {"srn": 20, "node_type": "Line Item", "description": "Trail A", "qty": 5.0},
+            {"srn": 21, "node_type": "Line Item", "description": "case b", "qty": 5.0},
+            {"srn": 22, "node_type": "Line Item", "description": "Inner C", "qty": 5.0},
+            {"srn": 23, "node_type": "Line Item", "description": " ", "qty": 5.0},
+            {"srn": 24, "node_type": "Line Item", "description": "Dup D", "qty": 5.0},
+        ])
+        # SOURCE (superseded v1) -- the same rows, spelled with the noise N2 absorbs, plus a
+        # DUPLICATED Excel position at row 24.
+        TestCopyForward._seed_sheet(cls.boq, cls.SHEET, 1, 0, cls._MAP, [
+            {"srn": 20, "node_type": "Line Item", "description": "Trail A ", "qty": 5.0},
+            {"srn": 21, "node_type": "Line Item", "description": "Case B", "qty": 5.0},
+            {"srn": 22, "node_type": "Line Item", "description": "Inner  C", "qty": 5.0},
+            {"srn": 23, "node_type": "Line Item", "description": " ", "qty": 5.0},
+            {"srn": 24, "node_type": "Line Item", "description": "Dup D", "qty": 5.0},
+            {"srn": 24, "node_type": "Line Item", "description": "Dup D", "qty": 5.0},
+        ])
+        for srn, rate in ((20, 120.0), (21, 121.0), (22, 122.0), (23, 123.0), (24, 124.0)):
+            TestCopyForward._price(cls.boq, cls.SHEET, 1, srn, "D", None, "combined_rate", rate)
+        frappe.db.commit()
+        _categorise_fixture_eligible_rows(cls.boq, cls.SHEET, 2)
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete("BoQ Row Category", {"boq": cls.boq})
+        cleanup_committed_fixture(cls.boq)
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        frappe.db.delete(_PRICING, {"boq": self.boq, "committed_version": 2})
+        frappe.db.delete(_LOCK_DT, {"boq": self.boq})
+        frappe.db.commit()
+
+    def _plan_by_row(self):
+        return {r["excel_row"]: r for r in get_copy_forward_plan(
+            boq_name=self.boq, sheet_name=self.SHEET, from_version=1)["plan"]}
+
+    def _copy(self, excel_row):
+        return apply_copy_forward(
+            boq_name=self.boq, sheet_name=self.SHEET, from_version=1,
+            decisions=json.dumps([
+                {"excel_row": excel_row, "area": None, "rate_kind": "combined_rate"}]),
+        )
+
+    def _dest_rate(self, excel_row):
+        return frappe.db.get_value(_PRICING, {
+            "boq": self.boq, "sheet_name": self.SHEET, "committed_version": 2,
+            "excel_row": excel_row, "col_letter": "D", "is_current": 1, "is_filled": 1}, "rate")
+
+    # R5 row 1 -- trailing whitespace ------------------------------------------------------------
+    def test_trailing_whitespace_now_carries(self):
+        self.assertEqual(self._plan_by_row()[20]["outcome"], 2, "'Trail A ' pairs with 'Trail A'")
+        self.assertEqual(self._copy(20)["copied"], 1)
+        self.assertEqual(self._dest_rate(20), 120.0)
+
+    # R5 row 2 -- case ---------------------------------------------------------------------------
+    def test_case_difference_now_carries(self):
+        self.assertEqual(self._plan_by_row()[21]["outcome"], 2, "'Case B' pairs with 'case b'")
+        self.assertEqual(self._copy(21)["copied"], 1)
+        self.assertEqual(self._dest_rate(21), 121.0)
+
+    # R5 row 3 -- internal whitespace run --------------------------------------------------------
+    def test_internal_whitespace_run_now_carries(self):
+        self.assertEqual(self._plan_by_row()[22]["outcome"], 2, "'Inner  C' pairs with 'Inner C'")
+        self.assertEqual(self._copy(22)["copied"], 1)
+        self.assertEqual(self._dest_rate(22), 122.0)
+
+    # R5 row 4 -- a blank description no longer pairs --------------------------------------------
+    def test_blank_description_no_longer_carries(self):
+        """Both sides read ' ', which compared raw-equal and carried. Under N2 a blank description
+        never enters the index at all, on either side, so there is no pair to carry."""
+        row = self._plan_by_row()[23]
+        self.assertEqual(row["outcome"], 1)
+        self.assertEqual(row["skip_reason"], "non_match")
+        self.assertEqual(self._copy(23)["copied"], 0)
+        self.assertIsNone(self._dest_rate(23), "a blank-description row carries nothing")
+
+    # R5 row 5 -- a duplicated Excel position is dropped, not silently won -----------------------
+    def test_duplicated_source_position_is_dropped_not_last_wins(self):
+        """Two source nodes share Excel row 24. The raw comparison matched on description and let
+        whichever node the query returned last decide. The shared matcher drops a position seen twice
+        on either side outright -- conservative, and it can never mis-pair."""
+        row = self._plan_by_row()[24]
+        self.assertEqual(row["outcome"], 1)
+        self.assertEqual(row["skip_reason"], "non_match")
+        self.assertEqual(self._copy(24)["copied"], 0)
+        self.assertIsNone(self._dest_rate(24), "an ambiguous position carries nothing")
+
+    def test_counts_reflect_the_n2_rule(self):
+        res = get_copy_forward_plan(boq_name=self.boq, sheet_name=self.SHEET, from_version=1)
+        self.assertEqual(res["counts"], {
+            "clean": 3, "conflict": 0, "non_match": 2, "no_rate_column": 0, "non_priceable": 0,
+        })
+
+    def test_the_written_description_is_the_destinations_not_the_sources(self):
+        """A consequence of R5 that did not exist before it: the two descriptions can now legitimately
+        DIFFER on a matched pair. The pricing record is the DESTINATION row's cell, so it must carry
+        the destination's spelling -- stamping the source's stale text would put 'Trail A ' on a row
+        the sheet calls 'Trail A'. The cross-BoQ carry already writes `dest_description` for exactly
+        this reason; under the old byte-equality rule the two were identical and the choice was moot."""
+        self._copy(20)
+        self.assertEqual(
+            frappe.db.get_value(_PRICING, {
+                "boq": self.boq, "sheet_name": self.SHEET, "committed_version": 2,
+                "excel_row": 20, "col_letter": "D", "is_current": 1}, "description"),
+            "Trail A",
+        )
+
+
 class TestCopyForwardCategoryGate(FrappeTestCase):
     """Slice G2c -- apply_copy_forward (FLAVOUR 1, WITHIN-BoQ version carry) is now gated on the
     DESTINATION sheet's categories, exactly as save_cell_price is. The DESTINATION is the CURRENT

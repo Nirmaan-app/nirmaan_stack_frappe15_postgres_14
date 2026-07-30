@@ -38,6 +38,11 @@ from nirmaan_stack.api.boq.wizard.review_screen import (
 )
 from nirmaan_stack.api.boq.wizard import pricing_lock
 from nirmaan_stack.api.boq.wizard.pricing_lock import acquire_or_refresh, read_lock_info
+# WBC S2 (ADR-0014 Amendment F): the within-BoQ copy-forward adopts the SHARED committed-tier row
+# match + the SHARED layer-carry engine, so the two carry seams cannot drift. Safe at module level in
+# THIS direction only -- committed_carry imports no api module that reaches back here, whereas
+# cross_boq_carry imports `pricing`, so `pricing` must never import `cross_boq_carry`.
+from nirmaan_stack.api.boq.wizard import committed_carry
 # Slice G1: the committed-node qty-bearing test was relocated DOWN to the service layer
 # (persist.node_is_qty_bearing) so it is defined ONCE and the coming category-count refinement
 # can reach it without a service->api import. api -> service is the legal direction.
@@ -47,6 +52,7 @@ from nirmaan_stack.services.boq_category.persist import (
     blank_category_eligible_rows,
     node_is_qty_bearing,
 )
+from nirmaan_stack.services.boq_revision.normalize import normalize_n2
 
 _PRICING = "BoQ Cell Pricing"
 _BOQ_SHEET = "BoQ Sheet"
@@ -2785,11 +2791,57 @@ def get_copy_forward_plan(boq_name=None, sheet_name=None, from_version=None) -> 
     }
 
 
+def _committed_sheet_docname(boq_name, sheet_name, committed_version):
+    """The `BoQ Sheet` docname for one committed version of a sheet -- CURRENT OR SUPERSEDED. The
+    address the version-addressed row match takes on each side. sheet_name VERBATIM (#152)."""
+    return frappe.db.get_value(
+        _BOQ_SHEET,
+        {"boq": boq_name, "sheet_name": sheet_name, "commit_version": committed_version},
+        "name",
+    )
+
+
+def _copy_forward_match(boq_name, sheet_name, from_version, current_version):
+    """The D6 row match between two committed VERSIONS of one sheet -- the within-BoQ twin map.
+
+    WBC S2 / ADR-0014 Amendment F R5: this REPLACED an inline raw-string exact-match with the shared
+    committed-tier matcher, so the within-BoQ carry and the cross-BoQ revision carry now decide "is
+    this the same row?" with ONE rule (same Excel position + same N2 description, each position unique
+    per side) instead of two that differed on whitespace, case and duplicate handling.
+
+    It calls the VERSION-ADDRESSED sibling, not `committed_excel_row_match`: within one BoQ the source
+    is an older version whose nodes were frozen to is_current=0 at re-commit, which the cross-BoQ
+    entry point cannot see (see `committed_carry.version_addressed_excel_row_match`).
+
+    Within one BoQ every matched pair is (row N -> row N), because the match joins on the SAME Excel
+    position -- which is why the plan and the decision wire stay keyed on the single `excel_row`."""
+    return committed_carry.version_addressed_excel_row_match(
+        boq_name,
+        _committed_sheet_docname(boq_name, sheet_name, from_version),
+        boq_name,
+        _committed_sheet_docname(boq_name, sheet_name, current_version),
+    )
+
+
+def _non_match_reason(excel_row, src_desc, cur_desc_by_row) -> str:
+    """The human string for a source row with no twin. Three distinguishable causes, because the user
+    fixes them differently -- and because a blanket "description changed" would be a lie for the last
+    two (their descriptions are identical)."""
+    if excel_row not in cur_desc_by_row:
+        return "This row is not in the current version (moved or removed) -- not copied."
+    if normalize_n2(cur_desc_by_row.get(excel_row)) != normalize_n2(src_desc):
+        return "This row's description changed in the current version -- not copied."
+    return (
+        "This row cannot be matched unambiguously -- its description is blank, or this Excel row "
+        "appears more than once on the sheet -- not copied."
+    )
+
+
 def _build_copy_forward_plan(boq_name, sheet_name, from_version, current_version) -> list:
     """The shared classifier (get_copy_forward_plan + apply_copy_forward both call it so the plan
     the user reviewed and the plan apply enforces are IDENTICAL -- no client trust, no drift).
     Returns the plan rows (see get_copy_forward_plan). PURE READ (no writes)."""
-    # Current version: node descriptions (for exact-match) + the restricted rate-role inverse.
+    # Current version: node descriptions (for the reason strings) + the restricted rate-role inverse.
     current = get_committed_rows(boq_name=boq_name, sheet_name=sheet_name)
     cur_desc_by_row = {
         r.get("source_row_number"): r.get("description") for r in (current.get("rows") or [])
@@ -2819,6 +2871,10 @@ def _build_copy_forward_plan(boq_name, sheet_name, from_version, current_version
         )
     }
 
+    twin = _copy_forward_match(
+        boq_name, sheet_name, from_version, current_version
+    ).original_to_revised
+
     plan = []
     for p in src_pricing:
         if not p.get("is_filled"):
@@ -2830,6 +2886,10 @@ def _build_copy_forward_plan(boq_name, sheet_name, from_version, current_version
         row = {
             "excel_row": excel_row,
             "description": src_desc,
+            # The DESTINATION row's own text. Under R5 a matched pair's two descriptions can differ
+            # (whitespace / case), and the pricing record being written belongs to the DESTINATION
+            # row -- so this, not `description`, is what the write stamps. Null on a skip.
+            "dest_description": None,
             "source_rate": p.get("rate"),
             "area": area,
             "rate_kind": rate_kind,
@@ -2839,15 +2899,15 @@ def _build_copy_forward_plan(boq_name, sheet_name, from_version, current_version
             "current_rate": None,
             "reason": None,
         }
-        # (1a) EXACT-MATCH -- the current node must exist at this address AND its description match.
-        if excel_row not in cur_desc_by_row:
+        # (1a) TWIN -- the SHARED N2 row match (R5), in place of the old raw byte-equality on
+        # description. Same Excel position + same N2 description, each position unique per side; a
+        # blank description never enters, and a position seen twice on either side is dropped. Within
+        # one BoQ a matched pair is always (row N -> row N), so the target address is `excel_row`.
+        if twin.get(excel_row) is None:
             row["skip_reason"] = "non_match"
-            row["reason"] = "This row is not in the current version (moved or removed) -- not copied."
+            row["reason"] = _non_match_reason(excel_row, src_desc, cur_desc_by_row)
             plan.append(row); continue
-        if (cur_desc_by_row.get(excel_row) or "") != (src_desc or ""):
-            row["skip_reason"] = "non_match"
-            row["reason"] = "This row's description changed in the current version -- not copied."
-            plan.append(row); continue
+        row["dest_description"] = cur_desc_by_row.get(excel_row)
         # (1b/1c/2/3) SHARED resolver: re-resolve the rate column by (area, rate_kind) -- NEVER the
         # bare col_letter -- + priceability re-gate + clean-vs-conflict. (Same-BOQ: the dest excel_row
         # equals the source excel_row.) The reason STRINGS stay local (context-specific phrasing).
@@ -2982,14 +3042,16 @@ def apply_copy_forward(boq_name=None, sheet_name=None, from_version=None, decisi
             if r["outcome"] == _CF_CONFLICT and not _coerce_bool(d.get("overwrite")):
                 summary["conflicts_kept"] += 1
                 continue
-            # Resolve the CURRENT node (exists -- exact-match passed) + write via the shared core
-            # (no per-cell commit). The re-resolved target col, the source rate, the source area/
-            # rate_kind. Description = the CURRENT row's (exact-match guarantees it equals source).
+            # Resolve the CURRENT node (exists -- the row matched) + write via the shared core (no
+            # per-cell commit). The re-resolved target col, the SOURCE rate, the source area/
+            # rate_kind, and the DESTINATION row's description -- under R5's N2 match the two
+            # spellings can differ, and this record is the destination row's cell (the cross-BoQ
+            # carry writes `dest_description` for the same reason).
             node = _resolve_committed_cell(boq_name, sheet_name, excel_row, current_version)
             _write_cell_price_record(
                 node["name"], boq_name, sheet_name, excel_row, r["target_col_letter"],
                 current_version, float(r["source_rate"] or 0.0),
-                r["area"], r["rate_kind"], r["description"],
+                r["area"], r["rate_kind"], r["dest_description"],
             )
             if r["outcome"] == _CF_CONFLICT:
                 summary["conflicts_overwritten"] += 1
