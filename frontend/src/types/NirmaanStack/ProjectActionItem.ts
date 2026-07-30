@@ -9,7 +9,7 @@
  * `project` on every row (so Surface A can group). This single interface is the shared
  * row type for both surfaces — do not duplicate it.
  */
-export type ActionItemType = "DN_PENDING" | "DC_PENDING";
+export type ActionItemType = "DN_PENDING" | "DC_PENDING" | "DPR_PENDING";
 
 export interface ActionItemRow {
   /** PAI- docname. */

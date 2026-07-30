@@ -55,6 +55,35 @@ function ProjectGroup({
   onToggle,
   onOpen,
 }: ProjectGroupProps) {
+  // DN/DC are STATE obligations shown as detailed rows; DPR is a per-zone TIME obligation shown
+  // as compact chips. A group can be MIXED (a project with both — common in the "All" tab), so
+  // split by kind and render each its own way (rows first, then a chip strip) — the "All" tab
+  // never shows tall repeated DPR rows.
+  const dprItems = items.filter((i) => i.action_type === "DPR_PENDING");
+  const otherItems = items.filter((i) => i.action_type !== "DPR_PENDING");
+  const isPureDpr = otherItems.length === 0 && dprItems.length > 0;
+  const subtitleParts: string[] = [];
+  if (otherItems.length) subtitleParts.push(`${otherItems.length} pending`);
+  if (dprItems.length)
+    subtitleParts.push(
+      `${dprItems.length} ${dprItems.length === 1 ? "zone" : "zones"} missing`
+    );
+  const subtitle = subtitleParts.join(" · ");
+  // In a MIXED group the DPR zones sit behind their OWN collapse (default closed), so the "All"
+  // tab shows a "DPR · Missing N zones" summary line, not a wall of chips. A pure-DPR group
+  // shows its chips directly (the group header already says "N zones missing").
+  const [dprOpen, setDprOpen] = useState(false);
+  const renderZoneChip = (item: ActionItemRow) => (
+    <button
+      key={item.name}
+      onClick={() => onOpen(item)}
+      title={`Fill today's Progress Report — ${item.reference_name}`}
+      className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-white px-2.5 py-1 text-[11px] font-medium text-blue-700 shadow-sm transition-colors hover:bg-blue-100"
+    >
+      {item.reference_name}
+      <ChevronRight className="h-3 w-3 shrink-0 text-blue-400" />
+    </button>
+  );
   return (
     <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm ring-1 ring-transparent transition-all hover:border-gray-300 hover:shadow-md">
       <button
@@ -62,7 +91,11 @@ function ProjectGroup({
         aria-expanded={expanded}
         className="flex w-full items-center gap-3.5 p-2 text-left transition-colors hover:bg-gray-50/70"
       >
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-red-500 to-red-600 text-lg font-bold uppercase text-white shadow-sm">
+        <div
+          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br text-lg font-bold uppercase text-white shadow-sm ${
+            isPureDpr ? "from-blue-500 to-blue-600" : "from-red-500 to-red-600"
+          }`}
+        >
           {projectName.charAt(0)}
         </div>
         <div className="min-w-0 flex-1">
@@ -70,11 +103,19 @@ function ProjectGroup({
             {projectName}
           </h3>
           <p className="mt-1 flex items-center gap-1.5 text-xs text-gray-500">
-            <span className="inline-block h-1.5 w-1.5 rounded-full bg-red-500" />
-            {count} pending
+            <span
+              className={`inline-block h-1.5 w-1.5 rounded-full ${
+                isPureDpr ? "bg-blue-500" : "bg-red-500"
+              }`}
+            />
+            {subtitle}
           </p>
         </div>
-        <span className="inline-flex min-w-[2.25rem] items-center justify-center rounded-full bg-red-50 px-2.5 py-1 text-sm font-bold tabular-nums text-red-600">
+        <span
+          className={`inline-flex min-w-[2.25rem] items-center justify-center rounded-full px-2.5 py-1 text-sm font-bold tabular-nums ${
+            isPureDpr ? "bg-blue-50 text-blue-600" : "bg-red-50 text-red-600"
+          }`}
+        >
           {count}
         </span>
         <ChevronDown
@@ -85,33 +126,74 @@ function ProjectGroup({
       </button>
 
       {expanded && (
-        <ul className="divide-y divide-gray-200 border-t border-gray-200 bg-gray-50">
-          {items.map((item) => (
-            <li key={item.name}>
-              <button
-                onClick={() => onOpen(item)}
-                className="group flex w-full items-start gap-2 px-3 py-2.5 text-left transition-colors hover:bg-red-50/50"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5">
-                    <span className="shrink-0 rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-bold uppercase text-red-600">
-                      {item.action_type === "DN_PENDING" ? "DN" : "DC"}
-                    </span>
-                    <span className="min-w-0 break-all text-xs font-semibold text-gray-900">
-                      {item.reference_name}
-                    </span>
+        <div className="border-t border-gray-200">
+          {otherItems.length > 0 && (
+            <ul className="divide-y divide-gray-200 bg-gray-50">
+              {otherItems.map((item) => (
+                <li key={item.name}>
+                  <button
+                    onClick={() => onOpen(item)}
+                    className="group flex w-full items-start gap-2 px-3 py-2.5 text-left transition-colors hover:bg-red-50/50"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="shrink-0 rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-bold uppercase text-red-600">
+                          {item.action_type === "DN_PENDING" ? "DN" : "DC"}
+                        </span>
+                        <span className="min-w-0 break-all text-xs font-semibold text-gray-900">
+                          {item.reference_name}
+                        </span>
+                      </div>
+                      {item.vendor_name && (
+                        <p className="mt-0.5 truncate text-[11px] text-sky-600">
+                          {item.vendor_name}
+                        </p>
+                      )}
+                    </div>
+                    <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-red-400 transition-transform group-hover:translate-x-0.5" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {dprItems.length > 0 &&
+            (otherItems.length > 0 ? (
+              // MIXED group — DPR is its own separated, collapsible sub-section.
+              <div className="border-t border-gray-200 bg-blue-50/30">
+                <button
+                  onClick={() => setDprOpen((o) => !o)}
+                  aria-expanded={dprOpen}
+                  className="flex w-full items-center gap-1.5 px-2.5 py-2 text-left transition-colors hover:bg-blue-50"
+                >
+                  <span className="shrink-0 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-bold uppercase text-blue-700">
+                    DPR
+                  </span>
+                  <span className="text-xs font-medium text-blue-700">
+                    Missing {dprItems.length}{" "}
+                    {dprItems.length === 1 ? "zone" : "zones"}
+                  </span>
+                  <ChevronDown
+                    className={`ml-auto h-4 w-4 shrink-0 text-blue-400 transition-transform ${
+                      dprOpen ? "rotate-180" : ""
+                    }`}
+                  />
+                </button>
+                {dprOpen && (
+                  <div className="flex flex-wrap gap-1.5 px-2.5 pb-2.5">
+                    {dprItems.map(renderZoneChip)}
                   </div>
-                  {item.vendor_name && (
-                    <p className="mt-0.5 truncate text-[11px] text-sky-600">
-                      {item.vendor_name}
-                    </p>
-                  )}
-                </div>
-                <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-red-400 transition-transform group-hover:translate-x-0.5" />
-              </button>
-            </li>
-          ))}
-        </ul>
+                )}
+              </div>
+            ) : (
+              // PURE-DPR group — chips directly (header already says "N zones missing").
+              <div className="flex flex-wrap items-center gap-1.5 border-t border-gray-200 bg-blue-50/30 p-2.5">
+                <span className="shrink-0 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-bold uppercase text-blue-700">
+                  DPR
+                </span>
+                {dprItems.map(renderZoneChip)}
+              </div>
+            ))}
+        </div>
       )}
     </div>
   );
@@ -149,7 +231,7 @@ function StatTab({ label, count, dot, active, onClick }: StatTabProps) {
 }
 
 const TAB_EMPTY_LABEL: Record<ActionTab, string> = {
-  all: "delivery",
+  all: "",
   dpr: "progress report",
   dn: "delivery note",
   dc: "delivery challan",
@@ -184,13 +266,49 @@ export function ActionCenter({
     [rows]
   );
 
-  // Rows for the active tab (DPR has no Project Action Item source yet).
+  // DPR (Daily Progress Report) — a LIVE, per-project-per-ZONE-per-day obligation computed
+  // off Projects (NOT a Project Action Item projection). One row per zone that still owes
+  // TODAY's report; scoped identically to get_my_action_items on the server.
+  const { data: dprData } = useFrappeGetCall<{
+    message: {
+      items: { project: string; project_name?: string | null; zone: string }[];
+    };
+  }>(
+    "nirmaan_stack.api.action_items.read.get_my_pending_dprs",
+    undefined,
+    "action-center-my-dpr",
+    { revalidateOnFocus: false }
+  );
+  const dprRows = useMemo<ActionItemRow[]>(
+    () =>
+      (dprData?.message?.items ?? []).map((it) => ({
+        name: `dpr-${it.project}-${it.zone}`,
+        project: it.project,
+        project_name: it.project_name,
+        action_type: "DPR_PENDING",
+        reference_doctype: "Project Progress Reports",
+        // The zone is the actionable unit — show it as the row label.
+        reference_name: it.zone,
+        status: "Open",
+        title: "Daily Progress Report",
+        action_url: `/prs&milestones/milestone-report/${encodeURIComponent(
+          it.project
+        )}?zone=${encodeURIComponent(it.zone)}`,
+        first_opened_at: null,
+        last_opened_at: null,
+        assigned_role: null,
+      })),
+    [dprData]
+  );
+  const dprCount = dprRows.length;
+
+  // Rows for the active tab. "all" = every pending action (DN + DC + DPR).
   const tabRows = useMemo(() => {
     if (tab === "dn") return rows.filter((r) => r.action_type === "DN_PENDING");
     if (tab === "dc") return rows.filter((r) => r.action_type === "DC_PENDING");
-    if (tab === "dpr") return [];
-    return rows;
-  }, [rows, tab]);
+    if (tab === "dpr") return dprRows;
+    return [...rows, ...dprRows];
+  }, [rows, dprRows, tab]);
 
   // Group the active-tab rows by project, most-pending first.
   const groups = useMemo(() => {
@@ -236,8 +354,8 @@ export function ActionCenter({
 
       {/* Category tabs */}
       <div className="mb-4 grid grid-cols-4 gap-2">
-        <StatTab label="All" count={dnCount + dcCount} dot="bg-red-500" active={tab === "all"} onClick={() => setTab("all")} />
-        <StatTab label="DPR" count={0} dot="bg-blue-500" active={tab === "dpr"} onClick={() => setTab("dpr")} />
+        <StatTab label="All" count={dnCount + dcCount + dprCount} dot="bg-red-500" active={tab === "all"} onClick={() => setTab("all")} />
+        <StatTab label="DPR" count={dprCount} dot="bg-blue-500" active={tab === "dpr"} onClick={() => setTab("dpr")} />
         <StatTab label="DN" count={dnCount} dot="bg-emerald-500" active={tab === "dn"} onClick={() => setTab("dn")} />
         <StatTab label="DC" count={dcCount} dot="bg-amber-500" active={tab === "dc"} onClick={() => setTab("dc")} />
       </div>
@@ -254,13 +372,9 @@ export function ActionCenter({
         <p className="text-sm text-destructive">
           Couldn&rsquo;t load pending actions.
         </p>
-      ) : tab === "dpr" ? (
-        <p className="rounded-xl border border-dashed border-gray-200 p-4 text-center text-xs text-gray-500">
-          Daily Progress Reports aren&rsquo;t tracked here yet.
-        </p>
       ) : groups.length === 0 ? (
         <p className="rounded-xl border border-dashed border-gray-200 p-4 text-center text-xs text-gray-500">
-          All clear — no pending {TAB_EMPTY_LABEL[tab]} actions.
+          All clear — no pending {TAB_EMPTY_LABEL[tab] ? `${TAB_EMPTY_LABEL[tab]} ` : ""}actions.
         </p>
       ) : (
         <div className="overflow-hidden rounded-lg border border-gray-200">

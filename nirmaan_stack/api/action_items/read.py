@@ -28,6 +28,7 @@ dereference it here.
 
 import frappe
 from frappe import _
+from frappe.utils import today
 
 from nirmaan_stack.api.critical_po_tasks.get_projects_with_stats import (
     _get_allowed_projects,
@@ -61,6 +62,17 @@ _ORDER_BY = "action_type, last_opened_at desc"
 # procurement_orders.json): vendor_name (Data), dispatch_date / latest_delivery_date
 # (Datetime).
 _PO_HYDRATE_FIELDS = ["vendor_name", "dispatch_date", "latest_delivery_date"]
+
+# DPR (Daily Progress Report) is a LIVE, project-level daily obligation — NOT a Project
+# Action Item projection. A project owes a DPR while it is under active execution; these
+# statuses mean it does not. Mirrors STOP_STATUSES in api/pmo_recurrence.py (the app's
+# existing "stop recurring obligations" set): Completed / CEO Hold / Halted. NOTE: CEO Hold
+# is a *value* of Projects.status, not a separate field.
+_DPR_STOP_STATUSES = ["Completed", "CEO Hold", "Halted"]
+
+# A zone's DPR obligation for a given day is satisfied once a Completed report exists for it
+# (a started-but-unsubmitted Draft still counts as pending — the work isn't done).
+_DPR_SATISFIED_STATUS = "Completed"
 
 
 def _hydrate_po_fields(action_items):
@@ -188,3 +200,96 @@ def get_my_action_items():
     _hydrate_po_fields(action_items)
     _hydrate_project_names(action_items)
     return {"action_items": action_items}
+
+
+@frappe.whitelist()
+def get_my_pending_dprs():
+    """Zones (across the caller's active projects) that still owe TODAY's Daily Progress Report.
+
+    A DPR (`Project Progress Reports`) is a per-project-per-ZONE-per-DAY obligation, so this
+    is computed at ZONE granularity: a (project, zone) is pending when the project is active,
+    DPR-enabled, and has NO Completed report for today in that zone. LIVE query (DPR has no
+    Project Action Item projection). Three bulk queries + a Python join — no N+1.
+
+    Same project-scoping model as `get_my_action_items` (full-access → all active projects;
+    a filtered role → only its allowed active projects; empty allowed set → no items).
+
+    "Active" = ``status`` is set (non-empty; drops still-tendering projects, whose status stays
+    "" until ``tendering_status == "Won"``) AND not in ``_DPR_STOP_STATUSES`` AND ``disabled_dpr``
+    not ticked. Read-only. Returns ``{"items": [{"project", "project_name", "zone"}]}`` — one row
+    per pending zone.
+    """
+    user = frappe.session.user
+    role = _get_user_role(user)
+
+    # (1) Active, DPR-enabled projects the caller can access. List-of-lists so both status
+    # conditions can sit on the same field (a dict filter allows one condition per field).
+    filters = [
+        ["status", "not in", _DPR_STOP_STATUSES],
+        ["status", "!=", ""],
+    ]
+    if _should_filter_by_permissions(user, role):
+        allowed_projects = _get_allowed_projects(user)
+        if not allowed_projects:
+            # No project assignments → nothing to show (and crucially, no leak).
+            return {"items": []}
+        filters.append(["name", "in", allowed_projects])
+
+    projects = frappe.get_all(
+        "Projects",
+        filters=filters,
+        fields=["name", "project_name", "disabled_dpr"],
+        order_by="project_name asc",
+        limit_page_length=0,
+    )
+    # `disabled_dpr` is filtered in Python: a `!= 1` SQL filter would DROP NULL rows on PG.
+    # Treat 0 / NULL / "" as enabled, only an explicit 1 as disabled.
+    projects = [p for p in projects if not p.get("disabled_dpr")]
+    if not projects:
+        return {"items": []}
+
+    project_names = [p["name"] for p in projects]
+    label_of = {p["name"]: (p.get("project_name") or p["name"]) for p in projects}
+
+    # (2) Every zone of those projects — one bulk query on the Projects.project_zones child.
+    zone_rows = frappe.get_all(
+        "Project Zone Child Table",
+        filters={
+            "parent": ["in", project_names],
+            "parenttype": "Projects",
+            "parentfield": "project_zones",
+        },
+        fields=["parent", "zone_name"],
+        order_by="idx asc",
+    )
+    zones_by_project = {}
+    for z in zone_rows:
+        if z.get("zone_name"):
+            zones_by_project.setdefault(z["parent"], []).append(z["zone_name"])
+
+    # (3) Zones that ALREADY have today's Completed report — one bulk query.
+    filed = frappe.get_all(
+        "Project Progress Reports",
+        filters={
+            "project": ["in", project_names],
+            "report_date": today(),
+            "report_status": _DPR_SATISFIED_STATUS,
+        },
+        fields=["project", "report_zone"],
+    )
+    filed_by_project = {}
+    for f in filed:
+        filed_by_project.setdefault(f["project"], set()).add(f.get("report_zone"))
+
+    # (4) Pending = each project's zones minus the zones already filed today. A zoneless
+    # project yields nothing (a DPR can't be filed until zones are defined — a different
+    # action from filing today's report).
+    items = []
+    for pname in project_names:
+        done_zones = filed_by_project.get(pname, set())
+        for zone in zones_by_project.get(pname, []):
+            if zone not in done_zones:
+                items.append(
+                    {"project": pname, "project_name": label_of[pname], "zone": zone}
+                )
+    return {"items": items}

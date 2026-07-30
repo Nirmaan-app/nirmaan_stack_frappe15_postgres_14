@@ -1,19 +1,70 @@
 # Action Center — Domain Context
 
-**Status:** v1 IMPLEMENTED (Surface B / Project Action Items) on branch `feature/project-action-items`.
-v1 scope frozen via grilling session 2026-06-18; implemented 2026-06-19.
 **Purpose:** Replace the high-volume Firebase/in-app notification flood with a *derived* work-queue
-of pending action items, shown per-user (dashboard) and per-project (project overview).
+of pending action items, shown per-user (dashboard panel) and per-project (project overview).
 
-**Implementation (v1):** Frontend-only. New component
-`frontend/src/pages/projects/components/ProjectActionItems.tsx` (consumes
-`useDNDCQuantityData(projectId).summary.{noDCUpdatePOs,pendingDNPOs}` verbatim — no re-filtering).
-Mounted ONCE in `frontend/src/pages/projects/project.tsx` above the active tab's content, gated to
-`role !== "Loading"/"Error" && activePage === getLandingTab(role)`. `getLandingTab(role)` is a new
-module-scope single-source-of-truth for each role's landing tab; the project page's "Redirect users
-to allowed tab" effect now routes its redirect targets through it too (so the gate and the redirect
-can never drift). Tiles deep-link to the DC & MIR tab via `setActivePage(PROJECT_PAGE_TABS.DC_MIR)`.
-Surface A (PM dashboard) remains deferred to v1.1. No backend / doctype / migration.
+**Status:** IMPLEMENTED. The dashboard panel now carries **three tiles — DN, DC, DPR — fed by TWO
+different data sources.** The DN/DC-vs-DPR split below is load-bearing; read it before touching either.
+
+## The panel & its three tiles (DN / DC / DPR)
+
+`frontend/src/components/action-center/ActionCenter.tsx` is the **Surface-A** panel (LIVE badge, four
+tabs **All / DPR / DN / DC**, project-grouped pending list), mounted on the PM dashboard
+(`components/layout/dashboards/dashboard-pm.tsx`). It reads **two endpoints**, both in
+`nirmaan_stack/api/action_items/read.py`:
+
+- **DN / DC** ← `get_my_action_items` → the **materialized `Project Action Item` projection**.
+- **DPR** ← `get_my_pending_dprs` → a **LIVE query** over `Projects` + `Project Progress Reports`
+  (nothing stored).
+
+`All` = DN + DC + DPR. DN/DC counts = `rows.filter(action_type === "DN_PENDING" | "DC_PENDING")`;
+DPR count = the live items-array length. DPR rows render as compact **zone chips** grouped per project
+(blue-themed); DN/DC rows stay detailed (red-themed).
+
+## DN / DC vs DPR — two obligation KINDS, two sources (load-bearing)
+
+**DPR is deliberately NOT stored in `Project Action Item`.** This is the core design decision — do not
+"unify" them.
+
+| | DN / DC | DPR |
+|---|---|---|
+| Kind | **STATE** obligation | **TIME** obligation |
+| "Pending" changes when… | a document event fires (PO dispatched, DN/challan filed) | the calendar rolls to a new day (no doc event) |
+| Keyed by | a **PO** (`reference_name`) | a **(project, zone, date)** — not a PO |
+| Resets | only when the underlying state clears | **every day** |
+| Storage | **materialized** in `Project Action Item`, maintained by the reconcile engine (doc hooks + nightly sweep) | **computed live on read** — nothing stored |
+| Endpoint | `get_my_action_items` | `get_my_pending_dprs` (same module, separate logic + storage) |
+| Project-status gate | suppress `Completed` + `Halted` (**keeps** CEO Hold, so the DN count can drive a CEO Hold) | suppress `Completed` + `CEO Hold` + `Halted` |
+
+**Why DPR is live, not materialized:** a DPR "becomes due" purely because a new day started — there is
+no document event for the reconcile engine to hook, and the obligation is per-zone-per-day, not per-PO.
+Materializing it would mean regenerating (active projects × zones) rows every midnight, unbounded
+Resolved-row growth, and a `dedup_key` / `reference_doctype` mismatch (projection rows are PO-keyed). So
+it stays a cheap live read (3 bulk queries + a Python join). It *lives* in the action_items module (it
+feeds the same Action Center) but shares **no storage** with the projection.
+
+**DPR "pending" definition (`get_my_pending_dprs`):** for each active project the caller can access
+(`status` set & not in {Completed, CEO Hold, Halted}, `disabled_dpr` off), enumerate its zones
+(`Projects.project_zones` → `Project Zone Child Table.zone_name`) and subtract the zones that already
+have TODAY's `report_status == "Completed"` `Project Progress Reports` row. Each remaining (project,
+zone) is one pending item → `/prs&milestones/milestone-report/{project}?zone={zone}`. A Draft (not
+Completed) still counts as pending; a zoneless project yields nothing (zones must be defined first).
+
+> **⚠️ Current data gotcha:** the `Project Action Item` table is EMPTY in the prod-restored DB
+> (`total = 0`) — the reconcile backfill (`reconcile_all()`) has never run and the scheduler/hooks may
+> be off — so DN/DC read 0 despite real pending work (a live recompute found DN = 2, DC = 877). DPR is
+> unaffected (it's live). Fix: run `reconcile_all()` once + confirm the scheduler is enabled.
+
+---
+
+### History (superseded)
+
+v1 (frozen via grilling 2026-06-18, implemented 2026-06-19) shipped **Surface B only**, frontend-only:
+`frontend/src/pages/projects/components/ProjectActionItems.tsx` reusing
+`useDNDCQuantityData(projectId).summary.{noDCUpdatePOs,pendingDNPOs}` verbatim, mounted on each role's
+landing tab; Surface A was deferred. That was superseded by Abhishek's **materialized projection**
+(`Project Action Item` doctype + reconcile engine + read API, commit `4f36ab21`), which now backs
+Surface A's DN/DC. The frontend-reuse notes below describe that older Surface-B path.
 
 ---
 
@@ -63,7 +114,10 @@ missing mechanism — an *expected schedule* + *absence detection* + an SLA/due-
 - **Inventory update (Remaining Items Report)** — the only concrete signal is `status === "Draft"`
   (narrow); the *valuable* nudge ("project overdue for inventory") is a weekly staleness/cadence
   concept. The 3-day rule in `remaining_items_report.py` is a submission *guard*, not a pending def.
-- **Daily Progress Report (DPR)** — "due today" is a daily cadence; no row exists to query for "missing".
+- **Daily Progress Report (DPR)** — ✅ **NOW IMPLEMENTED** as a LIVE tile (`get_my_pending_dprs`) at
+  zone/day granularity (see "DN / DC vs DPR" above). It did NOT need the cadence/schedule model below —
+  "missing today" is derivable live by anti-joining active projects' zones against today's Completed
+  reports. Only the remaining cadence items still need it.
 - **Weekly Inventory Update** — weekly cadence; same shape as above.
 
 **To resolve this class in a future update:** introduce a cadence/schedule definition (per project or
