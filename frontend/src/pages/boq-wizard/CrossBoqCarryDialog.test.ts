@@ -18,13 +18,17 @@ import {
   armedRateOverwrites,
   summarizeSheetCarry,
   rateWriteCount,
+  rateWriteCountAll,
 } from "./CrossBoqCarryDialog";
 // WBC-W1-S1: the layer-choice block + its pure helpers moved to the shared CarryLayers module so a
 // second carry surface (the within-BoQ CopyForwardDialog) can reuse them. Import paths only -- every
 // assertion below is unchanged, which is what makes this suite the proof the move changed nothing.
 import {
+  CARRY_DESTINATION_CROSS_BOQ,
   LAYER_LABEL,
+  carryWriteCount,
   initialLayerChoices,
+  layerHint,
   layerOutcomeFor,
   layerHasWork,
   layerMoveCount,
@@ -112,6 +116,10 @@ const PLUMBING = sheet({
 });
 const SHEETS = [ELECTRICAL, PLUMBING];
 
+/** Code point 0, named explicitly rather than typed as a raw byte -- writing a literal NUL
+ *  into a source file is exactly the defect these tests pin (see the two cases below). */
+const NUL = String.fromCharCode(0);
+
 describe("cellKey", () => {
   it("is a stable string carrying the sheet, dest row, and rate kind", () => {
     const k = cellKey("Electrical", { dest_excel_row: 10, area: null, rate_kind: "combined_rate" });
@@ -133,6 +141,30 @@ describe("cellKey", () => {
     const a = cellKey("Electrical", { dest_excel_row: 10, area: null, rate_kind: "combined_rate" });
     const b = cellKey("Plumbing", { dest_excel_row: 10, area: null, rate_kind: "combined_rate" });
     expect(a).not.toBe(b);
+  });
+
+  // ── WBC-S3a: the NUL separator, pinned byte for byte ──────────────────────────────
+  // The separator was written as a RAW NUL BYTE in the source, which made git classify the whole
+  // file as binary (`git diff --stat` reported 0 insertions / 0 deletions) and made an un-`-a`'d
+  // grep skip it silently. Replacing that byte with the `\0` ESCAPE is a source-text change with no
+  // runtime meaning -- these two cases assert the produced key against independently written
+  // literals, so they are green on BOTH sides of that edit and would fail loudly if the byte were
+  // STRIPPED instead of escaped (the fix a reviewer first suggested and then withdrew).
+  it("separates the sheet from the dest row with a NUL, byte for byte", () => {
+    const k = cellKey("Electrical", { dest_excel_row: 10, area: null, rate_kind: "combined_rate" });
+    expect(k).toBe(`Electrical${NUL}10||combined_rate`);
+    expect(k.charCodeAt("Electrical".length)).toBe(0);
+  });
+
+  // Why the separator has to be there at all: strip it and "S" + 110 becomes "S1" + 10, so two
+  // sheets whose names differ by a trailing digit would silently share one cell key -- the same
+  // decision would be applied to the wrong sheet's row.
+  it("does not collide when one sheet name is another plus a digit", () => {
+    const a = cellKey("S", { dest_excel_row: 110, area: null, rate_kind: "combined_rate" });
+    const b = cellKey("S1", { dest_excel_row: 10, area: null, rate_kind: "combined_rate" });
+    expect(a).not.toBe(b);
+    // ... and the collision is EXACTLY what the separator prevents.
+    expect(a.replace(NUL, "")).toBe(b.replace(NUL, ""));
   });
 });
 
@@ -614,11 +646,15 @@ describe("buildLayersPayload (the wire)", () => {
   });
 
   // Rates-only is a legitimate ask, and is exactly the Amendment D behaviour.
+  // WBC-S3a: toSTRICTEqual, not toEqual -- `toEqual({})` also passes for `{categories: undefined}`,
+  // so it could not tell "the key was omitted" from "the key was written as undefined". The wire
+  // cares (`JSON.stringify` drops both, but a spread into another payload would not).
   it("is EMPTY when every layer is unticked", () => {
     const none = Object.fromEntries(
       CARRY_LAYER_KEYS.map((k) => [k, { carry: false, overwrite: false }]),
     ) as LayerChoices;
-    expect(buildLayersPayload(none)).toEqual({});
+    expect(buildLayersPayload(none)).toStrictEqual({});
+    expect(Object.keys(buildLayersPayload(none))).toEqual([]);
   });
 
   it("never leaks an overwrite flag from an unticked layer", () => {
@@ -725,6 +761,131 @@ describe("carrySelectionSummary (the 'Will carry ...' line)", () => {
     for (const key of CARRY_LAYER_KEYS) {
       expect(line).toContain(LAYER_LABEL[key].toLowerCase());
     }
+  });
+});
+
+// ── WBC-S3a / R11: the apply BUTTON's count ────────────────────────────────────────
+// The button used to name `selectedCount` rates while the line above it named the WRITES, so the
+// two could disagree by the number of un-armed conflicts -- reachable today as "Copy 12 rates
+// forward" sitting above "Will copy 30 categories". `carryWriteCount` is the ONE number both carry
+// surfaces' buttons read, and it is computed from the SAME walk that builds the line's phrases.
+describe("carryWriteCount (what the apply button reports)", () => {
+  const s = layered({
+    categories: outcome({ carried: 140, kept: 3 }),
+    remarks: outcome({ carried: 4 }),
+  });
+
+  it("sums the rate writes and every CARRYING layer's writes", () => {
+    expect(carryWriteCount(12, s, initialLayerChoices())).toBe(152); // 12 rates + 140 categories
+  });
+
+  it("ignores a layer that is not ticked", () => {
+    const none = Object.fromEntries(
+      CARRY_LAYER_KEYS.map((k) => [k, { carry: false, overwrite: false }]),
+    ) as LayerChoices;
+    expect(carryWriteCount(12, s, none)).toBe(12);
+  });
+
+  it("adds the displaced records once Overwrite is armed", () => {
+    expect(
+      carryWriteCount(0, s, choices({ categories: { carry: true, overwrite: true } })),
+    ).toBe(143); // 140 fresh + 3 displaced
+  });
+
+  it("omits a ticked layer that would move nothing", () => {
+    const empty = layered({ categories: outcome({ unmatched: 9 }) });
+    expect(carryWriteCount(2, empty, initialLayerChoices())).toBe(2);
+  });
+
+  it("is 0 when neither axis would write -- the all-Keep re-run", () => {
+    const none = Object.fromEntries(
+      CARRY_LAYER_KEYS.map((k) => [k, { carry: false, overwrite: false }]),
+    ) as LayerChoices;
+    expect(carryWriteCount(0, s, none)).toBe(0);
+  });
+
+  it("degrades to the rate count when the server sent no layer preview", () => {
+    expect(carryWriteCount(7, sheet(), initialLayerChoices())).toBe(7);
+    expect(carryWriteCount(7, null, initialLayerChoices())).toBe(7);
+  });
+
+  // THE guarantee R11 is about: the button sits directly above the "Will carry ..." line, so its
+  // number must be the sum of the numbers that line names -- not a second, independently derived
+  // count that can drift away from it. Read back out of the rendered line, not recomputed.
+  it("is exactly the sum of the figures the 'Will carry ...' line names", () => {
+    const c = choices({ remarks: { carry: true, overwrite: false } });
+    const line = carrySelectionSummary(12, s, c);
+    expect(line).toBe("12 rates, 140 categories and 4 remarks");
+    const namedTotal = [...line.matchAll(/\d+/g)].reduce((sum, m) => sum + Number(m[0]), 0);
+    expect(carryWriteCount(12, s, c)).toBe(namedTotal);
+  });
+
+  it("stays in step with the line when the line is empty", () => {
+    const none = Object.fromEntries(
+      CARRY_LAYER_KEYS.map((k) => [k, { carry: false, overwrite: false }]),
+    ) as LayerChoices;
+    expect(carrySelectionSummary(0, s, none)).toBe("");
+    expect(carryWriteCount(0, s, none)).toBe(0);
+  });
+});
+
+// ── WBC-S3a / R9: the per-surface destination noun ─────────────────────────────────
+// Two strings in the shared block describe the destination as "the revision", which is false on the
+// within-BoQ surface (there is no revision inside one BoQ). The noun is now a parameter with the
+// CROSS-BoQ wording as its default, so this dialog is untouched -- the same shape S5 used for the
+// block's subtext.
+describe("the destination noun on the CROSS-BoQ surface (R9)", () => {
+  it("defaults to 'the revision', verbatim", () => {
+    expect(CARRY_DESTINATION_CROSS_BOQ).toBe("the revision");
+  });
+
+  it("keeps the colour hint byte-identical when no destination is named", () => {
+    expect(layerHint("colors")).toBe(
+      "Colour marks. Only columns that still exist in the revision can carry.",
+    );
+    expect(layerHint("colors", CARRY_DESTINATION_CROSS_BOQ)).toBe(layerHint("colors"));
+  });
+
+  it("keeps the colour skip note byte-identical when no destination is named", () => {
+    expect(layerSkipNote("colors", outcome({ carried: 2, dropped: 9 }))).toBe(
+      "9 skipped — that column is not in the revision",
+    );
+  });
+
+  it("leaves the three other hints free of any destination noun at all", () => {
+    expect(layerHint("categories")).toBe("The classification verdict on each row.");
+    expect(layerHint("remarks")).toBe("Notes written against a cell.");
+    expect(layerHint("remark_dismissals")).toBe("Review flags someone has already dismissed.");
+  });
+});
+
+// ── WBC-S3a / R11: the whole-BoQ button's count ────────────────────────────────────
+// The hub path offers no layer choice, so its button's number is purely rates -- but it must still
+// be WRITES rather than the raw selection, for exactly the reason the single-sheet line was fixed.
+describe("rateWriteCountAll (the whole-BoQ write count)", () => {
+  const k = (s: string, r: number) =>
+    cellKey(s, { dest_excel_row: r, area: null, rate_kind: "combined_rate" });
+
+  it("sums each sheet's writes", () => {
+    const { selected, overwrite } = initialSelection(SHEETS);
+    // Electrical pre-ticks 3 clean + 1 conflict-on-Keep; Plumbing is blocked, so nothing at all.
+    expect(rateWriteCountAll(SHEETS, selected, overwrite)).toBe(3);
+  });
+
+  it("counts a conflict on a second sheet once it is selected and armed", () => {
+    const selected = new Set([k("Electrical", 10), k("Plumbing", 120), k("Plumbing", 121)]);
+    expect(rateWriteCountAll(SHEETS, selected, { [k("Plumbing", 121)]: true })).toBe(3);
+  });
+
+  it("is 0 for an empty sheet list and for an empty selection", () => {
+    expect(rateWriteCountAll([], new Set(), {})).toBe(0);
+    expect(rateWriteCountAll(SHEETS, new Set(), {})).toBe(0);
+  });
+
+  it("agrees with the per-sheet count summed by hand", () => {
+    const { selected, overwrite } = initialSelection(SHEETS);
+    const byHand = SHEETS.reduce((n, s) => n + rateWriteCount(s, selected, overwrite), 0);
+    expect(rateWriteCountAll(SHEETS, selected, overwrite)).toBe(byHand);
   });
 });
 
