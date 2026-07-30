@@ -15639,3 +15639,70 @@ socket_item `'None'` + wire2 `'None'`, vague "wiring point" -> honest null).
 **EA-4b remaining:** the DB build-up, switches point, tray accessories, indsock+MCB pairing -- each inherits the
 None mechanism + the assembly primitives. `popup_boxes` + `lighting_mgmt_system` stay blocked on a classifier
 vocabulary update.
+
+## Build slice EA-4b (SWITCHES POINT + INDUSTRIAL-SOCKET PAIRED-MCB) COMPLETE
+
+**Two composite categories, DATA-ONLY (no interpreter capability added -- every shape is existing
+vocabulary).** Full session evidence: `ea4b_recon_2026-07-31.md` + `ea4b_report_2026-07-31.md` (Desktop);
+the two i1 golden forks the owner ruled on: `ea4b_question_2026-07-31.md` (superseded).
+
+**PHASE 0 (owner-locked): verify-only, no interpreter change.** Both configs use ONLY existing steps
+(`component_ref` with cross-kind ref / `@attr` / `rate_stages` / `qty from_attr|if_attr` / `none_skips`,
+`scale`, `roundup`, `sum_components`) -- confirmed against `ratePipelineInterpreter.ts`. A throwaway probe
+(deleted) proved the goldens compute BEFORE any edit, catching two golden-DATA defects in the input asset (see
+below). No interpreter edit; the EA-4a/EA-4a-r vocabulary carries EA-4b whole.
+
+**switches_point (NEW category, distinct from switches_sockets AND point_wiring):** a 6-line
+switch/socket/plate/box assembly -- 12 attr defs incl. **TWO fixed None-able socket slots** (socket1_item,
+socket2_item) + switch/blank/plate/back_box, colour; 3 pipelines (swpt_boq_supply/install/bcs) = 6 raw
+`component_ref` lines -> `sum_components` -> `scale` (effective multiplier) -> `roundup` (tens); install =
+supply x0.2 tens; back_box keyed by `@plate_item`; ALL None-able via the EA-4a-r mechanism. Golden **sp1**
+(White items) = **2320 / 470 / 1600** (sum 6382 x0.3625 tens). NO circuit_fit/wires/conduit (that is
+point_wiring). Registry line added (label "Switches Point").
+
+**industrial_sockets (RESTRUCTURED):** a `paired_mcb` def (`values_from` db_switchgear_item where
+family=Switchgear, allow_none) + pipelines = socket `component_ref` (x0.98, matched by item/enclosure/rating/
+pole) + a CONDITIONAL paired-MCB `component_ref` (**cross-category ref into the db_switchgear_item catalog**,
+x0.495, `none_skips`, `qty = if_attr {item: "...Interlocked"} ? 0 : 1`) -> sum; install = supply x0.35 tens.
+**THE PRODUCTION FIX (`extraction_defaults = {paired_mcb: "None"}`, owner-locked):** a socket-only row (no MCB
+in its text) extracts `paired_mcb="None"` (positive absence) -> the MCB line is 0 -> **the socket PRICES**
+rather than refusing. Golden **i1** = supply **2196** / install **770** (socket-only, IP44/54 case).
+
+**TWO owner-ruled golden defects in the input asset (both caught by the pre-edit probe, both fixed by a
+regenerated asset -- the interpreter was NEVER wrong):** (v15->v15b) i1 omitted `paired_mcb`, so an absent
+ref-attr -> honest `no_match` (absent=unknown, correct); fixed by `paired_mcb="None"` + the production
+`extraction_defaults`. (v15b->v15c) i1's `install` was keyed under `indsock_boq` (output supply-only) instead
+of `indsock_install`; fixed by the per-pipeline key `{indsock_boq:{supply}, indsock_install:{install}}`. **The
+lesson: a functional config with a RED preview gate is exactly what the gate exists to surface -- even when the
+miss is in the golden, not the pipeline.**
+
+**Tray ceiling-accessories: CONFIRMED FIXED 106 (untouched).** The `ea3_banked_composites.json` bank gains
+`industrial_sockets` (223/80/303, the IP67 non-interlocked recon case) + `cabletray_raceway_accessories`
+(106 = C-Channel 40 + GI Rod 30 + Nut/Bolt 16 + Anchor 20, a fixed scalar baked in the tray pipeline).
+
+**Asset v14 -> v15c** (`rate_master_electrical_all_v15c.json`, sha256 `a21354a96a0f9e48`, 768 items / **12
+E-ALL configs**; v15/v15b skipped in the asset dir) loaded `replace=True` -> batch `rmbulk-6175415edaf1`;
+**total active Electrical configs 12 -> 13** (with wiring). **Wiring batch `rmbulk-f676a178e05a` UNCHANGED**
+(cable 292 / termination 296; the wiring-asset invariant sha `dcc9b2ea69f072bb` untouched).
+
+**GATES:** vitest ratePipelineInterpreter 52 -> **59** (sp1 2320/470/1600; socket2=None->660; plate->back_box;
+socket-only-via-None->2196/770; non-interlocked+MCB->2419; interlocked->0; absent->no_match); tsc **0-new**
+(3236); vite build **exit 0**; backend test_rate_master 30 / test_rate_suggest 12 / test_pricing 230 / carry
+44/53/33 (unchanged -- no backend code changed this slice). **CERT V1-V6 GREEN on screen + real-AI:** V1 (13
+configs, switches_point live, wiring untouched); V2 (sp1 preview gate all-green + 6-line trace); i1 preview gate
+all-green (2196 supply + 770 install after v15c); V3 (socket2=None->660, socket2_qty greyed); V4 (all 3
+industrial paths -- socket-only-via-None 2196/770, non-interlocked +MCB 8133 -> 10329/3620, interlocked -> MCB
+qty 0 via if_attr -> 10310/3610); V5 (real Claude AI: switches_point extracts switch+socket1 with socket2/blank
+`"None"` + honest-blank plate; industrial extracts socket+`paired_mcb` non-interlocked, `paired_mcb="None"` on
+the interlocked row).
+
+**CLASSIFIER-VOCABULARY note (owner V5, FLAG-not-fix):** `switches_point` is a NEW rate-master category the
+Electrical CLASSIFIER does not emit yet -- real switch-point rows (under POINT WIRING ancestors) resolve to
+`switches_sockets`, so switches_point has ZERO production coverage today (same gap as popup_boxes /
+lighting_mgmt_system; the helper is ready, a classifier vocab update is owed). `industrial_sockets` IS emitted
+(23 production line-items), so those rows resolve + price with the new paired-MCB config.
+
+**EA-4c remaining (the one genuine new shape):** the DB build-up -- a SUMPRODUCT over 3 buckets whose middle
+bucket is a VARIABLE-LENGTH list of N enumerated MCBs x qty. It needs (a) a repeated/list component step AND
+(b) an extraction-payload extension (today the payload is one-attribute-set-per-row, scalar `value:
+string|number|null` -- it cannot carry a component-line list). The DB oracle (24360/3660/28020) is banked.

@@ -447,10 +447,20 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   Extraction injects "None" as a valid value + a guidance line ("None when the bill names no such component;
   null only when too vague"); `extraction_none_guidance` may be a custom string OR a truthy flag. Goldens: **pw3**
   (switch-only, socket="None") -> supply **1682**; single-wire (wire2="None") -> **1362**. A switch-only light
-  point (socket null, no None) stays honest no-compute until the None is set. EA-4b (DB build-up, switches point,
-  tray accessories, indsock+MCB pairing) rides these primitives + the None mechanism.
-  **The wiring + point_wiring goldens are the standing regression pins; the wiring-asset invariant sha is
-  `dcc9b2ea69f072bb` (the earlier `c10509…` was a stale carry-error).** The Rate Master category selector is
+  point (socket null, no None) stays honest no-compute until the None is set. **EA-4b SHIPPED switches_point +
+  the industrial_sockets paired-MCB (DATA-ONLY -- NO interpreter change; every shape is existing vocabulary):**
+  `switches_point` is a 6-line switch/socket/plate/box assembly (TWO None-able socket slots; distinct from
+  point_wiring -- no circuit_fit/wires; golden sp1 2320/470/1600); `industrial_sockets` gained a `paired_mcb`
+  `component_ref` that is CROSS-CATEGORY (ref.kind `db_switchgear_item`) + gated by a `qty if_attr` interlocked
+  rule (`{item:"...Interlocked"}?0:1`), with **`extraction_defaults={paired_mcb:"None"}` the production fix** so a
+  socket-only row prices instead of refusing (absent=unknown->no_match; "None"=positive-absence->0 line -- the
+  EA-4a-r distinction, owner-locked). Tray ceiling-accessories are a CONFIRMED FIXED 106 scalar (do not make
+  adjustable this era). EA-4c (the DB build-up) is the one genuine NEW shape: a variable-length MCB list +
+  an extraction-payload extension (today the extraction payload is one-attribute-set-per-row, scalar-valued).
+  **A functional config with a RED preview gate is exactly what the gate exists to surface -- even when the miss
+  is in the golden, not the pipeline (two i1 golden defects caught + fixed by regenerated assets at EA-4b).**
+  **The wiring + point_wiring + switches_point goldens are the standing regression pins; the wiring-asset
+  invariant sha is `dcc9b2ea69f072bb` (the earlier `c10509…` was a stale carry-error).** The Rate Master category selector is
   REGISTRY-driven (`rateMasterRegistry.ts`), not config-read. The pricing-sheet helper stays wiring-only
   and shows its category coming-soon note for other categories (honest no-compute). A `scale` step whose
   TARGET RATE is missing (`null`/`NaN`) SKIPS that output (renders absent, never invented as 0) while the

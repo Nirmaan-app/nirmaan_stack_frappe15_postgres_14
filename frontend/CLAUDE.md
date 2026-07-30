@@ -1193,7 +1193,16 @@ in the plan doc.
   editor panel; `WorkingsAttribute` gained `disabled` + `allowNone`. `coerceForMatch` PRESERVES "None" for an
   allow_none def (number included). Selecting None greys+clears the `disables_when_none` targets. Goldens: pw3
   (socket="None") -> supply 1682; single-wire (wire2="None") -> 1362. **A switch-only light point (socket_item
-  null, no None set) is an HONEST NON-COMPUTE — became priceable via the None sentinel at EA-4a-r.** **The wiring + point_wiring goldens are the standing regression pins for every addition.** The Rate Master
+  null, no None set) is an HONEST NON-COMPUTE — became priceable via the None sentinel at EA-4a-r.** **EA-4b
+  SHIPPED switches_point + the industrial_sockets paired-MCB (DATA-ONLY, no interpreter change):**
+  `switches_point` = a 6-line switch/socket/plate/box assembly (TWO None-able socket slots, distinct from
+  point_wiring; golden sp1 2320/470/1600; a new registry line "Switches Point"); `industrial_sockets` gained a
+  CROSS-CATEGORY `paired_mcb` `component_ref` (ref.kind `db_switchgear_item`) gated by a `qty if_attr`
+  interlocked rule, with `extraction_defaults={paired_mcb:"None"}` so a socket-only row prices (absent=unknown
+  ->no_match; "None"=positive-absence->0). Tray ceiling-accessories = a CONFIRMED FIXED 106 scalar. **switches_point
+  has ZERO production coverage until the Electrical CLASSIFIER emits it (rows resolve to switches_sockets today) --
+  a classifier-vocab gap like popup_boxes/LMS; industrial_sockets IS emitted.** EA-4c (the DB build-up variable-length
+  MCB list + a list-valued extraction extension) is the one genuine new shape left. **The wiring + point_wiring + switches_point goldens are the standing regression pins for every addition.** The Rate Master
   category selector is REGISTRY-driven (`rateMasterRegistry.ts` lists all eleven Electrical categories),
   NOT config-read. **EA-2: the pricing-sheet helper (`pricingSheetHelper.ts`) is N-CATEGORY** — it resolves
   the config PER row category (`configsByCategory`, fetched by a child `RateConfigFetcher` for all 11
