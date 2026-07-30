@@ -4221,6 +4221,33 @@ class TestCopyForwardCategoryGate(FrappeTestCase):
         self.assertEqual(rows_after, rows_before, "the refused carry minted no superseded history row")
         self.assertEqual(rows_after, 1, "still exactly one pricing row for the cell")
 
+    # (k) R2 PRECONDITION PROOF -- the whole Amendment F reordering rests on this ------------------
+    def test_k_gate_sees_uncommitted_category_writes_in_the_same_transaction(self):
+        """R2 (ADR-0014 Amendment F) moves the category gate to AFTER the layer carry, INSIDE the same
+        uncommitted transaction. That only works if the gate's read sees writes made earlier in the
+        transaction it is running in. Nothing else in the slice is safe to build until this is proven,
+        so it is proven directly rather than assumed: carry three categories WITHOUT committing, and
+        watch a gate that refused a moment ago start passing.
+
+        `persist.carry_row_categories` is the probe on purpose -- it is the REAL carry path and does
+        NOT commit. `persist.write_row_categories` commits internally and would prove nothing about
+        transaction visibility."""
+        self.assertFalse(pricing._categories_gate_ok(self.boq, self.SHEET, 2))
+        try:
+            persist.carry_row_categories(
+                self.boq, self.SHEET, 2,
+                [{"excel_row": er, "discipline": "Electrical",
+                  "final_category_id": "db_switchgear", "routing": "Auto-accepted"}
+                 for er in (30, 31, 32)],
+                source_boq=self.boq, source_version=1,
+            )
+            self.assertTrue(
+                pricing._categories_gate_ok(self.boq, self.SHEET, 2),
+                "the gate MUST see uncommitted category writes made in its own transaction",
+            )
+        finally:
+            frappe.db.rollback()
+
 
 class TestRateEditableBlankCount(FrappeTestCase):
     """Slice G2a: persist.blank_category_eligible_rows(..., population="rate_editable") counts
