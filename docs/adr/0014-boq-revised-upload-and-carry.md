@@ -24,6 +24,28 @@ Date: 2026-07-17
 > Design of record with ten worked scenarios: `docs/boq/revised-boq-carry-amendment.html`.
 > Implementation waves: `docs/boq/HANDOFF-revised-boq-carry-amendment.md` §6.
 
+> ### ⚠️ AMENDMENT F — 2026-07-29, owner-directed
+>
+> **The WITHIN-BoQ carry reaches parity with the cross-BoQ one.** Amendment E gave the layers back to
+> the cross-BoQ revision carry. Amendment F gives the same four layers to *Copy rates forward* —
+> `pricing.apply_copy_forward`, the older-version button inside one BoQ — and in doing so reverses
+> **Slice G2c** on that path, adopts the shared **N2** row match there, and reverses a parked comment
+> about what the apply button is gated on. Detail block below, under D8.
+>
+> **The single sentence:**
+>
+> > *Copy rates forward* moves the rates **and** any of the four row-addressed layers the user ticks,
+> > every carried record stamped with the **version** it came from — and the category gate is judged
+> > **after** the carry, inside the same transaction, so it can no longer block its own remedy.
+>
+> **Three rulings reverse shipped decisions — R2, R5, R15** — and each is marked as such below. The
+> invariant G2c exists to protect is **unchanged in words**: no rate lands on an uncategorised row.
+> Only the *moment of judgement* moved. This is the same deadlock Amendment E solved on the cross-BoQ
+> seam by removing the gate; here the owner ruled for **reordering** it instead, so the within-BoQ
+> path keeps a gate that the cross-BoQ path no longer has. That asymmetry is deliberate.
+>
+> **No migration.** Every provenance field this amendment needs already shipped with Amendment E.
+
 > ### ⚠️ AMENDMENT E — 2026-07-28, owner-directed
 >
 > **The per-sheet carry moves categories and annotations again — opt-in, and attributed.**
@@ -768,6 +790,204 @@ revised parse exactly where the file context changed, i.e. where the new parse i
 > BoQs**, that is the *more* common case; the R3 engine would serve it with only a second call site.
 > R2 is forward-only. Three migrations ride this work (R2, R3, R5): a prod deploy needs
 > `bench --site <site> migrate` **before** any commit or carry runs.
+
+> ## ⚠️ AMENDED 2026-07-29 (Amendment F) — owner-directed: the WITHIN-BoQ carry reaches parity
+>
+> **What changed.** Amendment E's layer taxonomy now applies to **both** carry seams.
+> `pricing.apply_copy_forward` — the *Copy rates forward* button that appears when you browse to an
+> older committed version of the same sheet — takes a `layers` argument and moves any ticked subset of
+> the same `LAYER_KEYS`. Before this amendment that button carried rates and nothing else; the owner's
+> assumption that it already had parity was the thing recon falsified.
+>
+> | | Cross-BoQ (`cross_boq_carry.apply_sheet_carry`) | **Within-BoQ (`pricing.apply_copy_forward`)** |
+> |---|---|---|
+> | Rates | ✅ | ✅ *(unchanged)* |
+> | Category · Remark · Colour · `remark` dismissal | ✅ opt-in, stamped (Amendment E) | **✅ opt-in, stamped (Amendment F)** |
+> | Amount Formula | never | **never** *(unchanged, still owner-locked)* |
+> | Reconciliation choice | never | **never** — that doctype has no provenance fields, so including it would be a MIGRATE |
+> | Provenance noun | "carried from BOQ-26-…" | **"carried from Version N"** |
+> | Category gate | **removed** (Amendment E) | **reordered, not removed** (R2) |
+>
+> ### The ruling register (owner, 2026-07-29 / 2026-07-30)
+>
+> | # | Ruling |
+> |---|---|
+> | **R1** | Carry categories + remarks + colours + remark dismissals. Reconciliation choices OUT (no provenance fields ⇒ would be a MIGRATE). Amount formulas OUT, still never-carry in either seam. |
+> | **R2** | ⚠️ **REVERSES G2c.** The category gate moves to AFTER the layer carry. |
+> | **R3** | Within-BoQ provenance is expressed by **VERSION**, not BoQ. Also settles the within-BoQ destination noun as *"the current version"*. |
+> | ~~**R4**~~ | ~~A local hand-pick outranks the carry in the display.~~ **PARKED — see R10.** |
+> | **R5** | ⚠️ **Changes shipped rate behaviour.** The within-BoQ carry adopts the shared N2 description rule. |
+> | **R6** | `committed_carry.committed_excel_row_match` stays byte-frozen; a version-addressed **sibling** sits beside it. Owner ruled AGAINST merging them behind a `current_only` flag. |
+> | **R7** | The pricing record shows the **DESTINATION's** description text. Under N2 a matched pair's descriptions can differ; this matches what the cross-BoQ carry already does. |
+> | **R8** | The category gate is **UNCONDITIONAL** — an annotations-only carry into an uncategorised destination is still refused. No carve-out. |
+> | **R9** | Dialog copy fixes fold into the layer slice rather than a separate pass. |
+> | **R10** | R4 is PARKED. Nothing in the schema records *who* decided a row (Finding F1). |
+> | **R11** | The apply button reports **WRITES, not selection** — on BOTH dialogs in one change. |
+> | **R12** | The dropped *"Rates only"* description and `LAYER_BLOCK_SUBTEXT_WITHIN_BOQ` confirmed as drafted. |
+> | **R13** | The button noun is **"changes"**, not "items" — "items" collides with `node_type === "Line Item"` on this exact grid. Enforced by test, not by comment. |
+> | **R14** | The cross-BoQ single-sheet bare **"Carry"** label stands (Amendment E upheld). ⚠️ Holds at the LABEL only — that button's `disabled` expression *did* change under R15. |
+> | **R15** | ⚠️ **Reverses a parked code comment.** The apply button is gated on **WRITES, not selection**. |
+> | **R16** | The same-BoQ-vs-cross-BoQ decision is made **SERVER-SIDE**. |
+>
+> ### R2 — the gate moved, the invariant did not *(reverses G2c)*
+>
+> `apply_copy_forward`'s order is now **lock-check → formulas → acquire lock → carry layers → category
+> gate → rates → commit**, one transaction, rollback on refusal
+> (`pricing.py:3106 / 3110 / 3118 / 3129 / 3146 / 3156 / 3193`, `rollback` at `3195`).
+>
+> **The invariant is unchanged in words: no rate lands on an uncategorised row.** Only the moment of
+> judgement moved. Before, the gate read the destination's categories *before* anything was written —
+> and every layer's identity includes `committed_version`, so a re-commit mints a version with **zero**
+> category rows, the gate is shut, and the carry that would populate them cannot run. The guard blocked
+> its own remedy. Judging *after* the carry, in the same uncommitted transaction, lets the carried
+> categories count toward the gate that then decides whether the rates may land.
+>
+> This is **the same deadlock Amendment E solved differently** on the cross-BoQ seam — there the owner
+> removed the gate outright; here he reordered it. Both answers are live and the asymmetry is
+> deliberate: the cross-BoQ carry always crosses documents, while *Copy rates forward* can be pointed at
+> an older version of a sheet whose categories were never completed at all.
+>
+> **What still refuses.** An incomplete **SOURCE** still refuses and unwinds the carried layers — the
+> gate is judged on the post-carry picture, and if the source could not fill the destination's blanks
+> the whole transaction rolls back with nothing written of any layer. The **formula gate keeps
+> precedence** (it is still checked first, and is still absolute). R8 keeps the gate unconditional: an
+> annotations-only carry into an uncategorised destination is refused too, with no carve-out.
+>
+> ### R5 — N2 row matching, and the five deltas it buys *(changes shipped behaviour)*
+>
+> The within-BoQ carry now routes through the shared N2 matcher rather than its own exact-byte pairing.
+> `pricing._copy_forward_match` → `committed_carry.version_addressed_excel_row_match` →
+> `services/boq_revision/row_match.match_rows`, whose key is Excel position **plus**
+> `normalize_n2(description)` — `" ".join(str(text).strip().lower().split())`
+> (`services/boq_revision/normalize.py:22-30`).
+>
+> **This changes which rates carry on a shipped path.** Five signed deltas:
+>
+> | Δ | Before | After |
+> |---|---|---|
+> | **+** trailing / leading space | did not pair | **pairs** |
+> | **+** case difference | did not pair | **pairs** |
+> | **+** internal whitespace runs | did not pair | **pairs** |
+> | **−** blank descriptions | paired with each other | **stop pairing** |
+> | **−** a duplicated Excel row | last one silently won | **dropped, neither pairs** |
+>
+> **The owner accepted the last two as fixes, not regressions.** A blank description carries no evidence
+> that two rows are the same row, and last-silently-wins is the failure mode that produces a wrong rate
+> with no error. Fewer rows carrying, correctly, beats more rows carrying, silently wrong — the same
+> reasoning that reinstated the position component of the key under Amendment B.
+>
+> ⚠️ **Neither matcher is fuzzy, and none of this adds tolerance for a MOVED row.** Both sides still
+> join on identical Excel position first. An early plan claim that consolidating the two matchers was
+> *"a pure consolidation, not a behaviour change"* was **wrong**, was caught by a builder stop, and is
+> recorded here so it is not re-proposed.
+>
+> ### R6 — a frozen twin, not a flag
+>
+> `committed_carry.committed_excel_row_match` (`:128`) is **byte-frozen**. Its node read filters
+> `is_current: 1` (`:198`), which is correct cross-BoQ and catastrophic within one BoQ: the older
+> version's nodes were frozen to `is_current = 0` at re-commit, so the source side comes back **empty**
+> and the button would silently carry nothing. Measured on the bench: source v1 = 6 nodes all `0`,
+> dest v2 = 5 all `1`.
+>
+> The sibling `version_addressed_excel_row_match` (`:162`) addresses each side by its committed **sheet
+> docname** instead, dropping the `is_current` filter entirely (`_match_rows_from_nodes_at_version`,
+> `:204-213`). The owner ruled **against** merging the two behind a `current_only` flag: a boolean on a
+> matcher this load-bearing is one careless default away from re-introducing the empty-source bug on the
+> cross-BoQ path. The sibling **points at the original's docstring warning rather than restating it**
+> (`:168-171`) — one copy in the codebase, so it cannot be updated in one place and go stale in the other.
+>
+> ### R15 / R11 / R13 — one number governs label and enablement *(reverses a parked comment)*
+>
+> Both dialogs previously derived "is there anything to do?" twice: once for the label and once for the
+> `disabled` expression. `nothingToCarry` was the second source of truth and it counted **selection**.
+> R15 deletes it. One private walk — `carryWriteBreakdown` (`CarryLayers.tsx:246-266`) — now feeds both
+> surfaces through two thin public readers, `carrySelectionSummary` (`:276`) and `carryWriteCount`
+> (`:291`), so the button figure and the "Will copy" line cannot disagree.
+>
+> This is the **same defect class** as `313697e7`, which fixed the count on the *line* and never on the
+> *button*. Fixing one dialog only would have recreated the divergence the shared `CarryLayers`
+> extraction existed to prevent, so R11 required both in one change.
+>
+> ⚠️ **R14 holds at the label only.** The cross-BoQ single-sheet button keeps its bare "Carry" text, but
+> its `disabled` expression *did* change: an all-Keep, no-layers selection now **disables** where it
+> previously enabled. That is the intended correction, and it is the one part of this arc no test in
+> this repo can cover — it lives entirely in a `disabled={…}` expression, and there is no DOM
+> environment here (see F2's neighbour: `vitest.config.ts` sets `environment: "node"` deliberately).
+>
+> **R13** settles the noun as **"changes"**. "items" collides with `node_type === "Line Item"` on the
+> very grid rendered behind the dialog. It is enforced by an assertion
+> (`CopyForwardDialog.test.ts:441`, `expect(carryChangesPhrase(42).toLowerCase()).not.toContain("item")`),
+> not by a comment — a comment is not a gate.
+>
+> ### R16 — "was this carried from elsewhere?" is a domain fact, not a presentation choice
+>
+> `get_sheet_categories_resolved` emits a **derived** `carried_from_other_boq` alongside BOTH raw
+> provenance fields (`classify.py:506 / 509 / 521`); the raw fields stay, so the change is purely
+> additive. The grid renders what it is told: no comparison in the component, no new prop, nothing
+> crossing the React memo boundary.
+>
+> **Rejected alternatives.** Threading a `boq` prop down to `PricingGrid` would touch
+> `pricingRowPropsAreEqual` on a grid rendering thousands of rows; passing the BoQ into
+> `resolvedToSheetCategoryRow` would put a domain rule inside a UI adapter that has no DOM tests. The
+> question *"was this carried from elsewhere, or from an earlier version of myself"* belongs on the read
+> that already calls itself resolved.
+>
+> ⚠️ **Load-bearing: the signal is `bool(carried_from_boq) and carried_from_boq != boq`, NEVER version
+> truthiness.** `BoQ Row Category.carried_from_version` is an `Int` field, which Frappe materialises as
+> `bigint NOT NULL DEFAULT 0` — an *uncarried* row reads `0`, not `NULL`, so any test of the form
+> `if carried_from_version` both misses a genuine carry stamped at version 0 and cannot distinguish
+> "never carried". Pinned by `test_carry_stamped_at_version_zero_is_still_a_carry`
+> (`test_classify.py:1169`).
+>
+> ### R10 — why R4 was parked, and why it must not be re-proposed
+>
+> R4 was *"a local hand-pick outranks the carry in the display"*: `deriveVerdictState` checks
+> `carried_from_boq` **before** `human_category_id`, so picking a category on a carried row still
+> renders as "carried". Flipping that precedence looks like an obvious one-line fix. **It cannot be made
+> truthful**, because two genuinely different situations are **indistinguishable in the schema**:
+>
+> 1. A human pick made **locally, on this version, on a row that was carried**.
+> 2. A human pick made on the **SOURCE**, which the carry then brought across.
+>
+> Both have `human_category_id` set and both have carry provenance set. Flipping the precedence would
+> fix case 1 and start **falsely claiming authorship** on case 2 — asserting that someone here decided a
+> row they merely inherited. The owner parked it rather than trade a visible wrong for an invisible one.
+>
+> **This will kill any future display-layer fix too.** The honest remedy is a verdict-provenance field —
+> something that records *who decided*, separately from *what was decided* — not another badge patch.
+>
+> ### Findings that outlive this amendment
+>
+> **F1 — the freeze authorship gap** *(pre-existing; not introduced here)*.
+> `persist.stamp_human_verdicts_bulk` writes `human_category_id`, `human_verdict_at = now` and
+> `human_verdict_by` onto **every** resolved non-blank row it stamps — carried or not, human-decided or
+> machine-decided. Two consequences: after any freeze, `deriveVerdictState` returns `"human"` for what
+> were **machine** verdicts; and a carried row's `human_verdict_at` becomes newer than its `carried_at`,
+> making it indistinguishable from a genuine local pick. **Nothing in the schema records who decided a
+> row.** This is what killed R4, and it is a schema gap, not a rendering bug.
+>
+> ⚠️ Note the interaction with Amendment E's standing rule that a **carried** `human_verdict_at` keeps
+> the SOURCE's older timestamp: that rule is what makes a verdict made *on the revision* outrank a
+> carried one in `resolve_row_ladder`. A freeze overwrites exactly that timestamp. Provenance
+> spot-checks are therefore only meaningful **pre-freeze**.
+>
+> **F2 — nothing in this repo ever invokes `tsc`.** There is no `typecheck` script in
+> `frontend/package.json`; `build` is `vite build`, which is esbuild and **strips types without checking
+> them**; CI runs only the bench Python suite. The shared frontend types this arc introduced
+> (`CarryLayerSource`, `LayerChoices`, the three carry fields on `SheetCategoryRow`) are sound today but
+> are **enforced by a compiler no automated gate runs**. Repo-wide baseline at the time of writing is
+> ~3236 errors, so simply switching one on is not a small change.
+>
+> ### Verification
+>
+> Backend, independently observed rather than self-reported: `test_pricing` **255**,
+> `test_committed_carry` **49**, `test_cross_boq_carry` **60**, `test_classify` **83** — all OK, zero
+> skips. Frontend: vitest **1188 across 50 files**, zero skips. **No migration.**
+>
+> ⚠️ **Owner live-certification is a precondition for push and was NOT started when this block was
+> written.** Three items in it are structurally uncoverable by any test in this repo: the footer at
+> 1366×768, the R15 `disabled` flip on both dialogs, and the R13 noun read against the grid behind the
+> dialog.
 
 > ## ⚠️ SUPERSEDED 2026-07-28 by Amendment E — the block below is retained as the record of why
 > ## the layers were removed, which is still the reason they came back opt-in + attributed
