@@ -430,37 +430,27 @@ _RESOLVED_VOTE_FIELDS = (
 # calls persist.resolve_row_ladder.
 
 
-@frappe.whitelist()
-def get_sheet_categories_resolved(boq=None, sheet_name=None):
-    """Per-row multi-engine resolution across ALL disciplines with current rows. Read-only.
+def _resolved_categories_at_version(boq, sheet_name, committed_version):
+    """THE resolved read, at an EXPLICIT committed version. The whole body of the multi-engine
+    resolution -- the one query, the per-row grouping, the ladder, and the provenance derivation.
 
-    Returns {committed_version, disciplines:[present, sorted], categories:[ per excel_row:
-      excel_row, effective_category_id, effective_source ("human"|"auto"|"blank"),
-      resolved_discipline (of the effective verdict; None when blank),
-      cross_engine_conflict (bool, COMPUTED, telemetry-only, never rendered),
-      human_category_id, human_discipline (when a human verdict resolved the row),
-      carried_from_boq / carried_from_version / carried_from_other_boq (the carry provenance of
-              the verdict that RESOLVED the row: the source BoQ, the source version, and whether
-              that source was a DIFFERENT BoQ -- all three None when the row resolved blank),
-      votes: {discipline: {rule_category_id, ai_category_id, ai_confidence, final_category_id,
-              routing, review_priority}} ]}
+    Extracted at WBC-S8 so the two PUBLIC readers below cannot drift: the LIVE one
+    (get_sheet_categories_resolved, which resolves is_current=1) and the version-scoped twin
+    (get_version_sheet_categories, which is handed a version). They differ ONLY in how they obtain
+    `committed_version` -- everything a caller sees is computed here, exactly once. This repo has
+    already paid for two readers of one shape diverging; a test pins the twin, asked for the
+    current version, to a byte-equal payload.
 
-    ONE index-covered query (the composite index leads with boq, sheet_name, committed_version;
-    dropping the discipline filter is still covered -- recon-measured 0.4ms). sheet_name is
-    whitespace-VERBATIM (#152), exactly as get_sheet_categories resolves it.
+    NOT whitelisted: `committed_version` is trusted here (both callers validate it first).
     """
-    if not boq:
-        frappe.throw("boq is required.", title="Missing field: boq")
-    if not sheet_name:
-        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
-
-    cv = _resolve_committed_version(boq, sheet_name)
-    if cv is None:
-        return {"committed_version": None, "disciplines": [], "categories": []}
-
     rows = frappe.get_all(
         _ROW_CATEGORY,
-        filters={"boq": boq, "sheet_name": sheet_name, "committed_version": cv, "is_current": 1},
+        filters={
+            "boq": boq,
+            "sheet_name": sheet_name,
+            "committed_version": committed_version,
+            "is_current": 1,
+        },
         fields=[
             "excel_row", "discipline", "rule_category_id", "ai_category_id", "ai_confidence",
             "final_category_id", "routing", "routing_reason", "review_priority",
@@ -528,10 +518,85 @@ def get_sheet_categories_resolved(boq=None, sheet_name=None):
         })
 
     return {
-        "committed_version": cv,
+        "committed_version": committed_version,
         "disciplines": sorted(disciplines),
         "categories": categories,
     }
+
+
+@frappe.whitelist()
+def get_sheet_categories_resolved(boq=None, sheet_name=None):
+    """Per-row multi-engine resolution across ALL disciplines with current rows. Read-only.
+
+    THE LIVE READER -- welded to the CURRENT committed version, and deliberately KEPT that way:
+    the pricing editor's blank-category COUNT and the category GATE read this, and they govern
+    writes to the current version. A gate computed from a historical version's categories would
+    be a worse defect than the one WBC-S8 fixed. For DISPLAY at an older version the page calls
+    the twin below instead; in history mode the page therefore holds BOTH reads at once, which is
+    correct and intended.
+
+    Returns {committed_version, disciplines:[present, sorted], categories:[ per excel_row:
+      excel_row, effective_category_id, effective_source ("human"|"auto"|"blank"),
+      resolved_discipline (of the effective verdict; None when blank),
+      cross_engine_conflict (bool, COMPUTED, telemetry-only, never rendered),
+      human_category_id, human_discipline (when a human verdict resolved the row),
+      carried_from_boq / carried_from_version / carried_from_other_boq (the carry provenance of
+              the verdict that RESOLVED the row: the source BoQ, the source version, and whether
+              that source was a DIFFERENT BoQ -- all three None when the row resolved blank),
+      votes: {discipline: {rule_category_id, ai_category_id, ai_confidence, final_category_id,
+              routing, review_priority}} ]}
+
+    ONE index-covered query (the composite index leads with boq, sheet_name, committed_version;
+    dropping the discipline filter is still covered -- recon-measured 0.4ms). sheet_name is
+    whitespace-VERBATIM (#152), exactly as get_sheet_categories resolves it.
+    """
+    if not boq:
+        frappe.throw("boq is required.", title="Missing field: boq")
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+
+    cv = _resolve_committed_version(boq, sheet_name)
+    if cv is None:
+        return {"committed_version": None, "disciplines": [], "categories": []}
+    return _resolved_categories_at_version(boq, sheet_name, cv)
+
+
+@frappe.whitelist()
+def get_version_sheet_categories(boq=None, sheet_name=None, committed_version=None):
+    """Read-only HISTORY twin of get_sheet_categories_resolved (WBC-S8). Returns an OLD committed
+    version's OWN resolved per-row verdicts -- the Category column's data source when the pricing
+    editor is browsing an earlier version.
+
+    THE DEFECT IT FIXES: the live reader has no version parameter, so history mode rendered the
+    CURRENT version's verdicts against an OLDER version's rows. Measured on production before this
+    slice (BOQ-26-00133 | 'B- BOQ- Elec.', viewing v1 while v2 is current): 106 rows disagreed and
+    181 more were wrongly blank. Nothing was ever lost -- v1's 561 rows were intact all along; the
+    reader simply could not be asked for them.
+
+    R20 (owner): a separate twin, NOT a parameter on the live reader, following the shape this repo
+    already used for the ROWS at this same seam (pricing.get_priced_rows /
+    pricing.get_version_priced_rows). The live reader is the editor hot path AND the source the
+    blank-count + category gate read; leaving it untouched is what keeps the gate on the current
+    version while the DISPLAY follows the version being viewed.
+
+    Payload is IDENTICAL to the live reader's (same shared body) -- committed_version is simply the
+    one requested rather than the one resolved. Graceful empty: a version with no category rows
+    returns empty categories, not an error, mirroring get_version_priced_rows. sheet_name VERBATIM
+    (#152). PURE READ -- writes nothing, and never touches the classification freeze or the
+    pricing lock.
+    """
+    if not boq:
+        frappe.throw("boq is required.", title="Missing field: boq")
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+    if committed_version is None or committed_version == "":
+        frappe.throw("committed_version is required.", title="Missing field: committed_version")
+    # Frappe delivers whitelisted params as STRINGS over HTTP. Reuse pricing's coercion rather than
+    # minting a second one, so the two version twins reject a bad version with the SAME message
+    # (this module already reaches for a sibling's private in _guard_classification_not_frozen).
+    committed_version = pricing._coerce_int(committed_version, "committed_version")
+
+    return _resolved_categories_at_version(boq, sheet_name, committed_version)
 
 
 @frappe.whitelist(methods=["POST"])

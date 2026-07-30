@@ -1177,6 +1177,156 @@ class TestResolvedCarryProvenance(FrappeTestCase):
         self.assertIs(row["carried_from_other_boq"], True)
 
 
+# ── WBC-S8: the VERSION-SCOPED resolved read (get_version_sheet_categories) ──────
+class TestVersionScopedSheetCategories(FrappeTestCase):
+    """Browsing an OLDER committed version must show THAT version's categories.
+
+    THE DEFECT: get_sheet_categories_resolved has no version parameter -- it resolves
+    is_current=1 and always answers for the CURRENT version. The pricing editor's history
+    mode therefore rendered the current version's verdicts against an older version's rows.
+    Measured on production before this slice (BOQ-26-00133 | 'B- BOQ- Elec.', viewing v1 while
+    v2 is current): 106 rows disagreed and 181 more were wrongly blank; row 91 displayed
+    'miscellaneous' where v1's truth is 'panels'.
+
+    R20 (owner): a separate version twin, NOT a parameter on the live reader -- the shape
+    pricing.get_priced_rows / pricing.get_version_priced_rows already established for the ROWS
+    at this same seam. One shared private body, so the two readers cannot drift.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.project = _make_project()
+        cls.source_boq = _new_boq(cls.project.name, "Ver Source BoQ")
+        cls.boq = _new_boq(cls.project.name, "Versioned Cats BoQ")
+        cls.sheet = "VerFix "  # VERBATIM trailing space (#152)
+
+        # ── v1: the version that will become history ──
+        _new_sheet(cls.boq, cls.sheet, commit_version=1)
+        persist.write_row_categories(cls.boq, cls.sheet, 1, "Electrical", [
+            _cat_row(11, rule_category_id="panels", ai_category_id="panels",
+                     final_category_id="panels", routing="Auto-accepted", ai_confidence=0.95),
+            _cat_row(12, rule_category_id="earthing", ai_category_id="earthing",
+                     final_category_id="earthing", routing="Auto-accepted", ai_confidence=0.95),
+        ])
+        # A CARRIED row at v1 only -- proves the twin derives the R16/R3 provenance keys at a
+        # version that is NOT current, rather than re-implementing a thinner payload.
+        persist.carry_row_categories(
+            cls.boq, cls.sheet, 1,
+            [_cat_row(14, discipline="Electrical", rule_category_id="panels",
+                      ai_category_id="panels", final_category_id="panels",
+                      routing="Auto-accepted", ai_confidence=0.95)],
+            source_boq=cls.source_boq, source_version=7,
+        )
+
+        # ── the re-commit: freeze v1's sheet, mint v2 as current (test_recommit_resets_flag
+        # establishes this exact simulation of commit_pipeline's freeze-and-supersede) ──
+        old = classify._current_sheet_name(cls.boq, cls.sheet, 1)
+        frappe.db.set_value("BoQ Sheet", old, "is_current", 0)
+        _new_sheet(cls.boq, cls.sheet, commit_version=2)
+
+        # ── v2: r11 gets a DIFFERENT verdict; r13 exists ONLY here; r12 is not re-classified ──
+        persist.write_row_categories(cls.boq, cls.sheet, 2, "Electrical", [
+            _cat_row(11, rule_category_id="earthing", ai_category_id="earthing",
+                     final_category_id="earthing", routing="Auto-accepted", ai_confidence=0.95),
+            _cat_row(13, rule_category_id="panels", ai_category_id="panels",
+                     final_category_id="panels", routing="Auto-accepted", ai_confidence=0.95),
+        ])
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete(_ROW_CATEGORY, {"boq": cls.boq})
+        frappe.db.delete("BoQ Sheet", {"boq": cls.boq})
+        frappe.db.commit()
+        _cleanup_project(cls.project.name)
+        super().tearDownClass()
+
+    def _at(self, version):
+        res = classify.get_version_sheet_categories(
+            boq=self.boq, sheet_name=self.sheet, committed_version=version
+        )
+        return res, {c["excel_row"]: c for c in res["categories"]}
+
+    # ── the fix itself ────────────────────────────────────────────────────────────
+    def test_v1_read_returns_v1_verdicts(self):
+        res, by = self._at(1)
+        self.assertEqual(res["committed_version"], 1)
+        self.assertEqual(by[11]["effective_category_id"], "panels")
+        self.assertEqual(by[12]["effective_category_id"], "earthing")
+
+    def test_v2_read_returns_v2_verdicts(self):
+        res, by = self._at(2)
+        self.assertEqual(res["committed_version"], 2)
+        self.assertEqual(by[11]["effective_category_id"], "earthing")
+
+    def test_the_same_row_reads_differently_per_version(self):
+        """The production symptom in one assertion: row 11's v1 truth is NOT what the current
+        version says, so a version-blind reader necessarily shows the wrong one."""
+        _, v1 = self._at(1)
+        _, v2 = self._at(2)
+        self.assertNotEqual(v1[11]["effective_category_id"], v2[11]["effective_category_id"])
+
+    def test_row_classified_only_at_v2_is_absent_from_the_v1_read(self):
+        """BOQ-26-00131 | 'ESTIMATE ' row 11: the grid showed 'hvac_vrf' on a v1 row that has NO
+        category record at v1 at all. A version-scoped read must simply not carry it."""
+        _, v1 = self._at(1)
+        _, v2 = self._at(2)
+        self.assertNotIn(13, v1)
+        self.assertIn(13, v2)
+
+    def test_carry_provenance_survives_at_a_historical_version(self):
+        _, v1 = self._at(1)
+        self.assertEqual(v1[14]["carried_from_boq"], self.source_boq)
+        self.assertEqual(v1[14]["carried_from_version"], 7)
+        self.assertIs(v1[14]["carried_from_other_boq"], True)
+
+    # ── the live reader is UNCHANGED ──────────────────────────────────────────────
+    def test_live_reader_still_resolves_the_current_version(self):
+        """get_sheet_categories_resolved keeps NO version parameter and keeps answering for
+        is_current=1. The gate and the blank count read it; they must never follow the view."""
+        res = get_sheet_categories_resolved(boq=self.boq, sheet_name=self.sheet)
+        by = {c["excel_row"]: c for c in res["categories"]}
+        self.assertEqual(res["committed_version"], 2)
+        self.assertEqual(by[11]["effective_category_id"], "earthing")
+        self.assertNotIn(14, by)  # the v1-only carried row is not in the current version
+
+    def test_twin_at_the_current_version_equals_the_live_reader(self):
+        """The anti-drift pin: ONE shared body means the twin, asked for the current version,
+        must return a byte-equal payload. A future edit to either reader breaks this."""
+        live = get_sheet_categories_resolved(boq=self.boq, sheet_name=self.sheet)
+        twin, _ = self._at(2)
+        self.assertEqual(twin, live)
+
+    # ── argument handling, mirroring pricing.get_version_priced_rows ──────────────
+    def test_string_version_is_coerced(self):
+        """Frappe delivers whitelisted params as STRINGS over HTTP -- the frontend sends
+        committed_version in the query, so the twin must accept "1" exactly as 1."""
+        res_str = classify.get_version_sheet_categories(
+            boq=self.boq, sheet_name=self.sheet, committed_version="1"
+        )
+        res_int, _ = self._at(1)
+        self.assertEqual(res_str, res_int)
+
+    def test_missing_version_throws(self):
+        with self.assertRaises(frappe.ValidationError):
+            classify.get_version_sheet_categories(boq=self.boq, sheet_name=self.sheet)
+
+    def test_non_integer_version_throws(self):
+        with self.assertRaises(frappe.ValidationError):
+            classify.get_version_sheet_categories(
+                boq=self.boq, sheet_name=self.sheet, committed_version="v2"
+            )
+
+    def test_unknown_version_returns_graceful_empty(self):
+        """A version with no category rows is empty, not an error -- the same graceful-empty
+        posture get_version_priced_rows takes for a version the node tier lacks."""
+        res, by = self._at(99)
+        self.assertEqual(res["committed_version"], 99)
+        self.assertEqual(res["disciplines"], [])
+        self.assertEqual(by, {})
+
+
 # ── SET_ROW_CATEGORY ─────────────────────────────────────────────────────────────
 class TestSetRowCategory(FrappeTestCase):
     @classmethod
