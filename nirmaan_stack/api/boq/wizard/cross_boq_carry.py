@@ -23,6 +23,22 @@ classifier pointed cross-BOQ:
   * `apply_sheet_carry` is SYNCHRONOUS and ATOMIC: one lock acquire, one commit, full rollback on
     any error.
 
+⚠️ AMENDMENT G (WBC-S11, 2026-07-30, owner-directed) lets this carry match rows that MOVED.
+`committed_excel_row_match` -- and ONLY it -- enables `match_rows`' serial second pass, so a source
+row whose Excel position changed still pairs when its SERIAL NUMBER and description both survive
+and that pair is unique on both sides. Three consequences to hold together:
+
+  * ONE match per sheet feeds everything here: the rate plan, `needs_new_value_count`, and the
+    opt-in layer carry. The owner ruled they move TOGETHER -- the boundary is structure vs.
+    everything else, and the structural risk (re-parenting under a stale heading) lives in the
+    PARSE-TIME carry, not in this one. Do not split the derivation to hold the layers back: that
+    would leave a moved row priced-but-uncategorised, reinstating the manual finishing step
+    Amendment E exists to remove.
+  * `needs_new_value_count` SHRINKS, intentionally -- a dest row this carry now prices genuinely no
+    longer needs a value typed by hand.
+  * `removed` is narrower: it means gone, reworded, or moved WITHOUT a usable serial. The reason
+    string says exactly that.
+
 ⚠️ AMENDMENT E (2026-07-28, owner-directed) restores a CATEGORY carry alongside the rates, and
 removes the category gate from this path. Two things to hold together:
 
@@ -181,10 +197,16 @@ def _classify_carry(ctx: _SheetCarry, match) -> list:
        rate_kind, source_boq, source_version,
        outcome: 1|2|3,          # 1 HARD SKIP / 2 clean copy / 3 conflict
        skip_reason,             # outcome 1 only: removed|no_rate_column|non_priceable
+       match_pass,              # AMENDMENT G: 'position' | 'serial' | None when unmatched
        target_col_letter,       # the RE-RESOLVED dest rate column (null on a skip)
        current_rate, reason}
     """
     twin = match.original_to_revised   # source excel_row -> dest excel_row (matched pairs only)
+    # AMENDMENT G: the source rows the SERIAL second pass paired, as opposed to the Excel position.
+    # Plan DATA only -- the dialog is unchanged this slice (owner ruling), so nothing renders it
+    # yet; it is here so the plan can explain ITSELF, which is what a reviewer of a surprising
+    # "this moved row carried" needs.
+    serial_matched = match.serial_matched
 
     # Dest current version: node descriptions + the restricted rate-role inverse + filled cells.
     dest_rows = get_committed_rows(boq_name=ctx.dest_boq, sheet_name=ctx.dest_sheet_name)
@@ -253,25 +275,32 @@ def _classify_carry(ctx: _SheetCarry, match) -> list:
             "source_version": p.get("committed_version"),
             "outcome": pricing._CF_SKIP,
             "skip_reason": None,
+            "match_pass": None,
             "target_col_letter": None,
             "current_rate": None,
             "reason": None,
         }
         # (1a) TWIN -- the source row must have a matched dest twin. Amendment B collapsed the
         # match to "paired or not", so the old ambiguous/removed split is gone: there is exactly one
-        # not-carried reason here. A row fails to pair because it moved, was reworded, or is not in
-        # the revision at all -- from the pricing screen's point of view those are the same
-        # instruction ("price it by hand"). Unmatched DEST rows are unreachable here (the plan is
-        # source-driven) -- the grid is their review surface (S10).
+        # not-carried reason here. From the pricing screen's point of view every way of failing to
+        # pair is the same instruction ("price it by hand"). Unmatched DEST rows are unreachable
+        # here (the plan is source-driven) -- the grid is their review surface (S10).
+        #
+        # ⚠️ AMENDMENT G narrowed what lands in this bucket. A row that MOVED now carries when its
+        # serial number and description both survive, so "moved" alone is no longer a reason not to
+        # carry -- the reason string says "moved WITHOUT a matching serial number", which is what is
+        # actually left here. The three remaining ways in: the row is gone, its text changed, or it
+        # moved and its serial was blank / changed / ambiguous.
         dest_excel_row = twin.get(src_excel_row)
         if dest_excel_row is None:
             row["skip_reason"] = "removed"
-            row["reason"] = ("This row has no matching row in the revision (moved, reworded or "
-                             "removed) -- not carried.")
+            row["reason"] = ("This row has no matching row in the revision (removed, reworded, or "
+                             "moved without a matching serial number) -- not carried.")
             plan.append(row)
             continue
         row["dest_excel_row"] = dest_excel_row
         row["dest_description"] = dest_desc_by_row.get(dest_excel_row)
+        row["match_pass"] = "serial" if src_excel_row in serial_matched else "position"
         # (1b/1c/2/3) SHARED resolver (pricing._resolve_rate_carry_target -- one home with the
         # same-BOQ copy-forward, so the two carry paths cannot drift): re-resolve the rate column by
         # (area, rate_kind) against the DEST columns (a column MOVE re-resolves; a role SWAP is
