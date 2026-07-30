@@ -550,13 +550,19 @@ const SheetPricingPage = () => {
   const [categoryOverrides, setCategoryOverrides] = useState<Map<number, SheetCategoryRow>>(
     () => new Map(),
   );
-  // A reference-stable (per fetch / per override) Map keyed by excel_row -> the grid reads it for
-  // the Category cell; rebuilt only when catData or the overrides change (never on a keystroke),
-  // so the row memo is never defeated by a per-render Map. Overrides merge LAST (optimistic wins).
-  const categoriesByExcelRow = useMemo(() => {
+  // The CURRENT version's verdicts, keyed by excel_row. Reference-stable (per fetch / per
+  // override), rebuilt only when catData or the overrides change (never on a keystroke), so the
+  // row memo is never defeated by a per-render Map. Overrides merge LAST (optimistic wins).
+  //
+  // WBC-S8 -- THE "live" IN THE NAME IS LOAD-BEARING. This map is what the blank-category COUNT,
+  // the category GATE, and every write path (the pick handler's optimistic seed, the picker's
+  // current id) read, and they must stay welded to the CURRENT version because that is the version
+  // they govern writes to. DISPLAY does NOT read this in history mode -- it reads
+  // activeCategoriesByExcelRow below. Do not collapse the two back together.
+  const liveCategoriesByExcelRow = useMemo(() => {
     const m = new Map<number, SheetCategoryRow>();
     // HV-10: adapt each server-resolved row onto the grid's SheetCategoryRow shape so PricingGrid
-    // + deriveVerdictState + isNeedsReviewCategory render UNCHANGED. Telemetry (conflict, votes,
+    // + deriveVerdictState + isMasterSetBlank render UNCHANGED. Telemetry (conflict, votes,
     // review_priority) is dropped by the adapter and never reaches the grid.
     (catData?.message?.categories ?? []).forEach((c: ResolvedSheetCategory) =>
       m.set(c.excel_row, resolvedToSheetCategoryRow(c)),
@@ -583,6 +589,46 @@ const SheetPricingPage = () => {
     },
     isViewingHistory ? undefined : null,
   );
+
+  // WBC-S8: the SELECTED EARLIER version's OWN category verdicts (get_version_sheet_categories --
+  // the resolved read's version twin, exactly as get_version_priced_rows above is get_priced_rows'
+  // twin). Disabled unless viewing history, so the live sheet costs one fetch as before.
+  //
+  // THE DEFECT THIS FIXES: the live read has no version parameter, so history mode showed the
+  // CURRENT version's verdicts against an OLDER version's rows. The SWR key is left undefined so
+  // it is derived from the params -- committed_version is IN it, which is what makes a version
+  // switch refetch. Its absence was half the bug: the old read did not even re-run.
+  const { data: histCatData } = useFrappeGetCall<{
+    message: GetSheetCategoriesResolvedResponse;
+  }>(
+    "nirmaan_stack.api.boq.wizard.classify.get_version_sheet_categories",
+    {
+      boq: boqId ?? "",
+      sheet_name: sheetName ?? "", // VERBATIM (#152)
+      committed_version: selectedVersion ?? 0,
+    },
+    isViewingHistory ? undefined : null,
+  );
+  // The viewed version's map. NO optimistic overrides folded in: a verdict cannot be picked in
+  // history mode (onCategoryClick is withheld when `locked`, which isViewingHistory ORs into), and
+  // an override made against the LIVE version must never paint over a historical view.
+  const viewedCategoriesByExcelRow = useMemo(() => {
+    const m = new Map<number, SheetCategoryRow>();
+    (histCatData?.message?.categories ?? []).forEach((c: ResolvedSheetCategory) =>
+      m.set(c.excel_row, resolvedToSheetCategoryRow(c)),
+    );
+    return m;
+  }, [histCatData]);
+  // The DISPLAY map -- joins the same isViewingHistory funnel activeMessage does. Both branches are
+  // memoized values, so this stays reference-stable and the PricingGrid row memo holds.
+  //
+  // DELIBERATELY NOT the gate's input. Display follows the version being VIEWED; the blank count
+  // and the category gate keep reading liveCategoriesByExcelRow, because they govern writes to the
+  // CURRENT version and a write gate computed from history would be a worse defect than the one
+  // this fixes. In history mode the page therefore holds two category reads at once -- intended.
+  const activeCategoriesByExcelRow = isViewingHistory
+    ? viewedCategoriesByExcelRow
+    : liveCategoriesByExcelRow;
 
   // General-specs faithful-grid fork: a GRID-ONLY (general-specs) committed sheet commits a
   // faithful grid with ZERO nodes, so the node-based get_priced_rows renders it empty. Detect
@@ -1611,7 +1657,7 @@ const SheetPricingPage = () => {
     // of briefly appearing unlocked until the refetch reconciles. (Server-side a clear reverts to the
     // machine verdict; for an auto-machine row the optimistic blank over-reports for the round-trip
     // only, corrected by mutateCategories -- it never UNDER-reports, so the gate never wrongly opens.)
-    const cur = categoriesByExcelRow.get(excelRow);
+    const cur = liveCategoriesByExcelRow.get(excelRow);
     const base: SheetCategoryRow = cur ?? {
       excel_row: excelRow,
       rule_category_id: "",
@@ -2005,15 +2051,15 @@ const SheetPricingPage = () => {
   const formulasComplete = areFormulasComplete(columnDescriptors, columnFormulas);
   // Slice G3a: the LIVE count of ELIGIBLE master-set rows whose category cell is EMPTY, from the SAME
   // isMasterSetBlank predicate the amber fill + Check-Category filter use (four surfaces, ONE
-  // predicate -- never a second emptiness test). Iterate the ROWS array, NOT categoriesByExcelRow: a
+  // predicate -- never a second emptiness test). Iterate the ROWS array, NOT liveCategoriesByExcelRow: a
   // never-classified row is ABSENT from the map (Recon 5/6) but MUST be counted -- keying off the map
   // would miss it (the fail-open the backend already guards). useMemo'd on the SAME deps as
-  // categoriesByExcelRow (which folds catData + the optimistic overrides) plus rows, so it recomputes
+  // liveCategoriesByExcelRow (which folds catData + the optimistic overrides) plus rows, so it recomputes
   // only on a fetch / pick / clear, never per keystroke. At load this equals the server's
   // eligible_blank_category_count (parity, verified in the cert).
   const categoryBlankCount = useMemo(
-    () => countMasterSetBlankRows(rows, categoriesByExcelRow),
-    [rows, categoriesByExcelRow],
+    () => countMasterSetBlankRows(rows, liveCategoriesByExcelRow),
+    [rows, liveCategoriesByExcelRow],
   );
   // The gate OPENS when zero blanks remain OR the admin override is set. DELIBERATE asymmetry: the
   // COUNT keeps counting blanks even under the override (an admin should see how many remain), but
@@ -2127,14 +2173,14 @@ const SheetPricingPage = () => {
       setSuggestionsByExcelRow((prev) => (prev.size === 0 ? prev : new Map()));
       return;
     }
-    let map = buildSuggestions(rows, columnDescriptors, override, categoriesByExcelRow, helperList);
+    let map = buildSuggestions(rows, columnDescriptors, override, liveCategoriesByExcelRow, helperList);
     for (const pair of usedPairsRef.current) {
       const [er, col] = pair.split("::");
       map = markSuggestionUsed(map, Number(er), col);
     }
     setSuggestionsByExcelRow(map);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [suggestRun, pricingSheetHelper, rows, columnDescriptors, override, categoriesByExcelRow, helperList, suggestEventsKey]);
+  }, [suggestRun, pricingSheetHelper, rows, columnDescriptors, override, liveCategoriesByExcelRow, helperList, suggestEventsKey]);
 
   // The suggest status handler (poll + socket funnel here). done WINS; on success adopt the run.
   const onSuggestStatus = useCallback(
@@ -2208,7 +2254,7 @@ const SheetPricingPage = () => {
         col,
         kind: meta.kind,
         helper_id: meta.helperId,
-        category_id: categoriesByExcelRow.get(excelRow)?.effective_category_id ?? "",
+        category_id: liveCategoriesByExcelRow.get(excelRow)?.effective_category_id ?? "",
         run_id: suggestRun?.runId ?? "",
         extracted_attributes: extractedAttributes,
         extracted_confidences: extractedConfidences,
@@ -2224,7 +2270,7 @@ const SheetPricingPage = () => {
         });
       setHelperPanel(null);
     },
-    [helperPanel, extractionByRow, boqId, sheetName, categoriesByExcelRow, suggestRun, recordSuggestEventCall, mutateSuggestEvents],
+    [helperPanel, extractionByRow, boqId, sheetName, liveCategoriesByExcelRow, suggestRun, recordSuggestEventCall, mutateSuggestEvents],
   );
 
   // The open panel's row context, built from the SAME page data buildSuggestions used.
@@ -2233,8 +2279,8 @@ const SheetPricingPage = () => {
     const row = rows.find((r) => r.source_row_number === helperPanel.excelRow);
     if (!row) return null;
     const rateKinds = rateKindsOf(columnDescriptors.filter(isRateDescriptor));
-    return buildRowContext(row, rateKinds, categoriesByExcelRow.get(helperPanel.excelRow));
-  }, [helperPanel, rows, columnDescriptors, categoriesByExcelRow]);
+    return buildRowContext(row, rateKinds, liveCategoriesByExcelRow.get(helperPanel.excelRow));
+  }, [helperPanel, rows, columnDescriptors, liveCategoriesByExcelRow]);
   // The panel is open only with the flag on, a scoped cell, and a resolvable row context.
   const helperPanelOpen = RATE_HELPER_ENABLED && helperPanel !== null && helperPanelCtx !== null;
   // RM-3b: the embedded rate-helper panel is a PERMANENT part of the embedded layout (panel-as-default)
@@ -2296,7 +2342,9 @@ const SheetPricingPage = () => {
     // EMPTY -- the SAME shared predicate the grid's amber fill uses (isMasterSetBlank), so the
     // filter shows EXACTLY what amber shows (owner ruling; it now surfaces never-classified eligible
     // rows the old isNeedsReviewCategory missed). VIEW-ONLY -- never touches counts / Summary / feed.
-    (!showNeedsReview || isMasterSetBlank(r, categoriesByExcelRow.get(r.source_row_number))) &&
+    // WBC-S8: reads the DISPLAYED version's map, the SAME one the grid's amber fill now reads --
+    // the filter and the fill must never disagree about which version they are describing.
+    (!showNeedsReview || isMasterSetBlank(r, activeCategoriesByExcelRow.get(r.source_row_number))) &&
     classificationVisible(r.effective_classification, rowTypeToggles);
   const anyViewFilter = showOnlyUnpriced || showNeedsReview || !noRowTypeHidden;
   // displayRows: the view filter AND collapse, composed in ONE page-side pass (R4). VIEW-ONLY --
@@ -2327,7 +2375,7 @@ const SheetPricingPage = () => {
       showSpacers,
       showNotes,
       showSubtotals,
-      categoriesByExcelRow,
+      activeCategoriesByExcelRow,
       columnDescriptors,
       collapsed,
       byRowIndex,
@@ -3092,7 +3140,9 @@ const SheetPricingPage = () => {
             className="gap-1.5"
             aria-pressed={showNeedsReview}
             onClick={() => setShowNeedsReview((o) => !o)}
-            disabled={pricedLoading || pricedError || categoriesByExcelRow.size === 0}
+            // WBC-S8: enabled off the DISPLAYED version -- the same size>0 truth as hasRun, so the
+            // button and what it would filter always describe the same version.
+            disabled={pricedLoading || pricedError || activeCategoriesByExcelRow.size === 0}
             title={
               showNeedsReview
                 ? "Showing only rows whose category needs a check. Click to show all rows."
@@ -3425,8 +3475,8 @@ const SheetPricingPage = () => {
         groups={buildEngineGroups(ranDisciplines, engineCatalogs)}
         currentId={
           pickerState
-            ? categoriesByExcelRow.get(pickerState.excelRow)?.human_category_id ||
-              categoriesByExcelRow.get(pickerState.excelRow)?.effective_category_id ||
+            ? liveCategoriesByExcelRow.get(pickerState.excelRow)?.human_category_id ||
+              liveCategoriesByExcelRow.get(pickerState.excelRow)?.effective_category_id ||
               ""
             : ""
         }
@@ -3894,17 +3944,21 @@ const SheetPricingPage = () => {
             // supplies the display label; onCategoryClick opens the page-owned verdict picker on a
             // classified cell. Withheld when locked -> the cell renders display-only. All three are
             // reference-stable -> the row memo holds.
-            categoriesByExcelRow={categoriesByExcelRow}
+            // WBC-S8: the DISPLAY map -- the version being VIEWED, not always the current one.
+            // This prop is the Category column, and feeding it the live map was the reported
+            // defect: an older version rendered the CURRENT version's verdicts against its rows.
+            categoriesByExcelRow={activeCategoriesByExcelRow}
             // CL-6: sheet-has-run gate (= at least one category record exists) -- makes eligible
             // BLANK cells clickable + drives the amber "needs a category" fill. Same size>0 truth
-            // that gates the Check-Category filter button below.
-            hasRun={categoriesByExcelRow.size > 0}
+            // that gates the Check-Category filter button below. Reads the DISPLAYED version, so
+            // a version with no classification run at all shows no clickable cells.
+            hasRun={activeCategoriesByExcelRow.size > 0}
             categoryLabelById={categoryLabelById}
             onCategoryClick={locked ? undefined : onCategoryClick}
             // U1 rate-helper (DEV): the per-row suggestion badges + the page-owned open callback.
             // Both are withheld when the flag is off (feature does not exist). onSuggestionBadgeClick
             // is a stable useCallback; rowSuggestionsByExcelRow changes only on a run / a "Use this
-            // value" (like categoriesByExcelRow) -- never on keystroke, so the memo shield holds.
+            // value" (like liveCategoriesByExcelRow) -- never on keystroke, so the memo shield holds.
             rowSuggestionsByExcelRow={RATE_HELPER_ENABLED ? suggestionsByExcelRow : undefined}
             onSuggestionBadgeClick={RATE_HELPER_ENABLED ? handleSuggestionBadgeClick : undefined}
             // F3: the amount-column formula header label + builder. columnFormulas drives the

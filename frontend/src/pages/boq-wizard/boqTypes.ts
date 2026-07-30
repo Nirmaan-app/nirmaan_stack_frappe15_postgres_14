@@ -1669,7 +1669,13 @@ export interface ResolvedSheetCategory {
 }
 
 /** HV-10: the get_sheet_categories_resolved payload. `disciplines` = every engine with current
- * rows on the sheet (the picker's group set). */
+ * rows on the sheet (the picker's group set).
+ *
+ * WBC-S8: this is ALSO the payload of `classify.get_version_sheet_categories`, the version-scoped
+ * twin the pricing editor reads while browsing an OLDER committed version. ONE type because the
+ * two endpoints share ONE server-side body and are pinned byte-equal at the current version --
+ * so a field added to one arrives on both, and this interface can never describe only half of
+ * them. `committed_version` is the version RESOLVED (live reader) or REQUESTED (twin). */
 export interface GetSheetCategoriesResolvedResponse {
   committed_version: number | null;
   disciplines: string[];
