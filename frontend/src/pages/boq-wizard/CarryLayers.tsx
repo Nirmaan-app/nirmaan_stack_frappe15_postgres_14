@@ -19,14 +19,26 @@
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { CARRY_LAYER_KEYS } from "./boqTypes";
-import type {
-  CarryLayerChoice,
-  CarryLayerKey,
-  CarryLayerOutcome,
-  CrossBoqCarrySheet,
-} from "./boqTypes";
+import type { CarryLayerChoice, CarryLayerKey, CarryLayerOutcome } from "./boqTypes";
 
-// ── Pure helpers (vitest-tested in CrossBoqCarryDialog.test.ts) ────────────────────
+// ── Pure helpers (vitest-tested in CrossBoqCarryDialog.test.ts + CopyForwardDialog.test.ts) ───────
+
+/**
+ * What this module needs to know about "the thing being carried from": its per-layer PREVIEW, and
+ * nothing else.
+ *
+ * WBC-W3-S5: the helpers below were typed to the cross-BoQ dialog's concrete `CrossBoqCarrySheet`,
+ * which S1 deliberately left alone because the within-BoQ preview shape was still being decided (S2
+ * has now decided it: `get_copy_forward_plan` returns the same `layers` block on a response that is
+ * NOT a sheet). Typing the shared seam to one caller's concrete type would have forced the other
+ * caller to fake a sheet, so the parameter is now the single structural fact both responses share.
+ *
+ * `layers` stays OPTIONAL: a pre-Amendment-E/F server sends no preview, and both surfaces degrade to
+ * "no counts, section hidden" rather than throwing.
+ */
+export interface CarryLayerSource {
+  layers?: Partial<Record<CarryLayerKey, CarryLayerOutcome>>;
+}
 
 /** Display names for the four layers. Module-level so the dialog and its tests read the SAME
  *  strings. RENDER ORDER comes from CARRY_LAYER_KEYS, never from this map's key order. */
@@ -71,7 +83,7 @@ export function initialLayerChoices(): LayerChoices {
 /** Safe read of one layer's PLANNED outcome. `sheet.layers` is optional so a response from a
  *  pre-Amendment-E server degrades to "no counts" instead of throwing. */
 export function layerOutcomeFor(
-  sheet: CrossBoqCarrySheet | null | undefined,
+  sheet: CarryLayerSource | null | undefined,
   key: CarryLayerKey,
 ): CarryLayerOutcome | null {
   return sheet?.layers?.[key] ?? null;
@@ -134,7 +146,7 @@ export function layerSkipNote(
 /** Total destination records an ARMED layer would REPLACE -- the destructive footer's layer half.
  *  A layer that is not carrying contributes nothing however its overwrite flag is set. */
 export function armedLayerReplacements(
-  sheet: CrossBoqCarrySheet | null | undefined,
+  sheet: CarryLayerSource | null | undefined,
   choices: LayerChoices,
 ): number {
   let total = 0;
@@ -170,7 +182,7 @@ export function buildLayersPayload(
  */
 export function nothingToCarry(
   selectedRateCells: number,
-  sheet: CrossBoqCarrySheet | null | undefined,
+  sheet: CarryLayerSource | null | undefined,
   choices: LayerChoices,
 ): boolean {
   if (selectedRateCells > 0) return false;
@@ -202,7 +214,7 @@ export function countPhrase(n: number, singular: string, plural: string): string
  */
 export function carrySelectionSummary(
   rateCellsThatWillWrite: number,
-  sheet: CrossBoqCarrySheet | null | undefined,
+  sheet: CarryLayerSource | null | undefined,
   choices: LayerChoices,
 ): string {
   const parts: string[] = [];
@@ -219,12 +231,37 @@ export function carrySelectionSummary(
 
 // ── The opt-in non-rate layers block ───────────────────────────────────────────────
 
+/**
+ * The block's subtext on the CROSS-BoQ carry -- the original wording, kept VERBATIM and kept as the
+ * prop default so the cross-BoQ dialog renders byte-identically without being touched.
+ */
+export const LAYER_BLOCK_SUBTEXT_CROSS_BOQ =
+  "Optional. Anything copied is marked with the BoQ it came from, so it stays tellable apart " +
+  "from work done on this revision.";
+
+/**
+ * The block's subtext on the WITHIN-BoQ version carry.
+ *
+ * ⚠️ It cannot say "the BoQ it came from": within one BoQ the source and the destination ARE the
+ * same BoQ, so that sentence names the thing the user is already looking at and tells them nothing.
+ * The distinguishing fact here is the VERSION -- which is exactly the reasoning behind owner ruling
+ * R3, and why this string is parameterised rather than shared.
+ *
+ * ⚠️ PENDING OWNER CONFIRMATION (WBC-W3-S5).
+ */
+export const LAYER_BLOCK_SUBTEXT_WITHIN_BOQ =
+  "Optional. Anything copied is marked with the version it came from, so it stays tellable apart " +
+  "from work done on this version.";
+
 export interface CarryLayersBlockProps {
-  sheet: CrossBoqCarrySheet;
+  sheet: CarryLayerSource;
   choices: LayerChoices;
   /** The sheet is blocked by the mandatory amount-formula gate -- the server refuses the WHOLE
    *  call, layers included, so nothing here may be armed. */
   disabled: boolean;
+  /** The one sentence that differs per surface (see the two consts above). Defaults to the
+   *  cross-BoQ wording, so that caller needs no change. */
+  subtext?: string;
   onChange: (key: CarryLayerKey, next: CarryLayerChoice) => void;
 }
 
@@ -236,7 +273,13 @@ export interface CarryLayersBlockProps {
  * ⚠️ Emerald is banned in this dialog (screen convention: it means priced/succeeded, and belongs
  * to the carry button and the post-apply line, not to a pending choice).
  */
-export function CarryLayersBlock({ sheet, choices, disabled, onChange }: CarryLayersBlockProps) {
+export function CarryLayersBlock({
+  sheet,
+  choices,
+  disabled,
+  subtext = LAYER_BLOCK_SUBTEXT_CROSS_BOQ,
+  onChange,
+}: CarryLayersBlockProps) {
   // A pre-Amendment-E server sends no `layers` block at all. Hide the section rather than render
   // four dead rows -- the rate carry still works, which is the graceful degradation.
   if (!sheet.layers) return null;
@@ -245,10 +288,7 @@ export function CarryLayersBlock({ sheet, choices, disabled, onChange }: CarryLa
     <div className="rounded-md border border-border">
       <div className="border-b border-border/60 bg-muted/30 px-3 py-2">
         <p className="text-sm font-medium text-foreground">Also carry</p>
-        <p className="mt-0.5 text-[11px] text-muted-foreground">
-          Optional. Anything copied is marked with the BoQ it came from, so it stays tellable apart
-          from work done on this revision.
-        </p>
+        <p className="mt-0.5 text-[11px] text-muted-foreground">{subtext}</p>
       </div>
       <ul className="divide-y divide-border/60">
         {CARRY_LAYER_KEYS.map((key) => {
