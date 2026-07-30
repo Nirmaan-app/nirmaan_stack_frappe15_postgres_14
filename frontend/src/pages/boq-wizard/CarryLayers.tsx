@@ -313,8 +313,6 @@ export const LAYER_BLOCK_SUBTEXT_CROSS_BOQ =
  * same BoQ, so that sentence names the thing the user is already looking at and tells them nothing.
  * The distinguishing fact here is the VERSION -- which is exactly the reasoning behind owner ruling
  * R3, and why this string is parameterised rather than shared.
- *
- * ⚠️ PENDING OWNER CONFIRMATION (WBC-W3-S5).
  */
 export const LAYER_BLOCK_SUBTEXT_WITHIN_BOQ =
   "Optional. Anything copied is marked with the version it came from, so it stays tellable apart " +

@@ -360,7 +360,7 @@ export function CopyForwardDialog({
         <DialogHeader className="shrink-0">
           <DialogTitle>Copy rates forward</DialogTitle>
           {/* ⚠️ "Rates only" became FALSE at WBC-W3-S5 -- this action can carry the four non-rate
-              layers now. Structure and amounts still never change. PENDING OWNER CONFIRMATION. */}
+              layers now. Structure and amounts still never change. */}
           <DialogDescription>
             Copy from Version {fromVersion}
             {currentVersion !== null ? ` into the current Version ${currentVersion}` : " into the current version"}.
