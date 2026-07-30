@@ -15494,3 +15494,86 @@ environment, not product). (6) suggest-done modal copy says "wiring rows" but co
 431/120/551, wiring 120/20/140) as EA-4's cert oracles.** EA-3 tested their INGREDIENTS (Legs 1-2) + their
 HONEST REFUSAL (Leg 3). **panels** = a classifier category with NO rate-master config (rate-master-vocab gap,
 mirror of the popup_boxes classifier-vocab gap) -> honest coming-soon.
+
+## Build slice EA-4a (THE ASSEMBLY ENGINE + THE NINE DEFAULTS + POINT WIRING LIVE) COMPLETE
+
+**The composites EA-3 banked as oracles are now SYSTEM-PRICED.** Feat `f5b21cbc` (branch
+`feature/boq-pricing-helper`, NOT pushed). Full session evidence: `ea4a_report_2026-07-31.md` (Desktop);
+the pw2-diagnosis + values_from-gap forks the owner ruled on: `ea4a_question_2026-07-31.md` +
+`ea4a_w5_finding_2026-07-31.md` (Desktop).
+
+**Two new pure-TS interpreter shapes (`ratePipelineInterpreter.ts`, +191 lines):**
+- **`circuit_fit`** -- sizes conduit + counts circuits for a point: `overall_dia = sum sqrt(sqmm/pi)*2*core`
+  over its `wire_specs`; `fitted_size` = smallest configured size whose `usable` dia >= overall_dia;
+  `circuits = ROUNDDOWN(usable/overall_dia)`; `conduit_qty = ROUNDUP(length/circuits)`. Binds
+  `fitted_size`/`circuits`/`conduit_qty` into ctx for later steps. Honest no-compute on missing wire attr,
+  zero/negative circuits, or an unknown conduit_type usable table.
+- **`component_ref` EXTENDED** -- a ref attribute value may be a literal | `"@attr"` (bound from the
+  selection) | `"@fitted_size"` (bound from a `circuit_fit` bind). `rate_stages: [{mult, round?}]` applies
+  PER-STAGE rounding (`up0` = ROUNDUP to integer, `up-1` = ROUNDUP to ten); `qty` = a number |
+  `{from_attr}` | `{from_fit}` | `{if_attr,then,else}`; `value = staged_rate x qty`. UNIQUE resolution
+  (zero OR multiple matches -> honest no-compute, never pick-first); a null `@attr` -> honest missing-attr.
+- Both obey the **Option-C never-throws** contract (a data-shape throw degrades to honest `unsupported`); a
+  negative test pins it for the new shapes.
+
+**PER-STAGE ROUNDING is the load-bearing faithfulness rule** and the standing regression: the install
+switch stage is `ceil(list*0.3625)` THEN `*0.2` UNROUNDED (pw1 = `155*0.2 = 31`; pw2's White switch =
+`131*0.2 = 26.2`, the FRACTIONAL install total 722.2). This per-LINE unit rounding is faithful to the
+guiding sheet and is INTENTIONAL even where a standalone item would round differently -- do not "tidy" it
+to a single final round.
+
+**point_wiring is LIVE** (was DATA-ONLY at EA-DIFF): 14 attr defs (switch/socket/plate resolved via
+`values_from` by family), 3 pipelines (`pw_boq_supply`/`pw_boq_install`/`pw_bcs`). **Goldens are config
+data AND the standing pins:** pw1 = **1869 / 735 / 1370** (PVC/Grey/back_box=Yes -- the banked EA-3
+oracle, matches the live master to the rupee) and pw2 = **1823 / 722.2 / 1342** (MS/White/back_box=No,
+socket = "6A 3-Pin Socket" -- MS gives 3 circuits, conduit_qty 5; the fractional 722.2 pins per-stage
+rounding). **CERT LESSON (owner-recorded): a golden's attrs are an ATOMIC SET -- drive ALL of them.** A
+first live drive changed only 3 of pw2's 4 attrs (kept pw1's socket "6A/16A 3-Pin Socket") and read
+1875/732.20/1378; all three deltas traced to that one missed socket item. The RM-4b preview gate shows all
+6 goldens GREEN against the live master, no edits.
+
+**THE NINE DEFAULTS (`extraction.py`, +82 lines) -- CONFIRMED on real Claude output.** A config's
+`extraction_defaults` are INJECTED into the extraction prompt as a DEFAULTS section with a guidance line:
+where an attribute has a default and the row text gives NO positive identification, the model returns the
+default with moderate confidence AND the row is stamped `defaulted:true` for that attribute (raceway also
+carries a `text_override`). `values_from` is resolved at injection from the live master. **ABSENT =>
+byte-identical.** Real run `BRSR-26-00036` (ai_status=ran, 144 rows) carried `defaulted:true` exactly as
+designed: `earthing.with_busbar` x22, `cabletray_raceway` `tray_type` x11 / `installation_type` x12 /
+`cover` x15 / `floor_cutting` x24 / `floor_refilling` x24, plus point_wiring wire/length/qty/back_box.
+The helper surfaces defaulted attrs in the derivation string as a `(defaulted -- no positive text
+identification)` line (frontend `pricingSheetHelper.ts`; `RateHelperPanel` renders it verbatim).
+
+**values_from is resolved in BOTH surfaces (owner ruling, Option 1):** the Rate Master Derivation screen
+(`RateMasterDerivation.tsx` `valuesFromOptions`) AND the BoQ pricing-editor helper
+(`pricingSheetHelper.ts` `attributeOptions`, exported + pure, mirrors the Derivation resolution: options
+from the live master by `kind` + `where`, distinct). WHY it matters: a `values_from` choice has NO static
+`values`, so pre-fix the editor panel's switch/socket/plate dropdowns were EMPTY -- an AI-extracted item
+could not DISPLAY (no matching `<option>`) and a partial row could not be completed. Post-fix both work;
+proven live on BOQ-26-00106 row 59 (switch "10A 1 WAY SWITCH" displays; socket/plate completed from the
+catalog -> full bill 1437 + 704.4 = 2141.4 -> ONE Use, event `BRSE-26-00019` category_id=point_wiring,
+used_value 2141.4 -> rupee-verified undo to 1800). Tab identity was asserted before the write; BOQ-26-00114
+untouched (zero events).
+
+**A switch-only light point is an HONEST NON-COMPUTE this slice (socket_item null -> missing-attr), and
+that is the EA-4a-r acceptance case, NOT a defect** (owner ruling): EA-4a-r adds a `None` socket value that
+disables socket_qty and zeroes the socket line, making switch-only points priceable. NOT built here.
+
+**api allowlist (`api/boq/rate_master.py`, +70 lines):** `_KNOWN_STEP_TYPES += circuit_fit`,
+`_KNOWN_CONFIG_KEYS += extraction_defaults`, a `values_from` choice skips the static-values requirement,
+`component_ref` with `rate_stages`/`qty` present is an assembly (formula optional; validate finite `mult`,
+`round in {up0,up-1}`, and the qty shapes), and a `circuit_fit` validation branch.
+
+**Asset v12 -> v13** (`rate_master_electrical_all_v13.json`, sha256 prefix `128f037cae8c9035`, 768 items /
+11 configs) loaded live via `loader.load_rate_master(replace=True)` -> batch `rmbulk-a23f2b781127`. WIRING
+UNTOUCHED (wiring batch `rmbulk-f676a178e05a`, sha unchanged). v12 asset KEPT (`test_rate_master` pins it).
+
+**GATES (vs baseline):** vitest `ratePipelineInterpreter` 38 -> **47**, `pricingSheetHelper` 16 -> **20**
+(+2 values_from: catalog renders; an extracted-not-in-`values` item displays), tsc **0-new** (total 3236
+baseline), vite build **exit 0**; backend unchanged this round (test_rate_master 30, test_rate_suggest 12,
+test_pricing 230, carry 44/53/33). W1-W6 all GREEN.
+
+**EA-4b remaining scope (NOT this slice):** the DB build-up (switchgear + enclosures as an assembly), the
+switches "point" bundle, tray accessories, and the industrial-socket + MCB pairing -- each migrates onto
+the same assembly primitives (circuit_fit / component_ref). EA-4a-r (the `None` socket) is the immediate
+next step. `popup_boxes` + `lighting_mgmt_system` remain blocked on a classifier-vocabulary update (the
+helper is ready; zero production rows resolve to them yet).

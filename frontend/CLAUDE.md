@@ -1170,8 +1170,20 @@ in the plan doc.
   (STEP_VOCABULARY + blankStep + the server validator). **Owner: the earthing adder ADDS A BUS BAR (the
   existing Bus bar earthing_item row), NOT an earth chamber** (the chamber attempt was reverted; asset
   skipped v8, v7->v9). ONE ROW, TWO ROLES: the Bus bar row prices both as a selectable item AND as the
-  adder; an edit flows into both. **component_ref is the ASSEMBLY PRIMITIVE's simplest form — EA-4's BOM
-  steps extend it (referenced item × quantity).** **The five wiring goldens are the standing regression pins for every addition.** The Rate Master
+  adder; an edit flows into both. **component_ref is the ASSEMBLY PRIMITIVE's simplest form.** **EA-4a
+  SHIPPED the assembly engine (owner-locked, `ratePipelineInterpreter.ts`):** `circuit_fit` (sizes conduit +
+  counts circuits, binds `fitted_size`/`circuits`/`conduit_qty`) and `component_ref` extended (ref attrs
+  literal | `@attr` | `@fitted_size`; `rate_stages [{mult,round?:up0|up-1}]` with PER-STAGE rounding; `qty` =
+  number | `{from_attr}` | `{from_fit}` | `{if_attr,then,else}`; UNIQUE resolution else honest no-compute;
+  Option-C never-throws). **PER-STAGE rounding is faithful + INTENTIONAL** (install switch `ceil(list*0.3625)`
+  THEN `*0.2` UNROUNDED — pw1 `155*0.2=31`, pw2 White `131*0.2=26.2`); never collapse to one final round.
+  **`point_wiring` is LIVE**; goldens **pw1 1869/735/1370** + **pw2 1823/722.2/1342** (MS→3 circuits;
+  fractional 722.2) are config data + standing pins, and a golden's attrs are an ATOMIC SET. **`values_from`
+  is resolved in the editor helper too (owner Option 1):** `pricingSheetHelper.attributeOptions` (pure,
+  exported) mirrors the Derivation resolution — options from the live master by `kind` + `where` — so an
+  AI-extracted item with no static `values` DISPLAYS in the panel select and a partial row completes from the
+  catalog (the switch/socket/plate dropdowns were empty before). **A switch-only light point (socket_item
+  null) is an HONEST NON-COMPUTE — the EA-4a-r acceptance case, not a defect.** **The wiring + point_wiring goldens are the standing regression pins for every addition.** The Rate Master
   category selector is REGISTRY-driven (`rateMasterRegistry.ts` lists all eleven Electrical categories),
   NOT config-read. **EA-2: the pricing-sheet helper (`pricingSheetHelper.ts`) is N-CATEGORY** — it resolves
   the config PER row category (`configsByCategory`, fetched by a child `RateConfigFetcher` for all 11

@@ -416,7 +416,26 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   existing Bus bar earthing_item row), NOT an earth chamber** (the chamber attempt was reverted, asset v8
   skipped v7->v9). This is ONE ROW, TWO ROLES (requirement #7, shared items stored once): the Bus bar row
   prices both as a selectable item AND as the adder; an edit to it flows into both. **component_ref is the
-  ASSEMBLY PRIMITIVE's simplest form — EA-4's BOM steps extend it (referenced item × quantity).** **The wiring goldens are the standing regression pins.** The Rate Master category selector is
+  ASSEMBLY PRIMITIVE's simplest form.** **EA-4a SHIPPED the assembly engine (owner-locked):** two pure-TS
+  shapes — `circuit_fit` (sizes conduit + counts circuits: `overall_dia = sum sqrt(sqmm/pi)*2*core`;
+  `fitted_size` = smallest usable-dia >= dia; `circuits = ROUNDDOWN(usable/dia)`; `conduit_qty =
+  ROUNDUP(length/circuits)`; binds into ctx) and **`component_ref` extended** (ref attrs literal | `@attr` |
+  `@fitted_size`; `rate_stages [{mult,round?:up0|up-1}]` with PER-STAGE rounding; `qty` = number |
+  `{from_attr}` | `{from_fit}` | `{if_attr,then,else}`; `value = staged_rate * qty`; UNIQUE resolution else
+  honest no-compute; both obey Option-C never-throws). **PER-STAGE ROUNDING is faithful to the guiding sheet
+  and INTENTIONAL** (install switch `ceil(list*0.3625)` THEN `*0.2` UNROUNDED — pw1 `155*0.2=31`, pw2 White
+  `131*0.2=26.2`); do NOT collapse to one final round. **`point_wiring` is LIVE** (14 defs, 3 pipelines);
+  goldens **pw1 1869/735/1370** + **pw2 1823/722.2/1342** (MS→3 circuits; the fractional 722.2 pins per-stage
+  rounding) are config data AND standing pins — a golden's attrs are an ATOMIC SET. **A switch-only light
+  point (socket_item null) is an HONEST NON-COMPUTE — the EA-4a-r acceptance case, not a defect** (EA-4a-r
+  adds a `None` socket next). **The nine `extraction_defaults` (owner-locked):** a config default is INJECTED
+  into the extraction prompt and, where the row text gives no positive identification, returned with moderate
+  confidence AND stamped `defaulted:true` (raceway also carries a `text_override`); ABSENT => byte-identical.
+  **`values_from` is resolved in BOTH surfaces** — `RateMasterDerivation` AND the editor helper
+  (`pricingSheetHelper.attributeOptions`, options from the live master by kind+where) — so an AI-extracted
+  item with no static `values` still DISPLAYS in the panel select and a partial row completes from the
+  catalog. EA-4b (DB build-up, switches point, tray accessories, indsock+MCB pairing) rides these primitives.
+  **The wiring + point_wiring goldens are the standing regression pins.** The Rate Master category selector is
   REGISTRY-driven (`rateMasterRegistry.ts`), not config-read. The pricing-sheet helper stays wiring-only
   and shows its category coming-soon note for other categories (honest no-compute). A `scale` step whose
   TARGET RATE is missing (`null`/`NaN`) SKIPS that output (renders absent, never invented as 0) while the
