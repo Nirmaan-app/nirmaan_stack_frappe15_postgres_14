@@ -20,6 +20,7 @@ import {
   LAYER_BLOCK_SUBTEXT_CROSS_BOQ,
   LAYER_BLOCK_SUBTEXT_WITHIN_BOQ,
   buildLayersPayload,
+  carryChangesPhrase,
   carrySelectionSummary,
   carryWriteCount,
   initialLayerChoices,
@@ -405,6 +406,29 @@ describe("carryWriteCount over the copy-forward plan", () => {
 
   it("is 0 when the button is disabled anyway -- no rate, no layer", () => {
     expect(carryWriteCount(0, planMessage(), initialLayerChoices())).toBe(0);
+  });
+});
+
+// ── WBC-S3a-rework / R13: the apply button's NOUN ──────────────────────────────────
+// The owner ruled against "items": `item` is a live term on this very grid (`node_type ===
+// "Line Item"`), so "42 items" reads as 42 BoQ rows -- when the figure counts WRITES across both
+// axes, and one row can contribute several of them.
+describe("carryChangesPhrase (the apply button's payload phrase)", () => {
+  it("counts CHANGES, and never says 'item'", () => {
+    expect(carryChangesPhrase(42)).toBe("42 changes");
+    // The ruling itself, as a constraint rather than a restatement: the noun must not collide with
+    // the grid's own vocabulary.
+    expect(carryChangesPhrase(42).toLowerCase()).not.toContain("item");
+  });
+
+  it("uses the singular for exactly one change", () => {
+    expect(carryChangesPhrase(1)).toBe("1 change");
+  });
+
+  // At zero the button is DISABLED (R15), so naming a quantity of nothing is noise -- the phrase
+  // keeps the noun and drops the figure, which is the shape S3a shipped and review accepted.
+  it("drops the figure at zero rather than reading '0 changes'", () => {
+    expect(carryChangesPhrase(0)).toBe("changes");
   });
 });
 

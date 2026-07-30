@@ -58,7 +58,7 @@ export const LAYER_LABEL: Record<CarryLayerKey, string> = {
  * Same shape S5 used for the block's subtext: a CROSS-BoQ default plus a per-surface variant, so
  * the cross-BoQ dialog renders byte-identically without being touched.
  *
- * ⚠️ The within-BoQ wording is PENDING OWNER CONFIRMATION (WBC-S3a).
+ * Both wordings are owner-CONFIRMED (R3, WBC-S3a-rework).
  */
 export const CARRY_DESTINATION_CROSS_BOQ = "the revision";
 export const CARRY_DESTINATION_WITHIN_BOQ = "the current version";
@@ -227,6 +227,24 @@ export function joinPhrases(parts: string[]): string {
 /** Pluralise a count against its noun ("1 rate" / "12 rates"). */
 export function countPhrase(n: number, singular: string, plural: string): string {
   return `${n} ${n === 1 ? singular : plural}`;
+}
+
+/**
+ * The payload phrase the apply BUTTON names, on both carry surfaces that name one.
+ *
+ * ⚠️ The noun is "changes", NOT "items" (owner ruling R13). `item` is already spent on this exact
+ * grid -- `node_type === "Line Item"` is a real classification the reader sees in the row beside
+ * this dialog -- so "42 items" reads as 42 BoQ rows. The figure is nothing of the sort: it counts
+ * WRITES across the rate and layer axes, and one row can contribute several of them.
+ *
+ * At zero the figure is dropped rather than rendered as "0 changes": the button is DISABLED at zero
+ * (R15), and a disabled button naming a quantity of nothing is noise.
+ *
+ * Module-level for the same reason `LAYER_LABEL` is -- two buttons say this word, and a noun
+ * duplicated across two JSX strings is exactly the drift this shared module was extracted to stop.
+ */
+export function carryChangesPhrase(writeCount: number): string {
+  return writeCount > 0 ? countPhrase(writeCount, "change", "changes") : "changes";
 }
 
 /**

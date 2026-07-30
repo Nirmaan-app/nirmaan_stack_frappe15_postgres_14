@@ -26,6 +26,7 @@ import {
 import {
   CARRY_DESTINATION_CROSS_BOQ,
   LAYER_LABEL,
+  carryChangesPhrase,
   carryWriteCount,
   initialLayerChoices,
   layerHint,
@@ -886,6 +887,14 @@ describe("rateWriteCountAll (the whole-BoQ write count)", () => {
     const { selected, overwrite } = initialSelection(SHEETS);
     const byHand = SHEETS.reduce((n, s) => n + rateWriteCount(s, selected, overwrite), 0);
     expect(rateWriteCountAll(SHEETS, selected, overwrite)).toBe(byHand);
+  });
+
+  // WBC-S3a-rework / R13. The whole-BoQ button is the only button on this dialog that names a
+  // figure (the single-sheet one reads a bare "Carry", owner-upheld at R14), so it is the one that
+  // has to stop saying "items" -- a term this grid already spends on `node_type === "Line Item"`.
+  it("reads out as CHANGES on the whole-BoQ button, not items", () => {
+    const { selected, overwrite } = initialSelection(SHEETS);
+    expect(carryChangesPhrase(rateWriteCountAll(SHEETS, selected, overwrite))).toBe("3 changes");
   });
 });
 

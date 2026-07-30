@@ -60,6 +60,7 @@ import {
   LAYER_BLOCK_SUBTEXT_WITHIN_BOQ,
   LAYER_LABEL,
   buildLayersPayload,
+  carryChangesPhrase,
   carrySelectionSummary,
   carryWriteCount,
   countPhrase,
@@ -516,8 +517,9 @@ export function CopyForwardDialog({
             {running ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             {/* WBC-S3a / R11: WRITES across both axes, from the same walk as the "Will copy ..."
                 line directly above -- so the two can never contradict each other. It used to name
-                `selectedCount` rates, which pre-includes every conflict left on Keep. */}
-            Copy {writeCount > 0 ? `${writeCount} ` : ""}item{writeCount === 1 ? "" : "s"} forward
+                `selectedCount` rates, which pre-includes every conflict left on Keep.
+                R13: the noun is CHANGES -- "items" collides with `node_type === "Line Item"`. */}
+            Copy {carryChangesPhrase(writeCount)} forward
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -49,6 +49,7 @@ import {
   LAYER_LABEL,
   armedLayerReplacements,
   buildLayersPayload,
+  carryChangesPhrase,
   carrySelectionSummary,
   carryWriteCount,
   countPhrase,
@@ -674,15 +675,11 @@ export function CrossBoqCarryDialog({
 
                 WBC-S3a / R11: the WHOLE-BoQ button DID name one, and named the wrong number --
                 `selectedCount` counts pre-ticked conflicts that are on Keep and will write nothing.
-                It now reports WRITES, from the shared `carryWriteCount`. */}
-            {single ? (
-              "Carry"
-            ) : (
-              <>
-                Carry {wholeBoqWrites > 0 ? `${wholeBoqWrites} ` : ""}item
-                {wholeBoqWrites === 1 ? "" : "s"}
-              </>
-            )}
+                It now reports WRITES, from the shared `carryWriteCount`.
+
+                R13: and it names them as CHANGES. "Items" collides with `node_type === "Line Item"`,
+                a term the reader has just been looking at on the grid behind this dialog. */}
+            {single ? "Carry" : `Carry ${carryChangesPhrase(wholeBoqWrites)}`}
           </Button>
         </DialogFooter>
       </DialogContent>
