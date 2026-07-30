@@ -1,0 +1,153 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "BRSR-.YY.-.#####",
+ "creation": "2026-07-29 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "identity_section",
+  "boq",
+  "sheet_name",
+  "committed_version",
+  "run_section",
+  "run_id",
+  "ai_status",
+  "results",
+  "provenance_section",
+  "run_by",
+  "run_at",
+  "active"
+ ],
+ "fields": [
+  {
+   "fieldname": "identity_section",
+   "fieldtype": "Section Break",
+   "label": "Sheet Identity"
+  },
+  {
+   "description": "The workbook (BOQs) this suggestion run belongs to.",
+   "fieldname": "boq",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "BoQ",
+   "options": "BOQs",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "description": "The committed sheet name, VERBATIM (#152 -- never stripped).",
+   "fieldname": "sheet_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Sheet Name",
+   "reqd": 1
+  },
+  {
+   "description": "The committed sheet's commit_version at run time. VERSION KEYING: on page load a stored run only shows when this equals the sheet's CURRENT committed version (never suggest against rows that may have changed).",
+   "fieldname": "committed_version",
+   "fieldtype": "Int",
+   "in_standard_filter": 1,
+   "label": "Committed Version"
+  },
+  {
+   "fieldname": "run_section",
+   "fieldtype": "Section Break",
+   "label": "Run"
+  },
+  {
+   "description": "The run's job id (raw 32-char hash from the enqueue). Joins Use events (BoQ Rate Suggestion Event.run_id) back to their run.",
+   "fieldname": "run_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Run Id",
+   "search_index": 1
+  },
+  {
+   "description": "Whether the AI extraction voter actually ran: 'ran' | 'disabled' | 'no_key'. A fail-closed run (disabled/no_key) is still recorded honestly (no fallback extraction).",
+   "fieldname": "ai_status",
+   "fieldtype": "Data",
+   "label": "AI Status"
+  },
+  {
+   "description": "The terminal per-row extraction payload: [{excel_row, attributes:{id:{value, confidence, corroborated}}}]. JSON. VALUES are always recomputed client-side from the CURRENT master/config -- only the extracted ATTRIBUTES persist here.",
+   "fieldname": "results",
+   "fieldtype": "JSON",
+   "label": "Results"
+  },
+  {
+   "fieldname": "provenance_section",
+   "fieldtype": "Section Break",
+   "label": "Provenance"
+  },
+  {
+   "description": "Who launched the run (frappe.session.user).",
+   "fieldname": "run_by",
+   "fieldtype": "Data",
+   "label": "Run By",
+   "read_only": 1
+  },
+  {
+   "description": "When the run terminated (success). Set by the worker.",
+   "fieldname": "run_at",
+   "fieldtype": "Datetime",
+   "label": "Run At",
+   "read_only": 1
+  },
+  {
+   "default": "1",
+   "description": "Whether this is the live run for the sheet. FREEZE-AND-SUPERSEDE: a new run sets the prior active run for (boq, sheet_name) to active=0 (retained, never deleted). get_active_suggestion_run returns the active row only.",
+   "fieldname": "active",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Active"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 0,
+ "links": [],
+ "modified": "2026-07-29 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "BoQ Rate Suggestion Run",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Estimates Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan PMO Executive",
+   "share": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

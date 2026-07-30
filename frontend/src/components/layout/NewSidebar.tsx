@@ -267,7 +267,7 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(role == "Nirmaan Project Lead Profile" || role == "Nirmaan Accountant Profile" || role == "Nirmaan Accountant Lead Profile" || role == "Nirmaan Procurement Executive Profile" || role == "Nirmaan Project Manager Profile" || role == "Nirmaan Estimates Executive Profile"
+    ...(role == "Nirmaan Project Lead Profile" || role == "Nirmaan Accountant Profile" || role == "Nirmaan Accountant Lead Profile" || role == "Nirmaan Procurement Executive Profile" || role == "Nirmaan Project Manager Profile" || role == "Nirmaan Estimates Executive Profile" || role == "Nirmaan Billing Executive Profile"
       ? [
         {
           key: "/projects",
@@ -389,7 +389,7 @@ export function NewSidebar() {
     //   ]
     // : []),
 
-    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Project Lead Profile"].includes(role as string)
+    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Billing Executive Profile", "Nirmaan Project Lead Profile"].includes(role as string)
       ? [
         {
           key: '/item-price',
@@ -419,6 +419,10 @@ export function NewSidebar() {
         label: w.label,
       }))
       : []),
+    // Rate Master (RM-2) -- one static flat item beside the pricing workbooks, same access gate.
+    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan Estimates Executive Profile"].includes(role as string)
+      ? [{ key: "/rate-master", icon: Table2, label: "Rate Master" }]
+      : []),
 
 
 
@@ -443,7 +447,8 @@ export function NewSidebar() {
       "Nirmaan Project Lead Profile",
       "Nirmaan Accountant Profile",
       "Nirmaan Accountant Lead Profile",
-      "Nirmaan Estimates Executive Profile"
+      "Nirmaan Estimates Executive Profile",
+      "Nirmaan Billing Executive Profile"
     ].includes(role as string)
       ? [
         {
@@ -469,7 +474,7 @@ export function NewSidebar() {
       ]
       : []),
 
-    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Procurement Executive Profile"].includes(role as string)
+    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Billing Executive Profile", "Nirmaan Procurement Executive Profile"].includes(role as string)
       ? [
         {
           key: '/work-order-rate-card',
@@ -590,7 +595,7 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Project Lead Profile"].includes(role as string)
+    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Billing Executive Profile", "Nirmaan Project Lead Profile"].includes(role as string)
       ? [
         {
           key: '/tds-repository',
@@ -733,6 +738,8 @@ export function NewSidebar() {
     "upload-boq",
     // Pricing Module (PW-1): one key per registry workbook.
     ...PRICING_WORKBOOKS.map((w) => w.path.slice(1)),
+    // Rate Master (RM-2).
+    "rate-master",
     "upload-boq/templates",
   ]), [])
 
@@ -783,6 +790,8 @@ export function NewSidebar() {
     ...Object.fromEntries(
       PRICING_WORKBOOKS.map((w) => [w.path, [w.path.slice(1)]])
     ),
+    // Rate Master (RM-2): single-segment key drives the active-item highlight.
+    "/rate-master": ["rate-master"],
   }), []);
 
   const openKey = useMemo(() => {
@@ -895,7 +904,9 @@ export function NewSidebar() {
                     "PMO Dashboard",
                     "Upload BoQ",
                     // Pricing Module (PW-1): flat nav buttons, one per registry workbook.
-                    ...PRICING_WORKBOOKS.map((w) => w.label)]).has(item?.label) ? (
+                    ...PRICING_WORKBOOKS.map((w) => w.label),
+                    // Rate Master (RM-2): flat nav button.
+                    "Rate Master"]).has(item?.label) ? (
                     <SidebarMenuButton
                       className={`${((!openKey && selectedKeys !== "notifications" && item?.label === "Dashboard") || item?.key === openKey)
                         ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]"

@@ -1,0 +1,148 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "BRCC-.YY.-.#####",
+ "creation": "2026-07-28 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "identity_section",
+  "discipline",
+  "category_id",
+  "config_section",
+  "config",
+  "provenance_section",
+  "source_workbook",
+  "import_batch",
+  "active"
+ ],
+ "fields": [
+  {
+   "fieldname": "identity_section",
+   "fieldtype": "Section Break",
+   "label": "Identity"
+  },
+  {
+   "description": "The engine/discipline this category config belongs to (e.g. 'Electrical').",
+   "fieldname": "discipline",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Discipline",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "description": "The category id within the discipline (e.g. 'wiring_cabling'). Part of the composite read index [discipline, category_id]; the read endpoint keys on (discipline, category_id).",
+   "fieldname": "category_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Category Id",
+   "reqd": 1
+  },
+  {
+   "fieldname": "config_section",
+   "fieldtype": "Section Break",
+   "label": "Config"
+  },
+  {
+   "description": "The whole per-category config blob: attribute_definitions (the pickable dimensions), the derivation pipelines (structured steps with conditions + rounding), normalization_rule, and display metadata. JSON (read-whole, UI-driven) per the app's stated rule. The pipelines are STORED CONFIG interpreted downstream -- RM-1 stores them faithfully; no interpreter ships this slice.",
+   "fieldname": "config",
+   "fieldtype": "JSON",
+   "label": "Config",
+   "reqd": 1
+  },
+  {
+   "fieldname": "provenance_section",
+   "fieldtype": "Section Break",
+   "label": "Provenance"
+  },
+  {
+   "description": "The source workbook this config was decoded from (e.g. the Electrical pricing xlsx).",
+   "fieldname": "source_workbook",
+   "fieldtype": "Data",
+   "label": "Source Workbook"
+  },
+  {
+   "description": "One shared batch id per import event (prefix 'rmbulk-'), identical to the items loaded in the same event. A --replace re-import deactivates the prior batch and mints a new one (freeze-and-supersede).",
+   "fieldname": "import_batch",
+   "fieldtype": "Data",
+   "in_standard_filter": 1,
+   "label": "Import Batch",
+   "search_index": 1
+  },
+  {
+   "default": "1",
+   "description": "Whether this config row is the live/current version. A --replace re-import sets active=0 on the prior batch. The read endpoint returns the active config ONLY.",
+   "fieldname": "active",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Active"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 0,
+ "links": [],
+ "modified": "2026-07-28 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "BoQ Rate Category Config",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Estimates Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan PMO Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Lead",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Procurement Executive",
+   "share": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

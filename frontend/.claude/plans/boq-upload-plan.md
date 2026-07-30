@@ -14007,3 +14007,830 @@ async run skeleton (modal + poller over a real server run, mirroring the Classif
 rateHelperRegistry.ts, rateHelperFlag.ts, rateSuggestionModel.ts, RateHelperPanel.tsx + 3 `.test.ts`). Edited
 `PricingGrid.tsx` (applyRate handle + badge + row-suggestion prop/comparator) + `SheetPricingPage.tsx` (button,
 run/badge/use handlers, panel mount, widen-while-open). No backend, no endpoints, no persistence.
+
+## Build slice RM-1 (rate-master schema + initial load) COMPLETE
+
+Backend rate-master box, session 1 of 4. Migrate-carrying (two new doctypes). Branch
+`feature/boq-pricing-helper`. feat `bc997eeb` + docs (this entry).
+
+### The two doctypes (modelled on BoQ Category Truth Snapshot's recipe)
+- **`BoQ Rate Master Item`** (`BRMI-.YY.-.#####`, `track_changes:1`) -- discipline-wide priced-item
+  master. Fields: `discipline` (stamped from the payload's `category_config.discipline` -- source items
+  carry no discipline of their own), `kind` (cable/termination), `brand`, `unit`, `attributes` (JSON),
+  `rates` (JSON), `source_sheet`, `source_row`, `import_batch` (search_index), `active` (Check, default
+  1). Controller: minimal `validate` (discipline+kind required) + `on_doctype_update` composite index
+  `[discipline, kind, brand]`. Addressed by `(discipline, kind)` -- NOT by category_id (the config is the
+  per-category home).
+- **`BoQ Rate Category Config`** (`BRCC-.YY.-.#####`, `track_changes:1`) -- per-`(discipline,
+  category_id)`. Fields: `discipline`, `category_id`, `config` (JSON, reqd), `source_workbook`,
+  `import_batch` (search_index), `active` (Check, default 1). Controller: minimal `validate` +
+  `on_doctype_update` composite index `[discipline, category_id]`. `config` holds the whole blob:
+  `attribute_definitions` (material/insulation/core/thickness_sqmm/brand), the four `pipelines`, and
+  `normalization_rule`.
+- **JSON-field rationale (the app's stated rule):** `attributes`/`rates`/`config` are flexible,
+  UI-driven, read-whole data -> JSON fields, NOT exploded columns or child tables (mirrors
+  `BoQ Committed Sheet Grid Row.cells` / `BoQ Sheet.column_role_map`; the recon confirmed the app has NO
+  keyed-attribute child-table precedent -- keyed maps are always JSON fields here).
+
+### Import loader (`services/boq_rate_master/loader.py`, service-side, no endpoint)
+- `load_rate_master(payload=None, path=None, replace=False)`. Reads the committed data asset
+  (`services/boq_rate_master/data/rate_master_wiring_cabling_v2.json`, byte-identical to the owner's
+  Desktop `rm1_import_wiring_cabling_v2.json`, sha256 `633233cd...`) or an in-memory payload (tests).
+- **Normalization at ingest (owner ruling):** `material`/`insulation` uppercased to canonical
+  (`_canonicalize_attributes`); numbers untouched, `brand` untouched. All downstream matching is EXACT
+  on canonical values -- no case-insensitive matching anywhere.
+- **Batch provenance:** `import_batch = "rmbulk-" + generate_hash(12)`, ONE id on every item + the config
+  of a run (mirrors gtbulk).
+- **Idempotency (freeze-and-supersede, never delete):** a re-run against existing ACTIVE data for a
+  discipline raises `frappe.ValidationError` (clean refuse, writes nothing). `replace=True` sets
+  `active=0` on the prior active items (discipline) + config (discipline, category_id) via a quoted-table
+  SQL UPDATE, then inserts a fresh active batch. Result: exactly the new batch active, old inactive, no
+  duplicate active rows. Returns a summary (`batch`, `items_by_kind`, `items_total`, `config_loaded`,
+  `items_deactivated`, `configs_deactivated`).
+
+### Read endpoints (`api/boq/rate_master.py`, login-required, active-only)
+- `get_rate_master_items(discipline, kind=None)` -> `{discipline, kind, count, items[]}` with
+  attributes/rates parsed to objects, ordered by `kind, source_row`.
+- `get_rate_category_config(discipline, category_id)` -> the active config row (config parsed) or
+  `config=None`. Both call `_require_login()` (Guest -> `PermissionError`). Deliberately avoids
+  `from frappe import _` (translator-shadowing hygiene). No write endpoint -- editors are RM-4.
+
+### The four pipelines are STORED CONFIG, not code (owner-decoded)
+RM-1 persists them faithfully; no interpreter ships. Decoded shapes: `effective = (1-discount)*(1+markup)`
+(cable BoQ supply, ROUNDUP to tens; install = `base*(1+install_markup)` ROUNDUP to units); termination =
+lug + banded gland (`thickness_sqmm` < 35 -> band1, >= 35 -> band2), each `list*(1-discount)*(1+markup)`,
+summed + ROUNDUP to tens, install = 25% of the rounded supply ROUNDUP to tens; BCS = discounted product
+cost + 5% wastage, no install (electrical labour is per-sqft, added at project level). The **four
+faithfulness goldens** are the standing instrument (V5 below) any pipeline change must still reproduce.
+
+### Tests (baseline unchanged; new module green)
+- Baseline `test_pricing` 230 -> 230 (regression clean, nothing moved).
+- New module `nirmaan_stack.api.boq.test_rate_master`: 8 tests, all pass. Each loads under its own
+  synthetic `TEST_RM_<hash>` discipline (isolated from the real Electrical import on the LIVE DB) and
+  purges only what it created. Coverage: counts 292/296/1 + one batch + provenance + 106.04 lug rows;
+  mixed-case -> canonical UPPERCASE + zero mixed-case survivors; idempotency refuse (counts unchanged) +
+  replace supersede (old inactive/new active/1176 total/no dup); endpoint shape + kind filter +
+  active-only + Guest denied; config integrity (four pipelines + attribute defs + normalization_rule
+  survive a store->load round trip).
+  - A test-authoring bug (double-`json.loads` on a JSON field frappe.get_all already parses to a dict)
+    surfaced on first run and was corrected in the test only (`_obj` tolerant reader); no product code
+    changed, no assertion weakened.
+
+### CERT (CC-driven, server-side) -- ALL PASS
+- **V1** migrate clean; both doctypes exist; PG composite indexes present: `discipline_kind_brand_index`
+  `(discipline, kind, brand)` on `tabBoQ Rate Master Item`, `discipline_category_id_index`
+  `(discipline, category_id)` on `tabBoQ Rate Category Config` (+ single-col `discipline` / `import_batch`
+  from search_index).
+- **V2** real load into `Electrical`: 292 cable + 296 termination + 1 config, one batch
+  `rmbulk-c57cfe18194e` on every row, provenance populated (0 missing source_sheet), the three cleaned
+  lugs (Termination rows 117/217/228) read 106.04.
+- **V3** non-replace re-run REFUSES cleanly (active unchanged at 588); replace proven on a throwaway
+  discipline (old batch 0 active / new 588 active / 1176 total / 588 deactivated), then purged so
+  Electrical stays a single clean batch.
+- **V4** endpoints: items count 588 with dict attributes/rates, kind=cable -> 292, config returns the
+  four pipelines; Guest denied on both.
+- **V5 GOLDENS (crown check)** -- interpreter reads the pipeline JSON from the DB config and interprets
+  its steps (arithmetic NOT hardcoded); every value EXACT:
+  COPPER/UNARMOURED/1C/6.0 -> cable 120/20, termination 80/20, BCS 87;
+  COPPER/ARMOURED/3C/2.5 -> cable 200/28, termination 70/20, BCS 150;
+  ALUMINIUM/ARMOURED/4C/16.0 -> cable 210/44, termination 130/40, BCS 160;
+  COPPER/ARMOURED/3C/50.0 -> termination 940/240 (>=35 gland band). Zero mixed-case attribute values
+  (239 canonical ALUMINIUM rows, 0 'Aluminium').
+- **V6 CLEANUP** (the deferred U1 V12): deleted `BOQ-26-00144` + project `None-PROJ-00929`. Zero residual
+  across all 12 checked doctypes (cell pricing 6->0, amount formula 4->0, row category 7->0, nodes 8->0,
+  sheets 2->0, plus grid/remark/color/dismissal/recon/lock/review all 0); BOQs total 137->136 (delta 1);
+  `BOQ-26-00142` untouched.
+- **V7** end git status clean apart from the pre-declared standing noise.
+
+### Migrate heads-up (Abhishek)
+The two new doctypes GROW the pullers' migrate obligation -- pulling requires a DB migrate. The RM-1
+migrate also cleared sessions (owner relogin expected).
+
+### Files
+NEW doctypes `boq_rate_master_item/` + `boq_rate_category_config/` (json/py/__init__), service
+`services/boq_rate_master/` (loader.py + data asset), endpoints `api/boq/rate_master.py`, tests
+`api/boq/test_rate_master.py`. Docs: this entry + root CLAUDE.md (new "BoQ Rate Master (RM-1)" section).
+Out of scope (untouched): all frontend, existing endpoints, freeze/classify/pricing code, patches.txt,
+.claude/settings.local.json.
+
+## Build slice RM-2 (rate-master read surface -- viewer + derivation) COMPLETE
+
+Frontend-only, session 2 of 4 of the rate-master box. Branch `feature/boq-pricing-helper`.
+feat `566e2e04` + docs (this entry). Reads the RM-1 endpoints as-is; NO backend change.
+
+### The page (owner option a)
+A new **Rate Master** page under the Pricing area (`/rate-master`), beside hvac-/electrical-/
+elv-pricing, `PricingRoute`-guarded (UI gate; the endpoints' login requirement is the real
+enforcement), lazy + Suspense per the admin-tool convention, `export { RateMasterPage as Component }`.
+Registry-shaped (`rateMasterRegistry.ts`, Electrical today) so more disciplines drop in as data.
+Discipline + category selectors; the category label is enriched from the config's `category_display`.
+Two tabs (Data Viewer, Derivation). Sidebar registration is the four registry-driven touches used by
+the pricing workbooks (role-gated item, `allKeys`, `groupMappings`, flat-label Set) + one route object.
+
+### The interpreter is THE SINGLE COMPUTE SOURCE (`ratePipelineInterpreter.ts`, pure TS, no React)
+- Executes the stored step vocabulary against (config pipelines, master items, selected attributes):
+  `match_master_row`, `apply_effective_multiplier` (with `conditions`), `scale`, `component`,
+  `component_band`, `sum_components`, `install_as_ratio`, `roundup(digits)`. Produces per-step traces
+  (name, explain, matched condition, band chosen, params, running value) + finals.
+- **Formulas are read FROM the config and evaluated by a tiny safe arithmetic evaluator** (`evalFormula`,
+  a hand-written tokenizer + recursive-descent parser for `+ - * /`, parens, unary minus, identifiers) --
+  NO `eval()`, CSP-safe; the arithmetic is not hardcoded per step. `apply_effective_multiplier` multiplies
+  the target by the formula's value (a pure multiplier); `scale`/`component`/`component_band` eval the
+  formula directly (the operand token is bound in the env). `roundUp(x, digits)` is Excel ROUNDUP
+  (away-from-zero) with a 1e-9 epsilon, matching the RM-1 Python interpreter byte-for-byte.
+- **EXACT matching on canonical values** (no case-insensitive matching anywhere).
+- **Honest no-match:** a combination with no master row => status `no_match`, ZERO finals.
+- **Unknown step type => explicit `unsupported` state** (a trace with `unsupported:true` + pipeline status
+  `unsupported`), NEVER a silent skip (forward-compat for future step types).
+- **RM-3's pricer-facing helper consumes this module UNCHANGED -- there is never a second implementation
+  of this arithmetic.** BCS pipelines are shown in this internal transparency surface; only the helper
+  defers BCS.
+
+### Tab 1 -- Data Viewer (`RateMasterDataViewer.tsx`)
+Dynamic columns: kind, brand, then one column per attribute definition (EXCEPT brand, already a named
+column -- no duplicate), then the rate fields present in the data (union, first-seen order), unit, source
+sheet, source row. Kind filter (all / cable / termination). **Case-sensitive text search across ALL
+displayed cell values** (so a rate value like 106.04 is findable and, because the data is canonical
+UPPERCASE, "Aluminium" matches nothing while "ALUMINIUM" matches). Header line shows the active batch id +
+item count. No virtualization by design (admin table, 588 rows).
+
+### Tab 2 -- Derivation (`RateMasterDerivation.tsx`)
+Configurator selectors built from `attribute_definitions`: choice attrs -> selects of the stored values;
+number attrs -> selects of the values present in the data; brand shown but not selectable
+(`selector:false`). Default selection seeds from the first item's attributes so at least one pipeline
+matches on load. Below, EVERY pipeline in the stored config renders as an ordered step list (step name +
+explain text + params in force + the matched condition rendered readably, e.g. "insulation = ARMOURED ->
+discount 0.75, markup 0.35" + the running value after each step), with finals as summary cards per output.
+No-match and unsupported states render explicitly with zero computed values.
+
+### Gates (in-container, bench-verified)
+vitest 976 -> 987 (+11 interpreter tests: evalFormula/roundUp primitives, the four goldens, readable
+condition + toggle, honest no-match, unknown-step). tsc --noEmit 3240 -> 3240 (ZERO new). vite build exit 0.
+
+### CERT (CC-driven, browser + server) -- ALL PASS (owner ruled on the one discrepancy)
+Environment self-served: containers restarted, `bench start` (:8000 pong) + `yarn dev` (:8080) started
+detached, de-staled (SW/cache purge, fresh tab, bare root then route); owner logged in (the one touchpoint).
+- **V1** route loads under the guard, both tabs render; header "Electrical / Wiring, Cabling & Termination
+  * batch rmbulk-c57cfe18194e * 588 items * showing 588".
+- **V2** total 588; kind filter 292 cable / 296 termination; dynamic attribute columns match the stored
+  definitions in order; "ALUMINIUM" -> 239 canonical rows, "Aluminium" -> 0 (canonical + case-sensitive).
+  **"106.04" -> 10 rows, NOT 3:** DB ground truth confirms 10 termination rows carry `lug_list=106.04`
+  (source rows 97,107,117,127,137,197,207,217,228,238), the three CLEANED rows (117/217/228) a SUBSET --
+  106.04 is a shared band value, the search is correct, and RM-1 only ever asserted the 3 cleaned rows
+  STORE 106.04 (never that only 3 do). **Owner ruled Accept: search correct, commit.**
+- **V3** COPPER/UNARMOURED/1C/6.0 -> cable 120/20, termination 80/20, BCS 87; each step shows explain +
+  params + running value.
+- **V4** COPPER/ARMOURED/3C/2.5 -> 200/28; the multiplier step DISPLAYS "insulation = ARMOURED ->
+  discount 0.75, markup 0.35"; toggling to UNARMOURED changes it to "discount 0.57, markup 0.4".
+- **V5** COPPER/ARMOURED/3C/50.0 -> termination 940/240 with the gland step showing
+  "thickness_sqmm 50 >= 35 -> gland_band2_list".
+- **V6** COPPER/ARMOURED/3C/0.5 (no master row) -> every pipeline states no-match, zero computed values.
+- **V7** rate-master DB IDENTICAL before/after the whole cert: 588 active, batch rmbulk-c57cfe18194e,
+  config 1 (read-only proven).
+- **V8** the electrical-pricing workbook page still loads fully (Luckysheet editor intact); the ONE
+  console error is the pre-existing dev-server artifact `frappe.boot = {{ boot }}` in index.html
+  (a Jinja placeholder only templated on :8000; identical `:32:19` on EVERY route incl. rate-master) --
+  NOT introduced by RM-2.
+- **V9** git clean apart from the pre-declared standing noise + the in-scope RM-2 files.
+
+### Files
+NEW `frontend/src/pages/pricing/rate-master/` (rateMasterTypes.ts, ratePipelineInterpreter.ts +
+`.test.ts`, rateMasterRegistry.ts, RateMasterDataViewer.tsx, RateMasterDerivation.tsx, RateMasterPage.tsx).
+Edited `routesConfig.tsx` (one route) + `NewSidebar.tsx` (the four registry-driven touches). Docs: this
+entry + `frontend/CLAUDE.md`. Out of scope (untouched): all backend .py, the pricing editor + U1 chassis,
+existing pricing workbook pages, patches.txt, .claude/settings.local.json.
+
+## Build slice RM-2b (re-import the 28-Jul benchmark data) COMPLETE
+
+Data-only micro-slice. Branch `feature/boq-pricing-helper`. feat `943ace2f` + docs (this entry).
+Pipelines verified UNCHANGED; owner ruled the 28-Jul workbook is the BENCHMARK going forward
+(supersedes the 25-Jul reference).
+
+### What changed
+- Data asset swapped: `rate_master_wiring_cabling_v2.json` -> `rate_master_wiring_cabling_v3.json`
+  (byte-identical to the owner's Desktop `rm1_import_wiring_cabling_v3.json`, sha256
+  `dcc9b2ea69f072bba400fdd0e87c388732b188ed86feba5415bc95f833ad239a`), v2 removed in the same commit.
+- Pre-flight verified read-only: category_config / pipelines / attribute_definitions / normalization_rule
+  are BYTE-IDENTICAL v2<->v3; same 588-item key set; ZERO non-rate item changes. **57 changed cable rates:
+  55 UNARMOURED install fills (0 -> 12/20) + 2 ALUMINIUM/UNARMOURED corrections (2C/2.5 15->12, 2C/4.0
+  25->12).** (The RM-2b prompt mis-named the two corrections as COPPER 5C/0.5 & 5C/0.75; those are ordinary
+  0->12 fills -- owner acknowledged the mis-attribution, CC's DB-verified read is authoritative.)
+- `loader.py`: `DEFAULT_DATA_FILE` v2 -> v3 (the one-line change the rename forces; owner-approved widening).
+
+### THE RUN
+`load_rate_master(path=<v3 asset>, replace=True)` on discipline Electrical. Old batch
+`rmbulk-c57cfe18194e` superseded (588 rows retained, active=0); new batch `rmbulk-f676a178e05a` active
+(588 items + 1 config); 1176 total item rows + 2 configs; zero duplicate-active.
+
+### CERT (CC-driven) -- ALL PASS
+- **V1** replace outcome: old batch fully inactive (588/0), new batch `rmbulk-f676a178e05a` active (588 +
+  1 config), total 1176 items + 2 configs, active batches == exactly the new one.
+- **V2** spot-checks (post-load active DB): COPPER/UNARMOURED/2C/0.5 install 0->12 (fill); the two REAL
+  corrections ALUMINIUM/UNARMOURED 2C/2.5 15->12 and 2C/4.0 25->12; COPPER 5C/0.5 & 5C/0.75 0->12 (fills,
+  prompt mis-named); COPPER/UNARMOURED/3C/10.0 install 0->20 (new-golden row); lug rows 117/217/228 still
+  106.04.
+- **V3** tests: `nirmaan_stack.api.boq.test_rate_master` 8 OK + `test_pricing` 230 OK, both UNCHANGED (the
+  loader constant now resolves to v3; the assertions -- 292/296/1, 106.04, normalization, idempotency,
+  endpoints, config integrity -- all still hold).
+- **V4** RM-2 page goldens (browser, fresh tab, header on the NEW batch `rmbulk-f676a178e05a`): the four
+  standing goldens UNCHANGED on screen (120/20 * 80/20 * 87; 200/28 * 70/20 * 150; 210/44 * 130/40 * 160;
+  940/240 with the >=35 band) AND the NEW affected-row golden COPPER/UNARMOURED/3C/10.0 -> cable supply
+  630, install 40 (was 0 pre-change -- the fix visible), BCS 469.
+- **V5** read-only elsewhere: the loader writes ONLY the two rate-master doctypes (no BoQ / pricing record
+  touched); git clean apart from the pre-declared standing noise + the in-scope asset swap + loader edit.
+
+### KNOWN WART (flagged for a future slice)
+`loader.DEFAULT_DATA_FILE` is a **version-pinned constant** hardcoding the asset filename. This is the
+underlying wart that turned a "data-only" swap into a code+scope decision: the RM-2b rename forced a
+loader edit AND (had the constant been left at v2) would have broken `test_rate_master`'s `setUpClass`
+`open(loader.DEFAULT_DATA_FILE)`. **A future slice should make the loader resolve the canonical asset
+WITHOUT a version-pinned filename constant** (e.g. a stable `rate_master_wiring_cabling.json`, or
+glob/latest resolution), so the next benchmark revision does not repeat this stop.
+
+### Files
+Swapped `services/boq_rate_master/data/rate_master_wiring_cabling_v2.json` -> `...v3.json`; edited
+`services/boq_rate_master/loader.py` (DEFAULT_DATA_FILE). Docs: this entry + root CLAUDE.md (28-Jul
+benchmark ruling). Out of scope (untouched): both doctypes, the endpoints, the RM-2 page, all tests,
+patches.txt, .claude/settings.local.json.
+
+## Build slice RM-3 (extraction engine + the helper goes REAL + run persistence) COMPLETE
+
+Session 3 of 4 of the rate-master box. **The stub dies here.** Migrate-carrying (TWO new doctypes).
+Branch `feature/boq-pricing-helper`. feat `22165f67` + docs (this entry). The "Pricing sheet" rate
+helper is now REAL for the `wiring_cabling` category, backed by a server-side AI attribute-extraction
+run that is persisted, version-keyed, and drives a live client-side rate via the RM-2 interpreter
+UNCHANGED.
+
+### Backend
+- **Two new doctypes** (both minimal controllers with a composite read index via `on_doctype_update`;
+  fresh sync creates the indexes, so NO patches.txt line -- but they GROW the pullers' migrate
+  obligation):
+  - **`BoQ Rate Suggestion Run`** (`BRSR-.YY.-.#####`) -- one row per run; FREEZE-AND-SUPERSEDE via
+    an `active` Check (a new run deactivates the prior active run(s) for the sheet, retained not
+    deleted); fields `boq`/`sheet_name` (VERBATIM #152)/`committed_version`/`run_id`/`ai_status`/
+    `results` (JSON)/`run_by`/`run_at`. Index `[boq, sheet_name, active]`.
+  - **`BoQ Rate Suggestion Event`** (`BRSE-.YY.-.#####`) -- immutable Use telemetry (`track_changes:0`).
+    `event_user` (NOT `user` -- PG reserved word). Captures excel_row/col/kind/helper_id/category_id/
+    run_id + extracted_attributes/extracted_confidences/corrected_attributes (JSON) + computed_value/
+    used_value/used_at. Index `[boq, sheet_name, excel_row]`.
+- **`services/boq_rate_master/extraction.py`** -- `run_extraction(boq, sheet_name, client=None,
+  progress_cb=None)` returns `{committed_version, ai_status, model, category_id, attribute_definitions,
+  results}`. `assemble_population` JOINs `build_sheet_context` x the resolved categories (filtered to
+  `wiring_cabling`) x the rate-editable predicate (`persist._qty_bearing_node_names` +
+  `persist.resolve_row_ladder`). `_extract_batch` MIRRORS `ai_voter` wholesale (`ai_settings` verbatim,
+  `anthropic.Anthropic().messages.create`, 20-row batches, 3x retry, fail-closed `ai_status` envelope;
+  imports `ai_voter._extract_json_array`). `_corroborate`/`_regex_attributes` are a DISPLAY-ONLY
+  corroborator that NEVER overrides the AI. `CATEGORY_ID="wiring_cabling"`, `DISCIPLINE="Electrical"`.
+- **`api/boq/rate_master.py`** (appended after RM-1) -- Redis key helpers, `_guard_suggest_gate` (the D8
+  chain re-checked server-side: not locked + formulas complete + category gate open, REUSING
+  `pricing._get_sheet_is_locked` / `_sheet_formulas_complete` / `_categories_gate_ok`), `start_suggest`
+  (POST, enqueue on the `long` queue), `_suggest_worker` (freeze-and-supersede, commit-before-publish,
+  self-heal), `get_suggest_status`, `get_active_suggestion_run`, `record_rate_suggestion_event`,
+  `get_suggestion_events`. In-progress marker + terminal payload in REDIS keyed by (boq, sheet_name).
+- **Prompt asset** `services/boq_category/prompts/boq_rate_attr_extraction_prompt.md` -- category-agnostic
+  extraction template (attribute defs injected per call). **Owner rulings encoded here (see below).**
+
+### Frontend
+- **`rate-helper/pricingSheetHelper.ts`** -- `makePricingSheetHelper({config, items, extractionByRow})`
+  closure. `compute` reads the run's per-row extraction and COMPUTES the rate CLIENT-SIDE via the RM-2
+  `runPipeline` UNCHANGED (the single compute source -- a rate/param change flows in live without
+  re-running the AI). Paired termination reference line on cable rows; BCS deferred. `producibleKinds`
+  makes a PARTIAL in-run row still badge.
+- **Badge-less opener + category-scoped manual fill (owner mid-run):** `PricingGrid.tsx` renders an
+  always-on FAINT sparkle opener on every rate-editable cell that has no badge; clicking it opens the
+  panel. For a row NOT in the run, `compute` offers a BLANK, editable attribute form for the row's
+  CATEGORY (never minting a badge -- reached only via the opener), OR a "coming soon" NoSuggestion when
+  the row's category has no attribute set defined yet (only `wiring_cabling` is defined this slice).
+  `RateHelperPanel.tsx` adds a `- select -` placeholder so an empty attribute never masquerades as its
+  first option, plus per-attribute confidence % + a corroboration tick.
+- **Run lifecycle:** `RateSuggestProgressModal.tsx` (async progress) + a poller; `SheetPricingPage.tsx`
+  fetches config/items/active-run/events, loads the active run ON OPEN (persistence, no press),
+  restores used-state, and on Use calls `applyRate` (mirrors typing -- optimistic + debounced autosave)
+  then records telemetry. Combined-rate column = supply + install.
+- **The stub is DELETED** (`stubRateHelper.ts` + test); the registry prepends the page-built real helper.
+
+### Owner mid-run rulings (folded into this slice, dated 2026-07-28)
+1. **"override the category lock for testing"** -- the cert ran on a REAL sheet (BOQ-26-00106 ELECTRICAL
+   BOQ) with the admin category-gate override active; **left active by owner decision** (housekeeping).
+2. **flexible = UNARMOURED; default UNARMOURED** -- a FLEXIBLE cable is unarmoured, and when NEITHER
+   armoured nor unarmoured is stated (row or ancestors) the insulation DEFAULTS to UNARMOURED (not null).
+   Encoded in the prompt; measured live -- row 77 "copper *flexibal* cable" went null(0.3) -> UNARMOURED(0.9).
+3. **tolerate spelling mismatches** -- the prompt maps common typos/variants to the canonical value
+   (`flexibal`->flexible, `aluminium`/`aluminum`->ALUMINIUM, `armored`->ARMOURED, `coper`->COPPER).
+4. **helper reachable on badge-less cells** -- the always-on opener above (owner: "cells which
+   legitimately don't have a badge should let the user bring up the helper... fill in the details and
+   get the pricing").
+5. **category-scoped attributes + coming-soon** -- the pricing sheet shows the ROW'S CATEGORY attributes;
+   if that category's attributes are not defined yet, show nothing but a "coming soon" message (owner
+   verbatim). Reverses the interim "offer wiring fields universally" and gates on `ctx.category`.
+
+### Cert (browser + server, live on BOQ-26-00106 / ELECTRICAL BOQ)
+- **Extraction** proven with real AI: 51 wiring rows, `ai_status="ran"`, model `claude-opus-4-8`; the
+  flexible/spelling rules produce full extractions.
+- **Run + persistence:** new run BRSR-26-00007 auto-loads on page open (no press); 8 badges on rows 77-84.
+- **Compute:** row 77 (COPPER/UNARMOURED/3C/1.5) -> `supply 100 + install 24 = combined 124`, paired
+  termination `supply 70, install 20`, per-attribute confidence + corroboration ticks.
+- **Opener + coming-soon:** row 59 (Point Wiring, a non-wiring category) shows "Rate attributes for this
+  category haven't been defined yet -- coming soon"; badge-less wiring cells expose the faint opener.
+- **Use -> save + telemetry (last item):** pressing Use on row 77 wrote pricing row **BPRC-26-15330 =
+  124.0** (`is_current`, superseding the prior 130.0) AND telemetry **BRSE-26-00003** (row 77,
+  combined_rate, computed 124 / used 124, helper `pricing_sheet`, cat `wiring_cabling`, extracted
+  `{COPPER,UNARMOURED,3,1.5}` + confidences + corrected attrs + run_id). **No CSRF error.**
+- **Env note (dev CSRF):** in dev the app boots a Guest context (no csrf_token), and Frappe enforces
+  CSRF only when the session HAS a stored token -- so a FRESH relogin (clear-site-data + hard refresh)
+  yields a token-less session where POSTs pass. That is the "destale ritual", not a code issue.
+
+### Gates
+Pricing rate-helper vitest **24 pass** (pricingSheetHelper 10, registry 5, model 9); tsc unchanged at
+the 3240 baseline (0 new); backend `test_rate_suggest` **10 pass**; `test_rate_master` 8 + `test_pricing`
+230 unaffected.
+
+### Files
+NEW: the two doctype folders (`boq_rate_suggestion_event`, `boq_rate_suggestion_run`),
+`services/boq_rate_master/extraction.py`, `services/boq_category/prompts/boq_rate_attr_extraction_prompt.md`,
+`api/boq/test_rate_suggest.py`, `frontend/.../rate-helper/{pricingSheetHelper.ts,.test.ts,
+RateSuggestProgressModal.tsx}`. MODIFIED: `api/boq/rate_master.py`, `frontend/.../PricingGrid.tsx`,
+`SheetPricingPage.tsx`, `rate-helper/{RateHelperPanel,rateHelperRegistry(+test),rateHelperTypes,
+rateSuggestionModel(+test)}`. DELETED: `rate-helper/stubRateHelper.ts(+test)`. Docs: this entry +
+`frontend/CLAUDE.md` (rate-helper section) + root CLAUDE.md (RM-3 note). Out of scope (untouched):
+patches.txt, .claude/settings.local.json.
+
+## Build slice RM-3a (panel overlay/sticky mount + hover-only colour icon + grouped workings) COMPLETE
+
+Micro-slice: three owner-reported items from the RM-3 exit cert (which MET its criterion -- zero
+silently-wrong). FRONTEND-ONLY. Branch `feature/boq-pricing-helper`. feat `ad81e006` + docs (this entry).
+No backend / interpreter / registry / persistence changes. Files in scope only: `SheetPricingPage.tsx`,
+`RateHelperPanel.tsx`, `PricingGrid.tsx` (cell-strip render), `rateHelperTypes.ts`, `pricingSheetHelper.ts`
+(+ its vitest).
+
+### Defect 1 -- the panel (owner: "this does not work") -> TWO-MODE mount
+The single page-level flex-row mount (grid `min-w-0 flex-1` + panel `w-80`) SHRANK the grid whenever the
+panel opened. Replaced with a `variant` prop on `RateHelperPanel` and a per-mode mount in `SheetPricingPage`:
+- **FULL-SCREEN (`expanded`) -> `variant="overlay"`:** the panel is a VIEWPORT-FIXED drawer
+  (`fixed inset-y-0 right-0 z-[60]`, above the `z-50` full-screen wrapper, `shadow-2xl`), rendered OUTSIDE
+  the flex row. The grid keeps FULL width -> its width/columns/horizontal-scroll are BYTE-UNCHANGED on
+  open/close. The flex-row + grid-shrink wrappers are now gated `helperPanelOpen && !expanded`.
+- **EMBEDDED (default) -> `variant="embedded"`:** the panel stays IN the flex row (keeps the certed
+  widen-while-open: the outer wrapper still flips `max-w-5xl` -> `w-full`), now `sticky top-4
+  max-h-[calc(100vh-2rem)]` so it rides the viewport as the page scrolls (body `min-h-0` so it scrolls
+  internally).
+- **Scroll-into-view GUARD (1c):** a `useEffect([excelRow, col])` in the panel calls `scrollIntoView`
+  ONLY when the panel is genuinely off-screen (`rect.bottom<=0 || rect.top>=innerHeight`) -- a sticky panel
+  already pinned at the viewport top no-ops (never yanks the user off the clicked row, e.g. the owner's
+  row-83 case), and the fixed overlay is always visible. Never touches horizontal scroll.
+
+### Defect 2 -- cell-strip declutter (owner option (a))
+The `ColorPicker` trigger (top-left of every descriptor cell) was persistent `opacity-40`; now
+`opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100 focus-visible:opacity-100` -- hidden
+at rest, revealed on CELL hover (the 3 descriptor `<td>`s that host `colorPicker` gained `group`) AND on
+keyboard focus (no mouse-only trap). The priced dot + suggestion badge/used-check + sparkle opener stay
+PERSISTENT; the right strip tightened `gap-1` -> `gap-0.5`. Colour-selection LOGIC unchanged (CSS-only +
+the `group` markers).
+
+### Defect 3 -- grouped workings (owner: cable vs termination visually distinct)
+`WorkingsSection` gains an optional `sections?: WorkingsGroup[]` (`{label, derivation, finals, matchedRows?,
+attributes?}`), rendered GENERICALLY by the panel (guardrail G3, no category-specific panel code): each group
+is its own bordered block (header + own derivation + own final values); the SHARED extracted attributes
+render ONCE above the groups. **ABSENT `sections` => flat rendering, byte-identical to pre-RM-3a**, so a
+single-group suggestion stays backward-shaped. `pricingSheetHelper` emits two groups on a CABLE row
+("Cable -- per Mtr" cable pipeline finals; "Termination -- per Set" paired termination finals) and NO
+`sections` (flat) on a termination row -- the paired-termination reference line moved OUT of the flat
+`derivation` into its own group. Groups are DISPLAY-ONLY; the applied value still comes from
+`Suggestion.values`.
+
+### Memo shield
+Untouched by construction: NO new per-row `PricingGrid` prop, `pricingRowPropsAreEqual` unchanged; the panel
+is a page sibling, not a grid prop; the cell-strip edits are render-only. `PricingGrid.test.ts` (162) passes
+unmodified.
+
+### Gates
+Rate-helper vitest **24 -> 26** (`pricingSheetHelper` 10 -> 12: +2 grouped-workings tests -- cable=two
+labelled groups with own finals + shared attrs once; termination=single flat group, no `sections`; the
+existing cable test's flat "Paired termination" assertion re-pointed to the termination SECTION). Full
+`boq-wizard` suite **788 pass**. tsc **3240 baseline, 0 new** (none in scope files). vite build exit 0.
+
+### Cert (CC-driven browser, live on BOQ-26-00106 / ELECTRICAL BOQ, run BRSR-26-00007)
+DOM-assertion + screenshot cert (badges auto-load, no press). Required a vite restart + browser de-stale
+first (the dev server was serving a STALE bundle -- the served module carried none of the new tokens; caught
+by the E4 overlay-in-full-screen bundle marker before any cert claim). Session admins@nirmaan.app.
+- **V1 (full-screen overlay):** row-83 badge -> panel `position:fixed right:0 top:0 z-index:60`, full
+  viewport height, pinned right, fully visible; grid pane `clientWidth` 2091 UNCHANGED (vs the stale bundle
+  which shrank it to 1759), table 2180 / Description 280 / Quantity 112 / scrollLeft 0 all identical. Close
+  -> grid byte-identical.
+- **V2 (embedded):** scrolled deep to rows 75-85, row-83 badge -> wrapper widened `max-w-5xl` (1024) ->
+  `w-full` (1822); panel `position:sticky top:16px`, fully visible in viewport. Close -> cap restored (1024).
+- **V3 (strip):** colour icon `opacity:0` at rest; real pointer hover on the row-60 C cell -> ONLY that
+  cell's trigger `opacity:1` (all 230 others stay 0); keyboard focus (`:focus`) -> `opacity:1`. Colour
+  pick+revert end-to-end on row-60/C: applied green (`BCLR-26-02560` is_current=1) then cleared
+  (is_current=0, sheet effective colours back to 0 = as-found; superseded row retained per
+  freeze-and-supersede).
+- **V3b (groups):** row-83 cable panel rendered "Cable -- per Mtr" (supply_per_mtr 1290, install_per_mtr 40,
+  combined 1330) and "Termination -- per Set" (supply_per_set 100, install_per_set 30) as two distinct
+  bordered blocks, shared attributes (Material/Insulation/Core/Thickness) once above (each group label count
+  == 1).
+- **V4 (frozen split ON):** 2-pane split active; V1 overlay (fixed, pinned, scrolling-pane unchanged) + V3b
+  groups both hold.
+- **V5 (memo shield):** no new grid prop / comparator change; clean console apart from the known index.html
+  `{{ boot }}` dev SyntaxError.
+- **V6:** git clean apart from standing noise; colour reverted; ZERO rate/pricing writes (BoQ Cell Pricing
+  311=311, BoQ Rate Suggestion Event 2=2).
+
+### Files
+MODIFIED: `frontend/.../rate-helper/{rateHelperTypes.ts, pricingSheetHelper.ts(+.test.ts), RateHelperPanel.tsx}`,
+`frontend/.../PricingGrid.tsx`, `frontend/.../SheetPricingPage.tsx`. Docs: this entry +
+`frontend/CLAUDE.md` (rate-helper invariant amendment). Out of scope (untouched): all backend, the RM-2
+interpreter, the registry mechanism, run/persistence, patches.txt, `.claude/settings.local.json`.
+
+## Build slice RM-3b (embedded panel-as-default + sticky full-screen header + always-visible H-scrollbars) COMPLETE
+
+Micro-slice: four owner UX requests post RM-3a. FRONTEND-ONLY, layout/CSS. Branch
+`feature/boq-pricing-helper`. feat `3d6877f6` + docs (this entry). No data/prop-shape change (no new
+per-row prop, `pricingRowPropsAreEqual` untouched, the virtualizer math untouched -- only its containers'
+styling changed). Files in scope: `SheetPricingPage.tsx`, `RateHelperPanel.tsx`, `PricingGrid.tsx`
+(render/layout only).
+
+### Phase-0 scroll-container map (verified live BEFORE editing)
+- **Embedded, single-pane:** ONE `div.rounded-md.border.overflow-auto.max-h-[calc(100vh-14rem)]`
+  (`containerRef`) owns BOTH X and Y scroll; each `<th>` is already `sticky top-0 z-20`. Its bottom (with
+  the native H-scrollbar) sat ~1378px down -- BELOW the fold once the ribbons push it down (item 2's bug).
+- **Full-screen:** the grid container is `flex-1 min-h-0 overflow-auto` BUT the two RM-3a panel-row wrappers
+  between it and the grid slot were EMPTY-class plain blocks (inert when `expanded`), BREAKING the flex chain
+  -> the container took full content height (h ~21267, unbounded) and the OUTER `.fixed.inset-0` wrapper
+  scrolled instead, so the sticky header scrolled away and the H-scrollbar was off-screen (items 3+4's bug).
+- **Frozen two-pane:** `frozenPaneRef` (`overflow-hidden`, vertical scroll DRIVEN via `onScroll` mirror) +
+  `scrollPaneRef` (`overflow-auto flex-1`, owns X and Y); both `<thead>`s `sticky top-0`.
+
+### Item 1 -- EMBEDDED panel-as-default
+`RateHelperPanel` props `excelRow/col/kind/ctx` are now OPTIONAL; absent => an empty-state card ("Click a
+suggestion badge or the sparkle on a rate cell to load that row"); the close X renders ONLY for
+`variant="overlay"` (full-screen). `SheetPricingPage` derives `embeddedPanel = RATE_HELPER_ENABLED &&
+!expanded`: when true the page wrapper is PERMANENTLY `w-full` (widen-while-open becomes the permanent
+embedded layout), the flex row + grid-shrink wrappers are always on, and the embedded panel is ALWAYS
+mounted (selection passed only once `helperPanelOpen`). Badge/sparkle click = SELECT (unchanged
+`handleSuggestionBadgeClick` -> `helperPanel` page state); the panel replaces the previous row. Prod
+(feature off) keeps the centered `max-w-5xl` cap and no panel.
+
+### Items 3+4 -- FULL-SCREEN sticky header + native bottom H-scrollbar (ONE fix)
+The two panel-row wrappers now carry `expanded && "flex min-h-0 flex-1 flex-col"` (standard classes), so the
+flex column REACHES the grid container -> it BOUNDS to the viewport and becomes the internal Y scroller. The
+already-present `sticky top-0` header then stays put, and the native H-scrollbar sits at the container bottom
+= the viewport bottom. Proven live: single-pane (header stuck at 336 after scrollTop 4000, container bottom
+1034 = viewport bottom, outer wrapper no longer scrolls) AND frozen split (both panes' headers pixel-aligned
+at 336). Works classic + virtualized (the fix is purely the flex chain).
+
+### Item 2 -- EMBEDDED always-visible H-scrollbar (mechanism: SYNCED PROXY BAR)
+A thin `sticky bottom-0 z-30 overflow-x-auto` bar (`hScrollProxyRef`) rendered as a SIBLING of the scroll
+container (so it is not clipped by the pane overflow and it pins to the bottom of the visible grid area /
+viewport while the grid is on screen). Its inner spacer width = the X-scroller's content width
+(`twoPane ? scrollPaneTableWidth : totalWidth`), so its thumb range tracks the real scroll. A `useEffect`
+does the two-way `scrollLeft` sync with the active X-scroller (`scrollPaneRef` when split, else
+`containerRef`), a re-entrancy latch stops ping-pong. Rendered ONLY embedded (`!expanded`); full-screen uses
+the native bounded-container scrollbar (items 3+4). **Same mechanism FAMILY as item 4 (a viewport-pinned
+H-scrollbar reflecting the REAL scroll), realized per-mode:** native via the bounded container in
+full-screen; proxy in embedded (where the grid stays in page flow, so a bounded region would fight the
+layout). Known cosmetic edge: the proxy's clientWidth exceeds the scroller's by the vertical scrollbar
+width (~15px), so at max scroll the thumb stops ~15px short -- functionally complete (drag = exact).
+
+### Gates
+Full `boq-wizard` vitest **788 pass** (zero regressions; layout/CSS -- no pure module changed, so no new
+tests). tsc **3240 baseline, 0 new** (none in scope). vite build exit 0.
+
+### Cert (CC-driven browser, live on BOQ-26-00106 / ELECTRICAL BOQ, run BRSR-26-00007)
+Required a vite restart + browser de-stale first (the dev server served a STALE bundle again -- caught by the
+E4 bundle marker before any cert claim). Session admins@nirmaan.app.
+- **V1 embedded default:** panel present with NO click (empty-state card, no close X), page widened; row-77
+  badge -> "Row 77 (middot) Combined rate", row-83 badge -> REPLACES to "Row 83 (middot) Combined rate";
+  panel persists, no close X throughout.
+- **V2 embedded scrollbar:** the proxy (spacer 2180 = table width) pins at viewport bottom (~1034); driving
+  it scrolls the grid (proxy->grid exact); grid->proxy exact except the ~15px clamp near max. Frozen ON:
+  spacer 1564 = scrolling-pane width, driving it scrolls ONLY the scrolling pane (frozen pane X unchanged).
+- **V3 full-screen sticky header:** header stuck + visible at 336 after scrollTop 4000/5000 in BOTH classic
+  and virtualized; frozen split -> both panes' headers aligned at 336 (numeric gate). Verified via
+  computed `th.top === container.top`.
+- **V4 full-screen scrollbar:** native H-scrollbar at the wrapper bottom (container bottom 1034 = viewport
+  bottom), visible WITH the overlay drawer open.
+- **V5 no regressions:** overlay drawer still byte-preserves grid width (table 2180 / pane 2091 identical
+  open vs closed); rate cell type+revert works (row 59 1800 -> draft 18007 -> reverted 1800) with ZERO DB
+  writes; memo shield -- PricingGrid diff is +59/-0 touching NONE of `pricingRowPropsAreEqual` /
+  `PricingGridRowProps` / `rowSuggestions` / row prev./next.
+- **V6:** git clean apart from standing noise; ZERO rate/pricing/colour writes (BoQ Cell Pricing 311=311,
+  BoQ Rate Suggestion Event 2=2, is_current colours 0). Only console error is the known `{{ boot }}` dev
+  artifact.
+
+### Files
+MODIFIED: `frontend/.../rate-helper/RateHelperPanel.tsx`, `frontend/.../PricingGrid.tsx`,
+`frontend/.../SheetPricingPage.tsx`. Docs: this entry + `frontend/CLAUDE.md` (rate-helper invariant
+amendment). Out of scope (untouched): all backend, the interpreter, the registry, run/persistence,
+patches.txt, `.claude/settings.local.json`.
+
+## Build slice RM-3c (single embedded H-scrollbar + full-screen push panel with resize + collapsible top block) COMPLETE
+
+Micro-slice: three items from the owner's live use of RM-3b (Item C added mid-slice). FRONTEND-ONLY,
+layout/CSS. Branch `feature/boq-pricing-helper`. feat `c2718a82` + docs (this entry). NO per-row prop /
+comparator / virtualizer-math change.
+
+### Phase-0 (verified live)
+- Embedded proxy (RM-3b): sticky proxy synced to the active X-scroller; the container KEPT `overflow-auto`
+  so its native H-bar still rendered (below-fold at 1207 > viewport 987 -> the two-bars symptom on scroll).
+  Clamp: proxy clientWidth 1458 vs container clientWidth 1448 (the ~10-15px vertical-scrollbar leak) ->
+  proxyMax 722 vs containerMax 732. Frozen spacer was the COMPUTED `scrollPaneTableWidth`.
+- Full-screen overlay (RM-3a/b): `fixed right:0 z-60 w-320`, floats above the grid; the flex chain bounds
+  the grid scroller. Push restructure verified live (flex-row `#4` + a fixed-width sibling still bounds the
+  grid + keeps the sticky header + narrows the grid).
+
+### Item A -- embedded ONE horizontal scrollbar, full extent
+`PricingGrid`: (1) the single-pane container + the frozen scrolling pane get `boq-embed-hidehbar` when
+`!expanded`; a scoped `<style>` (rendered with the proxy, in-scope -- NOT `index.css`) does
+`.boq-embed-hidehbar::-webkit-scrollbar:horizontal{display:none;height:0}` -- hides ONLY the native H-bar,
+keeps the V-bar + `overflow-x:auto` (so wheel/trackpad/keyboard/proxy X-scroll all stay). **Cross-browser
+shape:** blink/webkit clean; Firefox has no per-axis scrollbar control so it keeps a below-fold native H-bar,
+with the proxy as the primary bar. (2) The proxy width + spacer are now LIVE-MEASURED from the active
+scroller via a ResizeObserver (`hScrollMetrics = {clientWidth, scrollWidth}`, observing the scroller + its
+table) instead of the one-shot column-width sum: proxy width = scroller.clientWidth (kills the V-bar clamp),
+spacer = scroller.scrollWidth (kills the frozen short-scroll). Cert: single-pane proxyMax 732 == containerMax
+732 (exact); frozen spacer 1565 == real scrollWidth, proxyMax 733 == scrollPaneMax 733, frozen pane X
+unaffected; native H-bar gap 0 (suppressed). Grid-level state -- guarded no-op setState, no per-row prop.
+
+### Item B -- full-screen PUSH panel with resize
+`RateHelperPanel` variant renamed `overlay` -> `push`: an IN-FLOW panel (`relative shrink-0 min-h-0 border-l`
++ `style width`) rendered INSIDE the full-screen flex row (`SheetPricingPage`: `#4` is now a flex ROW
+[ grid column | push panel ], `#3` the grid COLUMN `min-w-0 flex-1 flex-col`). The grid narrows by exactly
+the panel width (cert: 2091 -> 1791, delta 300); the bounded scroller / sticky header / native H-bar keep
+working at the reduced width. A left-edge drag HANDLE (`role="separator"`, focusable) resizes live -- clamp
+`[280, floor(50% of the wrapper)]`, double-click resets to the **DEFAULT 300px** (meaningfully below the
+RM-3a 320 drawer), Arrow-Left/Right nudge by 16, width persisted to **`nirmaan-rate-helper-panel-w`**. Cert:
+drag wider, clamps at max 1050 (50%) and min 280, Arrow nudge, double-click -> 300, reload restores 420.
+Push keeps its close X; embedded (panel-as-default) is untouched.
+
+### Item C -- full-screen collapsible TOP BLOCK
+`SheetPricingPage`: everything above the grid (title row + both ribbons + banners + summary/review panels)
+is wrapped in ONE `space-y-4` block that gets `hidden` when `expanded && topCollapsed` -> the grid-slot
+(flex-1) fills vertically (cert: grid container height 657 -> 956, +299). A "Collapse toolbars" chevron
+(inside the block, top) collapses it; a SLIM RAIL (`expanded && topCollapsed`) re-expands in one click and
+shows the truncated sheet name + a compact **banner indicator** -- one amber chip per active blocking/visible
+banner (locked / taken-over / frozen / formulas-incomplete / `N without category [(override)]`). **Rendering
+choice:** the category chip surfaces whenever the category banner is VISIBLE (blanks present), in its blocking
+OR override-informational form, so collapsing never hides the fact (cert on this override sheet: "316 without
+category (override)"). **Escape re-expands first** (a second Escape then exits full-screen -- the user is
+never trapped). Persisted to **`nirmaan-fullscreen-top-collapsed`**. Keyboard-focusable toggles. **Embedded
+is untouched** (`topCollapsed` only bites while `expanded`; no rail, no toggle -- cert-verified).
+
+### Gates
+`boq-wizard` vitest **788 pass** (zero regressions; layout/CSS, no pure module changed). tsc **3240 baseline,
+0 new** (none in scope). vite build exit 0.
+
+### Cert (live on BOQ-26-00106 / ELECTRICAL BOQ, run BRSR-26-00007) -- V1-V7 PASS
+V1 embedded ONE bar (native H-bar gap 0, overflow-x auto retained). V2 full extent single (732==732 exact)
++ frozen (spacer 1565 == scrollWidth, 733==733, frozen pane unaffected). V3 push narrows grid by exactly the
+panel width (2091->1791), sticky header + native bar work at reduced width. V4 resize: drag, clamps at
+280/1050, Arrow nudge, double-click->300, reload restores 420. V5 no regressions: embedded panel-as-default
+intact (sticky, no close X, no handle), RM-3a groups render, type+revert (124->1247->124) zero-write, memo
+shield PricingGrid diff +51/-16 touches none of `pricingRowPropsAreEqual`/`PricingGridRowProps`/`rowSuggestions`.
+V6 git clean + ZERO rate/pricing/colour writes (Cell Pricing 311=311, Rate Suggestion Event 2=2, colours 0).
+V7 collapse: grid +299, header+H-bar+push+resize hold, slim rail + "316 without category (override)" chip,
+Escape re-expands, persists across reload, embedded unaffected. (One implementation gap found mid-cert -- the
+override-banner chip -- fixed + gates re-run before commit; one stale-bundle detour caught by the E4 marker.)
+
+### Files
+MODIFIED: `frontend/.../rate-helper/RateHelperPanel.tsx`, `frontend/.../PricingGrid.tsx`,
+`frontend/.../SheetPricingPage.tsx`. Docs: this entry + `frontend/CLAUDE.md` (rate-helper invariant
+amendment). Out of scope (untouched): all backend, the interpreter, the registry, run/persistence,
+patches.txt, `.claude/settings.local.json`.
+
+## Build slice RM-4a (admin-only parameter editing + the data editor) COMPLETE
+
+Session 4 of the rate-master box. Editing goes live -- ADMIN-ONLY (owner option (a): Estimates sees
+everything READ-ONLY). PARAM VALUES ONLY -- pipeline STRUCTURE / condition editing / attribute definitions
+are RM-4b. Branch `feature/boq-pricing-helper`. feat `3080ccc0` + docs (this entry). NO migration (no
+doctype JSON changed), NO interpreter change.
+
+### Backend -- four write endpoints (`api/boq/rate_master.py`, all `@frappe.whitelist(methods=["POST"])`)
+All gate on the IMPORTED `pricing._is_nirmaan_admin` (never a third copy), admin gate BEFORE any resolution
+or write (`_require_rate_admin` -> `frappe.PermissionError`). The AUDITED write recipe is
+`doc.save(ignore_permissions=True, ignore_version=False)` (get_doc -> json.loads -> mutate parsed dict ->
+json.dumps -> save -> commit): both doctypes are `track_changes:1` + DICT-valued JSON only
+(config/attributes/rates -- no BoQ-Sheet-style list-valued field), so doc.save is safe AND records a
+`Version` diff. `set_value` is FORBIDDEN for these edits -- it bypasses the doc lifecycle, so it would skip
+the Version audit. The explicit `ignore_version=False` is load-bearing: Frappe defaults `ignore_version =
+frappe.flags.in_test`, so WITHOUT it the audit Version is suppressed under `bench run-tests` (found live).
+- `update_rate_config_param(name, pipeline_id, step_index, param_key, new_value, condition_index=None)`:
+  numeric-only; the addressed path (`config.pipelines[id].steps[i].params[key]` / `...conditions[j].params`)
+  MUST already exist -- adding/removing a param is structure editing (RM-4b) -> validation error, NO write.
+- `update_rate_master_item(name, rates_patch, attributes_patch)`: dict merges; rates numeric-or-null;
+  attribute keys validated vs the discipline's active-config attribute ids (skipped "where determinable");
+  material/insulation canonicalised (reuses `loader._canonicalize_attributes`).
+- `create_rate_master_item(...)`: inserts an ACTIVE row with MANUAL provenance -- `import_batch =
+  "manual-"+hash`, `source_sheet = "Manual entry"`, `source_row = 0`.
+- `deactivate_rate_master_item(name)`: `active = 0` (freeze-and-supersede -- RETAINED, never deleted).
+Tests (`test_rate_master.py` 8 -> 14): happy path per endpoint; negatives -- non-admin PermissionError on
+all four, non-numeric param, nonexistent param path (no write), bad attribute key; the FIRST Version doc a
+config edit creates (captures the `config` diff); deactivate retains the row. `tearDownClass` also deletes
+the synthetic docs' Version rows so the live count returns to 0.
+
+### Frontend (`pages/pricing/rate-master/`)
+- `rateMasterEdit.ts` (NEW, pure + vitested +8): `isRateMasterAdmin(role,userId)` (mirrors
+  `canAdminOverride` / server; false while "Loading"/"Error"); `matchedConditionIndex(step,matchedAttrs)`
+  re-derives the interpreter's matched branch EXACTLY to address the config path WITHOUT touching the
+  interpreter; `isEditableParam` (finite-number only) + `parseFiniteInput`.
+- `RateMasterPage.tsx`: `role` off the already-warm `useUserData()` -> `isAdmin`; captures both `mutate`s +
+  the config doc `name`; four `useFrappePostCall` hooks wrapped in `onSaveParam`/`onSaveItem`/`onCreateItem`/
+  `onDeactivateItem` that call the endpoint then refetch.
+- `RateMasterDerivation.tsx`: `InlineParamEdit` -- each numeric param in the step `detail` cell is an admin
+  pencil -> input (Enter saves, Escape cancels). Condition `when` + string params stay read-only. Non-admins
+  get the read-only render (`isAdmin && onSaveParam` gate).
+- `RateMasterDataViewer.tsx`: an admin-only trailing ACTIONS column (inline row rate/attr edit -> endpoint 2;
+  deactivate via AlertDialog confirm -> endpoint 4); an ADD ROW `AddItemDialog` (form built from the
+  attribute definitions + rate keys -> endpoint 3); manual rows render "Manual entry" provenance. Owner
+  option (a): every affordance is `{isAdmin && ...}` -- HIDDEN for non-admins, not disabled.
+- The helper connection needs NO code -- the page refetch + persistence split carry an edited param/rate
+  into the next pricing-panel compute with no AI re-run (cert-proven).
+
+### Gates
+backend `test_rate_master` 8 -> 14; `test_pricing` 230 unchanged. Full vitest 1001 (baseline 993 + 8; zero
+regressions). tsc 3240 baseline, 0 new. vite build exit 0.
+
+### Cert (live, batch rmbulk-f676a178e05a + BOQ-26-00106 / ELECTRICAL BOQ; every edit reverted)
+Backend restarted mid-cert (the running honcho had the STALE module -- new endpoints 417'd "has no
+attribute" until `bench start` restart; tests passed because run-tests re-imports fresh). V1 param edit
+(cable_boq ARMOURED discount 0.75 -> 0.70) recomputed COPPER/ARMOURED/3C/2.5 supply 200 -> 240 on screen;
+FIRST Version `g7i1418iue` (owner admins@nirmaan.app, changed=['config']). V2 pricing panel on ARMOURED
+badged row 268 showed supply 2460 (0.70; 0.75 = 2050) with NO re-run -- persistence split proven. V3 revert
+-> config canonical BYTE-IDENTICAL to pre-V1 (sha 3f26e068...), SECOND Version records the revert. V4 both
+golden suites pass (interpreter 11 + helper 12): the five standing goldens = COPPER/UNARMOURED/1C/6.0
+(120/20/BCS87), COPPER/ARMOURED/3C/2.5 (200/28/BCS150), ALUMINIUM/ARMOURED/4C/16 (210/44/BCS160),
+COPPER/ARMOURED/3C/50 (term 940/240) + the RM-2b fill COPPER/UNARMOURED/3C/10 (630/40). V5 item edit
+(BRMI-26-12367 list 570 -> 999) reflected in viewer + derivation (supply 200 -> 340), REVERT byte-identical,
+2 item Versions. V6 manual item (COPPER/UNARMOURED/1C/777, "Manual entry" + manual- batch) matched in
+derivation (supply 540), deactivated (dropped from active, retained inactive), hard-DELETED at cleanup (zero
+residual, items back to 588). V7 admin-only: server PermissionError negatives green + `isRateMasterAdmin`
+vitest; affordances HIDDEN (no live non-admin session -- relied on vitest + server negatives, not faked).
+V8 zero NET business-data writes: config + item BYTE-IDENTICAL, items 588 / config 1 active, no residual
+manual rows, BoQ Cell Pricing 311 / Suggestion Events 2 unchanged. Intended audit residue: 2 config + 2 item
+Version docs record the cert's edit+revert (the "first Version docs now exist" per V1).
+
+### Files
+MODIFIED: `api/boq/rate_master.py`, `api/boq/test_rate_master.py`,
+`frontend/.../rate-master/{RateMasterPage,RateMasterDerivation,RateMasterDataViewer}.tsx`. NEW:
+`frontend/.../rate-master/rateMasterEdit.ts(+.test.ts)`. Docs: this entry + `frontend/CLAUDE.md` + root
+`CLAUDE.md` (backend endpoints). Out of scope (untouched): pipeline structure / conditions / attribute-
+definition mutation (RM-4b), the interpreter, the registry, run/persistence, all wizard endpoints beyond
+the `_is_nirmaan_admin` import, patches.txt, `.claude/settings.local.json`.
+
+## Build slice RM-4a-filter (Data Viewer per-column-header faceted filters) COMPLETE
+
+Follow-on to RM-4a. Branch `feature/boq-pricing-helper`. feat `6cea15d7` (+ docs, this entry). Frontend
+only, ONE file (`RateMasterDataViewer.tsx`); NO backend, NO migration, NO new query -- purely client-side
+over the already-loaded active items, read-only, composes cleanly with the RM-4a admin editing.
+
+### What shipped
+EVERY column header of the Data Viewer tab -- kind / brand / every category attribute / every rate key /
+unit / source sheet / row (14 columns on `wiring_cabling`) -- carries a filter funnel opening a `ColumnFilter`
+Popover: a type-to-search box over that column's DISTINCT values + a checkbox multi-select. A unified
+`columns` model (`{key, get}`, memoised over `attrCols`/`rateCols`) is the SINGLE source for both the
+distinct-values dropdowns (`distinctByColumn`, non-empty values, `localeCompare` numeric sort) AND the row
+predicate (`getForColumn` keyed by the same colKey), so the headers and the filtering can never drift.
+Composition is **AND across columns, OR within a column**; a global `Clear filters (N)` button shows the
+active-column count and resets all. Search inside a funnel narrows the value list case-insensitively; the
+list is a `max-h-56 overflow-y-auto` checkbox column with a per-column Clear.
+
+### Gates
+tsc 3240 (baseline 3240, 0 new). rate-master vitest 2 files / 19 tests pass (ratePipelineInterpreter 11 +
+rateMasterEdit 8; the viewer is a live-cert component, no vitest). Full vitest 1001 unchanged. vite build
+exit 0.
+
+### Cert (live, /rate-master Data Viewer, wiring_cabling, 588 active items)
+Done in-browser BEFORE the commit (owner instruction). Bundle marker: all 14 headers expose a
+`Filter <col>` funnel button. (1) Insulation funnel opened -> dropdown listed the distinct values
+[ARMOURED, UNARMOURED] + a search input. (2) Selecting ARMOURED filtered 588 -> 335 rows, zero UNARMOURED
+visible. (3) Thickness funnel: 20 distinct values; typing "2.5" in the search narrowed the list to exactly
+["2.5"]. (4) Selecting 2.5 AND-composed with ARMOURED -> 22 rows. (5) `Clear filters (2)` showed the active
+count, reset to 588 rows, and disappeared. All PASS.
+
+### Files
+MODIFIED: `frontend/src/pages/pricing/rate-master/RateMasterDataViewer.tsx` (ONLY). Docs: this entry +
+`frontend/CLAUDE.md` (Rate Master frontend conventions). Out of scope (untouched): all backend, all other
+frontend files, the RM-4a endpoints, the interpreter, patches.txt, `.claude/settings.local.json`.
+
+## Build slice RM-4b (the structure editor -- pipelines + attribute definitions) COMPLETE
+
+Session 5 of the rate-master box (owner one-session extension). Branch `feature/boq-pricing-helper`.
+This slice LIFTS the RM-4a "PARAM VALUES ONLY" boundary: creating/deleting params, steps, conditions, and
+attribute definitions is now in scope. Admin-only (owner option (a): Estimates READ-ONLY). NO migration (no
+doctype JSON changed), NO interpreter-semantics change (rendering the vocabulary in a picker is fine;
+changing how a step computes is not).
+
+### Backend -- ONE validated whole-config replace endpoint (`api/boq/rate_master.py`)
+`update_rate_config(name, config)` -- `@frappe.whitelist(methods=["POST"])`, admin-gated (the IMPORTED
+`pricing._is_nirmaan_admin`, gate FIRST). It replaces the WHOLE config JSON after full server-side
+STRUCTURAL VALIDATION (`_validate_config`), then the audited `doc.save(ignore_permissions=True,
+ignore_version=False)` -> a Version diff. Valid -> write+commit+return; invalid -> a NAMED
+`frappe.ValidationError`, NO write. Validation:
+- known step types ONLY (the 8-member interpreter vocabulary `_KNOWN_STEP_TYPES`); per-type required
+  string fields present; every `params` dict a map of FINITE numbers (`_is_finite_number` rejects
+  bool/None/NaN/Inf/strings).
+- conditions are STRUCTURED PREDICATES matching the STORED + interpreter-EXECUTABLE shape: a condition
+  `when` is `{attribute: scalar}` EXACT-match (the ONLY shape the pure interpreter runs -- it does
+  `matchedItem.attributes[k] === v`). A `when` value that is an OBJECT (a `{in:[...]}` / `{gte/lt}`
+  range predicate) is REJECTED, because the interpreter would silently never match it and extending it
+  is OUT OF SCOPE. component_band bands are comparator strings (`_BAND_WHEN_RE` = `^(<=|>=|<|>)\s*-?\d+`).
+- attribute_definitions well-formed (unique non-empty id; label; type in {choice, number}; choice needs a
+  non-empty values list).
+- REFERENCE GUARD: the union of attribute ids referenced by any apply_effective_multiplier condition
+  `when` key + any component_band `band_on` must ALL be defined; a missing one is rejected with an error
+  that NAMES every referencing location (`pipeline 'X' step N condition M`). This is how removing a
+  referenced definition is blocked.
+- no UNKNOWN top-level keys (`_KNOWN_CONFIG_KEYS`, incl. `goldens`); an identity guard rejects a config
+  whose discipline/category_id does not match the stored doc (no repoint).
+- goldens (optional) light-validated: each `{attrs, expect:{pipeline_id:{key:finite_number}}}`, pipeline
+  ids must exist.
+
+FLAGGED (faithful resolution, not a guess): the prompt's condition-shape list named
+`{attr:{in:[...]}}` / `{attr:{gte/lt}}`, but the interpreter executes ONLY `{attr: scalar}` exact-match and
+its semantics are OUT OF SCOPE. Per "match the stored shapes", the validator accepts + the editor emits
+the exact-match form and REJECTS predicate objects (honest -- an editor must not produce configs the
+interpreter silently fails on). Recorded here per the stopping-conditions rule.
+
+### Goldens as config data
+The config gained a `goldens` array -- the FIVE standing goldens (attrs + expected finals per pipeline:
+the four RM-1 combos + the RM-2b COPPER/UNARMOURED/3C/10 630/40, with cable_bcs 469). SEEDED live in this
+slice via ONE audited `update_rate_config` (cert V1; Version `1ieoo9jj16`). The vitest fixtures
+(`ratePipelineInterpreter.test.ts` + `pricingSheetHelper.test.ts`) stay INDEPENDENT code-side pins.
+
+Tests (`test_rate_master.py` 14 -> 22): valid whole-config replace audited + seeds goldens (test_15);
+negatives -- unknown step type (test_16), malformed condition predicate / non-number param (test_17),
+non-admin PermissionError no write (test_18), reference guard rejects removing a referenced definition
+with the names quoted (test_19), unknown top-level key (test_20), identity repoint (test_21); a valid
+add-step + add-param replace persists (test_22).
+
+### Frontend -- a THIRD tab "Pipelines" (`RateMasterPipelines.tsx` + `rateMasterStructure.ts`)
+- READ-ONLY structural view for EVERYONE: the attribute-definitions table + every pipeline as its ordered
+  step list (params / conditions / bands rendered readably) + the stored goldens.
+- ADMIN EDIT MODE (owner option (a): hide-not-disable): "Edit structure" builds a DRAFT (deep clone).
+  Editors: step add (a vocabulary picker) / remove / reorder (up-down); per-step param add/remove/rename +
+  condition-branch add/remove/edit (the structured `{attr: value}` predicate + params) + component-band
+  add/remove/edit; attribute-definition add (choice/number) / edit id-label-type-values / remove (the
+  remove button DISABLES on a referenced def -- client mirror `referencedAttrIds` -- and the server guard's
+  verbatim error still surfaces on save); the brand `selector` flag is an editable "selectable" checkbox.
+- THE PREVIEW GATE (`rateMasterStructure.ts` pure + vitested): before save the page computes ALL config
+  goldens against the DRAFT (the SAME pure `ratePipelineInterpreter` + the live master items) and renders
+  a pass/delta table (expected vs draft-computed per golden key). Unchanged -> a green "Save"; any delta ->
+  the button reads "Save with N changed goldens" and opens an AlertDialog LISTING the deltas that requires
+  an explicit confirm (confirm-NOT-block -- deltas impossible to miss, never forbidden). `evaluateGoldens`
+  WRAPS the interpreter in try/catch so a transiently invalid draft (a param renamed a keystroke before its
+  formula) reports `got=null` instead of crashing the preview -- it does NOT change the interpreter.
+- Save calls `update_rate_config`; the server RE-VALIDATES (the authority) and the page refetches, so the
+  Derivation + Data tabs and the pricing helper follow with no code + no AI re-run (persistence split).
+- `RateMasterPage.tsx` wires the third tab + an `onSaveConfig` callback over the new endpoint.
+
+### Gates
+backend `test_rate_master` 14 -> 22; `test_pricing` 230 unchanged (no pricing code touched). Full vitest
+1001 -> 1010 (+9 rateMasterStructure; zero regressions). tsc 3240 baseline, 0 new. vite build exit 0.
+
+### Cert (live, BRCC-26-00584 / Electrical wiring_cabling, 588 items; every edit reverted)
+Backend restarted (E2b) after the code change so the web workers loaded update_rate_config (the endpoint
+answered with the login-required signature, not RM-4a's stale "has no attribute"). Config canonical shas:
+pre-seed S0, post-seed S1 = 5e7da739...4c4bb, post-V3 S2 = decc35e6...; net config after all reverts ==
+S1 (goldens kept, everything else restored).
+- V1 GOLDENS SEEDED: one audited update carried the 5 goldens (g1..g5) as config data; Version
+  `1ieoo9jj16` (changed ['config']); the Pipelines tab renders the read-only structural view + a Goldens
+  section for a non-edit session. PASS.
+- V2 PREVIEW GATE UNCHANGED: edit mode, no change -> all 20 golden checks GREEN, Save is the plain green
+  "Save"; cancelled cleanly. PASS.
+- V3 STRUCTURE EDIT LIVE: in one draft, RENAMED cable_boq step1's `discount` param -> `disc` on BOTH
+  conditions with the coupled formula edit `(1-disc)*(1+markup)` and set the ARMOURED `disc` 0.75 -> 0.70
+  (a param RENAME + formula edit, impossible under RM-4a). The preview detected exactly 2 deltas
+  (g2 cable_boq.supply_per_mtr 200->240, g3 210->250); saved via the "Save with 2 changed goldens"
+  AlertDialog listing both. Persisted (formula + `disc` params) + Version `9h17sj5vjq`. The Derivation tab
+  for COPPER/ARMOURED/3C/2.5 then showed cable_boq supply_per_mtr = 240 (was 200), computed with `disc
+  0.7`, NO AI re-run; the helper consumes the identical shared interpreter + refetched config (the
+  RM-4a-certified persistence split -- Derivation and helper run the same pure interpreter, so 240 is the
+  helper's value too; not re-driven through the full BoQ UI this cert to avoid a rabbit-hole). PASS.
+- V4 REVERT: restored the original structure via the endpoint; DB canonical sha == S1 byte-identical;
+  Version `c069jdrd8v`; Derivation/helper back to the standing values (deterministic from byte-identity).
+  PASS.
+- V5 ATTRIBUTE DEFINITION LIFECYCLE: added `voltage_grade` (choice [LT, HT]) -> it appeared in the
+  Derivation configurator (a Voltage Grade select), the Data tab (a Voltage Grade column) AND the
+  manual-fill Add-row form (a Voltage Grade select field); removed it cleanly (unreferenced -> allowed).
+  Then attempted to remove `insulation` -> the REFERENCE GUARD rejected (417) verbatim: "These attributes
+  are referenced by a pipeline but not defined: 'insulation' (referenced by pipeline 'cable_boq' step 1
+  condition 0, pipeline 'cable_boq' step 1 condition 1, pipeline 'cable_bcs' step 1 condition 0, pipeline
+  'cable_bcs' step 1 condition 1). Add the definition, or remove the references first." insulation
+  untouched. PASS.
+- V6 VALIDATION NEGATIVE LIVE: a draft with an unknown step type via the endpoint -> 417 "pipeline
+  'cable_boq' step 5: unknown step type 'quantum_flux'.", NO write, config sha unchanged. PASS.
+- V7 SUITES: bench test_rate_master 22 + test_pricing 230 green; full vitest 1010 (incl. the two golden
+  files) green post-revert. The five goldens named above. PASS.
+- V8 NET-ZERO: config sha == S1 (goldens KEPT -- the V1 intended change; everything else reverted); items
+  588 active; Suggestion Events 2 unchanged; NO pricing writes. Intended audit residue: 5 new config
+  Version docs (V1 seed, V3 edit, V4 revert, V5 add, V5 remove); the V5-insulation + V6 rejects wrote
+  nothing (no Version). PASS.
+
+### Files
+MODIFIED: `api/boq/rate_master.py` (+update_rate_config + _validate_config + helpers), `api/boq/
+test_rate_master.py` (+test_15..22), `frontend/.../rate-master/RateMasterPage.tsx` (+3rd tab +onSaveConfig).
+NEW: `frontend/.../rate-master/RateMasterPipelines.tsx`, `.../rateMasterStructure.ts(+.test.ts)`. Docs:
+this entry + `frontend/CLAUDE.md` + root `CLAUDE.md`. Out of scope (untouched): the interpreter's execution
+semantics, the registry, run/persistence, wizard endpoints beyond the `_is_nirmaan_admin` import,
+patches.txt, `.claude/settings.local.json`. NOTE: goldens are seeded into the DB via the endpoint, NOT the
+`data/` asset -- a future benchmark re-import (`--replace`) would need them re-seeded (flagged for a later
+slice, consistent with the "seed via the endpoint" instruction).

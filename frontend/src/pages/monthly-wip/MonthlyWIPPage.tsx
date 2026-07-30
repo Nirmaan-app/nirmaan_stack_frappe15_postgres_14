@@ -17,6 +17,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
+import { SimpleFacetedFilter } from "@/pages/projects/components/SimpleFacetedFilter";
 import { formatDate } from "@/utils/FormatDate";
 import { exportToCsv } from "@/utils/exportToCsv";
 import { ColumnDef } from "@tanstack/react-table";
@@ -389,6 +390,34 @@ export default function MonthlyWIPPage() {
   const reportMonth = report?.month ?? month;
 
   const [search, setSearch] = useState("");
+  /** Multi-select project facet — holds project DOCNAMES (`row.project`), not names. */
+  const [projectFilter, setProjectFilter] = useState<Set<string>>(new Set());
+
+  // A project selected in one month may not be active in another, so carrying the
+  // selection across a month switch can filter the new month down to an empty table
+  // that reads as a broken report. Clear it and always show the new month's real set.
+  const handleMonthChange = (next: string) => {
+    setMonth(next);
+    setProjectFilter(new Set());
+  };
+
+  /**
+   * Facet options come from the ALREADY-FETCHED rows, so the list offers exactly the
+   * projects that have a row this month — a project that could only ever yield zero
+   * rows is never offered. No fetch, and nothing to keep in sync with the row set.
+   *
+   * Keyed on `project` (the docname) rather than `project_name`: unlike the sibling
+   * DC/DN reports, that makes it duplicate-name-safe. No `(count)` suffix either —
+   * a project has exactly ONE row per month, so every count would read "(1)".
+   */
+  const projectFacetOptions = useMemo(
+    () =>
+      rows
+        .map((r) => ({ label: r.project_name || r.project, value: r.project }))
+        .sort((a, b) => a.label.localeCompare(b.label)),
+    [rows]
+  );
+
   const [sortKey, setSortKey] = useState<SortKey>("active_working_days");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const handleSort = (key: SortKey) => {
@@ -401,7 +430,10 @@ export default function MonthlyWIPPage() {
 
   const displayRows = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const filtered = q ? rows.filter((r) => r.project_name.toLowerCase().includes(q)) : rows;
+    let filtered = q ? rows.filter((r) => r.project_name.toLowerCase().includes(q)) : rows;
+    // Composes with search (both narrow) and runs BEFORE the sort. `expanded` needs no
+    // cleanup — a filtered-out project's key just stops being rendered.
+    if (projectFilter.size) filtered = filtered.filter((r) => projectFilter.has(r.project));
     return [...filtered].sort((a, b) => {
       if (sortKey === "project_name") {
         const cmp = a.project_name.localeCompare(b.project_name);
@@ -410,7 +442,7 @@ export default function MonthlyWIPPage() {
       const diff = a[sortKey] - b[sortKey];
       return sortDir === "asc" ? diff : -diff;
     });
-  }, [rows, search, sortKey, sortDir]);
+  }, [rows, search, projectFilter, sortKey, sortDir]);
 
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const toggle = (project: string) =>
@@ -458,7 +490,7 @@ export default function MonthlyWIPPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Select value={month} onValueChange={setMonth} disabled={optionsLoading}>
+          <Select value={month} onValueChange={handleMonthChange} disabled={optionsLoading}>
             <SelectTrigger className="w-[160px]">
               <SelectValue placeholder="Select month" />
             </SelectTrigger>
@@ -477,22 +509,42 @@ export default function MonthlyWIPPage() {
         </div>
       </div>
 
-      {/* Summary line */}
+      {/* Summary line — reports the VISIBLE count when narrowed, so the number never
+          contradicts the table. */}
       {!isLoading && !error && (
         <p className="text-sm text-muted-foreground">
-          {rows.length} project{rows.length === 1 ? "" : "s"} active during{" "}
+          {displayRows.length === rows.length ? (
+            <>
+              {rows.length} project{rows.length === 1 ? "" : "s"} active during{" "}
+            </>
+          ) : (
+            <>
+              Showing {displayRows.length} of {rows.length} project
+              {rows.length === 1 ? "" : "s"} active during{" "}
+            </>
+          )}
           <span className="font-medium text-foreground">{monthLabel(options, month)}</span>
         </p>
       )}
 
-      {/* Search */}
-      <div className="relative max-w-xs">
-        <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-        <Input
-          placeholder="Search project…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="pl-8"
+      {/* Search + project facet */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative w-full max-w-xs">
+          <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search project…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-8"
+          />
+        </div>
+        <SimpleFacetedFilter
+          title="Project"
+          triggerLabel="Filter projects"
+          contentClassName="w-[280px]"
+          options={projectFacetOptions}
+          selectedValues={projectFilter}
+          onSelectedValuesChange={setProjectFilter}
         />
       </div>
 
@@ -555,7 +607,7 @@ export default function MonthlyWIPPage() {
                 <TableCell colSpan={TOTAL_COLS} className="h-24 text-center text-muted-foreground">
                   {rows.length === 0
                     ? "No projects were active (WIP or Handover) during this month."
-                    : "No projects match your search."}
+                    : "No projects match your search or project filter."}
                 </TableCell>
               </TableRow>
             )}

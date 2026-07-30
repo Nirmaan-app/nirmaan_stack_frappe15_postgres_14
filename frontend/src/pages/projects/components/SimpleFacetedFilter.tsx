@@ -3,7 +3,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 // import { Button } from "@/components/ui/button";
 // import { Badge } from "@/components/ui/badge";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandSeparator } from "@/components/ui/command";
-import { CheckIcon, PlusCircledIcon } from "@radix-ui/react-icons";
+import { CheckIcon } from "@radix-ui/react-icons";
 import { cn } from "@/lib/utils";
 import { Filter, FilterX } from 'lucide-react';
 
@@ -12,6 +12,16 @@ interface SimpleFacetedFilterProps {
     options: { label: string; value: string }[];
     selectedValues: Set<string>;
     onSelectedValuesChange: (newSelectedValues: Set<string>) => void;
+    /**
+     * OPTIONAL. Renders a labelled chip trigger (icon + text + selected count) instead of
+     * the bare funnel icon. Use it when the filter sits STANDALONE in a control row rather
+     * than beside a column label in a `<TableHead>` — a naked icon there reads as
+     * decoration and is a tiny click target. Omit it and the trigger is byte-identical
+     * to before (which is what every in-header caller relies on).
+     */
+    triggerLabel?: string;
+    /** OPTIONAL. Widen/adjust the popover, e.g. for long option labels. Defaults to w-[200px]. */
+    contentClassName?: string;
 }
 
 export const SimpleFacetedFilter: React.FC<SimpleFacetedFilterProps> = ({
@@ -19,10 +29,34 @@ export const SimpleFacetedFilter: React.FC<SimpleFacetedFilterProps> = ({
     options,
     selectedValues,
     onSelectedValuesChange,
+    triggerLabel,
+    contentClassName,
 }) => {
+    const active = selectedValues.size > 0;
+    const FilterIcon = active ? FilterX : Filter;
     return (
         <Popover>
             <PopoverTrigger asChild>
+                {triggerLabel ? (
+                    <button
+                        type="button"
+                        className={cn(
+                            "inline-flex h-9 items-center gap-2 rounded-md border border-input px-3 text-sm",
+                            "hover:bg-accent hover:text-accent-foreground",
+                            active && "border-primary/50 bg-accent"
+                        )}
+                    >
+                        <FilterIcon className="text-primary h-4 w-4" />
+                        <span className={active ? "font-medium" : "text-muted-foreground"}>
+                            {triggerLabel}
+                        </span>
+                        {active && (
+                            <span className="rounded-sm bg-primary px-1.5 text-xs font-medium text-primary-foreground">
+                                {selectedValues.size}
+                            </span>
+                        )}
+                    </button>
+                ) : (
                  <div
                                      className={`cursor-pointer ${
                                          selectedValues.size > 0 && "bg-gray-200"
@@ -38,8 +72,9 @@ export const SimpleFacetedFilter: React.FC<SimpleFacetedFilterProps> = ({
                                          <Filter className="text-primary h-4 w-4" />
                                      )}
                                  </div>
+                )}
             </PopoverTrigger>
-            <PopoverContent className="w-[200px] p-0" align="start">
+            <PopoverContent className={cn("w-[200px] p-0", contentClassName)} align="start">
                 <Command>
                     <CommandInput placeholder={title} />
                     <div className="relative">

@@ -114,7 +114,7 @@ export const ApprovedSRView: React.FC<ApprovedSRViewProps> = ({
     }
 
     // Define restricted roles that should have limited visibility
-    const RESTRICTED_ROLES = ["Nirmaan Project Manager Profile", "Nirmaan Estimates Executive Profile"];
+    const RESTRICTED_ROLES = ["Nirmaan Project Manager Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Billing Executive Profile"];
     const isRestrictedRole = RESTRICTED_ROLES.includes(currentUserRole || "");
 
     return (

@@ -1,0 +1,159 @@
+// RM-4b: pure helpers for the STRUCTURE editor (the Pipelines tab).
+// No React, no I/O -- unit-tested. The interpreter (ratePipelineInterpreter.ts) is reused UNCHANGED:
+// the preview gate runs the SAME pure interpreter over a DRAFT config + the live master items and
+// compares against the config's stored goldens. This module owns the goldens-as-config-data shape, the
+// step vocabulary + blank-step factory, and the client mirror of the server reference guard.
+
+import type {
+  AttributeDefinition,
+  Pipeline,
+  PipelineStatus,
+  PipelineStep,
+  RateCategoryConfig,
+  RateMasterItem,
+} from "./rateMasterTypes";
+import { runPipeline } from "./ratePipelineInterpreter";
+
+/** One standing golden stored in the config: attributes + expected finals per pipeline. */
+export interface Golden {
+  id?: string;
+  attrs: Record<string, string | number>;
+  expect: Record<string, Record<string, number>>;
+}
+
+/** One expected-vs-computed check for a single golden output key. */
+export interface GoldenCheck {
+  goldenIndex: number;
+  goldenId?: string;
+  attrs: Record<string, string | number>;
+  pipelineId: string;
+  key: string;
+  expected: number;
+  /** The value the (draft) config computed, or null when the pipeline did not produce it. */
+  got: number | null;
+  status: PipelineStatus | "missing_pipeline";
+  pass: boolean;
+}
+
+/** The step types the pure interpreter executes (the ONLY types the validator/editor allow). */
+export const STEP_VOCABULARY = [
+  "match_master_row",
+  "apply_effective_multiplier",
+  "scale",
+  "roundup",
+  "component",
+  "component_band",
+  "sum_components",
+  "install_as_ratio",
+] as const;
+
+export type StepType = (typeof STEP_VOCABULARY)[number];
+
+/** Deep clone a config for a draft edit session (JSON round-trip -- config is plain JSON). */
+export function cloneConfig(config: RateCategoryConfig): RateCategoryConfig {
+  return JSON.parse(JSON.stringify(config)) as RateCategoryConfig;
+}
+
+/** Run every stored golden through the given config's pipelines + items, one check per output key. */
+export function evaluateGoldens(config: RateCategoryConfig, items: RateMasterItem[]): GoldenCheck[] {
+  const goldens = (config.goldens as Golden[] | undefined) ?? [];
+  const checks: GoldenCheck[] = [];
+  goldens.forEach((g, gi) => {
+    for (const [pid, emap] of Object.entries(g.expect ?? {})) {
+      const pl = config.pipelines?.[pid] as Pipeline | undefined;
+      let finals: Record<string, number> = {};
+      let status: GoldenCheck["status"] = "missing_pipeline";
+      if (pl) {
+        // A DRAFT can be transiently invalid mid-edit (e.g. a param renamed before its formula
+        // catches up -> evalFormula throws). The preview must survive that: a throw becomes "not
+        // produced" (a delta), never a crash. This wraps the interpreter; it does NOT change it.
+        try {
+          const r = runPipeline(pid, pl, items, g.attrs);
+          finals = r.finals;
+          status = r.status;
+        } catch {
+          finals = {};
+          status = "no_match";
+        }
+      }
+      for (const [key, expected] of Object.entries(emap)) {
+        const produced = status === "ok" && Number.isFinite(finals[key]) ? finals[key] : null;
+        checks.push({
+          goldenIndex: gi,
+          goldenId: g.id,
+          attrs: g.attrs,
+          pipelineId: pid,
+          key,
+          expected,
+          got: produced,
+          status,
+          pass: produced === expected,
+        });
+      }
+    }
+  });
+  return checks;
+}
+
+/** The subset of golden checks that FAIL (expected !== computed) -- the preview gate's deltas. */
+export function goldenDeltas(config: RateCategoryConfig, items: RateMasterItem[]): GoldenCheck[] {
+  return evaluateGoldens(config, items).filter((c) => !c.pass);
+}
+
+/** A minimal VALID skeleton for a new step of the given type (the editor appends this, then the admin
+ * fills the blanks). Mirrors the server validator's per-type required keys. */
+export function blankStep(type: StepType): PipelineStep {
+  switch (type) {
+    case "match_master_row":
+      return { step: "match_master_row", params: { kind: "cable" } };
+    case "apply_effective_multiplier":
+      return {
+        step: "apply_effective_multiplier",
+        target: "",
+        result: "",
+        formula: "(1-discount)*(1+markup)",
+        conditions: [],
+      };
+    case "scale":
+      return { step: "scale", target: "", result: "", formula: "base*(1+markup)", params: {} };
+    case "roundup":
+      return { step: "roundup", target: "", params: { digits: 0 } };
+    case "component":
+      return { step: "component", name: "", target: "", formula: "", params: {} };
+    case "component_band":
+      return { step: "component_band", name: "", band_on: "", bands: [], params: {} };
+    case "sum_components":
+      return { step: "sum_components", result: "" };
+    case "install_as_ratio":
+      return { step: "install_as_ratio", result: "", params: { ratio: 0.25 } };
+    default:
+      return { step: type };
+  }
+}
+
+/** Client mirror of the server reference guard: the attribute ids a pipeline references (every
+ * apply_effective_multiplier condition `when` key + every component_band `band_on`). Removing a
+ * definition still in this set is rejected server-side; the editor uses it to warn pre-save. */
+export function referencedAttrIds(config: RateCategoryConfig): Set<string> {
+  const out = new Set<string>();
+  for (const pl of Object.values(config.pipelines ?? {})) {
+    for (const raw of pl.steps ?? []) {
+      const s = raw as { step: string; conditions?: { when?: Record<string, unknown> }[]; band_on?: string };
+      if (s.step === "apply_effective_multiplier") {
+        for (const c of s.conditions ?? []) {
+          for (const k of Object.keys(c.when ?? {})) out.add(k);
+        }
+      } else if (s.step === "component_band" && typeof s.band_on === "string" && s.band_on) {
+        out.add(s.band_on);
+      }
+    }
+  }
+  return out;
+}
+
+/** A blank attribute definition (choice with one empty value slot, or a number). */
+export function blankAttributeDefinition(type: "choice" | "number"): AttributeDefinition {
+  return type === "choice"
+    ? { id: "", label: "", type: "choice", values: [] }
+    : { id: "", label: "", type: "number" };
+}

@@ -129,9 +129,10 @@ import { buildChildrenByParent, collapsedAncestors, collapsibleParents, isHidden
 import { mergeRowsPreservingIdentity } from "./rowMerge";
 import { SheetDataGrid } from "./SheetDataGrid";
 import { SummaryPanel } from "./SummaryPanel";
-// U1 rate-helper chassis (DEV ONLY -- guardrail G1: dies at U2).
+// Rate-helper (DEV ONLY -- guardrail G1). RM-3: the helper is REAL (server extraction + the RM-2
+// interpreter client-side) with a persisted, version-keyed run; the U1 stub is gone.
 import { RATE_HELPER_ENABLED } from "./rate-helper/rateHelperFlag";
-import type { RowSuggestions } from "./rate-helper/rateHelperTypes";
+import type { ExtractionRow, RowSuggestions } from "./rate-helper/rateHelperTypes";
 import {
   buildRowContext,
   buildSuggestions,
@@ -139,7 +140,15 @@ import {
   rateKindOfDescriptor,
   rateKindsOf,
 } from "./rate-helper/rateSuggestionModel";
-import { RateHelperPanel } from "./rate-helper/RateHelperPanel";
+import { RateHelperPanel, type UseMeta } from "./rate-helper/RateHelperPanel";
+import { buildHelperList } from "./rate-helper/rateHelperRegistry";
+import {
+  buildExtractionByRow,
+  isRunForVersion,
+  makePricingSheetHelper,
+} from "./rate-helper/pricingSheetHelper";
+import { RateSuggestProgressModal } from "./rate-helper/RateSuggestProgressModal";
+import type { RateCategoryConfig, RateMasterItem } from "@/pages/pricing/rate-master/rateMasterTypes";
 
 // Slice 3c: "saved as of" uses the CLIENT clock at save-success (save_cell_price returns no
 // timestamp). HH:MM, mirroring SheetReviewPage's fmtSavedTime shape (client-clock seeded).
@@ -275,6 +284,49 @@ function ClassifyStatusPoller({
   useEffect(() => {
     if (msg) onStatus(discipline, msg);
   }, [msg, discipline, onStatus]);
+  return null;
+}
+
+// RM-3: the suggest-run status shape (get_suggest_status), mirroring the classify poll.
+interface SuggestRunResultRow {
+  excel_row: number;
+  description?: string;
+  attributes: Record<string, { value: string | number | null; confidence: number; corroborated?: boolean }>;
+}
+interface SuggestStatusResponse {
+  state: "running" | "done" | "idle";
+  done?: number;
+  total?: number;
+  status?: string;
+  ai_status?: string;
+  run_id?: string;
+  committed_version?: number;
+  results?: SuggestRunResultRow[];
+}
+
+/** RM-3: poll the suggest-run status for one sheet (cloned from ClassifyStatusPoller). `running`
+ * gates the 3s refresh; a non-running instance fetches once on mount (recovery). Renders no DOM. */
+function SuggestStatusPoller({
+  boq,
+  sheetName,
+  running,
+  onStatus,
+}: {
+  boq: string;
+  sheetName: string;
+  running: boolean;
+  onStatus: (msg: SuggestStatusResponse) => void;
+}) {
+  const { data } = useFrappeGetCall<{ message: SuggestStatusResponse }>(
+    "nirmaan_stack.api.boq.rate_master.get_suggest_status",
+    { boq, sheet_name: sheetName },
+    `boq-suggest-status::${boq}::${sheetName}`,
+    { refreshInterval: running ? 3000 : 0 },
+  );
+  const msg = data?.message;
+  useEffect(() => {
+    if (msg) onStatus(msg);
+  }, [msg, onStatus]);
   return null;
 }
 
@@ -422,6 +474,42 @@ const SheetPricingPage = () => {
     "nirmaan_stack.api.boq.wizard.classify.list_engines",
     {},
     boqId && sheetName ? "boq-classify-engines" : null,
+  );
+
+  // ── RM-3 rate-helper data (DEV-gated fetches; all null-keyed off when the flag/ids are absent) ──
+  // The RM-1 config + master (once per page, SWR-cached) feed the RM-2 interpreter CLIENT-SIDE.
+  const rmEnabled = RATE_HELPER_ENABLED && !!boqId && !!sheetName;
+  const { data: rmConfigData } = useFrappeGetCall<{ message: { config: RateCategoryConfig | null } }>(
+    "nirmaan_stack.api.boq.rate_master.get_rate_category_config",
+    { discipline: "Electrical", category_id: "wiring_cabling" },
+    RATE_HELPER_ENABLED ? "boq-rm-config-electrical-wiring" : null,
+  );
+  const { data: rmItemsData } = useFrappeGetCall<{ message: { items: RateMasterItem[] } }>(
+    "nirmaan_stack.api.boq.rate_master.get_rate_master_items",
+    { discipline: "Electrical" },
+    RATE_HELPER_ENABLED ? "boq-rm-items-electrical" : null,
+  );
+  // The ACTIVE suggestion run for this sheet (persistence -- version-keyed on load).
+  const { data: activeRunData, mutate: mutateActiveRun } = useFrappeGetCall<{
+    message: { run: { run_id: string; committed_version: number; ai_status: string; results: SuggestRunResultRow[]; run_at?: string } | null };
+  }>(
+    "nirmaan_stack.api.boq.rate_master.get_active_suggestion_run",
+    { boq: boqId ?? "", sheet_name: sheetName ?? "" },
+    rmEnabled ? undefined : null,
+  );
+  // This sheet's Use events (used-state restore).
+  const { data: suggestEventsData, mutate: mutateSuggestEvents } = useFrappeGetCall<{
+    message: { events: Array<{ excel_row: number; col: string; kind: string; run_id: string }> };
+  }>(
+    "nirmaan_stack.api.boq.rate_master.get_suggestion_events",
+    { boq: boqId ?? "", sheet_name: sheetName ?? "" },
+    rmEnabled ? undefined : null,
+  );
+  const { call: startSuggestCall } = useFrappePostCall(
+    "nirmaan_stack.api.boq.rate_master.start_suggest",
+  );
+  const { call: recordSuggestEventCall } = useFrappePostCall(
+    "nirmaan_stack.api.boq.rate_master.record_rate_suggestion_event",
   );
   const engineLabelByDiscipline = useMemo<Record<string, string>>(() => {
     const m: Record<string, string> = {};
@@ -765,6 +853,21 @@ const SheetPricingPage = () => {
     col: string;
     kind: string;
   } | null>(null);
+  // RM-3 suggest run: the run whose extraction drives the badges/panel (from the active run on
+  // load [version-keyed] OR a just-completed press). The async run's modal/poll state mirrors the
+  // classify run. `usedPairsRef` = the (row:col) pairs marked used (server events on load + this
+  // session's Uses), applied when the badge map is (re)built so a rebuild never loses a check.
+  const [suggestRun, setSuggestRun] = useState<{ runId: string; committedVersion: number; results: SuggestRunResultRow[] } | null>(null);
+  const [suggestModalOpen, setSuggestModalOpen] = useState(false);
+  const [suggestRunning, setSuggestRunning] = useState(false);
+  const [suggestProgress, setSuggestProgress] = useState<{ done: number; total: number } | null>(null);
+  const [suggestSummary, setSuggestSummary] = useState<{ status?: string; ai_status?: string; results?: unknown[]; run_id?: string } | null>(null);
+  const suggestRunningRef = useRef(false);
+  suggestRunningRef.current = suggestRunning;
+  const usedPairsRef = useRef<Set<string>>(new Set());
+  // Idempotent run-adoption: the last adopted run key (run_id::cv, or null). Guards the persistence
+  // effect from re-creating a NEW suggestRun object on every SWR reference churn (which loops).
+  const adoptedRunKeyRef = useRef<string | null | undefined>(undefined);
   // Single-editor lock (slice B): a mid-edit takeover (a save rejected with the
   // BOQ_PRICING_LOCKED marker -- another user acquired the lock) flips this true; the page
   // becomes read-only + shows the takeover banner until a fresh editable payload arrives.
@@ -778,6 +881,24 @@ const SheetPricingPage = () => {
   // Fullscreen API. NOT reset on a tab switch (a deliberate choice -- staying maximized across
   // sheets is the useful behaviour; the per-sheet reset effect below leaves it alone).
   const [expanded, setExpanded] = useState(false);
+
+  // RM-3c item C: in FULL-SCREEN, the whole top block (title row + both ribbons + banners + summary/
+  // review panels) is one COLLAPSIBLE block so the grid can fill the wrapper vertically. Persisted
+  // per session (localStorage). Embedded is unaffected (the collapse only applies while `expanded`).
+  const [topCollapsed, setTopCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("nirmaan-fullscreen-top-collapsed") === "1";
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("nirmaan-fullscreen-top-collapsed", topCollapsed ? "1" : "0");
+    } catch {
+      /* storage unavailable -- collapse state simply is not persisted */
+    }
+  }, [topCollapsed]);
 
   // Frozen-left Slice 1 ("Fork A"): pin the 5 anchor columns (through Description) into a frozen
   // pane while the descriptor + Remarks columns scroll horizontally. Page-owned per-sheet toggle
@@ -901,8 +1022,12 @@ const SheetPricingPage = () => {
     setCarryOpen(false);
     setCarryMsg(null);
     setOverride(false); // Slice 3e: the override is per-sheet per-session -- reset on switch
-    setSuggestionsByExcelRow(new Map()); // U1 rate-helper: suggestions are per-sheet, page-session
+    setSuggestionsByExcelRow(new Map()); // rate-helper: suggestions are per-sheet, page-session
     setHelperPanel(null);
+    // RM-3: the run + used-pairs are per-sheet; the persistence effect re-adopts the new sheet's
+    // active run (version-keyed) and its Use events after the fetches land.
+    setSuggestRun(null);
+    usedPairsRef.current = new Set();
     setReviewOpen(false); // Slice 4a: the review-list strip is per-sheet
     setShowDismissed(false); // Slice 4b-ACKNOWLEDGE: the show-dismissed toggle is per-sheet
     setShowOnlyUnpriced(false); // Slice 4b-A: the unpriced filter is per-sheet
@@ -1118,11 +1243,15 @@ const SheetPricingPage = () => {
   useEffect(() => {
     if (!expanded) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (shouldExitFullscreenOnEsc(e, document.activeElement)) setExpanded(false);
+      if (!shouldExitFullscreenOnEsc(e, document.activeElement)) return;
+      // RM-3c item C: while the top block is collapsed, Esc RE-EXPANDS it first (the user is never
+      // trapped) rather than exiting full-screen; a second Esc then exits.
+      if (topCollapsed) setTopCollapsed(false);
+      else setExpanded(false);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [expanded]);
+  }, [expanded, topCollapsed]);
 
   // Realtime lock updates (A2): flip read-only / free the instant ANOTHER user acquires or
   // releases this sheet's lock. Screen-scoped listener (BoqHubPage pattern): register on the
@@ -1892,6 +2021,32 @@ const SheetPricingPage = () => {
   // on every pick and would re-render every row; the boolean flips only when editability flips).
   const categoryGateOpen = isCategoryGateOpen(categoryBlankCount, categoryGateOverride);
 
+  // RM-3c item C: when the top block is collapsed in full-screen, the slim rail must still surface any
+  // BLOCKING state (so collapsing never hides it). One compact chip per active blocker.
+  const collapsedBannerChips = useMemo(() => {
+    const chips: string[] = [];
+    if (isViewingHistory) chips.push("Viewing history");
+    else if (takenOver) chips.push("Taken over - read only");
+    else if (isLocked) chips.push("Locked - read only");
+    if (classificationFrozen) chips.push("Classification frozen");
+    if (!locked && !formulasComplete) chips.push("Formulas incomplete");
+    // The category banner is VISIBLE whenever there are blanks -- in its blocking form OR its
+    // override-active informational form (this sheet). Surface it in either case so collapsing never
+    // hides the fact; note when the gate is overridden.
+    if (!locked && categoryBlankCount > 0)
+      chips.push(`${categoryBlankCount} without category${categoryGateOverride ? " (override)" : ""}`);
+    return chips;
+  }, [
+    isViewingHistory,
+    takenOver,
+    isLocked,
+    classificationFrozen,
+    locked,
+    formulasComplete,
+    categoryBlankCount,
+    categoryGateOverride,
+  ]);
+
   // ── U1 rate-helper (DEV): D8 gate REUSE + run / badge-click / use handlers. The enable chain is
   // EXACTLY what a rate write consumes -- !locked (locked => onSaveRate withheld), formulasComplete,
   // categoryGateOpen -- read straight from the existing vars, never re-derived. Disabled surfaces
@@ -1910,12 +2065,114 @@ const SheetPricingPage = () => {
               : null;
   const suggestRatesDisabled = suggestRatesReason !== null;
 
-  const runSuggestRates = useCallback(() => {
-    setSuggestionsByExcelRow(
-      buildSuggestions(rows, columnDescriptors, override, categoriesByExcelRow),
-    );
+  // RM-3: config + master (SWR) feed the RM-2 interpreter CLIENT-SIDE (the single compute source).
+  const rmConfig = rmConfigData?.message?.config ?? null;
+  const rmItems = useMemo(() => rmItemsData?.message?.items ?? [], [rmItemsData]);
+  // The run's extraction, keyed by excel_row.
+  const extractionByRow = useMemo<Map<number, ExtractionRow>>(
+    () => buildExtractionByRow(suggestRun?.results ?? []),
+    [suggestRun],
+  );
+  // The page-built REAL helper (closure over config + master + the run's extraction). Null until a
+  // run + config are present -> before any run there are no badges. RATE_HELPER_ENABLED gates it.
+  const pricingSheetHelper = useMemo(
+    () =>
+      RATE_HELPER_ENABLED && rmConfig && suggestRun
+        ? makePricingSheetHelper({ config: rmConfig, items: rmItems, extractionByRow })
+        : null,
+    [rmConfig, rmItems, extractionByRow, suggestRun],
+  );
+  const helperList = useMemo(() => buildHelperList(pricingSheetHelper), [pricingSheetHelper]);
+
+  // PERSISTENCE (owner ruling): adopt the active run on load IFF its committed_version == the
+  // sheet's CURRENT version (version keying -- never suggest against rows that may have changed).
+  // IDEMPOTENT via adoptedRunKeyRef: only setState when the run identity (run_id::cv) actually
+  // changes, so a mere SWR reference churn does NOT re-create suggestRun (which would loop).
+  const activeRunForVersion = activeRunData?.message?.run ?? null;
+  const activeRunKey =
+    activeRunForVersion && isRunForVersion(activeRunForVersion.committed_version, commitVersion)
+      ? `${activeRunForVersion.run_id}::${activeRunForVersion.committed_version}`
+      : null;
+  useEffect(() => {
+    if (!RATE_HELPER_ENABLED) return;
+    if (adoptedRunKeyRef.current === activeRunKey) return; // no identity change -> no churn
+    adoptedRunKeyRef.current = activeRunKey;
+    const run = activeRunData?.message?.run ?? null;
+    if (activeRunKey && run) {
+      setSuggestRun({ runId: run.run_id, committedVersion: run.committed_version, results: run.results });
+    } else {
+      setSuggestRun(null);
+    }
+    // activeRunData read inside is fine: it only matters when activeRunKey (its identity) changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeRunKey]);
+
+  // A PRIMITIVE signature of this sheet's Use events -- stable by value across SWR reference churn,
+  // so the rebuild effect below only re-runs on a real content change (never on every render).
+  const suggestEventsKey = useMemo(() => {
+    const evs = suggestEventsData?.message?.events ?? [];
+    return evs.map((e) => `${e.excel_row}:${e.col}`).sort().join("|");
+  }, [suggestEventsData]);
+
+  // ONE rebuild effect (badge map from the run + rows, re-applying the recorded used pairs). The
+  // EMPTY-MAP GUARD (`prev.size === 0 ? prev`) is load-bearing: without it, a render before a run set
+  // a NEW empty Map every time -> re-render -> "Maximum update depth exceeded". All deps are stable
+  // (suggestRun is adopted idempotently; suggestEventsKey is a primitive), so it runs once per change.
+  useEffect(() => {
+    if (!RATE_HELPER_ENABLED) return;
+    if (suggestEventsKey) {
+      for (const pair of suggestEventsKey.split("|")) usedPairsRef.current.add(pair.replace(":", "::"));
+    }
+    if (!suggestRun || !pricingSheetHelper) {
+      setSuggestionsByExcelRow((prev) => (prev.size === 0 ? prev : new Map()));
+      return;
+    }
+    let map = buildSuggestions(rows, columnDescriptors, override, categoriesByExcelRow, helperList);
+    for (const pair of usedPairsRef.current) {
+      const [er, col] = pair.split("::");
+      map = markSuggestionUsed(map, Number(er), col);
+    }
+    setSuggestionsByExcelRow(map);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [suggestRun, pricingSheetHelper, rows, columnDescriptors, override, categoriesByExcelRow, helperList, suggestEventsKey]);
+
+  // The suggest status handler (poll + socket funnel here). done WINS; on success adopt the run.
+  const onSuggestStatus = useCallback(
+    (msg: SuggestStatusResponse) => {
+      if (msg.state === "running") {
+        if (typeof msg.done === "number" && typeof msg.total === "number") {
+          setSuggestProgress({ done: msg.done, total: msg.total });
+        }
+        return;
+      }
+      if (msg.state === "done") {
+        setSuggestRunning(false);
+        setSuggestSummary({ status: msg.status, ai_status: msg.ai_status, results: msg.results, run_id: msg.run_id });
+        if (msg.status === "success" && typeof msg.committed_version === "number" && msg.run_id) {
+          usedPairsRef.current = new Set(); // a NEW run supersedes -> no used pairs yet
+          setSuggestRun({ runId: msg.run_id, committedVersion: msg.committed_version, results: msg.results ?? [] });
+          void mutateActiveRun();
+          void mutateSuggestEvents();
+        }
+      }
+    },
+    [mutateActiveRun, mutateSuggestEvents],
+  );
+
+  // ASYNC press: enqueue the run, open the blocking modal; the poll/socket drive it to terminal.
+  const runSuggestRates = useCallback(async () => {
     setHelperPanel(null);
-  }, [rows, columnDescriptors, override, categoriesByExcelRow]);
+    setSuggestSummary(null);
+    setSuggestProgress(null);
+    setSuggestRunning(true);
+    setSuggestModalOpen(true);
+    try {
+      await startSuggestCall({ boq: boqId, sheet_name: sheetName });
+    } catch {
+      setSuggestRunning(false);
+      setSuggestSummary({ status: "error" });
+    }
+  }, [startSuggestCall, boqId, sheetName]);
 
   const handleSuggestionBadgeClick = useCallback(
     (excelRow: number, col: string, _cellEl: HTMLElement) => {
@@ -1927,14 +2184,47 @@ const SheetPricingPage = () => {
     [columnDescriptors],
   );
 
+  // USE: apply the value + optimistically mark used + record the Use telemetry (fire-and-forget).
   const handleUseSuggestion = useCallback(
-    (col: string, value: number) => {
+    (col: string, value: number, meta: UseMeta) => {
       if (!helperPanel) return;
-      gridRef.current?.applyRate(helperPanel.excelRow, col, value);
-      setSuggestionsByExcelRow((prev) => markSuggestionUsed(prev, helperPanel.excelRow, col));
+      const excelRow = helperPanel.excelRow;
+      gridRef.current?.applyRate(excelRow, col, value);
+      usedPairsRef.current.add(`${excelRow}::${col}`);
+      setSuggestionsByExcelRow((prev) => markSuggestionUsed(prev, excelRow, col));
+      const ext = extractionByRow.get(excelRow);
+      const extractedAttributes: Record<string, unknown> = {};
+      const extractedConfidences: Record<string, number> = {};
+      if (ext) {
+        for (const [k, cell] of Object.entries(ext.attributes)) {
+          extractedAttributes[k] = cell.value;
+          extractedConfidences[k] = cell.confidence;
+        }
+      }
+      void recordSuggestEventCall({
+        boq: boqId,
+        sheet_name: sheetName,
+        excel_row: excelRow,
+        col,
+        kind: meta.kind,
+        helper_id: meta.helperId,
+        category_id: categoriesByExcelRow.get(excelRow)?.effective_category_id ?? "",
+        run_id: suggestRun?.runId ?? "",
+        extracted_attributes: extractedAttributes,
+        extracted_confidences: extractedConfidences,
+        corrected_attributes: meta.correctedAttributes,
+        computed_value: meta.computedValue,
+        used_value: value,
+      })
+        .then(() => {
+          void mutateSuggestEvents();
+        })
+        .catch(() => {
+          /* telemetry never blocks the save */
+        });
       setHelperPanel(null);
     },
-    [helperPanel],
+    [helperPanel, extractionByRow, boqId, sheetName, categoriesByExcelRow, suggestRun, recordSuggestEventCall, mutateSuggestEvents],
   );
 
   // The open panel's row context, built from the SAME page data buildSuggestions used.
@@ -1947,6 +2237,10 @@ const SheetPricingPage = () => {
   }, [helperPanel, rows, columnDescriptors, categoriesByExcelRow]);
   // The panel is open only with the flag on, a scoped cell, and a resolvable row context.
   const helperPanelOpen = RATE_HELPER_ENABLED && helperPanel !== null && helperPanelCtx !== null;
+  // RM-3b: the embedded rate-helper panel is a PERMANENT part of the embedded layout (panel-as-default)
+  // whenever the feature is on and we are not full-screen. It is always mounted (empty state until a
+  // badge/sparkle selects a row), so the embedded page is permanently widened + a flex row.
+  const embeddedPanel = RATE_HELPER_ENABLED && !expanded;
 
   // AMENDMENT C / C3: the carry button's state, from the PURE helper (ADR-0010 F4 -- the rule is
   // unit-tested; this page only renders it). `locked` already folds the deliberate lock, a
@@ -2142,13 +2436,33 @@ const SheetPricingPage = () => {
       className={cn(
         expanded
           ? "fixed inset-0 z-50 flex flex-col space-y-4 overflow-auto bg-background p-4"
-          : // U1 rate-helper: embedded is capped at max-w-5xl, but WIDEN while the suggestion panel
-            // is open (it is cramped otherwise) and restore the cap on close.
-            helperPanelOpen
+          : // RM-3b: the embedded rate-helper panel is ALWAYS mounted (panel-as-default), so the page
+            // is PERMANENTLY widened when the feature is on; prod (feature off) keeps the centered cap.
+            embeddedPanel
             ? "flex-1 space-y-4 w-full mx-auto pt-6 pb-10 px-4"
             : "flex-1 space-y-4 max-w-5xl mx-auto pt-6 pb-10 px-4",
       )}
     >
+      {/* RM-3c item C: the FULL-SCREEN collapsible TOP BLOCK -- everything above the grid (title row +
+          both ribbons + banners + summary/review panels). A chevron collapses it so the grid fills the
+          wrapper vertically; the slim rail (below) always allows one-click re-expand. `space-y-4`
+          preserves the inter-band gaps that used to come from the wrapper. EMBEDDED is untouched:
+          `topCollapsed` only bites while `expanded`, so the block never hides and the layout is
+          byte-unchanged. */}
+      <div className={cn("space-y-4", expanded && topCollapsed && "hidden")}>
+        {expanded && (
+          <div className="flex items-center justify-end">
+            <button
+              type="button"
+              onClick={() => setTopCollapsed(true)}
+              className="flex items-center gap-1 rounded-md border px-2 py-1 text-xs text-muted-foreground hover:bg-muted focus:outline-none focus:ring-2 focus:ring-ring"
+              aria-label="Collapse the toolbar area"
+              aria-expanded={!topCollapsed}
+            >
+              <ChevronUp className="h-4 w-4" /> Collapse toolbars
+            </button>
+          </div>
+        )}
       {/* ── Version ribbon (read-only history browser) -- the OUTERMOST band, ABOVE the top
           ribbon. Shows on ALL sheet types (it sits above the {!isGridOnly} bottom-ribbon gate);
           renders only when 2+ committed versions exist. Selecting an earlier version drops the
@@ -2983,6 +3297,28 @@ const SheetPricingPage = () => {
           setClassifyProgress(null);
         }}
       />
+      {/* RM-3: the suggest-run modal + status poller (recovery on mount; 3s poll while running). */}
+      {RATE_HELPER_ENABLED && boqId && sheetName && (
+        <SuggestStatusPoller
+          boq={boqId}
+          sheetName={sheetName}
+          running={suggestRunning}
+          onStatus={onSuggestStatus}
+        />
+      )}
+      {RATE_HELPER_ENABLED && (
+        <RateSuggestProgressModal
+          open={suggestModalOpen}
+          running={suggestRunning}
+          sheetName={(sheetName ?? "").trim()}
+          progress={suggestProgress}
+          summary={suggestSummary}
+          onClose={() => {
+            setSuggestModalOpen(false);
+            setSuggestProgress(null);
+          }}
+        />
+      )}
       {!classifyRunning && !classifyModalOpen && classifySummary && classifySummary.status === "error" && (
         <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -3433,6 +3769,38 @@ const SheetPricingPage = () => {
           )}
         </div>
       )}
+      </div>
+      {/* RM-3c item C: SLIM re-expand rail -- shown only when the full-screen top block is collapsed.
+          One click (or Escape) re-expands; shows the truncated sheet name + a compact indicator for any
+          BLOCKING banner (locked / taken-over / frozen / formula gate / uncategorised) so collapsing
+          never hides state. Keyboard-focusable. */}
+      {expanded && topCollapsed && (
+        <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-2 py-1">
+          <button
+            type="button"
+            onClick={() => setTopCollapsed(false)}
+            className="flex shrink-0 items-center gap-1 rounded px-1 py-0.5 text-xs font-medium text-muted-foreground hover:bg-muted focus:outline-none focus:ring-2 focus:ring-ring"
+            aria-label="Expand the toolbar area"
+            aria-expanded={false}
+          >
+            <ChevronDown className="h-4 w-4" />
+            <span className="max-w-[40vw] truncate">{sheetName?.trim() || "Sheet"}</span>
+          </button>
+          {collapsedBannerChips.length > 0 && (
+            <div className="flex min-w-0 items-center gap-2 overflow-x-auto">
+              {collapsedBannerChips.map((c) => (
+                <span
+                  key={c}
+                  className="flex shrink-0 items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
+                >
+                  <AlertTriangle className="h-3 w-3" />
+                  {c}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── Grid ──────────────────────────────────────────────────────────────── */}
       {pricedLoading && (
@@ -3455,12 +3823,21 @@ const SheetPricingPage = () => {
           (the grid keeps its own viewport-rem cap, byte-for-byte the prior behaviour). */}
       {!pricedLoading && !pricedError && (
         <div className={cn(expanded && "flex min-h-0 flex-1 flex-col")}>
-        {/* U1 rate-helper: a horizontal flex row around the grid slot (grid left flex-1 min-w-0,
-            panel right fixed width). The grid keeps its OWN horizontal scroll + the frozen two-pane
-            split + virtualization -- all internal to PricingGrid, untouched. Absent panel => the
-            wrappers are inert (no class), byte-identical to before. */}
-        <div className={cn(helperPanelOpen && "flex min-h-0 flex-1 items-start gap-3")}>
-        <div className={cn(helperPanelOpen && "min-w-0 flex-1")}>
+        {/* RM-3a/RM-3b: the rate-helper panel mount + the FULL-SCREEN flex chain.
+            - EMBEDDED (feature on): the panel is ALWAYS mounted (panel-as-default), so this is a
+              PERMANENT flex row -- grid (flex-1 min-w-0) beside the sticky panel; the page is widened.
+            - FULL-SCREEN (expanded): these two wrappers MUST propagate the flex column (min-h-0 flex-1)
+              so the grid container below actually BOUNDS to the viewport and becomes the internal
+              scroller -- that is what makes the sticky header stay put (RM-3b item 3) and the native
+              horizontal scrollbar sit at the viewport bottom (item 4). Without this the outer fixed
+              wrapper scrolled instead and the header scrolled away.
+            - RM-3c: full-screen's panel is now a PUSH panel INSIDE this row, so `#4` is a flex ROW
+              [ grid column | push panel ] and `#3` is the grid COLUMN (min-w-0 flex-1, still a flex-col
+              so the grid container bounds vertically via the row's stretched height). The grid narrows
+              by exactly the panel width; the bounded scroller / sticky header / native H-scrollbar keep
+              working at the reduced width. */}
+        <div className={cn(embeddedPanel && "flex min-h-0 flex-1 items-start gap-3", expanded && "flex min-h-0 flex-1")}>
+        <div className={cn(embeddedPanel && "min-w-0 flex-1", expanded && "flex min-h-0 flex-1 min-w-0 flex-col")}>
         {isGridOnly ? (
           <SheetDataGrid
             // Faithful committed grid (general specs) -- READ-ONLY reference, all rows at
@@ -3574,14 +3951,34 @@ const SheetPricingPage = () => {
           />
         )}
         </div>
-        {/* U1 rate-helper: the page-owned suggestion panel, fixed width right, INSIDE the
-            full-screen wrapper so it survives the expanded overlay. */}
-        {helperPanelOpen && helperPanel && helperPanelCtx && (
+        {/* RM-3b: the EMBEDDED panel is ALWAYS mounted (panel-as-default) whenever the feature is on
+            and we are not full-screen -- INSIDE the flex row so the page stays widened + the panel
+            rides the viewport. It shows an empty-state card until a badge/sparkle selects a row; the
+            selection (helperPanel/helperPanelCtx) is passed only once resolved. No close X in embedded. */}
+        {embeddedPanel && (
           <RateHelperPanel
+            variant="embedded"
+            excelRow={helperPanelOpen ? helperPanel!.excelRow : undefined}
+            col={helperPanelOpen ? helperPanel!.col : undefined}
+            kind={helperPanelOpen ? helperPanel!.kind : undefined}
+            ctx={helperPanelOpen ? helperPanelCtx! : undefined}
+            helpers={helperList}
+            onUse={handleUseSuggestion}
+            onClose={() => setHelperPanel(null)}
+          />
+        )}
+        {/* RM-3c: FULL-SCREEN PUSH panel -- INSIDE the flex row (a flex sibling of the grid column), so
+            it occupies real layout width and the grid narrows by exactly the panel width. A left-edge
+            drag handle resizes it (persisted). Rendered only on a selection (no panel-as-default in
+            full-screen). Supersedes the RM-3a fixed overlay drawer. */}
+        {helperPanelOpen && expanded && helperPanel && helperPanelCtx && (
+          <RateHelperPanel
+            variant="push"
             excelRow={helperPanel.excelRow}
             col={helperPanel.col}
             kind={helperPanel.kind}
             ctx={helperPanelCtx}
+            helpers={helperList}
             onUse={handleUseSuggestion}
             onClose={() => setHelperPanel(null)}
           />

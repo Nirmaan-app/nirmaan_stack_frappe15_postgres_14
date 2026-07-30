@@ -6,28 +6,32 @@
  */
 import type { HelperResult, RateHelper, RateHelperRowContext } from "./rateHelperTypes";
 import { isSuggestion } from "./rateHelperTypes";
-import { stubRateHelper } from "./stubRateHelper";
 
-/** "Previously priced BoQs" -- the priced-corpus helper (U2+). Always declines in U1. */
+/** "Previously priced BoQs" -- the priced-corpus helper (later). Always declines today. */
 export const previouslyPricedHelper: RateHelper = {
   id: "previously_priced_boqs",
   label: "Previously priced BoQs",
   compute: () => ({ kind: "none", reason: "No priced corpus for this category yet" }),
 };
 
-/** "Qty breakdown + live data" -- the live-data helper (planned). Always declines in U1. */
+/** "Qty breakdown + live data" -- the live-data helper (planned). Always declines today. */
 export const qtyBreakdownHelper: RateHelper = {
   id: "qty_breakdown_live",
   label: "Qty breakdown + live data",
   compute: () => ({ kind: "none", reason: "Helper not built -- planned" }),
 };
 
-/** The ordered registry. The stub is first (the only live one in U1). */
-export const RATE_HELPERS: RateHelper[] = [
-  stubRateHelper,
-  previouslyPricedHelper,
-  qtyBreakdownHelper,
-];
+/** The STATIC registry -- the two always-declining helpers that prove the panel renders the
+ * contract generically. The REAL "Pricing sheet" helper is page-built (a closure over the run's
+ * extraction + the RM-1 config/master) and PREPENDED via buildHelperList (RM-3 -- the U1 stub is
+ * gone). */
+export const RATE_HELPERS: RateHelper[] = [previouslyPricedHelper, qtyBreakdownHelper];
+
+/** The live helper list for the page: the real pricing-sheet helper first (when a run is loaded),
+ * then the static declining ones. Pass this to buildSuggestions + the panel. */
+export function buildHelperList(pricingSheetHelper?: RateHelper | null): RateHelper[] {
+  return pricingSheetHelper ? [pricingSheetHelper, ...RATE_HELPERS] : RATE_HELPERS;
+}
 
 export interface HelperEvaluation {
   helper: RateHelper;
@@ -56,7 +60,14 @@ export function suggestionCountForKind(
 ): number {
   let n = 0;
   for (const { result } of resolveRateHelpers(ctx, undefined, helpers)) {
-    if (isSuggestion(result) && typeof result.values[kind] === "number") n += 1;
+    // Badge a kind if the helper has a COMPUTED value for it OR declares it producible (a partial
+    // extraction still badges so the pricer can open the panel to complete it -- RM-3).
+    if (
+      isSuggestion(result) &&
+      (typeof result.values[kind] === "number" || (result.producibleKinds?.includes(kind) ?? false))
+    ) {
+      n += 1;
+    }
   }
   return n;
 }

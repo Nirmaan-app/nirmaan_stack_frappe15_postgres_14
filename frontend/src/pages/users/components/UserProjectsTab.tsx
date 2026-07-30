@@ -105,6 +105,7 @@ export function UserProjectsTab({
     "Nirmaan Admin Profile",
     "Nirmaan PMO Executive Profile",
     "Nirmaan Estimates Executive Profile",
+    "Nirmaan Billing Executive Profile",
   ].includes(user.role_profile || "");
 
   return (

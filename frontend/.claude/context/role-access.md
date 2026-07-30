@@ -13,6 +13,7 @@ This document contains detailed page-level role access control mappings for the 
 | `Nirmaan Procurement Executive Profile` | Procurement Executive | Emerald |
 | `Nirmaan Accountant Profile` | Accountant | Purple |
 | `Nirmaan Estimates Executive Profile` | Estimates Executive | Cyan |
+| `Nirmaan Billing Executive Profile` | Billing Executive | Sky |
 | `Nirmaan Design Lead Profile` | Design Lead | Indigo |
 | `Nirmaan Design Executive Profile` | Design Executive | Pink |
 | `Nirmaan HR Executive Profile` | HR Executive | Lime |
@@ -24,6 +25,25 @@ This document contains detailed page-level role access control mappings for the 
 - **Project Payment Approval:** PMO can see the "Approve Payments" tab (read-only) but cannot approve/reject payments or edit fulfilled payments
 - **PR Approval** *(2026-07-04 access review)*: PMO does **not** see the "Approve PR" tab and is blocked from the approve/reject view even by a direct/bookmarked `?tab=Approve PR` URL (redirected to New PR Request). Approver roles are **Admin + Project Lead** (`PR_ADMIN_ROLES` in `config/prTabs.constants.ts`). Unlike TDS/Payments, this is NOT a read-only tab — it is removed entirely. PMO keeps New PR Request / In Progress / Sent Back / All PRs.
 - **New-item creation in the PR flow** *(2026-07-04 access review)*: PMO is treated like a Project Manager — in `new_items="false"` categories they can only **request** an item (ephemeral `REQ-…`), not create a master Item. The Admin/PMO category-restriction bypass was removed (Admin still bypasses). Does not affect the Items master table (PMO already could not create there; only edit).
+
+---
+
+## Billing Executive (view-only finance mirror) — [ADR-0015](../../../docs/adr/0015-billing-executive-role.md)
+
+`Nirmaan Billing Executive Profile` is a **view-only mirror of Estimates Executive, MINUS Pricing (HVAC/Electrical/ELV) and MINUS BoQ.** The backend Role + Role Profile pre-existed in fixtures; this is frontend wiring + doctype permissions. The rule of thumb: everywhere the code reads `Nirmaan Estimates Executive Profile`, the Billing profile sits beside it **except** the two pricing gates and the BoQ surfaces.
+
+- **Sidebar:** Dashboard, Projects, Item Price Search, Purchase Orders, Work Order Rate Card, TDS Repository. (No Pricing, no Upload BoQ, no BoQ Templates, no Admin Options.)
+- **Two deliberate exclusions:** the Pricing sidebar spread (`NewSidebar.tsx`) + `PricingRoute` guard (so `/hvac-pricing` etc. 403 by direct URL). BoQ is likewise excluded on every surface (sidebar, BoQ-template authoring gates frontend+backend, all BoQ doctype perms, and the BoQ project tab).
+- **Behaviour:** identical view-only treatment to Estimates on shared pages — it reuses the `isEstimatesExecutive` flag (`project.tsx`, `PurchaseOrder.tsx`, `approved-sr.tsx`, etc.). The **BoQ project tab is the one place they diverge**: a separate `isBilling` flag in `project.tsx` deletes `PROJECT_PAGE_TABS.BOQ` from the allowed set (it would 403 on `BOQs`).
+- **Doctype permissions — mostly pre-existing, the changes are DB-ONLY (NOT in the repo).** Billing's baseline **read** perms were already seeded in fixtures on ~77 doctypes — and since Billing is view-only, read is all it functionally needs. The doctype-JSON edits made during this work were **deliberately reverted** (the "Don't Touch doctype JSONs" convention), so the repo carries no doctype-permission change for Billing. The 16 BoQ doctypes correctly have no Billing row.
+
+> ⚠️ **DB-ONLY permission changes — not in the repo (reapply on every new env).** These were applied at runtime and a fresh site / prod restore silently lacks them:
+> - **`Nirmaan Item Units`** (read) and **`Material Delivery Plan`** (read) — carry **`Custom DocPerm`**, which *fully overrides* standard `DocPerm`, so a JSON/fixture grant is inert. `Nirmaan Item Units` was the original "No permission" error. **These two MUST be reapplied** — Role Permission Manager → add role `Nirmaan Billing Executive` (read) on each.
+> - 8 transactional doctypes upgraded read→RWCD + Commission Report Template Snapshot read (via `reload_doctype`) — **parity-only** (view-only role doesn't need write); a `bench migrate` resets these. Reapply only if strict Estimates parity is wanted.
+>
+> See [ADR-0015](../../../docs/adr/0015-billing-executive-role.md).
+
+**Key files:** `utils/roleColors.ts` (`ROLE_COLORS`/`ROLE_OPTIONS`), `components/layout/dashboards/billing-executive-dashboard.tsx`, `pages/dashboard.tsx`, `components/layout/NewSidebar.tsx`, `pages/projects/project.tsx` (`isBilling` BoQ-tab hide). Backend: doctype JSON `permissions`, `api/sidebar_counts.py`, `api/projects/tendering.py`.
 
 ---
 
@@ -92,6 +112,7 @@ Each role sees a different dashboard (`src/pages/dashboard.tsx`):
 - Procurement Executive → Procurement Dashboard
 - Accountant → Accountant Dashboard
 - Estimates Executive → Estimates Executive Dashboard
+- Billing Executive → Billing Executive Dashboard (a copy of the Estimates dashboard, own `useCounts` cache key)
 - Design Lead/Executive → Design Dashboard
 - HR Executive → HR Dashboard
 
@@ -103,6 +124,7 @@ Roles that don't require `has_project === "true"`:
 - Nirmaan Admin Profile
 - Nirmaan PMO Executive Profile
 - Nirmaan Estimates Executive Profile
+- Nirmaan Billing Executive Profile
 - Nirmaan Design Lead Profile
 - Nirmaan Design Executive Profile
 - Nirmaan HR Executive Profile
