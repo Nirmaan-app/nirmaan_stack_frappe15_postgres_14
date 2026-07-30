@@ -12,6 +12,7 @@ export const TENDERING_MANAGER_ROLES = [
   "Nirmaan Admin Profile",
   "Nirmaan PMO Executive Profile",
   "Nirmaan Estimates Executive Profile",
+  "Nirmaan Billing Executive Profile",
 ] as const;
 
 /**

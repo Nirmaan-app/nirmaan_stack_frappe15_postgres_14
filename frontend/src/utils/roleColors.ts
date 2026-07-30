@@ -69,6 +69,14 @@ export const ROLE_COLORS: Record<string, RoleColorScheme> = {
     gradient: "bg-gradient-to-br from-cyan-500 to-sky-600",
     ring: "ring-cyan-500/30",
   },
+  "Nirmaan Billing Executive Profile": {
+    bg: "bg-sky-50",
+    text: "text-sky-700",
+    border: "border-sky-200",
+    dot: "bg-sky-500",
+    gradient: "bg-gradient-to-br from-sky-500 to-blue-600",
+    ring: "ring-sky-500/30",
+  },
   "Nirmaan Design Executive Profile": {
     bg: "bg-pink-50",
     text: "text-pink-700",
@@ -147,6 +155,7 @@ export const ROLE_OPTIONS: { label: string; value: string }[] = [
   { label: "Accountant", value: "Nirmaan Accountant Profile" },
   { label: "Accountant Lead", value: "Nirmaan Accountant Lead Profile" },
   { label: "Estimates Executive", value: "Nirmaan Estimates Executive Profile" },
+  { label: "Billing Executive", value: "Nirmaan Billing Executive Profile" },
   { label: "Design Executive", value: "Nirmaan Design Executive Profile" },
   { label: "Design Lead", value: "Nirmaan Design Lead Profile" },
   { label: "HR Executive", value: "Nirmaan HR Executive Profile" },

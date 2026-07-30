@@ -120,8 +120,9 @@ export const PurchaseOrder = ({
   const [tab] = useStateSyncedWithParams<string>("tab", "Approved PO");
 
   const userData = useUserData();
+  // Billing Executive mirrors Estimates Executive's view-only PO treatment (minus pricing).
   const estimatesViewing = useMemo(
-    () => userData?.role === "Nirmaan Estimates Executive Profile",
+    () => userData?.role === "Nirmaan Estimates Executive Profile" || userData?.role === "Nirmaan Billing Executive Profile",
     [userData?.role]
   );
   const isAccountant = useMemo(

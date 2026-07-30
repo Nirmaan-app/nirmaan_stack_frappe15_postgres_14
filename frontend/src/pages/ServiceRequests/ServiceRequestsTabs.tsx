@@ -25,13 +25,34 @@ export const ServiceRequestsTabs: React.FC = () => {
     const { counts } = useDocCountStore();
 
     const isAdmin = useMemo(() => SR_ADMIN_ROLES.includes(role), [role]);
+    // Estimates Executive + Billing Executive see ONLY the "All WO" tab.
+    const isAllWoOnly = useMemo(
+        () => ["Nirmaan Estimates Executive Profile", "Nirmaan Billing Executive Profile"].includes(role),
+        [role]
+    );
 
     // --- Tab State Management using urlStateManager ---
     const initialTab = useMemo(() => {
+        // Estimates / Billing only have the "All WO" tab, so it is always selected.
+        if (isAllWoOnly) return SR_TABS.ALL;
         const adminDefault = SR_TABS.APPROVE_WO;
         const userDefault = SR_TABS.PENDING;
-        return getUrlStringParam("tab", isAdmin ? adminDefault : userDefault);
-    }, [isAdmin]);
+        const raw = getUrlStringParam("tab", isAdmin ? adminDefault : userDefault);
+        // `approved-sr` / `finalized-sr` are SUB-tabs of the "All WO" tab, not
+        // top-level tabs -- dashboards deep-link to them. Map such a link onto the
+        // All WO tab so a tab actually gets selected; the sub-tab is pre-selected
+        // from `initialAllWOSubTab` below.
+        if (raw === SR_TABS.APPROVED || raw === SR_TABS.FINALIZED) return SR_TABS.ALL;
+        return raw;
+    }, [isAdmin, isAllWoOnly]);
+
+    // Which "All WO" sub-tab to open, derived from an approved-sr / finalized-sr deep link.
+    const initialAllWOSubTab = useMemo<"All" | "Approved" | "Finalized">(() => {
+        const raw = getUrlStringParam("tab", "");
+        if (raw === SR_TABS.APPROVED) return "Approved";
+        if (raw === SR_TABS.FINALIZED) return "Finalized";
+        return "All";
+    }, []);
 
     const [tab, setTab] = useState<string>(initialTab);
 
@@ -54,7 +75,13 @@ export const ServiceRequestsTabs: React.FC = () => {
         return isAdmin ? SR_ADMIN_TAB_OPTIONS : [];
     }, [isAdmin]);
 
-    const [allWOTab, setAllWOTab] = useState<"All" | "Approved" | "Finalized">("All");
+    // All WO-only roles (Estimates / Billing) get just the All WO common tab.
+    const commonTabs = useMemo(
+        () => (isAllWoOnly ? SR_COMMON_TAB_OPTIONS.filter((t) => t.value === SR_TABS.ALL) : SR_COMMON_TAB_OPTIONS),
+        [isAllWoOnly]
+    );
+
+    const [allWOTab, setAllWOTab] = useState<"All" | "Approved" | "Finalized">(initialAllWOSubTab);
 
     // --- Tab Change Handler ---
     const handleTabClick = useCallback((value: string) => {
@@ -140,7 +167,7 @@ export const ServiceRequestsTabs: React.FC = () => {
                     )}
 
                     {/* Common Tabs */}
-                    {SR_COMMON_TAB_OPTIONS.map(renderTabButton)}
+                    {commonTabs.map(renderTabButton)}
                 </div>
             </div>
 
