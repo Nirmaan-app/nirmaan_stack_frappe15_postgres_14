@@ -52,7 +52,8 @@ const ADMIN_ROLES = [
 ];
 
 const PM_ROLES = [
-  "Nirmaan Project Manager Profile"
+  "Nirmaan Project Manager Profile",
+  "Nirmaan Project Lead Profile"
 ];
 
 function sectionsForRole(role: string): ActionCenterSection[] {

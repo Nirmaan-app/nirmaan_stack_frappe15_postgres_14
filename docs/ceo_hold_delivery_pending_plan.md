@@ -6,11 +6,23 @@
 
 ---
 
+## 🛑 CEO Hold: Quick Summary for PMs & Procurement (Updated July 2026)
+
+To keep our material deliveries flowing, the system monitors how many Purchase Orders are stuck in transit. Here is how the automated CEO Hold works:
+
+* **The Limit is 10 Unique POs:** The system allows a maximum of 10 unique Purchase Orders to be in a "Delivery-Pending" state (e.g., Dispatched, Partially Dispatched, or Partially Delivered). 
+* **The 11th PO Triggers the Hold:** The moment the vendor dispatches an 11th unique PO, the project is instantly locked on CEO Hold. No new POs can be created until the site team files Delivery Notes to clear the backlog.
+* **We Count Unique POs, Not Items:** The system counts the actual unique Purchase Order documents, not the materials inside them. If a single PO has a messy mix of 50 items (some dispatched, some not), it still only adds exactly **+1** to your limit.
+
+**Action Required:** Site teams must file their Delivery Notes as soon as the truck arrives to prevent the project from getting locked!
+
+---
+
 ## 1. Decisions (from the grill)
 
 | # | Decision |
 |---|---|
-| Metric | `> 4` **POs awaiting delivery** = `> 4` Open `DN_PENDING` rows (per-PO grain). Threshold strict `> 4` (5+ trips). |
+| Metric | `> 10` **POs awaiting delivery** = `> 10` Open `DN_PENDING` rows (per-PO grain). Threshold strict `> 10` (11+ trips). |
 | Scope | `DN_PENDING` only (not `DC_PENDING`). |
 | Model | **Multi-source** reasons projection; **auto-only** (manual hold untouched). |
 | Lifecycle | **Symmetric auto-release** (≤4 → drop reason). Revert via existing `_find_previous_status` (`WIP` fallback). |
