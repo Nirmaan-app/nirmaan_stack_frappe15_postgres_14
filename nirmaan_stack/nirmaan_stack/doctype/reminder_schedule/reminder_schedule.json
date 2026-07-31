@@ -1,0 +1,210 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "REM-.####",
+ "creation": "2026-07-29 12:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "title",
+  "enabled",
+  "sb_recipients",
+  "role_profiles",
+  "sb_schedule",
+  "schedule_type",
+  "due_day",
+  "due_dates",
+  "cb_schedule",
+  "notify_before_days",
+  "sb_content",
+  "message",
+  "sb_tracking",
+  "next_due_date",
+  "reminds_on",
+  "cb_tracking",
+  "last_notified_on"
+ ],
+ "fields": [
+  {
+   "fieldname": "title",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Title",
+   "reqd": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Enabled"
+  },
+  {
+   "fieldname": "sb_recipients",
+   "fieldtype": "Section Break",
+   "label": "Recipients"
+  },
+  {
+   "description": "Everyone whose Role Profile is one of these (and is enabled) gets the reminder. Resolved live at send time.",
+   "fieldname": "role_profiles",
+   "fieldtype": "Table MultiSelect",
+   "label": "Role Profiles",
+   "options": "Reminder Role Profile",
+   "reqd": 1
+  },
+  {
+   "fieldname": "sb_schedule",
+   "fieldtype": "Section Break",
+   "label": "Schedule"
+  },
+  {
+   "default": "Monthly",
+   "description": "Monthly = one due day every month. Quarterly/Half-Yearly/Custom Dates = enter the due dates in the table below.",
+   "fieldname": "schedule_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Schedule Type",
+   "options": "Monthly\nQuarterly\nHalf-Yearly\nCustom Dates",
+   "reqd": 1
+  },
+  {
+   "depends_on": "eval:doc.schedule_type=='Monthly'",
+   "description": "Day of every month this is due (e.g. 7, 11, 15, 20). Clamped to month length.",
+   "fieldname": "due_day",
+   "fieldtype": "Int",
+   "label": "Due Day (of month)",
+   "mandatory_depends_on": "eval:doc.schedule_type=='Monthly'"
+  },
+  {
+   "depends_on": "eval:doc.schedule_type && doc.schedule_type!='Monthly'",
+   "description": "One row per due date. Pick the start month; the end month auto-fills for Quarterly (+3) and Half-Yearly (+6). Only the due date is entered by hand.",
+   "fieldname": "due_dates",
+   "fieldtype": "Table",
+   "label": "Due Dates",
+   "mandatory_depends_on": "eval:doc.schedule_type && doc.schedule_type!='Monthly'",
+   "options": "Reminder Due Date"
+  },
+  {
+   "fieldname": "cb_schedule",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "3",
+   "description": "How many days before the due date to send the reminder (e.g. 3 for monthly, 1 for weekly).",
+   "fieldname": "notify_before_days",
+   "fieldtype": "Int",
+   "label": "Notify Before (Days)"
+  },
+  {
+   "fieldname": "sb_content",
+   "fieldtype": "Section Break",
+   "label": "Content"
+  },
+  {
+   "description": "Optional body text included in the reminder email.",
+   "fieldname": "message",
+   "fieldtype": "Small Text",
+   "label": "Message"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "sb_tracking",
+   "fieldtype": "Section Break",
+   "label": "Tracking"
+  },
+  {
+   "description": "Next upcoming due date (auto-computed).",
+   "fieldname": "next_due_date",
+   "fieldtype": "Date",
+   "label": "Next Due Date",
+   "read_only": 1
+  },
+  {
+   "description": "Date the reminder email actually goes out (= Next Due Date - Notify Before).",
+   "fieldname": "reminds_on",
+   "fieldtype": "Date",
+   "label": "Reminds On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cb_tracking",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Last date a reminder was sent for this schedule (prevents double-send).",
+   "fieldname": "last_notified_on",
+   "fieldtype": "Date",
+   "label": "Last Notified On",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-07-30 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Reminder Schedule",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Admin Profile",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan PMO Executive Profile",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Accountant Lead",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "Nirmaan Accountant"
+  }
+ ],
+ "search_fields": "schedule_type,next_due_date",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "title",
+ "track_changes": 1
+}

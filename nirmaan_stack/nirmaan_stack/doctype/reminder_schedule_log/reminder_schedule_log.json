@@ -1,0 +1,161 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "hash",
+ "creation": "2026-07-30 12:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "reminder_schedule",
+  "reminder_title",
+  "due_date",
+  "status",
+  "cb_log",
+  "notified_at",
+  "completed_by",
+  "completed_at",
+  "sb_remarks",
+  "remarks"
+ ],
+ "fields": [
+  {
+   "description": "The Reminder Schedule (master task) this instance belongs to.",
+   "fieldname": "reminder_schedule",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Reminder",
+   "options": "Reminder Schedule",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "reminder_title",
+   "fieldtype": "Read Only",
+   "fetch_from": "reminder_schedule.title",
+   "in_list_view": 1,
+   "label": "Reminder Title"
+  },
+  {
+   "description": "The cycle this instance is for — the reminder's due date. (schedule + due date identify one cycle.)",
+   "fieldname": "due_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Due Date (cycle)",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "default": "Pending",
+   "description": "Born Pending when the reminder is raised; flips to Done when a user marks it complete.",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Pending\nDone"
+  },
+  {
+   "fieldname": "cb_log",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "When the reminder was raised (the notify-before moment that created this row).",
+   "fieldname": "notified_at",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Notified At",
+   "read_only": 1
+  },
+  {
+   "description": "The user who marked it done (empty while Pending).",
+   "fieldname": "completed_by",
+   "fieldtype": "Link",
+   "label": "Completed By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "completed_at",
+   "fieldtype": "Datetime",
+   "label": "Completed At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sb_remarks",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "label": "Remarks"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-07-30 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Reminder Schedule Log",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Admin Profile",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan PMO Executive Profile",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Accountant Lead",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "Nirmaan Accountant"
+  }
+ ],
+ "search_fields": "due_date,status,completed_by",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
