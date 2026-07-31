@@ -1214,7 +1214,13 @@ in the plan doc.
   (Option C -> `unsupported`); the trace NAMES the branch. Goldens dbu1 (VTPN fallback 24360/**3660**/14760) / dbu2 (TPN 8WAY
   table-hit install **1500**) / dbu3 (MCB-only shell None 23840/**3580**/14450) -- all live-verified in the Derivation. **This
   CLOSES the assembly-category arc.** A discarded v16b data-only attempt (shell REQUIRED, no none_skips) was reverted for the
-  owner ruling that MCB-only is real. **The wiring + point_wiring + switches_point + DB-build-up goldens are the standing regression pins for every addition.** The Rate Master
+  owner ruling that MCB-only is real. **EA-4d (owner-locked) SPLIT the `lookup_or_ratio` rounding: `round_lookup`
+  (the install-table-hit branch) + `round_ratio` (the shell-absent + IFERROR-fallback ratio branches) round
+  SEPARATELY; the legacy single `round` stays the fallback for both (backwards-compat).** v17's step sets
+  `round_lookup: null` -> the table-hit is UNROUNDED `matched[target] x mult` (sheet-faithful), while
+  `round_ratio: -1` rounds the ratio branches to tens. This corrected the EA-4c drift: **dbu4 TPN-6WAY table-hit
+  install `850 x 1.5` = 1275 UNROUNDED** (was over-rounded to 1280); goldens are now dbu1 (fallback 24360/3660/
+  14760) / dbu2 (TPN-8WAY table-hit 1500) / **dbu4 (TPN-6WAY 1275)**, d1/d2/dbu3-single-item removed. **The wiring + point_wiring + switches_point + DB-build-up goldens are the standing regression pins for every addition.** The Rate Master
   category selector is REGISTRY-driven (`rateMasterRegistry.ts` lists all eleven Electrical categories),
   NOT config-read. **EA-2: the pricing-sheet helper (`pricingSheetHelper.ts`) is N-CATEGORY** — it resolves
   the config PER row category (`configsByCategory`, fetched by a child `RateConfigFetcher` for all 11

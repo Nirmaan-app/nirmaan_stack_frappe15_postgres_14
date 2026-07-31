@@ -15770,4 +15770,77 @@ shell/MCB items NULL (honest degrade, not silently wrong); C7 (suites above, git
 **EA-4c CLOSES the assembly-category arc:** all five block-calculation categories are now live -- point wiring,
 switches point, industrial-socket pairing, tray accessories [fixed], and the DB build-up. **Standing
 classifier-vocabulary carry:** `switches_point` + `popup_boxes` + `lighting_mgmt_system` are unemitted by the
-Electrical classifier (helpers ready, a vocab update owed). **EA-5 is next.**
+Electrical classifier (helpers ready, a vocab update owed).
+
+## Build slice EA-4d (THE GENERAL COMPOSITE-DECOMPOSITION EXTRACTION MODE + DB single-item removal + the install round-split) COMPLETE
+
+**The problem EA-4d solved:** the EA-4c DB build-up was UNREACHABLE on real BoQs -- extraction still ran the
+db_switchgear category in `item_identity` mode (match ONE catalog item, REFUSE composites), the exact opposite
+of what the build-up needs (DECOMPOSE a composite "N-Way DB" into shell + MCB slots). EA-4d adds a GENERAL
+third extraction mode, makes DB its first user, removes the DB single-item path (which had NO sheet-cell basis
+-- the whole ALL-ITEM-WISE-RATE DB block IS the build-up, confirmed at the raw-cell recon), and fixes a
+rounding drift the raw-cell audit found.
+
+**Asset:** `rate_master_electrical_all_v17.json` (sha256 `c41ba8e7ce2e0b8b`, 795 items / 12 configs; loaded
+`replace=True`). db_switchgear config sha moved `e99961be`->`9cc77924` (batch `rmbulk-16968cccd14f`); all 11
+OTHER configs + all 795 items byte-identical to v16c; **WIRING config sha `c10509de` + its 588 items UNTOUCHED**.
+
+**(1) THE GENERAL COMPOSITE-DECOMPOSITION MODE (backend, `extraction.py`; owner-locked GENERALITY):** the mode
+is driven ENTIRELY from config -- NOTHING db-specific is hardcoded. Three seam edits:
+- `select_prompt_text(cfg)` -> a 3rd branch: `matching_mode == "composite_decomposition"` selects the NEW
+  `prompts/boq_composite_decomposition_prompt.md` (`item_identity` + attribute modes byte-unchanged).
+- NEW `build_slot_spec(cfg, discipline)` -- expands `cfg.composite_slots` into the `SLOT_SPEC` the prompt
+  consumes: a SHELL slot, a REPEATABLE group (`{prefix,count,item_suffix,qty_suffix}` -> enumerated
+  `mcb1_item..mcb5_item` + `_qty`), and FIXED slots, EACH slot's allowed catalog resolved via the EXISTING
+  `values_from_catalog` path (one live-master read per slot family). Returns None for a non-composite config.
+- the per-`(disc,cat)` group ctx carries `slot_spec` + `resolution_rules` (= `cfg.decomposition_rules`); both
+  None for the other two modes, so `_extract_batch` is byte-identical there. `_extract_batch` injects
+  `SLOT_SPEC` + `RESOLUTION_RULES` and accepts the model's `"slots"` key (else `"attributes"`, identical shape).
+- **A SECOND composite category opts in with ZERO extraction.py change: declare `matching_mode:
+  "composite_decomposition"` + `composite_slots` + `decomposition_rules` in its config.** This is the pattern
+  switches_point / industrial-socket pairing / future HVAC composites will migrate onto (standing roadmap).
+
+**(2) THE OWNER RESOLUTION RULINGS (in the decomposition prompt + `cfg.decomposition_rules`):** CURVE =
+BoQ-stated else UPS-context->D else C (undetermined->C); AMP = exact else NEXT-HIGHER catalog rating (never
+lower), a range ("10/20/25/32") takes the HIGHEST first; POLE mapping (4 pole/FP->FP, TPN/3 phase->TP,
+DP->DP, SP/1 phase->SP); PARTIAL PRICING = price every slot the catalog can satisfy, leave the un-cataloguable
+components (ATS, standalone bus bar, MFM, weatherproof/IP enclosure, module-count flexi shell, bespoke DB) OUT
+(shell None, no wrong pick); a WHOLE-row no-match returns all slots null (fully manual).
+
+**(3) DB SINGLE-ITEM REMOVAL:** the four single-item pipelines (`db_boq`/`db_install_nondb`/`db_install_db`/
+`db_bcs`) + the `family`/`item` attrs + goldens d1/d2 are GONE. db_switchgear now carries ONLY the 3 build-up
+pipelines. The `db_switchgear_item` MASTER rows (137) are RETAINED -- the build-up MCB/enclosure slots
+reference them.
+
+**(4) THE INSTALL ROUND-SPLIT FIX (interpreter, raw-cell fidelity):** `lookup_or_ratio` now honors
+`round_lookup` (the install-table-hit branch) and `round_ratio` (the shell-absent + IFERROR-fallback ratio
+branches) SEPARATELY. v17 sets `round_lookup: null` (table-hit UNROUNDED `VLOOKUP*1.5`, faithful to the sheet)
++ `round_ratio: -1` (ratio branches roundup tens). The legacy single `round` remains the fallback for both
+(backwards-compat, pinned by test). Corrects the EA-4c drift: TPN-6WAY install `850*1.5` = **1275** (was
+over-rounded to 1280). Goldens now dbu1 (VTPN fallback 24360/3660/14760) / dbu2 (TPN-8WAY table-hit 1500) /
+**dbu4 (TPN-6WAY table-hit 1275 UNROUNDED, the fix proof)**; d1/d2 removed.
+
+**Tests:** `test_rate_master` 31->**32** (test_31 rewritten to v17: single-item GONE, composite_slots present,
+round-split, dbu4=1275; test_32 NEW: the `build_slot_spec` + `select_prompt_text` seam, positive + negative).
+Interpreter vitest 66->**70** (a new EA-4d describe block: dbu4 UNROUNDED 1275, dbu2 1500, dbu1/dbu3 ratio
+branches rounded, + a BACKWARDS-COMPAT pin that the legacy single `round` still over-rounds to 1280). RM-4b
+`_validate_config` gained `composite_slots` + `decomposition_rules` pass-through keys.
+
+**CERT (browser + real AI):** D1 config live (3 build-up pipelines, no family/item, composite_decomposition +
+composite_slots; wiring sha unchanged). D2 the round-split on the live Derivation: dbu4 TPN-6WAY -> install
+**1275** trace "table-hit install_rate 850 x 1.5, no roundup"; dbu1 fallback 3660. D3 REAL-AI decomposition on
+**BOQ-26-00066 / ELECTRICAL BOQ** (146 eligible rows, `ai_status ran`): **29 db_switchgear rows decomposed
+correctly** -- amp range->highest (10/20->20, 40/32->40), UPS-ancestor->D curve (rows 410-416) vs non-UPS->C,
+partial pricing (weatherproof-enclosure + ATS rows priced the breaker, enclosure/ATS omitted; Fabricated Kitchen
+DB -> shell None + bus bar omitted), bare MCB -> shell None + one slot. Live price verified: row 430 (bare 63A
+FP MCB C CURVE x1) combined **2290** (= supply 1990 + install 300, matches an independent Python calc) with the
+grouped Db-Buildup-Supply/Install workings shown; **Use+undo rupee-verified** (2820->2290->2820). One low-conf
+flag surfaced (row 108 "16A 3-phase MCB" -> 16A SP @ conf 0.4 -- pole arguably TP, but flagged low not silent).
+**BOQ-26-00106 / 00113 were NOT certified: their runs hit the Anthropic account USAGE LIMIT (400
+"reached your specified API usage limits, regain 2026-08-01 00:00 UTC"), and one post-top-up re-run hit a
+transient `_extract_json_array` `Extra data` parse failure on one batch (a big sheet = more batches = more
+chances; the run is all-or-nothing). NEITHER is an EA-4d defect -- both fail loudly + save nothing. Owner
+accepted BOQ-26-00066 as the D3 evidence and directed proceed.** D5 gates all green (below).
+
+**EA-4c CLOSED the assembly-category arc; EA-4d makes it REACHABLE end-to-end for DB and generalises the
+extraction seam for the next composites. EA-5 is next.**

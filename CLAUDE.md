@@ -473,6 +473,24 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   14450). **This CLOSES the assembly-category arc (point wiring, switches point, industrial-socket pairing, tray
   accessories [fixed], DB build-up all live).** A discarded v16b data-only attempt (shell REQUIRED, no
   none_skips) was reverted for this owner ruling.
+  **EA-4d (owner-locked) supersedes the db_switchgear extraction + install-rounding invariants (asset v17,
+  sha `c41ba8e7ce2e0b8b`):** (1) the DB SINGLE-ITEM path is REMOVED -- `db_boq`/`db_install_nondb`/
+  `db_install_db`/`db_bcs` pipelines + the `family`/`item` attrs are GONE (they had NO sheet-cell basis; the
+  whole guiding DB block IS the build-up). db_switchgear carries ONLY the 3 build-up pipelines; the 137
+  `db_switchgear_item` master rows stay (the build-up slots reference them). (2) db_switchgear is the FIRST
+  `matching_mode: "composite_decomposition"` category -- a GENERAL extraction mode driven ENTIRELY by
+  `composite_slots` (shell / repeatable `{prefix,count,...}` -> enumerated slot attrs / fixed) +
+  `decomposition_rules`, with NOTHING db-specific in `extraction.py`; **a second composite (switches_point /
+  industrial sockets / future HVAC) opts in by config alone -- zero code change** (seam = `select_prompt_text`
+  + `build_slot_spec`; prompt asset `prompts/boq_composite_decomposition_prompt.md`). Owner resolution rulings
+  (in the prompt + `decomposition_rules`): CURVE BoQ-stated->UPS-context-D->default-C; AMP exact-or-NEXT-HIGHER
+  (never lower), range takes highest; PARTIAL pricing (un-cataloguable components -- ATS, standalone bus bar,
+  weatherproof enclosure, module-flexi shell, bespoke DB -- left out, never a wrong pick; whole-row no-match ->
+  all null). (3) `lookup_or_ratio` now honors `round_lookup` (table-hit) + `round_ratio` (ratio branches)
+  SEPARATELY; v17 sets `round_lookup: null` (table-hit UNROUNDED `VLOOKUP*1.5`, sheet-faithful) + `round_ratio:
+  -1`; the legacy single `round` stays the fallback for both. Goldens: dbu1 fallback 24360/3660/14760, dbu2
+  table-hit 1500, **dbu4 TPN-6WAY table-hit install 1275 UNROUNDED** (the fix; the EA-4c 1280 was the drift);
+  d1/d2 removed.
   **A functional config with a RED preview gate is exactly what the gate exists to surface -- even when the miss
   is in the golden, not the pipeline (two i1 golden defects caught + fixed by regenerated assets at EA-4b).**
   **The wiring + point_wiring + switches_point goldens are the standing regression pins; the wiring-asset
