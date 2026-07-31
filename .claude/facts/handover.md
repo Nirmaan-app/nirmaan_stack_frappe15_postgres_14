@@ -1,10 +1,10 @@
 ---
-recorded_tip: e7f4602f
+recorded_tip: 9cc5e689
 recorded_branch: feature/boq-within-boq-carry
-recorded_date: 2026-07-30
-handover_version: v5.91
+recorded_date: 2026-07-31
+handover_version: v5.92
 status: current
-folded: 2026-07-30
+folded: 2026-07-31
 ---
 
 # BoQ / Nirmaan Stack — Facts Doc (handover)
@@ -15,72 +15,83 @@ folded: 2026-07-30
 > **Rule (owner decision, v5.81).** The frontmatter + Status dashboard below are
 > the CURRENT record. Narrative history is NOT here — see *Sources* at the end.
 >
-> **Folded 2026-07-30** (v5.90 → v5.91) **from git, not from a narrative doc.**
-> The previous fold was 75 commits behind. Every claim below was derived from
-> `git log`/`git diff` over `21086546..e7f4602f` in this checkout and is
-> reproducible with the command shown beside it. Where a fact could NOT be
-> verified from the host — anything needing a bench run — it is marked
-> **UNVERIFIED** rather than carried forward from v5.90.
+> **Folded 2026-07-31** (v5.91 → v5.92) **from git.** Every claim below was
+> derived over `e7f4602f..9cc5e689` in this checkout. Test counts were observed
+> in-container this session by an independent agent, re-checked here statically.
 
 ## Status dashboard — CURRENT
 
-- **Recorded tip:** `e7f4602f` — *docs(context): carve the always-loaded docs into routers* — 2026-07-30. **UNPUSHED** (`git branch -r --contains e7f4602f` → 0 remote branches).
-- **Lane:** `feature/boq-within-boq-carry`, **25 commits ahead of `develop`**, merge-base *is* `develop` (`2bd6032f`) so the merge is a **clean fast-forward, no conflicts** (`git merge-tree --write-tree develop HEAD` returns a tree).
-- **Range folded:** `21086546..e7f4602f` — **69 non-merge commits, 369 files, +50,331 / −5,405**. Authors: Abhishek 42, **Nitesh 20**, Madhu 7.
-- **What landed since the last fold** (six arcs; the last fold named none of them):
+- **Recorded tip:** `9cc5e689` — *docs(boq): record slice WBC-S12* — 2026-07-31. **UNPUSHED** (`git branch -r --contains 9cc5e689` → 0 remote branches).
+- **Lane:** `feature/boq-within-boq-carry`, **39 commits ahead of `develop`, 0 behind.** Merge-base *is* `develop` (`2bd6032f`), so the merge is **still a clean fast-forward, no conflicts** (`git merge-tree --write-tree develop HEAD` returns a tree).
+- **Range folded:** `e7f4602f..9cc5e689` — **14 commits, 21 files, +2,683 / −408**. Author: **Abhishek 14 (sole)**.
+- **What landed — one session, three slices, all on the carry arc:**
 
-  | Arc | Commits | Author | State |
-  |---|---|---|---|
-  | **Rate Master + suggestion (RM-1 … RM-4b)** | 20 | Nitesh | **MERGED to `develop`** via PR #1133 (`2bd6032f`) |
-  | **Within-BoQ carry parity (R1–R18)** | 24 | Abhishek | on this lane, **unpushed** |
-  | Docs + context restructure | 7 | Abhishek | on this lane, unpushed |
-  | Expenses / invoice-recon | 6 | Abhishek | merged |
-  | Reports (Monthly WIP, inventory, Missing DC) | 3 | Abhishek / Madhu | merged |
-  | Roles (Billing Executive view-only mirror) | 2 | Madhu | merged |
+  | Slice | Commits | Headline |
+  |---|---|---|
+  | **WBC-S10** | `283a0199` | A copy-forward may land rates on uncategorised rows |
+  | **WBC-S11** | `f289889a` `72933a60` `bce47806` `3cd922da` `8b845cd4` | Opt-in serial + description second-pass match, cross-BoQ carry ONLY |
+  | **WBC-S12** | `50a437a4` `9cc5e689` | ADR-0014 Amendment G written under D6; three residues corrected |
 
-- **⚠️ MIGRATIONS PENDING FOR TEAMMATES — the v5.90 line "no NEW exposure this cycle" is FALSE for this range.** Verified via `git diff --name-status 21086546..HEAD -- '*/doctype/*/*.json'`:
-  - **4 NEW doctypes:** `boq_rate_category_config`, `boq_rate_master_item`, `boq_rate_suggestion_event`, `boq_rate_suggestion_run` (all from the Rate Master arc)
+  **S10 — ungate the copy-forward.** Owner's ruling: the category gate exists to stop a **hand-typed** rate landing on an uncategorised row; a copy moves known values from a known-good source, which is a **different risk**. The **edit-time gate is untouched** — `_guard_categories_complete` → `save_cell_price` (`pricing.py:680`) is byte-identical in *code* across the whole arc (only its docstring moved). `_categories_gate_ok` survives, and **`api/boq/rate_master.py:203` is now its sole non-test caller.**
+
+  **S11 — a moved row can still carry.** The cross-BoQ carry gained an **opt-in second pass** on serial + normalized description, run only over rows the position pass leaves unmatched **on both sides**. It pairs only when the key is unique on BOTH sides; blank, duplicate or differing serials leave the row unmatched. **A bad serial LOSES a match, it never CREATES a wrong one.** Enabled on `committed_excel_row_match` only — the within-BoQ copy-forward and the parse-time parenting carry **stay strict**, pinned by an AST call-site test. Serial-matched rows carry rate AND annotation layers.
+
+- **⚠️ MIGRATIONS STILL OWED TO TEAMMATES — carried from v5.91, NOT discharged.** This range adds **no new exposure**: `git diff --name-only e7f4602f..9cc5e689 -- '*/doctype/*/*.json'` is empty and `nirmaan_stack/patches.txt` is untouched. The outstanding debt is exactly what v5.91 recorded:
+  - **4 NEW doctypes:** `boq_rate_category_config`, `boq_rate_master_item`, `boq_rate_suggestion_event`, `boq_rate_suggestion_run` (Rate Master arc)
   - **7 MODIFIED doctypes:** `boq_sheet`, `boq_row_category`, `boq_cell_color`, `boq_cell_dismissal`, `boq_cell_remark`, `project_expenses`, `non_project_expenses`
-  - **2 `[MIGRATE]`-tagged commits:** `0fe9c6a2` (carry engine for categories + annotations, required provenance), `2a99d370` (lossless committed `sheet_config` snapshot)
-  - `nirmaan_stack/patches.txt` is **unchanged in this range** and clean — but a teammate pulling this still needs `bench migrate`. **The Abhishek heads-up is OWED and is now much larger than the G2b item v5.90 tracked.**
-- **Tests — ✅ BENCH-VERIFIED 2026-07-30, measured at `f215d6a9`** (4 commits past `recorded_tip`; ruling **R22**). All OBSERVED in-container via the bench runner, **not self-reported**. Cases and assertions given separately (assertions are static call-site counts):
+  - **2 `[MIGRATE]`-tagged commits:** `0fe9c6a2` (carry engine for categories + annotations), `2a99d370` (lossless committed `sheet_config` snapshot)
+  - A teammate pulling this needs `bench migrate`. **The heads-up is OWED.**
+- **Tests — ✅ observed in-container this session by an independent agent, at the commits named.** Static `def test_` counts in this checkout agree with every figure below.
 
-  | Suite | Cases | Assertions | Result |
-  |---|---|---|---|
-  | `api.boq.wizard.test_pricing` | 255 | 787 | OK |
-  | `api.boq.wizard.test_committed_carry` | 49 | 101 | OK |
-  | `api.boq.wizard.test_cross_boq_carry` | 60 | 152 | OK |
-  | `api.boq.wizard.test_classify` | 94 | 303 | OK |
-  | `services.boq_category.tests` (5 modules: decay 12 · hv2-voter 14 · routing-policy 23 · runner-electrical 82 · runner-hvac 104) | **235** | 442 | OK |
-  | **vitest** (in-container) | **1222** across **53** files | 2216 `expect(` | passed |
+  | Suite | Cases | Observed at |
+  |---|---|---|
+  | `api.boq.wizard.test_pricing` | **252** | `283a0199`, again at `8b845cd4` |
+  | `api.boq.wizard.test_committed_carry` | **58** | `8b845cd4` (was 49) |
+  | `api.boq.wizard.test_cross_boq_carry` | **68** | `8b845cd4` (was 60) |
+  | `services.boq_revision.test_row_match` | **39** | `8b845cd4` (was 17) |
+  | `services.boq_revision.test_carry` | **29** | `8b845cd4` |
+  | **vitest** (in-container) | **1222** across **53** files | `8b845cd4` |
+  | `api.boq.wizard.test_classify` | 94 | `f215d6a9`; count re-checked unchanged at `9cc5e689` |
+  | `services.boq_category.tests` (5 modules) | 235 | `f215d6a9`; tree untouched in this range |
 
-  **Zero skips anywhere.** Every backend suite's `Ran N` equals its `def test_` count, so nothing was silently filtered. ⚠️ `test_pricing` prints a SQL traceback + duplicate-key line from `test_atomicity_concurrent_first_edit_exactly_one_winner` — that is the suite deliberately racing the pricing lock; the noise is the assertion working, and the suite reports `OK`. **v5.90's `976 / 230 / 70 / 50` are historical.** Also historical: the interim `1188 / 50` quoted mid-arc.
-- **tsc:** ✅ **3,236 error lines repo-wide**, measured by hand in-container at `f215d6a9` — the pre-existing baseline, unchanged. **Nothing in the repo runs tsc automatically** (no `typecheck` script; `build` is `vite build`/esbuild, which strips types without checking; CI runs the bench suite only), so this figure is only ever as fresh as the last manual run.
-- **AI toggle:** not exercised in this range. HV-11 tracker armed, no known flips. Engine health stays untrusted until monitored.
-- **Deferred items:** **still 5 / 5 — AT CEILING.** Item (b) is *partially* discharged (10 stranded Rate Master records recovered into the plan tree); item (d) has **escalated** — 4 new doctypes landed while the merge new-doctype inventory remains unread.
-- **Open risks:** 25 commits unpushed and unreplicated on any remote; migration heads-up owed; the pricing module is LIVE in production; `boq-backend-wizard-endpoints.md` sits in the size warn band (65.6 KB) as a flat block with no structural split available.
+  **Zero skips** — verified by counting unittest progress characters, all plain dots; no `@skip` decorator exists in these modules. ⚠️ `test_pricing` prints a SQL traceback + duplicate-key line from `test_atomicity_concurrent_first_edit_exactly_one_winner` — the suite deliberately racing the pricing lock; the noise is the assertion working, and the suite still reports `OK`. **v5.91's `255 / 49 / 60` are historical.**
+- **tsc:** 3,236 error lines repo-wide at `f215d6a9` — the pre-existing baseline, **NOT re-measured over this range.** Nothing runs tsc automatically (no `typecheck` script; `build` is esbuild, which strips types without checking), so it is only ever as fresh as the last manual run.
+- **AI toggle:** not exercised in this range. HV-11 tracker armed, no known flips.
+- **Deferred items:** **8 — OVER the ceiling of 5.** See the register below.
+- **Open risks:**
+  - **The arc is code-complete but UNCERTIFIED in a browser.** S10 and S11 both changed user-visible carry behaviour and neither has been driven live. This is the top risk and it gates the merge.
+  - **39 commits unpushed and unreplicated on any remote** — they exist on exactly one disk and now include the whole S10/S11 carry work.
+  - Migration heads-up owed (above).
+  - The **pricing module is LIVE in production**.
+  - `boq-backend-wizard-endpoints.md` sits in the size warn band (65.6 KB) as a flat block with no structural split available.
 
-### Context + plan layout (restructured 2026-07-29/30 — read this before looking for anything)
+### Context + plan layout — read this before looking for anything
 
 | Where | What | Rule |
 |---|---|---|
-| `CLAUDE.md`, `frontend/CLAUDE.md` | **routers**, 19.0 KB + 16.3 KB | Invariants + a when-you-touch-X-read-Y table. Auto-loaded. Was 177.8 KB combined. |
+| `CLAUDE.md`, `frontend/CLAUDE.md` | **routers**, 19.0 KB + 16.3 KB | Invariants + a when-you-touch-X-read-Y table. Auto-loaded. |
 | `.claude/context/conventions/`, `frontend/.claude/context/conventions/` | 11 surfaces | How to **change** a surface. On demand. |
-| `.claude/context/domain/boq-backend.md` | **router**, 1.7 KB → 5 surfaces | Was 187.3 KB. |
-| `frontend/.claude/plans/boq/` | `README.md` trunk · `_slices.md` (180 rows) · `slices/` 179 write-once fragments · `phasing.md` / `known-issues.md` / `decisions/` registers | Fragments chain to `-part2.md`; registers are grepped, not loaded. |
+| `.claude/context/domain/boq-backend.md` | **router**, 1.7 KB → 5 surfaces | On demand. |
+| `frontend/.claude/plans/boq/` | `README.md` trunk · `_slices.md` (185 rows) · `slices/` 183 write-once fragments · `phasing.md` / `known-issues.md` / `decisions/` registers | Fragments chain to `-part2.md`; registers are grepped, not loaded. |
 | `frontend/.claude/plans/boq/archive/boq-upload-plan-pre-split.md` | 1.35 MB | The pre-rotation monolith. **Historical only.** |
 
-Both `_index.md` files are authoritative; the session-start hook reports unindexed files. Neither `boq-frontend.md` nor `boq-upload-plan.md` exists any more — they were split at `61f82798` and rotated at `15e9b81e`.
+Both `_index.md` files are authoritative; the session-start hook reports unindexed files. **Neither `boq-frontend.md` nor `boq-upload-plan.md` exists any more** — don't hunt for them.
 
-### Deferred register (at ceiling)
+### Deferred register — ⚠️ **8 items against a ceiling of 5. It is OVER.**
+
+Three added this session, none discharged. Nothing was silently dropped; the
+overflow is stated so the owner can choose what goes.
 
 | # | Item | Note |
 |---|---|---|
-| a | §3 sub-phase records | |
-| b | Narrative catch-up | |
+| a | §3 sub-phase records | **discharge candidate** — low-value, long-stale |
+| b | Narrative catch-up | **discharge candidate** — partly done (10 stranded RM records already recovered) |
 | c | Editor-perf cleanup — A/B toggle retirement after the stability window | |
-| d | Merge new-doctype inventory unread | |
+| d | Merge new-doctype inventory unread | **LOAD-BEARING** — 4 new doctypes landed while it stayed unread |
 | e | **Set-3 trigger undefined** | **LOAD-BEARING** |
+| f | `_NODE_MATCH_FIELDS` in `committed_carry.py` fetches `level`, which `_content_match_rows` never reads | Pre-existing dead read (projects `source_row_number`/`description`/`code` only). Needs a slice owning that file. |
+| g | **`docs/adr/` has duplicate ADR numbers** — two files each at **0002, 0007, 0008, 0009 and 0014** | "ADR-0014" **by number alone is ambiguous in this repo** (`0014-boq-revised-upload-and-carry.md` vs `0014-invoice-mutation-permissions.md`). Always cite the filename. Renumbering is its own decision. |
+| h | **Two immutable commit messages overclaim** | `72933a60`'s body describes a boundary the owner's ruling then changed (corrected in `bce47806`); `8b845cd4`'s subject says it wrote ADR-0014 Amendment G but it **never opened the ADR** — that happened later, in `50a437a4`. **Anyone bisecting to either will be misled.** |
 
 Tracked riders (not carries): Electrical baseline re-snapshot (superseded by the new master); v5.89 arc-close leftovers (§6 correction, stale `review_screen.py` comment, PR-description note); `test_pricing` SQL-traceback noise; AI-abstains-on-Preambles; non-admin on-screen check; live worker-failure test.
 
@@ -90,11 +101,29 @@ Electrical content = the NEW team master (v7 lineage, imported via Replace from 
 
 ## Next action (strict order)
 
-1. **Get the 25 commits off this machine.** They exist on exactly one disk, include the whole R1–R18 carry arc and the docs restructure, and nothing is replicated. Clean fast-forward onto `develop`, owner-gated, from HOST PowerShell (#53).
-2. **Send the migration heads-up to Abhishek** — now covering 4 new doctypes + 7 modified + the two `[MIGRATE]` commits, not just the G2b item. Name the merge order; `bench migrate` is required after pull. **This gates the push** (Full-tier rule).
-3. ~~**Bench-verify the test counts** and record them here.~~ ✅ **DONE 2026-07-30** — recorded in the dashboard above, measured at `f215d6a9`. Re-verify after the next code-bearing slice; the numbers are a measurement with a date, not a standing fact.
-4. **U2** — earthing wired real, stub deleted. The 2-session box has one session left; exit criterion per rate-helper §7a. (`stubRateHelper.test.ts` is already deleted in this range, so the stub retirement is partly done — verify what remains.)
-5. **Close a deferred item before adding one** — register is at ceiling, and (d) *merge new-doctype inventory unread* is now the load-bearing one given the 4 new doctypes.
+1. **OWNER LIVE CERTIFICATION IS OWED FOR BOTH S10 AND S11. NOTHING MERGES BEFORE IT.**
+   The arc is code-complete and browser-unverified. In each case the **pairing**
+   is the proof — a single passing half proves nothing.
+
+   - **S10.** On a sheet whose CURRENT version has uncategorised rows:
+     (i) copy-forward **SUCCEEDS**; then (ii) hand-typing a rate on that **same
+     sheet** is **still REFUSED**, with the amber banner. **Include a qty-less
+     Preamble** among the rows checked.
+   - **S11.** (i) A **within-BoQ** copy-forward on a **moved-but-same-serial**
+     row must **STILL REFUSE** — the boundary holding. (ii) Rows with
+     **duplicate serials** must stay in the **not-carried** bucket — the safe
+     failure working.
+
+2. **Decide push / merge to `develop`.** 39 commits, clean fast-forward,
+   owner-gated, from HOST PowerShell (#53). Gated on (1) and (3).
+3. **Send the migration heads-up to teammates** — 4 new doctypes + 7 modified +
+   the two `[MIGRATE]` commits. Name the merge order; `bench migrate` is required
+   after pull. **Carried from v5.91, still owed.** Gates the push (Full-tier rule).
+4. **Discharge deferred items — the register is OVER ceiling at 8.** (d) and (e)
+   are load-bearing and must survive; (a) and (b) are the candidates to close.
+5. **U2** — earthing wired real, stub deleted. One session left in the 2-session
+   box; exit criterion per rate-helper §7a. (`stubRateHelper.test.ts` is already
+   deleted, so the stub retirement is partly done — verify what remains.)
 6. Residuals: retire throwaway estimator tests; **Google sharing revocation — the containment endpoint, still owed**; v5.89 arc-close leftovers (Pricing-Editor §6 correction, stale `review_screen.py` comment, PR-description note); carve `boq-backend-wizard-endpoints.md` if a structural split appears.
 
 **Checklist C is owed fresh at next resume** (agreement #41) against this dashboard.
@@ -178,11 +207,11 @@ Cited by number throughout the plan docs and prompts. Full text: §8 of the sour
 
 The §9 register (numbered findings, currently past #164) lives in the source handover — it is large and is a **grep target, not a load**. The parser-specific subset is mirrored in `frontend/.claude/plans/boq/known-issues.md`.
 
-## Standing noise — **PER MACHINE, not global** (corrected 2026-07-30)
+## Standing noise — **PER MACHINE, not global**
 
-⚠️ **The v5.90 list was machine-specific and unlabelled, which made it wrong wherever it was read.** Verified on 2026-07-30 in the macOS checkout: 5 of its 6 entries do not exist there, and one had the wrong path. A13 asks the executor to declare pre-existing noise, so a list that misfires produces either a false "clean tree" or a phantom finding. **Derive it from `git status` each session; treat the block below as a per-machine expectation, not a fact.**
+⚠️ A13 asks the executor to declare pre-existing noise, so a list that misfires produces either a false "clean tree" or a phantom finding. **Derive it from `git status` each session; treat the blocks below as a per-machine expectation, not a fact.**
 
-**Path correction, both machines:** `patches.txt` lives at **`nirmaan_stack/patches.txt`**, not the repo root. It is tracked, was **clean and unchanged** across `21086546..e7f4602f`, and is still Abhishek-owned — never edit it.
+**Both machines:** `patches.txt` lives at **`nirmaan_stack/patches.txt`**, not the repo root. Tracked, Abhishek-owned, unchanged through `9cc5e689` — never edit it.
 
 **Nitesh's Windows / Docker checkout** (`C:\Users\nites\Documents\...` — the one the Environment Runbook below describes):
 ```
@@ -195,8 +224,9 @@ untracked: Handover doc.pdf
 untracked: tendering-won.patch
 ```
 
-**Abhishek's macOS checkout** (verified 2026-07-30 at `e7f4602f`; `_classification_review/` and the three untracked artefacts above are **not present here at all** — they are Nitesh-machine working data):
+**Abhishek's macOS checkout** (re-verified 2026-07-31 at `9cc5e689`; `_classification_review/` and the three untracked artefacts above are **not present here at all** — they are Nitesh-machine working data):
 ```
+untracked: cert-shots/                      <- NEW since v5.91; browser-cert screenshots
 untracked: docs/boq/                        <- ~45 explainer HTML/MD + node-audit-src/, shots/
 untracked: docs/crm-merge/
 untracked: docs/adr/0012-crm-stack-unification.md
