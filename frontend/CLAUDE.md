@@ -1201,8 +1201,20 @@ in the plan doc.
   interlocked rule, with `extraction_defaults={paired_mcb:"None"}` so a socket-only row prices (absent=unknown
   ->no_match; "None"=positive-absence->0). Tray ceiling-accessories = a CONFIRMED FIXED 106 scalar. **switches_point
   has ZERO production coverage until the Electrical CLASSIFIER emits it (rows resolve to switches_sockets today) --
-  a classifier-vocab gap like popup_boxes/LMS; industrial_sockets IS emitted.** EA-4c (the DB build-up variable-length
-  MCB list + a list-valued extraction extension) is the one genuine new shape left. **The wiring + point_wiring + switches_point goldens are the standing regression pins for every addition.** The Rate Master
+  a classifier-vocab gap like popup_boxes/LMS; industrial_sockets IS emitted.** **EA-4c SHIPPED the DB build-up +
+  the `lookup_or_ratio` interpreter step (owner-ruled ONE new capability):** the build-up is FIVE FIXED None-able
+  MCB slots (sheet I10:I14) + a `db_shell` slot (allow_none -- **MCB-only, shell None, is a REAL product = the
+  sheet's `IF(J9=0)` branch**) + enclosure, summed x0.495/x0.3 -- supply+bcs are EXISTING vocabulary
+  (`component_ref none_skips` cross-kind to the NEW `db_shell` kind), so the old "variable-length list + list
+  extraction extension" prediction was WRONG (the scalar payload carries the fixed slots, no extension). **`lookup_or_ratio`**
+  (in `ratePipelineInterpreter.ts`; `LookupOrRatioStep` in `rateMasterTypes.ts`; `STEP_VOCABULARY` in
+  `rateMasterStructure.ts`) is the sheet's EXACT IFERROR three-way install: shell absent (`when_shell_absent.attr=="None"`)
+  -> `ROUNDUP(ratio.of x mult)`; else the unique install-table lookup (`kind`+`item`==`@attr`) resolves -> `ROUNDUP(matched[target] x mult)`
+  [table-hit]; lookup MISS -> the ratio fallback. Uncomputed `ratio.of` -> honest no_match; malformed shape NEVER throws
+  (Option C -> `unsupported`); the trace NAMES the branch. Goldens dbu1 (VTPN fallback 24360/**3660**/14760) / dbu2 (TPN 8WAY
+  table-hit install **1500**) / dbu3 (MCB-only shell None 23840/**3580**/14450) -- all live-verified in the Derivation. **This
+  CLOSES the assembly-category arc.** A discarded v16b data-only attempt (shell REQUIRED, no none_skips) was reverted for the
+  owner ruling that MCB-only is real. **The wiring + point_wiring + switches_point + DB-build-up goldens are the standing regression pins for every addition.** The Rate Master
   category selector is REGISTRY-driven (`rateMasterRegistry.ts` lists all eleven Electrical categories),
   NOT config-read. **EA-2: the pricing-sheet helper (`pricingSheetHelper.ts`) is N-CATEGORY** — it resolves
   the config PER row category (`configsByCategory`, fetched by a child `RateConfigFetcher` for all 11

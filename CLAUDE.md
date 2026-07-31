@@ -455,8 +455,24 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   rule (`{item:"...Interlocked"}?0:1`), with **`extraction_defaults={paired_mcb:"None"}` the production fix** so a
   socket-only row prices instead of refusing (absent=unknown->no_match; "None"=positive-absence->0 line -- the
   EA-4a-r distinction, owner-locked). Tray ceiling-accessories are a CONFIRMED FIXED 106 scalar (do not make
-  adjustable this era). EA-4c (the DB build-up) is the one genuine NEW shape: a variable-length MCB list +
-  an extraction-payload extension (today the extraction payload is one-attribute-set-per-row, scalar-valued).
+  adjustable this era). **EA-4c SHIPPED the DB build-up + the `lookup_or_ratio` interpreter step (owner-ruled
+  ONE new capability -- implement the sheet's IFERROR install EXACTLY):** the build-up is FIVE FIXED None-able
+  MCB slots (mirroring the sheet's I10:I14) + a `db_shell` slot (allow_none -- **MCB-only, shell None, is a REAL
+  product = the sheet's `IF(J9=0)` branch**, the same module pricing bare MCBs) + enclosure, summed x0.495
+  (supply) / x0.3 (bcs); supply + bcs are EXISTING vocabulary (`component_ref none_skips` cross-kind to the NEW
+  `db_shell` kind, `sum_components`, `scale`, `roundup`), so the earlier "variable-length list step +
+  extraction-payload extension" prediction was WRONG -- the scalar one-attribute-set-per-row payload carries the
+  fixed slots and needed NO extension. **`lookup_or_ratio` is the sheet's EXACT IFERROR three-way install**
+  (owner contract, do NOT improvise): (a) `when_shell_absent.attr=="None"` -> `ROUNDUP(ratio.of x ratio.mult)`
+  [shell-absent]; (b) else the unique install-table lookup (`kind`+`item`==`@attr`) resolves -> `ROUNDUP(matched
+  [target] x mult)` [table-hit]; (c) lookup MISS -> `ROUNDUP(ratio.of x ratio.mult)` [IFERROR fallback]. A ratio
+  branch with an uncomputed `ratio.of` is an HONEST no_match; a malformed shape NEVER throws (Option C ->
+  `unsupported`); the trace NAMES the branch. Pass-through in `rate_master._KNOWN_STEP_TYPES` (no deep
+  validation; its `@db_shell_item` is reference-guarded via the supply `component_ref`s). Goldens dbu1 (VTPN
+  fallback 24360/3660/14760) / dbu2 (TPN 8WAY table-hit install 1500) / dbu3 (MCB-only shell None 23840/3580/
+  14450). **This CLOSES the assembly-category arc (point wiring, switches point, industrial-socket pairing, tray
+  accessories [fixed], DB build-up all live).** A discarded v16b data-only attempt (shell REQUIRED, no
+  none_skips) was reverted for this owner ruling.
   **A functional config with a RED preview gate is exactly what the gate exists to surface -- even when the miss
   is in the golden, not the pipeline (two i1 golden defects caught + fixed by regenerated assets at EA-4b).**
   **The wiring + point_wiring + switches_point goldens are the standing regression pins; the wiring-asset

@@ -15706,3 +15706,68 @@ lighting_mgmt_system; the helper is ready, a classifier vocab update is owed). `
 bucket is a VARIABLE-LENGTH list of N enumerated MCBs x qty. It needs (a) a repeated/list component step AND
 (b) an extraction-payload extension (today the payload is one-attribute-set-per-row, scalar `value:
 string|number|null` -- it cannot carry a component-line list). The DB oracle (24360/3660/28020) is banked.
+
+## Build slice EA-4c (THE DB BUILD-UP + the lookup_or_ratio install step) COMPLETE
+
+**Owner ruling superseded the EA-4b prediction above:** the DB build-up is NOT a variable-length list step +
+extraction extension. It is **FIVE FIXED None-able MCB slots** (mirroring the sheet's I10:I14) + a REQUIRED
+shell + enclosure -- the same fixed-slot pattern as switches_point (EA-4b), so the supply/BCS buckets are
+EXISTING vocabulary (`component_ref` @attr/qty/none_skips cross-kind to `db_shell`, `sum_components`, `scale`,
+`roundup`). The scalar one-attribute-set-per-row extraction payload carries the fixed slots fine -- **no
+payload extension was needed**. The ONE genuine new capability is the install step.
+
+**A prior data-only attempt (v16b) was DISCARDED:** it made the shell a REQUIRED base (no `none_skips`, no
+`allow_none`) so `shell=None` honestly no-computed. Owner ruling reversed it -- **MCB-only (shell None) is a
+REAL product** (the sheet's `IF(J9=0)` branch: the same module prices bare MCBs). v16b's edits (its interpreter
+tests + backend test + banked note) were reverted; the live DB was restored to v15c before EA-4c.
+
+**THE NEW INTERPRETER STEP -- `lookup_or_ratio`** (`ratePipelineInterpreter.ts`; type in `rateMasterTypes.ts`;
+`STEP_VOCABULARY` in `rateMasterStructure.ts`; pass-through in `rate_master._KNOWN_STEP_TYPES`). It is the
+sheet's EXACT IFERROR three-way install, in order: (a) `when_shell_absent.attr == "None"` -> `ROUNDUP(ratio.of
+x ratio.mult)` [shell-absent ratio branch]; (b) else the unique install-table lookup (`kind` + `item` attr ==
+the resolved `@attr`) RESOLVES -> `ROUNDUP(matched[target] x lookup.mult)` [table-hit]; (c) the lookup MISSES
+(no unique row, or a non-finite target) -> `ROUNDUP(ratio.of x ratio.mult)` [the IFERROR fallback]. A ratio
+branch whose `ratio.of` is not computed is an HONEST no_match; a malformed shape NEVER throws (Option C -> the
+outer try/catch degrades to `unsupported`). The trace NAMES the branch that fired (shell absent / table-hit /
+fallback).
+
+**Asset v15c -> v16c** (`rate_master_electrical_all_v16c.json`, sha256 `95188b665c99c167`, **795 items /
+db_shell 27 / 12 E-ALL configs**; v16/v16b skipped in the asset dir) loaded `replace=True` -> batch
+`rmbulk-9ef0cca71766`; **total active Electrical configs 13** (with wiring). Deltas vs v15c: (1) NEW kind
+`db_shell` (27 = the DB & Switchgear D3:E30 shell rates, key `shell_rate`); (2) `db_switchgear` gains the
+build-up defs (`db_shell_item` [allow_none -- MCB-only is real] + `db_shell_qty`; `mcb1..mcb5` item+qty each
+allow_none; enclosure item+qty) + 3 pipelines `db_buildup_supply` (buckets x0.495) / `db_buildup_install`
+(supply steps then the ONE `lookup_or_ratio`) / `db_buildup_bcs` (raw x0.3); the 4 single-item pipelines
+(`db_boq`/`db_install_nondb`/`db_install_db`/`db_bcs`) UNTOUCHED; (3) `item_kinds` gains `db_shell`; (4) goldens
+dbu1/dbu2/dbu3. **WIRING batch `rmbulk-f676a178e05a` UNCHANGED** (292/296; wiring-asset sha `dcc9b2ea69f072bb`
+untouched). `loader.py` UNTOUCHED -- `DEFAULT_DATA_FILE` is the WIRING asset (the version-pin wart is on wiring,
+not E-ALL); the E-ALL asset loads by path, so the prompt's "loader.DEFAULT_DATA_FILE v15c->v16c" was a misread
+(editing it would wrongly point the wiring default at E-ALL).
+
+**Three mirror-verified goldens (all hand + vitest + live-Derivation verified):** **dbu1** VTPN fallback
+(shell present, VTPN NOT in the install table) -> 24360 / **3660** / 14760; **dbu2** TPN 8WAY table-hit
+(install_rate 1000 x1.5) -> 13190 / **1500** / 8000; **dbu3** MCB-only (shell None) -> 23840 / **3580** / 14450
+(install via the shell-absent ratio branch). The `composites.db_switchgear` supply/install/total (24360/3660/
+28020, total = supply+install) is the guiding-sheet display, left as-is; the three cases are banked under
+`ea4c_addition` in `ea3_banked_composites.json`.
+
+**GATES:** vitest ratePipelineInterpreter 59 -> **65** (dbu1 fallback 3660; dbu2 table-hit 1500; dbu3
+shell-None 3580; mcb3=None drops its line; a lookup_or_ratio whose ratio.of is missing -> no_match; a malformed
+lookup_or_ratio NEVER throws -> unsupported); rate vitest suites 126 -> **132**; tsc **0-new** (3236); vite
+build **exit 0**; backend test_rate_master 30 -> **31** (v16c loads 795/db_shell 27/12 configs; the 3 build-up
++ 4 single-item pipelines; the lookup_or_ratio shape; goldens dbu1/dbu2/dbu3; the RM-4b validator ACCEPTS
+lookup_or_ratio as pass-through -- proven on a round-trippable wiring config); test_rate_suggest 12 /
+test_pricing 230 / carry 44/53/33 unchanged. **CERT C1-C7 GREEN on screen + real-AI:** C1 (v16c live 795 /
+db_shell 27, db_switchgear carries the build-up + single-item pipelines, wiring sha unchanged); **C2** dbu1
+FALLBACK branch on screen (install trace "table miss -> fallback supply x 0.15"); **C3** dbu2 TABLE-HIT branch
+(install trace "table-hit: install_rate 1000 x 1.5"); **C4** dbu3 MCB-only shell-absent branch (install trace
+"shell absent -> supply x 0.15"; DB qty greyed); C5 (single-item db_boq 1990 / db_install_nondb 300 / db_bcs
+1203 compute unaffected alongside every build-up; None slots -> 0); **C6** real Claude AI (service-level, zero
+residue): a bare-MCB row "Supply 12 nos 63A FP MCB C CURVE" -> `db_shell_item="None"` + `mcb1="63A FP MCB C
+CURVE" x12` (the MCB-only path, = dbu3), a complex "14 way TPN DB with 36 mixed MCBs" row -> family DB but
+shell/MCB items NULL (honest degrade, not silently wrong); C7 (suites above, git clean).
+
+**EA-4c CLOSES the assembly-category arc:** all five block-calculation categories are now live -- point wiring,
+switches point, industrial-socket pairing, tray accessories [fixed], and the DB build-up. **Standing
+classifier-vocabulary carry:** `switches_point` + `popup_boxes` + `lighting_mgmt_system` are unemitted by the
+Electrical classifier (helpers ready, a vocab update owed). **EA-5 is next.**
