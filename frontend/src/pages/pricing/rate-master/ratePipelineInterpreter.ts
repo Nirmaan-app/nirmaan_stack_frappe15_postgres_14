@@ -694,6 +694,72 @@ export function runPipeline(
         produced: { key: s.result, value },
         runningValues: snapshot(),
       });
+    } else if (stepType === "lookup_or_ratio") {
+      // EA-4c: the DB build-up install -- the sheet's EXACT IFERROR three-way, in order:
+      //   (a) shell absent (when_shell_absent.attr == equals) -> ROUNDUP(ratio.of x ratio.mult);
+      //   (b) else the unique install-table lookup (kind + item attr == the resolved @attr) resolves
+      //       -> ROUNDUP(matched[lookup.target] x lookup.mult) [the TABLE-HIT branch];
+      //   (c) the lookup MISSES (no unique row, or the target rate is absent) -> ROUNDUP(ratio.of x
+      //       ratio.mult) [the IFERROR FALLBACK]. A ratio branch whose ratio.of is not computed is an
+      //       HONEST no-compute. The trace names which branch fired. Never throws (Option C; a malformed
+      //       shape degrades via the outer try/catch to `unsupported`).
+      const s = raw as import("./rateMasterTypes").LookupOrRatioStep;
+      const ratioSrc = ctx[s.ratio.of];
+      const ratioOk = typeof ratioSrc === "number" && Number.isFinite(ratioSrc);
+      const ratioValue = () => roundUp(ratioSrc * s.ratio.mult, s.round);
+      const noRatioSource = (why: string) => {
+        steps.push({
+          step: stepType,
+          label: s.explain || `install: ${why}, '${s.ratio.of}' not computed -- no value`,
+          runningValues: snapshot(),
+        });
+        return { pipelineId, outputs: pipeline.output, status: "no_match" as const, steps, finals: {}, matchedItem, note: pipeline.note };
+      };
+      if (selected[s.when_shell_absent.attr] === s.when_shell_absent.equals) {
+        // (a) the sheet's IF(J9=0) branch -- the shell is positively absent (MCB-only DB)
+        if (!ratioOk) return noRatioSource("shell absent");
+        const value = ratioValue();
+        ctx[s.result] = value;
+        steps.push({
+          step: stepType,
+          label: s.explain || "install (shell absent)",
+          matchedCondition: `shell absent -> ${s.ratio.of} x ${s.ratio.mult} (ratio branch)`,
+          produced: { key: s.result, value },
+          runningValues: snapshot(),
+        });
+      } else {
+        const itemRef = s.lookup.item;
+        const itemVal =
+          typeof itemRef === "string" && itemRef.startsWith("@") ? selected[itemRef.slice(1)] : itemRef;
+        const rows = items.filter((it) => it.kind === s.lookup.kind && it.attributes?.item === itemVal);
+        const hitRate = rows.length === 1 ? rows[0].rates?.[s.lookup.target] : undefined;
+        if (rows.length === 1 && typeof hitRate === "number" && Number.isFinite(hitRate)) {
+          // (b) TABLE-HIT: the shell is in the SPN/TPN install table
+          const value = roundUp(hitRate * s.lookup.mult, s.round);
+          ctx[s.result] = value;
+          steps.push({
+            step: stepType,
+            label: s.explain || "install (install-table)",
+            refItem: String(itemVal ?? s.lookup.kind),
+            matchedCondition: `table-hit: ${s.lookup.target} ${fmtNum(hitRate)} x ${s.lookup.mult} (table branch)`,
+            produced: { key: s.result, value },
+            runningValues: snapshot(),
+          });
+        } else {
+          // (c) the IFERROR fallback: shell present but NOT in the table (VTPN/custom) -> supply ratio
+          if (!ratioOk) return noRatioSource("table miss");
+          const value = ratioValue();
+          ctx[s.result] = value;
+          steps.push({
+            step: stepType,
+            label: s.explain || "install (fallback)",
+            refItem: String(itemVal ?? s.lookup.kind),
+            matchedCondition: `table miss -> fallback ${s.ratio.of} x ${s.ratio.mult} (ratio branch)`,
+            produced: { key: s.result, value },
+            runningValues: snapshot(),
+          });
+        }
+      }
     } else {
       // UNKNOWN step type -> explicit unsupported state, never a silent skip.
       steps.push({

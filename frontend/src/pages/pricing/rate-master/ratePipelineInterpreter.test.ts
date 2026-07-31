@@ -850,3 +850,85 @@ describe("EA-4b industrial_sockets paired-MCB (None default / interlocked)", () 
     expect(r.status).toBe("no_match");
   });
 });
+
+// ---- EA-4c: the DB build-up + lookup_or_ratio (the sheet's exact IFERROR three-way install) ----
+// Shell is a None-able slot too (MCB-only is a REAL product -- the sheet's IF(J9=0) branch), so ALL
+// seven component_refs carry none_skips. Supply/BCS are existing vocabulary; the install ends in ONE
+// lookup_or_ratio step: shell absent -> supply x0.15; shell in the install table -> table x1.5; shell
+// present but not in the table -> supply x0.15 fallback (the IFERROR).
+const dbcRef = (name: string, kind: string, itemAttr: string, target: string, qtyAttr: string, family?: string) => ({
+  step: "component_ref" as const, name, ref: family ? { kind, item: itemAttr, family } : { kind, item: itemAttr },
+  target, rate_stages: [{ mult: 1 }], qty: { from_attr: qtyAttr }, none_skips: true,
+});
+const DBC_LINES = [
+  dbcRef("db_shell", "db_shell", "@db_shell_item", "shell_rate", "db_shell_qty"),
+  dbcRef("mcb1", "db_switchgear_item", "@mcb1_item", "list_price", "mcb1_qty", "Switchgear"),
+  dbcRef("mcb2", "db_switchgear_item", "@mcb2_item", "list_price", "mcb2_qty", "Switchgear"),
+  dbcRef("mcb3", "db_switchgear_item", "@mcb3_item", "list_price", "mcb3_qty", "Switchgear"),
+  dbcRef("mcb4", "db_switchgear_item", "@mcb4_item", "list_price", "mcb4_qty", "Switchgear"),
+  dbcRef("mcb5", "db_switchgear_item", "@mcb5_item", "list_price", "mcb5_qty", "Switchgear"),
+  dbcRef("enclosure", "db_switchgear_item", "@enclosure_item", "list_price", "enclosure_qty", "Enclosure Box"),
+];
+const LOR = { // the lookup_or_ratio install step (verbatim shape from the v16c asset)
+  step: "lookup_or_ratio" as const, result: "install",
+  lookup: { kind: "db_install_rate", item: "@db_shell_item", target: "install_rate", mult: 1.5 },
+  ratio: { of: "supply", mult: 0.15 },
+  when_shell_absent: { attr: "db_shell_item", equals: "None", use: "ratio" as const }, round: -1,
+};
+const DBC_SUPPLY: Pipeline = { output: ["supply"], steps: [...DBC_LINES, { step: "sum_components", result: "supply" }, { step: "scale", target: "supply", result: "supply", params: { m: 0.495 }, formula: "base*m" }, { step: "roundup", target: "supply", params: { digits: -1 } }] };
+const DBC_INSTALL: Pipeline = { output: ["install"], steps: [...DBC_SUPPLY.steps, LOR] };
+const DBC_BCS: Pipeline = { output: ["bcs_supply"], steps: [...DBC_LINES, { step: "sum_components", result: "bcs_supply" }, { step: "scale", target: "bcs_supply", result: "bcs_supply", params: { m: 0.3 }, formula: "base*m" }, { step: "roundup", target: "bcs_supply", params: { digits: -1 } }] };
+const DBC_ITEMS: RateMasterItem[] = [
+  { discipline: "Electrical", kind: "db_shell", attributes: { item: "VTPN DB 6WAY WITH MCB INCOMER" }, rates: { shell_rate: 19215 } }, // NOT in the install table -> fallback
+  { discipline: "Electrical", kind: "db_shell", attributes: { item: "TPN DB 8WAY (DOUBLE DOOR IP 43)" }, rates: { shell_rate: 10593 } },
+  { discipline: "Electrical", kind: "db_install_rate", attributes: { item: "TPN DB 8WAY (DOUBLE DOOR IP 43)" }, rates: { install_rate: 1000 } }, // the SPN/TPN install table
+  { discipline: "Electrical", kind: "db_switchgear_item", attributes: { family: "Switchgear", item: "63A FP MCB D CURVE" }, rates: { list_price: 4010 } },
+  { discipline: "Electrical", kind: "db_switchgear_item", attributes: { family: "Switchgear", item: "100A FP MCCB" }, rates: { list_price: 17950 } },
+  { discipline: "Electrical", kind: "db_switchgear_item", attributes: { family: "Switchgear", item: "63A FP MCB C CURVE" }, rates: { list_price: 4012 } },
+];
+const DBU1_C = { db_shell_item: "VTPN DB 6WAY WITH MCB INCOMER", db_shell_qty: 1, mcb1_item: "63A FP MCB D CURVE", mcb1_qty: 1, mcb2_item: "100A FP MCCB", mcb2_qty: 1, mcb3_item: "63A FP MCB C CURVE", mcb3_qty: 2, mcb4_item: "None", mcb5_item: "None", enclosure_item: "None" };
+const DBU2_C = { db_shell_item: "TPN DB 8WAY (DOUBLE DOOR IP 43)", db_shell_qty: 1, mcb1_item: "63A FP MCB C CURVE", mcb1_qty: 4, mcb2_item: "None", mcb3_item: "None", mcb4_item: "None", mcb5_item: "None", enclosure_item: "None" };
+const DBU3_C = { db_shell_item: "None", mcb1_item: "63A FP MCB C CURVE", mcb1_qty: 12, mcb2_item: "None", mcb3_item: "None", mcb4_item: "None", mcb5_item: "None", enclosure_item: "None" };
+const instTrace = (r: ReturnType<typeof runPipeline>) => r.steps.find((x) => x.step === "lookup_or_ratio")?.matchedCondition ?? "";
+
+describe("EA-4c DB build-up + lookup_or_ratio (the sheet's IFERROR three-way install)", () => {
+  it("dbu1 VTPN FALLBACK -> 24360 / 3660 / 14760 (shell present, NOT in table -> supply x0.15)", () => {
+    expect(runPipeline("s", DBC_SUPPLY, DBC_ITEMS, DBU1_C).finals).toEqual({ supply: 24360 });
+    const ri = runPipeline("i", DBC_INSTALL, DBC_ITEMS, DBU1_C);
+    expect(ri.finals).toEqual({ install: 3660 }); // 24360*0.15=3654 -> 3660
+    expect(instTrace(ri)).toContain("fallback"); // VTPN not in the install table
+    expect(runPipeline("b", DBC_BCS, DBC_ITEMS, DBU1_C).finals).toEqual({ bcs_supply: 14760 });
+  });
+  it("dbu2 TABLE-HIT -> supply 13190 / install 1500 / bcs 8000 (TPN 8WAY in the install table x1.5)", () => {
+    expect(runPipeline("s", DBC_SUPPLY, DBC_ITEMS, DBU2_C).finals).toEqual({ supply: 13190 }); // (10593+4012*4)*0.495=13187.3 -> 13190
+    const ri = runPipeline("i", DBC_INSTALL, DBC_ITEMS, DBU2_C);
+    expect(ri.finals).toEqual({ install: 1500 }); // install_rate 1000 x1.5 = 1500
+    expect(instTrace(ri)).toContain("table-hit");
+    expect(runPipeline("b", DBC_BCS, DBC_ITEMS, DBU2_C).finals).toEqual({ bcs_supply: 8000 });
+  });
+  it("dbu3 MCB-ONLY (shell None) -> supply 23840 / install 3580 / bcs 14450 (the IF(J9=0) absent branch)", () => {
+    expect(runPipeline("s", DBC_SUPPLY, DBC_ITEMS, DBU3_C).finals).toEqual({ supply: 23840 }); // 4012*12*0.495=23831.28 -> 23840
+    const ri = runPipeline("i", DBC_INSTALL, DBC_ITEMS, DBU3_C);
+    expect(ri.finals).toEqual({ install: 3580 }); // shell absent -> 23840*0.15=3576 -> 3580
+    expect(instTrace(ri)).toContain("shell absent");
+    expect(runPipeline("b", DBC_BCS, DBC_ITEMS, DBU3_C).finals).toEqual({ bcs_supply: 14450 });
+  });
+  it("mcb3=None drops its line (five-slot None), supply recomputes", () => {
+    const r = runPipeline("s", DBC_SUPPLY, DBC_ITEMS, { ...DBU1_C, mcb3_item: "None", mcb3_qty: 0 });
+    expect(r.steps.find((x) => x.produced?.key === "mcb3")?.produced?.value).toBe(0);
+    expect(r.finals).toEqual({ supply: 20390 }); // (49199-8024)*0.495=20381.6 -> 20390
+  });
+  it("NEGATIVE: lookup_or_ratio whose ratio.of source is not computed -> HONEST no_match", () => {
+    // an install-only pipeline (no supply steps) in the shell-absent branch -> ctx.supply is undefined
+    const INSTALL_ONLY: Pipeline = { output: ["install"], steps: [LOR] };
+    const r = runPipeline("i", INSTALL_ONLY, DBC_ITEMS, DBU3_C);
+    expect(r.status).toBe("no_match");
+    expect(r.finals).toEqual({});
+  });
+  it("NEGATIVE (Option C): a MALFORMED lookup_or_ratio (no ratio) NEVER throws -> unsupported", () => {
+    const BAD: Pipeline = { output: ["install"], steps: [{ step: "lookup_or_ratio", result: "install", when_shell_absent: { attr: "db_shell_item", equals: "None" } } as unknown as import("./rateMasterTypes").PipelineStep] };
+    let r: ReturnType<typeof runPipeline> | undefined;
+    expect(() => { r = runPipeline("i", BAD, DBC_ITEMS, DBU3_C); }).not.toThrow();
+    expect(r!.status).toBe("unsupported");
+  });
+});

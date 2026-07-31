@@ -175,6 +175,21 @@ export interface InstallAsRatioStep {
   result: string;
   explain?: string;
 }
+// EA-4c: the DB build-up install -- the sheet's EXACT IFERROR three-way. In order:
+//  (a) when_shell_absent.attr's selected value == equals ("None") -> ROUNDUP(ratio.of * ratio.mult);
+//  (b) else attempt the lookup (unique master row of `lookup.kind` whose `item` attr == the resolved
+//      "@<attr>") -> if it resolves, ROUNDUP(matched[lookup.target] * lookup.mult);
+//  (c) if the lookup MISSES -> ROUNDUP(ratio.of * ratio.mult) [the IFERROR fallback].
+// A ratio branch with a missing ratio.of source is an HONEST no-compute; never throws (Option C).
+export interface LookupOrRatioStep {
+  step: "lookup_or_ratio";
+  result: string;
+  lookup: { kind: string; item: string; target: string; mult: number };
+  ratio: { of: string; mult: number };
+  when_shell_absent: { attr: string; equals: string; use: "ratio" };
+  round: number;
+  explain?: string;
+}
 
 export type PipelineStep =
   | MatchMasterRowStep
@@ -186,6 +201,7 @@ export type PipelineStep =
   | ComponentBandStep
   | SumComponentsStep
   | InstallAsRatioStep
+  | LookupOrRatioStep
   | CircuitFitStep
   // forward-compat: an unknown future step type still parses as an object with a `step` string.
   | { step: string; [k: string]: unknown };

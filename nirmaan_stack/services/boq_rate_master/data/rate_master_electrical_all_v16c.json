@@ -3,7 +3,7 @@
  "sha256_prefix": "10fee5d9f4328e31",
  "extracted_at": "2026-07-29",
  "discipline": "Electrical",
- "provenance": "E-ALL chat decode 2026-07-29: every pipeline decoded from the ALL ITEM WISE RATE block formulas + assumption cells; oracles = the blocks' displayed outputs at their current selector states; v2: formulas normalized to the interpreter contract (base+exact params), machine-format goldens (RM-4b attrs+expect), misc param fixed at source, conditional-component chamber shape (feature 4); v3 (owner rulings 2026-07-29): the guiding sheet is the AUTHORITY on finalized rules - UPS removed entirely (Floor BOX misdecode corrected -> popup_boxes per-module config added), LMS kept as DATA ONLY with empty pipelines (owner authors in-system), light_fixtures/panels stay out; retired_kinds/retired_category_ids added for the loader; v4 (owner 2026-07-29): miscellaneous rebuilt SELF-CONTAINED from the guiding block itself (rates = BoQ direct; BCS supply = BoQ x 0.8 [/1.25]; BCS install = 0); the Miscelleneous background sheet no longer feeds the import; v5: item_kinds declared per config (drives per-category viewer/add-form scoping; LMS included; wiring derives from its pipelines); v6: identity_attribute_id declared on the four item-identity configs (drives the EA-2 identity extraction mode); v7: cabletray_raceway REBUILT from the guiding block's own formulas (chat misread corrected; oracle 431/120/297/0) - new attrs (cover/installation_type/floor_cutting/floor_refilling), install-by-width items (10), conditional-component adders, three oracle goldens; the old flagged tray pipeline is dead; v8 (owner ruling): Earth Chamber Works as an explicit referenced master item (kind earthing_chamber); the earthing chamber component becomes a component_ref step (the assembly primitive's simplest form - EA-4 builds on it); v9 (owner correction 2026-07-29): the earthing adder is the EXISTING Bus bar row via a QUALIFIED component_ref (kind+attributes) - the Earth Chamber Works item is dead; attribute renamed with_busbar; golden arithmetic unchanged; v10 (the 29-Jul diff cycle): BENCHMARK = Electrical_pricing_-_29_Jul_2026.xlsx (data diff vs 28-Jul = float-precision noise + the point-wiring revision only); conduit definition-over-data (PVC/MS; 4 GI rows retired; founding synonym GI->MS, conduit-scoped); DB install branch fix (per-DB table x1.5 as db_install_rate items + three-way pipeline split); point_wiring config added data-only with the full decoded recipe + banked oracle (1869/735/2604) for EA-4; v11: the point_wiring pseudo-golden removed (a placeholder-pipeline golden would trip the RM-4b validator on any future edit) - the banked oracle (1869/735/2604) remains in the config notes; EA-4 mints real goldens; v12 (2026-07-30): db_install_nondb restructured to the supported component+conditions shape (chat authoring error at v10 - scale does not support conditions); semantics unchanged (family exclusion preserved); goldens d1/d2 unchanged; v13 (EA-4a, 2026-07-30): NINE owner extraction defaults (tray Solid/No x3 + installation_type Ceiling-with-raceway-text-override-Floor; earthing with_busbar Without; PW quantity defaults) + point_wiring LIVE (circuit_fit + component_ref rate_stages x qty pipelines, per-line unit rounding faithful to the sheet; goldens pw1 = the banked 1869/735/1370 oracle, mirror-verified against the master; pw2 branch case) + values_from definitions (switch/socket/plate catalogs resolved from the live master); v14 (EA-4a-r): None mechanism (allow_none + disables_when_none on switch/socket/plate/wire2; plate None disables back_box; circuit_fit omits wire2 when None; none_skips on component_ref) + goldens pw3 switch-only light point; v15 (EA-4b): switches_point category (distinct 6-line configurator, two fixed None-able socket slots, oracle 2320/470); industrial_sockets restructured with the paired-MCB cross-category ref + interlocked if_attr gate (oracle 223/80/303); tray accessories confirmed FIXED 106. All AS-IS interpreter primitives (verified against v14). Banked oracles indsock 223/80/303 + tray 106 to ea3_banked_composites.json.; v15b: i1 golden corrected to paired_mcb None (socket-only via the EA-4a-r mechanism) + i2 paired golden added + paired_mcb None-default so socket-only rows price rather than refuse; v15c: i1 golden install re-keyed to indsock_install (was mis-keyed under indsock_boq); full goldens expect-key audit clean",
+ "provenance": "E-ALL chat decode 2026-07-29: every pipeline decoded from the ALL ITEM WISE RATE block formulas + assumption cells; oracles = the blocks' displayed outputs at their current selector states; v2: formulas normalized to the interpreter contract (base+exact params), machine-format goldens (RM-4b attrs+expect), misc param fixed at source, conditional-component chamber shape (feature 4); v3 (owner rulings 2026-07-29): the guiding sheet is the AUTHORITY on finalized rules - UPS removed entirely (Floor BOX misdecode corrected -> popup_boxes per-module config added), LMS kept as DATA ONLY with empty pipelines (owner authors in-system), light_fixtures/panels stay out; retired_kinds/retired_category_ids added for the loader; v4 (owner 2026-07-29): miscellaneous rebuilt SELF-CONTAINED from the guiding block itself (rates = BoQ direct; BCS supply = BoQ x 0.8 [/1.25]; BCS install = 0); the Miscelleneous background sheet no longer feeds the import; v5: item_kinds declared per config (drives per-category viewer/add-form scoping; LMS included; wiring derives from its pipelines); v6: identity_attribute_id declared on the four item-identity configs (drives the EA-2 identity extraction mode); v7: cabletray_raceway REBUILT from the guiding block's own formulas (chat misread corrected; oracle 431/120/297/0) - new attrs (cover/installation_type/floor_cutting/floor_refilling), install-by-width items (10), conditional-component adders, three oracle goldens; the old flagged tray pipeline is dead; v8 (owner ruling): Earth Chamber Works as an explicit referenced master item (kind earthing_chamber); the earthing chamber component becomes a component_ref step (the assembly primitive's simplest form - EA-4 builds on it); v9 (owner correction 2026-07-29): the earthing adder is the EXISTING Bus bar row via a QUALIFIED component_ref (kind+attributes) - the Earth Chamber Works item is dead; attribute renamed with_busbar; golden arithmetic unchanged; v10 (the 29-Jul diff cycle): BENCHMARK = Electrical_pricing_-_29_Jul_2026.xlsx (data diff vs 28-Jul = float-precision noise + the point-wiring revision only); conduit definition-over-data (PVC/MS; 4 GI rows retired; founding synonym GI->MS, conduit-scoped); DB install branch fix (per-DB table x1.5 as db_install_rate items + three-way pipeline split); point_wiring config added data-only with the full decoded recipe + banked oracle (1869/735/2604) for EA-4; v11: the point_wiring pseudo-golden removed (a placeholder-pipeline golden would trip the RM-4b validator on any future edit) - the banked oracle (1869/735/2604) remains in the config notes; EA-4 mints real goldens; v12 (2026-07-30): db_install_nondb restructured to the supported component+conditions shape (chat authoring error at v10 - scale does not support conditions); semantics unchanged (family exclusion preserved); goldens d1/d2 unchanged; v13 (EA-4a, 2026-07-30): NINE owner extraction defaults (tray Solid/No x3 + installation_type Ceiling-with-raceway-text-override-Floor; earthing with_busbar Without; PW quantity defaults) + point_wiring LIVE (circuit_fit + component_ref rate_stages x qty pipelines, per-line unit rounding faithful to the sheet; goldens pw1 = the banked 1869/735/1370 oracle, mirror-verified against the master; pw2 branch case) + values_from definitions (switch/socket/plate catalogs resolved from the live master); v14 (EA-4a-r): None mechanism (allow_none + disables_when_none on switch/socket/plate/wire2; plate None disables back_box; circuit_fit omits wire2 when None; none_skips on component_ref) + goldens pw3 switch-only light point; v15 (EA-4b): switches_point category (distinct 6-line configurator, two fixed None-able socket slots, oracle 2320/470); industrial_sockets restructured with the paired-MCB cross-category ref + interlocked if_attr gate (oracle 223/80/303); tray accessories confirmed FIXED 106. All AS-IS interpreter primitives (verified against v14). Banked oracles indsock 223/80/303 + tray 106 to ea3_banked_composites.json.; v15b: i1 golden corrected to paired_mcb None (socket-only via the EA-4a-r mechanism) + i2 paired golden added + paired_mcb None-default so socket-only rows price rather than refuse; v15c: i1 golden install re-keyed to indsock_install (was mis-keyed under indsock_boq); full goldens expect-key audit clean; v16 (EA-4c): the DB BUILD-UP - db_shell kind (D3:E30 shell rates) + build-up pipelines (5 None-able MCB slots + shell + enclosure, x0.495; install x0.15 fallback; BCS x0.3) alongside the untouched single-item pipelines; golden dbu1 24360/3660 mirror-verified; five slots mirror the sheet I10:I14; v16b: db_shell is the required build-up base (none_skips/allow_none dropped -> honest degrade when absent, no phantom MCB-only DB); db_shell added to item_kinds; v16c: install = the sheet's EXACT three-way logic via a new lookup_or_ratio step (shell-None->ratio; shell-in-table->x1.5; shell-not-in-table->ratio fallback); shell None-able (MCB-only real); goldens dbu1 fallback + dbu2 table-branch + dbu3 MCB-only, all mirror-verified",
  "items": [
   {
    "kind": "earthing_item",
@@ -14207,6 +14207,411 @@
     "sheet": "DB & Switchgear",
     "row": 18
    }
+  },
+  {
+   "kind": "db_shell",
+   "brand": "Generic",
+   "unit": "Nos",
+   "attributes": {
+    "item": "SPN DB 6WAY"
+   },
+   "rates": {
+    "shell_rate": 2788.0
+   },
+   "source": {
+    "sheet": "DB & Switchgear",
+    "col": "D:E"
+   }
+  },
+  {
+   "kind": "db_shell",
+   "brand": "Generic",
+   "unit": "Nos",
+   "attributes": {
+    "item": "SPN DB 8WAY"
+   },
+   "rates": {
+    "shell_rate": 3597.0
+   },
+   "source": {
+    "sheet": "DB & Switchgear",
+    "col": "D:E"
+   }
+  },
+  {
+   "kind": "db_shell",
+   "brand": "Generic",
+   "unit": "Nos",
+   "attributes": {
+    "item": "SPN DB 12WAY"
+   },
+   "rates": {
+    "shell_rate": 4322.0
+   },
+   "source": {
+    "sheet": "DB & Switchgear",
+    "col": "D:E"
+   }
+  },
+  {
+   "kind": "db_shell",
+   "brand": "Generic",
+   "unit": "Nos",
+   "attributes": {
+    "item": "SPN DB 16WAY"
+   },
+   "rates": {
+    "shell_rate": 5415.0
+   },
+   "source": {
+    "sheet": "DB & Switchgear",
+    "col": "D:E"
+   }
+  },
+  {
+   "kind": "db_shell",
+   "brand": "Generic",
+   "unit": "Nos",
+   "attributes": {
+    "item": "SPN DB 18WAY"
+   },
+   "rates": {
+    "shell_rate": 5690.0
+   },
+   "source": {
+    "sheet": "DB & Switchgear",
+    "col": "D:E"
+   }
+  },
+  {
+   "kind": "db_shell",
+   "brand": "Generic",
+   "unit": "Nos",
+   "attributes": {
+    "item": "TPN DB 6WAY (DOUBLE DOOR IP 43)"
+   },
+   "rates": {
+    "shell_rate": 8841.0
+   },
+   "source": {
+    "sheet": "DB & Switchgear",
+    "col": "D:E"
+   }
+  },
+  {
+   "kind": "db_shell",
+   "brand": "Generic",
+   "unit": "Nos",
+   "attributes": {
+    "item": "TPN DB 8WAY (DOUBLE DOOR IP 43)"
+   },
+   "rates": {
+    "shell_rate": 10593.0
+   },
+   "source": {
+    "sheet": "DB & Switchgear",
+    "col": "D:E"
+   }
+  },
+  {
+   "kind": "db_shell",
+   "brand": "Generic",
+   "unit": "Nos",
+   "attributes": {
+    "item": "TPN DB 12WAY (DOUBLE DOOR IP 43)"
+   },
+   "rates": {
+    "shell_rate": 15709.0
+   },
+   "source": {
+    "sheet": "DB & Switchgear",
+    "col": "D:E"
+   }
+  },
+  {
+   "kind": "db_shell",
+   "brand": "Generic",
+   "unit": "Nos",
+   "attributes": {
+    "item": "TPN DB 16WAY (DOUBLE DOOR IP 43)"
+   },
+   "rates": {
+    "shell_rate": 19664.0
+   },
+   "source": {
+    "sheet": "DB & Switchgear",
+    "col": "D:E"
+   }
+  },
+  {
+   "kind": "db_shell",
+   "brand": "Generic",
+   "unit": "Nos",
+   "attributes": {
+    "item": "TPN FLEXI DB 2 ROW 14M (DOUBLE DOOR IP 43)"
+   },
+   "rates": {
+    "shell_rate": 9362.0
+   },
+   "source": {
+    "sheet": "DB & Switchgear",
+    "col": "D:E"
+   }
+  },
+  {
+   "kind": "db_shell",
+   "brand": "Generic",
+   "unit": "Nos",
+   "attributes": {
+    "item": "TPN FLEXI DB 3 ROW 4M (DOUBLE DOOR IP 43)"
+   },
+   "rates": {
+    "shell_rate": 11191.0
+   },
+   "source": {
+    "sheet": "DB & Switchgear",
+    "col": "D:E"
+   }
+  },
+  {
+   "kind": "db_shell",
+   "brand": "Generic",
+   "unit": "Nos",
+   "attributes": {
+    "item": "TPN FLEXI DB 4 ROW 14M (DOUBLE DOOR IP 43)"
+   },
+   "rates": {
+    "shell_rate": 12133.0
+   },
+   "source": {
+    "sheet": "DB & Switchgear",
+    "col": "D:E"
+   }
+  },
+  {
+   "kind": "db_shell",
+   "brand": "Generic",
+   "unit": "Nos",
+   "attributes": {
+    "item": "TPN FLEXI DB 4 ROW 8M (DOUBLE DOOR IP 43)"
+   },
+   "rates": {
+    "shell_rate": 10351.0
+   },
+   "source": {
+    "sheet": "DB & Switchgear",
+    "col": "D:E"
+   }
+  },
+  {
+   "kind": "db_shell",
+   "brand": "Generic",
+   "unit": "Nos",
+   "attributes": {
+    "item": "TPN FLEXI DB 4 ROW 10M (DOUBLE DOOR IP 43)"
+   },
+   "rates": {
+    "shell_rate": 10835.0
+   },
+   "source": {
+    "sheet": "DB & Switchgear",
+    "col": "D:E"
+   }
+  },
+  {
+   "kind": "db_shell",
+   "brand": "Generic",
+   "unit": "Nos",
+   "attributes": {
+    "item": "TPN 7 SEGMENT DB 16WAY"
+   },
+   "rates": {
+    "shell_rate": 22944.0
+   },
+   "source": {
+    "sheet": "DB & Switchgear",
+    "col": "D:E"
+   }
+  },
+  {
+   "kind": "db_shell",
+   "brand": "Generic",
+   "unit": "Nos",
+   "attributes": {
+    "item": "TPN 7 SEGMENT DB 12WAY"
+   },
+   "rates": {
+    "shell_rate": 19944.0
+   },
+   "source": {
+    "sheet": "DB & Switchgear",
+    "col": "D:E"
+   }
+  },
+  {
+   "kind": "db_shell",
+   "brand": "Generic",
+   "unit": "Nos",
+   "attributes": {
+    "item": "TPN 7 SEGMENT DB 8WAY"
+   },
+   "rates": {
+    "shell_rate": 16020.0
+   },
+   "source": {
+    "sheet": "DB & Switchgear",
+    "col": "D:E"
+   }
+  },
+  {
+   "kind": "db_shell",
+   "brand": "Generic",
+   "unit": "Nos",
+   "attributes": {
+    "item": "TPN 7 SEGMENT DB 6WAY"
+   },
+   "rates": {
+    "shell_rate": 14302.0
+   },
+   "source": {
+    "sheet": "DB & Switchgear",
+    "col": "D:E"
+   }
+  },
+  {
+   "kind": "db_shell",
+   "brand": "Generic",
+   "unit": "Nos",
+   "attributes": {
+    "item": "TPN 7 SEGMENT DB 4WAY"
+   },
+   "rates": {
+    "shell_rate": 12766.0
+   },
+   "source": {
+    "sheet": "DB & Switchgear",
+    "col": "D:E"
+   }
+  },
+  {
+   "kind": "db_shell",
+   "brand": "Generic",
+   "unit": "Nos",
+   "attributes": {
+    "item": "VTPN DB 4WAY WITH MCB INCOMER"
+   },
+   "rates": {
+    "shell_rate": 17350.0
+   },
+   "source": {
+    "sheet": "DB & Switchgear",
+    "col": "D:E"
+   }
+  },
+  {
+   "kind": "db_shell",
+   "brand": "Generic",
+   "unit": "Nos",
+   "attributes": {
+    "item": "VTPN DB 4WAY WITH MCCB INCOMER"
+   },
+   "rates": {
+    "shell_rate": 21185.0
+   },
+   "source": {
+    "sheet": "DB & Switchgear",
+    "col": "D:E"
+   }
+  },
+  {
+   "kind": "db_shell",
+   "brand": "Generic",
+   "unit": "Nos",
+   "attributes": {
+    "item": "VTPN DB 6WAY WITH MCB INCOMER"
+   },
+   "rates": {
+    "shell_rate": 19215.0
+   },
+   "source": {
+    "sheet": "DB & Switchgear",
+    "col": "D:E"
+   }
+  },
+  {
+   "kind": "db_shell",
+   "brand": "Generic",
+   "unit": "Nos",
+   "attributes": {
+    "item": "VTPN DB 6WAY WITH MCCB INCOMER"
+   },
+   "rates": {
+    "shell_rate": 24044.0
+   },
+   "source": {
+    "sheet": "DB & Switchgear",
+    "col": "D:E"
+   }
+  },
+  {
+   "kind": "db_shell",
+   "brand": "Generic",
+   "unit": "Nos",
+   "attributes": {
+    "item": "VTPN DB 8WAY WITH MCB INCOMER"
+   },
+   "rates": {
+    "shell_rate": 22365.0
+   },
+   "source": {
+    "sheet": "DB & Switchgear",
+    "col": "D:E"
+   }
+  },
+  {
+   "kind": "db_shell",
+   "brand": "Generic",
+   "unit": "Nos",
+   "attributes": {
+    "item": "VTPN DB 8WAY WITH MCCB INCOMER"
+   },
+   "rates": {
+    "shell_rate": 26489.0
+   },
+   "source": {
+    "sheet": "DB & Switchgear",
+    "col": "D:E"
+   }
+  },
+  {
+   "kind": "db_shell",
+   "brand": "Generic",
+   "unit": "Nos",
+   "attributes": {
+    "item": "VTPN DB 12WAY WITH MCB INCOMER"
+   },
+   "rates": {
+    "shell_rate": 30090.0
+   },
+   "source": {
+    "sheet": "DB & Switchgear",
+    "col": "D:E"
+   }
+  },
+  {
+   "kind": "db_shell",
+   "brand": "Generic",
+   "unit": "Nos",
+   "attributes": {
+    "item": "VTPN DB 12WAY WITH MCCB INCOMER"
+   },
+   "rates": {
+    "shell_rate": 36113.0
+   },
+   "source": {
+    "sheet": "DB & Switchgear",
+    "col": "D:E"
+   }
   }
  ],
  "category_configs": [
@@ -15443,6 +15848,150 @@
       "VTPN DB 8WAY WITH MCB INCOMER",
       "VTPN DB 8WAY WITH MCCB INCOMER"
      ]
+    },
+    {
+     "id": "db_shell_item",
+     "label": "DB (shell)",
+     "type": "choice",
+     "values_from": {
+      "kind": "db_shell",
+      "attr": "item"
+     },
+     "allow_none": true,
+     "disables_when_none": [
+      "db_shell_qty"
+     ]
+    },
+    {
+     "id": "db_shell_qty",
+     "label": "DB qty",
+     "type": "number"
+    },
+    {
+     "id": "mcb1_item",
+     "label": "MCB 1",
+     "type": "choice",
+     "values_from": {
+      "kind": "db_switchgear_item",
+      "attr": "item",
+      "where": {
+       "family": "Switchgear"
+      }
+     },
+     "allow_none": true,
+     "disables_when_none": [
+      "mcb1_qty"
+     ]
+    },
+    {
+     "id": "mcb1_qty",
+     "label": "MCB 1 qty",
+     "type": "number"
+    },
+    {
+     "id": "mcb2_item",
+     "label": "MCB 2",
+     "type": "choice",
+     "values_from": {
+      "kind": "db_switchgear_item",
+      "attr": "item",
+      "where": {
+       "family": "Switchgear"
+      }
+     },
+     "allow_none": true,
+     "disables_when_none": [
+      "mcb2_qty"
+     ]
+    },
+    {
+     "id": "mcb2_qty",
+     "label": "MCB 2 qty",
+     "type": "number"
+    },
+    {
+     "id": "mcb3_item",
+     "label": "MCB 3",
+     "type": "choice",
+     "values_from": {
+      "kind": "db_switchgear_item",
+      "attr": "item",
+      "where": {
+       "family": "Switchgear"
+      }
+     },
+     "allow_none": true,
+     "disables_when_none": [
+      "mcb3_qty"
+     ]
+    },
+    {
+     "id": "mcb3_qty",
+     "label": "MCB 3 qty",
+     "type": "number"
+    },
+    {
+     "id": "mcb4_item",
+     "label": "MCB 4",
+     "type": "choice",
+     "values_from": {
+      "kind": "db_switchgear_item",
+      "attr": "item",
+      "where": {
+       "family": "Switchgear"
+      }
+     },
+     "allow_none": true,
+     "disables_when_none": [
+      "mcb4_qty"
+     ]
+    },
+    {
+     "id": "mcb4_qty",
+     "label": "MCB 4 qty",
+     "type": "number"
+    },
+    {
+     "id": "mcb5_item",
+     "label": "MCB 5",
+     "type": "choice",
+     "values_from": {
+      "kind": "db_switchgear_item",
+      "attr": "item",
+      "where": {
+       "family": "Switchgear"
+      }
+     },
+     "allow_none": true,
+     "disables_when_none": [
+      "mcb5_qty"
+     ]
+    },
+    {
+     "id": "mcb5_qty",
+     "label": "MCB 5 qty",
+     "type": "number"
+    },
+    {
+     "id": "enclosure_item",
+     "label": "Enclosure",
+     "type": "choice",
+     "values_from": {
+      "kind": "db_switchgear_item",
+      "attr": "item",
+      "where": {
+       "family": "Enclosure Box"
+      }
+     },
+     "allow_none": true,
+     "disables_when_none": [
+      "enclosure_qty"
+     ]
+    },
+    {
+     "id": "enclosure_qty",
+     "label": "Enclosure qty",
+     "type": "number"
     }
    ],
    "matching_mode": "item_identity",
@@ -15572,14 +16121,522 @@
        "formula": "base*bcs_factor"
       }
      ]
+    },
+    "db_buildup_supply": {
+     "output": [
+      "supply"
+     ],
+     "steps": [
+      {
+       "step": "component_ref",
+       "name": "db_shell",
+       "ref": {
+        "kind": "db_shell",
+        "item": "@db_shell_item"
+       },
+       "target": "shell_rate",
+       "rate_stages": [
+        {
+         "mult": 1.0
+        }
+       ],
+       "qty": {
+        "from_attr": "db_shell_qty"
+       },
+       "none_skips": true
+      },
+      {
+       "step": "component_ref",
+       "name": "mcb1",
+       "ref": {
+        "kind": "db_switchgear_item",
+        "item": "@mcb1_item",
+        "family": "Switchgear"
+       },
+       "target": "list_price",
+       "rate_stages": [
+        {
+         "mult": 1.0
+        }
+       ],
+       "qty": {
+        "from_attr": "mcb1_qty"
+       },
+       "none_skips": true
+      },
+      {
+       "step": "component_ref",
+       "name": "mcb2",
+       "ref": {
+        "kind": "db_switchgear_item",
+        "item": "@mcb2_item",
+        "family": "Switchgear"
+       },
+       "target": "list_price",
+       "rate_stages": [
+        {
+         "mult": 1.0
+        }
+       ],
+       "qty": {
+        "from_attr": "mcb2_qty"
+       },
+       "none_skips": true
+      },
+      {
+       "step": "component_ref",
+       "name": "mcb3",
+       "ref": {
+        "kind": "db_switchgear_item",
+        "item": "@mcb3_item",
+        "family": "Switchgear"
+       },
+       "target": "list_price",
+       "rate_stages": [
+        {
+         "mult": 1.0
+        }
+       ],
+       "qty": {
+        "from_attr": "mcb3_qty"
+       },
+       "none_skips": true
+      },
+      {
+       "step": "component_ref",
+       "name": "mcb4",
+       "ref": {
+        "kind": "db_switchgear_item",
+        "item": "@mcb4_item",
+        "family": "Switchgear"
+       },
+       "target": "list_price",
+       "rate_stages": [
+        {
+         "mult": 1.0
+        }
+       ],
+       "qty": {
+        "from_attr": "mcb4_qty"
+       },
+       "none_skips": true
+      },
+      {
+       "step": "component_ref",
+       "name": "mcb5",
+       "ref": {
+        "kind": "db_switchgear_item",
+        "item": "@mcb5_item",
+        "family": "Switchgear"
+       },
+       "target": "list_price",
+       "rate_stages": [
+        {
+         "mult": 1.0
+        }
+       ],
+       "qty": {
+        "from_attr": "mcb5_qty"
+       },
+       "none_skips": true
+      },
+      {
+       "step": "component_ref",
+       "name": "enclosure",
+       "ref": {
+        "kind": "db_switchgear_item",
+        "item": "@enclosure_item",
+        "family": "Enclosure Box"
+       },
+       "target": "list_price",
+       "rate_stages": [
+        {
+         "mult": 1.0
+        }
+       ],
+       "qty": {
+        "from_attr": "enclosure_qty"
+       },
+       "none_skips": true
+      },
+      {
+       "step": "sum_components",
+       "result": "supply"
+      },
+      {
+       "step": "scale",
+       "target": "supply",
+       "result": "supply",
+       "params": {
+        "m": 0.495
+       },
+       "formula": "base*m"
+      },
+      {
+       "step": "roundup",
+       "target": "supply",
+       "params": {
+        "digits": -1
+       }
+      }
+     ]
+    },
+    "db_buildup_install": {
+     "output": [
+      "install"
+     ],
+     "steps": [
+      {
+       "step": "component_ref",
+       "name": "db_shell",
+       "ref": {
+        "kind": "db_shell",
+        "item": "@db_shell_item"
+       },
+       "target": "shell_rate",
+       "rate_stages": [
+        {
+         "mult": 1.0
+        }
+       ],
+       "qty": {
+        "from_attr": "db_shell_qty"
+       },
+       "none_skips": true
+      },
+      {
+       "step": "component_ref",
+       "name": "mcb1",
+       "ref": {
+        "kind": "db_switchgear_item",
+        "item": "@mcb1_item",
+        "family": "Switchgear"
+       },
+       "target": "list_price",
+       "rate_stages": [
+        {
+         "mult": 1.0
+        }
+       ],
+       "qty": {
+        "from_attr": "mcb1_qty"
+       },
+       "none_skips": true
+      },
+      {
+       "step": "component_ref",
+       "name": "mcb2",
+       "ref": {
+        "kind": "db_switchgear_item",
+        "item": "@mcb2_item",
+        "family": "Switchgear"
+       },
+       "target": "list_price",
+       "rate_stages": [
+        {
+         "mult": 1.0
+        }
+       ],
+       "qty": {
+        "from_attr": "mcb2_qty"
+       },
+       "none_skips": true
+      },
+      {
+       "step": "component_ref",
+       "name": "mcb3",
+       "ref": {
+        "kind": "db_switchgear_item",
+        "item": "@mcb3_item",
+        "family": "Switchgear"
+       },
+       "target": "list_price",
+       "rate_stages": [
+        {
+         "mult": 1.0
+        }
+       ],
+       "qty": {
+        "from_attr": "mcb3_qty"
+       },
+       "none_skips": true
+      },
+      {
+       "step": "component_ref",
+       "name": "mcb4",
+       "ref": {
+        "kind": "db_switchgear_item",
+        "item": "@mcb4_item",
+        "family": "Switchgear"
+       },
+       "target": "list_price",
+       "rate_stages": [
+        {
+         "mult": 1.0
+        }
+       ],
+       "qty": {
+        "from_attr": "mcb4_qty"
+       },
+       "none_skips": true
+      },
+      {
+       "step": "component_ref",
+       "name": "mcb5",
+       "ref": {
+        "kind": "db_switchgear_item",
+        "item": "@mcb5_item",
+        "family": "Switchgear"
+       },
+       "target": "list_price",
+       "rate_stages": [
+        {
+         "mult": 1.0
+        }
+       ],
+       "qty": {
+        "from_attr": "mcb5_qty"
+       },
+       "none_skips": true
+      },
+      {
+       "step": "component_ref",
+       "name": "enclosure",
+       "ref": {
+        "kind": "db_switchgear_item",
+        "item": "@enclosure_item",
+        "family": "Enclosure Box"
+       },
+       "target": "list_price",
+       "rate_stages": [
+        {
+         "mult": 1.0
+        }
+       ],
+       "qty": {
+        "from_attr": "enclosure_qty"
+       },
+       "none_skips": true
+      },
+      {
+       "step": "sum_components",
+       "result": "supply"
+      },
+      {
+       "step": "scale",
+       "target": "supply",
+       "result": "supply",
+       "params": {
+        "m": 0.495
+       },
+       "formula": "base*m"
+      },
+      {
+       "step": "roundup",
+       "target": "supply",
+       "params": {
+        "digits": -1
+       }
+      },
+      {
+       "step": "lookup_or_ratio",
+       "result": "install",
+       "lookup": {
+        "kind": "db_install_rate",
+        "item": "@db_shell_item",
+        "target": "install_rate",
+        "mult": 1.5
+       },
+       "ratio": {
+        "of": "supply",
+        "mult": 0.15
+       },
+       "when_shell_absent": {
+        "attr": "db_shell_item",
+        "equals": "None",
+        "use": "ratio"
+       },
+       "round": -1,
+       "explain": "the sheet IF(J9=0, supply x0.15, IFERROR(install_table[shell] x1.5, supply x0.15)): shell None -> ratio; else try the table x1.5, miss -> ratio fallback; ROUNDUP tens"
+      }
+     ]
+    },
+    "db_buildup_bcs": {
+     "output": [
+      "bcs_supply"
+     ],
+     "steps": [
+      {
+       "step": "component_ref",
+       "name": "db_shell",
+       "ref": {
+        "kind": "db_shell",
+        "item": "@db_shell_item"
+       },
+       "target": "shell_rate",
+       "rate_stages": [
+        {
+         "mult": 1.0
+        }
+       ],
+       "qty": {
+        "from_attr": "db_shell_qty"
+       },
+       "none_skips": true
+      },
+      {
+       "step": "component_ref",
+       "name": "mcb1",
+       "ref": {
+        "kind": "db_switchgear_item",
+        "item": "@mcb1_item",
+        "family": "Switchgear"
+       },
+       "target": "list_price",
+       "rate_stages": [
+        {
+         "mult": 1.0
+        }
+       ],
+       "qty": {
+        "from_attr": "mcb1_qty"
+       },
+       "none_skips": true
+      },
+      {
+       "step": "component_ref",
+       "name": "mcb2",
+       "ref": {
+        "kind": "db_switchgear_item",
+        "item": "@mcb2_item",
+        "family": "Switchgear"
+       },
+       "target": "list_price",
+       "rate_stages": [
+        {
+         "mult": 1.0
+        }
+       ],
+       "qty": {
+        "from_attr": "mcb2_qty"
+       },
+       "none_skips": true
+      },
+      {
+       "step": "component_ref",
+       "name": "mcb3",
+       "ref": {
+        "kind": "db_switchgear_item",
+        "item": "@mcb3_item",
+        "family": "Switchgear"
+       },
+       "target": "list_price",
+       "rate_stages": [
+        {
+         "mult": 1.0
+        }
+       ],
+       "qty": {
+        "from_attr": "mcb3_qty"
+       },
+       "none_skips": true
+      },
+      {
+       "step": "component_ref",
+       "name": "mcb4",
+       "ref": {
+        "kind": "db_switchgear_item",
+        "item": "@mcb4_item",
+        "family": "Switchgear"
+       },
+       "target": "list_price",
+       "rate_stages": [
+        {
+         "mult": 1.0
+        }
+       ],
+       "qty": {
+        "from_attr": "mcb4_qty"
+       },
+       "none_skips": true
+      },
+      {
+       "step": "component_ref",
+       "name": "mcb5",
+       "ref": {
+        "kind": "db_switchgear_item",
+        "item": "@mcb5_item",
+        "family": "Switchgear"
+       },
+       "target": "list_price",
+       "rate_stages": [
+        {
+         "mult": 1.0
+        }
+       ],
+       "qty": {
+        "from_attr": "mcb5_qty"
+       },
+       "none_skips": true
+      },
+      {
+       "step": "component_ref",
+       "name": "enclosure",
+       "ref": {
+        "kind": "db_switchgear_item",
+        "item": "@enclosure_item",
+        "family": "Enclosure Box"
+       },
+       "target": "list_price",
+       "rate_stages": [
+        {
+         "mult": 1.0
+        }
+       ],
+       "qty": {
+        "from_attr": "enclosure_qty"
+       },
+       "none_skips": true
+      },
+      {
+       "step": "sum_components",
+       "result": "bcs_supply"
+      },
+      {
+       "step": "scale",
+       "target": "bcs_supply",
+       "result": "bcs_supply",
+       "params": {
+        "m": 0.3
+       },
+       "formula": "base*(1-0.7)"
+      },
+      {
+       "step": "roundup",
+       "target": "bcs_supply",
+       "params": {
+        "digits": -1
+       }
+      }
+     ]
     }
    },
-   "notes": "single-item pricing; the DB BOM build-up + install-override table = EA-4 | 2026-07-29 correction (29-Jul formula re-read): install BRANCHES by family - Switchgear/Enclosure at 15% of supply (db_install_nondb); DB-family items at the per-DB install table x1.5 (db_install_db; honest no-compute when the table lacks the item). The multi-item BUILD-UP install = EA-4. | 2026-07-30: db_install_nondb rebuilt in the component+conditions shape (the scale+conditions form was a chat authoring error - scale never supported conditions). The family conditions are LOAD-BEARING: they exclude the DB family so a DB row never gets a competing 15% install beside its table rate.",
+   "notes": "single-item pricing; the DB BOM build-up + install-override table = EA-4 | 2026-07-29 correction (29-Jul formula re-read): install BRANCHES by family - Switchgear/Enclosure at 15% of supply (db_install_nondb); DB-family items at the per-DB install table x1.5 (db_install_db; honest no-compute when the table lacks the item). The multi-item BUILD-UP install = EA-4. | 2026-07-30: db_install_nondb rebuilt in the component+conditions shape (the scale+conditions form was a chat authoring error - scale never supported conditions). The family conditions are LOAD-BEARING: they exclude the DB family so a DB row never gets a competing 15% install beside its table rate. | EA-4c: the DB BUILD-UP (oracle 24360/3660/28020, BCS 14760) added as separate pipelines alongside the single-item ones. Exactly the sheet: DB SHELL (db_shell kind, D3:E30 table) + FIVE fixed None-able MCB slots (Switchgear catalog) + enclosure, x0.495 tens; install = supply x0.15 (VTPN not in the SPN/TPN install table -> the IFERROR fallback); BCS = raw x0.3 tens. Five slots mirrors the sheet's I10:I14. Single-item db_boq/db_install_* pipelines UNTOUCHED - a DB row prices EITHER as a build-up OR as a lone item per the pricer. | v16b: the DB SHELL is the REQUIRED base of the build-up (none_skips + allow_none dropped from db_shell) - shell absent -> honest whole-pipeline no-compute, no phantom MCB-only DB. db_shell added to item_kinds (browsable). MCBs + enclosure stay None-able. | v16c: install rebuilt to the sheet's EXACT three-way logic via a NEW lookup_or_ratio step (IF shell absent -> supply x0.15; else IFERROR(install-table[shell] x1.5, supply x0.15)). Shell None-able again - MCB-only is a real product (the sheet's IF(J9=0) branch). Requires the lookup_or_ratio interpreter capability.",
    "item_kinds": [
     "db_switchgear_item",
-    "db_install_rate"
+    "db_install_rate",
+    "db_shell"
    ],
-   "identity_attribute_id": "item"
+   "identity_attribute_id": "item",
+   "extraction_defaults": {
+    "mcb1_qty": 1.0,
+    "mcb2_qty": 1.0,
+    "mcb3_qty": 1.0,
+    "mcb4_qty": 1.0,
+    "mcb5_qty": 1.0,
+    "db_shell_qty": 1.0,
+    "enclosure_qty": 1.0
+   }
   },
   {
    "category_id": "miscellaneous",
@@ -17395,6 +18452,85 @@
      }
     },
     "oracle": "the guiding DB branch: install-table 1000 x 1.5 (the composite display 3660 = 2440x1.5 validates the x1.5)"
+   },
+   {
+    "id": "dbu1",
+    "attrs": {
+     "db_shell_item": "VTPN DB 6WAY WITH MCB INCOMER",
+     "db_shell_qty": 1,
+     "mcb1_item": "63A FP MCB D CURVE",
+     "mcb1_qty": 1,
+     "mcb2_item": "100A FP MCCB",
+     "mcb2_qty": 1,
+     "mcb3_item": "63A FP MCB C CURVE",
+     "mcb3_qty": 2,
+     "mcb4_item": "None",
+     "mcb5_item": "None",
+     "enclosure_item": "None"
+    },
+    "expect": {
+     "db_buildup_supply": {
+      "supply": 24360.0
+     },
+     "db_buildup_install": {
+      "install": 3660.0
+     },
+     "db_buildup_bcs": {
+      "bcs_supply": 14760.0
+     }
+    },
+    "oracle": "VTPN shell present, NOT in the SPN/TPN install table -> IFERROR fallback supply x0.15 (the guiding block displayed state)"
+   },
+   {
+    "id": "dbu2",
+    "attrs": {
+     "db_shell_item": "TPN DB 8WAY (DOUBLE DOOR IP 43)",
+     "db_shell_qty": 1,
+     "mcb1_item": "63A FP MCB C CURVE",
+     "mcb1_qty": 4,
+     "mcb2_item": "None",
+     "mcb3_item": "None",
+     "mcb4_item": "None",
+     "mcb5_item": "None",
+     "enclosure_item": "None"
+    },
+    "expect": {
+     "db_buildup_supply": {
+      "supply": 13190.0
+     },
+     "db_buildup_install": {
+      "install": 1500.0
+     },
+     "db_buildup_bcs": {
+      "bcs_supply": 8000.0
+     }
+    },
+    "oracle": "TPN 8WAY shell IN the install table -> table 1000 x1.5 = 1500 install (the table branch)"
+   },
+   {
+    "id": "dbu3",
+    "attrs": {
+     "db_shell_item": "None",
+     "mcb1_item": "63A FP MCB C CURVE",
+     "mcb1_qty": 12,
+     "mcb2_item": "None",
+     "mcb3_item": "None",
+     "mcb4_item": "None",
+     "mcb5_item": "None",
+     "enclosure_item": "None"
+    },
+    "expect": {
+     "db_buildup_supply": {
+      "supply": 23840.0
+     },
+     "db_buildup_install": {
+      "install": 3580.0
+     },
+     "db_buildup_bcs": {
+      "bcs_supply": 14450.0
+     }
+    },
+    "oracle": "MCB-only, shell None -> IF(J9=0) branch supply x0.15 (a bare-MCB BoQ row)"
    }
   ],
   "miscellaneous": [

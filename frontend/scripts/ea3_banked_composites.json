@@ -127,5 +127,11 @@
    "cells": "CableTray_Raceway N7 = SUM(N3:N6); each N = M(rate) x L(1/1.5 qty per metre) x K(Nos)"
   }
  },
- "ea4b_addition": "2026-07-31: industrial_sockets (223/80/303) + cabletray_raceway_accessories (fixed 106) banked as EA-4b oracles"
+ "ea4b_addition": "2026-07-31: industrial_sockets (223/80/303) + cabletray_raceway_accessories (fixed 106) banked as EA-4b oracles",
+ "ea4c_addition": {
+  "note": "2026-08-01: DB build-up (db_switchgear) -- three mirror-verified goldens exercising the sheet's exact IFERROR three-way install (lookup_or_ratio). Buckets: (shell + 5 None-able MCB slots + enclosure) x0.495 supply / x0.3 bcs. Install = IF(shell None -> supply x0.15; shell in the SPN/TPN install table -> table x1.5; shell present but not in table -> supply x0.15 fallback). MCB-only (shell None) is a REAL product (the sheet's IF(J9=0) branch). The composites.db_switchgear supply/install/total (24360/3660/28020, total = supply+install) is the guiding-sheet display, left as-is.",
+  "dbu1_VTPN_fallback": { "supply": 24360, "install": 3660, "bcs": 14760, "branch": "shell present, VTPN NOT in install table -> supply x0.15 = 3654 -> 3660" },
+  "dbu2_TPN_table_hit": { "supply": 13190, "install": 1500, "bcs": 8000, "branch": "shell TPN DB 8WAY in install table (install_rate 1000) x1.5 = 1500" },
+  "dbu3_MCB_only": { "supply": 23840, "install": 3580, "bcs": 14450, "branch": "shell None -> MCB bucket alone; install via the shell-absent supply x0.15 = 3576 -> 3580" }
+ }
 }

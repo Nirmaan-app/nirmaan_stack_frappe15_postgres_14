@@ -713,6 +713,12 @@ _KNOWN_STEP_TYPES = {
     # EA-4a: the assembly engine's conduit-sizing step (component_ref is EXTENDED in place, so it stays
     # the same step type -- only circuit_fit is a new type).
     "circuit_fit",
+    # EA-4c: the DB build-up install -- the sheet's exact IFERROR three-way (shell absent -> supply ratio;
+    # shell in the install table -> table rate x mult; else fallback to the supply ratio). PASS-THROUGH:
+    # no deep structural validation (the pure interpreter's Option-C degrades a malformed shape to the
+    # honest `unsupported`); its @attr (db_shell_item) is already reference-guarded via the component_ref
+    # supply steps that bind it.
+    "lookup_or_ratio",
 }
 _KNOWN_CONFIG_KEYS = {
     "discipline", "category_id", "category_display", "pairing_rule",

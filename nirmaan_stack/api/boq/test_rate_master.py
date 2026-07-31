@@ -826,3 +826,61 @@ class TestRateMaster(FrappeTestCase):
         self.assertEqual(len(versions), 1)
         changed = {c[0] for c in json.loads(versions[0]["data"]).get("changed", [])}
         self.assertIn("config", changed)
+
+    # ---- EA-4c: the DB build-up (db_shell kind) + the lookup_or_ratio install step ----
+    def test_31_eall_v16c_db_buildup_and_lookup_or_ratio(self):
+        # EA-4c loads the CURRENT E-ALL asset (v16c) by path -- the stable v12 fixture (cls.eall) is left
+        # for the loader-mechanism tests. Pins: the NEW db_shell kind, the three build-up pipelines
+        # coexisting with the four single-item ones, the lookup_or_ratio install step (the sheet's IFERROR
+        # three-way), the three goldens, AND that the RM-4b validator accepts lookup_or_ratio (pass-through).
+        disc = self._new_disc()
+        path = os.path.join(os.path.dirname(loader.__file__), "data", "rate_master_electrical_all_v16c.json")
+        with open(path, "r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+        payload["discipline"] = disc
+        r = loader.load_rate_master(payload=payload)
+        self.assertEqual(r["items_total"], 795)
+        self.assertEqual(r["items_by_kind"]["db_shell"], 27)  # the NEW DB-shell rate table
+        self.assertEqual(r["items_by_kind"]["db_install_rate"], 8)  # the SPN/TPN install table (lookup source)
+        self.assertEqual(r["items_by_kind"]["db_switchgear_item"], 137)  # single-item DB rows UNCHANGED
+        self.assertEqual(r["configs_loaded"], 12)
+        cfg_name = frappe.db.get_value(
+            "BoQ Rate Category Config", {"discipline": disc, "category_id": "db_switchgear", "active": 1}, "name"
+        )
+        cfg = _obj(frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config"))
+        pids = set(cfg["pipelines"].keys())
+        self.assertLessEqual({"db_buildup_supply", "db_buildup_install", "db_buildup_bcs"}, pids)
+        self.assertLessEqual({"db_boq", "db_install_db", "db_install_nondb", "db_bcs"}, pids)  # single-item coexist
+        self.assertIn("db_shell", cfg.get("item_kinds", []))
+        # the install pipeline ends in ONE lookup_or_ratio (the sheet's exact IFERROR three-way)
+        lor = [s for s in cfg["pipelines"]["db_buildup_install"]["steps"] if s.get("step") == "lookup_or_ratio"]
+        self.assertEqual(len(lor), 1)
+        self.assertEqual(lor[0]["lookup"]["kind"], "db_install_rate")
+        self.assertEqual(lor[0]["ratio"]["of"], "supply")
+        self.assertEqual(lor[0]["when_shell_absent"]["equals"], "None")
+        # the three mirror-verified goldens: dbu1 fallback / dbu2 table-hit / dbu3 MCB-only (shell None)
+        gs = {g["id"]: g for g in cfg.get("goldens", [])}
+        self.assertLessEqual({"dbu1", "dbu2", "dbu3"}, set(gs))
+        self.assertEqual(gs["dbu1"]["expect"]["db_buildup_install"]["install"], 3660)  # VTPN not in table -> fallback
+        self.assertEqual(gs["dbu2"]["expect"]["db_buildup_install"]["install"], 1500)  # TPN 8WAY in table -> x1.5
+        self.assertEqual(gs["dbu3"]["expect"]["db_buildup_install"]["install"], 3580)  # shell absent -> supply x0.15
+        self.assertEqual(gs["dbu3"]["attrs"]["db_shell_item"], "None")  # MCB-only is a real product
+        # PASS-THROUGH: the RM-4b whole-config validator ACCEPTS a lookup_or_ratio step (it is in
+        # _KNOWN_STEP_TYPES). Proven on a ROUND-TRIPPABLE config (wiring) -- the db_switchgear config
+        # itself carries a pre-existing component+conditions shape (db_install_nondb) that is separately
+        # not RM-4b-round-trippable, unrelated to EA-4c.
+        wdisc = self._new_disc()
+        loader.load_rate_master(payload=self._real_payload(wdisc))
+        wcfg_name = self._config_name(wdisc)
+        wcfg = self._full_config(wcfg_name)
+        some_pid = next(iter(wcfg["pipelines"]))
+        wcfg["pipelines"][some_pid]["steps"].append({
+            "step": "lookup_or_ratio", "result": "install",
+            "lookup": {"kind": "db_install_rate", "item": "@db_shell_item", "target": "install_rate", "mult": 1.5},
+            "ratio": {"of": "supply", "mult": 0.15},
+            "when_shell_absent": {"attr": "db_shell_item", "equals": "None", "use": "ratio"}, "round": -1,
+        })
+        res = rate_master.update_rate_config(name=wcfg_name, config=json.dumps(wcfg))
+        self.assertTrue(res["ok"])  # lookup_or_ratio accepted as a known step type (pass-through)
+        stored_pids = self._full_config(wcfg_name)["pipelines"][some_pid]["steps"]
+        self.assertTrue(any(s.get("step") == "lookup_or_ratio" for s in stored_pids))

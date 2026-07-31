@@ -49,6 +49,9 @@ export const STEP_VOCABULARY = [
   // EA-4a: the assembly engine's conduit-sizing step (component_ref is extended in place, so it stays one
   // vocabulary entry; only circuit_fit is new).
   "circuit_fit",
+  // EA-4c: the DB build-up install -- the sheet's exact IFERROR three-way (shell absent -> ratio; shell
+  // in the install table -> table x mult; else fallback ratio).
+  "lookup_or_ratio",
 ] as const;
 
 export type StepType = (typeof STEP_VOCABULARY)[number];
