@@ -144,6 +144,11 @@ doc_events = {
         ],
         "on_trash": "nirmaan_stack.integrations.controllers.user_permission.on_trash"
     },
+    "Reminder Schedule": {
+        # Re-date the current future Pending log when a schedule's due date changes, so an
+        # edit doesn't leave a stale occurrence + a duplicate new one. UPDATE only, never deletes.
+        "on_update": "nirmaan_stack.integrations.controllers.reminder_schedule.on_update",
+    },
     "Asset Management": {
         "after_insert": "nirmaan_stack.integrations.controllers.asset_management.after_insert",
         "on_update": "nirmaan_stack.integrations.controllers.asset_management.on_update",
@@ -328,6 +333,12 @@ scheduler_events = {
 		],
 		"0 1 * * *": [
 			"nirmaan_stack.tasks.pmo_task_renewal.renew_due_recurring_tasks"
+		],
+		# 8 AM — compliance reminders: for each enabled Reminder Schedule, ensure the current
+		# cycle's Pending Reminder Schedule Log row exists (always-visible, idempotent). Writes
+		# LOG rows only — no email / push / Nirmaan Notification. Surfaced in the Action Center.
+		"0 8 * * *": [
+			"nirmaan_stack.tasks.reminders.send_due_reminders"
 		],
 		# Every 6 h — bulk-download temp .bin sweep (grace is also 6 h, so an
 		# orphan lives at most ~12 h).
