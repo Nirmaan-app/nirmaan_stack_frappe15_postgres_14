@@ -24,6 +24,35 @@ Date: 2026-07-17
 > Design of record with ten worked scenarios: `docs/boq/revised-boq-carry-amendment.html`.
 > Implementation waves: `docs/boq/HANDOFF-revised-boq-carry-amendment.md` §6.
 
+> ### ⚠️ AMENDMENT G — 2026-07-30, owner-directed
+>
+> **A row that MOVED can carry again — on the cross-BoQ carry only, and only when its serial number
+> vouches for it.** Amendment B's key (same Excel row + same description) is a conjunction with no
+> fallback, so a shifted row could not carry even with byte-identical text. It now gets a **second
+> pass** over the rows it leaves unmatched, keyed on **serial number + description**. Pass 1 is
+> unchanged and takes precedence. Detail block below, under **D6**.
+>
+> **The single sentence:**
+>
+> > A row unmatched by position carries **everything the match carries** — its rate *and* its opt-in
+> > annotation layers — when its `(serial, description)` pair occurs **exactly once on each side**;
+> > every other outcome leaves it unmatched.
+>
+> **The boundary is STRUCTURE vs. everything else — not rates vs. layers.** The build prompt drew it
+> at rates-vs-layers and the owner **corrected that mid-slice**. The risk Amendment B's strict
+> positional rule exists to contain is a row being **re-parented under a stale or superseded
+> heading** — that risk lives in the parse-time classification/parenting carry
+> (`review_carry.merge_revision_review_carry`), which stays **strict and untouched**. Categories,
+> remarks and colours are **row-addressed annotations, not parenting**: putting one on a row the
+> match has *already decided is the same row* adds no structural risk the rate itself does not.
+>
+> **Opt-in, default off, and cross-BoQ only.** `serial_second_pass` is keyword-only and False by
+> default, so the two seams that must not have it are unaffected **by construction, not by care**.
+>
+> **No schema, no migration.** The serial is already on the committed node (`BOQ Nodes.code`).
+>
+> As-built: `frontend/.claude/plans/boq/slices/2026-07-30-wbc-s11-serial-second-pass-match.md`.
+
 > ### ⚠️ AMENDMENT F — 2026-07-29, owner-directed
 >
 > **The WITHIN-BoQ carry reaches parity with the cross-BoQ one.** Amendment E gave the layers back to
@@ -507,6 +536,116 @@ so an added column that is blank on a row leaves that row's join unchanged.
 >    always does) and row matching works normally. ~8 of 211 sheets.
 > 5. **Excluded rows** — `is_excluded` rows never become committed nodes, so their positions never
 >    match. Template-origin concern only. 41 rows live.
+
+> ## ⚠️ AMENDED 2026-07-30 (Amendment G) — owner-directed: a second pass on serial + description
+>
+> **Layers on top of Amendment B above, which stays in force.** Pass 1 *is* Amendment B's key,
+> unchanged and byte-frozen in behaviour. Amendment G adds a **fallback**, not a replacement.
+>
+> **What it fixes.** Amendment B's key is a conjunction with no fallback — identical Excel position
+> **and** identical N2 description — and *any* inserted or deleted row shifts every position below
+> it. That is precisely the property Amendment B relies on for safety (see *"Why position is the
+> entire safety argument"*), and it is also why a row that merely **moved** could not carry, even
+> with byte-identical text and a byte-identical serial number. `match_rows` gains a **keyword-only
+> `serial_second_pass` flag, default `False`**, and a second pass that runs **only** over rows left
+> unmatched on **both** sides by pass 1. Position therefore takes precedence **structurally**, not
+> by a tiebreak.
+>
+> #### A row pairs on pass 2 when all three hold
+>
+> 1. The serial is **non-blank on both sides**.
+> 2. The N2-normalised descriptions are **identical** — the same comparison, and the same
+>    `normalize_n2`, that pass 1 makes.
+> 3. The `(serial, description)` key occurs **exactly once among the unmatched originals** *and*
+>    exactly once among the unmatched revised.
+>
+> Anything else stays unmatched. This is the same *second sighting ⇒ neither is trustworthy ⇒ drop
+> the key outright* discipline Amendment B already applies to duplicate positions. **The chosen
+> failure mode: a bad serial LOSES a match; it never CREATES a wrong one.**
+>
+> #### Where it is enabled — exactly one call site
+>
+> | call site | pass 2 | consumer |
+> |---|---|---|
+> | `committed_carry.committed_excel_row_match` | **ON** | `cross_boq_carry` — the rate carry **and** the opt-in layer carry |
+> | `committed_carry.version_addressed_excel_row_match` | off | `pricing.apply_copy_forward` — the within-BoQ copy-forward |
+> | `review_carry.merge_revision_review_carry` | off | the parse-time classification + parenting carry |
+>
+> Opt-in and default-off, so the two seams that must not have it are unaffected **by construction,
+> not by care**. The boundary is pinned two ways: **behaviourally**, and **structurally** by a test
+> that walks the app's **AST** and asserts `serial_second_pass` appears as a call keyword in exactly
+> one non-test file. The AST pin covers the parse-time carry (which has no fixture at that seam) and
+> catches the actual regression this amendment invites — a **third** consumer enabling it later.
+>
+> #### ⚠️ The boundary is STRUCTURE vs. everything else — NOT rates vs. layers
+>
+> **The build prompt's original framing was wrong and the owner corrected it mid-slice (2026-07-30).**
+> It would have given pass 2 to the cross-BoQ *rate* carry while holding the cross-BoQ *layer* carry
+> (categories / remarks / colours / dismissals) at the strict rule. Three reasons that was rejected:
+>
+> 1. **Not achievable as stated.** Those are not two `match_rows` call sites. `cross_boq_carry`
+>    derives **one** match per sheet and four consumers read it — the rate classification, the
+>    "needs a new value" count, the layer plan counts and the layer carry itself. Splitting them
+>    would have required a **second, stricter derivation** of the same pair.
+> 2. **Not desirable.** The fault the strict rule contains is a row **re-parented under a stale or
+>    superseded heading** — structural, silent, and propagating through every descendant, unlike a
+>    wrong rate, which is a visible number a human catches in the pricing grid. That risk lives in
+>    the **parse-time** carry, which stays strict. Categories, remarks and colours are
+>    **row-addressed annotations, not parenting**; putting one on a row the match has *already
+>    decided is the same row* adds no structural risk the rate does not already carry.
+> 3. **It would have partly undone Amendment E**, whose whole point is that the carry moves
+>    categories and rates in **one** action so the category gate cannot block its own remedy. A moved
+>    row arriving **priced-but-uncategorised** reinstates exactly the manual finishing step E
+>    removed. This is the strongest argument for the ruling.
+>
+> **Ruling: one match result, one flag, the layers ride along.** No split derivation.
+>
+> #### A sanctioned exception, not drift
+>
+> `row_match.py`'s docstring records that this design went through **four owner narrowings** and
+> warns against loosening it back toward a diff or a walk. **That warning stands.** What keeps this
+> from being a re-run of the description-only engine D6 originally proposed and Amendment B deleted:
+> **pass 2 never guesses.** A key that is not unique on both sides pairs nothing — where the old
+> engine had a disambiguation ladder, this has a drop.
+>
+> #### Deliberately rejected — no float repair, no numeric coercion
+>
+> Live `code` values include `"2.3000000000000003"` (a formula cell whose float precision leaked
+> into stored text), plus prose (`"GRAND TOTAL (EX GST 18%)"`), date strings, `"SUB HEAD A"`, `"A."`
+> and blanks. **No numeric coercion and no trailing-zero repair** — clever cleanup is exactly how a
+> wrong pairing gets made. Such rows simply stay unmatched. A possible later refinement, not an
+> oversight.
+>
+> `normalize_n2` was **not modified** (it is single-homed across three unrelated carry axes) and
+> **no separate serial normalizer was added** — trim + lowercase + whitespace-collapse is already
+> the right rule for a printed serial. Case folding cannot mis-pair: a fold that collided two real
+> serials produces a duplicate key, which is dropped.
+>
+> #### Live-corpus evidence — why the PAIR, and never the serial alone
+>
+> *(Read-only, dev bench, 2026-07-30 — load-bearing, so flagged per the evidentiary caveat.)*
+>
+> | Measure | Value |
+> |---|---|
+> | current `BOQ Nodes` | 37,800 |
+> | …with a non-blank `code` | **24,926** (~66%) |
+> | unique `(sheet, code, description)` groups | **22,646** |
+> | rows sitting in duplicate `(sheet, code, description)` groups | **2,280** — unmatched **by design** |
+>
+> **Serial alone was never viable, and this is the evidence:** across the corpus `'a'` occurs **999**
+> times, `'b'` 849, `'c'` 615, `'a.'` 333; inside a *single* sheet `'i)'` occurs **71** times and
+> `'ii'` 62. It is the **pair** that carries the information — which is why the key is
+> `(serial, description)` and never the serial on its own. The ~2,280 duplicate-group rows staying
+> unmatched **is the safe failure mode working**, not a defect; the ~34% of rows with no serial at
+> all are untouched by pass 2 and behave exactly as before.
+>
+> **Scope of applicability:** the cross-BoQ carry only, opt-in, default off. **No schema, no
+> migration** — the serial is already on the committed node as `BOQ Nodes.code` (`commit_pipeline`
+> maps the review row's `sl_no_value` → `code`, and both sides of every carry here read committed
+> nodes, so there is no cross-field translation anywhere).
+>
+> As-built, with the full test disposition:
+> `frontend/.claude/plans/boq/slices/2026-07-30-wbc-s11-serial-second-pass-match.md`.
 
 **The core reframe.** Match rows on **parser-symmetric** content and carry the human's corrections as an
 overlay re-applied *through* the match map.

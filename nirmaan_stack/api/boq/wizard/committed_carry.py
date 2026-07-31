@@ -85,9 +85,15 @@ def stamp_revision_provenance(
 
     ⚠️ AMENDMENT C (C5): this used to be `carry_commit_overlay`, which ALSO carried five layers
     (formula / remark / colour / `remark` dismissal / category) silently at commit. **A revision
-    commit carries NOTHING.** Amendment D then removed the annotation carry from the per-sheet
-    action too, so no seam anywhere copies row content between a revision and its original except
-    the rates (`cross_boq_carry.apply_sheet_carry`).
+    commit carries NOTHING** -- still true, and keeping it true is what this function is for.
+
+    ⚠️ The sentence that used to stand here said that, Amendment D having stripped the annotation
+    carry from the per-sheet action too, no seam anywhere copied row content between a revision and
+    its original EXCEPT the rates. **Amendment E (2026-07-28) falsified that**, and it is corrected
+    rather than deleted so the claim is not reintroduced: the explicit per-sheet action
+    `cross_boq_carry.apply_sheet_carry` moves the rates AND any of the four row-addressed layers the
+    user ticks (category / remark / colour / `remark` dismissal), each stamped with its origin. The
+    distinction that actually survives is **COMMIT vs. explicit ACTION** -- not rates vs. layers.
 
     **The stamp itself MUST stay.** `cross_boq_carry._resolve_sheet_carry` reads `source_sheet_name`
     off this row to find the source at all -- it is sheet-level IDENTITY, not row information, so it

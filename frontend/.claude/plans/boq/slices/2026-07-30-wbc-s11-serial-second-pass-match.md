@@ -63,6 +63,19 @@ and not desirable:
 **Ruling: one match, the layers ride along.** #1 and #2 both get pass 2. #3 and #4 stay strict, and
 the tests pinning them are now the entire boundary.
 
+### ⚠️ If you are bisecting: commit `72933a60`'s message is SUPERSEDED
+
+`72933a60` (the pure-matcher commit) says the flag exists so that *"the three consumers that must
+not get it (the cross-BoQ layer carry, the within-BoQ copy-forward, the parse-time
+classification/parenting carry) are unaffected"*. **The first of those three is wrong.** The owner's
+ruling above arrived *after* that commit was written, and the cross-BoQ **layer** carry **does** get
+pass 2 — it reads the very same match object as the rate carry, so it was never separable.
+
+Corrected one commit later in `bce47806`, whose message and code docstrings carry the true boundary
+(structure vs. everything else). **Commit history is immutable, so the message itself cannot be
+fixed** — this note is the correction of record. Only two consumers must not get the flag:
+`version_addressed_excel_row_match` and the parse-time carry.
+
 ### This is a sanctioned exception, not drift
 
 `row_match.py`'s docstring warns that the design went through **four owner narrowings** and says not
@@ -152,7 +165,9 @@ In the **S10 fragment**, `Three` → `Four` in the `_categorise_fixture_eligible
 
 ## Test dispositions
 
-Nothing was bulk-deleted. **Zero tests deleted in this slice.**
+Nothing was bulk-deleted. **40 tests added, 1 renamed away as a disclosed split — net +39.** The one
+that went is `test_the_shifted_row_is_not_a_twin` (row 2 below); it was replaced by two tests that
+cover *both* outcomes of the same move, so coverage is strictly stronger after the split.
 
 | # | Test | Disposition | Why |
 |---|---|---|---|
@@ -240,7 +255,7 @@ One suite at a time, in-container. No browser session ran against localhost duri
 | `test_pricing` | **Ran 252 — OK** | **Ran 252 — OK** |
 | vitest (in-container) | **1222 passed, 53 files** | **1222 passed, 53 files** |
 
-+39 tests, 0 deleted. `test_pricing` prints a SQL traceback from
+Net **+39** (40 added, 1 renamed away as the disclosed split). `test_pricing` prints a SQL traceback from
 `test_atomicity_concurrent_first_edit_exactly_one_winner` (`duplicate key … tabBoQ Sheet Pricing
 Lock_pkey`), which deliberately races the pricing lock — expected noise; the suite reports OK.
 
