@@ -62,10 +62,9 @@ const STAT_CARDS: StatCardConfig[] = [
   {
     id: "pending-invoices",
     title: "Pending Invoices",
-    doctype: "Task",
+    doctype: "Vendor Invoices",
     filters: [
-      ["task_type", "=", "po_invoice_approval"],
-      ["status", "=", "Pending"],
+      ["status", "=", "Pending"]
     ],
     linkTo: "/invoice-reconciliation",
     Icon: ReceiptText,
