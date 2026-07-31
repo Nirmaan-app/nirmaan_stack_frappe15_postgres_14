@@ -36,17 +36,24 @@ def get_my_reminders():
 	error) when the user has no profile or no schedules target them.
 	"""
 	user = frappe.session.user
-	profile = frappe.db.get_value("User", user, "role_profile_name")
-	if not profile:
-		return {"reminders": []}
+	profile = frappe.db.get_value("Nirmaan Users", {"email": user}, "role_profile")
+	
+	is_admin = "Administrator" in frappe.get_roles(user)
+	
+	if is_admin:
+		schedule_names = frappe.get_all("Reminder Schedule", filters={"enabled": 1}, pluck="name")
+	else:
+		if not profile:
+			return {"reminders": []}
 
-	# Schedules whose role_profiles child table references the caller's profile.
-	schedule_names = frappe.get_all(
-		"Reminder Role Profile",
-		filters={"role_profile": profile, "parenttype": "Reminder Schedule"},
-		pluck="parent",
-	)
-	schedule_names = list(dict.fromkeys(schedule_names))  # de-dupe, preserve order
+		# Schedules whose role_profiles child table references the caller's profile.
+		schedule_names = frappe.get_all(
+			"Reminder Role Profile",
+			filters={"role_profile": profile, "parenttype": "Reminder Schedule"},
+			pluck="parent",
+		)
+		schedule_names = list(dict.fromkeys(schedule_names))  # de-dupe, preserve order
+		
 	if not schedule_names:
 		return {"reminders": []}
 
@@ -133,7 +140,11 @@ def get_my_reminder_logs(include_done=0):
 	caller's `role_profile_name`. Read-only. Returns ``{"logs": [...]}``.
 	"""
 	user = frappe.session.user
-	profile = frappe.db.get_value("User", user, "role_profile_name")
+	profile = frappe.db.get_value("Nirmaan Users", {"email": user}, "role_profile")
+	
+	if user == "Administrator" and not profile:
+		profile = "Nirmaan Admin Profile"
+		
 	if not profile:
 		return {"logs": []}
 
@@ -143,6 +154,7 @@ def get_my_reminder_logs(include_done=0):
 		pluck="parent",
 	)
 	schedule_names = list(dict.fromkeys(schedule_names))
+		
 	if not schedule_names:
 		return {"logs": []}
 
@@ -157,6 +169,8 @@ def get_my_reminder_logs(include_done=0):
 			"name",
 			"reminder_schedule",
 			"due_date",
+			"from_month",
+			"to_month",
 			"status",
 			"notified_at",
 			"completed_by",
@@ -165,15 +179,25 @@ def get_my_reminder_logs(include_done=0):
 		],
 		order_by="due_date asc",
 	)
+	
+	done_count = frappe.db.count(
+		"Reminder Schedule Log", 
+		filters={"reminder_schedule": ["in", schedule_names], "status": "Done"}
+	)
+
 	_enrich_logs(logs, schedule_names)
-	return {"logs": logs}
+	return {"logs": logs, "done_count": done_count}
 
 
 def _my_schedule_names(user=None):
 	"""Schedule names that target the caller's role profile — the scoping gate, reused by
 	the read AND write endpoints so an accountant only ever sees / acts on their own."""
 	user = user or frappe.session.user
-	profile = frappe.db.get_value("User", user, "role_profile_name")
+	profile = frappe.db.get_value("Nirmaan Users", {"email": user}, "role_profile")
+	
+	if user == "Administrator" and not profile:
+		profile = "Nirmaan Admin Profile"
+		
 	if not profile:
 		return []
 	names = frappe.get_all(
@@ -255,3 +279,13 @@ def _enrich_logs(logs, schedule_names):
 				f"{due.strftime('%B')} has no {_ordinal(intended)} — "
 				f"complete by the last day, {due.strftime('%d %b %Y')}."
 			)
+
+		# resolve full name
+		if log.get("completed_by"):
+			if "user_fullnames" not in locals():
+				# Cache it locally so we only query the DB once per user per call
+				user_fullnames = {}
+			cb = log["completed_by"]
+			if cb not in user_fullnames:
+				user_fullnames[cb] = frappe.db.get_value("User", cb, "full_name") or cb
+			log["completed_by"] = user_fullnames[cb]

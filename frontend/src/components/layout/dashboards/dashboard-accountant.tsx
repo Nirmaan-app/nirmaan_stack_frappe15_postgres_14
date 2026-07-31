@@ -442,8 +442,8 @@ export const Accountant = () => {
   }));
 
   return (
-    <div className="flex-1 flex flex-col xl:flex-row">
-      <div className="min-w-0 flex-1 space-y-8">
+    <div className="flex-1 flex flex-col bg-gray-50/50 xl:flex-row">
+      <div className="min-w-0 flex-1 space-y-8 p-6 md:p-8">
       {/* Header */}
       <div className="space-y-1">
         <h2 className="text-2xl font-semibold tracking-tight text-gray-900 dark:text-gray-100">
@@ -455,7 +455,7 @@ export const Accountant = () => {
       </div>
 
       {/* Stats Overview */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-3">
+      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {statCardData.map(({ id, title, linkTo, Icon, accentColor, data, isLoading, error }) => (
           <StatCard
             key={id}
@@ -474,7 +474,7 @@ export const Accountant = () => {
       {QUICK_ACCESS_SECTIONS.map((section) => (
         <div key={section.title} className="space-y-4">
           <SectionHeader title={section.title} />
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+          <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {section.items.map((item) => (
               <QuickAccessCard
                 key={item.id}

@@ -20,4 +20,4 @@ class ReminderScheduleLog(Document):
 			self.completed_at = None
 
 	def on_update(self):
-		frappe.publish_realtime("reminder_logs_updated")
+		frappe.publish_realtime("reminder_logs_updated", after_commit=True)

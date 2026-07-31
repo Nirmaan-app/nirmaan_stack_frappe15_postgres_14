@@ -31,13 +31,15 @@ interface ReminderLogRow {
   // derived by get_my_reminder_logs
   state?: ReminderState;
   days?: number;
+  from_month?: string;
+  to_month?: string;
   clamped?: boolean;
   due_note?: string | null;
   message?: string | null;
 }
 
 interface GetMyReminderLogsResponse {
-  message: { logs: ReminderLogRow[] };
+  message: { logs: ReminderLogRow[]; done_count?: number };
 }
 
 const STATE: Record<
@@ -79,10 +81,10 @@ export function RemindersSection({ className }: { className?: string } = {}) {
     useFrappeGetCall<GetMyReminderLogsResponse>(
       "nirmaan_stack.api.reminders.read.get_my_reminder_logs",
       undefined,
-      "action-center-reminder-logs",
-      { revalidateOnFocus: false }
+      "action-center-reminder-logs"
     );
   const logs = useMemo(() => data?.message?.logs ?? [], [data]);
+  const doneCount = data?.message?.done_count ?? 0;
 
   const { call: markDone } = useFrappePostCall(
     "nirmaan_stack.api.reminders.write.mark_reminder_done"
@@ -102,8 +104,10 @@ export function RemindersSection({ className }: { className?: string } = {}) {
   };
 
   // Real-time listener: refetches the list whenever ANY log is created or updated
-  useFrappeEventListener("reminder_logs_updated", () => {
-    mutate();
+  useFrappeEventListener("list_update", (d: any) => {
+    if (d?.doctype === "Reminder Schedule Log") {
+      mutate();
+    }
   });
 
   return (
@@ -127,7 +131,7 @@ export function RemindersSection({ className }: { className?: string } = {}) {
           className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900"
         >
           <History className="h-3.5 w-3.5" />
-          <span>History</span>
+          <span>History ({doneCount})</span>
         </button>
 
         <button
@@ -208,6 +212,9 @@ export function RemindersSection({ className }: { className?: string } = {}) {
                     }
                   >
                     Due {formatDate(log.due_date)}
+                    {log.from_month && log.to_month ? (
+                      <span className="text-gray-400"> · Covers {log.from_month} - {log.to_month}</span>
+                    ) : null}
                     {log.message ? (
                       <span className="text-gray-400"> · {log.message}</span>
                     ) : null}

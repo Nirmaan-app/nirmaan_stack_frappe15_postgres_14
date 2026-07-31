@@ -22,7 +22,7 @@ import { RemindersSection } from "./RemindersSection";
 import { ActionTabs, ActionTab } from "./ActionTabs";
 import { FinanceActionTabs } from "./FinanceActionTabs";
 
-export type ActionCenterSection = "reminders" | "actions" | "finance";
+export type ActionCenterSection = "reminders" | "proj-manager" | "finance";
 
 export interface ActionCenterProps {
   /** Extra classes merged onto the panel container — override width / placement per dashboard. */
@@ -46,9 +46,20 @@ const FINANCE_ROLES = [
   "Nirmaan Accountant Lead Profile",
 ];
 
+const ADMIN_ROLES = [
+  "Administrator",
+  "Nirmaan Admin Profile",
+];
+
+const PM_ROLES = [
+  "Nirmaan Project Manager Profile"
+];
+
 function sectionsForRole(role: string): ActionCenterSection[] {
   if (FINANCE_ROLES.includes(role)) return ["reminders", "finance"];
-  return ["reminders", "actions"];
+  if (ADMIN_ROLES.includes(role)) return ["reminders"];
+  if (PM_ROLES.includes(role)) return ["reminders", "proj-manager"];
+  return ["reminders"];
 }
 
 export function ActionCenter({
@@ -63,19 +74,19 @@ export function ActionCenter({
     [sections, role]
   );
   const showReminders = resolved.includes("reminders");
-  const showActions = resolved.includes("actions");
+  const showActions = resolved.includes("proj-manager");
   const showFinance = resolved.includes("finance");
 
   return (
     <aside
       className={cn(
         // Right rail on laptop+; hoists to the TOP (first) below the laptop breakpoint.
-        "order-first w-full shrink-0 border-b border-gray-200 bg-white p-6 xl:order-none xl:w-[360px] xl:border-b-0 xl:border-l",
+        "order-first w-full shrink-0 border-b border-gray-200 bg-white p-6 xl:order-none xl:w-[420px] xl:min-w-[420px] xl:max-w-[420px] xl:border-b-0 xl:border-l",
         // On laptop+ the panel is a SELF-SCROLLING sticky rail (viewport-bounded, no fixed
         // inner scrollbox) — reminders + tabs + list scroll together within the panel, and it
         // stays in view as the main content scrolls. `<main>` (the scroll parent) sits below
         // the 56px header, so bound to the viewport minus header + padding.
-        "xl:sticky xl:top-0 xl:max-h-[calc(100dvh-5rem)] xl:self-start xl:overflow-y-auto",
+        "xl:sticky xl:top-0 xl:min-h-[calc(100dvh-3.5rem)] xl:max-h-[calc(100dvh-3.5rem)] xl:self-start xl:overflow-y-auto",
         className
       )}
     >

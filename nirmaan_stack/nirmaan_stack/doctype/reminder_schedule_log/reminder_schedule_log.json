@@ -10,6 +10,8 @@
   "reminder_schedule",
   "reminder_title",
   "due_date",
+  "from_month",
+  "to_month",
   "status",
   "cb_log",
   "notified_at",
@@ -46,6 +48,18 @@
    "label": "Due Date (cycle)",
    "reqd": 1,
    "search_index": 1
+  },
+  {
+   "fieldname": "from_month",
+   "fieldtype": "Data",
+   "label": "From Month",
+   "read_only": 1
+  },
+  {
+   "fieldname": "to_month",
+   "fieldtype": "Data",
+   "label": "To Month",
+   "read_only": 1
   },
   {
    "default": "Pending",

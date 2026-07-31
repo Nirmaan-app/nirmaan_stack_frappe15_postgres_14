@@ -31,7 +31,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/ui/use-toast";
 import { useDialogStore } from "@/zustand/useDialogStore";
 
@@ -41,7 +41,7 @@ const SCHEDULE_TYPES = ["Monthly", "Quarterly", "Half-Yearly", "Custom Dates"] a
 const SPAN: Record<string, number> = { Quarterly: 3, "Half-Yearly": 6 };
 
 const selectClass =
-  "flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
+  "flex h-10 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-all focus:outline-none focus:ring-2 disabled:cursor-not-allowed disabled:opacity-50";
 
 const dueDateRowSchema = z.object({
   from_month: z.string().optional(),
@@ -55,7 +55,7 @@ const schema = z
     title: z.string().min(1, "Title is required"),
     role_profiles: z.array(z.string()).min(1, "Select at least one role profile"),
     schedule_type: z.enum(SCHEDULE_TYPES),
-    due_day: z.coerce.number().min(1).max(31).optional(),
+    due_day: z.union([z.coerce.number().min(1).max(31), z.literal(""), z.literal(0)]).optional(),
     due_dates: z.array(dueDateRowSchema).optional(),
     notify_before_days: z.coerce.number().min(0, "0-365").max(365, "0-365"),
     message: z.string().optional(),
@@ -63,7 +63,7 @@ const schema = z
   })
   .superRefine((val, ctx) => {
     if (val.schedule_type === "Monthly") {
-      if (!val.due_day) {
+      if (!val.due_day || val.due_day === "") {
         ctx.addIssue({ path: ["due_day"], code: z.ZodIssueCode.custom, message: "Due day is required" });
       }
     } else if (!val.due_dates || val.due_dates.length === 0) {
@@ -226,12 +226,47 @@ export function NewReminderDialog({ onCreated }: NewReminderDialogProps) {
         await createDoc("Reminder Schedule", payload);
         toast({ title: "Reminder created", description: `"${values.title}" was added.` });
       }
+      
+      // Force SWR to invalidate and refetch the Action Center logs by matching the API method
+      import("swr").then(({ mutate }) => {
+        mutate(
+          (key: any) => Array.isArray(key) && key[0] === "nirmaan_stack.api.reminders.read.get_my_reminder_logs",
+          undefined,
+          { revalidate: true }
+        );
+      });
+      
       onCreated?.();
       close();
-    } catch (err: unknown) {
+    } catch (err: any) {
+      let errMsg = "Something went wrong.";
+      if (err) {
+        if (typeof err === "string") errMsg = err;
+        else if (err.message && typeof err.message === "string") errMsg = err.message;
+        
+        if (err._server_messages) {
+          try {
+            const msgs = JSON.parse(err._server_messages);
+            if (msgs.length > 0) {
+              const parsed = JSON.parse(msgs[0]);
+              errMsg = parsed.message || errMsg;
+            }
+          } catch (e) {
+            errMsg = err._server_messages;
+          }
+        } else if (err.exc_type) {
+            errMsg = err.exc_type; // Fallback to exception type if no specific message
+        }
+      }
+
+      // Strip HTML tags like <strong> or <b> from Frappe messages
+      if (typeof errMsg === "string") {
+        errMsg = errMsg.replace(/<[^>]*>?/gm, "");
+      }
+
       toast({
         title: isEdit ? "Couldn't update reminder" : "Couldn't create reminder",
-        description: err instanceof Error ? err.message : "Something went wrong.",
+        description: errMsg,
         variant: "destructive",
       });
     }
@@ -246,19 +281,24 @@ export function NewReminderDialog({ onCreated }: NewReminderDialogProps) {
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           {/* Title */}
-          <div className="space-y-1">
-            <Label htmlFor="reminder-title">Title</Label>
+          <div className="space-y-1.5">
+            <Label htmlFor="reminder-title" className="text-sm font-medium text-slate-700 dark:text-slate-300">
+              Title <span className="text-red-500">*</span>
+            </Label>
             <Input
               id="reminder-title"
               placeholder="e.g. GSTR-3B"
+              className={`h-10 transition-all focus:ring-2 ${errors.title ? 'border-red-500 focus:border-red-500 focus:ring-red-500/20' : 'focus:ring-emerald-500/20 focus:border-emerald-500'}`}
               {...register("title")}
             />
-            {errors.title && <p className="text-xs text-destructive">{errors.title.message}</p>}
+            {errors.title && <p className="text-xs text-red-500">{errors.title.message}</p>}
           </div>
 
           {/* Role profiles */}
-          <div className="space-y-1">
-            <Label>Role Profiles</Label>
+          <div className="space-y-1.5">
+            <Label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+              Role Profiles <span className="text-red-500">*</span>
+            </Label>
             <Controller
               control={control}
               name="role_profiles"
@@ -270,17 +310,28 @@ export function NewReminderDialog({ onCreated }: NewReminderDialogProps) {
                   onChange={(selected) => field.onChange((selected ?? []).map((s) => s.value))}
                   placeholder="Who gets this reminder…"
                   className="text-sm"
+                  styles={{
+                    control: (base, state) => ({
+                      ...base,
+                      minHeight: '40px',
+                      borderColor: errors.role_profiles ? '#ef4444' : state.isFocused ? '#10b981' : base.borderColor,
+                      boxShadow: state.isFocused ? (errors.role_profiles ? '0 0 0 2px rgba(239, 68, 68, 0.2)' : '0 0 0 2px rgba(16, 185, 129, 0.2)') : 'none',
+                      '&:hover': { borderColor: errors.role_profiles ? '#ef4444' : state.isFocused ? '#10b981' : base.borderColor }
+                    })
+                  }}
                 />
               )}
             />
-            {errors.role_profiles && <p className="text-xs text-destructive">{errors.role_profiles.message}</p>}
+            {errors.role_profiles && <p className="text-xs text-red-500">{errors.role_profiles.message}</p>}
           </div>
 
           {/* Schedule type + notify before */}
           <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label htmlFor="reminder-type">Schedule Type</Label>
-              <select id="reminder-type" className={selectClass} {...register("schedule_type")}>
+            <div className="space-y-1.5">
+              <Label htmlFor="reminder-type" className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                Schedule Type <span className="text-red-500">*</span>
+              </Label>
+              <select id="reminder-type" className={`${selectClass} ${errors.schedule_type ? 'border-red-500 focus:border-red-500 focus:ring-red-500/20' : 'focus:ring-emerald-500/20 focus:border-emerald-500'}`} {...register("schedule_type")}>
                 {SCHEDULE_TYPES.map((t) => (
                   <option key={t} value={t}>
                     {t}
@@ -288,27 +339,47 @@ export function NewReminderDialog({ onCreated }: NewReminderDialogProps) {
                 ))}
               </select>
             </div>
-            <div className="space-y-1">
-              <Label htmlFor="notify-before">Notify Before (days)</Label>
-              <Input id="notify-before" type="number" min={0} {...register("notify_before_days")} />
+            <div className="space-y-1.5">
+              <Label htmlFor="notify-before" className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                Notify Before (days) <span className="text-red-500">*</span>
+              </Label>
+              <Input 
+                id="notify-before" 
+                type="number" 
+                min={0} 
+                className={`h-10 transition-all focus:ring-2 ${errors.notify_before_days ? 'border-red-500 focus:border-red-500 focus:ring-red-500/20' : 'focus:ring-emerald-500/20 focus:border-emerald-500'}`}
+                {...register("notify_before_days")} 
+              />
               {errors.notify_before_days && (
-                <p className="text-xs text-destructive">{errors.notify_before_days.message}</p>
+                <p className="text-xs text-red-500">{errors.notify_before_days.message}</p>
               )}
             </div>
           </div>
 
           {/* Monthly → due day */}
           {isMonthly ? (
-            <div className="space-y-1">
-              <Label htmlFor="due-day">Due Day (of every month)</Label>
-              <Input id="due-day" type="number" min={1} max={31} placeholder="e.g. 20" {...register("due_day")} />
-              {errors.due_day && <p className="text-xs text-destructive">{errors.due_day.message}</p>}
+            <div className="space-y-1.5">
+              <Label htmlFor="due-day" className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                Due Day (of every month) <span className="text-red-500">*</span>
+              </Label>
+              <Input 
+                id="due-day" 
+                type="number" 
+                min={1} 
+                max={31} 
+                placeholder="e.g. 20" 
+                className={`h-10 transition-all focus:ring-2 ${errors.due_day ? 'border-red-500 focus:border-red-500 focus:ring-red-500/20' : 'focus:ring-emerald-500/20 focus:border-emerald-500'}`}
+                {...register("due_day")} 
+              />
+              {errors.due_day && <p className="text-xs text-red-500">{errors.due_day.message}</p>}
             </div>
           ) : (
             /* Fixed dates editor — the DUE DATE (month + day) is what we notify against. */
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label>Due Dates</Label>
+                <Label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                  Due Dates <span className="text-red-500">*</span>
+                </Label>
                 <Button
                   type="button"
                   size="sm"
@@ -327,65 +398,64 @@ export function NewReminderDialog({ onCreated }: NewReminderDialogProps) {
               )}
               {fields.map((row, index) => {
                 const rowErr = errors.due_dates?.[index];
+                const hasError = !!(rowErr?.due_month || rowErr?.due_day);
+                
                 return (
-                  <div key={row.id} className="space-y-2 rounded-md border p-3">
-                    {/* Primary: the due date we notify against */}
-                    <div className="flex items-end gap-2">
-                      <div className="space-y-0.5">
-                        <span className="text-xs font-medium">
-                          Due date <span className="text-destructive">*</span>
-                        </span>
-                        <div className="flex items-center gap-1">
-                          <select className={`${selectClass} w-24`} {...register(`due_dates.${index}.due_month`)}>
-                            <option value="">Month</option>
-                            {MONTHS.map((m) => (
-                              <option key={m} value={m}>{m}</option>
-                            ))}
-                          </select>
-                          <Input
-                            type="number"
-                            min={1}
-                            max={31}
-                            placeholder="Day"
-                            className="w-16"
-                            {...register(`due_dates.${index}.due_day`)}
-                          />
-                        </div>
+                  <div key={row.id} className="flex flex-col gap-1">
+                    <div className={`flex items-center gap-2 rounded-md border px-2 py-1.5 transition-colors ${hasError ? 'border-red-200 bg-red-50/30' : 'bg-gray-50/50'}`}>
+                      {/* Due Date */}
+                      <div className="flex items-center gap-1.5">
+                        <span className={`text-xs font-medium w-9 ${hasError ? 'text-red-600' : 'text-gray-700'}`}>Due:</span>
+                        <select className={`${selectClass} w-20 bg-white h-8 ${rowErr?.due_month ? 'border-red-500 focus:border-red-500 focus:ring-red-500/20' : 'focus:ring-emerald-500/20 focus:border-emerald-500'}`} {...register(`due_dates.${index}.due_month`)}>
+                          <option value="">Mon</option>
+                          {MONTHS.map((m) => (
+                            <option key={m} value={m}>{m}</option>
+                          ))}
+                        </select>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={31}
+                          placeholder="Day"
+                          className={`w-16 h-8 bg-white transition-all focus:ring-2 ${rowErr?.due_day ? 'border-red-500 focus:border-red-500 focus:ring-red-500/20' : 'focus:ring-emerald-500/20 focus:border-emerald-500'}`}
+                          {...register(`due_dates.${index}.due_day`)}
+                        />
                       </div>
+                      
+                      <div className="w-px h-5 bg-gray-200 mx-1 hidden sm:block"></div>
+                      
+                      {/* Covers Period */}
+                      <div className="flex flex-wrap sm:flex-nowrap items-center gap-1.5 flex-1">
+                        <span className="text-xs font-medium text-gray-500 hidden sm:inline-block">Covers:</span>
+                        <select
+                          className={`${selectClass} w-16 sm:w-20 bg-white h-8 text-muted-foreground focus:ring-emerald-500/20 focus:border-emerald-500`}
+                          value={watch(`due_dates.${index}.from_month`) || ""}
+                          onChange={(e) => handleFromMonthChange(index, e.target.value)}
+                        >
+                          <option value="">From</option>
+                          {MONTHS.map((m) => (
+                            <option key={m} value={m}>{m}</option>
+                          ))}
+                        </select>
+                        <span className="text-xs text-gray-400 hidden sm:inline-block">-</span>
+                        <select className={`${selectClass} w-16 sm:w-20 bg-white h-8 text-muted-foreground focus:ring-emerald-500/20 focus:border-emerald-500`} {...register(`due_dates.${index}.to_month`)}>
+                          <option value="">To</option>
+                          {MONTHS.map((m) => (
+                            <option key={m} value={m}>{m}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Delete */}
                       <Button
                         type="button"
                         size="icon"
                         variant="ghost"
-                        className="ml-auto"
+                        className="h-8 w-8 shrink-0 text-gray-400 hover:bg-red-50 hover:text-red-600"
                         onClick={() => remove(index)}
                       >
-                        <Trash2 className="h-4 w-4 text-destructive" />
+                        <Trash2 className="h-4 w-4" />
                       </Button>
-                    </div>
-                    {(rowErr?.due_month || rowErr?.due_day) && (
-                      <p className="text-xs text-destructive">Pick a due month and a day (1–31).</p>
-                    )}
-                    {/* Secondary: the period this filing covers (informational, shown in the reminder) */}
-                    <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                      <span>Covers</span>
-                      <select
-                        className={`${selectClass} h-8 w-20`}
-                        value={watch(`due_dates.${index}.from_month`) || ""}
-                        onChange={(e) => handleFromMonthChange(index, e.target.value)}
-                      >
-                        <option value="">—</option>
-                        {MONTHS.map((m) => (
-                          <option key={m} value={m}>{m}</option>
-                        ))}
-                      </select>
-                      <span>–</span>
-                      <select className={`${selectClass} h-8 w-20`} {...register(`due_dates.${index}.to_month`)}>
-                        <option value="">—</option>
-                        {MONTHS.map((m) => (
-                          <option key={m} value={m}>{m}</option>
-                        ))}
-                      </select>
-                      <span className="text-[10px]">(shown in the reminder)</span>
                     </div>
                   </div>
                 );
@@ -394,9 +464,17 @@ export function NewReminderDialog({ onCreated }: NewReminderDialogProps) {
           )}
 
           {/* Message */}
-          <div className="space-y-1">
-            <Label htmlFor="reminder-message">Message (optional)</Label>
-            <Textarea id="reminder-message" rows={2} placeholder="Extra note shown with the reminder" {...register("message")} />
+          <div className="space-y-1.5">
+            <Label htmlFor="reminder-message" className="text-sm font-medium text-slate-700 dark:text-slate-300">
+              Message <span className="text-xs font-normal text-slate-400 ml-1">(Optional)</span>
+            </Label>
+            <Textarea 
+              id="reminder-message" 
+              rows={2} 
+              placeholder="Extra note shown with the reminder" 
+              className="transition-all focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+              {...register("message")} 
+            />
           </div>
 
           {/* Enabled */}
@@ -404,19 +482,35 @@ export function NewReminderDialog({ onCreated }: NewReminderDialogProps) {
             control={control}
             name="enabled"
             render={({ field }) => (
-              <div className="flex items-center gap-2">
-                <Checkbox id="reminder-enabled" checked={field.value} onCheckedChange={(v) => field.onChange(!!v)} />
-                <Label htmlFor="reminder-enabled" className="cursor-pointer">Enabled</Label>
+              <div className="flex items-center gap-3 py-2">
+                <Switch 
+                  id="reminder-enabled" 
+                  checked={field.value} 
+                  onCheckedChange={(v) => field.onChange(!!v)} 
+                  className="data-[state=checked]:bg-emerald-600" 
+                />
+                <Label htmlFor="reminder-enabled" className="cursor-pointer text-sm font-medium text-slate-700 dark:text-slate-300">
+                  Enabled
+                </Label>
               </div>
             )}
           />
 
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={close}>
+          <DialogFooter className="pt-4 border-t border-slate-200 mt-6">
+            <Button type="button" variant="outline" className="h-10 px-4 text-sm font-medium" onClick={close}>
               Cancel
             </Button>
-            <Button type="submit" disabled={loading}>
-              {loading ? "Saving…" : isEdit ? "Save Changes" : "Create Reminder"}
+            <Button 
+              type="submit" 
+              disabled={loading}
+              className="h-10 px-5 text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm shadow-emerald-600/20 transition-all duration-200"
+            >
+              {loading ? (
+                <div className="flex items-center gap-2">
+                  <span className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                  Saving...
+                </div>
+              ) : isEdit ? "Save Changes" : "Create Reminder"}
             </Button>
           </DialogFooter>
         </form>

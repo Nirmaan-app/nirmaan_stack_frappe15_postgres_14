@@ -26,6 +26,8 @@ from frappe.utils import getdate, now_datetime, today
 from nirmaan_stack.services import reminders as reminders_service
 
 
+MONTHS_ORDER = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
 def send_due_reminders():
 	"""Daily entry point (wired in hooks.scheduler_events)."""
 	base = getdate(today())
@@ -47,8 +49,22 @@ def send_due_reminders():
 			# Gate log creation based on notify_before_days
 			if days_until_due > notify_days:
 				continue
+				
+			# Determine from_month and to_month for non-Monthly schedules
+			from_month, to_month = None, None
+			if doc.schedule_type != "Monthly":
+				for row in doc.due_dates:
+					# Match row's due_month and due_day to next_due
+					try:
+						row_month_idx = MONTHS_ORDER.index(row.due_month) + 1
+						if row_month_idx == next_due.month and int(row.due_day) == next_due.day:
+							from_month = row.from_month
+							to_month = row.to_month
+							break
+					except ValueError:
+						pass
 
-			created = _ensure_log(doc, getdate(next_due))
+			created = _ensure_log(doc, getdate(next_due), from_month, to_month)
 			if created:
 				doc.db_set("last_notified_on", base, update_modified=False)
 				frappe.db.commit()
@@ -58,7 +74,7 @@ def send_due_reminders():
 			frappe.log_error(f"send_due_reminders failed for {name}", "Reminders scheduler")
 
 
-def _ensure_log(doc, due_date):
+def _ensure_log(doc, due_date, from_month=None, to_month=None):
 	"""Create the Pending Reminder Schedule Log row for this cycle (idempotent).
 
 	One row per (reminder_schedule, due_date). Born Pending at the notify-before moment;
@@ -72,6 +88,8 @@ def _ensure_log(doc, due_date):
 	log = frappe.new_doc("Reminder Schedule Log")
 	log.reminder_schedule = doc.name
 	log.due_date = due_date
+	log.from_month = from_month
+	log.to_month = to_month
 	log.status = "Pending"
 	log.notified_at = now_datetime()
 	log.insert(ignore_permissions=True)
