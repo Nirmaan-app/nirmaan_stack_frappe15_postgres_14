@@ -1,20 +1,14 @@
 /**
- * Action Center — a standalone, reusable dashboard panel.
+ * ActionTabs — the pending "action items" tabs section of the Action Center.
  *
- * Surfaces the current user's pending Project Action Items (Surface A,
- * `get_my_action_items`) as category tabs (All / DPR / DN / DC) with a
- * project-wise, expandable pending list.
+ * Renders the current user's pending Project Action Items as category tabs
+ * (All / DPR / DN / DC) with a project-wise, expandable list. DN/DC come from the
+ * materialized `Project Action Item` projection (`get_my_action_items`); DPR is a
+ * live per-zone/day obligation (`get_my_pending_dprs`).
  *
- * Designed to be embedded across dashboards. Tune it per surface:
- *   - `className`  → override width / placement (merged via `cn`, so a wider
- *                    or full-width layout on another dashboard just passes e.g.
- *                    "xl:w-full xl:border-l-0").
- *   - `title`      → panel heading (default "Action Center").
- *   - `defaultTab` → initial tab (default "all").
- *
- * Future enhancement seams (kept intentionally simple for now): the tab set,
- * the per-type row → route mapping, and the empty-state copy are the natural
- * props to lift next when a dashboard needs a different behaviour.
+ * This is ONE composable SECTION — the reusable `ActionCenter` shell renders it (or
+ * not) per role/dashboard, alongside other sections like `RemindersSection`. It owns
+ * no header / LIVE badge / aside chrome; the shell provides those.
  */
 import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
@@ -25,15 +19,10 @@ import {
   GetActionItemsResponse,
 } from "@/types/NirmaanStack/ProjectActionItem";
 import { encodeFrappeId } from "@/pages/DeliveryNotes/constants";
-import { cn } from "@/lib/utils";
 
 export type ActionTab = "all" | "dpr" | "dn" | "dc";
 
-export interface ActionCenterProps {
-  /** Extra classes merged onto the panel container — override width / placement per dashboard. */
-  className?: string;
-  /** Panel heading. Defaults to "Action Center". */
-  title?: string;
+export interface ActionTabsProps {
   /** Tab selected on first render. Defaults to "all". */
   defaultTab?: ActionTab;
 }
@@ -207,7 +196,7 @@ interface StatTabProps {
   onClick: () => void;
 }
 
-function StatTab({ label, count, dot, active, onClick }: StatTabProps) {
+export function StatTab({ label, count, dot, active, onClick }: StatTabProps) {
   return (
     <button
       onClick={onClick}
@@ -237,11 +226,9 @@ const TAB_EMPTY_LABEL: Record<ActionTab, string> = {
   dc: "delivery challan",
 };
 
-export function ActionCenter({
-  className,
-  title = "Action Center",
+export function ActionTabs({
   defaultTab = "all",
-}: ActionCenterProps = {}) {
+}: ActionTabsProps = {}) {
   const navigate = useNavigate();
   const [tab, setTab] = useState<ActionTab>(defaultTab);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -335,23 +322,7 @@ export function ActionCenter({
     });
 
   return (
-    <aside
-      className={cn(
-        "w-full shrink-0 border-t border-gray-200 bg-white p-6 xl:w-[360px] xl:border-l xl:border-t-0",
-        className
-      )}
-    >
-      <div className="mb-5 flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-gray-800">{title}</h2>
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-600">
-          <span className="relative flex h-2 w-2">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-          </span>
-          LIVE
-        </span>
-      </div>
-
+    <>
       {/* Category tabs */}
       <div className="mb-4 grid grid-cols-4 gap-2">
         <StatTab label="All" count={dnCount + dcCount + dprCount} dot="bg-red-500" active={tab === "all"} onClick={() => setTab("all")} />
@@ -422,6 +393,6 @@ export function ActionCenter({
           )}
         </div>
       )}
-    </aside>
+    </>
   );
 }

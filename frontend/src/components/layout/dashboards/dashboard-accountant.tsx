@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { TailSpin } from "react-loader-spinner";
+import { ActionCenter } from "@/components/layout/action-center/ActionCenter";
 
 // Brand primary color (rose)
 const BRAND_PRIMARY = "#D03B45";
@@ -441,7 +442,8 @@ export const Accountant = () => {
   }));
 
   return (
-    <div className="flex-1 space-y-8">
+    <div className="flex-1 flex flex-col xl:flex-row">
+      <div className="min-w-0 flex-1 space-y-8">
       {/* Header */}
       <div className="space-y-1">
         <h2 className="text-2xl font-semibold tracking-tight text-gray-900 dark:text-gray-100">
@@ -485,6 +487,10 @@ export const Accountant = () => {
           </div>
         </div>
       ))}
+      </div>
+
+      {/* Action Center — resolves to reminders for the accountant role profile. */}
+      <ActionCenter />
     </div>
   );
 };

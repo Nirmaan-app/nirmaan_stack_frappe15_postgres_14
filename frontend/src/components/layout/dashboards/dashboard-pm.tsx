@@ -13,7 +13,7 @@ import {
   Warehouse,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { ActionCenter } from "@/components/action-center/ActionCenter";
+import { ActionCenter } from "@/components/layout/action-center/ActionCenter";
 
 interface DashboardCardProps {
   title: string;

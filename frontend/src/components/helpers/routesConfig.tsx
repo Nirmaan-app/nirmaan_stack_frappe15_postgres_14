@@ -133,6 +133,8 @@ const WarehouseStockPage = lazy(() => import("@/pages/Warehouse/WarehouseStockPa
 const RequestFromWarehouse = lazy(() => import("@/pages/Warehouse/RequestFromWarehouse"));
 // TEMPORARY — Resolve Invoices admin tool (~1 week; delete this line + the route + the page when done)
 const ResolveInvoices = lazy(() => import("@/pages/temp/ResolveInvoices"));
+
+const RemindersPage = lazy(() => import("@/pages/Reminders/RemindersPage"));
 // Document Search
 
 export const appRoutes: RouteObject[] = [
@@ -154,6 +156,9 @@ export const appRoutes: RouteObject[] = [
 
           // Resolve Invoices — Admin tool (lazy → MUST be wrapped in Suspense, like every other lazy route)
           { path: "resolve-invoices", element: <Suspense fallback={null}><ResolveInvoices /></Suspense> },
+
+          // Reminders — compliance reminder schedules (lazy → Suspense-wrapped)
+          { path: "reminders", element: <Suspense fallback={null}><RemindersPage /></Suspense> },
 
           // --- PRs & Milestones Section ---
           {

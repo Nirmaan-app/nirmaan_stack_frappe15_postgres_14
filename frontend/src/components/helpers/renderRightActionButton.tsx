@@ -51,7 +51,7 @@ export const RenderRightActionButton = ({
   const { role, user_id } = useUserData()
   const isSales = role === "Nirmaan Sales Executive Profile" || role === "Nirmaan Sales Lead Profile";
   const { selectedProject } = useContext(UserContext);
-  const { toggleNewInflowDialog, toggleNewItemDialog, toggleNewProjectInvoiceDialog, toggleNewNonProjectExpenseDialog, toggleNewProjectExpenseDialog, toggleNewWODialog } = useDialogStore()
+  const { toggleNewInflowDialog, toggleNewItemDialog, toggleNewProjectInvoiceDialog, toggleNewNonProjectExpenseDialog, toggleNewProjectExpenseDialog, toggleNewWODialog, setNewReminderDialog, setEditReminderScheduleName } = useDialogStore()
 
   if (newButtonRoutes[locationPath]) {
     // "Add New Project" uses the shared canManageTendering gate (Admin / PMO /
@@ -160,6 +160,26 @@ export const RenderRightActionButton = ({
       <Button onClick={toggleNewProjectExpenseDialog} className="sm:mr-4 mr-2">
         <CirclePlus className="w-5 h-5 pr-1" />
         Add <span className="hidden md:flex pl-1">New Project Expense</span>
+      </Button>
+    );
+  } else if (locationPath === "/reminders") {
+    // Only roles that can create a Reminder Schedule get the button (matches the
+    // doctype's create permission: Admin / PMO / Accountant Lead). Accountant is
+    // read-only, so they see the table but not this button.
+    const canCreateReminder =
+      user_id === "Administrator" ||
+      ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Lead Profile"].includes(role);
+    if (!canCreateReminder) return null;
+    return (
+      <Button
+        onClick={() => {
+          setEditReminderScheduleName(null); // ensure CREATE mode
+          setNewReminderDialog(true);
+        }}
+        className="sm:mr-4 mr-2"
+      >
+        <CirclePlus className="w-5 h-5 pr-1" />
+        Add <span className="hidden md:flex pl-1">Reminder</span>
       </Button>
     );
   } else {
