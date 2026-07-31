@@ -8,50 +8,15 @@ This directory contains reference documentation for the Nirmaan Stack frontend. 
 
 | Plan | Feature | Status |
 |------|---------|--------|
-| [boq/README.md](../plans/boq/README.md) | BoQ Upload & Management — **design spec** (§1–16). Start here. | Phases 1.x + 3 + 4 complete; Phase 5 (commit + pricing editor) active. |
-| [boq/_slices.md](../plans/boq/_slices.md) | BoQ **slice index** — 167 as-built records, one row each. Find a slice here, then open its fragment. | Rotated 2026-07-29 from the former single-file plan doc. |
-| [boq/phasing.md](../plans/boq/phasing.md) | BoQ phase plan + per-phase status. Grep, don't load. | — |
-| [boq/known-issues.md](../plans/boq/known-issues.md) | BoQ known parser issues register (17.1–17.53). Grep, don't load. | — |
-| [boq/decisions/](../plans/boq/decisions/) | BoQ decisions log, chunked by month. Grep, don't load. | — |
+| [boq-upload-plan.md](../plans/boq-upload-plan.md) | BoQ Upload & Management | Phases 1.x + 3 + 4 complete; Phase 5 (commit + pricing editor) active. Live status + full per-slice as-built detail. |
 
 ---
 
 ## Available Context Files
 
-### BoQ frontend — split by surface (2026-07-29)
-
-Load only the surface you are working on. Backend: `../../.claude/context/domain/boq-backend.md`
-
-| File | Surface | When to Load |
-|------|---------|--------------|
-| [domain/boq-frontend-wizard-upload.md](./domain/boq-frontend-wizard-upload.md) | Upload wizard | Entry points, project picker, upload screen, drop zone, `uploadStatus` lifecycle, socket listeners, parse-completion modal, on-mount + reconnect recovery |
-| [domain/boq-frontend-hub.md](./domain/boq-frontend-hub.md) | Hub | Hub route, back-navigation, cards, button set, general-specs derivation, ParseRunDialog, dirty markers, visual conventions |
-| [domain/boq-frontend-sheet-config.md](./domain/boq-frontend-sheet-config.md) | Sheet config / spoke | SheetConfigPanel, spoke shell, SheetDataGrid, column-role mapping, SheetSearchView, RestructureModal, `confirmedFields` keys |
-| [domain/boq-frontend-review-screen.md](./domain/boq-frontend-review-screen.md) | Review screen | ReviewTree contract, `wizard_status` + Finalized freeze, exports, C-flag dismissal, find-&-filter, detail-panel layout, Force Re-parse |
-| [domain/boq-frontend-pricing-grid.md](./domain/boq-frontend-pricing-grid.md) | Pricing — grid contract | Keyboard-nav matrix, row memoization, read-only gating, asymmetric rate-edit gate, Esc-to-exit, annotation rendering |
-| [domain/boq-frontend-pricing-rollup.md](./domain/boq-frontend-pricing-rollup.md) | Pricing — rollup & reconciliation | `pricingRollup` + SummaryPanel, `priceability.ts`, incomplete subtotals, Cluster B store, DOC-0 flip |
-| [domain/boq-frontend-pricing-layout.md](./domain/boq-frontend-pricing-layout.md) | Pricing — layout & nav | SheetPricingPage, parent click-to-jump, frozen-left panes, two-pane split, scroll/jump retarget |
-| [domain/boq-frontend-pricing-controls.md](./domain/boq-frontend-pricing-controls.md) | Pricing — controls & commit | Collapse/expand all, per-sheet lock/unlock, `pricingRowPropsAreEqual`, hub footer toolbar, CommitDialog preflight, Review S2 / ADR-0008 |
-| [domain/boq-frontend-revised-boq.md](./domain/boq-frontend-revised-boq.md) | Revised BoQ / ADR-0014 | Hub card redesign, header two-row refactor, Revised BoQ S2–S4, Amendments B–E, template review + quantity keyboard nav |
-| [domain/boq-frontend-as-built-log.md](./domain/boq-frontend-as-built-log.md) | ⚠️ HISTORICAL | Quarantined rolling as-built narrative. **Do not load, do not extend.** Per-slice detail belongs in `plans/boq/slices/`; pending a duplication check |
-
-### Surface conventions — carved from `frontend/CLAUDE.md` (2026-07-30)
-
-`frontend/CLAUDE.md` is auto-loaded on every session, so it is now a **router**: invariants and guardrails only. The per-surface conventions it used to carry live here and are read on demand. Nothing was dropped in the carve — every content line was verified present against `git show HEAD:frontend/CLAUDE.md`.
-
-| File | Surface | When to Load |
-|------|---------|--------------|
-| [conventions/frontend-pricing-editor.md](./conventions/frontend-pricing-editor.md) | Pricing editor — LOAD-BEARING | Touching `PricingGrid.tsx` / `SheetPricingPage.tsx`: keyboard nav, row memoisation, rate-edit gating, verdict states (incl. the three-input `"carried"` state), formula engine F1–F4, carry / copy-forward |
-| [conventions/frontend-pricing-module.md](./conventions/frontend-pricing-module.md) | Pricing module (HVAC / Electrical / ELV) | Workbooks, rate resolution, checkout, frozen baselines |
-| [conventions/frontend-gotchas.md](./conventions/frontend-gotchas.md) | Cross-cutting gotchas | Before any non-trivial frontend change — build output, multi-tenancy, service worker, role gating, hold statuses, project scoping |
-| [conventions/frontend-rate-master.md](./conventions/frontend-rate-master.md) | Rate Master (RM-2) | Pipelines, structure editing, registry |
-| [conventions/frontend-wizard.md](./conventions/frontend-wizard.md) | Wizard shell | Hub / spoke / review-screen conventions |
-| [conventions/frontend-review-invariants.md](./conventions/frontend-review-invariants.md) | Review screen invariants | Touching `ReviewTree.tsx` — the load-bearing rules (distinct from the reference surface `domain/boq-frontend-review-screen.md`) |
-
-### Other domains
-
 | File | Domain | When to Load |
 |------|--------|--------------|
+| [domain/boq-frontend.md](./domain/boq-frontend.md) | BoQ frontend | Upload wizard + pricing editor + review-screen conventions, full per-slice as-built detail (relocated from frontend/CLAUDE.md 2026-06-25). Backend: `../../.claude/context/domain/boq-backend.md` |
 | [data-tables.md](./data-tables.md) | DataTable System | useServerDataTable hook, DataTable component, export, backend API, search strategies |
 | [coding-standards.md](./coding-standards.md) | Standards | Date formats, react-select patterns, Radix dialog fixes |
 | [react-patterns.md](./react-patterns.md) | React | useEffect anti-patterns, TanStack Table deps, Vercel best practices |

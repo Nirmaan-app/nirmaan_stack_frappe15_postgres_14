@@ -63,19 +63,25 @@ folded: 2026-07-31
   - **39 commits unpushed and unreplicated on any remote** — they exist on exactly one disk and now include the whole S10/S11 carry work.
   - Migration heads-up owed (above).
   - The **pricing module is LIVE in production**.
-  - `boq-backend-wizard-endpoints.md` sits in the size warn band (65.6 KB) as a flat block with no structural split available.
+  - The context docs are back to the single-file form (2026-07-31) and are large by design: `boq-frontend.md` 287 KB, `boq-backend.md` 187 KB, the plan doc 1.45 MB. **The plan doc no longer fits in one context window** — grep it, do not load it. Size ceilings are no longer enforced.
 
 ### Context + plan layout — read this before looking for anything
 
+**Rolled back to the single-file form on 2026-07-31** (owner decision — the split machinery
+cost more friction than it returned). The two routers, the eleven `context/conventions/` surfaces,
+the ten `boq-frontend-*` surfaces, the five `boq-backend-*` surfaces and the whole
+trunk-and-fragments plan tree are all GONE. Do not hunt for them.
+
 | Where | What | Rule |
 |---|---|---|
-| `CLAUDE.md`, `frontend/CLAUDE.md` | **routers**, 19.0 KB + 16.3 KB | Invariants + a when-you-touch-X-read-Y table. Auto-loaded. |
-| `.claude/context/conventions/`, `frontend/.claude/context/conventions/` | 11 surfaces | How to **change** a surface. On demand. |
-| `.claude/context/domain/boq-backend.md` | **router**, 1.7 KB → 5 surfaces | On demand. |
-| `frontend/.claude/plans/boq/` | `README.md` trunk · `_slices.md` (185 rows) · `slices/` 183 write-once fragments · `phasing.md` / `known-issues.md` / `decisions/` registers | Fragments chain to `-part2.md`; registers are grepped, not loaded. |
-| `frontend/.claude/plans/boq/archive/boq-upload-plan-pre-split.md` | 1.35 MB | The pre-rotation monolith. **Historical only.** |
+| `CLAUDE.md`, `frontend/CLAUDE.md` | 72.0 KB + 106.6 KB | Conventions AND invariants, in one file each. Auto-loaded. |
+| `.claude/context/domain/boq-backend.md` | 187.3 KB | Backend endpoints, doctypes, commit pipeline, slice changelog. On demand. |
+| `frontend/.claude/context/domain/boq-frontend.md` | 287.4 KB | All frontend surfaces in one file. On demand. |
+| `frontend/.claude/plans/boq-upload-plan.md` | 1.45 MB | Design spec + every as-built record, appended in order. The single live plan record. |
 
-Both `_index.md` files are authoritative; the session-start hook reports unindexed files. **Neither `boq-frontend.md` nor `boq-upload-plan.md` exists any more** — don't hunt for them.
+Both `_index.md` files are authoritative. **A new as-built record is appended to
+`boq-upload-plan.md` as a `## <title>` section** — there is no fragment, no index row and no
+write-once rule any more.
 
 ### Deferred register — ⚠️ **8 items against a ceiling of 5. It is OVER.**
 
@@ -124,7 +130,7 @@ Electrical content = the NEW team master (v7 lineage, imported via Replace from 
 5. **U2** — earthing wired real, stub deleted. One session left in the 2-session
    box; exit criterion per rate-helper §7a. (`stubRateHelper.test.ts` is already
    deleted, so the stub retirement is partly done — verify what remains.)
-6. Residuals: retire throwaway estimator tests; **Google sharing revocation — the containment endpoint, still owed**; v5.89 arc-close leftovers (Pricing-Editor §6 correction, stale `review_screen.py` comment, PR-description note); carve `boq-backend-wizard-endpoints.md` if a structural split appears.
+6. Residuals: retire throwaway estimator tests; **Google sharing revocation — the containment endpoint, still owed**; v5.89 arc-close leftovers (Pricing-Editor §6 correction, stale `review_screen.py` comment, PR-description note).
 
 **Checklist C is owed fresh at next resume** (agreement #41) against this dashboard.
 
@@ -205,7 +211,7 @@ Cited by number throughout the plan docs and prompts. Full text: §8 of the sour
 
 ## Known issues
 
-The §9 register (numbered findings, currently past #164) lives in the source handover — it is large and is a **grep target, not a load**. The parser-specific subset is mirrored in `frontend/.claude/plans/boq/known-issues.md`.
+The §9 register (numbered findings, currently past #164) lives in the source handover — it is large and is a **grep target, not a load**. The parser-specific subset is mirrored in `frontend/.claude/plans/boq-upload-plan.md`.
 
 ## Standing noise — **PER MACHINE, not global**
 
