@@ -704,9 +704,17 @@ export function runPipeline(
       //       HONEST no-compute. The trace names which branch fired. Never throws (Option C; a malformed
       //       shape degrades via the outer try/catch to `unsupported`).
       const s = raw as import("./rateMasterTypes").LookupOrRatioStep;
+      // EA-4d: the table-hit branch and the ratio branches round SEPARATELY (the sheet's install-table
+      // hit is UNROUNDED `VLOOKUP*1.5`; the shell-absent + fallback ratio branches ROUNDUP tens).
+      // round_lookup / round_ratio win; the legacy single `round` is the fallback for BOTH
+      // (backwards-compat). A null/undefined round => UNROUNDED (no roundup applied).
+      const roundLookup = s.round_lookup !== undefined ? s.round_lookup : s.round;
+      const roundRatio = s.round_ratio !== undefined ? s.round_ratio : s.round;
+      const applyRoundOpt = (x: number, d: number | null | undefined) =>
+        d === null || d === undefined ? x : roundUp(x, d);
       const ratioSrc = ctx[s.ratio.of];
       const ratioOk = typeof ratioSrc === "number" && Number.isFinite(ratioSrc);
-      const ratioValue = () => roundUp(ratioSrc * s.ratio.mult, s.round);
+      const ratioValue = () => applyRoundOpt(ratioSrc * s.ratio.mult, roundRatio);
       const noRatioSource = (why: string) => {
         steps.push({
           step: stepType,
@@ -734,14 +742,15 @@ export function runPipeline(
         const rows = items.filter((it) => it.kind === s.lookup.kind && it.attributes?.item === itemVal);
         const hitRate = rows.length === 1 ? rows[0].rates?.[s.lookup.target] : undefined;
         if (rows.length === 1 && typeof hitRate === "number" && Number.isFinite(hitRate)) {
-          // (b) TABLE-HIT: the shell is in the SPN/TPN install table
-          const value = roundUp(hitRate * s.lookup.mult, s.round);
+          // (b) TABLE-HIT: the shell is in the SPN/TPN install table (round_lookup: null => UNROUNDED)
+          const value = applyRoundOpt(hitRate * s.lookup.mult, roundLookup);
+          const unrounded = roundLookup === null || roundLookup === undefined;
           ctx[s.result] = value;
           steps.push({
             step: stepType,
             label: s.explain || "install (install-table)",
             refItem: String(itemVal ?? s.lookup.kind),
-            matchedCondition: `table-hit: ${s.lookup.target} ${fmtNum(hitRate)} x ${s.lookup.mult} (table branch)`,
+            matchedCondition: `table-hit: ${s.lookup.target} ${fmtNum(hitRate)} x ${s.lookup.mult}${unrounded ? ", no roundup" : ""} (table branch)`,
             produced: { key: s.result, value },
             runningValues: snapshot(),
           });

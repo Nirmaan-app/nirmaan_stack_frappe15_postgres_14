@@ -46,7 +46,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.boq import rate_master
-from nirmaan_stack.services.boq_rate_master import loader
+from nirmaan_stack.services.boq_rate_master import extraction, loader
 
 PIPELINE_KEYS = {"cable_boq", "termination_boq", "cable_bcs", "termination_bcs"}
 
@@ -827,60 +827,113 @@ class TestRateMaster(FrappeTestCase):
         changed = {c[0] for c in json.loads(versions[0]["data"]).get("changed", [])}
         self.assertIn("config", changed)
 
-    # ---- EA-4c: the DB build-up (db_shell kind) + the lookup_or_ratio install step ----
-    def test_31_eall_v16c_db_buildup_and_lookup_or_ratio(self):
-        # EA-4c loads the CURRENT E-ALL asset (v16c) by path -- the stable v12 fixture (cls.eall) is left
-        # for the loader-mechanism tests. Pins: the NEW db_shell kind, the three build-up pipelines
-        # coexisting with the four single-item ones, the lookup_or_ratio install step (the sheet's IFERROR
-        # three-way), the three goldens, AND that the RM-4b validator accepts lookup_or_ratio (pass-through).
+    # ---- EA-4d: DB composite-decomposition + the single-item removal + the round-split fix ----
+    def test_31_eall_v17_db_composite_decomposition_and_round_split(self):
+        # EA-4d loads the CURRENT E-ALL asset (v17) by path. Pins: the four SINGLE-ITEM DB pipelines +
+        # the family/item attrs are GONE; only the 3 build-up pipelines remain; matching_mode is now
+        # composite_decomposition with a composite_slots descriptor; the lookup_or_ratio step carries the
+        # SPLIT rounding (round_lookup null / round_ratio -1); the goldens are dbu1/dbu2/dbu4 (d1/d2 gone,
+        # dbu4 pins the UNROUNDED table-hit 1275). Items are UNCHANGED (795; db_switchgear_item 137).
         disc = self._new_disc()
-        path = os.path.join(os.path.dirname(loader.__file__), "data", "rate_master_electrical_all_v16c.json")
+        path = os.path.join(os.path.dirname(loader.__file__), "data", "rate_master_electrical_all_v17.json")
         with open(path, "r", encoding="utf-8") as fh:
             payload = json.load(fh)
         payload["discipline"] = disc
         r = loader.load_rate_master(payload=payload)
         self.assertEqual(r["items_total"], 795)
-        self.assertEqual(r["items_by_kind"]["db_shell"], 27)  # the NEW DB-shell rate table
-        self.assertEqual(r["items_by_kind"]["db_install_rate"], 8)  # the SPN/TPN install table (lookup source)
-        self.assertEqual(r["items_by_kind"]["db_switchgear_item"], 137)  # single-item DB rows UNCHANGED
+        self.assertEqual(r["items_by_kind"]["db_shell"], 27)
+        self.assertEqual(r["items_by_kind"]["db_install_rate"], 8)
+        self.assertEqual(r["items_by_kind"]["db_switchgear_item"], 137)  # items UNCHANGED -- only the config moved
         self.assertEqual(r["configs_loaded"], 12)
         cfg_name = frappe.db.get_value(
             "BoQ Rate Category Config", {"discipline": disc, "category_id": "db_switchgear", "active": 1}, "name"
         )
         cfg = _obj(frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config"))
         pids = set(cfg["pipelines"].keys())
-        self.assertLessEqual({"db_buildup_supply", "db_buildup_install", "db_buildup_bcs"}, pids)
-        self.assertLessEqual({"db_boq", "db_install_db", "db_install_nondb", "db_bcs"}, pids)  # single-item coexist
-        self.assertIn("db_shell", cfg.get("item_kinds", []))
-        # the install pipeline ends in ONE lookup_or_ratio (the sheet's exact IFERROR three-way)
+        # the 3 build-up pipelines remain; the 4 single-item pipelines are REMOVED
+        self.assertEqual(pids, {"db_buildup_supply", "db_buildup_install", "db_buildup_bcs"})
+        self.assertNotIn("db_boq", pids)
+        self.assertNotIn("db_install_db", pids)
+        self.assertNotIn("db_install_nondb", pids)
+        self.assertNotIn("db_bcs", pids)
+        # the single-item identity attrs are GONE; the build-up slot attrs remain
+        attr_ids = {d["id"] for d in cfg["attribute_definitions"]}
+        self.assertNotIn("family", attr_ids)
+        self.assertNotIn("item", attr_ids)
+        self.assertLessEqual({"db_shell_item", "mcb1_item", "mcb5_item", "enclosure_item"}, attr_ids)
+        # the composite-decomposition mode + descriptor
+        self.assertEqual(cfg.get("matching_mode"), "composite_decomposition")
+        cs = cfg.get("composite_slots")
+        self.assertEqual(cs["shell"]["attr"], "db_shell_item")
+        self.assertEqual(cs["repeatable"]["prefix"], "mcb")
+        self.assertEqual(cs["repeatable"]["count"], 5)
+        self.assertEqual(cs["fixed"][0]["attr"], "enclosure_item")
+        self.assertIn("curve", cfg.get("decomposition_rules", {}))
+        # the lookup_or_ratio step: the SPLIT rounding (table-hit unrounded, ratio branches tens)
         lor = [s for s in cfg["pipelines"]["db_buildup_install"]["steps"] if s.get("step") == "lookup_or_ratio"]
         self.assertEqual(len(lor), 1)
-        self.assertEqual(lor[0]["lookup"]["kind"], "db_install_rate")
-        self.assertEqual(lor[0]["ratio"]["of"], "supply")
-        self.assertEqual(lor[0]["when_shell_absent"]["equals"], "None")
-        # the three mirror-verified goldens: dbu1 fallback / dbu2 table-hit / dbu3 MCB-only (shell None)
+        self.assertIsNone(lor[0]["round_lookup"])  # table-hit UNROUNDED (the sheet fidelity)
+        self.assertEqual(lor[0]["round_ratio"], -1)  # ratio branches roundup tens
+        # goldens: dbu1 fallback / dbu2 table-hit / dbu4 UNROUNDED 1275; the old d1/d2 single-item goldens are gone
         gs = {g["id"]: g for g in cfg.get("goldens", [])}
-        self.assertLessEqual({"dbu1", "dbu2", "dbu3"}, set(gs))
-        self.assertEqual(gs["dbu1"]["expect"]["db_buildup_install"]["install"], 3660)  # VTPN not in table -> fallback
-        self.assertEqual(gs["dbu2"]["expect"]["db_buildup_install"]["install"], 1500)  # TPN 8WAY in table -> x1.5
-        self.assertEqual(gs["dbu3"]["expect"]["db_buildup_install"]["install"], 3580)  # shell absent -> supply x0.15
-        self.assertEqual(gs["dbu3"]["attrs"]["db_shell_item"], "None")  # MCB-only is a real product
-        # PASS-THROUGH: the RM-4b whole-config validator ACCEPTS a lookup_or_ratio step (it is in
-        # _KNOWN_STEP_TYPES). Proven on a ROUND-TRIPPABLE config (wiring) -- the db_switchgear config
-        # itself carries a pre-existing component+conditions shape (db_install_nondb) that is separately
-        # not RM-4b-round-trippable, unrelated to EA-4c.
+        self.assertLessEqual({"dbu1", "dbu2", "dbu4"}, set(gs))
+        self.assertNotIn("d1", gs)
+        self.assertNotIn("d2", gs)
+        self.assertEqual(gs["dbu1"]["expect"]["db_buildup_install"]["install"], 3660)  # fallback -> tens
+        self.assertEqual(gs["dbu2"]["expect"]["db_buildup_install"]["install"], 1500)  # table-hit lands on a ten
+        self.assertEqual(gs["dbu4"]["expect"]["db_buildup_install"]["install"], 1275)  # TPN-6WAY table-hit UNROUNDED
+        # PASS-THROUGH: the RM-4b whole-config validator ACCEPTS composite_slots + decomposition_rules
+        # (new pass-through keys) AND a lookup_or_ratio step -- proven on a ROUND-TRIPPABLE config (wiring).
         wdisc = self._new_disc()
         loader.load_rate_master(payload=self._real_payload(wdisc))
         wcfg_name = self._config_name(wdisc)
         wcfg = self._full_config(wcfg_name)
+        wcfg["matching_mode"] = "composite_decomposition"
+        wcfg["composite_slots"] = {"shell": {"attr": "material", "values_from": {"kind": "cable", "attr": "material"}}}
+        wcfg["decomposition_rules"] = {"curve": {"order": ["default_C"]}}
         some_pid = next(iter(wcfg["pipelines"]))
         wcfg["pipelines"][some_pid]["steps"].append({
             "step": "lookup_or_ratio", "result": "install",
             "lookup": {"kind": "db_install_rate", "item": "@db_shell_item", "target": "install_rate", "mult": 1.5},
             "ratio": {"of": "supply", "mult": 0.15},
-            "when_shell_absent": {"attr": "db_shell_item", "equals": "None", "use": "ratio"}, "round": -1,
+            "when_shell_absent": {"attr": "db_shell_item", "equals": "None", "use": "ratio"},
+            "round_lookup": None, "round_ratio": -1,
         })
         res = rate_master.update_rate_config(name=wcfg_name, config=json.dumps(wcfg))
-        self.assertTrue(res["ok"])  # lookup_or_ratio accepted as a known step type (pass-through)
-        stored_pids = self._full_config(wcfg_name)["pipelines"][some_pid]["steps"]
-        self.assertTrue(any(s.get("step") == "lookup_or_ratio" for s in stored_pids))
+        self.assertTrue(res["ok"])  # composite_slots / decomposition_rules / lookup_or_ratio all accepted
+        stored = self._full_config(wcfg_name)
+        self.assertEqual(stored.get("matching_mode"), "composite_decomposition")
+        self.assertIn("composite_slots", stored)
+
+    # ---- EA-4d: the GENERAL composite-decomposition extraction seam (config-driven, no DB-specifics) ----
+    def test_32_composite_decomposition_extraction_seam(self):
+        # The seam is entirely config-driven: build_slot_spec expands composite_slots (shell + the
+        # repeatable group -> its enumerated slot attrs + each slot's catalog resolved via values_from),
+        # and select_prompt_text routes composite_decomposition -> the decomposition prompt. NOTHING
+        # db-specific is hardcoded -- a future composite inherits this by declaring the config keys.
+        disc = self._new_disc()
+        path = os.path.join(os.path.dirname(loader.__file__), "data", "rate_master_electrical_all_v17.json")
+        with open(path, "r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+        payload["discipline"] = disc
+        loader.load_rate_master(payload=payload)
+        db_cfg = _obj(frappe.db.get_value(
+            "BoQ Rate Category Config",
+            {"discipline": disc, "category_id": "db_switchgear", "active": 1}, "config",
+        ))
+        # POSITIVE: the slot spec expands from composite_slots + resolves each slot's live catalog
+        spec = extraction.build_slot_spec(db_cfg, disc)
+        self.assertEqual(spec["shell"]["item_attr"], "db_shell_item")
+        self.assertEqual(spec["repeatable"]["item_attrs"], [f"mcb{i}_item" for i in range(1, 6)])
+        self.assertEqual(spec["repeatable"]["qty_attrs"], [f"mcb{i}_qty" for i in range(1, 6)])
+        self.assertIn("63A FP MCB C CURVE", spec["repeatable"]["catalog"])  # Switchgear catalog, live
+        self.assertEqual(len(spec["shell"]["catalog"]), 27)  # db_shell catalog, live
+        self.assertEqual(spec["fixed"][0]["item_attr"], "enclosure_item")
+        # POSITIVE: the mode routes to the decomposition prompt (its own distinctive text)
+        prompt = extraction.select_prompt_text(db_cfg)
+        self.assertIn("SLOT_SPEC", prompt)
+        self.assertIn("decompose", prompt.lower())
+        # NEGATIVE: a NON-composite config yields no slot spec and NOT the decomposition prompt
+        non_composite = {"category_id": "x", "attribute_definitions": [], "pipelines": {}, "matching_mode": "attribute"}
+        self.assertIsNone(extraction.build_slot_spec(non_composite, disc))
+        self.assertNotIn("SLOT_SPEC", extraction.select_prompt_text(non_composite))

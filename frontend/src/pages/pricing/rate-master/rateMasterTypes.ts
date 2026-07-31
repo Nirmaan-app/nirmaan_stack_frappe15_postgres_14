@@ -187,7 +187,13 @@ export interface LookupOrRatioStep {
   lookup: { kind: string; item: string; target: string; mult: number };
   ratio: { of: string; mult: number };
   when_shell_absent: { attr: string; equals: string; use: "ratio" };
-  round: number;
+  // EA-4d: the table-hit branch and the ratio branches round SEPARATELY (the sheet's IFERROR three-way:
+  // the install-table hit is UNROUNDED `VLOOKUP*1.5`, while the shell-absent + fallback ratio branches are
+  // ROUNDUP tens). `round_lookup: null` => no roundup on the table-hit; `round_ratio: -1` => tens.
+  // Backwards-compat: the legacy single `round` still applies to both when the split fields are absent.
+  round_lookup?: number | null;
+  round_ratio?: number | null;
+  round?: number;
   explain?: string;
 }
 

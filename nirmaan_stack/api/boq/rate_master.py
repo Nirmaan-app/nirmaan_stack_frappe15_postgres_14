@@ -738,6 +738,11 @@ _KNOWN_CONFIG_KEYS = {
     # EA-4a-r: extraction_none_guidance = optional per-config wording for the "None" (positive-absence)
     # prompt line. Pass-through; consumed by the extraction injection, never structurally validated here.
     "extraction_none_guidance",
+    # EA-4d: composite_slots ({shell, repeatable {prefix,count,...}, fixed[]}) + decomposition_rules
+    # ({curve, amp, partial_pricing}) drive the composite-decomposition extraction mode. Pass-through;
+    # consumed by extraction.build_slot_spec + the decomposition prompt injection, never structurally
+    # validated here (so a composite config round-trips through the RM-4b whole-config editor).
+    "composite_slots", "decomposition_rules",
 }
 _BAND_WHEN_RE = re.compile(r"^(<=|>=|<|>)\s*-?\d+(\.\d+)?$")
 

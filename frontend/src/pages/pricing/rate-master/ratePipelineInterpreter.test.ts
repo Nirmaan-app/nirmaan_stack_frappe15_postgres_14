@@ -882,6 +882,8 @@ const DBC_ITEMS: RateMasterItem[] = [
   { discipline: "Electrical", kind: "db_shell", attributes: { item: "VTPN DB 6WAY WITH MCB INCOMER" }, rates: { shell_rate: 19215 } }, // NOT in the install table -> fallback
   { discipline: "Electrical", kind: "db_shell", attributes: { item: "TPN DB 8WAY (DOUBLE DOOR IP 43)" }, rates: { shell_rate: 10593 } },
   { discipline: "Electrical", kind: "db_install_rate", attributes: { item: "TPN DB 8WAY (DOUBLE DOOR IP 43)" }, rates: { install_rate: 1000 } }, // the SPN/TPN install table
+  { discipline: "Electrical", kind: "db_shell", attributes: { item: "TPN DB 6WAY (DOUBLE DOOR IP 43)" }, rates: { shell_rate: 8841 } }, // EA-4d dbu4
+  { discipline: "Electrical", kind: "db_install_rate", attributes: { item: "TPN DB 6WAY (DOUBLE DOOR IP 43)" }, rates: { install_rate: 850 } }, // 850*1.5=1275 (NOT a multiple of 10 -> exposes the rounding)
   { discipline: "Electrical", kind: "db_switchgear_item", attributes: { family: "Switchgear", item: "63A FP MCB D CURVE" }, rates: { list_price: 4010 } },
   { discipline: "Electrical", kind: "db_switchgear_item", attributes: { family: "Switchgear", item: "100A FP MCCB" }, rates: { list_price: 17950 } },
   { discipline: "Electrical", kind: "db_switchgear_item", attributes: { family: "Switchgear", item: "63A FP MCB C CURVE" }, rates: { list_price: 4012 } },
@@ -930,5 +932,46 @@ describe("EA-4c DB build-up + lookup_or_ratio (the sheet's IFERROR three-way ins
     let r: ReturnType<typeof runPipeline> | undefined;
     expect(() => { r = runPipeline("i", BAD, DBC_ITEMS, DBU3_C); }).not.toThrow();
     expect(r!.status).toBe("unsupported");
+  });
+});
+
+// ---- EA-4d: the round_lookup / round_ratio SPLIT (raw-cell fidelity fix) ----------------------------
+// The sheet's install three-way rounds the table-hit and the ratio branches DIFFERENTLY: the install-table
+// hit is UNROUNDED (`VLOOKUP*1.5`), while the shell-absent + IFERROR-fallback ratio branches ROUNDUP tens.
+// The v17 step carries round_lookup: null (table-hit unrounded) + round_ratio: -1 (ratio branches tens),
+// replacing the old single round: -1 that OVER-ROUNDED the table-hit (TPN-6WAY 1275 -> 1280, the drift).
+const LOR_V17 = {
+  step: "lookup_or_ratio" as const, result: "install",
+  lookup: { kind: "db_install_rate", item: "@db_shell_item", target: "install_rate", mult: 1.5 },
+  ratio: { of: "supply", mult: 0.15 },
+  when_shell_absent: { attr: "db_shell_item", equals: "None", use: "ratio" as const },
+  round_lookup: null, round_ratio: -1,
+};
+const DBC_INSTALL_V17: Pipeline = { output: ["install"], steps: [...DBC_SUPPLY.steps, LOR_V17] };
+const DBU4_C = { db_shell_item: "TPN DB 6WAY (DOUBLE DOOR IP 43)", db_shell_qty: 1, mcb1_item: "63A FP MCB C CURVE", mcb1_qty: 2, mcb2_item: "None", mcb3_item: "None", mcb4_item: "None", mcb5_item: "None", enclosure_item: "None" };
+
+describe("EA-4d lookup_or_ratio round split (table-hit UNROUNDED, ratio branches tens)", () => {
+  it("dbu4 TPN-6WAY table-hit -> install 1275 UNROUNDED (round_lookup: null; the sheet-fidelity fix)", () => {
+    const ri = runPipeline("i", DBC_INSTALL_V17, DBC_ITEMS, DBU4_C);
+    expect(ri.finals).toEqual({ install: 1275 }); // 850*1.5=1275, NOT rounded to 1280
+    expect(instTrace(ri)).toContain("table-hit");
+    expect(instTrace(ri)).toContain("no roundup");
+  });
+  it("dbu2 TPN-8WAY table-hit -> 1500 (lands on a ten; unrounded == rounded here)", () => {
+    expect(runPipeline("i", DBC_INSTALL_V17, DBC_ITEMS, DBU2_C).finals).toEqual({ install: 1500 });
+  });
+  it("dbu1 VTPN fallback -> 3660 (round_ratio: -1 still rounds the ratio branch to tens)", () => {
+    const ri = runPipeline("i", DBC_INSTALL_V17, DBC_ITEMS, DBU1_C);
+    expect(ri.finals).toEqual({ install: 3660 }); // 24360*0.15=3654 -> 3660
+    expect(instTrace(ri)).toContain("fallback");
+  });
+  it("dbu3 shell-None -> 3580 (round_ratio: -1 rounds the shell-absent branch to tens)", () => {
+    const ri = runPipeline("i", DBC_INSTALL_V17, DBC_ITEMS, DBU3_C);
+    expect(ri.finals).toEqual({ install: 3580 }); // 23840*0.15=3576 -> 3580
+    expect(instTrace(ri)).toContain("shell absent");
+  });
+  it("BACKWARDS-COMPAT: the legacy single round: -1 STILL rounds the table-hit (1275 -> 1280, the old drift)", () => {
+    // DBC_INSTALL uses the legacy LOR (round: -1); it over-rounds the table-hit, proving the old path is intact.
+    expect(runPipeline("i", DBC_INSTALL, DBC_ITEMS, DBU4_C).finals).toEqual({ install: 1280 });
   });
 });

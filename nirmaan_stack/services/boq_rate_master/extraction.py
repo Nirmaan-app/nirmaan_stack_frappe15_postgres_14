@@ -66,6 +66,10 @@ _MASTER_ITEM = "BoQ Rate Master Item"
 _PROMPT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "boq_category", "prompts")
 _ATTR_PROMPT_PATH = os.path.join(_PROMPT_DIR, "boq_rate_attr_extraction_prompt.md")
 _IDENTITY_PROMPT_PATH = os.path.join(_PROMPT_DIR, "boq_rate_item_identity_prompt.md")
+# EA-4d: the general composite-decomposition prompt -- decompose an assembled unit (a DB filled with
+# breakers, a switch point, an industrial socket with a paired MCB, a future HVAC composite) into its
+# component SLOTS. Selected by matching_mode == "composite_decomposition".
+_DECOMPOSITION_PROMPT_PATH = os.path.join(_PROMPT_DIR, "boq_composite_decomposition_prompt.md")
 
 
 def _read_prompt(path):
@@ -225,10 +229,71 @@ def get_extraction_attribute_defs(config=None, catalog=None):
 
 
 def select_prompt_text(cfg):
-    """The prompt asset for one config: the item-identity prompt when matching_mode == 'item_identity',
-    else the attribute-extraction prompt (unchanged)."""
-    path = _IDENTITY_PROMPT_PATH if cfg.get("matching_mode") == "item_identity" else _ATTR_PROMPT_PATH
+    """The prompt asset for one config, selected by matching_mode:
+      - "item_identity"          -> the identity prompt (match ONE catalog item, refuse composites);
+      - "composite_decomposition" -> the general decomposition prompt (DECOMPOSE an assembled unit into
+                                     its slots -- EA-4d; driven entirely by composite_slots + decomposition_rules);
+      - else                     -> the attribute-extraction prompt (unchanged).
+    The mode is read from config -- NOTHING category-specific is hardcoded, so a future composite category
+    inherits the decomposition prompt by declaring matching_mode alone."""
+    mode = cfg.get("matching_mode")
+    if mode == "item_identity":
+        path = _IDENTITY_PROMPT_PATH
+    elif mode == "composite_decomposition":
+        path = _DECOMPOSITION_PROMPT_PATH
+    else:
+        path = _ATTR_PROMPT_PATH
     return _read_prompt(path)
+
+
+def build_slot_spec(cfg, discipline=None):
+    """EA-4d: for a composite_decomposition config, emit the structured SLOT_SPEC the decomposition
+    prompt consumes -- a SHELL, a REPEATABLE group (expanded to its enumerated slot attrs), and FIXED
+    slots, each with its allowed CATALOG resolved via the EXISTING `values_from` path (one resolve per
+    slot family: the shell catalog, the repeatable group's catalog, each fixed slot's catalog).
+
+    Entirely CONFIG-DRIVEN from cfg.composite_slots -- the repeatable prefix/count/suffixes and every
+    values_from spec come from the config, so NOTHING db-specific is hardcoded here. A future composite
+    (switches_point, industrial sockets, HVAC) declares composite_slots and inherits this with zero code
+    change. Returns None when the config declares no composite_slots (the mode is inert without it)."""
+    cs = cfg.get("composite_slots")
+    if not isinstance(cs, dict):
+        return None
+    spec = {}
+    shell = cs.get("shell")
+    if isinstance(shell, dict):
+        spec["shell"] = {
+            "item_attr": shell.get("attr"),
+            "qty_attr": shell.get("qty_attr"),
+            "optional": bool(shell.get("optional")),
+            "role": shell.get("role"),
+            "catalog": values_from_catalog(discipline, shell.get("values_from") or {}),
+        }
+    rep = cs.get("repeatable")
+    if isinstance(rep, dict):
+        prefix = rep.get("prefix") or ""
+        count = int(rep.get("count") or 0)
+        isuf = rep.get("item_suffix") or "_item"
+        qsuf = rep.get("qty_suffix") or "_qty"
+        spec["repeatable"] = {
+            "item_attrs": [f"{prefix}{i}{isuf}" for i in range(1, count + 1)],
+            "qty_attrs": [f"{prefix}{i}{qsuf}" for i in range(1, count + 1)],
+            "role": rep.get("role"),
+            "catalog": values_from_catalog(discipline, rep.get("values_from") or {}),
+        }
+    fixed = cs.get("fixed")
+    if isinstance(fixed, list):
+        spec["fixed"] = [
+            {
+                "item_attr": f.get("attr"),
+                "qty_attr": f.get("qty_attr"),
+                "optional": bool(f.get("optional")),
+                "role": f.get("role"),
+                "catalog": values_from_catalog(discipline, f.get("values_from") or {}),
+            }
+            for f in fixed if isinstance(f, dict)
+        ]
+    return spec or None
 
 
 # ── population assembly ─────────────────────────────────────────────────────────────
@@ -356,7 +421,7 @@ def _coerce_value(defn, raw, synonyms_for_attr=None):
     return sval
 
 
-def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=None, defaults=None, none_guidance=None):
+def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=None, defaults=None, none_guidance=None, slot_spec=None, resolution_rules=None):
     """One extraction batch call with retry/backoff. Returns {excel_row: {attr_id: {value,
     confidence[, defaulted]}}} for the batch's OWN rows only. Ports ai_voter._ai_batch mechanics
     (<=20 rows, 3 attempts, sleep 2*attempt).
@@ -377,6 +442,13 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
         + "\n\nATTRIBUTE_DEFINITIONS:\n"
         + json.dumps(attr_defs, ensure_ascii=False)
     )
+    # EA-4d: the composite-decomposition mode passes a SLOT_SPEC (shell / repeatable / fixed, each with
+    # its catalog) + RESOLUTION_RULES (curve/amp/partial). Absent (item_identity / attribute modes) ->
+    # byte-identical to before. The model returns the filled slots under a "slots" key (parsed below).
+    if slot_spec:
+        content += "\n\nSLOT_SPEC:\n" + json.dumps(slot_spec, ensure_ascii=False)
+    if resolution_rules:
+        content += "\n\nRESOLUTION_RULES:\n" + json.dumps(resolution_rules, ensure_ascii=False)
     if synonyms:
         content += (
             "\n\nSYNONYMS: where a row states a variant key, extract the mapped canonical value "
@@ -425,7 +497,13 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
                 rid = int(el["id"])
                 if rid not in batch_ids:
                     continue  # ignore any id the model echoed that is not in THIS batch
-                attrs = el.get("attributes") or {}
+                # EA-4d: the composite-decomposition prompt returns the filled slots under "slots"; the
+                # identity/attribute prompts use "attributes". Accept EITHER -- the per-attr shape
+                # ({value, confidence}) and the downstream coercion are identical for both.
+                attrs = el.get("attributes")
+                if attrs is None:
+                    attrs = el.get("slots")
+                attrs = attrs or {}
                 row_out = {}
                 for aid, defn in defs_by_id.items():
                     cell = attrs.get(aid) or {}
@@ -554,12 +632,17 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None):
     for (disc, cat), _grp in groups.items():
         cfg = configs.get((disc, cat)) or {}
         catalog = catalog_values(disc, cfg) if cfg.get("matching_mode") == "item_identity" else None
+        is_composite = cfg.get("matching_mode") == "composite_decomposition"
         group_ctx[(disc, cat)] = {
             "defs": build_attribute_defs(cfg, catalog, disc),  # EA-4a: disc resolves values_from
             "prompt": select_prompt_text(cfg),
             "synonyms": cfg.get("synonyms"),  # EA-DIFF: {attr_id: {variant: canonical}} or None
             "defaults": cfg.get("extraction_defaults"),  # EA-4a: {attr_id: default | {default, ...}} or None
             "none_guidance": cfg.get("extraction_none_guidance"),  # EA-4a-r: optional per-config None wording
+            # EA-4d: the composite-decomposition slot spec + resolution rules (None for the other modes,
+            # so _extract_batch stays byte-identical for item_identity / attribute categories).
+            "slot_spec": build_slot_spec(cfg, disc) if is_composite else None,
+            "resolution_rules": cfg.get("decomposition_rules") if is_composite else None,
         }
 
     def _defs_for(r):
@@ -591,7 +674,7 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None):
         gc = group_ctx[(disc, cat)]
         for b in range(0, len(grp_rows), _BATCH):
             batch = grp_rows[b : b + _BATCH]
-            ai_out.update(_extract_batch(client, model, gc["prompt"], gc["defs"], batch, gc["synonyms"], gc["defaults"], gc["none_guidance"]))
+            ai_out.update(_extract_batch(client, model, gc["prompt"], gc["defs"], batch, gc["synonyms"], gc["defaults"], gc["none_guidance"], gc["slot_spec"], gc["resolution_rules"]))
             done += len(batch)
             if progress_cb:
                 progress_cb(min(done, total), total)
