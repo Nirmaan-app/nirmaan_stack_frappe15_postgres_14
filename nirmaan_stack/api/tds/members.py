@@ -65,8 +65,6 @@ def get_tds_item_members(tds_item: str):
 		order_by="idx asc",
 		limit_page_length=0,
 	)
-
-
 def get_group_category(tds_item: str) -> str:
 	"""Distinct member categories of a TDS Item group, joined by ", ".
 

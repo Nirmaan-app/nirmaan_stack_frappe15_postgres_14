@@ -326,22 +326,12 @@ const TDSEntriesTab: React.FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
     const [editEntry, setEditEntry] = useState<TDSRepository | null>(null);
     const { deleteDoc, loading: deleting } = useFrappeDeleteDoc();
 
-    // ── Resolve tds_item → tds_item_name (label) and derive the Category facet ──
-    // Category is no longer a field on TDS Repository; it's derived from the
-    // linked TDS Item's members. We pull the TDS Item list (for the label map)
-    // and the member child rows (for the derived category facet), then build a
-    // static facet of distinct member-category names.
+    // ── Resolve tds_item → tds_item_name (label) ──
     const { data: tdsItemList } = useFrappeGetDocList<TDSItem>(
         ITEM_DOCTYPE,
         { fields: ["name", "tds_item_name", "work_package"], limit: 0 },
         "tds_items_label_map"
     );
-    // Category facet is derived from member categories via the perm-safe index
-    // endpoint (the child doctype isn't get_list-able for non-superusers — see
-    // get_tds_member_index). Same swrKey as the Items tab → one shared call.
-    const { data: memberIndex } = useFrappeGetCall<{
-        message: { counts: Record<string, number>; categories: string[] };
-    }>("nirmaan_stack.api.tds.members.get_tds_member_index", undefined, "tds_member_index");
 
     // tds_item name → label.
     const tdsItemLabelMap = useMemo(() => {
@@ -349,12 +339,6 @@ const TDSEntriesTab: React.FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
         (tdsItemList || []).forEach((d) => map.set(d.name, d.tds_item_name || d.name));
         return map;
     }, [tdsItemList]);
-
-    // Distinct member-category names (already sorted by the endpoint) → facet.
-    const categoryFacetOptions = useMemo(
-        () => (memberIndex?.message?.categories ?? []).map((c) => ({ label: c, value: c })),
-        [memberIndex]
-    );
 
     // Sibling makes for the entry being edited — used to disallow duplicate makes
     // within the same TDS Item. 3rd arg is the swrKey (frappe-react-sdk gotcha):
@@ -510,16 +494,6 @@ const TDSEntriesTab: React.FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
         urlSyncKey: "tds_entries_master",
     });
 
-
-
-    const facetFilterOptions = useMemo(() => ({
-        // Category facet is DERIVED from the linked TDS Item's members (category
-        // is no longer a field on TDS Repository). It is informational here — the
-        // column filter for it is not wired to a server column, so it is offered
-        // as a derived option set for visibility.
-        category: { title: "Category (members)", options: categoryFacetOptions, isLoading: false },
-    }), [categoryFacetOptions]);
-
     const handleDelete = async () => {
         if (!deleteEntry) return;
         try {
@@ -554,7 +528,6 @@ const TDSEntriesTab: React.FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
                 isLoading={isLoading}
                 error={error}
                 totalCount={totalCount}
-                facetFilterOptions={facetFilterOptions}
                 searchTerm={searchTerm}
                 onSearchTermChange={setSearchTerm}
                 searchFieldOptions={searchableFields}
@@ -564,7 +537,9 @@ const TDSEntriesTab: React.FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
                 onExport="default"
                 onExportAll={exportAllRows}
                 isExporting={isExporting}
+
                 facetDoctype={ENTRY_DOCTYPE}
+
                 exportFileName="TDS_Entries"
             />
 
