@@ -66,17 +66,6 @@ export interface DeliveryDataType {
 	};
 }
 
-export interface InvoiceItem {
-	invoice_no: string;
-	amount: number;
-	invoice_attachment_id?: string;
-	updated_by: string;
-	status?: "Pending" | "Approved" | "Rejected";
-}
-
-export interface InvoiceDataType {
-	[date: string]: InvoiceItem
-}
 
 
 export interface ProcurementOrder {
@@ -150,7 +139,6 @@ export interface ProcurementOrder {
 	delivery_contact?: string
 	custom?: string
 	delivery_data?: { data: DeliveryDataType }
-	invoice_data?: { data: InvoiceDataType }
 	dispatch_date?: string | null;
 	expected_delivery_date?: string | null;
 	latest_delivery_date?: string | null;
