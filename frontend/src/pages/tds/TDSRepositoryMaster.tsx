@@ -481,7 +481,6 @@ const TDSEntriesTab: React.FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
         setSearchTerm,
         selectedSearchField,
         setSelectedSearchField,
-        columnFilters,
         refetch,
         exportAllRows,
         isExporting,

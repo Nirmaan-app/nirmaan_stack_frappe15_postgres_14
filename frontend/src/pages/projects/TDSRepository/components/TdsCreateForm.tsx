@@ -33,6 +33,7 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { useUserData } from "@/hooks/useUserData";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -100,6 +101,7 @@ function useDebouncedValue<T>(value: T, delay = 300): T {
 }
 
 export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSuccess }) => {
+    const { role } = useUserData();
     const [cartItems, setCartItems] = useState<CartItem[]>([]);
 
     // Picker state: the typed query, the picked group, and the picked make.
@@ -155,6 +157,10 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
         });
         return set;
     }, [existingProjectItems]);
+
+    const isAdmin = role === "Nirmaan Admin Profile" || role === "Administrator";
+    const isPMO = role === "Nirmaan PMO Executive Profile";
+    const canRequestNew = isAdmin || isPMO;
 
     const cartPairs = useMemo(
         () => new Set(cartItems.map(i => `${i.tds_item_id}__${i.make}`)),
@@ -458,14 +464,18 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                         />
                         <p className="text-xs text-muted-foreground">
                             Can't find it?{" "}
-                            <button
-                                type="button"
-                                className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 font-medium"
-                                onClick={() => setIsRequestDialogOpen(true)}
-                            >
-                                <PlusCircle className="h-3.5 w-3.5" />
-                                Request New
-                            </button>
+                            {canRequestNew ? (
+                                <button
+                                    type="button"
+                                    className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 font-medium"
+                                    onClick={() => setIsRequestDialogOpen(true)}
+                                >
+                                    <PlusCircle className="h-3.5 w-3.5" />
+                                    Request New
+                                </button>
+                            ) : (
+                                <span className="text-gray-500 italic">Please contact PMO to request a new item.</span>
+                            )}
                         </p>
                         <RequestTdsItemDialog
                             open={isRequestDialogOpen}
@@ -504,7 +514,7 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                         />
                         {selectedGroup && makeOptions.length === 0 && (
                             <p className="text-xs text-amber-600">
-                                No makes with datasheets are available for this item. Use "Request New" to request one.
+                                No makes with datasheets are available for this item. {canRequestNew ? 'Use "Request New" to request one.' : 'Please contact PMO to request a new one.'}
                             </p>
                         )}
                     </div>

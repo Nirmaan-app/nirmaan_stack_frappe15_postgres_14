@@ -72,3 +72,9 @@
   shown read-only/informational on the project row and report. It is **derived
   live** from the selected TDS Item (never the selection key, never frozen on the
   snapshot) — only the datasheet is the signed, frozen artifact.
+
+## Roles
+
+- **Admin (`Nirmaan Admin Profile`)** — Full control over the Master Repository (TDS Items & Entries). The sole approver of Project TDS requests. The only role capable of deleting Project TDS history records.
+- **PMO (`Nirmaan PMO Executive Profile`)** — Elevated project-level access. Responsible for exception handling (using the "Request New" flow to propose new Groups or Makes) and managing Project TDS setup details.
+- **Project User (Leads, Managers, etc.)** — Consumers of the TDS system. Restricted to requesting existing, approved Master TDS items for their projects. Stripped of edit, delete, and "Request New" capabilities.

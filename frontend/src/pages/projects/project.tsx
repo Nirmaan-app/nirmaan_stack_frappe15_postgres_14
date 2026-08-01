@@ -418,6 +418,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     PROJECT_PAGE_TABS.BULK_DOWNLOAD,
     PROJECT_PAGE_TABS.COMMISSION_REPORT,
     PROJECT_PAGE_TABS.BOQ,
+    PROJECT_PAGE_TABS.TDS_REPOSITORY,
   ]), []);
 
   // Allowed tabs for Procurement Executive
@@ -532,6 +533,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         {
           label: "BoQ",
           key: PROJECT_PAGE_TABS.BOQ,
+        },
+        {
+          label: "TDS",
+          key: PROJECT_PAGE_TABS.TDS_REPOSITORY,
         },
         {
           label: "Bulk Download",
