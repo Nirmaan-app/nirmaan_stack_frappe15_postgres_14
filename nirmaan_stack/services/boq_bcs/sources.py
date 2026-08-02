@@ -112,6 +112,67 @@ _AMOUNT_MODES = {
 }
 
 
+# ── THE REFUSAL VOCABULARY (BCS-S2e) ─────────────────────────────────────────────
+# Every refusal carries a short, stable CODE alongside the sentence a user reads. The code is
+# the ONE thing this module and its browser mirror (`frontend/src/pages/boq-wizard/
+# bcsColumns.ts`) can compare, and `parity_cases.json` -- read by BOTH test suites -- is where
+# the comparison is written down.
+#
+# WHY A CODE WAS NEEDED AT ALL. The two sides refuse in deliberately different voices: this
+# module throws a (title, message) pair, the card renders a friendlier sentence. Only the
+# success `mode` was ever comparable between them, so a parity test built on what existed
+# would have covered the ten modes and NONE of the refusal chain -- the partial test that makes
+# a gap look closed. ADR-0010 F1 asks for a mirror to be pinned; this is what made it possible.
+#
+# ⚠️ THE CODE IS THE CONTRACT; THE WORDING IS NOT. Reword a message freely. Change a code, or
+# the ORDER below, and you are changing what the browser must mirror -- update
+# `parity_cases.json` in the same edit or both suites will tell you.
+REFUSAL_CODES = frozenset({
+    "no_pick",           # nothing was picked at all
+    "unknown_column",    # a picked letter is not a mapped column on this sheet
+    "duplicate_column",  # the same letter appears twice
+    "aliased_columns",   # two DIFFERENT letters resolve to one value
+    "wrong_class",       # a mapped column of the wrong class for this side
+    "mixed_kinds",       # AMOUNT ONLY -- a total picked beside a half it already contains
+    "mixed_shapes",      # scalar mixed with per-area
+    "too_many_scalars",  # more than one scalar column of a single kind
+})
+
+# THE ORDER IS THE SPEC, and it is declared here so both suites can assert against it. It
+# decides WHICH refusal a bad pick gets, and a user does not experience a different complaint
+# for the same pick as a wording nit -- it reads as the screen and the server disagreeing about
+# their sheet. `too_many_scalars` is RETAINED-but-shadowed on both sides (see the notes on
+# `_resolve_picks` and `decide_amount_source`); the table records that, and pins the inputs
+# that shadow it, rather than letting it look exercised.
+QTY_REFUSAL_ORDER = (
+    "no_pick", "unknown_column", "duplicate_column", "aliased_columns",
+    "wrong_class", "mixed_shapes", "too_many_scalars",
+)
+AMOUNT_REFUSAL_ORDER = (
+    "no_pick", "unknown_column", "duplicate_column", "aliased_columns",
+    "wrong_class", "mixed_kinds", "mixed_shapes", "too_many_scalars",
+)
+
+
+def _refuse(code: str, title: str, message: str) -> dict:
+    """One refusal, as a VALUE. The code identifies the condition; the title and message are
+    the voice, carried unchanged from where they have always been written.
+
+    THE ASSERT IS DELIBERATE. A typo'd code would make the parity table compare a string that
+    can never appear, which is precisely the silently-passing test this slice exists to
+    prevent -- so an unknown code fails at the point it is minted rather than at the point
+    somebody trusts the green suite."""
+    assert code in REFUSAL_CODES, f"unknown BCS refusal code {code!r}"
+    return {"ok": False, "code": code, "title": title, "message": message}
+
+
+def _accept(mode: str, picked: list) -> dict:
+    """One acceptance, as a VALUE. `source` is EXACTLY the dict `build_*_source` has always
+    returned and `confirm_bcs_columns` json.dumps into the sheet -- the decision envelope must
+    never leak into that persisted blob."""
+    return {"ok": True, "source": {"mode": mode, "columns": [_entry(d) for d in picked]}}
+
+
 def _entry(desc: dict) -> dict:
     """One stored, RE-RESOLVABLE confirmation entry: the full descriptor identity, so a
     later reader resolves the value without re-deriving it from column_role_map.
@@ -130,19 +191,23 @@ def _entry(desc: dict) -> dict:
     }
 
 
-def _resolve_picks(cols: list, index: dict) -> list:
-    """Map picked column letters onto the sheet's REAL descriptors, or throw naming the
-    column. Shared by both sources, so the two refusals living here -- an unknown column,
-    and two picks that resolve to the same value -- read identically either way and
-    cannot drift into two copies."""
+def _resolve_picks(cols: list, index: dict) -> tuple:
+    """Map picked column letters onto the sheet's REAL descriptors -> `(picked, refusal)`,
+    where exactly one of the two is meaningful. Shared by both sources, so the three refusals
+    living here -- an unknown column, a repeated letter, and two letters that resolve to the
+    same value -- read identically either way and cannot drift into two copies.
+
+    RETURNS a refusal rather than throwing since BCS-S2e. The decision has to be observable as
+    a VALUE for the parity table to compare it; `build_*_source` still throws, one hop up."""
     picked = []
     for col in cols:
         desc = index.get(col)
         if not desc:
-            frappe.throw(
+            return [], _refuse(
+                "unknown_column",
+                "Unknown column",
                 f"Column '{col}' is not a mapped column on this sheet. "
                 f"Mapped columns: {', '.join(sorted(index)) or '(none)'}.",
-                title="Unknown column",
             )
         picked.append(desc)
 
@@ -183,10 +248,11 @@ def _resolve_picks(cols: list, index: dict) -> list:
         else:
             seen.add(col)
     if dupes:
-        frappe.throw(
+        return [], _refuse(
+            "duplicate_column",
+            "Duplicate column",
             f"Column(s) {', '.join(dupes)} are picked more than once. Pick each column "
             f"once -- repeating one would count its value twice.",
-            title="Duplicate column",
         )
 
     by_value: dict = {}
@@ -195,13 +261,14 @@ def _resolve_picks(cols: list, index: dict) -> list:
         by_value.setdefault(key, []).append(desc.get("col"))
     aliased = [group for group in by_value.values() if len(group) > 1]
     if aliased:
-        frappe.throw(
+        return [], _refuse(
+            "aliased_columns",
+            "Duplicate column",
             f"Column(s) {'; '.join(', '.join(g) for g in aliased)} resolve to the same "
             f"value on this sheet, so picking them together would count that value twice. "
             f"Pick one column per value.",
-            title="Duplicate column",
         )
-    return picked
+    return picked, None
 
 
 def _amount_axes(desc: dict) -> tuple:
@@ -224,52 +291,78 @@ def _amount_axes(desc: dict) -> tuple:
     return None, None
 
 
-def build_qty_source(cols: list, index: dict) -> dict:
-    """Validate the quantity picks and build the stored confirmation, or throw.
+def decide_qty_source(cols: list, index: dict) -> dict:
+    """★ THE QUANTITY DECISION, as a VALUE -- `{"ok": True, "source": {...}}` or a refusal
+    carrying its code, title and message. `build_qty_source` is the throwing face of this.
 
-    Refuses: an empty selection; a column the sheet does not have; two picks that resolve
-    to the SAME value (the same letter twice, or two letters carrying one number); a
-    mapped column that is not a quantity column; more than one scalar total; and a scalar
-    total MIXED with per-area quantity columns (which would double-count)."""
+    Refuses, IN THIS ORDER (`QTY_REFUSAL_ORDER`, mirrored by the browser and pinned by
+    `parity_cases.json`): an empty selection; a column the sheet does not have; the same
+    letter twice; two letters carrying one number; a mapped column that is not a quantity
+    column; a scalar total MIXED with per-area quantity columns (which would double-count);
+    and more than one scalar total."""
     if not cols:
-        frappe.throw(
+        return _refuse(
+            "no_pick",
+            "No quantity column picked",
             "Pick at least one quantity column: either the sheet's Total Quantity column "
             "or the per-area quantity columns that add up to it.",
-            title="No quantity column picked",
         )
-    picked = _resolve_picks(cols, index)
+    picked, refusal = _resolve_picks(cols, index)
+    if refusal:
+        return refusal
 
     fields = {d.get("value_field") for d in picked}
     if not fields <= {_QTY_SCALAR_VALUE_FIELD, _QTY_AREA_VALUE_FIELD}:
         bad = [d["col"] for d in picked
                if d.get("value_field") not in (_QTY_SCALAR_VALUE_FIELD,
                                                _QTY_AREA_VALUE_FIELD)]
-        frappe.throw(
+        return _refuse(
+            "wrong_class",
+            "Not a quantity column",
             f"Column(s) {', '.join(bad)} are not quantity columns on this sheet.",
-            title="Not a quantity column",
         )
     if len(fields) > 1:
-        frappe.throw(
+        return _refuse(
+            "mixed_shapes",
+            "Mixed quantity sources",
             "Pick either the scalar Total Quantity column OR the per-area quantity "
             "columns -- not both. Adding a total to its own parts would count every "
             "quantity twice.",
-            title="Mixed quantity sources",
         )
 
     if fields == {_QTY_SCALAR_VALUE_FIELD}:
+        # RETAINED, and UNREACHABLE by construction -- two scalar totals necessarily share a
+        # resolved identity, so `aliased_columns` has already answered. The shadow is pinned
+        # on BOTH sides by the `qty-shadow-two-scalar-totals` parity case, so this cannot
+        # quietly start answering on one side only.
         if len(picked) != 1:
-            frappe.throw(
+            return _refuse(
+                "too_many_scalars",
+                "Too many total-quantity columns",
                 "A sheet has exactly one Total Quantity column; pick one.",
-                title="Too many total-quantity columns",
             )
         mode = "qty_total"
     else:
         mode = "qty_by_area"
-    return {"mode": mode, "columns": [_entry(d) for d in picked]}
+    return _accept(mode, picked)
 
 
-def build_amount_source(cols: list, index: dict) -> dict:
-    """Validate the Amount picks and build the stored confirmation, or throw.
+def build_qty_source(cols: list, index: dict) -> dict:
+    """The THROWING face of `decide_qty_source` -- what `confirm_bcs_columns` calls.
+
+    A thin wrapper on purpose (BCS-S2e): one rule chain, two presentations. Every message and
+    title is byte-unchanged from where it was before the split, because the wrapper does not
+    compose wording -- it hands on the refusal's own. `test_the_thrown_message_is_the_refusals_
+    own_message` pins that, so this can never become a second place wording lives."""
+    out = decide_qty_source(cols, index)
+    if not out["ok"]:
+        frappe.throw(out["message"], title=out["title"])
+    return out["source"]
+
+
+def decide_amount_source(cols: list, index: dict) -> dict:
+    """★ THE AMOUNT DECISION, as a VALUE -- `{"ok": True, "source": {...}}` or a refusal
+    carrying its code, title and message. `build_amount_source` is the throwing face of this.
 
     The amount is what we charge the client and the denominator of % Profit. It may be the
     sheet's one scalar Amount column, the per-area Amount columns whose SUM is the row's
@@ -278,17 +371,22 @@ def build_amount_source(cols: list, index: dict) -> dict:
     records which of the eight accepted shapes this is, so the formula in force can be
     stated rather than assumed.
 
-    Refuses: an empty selection; a column the sheet does not have; two picks that resolve
-    to the SAME value; a mapped column that is not an amount column at all (a rate column,
-    a quantity column); a TOTAL picked together with a half (the total already contains
-    it); and scalar amounts picked together with per-area ones."""
+    Refuses, IN THIS ORDER (`AMOUNT_REFUSAL_ORDER`, mirrored by the browser and pinned by
+    `parity_cases.json`): an empty selection; a column the sheet does not have; the same
+    letter twice; two letters carrying one number; a mapped column that is not an amount
+    column at all (a rate column, a quantity column); a TOTAL picked together with a half
+    (the total already contains it); scalar amounts picked together with per-area ones; and
+    more than one scalar amount of one kind."""
     if not cols:
-        frappe.throw(
+        return _refuse(
+            "no_pick",
+            "No amount column picked",
             "Pick at least one Amount column: the sheet's Amount column, the per-area "
             "Amount columns that add up to it, or its Supply and Installation amounts.",
-            title="No amount column picked",
         )
-    picked = _resolve_picks(cols, index)
+    picked, refusal = _resolve_picks(cols, index)
+    if refusal:
+        return refusal
 
     # -- the CLASS check: is each pick an amount column at all? -------------
     # Widening the KIND axis must not widen this. A rate or quantity column is still not an
@@ -296,12 +394,13 @@ def build_amount_source(cols: list, index: dict) -> dict:
     axes = [(d, *_amount_axes(d)) for d in picked]
     bad = [d for d, shape, _kind in axes if shape is None]
     if bad:
-        frappe.throw(
+        return _refuse(
+            "wrong_class",
+            "Not an amount column",
             f"Column(s) {', '.join(d['col'] for d in bad)} are not Amount columns on this "
             f"sheet (mapped as {', '.join(sorted({str(d.get('role')) for d in bad}))}). "
             f"BCS compares its cost against the amount charged to the client, so it needs "
             f"an Amount column -- not a rate column, and not a quantity.",
-            title="Not an amount column",
         )
 
     shapes = {shape for _d, shape, _k in axes}
@@ -318,12 +417,13 @@ def build_amount_source(cols: list, index: dict) -> dict:
     # more specific message first therefore cannot change the message any previously
     # refused input receives.
     if _KIND_TOTAL in kinds and len(kinds) > 1:
-        frappe.throw(
+        return _refuse(
+            "mixed_kinds",
+            "Mixed amount kinds",
             "Pick either the sheet's combined Amount column(s) OR its Supply and "
             "Installation amounts -- not both. The combined Amount already includes the "
             "supply and installation halves, so adding one to it would count that half "
             "twice.",
-            title="Mixed amount kinds",
         )
 
     # -- the SHAPE axis: a scalar is the total of the per-area ones ---------
@@ -345,13 +445,14 @@ def build_amount_source(cols: list, index: dict) -> dict:
     # that can reach it. A refusal that explains itself with a fact the user can see is false
     # sends them looking for a total they never picked.
     if len(shapes) > 1:
-        frappe.throw(
+        return _refuse(
+            "mixed_shapes",
+            "Mixed amount sources",
             "Pick Amount columns of ONE shape -- either the scalar Amount column(s) or the "
             "per-area Amount columns, not a mix of the two. A scalar column holds the row's "
             "whole figure while the per-area columns split a figure across areas, so mixing "
             "them either counts the same amount twice or combines two figures BCS has no "
             "rule for adding together.",
-            title="Mixed amount sources",
         )
 
     shape = next(iter(shapes))
@@ -365,15 +466,34 @@ def build_amount_source(cols: list, index: dict) -> dict:
     # exactly one Amount column" rule, which this slice made simply FALSE -- a scalar sheet
     # legitimately contributes TWO columns now, its supply and its install.
     if shape == _SHAPE_SCALAR and len(picked) != len(kinds):
-        frappe.throw(
+        return _refuse(
+            "too_many_scalars",
+            "Too many amount columns",
             "Pick each scalar Amount column once -- one combined Amount, or one Supply "
             "and one Installation amount.",
-            title="Too many amount columns",
         )
 
     # Indexed, NOT .get(...) with a fallback: every (shape, kinds) pair the guards above
     # permit is in the table, so a KeyError here can only mean a new amount KIND was added
     # without deciding what formula it stores. That must fail loudly rather than mint a
     # plausible mode for a shape nobody ruled on.
+    #
+    # ⚠️ THE ONE PLACE THE TWO SIDES ANSWER DIFFERENTLY ON PURPOSE (BCS-S2e). The browser's
+    # equivalent miss returns a refusal coded `unruled_combination`; this raises a bare
+    # KeyError. Both are unreachable by construction, and the asymmetry is RECORDED in
+    # `parity_cases.json` under `client_only_codes` -- with a test on each side pinning that
+    # the code stays OUT of the parity vocabulary -- rather than papered over by giving this
+    # a code and a sentence it would never say.
     mode = _AMOUNT_MODES[(shape, frozenset(kinds))]
-    return {"mode": mode, "columns": [_entry(d) for d in picked]}
+    return _accept(mode, picked)
+
+
+def build_amount_source(cols: list, index: dict) -> dict:
+    """The THROWING face of `decide_amount_source` -- what `confirm_bcs_columns` calls.
+
+    A thin wrapper on purpose (BCS-S2e); see `build_qty_source` for why the split exists and
+    what keeps the two from becoming two rule chains."""
+    out = decide_amount_source(cols, index)
+    if not out["ok"]:
+        frappe.throw(out["message"], title=out["title"])
+    return out["source"]

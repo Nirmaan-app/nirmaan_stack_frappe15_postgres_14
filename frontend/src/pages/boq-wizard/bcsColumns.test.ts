@@ -18,9 +18,17 @@
  * The wording is deliberately friendlier than the server's; the CONDITIONS are identical.
  */
 import { describe, expect, it } from "vitest";
+// The SHARED rule-parity table (BCS-S2e). It climbs OUT of `frontend/` on purpose -- the table
+// lives beside the AUTHORITY it describes (`services/boq_bcs/`), not beside this mirror, and
+// `services/boq_bcs/test_sources.py` reads the very same file. See the "rule parity" group below
+// for why this is an import rather than an inline parse, and the JSON's own `_readme` for why
+// the table exists at all.
+import PARITY_RAW from "../../../../nirmaan_stack/services/boq_bcs/parity_cases.json";
 import type { ColumnDescriptor } from "./boqTypes";
 import {
   BCS_COMPUTED_KINDS,
+  BCS_REFUSAL_CODES,
+  BCS_REFUSAL_ORDER,
   BCS_RATE_FIELD,
   BCS_RATE_FIELDS,
   BCS_RATE_LABEL,
@@ -1458,6 +1466,23 @@ describe("the three computed cells -- blank ALWAYS carries a reason", () => {
     // bcsTotalAmount is unchanged and still the arithmetic; the cell wraps it with the reason.
     expect(bcsTotalAmount(10, 140)).toBe(1400);
   });
+
+  it("blanks a Total Amount that leaves the double range (BCS-S2e)", () => {
+    // S3b invented `not_finite` for exactly this and then guarded only the margin with it, so
+    // a product that overflows rendered as the string "Infinity" in a cost cell. Same argument
+    // as the margin's: an Infinity displayed is not an answer, and an Infinity compared with
+    // === is at least stable, unlike the NaN case -- but neither belongs on a cost screen.
+    expect(bcsTotalAmountCell(1e308, 1e308)).toEqual({ kind: "blank", reason: "not_finite" });
+    expect(bcsTotalAmountCell(-1e308, 1e308)).toEqual({ kind: "blank", reason: "not_finite" });
+  });
+
+  it("leaves every ordinary Total Amount exactly as it was", () => {
+    // The finiteness guard must cost the normal path nothing -- including a legitimate 0.
+    expect(bcsTotalAmountCell(10, 140)).toEqual({ kind: "value", value: 1400 });
+    expect(bcsTotalAmountCell(0, 140)).toEqual({ kind: "value", value: 0 });
+    expect(bcsTotalAmountCell(10, 0)).toEqual({ kind: "value", value: 0 });
+    expect(bcsTotalAmountCell(2.5, -40)).toEqual({ kind: "value", value: -100 });
+  });
 });
 
 describe("bcsMarginPercent -- (amount - cost) / amount, and the direction is SETTLED", () => {
@@ -1536,6 +1561,53 @@ describe("bcsMarginPercent -- (amount - cost) / amount, and the direction is SET
   it("is 0% exactly when the amount equals the cost", () => {
     expect(bcsMarginPercent(cell(1234.5), cell(1234.5))).toEqual({ kind: "value", value: 0 });
   });
+
+  // ── BCS-S2e: THE NEGATIVE-AMOUNT GUARD ────────────────────────────────────────
+  it("★ a NEGATIVE amount is a blank with its own reason -- a loss must NEVER read as a profit", () => {
+    // THE DEFECT THIS CLOSES (found in the BCS-S3b review). The guards were `=== 0` and
+    // `!isFinite`; nothing looked at the SIGN. Amount -100 against cost 50:
+    //   (-100 - 50) / -100 * 100 = +150%
+    // -- a loss-making row displaying POSITIVE profit, the exact inverse of the property this
+    // column exists to show. The expected value here comes from working the arithmetic by
+    // hand, not from re-running the function.
+    expect(bcsMarginPercent(cell(50), cell(-100))).toEqual({
+      kind: "blank",
+      reason: "negative_amount",
+    });
+  });
+
+  it("blanks a negative amount rather than BLOCKING the entry (planner ruling 2026-08-03)", () => {
+    // ADAPT AND DISCLOSE, the same ruling that governs a one-sided amount confirmation: the
+    // margin goes blank WITH A REASON instead of refusing the number, which is safe whether or
+    // not a negative amount is legitimate in this owner's BoQs. The COST side is untouched --
+    // a negative cost against a positive amount still computes, and reads as a margin over
+    // 100%, which is arithmetically what it is.
+    const negCost = bcsMarginPercent(cell(-50), cell(100));
+    expect(negCost).toEqual({ kind: "value", value: 150 });
+  });
+
+  it("★ never reports a PROFIT on a row whose amount is below its cost -- the SIGN, swept", () => {
+    // ⚠️ THIS IS THE TEST THE OLD SWEEP SHOULD HAVE BEEN. The 8x8 sweep above already fed
+    // bcsMarginPercent negative operands -- and asserted only that nothing non-finite escaped,
+    // which is exactly why a +150% on a loss-making row survived it and shipped. Finiteness is
+    // not the property; the SIGN is.
+    //
+    // THE INVARIANT: % Profit is positive if and only if the amount exceeds the cost.
+    const nums = [0, -0, 1e-320, -1e-320, 1e308, -1e308, 0.1, -7.5, 50, -100, 100, 1234.5];
+    let valuesProduced = 0;
+    for (const c of nums) {
+      for (const a of nums) {
+        const out = bcsMarginPercent(cell(c), cell(a));
+        if (out.kind !== "value") continue;
+        valuesProduced += 1;
+        if (a > c) expect(out.value, `cost ${c} amount ${a}`).toBeGreaterThan(0);
+        else if (a < c) expect(out.value, `cost ${c} amount ${a}`).toBeLessThan(0);
+        else expect(out.value, `cost ${c} amount ${a}`).toBe(0);
+      }
+    }
+    // Anti-vacuity: a guard that blanked EVERYTHING would satisfy the loop above trivially.
+    expect(valuesProduced).toBeGreaterThan(20);
+  });
 });
 
 describe("bcsBlankReasonText -- why a computed cell is empty, in plain English", () => {
@@ -1553,6 +1625,9 @@ describe("bcsBlankReasonText -- why a computed cell is empty, in plain English",
     expect(bcsBlankReasonText("not_finite")).toBe(
       "The numbers on this row are too extreme to produce a percentage.",
     );
+    expect(bcsBlankReasonText("negative_amount")).toBe(
+      "The amount charged on this row is negative, so a percentage measured against it would read backwards — a loss would show as a profit.",
+    );
   });
 
   it("makes an UNRECOGNISED reason an explicit unsupported state, never a silent blank", () => {
@@ -1565,15 +1640,38 @@ describe("bcsBlankReasonText -- why a computed cell is empty, in plain English",
   });
 
   it("has a sentence for EVERY reason the module can produce -- swept", () => {
+    // ⚠️ WIDENED AT BCS-S2e, and the widening is the point. This claimed "EVERY reason the
+    // module can produce" while producing only four of them -- `not_finite` was declared at
+    // S3b and never driven here at all, so the claim was already broader than the sweep. Both
+    // it and the new `negative_amount` are produced below, from real inputs, so the sentence
+    // the test makes is the sentence it checks.
     const produced = new Set<string>();
-    for (const c of [bcsTotalAmountCell(null, 1), bcsTotalAmountCell(1, null)]) {
+    for (const c of [
+      bcsTotalAmountCell(null, 1),
+      bcsTotalAmountCell(1, null),
+      bcsTotalAmountCell(1e308, 1e308), // overflows the double range -> not_finite
+    ]) {
       if (c.kind === "blank") produced.add(c.reason);
     }
     const tendered = bcsTenderedAmountCell(null);
     if (tendered.kind === "blank") produced.add(tendered.reason);
-    const zero = bcsMarginPercent({ kind: "value", value: 1 }, { kind: "value", value: 0 });
-    if (zero.kind === "blank") produced.add(zero.reason);
-    expect(produced).toEqual(new Set(["no_quantity", "no_cost", "no_amount", "zero_amount"]));
+    for (const m of [
+      bcsMarginPercent({ kind: "value", value: 1 }, { kind: "value", value: 0 }),
+      bcsMarginPercent({ kind: "value", value: 50 }, { kind: "value", value: -100 }),
+      bcsMarginPercent({ kind: "value", value: -1e308 }, { kind: "value", value: 1e-320 }),
+    ]) {
+      if (m.kind === "blank") produced.add(m.reason);
+    }
+    expect(produced).toEqual(
+      new Set([
+        "no_quantity",
+        "no_cost",
+        "no_amount",
+        "zero_amount",
+        "not_finite",
+        "negative_amount",
+      ]),
+    );
     for (const r of produced) expect(bcsBlankReasonText(r)).not.toMatch(/does not recognise/i);
   });
 });
@@ -1591,5 +1689,204 @@ describe("formatBcsMargin -- how the percentage reads in the cell", () => {
   it("never renders a negative zero -- '-0.0%' would read as a loss that is not there", () => {
     expect(formatBcsMargin(-0.001)).toBe("0.0%");
     expect(formatBcsMargin(-0)).toBe("0.0%");
+  });
+});
+
+// ===========================================================================
+// Group: THE RULE PARITY TABLE (BCS-S2e) -- this side of it
+// ===========================================================================
+/**
+ * ★ THE PARITY NET. One case table, `nirmaan_stack/services/boq_bcs/parity_cases.json`,
+ * consumed by THIS suite and by `services/boq_bcs/test_sources.py`. If the two rule chains
+ * disagree about any case, exactly one of the two suites goes red -- which is the whole point.
+ *
+ * WHY IT DID NOT EXIST BEFORE, AND WHAT HAD TO CHANGE. The two sides shared no refusal
+ * IDENTIFIER: the server threw a (title, message) pair, this module returned {ok:false,
+ * message}. Only the success `mode` was comparable, so a pin built on what was available would
+ * have covered the ten modes and NONE of the refusal chain whose ORDER is load-bearing -- the
+ * partial test that makes a gap look closed, which is worse than no test. BCS-S2e gave every
+ * refusal a short CODE on both sides, minted where the condition is decided.
+ *
+ * WHAT IT IS NOT. It does not pin the WORDING. The card's sentences are deliberately friendlier
+ * than a thrown error's, and forcing one voice on both would trade a real property for a fake
+ * one. It pins the CONDITIONS and their PRECEDENCE -- what a user actually experiences.
+ *
+ * WHY A PLAIN `import`, AND NOT A HAND-ROLLED READ-AND-DECODE. The first draft pulled the file
+ * in off `import.meta.url` and decoded it inline -- which WORKS, and which the ADR-0010 F2
+ * ratchet correctly counted as one more inline decode under `pages/` (measured 208 -> 209: a
+ * regression this slice introduced and had to answer rather than annotate). `resolveJsonModule`
+ * is on, so the import hands back the same object with the decode done once by the toolchain --
+ * which is what F2 asks for in the first place, not a way around it.
+ *
+ * ⚠️ AND THEN THE PROSE TRIPPED IT TOO. That ratchet is a LINE REGEX over `frontend/src/pages`,
+ * so a comment merely NAMING the decoder counted as two more violations with no code behind
+ * them -- 209 again, from a docblock. Hence the circumlocution above: it is not squeamishness,
+ * and a future editor who "fixes" the wording by spelling the call out will push the count back
+ * up and fail the gate for whoever commits next.
+ *
+ * The relative path climbs OUT of `frontend/` on purpose: the table lives beside the authority
+ * it describes (`services/boq_bcs/`), not beside this mirror. See the file's own `_readme`.
+ */
+const PARITY = PARITY_RAW as unknown as {
+  codes: Record<string, string>;
+  order: Record<"qty" | "amount", string[]>;
+  unreachable: Record<string, { why: string; shadowed_by: string[] }>;
+  client_only_codes: Record<string, string>;
+  descriptors: ColumnDescriptor[];
+  cases: Array<{
+    id: string;
+    side: "qty" | "amount";
+    cols: string[];
+    expect: { ok: true; mode: string } | { ok: false; code: string };
+    beats?: string;
+    why: string;
+  }>;
+};
+
+describe("rule parity -- the shared case table, this side", () => {
+  const index = buildBcsDescriptorIndex(PARITY.descriptors);
+
+  it("agrees with the shared table on every case", () => {
+    for (const c of PARITY.cases) {
+      const out = validateBcsPicks(c.side, c.cols, index);
+      expect(out.ok, `${c.id}: ${c.why}`).toBe(c.expect.ok);
+      if (c.expect.ok && out.ok) {
+        expect(out.mode, `${c.id}: ${c.why}`).toBe(c.expect.mode);
+      } else if (!c.expect.ok && !out.ok) {
+        expect(out.code, `${c.id}: ${c.why}`).toBe(c.expect.code);
+      }
+    }
+  });
+
+  it("still says something human about every refusal it codes", () => {
+    // The code is for the parity table; the SENTENCE is for the user, and adding the first
+    // must never quietly cost the second. Every refusal keeps a non-empty message.
+    for (const c of PARITY.cases) {
+      if (c.expect.ok) continue;
+      const out = validateBcsPicks(c.side, c.cols, index);
+      expect(out.ok).toBe(false);
+      if (!out.ok) expect(out.message.length, c.id).toBeGreaterThan(10);
+    }
+  });
+
+  it("states the formula in force for every accepted case", () => {
+    // Parity on the MODE alone would let this side agree about which formula is in force while
+    // failing to SAY it -- and the disclosure sentence is the owner's whole safety mechanism
+    // for "adapt and disclose, never refuse".
+    for (const c of PARITY.cases) {
+      if (!c.expect.ok) continue;
+      const out = validateBcsPicks(c.side, c.cols, index);
+      expect(out.ok, c.id).toBe(true);
+      if (out.ok) {
+        expect(out.summary, c.id).not.toBe("");
+        expect(out.summary, c.id).not.toMatch(/does not recognise/i);
+        for (const col of c.cols) expect(out.summary, c.id).toContain(col);
+      }
+    }
+  });
+
+  it("declares the SAME refusal order the table does", () => {
+    // Not decoration: both suites assert the table's order against their OWN module's declared
+    // chain, so a rule added to one side alone goes red on that side.
+    expect(BCS_REFUSAL_ORDER.qty).toEqual(PARITY.order.qty);
+    expect(BCS_REFUSAL_ORDER.amount).toEqual(PARITY.order.amount);
+  });
+
+  it("mints no code outside the shared vocabulary, and leaves none of it unchained", () => {
+    const vocabulary = new Set(Object.keys(PARITY.codes));
+    const chained = new Set([...BCS_REFUSAL_ORDER.qty, ...BCS_REFUSAL_ORDER.amount]);
+    expect(chained).toEqual(vocabulary);
+    expect(new Set(BCS_REFUSAL_CODES)).toEqual(vocabulary);
+  });
+
+  it("exercises every code in the chain, or declares it unreachable with the case that shadows it", () => {
+    const answered = new Set(
+      PARITY.cases.filter((c) => !c.expect.ok).map((c) => (c.expect as { code: string }).code),
+    );
+    for (const side of ["qty", "amount"] as const) {
+      for (const code of BCS_REFUSAL_ORDER[side]) {
+        expect(
+          answered.has(code) || code in PARITY.unreachable,
+          `${code} is in the ${side} chain but no case answers it and it is not declared unreachable`,
+        ).toBe(true);
+      }
+    }
+    for (const [code, note] of Object.entries(PARITY.unreachable)) {
+      expect(answered.has(code), `${code} is declared unreachable but a case answers it`).toBe(false);
+      for (const id of note.shadowed_by) {
+        expect(PARITY.cases.find((c) => c.id === id)?.beats).toBe(code);
+      }
+    }
+  });
+
+  it("★ every precedence case names a LATER rule that is actually live", () => {
+    // THE ANTI-VACUITY GUARD. A precedence case claims "this input violates BOTH rules and the
+    // EARLIER one answers". Two things must hold or the claim is empty: the winner really comes
+    // earlier in the declared chain, and the loser really is a rule that answers somewhere (or
+    // is the declared-unreachable one). Without this, a `beats` case naming a rule that never
+    // fires would pass forever while pinning nothing.
+    const answered = new Set(
+      PARITY.cases.filter((c) => !c.expect.ok).map((c) => (c.expect as { code: string }).code),
+    );
+    let checked = 0;
+    for (const c of PARITY.cases) {
+      if (!c.beats || c.expect.ok) continue;
+      checked += 1;
+      // Read as `readonly string[]`: the table's codes arrive from JSON as plain strings, and
+      // whether each one IS a member of the chain is precisely what the next two assertions
+      // ask. Narrowing here would answer that question by fiat instead of checking it.
+      const order: readonly string[] = BCS_REFUSAL_ORDER[c.side];
+      const winner = order.indexOf(c.expect.code);
+      const loser = order.indexOf(c.beats);
+      expect(winner, `${c.id}: winner not in chain`).toBeGreaterThanOrEqual(0);
+      expect(loser, `${c.id}: loser not in chain`).toBeGreaterThanOrEqual(0);
+      expect(winner, `${c.id}: a precedence case must name a LATER rule as the loser`).toBeLessThan(
+        loser,
+      );
+      expect(
+        answered.has(c.beats) || c.beats in PARITY.unreachable,
+        `${c.beats} never answers any case, so beating it proves nothing`,
+      ).toBe(true);
+    }
+    expect(checked).toBeGreaterThanOrEqual(8);
+  });
+
+  it("is not a trivially satisfiable table", () => {
+    // The other end of anti-vacuity: a table of only-accepts (or only-refuses) would sail
+    // through both suites while comparing almost nothing.
+    const accepted = PARITY.cases.filter((c) => c.expect.ok);
+    const refused = PARITY.cases.filter((c) => !c.expect.ok);
+    expect(accepted.length).toBeGreaterThan(0);
+    expect(refused.length).toBeGreaterThan(0);
+    // All TEN stored modes -- the persisted contract this module states in words and BCS-S3
+    // computes against. A mode missing here is a formula neither suite is comparing.
+    const modes = new Set(accepted.map((c) => (c.expect as { mode: BcsMode }).mode));
+    expect(modes).toEqual(
+      new Set<BcsMode>([
+        "qty_total",
+        "qty_by_area",
+        "amount_total",
+        "amount_supply_plus_install",
+        "amount_supply_only",
+        "amount_install_only",
+        "amount_by_area",
+        "amount_by_area_supply_plus_install",
+        "amount_by_area_supply_only",
+        "amount_by_area_install_only",
+      ]),
+    );
+  });
+
+  it("keeps the client-only code deliberately OUTSIDE the parity vocabulary", () => {
+    // The ONE place the two sides answer differently on purpose. This module's amount-mode
+    // table miss returns a refusal; the server's equivalent is a bare KeyError on
+    // `_AMOUNT_MODES` -- "fail loudly rather than mint a plausible mode for a shape nobody
+    // ruled on". Both are unreachable by construction. The asymmetry is RECORDED in the table
+    // rather than papered over, and pinned here so nobody "restores consistency" by adding it.
+    for (const code of Object.keys(PARITY.client_only_codes)) {
+      expect(Object.keys(PARITY.codes)).not.toContain(code);
+      expect(BCS_REFUSAL_ORDER.qty).not.toContain(code);
+      expect(BCS_REFUSAL_ORDER.amount).not.toContain(code);
+    }
   });
 });

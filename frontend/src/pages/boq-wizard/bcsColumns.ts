@@ -96,10 +96,93 @@ export type BcsMode =
   | "amount_by_area_supply_only"
   | "amount_by_area_install_only";
 
-/** The outcome of validating one side's picks: a save-able selection, or a refusal to voice. */
+/**
+ * ★ THE REFUSAL VOCABULARY (BCS-S2e) -- the ONE thing this module and `services/boq_bcs/
+ * sources.py` can actually compare, and the reason a parity test finally exists.
+ *
+ * WHY A CODE WAS NEEDED AT ALL. The two sides refuse in deliberately different voices: the
+ * server throws a (title, message) pair, this card renders a friendlier sentence. Only the
+ * success `mode` was ever comparable, so a parity test built on what existed would have covered
+ * the ten modes and NONE of the refusal chain whose ORDER is load-bearing -- the partial test
+ * that makes a gap look closed, which is worse than no test at all. ADR-0010 F1 asks for a
+ * mirror to be pinned; this is what made it possible.
+ *
+ * ⚠️ THE CODE IS THE CONTRACT; THE WORDING IS NOT. Reword any message below freely -- that is
+ * the licensed difference between the two sides. Change a code, or the ORDER, and you are
+ * changing what the server must mirror: update `nirmaan_stack/services/boq_bcs/
+ * parity_cases.json` in the same edit, or both suites will tell you.
+ *
+ * `unruled_combination` is DELIBERATELY OUTSIDE the parity vocabulary. It is this module's
+ * amount-mode table miss; the server's equivalent is a bare `KeyError` on `_AMOUNT_MODES`
+ * ("fail loudly rather than mint a plausible mode for a shape nobody ruled on"). Both are
+ * unreachable by construction and the two answer differently ON PURPOSE, so the code is
+ * recorded in the table under `client_only_codes` and pinned OUT of `order` by a test on each
+ * side -- never quietly added to "restore consistency".
+ */
+export type BcsRefusalCode =
+  | "no_pick"
+  | "unknown_column"
+  | "duplicate_column"
+  | "aliased_columns"
+  | "wrong_class"
+  | "mixed_kinds"
+  | "mixed_shapes"
+  | "too_many_scalars";
+
+/** The parity vocabulary. `unruled_combination` is not a member -- see above. */
+export const BCS_REFUSAL_CODES: readonly BcsRefusalCode[] = [
+  "no_pick",
+  "unknown_column",
+  "duplicate_column",
+  "aliased_columns",
+  "wrong_class",
+  "mixed_kinds",
+  "mixed_shapes",
+  "too_many_scalars",
+];
+
+/**
+ * THE ORDER IS THE SPEC, declared here so both suites can assert against it. It decides WHICH
+ * refusal a bad pick gets, and a user does not experience a different complaint for the same
+ * pick as a wording nit -- it reads as the screen and the server disagreeing about their sheet.
+ *
+ * `too_many_scalars` is RETAINED-but-shadowed on both sides (a scalar column's kind IS its
+ * value_field, so two picks of one kind necessarily alias and rule 2c answers first). The
+ * table records that under `unreachable` and pins the shadowing inputs as cases, rather than
+ * letting a dead rule look exercised.
+ */
+export const BCS_REFUSAL_ORDER: Record<BcsSide, readonly BcsRefusalCode[]> = {
+  qty: [
+    "no_pick",
+    "unknown_column",
+    "duplicate_column",
+    "aliased_columns",
+    "wrong_class",
+    "mixed_shapes",
+    "too_many_scalars",
+  ],
+  amount: [
+    "no_pick",
+    "unknown_column",
+    "duplicate_column",
+    "aliased_columns",
+    "wrong_class",
+    "mixed_kinds",
+    "mixed_shapes",
+    "too_many_scalars",
+  ],
+};
+
+/**
+ * The outcome of validating one side's picks: a save-able selection, or a refusal to voice.
+ *
+ * The refusal carries BOTH a `code` (what the server must agree about) and a `message` (what
+ * the user reads, in this screen's own friendlier voice). `BcsColumnsDialog` renders the
+ * message and never reads the code -- adding it was purely additive.
+ */
 export type BcsSideValidation =
   | { ok: true; mode: BcsMode; summary: string }
-  | { ok: false; message: string };
+  | { ok: false; code: BcsRefusalCode | "unruled_combination"; message: string };
 
 // ── The value_field vocabulary, mirroring sources.py's module constants ──────────
 const QTY_SCALAR_VALUE_FIELD = "qty_total";
@@ -430,7 +513,7 @@ export function validateBcsPicks(
   const words = SIDE_WORDS[side];
 
   // 1. an empty selection.
-  if (cols.length === 0) return { ok: false, message: words.empty };
+  if (cols.length === 0) return { ok: false, code: "no_pick", message: words.empty };
 
   // 2a. resolve every pick against the sheet's real columns, unknown-first.
   const picked: ColumnDescriptor[] = [];
@@ -440,6 +523,7 @@ export function validateBcsPicks(
       const known = [...index.keys()].sort().join(", ");
       return {
         ok: false,
+        code: "unknown_column",
         message:
           `Column ${col} isn't a mapped column on this sheet.` +
           (known ? ` Mapped columns: ${known}.` : ""),
@@ -459,6 +543,7 @@ export function validateBcsPicks(
   if (dupes.length > 0) {
     return {
       ok: false,
+      code: "duplicate_column",
       message: `Column ${dupes.join(", ")} is picked twice. Pick each column once — repeating one would count its value twice.`,
     };
   }
@@ -491,6 +576,7 @@ export function validateBcsPicks(
   if (aliased.length > 0) {
     return {
       ok: false,
+      code: "aliased_columns",
       message:
         `Column ${aliased.map((g) => g.join(", ")).join("; ")} hold the same number on this ` +
         `sheet, so picking them together would count it twice. Pick one column per value.`,
@@ -502,7 +588,11 @@ export function validateBcsPicks(
   const test = side === "qty" ? isBcsQtyColumn : isBcsAmountColumn;
   const bad = picked.filter((d) => !test(d));
   if (bad.length > 0) {
-    return { ok: false, message: words.wrongClass(bad.map((d) => d.col).join(", ")) };
+    return {
+      ok: false,
+      code: "wrong_class",
+      message: words.wrongClass(bad.map((d) => d.col).join(", ")),
+    };
   }
 
   // From here the two sides diverge -- see the docblock's per-side tails.
@@ -513,11 +603,13 @@ export function validateBcsPicks(
 function qtyTail(picked: ColumnDescriptor[], words: SideWords): BcsSideValidation {
   // 4. a scalar total mixed with its own per-area parts.
   const fields = new Set(picked.map((d) => d.value_field));
-  if (fields.size > 1) return { ok: false, message: words.mixedShapes };
+  if (fields.size > 1) return { ok: false, code: "mixed_shapes", message: words.mixedShapes };
 
   // 5. more than one scalar total (shadowed by 2c -- see the docblock).
   if (fields.has(QTY_SCALAR_VALUE_FIELD)) {
-    if (picked.length !== 1) return { ok: false, message: words.tooMany };
+    if (picked.length !== 1) {
+      return { ok: false, code: "too_many_scalars", message: words.tooMany };
+    }
     return { ok: true, mode: "qty_total", summary: bcsSummaryForMode("qty_total", [picked[0].col]) };
   }
   const cols = picked.map((d) => d.col);
@@ -541,13 +633,13 @@ function amountTail(picked: ColumnDescriptor[], words: SideWords): BcsSideValida
   // the total that already includes it is a double-count, exactly like a total beside its own
   // per-area parts. Checked BEFORE the shape rule, mirroring the server.
   if (kinds.has("total") && kinds.size > 1) {
-    return { ok: false, message: MIXED_KINDS_MESSAGE };
+    return { ok: false, code: "mixed_kinds", message: MIXED_KINDS_MESSAGE };
   }
 
   // 5. the SHAPE axis. Deliberately NOT widened: no owner ruling covers a sheet that genuinely
   // splits one kind scalar and the other per area, so that stays refused rather than guessed at.
   // A RULING, not a bug, if such a sheet turns up.
-  if (shapes.size > 1) return { ok: false, message: words.mixedShapes };
+  if (shapes.size > 1) return { ok: false, code: "mixed_shapes", message: words.mixedShapes };
 
   const shape = axes[0].shape;
 
@@ -557,16 +649,22 @@ function amountTail(picked: ColumnDescriptor[], words: SideWords): BcsSideValida
   // NOT: the pre-S2b "a sheet has exactly one Amount column" rule, which the widening made simply
   // FALSE -- a scalar sheet legitimately contributes TWO columns now, its supply and its install.
   if (shape === "scalar" && picked.length !== kinds.size) {
-    return { ok: false, message: words.tooMany };
+    return { ok: false, code: "too_many_scalars", message: words.tooMany };
   }
 
   // Looked up, NOT built by concatenation: every (shape, kinds) pair the guards above permit is
   // in the table, so a miss can only mean a new amount KIND arrived without anyone deciding what
   // formula it stores. That must fail visibly rather than mint a plausible-looking mode string.
+  //
+  // ⚠️ `unruled_combination` IS THE ONE CODE OUTSIDE THE PARITY VOCABULARY, and the asymmetry
+  // is deliberate: the server's equivalent miss raises a bare KeyError on `_AMOUNT_MODES`
+  // rather than voicing anything. Both are unreachable by construction. Recorded in
+  // `parity_cases.json` under `client_only_codes`; a test on each side keeps it out of `order`.
   const mode = AMOUNT_MODES[amountModeKey(shape, kinds)];
   if (!mode) {
     return {
       ok: false,
+      code: "unruled_combination",
       message:
         `This combination of Amount columns (${columnPhrase(cols)}) is not one BCS has a rule ` +
         `for. Pick the combined Amount, or the Supply and Installation amounts, in one shape.`,
@@ -980,12 +1078,16 @@ export function bcsTotalAmount(qty: number | null, unitCost: number | null): num
  * `not_finite` is the defensive arm: every operand reaching the margin is finite by
  * construction, but a denormal-tiny amount beside a huge cost can still divide out past the
  * double range, and a rendered "Infinity" is not an answer.
+ *
+ * `negative_amount` (BCS-S2e) is the SIGN arm, and it is not defensive -- it closes a real
+ * inversion. See `bcsMarginPercent` for what it costs to leave out.
  */
 export type BcsBlankReason =
   | "no_quantity"
   | "no_cost"
   | "no_amount"
   | "zero_amount"
+  | "negative_amount"
   | "not_finite";
 
 /** One computed cell: a number, or a blank that KNOWS WHY. Mirrors `AmountCellResult`'s
@@ -1006,7 +1108,13 @@ export type BcsComputedCell =
 export function bcsTotalAmountCell(qty: number | null, unitCost: number | null): BcsComputedCell {
   if (qty === null) return { kind: "blank", reason: "no_quantity" };
   if (unitCost === null) return { kind: "blank", reason: "no_cost" };
-  return { kind: "value", value: qty * unitCost };
+  // BCS-S2e: the finiteness guard S3b invented `not_finite` for and then gave only to the
+  // margin. A product that overflows the double range rendered here as the literal string
+  // "Infinity" in a cost cell. Cheap, and it costs the ordinary path nothing -- a legitimate
+  // 0 (a zero quantity, or a zero cost) is finite and still reads 0.
+  const total = qty * unitCost;
+  if (!Number.isFinite(total)) return { kind: "blank", reason: "not_finite" };
+  return { kind: "value", value: total };
 }
 
 /** The Tendered Total Amount cell -- the ONE place a null sum is decided to mean "no amount". */
@@ -1033,6 +1141,26 @@ export function bcsTenderedAmountCell(amount: number | null): BcsComputedCell {
  * that leaves the double range is refused after it. Both matter twice over: a `NaN` displayed is
  * nonsense, and a `NaN` compared with `===` (`NaN !== NaN`) would defeat a React.memo for the
  * lifetime of the row.
+ *
+ * ★ AND NEVER A PROFIT ON A LOSS (`negative_amount`, BCS-S2e -- found in the BCS-S3b review).
+ * The guards were `=== 0` and `!isFinite`; NOTHING LOOKED AT THE SIGN. A negative denominator
+ * FLIPS THE INEQUALITY: amount -100 against cost 50 gives (-100 - 50) / -100 * 100 = +150%, so
+ * a loss-making row displayed positive profit -- the exact inverse of the property this column
+ * exists to show, and the one failure mode that is worse than a blank cell, because it is
+ * confidently wrong rather than visibly absent.
+ *
+ * IT WAS UNREACHABLE FROM DATA AND REACHABLE BY TYPING. Measured: 0 negative amounts across
+ * 65,340 committed nodes -- but neither cost input carries a `min=`, and `pricing.py` has no
+ * negative validation, so a typed minus sign gets there.
+ *
+ * ⚠️ BLANK WITH A REASON, NOT A BLOCKED INPUT (planner ruling 2026-08-03). Same shape as the
+ * four reasons beside it, and the same "adapt and disclose" the one-sided amount confirmation
+ * takes: refusing the keystroke would be a guess about whether negative amounts are legitimate
+ * in this owner's BoQs, and this way is safe either way. Do NOT convert it into a validation.
+ *
+ * THE COST SIDE IS DELIBERATELY UNGUARDED. A negative cost against a positive amount is
+ * arithmetically a margin above 100%, which is what it should read; only the DENOMINATOR's
+ * sign inverts the comparison.
  */
 export function bcsMarginPercent(
   cost: BcsComputedCell,
@@ -1040,7 +1168,9 @@ export function bcsMarginPercent(
 ): BcsComputedCell {
   if (cost.kind === "blank") return cost;
   if (amount.kind === "blank") return amount;
+  // `-0 === 0` is true, so a negative zero is caught here and never reaches the sign test.
   if (amount.value === 0) return { kind: "blank", reason: "zero_amount" };
+  if (amount.value < 0) return { kind: "blank", reason: "negative_amount" };
   const pct = ((amount.value - cost.value) / amount.value) * 100;
   if (!Number.isFinite(pct)) return { kind: "blank", reason: "not_finite" };
   return { kind: "value", value: pct };
@@ -1067,6 +1197,14 @@ export function bcsBlankReasonText(reason: string): string {
       );
     case "zero_amount":
       return "The amount charged on this row is zero, so there is no margin to measure against it.";
+    case "negative_amount":
+      // States the fact AND why the cell is blank rather than computed. The second half is
+      // load-bearing: without it a reader assumes the software simply could not cope, and the
+      // ONE thing they must not do is work the percentage out by hand instead.
+      return (
+        "The amount charged on this row is negative, so a percentage measured against it " +
+        "would read backwards — a loss would show as a profit."
+      );
     case "not_finite":
       return "The numbers on this row are too extreme to produce a percentage.";
     default:

@@ -3051,10 +3051,16 @@ const PricingGridRow = memo(function PricingGridRow({
                   }
                 />
               )}
-              {cell.kind === "value" ? (
+              {/* BCS-S2e: BOTH arms render `shownAmount`. They used to differ -- the committed
+                  arm re-read the RAW `resolveDescriptorValue`, while `shownAmountValue`'s own
+                  committed arm returns the NUMBER-NORMALISED `docVal` -- so a non-numeric
+                  committed value would have printed here and contributed nothing to the
+                  denominator. Unreachable under the declared type, but `shownAmountValue`'s
+                  docblock says it is the ONE decision this cell and the BCS Tendered column
+                  share, and "one decision" has to be true structurally or it is just a claim.
+                  Collapsed rather than merely corrected, so the two cannot drift apart again. */}
+              {cell.kind === "value" || cell.kind === "committed" ? (
                 renderDescriptorCell(shownAmount)
-              ) : cell.kind === "committed" ? (
-                renderDescriptorCell(resolveDescriptorValue(row, d))
               ) : isBroken ? (
                 <AlertTriangle className="inline-block h-3 w-3 text-destructive" aria-label="Check formula" />
               ) : null /* not_yet -> blank (the cell is empty; title = "Needs a rate") */}
@@ -4659,7 +4665,12 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
       visibleDescriptors.map((d) => columnWidthKey("descriptor", d.col)),
       descriptorColStart,
       remarksColIndex,
-      bcsColKeys, // BCS-S3a: `bcs:<kind>` + `bcs:total`; [] when there is no cost block
+      // BCS-S3a, corrected at BCS-S2e: one `bcs:<kind>` per live cost box plus ALL THREE
+      // computed keys (`bcs:total`, `bcs:tendered`, `bcs:margin`); [] when there is no cost
+      // block. This said "+ `bcs:total`" -- written when the Total was the only computed
+      // column, and left behind when S3b added the other two. `bcsColumnKeys` derives the
+      // list from `BCS_COMPUTED_KINDS`, so the code was right and only the sentence was stale.
+      bcsColKeys,
       bcsColStart,
     );
 
@@ -5470,9 +5481,21 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
     </th>
   );
 
-  // BCS-S3a: the cost block's headers -- one per live box, then Total Amount. Sky-tinted so the
-  // INTERNAL cost columns are visually distinct from the client-facing ones beside them: this is
-  // what we pay, not what we charge, and the two must not read as one continuous table.
+  // BCS-S3a: the cost block's headers -- one per live box, then the computed tail.
+  //
+  // ⚠️ WHAT THE SKY TINT MARKS, CORRECTED AT BCS-S2e. It said the tint made "the INTERNAL cost
+  // columns visually distinct from the client-facing ones beside them: this is what we pay, not
+  // what we charge". That was true when S3a wrote it and the whole block was internal. BCS-S3b
+  // then added Tendered Total Amount and % Profit -- both CLIENT-FACING, both sky-tinted -- so
+  // the tint no longer separates what we pay from what we charge, and reading it as though it
+  // still did would put the Tendered column on the wrong side of the very distinction the
+  // sentence names.
+  //
+  // WHAT IT ACTUALLY MARKS NOW: the BCS BLOCK -- one contiguous, screen-only section that is
+  // NOT part of the sheet's own columns and never reaches the client-facing export
+  // (`bcs.py` property 3). That is still worth a tint, and it is the boundary a reader needs;
+  // the internal-vs-client distinction lives in the per-column `title` text instead, which is
+  // where it can be stated per column rather than per block.
   const bcsHeaderCells = bcsKinds.length > 0 && (
     <>
       {bcsKinds.map((kind) => (

@@ -50,14 +50,32 @@ Coverage:
                                     that discloses which formula is in force.
 """
 
+import json
+import os
 import unittest
 
 import frappe
 
 from nirmaan_stack.services.boq_bcs.sources import (
+    AMOUNT_REFUSAL_ORDER,
+    QTY_REFUSAL_ORDER,
+    REFUSAL_CODES,
     build_amount_source,
     build_qty_source,
+    decide_amount_source,
+    decide_qty_source,
 )
+
+# The SHARED rule-parity table (BCS-S2e), read from disk rather than imported, so the ONE
+# artifact both languages consume has no build step and no duplicate. `bcsColumns.test.ts`
+# reads this same file off `import.meta.url`; see its Group "rule parity" and the file's own
+# `_readme` for why it lives beside the authority rather than beside the mirror.
+_PARITY_CASES_PATH = os.path.join(os.path.dirname(__file__), "parity_cases.json")
+
+
+def _load_parity_cases() -> dict:
+    with open(_PARITY_CASES_PATH, encoding="utf-8") as fh:
+        return json.load(fh)
 
 # The six keys a stored confirmation entry carries -- the full descriptor identity, so a
 # later reader resolves the value without re-deriving it from column_role_map.
@@ -666,6 +684,218 @@ class TestSplitAmountShapes(unittest.TestCase):
         )
         with self.assertRaises(frappe.ValidationError):
             build_amount_source(["D", "E"], cross)
+
+
+# ===========================================================================
+# Group 8: THE RULE PARITY TABLE (BCS-S2e) -- this side of it
+# ===========================================================================
+class TestRuleParityTable(unittest.TestCase):
+    """★ THE PARITY NET. One case table, `parity_cases.json`, consumed by THIS suite and by
+    `frontend/src/pages/boq-wizard/bcsColumns.test.ts`. If the two rule chains disagree about
+    any case, exactly one of the two suites goes red -- which is the whole point.
+
+    WHY IT DID NOT EXIST BEFORE, AND WHAT HAD TO CHANGE. The two sides shared no refusal
+    IDENTIFIER: this module threw a (title, message) pair, the card returned {ok:false,
+    message}. Only the success `mode` was comparable, so a pin built on what was available
+    would have covered the ten modes and NONE of the refusal chain whose ORDER is load-bearing
+    -- the partial test that makes a gap look closed, which is worse than no test. BCS-S2e
+    split the DECISION from its VOICING (`decide_qty_source` / `decide_amount_source` return a
+    refusal as a VALUE carrying a short code; `build_*_source` are thin throwing wrappers over
+    them, with every thrown message byte-unchanged). The code is what parity compares.
+
+    WHAT IT IS NOT. It does not pin the WORDING -- the two sides refuse in deliberately
+    different voices, and forcing one voice on both would trade a real property for a fake one.
+    It pins the CONDITIONS and their PRECEDENCE, which is what a user actually experiences.
+
+    ANTI-VACUITY IS EXPLICIT HERE, because a precedence table is the easiest thing in the world
+    to write green: a `beats` case whose losing rule never fires anywhere proves nothing at all.
+    `test_every_beats_case_names_a_rule_that_is_actually_live` closes that, and
+    `test_the_shared_table_is_not_trivially_satisfiable` closes the other end.
+    """
+
+    _PARITY = _load_parity_cases()
+    _INDEX = {d["col"]: d for d in _PARITY["descriptors"]}
+    _DECIDE = {"qty": decide_qty_source, "amount": decide_amount_source}
+    _ORDER = {"qty": QTY_REFUSAL_ORDER, "amount": AMOUNT_REFUSAL_ORDER}
+
+    # -- the cases themselves ---------------------------------------------
+    def test_every_case_in_the_shared_table(self):
+        """The table, case by case. The TS suite runs this exact list against the browser's
+        rules; a divergence in either direction turns one of the two red."""
+        for case in self._PARITY["cases"]:
+            with self.subTest(case=case["id"]):
+                out = self._DECIDE[case["side"]](case["cols"], self._INDEX)
+                expect = case["expect"]
+                self.assertEqual(out["ok"], expect["ok"], case["why"])
+                if expect["ok"]:
+                    self.assertEqual(out["source"]["mode"], expect["mode"], case["why"])
+                else:
+                    self.assertEqual(out["code"], expect["code"], case["why"])
+
+    def test_an_accepted_case_stores_exactly_the_columns_that_were_picked(self):
+        """Parity on the MODE alone would let one side silently drop a column and still agree
+        about which formula is in force -- and a dropped column under-counts the row forever.
+        Every mode's arithmetic is "resolve each stored entry and add them up", so the picked
+        list surviving intact IS the arithmetic."""
+        for case in self._PARITY["cases"]:
+            if not case["expect"]["ok"]:
+                continue
+            with self.subTest(case=case["id"]):
+                out = self._DECIDE[case["side"]](case["cols"], self._INDEX)
+                self.assertEqual([c["col"] for c in out["source"]["columns"]], case["cols"])
+
+    # -- the ORDER, which is the half a naive pin would have missed --------
+    def test_the_tables_order_is_this_modules_own_declared_order(self):
+        """The table's `order` is not decoration: both suites assert it against their OWN
+        module's declared chain, so a rule added to one side alone goes red on that side."""
+        for side in ("qty", "amount"):
+            self.assertEqual(list(self._PARITY["order"][side]), list(self._ORDER[side]), side)
+
+    def test_the_declared_order_matches_the_code_this_module_can_actually_emit(self):
+        """The declared order is a CLAIM about the chain below it, and a claim can go stale.
+        Every code the module names must be in the shared vocabulary, and every code in the
+        vocabulary must appear in at least one side's chain -- so a code cannot be minted,
+        used, and left out of the contract both suites read."""
+        vocabulary = set(self._PARITY["codes"])
+        chained = set(self._ORDER["qty"]) | set(self._ORDER["amount"])
+        self.assertEqual(chained, vocabulary)
+        self.assertEqual(set(REFUSAL_CODES), vocabulary)
+
+    def test_every_code_is_exercised_or_explicitly_declared_unreachable(self):
+        """No code may sit in the chain unexercised and unexplained. `too_many_scalars` is
+        RETAINED-but-shadowed on both sides (see `unreachable` in the table), and the input
+        that shadows it is itself a case -- so the shadow is pinned rather than assumed."""
+        answered = {c["expect"]["code"] for c in self._PARITY["cases"]
+                    if not c["expect"]["ok"]}
+        unreachable = self._PARITY["unreachable"]
+        for side in ("qty", "amount"):
+            for code in self._ORDER[side]:
+                with self.subTest(side=side, code=code):
+                    self.assertTrue(
+                        code in answered or code in unreachable,
+                        f"{code} is in the {side} chain but no case answers it and it is not "
+                        f"declared unreachable",
+                    )
+        for code, note in unreachable.items():
+            self.assertNotIn(code, answered, f"{code} is declared unreachable but a case answers it")
+            for case_id in note["shadowed_by"]:
+                case = next(c for c in self._PARITY["cases"] if c["id"] == case_id)
+                self.assertEqual(case.get("beats"), code)
+
+    def test_every_beats_case_names_a_rule_that_is_actually_live(self):
+        """★ THE ANTI-VACUITY GUARD. A precedence case claims "this input violates BOTH rules
+        and the EARLIER one answers". Two things have to hold or the claim is empty: the
+        winner must really come earlier in the declared chain, and the loser must really be a
+        rule that answers somewhere (or be the declared-unreachable one). Without this a
+        `beats` case naming a rule that never fires anywhere would pass forever while pinning
+        nothing."""
+        answered = {c["expect"]["code"] for c in self._PARITY["cases"]
+                    if not c["expect"]["ok"]}
+        for case in self._PARITY["cases"]:
+            beaten = case.get("beats")
+            if not beaten:
+                continue
+            with self.subTest(case=case["id"]):
+                order = list(self._ORDER[case["side"]])
+                winner = case["expect"]["code"]
+                self.assertIn(winner, order)
+                self.assertIn(beaten, order)
+                self.assertLess(order.index(winner), order.index(beaten),
+                                "a precedence case must name a LATER rule as the loser")
+                self.assertTrue(
+                    beaten in answered or beaten in self._PARITY["unreachable"],
+                    f"{beaten} never answers any case, so beating it proves nothing",
+                )
+
+    def test_the_shared_table_is_not_trivially_satisfiable(self):
+        """The other end of anti-vacuity: a table of only-accepts (or only-refuses) would sail
+        through both suites while comparing almost nothing. Pins that the table really carries
+        both outcomes, every accepted mode, and a precedence case for each constructible
+        adjacency."""
+        cases = self._PARITY["cases"]
+        accepted = [c for c in cases if c["expect"]["ok"]]
+        refused = [c for c in cases if not c["expect"]["ok"]]
+        self.assertGreater(len(accepted), 0)
+        self.assertGreater(len(refused), 0)
+        # All TEN stored modes -- the persisted contract S2c states in words and S3 computes
+        # against. A mode missing here is a formula neither suite is comparing.
+        self.assertEqual(
+            {c["expect"]["mode"] for c in accepted},
+            {"qty_total", "qty_by_area", "amount_total", "amount_supply_plus_install",
+             "amount_supply_only", "amount_install_only", "amount_by_area",
+             "amount_by_area_supply_plus_install", "amount_by_area_supply_only",
+             "amount_by_area_install_only"},
+        )
+        self.assertGreaterEqual(len([c for c in refused if c.get("beats")]), 8)
+
+    def test_the_client_only_code_is_deliberately_outside_the_vocabulary(self):
+        """The ONE place the two sides answer differently on purpose. The client's amount-mode
+        table miss returns a refusal; this module's equivalent is a bare KeyError on
+        `_AMOUNT_MODES` -- 'fail loudly rather than mint a plausible mode for a shape nobody
+        ruled on'. Both are unreachable by construction. The asymmetry is RECORDED in the
+        table rather than papered over, and pinned here so nobody 'restores consistency' by
+        quietly adding it to the chain."""
+        for code in self._PARITY["client_only_codes"]:
+            self.assertNotIn(code, self._PARITY["codes"])
+            self.assertNotIn(code, self._ORDER["qty"])
+            self.assertNotIn(code, self._ORDER["amount"])
+
+
+# ===========================================================================
+# Group 9: the decision / voicing split itself (BCS-S2e)
+# ===========================================================================
+class TestDecideAndBuildAreOneRule(unittest.TestCase):
+    """`build_*_source` is now a THIN THROWING WRAPPER over `decide_*_source`. That is what
+    makes the parity table possible -- but it is only safe while the two cannot disagree, so
+    the relationship is pinned rather than trusted.
+
+    THE RISK THIS CLOSES is the one BCS-S2e was written to avoid in the first place: a
+    code-returning function that has drifted from the throwing function every caller actually
+    uses would make the parity table a test of something nothing runs. Sweeping the shared
+    table through BOTH entry points is what stops that."""
+
+    _PARITY = _load_parity_cases()
+    _INDEX = {d["col"]: d for d in _PARITY["descriptors"]}
+    _BUILD = {"qty": build_qty_source, "amount": build_amount_source}
+    _DECIDE = {"qty": decide_qty_source, "amount": decide_amount_source}
+
+    def test_build_throws_exactly_when_decide_refuses(self):
+        for case in self._PARITY["cases"]:
+            with self.subTest(case=case["id"]):
+                decided = self._DECIDE[case["side"]](case["cols"], self._INDEX)
+                if decided["ok"]:
+                    built = self._BUILD[case["side"]](case["cols"], self._INDEX)
+                    self.assertEqual(built, decided["source"])
+                else:
+                    with self.assertRaises(frappe.ValidationError):
+                        self._BUILD[case["side"]](case["cols"], self._INDEX)
+
+    def test_the_built_source_carries_no_decision_bookkeeping(self):
+        """`confirm_bcs_columns` json.dumps this dict straight into `bcs_qty_source` /
+        `bcs_amount_source`, so the wrapper must hand back the SOURCE and not the decision
+        envelope. An `ok` key leaking into the stored blob would change a persisted contract
+        that BCS-S3 reads."""
+        for cols, side in ((["D"], "qty"), (["B", "C"], "qty"),
+                           (["F"], "amount"), (["J", "P"], "amount")):
+            out = self._BUILD[side](cols, self._INDEX)
+            self.assertEqual(set(out), {"mode", "columns"})
+
+    def test_a_refusal_still_carries_its_user_facing_words(self):
+        """The split moved the VOICE into the returned refusal; it did not delete it. Each
+        refusal still carries the title and the message the endpoint throws, so nothing about
+        what a user reads changed at BCS-S2e."""
+        out = decide_qty_source(["Z"], self._INDEX)
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["title"], "Unknown column")
+        self.assertRegex(out["message"], r"^Column 'Z' is not a mapped column")
+        self.assertEqual(out["code"], "unknown_column")
+
+    def test_the_thrown_message_is_the_refusals_own_message(self):
+        """Byte-for-byte, so the wrapper cannot become a second place wording lives."""
+        refusal = decide_amount_source(["F", "J"], self._INDEX)
+        with self.assertRaises(frappe.ValidationError) as caught:
+            build_amount_source(["F", "J"], self._INDEX)
+        self.assertIn(refusal["message"], str(caught.exception))
 
 
 if __name__ == "__main__":
