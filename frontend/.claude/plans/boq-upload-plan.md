@@ -18629,3 +18629,227 @@ behaviour of the two new cells are **structurally untestable in this repo** and 
   pre-existing, our delta zero, output byte-identical to the pre-slice run.
 - **Production remains unmigrated for the whole BCS arc.** This slice adds no migration of its own; the arc's
   prior ones are still owed before any BCS use in prod.
+
+## BCS-S2e — the rule-parity net across two languages, and the negative-amount guard
+
+**Branch** `feature/bcs-columns` · **Base** `14a97545` · **Tier** FULL · **Date** 2026-08-03
+
+**REVIEW: pending**
+
+The owner's BCS ask closed at S3b. This slice builds the safety net that should have existed from the
+start, plus the one substantive defect the S3b review found. Two things changed in behaviour: a
+**negative Amount now blanks % Profit with a reason** instead of rendering a *positive* margin, and a
+**Total Amount that overflows the double range now blanks** instead of printing `Infinity`. Everything
+else is a test-and-structure change: the BCS rule chains on both sides are now pinned against ONE
+shared case table. **No migration. No endpoint signature changed — `api/boq/wizard/bcs.py` and
+`test_bcs.py` were in scope and needed no edit at all.**
+
+---
+
+### 1. The blocker, and why the obvious pin was refused
+
+The browser (`bcsColumns.ts`) mirrors the server's two column-confirmation rule chains
+(`services/boq_bcs/sources.py`). ADR-0010 F1 requires such a mirror to be pinned by a parity test.
+There was none — and at **BCS-S2b the server widened to eight amount shapes while the browser silently
+refused six of them for a whole slice, with every frontend test green.** The owner found it by opening
+a dialog and seeing an empty list.
+
+The reason no pin existed is precise, and a previous builder was right to refuse to paper over it:
+**the two sides shared no refusal IDENTIFIER.** The server threw a `(title, message)` pair; the client
+returned `{ok:false, message}`. Only the success `mode` was comparable — so a pin built from what
+existed would have covered the ten modes and **none of the six-to-eight-rule refusal chain whose ORDER
+is load-bearing.** That is the partial test that makes a gap look closed, which is worse than no test.
+
+**A note on the cited precedents, verified rather than assumed:** neither has a parity test.
+`reconcile.ts` scopes its docblock to *frontend* unification; `priceability.test.ts` mentions the
+backend only in comments. The repo's ONE real parity test is
+`services/boq_revision/test_normalize.py:56` — Python-to-Python, by direct import. **No cross-language
+runner exists**, so where the shared table lives was a decision this slice had to make, not inherit.
+
+### 2. The fix — split the DECISION from its VOICING
+
+The seam is `sources.py`'s module interface. It was `(picks, index) -> dict | raise`, which **fuses the
+decision with its prose**: the only way to learn what was decided was to catch an exception and read a
+sentence. That fusion is exactly why no parity test could be written.
+
+So the decision became a **value**:
+
+| new | shape |
+|---|---|
+| `decide_qty_source(cols, index)` | `{"ok": True, "source": {...}}` or `{"ok": False, "code", "title", "message"}` |
+| `decide_amount_source(cols, index)` | same |
+| `build_qty_source` / `build_amount_source` | **thin throwing wrappers** over the above |
+
+This was chosen over the alternative — minting codes in a *separate* classifier beside the throwing
+function — because that alternative reintroduces the very failure being fixed, one layer down: a
+code-returning function that has drifted from the throwing function every caller actually uses makes
+the parity table a test of something nothing runs. `TestDecideAndBuildAreOneRule` sweeps the whole
+shared table through **both** entry points so they cannot disagree.
+
+**Every thrown message is byte-identical.** Verified mechanically by AST literal comparison against
+`HEAD:sources.py`: of 13 user-facing strings only 3 differ, and all 3 are docstrings deliberately
+rewritten. The 64 `test_bcs.py` endpoint tests pass unchanged.
+
+### 3. The refusal vocabulary and its order
+
+Eight codes, declared on both sides (`REFUSAL_CODES` / `QTY_REFUSAL_ORDER` / `AMOUNT_REFUSAL_ORDER`;
+`BcsRefusalCode` / `BCS_REFUSAL_CODES` / `BCS_REFUSAL_ORDER`):
+
+```
+qty     no_pick → unknown_column → duplicate_column → aliased_columns → wrong_class
+                → mixed_shapes → too_many_scalars
+amount  no_pick → unknown_column → duplicate_column → aliased_columns → wrong_class
+                → mixed_kinds → mixed_shapes → too_many_scalars
+```
+
+Two facts about this list are worth keeping:
+
+- **`too_many_scalars` is UNREACHABLE on both sides** and retained anyway. A scalar column's kind IS
+  its `value_field`, so two picks of one kind necessarily share a resolved identity and
+  `aliased_columns` answers first. The table records it under `unreachable` **and names the two cases
+  that shadow it**, so the shadow is pinned rather than assumed — a dead rule is not allowed to *look*
+  exercised.
+- **`unruled_combination` is deliberately OUTSIDE the parity vocabulary.** It is the client's
+  amount-mode table miss; the server's equivalent is a bare `KeyError` on `_AMOUNT_MODES` ("fail
+  loudly rather than mint a plausible mode for a shape nobody ruled on"). Both unreachable, and the
+  two answer **differently on purpose**. Recorded under `client_only_codes`, with a test on **each**
+  side pinning that it stays out of `order` — so nobody "restores consistency" later.
+
+**The code is the contract; the wording is not.** The two sides refuse in deliberately different
+voices, and forcing one voice on both would have traded a real property for a fake one.
+
+### 4. Where the shared table lives, and why
+
+**`nirmaan_stack/services/boq_bcs/parity_cases.json`** — beside the Python module.
+
+The server is THE AUTHORITY; `bcsColumns.ts` says so in its own docblock and mirrors it. The table
+describes the authority's rules, so housing it with the client would invert the direction the whole
+arrangement depends on. Python reads it with `json.load` relative to `__file__`; the vitest suite
+**imports** it (`resolveJsonModule` is on) across the `frontend/` boundary — verified to resolve, and
+verified **not** to serve a cached copy (§6, experiment 4).
+
+38 cases: all **ten** stored modes, every refusal by code, and **8 precedence cases** — inputs that
+violate two rules at once, pinning which answers. The load-bearing one is
+`amount-precedence-kind-beats-shape`: `["F","I"]` (scalar total beside a per-area supply half) violates
+both axes, and **KIND must win**, because the same rules in a different order give a different
+complaint for one input — which a user does not read as a wording nit but as the screen and the server
+disagreeing about their sheet.
+
+**Anti-vacuity is explicit**, because a precedence table is the easiest thing in the world to write
+green. Both suites assert: the table's `order` equals the module's OWN declared chain; every code is
+either exercised or declared unreachable *with its shadowing case*; every `beats` case names a rule
+that is genuinely **later** in the chain **and** genuinely answers somewhere; and the table is not
+all-accepts or all-refuses.
+
+### 5. The negative-amount guard (the substantive S3b finding)
+
+`bcsMarginPercent` guarded `=== 0` and `!isFinite` but **never the SIGN**. A negative denominator flips
+the inequality:
+
+> amount **−100**, cost **50** → `(−100 − 50) / −100 × 100` = **+150%**
+
+— a loss-making row displaying **positive profit**, the exact inverse of the property the column
+exists to show, and the failure mode that is worse than a blank cell because it is *confidently wrong*
+rather than visibly absent. Unreachable from data (0 negatives across 65,340 committed nodes) but
+reachable **by typing**: neither cost input carries a `min=`, and `pricing.py` has no negative
+validation.
+
+**Planner ruling 2026-08-03: a `negative_amount` blank reason — blank WITH A REASON, not a blocked
+input.** Consistent with the four reasons beside it and with the arc's standing *adapt and disclose*
+principle; refusing the keystroke would be a guess about whether negative amounts are legitimate in
+this owner's BoQs, and this is safe either way. **The cost side is deliberately unguarded** — a
+negative cost against a positive amount is arithmetically a margin above 100%, which is what it should
+read; only the *denominator's* sign inverts the comparison.
+
+**Why this survived a fully green suite, which is the part worth remembering.** The existing 8×8
+sweep already fed `bcsMarginPercent` negative operands — and asserted only that nothing *non-finite*
+escaped. **Finiteness was never the property; the sign was.** The new sweep asserts the real
+invariant — *% Profit is positive iff the amount exceeds the cost* — and it failed on the old code with
+exactly the defect: `cost 0 amount -1e-320: expected 100 to be less than 0`.
+
+### 6. Verification — including the proof that the net catches drift
+
+Four experiments. Each was reverted and re-verified green.
+
+| # | what was broken | backend | frontend |
+|---|---|---|---|
+| 1 | the **shared table** says something neither side does | **RED** (`amount-mixed-kinds-scalar`) | **RED** (same case) |
+| 2 | the **server's** kind-before-shape order | **RED** (`amount-precedence-kind-beats-shape`) | green — it did not drift |
+| 3 | the **client's** kind-before-shape order | green — it did not drift | **RED** (2 tests) |
+| 4 | table corrupted again, after switching to the JSON **import** loader | **RED** | **RED** |
+
+Experiments 2 and 3 are the point: **the side that drifts is the side that goes red, and it is named by
+case id.** Experiment 1 proves both suites consume the ONE artifact (no stale copy, no divergent
+fixture); experiment 4 re-proves it after the loader changed. **This is the exact shape of the S2b
+failure — except now something is red.**
+
+*Honest scope of the claim:* the client already had several order pins of its own (S2c's "checks KIND
+before SHAPE", the class-before-mixed and shadowing tests). What it never had — and now has — is
+anything comparing its answers to the server's.
+
+```
+vitest (in-container)     1422 → 1436   (54 files, all pass)
+  bcsColumns.test.ts       145 →  179
+tsc boq-wizard               0 →    0
+test_sources                48 →   60
+test_bcs                    64 →   64   (unchanged; the endpoint needed no edit)
+test_export_writeback       47 →   47
+test_pricing               252 →  252
+test_commit_pipeline        57 →   57
+test_review_screen         260 →  260
+git diff --stat            6 files, 1094 insertions(+), 67 deletions(-)
+```
+
+`python3 scripts/residence_check.py` — **the gate EXITS 1**, as it did before this slice. B1 0, B2 8,
+B3 40, F5 116 all holding; **F2 208 vs baseline 207**, pre-existing, **our delta zero** — output
+byte-identical to the pre-slice run, diffed to confirm.
+
+**⚠️ That delta-zero was NOT free, and the detour is worth recording.** The first draft loaded the
+table with an inline decode off `import.meta.url`, which pushed F2 **208 → 209** — a regression *this
+slice introduced*. Switching to a plain `import` (`resolveJsonModule` is on) removed it honestly: it
+is what F2 asks for, not a way around it. **Then the prose tripped the same counter** — that ratchet is
+a **line regex over `frontend/src/pages`**, so a docblock merely *naming* the decoder counted as two
+more violations with no code behind them, 209 again. The comment is now circumlocuted on purpose and
+says so, because a future editor who "fixes" the wording will fail the gate for whoever commits next.
+
+**No DOM test environment** (deliberate, `vitest.config.ts`). Everything here is pure in/out and fully
+covered, with one exception: **the two PricingGrid render changes are structurally untestable.** The
+amount cell's `committed` arm and the two header/comment corrections are React render facts. **Owner's
+eyes needed on:** (a) an amount cell whose formula does not apply still shows its committed number
+unchanged, and (b) a row typed with a negative Tendered amount shows an EMPTY % Profit with the
+hover text, not `150.0%`.
+
+### 7. The four minor fold-ins
+
+- **`shownAmountValue`'s docblock claimed the amount cell and the BCS denominator "mirror function for
+  function" — and the `committed` arm did not.** The cell re-read the RAW `resolveDescriptorValue`
+  while both denominator calls got the number-normalised `docVal`. Unreachable under the declared
+  type, but "one decision" has to be true *structurally* or it is a claim. **Collapsed** the two arms
+  rather than merely correcting one, so they cannot drift apart again.
+- **`bcsTotalAmountCell` had no finiteness guard**, though S3b invented `not_finite` for exactly that
+  and gave it only to the margin. An overflowing product rendered the literal string `Infinity` in a
+  cost cell.
+- **`PricingGrid.tsx:4662` said two computed keys; there are three.** Written when Total was the only
+  computed column and left behind when S3b added Tendered and % Profit. The *code* was already
+  parametric over `BCS_COMPUTED_KINDS`; only the sentence was stale.
+- **The sky-tint comment claimed a cost-vs-client-facing distinction the two new headers erase.** It
+  said the tint separates "what we pay, not what we charge" — true at S3a, false the moment S3b added
+  two **client-facing** sky-tinted columns. Corrected to what the tint actually marks now: the **BCS
+  block** — screen-only, never reaching the client-facing export (`bcs.py` property 3).
+
+### 8. Deliberately NOT done
+
+- **`scripts/` — untouched entirely**, including `review_receipt.py` and `prompt_lint.py`. Read-only.
+- **`pricing.py` — no negative-amount validation added.** The planner ruled blank-with-a-reason over
+  blocking; adding a server refusal would be the decision that was explicitly not taken.
+- **No `min=` on the cost inputs.** Same reason, and it would live in a component this slice does not
+  own.
+- **`bcs.py` / `test_bcs.py` — in scope, not edited.** The wrapper preserved the interface exactly, so
+  there was nothing to change. Recorded because *not needing* the edit is the evidence the split was
+  contained.
+- **`reviewRender.tsx`'s `:775` double cast** — still waiting for a slice with it in scope.
+- **The F2 red was not re-baselined**, only held at delta zero. Re-baselining is the owner's call.
+- **The residence ratchet's comment-matching behaviour was not "fixed".** It lives in `scripts/`.
+- **No second parity table for other FE↔BE mirrors.** `reconcile.ts` / `priceability.ts` still have
+  none; this slice built the mechanism, not a campaign. Whether to extend it is an owner call.
+- **Production remains unmigrated for the whole BCS arc.** This slice adds no migration of its own.
