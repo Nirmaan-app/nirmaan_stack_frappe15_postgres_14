@@ -17363,3 +17363,168 @@ below is a React **semantic** and is structurally untestable here, so a green su
 - **`BcsColumnsDialog.tsx` — in scope but unedited.** F10's fix is closing the card, not changing it; the
   dialog already re-hydrates from the stored confirmation on every open.
 - **No BCS rate entry** — still nothing on this screen calls `save_row_bcs_rates`. S3.
+
+## BCS-S2b — widen the amount rules to the supply/install halves, and give a combined-rate sheet its own field
+
+**Branch** `feature/bcs-columns` · **Base** `ff638d43` · **Tier** FULL · **Date** 2026-08-02
+
+The design met real sheets and two assumptions turned out to be false. Most sheets have **no single
+"Amount (Total)" column** — they carry Amount (Supply) and Amount (Installation) separately — so the
+confirmation card's Amount list came up EMPTY on most real sheets; and some sheets do not split
+supply from installation at all. Backend half only: the amount source now accepts the halves (summed,
+including one-sided), and `BoQ Row BCS Rate` gains a third cost input. **What did NOT change:** every
+frontend file (S2c mirrors these rules next), `PricingGrid.tsx` (S3), `pricing.py` (untouched all arc),
+the carry path (S6), and the quantity source, which this slice never touches.
+
+---
+
+### 1. The two amount AXES — the shape of the widening
+
+`services/boq_bcs/sources.py` previously asked one yes/no question per column, `_is_combined_amount`.
+That is exactly the question that stopped being the right one: a pick is now judged **against the other
+picks**, not on its own. It is replaced by `_amount_axes(desc) -> (shape, kind)`, which places a column
+on two independent axes:
+
+| axis | values | where it is written |
+|---|---|---|
+| **shape** | `scalar` · `area` | scalar = the value_field itself; area = `amount_by_area` |
+| **kind** | `total` · `supply` · `install` | scalar: in the value_field · per-area: in `rate_subkey` |
+
+That asymmetry is the one genuine wrinkle — all three per-area kinds share the single value_field
+`amount_by_area`, so only the per-area shape needs the third hop.
+
+**Eight accepted shapes, eight modes**, held in one enumerable table (`_AMOUNT_MODES`) rather than
+built by string concatenation, so an unruled combination cannot mint a plausible-looking mode:
+
+| shape | kinds | mode | formula in force |
+|---|---|---|---|
+| scalar | total | `amount_total` | the Amount column |
+| scalar | supply+install | `amount_supply_plus_install` | Supply + Installation |
+| scalar | supply | `amount_supply_only` | Supply alone |
+| scalar | install | `amount_install_only` | Installation alone |
+| area | total | `amount_by_area` | Σ per-area Amount |
+| area | supply+install | `amount_by_area_supply_plus_install` | Σ over **both** axes |
+| area | supply | `amount_by_area_supply_only` | Σ per-area Supply |
+| area | install | `amount_by_area_install_only` | Σ per-area Installation |
+
+`amount_total` and `amount_by_area` are **byte-unchanged**, so confirmations stored before this slice
+read back identically.
+
+**The mode never branches the arithmetic.** In every one of the eight, the computation is "resolve each
+stored entry and add them up" — no coefficient, no subtraction, no dropped column. The mode exists for
+**disclosure** (S2c states it in words) and for the refusals. `test_the_arithmetic_is_sum_every_entry_in_every_mode`
+is where that stops being true if a future shape ever needs real arithmetic.
+
+### 2. What survived the reversal, and the ordering argument
+
+Three refusals stand:
+
+- **A TOTAL already CONTAINS its halves** → a total picked with a half is refused (`Mixed amount kinds`).
+  This is the *real* harm the old half-refusal was protecting, arriving along the kind axis instead of
+  the shape axis.
+- **Duplicates by RESOLVED VALUE** (BCS-S1c) — untouched, and re-pinned, since the new shapes add *more*
+  columns that can alias, not fewer.
+- **Scalar mixed with per-area** (`Mixed amount sources`) — untouched, and deliberately **not** widened:
+  no owner ruling covers a sheet that genuinely splits one kind scalar and the other per area, so it stays
+  refused rather than guessed at. If such a sheet appears, that is a ruling, not a bug.
+
+**The kind check runs BEFORE the shape check, and that reordering is provably free.** Under the old code
+every pick had to be the *combined* amount to reach the shape rule — so no input that was ever refused as
+`Mixed amount sources` was kind-mixed. Putting the more specific message first therefore cannot change the
+message any previously-refused input receives.
+
+The pre-S2b `"A sheet has exactly one combined Amount column"` rule became simply **false** (a scalar sheet
+now legitimately contributes two columns, its supply and its install). It is restated per-kind and retained
+as unreachable-by-construction — the same disposition, for the same stated reason, that BCS-S1c recorded
+for its own shadowed refusals.
+
+### 3. `combined_rate` — the third cost input
+
+A third `Currency` field on `BoQ Row BCS Rate`, for the one undifferentiated cost a combined-rate sheet
+quotes. Its description says plainly **when it is used** (a combined-rate sheet, where it is the only input
+offered and the halves stay 0.0) and **when it is not** (a split sheet, where the halves carry the cost).
+
+**It is not a total of the other two** — nothing derives it from them, nothing splits it back, and no reader
+may add it to them. `save_row_bcs_rates` accepts it *exactly* as the halves are accepted: optional,
+absent/empty → `0.0`, same named non-numeric refusal — **not stricter**, per the owner, and deliberately
+**not cross-validated** against them. Which input a sheet offers is the **screen's** decision, so storage
+refuses to have an opinion; a write that silently blanked the other field would strand a number on a sheet
+that changed shape. Added to `_BCS_READ_FIELDS` so `get_sheet_bcs_rates` surfaces it.
+
+### 4. The owner's reasoning — the part that must survive
+
+**ADAPT AND DISCLOSE, DO NOT REFUSE.** A sheet carrying only one half is accepted, and the software states
+the formula it is actually using. This **reverses** the earlier recommendation to refuse a lone half on the
+grounds that half an amount is not the amount. The owner's correction: **one-sided packages are genuine
+commercial shapes, not data gaps.** The safety comes from **disclosure, not from blocking** — which is why
+the mode vocabulary carries `_only` in its name and why the eight modes had to stay distinguishable.
+
+**Why the field lands now rather than later.** Production has never been migrated for BCS, so that debt is
+already owed; a third field added now rides the migration you already owe. After BCS ships it would be a
+second deployment.
+
+**Why a new field rather than reusing `supply_rate`.** A combined cost stored in a field named "supply"
+would lie about what the number is, and would strand anyone later trying to read the split back out.
+
+### 5. Verification
+
+| suite | baseline → final |
+|---|---|
+| `services.boq_bcs.test_sources` | **33 → 48** |
+| `api.boq.wizard.test_bcs` | **50 → 64** |
+| `test_export_writeback` | 47 → **47** |
+| `test_pricing` | 252 → **252** |
+| `test_commit_pipeline` | 57 → **57** |
+| `test_review_screen` | 260 → **260** |
+
+**Red before green, both halves.** The widened rules: 48 ran, **11 errors**, exactly the eleven new-shape
+tests. The field: red was broad and honest — `_current`'s field list named a column that did not exist, so
+every test touching it errored until the migration ran.
+
+**Migration.** `bench --site localhost migrate` completed clean.
+`frappe.db.has_column("BoQ Row BCS Rate", "combined_rate") -> True`; PostgreSQL `numeric(21,9)`, default `0`
+— identical shape to the two halves. ⚠️ **PRODUCTION IS STILL UNMIGRATED for the entire BCS arc.**
+
+**The export guard, re-confirmed with the new field POPULATED.** The standing test seeds only the two
+halves, so a green run of it proves nothing about `combined_rate` — stated rather than glossed. Two
+independent checks instead: (a) structural — `export_writeback.py` names **no** BCS token at all, so the
+exclusion is at the **doctype** level and survives field additions by construction; (b) runtime — a
+throwaway probe seeded 4 BCS rows carrying a `combined_rate` sentinel (anti-vacuity asserted), exported, and
+scanned 89 cells across 4 sheets: **0 leaks**. A `combined_rate` sentinel in the standing test's own fixture
+is **owed** to whichever slice owns that file.
+
+`python3 scripts/residence_check.py` → **F2 current=208**, byte-identical to the pre-edit baseline (not 209).
+Pre-existing red, left alone per the owner. B1 pure-module purity holds at **0**, confirming `sources.py`
+stayed pure.
+
+`git diff --stat ff638d43..HEAD` → 5 files, **738 insertions, 117 deletions**. Commits `9e59e42c` (rules) and
+`95f17f87` (field + migration).
+
+**The four rewritten pinning tests** — none deleted, and the suite is larger, not thinner:
+
+| test (new name) | now pins |
+|---|---|
+| `test_a_scalar_total_picked_together_with_a_half_is_refused` | F contains G and H, so the pair double-counts that half — not "a half is refused" |
+| `test_a_per_area_total_picked_together_with_a_per_area_half_is_refused` | the same, per-area; `rate_subkey` now decides by **comparing kinds**, not by testing against the constant `"total"` |
+| `test_a_half_poisons_an_otherwise_valid_per_area_COMBINED_selection` | same input still refused, different reason: H is already inside F — which is what distinguishes it from the now-valid split sheet |
+| `test_a_per_area_half_picked_WITH_its_own_combined_amount_is_refused` (endpoint) | the refusal SURFACES cleanly and stores nothing |
+
+The other three of the "seven" are `bcsColumns.test.ts` (frontend, **S2c's** to rewrite — out of scope here).
+
+### 6. Deliberately NOT done
+
+- **Every frontend file — untouched.** S2c mirrors these rules. ⚠️ **Known, disclosed intermediate state:**
+  `bcsColumns.ts`'s `isBcsAmountColumn` still returns `false` for the halves and `BcsMode` still lists only
+  four modes, so the picker cannot yet *offer* a half — meaning the six new modes are unreachable from the UI
+  until S2c. The backend is permissive and the frontend is not; nothing breaks, because the two shapes the
+  frontend does offer are byte-unchanged.
+- **`PricingGrid.tsx`** — S3. **`pricing.py`** — untouched all arc. **The carry path** — S6.
+- **No cross-field rule between the three rates** — deliberate, see §3.
+- **The scalar-vs-per-area mixing refusal — not widened.** Documented in-code as an un-ruled shape rather
+  than silently decided.
+- **The residence F2 red — not fixed, not re-baselined.** Reported exactly (**208**).
+- **`_AMOUNT_MODES` is indexed, not `.get()`-with-a-fallback** — a new amount *kind* added without deciding
+  its formula must `KeyError` loudly rather than mint a plausible mode. Unreachable from user input; the
+  guards cover every permitted pair.
+- **No `describe_amount_mode()` helper.** Turning a mode into plain words is S2c's copy decision, and
+  inventing the wording here would pre-empt it.
