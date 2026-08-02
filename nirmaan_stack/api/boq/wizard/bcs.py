@@ -63,27 +63,19 @@ from nirmaan_stack.api.boq.wizard.pricing import (
 )
 from nirmaan_stack.api.boq.wizard.pricing_lock import acquire_or_refresh
 
+# api -> service, the ONE-WAY direction ADR-0010 B1 asks for: the two column-confirmation
+# RULES (what a valid quantity source is, what the amount denominator is, which
+# combinations are refused) are decisions the business NAMES, so they live in a pure
+# service module and this endpoint file orchestrates them. Relocated at BCS-S1a; the
+# `boq_category.persist.node_is_qty_bearing` / `resolve_row_ladder` moves are the
+# precedent. `services/boq_bcs` must never import back into `api/`.
+from nirmaan_stack.services.boq_bcs.sources import (
+    build_amount_source,
+    build_qty_source,
+)
+
 _BCS = "BoQ Row BCS Rate"
 _BOQ_SHEET = "BoQ Sheet"
-
-# ── The two confirmations ────────────────────────────────────────────────────────
-# QUANTITY. A sheet expresses its Total Quantity in one of exactly two shapes, and the
-# confirmation records WHICH, so a later reader resolves the number instead of guessing:
-#   scalar   -- one mapped qty_total column;
-#   per-area -- N mapped per-area qty columns whose SUM is the total (the sheet has no
-#               scalar total of its own).
-# Mixing the two is REFUSED: summing a scalar total together with its own per-area parts
-# double-counts the row.
-_QTY_SCALAR_VALUE_FIELD = "qty_total"
-_QTY_AREA_VALUE_FIELD = "qty_by_area"
-
-# AMOUNT. The owner's "Amount (Combined)" IS the amount_total descriptor -- the scalar
-# column recording what we charge the client, which is the denominator of % Profit.
-# DELIBERATELY STRICT: a per-area amount column (amount_total_by_area) is NOT accepted
-# here. Widening to that shape is a one-line change to _AMOUNT_COMBINED_VALUE_FIELDS with
-# NO migration, so refusing now costs nothing and avoids inventing scope the owner did not
-# name. See the slice record.
-_AMOUNT_COMBINED_VALUE_FIELDS = frozenset({"amount_total"})
 
 # The BCS write identity (per-ROW -- deliberately no col_letter).
 _IDENTITY_FIELDS = ("boq", "sheet_name", "excel_row", "committed_version")
@@ -201,90 +193,9 @@ def _descriptor_index(boq_name, sheet_name, committed_version) -> dict:
     }
 
 
-def _entry(desc: dict) -> dict:
-    """One stored, RE-RESOLVABLE confirmation entry: the full descriptor identity, so a
-    later reader resolves the value without re-deriving it from column_role_map."""
-    return {
-        "col": desc.get("col"),
-        "role": desc.get("role"),
-        "area": desc.get("area"),
-        "value_field": desc.get("value_field"),
-        "value_key": desc.get("value_key"),
-    }
-
-
-def _build_qty_source(cols: list, index: dict) -> dict:
-    """Validate the quantity picks and build the stored confirmation, or throw.
-
-    Refuses: an empty selection; a column the sheet does not have; a mapped column that is
-    not a quantity column; more than one scalar total; and a scalar total MIXED with
-    per-area quantity columns (which would double-count)."""
-    if not cols:
-        frappe.throw(
-            "Pick at least one quantity column: either the sheet's Total Quantity column "
-            "or the per-area quantity columns that add up to it.",
-            title="No quantity column picked",
-        )
-    picked = []
-    for col in cols:
-        desc = index.get(col)
-        if not desc:
-            frappe.throw(
-                f"Column '{col}' is not a mapped column on this sheet. "
-                f"Mapped columns: {', '.join(sorted(index)) or '(none)'}.",
-                title="Unknown column",
-            )
-        picked.append(desc)
-
-    fields = {d.get("value_field") for d in picked}
-    if not fields <= {_QTY_SCALAR_VALUE_FIELD, _QTY_AREA_VALUE_FIELD}:
-        bad = [d["col"] for d in picked
-               if d.get("value_field") not in (_QTY_SCALAR_VALUE_FIELD,
-                                               _QTY_AREA_VALUE_FIELD)]
-        frappe.throw(
-            f"Column(s) {', '.join(bad)} are not quantity columns on this sheet.",
-            title="Not a quantity column",
-        )
-    if len(fields) > 1:
-        frappe.throw(
-            "Pick either the scalar Total Quantity column OR the per-area quantity "
-            "columns -- not both. Adding a total to its own parts would count every "
-            "quantity twice.",
-            title="Mixed quantity sources",
-        )
-
-    if fields == {_QTY_SCALAR_VALUE_FIELD}:
-        if len(picked) != 1:
-            frappe.throw(
-                "A sheet has exactly one Total Quantity column; pick one.",
-                title="Too many total-quantity columns",
-            )
-        mode = "qty_total"
-    else:
-        mode = "qty_by_area"
-    return {"mode": mode, "columns": [_entry(d) for d in picked]}
-
-
-def _build_amount_source(col: str, index: dict) -> dict:
-    """Validate the amount pick and build the stored confirmation, or throw.
-
-    The owner's 'Amount (Combined)' IS the amount_total descriptor -- what we charge the
-    client, and the denominator of % Profit."""
-    desc = index.get(col)
-    if not desc:
-        frappe.throw(
-            f"Column '{col}' is not a mapped column on this sheet. "
-            f"Mapped columns: {', '.join(sorted(index)) or '(none)'}.",
-            title="Unknown column",
-        )
-    if desc.get("value_field") not in _AMOUNT_COMBINED_VALUE_FIELDS:
-        frappe.throw(
-            f"Column '{col}' is not this sheet's combined Amount column "
-            f"(it is mapped as '{desc.get('role')}'). BCS compares its cost against the "
-            f"amount charged to the client, so it needs the Amount (Combined) column.",
-            title="Not the Amount (Combined) column",
-        )
-    return {"mode": "amount_total", "columns": [_entry(desc)]}
+# The two confirmation BUILDERS live in services/boq_bcs/sources.py (BCS-S1a) -- see the
+# import block above. This file resolves the sheet's real descriptors and orchestrates;
+# the rules about what may be picked are not its business.
 
 
 # ── endpoints ────────────────────────────────────────────────────────────────────
@@ -349,8 +260,8 @@ def confirm_bcs_columns(boq_name=None, sheet_name=None, committed_version=None,
 
     index = _descriptor_index(boq_name, sheet_name, committed_version)
     # BOTH validations complete before ANY write -- a refusal stores nothing at all.
-    qty_source = _build_qty_source(_coerce_col_list(qty_cols), index)
-    amount_source = _build_amount_source(str(amount_col), index)
+    qty_source = build_qty_source(_coerce_col_list(qty_cols), index)
+    amount_source = build_amount_source(str(amount_col), index)
 
     user = frappe.session.user
     now = now_datetime()
