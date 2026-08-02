@@ -24,7 +24,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useFrappeGetCall, useFrappeGetDoc, useFrappePostCall, FrappeContext, type FrappeConfig } from "frappe-react-sdk";
 import { useUserData } from "@/hooks/useUserData";
 import { BoqPresence } from "./BoqPresence";
-import { AlertTriangle, ArrowDownToLine, ArrowLeft, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, ChevronUp, ClipboardList, Filter, Loader2, Lock, Maximize2, Minimize2, Pin, PinOff, Redo2, RefreshCw, Save, Search, ShieldCheck, ShieldOff, Sigma, SlidersHorizontal, Snowflake, Sparkles, Undo2, Unlock, X } from "lucide-react";
+import { AlertTriangle, ArrowDownToLine, ArrowLeft, Calculator, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, ChevronUp, ClipboardList, Filter, Loader2, Lock, Maximize2, Minimize2, Pin, PinOff, Redo2, RefreshCw, Save, Search, ShieldCheck, ShieldOff, Sigma, SlidersHorizontal, Snowflake, Sparkles, Undo2, Unlock, X } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -54,6 +54,7 @@ import type {
   EngineCatalog,
   EngineOption,
   ApplyCopyForwardResponse,
+  GetBcsStateResponse,
   GetCommittedStateResponse,
   GetCrossBoqCarryPlanResponse,
   GetPricedRowsResponse,
@@ -70,6 +71,10 @@ import type {
 } from "./boqTypes";
 import { ROLE_LABELS } from "./boqTypes";
 import { VersionRibbon } from "./VersionRibbon";
+// BCS-S2: the cost section's enable button + two-column confirmation card. The RULES live in the
+// pure bcsColumns (which mirrors services/boq_bcs/sources.py); the page only orchestrates.
+import { BcsColumnsDialog } from "./BcsColumnsDialog";
+import { bcsChipLabel, bcsSetupReason } from "./bcsColumns";
 import { CopyForwardDialog, summarizeCopyForward } from "./CopyForwardDialog";
 import {
   CROSS_BOQ_CARRY_PLAN_METHOD,
@@ -452,6 +457,21 @@ const SheetPricingPage = () => {
     boqId && sheetName ? undefined : null,
   );
 
+  // ── BCS-S2: the cost section's per-sheet setup state ──────────────────────────
+  // Pinned to liveCommitVersion, NOT the browsed version: BCS is configured per sheet+version and
+  // the LIVE version is the only one worth setting up (a re-commit mints a fresh BoQ Sheet row, so
+  // BCS correctly starts off + unconfirmed there). Disabled until the version is known (swrKey
+  // gotcha: `undefined` enables, `null` disables -- never `{enabled}`). sheet_name VERBATIM (#152).
+  const { data: bcsData, mutate: mutateBcs } = useFrappeGetCall<{ message: GetBcsStateResponse }>(
+    "nirmaan_stack.api.boq.wizard.bcs.get_bcs_state",
+    {
+      boq_name: boqId ?? "",
+      sheet_name: sheetName ?? "",
+      committed_version: liveCommitVersion ?? 0,
+    },
+    boqId && sheetName && liveCommitVersion !== null ? undefined : null,
+  );
+
   // HV-10: the per-row MULTI-ENGINE resolved verdicts for THIS sheet (get_sheet_categories_resolved).
   // ONE index-covered read across every discipline; the server applies the resolution ladder per
   // row. mutateCategories refetches after a classify run / verdict write so the grid repaints.
@@ -731,6 +751,21 @@ const SheetPricingPage = () => {
     { uncategorised_preambles: number; uncategorised_line_items: number } | null
   >(null);
   const [unfreezeConfirm, setUnfreezeConfirm] = useState(false);
+
+  // ── BCS-S2: the cost section's enable + column confirmation ───────────────────────
+  // Two writes, both re-read through mutateBcs() (the server's is_ready is authoritative and is
+  // never re-derived client-side). Enabling alone does NOT permit a cost write -- the two columns
+  // must also be confirmed -- which is exactly what the amber banner explains.
+  const { call: setBcsEnabledCall } = useFrappePostCall(
+    "nirmaan_stack.api.boq.wizard.bcs.set_bcs_enabled",
+  );
+  const { call: confirmBcsColumnsCall } = useFrappePostCall(
+    "nirmaan_stack.api.boq.wizard.bcs.confirm_bcs_columns",
+  );
+  // The confirmation card's open-state is PAGE-owned (mirroring pickerState) and the card is
+  // mounted ONCE at page level -- never inside a row loop. In-flight guard for the enable POST.
+  const [bcsCardOpen, setBcsCardOpen] = useState(false);
+  const [bcsToggling, setBcsToggling] = useState(false);
 
   // ── Single-editor concurrency lock -- realtime layer (A2 / ADR-0011) ──────────
   // The transient BoQ Sheet Pricing Lock now propagates LIVE: acquire on FIRST edit-intent
@@ -1110,6 +1145,10 @@ const SheetPricingPage = () => {
     // old sheet's uncategorised counts as its payload.
     setFreezeConfirm(null);
     setUnfreezeConfirm(false);
+    // BCS-S2: the confirmation card is per-sheet -- it carries the OLD sheet's descriptors +
+    // stored picks, so leaving it open across a tab switch would offer another sheet's columns.
+    setBcsCardOpen(false);
+    setBcsToggling(false);
     // NOTE: the G3b override popover has its OWN [sheetName] reset, inside the self-contained
     // G3b block below (that block must stay deletable in one cut -- owner commitment).
   }, [sheetName]);
@@ -1627,6 +1666,85 @@ const SheetPricingPage = () => {
     }
   };
 
+  // ── BCS-S2: the cost section's enable button + confirmation card ──────────────────
+  // `is_ready` is the SERVER's one readiness predicate (enabled AND both columns confirmed) --
+  // read, never re-derived, so the button/banner cannot disagree with what a cost write will do.
+  const bcsState = bcsData?.message ?? null;
+  const bcsEnabled = bcsState?.bcs_enabled === 1;
+  const bcsReady = bcsState?.is_ready ?? false;
+  const bcsQtySource = bcsState?.bcs_qty_source ?? null;
+  const bcsAmountSource = bcsState?.bcs_amount_source ?? null;
+  const bcsChip = bcsChipLabel(bcsQtySource, bcsAmountSource);
+  // Greyed-with-a-reason, never hidden: BCS always EXISTS as an action on a committed sheet, so a
+  // disabled button is honest here (unlike "Carry rates from original", which is hidden off a
+  // revision precisely because the action does not exist there).
+  const bcsReason = bcsSetupReason({
+    loading: pricedLoading,
+    error: pricedError,
+    committedVersion: liveCommitVersion,
+    viewingHistory: isViewingHistory,
+    sheetLocked: isLocked,
+  });
+  // BCS is ON but its two columns are not confirmed -> cost entry stays refused server-side
+  // (_guard_bcs_ready). The amber banner + the collapsed-rail chip both key on this.
+  const bcsNeedsColumns = bcsEnabled && !bcsReady;
+
+  // Click when OFF: turn BCS on AND open the card in one act (owner design) -- the two columns are
+  // what makes it usable, so asking for them immediately is the honest flow. Click when ON: just
+  // reopen the card (turning BCS off lives in the card's footer, never on this button, so the
+  // ribbon control is never a destructive toggle).
+  const handleBcsButtonClick = async () => {
+    if (bcsReason !== null || liveCommitVersion === null) return;
+    if (bcsEnabled) {
+      setBcsCardOpen(true);
+      return;
+    }
+    setSaveError(null);
+    setBcsToggling(true);
+    try {
+      await setBcsEnabledCall({
+        boq_name: boqId,
+        sheet_name: decodedSheetName, // VERBATIM (#152)
+        committed_version: liveCommitVersion,
+        enabled: 1,
+      });
+      await mutateBcs();
+      setBcsCardOpen(true);
+    } catch (e) {
+      setSaveError(getFrappeError(e) || "Could not turn BCS on. Please try again.");
+    } finally {
+      setBcsToggling(false);
+    }
+  };
+
+  // The card's Save. Both picks are sent as JSON lists of column letters; the server re-validates
+  // (it is the authority) and a refusal is surfaced IN the card by rethrowing to its catch.
+  const handleBcsConfirm = async (qtyCols: string[], amountCols: string[]) => {
+    if (liveCommitVersion === null) return;
+    await confirmBcsColumnsCall({
+      boq_name: boqId,
+      sheet_name: decodedSheetName, // VERBATIM (#152)
+      committed_version: liveCommitVersion,
+      qty_cols: JSON.stringify(qtyCols),
+      amount_cols: JSON.stringify(amountCols),
+    });
+    await mutateBcs();
+  };
+
+  // The card's "Turn BCS off". NON-DESTRUCTIVE, which is why there is no confirm step: the two
+  // confirmations are preserved (re-enabling does not force a re-pick) and no BoQ Row BCS Rate is
+  // ever deleted. Readiness simply goes false meanwhile.
+  const handleBcsDisable = async () => {
+    if (liveCommitVersion === null) return;
+    await setBcsEnabledCall({
+      boq_name: boqId,
+      sheet_name: decodedSheetName, // VERBATIM (#152)
+      committed_version: liveCommitVersion,
+      enabled: 0,
+    });
+    await mutateBcs();
+  };
+
   // HV-10: pick / clear one row's human category verdict, DISCIPLINE-AWARE. A group pick carries
   // that engine's discipline (the write lands on ITS row identity; upsert-on-missing mints the row
   // if absent). "Clear verdict" passes discipline=null -> the page targets the row's currently
@@ -2081,6 +2199,9 @@ const SheetPricingPage = () => {
     // hides the fact; note when the gate is overridden.
     if (!locked && categoryBlankCount > 0)
       chips.push(`${categoryBlankCount} without category${categoryGateOverride ? " (override)" : ""}`);
+    // BCS-S2: BCS on but unconfirmed has a VISIBLE amber banner and refuses every cost write, so
+    // it is exactly the kind of state this rail exists to keep from being hidden by a collapse.
+    if (!locked && bcsNeedsColumns) chips.push("BCS needs columns");
     return chips;
   }, [
     isViewingHistory,
@@ -2091,6 +2212,7 @@ const SheetPricingPage = () => {
     formulasComplete,
     categoryBlankCount,
     categoryGateOverride,
+    bcsNeedsColumns,
   ]);
 
   // ── U1 rate-helper (DEV): D8 gate REUSE + run / badge-click / use handlers. The enable chain is
@@ -3114,6 +3236,47 @@ const SheetPricingPage = () => {
             </span>
           )}
 
+          {/* ── BCS-S2: the cost section's enable button. NO NEW COLOUR -- it goes SOLID when on,
+              exactly like Freeze Classification beside it (teal is the sheet lock, sky is
+              Freeze-columns, emerald is priced/succeeded, red is error, amber is attention; a
+              sixth meaning would cost more than it buys). Off -> click turns BCS on AND opens the
+              confirmation card. On -> click reopens the card; turning BCS off lives in the card's
+              footer, so this control is never a destructive toggle. Greyed with the reason in the
+              title -- BCS always exists as an action here, so hiding it would be the lie. ── */}
+          <Button
+            size="sm"
+            variant={bcsEnabled ? "default" : "outline"}
+            className="gap-1.5"
+            aria-pressed={bcsEnabled}
+            disabled={bcsReason !== null || bcsToggling}
+            onClick={handleBcsButtonClick}
+            title={
+              bcsReason ??
+              (bcsEnabled
+                ? "BCS cost section is on. Click to review the Total Quantity and Amount columns."
+                : "Turn on the BCS cost section and choose the Total Quantity and Amount columns.")
+            }
+          >
+            {bcsToggling ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Calculator className="h-4 w-4" />
+            )}
+            BCS
+          </Button>
+          {/* Confirmed -> a small clickable chip showing the chosen columns, mirroring the
+              "Frozen · date · by" chip beside it. Clicking it reopens the card. */}
+          {bcsEnabled && bcsReady && bcsChip && (
+            <button
+              type="button"
+              onClick={() => setBcsCardOpen(true)}
+              className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+              title="Change which columns BCS reads the quantity and amount from."
+            >
+              {bcsChip}
+            </button>
+          )}
+
           {/* ── U1 rate-helper (DEV ONLY, guardrail G1): "Suggest rates". Sits after Freeze (owner
               ruling: classify -> freeze -> suggest). D8: consumes the SAME gate chain rate writes do
               -- locked / formulasComplete / categoryGateOpen -- REUSED, never re-derived; disabled
@@ -3484,6 +3647,21 @@ const SheetPricingPage = () => {
         onClose={() => setPickerState(null)}
       />
 
+      {/* BCS-S2: the two-column confirmation card. Mounted ONCE at page level (never inside a row
+          loop) with page-owned open-state, mirroring CategoryVerdictPicker above. It is fed the
+          COMMITTED sheet's descriptors -- the same set _committed_descriptors validates against --
+          so the columns it offers and the columns the server accepts are one list. */}
+      <BcsColumnsDialog
+        open={bcsCardOpen}
+        sheetLabel={decodedSheetName.trim() || decodedSheetName}
+        descriptors={columnDescriptors}
+        qtySource={bcsQtySource}
+        amountSource={bcsAmountSource}
+        onClose={() => setBcsCardOpen(false)}
+        onSave={handleBcsConfirm}
+        onDisable={handleBcsDisable}
+      />
+
       {/* Freeze confirm -- warns when eligible rows have no category (they are skipped from the
           snapshot, not blocked). Plain confirm when everything is categorised. */}
       <AlertDialog open={!!freezeConfirm} onOpenChange={(o) => !o && setFreezeConfirm(null)}>
@@ -3665,6 +3843,24 @@ const SheetPricingPage = () => {
               )}
             </>
           )}
+        </div>
+      )}
+
+      {/* ── BCS SETUP banner (Slice BCS-S2) ──────────────────────────────────────
+          Shown when BCS is ON but its two columns are not confirmed -- the state in which every
+          cost write is refused server-side (_guard_bcs_ready). Same conditions as the formula and
+          category banners above, and the SAME amber-note markup (there is no shared Banner
+          component in this file -- every banner is copied markup, and drift here would be
+          visible). Per the category-gate precedent it NAMES the control and adds no jump button;
+          the BCS button in the bottom ribbon is the one way in. */}
+      {!isGridOnly && !locked && !pricedLoading && !pricedError && bcsNeedsColumns && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-xs text-amber-900 dark:text-amber-100 flex-wrap">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-700 dark:text-amber-300" />
+          <span>
+            BCS is on, but it still needs to know which columns hold the Total Quantity and the
+            Amount charged to the client. Cost entry stays locked until both are confirmed — use
+            the BCS button to choose them.
+          </span>
         </div>
       )}
 
