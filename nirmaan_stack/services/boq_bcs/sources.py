@@ -36,23 +36,72 @@ import frappe
 _QTY_SCALAR_VALUE_FIELD = "qty_total"
 _QTY_AREA_VALUE_FIELD = "qty_by_area"
 
-# AMOUNT. The owner's "Amount (Combined)" is what we charge the client -- the denominator
-# of % Profit. It comes in the SAME two shapes as quantity, and is validated and summed the
-# same way (OWNER RULING 2026-08-02, slice BCS-S1a):
-#   scalar   -- one mapped amount_total column;
-#   per-area -- N mapped per-area COMBINED amount columns whose SUM is the row's amount.
-# S1 accepted the scalar shape ONLY. That meant a sheet mapping its amounts per area could
-# not enable BCS at all -- and that is the shape of the shared committed fixture, so it was
-# never hypothetical. The two sources now read as ONE idea, not two.
-_AMOUNT_SCALAR_VALUE_FIELD = "amount_total"
+# AMOUNT. The amount is what we charge the client -- the denominator of % Profit. It
+# varies along TWO INDEPENDENT AXES, and keeping them apart is what makes these rules
+# small enough to state:
+#
+#   the SHAPE axis  -- scalar (one column holds the row's whole figure) or
+#                      per-area (N columns, one per area, whose SUM is the figure);
+#   the KIND  axis  -- total (the combined amount) or the supply / install HALVES.
+#
+# S1a widened the shape axis. BCS-S2b widens the KIND axis, and it REVERSES a decision S1
+# made (OWNER RULING 2026-08-02):
+#
+#   * Where a sheet has no scalar total, the denominator is Amount (Supply) + Amount
+#     (Installation) SUMMED. Most real sheets turned out to have no single "Amount (Total)"
+#     column at all, so refusing the halves left the confirmation card's Amount list EMPTY
+#     on most real sheets -- the feature was unusable, not merely strict.
+#   * ADAPT AND DISCLOSE, DO NOT REFUSE. A sheet carrying only ONE half is ACCEPTED, and
+#     the stored `mode` states the formula actually in force. The earlier recommendation --
+#     refuse a lone half, on the grounds that half an amount is not the amount -- was
+#     OVERRULED: one-sided packages are genuine commercial shapes, not data gaps. THE
+#     SAFETY COMES FROM DISCLOSURE, NOT FROM BLOCKING. Do not reinstate the refusal.
+#
+# What survived the reversal is the double-count the half-refusal was really protecting: a
+# TOTAL ALREADY CONTAINS ITS HALVES, so a total picked together with a half is still
+# refused. That is the same harm the total-with-its-own-parts refusals name, arriving along
+# the kind axis instead of the shape axis.
 _AMOUNT_AREA_VALUE_FIELD = "amount_by_area"
 
-# A per-area amount column carries its KIND in the descriptor's third hop (`rate_subkey`):
-# "total" is the per-area COMBINED amount (role amount_total_by_area), while "supply" and
-# "install" are the split halves. Only the combined kind is what we charge the client --
-# accepting a half here would silently compare our cost against a fraction of the charged
-# amount. This is the per-area twin of refusing the scalar amount_supply / amount_install.
-_AMOUNT_AREA_COMBINED_SUBKEY = "total"
+# WHERE a column's kind is written differs by shape, which is the one genuine asymmetry:
+# a SCALAR amount carries its kind in the value_field itself (one hop, no subkey), while a
+# PER-AREA amount carries it in the descriptor's third hop, `rate_subkey`, because all
+# three per-area kinds share the one value_field amount_by_area.
+_SCALAR_AMOUNT_FIELD_TO_KIND = {
+    "amount_total": "total",
+    "amount_supply": "supply",
+    "amount_install": "install",
+}
+_AREA_AMOUNT_KINDS = frozenset({"total", "supply", "install"})
+
+_KIND_TOTAL = "total"
+_SHAPE_SCALAR = "scalar"
+_SHAPE_AREA = "area"
+
+# THE EIGHT ACCEPTED SHAPES, and the `mode` each one stores. A TABLE, not a string built by
+# concatenation: the accepted set has to be ENUMERABLE at a glance, and a combination that
+# is not listed here must be impossible to express rather than quietly producing a
+# plausible-looking mode string.
+#
+# The mode is a PERSISTED CONTRACT, and its job is DISCLOSURE: BCS-S2c states the formula
+# in plain words from it and BCS-S3 computes against it, so two different formulas may
+# never share one mode -- a reader of the stored record must be able to tell which was in
+# force. `amount_total` and `amount_by_area` are BYTE-UNCHANGED from S1a, so confirmations
+# stored before this slice read back identically.
+#
+# NOTE what the mode does NOT do: it never branches the arithmetic. In EVERY mode the
+# computation is "resolve each stored entry and add them up" -- no coefficient, no
+# subtraction, no dropped column. The mode exists for the human and for the refusals.
+_AMOUNT_MODES = {
+    (_SHAPE_SCALAR, frozenset({"total"})): "amount_total",
+    (_SHAPE_SCALAR, frozenset({"supply", "install"})): "amount_supply_plus_install",
+    (_SHAPE_SCALAR, frozenset({"supply"})): "amount_supply_only",
+    (_SHAPE_SCALAR, frozenset({"install"})): "amount_install_only",
+    (_SHAPE_AREA, frozenset({"total"})): "amount_by_area",
+    (_SHAPE_AREA, frozenset({"supply", "install"})): "amount_by_area_supply_plus_install",
+    (_SHAPE_AREA, frozenset({"supply"})): "amount_by_area_supply_only",
+    (_SHAPE_AREA, frozenset({"install"})): "amount_by_area_install_only",
+}
 
 
 def _entry(desc: dict) -> dict:
@@ -107,11 +156,11 @@ def _resolve_picks(cols: list, index: dict) -> list:
     # FIRST, so an unknown column is still reported as UNKNOWN, the more fundamental fact
     # about it, rather than as a duplicate. That is the whole of the promise; it is NOT
     # true that every input throwing before this rule existed still throws the same TITLE.
-    # This refusal precedes every per-source rule, so it SHADOWS six of them whenever a
-    # pick carries a duplicate: "Not a quantity column", "Not the Amount (Combined)
-    # column", "Mixed quantity sources", "Mixed amount sources" -- and, for EVERY input
-    # rather than merely some, "Too many total-quantity columns" and "Too many amount
-    # columns", because two scalar totals of one role necessarily share a resolved
+    # This refusal precedes every per-source rule, so it SHADOWS seven of them whenever a
+    # pick carries a duplicate: "Not a quantity column", "Not an amount column", "Mixed
+    # quantity sources", "Mixed amount sources", "Mixed amount kinds" -- and, for EVERY
+    # input rather than merely some, "Too many total-quantity columns" and "Too many amount
+    # columns", because two picks of one scalar kind necessarily share a resolved
     # identity. Those last two are UNREACHABLE as of BCS-S1c. They are RETAINED, not
     # deleted: they are the correctly voiced refusal should this key ever narrow, and
     # dropping a live refusal is a behaviour change of its own. No test anywhere asserts
@@ -147,18 +196,24 @@ def _resolve_picks(cols: list, index: dict) -> list:
     return picked
 
 
-def _is_combined_amount(desc: dict) -> bool:
-    """Is this descriptor a COMBINED amount column -- the thing we charge the client?
+def _amount_axes(desc: dict) -> tuple:
+    """Place one descriptor on the two amount axes -> (shape, kind), or (None, None) if it
+    is not an amount column at all.
 
-    Scalar: value_field amount_total (amount_supply / amount_install are halves, refused).
-    Per-area: value_field amount_by_area AND rate_subkey "total" (the per-area supply and
-    install halves carry "supply" / "install" and are refused for the same reason)."""
+    REPLACED `_is_combined_amount` at BCS-S2b. That predicate answered one yes/no question
+    -- "is this the combined amount?" -- which is exactly the question that stopped being
+    the right one when the halves became acceptable. A pick is no longer judged on its own;
+    it is judged against the OTHER picks (a half is fine, a half beside a total is not), so
+    the module now READS each column's position and compares positions afterwards."""
     field = desc.get("value_field")
-    if field == _AMOUNT_SCALAR_VALUE_FIELD:
-        return True
+    kind = _SCALAR_AMOUNT_FIELD_TO_KIND.get(field)
+    if kind:
+        return _SHAPE_SCALAR, kind
     if field == _AMOUNT_AREA_VALUE_FIELD:
-        return desc.get("rate_subkey") == _AMOUNT_AREA_COMBINED_SUBKEY
-    return False
+        subkey = desc.get("rate_subkey")
+        if subkey in _AREA_AMOUNT_KINDS:
+            return _SHAPE_AREA, subkey
+    return None, None
 
 
 def build_qty_source(cols: list, index: dict) -> dict:
@@ -206,50 +261,94 @@ def build_qty_source(cols: list, index: dict) -> dict:
 
 
 def build_amount_source(cols: list, index: dict) -> dict:
-    """Validate the Amount (Combined) picks and build the stored confirmation, or throw.
+    """Validate the Amount picks and build the stored confirmation, or throw.
 
-    Deliberately the MIRROR of build_qty_source (owner ruling 2026-08-02): the amount is
-    either the sheet's one scalar Amount (Combined) column, or the per-area combined-amount
-    columns whose SUM is the row's amount. Same shape, same refusals, same reasons --
-    an empty selection; a column the sheet does not have; two picks that resolve to the
-    SAME value; a mapped column that is not a combined-amount column (a rate column, or
-    the supply/install HALF of an amount); more than one scalar total; and a scalar total
-    MIXED with its own per-area parts."""
+    The amount is what we charge the client and the denominator of % Profit. It may be the
+    sheet's one scalar Amount column, the per-area Amount columns whose SUM is the row's
+    amount, or -- since BCS-S2b -- the SUPPLY and INSTALLATION halves in either of those
+    shapes, summed, INCLUDING a sheet that carries only one of the two. The stored `mode`
+    records which of the eight accepted shapes this is, so the formula in force can be
+    stated rather than assumed.
+
+    Refuses: an empty selection; a column the sheet does not have; two picks that resolve
+    to the SAME value; a mapped column that is not an amount column at all (a rate column,
+    a quantity column); a TOTAL picked together with a half (the total already contains
+    it); and scalar amounts picked together with per-area ones."""
     if not cols:
         frappe.throw(
-            "Pick at least one Amount (Combined) column: either the sheet's combined "
-            "Amount column or the per-area Amount columns that add up to it.",
+            "Pick at least one Amount column: the sheet's Amount column, the per-area "
+            "Amount columns that add up to it, or its Supply and Installation amounts.",
             title="No amount column picked",
         )
     picked = _resolve_picks(cols, index)
 
-    bad = [d["col"] for d in picked if not _is_combined_amount(d)]
+    # -- the CLASS check: is each pick an amount column at all? -------------
+    # Widening the KIND axis must not widen this. A rate or quantity column is still not an
+    # amount, however the rest of the pick is shaped.
+    axes = [(d, *_amount_axes(d)) for d in picked]
+    bad = [d for d, shape, _kind in axes if shape is None]
     if bad:
         frappe.throw(
-            f"Column(s) {', '.join(bad)} are not this sheet's combined Amount column(s) "
-            f"(mapped as {', '.join(sorted({str(d.get('role')) for d in picked if not _is_combined_amount(d)}))}). "
+            f"Column(s) {', '.join(d['col'] for d in bad)} are not Amount columns on this "
+            f"sheet (mapped as {', '.join(sorted({str(d.get('role')) for d in bad}))}). "
             f"BCS compares its cost against the amount charged to the client, so it needs "
-            f"the Amount (Combined) column -- not a rate column, and not the supply or "
-            f"install half of an amount.",
-            title="Not the Amount (Combined) column",
+            f"an Amount column -- not a rate column, and not a quantity.",
+            title="Not an amount column",
         )
 
-    fields = {d.get("value_field") for d in picked}
-    if len(fields) > 1:
+    shapes = {shape for _d, shape, _k in axes}
+    kinds = {kind for _d, _s, kind in axes}
+
+    # -- the KIND axis: a TOTAL already CONTAINS its halves -----------------
+    # THE ONE PIECE OF THE HALF-REFUSAL THAT SURVIVED BCS-S2b'S REVERSAL. A lone half is
+    # now perfectly acceptable; a half sitting BESIDE the total that already includes it is
+    # a double-count, exactly like a total beside its own per-area parts.
+    #
+    # ORDERING -- checked BEFORE the shape rule, and that is provably free. To reach the
+    # shape rule under the old code every pick had to be the COMBINED amount, so no input
+    # that used to be refused as "Mixed amount sources" was ever kind-mixed. Putting the
+    # more specific message first therefore cannot change the message any previously
+    # refused input receives.
+    if _KIND_TOTAL in kinds and len(kinds) > 1:
         frappe.throw(
-            "Pick either the scalar Amount (Combined) column OR the per-area Amount "
-            "columns -- not both. Adding a total to its own parts would count every "
-            "amount twice.",
+            "Pick either the sheet's combined Amount column(s) OR its Supply and "
+            "Installation amounts -- not both. The combined Amount already includes the "
+            "supply and installation halves, so adding one to it would count that half "
+            "twice.",
+            title="Mixed amount kinds",
+        )
+
+    # -- the SHAPE axis: a scalar is the total of the per-area ones ---------
+    # UNCHANGED by this slice, and deliberately not widened: no owner ruling covers a sheet
+    # that genuinely splits one kind scalar and the other per area, so that stays refused
+    # rather than guessed at. If such a sheet ever turns up it is a ruling, not a bug.
+    if len(shapes) > 1:
+        frappe.throw(
+            "Pick either the scalar Amount column(s) OR the per-area Amount columns -- "
+            "not both. Adding a total to its own parts would count every amount twice.",
             title="Mixed amount sources",
         )
 
-    if fields == {_AMOUNT_SCALAR_VALUE_FIELD}:
-        if len(picked) != 1:
-            frappe.throw(
-                "A sheet has exactly one combined Amount column; pick one.",
-                title="Too many amount columns",
-            )
-        mode = "amount_total"
-    else:
-        mode = "amount_by_area"
+    shape = next(iter(shapes))
+
+    # RETAINED, and UNREACHABLE by construction -- the same disposition BCS-S1c recorded
+    # for its own shadowed refusals, for the same reason: dropping a live refusal is a
+    # behaviour change of its own, and this is the correctly voiced one should the
+    # duplicate key ever narrow. On the scalar shape a column's kind IS its value_field, so
+    # two picks of one kind necessarily share a resolved identity and _resolve_picks has
+    # already refused them as duplicates. Note what this is NOT: the pre-S2b "a sheet has
+    # exactly one Amount column" rule, which this slice made simply FALSE -- a scalar sheet
+    # legitimately contributes TWO columns now, its supply and its install.
+    if shape == _SHAPE_SCALAR and len(picked) != len(kinds):
+        frappe.throw(
+            "Pick each scalar Amount column once -- one combined Amount, or one Supply "
+            "and one Installation amount.",
+            title="Too many amount columns",
+        )
+
+    # Indexed, NOT .get(...) with a fallback: every (shape, kinds) pair the guards above
+    # permit is in the table, so a KeyError here can only mean a new amount KIND was added
+    # without deciding what formula it stores. That must fail loudly rather than mint a
+    # plausible mode for a shape nobody ruled on.
+    mode = _AMOUNT_MODES[(shape, frozenset(kinds))]
     return {"mode": mode, "columns": [_entry(d) for d in picked]}

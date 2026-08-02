@@ -42,8 +42,12 @@ Coverage:
                                     value: the same letter twice (S1b), or two different
                                     letters carrying the same number (S1c).
   Group 5  the QUANTITY refusals -- empty, wrong class, two scalars, mixed.
-  Group 6  the AMOUNT refusals   -- the mirror, plus the supply/install HALF guard that
-                                    exists only on this source.
+  Group 6  the AMOUNT refusals   -- the mirror, plus the TOTAL-with-a-half guard that
+                                    exists only on this source (BCS-S2b: it is the MIX
+                                    that is refused now, never the half by itself).
+  Group 7  the SPLIT amount shapes (BCS-S2b) -- supply + install SUMMED, and each half
+                                    alone, scalar and per-area alike, with the `mode`
+                                    that discloses which formula is in force.
 """
 
 import unittest
@@ -90,7 +94,11 @@ def _index(*descriptors):
 
 
 # A SCALAR sheet: one qty_total (D), one combined amount_total (F), and BOTH scalar
-# halves (G, H) -- present on purpose, because a half is not what we charge the client.
+# halves (G, H). The halves are present on purpose, and what they are FOR changed at
+# BCS-S2b: S1 kept them here to prove a half was REFUSED; they are now here to prove a
+# half is ACCEPTED (owner ruling 2026-08-02 -- adapt and disclose, do not refuse). What
+# this sheet can no longer show is a sheet with NO scalar total, which is why F's presence
+# makes it the fixture for the one refusal that survived: a total picked WITH a half.
 SCALAR = _index(
     _singleton("A", "sl_no", "sl_no_value"),
     _singleton("B", "description", "description"),
@@ -103,8 +111,10 @@ SCALAR = _index(
 )
 
 # A PER-AREA sheet: quantity mapped per area (D + E, NO scalar total) and amount mapped
-# per area (F + G combined, NO scalar total), plus H -- a per-area SUPPLY half. This is
-# the shape of the shared committed fixture, so neither source is hypothetical here.
+# per area (F + G combined, NO scalar total), plus H -- a per-area SUPPLY half sitting
+# BESIDE a combined amount for the same area. That co-existence is what makes this the
+# fixture for the surviving per-area refusal: Zone A's combined amount ALREADY contains
+# Zone A's supply, so picking F and H together counts Zone A's supply twice.
 PER_AREA = _index(
     _singleton("B", "description", "description"),
     _qty_area("D", "Zone A"),
@@ -112,6 +122,19 @@ PER_AREA = _index(
     _amount_area("F", "Zone A", "total"),
     _amount_area("G", "Zone B", "total"),
     _amount_area("H", "Zone A", "supply"),
+)
+
+# A SPLIT PER-AREA sheet (BCS-S2b): no combined amount ANYWHERE -- every area carries its
+# supply and install amounts separately. The row's amount is the sum across BOTH axes at
+# once, area AND kind, which is the shape S1a's rules could not express at all: every
+# column on this sheet was refused, so the sheet could not enable BCS.
+PER_AREA_SPLIT = _index(
+    _singleton("B", "description", "description"),
+    _qty_area("C", "Zone A"),
+    _amount_area("D", "Zone A", "supply"),
+    _amount_area("E", "Zone A", "install"),
+    _amount_area("F", "Zone B", "supply"),
+    _amount_area("G", "Zone B", "install"),
 )
 
 # A sheet carrying BOTH a scalar total and its own per-area parts, for each source. Only
@@ -396,24 +419,44 @@ class TestAmountRefusals(unittest.TestCase):
         with self.assertRaises(frappe.ValidationError):
             build_amount_source(["D"], SCALAR)
 
-    def test_a_scalar_supply_or_install_half_is_refused(self):
-        """A HALF is not what we charge the client. Accepting one would silently compare
-        our whole cost against a fraction of the charged amount -- a % Profit that looks
-        computed and is wrong."""
-        for col in ("G", "H"):   # amount_supply, amount_install
-            with self.assertRaises(frappe.ValidationError, msg=col):
-                build_amount_source([col], SCALAR)
+    # -- the HALF family, REVERSED at BCS-S2b -------------------------------
+    # These three pinned "a half is not the amount, refuse it". The owner reversed that on
+    # 2026-08-02: a one-sided package is a genuine commercial shape, not a data gap, so the
+    # software ADAPTS and DISCLOSES the formula it is using instead of refusing. What did
+    # NOT change is the double-count they were really protecting: a TOTAL already contains
+    # its halves. So the rule moved off the half itself and onto the MIX, and each test
+    # below now pins that narrower, true thing.
 
-    def test_a_per_area_half_is_refused_by_its_third_hop(self):
-        """The per-area twin of the rule above, and the ONLY place rate_subkey decides a
-        REFUSAL rather than a resolve: H is a genuine per-area amount column of the right
-        value_field, and is rejected purely because its kind is "supply", not "total"."""
+    def test_a_scalar_total_picked_together_with_a_half_is_refused(self):
+        """WAS: "a scalar supply or install half is refused" (BCS-S1).
+
+        F is the combined amount and ALREADY CONTAINS G and H, so adding either to it
+        counts that half twice -- the same harm the mixed total-and-parts refusals name,
+        arriving by the kind axis rather than the shape axis. Both halves are checked
+        because the rule is about the TOTAL's presence, not about which half joined it."""
+        for half in ("G", "H"):   # amount_supply, amount_install
+            with self.assertRaises(frappe.ValidationError, msg=half):
+                build_amount_source(["F", half], SCALAR)
+
+    def test_a_per_area_total_picked_together_with_a_per_area_half_is_refused(self):
+        """WAS: "a per-area half is refused by its third hop" (BCS-S1).
+
+        The per-area twin, and still the ONLY place rate_subkey decides a REFUSAL rather
+        than a resolve -- but it now decides it by COMPARING kinds across the picked set
+        instead of testing one column against the constant "total". F is Zone A's combined
+        amount and H is Zone A's supply half, so the pair counts Zone A's supply twice."""
         with self.assertRaises(frappe.ValidationError):
-            build_amount_source(["H"], PER_AREA)
+            build_amount_source(["F", "H"], PER_AREA)
 
-    def test_a_half_poisons_an_otherwise_valid_per_area_selection(self):
-        """F and G alone are valid; adding the half must refuse the WHOLE pick rather
-        than quietly dropping the bad column."""
+    def test_a_half_poisons_an_otherwise_valid_per_area_COMBINED_selection(self):
+        """WAS: "a half poisons an otherwise valid per-area selection" (BCS-S1) -- and
+        this one still REFUSES the same input, for a different reason.
+
+        F and G are the two areas' combined amounts; H is Zone A's supply half. The pick
+        must be refused WHOLE rather than quietly dropping H -- but the reason is no
+        longer "H is a half", it is "H is already inside F". The distinction is what makes
+        ["D", "E"] on PER_AREA_SPLIT (two areas' supply, no total anywhere) acceptable
+        while this stays refused."""
         with self.assertRaises(frappe.ValidationError):
             build_amount_source(["F", "G", "H"], PER_AREA)
 
@@ -424,6 +467,176 @@ class TestAmountRefusals(unittest.TestCase):
     def test_a_scalar_amount_mixed_with_its_own_per_area_parts_is_refused(self):
         with self.assertRaises(frappe.ValidationError):
             build_amount_source(["F", "G"], MIXED)
+
+
+# ===========================================================================
+# Group 7: the SPLIT amount shapes (BCS-S2b) -- the owner's 2026-08-02 reversal
+# ===========================================================================
+class TestSplitAmountShapes(unittest.TestCase):
+    """OWNER RULING 2026-08-02, and it reverses a decision this suite used to pin.
+
+    Real sheets turned out not to have a single "Amount (Total)" column: most carry
+    Amount (Supply) and Amount (Installation) separately, and S1a refused BOTH -- so the
+    confirmation card's Amount list came up EMPTY on most real sheets and the feature was
+    unusable. Where there is no scalar total the denominator is now Supply + Installation
+    SUMMED; and where a sheet carries only ONE half, that half is ACCEPTED rather than
+    refused, because a one-sided package is a real commercial shape and not a data gap.
+    The safety comes from DISCLOSURE -- the stored `mode` says which formula is in force
+    -- not from blocking.
+
+    The mode strings are pinned as LITERALS here on purpose. They are a persisted contract
+    that S2c must state in words and S3 must compute against, and S2c reads them from
+    TypeScript where a Python constant is unreachable -- so the test has to name the same
+    strings a reader of the stored record sees, not re-derive them from the module."""
+
+    # -- scalar: the two halves, SUMMED ------------------------------------
+    def test_scalar_supply_plus_install_are_summed(self):
+        out = build_amount_source(["G", "H"], SCALAR)
+        self.assertEqual(out["mode"], "amount_supply_plus_install")
+        self.assertEqual([c["col"] for c in out["columns"]], ["G", "H"])
+        self.assertEqual([c["value_field"] for c in out["columns"]],
+                         ["amount_supply", "amount_install"])
+
+    def test_the_order_the_halves_were_picked_in_does_not_change_the_mode(self):
+        """Addition commutes, so the FORMULA is the same either way; only the stored
+        column order follows the pick. A mode that flipped on pick order would be
+        disclosing something that is not true of the arithmetic."""
+        out = build_amount_source(["H", "G"], SCALAR)
+        self.assertEqual(out["mode"], "amount_supply_plus_install")
+        self.assertEqual([c["col"] for c in out["columns"]], ["H", "G"])
+
+    # -- scalar: ONE half alone (adapt and disclose) ------------------------
+    def test_a_lone_scalar_supply_half_is_accepted_and_says_so(self):
+        """THE REVERSAL. This exact input was refused before this slice. It is accepted
+        now, and the mode carries the word that makes the one-sidedness impossible to miss
+        downstream -- that disclosure IS the safety the refusal used to provide."""
+        out = build_amount_source(["G"], SCALAR)
+        self.assertEqual(out["mode"], "amount_supply_only")
+        self.assertEqual([c["col"] for c in out["columns"]], ["G"])
+        self.assertEqual(out["columns"][0]["value_field"], "amount_supply")
+
+    def test_a_lone_scalar_install_half_is_accepted_and_says_so(self):
+        out = build_amount_source(["H"], SCALAR)
+        self.assertEqual(out["mode"], "amount_install_only")
+        self.assertEqual(out["columns"][0]["value_field"], "amount_install")
+
+    # -- per-area: summing across BOTH axes at once ------------------------
+    def test_per_area_halves_sum_across_both_the_area_and_the_kind_axis(self):
+        """The shape S1a could not express AT ALL: every column on this sheet was refused,
+        so a split per-area sheet could not enable BCS. Four columns, two areas x two
+        kinds, and the row's amount is the sum of all four."""
+        out = build_amount_source(["D", "E", "F", "G"], PER_AREA_SPLIT)
+        self.assertEqual(out["mode"], "amount_by_area_supply_plus_install")
+        self.assertEqual([c["col"] for c in out["columns"]], ["D", "E", "F", "G"])
+        self.assertEqual([c["area"] for c in out["columns"]],
+                         ["Zone A", "Zone A", "Zone B", "Zone B"])
+        self.assertEqual([c["rate_subkey"] for c in out["columns"]],
+                         ["supply", "install", "supply", "install"])
+
+    def test_per_area_halves_of_one_kind_are_the_one_sided_per_area_mode(self):
+        """Two areas, supply only -- one-sided on the KIND axis while still summing on
+        the AREA axis. The mode has to say both things at once."""
+        out = build_amount_source(["D", "F"], PER_AREA_SPLIT)
+        self.assertEqual(out["mode"], "amount_by_area_supply_only")
+        self.assertEqual([c["area"] for c in out["columns"]], ["Zone A", "Zone B"])
+
+    def test_a_lone_per_area_install_half_is_accepted(self):
+        out = build_amount_source(["E"], PER_AREA_SPLIT)
+        self.assertEqual(out["mode"], "amount_by_area_install_only")
+        self.assertEqual(out["columns"][0]["rate_subkey"], "install")
+
+    # -- the mode's WHOLE JOB: distinguishing the formulas ------------------
+    def test_every_accepted_amount_shape_gets_its_own_mode(self):
+        """The mode's whole job. S2c has to state the formula in plain words and S3 has to
+        compute it, so two shapes sharing one mode would make one of them undisclosable --
+        a reader of the stored record could not tell which formula was in force. Eight
+        accepted shapes, eight distinct modes."""
+        modes = [
+            build_amount_source(["F"], SCALAR)["mode"],
+            build_amount_source(["G", "H"], SCALAR)["mode"],
+            build_amount_source(["G"], SCALAR)["mode"],
+            build_amount_source(["H"], SCALAR)["mode"],
+            build_amount_source(["F", "G"], PER_AREA)["mode"],
+            build_amount_source(["D", "E", "F", "G"], PER_AREA_SPLIT)["mode"],
+            build_amount_source(["D", "F"], PER_AREA_SPLIT)["mode"],
+            build_amount_source(["E", "G"], PER_AREA_SPLIT)["mode"],
+        ]
+        self.assertEqual(len(set(modes)), len(modes), f"modes collided: {modes}")
+
+    def test_the_two_pre_existing_modes_are_byte_unchanged(self):
+        """The widening must cost the shapes that already worked NOTHING -- including the
+        exact stored string, because confirmations persisted before this slice are read
+        back by the same reader."""
+        self.assertEqual(build_amount_source(["F"], SCALAR)["mode"], "amount_total")
+        self.assertEqual(build_amount_source(["F", "G"], PER_AREA)["mode"],
+                         "amount_by_area")
+
+    def test_the_arithmetic_is_sum_every_entry_in_every_mode(self):
+        """The property that keeps S3 simple and keeps this module HONEST: whatever the
+        mode, the computation is "resolve each stored entry and add them up". No mode
+        needs a different arithmetic, and no picked column is ever dropped -- so the mode
+        is for DISCLOSURE and REFUSAL, never for branching the sum. If a future shape ever
+        needs a subtraction or a coefficient, THAT is when this stops being true, and this
+        test is where it will be noticed."""
+        for cols, index in ((["F"], SCALAR),
+                            (["G", "H"], SCALAR),
+                            (["G"], SCALAR),
+                            (["F", "G"], PER_AREA),
+                            (["D", "E", "F", "G"], PER_AREA_SPLIT),
+                            (["D", "F"], PER_AREA_SPLIT)):
+            out = build_amount_source(cols, index)
+            self.assertEqual([c["col"] for c in out["columns"]], cols,
+                             f"every pick must survive to be summed: {cols}")
+
+    def test_every_split_entry_still_carries_exactly_the_six_identity_keys(self):
+        """The stored ENTRY shape does not fork per mode -- Group 3's rule, re-checked on
+        the shapes this slice added, since a new shape is exactly where a special case
+        would creep in."""
+        for out in (build_amount_source(["G", "H"], SCALAR),
+                    build_amount_source(["D", "E", "F", "G"], PER_AREA_SPLIT)):
+            for entry in out["columns"]:
+                self.assertEqual(set(entry), _ENTRY_KEYS)
+
+    def test_a_scalar_half_carries_no_third_hop_but_a_per_area_half_does(self):
+        """A scalar half is a ONE-hop resolve and a per-area half is THREE, exactly as the
+        combined shapes already are. The half-ness lives in the value_field for one and in
+        rate_subkey for the other, and the entry records whichever applies."""
+        scalar_half = build_amount_source(["G"], SCALAR)["columns"][0]
+        self.assertIsNone(scalar_half["value_key"])
+        self.assertIsNone(scalar_half["rate_subkey"])
+        area_half = build_amount_source(["D"], PER_AREA_SPLIT)["columns"][0]
+        self.assertEqual(area_half["value_key"], "Zone A")
+        self.assertEqual(area_half["rate_subkey"], "supply")
+
+    # -- what the widening must NOT reopen ---------------------------------
+    def test_two_letters_holding_one_half_are_still_refused(self):
+        """The BCS-S1c duplicate-by-RESOLVED-VALUE rule must survive the widening: the new
+        shapes add more columns that can alias, not fewer. Picking Zone A supply twice
+        under two letters would double-count it just as before."""
+        aliased_split = _index(
+            _amount_area("D", "Zone A", "supply"),
+            _amount_area("E", "Zone A", "supply"),
+        )
+        with self.assertRaisesRegex(frappe.ValidationError, "same value"):
+            build_amount_source(["D", "E"], aliased_split)
+
+    def test_a_non_amount_column_is_still_refused_among_halves(self):
+        """Widening the KIND axis must not widen the CLASS check: a rate column is still
+        not an amount, however the rest of the pick is shaped."""
+        with self.assertRaises(frappe.ValidationError):
+            build_amount_source(["G", "H", "E"], SCALAR)   # E is rate_combined
+
+    def test_scalar_and_per_area_amounts_still_cannot_be_mixed(self):
+        """The SHAPE axis is untouched by this slice. A scalar amount is the total of the
+        per-area ones, so crossing the axes risks the same double-count -- and no owner
+        ruling covers a sheet that genuinely splits one kind scalar and the other per
+        area, so it stays refused rather than guessed at."""
+        cross = _index(
+            _singleton("D", "amount_supply", "amount_supply"),
+            _amount_area("E", "Zone A", "install"),
+        )
+        with self.assertRaises(frappe.ValidationError):
+            build_amount_source(["D", "E"], cross)
 
 
 if __name__ == "__main__":
