@@ -20,12 +20,20 @@
 import { describe, expect, it } from "vitest";
 import type { ColumnDescriptor } from "./boqTypes";
 import {
+  BCS_COMPUTED_KINDS,
   BCS_RATE_FIELD,
   BCS_RATE_FIELDS,
   BCS_RATE_LABEL,
+  bcsBlankReasonText,
   bcsChipLabel,
   bcsColumnAt,
   bcsColumnKeys,
+  bcsMarginPercent,
+  bcsRowAmount,
+  bcsTenderedAmountCell,
+  bcsTotalAmountCell,
+  formatBcsMargin,
+  isBcsInputColumn,
   bcsColumnLabel,
   bcsCostEntryReason,
   bcsLiveRateKinds,
@@ -1204,13 +1212,23 @@ describe("bcsCostEntryReason -- the parallel gate, in save_row_bcs_rates' OWN or
 });
 
 describe("the BCS column block -- keys and geometry", () => {
-  it("adds ONE Total Amount column after the cost boxes", () => {
+  it("adds the computed tail after the cost boxes", () => {
+    // SUPERSEDED AT BCS-S3b. This asserted ONE trailing computed column ("bcs:total"); the
+    // slice that closed the owner's ask added the two the section was built for -- the amount
+    // charged, and the margin between it and the cost. The tail is now THREE.
     expect(bcsColumnKeys(["supply", "install"])).toEqual([
       "bcs:supply",
       "bcs:install",
       "bcs:total",
+      "bcs:tendered",
+      "bcs:margin",
     ]);
-    expect(bcsColumnKeys(["combined"])).toEqual(["bcs:combined", "bcs:total"]);
+    expect(bcsColumnKeys(["combined"])).toEqual([
+      "bcs:combined",
+      "bcs:total",
+      "bcs:tendered",
+      "bcs:margin",
+    ]);
   });
 
   it("renders NO block at all -- not even a Total -- when the sheet has no cost box", () => {
@@ -1218,12 +1236,14 @@ describe("the BCS column block -- keys and geometry", () => {
   });
 
   it("places each column by its offset from the block start, and nothing outside it", () => {
+    // SUPERSEDED AT BCS-S3b: offset 13 was the end of the block and is now Tendered. The
+    // widened bound lives in `bcsColumnAt` and is re-pinned below in the S3b geometry group.
     const kinds = ["supply", "install"] as const;
     expect(bcsColumnAt(9, 10, kinds)).toBeNull();
     expect(bcsColumnAt(10, 10, kinds)).toBe("supply");
     expect(bcsColumnAt(11, 10, kinds)).toBe("install");
     expect(bcsColumnAt(12, 10, kinds)).toBe("total");
-    expect(bcsColumnAt(13, 10, kinds)).toBeNull();
+    expect(bcsColumnAt(15, 10, kinds)).toBeNull();
   });
 
   it("places nothing anywhere when the block is empty", () => {
@@ -1284,5 +1304,292 @@ describe("the invariants BCS-S3a claimed but did not enforce", () => {
     // Anti-vacuity: the sweep really did exercise both arms of the one branch.
     expect(sawHalves).toBe(true);
     expect(sawCombined).toBe(true);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  BCS-S3b -- THE TENDERED AMOUNT AND THE MARGIN
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe("isBcsInputColumn -- the ONE 'may this column be typed in?' decision", () => {
+  // THE TRAP THIS CLOSES. Before S3b, seven call sites asked `b !== "total"` to mean "this is a
+  // cost box". A SECOND computed column does not match that literal, so it would fall through to
+  // the editable branch and become a paste target -- silently, with no type error, on a column
+  // whose whole nature is that it is computed. One guard, seven callers, and the question is now
+  // answered by MEMBERSHIP in the computed set rather than by a string comparison.
+
+  it("says yes to every cost box", () => {
+    expect(isBcsInputColumn("supply")).toBe(true);
+    expect(isBcsInputColumn("install")).toBe(true);
+    expect(isBcsInputColumn("combined")).toBe(true);
+  });
+
+  it("says no to EVERY computed column -- swept, so a future one cannot slip through", () => {
+    // The sweep is the point. A new computed kind added to BCS_COMPUTED_KINDS is excluded by
+    // construction; a new kind added ONLY at a render site would fail this test.
+    for (const k of BCS_COMPUTED_KINDS) expect(isBcsInputColumn(k)).toBe(false);
+    expect(BCS_COMPUTED_KINDS).toContain("total");
+    expect(BCS_COMPUTED_KINDS).toContain("tendered");
+    expect(BCS_COMPUTED_KINDS).toContain("margin");
+  });
+
+  it("says no outside the block entirely (bcsColumnAt's null)", () => {
+    expect(isBcsInputColumn(null)).toBe(false);
+    expect(isBcsInputColumn(undefined)).toBe(false);
+  });
+
+  it("agrees with bcsColumnAt across the WHOLE block, offset by offset", () => {
+    const kinds = ["supply", "install"] as const;
+    const start = 10;
+    const inputOffsets: number[] = [];
+    for (let c = start - 1; c <= start + 6; c++) {
+      if (isBcsInputColumn(bcsColumnAt(c, start, kinds))) inputOffsets.push(c - start);
+    }
+    // EXACTLY the two cost boxes -- never a computed column, never outside the block.
+    expect(inputOffsets).toEqual([0, 1]);
+  });
+});
+
+describe("the BCS block's geometry with the computed columns", () => {
+  it("appends the THREE computed columns after the cost boxes, in render order", () => {
+    expect(bcsColumnKeys(["supply", "install"])).toEqual([
+      "bcs:supply",
+      "bcs:install",
+      "bcs:total",
+      "bcs:tendered",
+      "bcs:margin",
+    ]);
+  });
+
+  it("KEEPS the empty-block property -- no cost box, no computed columns either", () => {
+    // Load-bearing: this is what makes every colIndex on a non-BCS sheet byte-identical to
+    // pre-S3a. A % Profit column on a sheet with no cost box would have no numerator anyway.
+    expect(bcsColumnKeys([])).toEqual([]);
+    expect(bcsColumnAt(10, 10, [])).toBeNull();
+  });
+
+  it("places Total, Tendered and % Profit at the three offsets after the boxes", () => {
+    const kinds = ["supply", "install"] as const;
+    expect(bcsColumnAt(10, 10, kinds)).toBe("supply");
+    expect(bcsColumnAt(11, 10, kinds)).toBe("install");
+    expect(bcsColumnAt(12, 10, kinds)).toBe("total");
+    expect(bcsColumnAt(13, 10, kinds)).toBe("tendered");
+    expect(bcsColumnAt(14, 10, kinds)).toBe("margin");
+  });
+
+  it("stops at the end of the widened block, and before its start", () => {
+    const kinds = ["combined"] as const;
+    expect(bcsColumnAt(9, 10, kinds)).toBeNull();
+    expect(bcsColumnAt(10, 10, kinds)).toBe("combined");
+    expect(bcsColumnAt(13, 10, kinds)).toBe("margin");
+    expect(bcsColumnAt(14, 10, kinds)).toBeNull(); // the old bound stopped one column too early
+  });
+
+  it("keeps the key list and the placement in step -- one length, never two", () => {
+    for (const kinds of [["combined"], ["supply", "install"]] as const) {
+      const keys = bcsColumnKeys(kinds);
+      expect(keys.length).toBe(kinds.length + BCS_COMPUTED_KINDS.length);
+      expect(bcsColumnAt(100 + keys.length - 1, 100, kinds)).not.toBeNull();
+      expect(bcsColumnAt(100 + keys.length, 100, kinds)).toBeNull();
+    }
+  });
+});
+
+describe("bcsRowAmount -- THE DENOMINATOR, summed across the confirmed Amount columns", () => {
+  // Nothing in the editor summed across a confirmed column set before this: evaluateAmountCell
+  // is per-column at all five of its call sites. This mirrors `bcsRowQuantity` exactly -- same
+  // caller-supplied resolver (so the module stays a type-only pure leaf), same absent-vs-blank
+  // contract -- because the two sides of the confirmation are the same shape of question.
+  const AMOUNT_SOURCE = {
+    mode: "amount_by_area_supply_plus_install",
+    columns: [
+      { col: "I", role: "amount_supply_by_area", area: "Zone A", value_field: "amount_by_area", value_key: "Zone A", rate_subkey: "supply" },
+      { col: "R", role: "amount_install_by_area", area: "Zone A", value_field: "amount_by_area", value_key: "Zone A", rate_subkey: "install" },
+    ],
+  };
+
+  it("adds up the confirmed amount columns, whatever the mode", () => {
+    const shown: Record<string, number | null> = { I: 1200, R: 300 };
+    expect(bcsRowAmount(AMOUNT_SOURCE, (e) => shown[e.col])).toBe(1500);
+  });
+
+  it("treats ONE unresolved amount column as 0, so a half-priced row still reports a figure", () => {
+    expect(bcsRowAmount(AMOUNT_SOURCE, (e) => (e.col === "I" ? 1200 : null))).toBe(1200);
+  });
+
+  it("is BLANK, never 0, when NOTHING resolves -- a 0 denominator is a claim, not an absence", () => {
+    expect(bcsRowAmount(AMOUNT_SOURCE, () => null)).toBeNull();
+  });
+
+  it("is blank with no confirmation at all", () => {
+    expect(bcsRowAmount(null, () => 5)).toBeNull();
+    expect(bcsRowAmount(undefined, () => 5)).toBeNull();
+    expect(bcsRowAmount({ mode: "amount_total", columns: [] }, () => 5)).toBeNull();
+  });
+
+  it("keeps a genuine 0 on one column distinct from an unresolved one", () => {
+    // A column that really reads 0 CONTRIBUTES 0 and makes the row non-blank; an unresolved one
+    // contributes 0 and does NOT. The difference decides whether % Profit renders at all.
+    expect(bcsRowAmount(AMOUNT_SOURCE, () => 0)).toBe(0);
+    expect(bcsRowAmount(AMOUNT_SOURCE, () => null)).toBeNull();
+  });
+
+  it("ignores a non-finite reading rather than poisoning the sum", () => {
+    expect(bcsRowAmount(AMOUNT_SOURCE, (e) => (e.col === "I" ? NaN : 300))).toBe(300);
+  });
+});
+
+describe("the three computed cells -- blank ALWAYS carries a reason", () => {
+  it("Total Amount: a value, or WHICH of the two absences produced the blank", () => {
+    expect(bcsTotalAmountCell(10, 140)).toEqual({ kind: "value", value: 1400 });
+    expect(bcsTotalAmountCell(null, 140)).toEqual({ kind: "blank", reason: "no_quantity" });
+    expect(bcsTotalAmountCell(10, null)).toEqual({ kind: "blank", reason: "no_cost" });
+    // A genuinely zero-costed row is a VALUE, not an absence (the S3a distinction, preserved).
+    expect(bcsTotalAmountCell(10, 0)).toEqual({ kind: "value", value: 0 });
+  });
+
+  it("Tendered Total Amount: a value, or the one absence it can have", () => {
+    expect(bcsTenderedAmountCell(1500)).toEqual({ kind: "value", value: 1500 });
+    expect(bcsTenderedAmountCell(null)).toEqual({ kind: "blank", reason: "no_amount" });
+    expect(bcsTenderedAmountCell(0)).toEqual({ kind: "value", value: 0 });
+  });
+
+  it("keeps the S3a bare multiply intact beside the new cell shape", () => {
+    // bcsTotalAmount is unchanged and still the arithmetic; the cell wraps it with the reason.
+    expect(bcsTotalAmount(10, 140)).toBe(1400);
+  });
+});
+
+describe("bcsMarginPercent -- (amount - cost) / amount, and the direction is SETTLED", () => {
+  const cell = (value: number) => ({ kind: "value" as const, value });
+
+  it("reports the margin a pricer would work out by hand", () => {
+    // 1000 charged, 800 spent -> 200 profit on 1000 charged -> 20%. The expected value comes
+    // from the worked example, not from re-running the formula.
+    expect(bcsMarginPercent(cell(800), cell(1000))).toEqual({ kind: "value", value: 20 });
+  });
+
+  it("reads LOWER on a one-sided amount, and goes sharply NEGATIVE below the cost", () => {
+    // ⚠️ THE DIRECTION IS OWNER-SETTLED and was relayed BACKWARDS once (at S2d), so it is pinned
+    // here rather than left to the arithmetic. A sheet whose confirmation covers only the supply
+    // half puts a SMALLER number in the denominator AND in the numerator; the margin falls, and
+    // once the amount drops under the cost it goes hard negative. That visible collapse is the
+    // safety the disclosure sentence promises -- it must never quietly read higher instead.
+    const whole = bcsMarginPercent(cell(800), cell(1000));
+    const oneSided = bcsMarginPercent(cell(800), cell(600));
+    expect(whole).toEqual({ kind: "value", value: 20 });
+    expect(oneSided.kind).toBe("value");
+    if (oneSided.kind === "value" && whole.kind === "value") {
+      expect(oneSided.value).toBeLessThan(whole.value);
+      expect(oneSided.value).toBeLessThan(0);
+      expect(oneSided.value).toBeCloseTo(-33.33, 2); // -200 on 600 charged
+    }
+  });
+
+  it("a zero amount is a BLANK with its own reason -- never Infinity, never NaN", () => {
+    // The memo compares this cell's value with ===, and NaN !== NaN, so a NaN here would
+    // re-render that row forever. It is also simply not a percentage.
+    expect(bcsMarginPercent(cell(800), cell(0))).toEqual({
+      kind: "blank",
+      reason: "zero_amount",
+    });
+  });
+
+  it("carries the COST side's reason through, so the user learns what is actually missing", () => {
+    expect(bcsMarginPercent({ kind: "blank", reason: "no_quantity" }, cell(1000))).toEqual({
+      kind: "blank",
+      reason: "no_quantity",
+    });
+    expect(bcsMarginPercent({ kind: "blank", reason: "no_cost" }, cell(1000))).toEqual({
+      kind: "blank",
+      reason: "no_cost",
+    });
+  });
+
+  it("names the missing AMOUNT when that is the side that is absent", () => {
+    expect(bcsMarginPercent(cell(800), { kind: "blank", reason: "no_amount" })).toEqual({
+      kind: "blank",
+      reason: "no_amount",
+    });
+  });
+
+  it("puts the COST reason first when BOTH sides are blank", () => {
+    // An uncosted row is the ordinary case on a fresh sheet; naming the amount there would send
+    // the user to the sheet's Amount mapping when all they have to do is type a cost.
+    expect(
+      bcsMarginPercent({ kind: "blank", reason: "no_cost" }, { kind: "blank", reason: "no_amount" }),
+    ).toEqual({ kind: "blank", reason: "no_cost" });
+  });
+
+  it("NEVER yields NaN or Infinity, swept over the awkward numbers", () => {
+    const nasty = [0, -0, 1e-320, -1e-320, 1e308, -1e308, 0.1, -7.5];
+    for (const c of nasty) {
+      for (const a of nasty) {
+        const out = bcsMarginPercent(cell(c), cell(a));
+        if (out.kind === "value") {
+          expect(Number.isFinite(out.value)).toBe(true);
+        }
+      }
+    }
+  });
+
+  it("is 0% exactly when the amount equals the cost", () => {
+    expect(bcsMarginPercent(cell(1234.5), cell(1234.5))).toEqual({ kind: "value", value: 0 });
+  });
+});
+
+describe("bcsBlankReasonText -- why a computed cell is empty, in plain English", () => {
+  // These are ROW-level facts, which is why BCS owns them rather than reusing
+  // AmountCellResult's "not_yet" | "broken" -- those two describe ONE column's formula.
+  it("states each reason verbatim", () => {
+    expect(bcsBlankReasonText("no_quantity")).toBe("No quantity on this row.");
+    expect(bcsBlankReasonText("no_cost")).toBe("No cost entered yet.");
+    expect(bcsBlankReasonText("no_amount")).toBe(
+      "No amount on this row yet — % Profit is measured against the amount charged, and this row has none to read.",
+    );
+    expect(bcsBlankReasonText("zero_amount")).toBe(
+      "The amount charged on this row is zero, so there is no margin to measure against it.",
+    );
+    expect(bcsBlankReasonText("not_finite")).toBe(
+      "The numbers on this row are too extreme to produce a percentage.",
+    );
+  });
+
+  it("makes an UNRECOGNISED reason an explicit unsupported state, never a silent blank", () => {
+    // Same forward-compat honesty bcsSummaryForMode gives an unknown mode: a cell that cannot
+    // explain itself says so, rather than looking like an ordinary empty cell.
+    const text = bcsBlankReasonText("something_new");
+    expect(text).not.toBe("");
+    expect(text).toMatch(/does not recognise/i);
+    expect(text).toContain("something_new");
+  });
+
+  it("has a sentence for EVERY reason the module can produce -- swept", () => {
+    const produced = new Set<string>();
+    for (const c of [bcsTotalAmountCell(null, 1), bcsTotalAmountCell(1, null)]) {
+      if (c.kind === "blank") produced.add(c.reason);
+    }
+    const tendered = bcsTenderedAmountCell(null);
+    if (tendered.kind === "blank") produced.add(tendered.reason);
+    const zero = bcsMarginPercent({ kind: "value", value: 1 }, { kind: "value", value: 0 });
+    if (zero.kind === "blank") produced.add(zero.reason);
+    expect(produced).toEqual(new Set(["no_quantity", "no_cost", "no_amount", "zero_amount"]));
+    for (const r of produced) expect(bcsBlankReasonText(r)).not.toMatch(/does not recognise/i);
+  });
+});
+
+describe("formatBcsMargin -- how the percentage reads in the cell", () => {
+  it("shows one decimal place and the unit", () => {
+    expect(formatBcsMargin(20)).toBe("20.0%");
+    expect(formatBcsMargin(33.333333)).toBe("33.3%");
+  });
+
+  it("keeps a loss visibly negative", () => {
+    expect(formatBcsMargin(-33.333333)).toBe("-33.3%");
+  });
+
+  it("never renders a negative zero -- '-0.0%' would read as a loss that is not there", () => {
+    expect(formatBcsMargin(-0.001)).toBe("0.0%");
+    expect(formatBcsMargin(-0)).toBe("0.0%");
   });
 });

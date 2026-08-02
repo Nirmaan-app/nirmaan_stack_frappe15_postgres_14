@@ -704,8 +704,20 @@ export const BCS_RATE_FIELD: Record<BcsRateKind, BcsRateField> = {
   install: "install_rate",
   combined: "combined_rate",
 };
-/** Every stored field, in the order `save_row_bcs_rates` declares them. THE gather iterates this
- *  -- so a fourth field could never be silently omitted from a write. */
+/**
+ * Every stored field, in the order `save_row_bcs_rates` declares them.
+ *
+ * ⚠️ CORRECTED AT BCS-S3b. This said "THE gather iterates this -- so a fourth field could never
+ * be silently omitted from a write". It is the SAME false claim BCS-S3a-fix corrected on
+ * `gatherBcsRowRates` itself; only the twin was fixed, and this copy survived to be read by the
+ * next person. `gatherBcsRowRates` does NOT iterate -- it names the three fields, which is the
+ * right shape, and the direction this sentence claimed is guarded by a TEST
+ * (`gatherBcsRowRates covers every BCS_RATE_FIELDS key`), not by the code. What DOES iterate
+ * this list is `mergeBcsRowValues` and `PricingGrid.bcsDraftsForRow`.
+ *
+ * The lesson is the correction's, not the claim's: a sentence copied to two places has to be
+ * corrected in two places, and finding one of them is not finding both.
+ */
 export const BCS_RATE_FIELDS: readonly BcsRateField[] = [
   "supply_rate",
   "install_rate",
@@ -916,11 +928,166 @@ export function bcsRowQuantity(
   return any ? total : null;
 }
 
+/**
+ * BCS-S3b -- THE DENOMINATOR: the row's Amount charged, summed across the CONFIRMED amount
+ * columns. It mirrors `bcsRowQuantity` deliberately, function for function, because the two
+ * sides of the confirmation are the same shape of question and answering them differently is
+ * how the number under the margin drifts away from the number beside it.
+ *
+ * ⚠️ `evaluate` MUST RETURN THE FIGURE THE AMOUNT CELL IS SHOWING (owner ruling). Not the
+ * committed value, not the raw formula result -- the number ON SCREEN, which means the caller
+ * resolves the formula AND the document-vs-formula reconciliation choice before handing it here.
+ * The Tendered column exists precisely to put the denominator in front of the user; if it showed
+ * one number while % Profit divided by another, the column would be worse than useless. The
+ * callback is what keeps that rule at the caller (where `reconChoiceMap` and the row's live rate
+ * drafts are) while this module stays a pure leaf with type-only imports.
+ *
+ * A column that does not resolve contributes 0; a row where NOTHING resolves is genuinely
+ * amount-less and returns `null`, not 0. A 0 denominator is a claim ("we charge nothing"); an
+ * absent one is the absence of a claim, and only the first of those can be a real margin.
+ */
+export function bcsRowAmount(
+  source: BcsSource | null | undefined,
+  evaluate: (entry: BcsColumnEntry) => number | null,
+): number | null {
+  const cols = source?.columns ?? [];
+  if (cols.length === 0) return null;
+  let any = false;
+  let total = 0;
+  for (const entry of cols) {
+    const v = evaluate(entry);
+    if (v === null || !Number.isFinite(v)) continue;
+    any = true;
+    total += v;
+  }
+  return any ? total : null;
+}
+
 /** Total Amount = quantity x the per-unit cost. Blank if either side is blank -- never a
  *  half-computed figure, which on a cost screen is worse than an empty cell. */
 export function bcsTotalAmount(qty: number | null, unitCost: number | null): number | null {
   if (qty === null || unitCost === null) return null;
   return qty * unitCost;
+}
+
+// ── BCS-S3b: the computed columns speak ONE language ─────────────────────────────
+
+/**
+ * Why a computed BCS cell is blank. These are ROW-LEVEL facts, which is why BCS owns them
+ * instead of reusing `AmountCellResult`'s `not_yet | broken` -- those two describe ONE column's
+ * formula, and "this row has no quantity" is not a statement about a formula.
+ *
+ * `not_finite` is the defensive arm: every operand reaching the margin is finite by
+ * construction, but a denormal-tiny amount beside a huge cost can still divide out past the
+ * double range, and a rendered "Infinity" is not an answer.
+ */
+export type BcsBlankReason =
+  | "no_quantity"
+  | "no_cost"
+  | "no_amount"
+  | "zero_amount"
+  | "not_finite";
+
+/** One computed cell: a number, or a blank that KNOWS WHY. Mirrors `AmountCellResult`'s
+ *  discriminated shape so the render stays a pure map and no blank is ever unexplained. */
+export type BcsComputedCell =
+  | { kind: "value"; value: number }
+  | { kind: "blank"; reason: BcsBlankReason };
+
+/**
+ * The Total Amount cell -- S3a's `bcsTotalAmount` with the reason it always had and never said.
+ *
+ * UPGRADED AT BCS-S3b so the three computed columns explain themselves the same way. S3a
+ * computed a bare `number | null` and reconstructed the reason at the render site with a nested
+ * ternary over `bcsQty`; with two more computed columns arriving, that would have been three
+ * render sites each re-deriving its own explanation. The arithmetic is untouched --
+ * `bcsTotalAmount` is still the multiply, and is still exported and tested.
+ */
+export function bcsTotalAmountCell(qty: number | null, unitCost: number | null): BcsComputedCell {
+  if (qty === null) return { kind: "blank", reason: "no_quantity" };
+  if (unitCost === null) return { kind: "blank", reason: "no_cost" };
+  return { kind: "value", value: qty * unitCost };
+}
+
+/** The Tendered Total Amount cell -- the ONE place a null sum is decided to mean "no amount". */
+export function bcsTenderedAmountCell(amount: number | null): BcsComputedCell {
+  return amount === null ? { kind: "blank", reason: "no_amount" } : { kind: "value", value: amount };
+}
+
+/**
+ * ★ % PROFIT = (amount − cost) / amount × 100, over the two cells beside it.
+ *
+ * ⚠️ THE DIRECTION IS OWNER-SETTLED AND WAS ONCE RELAYED BACKWARDS (at BCS-S2d, corrected
+ * since). Dividing by the AMOUNT means a one-sided confirmation -- a sheet whose Amount columns
+ * cover only the supply half, which `bcsSummaryForMode` discloses in words -- makes the margin
+ * read LOWER, and once the amount falls below the cost it goes sharply negative. That visible
+ * collapse IS the safety the disclosure promises. Do not re-derive this as cost-over-amount or
+ * as a mark-up on cost; both read HIGHER on exactly the sheets that need a warning.
+ *
+ * IT TAKES THE TWO CELLS, NOT TWO NUMBERS, so a blank arrives with its reason attached and the
+ * margin can say what is missing instead of just being empty. The COST side is checked first: on
+ * a fresh sheet an uncosted row is the ordinary case, and naming the amount there would send a
+ * user to the sheet's Amount mapping when all they have to do is type a cost.
+ *
+ * NEVER NaN, NEVER Infinity. A zero denominator is refused before the division, and a result
+ * that leaves the double range is refused after it. Both matter twice over: a `NaN` displayed is
+ * nonsense, and a `NaN` compared with `===` (`NaN !== NaN`) would defeat a React.memo for the
+ * lifetime of the row.
+ */
+export function bcsMarginPercent(
+  cost: BcsComputedCell,
+  amount: BcsComputedCell,
+): BcsComputedCell {
+  if (cost.kind === "blank") return cost;
+  if (amount.kind === "blank") return amount;
+  if (amount.value === 0) return { kind: "blank", reason: "zero_amount" };
+  const pct = ((amount.value - cost.value) / amount.value) * 100;
+  if (!Number.isFinite(pct)) return { kind: "blank", reason: "not_finite" };
+  return { kind: "value", value: pct };
+}
+
+/**
+ * Why this computed cell is empty, in a sentence -- the cell's `title`.
+ *
+ * AN UNRECOGNISED REASON IS AN EXPLICIT UNSUPPORTED STATE, never a silent blank: the same
+ * forward-compat honesty `bcsSummaryForMode` gives an unknown mode and `ratePipelineInterpreter`
+ * gives an unknown step type. A cell that cannot explain itself must not look like an ordinary
+ * empty cell, because an empty cell on a cost screen reads as "nothing to see here".
+ */
+export function bcsBlankReasonText(reason: string): string {
+  switch (reason) {
+    case "no_quantity":
+      return "No quantity on this row.";
+    case "no_cost":
+      return "No cost entered yet.";
+    case "no_amount":
+      return (
+        "No amount on this row yet — % Profit is measured against the amount charged, and this " +
+        "row has none to read."
+      );
+    case "zero_amount":
+      return "The amount charged on this row is zero, so there is no margin to measure against it.";
+    case "not_finite":
+      return "The numbers on this row are too extreme to produce a percentage.";
+    default:
+      return (
+        `This cell is blank for a reason this screen does not recognise ("${reason}"). Ask the ` +
+        `team before relying on it.`
+      );
+  }
+}
+
+/**
+ * % Profit as it reads in the cell. It needs its OWN formatter -- `renderDescriptorCell` is the
+ * sheet's money/quantity formatter and has no percent unit, so a margin rendered through it
+ * would sit in the row looking like another amount.
+ *
+ * ONE decimal place, and NEVER "-0.0%": a rounded-away loss of a hundredth of a percent must not
+ * present as a loss at all.
+ */
+export function formatBcsMargin(value: number): string {
+  const rounded = Math.round(value * 10) / 10;
+  return `${(rounded === 0 ? 0 : rounded).toFixed(1)}%`;
 }
 
 /**
@@ -973,33 +1140,82 @@ export function bcsCostEntryReason(state: {
   return null;
 }
 
+/**
+ * The COMPUTED columns of the block, in render order after the cost boxes. NONE of them is
+ * stored and NONE of them is typeable -- they are read out of the row every render, so a stored
+ * copy can never disagree with the live sheet (`bcs.py`'s property 1).
+ *
+ * ⚠️ THIS LIST IS THE TRAP'S ONLY DEFENCE, so add a computed column HERE FIRST. Until BCS-S3b
+ * seven call sites asked `b !== "total"` to mean "this is a cost box a user may type in". A
+ * SECOND computed token does not match that literal: it falls through to the editable branch,
+ * takes a keystroke and accepts a pasted block -- silently, with no type error, on a column whose
+ * whole nature is that it is derived. `isBcsInputColumn` replaced all seven, and it answers by
+ * MEMBERSHIP in this list rather than by a comparison, so a column added here is excluded from
+ * every write path by construction rather than by seven remembered edits.
+ */
+export type BcsComputedKind = "total" | "tendered" | "margin";
+export const BCS_COMPUTED_KINDS: readonly BcsComputedKind[] = ["total", "tendered", "margin"];
+const BCS_COMPUTED_SET: ReadonlySet<string> = new Set<string>(BCS_COMPUTED_KINDS);
+
 /** The Total Amount column's width/render key -- not a cost box, so it has its own token. */
 export const BCS_TOTAL_COL_KEY = "bcs:total";
+/** BCS-S3b: the client-facing amount, and the margin between it and the cost. */
+export const BCS_TENDERED_COL_KEY = "bcs:tendered";
+export const BCS_MARGIN_COL_KEY = "bcs:margin";
+/** Every computed column's width/render key, so the key list is derived, never re-listed. */
+export const BCS_COMPUTED_COL_KEY: Record<BcsComputedKind, string> = {
+  total: BCS_TOTAL_COL_KEY,
+  tendered: BCS_TENDERED_COL_KEY,
+  margin: BCS_MARGIN_COL_KEY,
+};
 /** One cost box's width/render key. Kind-keyed (survives a change to the sheet's rate mapping). */
 export function bcsWidthKey(kind: BcsRateKind): string {
   return `bcs:${kind}`;
 }
 
 /**
- * The BCS block's columns, left to right: one per live cost box, then ONE Total Amount.
+ * ★ MAY THIS COLUMN BE TYPED IN? The ONE decision, and a TYPE GUARD so a caller that passes it
+ * comes out holding a `BcsRateKind` -- which is what makes `BCS_RATE_FIELD[b]` legal afterwards
+ * without a cast at seven separate call sites.
  *
- * EMPTY IN, EMPTY OUT -- a sheet with no cost box gets no Total column either. A lone Total
- * Amount above rows nobody can cost is a column that can only ever be blank.
+ * It is written as "not one of the computed kinds", NOT as "is one of the rate kinds", and the
+ * direction is deliberate: a token this build has never heard of is refused rather than admitted.
+ * Refusing wrongly costs a dead cell someone reports; admitting wrongly writes a number into a
+ * column that has no storage.
+ */
+export function isBcsInputColumn(
+  b: BcsRateKind | BcsComputedKind | null | undefined,
+): b is BcsRateKind {
+  return b !== null && b !== undefined && !BCS_COMPUTED_SET.has(b);
+}
+
+/**
+ * The BCS block's columns, left to right: one per live cost box, then the computed tail
+ * (Total Amount · Tendered Total Amount · % Profit).
+ *
+ * EMPTY IN, EMPTY OUT -- a sheet with no cost box gets no computed columns either. This is what
+ * keeps every colIndex on a non-BCS sheet byte-identical to pre-S3a, and it is also just true:
+ * % Profit has no numerator without a cost, and a Total above rows nobody can cost can only ever
+ * be blank.
  */
 export function bcsColumnKeys(kinds: readonly BcsRateKind[]): string[] {
   if (kinds.length === 0) return [];
-  return [...kinds.map(bcsWidthKey), BCS_TOTAL_COL_KEY];
+  return [...kinds.map(bcsWidthKey), ...BCS_COMPUTED_KINDS.map((k) => BCS_COMPUTED_COL_KEY[k])];
 }
 
-/** What sits at grid colIndex `c`: a cost box's kind, the Total, or null when `c` is outside the
- *  BCS block entirely. The block is contiguous and starts at `bcsColStart`. */
+/** What sits at grid colIndex `c`: a cost box's kind, one of the computed columns, or null when
+ *  `c` is outside the BCS block entirely. The block is contiguous and starts at `bcsColStart`.
+ *  The upper bound is PARAMETRIC over the computed list -- it used to hardcode the single
+ *  trailing Total (`off > kinds.length`), which would have placed nothing at the two new
+ *  columns while their `<td>`s rendered anyway. */
 export function bcsColumnAt(
   c: number,
   bcsColStart: number,
   kinds: readonly BcsRateKind[],
-): BcsRateKind | "total" | null {
+): BcsRateKind | BcsComputedKind | null {
   if (kinds.length === 0) return null;
   const off = c - bcsColStart;
-  if (off < 0 || off > kinds.length) return null;
-  return off === kinds.length ? "total" : kinds[off];
+  if (off < 0) return null;
+  if (off < kinds.length) return kinds[off];
+  return BCS_COMPUTED_KINDS[off - kinds.length] ?? null;
 }

@@ -51,6 +51,7 @@ import {
   bcsCellKey,
   bcsDraftsForRow,
   batchDraftsToDrop,
+  shownAmountValue,
 } from "./PricingGrid";
 import { BCS_RATE_FIELDS, mergeBcsRowValues } from "./bcsColumns";
 import type { DescriptionColumn } from "./reviewRender";
@@ -1498,6 +1499,54 @@ describe("BCS draft key space -- where PricingGrid's drafts cross into bcsColumn
     const drafts: Record<string, string> = {};
     for (const f of BCS_RATE_FIELDS) drafts[bcsCellKey(12, f)] = "1";
     expect([...bcsDraftsForRow(12, drafts).keys()].sort()).toEqual([...BCS_RATE_FIELDS].sort());
+  });
+});
+
+// ── BCS-S3b: THE FIGURE ON SCREEN ───────────────────────────────────────────────
+//
+// ⚠️ OWNER RULING, load-bearing. % Profit divides by the number the user can SEE. The Tendered
+// Total Amount column exists to put that denominator on screen beside the margin, so the two
+// must come from one decision -- and that decision was, until this slice, inline in the amount
+// <td>'s render. `shownAmountValue` is that decision extracted whole: the amount cell and the
+// Tendered sum now call the SAME function, so they cannot disagree about what the row charges.
+//
+// The reconciliation choice is the case that makes this real: on a diverging cell the screen
+// shows the DOCUMENT amount by default, not the formula's. A denominator that quietly used the
+// formula value there would produce a margin the sheet visibly contradicts.
+describe("shownAmountValue -- the ONE 'what does this amount cell show?' decision", () => {
+  it("shows the formula value when nothing diverges", () => {
+    expect(shownAmountValue({ kind: "value", value: 1500 }, 1500, undefined)).toBe(1500);
+  });
+
+  it("shows the DOCUMENT amount on an unresolved divergence -- the D1 default", () => {
+    // The screen shows 1200 (the document); the margin must divide by 1200, not by 1500.
+    expect(shownAmountValue({ kind: "value", value: 1500 }, 1200, undefined)).toBe(1200);
+  });
+
+  it("shows the DOCUMENT amount when the user chose keep_document", () => {
+    expect(shownAmountValue({ kind: "value", value: 1500 }, 1200, "keep_document")).toBe(1200);
+  });
+
+  it("shows the FORMULA value when the user chose take_formula", () => {
+    expect(shownAmountValue({ kind: "value", value: 1500 }, 1200, "take_formula")).toBe(1500);
+  });
+
+  it("shows the FORMULA value on a doc-0 cell, silently -- the DOC-0 amendment", () => {
+    // We upload UNPRICED BoQs, so almost every committed amount is 0. resolveDivergence treats
+    // that as an absent value, not a client-stated price of zero.
+    expect(shownAmountValue({ kind: "value", value: 1500 }, 0, undefined)).toBe(1500);
+  });
+
+  it("shows the COMMITTED amount when no formula applies", () => {
+    expect(shownAmountValue({ kind: "committed" }, 900, undefined)).toBe(900);
+    expect(shownAmountValue({ kind: "committed" }, null, undefined)).toBeNull();
+  });
+
+  it("is BLANK when the cell is blank, for either reason", () => {
+    // A cell that cannot resolve contributes NOTHING to the denominator -- it must never fall
+    // back to the committed value, which is exactly the number the formula was overriding.
+    expect(shownAmountValue({ kind: "blank", reason: "not_yet" }, 900, undefined)).toBeNull();
+    expect(shownAmountValue({ kind: "blank", reason: "broken" }, 900, undefined)).toBeNull();
   });
 });
 

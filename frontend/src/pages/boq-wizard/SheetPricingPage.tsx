@@ -4415,6 +4415,12 @@ const SheetPricingPage = () => {
             bcsKinds={bcsKinds}
             bcsRatesByExcelRow={bcsRatesByExcelRow}
             bcsQtySource={bcsQtySource}
+            // BCS-S3b: the Amount side of the SAME confirmation the card already stores -- it
+            // fills the Tendered Total Amount column and is % Profit's denominator. No new
+            // fetch and no new state: `bcsAmountSource` has been read off `get_bcs_state` since
+            // S2 (it is what `bcsChipLabel` names in the chip), and it is reference-stable
+            // between refetches, which is what keeps the PricingGrid memo shield intact.
+            bcsAmountSource={bcsAmountSource}
             onSaveBcsRates={bcsWritable ? handleSaveBcsRates : undefined}
             bcsReadOnlyReason={bcsCostReason}
             onDirtyChange={handleDirtyChange}

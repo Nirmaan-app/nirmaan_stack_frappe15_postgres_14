@@ -160,18 +160,28 @@ import {
 // services/boq_bcs/sources.py + api/boq/wizard/bcs.py). The grid renders them and owns no BCS
 // rule of its own -- there is no second copy of the gather, the gate order, or the arithmetic.
 import {
+  BCS_MARGIN_COL_KEY,
   BCS_RATE_FIELD,
   BCS_RATE_FIELDS,
   BCS_RATE_LABEL,
+  BCS_TENDERED_COL_KEY,
   BCS_TOTAL_COL_KEY,
+  bcsBlankReasonText,
   bcsColumnAt,
   bcsColumnKeys,
+  bcsMarginPercent,
+  bcsRowAmount,
   bcsRowQuantity,
-  bcsTotalAmount,
+  bcsTenderedAmountCell,
+  bcsTotalAmountCell,
   bcsUnitCost,
   bcsWidthKey,
+  formatBcsMargin,
   gatherBcsRowRates,
+  isBcsInputColumn,
   mergeBcsRowValues,
+  type BcsComputedCell,
+  type BcsComputedKind,
   type BcsRateKind,
 } from "./bcsColumns";
 import type {
@@ -366,6 +376,10 @@ export function seedForWidthKey(key: string): number {
   if (key === "a3") return seedWidthPx("w-36");
   if (key === "a4") return seedWidthPx("description");
   if (key === REMARKS_WIDTH_KEY) return seedWidthPx("w-48");
+  // BCS-S3b: the two client-facing computed columns carry longer headers than the 112px default
+  // ("Tendered Total Amount"), and their figures are whole-row amounts rather than unit rates.
+  // The cost boxes + Total keep the default; all five stay user-resizable like any descriptor.
+  if (key === BCS_TENDERED_COL_KEY || key === BCS_MARGIN_COL_KEY) return seedWidthPx("w-36");
   return seedWidthPx("w-28");
 }
 
@@ -862,6 +876,36 @@ export function evaluateAmountCell(
   if (effRate === null) return { kind: "committed" };
   const amt = computeAmount(qty, effRate);
   return amt !== null ? { kind: "value", value: amt } : { kind: "committed" };
+}
+
+/**
+ * ★ BCS-S3b -- THE NUMBER AN AMOUNT CELL SHOWS. One decision, two readers.
+ *
+ * ⚠️ OWNER RULING: % Profit divides by THE FIGURE ON SCREEN. The BCS Tendered Total Amount
+ * column sums this across the confirmed Amount columns and the margin divides by that sum, so
+ * this and the amount `<td>` beside it MUST come from one place -- a denominator that differed
+ * from the number printed next to it would be worse than no column at all.
+ *
+ * Until S3b this logic was inline in the amount cell's render, which is why extracting it was
+ * the first thing this slice did rather than copying it: the RECONCILIATION arm is what makes
+ * the duplication dangerous. On a diverging cell the screen shows the DOCUMENT amount by default
+ * (D1), NOT the formula's, and a second copy that skipped `resolveDivergence` would compute a
+ * margin the sheet visibly contradicts on exactly the rows a human already flagged.
+ *
+ *   value + no divergence -> the formula value        blank -> null (contributes nothing)
+ *   value + divergence    -> resolveDivergence's pick committed -> the committed/document value
+ *
+ * Pure (no React) -- unit-tested in PricingGrid.test.ts.
+ */
+export function shownAmountValue(
+  cell: AmountCellResult,
+  documentVal: number | null,
+  choice: ReconChoice | undefined,
+): number | null {
+  if (cell.kind === "committed") return documentVal;
+  if (cell.kind !== "value") return null;
+  const recon = resolveDivergence(documentVal, cell.value, choice);
+  return recon.diverges ? recon.value : cell.value;
 }
 
 /**
@@ -1765,6 +1809,14 @@ interface PricingGridProps {
    */
   bcsQtySource?: BcsSource | null;
   /**
+   * BCS-S3b -- the CONFIRMED Amount columns (`bcs_amount_source`): what the client is charged
+   * for the row. It fills the Tendered Total Amount column and is therefore % Profit's
+   * DENOMINATOR. Read through `bcsRowAmount`, which sums the stored entries whatever the mode,
+   * over the figure each amount cell is SHOWING (owner ruling -- reconciliation choice and all).
+   * ABSENT => no amount => a blank Tendered column and a blank % Profit, never a 0.
+   */
+  bcsAmountSource?: BcsSource | null;
+  /**
    * BCS-S3a -- save ONE row's cost rates (`save_row_bcs_rates`). ⚠️ WHOLE-ROW: the args always
    * carry all three stored fields (see `gatherBcsRowRates`).
    *
@@ -2198,6 +2250,14 @@ interface PricingGridRowProps {
   /** THIS row's Total Quantity, resolved grid-side from the confirmed columns. A memo-safe
    *  SCALAR (number | null), like `depth` -- so the row never gets the qty source itself. */
   bcsQty?: number | null;
+  /** BCS-S3b: the CONFIRMED Amount columns (`bcs_amount_source`) -- the Tendered column's
+   *  operands, and so % Profit's denominator. Grid-level and reference-stable (it changes only
+   *  when `get_bcs_state` refetches), compared by IDENTITY exactly like `reconChoiceMap`.
+   *
+   *  ⚠️ It arrives as the SOURCE, not as a resolved scalar the way `bcsQty` does, and that is
+   *  deliberate: resolving it needs this row's live rate drafts (`rowDraftRates`), so it has to
+   *  happen inside the row -- see the compute in the cost block below. */
+  bcsAmountSource?: BcsSource | null;
   /** Present => the cost boxes are editable. Its ABSENCE is the read-only gate. */
   onSaveBcsRates?: (args: BcsRowSaveArgs) => Promise<void>;
   /** Why the boxes are read-only (grid-level string), rendered as the cell title. */
@@ -2294,6 +2354,7 @@ export function pricingRowPropsAreEqual(
     prev.bcsRow === next.bcsRow &&
     prev.rowBcsDrafts === next.rowBcsDrafts &&
     prev.bcsQty === next.bcsQty &&
+    prev.bcsAmountSource === next.bcsAmountSource &&
     prev.onSaveBcsRates === next.onSaveBcsRates &&
     prev.bcsReadOnlyReason === next.bcsReadOnlyReason &&
     prev.commitBcsRate === next.commitBcsRate &&
@@ -2370,6 +2431,7 @@ const PricingGridRow = memo(function PricingGridRow({
   bcsRow,
   rowBcsDrafts = EMPTY_SLICE,
   bcsQty = null,
+  bcsAmountSource = null,
   onSaveBcsRates,
   bcsReadOnlyReason = null,
   commitBcsRate,
@@ -2934,16 +2996,20 @@ const PricingGridRow = memo(function PricingGridRow({
           //    (kind === "value") can diverge from the committed/document amount. The SHOWN value
           //    defaults to the DOCUMENT amount while unset/keep_document; take_formula shows the
           //    formula value. A non-diverging cell keeps today's behavior (the formula value).
-          //    resolveDivergence + reconChoiceKey are pure leaf helpers (no priceability import). ──
-          let recon: ReconResolution = { diverges: false };
-          let shownAmount: number | null = cell.kind === "value" ? cell.value : null;
-          if (cell.kind === "value") {
-            const docRaw = resolveDescriptorValue(row, d);
-            const docVal = typeof docRaw === "number" ? docRaw : null;
-            const choice = reconChoiceMap.get(reconChoiceKey(row.source_row_number, d.col));
-            recon = resolveDivergence(docVal, cell.value, choice);
-            if (recon.diverges) shownAmount = recon.value;
-          }
+          //    resolveDivergence + reconChoiceKey are pure leaf helpers (no priceability import).
+          //
+          //    BCS-S3b: the SHOWN value now comes from the shared `shownAmountValue` -- the same
+          //    function the BCS Tendered column sums, so the margin's denominator and the number
+          //    printed here are one decision. `recon` stays local because the BADGE needs the
+          //    resolution shape (which choice, and whether to offer the chooser at all). ──
+          const docRaw = resolveDescriptorValue(row, d);
+          const docVal = typeof docRaw === "number" ? docRaw : null;
+          const reconChoice = reconChoiceMap.get(reconChoiceKey(row.source_row_number, d.col));
+          const recon: ReconResolution =
+            cell.kind === "value"
+              ? resolveDivergence(docVal, cell.value, reconChoice)
+              : { diverges: false };
+          const shownAmount = shownAmountValue(cell, docVal, reconChoice);
           const divergeTitle = recon.diverges
             ? recon.resolved === "unset"
               ? "Document and formula amounts differ -- choose which value to use"
@@ -3037,10 +3103,11 @@ const PricingGridRow = memo(function PricingGridRow({
           </td>
         );
       })}
-      {/* ── BCS-S3a: the cost block -- one editable box per live kind, then the computed Total
-             Amount. Placed AFTER the descriptors and BEFORE Remarks, which disturbs strictly
-             less colIndex algebra than a Category-style placement would: descriptorColStart and
-             every descriptor's own colIndex are untouched, and only the tail moves right.
+      {/* ── BCS-S3a/S3b: the cost block -- one editable box per live kind, then the three
+             COMPUTED columns (Total Amount · Tendered Total Amount · % Profit). Placed AFTER the
+             descriptors and BEFORE Remarks, which disturbs strictly less colIndex algebra than a
+             Category-style placement would: descriptorColStart and every descriptor's own
+             colIndex are untouched, and only the tail moves right.
 
              READ-ONLY IS THE ABSENCE OF onSaveBcsRates -- there is no second per-cell editable
              signal (the house rule). A read-only box still RENDERS its stored value, with
@@ -3056,7 +3123,58 @@ const PricingGridRow = memo(function PricingGridRow({
           // lookup missed, which made this controlled <Input> revert on every keystroke.
           const merged = mergeBcsRowValues(bcsRow, bcsDraftsForRow(row.row_index, rowBcsDrafts));
           const unit = bcsUnitCost(merged, bcsKinds);
-          const total = bcsTotalAmount(bcsQty, unit);
+          const totalCell = bcsTotalAmountCell(bcsQty, unit);
+          // ── BCS-S3b: THE DENOMINATOR, built HERE and not in `renderRow`, because it has to
+          //    read `rowDraftRates` -- a rate typed but not yet saved must move % Profit in the
+          //    same keystroke it moves the amount cell, and the row's own draft slice is the only
+          //    place that number exists. It also keeps the whole compute behind the row memo, so
+          //    a cursor move elsewhere in the grid does not re-evaluate every row's formulas.
+          //
+          //    ⚠️ `shownAmountValue` is the SAME decision the amount <td> above renders from --
+          //    owner ruling: % Profit divides by the figure ON SCREEN, reconciliation choice and
+          //    all. `evaluateAmountCell` takes a ColumnDescriptor and a BcsColumnEntry IS one
+          //    (identical six fields), so no cast: let the entry gain a field and this breaks
+          //    loudly, which is the whole point (BCS-S3a-fix).
+          const amountCell = bcsTenderedAmountCell(
+            bcsRowAmount(bcsAmountSource, (entry) => {
+              const cell = evaluateAmountCell(
+                entry,
+                row,
+                columnDescriptors,
+                columnFormulas,
+                rowDraftRates,
+              );
+              const raw = resolveDescriptorValue(row, entry);
+              return shownAmountValue(
+                cell,
+                typeof raw === "number" ? raw : null,
+                reconChoiceMap.get(reconChoiceKey(row.source_row_number, entry.col)),
+              );
+            }),
+          );
+          const marginCell = bcsMarginPercent(totalCell, amountCell);
+          // One renderer for all three computed cells: the number, or nothing with the reason as
+          // its title. A blank here NEVER renders 0 -- on a cost screen that reads as a claim.
+          const computedCell = (
+            key: string,
+            colIndex: number,
+            cell: BcsComputedCell,
+            format: (v: number) => string,
+            label: string,
+          ) => (
+            <td
+              key={key}
+              {...tdFocusProps(colIndex)}
+              data-colkey={key}
+              title={cell.kind === "blank" ? bcsBlankReasonText(cell.reason) : label}
+              className={cn(
+                "px-2 py-1.5 text-right align-top tabular-nums border-l border-border font-medium",
+                cellNavClass(colIndex),
+              )}
+            >
+              {cell.kind === "value" ? format(cell.value) : null}
+            </td>
+          );
           const editable = !!onSaveBcsRates && !!commitBcsRate && !!setDraftBcsRates;
           return (
             <>
@@ -3121,26 +3239,35 @@ const PricingGridRow = memo(function PricingGridRow({
                   </td>
                 );
               })}
-              {/* Total Amount -- COMPUTED, never stored (bcs.py's property 1: a stored copy
-                  could disagree with the live sheet). Blank when the row has no quantity or
-                  nothing has been costed: a 0 here would read as "this costs us nothing". */}
-              <td
-                {...tdFocusProps(bcsColStart + bcsKinds.length)}
-                data-colkey={BCS_TOTAL_COL_KEY}
-                title={
-                  total === null
-                    ? bcsQty === null
-                      ? "No quantity on this row"
-                      : "No cost entered yet"
-                    : undefined
-                }
-                className={cn(
-                  "px-2 py-1.5 text-right align-top tabular-nums border-l border-border font-medium",
-                  cellNavClass(bcsColStart + bcsKinds.length),
-                )}
-              >
-                {renderDescriptorCell(total)}
-              </td>
+              {/* The three COMPUTED columns -- never stored (bcs.py's property 1: a stored copy
+                  could disagree with the live sheet), never typeable, never a paste target.
+                  Read left to right they are the whole question BCS was built to answer: what
+                  this row costs us, what we charge for it, and the margin between the two.
+                  Each is blank WITH A REASON rather than 0 -- a 0 is a claim, not an absence. */}
+              {computedCell(
+                BCS_TOTAL_COL_KEY,
+                bcsColStart + bcsKinds.length,
+                totalCell,
+                (v) => renderDescriptorCell(v),
+                "Total Amount — quantity x the cost entered",
+              )}
+              {computedCell(
+                BCS_TENDERED_COL_KEY,
+                bcsColStart + bcsKinds.length + 1,
+                amountCell,
+                (v) => renderDescriptorCell(v),
+                "Tendered Total Amount — the amount charged to the client on this row",
+              )}
+              {/* % Profit needs its OWN formatter: renderDescriptorCell is the sheet's
+                  money/quantity formatter and has no percent unit, so a margin rendered through
+                  it would sit in the row looking like another amount. */}
+              {computedCell(
+                BCS_MARGIN_COL_KEY,
+                bcsColStart + bcsKinds.length + 2,
+                marginCell,
+                formatBcsMargin,
+                "% Profit — (amount charged − cost) / amount charged",
+              )}
             </>
           );
         })()}
@@ -3198,7 +3325,7 @@ PricingGridRow.displayName = "PricingGridRow";
 // grid props identity-stable (the 12 useMemo/useCallback wraps -- esp. `rows`/`displayRows`); a
 // future non-stable prop silently kills the shield (see frontend/CLAUDE.md).
 export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(function PricingGrid(
-  { rows, columnDescriptors, onSaveRate, onBatchWrite, onDirtyChange, onHistoryChange, override = false, formulasComplete = true, categoryGateOpen = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], categoriesByExcelRow = EMPTY_CATEGORY_MAP, hasRun = false, categoryLabelById = EMPTY_CATEGORY_LABEL_MAP, onCategoryClick, rowSuggestionsByExcelRow = EMPTY_SUGGESTIONS_MAP, onSuggestionBadgeClick, onSaveReconChoice, hiddenCols, currentHitExcelRow = null, collapsed, childrenByParent, onToggleCollapse, onRevealRow, frozen = false, virtualized = false, bcsKinds = EMPTY_BCS_KINDS, bcsRatesByExcelRow = EMPTY_BCS_RATES_MAP, bcsQtySource = null, onSaveBcsRates, bcsReadOnlyReason = null },
+  { rows, columnDescriptors, onSaveRate, onBatchWrite, onDirtyChange, onHistoryChange, override = false, formulasComplete = true, categoryGateOpen = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], categoriesByExcelRow = EMPTY_CATEGORY_MAP, hasRun = false, categoryLabelById = EMPTY_CATEGORY_LABEL_MAP, onCategoryClick, rowSuggestionsByExcelRow = EMPTY_SUGGESTIONS_MAP, onSuggestionBadgeClick, onSaveReconChoice, hiddenCols, currentHitExcelRow = null, collapsed, childrenByParent, onToggleCollapse, onRevealRow, frozen = false, virtualized = false, bcsKinds = EMPTY_BCS_KINDS, bcsRatesByExcelRow = EMPTY_BCS_RATES_MAP, bcsQtySource = null, bcsAmountSource = null, onSaveBcsRates, bcsReadOnlyReason = null },
   ref,
 ) {
   // Cluster B: per-cell reconciliation choice map (per-SHEET; reference-stable across a keystroke
@@ -3883,14 +4010,21 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
     c >= descriptorColStart && c < bcsColStart
       ? (visibleDescriptors[c - descriptorColStart] ?? null)
       : null;
-  // Which BCS column (a cost box's kind, or the computed "total") sits at c -- null outside.
-  const bcsAt = (c: number): BcsRateKind | "total" | null => bcsColumnAt(c, bcsColStart, bcsKinds);
+  // Which BCS column (a cost box's kind, or one of the computed ones) sits at c -- null outside.
+  const bcsAt = (c: number): BcsRateKind | BcsComputedKind | null =>
+    bcsColumnAt(c, bcsColStart, bcsKinds);
   // A target cell's kind: remark (last col), a BCS cost box, rate (a rate descriptor), else
-  // "other" (anchor / amount / qty -- AND the computed BCS Total, which is never a target).
+  // "other" (anchor / amount / qty -- AND every COMPUTED BCS column, which is never a target).
+  //
+  // ⚠️ BCS-S3b: the computed test is `isBcsInputColumn`, NEVER `b !== "total"`. Seven call sites
+  // asked that literal question; a second computed token answers it "yes, editable" and becomes
+  // a paste target on a column with no storage -- silently, with no type error. The guard is a
+  // membership test over BCS_COMPUTED_KINDS, so a third computed column is excluded by adding it
+  // to that list rather than by remembering seven edits.
   const cellKindAt = (c: number): CellKind => {
     if (c === remarksColIndex) return "remark";
     const b = bcsAt(c);
-    if (b) return b === "total" ? "other" : "bcs";
+    if (b) return isBcsInputColumn(b) ? "bcs" : "other";
     const d = descriptorAt(c);
     return d && isRateDescriptor(d) ? "rate" : "other";
   };
@@ -3898,10 +4032,8 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
   // skips the formula, priceability and category gates on purpose (bcs.py:41-59), so cost entry
   // is available on rows -- a qty-less Preamble included -- where a rate is not. The whole gate
   // is the presence of the save callback, which the page withholds per bcsCostEntryReason.
-  const bcsWritableAt = (c: number): boolean => {
-    const b = bcsAt(c);
-    return !!onSaveBcsRates && b !== null && b !== "total";
-  };
+  const bcsWritableAt = (c: number): boolean =>
+    !!onSaveBcsRates && isBcsInputColumn(bcsAt(c));
   // One row's merged cost values (draft-or-stored) -- the SAME merge the cells render from.
   const bcsMergedFor = (row: PricedRow): Record<BcsRateField, string | null> =>
     mergeBcsRowValues(
@@ -3927,8 +4059,8 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
     if (c === remarksColIndex) return { kind: "remark", value: row.remark ?? "" };
     const b = bcsAt(c);
     if (b) {
-      // The computed Total is not copyable -- it is a SKIP hole, like an amount cell.
-      if (b === "total") return null;
+      // A COMPUTED column is not copyable -- it is a SKIP hole, like an amount cell.
+      if (!isBcsInputColumn(b)) return null;
       return { kind: "bcs", value: bcsMergedFor(row)[BCS_RATE_FIELD[b]] ?? "" };
     }
     const d = descriptorAt(c);
@@ -4222,7 +4354,7 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
         } else if (cell.kind === "bcs") {
           // A cut cost box clears to 0 -- collected, then folded into ONE write per row below.
           const b = bcsAt(c);
-          if (b && b !== "total" && bcsWritableAt(c)) {
+          if (isBcsInputColumn(b) && bcsWritableAt(c)) {
             bcsIntents.push({ row, field: BCS_RATE_FIELD[b], raw: "" });
           } else {
             skips.push({ r, c });
@@ -4307,7 +4439,7 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
             cellsWritten++;
           } else if (clip.kind === "bcs") {
             const b = bcsAt(c);
-            if (!b || b === "total") {
+            if (!isBcsInputColumn(b)) {
               skips.push({ r, c });
               continue;
             }
@@ -4384,7 +4516,7 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
             cellsWritten++;
           } else if (top.kind === "bcs") {
             const b = bcsAt(c);
-            if (!b || b === "total") {
+            if (!isBcsInputColumn(b)) {
               skips.push({ r, c });
               continue;
             }
@@ -4605,7 +4737,7 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
   const commitActiveBcs = (cell: CellCoord) => {
     if (!onSaveBcsRates) return;
     const b = bcsAt(cell.colIndex);
-    if (!b || b === "total") return;
+    if (!isBcsInputColumn(b)) return;
     const row = rows[cell.rowIndex];
     if (!row) return;
     const field = BCS_RATE_FIELD[b];
@@ -5362,6 +5494,25 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
         <span className="block truncate">Total Amount</span>
         {resizeHandle(BCS_TOTAL_COL_KEY, false)}
       </th>
+      {/* BCS-S3b: the client-facing pair. ALWAYS SHOWN (owner ruling) -- even where an existing
+          amount column already displays the same number, because it answers a different
+          question, and a section that changes shape between sheets is harder to trust. */}
+      <th
+        data-colkey={BCS_TENDERED_COL_KEY}
+        title="Tendered Total Amount — the amount charged to the client, from the columns confirmed for BCS (computed, never stored)"
+        className="px-2 py-2 text-right font-medium text-sky-800 dark:text-sky-200 border-l border-border sticky top-0 z-20 align-top bg-sky-50 dark:bg-sky-950/40"
+      >
+        <span className="block truncate">Tendered Total Amount</span>
+        {resizeHandle(BCS_TENDERED_COL_KEY, false)}
+      </th>
+      <th
+        data-colkey={BCS_MARGIN_COL_KEY}
+        title="% Profit — (amount charged − cost) / amount charged (computed, never stored)"
+        className="px-2 py-2 text-right font-medium text-sky-800 dark:text-sky-200 border-l border-border sticky top-0 z-20 align-top bg-sky-50 dark:bg-sky-950/40"
+      >
+        <span className="block truncate">% Profit</span>
+        {resizeHandle(BCS_MARGIN_COL_KEY, false)}
+      </th>
     </>
   );
 
@@ -5483,6 +5634,7 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
       bcsRow={bcsRatesByExcelRow.get(row.source_row_number)}
       rowBcsDrafts={bcsSlicesByRow.get(row.row_index) ?? EMPTY_SLICE}
       bcsQty={bcsQtyFor(row)}
+      bcsAmountSource={bcsAmountSource}
       onSaveBcsRates={onSaveBcsRates}
       bcsReadOnlyReason={bcsReadOnlyReason}
       commitBcsRate={commitBcsRate}
