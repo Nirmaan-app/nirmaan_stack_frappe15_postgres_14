@@ -18730,6 +18730,15 @@ verified **not** to serve a cached copy (§6, experiment 4).
 
 38 cases: all **ten** stored modes, every refusal by code, and **8 precedence cases** — inputs that
 violate two rules at once, pinning which answers. The load-bearing one is
+
+> ⚠️ **ERRATUM (BCS-S2e-fix): this record said "38 cases" and "8 precedence cases".** Counted from
+> the shipped table at BCS-S2e-fix: **44 cases** and **11 precedence (`beats`) cases**. Both figures
+> understate the artifact, and the second one is not merely cosmetic — **both suites asked only for
+> `>= 8` `beats` cases**, so the number in the guard matched the number in this sentence while the
+> table carried three more. That slack is what let the reviewer delete
+> `amount-precedence-kind-beats-shape` — the case named two lines below as the load-bearing one —
+> with both suites still green. The floor is now per-adjacency; see the BCS-S2e-fix record.
+> *(The table stands at **46** after BCS-S2e-fix added two cases of its own.)*
 `amount-precedence-kind-beats-shape`: `["F","I"]` (scalar total beside a per-area supply half) violates
 both axes, and **KIND must win**, because the same rules in a different order give a different
 complaint for one input — which a user does not read as a wording nit but as the screen and the server
@@ -18800,6 +18809,13 @@ test_review_screen         260 →  260
 git diff --stat            6 files, 1094 insertions(+), 67 deletions(-)
 ```
 
+> ⚠️ **ERRATUM (BCS-S2e-fix): this record said `bcsColumns.test.ts 145 → 179`.** The base is **165**,
+> so the slice added **+14, not +34**. The record contradicts itself two lines above: the whole suite
+> moved `1422 → 1436`, exactly **+14**, and `bcsColumns.test.ts` is the ONLY changed frontend file —
+> so no other file could have absorbed the missing 20. Re-measured at BCS-S2e-fix: the pre-slice file
+> holds 149 literal `it(`/`test(` calls plus 2 `it.each` blocks expanding to 18, i.e. **165**; the
+> shipped file holds 163 + the same 2 blocks, i.e. **179** as vitest reports.
+
 `python3 scripts/residence_check.py` — **the gate EXITS 1**, as it did before this slice. B1 0, B2 8,
 B3 40, F5 116 all holding; **F2 208 vs baseline 207**, pre-existing, **our delta zero** — output
 byte-identical to the pre-slice run, diffed to confirm.
@@ -18848,8 +18864,200 @@ hover text, not `150.0%`.
   there was nothing to change. Recorded because *not needing* the edit is the evidence the split was
   contained.
 - **`reviewRender.tsx`'s `:775` double cast** — still waiting for a slice with it in scope.
+  > ⚠️ **ERRATUM (BCS-S2e-fix): the location is wrong, and was impossible as written.** The double
+  > cast is at **`PricingGrid.tsx:789`** (`rd ?? (ref as unknown as ColumnDescriptor)`).
+  > `reviewRender.tsx` is **204 lines long**, so there is no `:775` in it. The confusion is
+  > traceable: the parameter that wants narrowing belongs to `resolveDescriptorValue`, which DOES
+  > live in `reviewRender.tsx` — the cast is at the CALL SITE, not at the definition. Still not
+  > done, and still waiting for a slice with `reviewRender.tsx` in scope; only the address changed.
 - **The F2 red was not re-baselined**, only held at delta zero. Re-baselining is the owner's call.
 - **The residence ratchet's comment-matching behaviour was not "fixed".** It lives in `scripts/`.
 - **No second parity table for other FE↔BE mirrors.** `reconcile.ts` / `priceability.ts` still have
   none; this slice built the mechanism, not a campaign. Whether to extend it is an owner call.
 - **Production remains unmigrated for the whole BCS arc.** This slice adds no migration of its own.
+
+---
+
+## BCS-S2e-fix — closing the net's own slack
+
+**Branch** `feature/bcs-columns` · **Base** `eecbb4c0` · **Tier** STANDARD · **Date** 2026-08-03
+
+**REVIEW: pending**
+
+BCS-S2e built the cross-language parity net and passed review. **Its own anti-vacuity guard had slack
+in the one place that mattered**, so nothing could safely build on it. This slice closes that, files
+four errata against the S2e record, corrects a false comment inside the net's shared artifact, and
+records three edges the net still does not close. **Tests, one fixture and records only — no
+production source file changed, no migration, no endpoint touched.**
+
+### 1. The hole, reproduced before it was fixed
+
+Both suites required only **`>= 8`** `beats` cases while `parity_cases.json` carried **11**. Three
+precedence cases could vanish unnoticed — and the reviewer's proof was not hypothetical. Reproduced
+in-session at this slice's base, **before writing a line of the fix**:
+
+| mutation | backend `test_sources` | vitest `bcsColumns.test.ts` |
+|---|---|---|
+| delete `amount-precedence-kind-beats-shape` (the case the table itself labels **THE LOAD-BEARING ONE**) | **60/60 OK** | **179/179 pass** |
+
+Both suites green while the table's own starred case was gone. **That is the exact "looks closed"
+failure the net exists to prevent, one level down** — and it is worse here than at BCS-S2b, because
+the thing that failed silently was the instrument.
+
+### 2. The seam, and why a bigger number was refused
+
+The seam is **the shared table's contract with its two consumers** — what a suite must demand of
+`parity_cases.json` before it may call the table adequate. That is where the defect lived: not in
+either rule chain (both are correct and agree), and not in the cases (all 11 are real), but in the
+*acceptance criterion* both suites applied to the artifact.
+
+Raising the floor to `>= 11` was available and was **rejected**. A count cannot say WHICH precedence
+claim went missing — it would still pass with the load-bearing case deleted and a trivial one added
+in its place — and it must be hand-bumped every time a case is added, which is precisely how it fell
+three behind in the first place. **A guard that needs maintaining to stay honest will drift again.**
+
+So the floor is now **per-adjacency**: walk each side's declared chain pairwise and require every
+neighbouring pair to be settled — by a real `beats` case, or by a declared exemption. Two properties
+follow that the count never had:
+
+- **A named case cannot be dropped in silence**, because dropping it strands its pair, and the failure
+  message names the pair.
+- **Adding a case needs no edit to the guard at all**, so the guard cannot fall behind the table.
+
+**The exemption list is DATA, not code** (`unconstructible_adjacencies`, in the shared JSON), matching
+this arc's standing rule for the demotion list. Two shapes are exempt per side and both are facts about
+the rules rather than about effort: a pick cannot be simultaneously empty and wrong
+(`no_pick` ▸ `unknown_column`), and anything reaching `too_many_scalars` was already answered by
+`aliased_columns` far earlier (`mixed_shapes` ▸ `too_many_scalars`). Three guards keep that list from
+growing into a blanket — an exemption must name a pair that really **is** adjacent (so a reorder
+strands it rather than widening it), must carry a reason, and **must not coexist with a case that
+constructs the pair**, since that is a false statement rather than a waiver.
+
+**Honest scope of the new guard.** It covers ADJACENT pairs only. The two NON-adjacent `beats` cases —
+the `aliased_columns` ▸ `too_many_scalars` shadow on each side — are pinned **by name** through the
+pre-existing `unreachable.shadowed_by` mechanism. Between the two mechanisms **all 11 precedence cases
+are now load-bearing somewhere**, which is the claim; "per-adjacency covers everything" would not be.
+
+### 3. Red before green, in both languages
+
+Every run below was executed in-session; the table was restored from a banked pristine copy between
+mutations and the tree verified clean afterwards.
+
+| # | state | backend | vitest |
+|---|---|---|---|
+| 0 | **old guard**, load-bearing case deleted | 60/60 **OK** | 179/179 **pass** | 
+| 1 | **new guard**, load-bearing case deleted | **RED** — `(side='amount', pair='mixed_kinds>mixed_shapes')` | **RED** — same pair, named |
+| 2 | **new guard**, table intact | 62/62 OK | 181/181 pass |
+| 3 | **new guard**, a case the guard never names deleted (`qty-precedence-aliased-beats-wrong-class`) | **RED** — `(side='qty', pair='aliased_columns>wrong_class')` | **RED** — same pair, named |
+| 4 | **new guard**, a bogus exemption declared for a pair a case constructs | — | **RED** — "declared unconstructible AND a case constructs it" |
+
+Row 0 against row 1 is the whole slice: **the same mutation, silent before and named after.** Row 3
+proves the guard generalises — it pins no case id, only the structure, so it catches a deletion nobody
+anticipated. Row 4 proves the contradiction branch is live rather than dead code.
+
+### 4. The one edge closed, and the two left open
+
+**Closed — the bad/NULL `rate_subkey` family (two cases, two descriptors).** The net had *no*
+descriptor whose third hop was broken, so the server's class guard was never compared against the
+client's on the exact family the net was built for. Two cases now do it: `W` (per-area amount role,
+`rate_subkey: null`) and `X` (per-area amount role, `rate_subkey: "net"`). **Not redundant with each
+other** — the client's guard is a truthiness test AND a set membership on two separate lines, so a
+client that dropped the membership check would still pass the null case and fail only the unknown one.
+The server keys on one `in` test. **Both sides agreed** on both cases first time, which is the useful
+result: the guards were already parallel, and now that is pinned rather than assumed.
+
+**Left open, recorded rather than fixed** (both larger than this slice):
+
+- ⚠️ **AN INDEX-BUILDER ASYMMETRY, and it is written down nowhere else.** `bcs.py:223-231`
+  (`_descriptor_index`) is a dict comprehension — **last duplicate wins**. `bcsColumns.ts:269-276`
+  (`buildBcsDescriptorIndex`) is `if (!m.has(d.col)) m.set(...)` — **first wins**. On a sheet whose
+  descriptor list carries the same column LETTER twice, the two sides would index different
+  descriptors and could then legitimately disagree about every rule downstream. **The parity table
+  cannot see it**: the fixture's `col` letters are unique, so both builders produce the same map.
+  Unlike every other unreachable divergence in this arc, this one had no note anywhere — which is why
+  it is here. Whether it is reachable at all depends on `review_screen._build_column_descriptors`
+  (which appears to key by column), so the honest next step is to establish reachability BEFORE
+  choosing a side to converge on.
+- **`eligibleBcsColumns` is pinned client-side only** — and it is the surface where the BCS-S2b gap
+  was actually *visible* to the owner (an empty dialog list). The parity table compares the two
+  *decision* chains; the eligibility filter that decides what a user may pick in the first place is
+  compared nowhere.
+
+### 5. A false comment inside the shared artifact
+
+`parity_cases.json`'s `_readme` **and** `test_sources.py` both stated the vitest suite reads the file
+with `readFileSync` off `import.meta.url`, *"NOT a bundler import — no Vite fs-allow question"*.
+**Both halves are false about what ships.** `bcsColumns.test.ts:26` **is** a bundler import, and that
+file's own docblock explains why the `import.meta.url` draft was abandoned (its inline decode tripped
+the ADR-0010 F2 ratchet). The `_readme` also asserted a **safety property the shipped approach does not
+have**: because the import crosses out of `frontend/`, the module-resolution question is *raised*, not
+avoided — it is *answered*, but that is a different claim.
+
+Both are corrected to describe what ships. This mattered more than an ordinary stale comment because
+**the one artifact both languages share was describing its own consumer wrongly, in both of its
+descriptions at once** — so a reader had no second source to catch it against. The S2e *record*'s §4
+was already correct on this point; only the two artifacts were wrong.
+
+### 6. Four errata filed against the BCS-S2e record
+
+All four are corrected **in place, each marked `⚠️ ERRATUM (BCS-S2e-fix)`**, with the false value left
+visible beside the true one — nothing is quietly rewritten.
+
+| said | is | how it was caught |
+|---|---|---|
+| "38 cases" | **44** | counted from the shipped table |
+| "8 precedence cases" | **11** | counted; **and this one was load-bearing** — the guard's `>= 8` matched the wrong sentence, which is the defect above |
+| `bcsColumns.test.ts 145 → 179` | base **165**, so **+14 not +34** | the record contradicts itself two lines above (`1422 → 1436` = +14, and it is the only changed frontend file); re-measured both ways |
+| double cast at `reviewRender.tsx:775` | **`PricingGrid.tsx:789`** | `reviewRender.tsx` is **204 lines**, so `:775` was impossible. The parameter that wants narrowing *does* belong to `resolveDescriptorValue` in `reviewRender.tsx` — the cast is at the CALL SITE |
+
+**The planner's brief inherited the 145 figure**, so the third is a correction to the planner's error as
+much as the builder's.
+
+### 7. Recorded, not fixed: the S2e commit is typed `test(boq):`
+
+`fc77f436` is typed **`test(boq):`** but carries **two user-visible behaviour changes** — cells that
+rendered `+150.0%` (a loss displaying as profit) and `Infinity` now render blank with a reason.
+**History is NOT being rewritten.** It is recorded here so that anyone auditing behaviour changes by
+filtering for `fix(` knows to look inside a `test(` commit for these two.
+
+### 8. Verification
+
+```
+vitest (in-container)     1436 → 1438   (54 files, all pass)
+  bcsColumns.test.ts       179 →  181
+tsc boq-wizard               0 →    0
+test_sources                60 →   62
+test_bcs                    64 →   64
+test_export_writeback       47 →   47
+test_pricing               252 →  252
+test_commit_pipeline        57 →   57
+test_review_screen         260 →  260
+```
+
+`python3 scripts/residence_check.py` — **the gate EXITS 1**, exactly as it did before this slice.
+B1 **0**, B2 **8**, B3 **40**, F5 **116** all holding at baseline; **F2 208 vs baseline 207**,
+**pre-existing, our delta ZERO**. Verified structurally rather than by assertion: F2 is a line regex
+for `JSON.parse` over `frontend/src/pages`, and this slice's only frontend file
+(`bcsColumns.test.ts`) contains **0** matches both at `HEAD` and in the working copy. The S2e record's
+warning that *prose* can trip that counter was heeded — the new comments say "inline decode", never
+the call.
+
+**No DOM test environment** (deliberate, `vitest.config.ts`). Nothing here needs one: every change is
+a test, a JSON fixture, or a comment. **No owner's-eyes item.**
+
+### 9. Deliberately NOT done
+
+- **`scripts/` — untouched entirely**, including `review_receipt.py` and `prompt_lint.py`. Read-only,
+  and the owner's only copy.
+- **`sources.py` / `bcsColumns.ts` — no production change.** The net's CONTENT was right; only its
+  GUARD was loose. The two new `rate_subkey` cases confirmed the two class guards already agree.
+- **The `beats` count was DELETED, not raised**, on both sides. Recorded because deleting an assertion
+  normally deserves suspicion: it is replaced by a strictly stronger one, and rows 1/3 above are the
+  evidence that the replacement catches what the number could not.
+- **The index-builder asymmetry was not converged.** Reachability has to be established first, and
+  that means reading `review_screen._build_column_descriptors`, which is not in scope.
+- **`eligibleBcsColumns` parity was not built.** A second table, and a slice of its own.
+- **`PricingGrid.tsx:789`'s double cast** — still waiting for a slice with `reviewRender.tsx` in scope;
+  this slice only corrected its address.
+- **The F2 red was not re-baselined**, only held at delta zero. Still the owner's call.
+- **No commit was amended or re-typed.** §7 records the mistype instead.
