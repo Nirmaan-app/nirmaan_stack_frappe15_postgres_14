@@ -16697,9 +16697,20 @@ Three decisions inside it, none of which the prompt settled:
   one implementation answers both. This is also why the message is source-neutral ("would count its
   value twice") — exactly like refusal #1, the other shared one.
 - **It sits AFTER the resolve loop, not before it.** `["Z","Z"]` on a sheet with no Z therefore still
-  reports *unknown column* — the more fundamental fact about that pick — rather than *duplicate*. The
-  consequence that matters: **every input that threw before this slice throws identically.** Pinned by
+  reports *unknown column* — the more fundamental fact about that pick — rather than *duplicate*. Pinned by
   `test_an_unknown_column_beats_a_duplicate`.
+  **⚠️ CORRECTED at BCS-S1c (2026-08-02).** This bullet originally gave the consequence as *"every input
+  that threw before this slice throws identically"*, and that sentence had been copied into
+  `sources.py` and into the `test_an_unknown_column_beats_a_duplicate` docstring. **It is false as
+  written**, and all three copies are now corrected. The *safety* half held — the S1b review's 32-input
+  differential found zero behavioural changes, nothing newly accepted and nothing newly refused. What did
+  not hold is the claim about MESSAGES: this refusal precedes every per-source rule, so it SHADOWS **six**
+  titles, not the one scalar case that was disclosed — `Too many total-quantity columns`, `Too many amount
+  columns`, `Not a quantity column`, `Not the Amount (Combined) column`, `Mixed quantity sources`,
+  `Mixed amount sources`. Nothing broke, because no test anywhere asserts on a message in that family; the
+  defect was the sentence, sitting in three places that would be read as specification. The true, narrow
+  claim — the one the test actually pins — is the one now stated above: **an unknown column is still
+  reported as unknown.**
 - **Only the PER-AREA shape was ever a hole.** A repeated *scalar* pick already fell foul of the
   one-scalar-column rule (#5), so it was refused **by accident of a rule aimed at something else**. It
   is now refused for the reason that is actually true of it, which changes that input's *message*
@@ -16826,8 +16837,11 @@ them.
 **f2 208 vs baseline 207 — the PRE-EXISTING red** traced to `fe61165a` (RM-4b). Not re-baselined, not
 fixed. `scripts/residence_baseline.json` shows an empty `git diff`.
 
-`git diff --stat` for the code commits: `test_bcs.py` +35, `sources.py` +44/−8, `residence_check.py`
-+16/−1, `test_sources.py` new (29 tests).
+`git diff --numstat` for the code commits: `test_bcs.py` +35/−0, `sources.py` +37/−7,
+`residence_check.py` +15/−1, `test_sources.py` new (364 lines, 29 tests).
+**⚠️ CORRECTED at BCS-S1c (2026-08-02):** this line originally reported `sources.py` **+44/−8** and
+`residence_check.py` **+16/−1**, taken from `git diff --stat` — whose combined `+++---` bar was read as
+an insertion count. `--numstat` gives the real figures above and is what every later record uses.
 
 **Surfaced, not silently absorbed:** the `test_pricing` run prints
 `duplicate key value violates unique constraint "tabBoQ Sheet Pricing Lock_pkey"` after its `OK`. It is
@@ -16853,10 +16867,187 @@ cannot have caused it.
   keyed by the sheet's real uppercase letters), which is correct. Making duplicate detection
   case-insensitive would be a behaviour change beyond this slice.
 - **The duplicate rule is NOT applied across the two sources.** Picking the same column as both the
-  quantity and the amount source is a different question with a different answer (the class checks
-  already refuse it in every real sheet shape), and conflating them would invent a rule nobody ruled on.
+  quantity and the amount source is a different question with a different answer, and conflating them
+  would invent a rule nobody ruled on.
+  **⚠️ STRENGTHENED at BCS-S1c (2026-08-02):** this originally hedged that the class checks "already
+  refuse it in every real sheet shape". The truth is stronger — they refuse it **BY CONSTRUCTION**. The
+  two builders accept disjoint `value_field` sets (quantity `{qty_total, qty_by_area}`; amount
+  `amount_total`, or `amount_by_area` with `rate_subkey == "total"`), and a descriptor carries exactly
+  ONE `value_field`, so no column can satisfy both — this does not depend on any sheet's shape. A
+  cross-source rule would therefore be dead code. Pinned by
+  `test_an_amount_column_is_not_a_quantity_column` / `test_a_quantity_column_is_not_an_amount_column`.
+  Investigated and CLOSED at S1c — do not reopen.
 - **No frontend file, no migration, no doctype JSON.** S2 onward.
 - **The carry path (S6) — untouched.**
 - **The `acquire_or_refresh` duplicate race — not fixed.** Pre-existing; belongs in `pricing_lock`.
 - **No live browser E2E.** Backend-only, nothing renders; and the changed behaviour is unreachable from
   any UI until S2 ships the picker, so there is literally nothing a browser could observe.
+
+## BCS-S1c — seal the confirmation rules: de-duplicate on the VALUE, not the letter
+
+**Branch** `feature/bcs-columns` · **Base** `768e5d2a` · **Tier** FULL · **Date** 2026-08-02
+
+S1b fixed the duplicate-column bug at the wrong level: it de-duplicated the picked **letter**, and its own
+review then proved by execution that two **different** letters resolving to the same underlying value were
+still accepted — producing exactly the double-count S1b existed to prevent. This slice re-keys that one
+refusal on the **resolved identity** `(value_field, value_key, rate_subkey)`, and corrects three claims
+that were written confidently and would have been read as specification. **Nothing else moved:** no
+endpoint, no doctype JSON, no migration, no frontend file, no baseline. It is the last foundation gap;
+S2 onward is pure feature work.
+
+---
+
+### 1. The real fix — `services/boq_bcs/sources.py`
+
+`_resolve_picks` keyed its duplicate check on the picked column **letter**. That is only the DEGENERATE
+case. `review_screen._build_column_descriptors` imposes **no uniqueness on `(role, area)` across
+columns**, so a sheet mapping Zone A quantity on **both D and E** produces two descriptors that resolve to
+one number — and `build_qty_source(["D","E"])` stored both and summed them. Reachable from a real sheet
+(a duplicated export column, a mid-migration remap), inert today, load-bearing at S3 where summing lands.
+
+The key is now the **resolved identity**:
+
+```python
+key = (desc.get("value_field"), desc.get("value_key"), desc.get("rate_subkey"))
+```
+
+Four decisions inside that one line, none of which the prompt settled:
+
+- **It SUBSUMES the letter case** — the same letter necessarily resolves identically — which is why the
+  S1b letter tests keep passing with **no edit**. That was verified in the order that makes it evidence:
+  the GREEN run happened *before* any existing assertion was touched.
+- **The letter check is KEPT, ahead of it.** Not as a second rule: as the specific **voicing** of the
+  degenerate case. Two message assertions pin S1b's exact wording (`"more than once"`, and the anchored
+  `^Column\(s\) D are picked`), and a single merged message could not have satisfied both without an
+  awkward disjunction (*"picked more than once, **or** hold the same value"*) that makes the user work out
+  which. **One rule, one title (`Duplicate column`), two voicings**, ordered most-specific-first — the same
+  shape as *unknown beats duplicate*.
+- **It stays in the shared `_resolve_picks`**, so both sources are covered by construction rather than by
+  two copies, and the message stays source-neutral. This is the same seam S1b chose; only its key changed.
+- **The new voicing names the offending GROUP**, because the user picked two columns that *look*
+  different and an unactionable refusal is barely a refusal:
+
+```
+Column(s) D, E resolve to the same value on this sheet, so picking them together would count
+that value twice. Pick one column per value.
+```
+
+**Refusal ordering, and what it now shadows** — verified by executing all 24 inputs, not by reading:
+
+| input | fixture | title |
+|---|---|---|
+| `["Z","Z"]` | SCALAR | `Unknown column` — unknown still beats duplicate |
+| `["D","D"]` | PER_AREA | `Duplicate column` (letter voicing) |
+| `["D","E"]` | ALIASED | `Duplicate column` (**value** voicing — the new refusal) |
+| `["D","E"]` | TWO_SCALARS | `Duplicate column` ← **was** `Too many total-quantity columns` |
+| `["D","E"]` | MIXED | `Mixed quantity sources` — still reachable |
+| `["C"]` | SCALAR | `Not a quantity column` — still reachable |
+| `["D"]`, `["D","E"]` | SCALAR / PER_AREA | **OK** — every valid shape still confirms |
+
+**A consequence the prompt did not anticipate, surfaced rather than absorbed:** widening the key makes two
+refusals **unreachable for every input** — `Too many total-quantity columns` and `Too many amount columns`.
+Their guard is "≥2 picks, all scalar totals of one role", and two such descriptors *necessarily* share
+`(value_field, None, None)`, so the duplicate check always fires first. **They are RETAINED, not deleted:**
+they are the correctly voiced refusal should this key ever narrow, and deleting a live refusal is a
+behaviour change this slice was not asked to make. Both are documented as unreachable in the code. The two
+tests covering them are bare `assertRaises` and still pass — the outcome is unchanged, only the message.
+
+### 2. Correcting a false claim that would have been read as specification
+
+S1b wrote *"every input that threw before this slice throws identically"* into **three** places:
+`sources.py`, the `test_an_unknown_column_beats_a_duplicate` docstring, and its own plan record. All three
+are corrected in place.
+
+The **safety** half held — the S1b review's 32-input differential found zero behavioural changes. What did
+not hold is the claim about **messages**: the duplicate refusal precedes every per-source rule, so it
+shadows **six** titles, not the one scalar case that was disclosed. Post-S1c the picture is sharper still,
+and the corrected text states the post-slice truth rather than the pre-slice one: four titles are shadowed
+**for inputs carrying a duplicate** (`Not a quantity column`, `Not the Amount (Combined) column`,
+`Mixed quantity sources`, `Mixed amount sources`), and two are shadowed **for every input** (the pair
+above). Nothing broke, because **no test anywhere asserts on a message in that family** — the defect was
+the sentence, not the code.
+
+Replacing it with the **narrow claim the test actually pins**: *an unknown column is still reported as
+unknown.* That, and only that, is what the ordering buys.
+
+### 3. Test tightening — proportionate, not a sweep
+
+- `test_the_unknown_column_refusal_names_the_column` asserted on `"Z"` — **one unanchored character**.
+  Harmless against the `SCALAR` fixture, but it would have matched **vacuously** the moment it were
+  repointed at `PER_AREA`, whose `"Zone A"` contains a Z. Now `r"^Column 'Z' is not a mapped column"`,
+  matching the escaped-and-anchored style already used elsewhere in the file.
+- The **duplicate family** — the one this slice owns — now pins its specific refusal instead of "some
+  refusal fired": the two S1b per-area tests move from bare `assertRaises` to `"more than once"`, and the
+  four new tests assert on `"same value"` / the anchored group message.
+- **The other 12 bare `assertRaises` were deliberately left alone.** The S1b review counted 16 of 29 pure
+  tests in that shape; rewriting all of them is a different slice with a different justification, and doing
+  it here would bury the change that matters.
+
+### 4. `scripts/residence_check.py` — the B1 warning was wrong in both directions
+
+Both corrections were **reproduced by execution before being written** (`strip_strings_and_comments`
+driven directly over a parseable and an unparseable fixture):
+
+- **It OVERSTATED.** The note claimed B1 cannot match *"in ANY file, however impure"*. But the
+  `tokenize/IndentationError/SyntaxError` branch **fails OPEN and returns the RAW source** — an
+  **unparseable** file DOES match, and over-matches into comments and docstrings, where a mere *mention* of
+  `frappe.db` counts as a violation. Measured: the unparseable fixture produced **2 matches**, one of them
+  from inside a docstring. The check is blind on every file that parses and over-eager on any that does not.
+- **It UNDERSTATED.** It cited only `frappe.db`. Measured: **all four** alternatives — `frappe.db`,
+  `frappe.get_all(`, `frappe.get_doc(`, `frappe.sql(` — score **0 matches** each, since every one spans a
+  token boundary the joiner pads.
+
+**The tokenizer bug itself is still NOT fixed** — repo-wide blast radius on a shared enforcement script,
+its own slice. Only the note changed; no rule count moved.
+
+### 5. Verification
+
+| suite | baseline → final |
+|---|---|
+| `services.boq_bcs.test_sources` | **29 → 33** |
+| `api.boq.wizard.test_bcs` | **49 → 50** |
+| `api.boq.wizard.test_export_writeback` | 47 → **47** |
+| `api.boq.wizard.test_pricing` | 252 → **252** |
+| `api.boq.wizard.test_commit_pipeline` | 57 → **57** |
+| `api.boq.wizard.test_review_screen` | 260 → **260** |
+
+**Red before green, shown twice — and once honestly declined.** The three new pure tests were written
+first and failed against the current key with `AssertionError: ValidationError not raised` (33 ran, 3
+failed) — i.e. the double-count was *accepted*. The endpoint test was then shown red by restoring
+`sources.py` from `HEAD` (`git show HEAD:…`, backup taken first, restore verified byte-identical by
+`shasum`) and re-running: 50 ran, 1 failed, same message — proving the aliased pick reached the **store**,
+not just the builder. **The wording corrections in §2 and §4 have no red phase**, and claiming one would be
+a fiction; they were verified by execution instead (the 24-input title probe, the B1 probe).
+
+`python3 scripts/residence_check.py` → b1 **0/0**, b2 8/8, b3 40/40, f5 116/116 all holding; **f2 208 vs
+baseline 207 — the PRE-EXISTING red** traced to `fe61165a` (RM-4b). Not re-baselined, not fixed, and my
+`residence_check.py` edit moved **no** rule count.
+
+`git diff --numstat` (authoritative — the S1b record's `--stat` misread is corrected above):
+`test_bcs.py` **+58/−0**, `sources.py` **+48/−18**, `test_sources.py` **+78/−12**,
+`residence_check.py` **+17/−6**.
+
+**Surfaced, not silently absorbed:** `test_pricing` again prints
+`duplicate key value violates unique constraint "tabBoQ Sheet Pricing Lock_pkey"` after its `OK` — the
+known non-atomic `pricing_lock.acquire_or_refresh` race, pre-existing and untouched here.
+
+**No live browser E2E**, for the same reason as S1b: the changed behaviour is unreachable from any UI until
+S2 ships the picker, so there is nothing a browser could observe.
+
+### 6. Deliberately NOT done
+
+- **NO cross-source duplicate rule.** Picking one column as both quantity and amount is **structurally
+  impossible** — disjoint `value_field` sets, one `value_field` per descriptor. Such a rule would be dead
+  code. Investigated, CLOSED, and the S1b record's weaker *"in every real sheet shape"* hedge strengthened
+  to *by construction*. **Do not reopen.**
+- **The two now-unreachable refusals — NOT deleted.** See §1. Retained deliberately, documented as
+  unreachable.
+- **The B1 tokenizer bug — NOT fixed.** Note corrected only; the fix is repo-wide and needs its own slice.
+- **`scripts/residence_baseline.json` — NOT re-baselined.** The F2 red is someone else's and stays visible.
+- **The other 12 bare `assertRaises` — NOT rewritten.** Out of proportion to this slice; see §3.
+- **`api/boq/wizard/bcs.py` — NOT touched.** The refusal is a rule about what a valid confirmation *is*,
+  which is the pure module's business (ADR-0010 B1) — the same reasoning as S1b.
+- **`pricing.py`, every doctype JSON, every frontend file, the carry path (S6) — untouched.**
+- **S1b's *"Only the PER-AREA shape was ever a hole"* bullet — left as written.** It is true on the axis
+  S1b was reasoning about (repeated letters); the aliased hole is a different axis, and this record
+  supersedes it. Only the three corrections the review actually named were edited into that record.
