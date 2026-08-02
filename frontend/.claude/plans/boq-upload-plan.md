@@ -17591,16 +17591,24 @@ experience as a wording nit: it reads as the screen and the server disagreeing a
 
 **The eight sentences** (`bcsSummaryForMode`, pinned VERBATIM by a test because the copy is a deliverable):
 
+⚠️ **CORRECTED AT BCS-S2d (2026-08-02).** The table below is the CURRENT copy. As first written, six of
+the eight opened *"This sheet has no combined Amount column, so …"* — a clause derived from what the user
+PICKED, never from what the sheet MAPS, and therefore FALSE on a sheet that maps Amount (Total) **and**
+both halves (picking the halves is legitimately accepted, and the card then denied the Total existed
+beneath a visible, pickable Total chip). It failed in the worst direction: it EXPLAINED AWAY the
+one-sidedness the sentence exists to flag. Owner ruling — **state what the formula USES and what it
+EXCLUDES, never why.** The superseded wording is deliberately NOT reproduced here; see BCS-S2d's record.
+
 | mode | sentence |
 |---|---|
 | `amount_total` | % Profit is measured against the combined Amount in column F. |
-| `amount_supply_plus_install` | This sheet has no combined Amount column, so % Profit is measured against the Supply amount plus the Installation amount (columns J and P), added together. |
-| `amount_supply_only` | This sheet has no combined Amount column, so % Profit is measured against the Supply amount alone (column J). Installation is not included. |
-| `amount_install_only` | This sheet has no combined Amount column, so % Profit is measured against the Installation amount alone (column P). Supply is not included. |
-| `amount_by_area` | This sheet splits its combined Amount across areas, so % Profit is measured against columns G and H, added together. |
-| `amount_by_area_supply_plus_install` | This sheet has no combined Amount column and splits its amounts across areas, so % Profit is measured against the Supply and Installation amounts in columns I, S, R and T, all added together. |
-| `amount_by_area_supply_only` | This sheet has no combined Amount column and splits its amounts across areas, so % Profit is measured against the Supply amounts in columns I and S, added together. Installation is not included. |
-| `amount_by_area_install_only` | This sheet has no combined Amount column and splits its amounts across areas, so % Profit is measured against the Installation amounts in columns R and T, added together. Supply is not included. |
+| `amount_supply_plus_install` | % Profit is measured against the Supply amount plus the Installation amount (columns J and P), added together. |
+| `amount_supply_only` | % Profit is measured against the Supply amount alone (column J). Installation is not included. |
+| `amount_install_only` | % Profit is measured against the Installation amount alone (column P). Supply is not included. |
+| `amount_by_area` | % Profit is measured against the combined Amount in columns G and H, added together. |
+| `amount_by_area_supply_plus_install` | % Profit is measured against the Supply and Installation amounts in columns I, S, R and T, all added together. |
+| `amount_by_area_supply_only` | % Profit is measured against the Supply amounts in columns I and S, added together. Installation is not included. |
+| `amount_by_area_install_only` | % Profit is measured against the Installation amounts in columns R and T, added together. Supply is not included. |
 
 **`bcsStoredSummary` reads the mode FROM the stored confirmation** and never recomputes it from the column
 list — pinned by a test that feeds it a record whose `mode` and `columns` deliberately disagree and asserts
@@ -17675,3 +17683,180 @@ behind them are covered; the screen is not. **Needs the owner's eyes** — see t
   `switch` that is not safe. Narrow at the reader, never at the wire.
 - **The scalar-vs-per-area mixing refusal — still not widened**, per §3.
 - **`test_export_writeback.py`'s `combined_rate` sentinel** — still owed to whichever slice owns that file.
+
+## BCS-S2d — make the disclosure true: the card no longer explains away its own warning
+
+**Branch** `feature/bcs-columns` · **Base** `84fb86e4` · **Tier** FULL · **Date** 2026-08-02
+
+The eight disclosure sentences now state **what the formula uses and what it excludes, and nothing else**.
+Six of them used to open *"This sheet has no combined Amount column, so …"* — a justification that was
+false on a real and legitimate sheet shape, and false in the one direction that matters. Also corrected
+six stale claims the S2b widening left behind, four of them in doctype descriptions (**migrate-carrying**).
+**The parity pin asked for in §4 was NOT built** — the cited precedent cannot express this rule set, and
+§5 records exactly why. No behaviour changed anywhere: modes, refusals, precedence and the wire shape are
+untouched, and the qty summaries were not touched at all.
+
+---
+
+### 1. The blocking fix — the sentence was arguing against itself
+
+`bcsSummaryForMode` is handed a **mode** and a list of **picked columns**. It is never handed the sheet's
+*other* columns. So every "why" it could offer was an inference from the pick — and the inference was
+wrong on a sheet that maps Amount (Total) **and** both halves. Picking the two halves there is correctly
+accepted (one shape, one kind, no total present in the pick), whereupon the card announced that the sheet
+had no combined Amount column, rendered directly beneath a visible, pickable **Amount (Total)** chip.
+
+The formula half of each sentence was true throughout. The **justification** half was false, and it failed
+in the worst available direction: this sentence is the entire safety mechanism for *adapt and disclose,
+never refuse* — a one-sided sheet is accepted **because** the software promises to say so — and a false
+excuse does not merely add noise, it **explains away the very one-sidedness the sentence exists to flag**.
+A reader who accepts the excuse stops looking. It had also been pinned by a test and transcribed into this
+plan doc, so the falsehood was ratified twice before anyone read it against a real sheet.
+
+**Owner ruling 2026-08-02: state what the formula USES and what it EXCLUDES — never why.** That is true on
+every sheet whatever else is mapped, and it cannot go stale.
+
+| mode | sentence (final) |
+|---|---|
+| `amount_total` | % Profit is measured against the combined Amount in column F. |
+| `amount_supply_plus_install` | % Profit is measured against the Supply amount plus the Installation amount (columns J and P), added together. |
+| `amount_supply_only` | % Profit is measured against the Supply amount alone (column J). Installation is not included. |
+| `amount_install_only` | % Profit is measured against the Installation amount alone (column P). Supply is not included. |
+| `amount_by_area` | % Profit is measured against the combined Amount in columns G and H, added together. |
+| `amount_by_area_supply_plus_install` | % Profit is measured against the Supply and Installation amounts in columns I, S, R and T, all added together. |
+| `amount_by_area_supply_only` | % Profit is measured against the Supply amounts in columns I and S, added together. Installation is not included. |
+| `amount_by_area_install_only` | % Profit is measured against the Installation amounts in columns R and T, added together. Supply is not included. |
+
+**Sentence 1 was already clean** and is byte-unchanged. **Sentence 5 (`amount_by_area`) gained four words** —
+"the combined Amount in". Its old clause (*"splits its combined Amount across areas"*) was the only causal
+clause carrying an operand: strip it naively and the sentence reads *"% Profit is measured against columns
+G and H, added together"*, a bare pair of letters with no statement of what kind of amount they hold. That
+was the one place the rewrite could have cost a sentence its clarity, so the kind was moved into the
+formula clause where it belongs. **Sentence 6 stays long** by owner review — naming every column is what
+lets a reader verify against the sheet.
+
+**Two NEW tests pin the RULE, not just the words** (the verbatim block pins the words, and would have
+allowed the excuse back under different phrasing): no sentence may narrate the sheet (`/This sheet/i`),
+claim a column is absent (`/no combined Amount/i`), or justify itself (`/, so /`); and every sentence must
+still name the kind of amount it sums. bcsColumns.test.ts 96 → 98.
+
+### 2. Six stale claims, four of them migrate-carrying
+
+Same defect class as the sentences — assertions that were true before BCS-S2b widened the KIND axis and
+were never revisited. The four doctype descriptions were corrected under the **sanctioned exception**
+(owner-approved 2026-08-02) because they are what the next slice's implementer reads.
+
+| where | was | now |
+|---|---|---|
+| `boq_sheet.json` `bcs_enabled` | "two hand-typed rates per row (Supply + Install)" | **three** fields — `supply_rate` / `install_rate` / `combined_rate`; which a sheet uses is the SCREEN's decision; `combined_rate` is NOT a total of the other two |
+| `boq_sheet.json` `bcs_amount_source` | "Amount (Combined) … a single entry" | the **eight** modes named, both axes, the adapt-and-disclose ruling, `rate_subkey`'s three-hop role, all five refusals |
+| `boq_row_bcs_rate.json` `rate_source` | "these two rates" | "these cost rates" |
+| `boq_row_bcs_rate.json` `excel_row` | "the two BCS columns" | "the BCS columns" |
+| `services/boq_bcs/sources.py:7` | "the row's combined Amount" | the AMOUNT CHARGED + an explicit ⚠️ that the old phrasing is the pre-S2b world |
+| `api/boq/wizard/test_bcs.py:220` | "the two BCS columns" | "the BCS columns" |
+
+`sources.py` is the one that mattered most: **it is the module that DEFINES the rules**, so its own header
+is the first thing a reader trusts and the last thing they think to doubt. That is the exact defect class
+S2c's first commit existed to sweep, still sitting in the authority file.
+
+### 3. The owner's reasoning — the part that must survive
+
+**Why drop the clause rather than fix it.** A corrected causal clause would still be a claim about the
+sheet, computed from data this function does not have, and it would go stale again the moment a sheet's
+mapping changed under a stored confirmation. A claim about the **formula** is checkable against the columns
+named beside it, by the reader, on the screen. That is why "never why" is a rule and not a style preference.
+
+**Why a false justification is worse than no justification.** Not symmetry — direction. The disclosure
+exists to make one-sidedness visible. An excuse that says the sheet *had no alternative* tells the reader
+the one-sidedness is unavoidable and therefore not worth checking. It converts the warning into a
+reassurance, which is strictly worse than silence.
+
+### 4. Verification
+
+| check | baseline → final |
+|---|---|
+| `yarn test` (in container) | **1318 → 1320**, 54 files, all green |
+| `bcsColumns.test.ts` | 96 → **98** (2 new rule tests) |
+| **RED shown before green** | 2 failed / 96 passed on the unchanged implementation — the verbatim pin and the new "never explains WHY" test, both on the causal clause |
+| `tsc --noEmit`, `boq-wizard` | **0 → 0** |
+| `python3 scripts/residence_check.py` | F2 **208** (baseline 207 — the pre-existing red; a 209 would have been ours). B1 0, B2 8, B3 40, F5 116, all holding |
+| `bench --site localhost migrate` | completed, no error/traceback |
+| **column diff across the migrate** | **EMPTY** — `BoQ Sheet` 45 columns, `BoQ Row BCS Rate` 28 columns, identical before and after |
+| doctype JSON structural diff vs `HEAD` | identical once `description` is stripped; 45 / 23 fields unchanged; only the four intended descriptions differ |
+| descriptions landed in DB | all four re-read post-migrate, zero stale phrases remaining |
+| `py_compile` on the three edited `.py` | OK |
+
+**The bench suites were NOT run, and that is a real gap.** A live browser session was connected throughout
+(Chrome PID 7537 → `:8080` ESTABLISHED, with `bench start` up), which is the recorded `tabSeries` naming-lock
+collision. The standing rule is not to run the bench suite against localhost alongside a browser session, so
+they were withheld rather than risked. Static substitutes only: `py_compile` passes, and the test-method
+counts are **`test_sources` 48 · `test_bcs` 64 · `test_export_writeback` 47** — matching the expected counts
+exactly, which is consistent with the backend edits being docstring-only. **`test_bcs`, `test_sources`,
+`test_pricing`, `test_commit_pipeline`, `test_review_screen` and `test_export_writeback` still owe a real
+run once the browser tab is closed.**
+
+**No DOM test environment**, so nothing here claims coverage of a React semantic. The sentences are pure
+string output and are fully covered; **what needs the owner's eyes is the card itself** — that the new
+sentence renders on one line without awkward wrapping in `BcsColumnsDialog`, and that sentence 5 reads
+naturally on a real per-area sheet.
+
+**⚠️ Production remains unmigrated for the whole BCS arc.** This slice adds a fourth description-only
+migration to that debt; nothing here changes a column, but prod still needs the arc's migrate before any
+BCS use.
+
+### 5. The parity pin — STOPPED, not built
+
+§4 of the build asked for the ADR-0010 F1 parity test binding `bcsColumns.ts` to `sources.py`, following
+`reconcile.ts` / `priceability.ts`. **The precedent cannot express this rule set, so nothing was built.**
+What the investigation actually found:
+
+1. **Neither cited precedent has a parity test.** `reconcile.ts`'s own docblock scopes it to *frontend*
+   unification ("the grid cell, the review strip, AND the rollup all agree"; `pricingRollup.ts` imports
+   `amountsEqual` from here). `priceability.test.ts` mentions the backend in two comments and checks nothing
+   across the boundary. ADR-0010's "Checked by: parity test FE↔BE" column is an **aspiration that was never
+   built for either module**.
+2. **The one real parity test in the repo is Python↔Python.** `services/boq_revision/test_normalize.py:56`
+   imports both implementations into one process and compares them on a case list. That mechanism exists
+   *because* both sides are importable together. TS and Python are not.
+3. **No cross-language runner exists in either direction** — no Python test shells out to node, no vitest
+   test reads a `.py`, and no fixture is consumed by both suites.
+4. **The decisive obstacle is not the language boundary, it is the missing shared vocabulary.** The server's
+   outcome is `(throw, title, message)`; the client's is `{ok:false, message}`. There is **no shared refusal
+   identifier**. Only the SUCCESS outcome (`mode`) is directly comparable today — so a parity test built now
+   could pin the eight accepted modes and **not the six-rule refusal chain, whose ORDER is load-bearing and
+   which is the larger, more drift-prone half.** That is precisely a *partial* parity test, and a partial one
+   is worse than none because it makes the gap look closed.
+
+**The gap is real and this slice does not close it.** The server widened at S2b and every frontend test
+stayed green through a whole slice of divergence — that silence is what put the owner in front of an empty
+dropdown. A genuine pin needs an owner decision on two things: **a shared refusal-code vocabulary on both
+sides**, and **where a shared case table lives** (a new file, outside this slice's scope by construction).
+Both are design changes to two modules, not a test.
+
+### 6. Deliberately NOT done
+
+- **The MINOR "smaller denominator" clause — DECLINED, on arithmetic.** The reviewer suggested the one-sided
+  sentences state that a smaller denominator makes % Profit read *higher*. `bcs.py:8` defines % Profit as
+  *"how much of the charged amount is margin"* — i.e. `(amount − cost) / amount`. The BCS cost rates are
+  hand-typed per row and do **not** shrink because the amount confirmation is one-sided, so a smaller
+  denominator makes % Profit read **LOWER**, not higher, and it can go sharply negative. (If S3 were to narrow
+  the cost side symmetrically, the direction becomes indeterminate — sheet-dependent, not assertable either
+  way.) Adding it would have planted a **fresh falsehood in the exact sentence this slice exists to make
+  true**, which is the same defect wearing new clothes. **The underlying instinct is right and worth serving
+  — a reader should know which way the number moves — but it belongs to BCS-S3, which owns the formula and
+  can state the direction from the shipped arithmetic instead of guessing at it.**
+- **The quantity summaries — untouched**, per the build's explicit hold. The voice-unification ruling is
+  deferred while the owner reconsiders the S2c reviewer's objection.
+- **`PricingGrid.tsx`** (S3a) · **`api/boq/wizard/bcs.py`** · **`pricing.py`** · **the carry path** (S6) —
+  all out of scope and untouched.
+- **`services/boq_bcs/test_sources.py` — in scope but not edited.** It was scanned for the same stale-claim
+  class and carries none; its "two columns" mentions are genuine pairs. It was in scope for the parity test
+  that was not built.
+- **The residence F2 red — not fixed, not re-baselined.** Reported exactly (**208**).
+- **The plan doc's S2c sentence table — CORRECTED IN PLACE, deliberately.** Records already written are
+  normally never rewritten, and this is the documented exception: the build explicitly required all three
+  carriers to agree, and leaving the ratified falsehood in the doc would have defeated the slice. The
+  correction is marked as such above that table, and the superseded wording is not reproduced there — it is
+  in §1 of this record and in git.
+- **`BcsColumnsDialog.tsx` — checked, no change needed.** Its docblock already quoted the sentence in the
+  clause-free form, so it became correct rather than stale. It is out of scope regardless.
