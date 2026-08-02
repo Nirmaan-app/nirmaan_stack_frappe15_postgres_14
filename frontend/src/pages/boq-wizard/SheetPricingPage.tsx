@@ -86,7 +86,13 @@ import {
   type BcsRateKind,
 } from "./bcsColumns";
 // PE-SPIN-1: the sheet fetch's honest load state (loading / error / stale / empty / ready).
-import { activePricingLoadState, carryPlanLoadState, gridLoadState } from "./pricingLoadState";
+import {
+  activePricingLoadState,
+  bcsRatesLoadState,
+  carryPlanLoadState,
+  gridLoadState,
+  withStaleNote,
+} from "./pricingLoadState";
 // BCS-S3a: a module-level stable empty -- a fresh [] per render would churn a grid prop and kill
 // the V0 React.memo shield (frontend/CLAUDE.md: "any new grid prop must stay identity-stable").
 const EMPTY_BCS_KINDS: BcsRateKind[] = [];
@@ -519,7 +525,18 @@ const SheetPricingPage = () => {
   // Pinned to liveCommitVersion for the same reason the setup fetch is: cost is entered on the
   // current version only (the cost block is not rendered while browsing history), so a second
   // version-following fetch would buy nothing and churn the grid's props on every version click.
-  const { data: bcsRatesData, mutate: mutateBcsRates } = useFrappeGetCall<{
+  //
+  // BCS-S4 (SURVIVOR 3): this read's OWN `error` is destructured and used. S3a took only
+  // { data, mutate } and degraded the payload via `?? []`, so a FAILED read emptied the rate map
+  // and a fully costed sheet rendered as entirely uncosted -- every box blank, every Total Amount
+  // and % Profit blank, and still editable. That is the same class of confident falsehood
+  // PE-SPIN-1 closed on three other fetches, and worse than all of them: a spinner is visibly
+  // unfinished, this was finished-looking and wrong. See pricingLoadState.BCS_RATES_STATES.
+  const {
+    data: bcsRatesData,
+    error: bcsRatesFetchError,
+    mutate: mutateBcsRates,
+  } = useFrappeGetCall<{
     message: GetSheetBcsRatesResponse;
   }>(
     "nirmaan_stack.api.boq.wizard.bcs.get_sheet_bcs_rates",
@@ -1915,8 +1932,31 @@ const SheetPricingPage = () => {
   //
   // An UNKNOWN BCS state hides the block (bcsToggle !== "on"), which is the S2a rule applied one
   // layer further out: absence of knowledge must not render as an empty, editable cost cell.
-  const bcsColumnsVisible =
+  //
+  // ── BCS-S4: the SAME rule, applied to the COSTS themselves ────────────────────
+  // S3a stopped at the SETUP fetch. The RATES fetch degraded via `?? []`, and an empty rate map is
+  // not silence -- it is the sentence "nothing on this sheet has been costed", rendered in every
+  // cost box on a sheet that may be fully costed.
+  //
+  // ⚠️ THE CHOICE, STATED: on a failed/empty costs read the cost block is WITHHELD ENTIRELY, not
+  // shown read-only. Read-only would still leave a row of empty cost cells and two empty computed
+  // columns on screen, and "empty" is exactly the falsehood -- a reader cannot tell a cell that is
+  // blank because nothing was costed from one that is blank because we failed to read it. Absence
+  // of knowledge must render as nothing plus a stated reason, never as a blank the eye reads as
+  // zero. The banner below carries the reason and a Retry.
+  //
+  // `isUsable` (not `!isFailed`) is deliberate: it is FALSE while the first read is in flight too,
+  // so the block never flashes empty-then-fills. `stale` IS usable -- the last good costs stay on
+  // screen and editable, flagged by the amber strip, the same trade the sheet and grid fetches make.
+  const bcsBlockConfigured =
     bcsToggle === "on" && bcsReady && !isViewingHistory && liveCommitVersion !== null;
+  const bcsRatesLoad = bcsRatesLoadState({ data: bcsRatesData, error: bcsRatesFetchError });
+  const bcsColumnsVisible = bcsBlockConfigured && bcsRatesLoad.isUsable;
+  /** BCS is set up on this version, but its stored costs could not be read. */
+  const bcsCostsUnreadable = bcsBlockConfigured && bcsRatesLoad.isFailed;
+  const handleRetryBcsRates = () => {
+    void mutateBcsRates();
+  };
   // Which boxes, from the SHEET's own rate columns (the pure rule; the halves win over a
   // combined rate mapped beside them so Total Amount can never double-count).
   const bcsKinds = useMemo(
@@ -1924,11 +1964,18 @@ const SheetPricingPage = () => {
     [bcsColumnsVisible, columnDescriptors],
   );
   // The stored cost rows, keyed by Excel row -- reference-stable per fetch (the V0 memo shield).
+  //
+  // ⚠️ BCS-S4: built ONLY from a USABLE payload. The `?? []` that used to stand alone here is the
+  // whole defect -- it turns "we do not know this sheet's costs" into "this sheet has no costs".
+  // The empty map is still the shape returned on a failed read, but `bcsColumnsVisible` is false
+  // in that state so it never reaches a rendered cell; the explicit gate is what stops a later
+  // reader reintroducing the lie by relaxing one condition and not the other.
   const bcsRatesByExcelRow = useMemo(() => {
     const m = new Map<number, BcsRowRate>();
+    if (!bcsRatesLoad.isUsable) return m;
     for (const r of bcsRatesData?.message?.rows ?? []) m.set(r.excel_row, r);
     return m;
-  }, [bcsRatesData]);
+  }, [bcsRatesData, bcsRatesLoad]);
   // The gate, in save_row_bcs_rates' OWN order (NOT the client rate gate -- BCS deliberately
   // skips the formula, priceability and category gates).
   const bcsCostReason = bcsCostEntryReason({
@@ -2732,6 +2779,29 @@ const SheetPricingPage = () => {
       : carryState.kind === "disabled"
         ? carryState.reason
         : null;
+  // ── BCS-S4: the state that was BUILT AND NEVER SHOWN ──────────────────────────
+  // `CARRY_PLAN_STATES.stale` shipped at PE-SPIN-1-fix and nothing read `carryPlanLoad.isStale`.
+  // It is reachable and it is the quiet case: a failed REVALIDATION keeps `data.message`
+  // populated, so `isFailed` is false, the button stays ENABLED, and it offers to carry from a
+  // plan of unknown age with no indication whatever -- while the fix that produced the state was
+  // explicitly about a page whose failure behaviour must not differ by which fetch broke.
+  //
+  // The sheet and the grid each got an amber STRIP for this case. The carry button has no strip;
+  // its only surface is the tooltip, which is why `withStaleNote` composes the note onto whatever
+  // the button was already going to say rather than replacing it. Render it or delete it -- this
+  // is rendering it.
+  //
+  // The `hidden` arm is spelled out rather than folded into a `!== "ready"` else, because
+  // `CarryButtonState.hidden` carries no `reason` -- the old inline version type-checked only
+  // because the JSX `carryState.kind !== "hidden" &&` guard narrowed it in the same expression,
+  // and that guard does not reach up here.
+  const carryBaseTitle =
+    carryState.kind === "ready"
+      ? "Copy the original BoQ's rates and annotations into this sheet"
+      : carryState.kind === "disabled"
+        ? carryDisabledReason ?? carryState.reason
+        : null;
+  const carryTitle = withStaleNote(carryBaseTitle, carryPlanLoad);
   // Priced count: M = priceable lines; N = FULLY priced (every qty-bearing area filled).
   const pricedCount = computePricedCount(rows, columnDescriptors);
   const allPriced = pricedCount.total > 0 && pricedCount.priced === pricedCount.total;
@@ -3321,11 +3391,10 @@ const SheetPricingPage = () => {
                 setCarryMsg(null);
                 setCarryOpen(true);
               }}
-              title={
-                carryState.kind === "ready"
-                  ? "Copy the original BoQ's rates and annotations into this sheet"
-                  : carryDisabledReason ?? carryState.reason
-              }
+              // BCS-S4: the SAME text as before, now with the carry fetch's STALE note appended
+              // when the last plan check failed over a retained plan (withStaleNote is a no-op
+              // otherwise, so the healthy and hard-failed tooltips are byte-identical to before).
+              title={carryTitle ?? undefined}
             >
               <ArrowDownToLine className="h-4 w-4" />
               Carry rates from original
@@ -4198,6 +4267,44 @@ const SheetPricingPage = () => {
             Amount charged to the client. Cost entry stays locked until both are confirmed — use
             the BCS button to choose them.
           </span>
+        </div>
+      )}
+
+      {/* ── BCS COSTS UNREADABLE (slice BCS-S4) ─────────────────────────────────
+          The visible half of survivor 3. BCS is set up on this version, so the cost block SHOULD
+          be here -- and it is not, because we could not read what this sheet costs.
+
+          ⚠️ THIS BANNER IS THE WHOLE POINT OF WITHHOLDING THE BLOCK. Hiding the columns silently
+          would swap one lie for another ("this sheet has no BCS"); the columns are absent AND the
+          screen says why, which is the only combination that leaves the reader with a true picture.
+          Destructive styling, not amber: an amber note reads as an advisory, and "you cannot see
+          this sheet's costs right now" is not advisory. */}
+      {!isGridOnly && bcsCostsUnreadable && (
+        <div className="flex flex-col items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+          <p className="flex items-start gap-2 font-medium">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+            {bcsRatesLoad.message}
+          </p>
+          <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={handleRetryBcsRates}>
+            <RefreshCw className="mr-1.5 h-3 w-3" />
+            Try again
+          </Button>
+        </div>
+      )}
+
+      {/* ── BCS COSTS STALE (slice BCS-S4) ──────────────────────────────────────
+          A failed REFRESH over costs we already hold. The block stays -- blanking a live costing
+          session over one transient blip is its own harm, the same trade the sheet and grid
+          fetches make -- but it must not claim to be current. Amber here, because the data IS
+          usable and the note IS advisory; that is exactly the distinction the banner above is not. */}
+      {!isGridOnly && bcsBlockConfigured && bcsRatesLoad.isStale && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-xs text-amber-900 dark:text-amber-100 flex-wrap">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-700 dark:text-amber-300" />
+          <span className="flex-1">{bcsRatesLoad.message}</span>
+          <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={handleRetryBcsRates}>
+            <RefreshCw className="mr-1.5 h-3 w-3" />
+            Retry
+          </Button>
         </div>
       )}
 

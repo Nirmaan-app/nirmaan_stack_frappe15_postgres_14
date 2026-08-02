@@ -34,10 +34,12 @@
 import { describe, expect, it } from "vitest";
 import {
   activePricingLoadState,
+  bcsRatesLoadState,
   carryPlanLoadState,
   gridLoadState,
   loadStatus,
   pricingLoadState,
+  withStaleNote,
   type PricingFetchSignals,
 } from "./pricingLoadState";
 
@@ -266,7 +268,141 @@ describe("carryPlanLoadState -- survivor 2, the carry button", () => {
   });
 });
 
-describe("all three fetches share ONE rule", () => {
+// ── BCS-S4: survivor 3, and it is the BCS arc's OWN defect ───────────────────────────────────
+//
+// `get_sheet_bcs_rates` was the fourth fetch on this page and the only one still degrading via
+// `?? []`. An empty rate map is not "no answer yet" to the cost block -- it renders as the
+// ANSWER "nothing on this sheet has been costed": every cost box blank, every Total Amount and
+// % Profit blank, and (until this slice) every box still editable. A fully costed sheet and a
+// sheet nobody has touched were pixel-identical behind a failed read.
+//
+// That is worse than the permanent spinner PE-SPIN-1 closed. A spinner is visibly unfinished; this
+// was finished-looking and wrong, so the honest reactions to it are to re-enter two hundred
+// figures over the top of costs that already exist, or to report the data as lost.
+describe("bcsRatesLoadState -- survivor 3, the cost rows", () => {
+  it("reports a first-load failure as an error, NOT as an uncosted sheet", () => {
+    // THE BUG, stated directly. The page read `bcsRatesData?.message?.rows ?? []`, so a thrown
+    // fetch produced an empty Map and the cost columns rendered as though nothing was costed.
+    const state = bcsRatesLoadState({ data: undefined, error: new Error("Network Error") });
+
+    expect(state.status).toBe("error");
+    expect(state.isFailed).toBe(true);
+    expect(state.isUsable).toBe(false); // <- the page hangs the whole cost block off this
+    expect(state.isLoading).toBe(false);
+    expect(state.message).not.toBeNull();
+  });
+
+  it("is NOT usable while the first read is still in flight", () => {
+    // The same rule one moment earlier. `isUsable` is what the page gates the cost block on, so a
+    // pending read must not open it either -- blank cost boxes for 200ms then filling in is the
+    // identical lie in miniature.
+    const state = bcsRatesLoadState(pending);
+
+    expect(state.isLoading).toBe(true);
+    expect(state.isUsable).toBe(false);
+    expect(state.isFailed).toBe(false); // ...but a fetch that has not run has not failed
+  });
+
+  it("describes ITS OWN fetch -- the costs, not the sheet's pricing rows", () => {
+    const bcs = bcsRatesLoadState({ data: undefined, error: new Error("boom") });
+    const sheet = pricingLoadState({ data: undefined, error: new Error("boom") });
+
+    expect(bcs.message).not.toBe(sheet.message);
+    expect(bcs.message).not.toMatch(/pricing rows/);
+    expect(bcs.message).toMatch(/cost/i);
+  });
+
+  it("keeps the empty case worded apart from the network-failure case", () => {
+    const empty = bcsRatesLoadState({ data: { message: null }, error: undefined });
+    const failed = bcsRatesLoadState({ data: undefined, error: new Error("boom") });
+
+    expect(empty.status).toBe("empty");
+    expect(empty.isFailed).toBe(true);
+    expect(empty.message).not.toBe(failed.message);
+  });
+
+  it("treats a payload carrying ZERO cost rows as READY, not as empty", () => {
+    // The distinction the `?? []` degrade destroyed, from the other side: a genuinely uncosted
+    // sheet answers `{rows: []}`, which is a real answer and must render the (blank) cost block
+    // normally. `empty` is reserved for a null `message` -- no answer at all.
+    const state = bcsRatesLoadState({ data: { message: { rows: [] } }, error: undefined });
+
+    expect(state.status).toBe("ready");
+    expect(state.isUsable).toBe(true);
+    expect(state.message).toBeNull();
+  });
+
+  it("keeps retained costs on screen after a failed refresh, flagged stale", () => {
+    // Same trade as the sheet and the grid: blanking a live costing session over one transient
+    // blip is its own harm, so the last good costs stay -- but they must not claim to be current.
+    const state = bcsRatesLoadState({
+      data: { message: { rows: [{ excel_row: 4 }] } },
+      error: new Error("500"),
+    });
+
+    expect(state.status).toBe("stale");
+    expect(state.isUsable).toBe(true);
+    expect(state.isFailed).toBe(false);
+    expect(state.message).not.toBeNull();
+  });
+});
+
+// ── BCS-S4: the state that was built and never shown ─────────────────────────────────────────
+//
+// `CARRY_PLAN_STATES.stale` existed from PE-SPIN-1-fix and NOTHING read `carryPlanLoad.isStale`.
+// It is reachable -- a failed REVALIDATION leaves `data.message` populated with `error` set, so
+// `isFailed` is false and the carry button presented plan data of unknown age with no indication
+// whatever. The sheet and grid fetches each got a stale strip for exactly this case; the carry
+// fetch, whose only surface is a tooltip, got nothing.
+//
+// `withStaleNote` is the missing surface: it composes a fetch's stale wording onto whatever text a
+// control already shows, so a stale state can be SURFACED anywhere a strip does not fit.
+describe("withStaleNote -- surfacing a stale fetch on a control that has only a title", () => {
+  const staleSignals: PricingFetchSignals = {
+    data: { message: { sheets: [{}] } },
+    error: new Error("500"),
+  };
+
+  it("appends the fetch's stale wording to a title when the read is stale", () => {
+    const load = carryPlanLoadState(staleSignals);
+    const title = withStaleNote("Copy the original BoQ's rates into this sheet", load);
+
+    expect(load.isStale).toBe(true);
+    expect(title).toContain("Copy the original BoQ's rates into this sheet");
+    expect(title).toContain(load.message!); // the state finally reaches a surface
+  });
+
+  it("returns the title UNCHANGED when the fetch is healthy", () => {
+    // A healthy load is silent -- exactly as the module's `ready` state carries a null message.
+    const load = carryPlanLoadState({ data: { message: { sheets: [] } }, error: undefined });
+
+    expect(withStaleNote("Carry", load)).toBe("Carry");
+  });
+
+  it("returns the title UNCHANGED when the fetch has hard-failed", () => {
+    // A hard failure has its own voiced message and its own surface (the disabled reason). Adding
+    // the stale sentence there would say "this may be out of date" about data we do not hold.
+    const load = carryPlanLoadState({ data: undefined, error: new Error("500") });
+
+    expect(load.isFailed).toBe(true);
+    expect(withStaleNote("Carry", load)).toBe("Carry");
+  });
+
+  it("carries the stale note alone when the control has no title of its own", () => {
+    const load = carryPlanLoadState(staleSignals);
+
+    expect(withStaleNote(null, load)).toBe(load.message);
+    expect(withStaleNote("", load)).toBe(load.message);
+  });
+
+  it("returns null for a healthy fetch with no title, so no empty tooltip is rendered", () => {
+    const load = carryPlanLoadState({ data: { message: { sheets: [] } }, error: undefined });
+
+    expect(withStaleNote(null, load)).toBeNull();
+  });
+});
+
+describe("all four fetches share ONE rule", () => {
   // The POINT of this slice: the precedence rule has a single implementation and the message set is
   // the only thing that varies. If a future edit gives one fetch its own logic, this fails -- which
   // is the drift that produced two survivors in the first place.
@@ -285,6 +421,7 @@ describe("all three fetches share ONE rule", () => {
     expect(pricingLoadState(signals).status).toBe(expected);
     expect(gridLoadState(signals).status).toBe(expected);
     expect(carryPlanLoadState(signals).status).toBe(expected);
+    expect(bcsRatesLoadState(signals).status).toBe(expected);
   });
 
   it("returns SHARED SINGLETONS per fetch, so a state never churns a downstream memo", () => {
@@ -303,5 +440,7 @@ describe("all three fetches share ONE rule", () => {
 
   it("gives each fetch its OWN singletons, so no wording can leak between them", () => {
     expect(gridLoadState(pending)).not.toBe(carryPlanLoadState(pending));
+    expect(bcsRatesLoadState(pending)).not.toBe(gridLoadState(pending));
+    expect(bcsRatesLoadState(pending)).not.toBe(pricingLoadState(pending));
   });
 });

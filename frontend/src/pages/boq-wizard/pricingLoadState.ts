@@ -191,6 +191,36 @@ const CARRY_PLAN_STATES = makeLoadStates({
 });
 
 /**
+ * The BCS cost rows (`bcs.get_sheet_bcs_rates`) -- BCS-S4, SURVIVOR 3, and this is the BCS arc's
+ * OWN defect rather than an inheritance from PE-SPIN-1.
+ *
+ * ⚠️ WHY THIS ONE WAS THE WORST OF THE FOUR. The page read `bcsRatesData?.message?.rows ?? []`.
+ * That `?? []` is not a degrade to "unknown" -- it is a degrade to a CONFIDENT ANSWER. An empty
+ * rate map makes every cost box, every Total Amount and every % Profit on a fully costed sheet
+ * render blank, and (before this slice) still editable. A costed sheet and a sheet nobody has
+ * touched were pixel-identical behind a failed read, so the two honest reactions were to re-enter
+ * two hundred figures over costs that already exist, or to conclude the data had been lost.
+ *
+ * A permanent spinner is visibly unfinished. This was finished-looking and wrong, which is the
+ * class of failure the whole PE-SPIN-1 exercise was about -- sitting inside the BCS work.
+ *
+ * ⚠️ `empty` HERE IS NOT "NOTHING IS COSTED". An uncosted sheet answers `{rows: []}` -- a real
+ * answer, `ready`, and the (blank) cost block renders normally. `empty` is a NULL `message`: no
+ * answer at all. Collapsing those two back together is the original defect, restated.
+ */
+const BCS_RATES_STATES = makeLoadStates({
+  error:
+    "Could not load this sheet's costs. The server could not be reached or returned an error — " +
+    "the cost columns are hidden rather than shown empty, because empty would read as “nothing " +
+    "has been costed”.",
+  empty:
+    "This sheet returned no cost data at all. The cost columns are hidden rather than shown " +
+    "empty; check that BCS is set up on this version, then try again.",
+  stale:
+    "Showing the last costs that loaded — the most recent refresh failed, so they may be out of date.",
+});
+
+/**
  * The rule, in precedence order. Each step is a distinction the old two-const derivation lost.
  *
  * Note the order of the first two: a failure is judged against whether we hold anything WORTH
@@ -226,6 +256,39 @@ export function gridLoadState(signals: PricingFetchSignals): PricingLoadState {
 /** The cross-BoQ CARRY PLAN fetch's state. PE-SPIN-1-fix, survivor 2. */
 export function carryPlanLoadState(signals: PricingFetchSignals): PricingLoadState {
   return CARRY_PLAN_STATES[loadStatus(signals)];
+}
+
+/** The BCS COST ROWS fetch's state. BCS-S4, survivor 3 -- see BCS_RATES_STATES. */
+export function bcsRatesLoadState(signals: PricingFetchSignals): PricingLoadState {
+  return BCS_RATES_STATES[loadStatus(signals)];
+}
+
+/**
+ * Surface a fetch's STALE state on a control whose only surface is a `title` (BCS-S4).
+ *
+ * ⚠️ WHY THIS EXISTS. `CARRY_PLAN_STATES.stale` shipped at PE-SPIN-1-fix and NOTHING read
+ * `carryPlanLoad.isStale`. It is reachable: a failed REVALIDATION leaves `data.message` populated
+ * with `error` set, so `isFailed` is false, the button stays enabled, and it presents plan data of
+ * unknown age with no indication whatever. The sheet and grid fetches each got an amber strip for
+ * exactly this case -- the carry button has no strip to put one in, only a tooltip, so the state
+ * was built and never shown. A built state nothing shows is a claim the code makes and the screen
+ * does not keep, which is why the choice was render-it-or-delete-it.
+ *
+ * It fires ONLY on `stale`. A hard failure already has its own voiced message on its own surface
+ * (the disabled reason), and appending "this may be out of date" there would say it about data we
+ * are not holding; a healthy load stays SILENT, the same rule the `ready` state's null message
+ * encodes.
+ *
+ * Returns `null` for a healthy fetch with no title of its own, so a caller can spread it straight
+ * into `title={...}` without rendering an empty tooltip.
+ */
+export function withStaleNote(
+  title: string | null | undefined,
+  load: PricingLoadState,
+): string | null {
+  const note = load.isStale ? load.message : null;
+  if (!note) return title || null;
+  return title ? `${title} — ${note}` : note;
 }
 
 /**
