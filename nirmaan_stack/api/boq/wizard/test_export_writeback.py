@@ -713,8 +713,16 @@ class TestBcsCostRatesNeverReachTheExport(FrappeTestCase):
 
     # Deliberately absurd sentinels that cannot collide with the fixture's own numbers
     # (rates 25 / 200 / 1000 / 50; quantities 3 / 5 / 10 / 20 / 30 / 50 / 100).
+    #
+    # ⚠️ _COMBINED ADDED AT BCS-S3a, AND ITS ABSENCE MATTERED. BCS-S2b widened storage to a
+    # THIRD field, combined_rate, for a sheet that quotes one undifferentiated figure -- and it
+    # is the ONLY field such a sheet uses. This class kept seeding just the two halves, so on
+    # the whole axis S2b opened it was passing because there was nothing there to leak, which is
+    # exactly the vacuity the class docstring says it exists to avoid. A combined-rate sheet's
+    # cost could have reached the CLIENT workbook with the standing guard green.
     _SUPPLY = 987654.21
     _INSTALL = 123456.78
+    _COMBINED = 456789.33
 
     @classmethod
     def setUpClass(cls):
@@ -733,6 +741,7 @@ class TestBcsCostRatesNeverReachTheExport(FrappeTestCase):
                 doc.committed_version = 1
                 doc.supply_rate = cls._SUPPLY
                 doc.install_rate = cls._INSTALL
+                doc.combined_rate = cls._COMBINED
                 doc.is_filled = 1
                 doc.bcs_version = 1
                 doc.is_current = 1
@@ -779,16 +788,19 @@ class TestBcsCostRatesNeverReachTheExport(FrappeTestCase):
         rows = frappe.get_all(
             "BoQ Row BCS Rate",
             filters={"boq": self.boq, "committed_version": 1, "is_current": 1},
-            fields=["sheet_name", "excel_row", "supply_rate", "install_rate"],
+            fields=["sheet_name", "excel_row", "supply_rate", "install_rate", "combined_rate"],
         )
         self.assertEqual(len(rows), 4, "4 costed rows must exist during the export")
         self.assertTrue(all(r.supply_rate == self._SUPPLY for r in rows))
         self.assertTrue(all(r.install_rate == self._INSTALL for r in rows))
+        # BCS-S3a: the third field must genuinely be stored, or the leak assertions below
+        # would pass on it for the same "nothing to leak" reason they were written to exclude.
+        self.assertTrue(all(r.combined_rate == self._COMBINED for r in rows))
 
     def test_no_bcs_rate_value_appears_anywhere_in_the_exported_workbook(self):
         values = self._all_cell_values()
         self.assertTrue(values, "the export produced a workbook with content")
-        for sentinel in (self._SUPPLY, self._INSTALL):
+        for sentinel in (self._SUPPLY, self._INSTALL, self._COMBINED):
             for rendered in (str(sentinel), str(int(sentinel))):
                 hits = [v for v in values if rendered in v]
                 self.assertEqual(
@@ -802,12 +814,19 @@ class TestBcsCostRatesNeverReachTheExport(FrappeTestCase):
         quantity-multiplied total that a BCS Total Amount column would carry.
 
         BOTH RENDER FORMS, as its sibling above already does: an integer-rendered total
-        ('1111111' rather than '1111111.0') would otherwise slip straight through."""
+        ('1111111' rather than '1111111.0') would otherwise slip straight through.
+
+        BCS-S3a adds the COMBINED-sheet shape. ⚠️ It is checked as its OWN per-unit cost, NOT
+        added to the halves: `bcs.py:16` states combined_rate is not a total of the other two
+        and must never be summed with them, so a `_SUPPLY + _INSTALL + _COMBINED` candidate
+        would be a figure the product never computes -- a sentinel for an arithmetic that does
+        not exist, which is a test that can only ever pass."""
         values = self._all_cell_values()
-        combined = self._SUPPLY + self._INSTALL
-        candidates = {combined}
+        halves = self._SUPPLY + self._INSTALL
+        candidates = {halves, self._COMBINED}
         for qty in (100, 50, 5, 30):        # the fixture's committed quantities
-            candidates.add(combined * qty)
+            candidates.add(halves * qty)
+            candidates.add(self._COMBINED * qty)
         for candidate in candidates:
             for rendered in (str(candidate), str(int(candidate))):
                 self.assertEqual(
@@ -835,7 +854,10 @@ class TestBcsCostRatesNeverReachTheExport(FrappeTestCase):
         from nirmaan_stack.api.boq.wizard import export_writeback
 
         src = inspect.getsource(export_writeback).lower()
-        for token in ("BoQ Row BCS Rate", "supply_rate", "install_rate", "bcs"):
+        # BCS-S3a: `combined_rate` joins the token list for the same reason the other two are
+        # on it -- the S2b field was never added, so the ONE field a combined-rate sheet uses
+        # was the one name this guard did not watch for.
+        for token in ("BoQ Row BCS Rate", "supply_rate", "install_rate", "combined_rate", "bcs"):
             self.assertNotIn(
                 token.lower(), src,
                 f"export_writeback.py must never reference {token!r} (in any casing) -- "
