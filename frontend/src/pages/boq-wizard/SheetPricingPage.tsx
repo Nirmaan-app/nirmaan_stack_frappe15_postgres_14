@@ -85,6 +85,8 @@ import {
   bcsToggleState,
   type BcsRateKind,
 } from "./bcsColumns";
+// PE-SPIN-1: the sheet fetch's honest load state (loading / error / stale / empty / ready).
+import { activePricingLoadState } from "./pricingLoadState";
 // BCS-S3a: a module-level stable empty -- a fresh [] per render would churn a grid prop and kill
 // the V0 React.memo shield (frontend/CLAUDE.md: "any new grid prop must stay identity-stable").
 const EMPTY_BCS_KINDS: BcsRateKind[] = [];
@@ -400,9 +402,14 @@ const SheetPricingPage = () => {
   );
 
   // Priced rows: committed rows + merged saved prices for (boqId, sheetName).
-  // GET-capable endpoint, SWR-managed. Loading: data === undefined. Error: data === null.
-  // mutate() refetches after a rate save -> the priced_* markers re-derive authoritatively.
-  const { data: pricedData, mutate } = useFrappeGetCall<{ message: GetPricedRowsResponse }>(
+  // GET-capable endpoint, SWR-managed. mutate() refetches after a rate save -> the priced_*
+  // markers re-derive authoritatively.
+  //
+  // PE-SPIN-1: this read's OWN `error` is destructured and used. It used to be dropped, and the
+  // page inferred its state from the payload alone (`data === undefined` -> loading,
+  // `data === null` -> error). SWR never sets `data` to null on failure, so the error branch was
+  // unreachable and a failed load span forever -- see pricingLoadState.ts for the full account.
+  const { data: pricedData, error: pricedFetchError, mutate } = useFrappeGetCall<{ message: GetPricedRowsResponse }>(
     "nirmaan_stack.api.boq.wizard.pricing.get_priced_rows",
     { boq_name: boqId ?? "", sheet_name: sheetName ?? "" },
     boqId && sheetName ? undefined : null,
@@ -480,9 +487,13 @@ const SheetPricingPage = () => {
   // S2 took only { data, mutate } and fed the PRICED fetch's flags to the button instead, so a
   // failed get_bcs_state produced no reason at all -- the button stayed live and, because a
   // missing payload looked exactly like bcs_enabled = 0, an enabled and confirmed sheet rendered
-  // as OFF with its chip gone and its amber banner suppressed. Unlike `pricedLoading` /
-  // `pricedError` (derived from data === undefined / null, this page's older convention), these
-  // are SWR's real signals -- which is what makes the error branch reachable at all.
+  // as OFF with its chip gone and its amber banner suppressed. These are SWR's real signals --
+  // which is what makes the error branch reachable at all.
+  //
+  // ⚠️ UPDATED AT PE-SPIN-1: this note used to contrast these signals with `pricedLoading` /
+  // `pricedError`, "derived from data === undefined / null, this page's older convention". That
+  // convention is GONE -- it was the same defect one layer up (a failed sheet fetch span forever)
+  // and the sheet read now goes through `activePricingLoadState` off its own real `error` too.
   const {
     data: bcsData,
     error: bcsFetchError,
@@ -642,7 +653,14 @@ const SheetPricingPage = () => {
 
   // The selected EARLIER version's read-only rows + its OWN pricing (ADDITIVE endpoint; the live
   // get_priced_rows hot path above is byte-for-byte untouched). Disabled unless viewing history.
-  const { data: historyData } = useFrappeGetCall<{ message: GetPricedRowsResponse }>(
+  // PE-SPIN-1: its own `error` + `mutate`, for the same reason the live read above takes them --
+  // while browsing history THIS is the fetch on screen, so it is the one whose failure must show
+  // and the one a Retry must re-run.
+  const {
+    data: historyData,
+    error: historyFetchError,
+    mutate: mutateHistory,
+  } = useFrappeGetCall<{ message: GetPricedRowsResponse }>(
     "nirmaan_stack.api.boq.wizard.pricing.get_version_priced_rows",
     {
       boq_name: boqId ?? "",
@@ -1634,9 +1652,31 @@ const SheetPricingPage = () => {
   const categoryOverrideBy = activeMessage?.category_override_by ?? null;
   const categoryOverrideAt = activeMessage?.category_override_at ?? null;
   classificationFrozenRef.current = classificationFrozen;
-  // Loading/error track the ACTIVE source (the history fetch while in history mode).
-  const pricedLoading = isViewingHistory ? historyData === undefined : pricedData === undefined;
-  const pricedError = isViewingHistory ? historyData === null : pricedData === null;
+  // ── PE-SPIN-1: what this page may honestly claim about its own data ──────────────────────────
+  // Tracks the ACTIVE source (the history fetch while in history mode), as before -- but from
+  // SWR's REAL signals (`data` + `error`) rather than from the payload alone. The retired rule was
+  //
+  //     pricedLoading = (data === undefined);  pricedError = (data === null)
+  //
+  // and SWR never sets `data` to null on failure: it leaves it undefined on a first load and
+  // RETAINS the last good value on a failed revalidation, reporting the failure on `error`, which
+  // nothing here read. So a genuine network failure or a 500 left `pricedError` false and
+  // `pricedLoading` true FOREVER -- a permanent spinner, no error, and a user report of "the page
+  // is stuck". The whole rule (and why "the server returned nothing" is treated as a failure
+  // rather than as an empty sheet) lives in pricingLoadState.ts, where it is unit-tested; a
+  // derivation inline here was structurally untestable, which is why it survived unexamined.
+  //
+  // The returned object is one of five SHARED singletons, so it is reference-stable per status --
+  // it never contributes a fresh object to a downstream memo.
+  const sheetLoad = activePricingLoadState({
+    viewingHistory: isViewingHistory,
+    live: { data: pricedData, error: pricedFetchError },
+    history: { data: historyData, error: historyFetchError },
+  });
+  // Re-run the fetch that is actually on screen. Retry from the error branch + the stale strip.
+  const handleRetryLoad = () => {
+    void (isViewingHistory ? mutateHistory() : mutate());
+  };
   // HARD READ-ONLY when held FRESH by another user (backend editable===false), after a mid-edit
   // takeover, OR when the sheet is DELIBERATELY locked. Withholding onSaveRate collapses ALL of
   // the grid's edit gates (the single onSaveRate root gate) to the read-only render -- no per-cell
@@ -1768,8 +1808,8 @@ const SheetPricingPage = () => {
   // The two fetches are named apart deliberately -- passing the sheet's flags where the BCS
   // state's belong is exactly the S2 defect this closes.
   const bcsReason = bcsSetupReason({
-    sheetLoading: pricedLoading,
-    sheetError: pricedError,
+    sheetLoading: sheetLoad.isLoading,
+    sheetError: sheetLoad.isFailed,
     committedVersion: liveCommitVersion,
     viewingHistory: isViewingHistory,
     sheetLocked: isLocked,
@@ -1867,8 +1907,8 @@ const SheetPricingPage = () => {
   // The gate, in save_row_bcs_rates' OWN order (NOT the client rate gate -- BCS deliberately
   // skips the formula, priceability and category gates).
   const bcsCostReason = bcsCostEntryReason({
-    sheetLoading: pricedLoading,
-    sheetError: pricedError,
+    sheetLoading: sheetLoad.isLoading,
+    sheetError: sheetLoad.isFailed,
     committedVersion: liveCommitVersion,
     viewingHistory: isViewingHistory,
     sheetLocked: isLocked,
@@ -2435,18 +2475,23 @@ const SheetPricingPage = () => {
   // EXACTLY what a rate write consumes -- !locked (locked => onSaveRate withheld), formulasComplete,
   // categoryGateOpen -- read straight from the existing vars, never re-derived. Disabled surfaces
   // the first failing reason (title). Synchronous: the run builds suggestionsByExcelRow in place. ──
+  // PE-SPIN-1: loading and failed are separate reasons. This site used to answer "Loading..." to
+  // both, so a sheet that had FAILED to load explained its dead button as a load still in
+  // progress -- the page-level spinner lie, repeated in a tooltip.
   const suggestRatesReason: string | null =
-    pricedLoading || pricedError
+    sheetLoad.isLoading
       ? "Loading..."
-      : commitVersion === null
-        ? "Sheet is not committed"
-        : locked
-          ? "Sheet is locked / read-only"
-          : !formulasComplete
-            ? "Declare amount formulas first"
-            : !categoryGateOpen
-              ? "Every eligible row needs a category first"
-              : null;
+      : sheetLoad.isFailed
+        ? "This sheet could not be loaded"
+        : commitVersion === null
+          ? "Sheet is not committed"
+          : locked
+            ? "Sheet is locked / read-only"
+            : !formulasComplete
+              ? "Declare amount formulas first"
+              : !categoryGateOpen
+                ? "Every eligible row needs a category first"
+                : null;
   const suggestRatesDisabled = suggestRatesReason !== null;
 
   // RM-3: config + master (SWR) feed the RM-2 interpreter CLIENT-SIDE (the single compute source).
@@ -3086,7 +3131,7 @@ const SheetPricingPage = () => {
             )}
             aria-pressed={isLocked}
             onClick={handleToggleLock}
-            disabled={lockToggling || pricedLoading || pricedError || commitVersion === null || isViewingHistory}
+            disabled={lockToggling || !sheetLoad.isUsable || commitVersion === null || isViewingHistory}
             title={
               isLocked
                 ? "This sheet is locked (read-only). Click to unlock and allow edits."
@@ -3115,7 +3160,7 @@ const SheetPricingPage = () => {
             )}
             aria-pressed={frozen}
             onClick={() => setFrozen((v) => !v)}
-            disabled={pricedLoading || pricedError || rows.length === 0}
+            disabled={!sheetLoad.isUsable || rows.length === 0}
             title={
               frozen
                 ? "Unfreeze columns -- let every column scroll normally."
@@ -3134,7 +3179,7 @@ const SheetPricingPage = () => {
             className="gap-1.5 text-muted-foreground"
             aria-pressed={virtualized}
             onClick={() => setVirtualized((v) => !v)}
-            disabled={pricedLoading || pricedError || rows.length === 0}
+            disabled={!sheetLoad.isUsable || rows.length === 0}
             title={
               virtualized
                 ? "Windowed rendering is ON (faster on big sheets). Click to use the classic full render."
@@ -3149,7 +3194,7 @@ const SheetPricingPage = () => {
             variant="outline"
             className="gap-1.5"
             onClick={() => setSummaryOpen((o) => !o)}
-            disabled={pricedLoading || pricedError || rows.length === 0}
+            disabled={!sheetLoad.isUsable || rows.length === 0}
             title="Toggle the parent-tree amount summary"
           >
             <Sigma className="h-4 w-4" />
@@ -3161,7 +3206,7 @@ const SheetPricingPage = () => {
             variant="outline"
             className="gap-1.5"
             onClick={() => setReviewOpen((o) => !o)}
-            disabled={pricedLoading || pricedError}
+            disabled={!sheetLoad.isUsable}
             title="Rows flagged for review (remarks + computed flags)"
           >
             <ClipboardList className="h-4 w-4" />
@@ -3346,7 +3391,7 @@ const SheetPricingPage = () => {
             className="gap-1.5"
             aria-pressed={showOnlyUnpriced}
             onClick={() => setShowOnlyUnpriced((o) => !o)}
-            disabled={pricedLoading || pricedError || pricedCount.total === 0}
+            disabled={!sheetLoad.isUsable || pricedCount.total === 0}
             title={
               showOnlyUnpriced
                 ? "Showing only unpriced lines. Click to show all rows."
@@ -3370,7 +3415,7 @@ const SheetPricingPage = () => {
             size="sm"
             variant="outline"
             className="gap-1.5"
-            disabled={pricedLoading || pricedError || childrenByParent.size === 0}
+            disabled={!sheetLoad.isUsable || childrenByParent.size === 0}
             aria-label={collapsed.size === 0 ? "Collapse all rows" : "Expand all rows"}
             title={
               childrenByParent.size === 0
@@ -3398,7 +3443,7 @@ const SheetPricingPage = () => {
             size="sm"
             variant="outline"
             className="gap-1.5"
-            disabled={pricedLoading || pricedError || classifyRunning || classificationFrozen}
+            disabled={!sheetLoad.isUsable || classifyRunning || classificationFrozen}
             onClick={() => setClassifyOpen(true)}
             title={
               classificationFrozen
@@ -3428,7 +3473,7 @@ const SheetPricingPage = () => {
             variant={classificationFrozen ? "default" : "outline"}
             className="gap-1.5"
             disabled={
-              pricedLoading || pricedError || classifyRunning || commitVersion === null || freezeToggling
+              !sheetLoad.isUsable || classifyRunning || commitVersion === null || freezeToggling
             }
             onClick={classificationFrozen ? () => setUnfreezeConfirm(true) : handleFreezeClick}
             title={
@@ -3549,7 +3594,7 @@ const SheetPricingPage = () => {
             onClick={() => setShowNeedsReview((o) => !o)}
             // WBC-S8: enabled off the DISPLAYED version -- the same size>0 truth as hasRun, so the
             // button and what it would filter always describe the same version.
-            disabled={pricedLoading || pricedError || activeCategoriesByExcelRow.size === 0}
+            disabled={!sheetLoad.isUsable || activeCategoriesByExcelRow.size === 0}
             title={
               showNeedsReview
                 ? "Showing only rows whose category needs a check. Click to show all rows."
@@ -3603,7 +3648,7 @@ const SheetPricingPage = () => {
                 placeholder="Search description…"
                 className="h-8 w-48 pl-7 pr-7 text-xs"
                 aria-label="Search descriptions"
-                disabled={pricedLoading || pricedError}
+                disabled={!sheetLoad.isUsable}
               />
               {searchQuery !== "" && (
                 <button
@@ -3656,7 +3701,7 @@ const SheetPricingPage = () => {
                   size="sm"
                   variant="outline"
                   className="gap-1.5"
-                  disabled={pricedLoading || pricedError}
+                  disabled={!sheetLoad.isUsable}
                 >
                   <SlidersHorizontal className="h-4 w-4" />
                   Columns
@@ -4001,7 +4046,7 @@ const SheetPricingPage = () => {
           (declaration works under the gate). A trivially-complete sheet (zero amount columns)
           never shows it (areFormulasComplete is true). Amber-note styling (mirrors the
           override / unmapped-column notes). */}
-      {!isGridOnly && !locked && !pricedLoading && !pricedError && !formulasComplete && (
+      {!isGridOnly && !locked && sheetLoad.isUsable && !formulasComplete && (
         <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-xs text-amber-900 dark:text-amber-100 flex-wrap">
           <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-700 dark:text-amber-300" />
           <span>Declare amount formulas to enable rate entry.</span>
@@ -4014,7 +4059,7 @@ const SheetPricingPage = () => {
           the count STILL shows the blanks). It NAMES the existing "Check Category" toolbar control; it
           does NOT add a button and there is no click-to-jump (owner ruling). Amber-note styling,
           verbatim from the formula banner. */}
-      {!isGridOnly && !locked && !pricedLoading && !pricedError && categoryBlankCount > 0 && (
+      {!isGridOnly && !locked && sheetLoad.isUsable && categoryBlankCount > 0 && (
         <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-xs text-amber-900 dark:text-amber-100 flex-wrap">
           <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-700 dark:text-amber-300" />
           {categoryGateOverride ? (
@@ -4097,7 +4142,7 @@ const SheetPricingPage = () => {
           component in this file -- every banner is copied markup, and drift here would be
           visible). Per the category-gate precedent it NAMES the control and adds no jump button;
           the BCS button in the bottom ribbon is the one way in. */}
-      {!isGridOnly && !locked && !pricedLoading && !pricedError && bcsNeedsColumns && (
+      {!isGridOnly && !locked && sheetLoad.isUsable && bcsNeedsColumns && (
         <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-xs text-amber-900 dark:text-amber-100 flex-wrap">
           <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-700 dark:text-amber-300" />
           <span>
@@ -4118,7 +4163,7 @@ const SheetPricingPage = () => {
       {/* ── Summary panel (top-down, grid-aligned, fixed-height, internal scroll) ──
           Opens ABOVE the grid; computed page-side from the same rows + descriptors the
           grid renders (no new backend call). The grid stays usable below. */}
-      {!isGridOnly && summaryOpen && !pricedLoading && !pricedError && (
+      {!isGridOnly && summaryOpen && sheetLoad.isUsable && (
         <SummaryPanel
           rows={rows}
           columnDescriptors={columnDescriptors}
@@ -4135,7 +4180,7 @@ const SheetPricingPage = () => {
           click-jumps to its row via the grid's scrollToRow handle, and carries a per-entry
           "Looks OK" dismiss (4b-ACKNOWLEDGE) that HIDES it from the active view (toggle
           "Show dismissed" to reveal + restore). The default view is ACTIVE-only. */}
-      {!isGridOnly && reviewOpen && !pricedLoading && !pricedError && (
+      {!isGridOnly && reviewOpen && sheetLoad.isUsable && (
         <div className="rounded-md border border-border bg-muted/20">
           <div className="flex items-center justify-between border-b border-border px-3 py-2">
             <p className="text-sm font-medium text-foreground">
@@ -4292,16 +4337,41 @@ const SheetPricingPage = () => {
       )}
 
       {/* ── Grid ──────────────────────────────────────────────────────────────── */}
-      {pricedLoading && (
+      {/* PE-SPIN-1: three honest outcomes where there used to be two, one of which could not be
+          reached. A spinner now means a load genuinely IN PROGRESS; a failure says so and offers
+          a Retry instead of spinning forever; and a payload whose latest refresh failed still
+          renders (destroying a live editing session over one transient blip is its own harm) but
+          says plainly that it may be out of date. `sheetLoad.message` carries the wording -- the
+          three cases are worded apart on purpose, because "the network failed" and "this sheet
+          may not be committed" send a user to different places. */}
+      {sheetLoad.isLoading && (
         <div className="flex items-center justify-center py-16">
           <Loader2 className="h-6 w-6 animate-spin text-primary" />
         </div>
       )}
 
-      {pricedError && (
-        <p className="text-sm text-destructive">
-          Failed to load pricing rows. Check that this sheet has been committed and try again.
-        </p>
+      {sheetLoad.isFailed && (
+        <div className="flex flex-col items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-4 py-3">
+          <p className="flex items-center gap-2 text-sm font-medium text-destructive">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            {sheetLoad.message}
+          </p>
+          <Button variant="outline" size="sm" onClick={handleRetryLoad}>
+            <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+            Try again
+          </Button>
+        </div>
+      )}
+
+      {sheetLoad.isStale && (
+        <div className="mb-2 flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          <span className="flex-1">{sheetLoad.message}</span>
+          <Button variant="outline" size="sm" onClick={handleRetryLoad}>
+            <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+            Retry
+          </Button>
+        </div>
       )}
 
       {/* ── Render fork: grid-only -> faithful read-only grid; else the pricing grid.
@@ -4310,7 +4380,7 @@ const SheetPricingPage = () => {
           expanded (the root is flex-col) so the grid fills the freed full-screen height; the
           grid's own container relaxes its rem-cap (its `expanded` prop). Embedded -> no class
           (the grid keeps its own viewport-rem cap, byte-for-byte the prior behaviour). */}
-      {!pricedLoading && !pricedError && (
+      {sheetLoad.isUsable && (
         <div className={cn(expanded && "flex min-h-0 flex-1 flex-col")}>
         {/* RM-3a/RM-3b: the rate-helper panel mount + the FULL-SCREEN flex chain.
             - EMBEDDED (feature on): the panel is ALWAYS mounted (panel-as-default), so this is a
