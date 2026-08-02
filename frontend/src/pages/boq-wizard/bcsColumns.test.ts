@@ -592,36 +592,72 @@ describe("the disclosure sentence", () => {
       "% Profit is measured against the combined Amount in column F.",
     );
     expect(say(["J", "P"])).toBe(
-      "This sheet has no combined Amount column, so % Profit is measured against the Supply " +
-        "amount plus the Installation amount (columns J and P), added together.",
+      "% Profit is measured against the Supply amount plus the Installation amount " +
+        "(columns J and P), added together.",
     );
     expect(say(["J"])).toBe(
-      "This sheet has no combined Amount column, so % Profit is measured against the Supply " +
-        "amount alone (column J). Installation is not included.",
+      "% Profit is measured against the Supply amount alone (column J). Installation is " +
+        "not included.",
     );
     expect(say(["P"])).toBe(
-      "This sheet has no combined Amount column, so % Profit is measured against the " +
-        "Installation amount alone (column P). Supply is not included.",
+      "% Profit is measured against the Installation amount alone (column P). Supply is " +
+        "not included.",
     );
     expect(say(["G", "H"])).toBe(
-      "This sheet splits its combined Amount across areas, so % Profit is measured against " +
-        "columns G and H, added together.",
+      "% Profit is measured against the combined Amount in columns G and H, added together.",
     );
     expect(say(["I", "S", "R", "T"])).toBe(
-      "This sheet has no combined Amount column and splits its amounts across areas, so " +
-        "% Profit is measured against the Supply and Installation amounts in columns I, S, R " +
+      "% Profit is measured against the Supply and Installation amounts in columns I, S, R " +
         "and T, all added together.",
     );
     expect(say(["I", "S"])).toBe(
-      "This sheet has no combined Amount column and splits its amounts across areas, so " +
-        "% Profit is measured against the Supply amounts in columns I and S, added together. " +
+      "% Profit is measured against the Supply amounts in columns I and S, added together. " +
         "Installation is not included.",
     );
     expect(say(["R", "T"])).toBe(
-      "This sheet has no combined Amount column and splits its amounts across areas, so " +
-        "% Profit is measured against the Installation amounts in columns R and T, added " +
+      "% Profit is measured against the Installation amounts in columns R and T, added " +
         "together. Supply is not included.",
     );
+  });
+
+  // ── THE RULE BEHIND THE PINS: state the formula, never the reason ─────────────
+  // The block above pins the WORDS; this pins the RULE that produced them, so the defect
+  // BCS-S2d repaired cannot return under different phrasing.
+  //
+  // WHAT WENT WRONG. Six of the eight opened "This sheet has no combined Amount column, so
+  // ...". That clause was derived from what the user PICKED, never from what the sheet MAPS
+  // -- and on a sheet carrying Amount (Total) AND both halves, picking the two halves is
+  // correctly accepted, whereupon the card denied the Total existed directly beneath a
+  // visible, pickable Total chip. The formula half of each sentence was true; the
+  // justification half was false, and it failed in the WORST direction: it EXPLAINED AWAY
+  // the very one-sidedness the sentence exists to flag. A reader who accepts the excuse
+  // stops looking.
+  //
+  // OWNER RULING 2026-08-02: state what the formula USES and what it EXCLUDES -- never why.
+  // A claim about the formula is checkable against the picked columns; a claim about the
+  // sheet's other columns is not, and this function is not given them.
+  it("never explains WHY -- no sentence makes a claim about the sheet's other columns", () => {
+    for (const [mode, cols] of EIGHT) {
+      const v = validateBcsPicks("amount", cols, INDEX);
+      const s = v.ok ? v.summary : "";
+      // The sentence describes the FORMULA, so it never has a subject other than % Profit.
+      expect(s, `${mode} narrates the sheet`).not.toMatch(/This sheet/i);
+      // "no combined Amount column" is the specific falsehood; it is unknowable from picks.
+      expect(s, `${mode} claims a column is absent`).not.toMatch(/no combined Amount/i);
+      // A causal ", so ..." is the shape the excuse arrived in.
+      expect(s, `${mode} justifies itself`).not.toMatch(/, so /);
+    }
+  });
+
+  // Dropping the clause must not cost a sentence its OPERANDS -- the risk the rewrite ran.
+  // Every sentence still says which kind of amount it reads, so "columns G and H" can never
+  // stand alone as an unexplained pair of letters.
+  it("still names the KIND of amount being summed, not just the letters", () => {
+    const kindWord = /combined Amount|Supply|Installation/;
+    for (const [mode, cols] of EIGHT) {
+      const v = validateBcsPicks("amount", cols, INDEX);
+      expect(v.ok && v.summary, `${mode} names no amount kind`).toMatch(kindWord);
+    }
   });
 });
 

@@ -210,6 +210,31 @@ function columnPhrase(cols: string[]): string {
  * will decide about a live pick; `bcsStoredSummary` uses it to REPORT what the server already
  * decided. Sharing the templates is what stops the sentence a user reads before saving from
  * differing from the one they read after.
+ *
+ * ⚠️ STATE THE FORMULA AND THE EXCLUSION. NEVER THE REASON. (OWNER RULING 2026-08-02, BCS-S2d.)
+ * A sentence here may say what the formula USES ("the Supply amount alone (column J)") and what it
+ * LEAVES OUT ("Installation is not included"). It may NOT say why -- not "this sheet has no
+ * combined Amount column", not "this sheet splits its amounts across areas", not any other claim
+ * about the sheet.
+ *
+ * WHY THAT IS A RULE AND NOT A STYLE PREFERENCE. This function is given a mode and a list of
+ * PICKED columns. It is never given the sheet's OTHER columns, so every "why" it could offer is
+ * an inference from the pick -- and the inference is wrong on a sheet that maps Amount (Total)
+ * AND both halves, where picking the two halves is legitimately accepted. Six of these eight
+ * sentences used to open "This sheet has no combined Amount column, so ...", which on exactly
+ * that sheet denied the Total existed while the user looked at a pickable Total chip.
+ *
+ * AND IT FAILED IN THE WORST DIRECTION. This sentence is the entire safety mechanism for the
+ * "adapt and disclose, never refuse" ruling -- a one-sided sheet is accepted BECAUSE the software
+ * promises to say so. A false justification does not merely add noise: it EXPLAINS AWAY the
+ * one-sidedness the sentence exists to flag, and a reader who accepts the excuse stops looking.
+ * The excuse was also pinned by a test and transcribed into the plan doc, so it had been ratified
+ * twice before anyone read it against a real sheet.
+ *
+ * A claim about the formula is checkable against the columns named beside it. A claim about the
+ * sheet is not, and it goes stale the moment the sheet's mapping changes underneath a stored
+ * confirmation. Two tests hold this line: the eight sentences pinned VERBATIM, and a rule test
+ * asserting none of them narrates the sheet or justifies itself with ", so".
  */
 export function bcsSummaryForMode(mode: string, cols: string[]): string {
   const where = columnPhrase(cols);
@@ -225,39 +250,33 @@ export function bcsSummaryForMode(mode: string, cols: string[]): string {
       return `% Profit is measured against the combined Amount in ${where}.`;
     case "amount_supply_plus_install":
       return (
-        `This sheet has no combined Amount column, so % Profit is measured against the Supply ` +
-        `amount plus the Installation amount (${where}), added together.`
+        `% Profit is measured against the Supply amount plus the Installation amount ` +
+        `(${where}), added together.`
       );
     case "amount_supply_only":
       return (
-        `This sheet has no combined Amount column, so % Profit is measured against the Supply ` +
-        `amount alone (${where}). Installation is not included.`
+        `% Profit is measured against the Supply amount alone (${where}). Installation is ` +
+        `not included.`
       );
     case "amount_install_only":
       return (
-        `This sheet has no combined Amount column, so % Profit is measured against the ` +
-        `Installation amount alone (${where}). Supply is not included.`
+        `% Profit is measured against the Installation amount alone (${where}). Supply is ` +
+        `not included.`
       );
     case "amount_by_area":
-      return (
-        `This sheet splits its combined Amount across areas, so % Profit is measured against ` +
-        `${where}, added together.`
-      );
+      return `% Profit is measured against the combined Amount in ${where}, added together.`;
     case "amount_by_area_supply_plus_install":
       return (
-        `This sheet has no combined Amount column and splits its amounts across areas, so ` +
         `% Profit is measured against the Supply and Installation amounts in ${where}, all ` +
         `added together.`
       );
     case "amount_by_area_supply_only":
       return (
-        `This sheet has no combined Amount column and splits its amounts across areas, so ` +
         `% Profit is measured against the Supply amounts in ${where}, added together. ` +
         `Installation is not included.`
       );
     case "amount_by_area_install_only":
       return (
-        `This sheet has no combined Amount column and splits its amounts across areas, so ` +
         `% Profit is measured against the Installation amounts in ${where}, added together. ` +
         `Supply is not included.`
       );
