@@ -596,6 +596,64 @@ class TestBcsEnableAndConfirm(_BcsEndpointBase):
         self.assertIsNone(state["bcs_amount_source"], "a refused confirmation stores NOTHING")
         self.assertIsNone(state["bcs_qty_source"])
 
+    def test_two_columns_holding_the_same_value_are_refused_and_nothing_is_stored(self):
+        """BCS-S1c: the refusal above, keyed on what the pick RESOLVES TO rather than on
+        the letter that was picked.
+
+        S1b de-duplicated the LETTER, which two DIFFERENT letters carrying the same number
+        walk straight past -- and summing them is the very double-count the rule exists to
+        prevent. This is reachable from a real sheet: _build_column_descriptors imposes no
+        uniqueness on (role, area) across columns, so the role map below (Zone A quantity
+        on BOTH D and E, the Zone A combined amount on BOTH F and G) is something a
+        duplicated export column or a mid-migration remap produces.
+
+        The endpoint's job here is the usual one -- that the pure module's refusal SURFACES
+        as a clean named error and leaves the confirmation untouched. Which refusal it is,
+        and why, is pinned in services/boq_bcs/test_sources.py."""
+        _seed_sheet(self.boq, "Aliased BCS ", self.cv, {
+            "A": {"role": "description", "area": None},
+            "D": {"role": "qty", "area": "Zone A"},
+            "E": {"role": "qty", "area": "Zone A"},
+            "F": {"role": "amount_total_by_area", "area": "Zone A"},
+            "G": {"role": "amount_total_by_area", "area": "Zone A"},
+            "H": {"role": "amount_total", "area": None},
+        }, ["Zone A"], 7)
+
+        # two letters, ONE quantity (the amount pick is valid, so only the qty can refuse).
+        with self.assertRaises(frappe.ValidationError):
+            confirm_bcs_columns(
+                boq_name=self.boq, sheet_name="Aliased BCS ", committed_version=self.cv,
+                qty_cols=json.dumps(["D", "E"]), amount_cols=json.dumps(["H"]),
+            )
+        state = get_bcs_state(boq_name=self.boq, sheet_name="Aliased BCS ",
+                              committed_version=self.cv)
+        self.assertIsNone(state["bcs_qty_source"], "a refused confirmation stores NOTHING")
+        self.assertIsNone(state["bcs_amount_source"])
+        self.assertIsNone(state["bcs_confirmed_by"])
+
+        # two letters, ONE amount (the qty pick is valid, so only the amount can refuse).
+        with self.assertRaises(frappe.ValidationError):
+            confirm_bcs_columns(
+                boq_name=self.boq, sheet_name="Aliased BCS ", committed_version=self.cv,
+                qty_cols=json.dumps(["D"]), amount_cols=json.dumps(["F", "G"]),
+            )
+        state = get_bcs_state(boq_name=self.boq, sheet_name="Aliased BCS ",
+                              committed_version=self.cv)
+        self.assertIsNone(state["bcs_amount_source"], "a refused confirmation stores NOTHING")
+        self.assertIsNone(state["bcs_qty_source"])
+        self.assertIsNone(state["bcs_confirmed_by"])
+
+        # ... and the sheet is still confirmable once each value is picked ONCE, so the
+        # rule refuses the double-count without refusing the sheet.
+        confirm_bcs_columns(
+            boq_name=self.boq, sheet_name="Aliased BCS ", committed_version=self.cv,
+            qty_cols=json.dumps(["D"]), amount_cols=json.dumps(["F"]),
+        )
+        state = get_bcs_state(boq_name=self.boq, sheet_name="Aliased BCS ",
+                              committed_version=self.cv)
+        self.assertEqual(state["bcs_qty_source"]["mode"], "qty_by_area")
+        self.assertEqual(state["bcs_amount_source"]["mode"], "amount_by_area")
+
 
 # ===========================================================================
 # Group 3b: the AMOUNT source has the same TWO shapes as quantity (BCS-S1a)

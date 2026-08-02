@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and Contributors
 # See license.txt
 
-"""Unit tests for the TWO BCS column confirmations -- the pure rules (slice BCS-S1b).
+"""Unit tests for the TWO BCS column confirmations -- the pure rules (slices BCS-S1b/S1c).
 
 These test `services/boq_bcs/sources.py` DIRECTLY, at its own seam: the module's whole
 interface is `(picked column letters, descriptor index) -> confirmation dict`, so a test
@@ -38,7 +38,9 @@ Coverage:
   Group 2  the AMOUNT shapes     -- the same two, per the S1a owner ruling.
   Group 3  the stored ENTRY      -- one shape for every source and every mode, incl. the
                                     rate_subkey THREE-hop a per-area amount needs.
-  Group 4  the SHARED refusals   -- unknown column, and (S1b) the same column twice.
+  Group 4  the SHARED refusals   -- unknown column, and two picks that resolve to ONE
+                                    value: the same letter twice (S1b), or two different
+                                    letters carrying the same number (S1c).
   Group 5  the QUANTITY refusals -- empty, wrong class, two scalars, mixed.
   Group 6  the AMOUNT refusals   -- the mirror, plus the supply/install HALF guard that
                                     exists only on this source.
@@ -128,6 +130,21 @@ TWO_SCALARS = _index(
     _singleton("E", "qty_total", "qty_total"),
     _singleton("F", "amount_total", "amount_total"),
     _singleton("G", "amount_total", "amount_total"),
+)
+
+# A sheet where two DIFFERENT letters resolve to the SAME underlying value: D and E are
+# both Zone A quantity, F and G are both the Zone A combined amount. Nothing forbids this
+# shape -- review_screen._build_column_descriptors imposes no uniqueness on (role, area)
+# across columns, so a duplicated export column or a mid-migration remap produces it -- and
+# summing such a pair counts one number twice, which is the exact harm the duplicate rule
+# exists to prevent. This is the fixture for BCS-S1c: S1b de-duplicated the picked LETTER,
+# which this shape walks straight past.
+ALIASED = _index(
+    _singleton("B", "description", "description"),
+    _qty_area("D", "Zone A"),
+    _qty_area("E", "Zone A"),
+    _amount_area("F", "Zone A", "total"),
+    _amount_area("G", "Zone A", "total"),
 )
 
 
@@ -243,19 +260,30 @@ class TestSharedRefusals(unittest.TestCase):
                 build(["Z"], SCALAR)
 
     def test_the_unknown_column_refusal_names_the_column(self):
-        """The message is the user's only clue about which pick was wrong."""
-        with self.assertRaisesRegex(frappe.ValidationError, "Z"):
+        """The message is the user's only clue about which pick was wrong.
+
+        ANCHORED on purpose (BCS-S1c): a bare "Z" is one unanchored character, and would
+        match vacuously the moment this test is repointed at a fixture whose text happens
+        to contain one -- PER_AREA's "Zone A" is exactly that. An assertion that cannot
+        fail is not an assertion."""
+        with self.assertRaisesRegex(frappe.ValidationError,
+                                    r"^Column 'Z' is not a mapped column"):
             build_qty_source(["D", "Z"], SCALAR)
 
-    # -- the SIXTH refusal (BCS-S1b) ---------------------------------------
+    # -- the SIXTH refusal (BCS-S1b, correctly keyed at BCS-S1c) -----------
     def test_a_repeated_per_area_quantity_column_is_refused(self):
-        """THE GAP THIS SLICE CLOSES. Two identical entries would be summed, and the row
-        would count that column's quantity twice."""
-        with self.assertRaises(frappe.ValidationError):
+        """The letter route. Two identical entries would be summed, and the row would
+        count that column's quantity twice.
+
+        Pinned to the SPECIFIC message (BCS-S1c) rather than to "some refusal fired": the
+        duplicate family is this slice's own, so which of the two voicings answered has to
+        be unambiguous -- a bare assertRaises here would still pass if the pick were
+        refused by an unrelated rule for an unrelated reason."""
+        with self.assertRaisesRegex(frappe.ValidationError, "more than once"):
             build_qty_source(["D", "D"], PER_AREA)
 
     def test_a_repeated_per_area_amount_column_is_refused(self):
-        with self.assertRaises(frappe.ValidationError):
+        with self.assertRaisesRegex(frappe.ValidationError, "more than once"):
             build_amount_source(["F", "F"], PER_AREA)
 
     def test_a_repeated_scalar_column_is_refused_on_purpose_now(self):
@@ -272,11 +300,49 @@ class TestSharedRefusals(unittest.TestCase):
             build_qty_source(["D", "D", "D"], PER_AREA)
 
     def test_an_unknown_column_beats_a_duplicate(self):
-        """ORDERING, deliberate: a column the sheet does not have is reported as unknown
-        -- the more fundamental fact about it -- rather than as a duplicate. This is what
-        keeps every input that threw before BCS-S1b throwing identically."""
+        """ORDERING, deliberate: a column the sheet does not have is reported as UNKNOWN
+        -- the more fundamental fact about it -- rather than as a duplicate.
+
+        That narrow claim is the whole of what the ordering buys, and this test is what
+        pins it. BCS-S1b's docstring here claimed something wider and false -- that "every
+        input that threw before throws identically" -- when in fact the duplicate refusal
+        precedes every per-source rule and SHADOWS six titles (see the note in
+        sources._resolve_picks, which enumerates them). Nothing breaks, because no test
+        anywhere asserts on a shadowed title; the defect was the sentence."""
         with self.assertRaisesRegex(frappe.ValidationError, "not a mapped column"):
             build_qty_source(["Z", "Z"], SCALAR)
+
+    # -- the same refusal, correctly KEYED (BCS-S1c) ------------------------
+    def test_two_different_columns_resolving_to_one_quantity_are_refused(self):
+        """THE GAP THIS SLICE CLOSES. S1b de-duplicated the picked LETTER, so two
+        DIFFERENT letters that resolve to the SAME (value_field, value_key, rate_subkey)
+        were still accepted -- and summing them double-counts the row, which is precisely
+        what the duplicate rule exists to prevent. The letter case is not a separate rule;
+        it is the degenerate case of this one (the same letter necessarily resolves
+        identically), which is why widening the key costs the letter tests nothing."""
+        with self.assertRaisesRegex(frappe.ValidationError, "same value"):
+            build_qty_source(["D", "E"], ALIASED)
+
+    def test_two_different_columns_resolving_to_one_amount_are_refused(self):
+        """The mirror on the other source -- and the reason the rule stays in the shared
+        _resolve_picks rather than being written twice."""
+        with self.assertRaisesRegex(frappe.ValidationError, "same value"):
+            build_amount_source(["F", "G"], ALIASED)
+
+    def test_the_resolved_duplicate_refusal_names_the_offending_columns(self):
+        """The user picked two columns that LOOK different; the message has to say which
+        pair collapsed, or the refusal is unactionable."""
+        with self.assertRaisesRegex(frappe.ValidationError, r"^Column\(s\) D, E resolve"):
+            build_qty_source(["D", "E"], ALIASED)
+
+    def test_columns_resolving_to_DIFFERENT_values_stay_accepted(self):
+        """The negative control that keeps the widened key honest: per-area columns are
+        the shape BCS is FOR, and two areas are two numbers that must still SUM. If this
+        ever fails, the key has widened past the value identity into the value CLASS."""
+        out = build_qty_source(["D", "E"], PER_AREA)      # Zone A + Zone B
+        self.assertEqual([c["col"] for c in out["columns"]], ["D", "E"])
+        amt = build_amount_source(["F", "G"], PER_AREA)   # Zone A + Zone B
+        self.assertEqual([c["col"] for c in amt["columns"]], ["F", "G"])
 
 
 # ===========================================================================
