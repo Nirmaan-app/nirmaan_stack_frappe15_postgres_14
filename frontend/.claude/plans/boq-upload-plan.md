@@ -17889,8 +17889,13 @@ The solution is **one merge with two readers**, both pure, both in `bcsColumns.t
 | `gatherBcsRowRates(merged)` | the numeric triple a save carries | **every** write path |
 | `bcsUnitCost(merged, kinds)` | the Total's multiplicand, `null` when nothing is entered | the Total Amount cell |
 
-**`gatherBcsRowRates` is the only place a cost payload is built.** It iterates `BCS_RATE_FIELDS` rather than
-naming three fields, so a fourth stored rate could not be silently dropped from a write either. `BcsRowRates`
+**`gatherBcsRowRates` is the only place a cost payload is built.** ⚠️ **ERRATUM (BCS-S3a-fix):** this record
+originally read *"It iterates `BCS_RATE_FIELDS` rather than naming three fields, so a fourth stored rate could
+not be silently dropped from a write either."* **It does not iterate** — it names the three fields explicitly
+(`bcsColumns.ts:832-836`). That is the right shape (a fourth field on the `BcsRowRates` *payload* type breaks
+the literal at compile time), but the direction the sentence claimed — a fourth field added to
+`BCS_RATE_FIELDS`, which `mergeBcsRowValues` would then produce — **was enforced nowhere** and would have been
+dropped in silence. A test now closes it, proven falsifiable. `BcsRowRates`
 lives in `boqTypes.ts` precisely so a **partial payload is not expressible** — there is no shape in which a
 caller can send one rate and leave the others to chance.
 
@@ -17988,7 +17993,8 @@ with no lock in hand.
 values into `draftRates` would have given every rate cell of the row a new slice on a cost keystroke,
 defeating `shallowEqualStrMap` for edits that have nothing to do with each other. Each row receives only its
 own draft slice, its own stored record (by reference) and its quantity as a **scalar** — never the whole
-`bcsRatesByExcelRow` Map, never the qty source. All eleven new row props are in `pricingRowPropsAreEqual`;
+`bcsRatesByExcelRow` Map, never the qty source. All **ten** (⚠️ **ERRATUM (BCS-S3a-fix):** this record said
+*eleven*; the comparator carries ten) new row props are in `pricingRowPropsAreEqual`;
 all five new grid props are `useMemo`'d / `useCallback`'d or plain scalars, including a module-level
 `EMPTY_BCS_KINDS` so an absent block never mints a fresh `[]`.
 
@@ -18014,9 +18020,20 @@ against is unreachable by construction. Adding it would cost a `_committed_descr
 Total Amount render path to defend a state that cannot occur, and worse, would need a policy for what to *do*
 on failure — inventing a failure mode rather than catching one. **There is an honest fail-safe residue:**
 `bcsRowQuantity` skips any entry that does not resolve to a number, so a hypothetical stale entry degrades
-the Total to **blank**, never to a wrong figure. ⚠️ **The one thing that would change this answer: if a
-future slice ever lets a committed sheet's `column_role_map` be edited in place, the read-time check becomes
-necessary.**
+the Total to **blank**, never to a wrong figure.
+
+⚠️ **AMENDED AT BCS-S3a-fix, twice.** *(a) The residue now cites the refusal it is a residue OF:* the
+server-side aliasing throw in `_resolve_picks` (`services/boq_bcs/sources.py:192-203` — *"Column(s) … resolve
+to the same value on this sheet, so picking them together would count that value twice"*). That is the check
+this section decided not to repeat on read, so it is the check the residue backstops; without the citation
+the residue reads as a general robustness remark rather than a named backstop. *(b) The reversal condition was
+aimed at the wrong thing.* It named `column_role_map` being edited in place, which is only ONE way to reach a
+stale pairing. **The condition that actually matters is ANY WRITE PATH THAT REACHES A STORED BCS SOURCE
+WITHOUT GOING THROUGH `_resolve_picks`** — today the only two producers both call it (`sources.py:240` and
+`:291`), and that, not the immutability of the row, is what makes the pairing unreachable. A bulk loader, a
+patch, a carry, or a second endpoint that wrote `columns` directly would defeat it while `column_role_map`
+stayed untouched. **If a third producer of a stored BCS source appears, either route it through
+`_resolve_picks` or add the read-time check.**
 
 ### 7. The export leak guard was green for the wrong reason
 
@@ -18046,7 +18063,7 @@ instead.
 |---|---|
 | `yarn test` (in container) | **1320 → 1369**, 54 files, all green |
 | `bcsColumns.test.ts` | 98 → **131** |
-| `clipboard.test.ts` | 18 → **29** |
+| `clipboard.test.ts` | **19** → **29** (⚠️ **ERRATUM (BCS-S3a-fix):** the baseline was recorded as 18) |
 | `undoHistory.test.ts` | 16 → **22** |
 | **RED shown before green** | 32 failed / 99 passed (bcsColumns); 10 failed / 41 passed (clipboard + undoHistory); 2 failed (the export sentinel probe) |
 | `tsc --noEmit`, `boq-wizard` | **0 → 0** |
@@ -18054,11 +18071,12 @@ instead.
 | `test_sources` · `test_bcs` | **48 → 48** · **64 → 64** OK |
 | `test_pricing` · `test_commit_pipeline` · `test_review_screen` | **252 → 252** · **57 → 57** · **260 → 260** OK |
 | `python3 scripts/residence_check.py` | F2 **208** (baseline 207 — the pre-existing red; a 209 would have been ours). B1 0, B2 8, B3 40, F5 116, all holding |
-| `git diff --stat dd02fd4d..HEAD` | 11 files, **+1874 / −48** |
+| `git diff --stat dd02fd4d..HEAD` | **12 files, +2107 / −48** (⚠️ **ERRATUM (BCS-S3a-fix):** recorded as *11 files, +1874*, which is `dd02fd4d..2089aab2` — the three CODE commits only. The named command reaches `HEAD`, i.e. `ba5ed9f4`, which includes the record commit itself) |
 
 **The bench suites WERE run.** The recorded collision is with an actively polling browser tab, not with
-`bench start` merely being up, so `tabSessions.lastupdate` was sampled across ~50 s: frozen at `22:14:32`
-(≈29 minutes stale), i.e. no live session. Both a baseline and a final pass ran clean.
+`bench start` merely being up, so `tabSessions.lastupdate` was sampled across ~50 s: frozen at **`23:14:32`**
+(⚠️ **ERRATUM (BCS-S3a-fix):** transcribed as `22:14:32`; re-read from the live row at S3a-fix, which still
+held `2026-08-02 23:14:32.565961`), i.e. no live session. Both a baseline and a final pass ran clean.
 
 **No DOM test environment**, so nothing here claims coverage of a React semantic. Every pure helper is
 covered — the whole-row gather, the live-kinds rule, the arithmetic, the gate order, the colIndex geometry,
@@ -18086,10 +18104,244 @@ the write folding, the undo inversion. **What needs the owner's eyes, in plain E
 - **`pricingVirtual.paneColSpan` — NOT edited** (out of scope). The cost columns' addend is applied at the
   call site instead, which is where the caller already holds the geometry.
 - **`PricingGrid.test.ts` — NOT edited** (out of scope). This is why `colIndexFromColKeyPure`'s new
-  parameters are OPTIONAL and every new row prop is optional: the existing 143 tests construct their own
-  props objects and compile unchanged.
+  parameters are OPTIONAL and every new row prop is optional: the existing **164** (⚠️ **ERRATUM
+  (BCS-S3a-fix):** recorded as *143*) tests construct their own props objects and compile unchanged.
+  ⚠️ **That decision is what kept the two key spaces from ever meeting** — see the S3a-fix record. The file
+  is in scope from S3a-fix on, and the seam test now lives in it.
 - **A read-time duplicate re-validation — decided against**, with the reasoning and its one reversal
   condition in §6(b). Recorded rather than silently skipped.
 - **The residence F2 red — not fixed, not re-baselined.** Reported exactly (**208**).
 - **Production remains unmigrated for the whole BCS arc.** This slice adds no migration of its own, but the
   arc's prior ones are still owed before any BCS use in prod.
+
+## BCS-S3a-fix — the key-space defect: typing a cost now actually works
+
+**Branch** `feature/bcs-columns` · **Base** `ba5ed9f4` · **Tier** FULL · **Date** 2026-08-03
+
+BCS-S3a claimed the headline capability — *"type a cost, it saves, Total Amount shows"* — and **the typing
+half did not work.** This slice fixes that defect and its sibling on the paste path, hardens the seam so the
+class cannot recur silently, closes two invariants S3a asserted in prose and enforced nowhere, and files six
+errata against the S3a record. **No migration. No backend change** — `bcs.py`, `sources.py` and every Python
+file are byte-untouched. One code commit, `55b34aec`.
+
+---
+
+### 1. The defect, and why it was worse than it looked
+
+`PricingGrid.tsx` passed a **FULL-key** draft slice into a **BARE-key** reader:
+
+| side | key space | pinned by |
+|---|---|---|
+| `groupDraftsByRow` slice | `"12:supply_rate"` | `PricingGrid.test.ts` — *"with FULL keys kept"* |
+| `mergeBcsRowValues` | `"supply_rate"` | `bcsColumns.test.ts` — bare-key literals |
+
+`drafts["supply_rate"]` on `{"12:supply_rate":"150"}` is **always `undefined`**, so every cost box rendered
+its *stored* value no matter what was typed. **The `as Partial<Record<BcsRateField, string>>` cast was the
+only reason `tsc` stayed silent.**
+
+**It is a data-corruption path, not a display bug.** The `<Input>` is CONTROLLED on `value = merged[field] ?? ""`.
+Each keystroke therefore re-rendered the box back to the stored value, and the *next* `e.target.value` was
+computed against that reverted string — so the 1 s debounce could **commit a number the user never typed**.
+`onBlur` was saved only by its own `rawValue === saved` early return: it no-opped rather than writing a
+second corruption.
+
+The other two merge call sites (`gatherBcsForRow`, `bcsMergedFor`) were correct, each building a bare-key map
+via `bcsCellKey` lookups. **The broken site was the only one carrying a cast** — which is the tell worth
+remembering: *the cast marked the exact spot where a claim replaced a check.*
+
+### 2. The fix — and the part the build prompt got wrong
+
+The seam is the **draft key space crossing** from `PricingGrid` (which mints it) into `bcsColumns` (a pure
+leaf that must never learn PricingGrid's key format). Three call sites each performed that translation
+independently. It now has **one named owner**: the exported pure `PricingGrid.bcsDraftsForRow(rowIndex, drafts)`,
+sitting beside the `bcsCellKey` that mints the keys, and taking either the whole draft map or one row's slice
+(a slice keeps full keys, so they are interchangeable inputs). All three sites route through it. The cast is
+gone, and the fix compiles **without** one.
+
+> ⚠️ **BUT REMOVING THE CAST DID NOT MAKE `tsc` LOAD-BEARING, AND THE BUILD PROMPT ASSUMED IT WOULD.** The
+> prompt read *"the cast removal is the point"*. **Measured, not reasoned:** the call site was reverted to
+> pass the raw slice with **no cast at all**, and `tsc --noEmit` reported **nothing**. `Record<string, string>`
+> is structurally assignable to an all-optional `Partial<Record<BcsRateField, string>>` — an index signature
+> satisfies every optional property. So the cast removal made the defect *silently re-introducible with zero
+> syntactic signal*, which is arguably worse than the cast, because at least a cast is a visible confession.
+
+So the guard had to be real. **`mergeBcsRowValues`'s `drafts` parameter is now a `ReadonlyMap<BcsRateField, string>`,
+and `bcsDraftsForRow` returns a `Map`.** A `Record` is **not** assignable to a `Map`, so the mistake is a
+compile error. **Verified by re-running the same probe:**
+
+```
+PricingGrid.tsx(3030,52): error TS2345: Argument of type 'Record<string, string>'
+  is not assignable to parameter of type 'ReadonlyMap<BcsRateField, string>'.
+```
+
+`Map` was chosen over a `unique symbol` brand (which needs a cast inside the blessed producer — reintroducing
+the smell) and over an accessor callback (deeper, and there is precedent in `bcsRowQuantity`, but it makes a
+pure data-in/data-out function harder to test). Maps are already this codebase's idiom. Cost: 11 call sites in
+`bcsColumns.test.ts` became `new Map([...])`, which is **explicit at the point of authorship** — the opposite
+of an invisible structural coercion.
+
+### 3. Defect 2 — the batch path's draft lifecycle
+
+`runBatch` dropped **both** optimistic draft layers in one `.finally()`. A batch whose POSTs all landed but
+whose trailing refetch then **rejected** lost the cost drafts *and* left the saved map stale — and because
+`save_row_bcs_rates` is a **whole-row snapshot write**, the next inline edit on a row with no prior stored
+record gathered that stale map and wrote `0.0` over the pasted sibling. The inline path was already guarded
+(`commitBcsRate` keeps its draft in `.catch`); the batch path was not.
+
+`runBatch` now settles through the pure exported **`batchDraftsToDrop(settled)`**, which names the asymmetry
+instead of burying it:
+
+- **rates** drop on ANY settlement — *unchanged, pre-S3a certified*. `save_cell_price` is a **per-cell** write,
+  so falling back to the last saved value is honest and cannot harm a neighbour.
+- **cost drafts survive a REJECTION** — matching the inline guarantee exactly.
+
+A partial mid-batch failure still **resolves** (`{written, failed}`), so both layers drop as before; only a
+genuine rejection differs. Rejection re-throws, so every caller sees the settlement it always saw.
+
+On the page side, `SheetPricingPage`'s trailing refetches were **two bare `await`s**, so a rejected `mutate()`
+skipped `mutateBcsRates()` entirely. The cost layer is its own read; its refresh must not depend on another
+read succeeding. It is now in a nested `finally`.
+
+**⚠️ ACCEPTED CONSEQUENCE, stated rather than hidden.** Keeping cost drafts on rejection means a *stale*
+`BcsDelta.draftKey` (minted from `row_index` at record time and replayed later) would now persist its
+optimistic value on the wrong row instead of self-healing on the next drop. It requires `row_index` to have
+been reassigned for the same Excel row mid-session, the failure is **display-only and transient**, and the
+hazard it replaces is silent data loss. The trade is deliberate.
+
+### 4. `commitVersion` vs `liveCommitVersion` — checked, then unified
+
+The two halves of one write read the version from two places: `handleSaveBcsRates` used `liveCommitVersion`,
+the batch BCS branch used `commitVersion` (the version being **viewed**). **Checked before changing:** they
+are equal wherever a cost write can occur, because `bcsColumnsVisible` requires `!isViewingHistory` (no cost
+cell renders in history mode) and `locked` includes `isViewingHistory` (so `onBatchWrite` is withheld
+outright). **That is why the divergence was inert — not why it was right.** Unified to `liveCommitVersion`,
+which every other BCS path is pinned to, with the guard `handleSaveBcsRates` already states.
+
+### 5. Two invariants S3a asserted and did not enforce
+
+| claim | reality | now |
+|---|---|---|
+| `gatherBcsRowRates` *"iterates `BCS_RATE_FIELDS`, so a fourth stored rate could not be silently dropped"* | It names three fields. The **payload** direction is safe (`BcsRowRates` requires exactly three, so a fourth breaks the literal), but a fourth field in `BCS_RATE_FIELDS` **would** be dropped in silence | one test, swept over `BCS_RATE_FIELDS` |
+| `bcsUnitCost` *"cannot express"* the forbidden `combined + halves` sum (`bcs.py:16`) | It can — `kinds` is `readonly BcsRateKind[]`, so `["supply","combined"]` type-checks and would be summed. The guarantee is a **PRODUCER** guarantee resting entirely on `bcsLiveRateKinds` | claim corrected; the **producer** is pinned by a sweep of all 2⁶ rate-column subsets, with an anti-vacuity check that both arms were reached |
+
+**On the second: the claim was corrected rather than made true, and that was a judgement call.** A
+discriminated `["combined"] | BcsHalfKind[]` union *would* make it a type guarantee, but `bcsKinds` threads
+through two ~5,000-line components, a grid prop, a row prop and the colIndex geometry — the union ripples far
+wider than the one-line risk it removes. **The reversal condition is recorded in the code: if a SECOND
+producer of `kinds` ever appears, introduce the union, because the producer guarantee is what is holding this
+up.**
+
+### 6. THE META-TASK — other seams of the same shape
+
+The brief: find other places where a value crosses between two modules whose key space, units or shape are
+pinned **separately and never jointly**. **Four found. One fixed, three reported.**
+
+**⚠️ The generative cause is worth naming: TWO PASSING TESTS PINNED THE TWO KEY SPACES AND NEVER MET.** Both
+were correct. The only place they met was a rendered component, and this repo has **no DOM test environment**
+by deliberate choice (`frontend/CLAUDE.md` documents exactly this trap). S3a then recorded *"`PricingGrid.test.ts`
+— NOT edited (out of scope)"* as a virtue. **That scope decision is what kept the two halves apart.**
+
+1. **`as ColumnDescriptor` on the quantity `resolve` callback** (`PricingGrid.tsx`) — **FIXED.**
+   `BcsColumnEntry` and `ColumnDescriptor` are structurally identical (the same six fields), so the cast
+   bought nothing and cost the only warning a future divergence would give. Removed; it compiles without it.
+2. **`row_index` vs `source_row_number` — two row identities, both bare `number`** — **REPORTED, not changed.**
+   The draft key space uses `row_index` (`bcsCellKey`), while every save arg and stored map uses
+   `source_row_number`. They sit on **adjacent lines** in `buildBcsBatch` and are interchangeable to the
+   compiler; a swap would be silent and would target the wrong row. **Audited: every current use is correct**,
+   because both are read off the same `PricedRow` object rather than passed around loose. A branded
+   `ExcelRow`/`RowIndex` pair would close it and is a larger, separate change.
+3. **`k.slice(sep + 1) as BcsRateField` in `flush()`** (`PricingGrid.tsx`) — **REPORTED, not changed.** The
+   inverse of `bcsCellKey`, hand-inlined with a cast, rather than going through a named parser. It **fails
+   safe**: `autoSaveBcsCellRef` reverse-looks-up the kind and returns early when it does not resolve. Same
+   class as the headline defect, but it cannot corrupt.
+4. **`colIndexFromColKeyPure`'s two OPTIONAL trailing params** — **REPORTED, not changed.** A caller that
+   omits them silently gets pre-S3a geometry. The one live caller passes both. **Fails safe** (an unresolved
+   `bcs:*` key yields `null`, not a wrong column). They were made optional precisely so the out-of-scope test
+   file would compile — the same scope decision as the root cause. `PricingGrid.test.ts` is in scope from this
+   slice on, so this can now be tightened whenever someone is in the file.
+
+### 7. Verification
+
+| check | baseline → final |
+|---|---|
+| `yarn test` (in container) | **1369 → 1383**, 54 files, all green |
+| `PricingGrid.test.ts` | **164 → 176** (+9 key-space seam, +3 batch lifecycle) |
+| `bcsColumns.test.ts` | **131 → 133** (the two invariant pins) |
+| `tsc --noEmit`, `boq-wizard` | **0 → 0** — and now genuinely load-bearing (probe: `TS2345`) |
+| `test_sources` · `test_bcs` | **48 → 48** · **64 → 64** OK |
+| `test_export_writeback` · `test_pricing` | **47 → 47** · **252 → 252** OK |
+| `test_commit_pipeline` · `test_review_screen` | **57 → 57** · **260 → 260** OK |
+| `python3 scripts/residence_check.py` | **F2 208 vs baseline 207 — RED, EXIT 1, PRE-EXISTING. Our delta is ZERO.** B1 0, B2 8, B3 40, F5 116 all holding |
+| `git diff --stat ba5ed9f4..55b34aec` | 5 files, **+352 / −59** |
+
+**RED SHOWN BEFORE GREEN, on the headline.** A temporary probe reproduced the defect at unit level —
+`AssertionError: expected null to be '150'` — *before* any source change, then was deleted and replaced by the
+permanent seam tests. The `batchDraftsToDrop` tests were also shown red (`TypeError: batchDraftsToDrop is not
+a function`, 3 failures) before the function existed.
+
+**The two invariant pins cannot be shown red without first introducing the defect they guard, so both were
+proven FALSIFIABLE instead** (the S3a export-sentinel precedent): `BCS_RATE_FIELDS` was temporarily grown to
+four and `bcsLiveRateKinds` temporarily made to return a mixed set — **5 assertions failed with the intended
+messages**, then both probes were reverted and the suite returned to 133 green.
+
+**The bench suites WERE run.** `tabSessions.lastupdate` advanced mid-session (`23:14:32` → `00:11:08`), so it
+was re-sampled properly across **55 s** and found **frozen** — a page had been loaded, but nothing was
+actively polling. All six suites then ran clean.
+
+**No DOM test environment**, so nothing here claims coverage of a React semantic. **What needs the owner's
+eyes, in plain English:**
+
+1. **★ Type a cost and watch the digits appear.** This is the whole slice. Before the fix the box snapped back
+   to its stored value on every keystroke. Type `150` into a Supply box: it must read `150`, not `1`, not the
+   old number.
+2. **Then look away and come back.** The saved value must be what you typed — the corruption was the debounce
+   committing a value assembled from reverted intermediate strings.
+3. **Total Amount must track what you type**, live, as you type it (it reads the same merge the box does).
+4. **Paste across two cost columns, then edit a third box on one of those rows.** The pasted siblings must
+   survive. This is defect 2's shape.
+5. **The sibling box keeps its value** when you edit the other one (the whole-row gather, unchanged from S3a
+   but only now reachable with real typed values).
+
+### 8. Errata filed against the BCS-S3a record
+
+All six are corrected **in place, each marked** `⚠️ ERRATUM (BCS-S3a-fix)`, so nothing is quietly rewritten —
+the false value stays visible beside the true one.
+
+| # | claimed | actual | how established |
+|---|---|---|---|
+| 1 | `gatherBcsRowRates` *"iterates `BCS_RATE_FIELDS`"* | it names three fields | read `bcsColumns.ts:832-836` |
+| 2 | *"All eleven new row props"* | **ten** | counted in `pricingRowPropsAreEqual` |
+| 3 | `clipboard.test.ts` **18** → 29 | **19** → 29 | counted in `git show dd02fd4d:` |
+| 4 | *"the existing **143** tests"* | **164** | counted; the red run also printed `164 passed` |
+| 5 | `git diff --stat dd02fd4d..HEAD` = *11 files, +1874* | **12 files, +2107** | `11/+1874` is `dd02fd4d..2089aab2` (code commits only); the named command reaches `HEAD` = `ba5ed9f4` |
+| 6 | `tabSessions` frozen at **22:14:32** | **23:14:32** | the row still held `2026-08-02 23:14:32.565961` |
+
+**Also amended: §6(b)'s fail-safe residue**, on two counts. It now **cites the server refusal it backstops** —
+the aliasing throw in `_resolve_picks` (`services/boq_bcs/sources.py:192-203`) — without which it read as a
+general robustness remark rather than a named backstop. And **its reversal condition was re-aimed**: it named
+`column_role_map` being edited in place, but the condition that actually matters is **any write path reaching
+a stored BCS source without going through `_resolve_picks`**. Today both producers call it (`sources.py:240`,
+`:291`), and *that*, not the row's immutability, is what makes a stale pairing unreachable. A loader, patch,
+carry or second endpoint writing `columns` directly would defeat it with `column_role_map` untouched.
+
+### 9. Deliberately NOT done
+
+- **Tendered Total Amount and % Profit — S3b**, still blocked, per the build's explicit boundary.
+- **`pricing.py`, `bcs.py`, `sources.py`, the carry path, `scripts/residence_*`** — out of scope, byte-untouched.
+  **No backend file changed at all**; the six Python suites are pure regressions.
+- **The `BcsRateKind` discriminated union** — weighed and declined as disproportionate, with the reversal
+  condition recorded in the code (§5).
+- **Meta-task finds 2, 3 and 4 — reported, not fixed** (§6). Each is either fail-safe or currently correct at
+  every call site, and each fix is a larger separate change. Named so the next session neither re-derives them
+  nor assumes they were missed.
+- **`setInFlight` leaks on a rejected refetch** — **NOTICED, NOT FIXED.** In `handleBatchWrite`'s `finally`,
+  `setInFlight((n) => n - 1)` is the last statement after the awaits, so a throwing `mutate()` skips it and the
+  page's in-flight counter never decrements. **Pre-existing, on the same failure path this slice hardened**, but
+  a separate defect the brief did not name; fixing it would have restructured the block beyond the ask.
+- **Rate-draft behaviour on a rejected batch — deliberately unchanged.** Only the cost layer's lifecycle moved.
+  Rates are per-cell writes; a stale saved value there cannot corrupt a sibling, and that path is pre-S3a
+  certified.
+- **The residence F2 red — not fixed, not re-baselined.** Reported exactly: **208 vs baseline 207, EXIT 1**,
+  pre-existing, our delta zero.
+- **Production remains unmigrated for the whole BCS arc.** This slice adds no migration; the arc's prior ones
+  are still owed before any BCS use in prod.
