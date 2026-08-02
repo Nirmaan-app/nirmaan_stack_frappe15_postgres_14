@@ -31,6 +31,30 @@ properties become STRUCTURAL rather than conventional:
      doctype is what keeps internal cost + margin out of a CLIENT-FACING workbook by
      construction. Pinned by a standing test in test_export_writeback.py.
 
+THE BCS WRITE PATH IS DELIBERATELY INDEPENDENT OF THE CLIENT-FACING GATES
+(OWNER-CONFIRMED 2026-08-02, slice BCS-S1a). save_row_bcs_rates runs exactly four gates:
+
+    committed cell exists -> sheet not deliberately locked -> BCS readiness ->
+    single-editor pricing lock
+
+and it SKIPS, on purpose, the three that guard a CLIENT rate:
+
+  * the MANDATORY amount-formula gate,
+  * the ASYMMETRIC priceability gate (so a qty-less Preamble IS costable), and
+  * the category gate.
+
+Cost is a SEPARATE AXIS with its own two-column confirmation; it must not wait on the
+client-facing side being finished. Someone should be able to cost a job while the amount
+formulas are still being declared and the rows are still being categorised.
+
+Do NOT add any of the three "to restore consistency with save_cell_price" -- the asymmetry
+IS the decision. Each skip is pinned by its own test in
+test_bcs.TestBcsWritesAreIndependentOfTheClientGates, so re-adding one fails loudly.
+
+CARRY-FORWARD (S3, not this slice): because % Profit needs the live formula-evaluated
+amount, a sheet with no declared amount formulas will show costs and a Total Amount but a
+BLANK margin. S3 must render that blank WITH A REASON, not leave it mysteriously empty.
+
 IDENTITY is PER-ROW -- (boq, sheet_name [VERBATIM #152], excel_row, committed_version).
 There is NO col_letter: the BCS columns are screen-only and have no Excel origin.
 LIFECYCLE is freeze-and-supersede (bcs_version / is_current / bcs_rated_at), mirroring
@@ -114,18 +138,21 @@ def _parse_json_value(value, default):
     return value if isinstance(value, (dict, list)) else default
 
 
-def _coerce_col_list(qty_cols) -> list:
-    """Normalize qty_cols (a JSON string over HTTP, or a Python list) to a list of column
-    letters. Mirrors export_writeback._coerce_names."""
-    if isinstance(qty_cols, str):
+def _coerce_col_list(cols, field: str) -> list:
+    """Normalize a column-letter pick (a JSON string over HTTP, or a Python list) to a
+    list of column letters. Mirrors export_writeback._coerce_names. `field` names the
+    argument in the refusal, so qty_cols and amount_cols voice their own errors while
+    sharing ONE coercion -- the two picks are the same idea (BCS-S1a)."""
+    if isinstance(cols, str):
         try:
-            qty_cols = json.loads(qty_cols)
+            cols = json.loads(cols)
         except (ValueError, TypeError):
-            frappe.throw("qty_cols must be a JSON list of column letters.",
-                         title="Invalid qty_cols")
-    if not isinstance(qty_cols, (list, tuple)):
-        frappe.throw("qty_cols must be a list of column letters.", title="Invalid qty_cols")
-    return [str(c) for c in qty_cols]
+            frappe.throw(f"{field} must be a JSON list of column letters.",
+                         title=f"Invalid {field}")
+    if not isinstance(cols, (list, tuple)):
+        frappe.throw(f"{field} must be a list of column letters.",
+                     title=f"Invalid {field}")
+    return [str(c) for c in cols]
 
 
 def _resolve_sheet_row(boq_name, sheet_name, committed_version) -> str:
@@ -233,35 +260,41 @@ def set_bcs_enabled(boq_name=None, sheet_name=None, committed_version=None, enab
 
 @frappe.whitelist(methods=["POST"])
 def confirm_bcs_columns(boq_name=None, sheet_name=None, committed_version=None,
-                        qty_cols=None, amount_col=None):
+                        qty_cols=None, amount_cols=None):
     """Confirm the TWO columns BCS needs, validated against the sheet's REAL columns.
 
-    `qty_cols` is a JSON list of Excel column letters: either the one scalar Total Quantity
-    column, or the per-area quantity columns whose SUM is the total (a sheet that maps
-    quantity per area has no scalar total of its own). `amount_col` is the single
-    Amount (Combined) column -- what we charge the client.
+    BOTH picks are JSON lists of Excel column letters, and BOTH accept the SAME two shapes
+    (owner ruling 2026-08-02, BCS-S1a -- they are one idea, not two):
+      `qty_cols`    -- the one scalar Total Quantity column, OR the per-area quantity
+                       columns whose SUM is the total (a sheet that maps quantity per area
+                       has no scalar total of its own);
+      `amount_cols` -- the one scalar Amount (Combined) column, OR the per-area combined
+                       Amount columns whose SUM is the row's amount. This is what we charge
+                       the client, and the denominator of % Profit.
 
-    BOTH picks are validated against _committed_descriptors, the same resolver the
-    amount-formula gate uses. A column the sheet does not have, a mapped column of the
-    wrong class, or a scalar total mixed with its own per-area parts is REFUSED with a
-    named error and NOTHING is stored -- validation runs to completion BEFORE the first
-    write, so a partial confirmation is impossible.
+    Both are validated against _committed_descriptors, the same resolver the amount-formula
+    gate uses. A column the sheet does not have, a mapped column of the wrong class (a rate
+    column, or the supply/install HALF of an amount), or a scalar total mixed with its own
+    per-area parts is REFUSED with a named error and NOTHING is stored -- validation runs to
+    completion BEFORE the first write, so a partial confirmation is impossible.
 
     Stored as re-resolvable DICTs (never bare lists -- a list-valued JSON field throws in
-    get_valid_dict), each entry carrying the full descriptor identity. Who + when are
-    recorded and describe the CURRENT confirmation. sheet_name VERBATIM (#152).
+    get_valid_dict), each entry carrying the full descriptor identity INCLUDING rate_subkey,
+    which a three-hop per-area amount needs to resolve. Who + when are recorded and describe
+    the CURRENT confirmation. sheet_name VERBATIM (#152).
     Returns {ok, bcs_qty_source, bcs_amount_source, bcs_confirmed_by, bcs_confirmed_at,
     is_ready}.
     URL: /api/method/nirmaan_stack.api.boq.wizard.bcs.confirm_bcs_columns"""
     committed_version = _validate_common_args(boq_name, sheet_name, committed_version)
-    _require(amount_col, "amount_col")
     sheet_row = _resolve_sheet_row(boq_name, sheet_name, committed_version)
     _guard_sheet_not_locked(boq_name, sheet_name, committed_version)
 
     index = _descriptor_index(boq_name, sheet_name, committed_version)
     # BOTH validations complete before ANY write -- a refusal stores nothing at all.
-    qty_source = build_qty_source(_coerce_col_list(qty_cols), index)
-    amount_source = build_amount_source(str(amount_col), index)
+    qty_source = build_qty_source(_coerce_col_list(qty_cols, "qty_cols"), index)
+    amount_source = build_amount_source(
+        _coerce_col_list(amount_cols, "amount_cols"), index
+    )
 
     user = frappe.session.user
     now = now_datetime()
@@ -400,13 +433,16 @@ def save_row_bcs_rates(boq_name=None, sheet_name=None, excel_row=None,
     The committed sheet + node at that address/version MUST exist; the resolved node is
     stored as the re-resolvable pointer. The committed tier is NOT mutated.
 
-    GATE ORDER, mirroring save_cell_price exactly, and all BEFORE any write so a refusal
-    mutates NOTHING:
+    GATE ORDER -- the ORDERING follows save_cell_price (a refusal mutates NOTHING because
+    every gate runs before any write), but the SET is deliberately SMALLER; see the module
+    docstring's independence section, owner-confirmed 2026-08-02:
       1. the committed cell must exist  (_resolve_committed_cell)
       2. the sheet must not be deliberately locked  (_guard_sheet_not_locked)
       3. BCS must be set up on this sheet  (_guard_bcs_ready -- BCS CELLS ONLY)
       4. the single-editor pricing lock   (acquire_or_refresh; a fresh lock held by
          another user REJECTS with the BOQ_PRICING_LOCKED marker and writes nothing)
+    NOT run here, on purpose: the mandatory amount-formula gate, the priceability gate and
+    the category gate. Cost is a separate axis; do not add them for symmetry.
     Only then the freeze + insert, then ONE commit.
 
     Returns {ok, name, bcs_version, is_current, is_filled, froze_prior}.

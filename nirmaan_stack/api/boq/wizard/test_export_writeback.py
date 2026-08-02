@@ -799,18 +799,22 @@ class TestBcsCostRatesNeverReachTheExport(FrappeTestCase):
     def test_no_bcs_derived_total_or_margin_leaks_either(self):
         """Total Amount and % Profit are computed, never stored -- so they must not appear
         in the export by any route. Checks the per-unit sum and, for each fixture row, the
-        quantity-multiplied total that a BCS Total Amount column would carry."""
+        quantity-multiplied total that a BCS Total Amount column would carry.
+
+        BOTH RENDER FORMS, as its sibling above already does: an integer-rendered total
+        ('1111111' rather than '1111111.0') would otherwise slip straight through."""
         values = self._all_cell_values()
         combined = self._SUPPLY + self._INSTALL
         candidates = {combined}
         for qty in (100, 50, 5, 30):        # the fixture's committed quantities
             candidates.add(combined * qty)
         for candidate in candidates:
-            rendered = str(candidate)
-            self.assertEqual(
-                [v for v in values if rendered in v], [],
-                f"a BCS-derived figure ({candidate}) leaked into the CLIENT workbook",
-            )
+            for rendered in (str(candidate), str(int(candidate))):
+                self.assertEqual(
+                    [v for v in values if rendered in v], [],
+                    f"a BCS-derived figure ({candidate}, rendered {rendered!r}) leaked "
+                    f"into the CLIENT workbook",
+                )
 
     def test_the_export_still_carries_the_client_facing_rates(self):
         """The complement: excluding BCS must not have excluded ordinary pricing. The
@@ -821,15 +825,19 @@ class TestBcsCostRatesNeverReachTheExport(FrappeTestCase):
 
     def test_export_writeback_module_never_names_the_bcs_doctype(self):
         """Belt-and-braces on the CONSTRUCTION itself: the export module must not mention
-        BCS at all. This is what makes the exclusion structural rather than incidental."""
+        BCS at all. This is what makes the exclusion structural rather than incidental.
+
+        MATCHED CASE-INSENSITIVELY: the token list mixes cases ('bcs' against the doctype
+        'BoQ Row BCS Rate'), so a case-sensitive search was inconsistent with itself -- a
+        module-level `BCS_DOCTYPE = ...` or a `SUPPLY_RATE` constant would have passed."""
         import inspect
 
         from nirmaan_stack.api.boq.wizard import export_writeback
 
-        src = inspect.getsource(export_writeback)
+        src = inspect.getsource(export_writeback).lower()
         for token in ("BoQ Row BCS Rate", "supply_rate", "install_rate", "bcs"):
             self.assertNotIn(
-                token, src,
-                f"export_writeback.py must never reference {token!r} -- BCS is internal "
-                f"cost and the priced workbook is client-facing",
+                token.lower(), src,
+                f"export_writeback.py must never reference {token!r} (in any casing) -- "
+                f"BCS is internal cost and the priced workbook is client-facing",
             )

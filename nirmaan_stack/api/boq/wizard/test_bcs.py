@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and Contributors
 # See license.txt
 
-"""Tests for the BCS (cost & margin) foundation -- slice BCS-S1.
+"""Tests for the BCS (cost & margin) foundation -- slices BCS-S1 + BCS-S1a.
 
 BCS is the COST side of a committed BoQ row: two hand-typed rates (Supply + Install)
 representing what the work costs US, sitting against the BoQ amount we charge the CLIENT.
@@ -10,14 +10,20 @@ stored (they are always computed downstream from the two rates + the confirmed q
 and amount columns).
 
 Coverage:
-  Group 1  doctype identity -- per-ROW (no col_letter), sheet_name VERBATIM (#152).
-  Group 2  freeze-and-supersede -- a re-save supersedes; exactly ONE current row, ever.
-  Group 3  enable / disable + the confirmation of the two columns, validated against the
-           sheet's REAL column_descriptors (a column the sheet does not have is REFUSED
-           and NOTHING is stored).
-  Group 4  the readiness gate -- a rate write is refused while BCS is disabled or the
-           columns are unconfirmed.
-  Group 5  the single-editor pricing lock -- a lock rejection mutates NOTHING.
+  Group 1   doctype identity -- per-ROW (no col_letter), sheet_name VERBATIM (#152).
+  Group 2   freeze-and-supersede -- a re-save supersedes; exactly ONE current row, ever.
+  Group 3   enable / disable + the confirmation of the two columns, validated against the
+            sheet's REAL column_descriptors (a column the sheet does not have is REFUSED
+            and NOTHING is stored).
+  Group 3b  (S1a) the AMOUNT source has the SAME two shapes as quantity -- a scalar total
+            OR the per-area combined amounts, SUMMED. Same refusals, same reasons.
+  Group 4   the readiness gate -- a rate write is refused while BCS is disabled or the
+            columns are unconfirmed.
+  Group 5   the single-editor pricing lock -- a lock rejection mutates NOTHING.
+  Group 6a  (S1a) the BCS write path is INDEPENDENT of the three client-facing gates
+            (amount-formula, priceability, category) -- one pin per skip.
+  Group 6b  BCS gates its OWN cells only: the positive control (an ordinary client rate
+            write succeeds with BCS off) plus the pricing.py source-grep tripwire.
 
 sheet_name carries a trailing space (#152) throughout.
 """
@@ -34,6 +40,13 @@ from nirmaan_stack.api.boq.wizard.bcs import (
     save_row_bcs_rates,
     set_bcs_enabled,
 )
+from nirmaan_stack.api.boq.wizard.pricing import (
+    _categories_gate_ok,
+    _node_priceable_without_override,
+    _sheet_formulas_complete,
+    save_amount_formula,
+    save_cell_price,
+)
 from nirmaan_stack.api.boq.wizard.pricing_lock import (
     _LOCK_HELD_MARKER,
     _lock_identity,
@@ -43,10 +56,35 @@ from nirmaan_stack.api.boq.wizard.test_review_screen import (
     _cleanup_project,
     _make_project,
 )
+# The ONE established way a test satisfies the category gate -- write REAL category
+# records through the normal persistence path rather than bypassing with the admin
+# override (owner ruling, recorded on the helper itself). Imported, never re-copied.
+from nirmaan_stack.api.boq.wizard.test_pricing import _categorise_fixture_eligible_rows
 
 _BCS = "BoQ Row BCS Rate"
 _BOQ_SHEET = "BoQ Sheet"
 _LOCK_DT = "BoQ Sheet Pricing Lock"
+_PRICING = "BoQ Cell Pricing"
+_FORMULA = "BoQ Cell Amount Formula"
+_ROW_CATEGORY = "BoQ Row Category"
+
+# A structurally-valid leaf formula for a SCALAR amount column: amount = the row's total
+# quantity. Shape is all the gate checks; the value is never evaluated here.
+_SCALAR_FORMULA_LEAF = json.dumps(
+    {"ref": {"value_field": "qty_total", "value_key": None, "rate_subkey": None}}
+)
+
+
+def _declare_scalar_amount_formula(boq_name, sheet_name, commit_version):
+    """Make a SCALAR-amount sheet formula-COMPLETE, so save_cell_price's MANDATORY
+    amount-formula gate is satisfied. The local twin of test_pricing.
+    _declare_fixture_amount_formulas, which does the same for the per-area fixture: setup
+    drives THROUGH the live gate rather than bypassing it. sheet_name VERBATIM (#152)."""
+    save_amount_formula(
+        boq_name=boq_name, sheet_name=sheet_name, committed_version=commit_version,
+        target_value_field="amount_total", target_value_key=None,
+        target_rate_subkey=None, formula=_SCALAR_FORMULA_LEAF,
+    )
 
 # A realistic SCALAR-quantity committed sheet: one qty_total column (D) and one
 # amount_total column (F) -- the "Amount (Combined)" the owner names.
@@ -70,6 +108,26 @@ _AREA_ROLE_MAP = {
     "E": {"role": "qty", "area": "Zone B"},
     "G": {"role": "rate_combined", "area": None},
     "H": {"role": "amount_total", "area": None},
+}
+
+# A sheet whose AMOUNT is mapped PER AREA and has NO scalar amount_total -- the shape the
+# SHARED committed fixture (test_review_screen.COMMITTED_FIXTURE_ROLE_MAP) actually has,
+# so this is not hypothetical. S1 accepted the scalar amount shape ONLY, which meant this
+# sheet could not enable BCS at all; S1a sums the per-area amounts exactly as quantity is
+# already summed (owner ruling 2026-08-02).
+#   F + G -- the per-area COMBINED amounts, whose SUM is the row's amount;
+#   H     -- a per-area SUPPLY half, present on purpose: a half is NOT the amount charged
+#            to the client, so picking it must be refused (the per-area twin of refusing
+#            the scalar amount_supply).
+_AREA_AMOUNT_ROLE_MAP = {
+    "A": {"role": "sl_no", "area": None},
+    "B": {"role": "description", "area": None},
+    "C": {"role": "unit", "area": None},
+    "D": {"role": "qty_total", "area": None},
+    "E": {"role": "rate_combined", "area": None},
+    "F": {"role": "amount_total_by_area", "area": "Zone A"},
+    "G": {"role": "amount_total_by_area", "area": "Zone B"},
+    "H": {"role": "amount_supply_by_area", "area": "Zone A"},
 }
 
 
@@ -136,6 +194,11 @@ def _cleanup_committed(boq_name):
         frappe.db.delete("BOQ Node Qty By Area", {"parent": ["in", node_names]})
     frappe.db.delete(_BCS, {"boq": boq_name})
     frappe.db.delete(_LOCK_DT, {"boq": boq_name})
+    # The client-facing layers the gate-independence tests exercise (BCS-S1a). Deleted
+    # here so a BCS fixture never leaves ordinary pricing rows behind.
+    frappe.db.delete(_PRICING, {"boq": boq_name})
+    frappe.db.delete(_FORMULA, {"boq": boq_name})
+    frappe.db.delete(_ROW_CATEGORY, {"boq": boq_name})
     frappe.db.delete("BOQ Nodes", {"boq": boq_name})
     frappe.db.delete(_BOQ_SHEET, {"boq": boq_name})
     frappe.db.commit()
@@ -302,9 +365,14 @@ class _BcsEndpointBase(FrappeTestCase):
         cls.cv = 1
         cls.sheet = "Elec BCS "        # VERBATIM trailing space (#152)
         cls.area_sheet = "HVAC BCS "   # per-area quantity sheet
+        cls.area_amount_sheet = "Areas BCS "   # per-area AMOUNT sheet (no scalar total)
         cls.fixture = _seed_sheet(cls.boq, cls.sheet, cls.cv, _SCALAR_ROLE_MAP, [], 1)
         cls.area_fixture = _seed_sheet(
             cls.boq, cls.area_sheet, cls.cv, _AREA_ROLE_MAP, ["Zone A", "Zone B"], 2
+        )
+        cls.area_amount_fixture = _seed_sheet(
+            cls.boq, cls.area_amount_sheet, cls.cv, _AREA_AMOUNT_ROLE_MAP,
+            ["Zone A", "Zone B"], 4,
         )
 
     @classmethod
@@ -317,7 +385,8 @@ class _BcsEndpointBase(FrappeTestCase):
         # Reset the BCS layer + the BCS sheet config + the single-editor lock per test.
         frappe.db.delete(_BCS, {"boq": self.boq})
         frappe.db.delete(_LOCK_DT, {"boq": self.boq})
-        for sheet_row in (self.fixture["bqsh"], self.area_fixture["bqsh"]):
+        for sheet_row in (self.fixture["bqsh"], self.area_fixture["bqsh"],
+                          self.area_amount_fixture["bqsh"]):
             frappe.db.set_value(
                 _BOQ_SHEET, sheet_row,
                 {"bcs_enabled": 0, "bcs_qty_source": None, "bcs_amount_source": None,
@@ -327,7 +396,7 @@ class _BcsEndpointBase(FrappeTestCase):
         frappe.db.commit()
 
     # -- helpers -----------------------------------------------------------
-    def _make_ready(self, sheet=None, qty_cols=None, amount_col="F"):
+    def _make_ready(self, sheet=None, qty_cols=None, amount_cols=None):
         """Drive the sheet THROUGH the real endpoints to a ready state (never by a raw
         set_value) -- so setup exercises the same gate production does."""
         sheet = sheet or self.sheet
@@ -335,7 +404,8 @@ class _BcsEndpointBase(FrappeTestCase):
                         committed_version=self.cv, enabled=1)
         confirm_bcs_columns(
             boq_name=self.boq, sheet_name=sheet, committed_version=self.cv,
-            qty_cols=json.dumps(qty_cols or ["D"]), amount_col=amount_col,
+            qty_cols=json.dumps(qty_cols or ["D"]),
+            amount_cols=json.dumps(amount_cols or ["F"]),
         )
 
     def _current(self, excel_row, sheet=None):
@@ -386,7 +456,7 @@ class TestBcsEnableAndConfirm(_BcsEndpointBase):
     def test_confirm_stores_a_re_resolvable_scalar_qty_and_amount_source(self):
         res = confirm_bcs_columns(
             boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
-            qty_cols=json.dumps(["D"]), amount_col="F",
+            qty_cols=json.dumps(["D"]), amount_cols=json.dumps(["F"]),
         )
         self.assertTrue(res["ok"])
         state = get_bcs_state(boq_name=self.boq, sheet_name=self.sheet,
@@ -408,7 +478,7 @@ class TestBcsEnableAndConfirm(_BcsEndpointBase):
         Total Quantity is the SUM of its per-area quantity columns."""
         confirm_bcs_columns(
             boq_name=self.boq, sheet_name=self.area_sheet, committed_version=self.cv,
-            qty_cols=json.dumps(["D", "E"]), amount_col="H",
+            qty_cols=json.dumps(["D", "E"]), amount_cols=json.dumps(["H"]),
         )
         qty = get_bcs_state(boq_name=self.boq, sheet_name=self.area_sheet,
                             committed_version=self.cv)["bcs_qty_source"]
@@ -420,7 +490,7 @@ class TestBcsEnableAndConfirm(_BcsEndpointBase):
     def test_confirm_records_who_and_when(self):
         confirm_bcs_columns(
             boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
-            qty_cols=json.dumps(["D"]), amount_col="F",
+            qty_cols=json.dumps(["D"]), amount_cols=json.dumps(["F"]),
         )
         state = get_bcs_state(boq_name=self.boq, sheet_name=self.sheet,
                               committed_version=self.cv)
@@ -433,7 +503,7 @@ class TestBcsEnableAndConfirm(_BcsEndpointBase):
         with self.assertRaises(frappe.ValidationError):
             confirm_bcs_columns(
                 boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
-                qty_cols=json.dumps(["Z"]), amount_col="F",   # Z is not mapped
+                qty_cols=json.dumps(["Z"]), amount_cols=json.dumps(["F"]),   # Z is not mapped
             )
         state = get_bcs_state(boq_name=self.boq, sheet_name=self.sheet,
                               committed_version=self.cv)
@@ -445,7 +515,7 @@ class TestBcsEnableAndConfirm(_BcsEndpointBase):
         with self.assertRaises(frappe.ValidationError):
             confirm_bcs_columns(
                 boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
-                qty_cols=json.dumps(["D"]), amount_col="Z",
+                qty_cols=json.dumps(["D"]), amount_cols=json.dumps(["Z"]),
             )
         state = get_bcs_state(boq_name=self.boq, sheet_name=self.sheet,
                               committed_version=self.cv)
@@ -458,13 +528,13 @@ class TestBcsEnableAndConfirm(_BcsEndpointBase):
         with self.assertRaises(frappe.ValidationError):
             confirm_bcs_columns(
                 boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
-                qty_cols=json.dumps(["C"]), amount_col="F",
+                qty_cols=json.dumps(["C"]), amount_cols=json.dumps(["F"]),
             )
         # ... and the amount pick must be the combined amount, not the rate column.
         with self.assertRaises(frappe.ValidationError):
             confirm_bcs_columns(
                 boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
-                qty_cols=json.dumps(["D"]), amount_col="E",   # E is rate_combined
+                qty_cols=json.dumps(["D"]), amount_cols=json.dumps(["E"]),   # E is rate_combined
             )
         self.assertIsNone(
             get_bcs_state(boq_name=self.boq, sheet_name=self.sheet,
@@ -481,15 +551,159 @@ class TestBcsEnableAndConfirm(_BcsEndpointBase):
         with self.assertRaises(frappe.ValidationError):
             confirm_bcs_columns(
                 boq_name=self.boq, sheet_name="Mixed BCS ", committed_version=self.cv,
-                qty_cols=json.dumps(["D", "E"]), amount_col="F",
+                qty_cols=json.dumps(["D", "E"]), amount_cols=json.dumps(["F"]),
             )
 
     def test_empty_qty_selection_is_refused(self):
         with self.assertRaises(frappe.ValidationError):
             confirm_bcs_columns(
                 boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
-                qty_cols=json.dumps([]), amount_col="F",
+                qty_cols=json.dumps([]), amount_cols=json.dumps(["F"]),
             )
+
+
+# ===========================================================================
+# Group 3b: the AMOUNT source has the same TWO shapes as quantity (BCS-S1a)
+# ===========================================================================
+class TestBcsPerAreaAmountSource(_BcsEndpointBase):
+    """OWNER RULING 2026-08-02: per-area amounts SUM into a row total, exactly as
+    quantity already does.
+
+    S1 implemented the amount confirmation STRICTLY -- scalar amount_total only -- which
+    meant a sheet mapping ONLY per-area amount columns could not enable BCS at all. That
+    is the shape of the shared committed fixture, so it was never hypothetical. The two
+    sources now read as ONE idea: same two shapes, same refusals, same reasons."""
+
+    def test_a_sheet_with_only_per_area_amounts_can_be_confirmed(self):
+        confirm_bcs_columns(
+            boq_name=self.boq, sheet_name=self.area_amount_sheet,
+            committed_version=self.cv,
+            qty_cols=json.dumps(["D"]), amount_cols=json.dumps(["F", "G"]),
+        )
+        amt = get_bcs_state(boq_name=self.boq, sheet_name=self.area_amount_sheet,
+                            committed_version=self.cv)["bcs_amount_source"]
+        self.assertEqual(amt["mode"], "amount_by_area")
+        self.assertEqual([c["col"] for c in amt["columns"]], ["F", "G"])
+        self.assertEqual([c["area"] for c in amt["columns"]], ["Zone A", "Zone B"])
+        self.assertTrue(all(c["value_field"] == "amount_by_area" for c in amt["columns"]))
+
+    def test_the_per_area_amount_entry_stays_re_resolvable(self):
+        """A per-area amount is a THREE-hop resolve -- amount_by_area[area][kind] -- so
+        the stored entry must carry the kind (rate_subkey) as well as the area. Without
+        it a later reader cannot resolve the number, which is the whole point of storing
+        the confirmation rather than re-deriving it from column_role_map."""
+        confirm_bcs_columns(
+            boq_name=self.boq, sheet_name=self.area_amount_sheet,
+            committed_version=self.cv,
+            qty_cols=json.dumps(["D"]), amount_cols=json.dumps(["F", "G"]),
+        )
+        amt = get_bcs_state(boq_name=self.boq, sheet_name=self.area_amount_sheet,
+                            committed_version=self.cv)["bcs_amount_source"]
+        for entry in amt["columns"]:
+            self.assertEqual(entry["value_key"], entry["area"])
+            self.assertEqual(entry["rate_subkey"], "total")
+
+    def test_a_bcs_rate_write_succeeds_on_a_sheet_with_only_per_area_amounts(self):
+        """The end-to-end the strictness blocked: confirm, then actually cost a row."""
+        set_bcs_enabled(boq_name=self.boq, sheet_name=self.area_amount_sheet,
+                        committed_version=self.cv, enabled=1)
+        confirm_bcs_columns(
+            boq_name=self.boq, sheet_name=self.area_amount_sheet,
+            committed_version=self.cv,
+            qty_cols=json.dumps(["D"]), amount_cols=json.dumps(["F", "G"]),
+        )
+        self.assertTrue(bcs_is_ready(self.boq, self.area_amount_sheet, self.cv))
+        res = save_row_bcs_rates(
+            boq_name=self.boq, sheet_name=self.area_amount_sheet, excel_row=10,
+            committed_version=self.cv, supply_rate=80.0, install_rate=20.0,
+        )
+        self.assertTrue(res["ok"])
+        cur = self._current(10, sheet=self.area_amount_sheet)
+        self.assertEqual(len(cur), 1)
+        self.assertEqual(cur[0]["supply_rate"], 80.0)
+
+    def test_the_stored_amount_confirmation_is_dict_valued_at_its_top_level(self):
+        """A list-valued JSON field throws in base_document.get_valid_dict. S1 avoided
+        that by nesting the column list INSIDE a dict; summing must not flatten it back
+        out to a bare list."""
+        confirm_bcs_columns(
+            boq_name=self.boq, sheet_name=self.area_amount_sheet,
+            committed_version=self.cv,
+            qty_cols=json.dumps(["D"]), amount_cols=json.dumps(["F", "G"]),
+        )
+        raw = frappe.db.get_value(
+            _BOQ_SHEET, self.area_amount_fixture["bqsh"], "bcs_amount_source"
+        )
+        parsed = json.loads(raw) if isinstance(raw, str) else raw
+        self.assertIsInstance(parsed, dict, "the stored confirmation must be a DICT")
+        self.assertIsInstance(parsed["columns"], list)
+
+    def test_a_per_area_supply_half_is_refused_as_the_amount_source(self):
+        """H is a real, mapped per-area amount column -- but it is the SUPPLY half, not
+        what we charge the client. Accepting it would silently compare our cost against a
+        fraction of the charged amount. The per-area twin of refusing scalar
+        amount_supply."""
+        with self.assertRaises(frappe.ValidationError):
+            confirm_bcs_columns(
+                boq_name=self.boq, sheet_name=self.area_amount_sheet,
+                committed_version=self.cv,
+                qty_cols=json.dumps(["D"]), amount_cols=json.dumps(["F", "H"]),
+            )
+        self.assertIsNone(
+            get_bcs_state(boq_name=self.boq, sheet_name=self.area_amount_sheet,
+                          committed_version=self.cv)["bcs_amount_source"],
+            "a refused confirmation stores NOTHING",
+        )
+
+    def test_mixing_a_scalar_amount_with_per_area_amount_columns_is_refused(self):
+        """The exact mirror of the quantity rule: summing a total together with its own
+        parts counts every amount twice."""
+        _seed_sheet(self.boq, "MixedAmt BCS ", self.cv, {
+            "A": {"role": "description", "area": None},
+            "D": {"role": "qty_total", "area": None},
+            "E": {"role": "amount_total", "area": None},
+            "F": {"role": "amount_total_by_area", "area": "Zone A"},
+        }, ["Zone A"], 5)
+        with self.assertRaises(frappe.ValidationError):
+            confirm_bcs_columns(
+                boq_name=self.boq, sheet_name="MixedAmt BCS ", committed_version=self.cv,
+                qty_cols=json.dumps(["D"]), amount_cols=json.dumps(["E", "F"]),
+            )
+
+    def test_more_than_one_scalar_amount_column_is_refused(self):
+        """A sheet has exactly one scalar combined Amount column; the quantity source
+        refuses two scalar totals and the amount source must refuse them identically."""
+        _seed_sheet(self.boq, "TwoAmt BCS ", self.cv, {
+            "A": {"role": "description", "area": None},
+            "D": {"role": "qty_total", "area": None},
+            "E": {"role": "amount_total", "area": None},
+            "F": {"role": "amount_total", "area": None},
+        }, [], 6)
+        with self.assertRaises(frappe.ValidationError):
+            confirm_bcs_columns(
+                boq_name=self.boq, sheet_name="TwoAmt BCS ", committed_version=self.cv,
+                qty_cols=json.dumps(["D"]), amount_cols=json.dumps(["E", "F"]),
+            )
+
+    def test_empty_amount_selection_is_refused(self):
+        """The mirror of test_empty_qty_selection_is_refused."""
+        with self.assertRaises(frappe.ValidationError):
+            confirm_bcs_columns(
+                boq_name=self.boq, sheet_name=self.area_amount_sheet,
+                committed_version=self.cv,
+                qty_cols=json.dumps(["D"]), amount_cols=json.dumps([]),
+            )
+
+    def test_the_scalar_amount_shape_still_works_unchanged(self):
+        """Widening must not cost the shape that already worked."""
+        confirm_bcs_columns(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
+            qty_cols=json.dumps(["D"]), amount_cols=json.dumps(["F"]),
+        )
+        amt = get_bcs_state(boq_name=self.boq, sheet_name=self.sheet,
+                            committed_version=self.cv)["bcs_amount_source"]
+        self.assertEqual(amt["mode"], "amount_total")
+        self.assertEqual([c["col"] for c in amt["columns"]], ["F"])
 
 
 # ===========================================================================
@@ -505,13 +719,13 @@ class TestBcsReadinessGate(_BcsEndpointBase):
                          "enabled alone is not ready -- the columns are unconfirmed")
         confirm_bcs_columns(boq_name=self.boq, sheet_name=self.sheet,
                             committed_version=self.cv,
-                            qty_cols=json.dumps(["D"]), amount_col="F")
+                            qty_cols=json.dumps(["D"]), amount_cols=json.dumps(["F"]))
         self.assertTrue(bcs_is_ready(self.boq, self.sheet, self.cv))
 
     def test_confirmed_but_disabled_is_not_ready(self):
         confirm_bcs_columns(boq_name=self.boq, sheet_name=self.sheet,
                             committed_version=self.cv,
-                            qty_cols=json.dumps(["D"]), amount_col="F")
+                            qty_cols=json.dumps(["D"]), amount_cols=json.dumps(["F"]))
         self.assertFalse(bcs_is_ready(self.boq, self.sheet, self.cv))
 
     def test_rate_write_refused_while_bcs_is_disabled(self):
@@ -761,9 +975,110 @@ class TestBcsRespectsTheSingleEditorLock(_BcsEndpointBase):
 
 
 # ===========================================================================
-# Group 6: BCS gates its OWN cells only -- owner-locked
+# Group 6a: the BCS write path is INDEPENDENT of the client-facing gates
+# ===========================================================================
+class TestBcsWritesAreIndependentOfTheClientGates(_BcsEndpointBase):
+    """OWNER-CONFIRMED 2026-08-02: the BCS write path runs ONLY committed-cell ->
+    sheet-lock -> BCS-readiness -> pricing-lock. It DELIBERATELY skips the mandatory
+    amount-formula gate, the priceability gate and the category gate.
+
+    Cost is a SEPARATE AXIS with its own two-column confirmation; it must not wait on the
+    client-facing side being finished. Someone should be able to cost a job while the
+    amount formulas are still being declared and the rows are still being categorised.
+
+    Until BCS-S1a this independence was undocumented AND untested -- exactly the shape a
+    later slice 'fixes' into consistency. Each skip is pinned here separately, and each
+    test asserts its PRECONDITION first so it can never pass vacuously. Do NOT delete
+    these to restore symmetry with save_cell_price."""
+
+    def setUp(self):
+        super().setUp()
+        self._make_ready()
+
+    def test_a_bcs_write_succeeds_while_the_amount_formulas_are_incomplete(self):
+        """save_cell_price would refuse here ('Formulas incomplete'); BCS does not."""
+        self.assertFalse(
+            _sheet_formulas_complete(self.boq, self.sheet, self.cv),
+            "precondition: this sheet has an amount column and NO declared formula",
+        )
+        res = save_row_bcs_rates(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=10,
+            committed_version=self.cv, supply_rate=90.0, install_rate=10.0,
+        )
+        self.assertTrue(res["ok"])
+        self.assertEqual(len(self._current(10)), 1)
+
+    def test_a_bcs_write_succeeds_while_every_category_is_blank(self):
+        """save_cell_price would refuse here ('Categories incomplete'); BCS does not."""
+        self.assertFalse(
+            _categories_gate_ok(self.boq, self.sheet, self.cv),
+            "precondition: no eligible row on this sheet has a category yet",
+        )
+        res = save_row_bcs_rates(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=10,
+            committed_version=self.cv, supply_rate=70.0, install_rate=30.0,
+        )
+        self.assertTrue(res["ok"])
+        self.assertEqual(len(self._current(10)), 1)
+
+    def test_a_bcs_write_succeeds_on_a_zero_qty_preamble_row(self):
+        """The ASYMMETRIC priceability rule makes a qty-less Preamble read-only for a
+        CLIENT rate. It still costs us something to do, so BCS may cost it."""
+        self.assertFalse(
+            _node_priceable_without_override("Preamble", self.fixture["preamble"], None),
+            "precondition: the fixture Preamble is qty-less, so NOT client-priceable",
+        )
+        res = save_row_bcs_rates(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=5,   # the Preamble row
+            committed_version=self.cv, supply_rate=15.0, install_rate=5.0,
+        )
+        self.assertTrue(res["ok"])
+        cur = self._current(5)
+        self.assertEqual(len(cur), 1)
+        self.assertEqual(cur[0]["node"], self.fixture["preamble"])
+
+
+# ===========================================================================
+# Group 6b: BCS gates its OWN cells only -- owner-locked
 # ===========================================================================
 class TestBcsDoesNotGateOrdinaryPricing(_BcsEndpointBase):
+
+    def test_an_ordinary_client_rate_write_succeeds_while_bcs_is_off(self):
+        """THE POSITIVE CONTROL for owner rule 2, and the assertion the whole design
+        turns on: on a sheet where BCS is disabled AND unconfirmed, ordinary client-facing
+        pricing is completely unaffected.
+
+        Its sibling below greps pricing.py for BCS tokens. That is a good tripwire but it
+        is not proof of BEHAVIOUR -- it is blind to indirection, and it would keep passing
+        if the gate arrived through a helper that never names BCS. This test exercises the
+        real endpoint instead."""
+        _declare_scalar_amount_formula(self.boq, self.sheet, self.cv)
+        _categorise_fixture_eligible_rows(self.boq, self.sheet, self.cv)
+
+        # The state under test: BCS off, nothing confirmed, not ready.
+        state = get_bcs_state(boq_name=self.boq, sheet_name=self.sheet,
+                              committed_version=self.cv)
+        self.assertEqual(state["bcs_enabled"], 0)
+        self.assertIsNone(state["bcs_qty_source"])
+        self.assertIsNone(state["bcs_amount_source"])
+        self.assertFalse(bcs_is_ready(self.boq, self.sheet, self.cv))
+
+        res = save_cell_price(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=10, col_letter="E",
+            committed_version=self.cv, rate=175.0,
+        )
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["pricing_version"], 1)
+        self.assertEqual(
+            frappe.db.get_value(
+                _PRICING,
+                {"boq": self.boq, "sheet_name": self.sheet, "excel_row": 10,
+                 "col_letter": "E", "committed_version": self.cv, "is_current": 1},
+                "rate",
+            ),
+            175.0,
+            "the client rate landed normally with BCS switched off",
+        )
 
     def test_bcs_module_never_touches_the_client_facing_rate_gate(self):
         """OWNER-LOCKED: an unconfirmed BCS section must leave ordinary client-facing

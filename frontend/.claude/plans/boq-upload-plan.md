@@ -16452,3 +16452,208 @@ scope).
    is inherently a set; the mode (`qty_total` vs `qty_by_area`) is DERIVED from the picked
    descriptors, not trusted from the client. Mixing a scalar total with its own per-area parts is
    refused — it would double-count.
+
+## BCS-S1a — close the Checklist B findings on BCS-S1
+
+**Branch** `feature/bcs-columns` · **Base** `5c45b65c` · **Tier** FULL · **Date** 2026-08-02
+
+BCS-S1 passed Checklist B **with caveats, nothing blocking**. This slice answers that review and
+nothing else. It relocates the two column-confirmation rules into a pure service module, widens the
+AMOUNT confirmation to sum per-area amounts (the one behaviour change), documents and test-pins the
+BCS write path's deliberate independence from the three client-facing gates, adds the positive
+control that owner rule 2 was missing, and tightens two soft spots in the export guard.
+
+**No migration. No doctype JSON touched. `pricing.py` untouched. No frontend file touched.** The
+whole slice is two commits: a pure move, then everything else on top of a known-good base.
+
+---
+
+### 1. Commit 1 — the relocation, and nothing else (`a16390a2`)
+
+Review **Finding 6** (ADR-0010 B1): `_build_qty_source` / `_build_amount_source` encode decisions the
+business names — what a valid quantity source is, why a scalar total may not be mixed with its own
+per-area parts, what counts as the amount denominator. Those do not belong in `api/`.
+
+New package `nirmaan_stack/services/boq_bcs/` (`__init__.py` + `sources.py`) now holds
+`build_qty_source` / `build_amount_source`, the private `_entry` projection and the value-field
+vocabulary. `api/boq/wizard/bcs.py` imports UP (api → service) and keeps only descriptor resolution
+and orchestration. The two builders went private → public because they now cross a module seam.
+
+The module name follows the two service precedents rather than inventing one:
+`boq_category/persist.py` (the `node_is_qty_bearing` / `resolve_row_ladder` relocations the prompt
+named) and `boq_revision/{carry,normalize,row_match}.py` — role-named modules inside a
+domain-named package. No conflict, so no stop was needed.
+
+**Purity is real, not asserted.** Verified by direct scan: zero `frappe.db` / `get_all(` / `get_doc(`
+/ `sql(`, zero imports from `api/`, and the *only* `frappe.` call in the code is `frappe.throw`. That
+one framework touch is deliberate and recorded in the module docstring — these refusals are
+user-facing and named, and downgrading them to `ValueError` would force every caller to re-voice
+them. ⚠️ **`scripts/residence_check.py`'s B1 rule did NOT verify any of this**: `PURE_MODULES` is a
+hand-maintained list containing exactly one file (`services/procurement_approval.py`), so B1 "holding
+at 0" says nothing about `boq_bcs`. Adding `services/boq_bcs/sources.py` to that list would give the
+purity contract real enforcement — see §5.
+
+**The move changed nothing, and that is checkable**: all **35** `test_bcs` tests passed
+**unmodified** immediately after it. No test was edited to make the move work.
+
+### 2. Per-area amounts SUM — the one behaviour change (owner ruling 2026-08-02)
+
+S1 implemented the amount confirmation strictly — scalar `amount_total` only — and its own record
+(§5.1 above) flagged the consequence honestly: **a sheet mapping only per-area amount columns could
+not enable BCS at all**, and the shared committed fixture `COMMITTED_FIXTURE_ROLE_MAP` is exactly
+that shape. Owner ruling: sum them, exactly as quantity already does.
+
+`build_amount_source` is now the deliberate MIRROR of `build_qty_source` — same list-shaped input,
+same two modes (`amount_total` / `amount_by_area`), same five refusals for the same reasons (empty
+pick, unknown column, wrong class, two scalar totals, scalar mixed with its own parts). The two read
+as one idea, which is the point; a reader who has understood one has understood both. The shared
+`_resolve_picks` helper is what keeps the "unknown column" refusal identical between them.
+
+Two consequences that were NOT in the prompt and had to be decided:
+
+- **`amount_col` (singular) → `amount_cols` (a JSON list).** Summing N columns needs a list, and
+  mirroring `qty_cols` was the explicit instruction. There is no non-test caller anywhere — verified
+  across backend and frontend — so this is a free rename, not a break. `_coerce_col_list` now takes
+  the field name so both picks voice their own refusals over ONE coercion. A tolerant "accept a bare
+  string too" alias was considered and rejected: two accepted shapes for one idea is exactly the
+  shallow interface this slice is trying not to build.
+- **`_entry` now records `rate_subkey`.** This was a latent defect the widening would otherwise have
+  introduced. A per-area AMOUNT is a **three-hop** resolve — `amount_by_area[area][kind]` — whereas a
+  per-area quantity is two hops (`qty_by_area[area]`). Without the kind, the stored confirmation
+  would not have been re-resolvable, which is the whole reason it is stored rather than re-derived.
+  Recorded on every entry (`None` on the two-hop shapes) so there is one entry shape, not a per-source
+  special case. Pinned by `test_the_per_area_amount_entry_stays_re_resolvable`.
+
+**A per-area supply/install HALF is refused** (`_is_combined_amount`), the exact twin of refusing
+scalar `amount_supply`. Accepting one would silently compare our cost against a fraction of what we
+charge the client. The fixture carries an `amount_supply_by_area` column purely so this is tested.
+
+The stored confirmation stays **dict-valued at top level** (the `base_document.py:391` list-valued
+JSON wall) — pinned by its own test rather than left to convention.
+
+### 3. The gate independence — documented AND pinned (owner-confirmed 2026-08-02)
+
+The BCS write path runs exactly four gates — committed-cell → sheet-lock → BCS-readiness →
+pricing-lock — and **deliberately skips** the mandatory amount-formula gate, the priceability gate
+and the category gate. Cost is a separate axis with its own two-column confirmation; it must not wait
+on the client-facing side being finished.
+
+Until now this was **undocumented and untested** — precisely the shape a later slice "fixes" into
+consistency. Both halves are now closed:
+
+- `bcs.py`'s module docstring states it in the owner's terms with the date, lists the three skipped
+  gates by name, and carries the same *do NOT add these to restore consistency* framing S1 used for
+  the install-rate divergence. `save_row_bcs_rates`'s own docstring had claimed the gate order
+  "mirrors save_cell_price **exactly**" — now corrected: the ORDER follows it, the SET is smaller.
+- Three tests, one per skip (`TestBcsWritesAreIndependentOfTheClientGates`): a BCS write succeeds
+  with incomplete amount formulas, with every category blank, and on a **zero-qty Preamble** row.
+  Each asserts its PRECONDITION first (`_sheet_formulas_complete` is False, `_categories_gate_ok` is
+  False, `_node_priceable_without_override` is False) so none can ever pass vacuously.
+
+⚠️ **Carry-forward for S3, not implemented here:** because % Profit needs the live formula-evaluated
+amount, a sheet without amount formulas will show costs and a Total Amount but a **blank margin**.
+S3 must render that blank **with a reason**, not leave it mysteriously empty. Recorded in the
+`bcs.py` docstring too, so it is found by someone reading the code rather than only the plan.
+
+### 4. The missing positive control, and the export-guard tightening
+
+**Finding 2 — the positive control (`test_an_ordinary_client_rate_write_succeeds_while_bcs_is_off`).**
+Owner rule 2 ("the BCS gate must never touch ordinary client-facing pricing") was pinned only by a
+`inspect.getsource(pricing)` grep. That is a good tripwire but not proof of behaviour, and it is
+blind to indirection — a gate arriving through a helper that never names BCS would sail past it. The
+new test drives the real `save_cell_price` on a sheet where BCS is disabled and unconfirmed, and
+asserts the rate lands. That is the assertion the whole design turns on, and nothing asserted it
+before. It satisfies the client gates the way the house does — `_declare_scalar_amount_formula`
+locally plus the imported `test_pricing._categorise_fixture_eligible_rows` — driving THROUGH the live
+gates rather than bypassing them with the admin override.
+
+**Finding 3 — two soft spots in the export guard**, structure otherwise kept intact (including the
+anti-vacuity assertion that BCS rows genuinely existed during the export):
+
+- `test_no_bcs_derived_total_or_margin_leaks_either` omitted the `str(int(...))` render form its
+  sibling includes, so an integer-rendered total would have slipped through. Added.
+- The source-grep guard matched case-**sensitively** while its own token list mixes cases (lowercase
+  `"bcs"` against `"BoQ Row BCS Rate"`) — a module-level `BCS_DOCTYPE` or `SUPPLY_RATE` would have
+  passed. Now matched case-insensitively.
+
+The sentinels (`_SUPPLY = 987654.21`, `_INSTALL = 123456.78`) are untouched, and so is the sibling
+test asserting client rate `25` IS present — that sibling is what makes the guard structurally
+failable rather than merely green.
+
+### 5. What the review found — recorded, not silently absorbed
+
+- **Findings 4/7 — the S1 plan-doc append mishap.** S1's append duplicated a line and stranded its
+  predecessor record before being fixed. It left **zero residue**, but S1's own record omitted it. An
+  error fixed and not recorded is itself a finding, so it is written here. This slice's append was
+  boundary-checked before writing and the predecessor record verified intact afterwards.
+- **The permission ruling — an EXPLICIT RULING, not an inheritance.** `BoQ Row BCS Rate` inherits
+  `BoQ Cell Pricing`'s permission block: ten roles, including **HR Executive, Accountant and Design
+  Executive**, can read internal cost and therefore margin. **Owner-confirmed 2026-08-02: leave as
+  inherited.** Recorded as a decision so a future reader sees a choice rather than a default.
+  Narrowing later is cheap — a permission block edit, no data migration.
+- **Finding 8 — the inherited concurrency residual.** The freeze→insert sequence takes no row lock
+  and relies on `pricing_lock.acquire_or_refresh`, which carries a known non-atomic duplicate race.
+  **Identical to shipped `save_cell_price`, so NOT introduced here** — but S1's record states "exactly
+  one current" unconditionally, and that is qualified now: the invariant holds under the single-editor
+  lock and under every sequential path, and is not proven under a genuine concurrent double-write. The
+  race is observable in this very session — the `test_pricing` run emits
+  `duplicate key value violates unique constraint "tabBoQ Sheet Pricing Lock_pkey"` while still
+  passing. Fixing it is a `pricing_lock` change and belongs to whoever owns that module.
+- **The residence_check F2 red is PRE-EXISTING and is NOT ours.** 208 vs baseline 207, traced to
+  commit `fe61165a` (RM-4b). **Deliberately not re-baselined and not fixed** — out of scope, and
+  re-baselining would silently absorb someone else's debt. **Every BCS slice inherits this red**, so a
+  future reader should not read it as evidence that BCS introduced anything.
+- **New, found while doing the work: `PURE_MODULES` is a one-file hand-list**, so ADR-0010 rule B1
+  enforces purity on `services/procurement_approval.py` and nothing else. `services/boq_bcs/sources.py`
+  is pure by construction and verified by hand this slice, but nothing will *keep* it pure. Adding it
+  (and the other pure service modules) to that list is a real, cheap enforcement win.
+  `scripts/residence_check.py` was outside this slice's scope, so it was reported, not edited.
+
+### 6. Verification
+
+| Suite | Baseline | Final |
+|---|---|---|
+| `test_bcs` | 35 | **48** (+13) |
+| `test_export_writeback` | 47 | **47** (2 tests tightened, no count change) |
+| `test_pricing` | 252 | 252 |
+| `test_commit_pipeline` | 57 | 57 |
+| `test_review_screen` | 260 | 260 |
+
+All OK, run in-container via `bench --site localhost run-tests --module …`. `git diff 5c45b65c --stat`
+over `nirmaan_stack/`: 5 files, +647 / −166.
+
+**Red before green, honestly reported.** The per-area amount work was genuine TDD: the 9 new tests
+were written first and ran **RED (44 ran, 9 errors)** against the S1 signature, then green at 44/44.
+
+The gate-independence pins and the positive control are **characterisation pins on existing
+behaviour, so a natural red run is structurally impossible** — they passed on first execution, which
+is the honest outcome. Rather than claim a red that did not happen, failability was demonstrated
+directly:
+
+- The three client gates were **temporarily wired into `save_row_bcs_rates`** → 13 errors + 1 failure,
+  with all three independence pins among them. Probe reverted.
+- The positive control's formula precondition was **temporarily removed** → it failed with the real
+  gate refusal (`"Every amount column on this sheet needs a declared formula…"`), proving it genuinely
+  reaches `save_cell_price` end-to-end. Probe reverted.
+
+`python3 scripts/residence_check.py`: B1 0/0, B2 8/8, B3 40/40, F5 116/116 all holding; F2 208 vs 207
+**red, pre-existing, untouched** (see §5). No migration was run because none was needed — no doctype
+JSON changed.
+
+### 7. Deliberately NOT done
+
+- **`pricing.py` — not touched at all.** It stays byte-identical, which is what keeps the
+  `test_bcs_module_never_touches_the_client_facing_rate_gate` grep meaningful.
+- **No doctype JSON, no migration.** `rate_subkey` rides inside the existing `bcs_amount_source` JSON
+  blob; nothing schema-level moved.
+- **`scripts/residence_baseline.json` — not re-baselined.** The F2 red is someone else's and stays visible.
+- **`scripts/residence_check.py` — not edited**, despite the `PURE_MODULES` gap being real and the fix
+  being one line. Out of scope; reported instead.
+- **No frontend file.** The rename `amount_col` → `amount_cols` lands before any client exists, which
+  is exactly when a rename is free. S2 onward consumes the new name.
+- **The carry path (S6) — untouched.** `carried_from_boq` / `carried_from_version` / `carried_at`
+  still exist and are still written by nothing.
+- **The `acquire_or_refresh` duplicate race — not fixed.** Pre-existing, shared with `save_cell_price`,
+  and a fix belongs in `pricing_lock` with its own slice. Qualified in §5 rather than quietly inherited.
+- **No live browser E2E.** This slice is backend-only with no rendering surface; the bench suites are
+  the whole of the observable behaviour.

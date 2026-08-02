@@ -36,25 +36,71 @@ import frappe
 _QTY_SCALAR_VALUE_FIELD = "qty_total"
 _QTY_AREA_VALUE_FIELD = "qty_by_area"
 
-# AMOUNT. The owner's "Amount (Combined)" IS the amount_total descriptor -- the scalar
-# column recording what we charge the client, which is the denominator of % Profit.
-# DELIBERATELY STRICT: a per-area amount column (amount_total_by_area) is NOT accepted
-# here. Widening to that shape is a one-line change to _AMOUNT_COMBINED_VALUE_FIELDS with
-# NO migration, so refusing now costs nothing and avoids inventing scope the owner did not
-# name. See the slice record.
-_AMOUNT_COMBINED_VALUE_FIELDS = frozenset({"amount_total"})
+# AMOUNT. The owner's "Amount (Combined)" is what we charge the client -- the denominator
+# of % Profit. It comes in the SAME two shapes as quantity, and is validated and summed the
+# same way (OWNER RULING 2026-08-02, slice BCS-S1a):
+#   scalar   -- one mapped amount_total column;
+#   per-area -- N mapped per-area COMBINED amount columns whose SUM is the row's amount.
+# S1 accepted the scalar shape ONLY. That meant a sheet mapping its amounts per area could
+# not enable BCS at all -- and that is the shape of the shared committed fixture, so it was
+# never hypothetical. The two sources now read as ONE idea, not two.
+_AMOUNT_SCALAR_VALUE_FIELD = "amount_total"
+_AMOUNT_AREA_VALUE_FIELD = "amount_by_area"
+
+# A per-area amount column carries its KIND in the descriptor's third hop (`rate_subkey`):
+# "total" is the per-area COMBINED amount (role amount_total_by_area), while "supply" and
+# "install" are the split halves. Only the combined kind is what we charge the client --
+# accepting a half here would silently compare our cost against a fraction of the charged
+# amount. This is the per-area twin of refusing the scalar amount_supply / amount_install.
+_AMOUNT_AREA_COMBINED_SUBKEY = "total"
 
 
 def _entry(desc: dict) -> dict:
     """One stored, RE-RESOLVABLE confirmation entry: the full descriptor identity, so a
-    later reader resolves the value without re-deriving it from column_role_map."""
+    later reader resolves the value without re-deriving it from column_role_map.
+
+    `rate_subkey` is load-bearing for a PER-AREA AMOUNT, which is a THREE-hop resolve
+    (amount_by_area[area][kind]); quantity never needed it because qty_by_area[area] is
+    two hops. Recording it for every entry (None on the two-hop shapes) keeps one entry
+    shape rather than a per-source special case."""
     return {
         "col": desc.get("col"),
         "role": desc.get("role"),
         "area": desc.get("area"),
         "value_field": desc.get("value_field"),
         "value_key": desc.get("value_key"),
+        "rate_subkey": desc.get("rate_subkey"),
     }
+
+
+def _resolve_picks(cols: list, index: dict) -> list:
+    """Map picked column letters onto the sheet's REAL descriptors, or throw naming the
+    column. Shared by both sources so an unknown column reads identically either way."""
+    picked = []
+    for col in cols:
+        desc = index.get(col)
+        if not desc:
+            frappe.throw(
+                f"Column '{col}' is not a mapped column on this sheet. "
+                f"Mapped columns: {', '.join(sorted(index)) or '(none)'}.",
+                title="Unknown column",
+            )
+        picked.append(desc)
+    return picked
+
+
+def _is_combined_amount(desc: dict) -> bool:
+    """Is this descriptor a COMBINED amount column -- the thing we charge the client?
+
+    Scalar: value_field amount_total (amount_supply / amount_install are halves, refused).
+    Per-area: value_field amount_by_area AND rate_subkey "total" (the per-area supply and
+    install halves carry "supply" / "install" and are refused for the same reason)."""
+    field = desc.get("value_field")
+    if field == _AMOUNT_SCALAR_VALUE_FIELD:
+        return True
+    if field == _AMOUNT_AREA_VALUE_FIELD:
+        return desc.get("rate_subkey") == _AMOUNT_AREA_COMBINED_SUBKEY
+    return False
 
 
 def build_qty_source(cols: list, index: dict) -> dict:
@@ -69,16 +115,7 @@ def build_qty_source(cols: list, index: dict) -> dict:
             "or the per-area quantity columns that add up to it.",
             title="No quantity column picked",
         )
-    picked = []
-    for col in cols:
-        desc = index.get(col)
-        if not desc:
-            frappe.throw(
-                f"Column '{col}' is not a mapped column on this sheet. "
-                f"Mapped columns: {', '.join(sorted(index)) or '(none)'}.",
-                title="Unknown column",
-            )
-        picked.append(desc)
+    picked = _resolve_picks(cols, index)
 
     fields = {d.get("value_field") for d in picked}
     if not fields <= {_QTY_SCALAR_VALUE_FIELD, _QTY_AREA_VALUE_FIELD}:
@@ -109,23 +146,50 @@ def build_qty_source(cols: list, index: dict) -> dict:
     return {"mode": mode, "columns": [_entry(d) for d in picked]}
 
 
-def build_amount_source(col: str, index: dict) -> dict:
-    """Validate the amount pick and build the stored confirmation, or throw.
+def build_amount_source(cols: list, index: dict) -> dict:
+    """Validate the Amount (Combined) picks and build the stored confirmation, or throw.
 
-    The owner's 'Amount (Combined)' IS the amount_total descriptor -- what we charge the
-    client, and the denominator of % Profit."""
-    desc = index.get(col)
-    if not desc:
+    Deliberately the MIRROR of build_qty_source (owner ruling 2026-08-02): the amount is
+    either the sheet's one scalar Amount (Combined) column, or the per-area combined-amount
+    columns whose SUM is the row's amount. Same shape, same refusals, same reasons --
+    an empty selection; a column the sheet does not have; a mapped column that is not a
+    combined-amount column (a rate column, or the supply/install HALF of an amount); more
+    than one scalar total; and a scalar total MIXED with its own per-area parts."""
+    if not cols:
         frappe.throw(
-            f"Column '{col}' is not a mapped column on this sheet. "
-            f"Mapped columns: {', '.join(sorted(index)) or '(none)'}.",
-            title="Unknown column",
+            "Pick at least one Amount (Combined) column: either the sheet's combined "
+            "Amount column or the per-area Amount columns that add up to it.",
+            title="No amount column picked",
         )
-    if desc.get("value_field") not in _AMOUNT_COMBINED_VALUE_FIELDS:
+    picked = _resolve_picks(cols, index)
+
+    bad = [d["col"] for d in picked if not _is_combined_amount(d)]
+    if bad:
         frappe.throw(
-            f"Column '{col}' is not this sheet's combined Amount column "
-            f"(it is mapped as '{desc.get('role')}'). BCS compares its cost against the "
-            f"amount charged to the client, so it needs the Amount (Combined) column.",
+            f"Column(s) {', '.join(bad)} are not this sheet's combined Amount column(s) "
+            f"(mapped as {', '.join(sorted({str(d.get('role')) for d in picked if not _is_combined_amount(d)}))}). "
+            f"BCS compares its cost against the amount charged to the client, so it needs "
+            f"the Amount (Combined) column -- not a rate column, and not the supply or "
+            f"install half of an amount.",
             title="Not the Amount (Combined) column",
         )
-    return {"mode": "amount_total", "columns": [_entry(desc)]}
+
+    fields = {d.get("value_field") for d in picked}
+    if len(fields) > 1:
+        frappe.throw(
+            "Pick either the scalar Amount (Combined) column OR the per-area Amount "
+            "columns -- not both. Adding a total to its own parts would count every "
+            "amount twice.",
+            title="Mixed amount sources",
+        )
+
+    if fields == {_AMOUNT_SCALAR_VALUE_FIELD}:
+        if len(picked) != 1:
+            frappe.throw(
+                "A sheet has exactly one combined Amount column; pick one.",
+                title="Too many amount columns",
+            )
+        mode = "amount_total"
+    else:
+        mode = "amount_by_area"
+    return {"mode": mode, "columns": [_entry(d) for d in picked]}
