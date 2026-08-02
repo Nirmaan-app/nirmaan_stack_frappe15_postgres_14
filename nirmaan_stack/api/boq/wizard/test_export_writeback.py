@@ -692,3 +692,144 @@ class TestUploadPathBranchUnchanged(FrappeTestCase):
     def test_upload_origin_without_source_file_throws(self):
         with self.assertRaises(frappe.ValidationError):
             export_priced_workbook(boq_name=self.boq, sheet_names=json.dumps(["Any Sheet"]))
+
+
+# ---------------------------------------------------------------------------
+# STANDING GUARD (owner-locked, slice BCS-S1): BCS never reaches the export
+# ---------------------------------------------------------------------------
+class TestBcsCostRatesNeverReachTheExport(FrappeTestCase):
+    """BCS is our INTERNAL cost and margin. The priced workbook is handed to the CLIENT,
+    so a BCS value appearing in it would leak what the job costs us.
+
+    The exclusion holds by CONSTRUCTION: the export reads "BoQ Cell Pricing" and names
+    three fields explicitly (excel_row, col_letter, rate), while BCS lives in its own
+    doctype (BoQ Row BCS Rate) with no col_letter at all. This test PINS that
+    construction. It is expected to pass the day it is written -- its value is the day it
+    fails, which is the day someone folds BCS onto BoQ Cell Pricing, adds a BCS stamping
+    pass, or widens the export's field list.
+
+    NOT VACUOUS: the test first asserts the BCS rows genuinely exist for the exported
+    sheets and version, so a pass can never mean "there was nothing to leak"."""
+
+    # Deliberately absurd sentinels that cannot collide with the fixture's own numbers
+    # (rates 25 / 200 / 1000 / 50; quantities 3 / 5 / 10 / 20 / 30 / 50 / 100).
+    _SUPPLY = 987654.21
+    _INSTALL = 123456.78
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.project = _make_project()
+        cls.boq = _seed_template_boq(cls.project.name)
+        cls.sheets = ["Electrical ", "HVAC ", "Make List "]
+
+        # Cost EVERY priced row of both data sheets, at the CURRENT committed version.
+        for sheet, rows in (("Electrical ", (2, 3)), ("HVAC ", (2, 3))):
+            for excel_row in rows:
+                doc = frappe.new_doc("BoQ Row BCS Rate")
+                doc.boq = cls.boq
+                doc.sheet_name = sheet          # VERBATIM (#152)
+                doc.excel_row = excel_row
+                doc.committed_version = 1
+                doc.supply_rate = cls._SUPPLY
+                doc.install_rate = cls._INSTALL
+                doc.is_filled = 1
+                doc.bcs_version = 1
+                doc.is_current = 1
+                doc.bcs_rated_at = frappe.utils.now()
+                doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        result = export_priced_workbook(
+            boq_name=cls.boq, sheet_names=json.dumps(cls.sheets)
+        )
+        cls.result = result
+        cls.wb = load_workbook(
+            io.BytesIO(base64.b64decode(result["content_base64"])), data_only=False
+        )
+
+    @classmethod
+    def tearDownClass(cls):
+        for dt, flt in (
+            ("BoQ Row BCS Rate", {"boq": cls.boq}),
+            ("BoQ Cell Amount Formula", {"boq": cls.boq}),
+            ("BoQ Cell Pricing", {"boq": cls.boq}),
+            ("BoQ Committed Sheet Grid", {"boq": cls.boq}),
+            ("BoQ Sheet", {"boq": cls.boq}),
+        ):
+            frappe.db.delete(dt, flt)
+        frappe.db.delete("BOQs", {"name": cls.boq})
+        frappe.db.commit()
+        _cleanup_project(cls.project.name)
+        super().tearDownClass()
+
+    def _all_cell_values(self):
+        """Every cell value in every worksheet of the produced workbook, as strings."""
+        out = []
+        for ws in self.wb.worksheets:
+            for row in ws.iter_rows():
+                for cell in row:
+                    if cell.value not in (None, ""):
+                        out.append(str(cell.value))
+        return out
+
+    def test_the_bcs_rows_really_exist_for_the_exported_version(self):
+        """Anti-vacuity guard: without this, an empty BCS table would make every
+        assertion below pass while proving nothing at all."""
+        rows = frappe.get_all(
+            "BoQ Row BCS Rate",
+            filters={"boq": self.boq, "committed_version": 1, "is_current": 1},
+            fields=["sheet_name", "excel_row", "supply_rate", "install_rate"],
+        )
+        self.assertEqual(len(rows), 4, "4 costed rows must exist during the export")
+        self.assertTrue(all(r.supply_rate == self._SUPPLY for r in rows))
+        self.assertTrue(all(r.install_rate == self._INSTALL for r in rows))
+
+    def test_no_bcs_rate_value_appears_anywhere_in_the_exported_workbook(self):
+        values = self._all_cell_values()
+        self.assertTrue(values, "the export produced a workbook with content")
+        for sentinel in (self._SUPPLY, self._INSTALL):
+            for rendered in (str(sentinel), str(int(sentinel))):
+                hits = [v for v in values if rendered in v]
+                self.assertEqual(
+                    hits, [],
+                    f"BCS cost {sentinel} leaked into the CLIENT workbook: {hits}",
+                )
+
+    def test_no_bcs_derived_total_or_margin_leaks_either(self):
+        """Total Amount and % Profit are computed, never stored -- so they must not appear
+        in the export by any route. Checks the per-unit sum and, for each fixture row, the
+        quantity-multiplied total that a BCS Total Amount column would carry."""
+        values = self._all_cell_values()
+        combined = self._SUPPLY + self._INSTALL
+        candidates = {combined}
+        for qty in (100, 50, 5, 30):        # the fixture's committed quantities
+            candidates.add(combined * qty)
+        for candidate in candidates:
+            rendered = str(candidate)
+            self.assertEqual(
+                [v for v in values if rendered in v], [],
+                f"a BCS-derived figure ({candidate}) leaked into the CLIENT workbook",
+            )
+
+    def test_the_export_still_carries_the_client_facing_rates(self):
+        """The complement: excluding BCS must not have excluded ordinary pricing. The
+        client's own rates are still stamped, so the guard above is about BCS alone."""
+        ws = self.wb["Electrical "]
+        self.assertEqual(ws["E2"].value, 25)
+        self.assertEqual(ws["E3"].value, 200)
+
+    def test_export_writeback_module_never_names_the_bcs_doctype(self):
+        """Belt-and-braces on the CONSTRUCTION itself: the export module must not mention
+        BCS at all. This is what makes the exclusion structural rather than incidental."""
+        import inspect
+
+        from nirmaan_stack.api.boq.wizard import export_writeback
+
+        src = inspect.getsource(export_writeback)
+        for token in ("BoQ Row BCS Rate", "supply_rate", "install_rate", "bcs"):
+            self.assertNotIn(
+                token, src,
+                f"export_writeback.py must never reference {token!r} -- BCS is internal "
+                f"cost and the priced workbook is client-facing",
+            )

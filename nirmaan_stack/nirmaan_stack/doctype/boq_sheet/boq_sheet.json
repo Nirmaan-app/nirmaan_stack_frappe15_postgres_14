@@ -41,6 +41,12 @@
   "category_override_by",
   "category_override_at",
   "category_override_reason",
+  "bcs_section",
+  "bcs_enabled",
+  "bcs_qty_source",
+  "bcs_amount_source",
+  "bcs_confirmed_by",
+  "bcs_confirmed_at",
   "revision_provenance_section",
   "source_boq",
   "source_commit_version",
@@ -272,6 +278,44 @@
    "label": "Category Override Reason"
   },
   {
+   "fieldname": "bcs_section",
+   "fieldtype": "Section Break",
+   "label": "BCS (Cost & Margin)"
+  },
+  {
+   "default": "0",
+   "description": "Per-sheet, per-committed-version switch for the BCS cost section of the pricing editor (slice BCS-S1). BCS is the COST side: two hand-typed rates per row (Supply + Install, stored on BoQ Row BCS Rate) representing what the work costs US, against the BoQ amount we charge the CLIENT. Enabling alone is NOT enough to write a BCS rate -- the two columns below must also be confirmed; the shared readiness predicate is bcs.bcs_is_ready. THIS GATE GUARDS BCS CELLS ONLY (owner-locked): it is deliberately NOT ANDed into save_cell_price's rate gate, so ordinary client-facing pricing stays fully editable on a sheet where BCS was never enabled. Set via frappe.db.set_value (NOT doc.save -- the list-valued area_dimensions JSON throws on a full save). Re-commit INVALIDATES: a new commit_version inserts a fresh BoQ Sheet row that defaults bcs_enabled=0.",
+   "fieldname": "bcs_enabled",
+   "fieldtype": "Check",
+   "label": "BCS Enabled"
+  },
+  {
+   "description": "The CONFIRMED quantity source for this sheet's BCS Total Amount, stored so it can be RE-RESOLVED later rather than re-guessed. A DICT (never a bare list -- a list-valued JSON field throws in get_valid_dict on a full save): {mode, columns:[{col, role, area, value_field, value_key}]}. mode is 'qty_total' when the sheet maps a scalar Total Quantity column, or 'qty_by_area' when it maps quantity PER AREA and the total is the SUM of that set. Each entry carries the full descriptor identity, so a reader resolves the value without re-deriving it from column_role_map. Validated at confirm time against the sheet's REAL column_descriptors (bcs.confirm_bcs_columns) -- a column the sheet does not have is REFUSED, not stored, and a scalar total may not be mixed with its own per-area parts (that would double-count). NULL until confirmed.",
+   "fieldname": "bcs_qty_source",
+   "fieldtype": "JSON",
+   "label": "BCS Quantity Source"
+  },
+  {
+   "description": "The CONFIRMED amount column for this sheet's BCS % Profit denominator -- the owner's 'Amount (Combined)', which is the amount_total descriptor. Same re-resolvable DICT shape as bcs_qty_source: {mode, columns:[{col, role, area, value_field, value_key}]}, a single entry. It records WHAT WE CHARGE THE CLIENT, against which the BCS cost rates are the margin. Validated at confirm time against the sheet's REAL column_descriptors; a column the sheet does not have, or a mapped column of the wrong class (a rate or a unit column), is REFUSED and nothing is stored. NULL until confirmed.",
+   "fieldname": "bcs_amount_source",
+   "fieldtype": "JSON",
+   "label": "BCS Amount Source"
+  },
+  {
+   "description": "The user who last confirmed the two BCS columns (frappe.session.user). Typed Data + read_only to mirror locked_by / frozen_by / category_override_by. NULL until confirmed.",
+   "fieldname": "bcs_confirmed_by",
+   "fieldtype": "Data",
+   "label": "BCS Confirmed By",
+   "read_only": 1
+  },
+  {
+   "description": "When the two BCS columns were last confirmed (now_datetime()). NULL until confirmed. A re-confirmation overwrites both this and bcs_confirmed_by -- the pair always describes the CURRENT confirmation, never the first one.",
+   "fieldname": "bcs_confirmed_at",
+   "fieldtype": "Datetime",
+   "label": "BCS Confirmed At",
+   "read_only": 1
+  },
+  {
    "fieldname": "revision_provenance_section",
    "fieldtype": "Section Break",
    "label": "Revision Provenance"
@@ -301,7 +345,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-28 00:00:00.000000",
+ "modified": "2026-08-02 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "BoQ Sheet",
