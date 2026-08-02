@@ -426,6 +426,32 @@ class TestAmountRefusals(unittest.TestCase):
     # NOT change is the double-count they were really protecting: a TOTAL already contains
     # its halves. So the rule moved off the half itself and onto the MIX, and each test
     # below now pins that narrower, true thing.
+    #
+    # THEY PIN IT BY MESSAGE, CORRECTED AT BCS-S2c. Until then all three asserted the
+    # exception TYPE alone, in a class where ten other refusals are message-pinned -- and
+    # since every refusal in this module raises the one ValidationError, a type-only assert
+    # says "something was refused", not "THIS was refused".
+    #
+    # BE PRECISE ABOUT WHAT THAT BUYS, because it is easy to overclaim and BCS-S2c measured
+    # both halves rather than reasoning about them:
+    #
+    #   * It does NOT catch the pre-S2b rule coming back (`if kinds - {_KIND_TOTAL}` --
+    #     refuse ANY half). Every input below carries a total AND a half, so the old rule
+    #     and the new one refuse all three in the same words; the pin cannot see a
+    #     difference that is not there. What catches THAT regression is the acceptance
+    #     side -- TestSplitAmountShapes goes 11 red, which is the honest guard for it.
+    #   * It DOES catch this refusal firing with the WRONG WORDS -- its message drifting
+    #     onto a neighbour's, or the input being caught by a different rule that also
+    #     throws. Verified: give the kind refusal the shape refusal's sentence and all
+    #     three go red, where the type-only version stayed green.
+    #
+    # That second case is a live risk, not a hypothetical: BCS-S2c reworded the SHAPE
+    # refusal sitting immediately below the kind one, so the two messages are now adjacent,
+    # similar in purpose and easy to edit into each other.
+    #
+    # The marker is the kind refusal's own words, unique to it: the shape refusal says "of
+    # ONE shape", and neither the duplicate nor the class refusal mentions halves at all.
+    _KIND_REFUSAL = "already includes the supply and installation"
 
     def test_a_scalar_total_picked_together_with_a_half_is_refused(self):
         """WAS: "a scalar supply or install half is refused" (BCS-S1).
@@ -435,7 +461,8 @@ class TestAmountRefusals(unittest.TestCase):
         arriving by the kind axis rather than the shape axis. Both halves are checked
         because the rule is about the TOTAL's presence, not about which half joined it."""
         for half in ("G", "H"):   # amount_supply, amount_install
-            with self.assertRaises(frappe.ValidationError, msg=half):
+            with self.assertRaisesRegex(frappe.ValidationError, self._KIND_REFUSAL,
+                                        msg=half):
                 build_amount_source(["F", half], SCALAR)
 
     def test_a_per_area_total_picked_together_with_a_per_area_half_is_refused(self):
@@ -445,7 +472,7 @@ class TestAmountRefusals(unittest.TestCase):
         than a resolve -- but it now decides it by COMPARING kinds across the picked set
         instead of testing one column against the constant "total". F is Zone A's combined
         amount and H is Zone A's supply half, so the pair counts Zone A's supply twice."""
-        with self.assertRaises(frappe.ValidationError):
+        with self.assertRaisesRegex(frappe.ValidationError, self._KIND_REFUSAL):
             build_amount_source(["F", "H"], PER_AREA)
 
     def test_a_half_poisons_an_otherwise_valid_per_area_COMBINED_selection(self):
@@ -456,8 +483,10 @@ class TestAmountRefusals(unittest.TestCase):
         must be refused WHOLE rather than quietly dropping H -- but the reason is no
         longer "H is a half", it is "H is already inside F". The distinction is what makes
         ["D", "E"] on PER_AREA_SPLIT (two areas' supply, no total anywhere) acceptable
-        while this stays refused."""
-        with self.assertRaises(frappe.ValidationError):
+        while this stays refused. Message-pinned for the same reason as its two
+        neighbours: "refused" and "refused FOR THE STATED REASON" are different claims,
+        and only the second one survives a rule moving."""
+        with self.assertRaisesRegex(frappe.ValidationError, self._KIND_REFUSAL):
             build_amount_source(["F", "G", "H"], PER_AREA)
 
     def test_two_scalar_combined_amounts_are_refused(self):

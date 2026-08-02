@@ -782,14 +782,21 @@ class TestBcsPerAreaAmountSource(_BcsEndpointBase):
         SUPPLY half, so F already contains H and the pair counts Zone A's supply twice.
 
         The endpoint's job here is the usual one -- that the pure module's refusal SURFACES
-        as a clean named error and leaves the confirmation untouched. Which refusal it is,
-        and why, is pinned in services/boq_bcs/test_sources.py."""
-        with self.assertRaises(frappe.ValidationError):
+        as a clean named error and leaves the confirmation untouched. WHY the rule exists
+        is pinned in services/boq_bcs/test_sources.py; that WHICH refusal arrived is
+        checked here too, corrected at BCS-S2c. Asserting the type alone could not tell
+        this refusal from any other in the module -- they all raise the one ValidationError
+        -- so a message drifting onto a neighbour's words left it green. Surfacing the pure
+        module's WORDS INTACT is the endpoint's actual contract here: the card shows the
+        server's sentence verbatim when its own mirror thought the pick was fine, so a
+        refusal that arrives mis-voiced is what the user reads."""
+        with self.assertRaises(frappe.ValidationError) as ctx:
             confirm_bcs_columns(
                 boq_name=self.boq, sheet_name=self.area_amount_sheet,
                 committed_version=self.cv,
                 qty_cols=json.dumps(["D"]), amount_cols=json.dumps(["F", "H"]),
             )
+        self.assertIn("already includes the supply and installation", str(ctx.exception))
         self.assertIsNone(
             get_bcs_state(boq_name=self.boq, sheet_name=self.area_amount_sheet,
                           committed_version=self.cv)["bcs_amount_source"],

@@ -3290,13 +3290,30 @@ const SheetPricingPage = () => {
               confirmation card. On -> click reopens the card; turning BCS off lives in the card's
               footer, so this control is never a destructive toggle. Greyed with the reason in the
               title -- BCS always exists as an action here, so hiding it would be the lie. ── */}
-          {/* BCS-S2a (finding F1): THREE appearances, because there are three states.
-              SOLID = on. OUTLINE + calculator = off. UNKNOWN never borrows the OFF look: while
-              the state is loading it spins, and when the read FAILED it shows the warning glyph
-              the banners already use for "attention" -- still no new colour. `aria-pressed` is
-              OMITTED (not false) when unknown, because a toggle must not claim a state nobody
-              told it. S2 rendered unknown as OFF, which is how a confirmed sheet could show as
-              off with its chip gone. */}
+          {/* BCS-S2a (finding F1): THREE states, and the button must never present UNKNOWN as
+              OFF -- S2 did, which is how a confirmed sheet showed as off with its chip gone.
+              `aria-pressed` is OMITTED (not false) when unknown, because a toggle must not
+              claim a state nobody told it.
+
+              WHAT ACTUALLY SEPARATES THEM, corrected at BCS-S2c. The earlier note said UNKNOWN
+              "never borrows the OFF look", which overstates it: unknown and off share
+              `variant="outline"`, and in one branch they share the calculator glyph too. The
+              real and sufficient separator is that OFF IS CLICKABLE AND UNKNOWN IS NOT --
+
+                off      outline + calculator, ENABLED, title invites the click;
+                unknown  outline, DISABLED, title says which thing we are waiting on
+                         (spinner while loading, warning glyph when the read failed,
+                         plain calculator when there is simply no payload yet).
+
+              That holds on every reachable path, and it holds by CONSTRUCTION rather than by
+              matching branches: `bcsToggleState` returns "unknown" only when the payload is
+              absent or the read failed, and each of those cases also produces a `bcsReason`,
+              which is what disables the button. The fetch and the reason chain gate on the SAME
+              `liveCommitVersion`, so a disabled swrKey cannot leave an enabled button with no
+              payload behind it. ⚠️ S3 INHERITS THIS: hang cost cells off `bcsToggle` and keep
+              the guarantee at the same seam -- "unknown" is carried by DISABLED-ness, so an S3
+              cost cell that renders unknown as an ordinary empty editable cell breaks it even
+              though it changed no colour. Do not read the glyph as the distinction. */}
           <Button
             size="sm"
             variant={bcsToggle === "on" ? "default" : "outline"}

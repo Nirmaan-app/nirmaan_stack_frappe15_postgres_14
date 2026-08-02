@@ -319,13 +319,30 @@ def build_amount_source(cols: list, index: dict) -> dict:
         )
 
     # -- the SHAPE axis: a scalar is the total of the per-area ones ---------
-    # UNCHANGED by this slice, and deliberately not widened: no owner ruling covers a sheet
-    # that genuinely splits one kind scalar and the other per area, so that stays refused
-    # rather than guessed at. If such a sheet ever turns up it is a ruling, not a bug.
+    # The RULE is UNCHANGED by BCS-S2b, and deliberately not widened: no owner ruling covers
+    # a sheet that genuinely splits one kind scalar and the other per area, so that stays
+    # refused rather than guessed at. If such a sheet ever turns up it is a ruling, not a bug.
+    #
+    # THE VOICING, HOWEVER, DID NOT FOLLOW THE WIDENING (corrected BCS-S2c). It read "Adding
+    # a total to its own parts would count every amount twice", which was true of every input
+    # that could reach here BEFORE S2b -- back then every pick had to be the combined amount,
+    # so a shape mix was necessarily a total beside its own per-area parts. Two new families
+    # reach this line now, and the old sentence is false about both:
+    #
+    #   scalar supply + per-area supply   -- no total is present anywhere in the pick;
+    #   scalar supply + per-area install  -- not even the same figure, so nothing is being
+    #                                        double-counted; this is the un-ruled shape.
+    #
+    # The replacement states the rule and gives BOTH reasons, so it is true of every input
+    # that can reach it. A refusal that explains itself with a fact the user can see is false
+    # sends them looking for a total they never picked.
     if len(shapes) > 1:
         frappe.throw(
-            "Pick either the scalar Amount column(s) OR the per-area Amount columns -- "
-            "not both. Adding a total to its own parts would count every amount twice.",
+            "Pick Amount columns of ONE shape -- either the scalar Amount column(s) or the "
+            "per-area Amount columns, not a mix of the two. A scalar column holds the row's "
+            "whole figure while the per-area columns split a figure across areas, so mixing "
+            "them either counts the same amount twice or combines two figures BCS has no "
+            "rule for adding together.",
             title="Mixed amount sources",
         )
 

@@ -22,10 +22,19 @@
  * widening -- the refusals still reachable from the offered set (mixing a total with its own
  * parts; two columns that hold the same number) are exactly what `validateBcsPicks` catches.
  *
- * THIS FILE IS PLAIN ASCII, DELIBERATELY (BCS-S2a, finding F4). It briefly contained a raw NUL
- * byte as a key separator, which made the whole module read as BINARY: `file` reported "data"
- * and `grep` skipped it without `-a`, so audit and ratchet tooling silently passed over every
- * rule in here. Never introduce a control character; escape it or encode it.
+ * THIS FILE CONTAINS NO CONTROL CHARACTERS, DELIBERATELY (BCS-S2a, finding F4). It briefly
+ * contained a raw NUL byte as a key separator, which made the whole module read as BINARY:
+ * `file` reported "data" and `grep` skipped it without `-a`, so audit and ratchet tooling
+ * silently passed over every rule in here. Never introduce a control character; escape it or
+ * encode it.
+ *
+ * CORRECTED AT BCS-S2c: this said "THIS FILE IS PLAIN ASCII", which was simply false -- it
+ * carries 70 non-ASCII bytes (box-drawing rules, middots, em-dashes, an ellipsis and a warning
+ * sign) and did on the day the claim was written. The distinction matters because the two
+ * sentences ask for different things and only one of them is the actual invariant: printable
+ * UTF-8 is fine and is used throughout this codebase, while a CONTROL byte is what re-classifies
+ * the file as binary and hides it from the tooling. A false blanket rule gets discovered to be
+ * false and then discarded WHOLE, taking the true rule under it along.
  */
 import type { BcsSource, ColumnDescriptor } from "./boqTypes";
 import { ROLE_LABELS } from "./boqTypes";

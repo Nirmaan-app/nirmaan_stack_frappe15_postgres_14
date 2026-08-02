@@ -384,8 +384,12 @@ def get_sheet_bcs_rates(boq_name=None, sheet_name=None, committed_version=None):
     """Every CURRENT BCS cost row for one committed (boq, sheet_name VERBATIM #152,
     committed_version). Superseded versions are excluded (is_current=1).
 
-    PURE READ. Returns {boq, sheet_name, committed_version, rows: [...]} -- the two rates
-    only; Total Amount and % Profit are computed by the caller, never stored.
+    PURE READ. Returns {boq, sheet_name, committed_version, rows: [...]} -- the stored
+    cost INPUTS only (all THREE of them: supply_rate, install_rate and, since BCS-S2b,
+    combined_rate); Total Amount and % Profit are computed by the caller, never stored.
+    Corrected at BCS-S2c: this said "the two rates only" in the one docstring describing
+    the field list S2b widened to three, which reads as a promise that a combined-rate
+    sheet's cost is not returned here. It is -- `_BCS_READ_FIELDS` names all three.
     URL: /api/method/nirmaan_stack.api.boq.wizard.bcs.get_sheet_bcs_rates"""
     committed_version = _validate_common_args(boq_name, sheet_name, committed_version)
     rows = frappe.get_all(
