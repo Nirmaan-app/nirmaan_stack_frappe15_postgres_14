@@ -561,6 +561,41 @@ class TestBcsEnableAndConfirm(_BcsEndpointBase):
                 qty_cols=json.dumps([]), amount_cols=json.dumps(["F"]),
             )
 
+    def test_the_same_column_picked_twice_is_refused_and_nothing_is_stored(self):
+        """The SIXTH refusal (BCS-S1b): one column picked twice would store two identical
+        entries, and summing them double-counts the row -- the same harm the mixed
+        total-and-parts refusal names.
+
+        Both shapes are exercised because only ONE of them was ever a hole: a repeated
+        SCALAR pick already fell foul of the one-scalar-column rule, so it was refused by
+        accident; a repeated PER-AREA pick reached the store, which is the gap this slice
+        closes. The endpoint's job here is that the pure module's refusal SURFACES as a
+        clean named error and leaves the confirmation untouched -- the rule itself is
+        pinned in services/boq_bcs/test_sources.py."""
+        # per-area QUANTITY, repeated -- the real hole.
+        with self.assertRaises(frappe.ValidationError):
+            confirm_bcs_columns(
+                boq_name=self.boq, sheet_name=self.area_sheet, committed_version=self.cv,
+                qty_cols=json.dumps(["D", "D"]), amount_cols=json.dumps(["H"]),
+            )
+        state = get_bcs_state(boq_name=self.boq, sheet_name=self.area_sheet,
+                              committed_version=self.cv)
+        self.assertIsNone(state["bcs_qty_source"], "a refused confirmation stores NOTHING")
+        self.assertIsNone(state["bcs_amount_source"])
+        self.assertIsNone(state["bcs_confirmed_by"])
+
+        # per-area AMOUNT, repeated -- the same hole on the other source.
+        with self.assertRaises(frappe.ValidationError):
+            confirm_bcs_columns(
+                boq_name=self.boq, sheet_name=self.area_amount_sheet,
+                committed_version=self.cv,
+                qty_cols=json.dumps(["D"]), amount_cols=json.dumps(["F", "F"]),
+            )
+        state = get_bcs_state(boq_name=self.boq, sheet_name=self.area_amount_sheet,
+                              committed_version=self.cv)
+        self.assertIsNone(state["bcs_amount_source"], "a refused confirmation stores NOTHING")
+        self.assertIsNone(state["bcs_qty_source"])
+
 
 # ===========================================================================
 # Group 3b: the AMOUNT source has the same TWO shapes as quantity (BCS-S1a)

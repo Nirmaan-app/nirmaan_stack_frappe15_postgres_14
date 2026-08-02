@@ -75,7 +75,9 @@ def _entry(desc: dict) -> dict:
 
 def _resolve_picks(cols: list, index: dict) -> list:
     """Map picked column letters onto the sheet's REAL descriptors, or throw naming the
-    column. Shared by both sources so an unknown column reads identically either way."""
+    column. Shared by both sources, so the two refusals living here -- an unknown column,
+    and the same column picked twice -- read identically either way and cannot drift into
+    two copies."""
     picked = []
     for col in cols:
         desc = index.get(col)
@@ -86,6 +88,33 @@ def _resolve_picks(cols: list, index: dict) -> list:
                 title="Unknown column",
             )
         picked.append(desc)
+
+    # A column picked TWICE would store two identical entries, and summing them
+    # double-counts the row -- the same harm the mixed total-and-parts refusals name
+    # ("would count every amount twice"), arriving by a different route (BCS-S1b).
+    #
+    # Only the PER-AREA shape was ever a hole: a repeated SCALAR pick already fell foul
+    # of the one-scalar-column rule below, so it was refused by accident of a rule aimed
+    # at something else. Refusing here makes both shapes refused ON PURPOSE, and does so
+    # for every future caller of the builders rather than for whichever ones remember.
+    #
+    # Deliberately AFTER the resolve loop: an unknown column stays "unknown" (the more
+    # fundamental fact about it) instead of being reported as a duplicate, so every input
+    # that threw before this slice throws identically.
+    seen: set = set()
+    dupes: list = []
+    for col in cols:
+        if col in seen:
+            if col not in dupes:
+                dupes.append(col)
+        else:
+            seen.add(col)
+    if dupes:
+        frappe.throw(
+            f"Column(s) {', '.join(dupes)} are picked more than once. Pick each column "
+            f"once -- repeating one would count its value twice.",
+            title="Duplicate column",
+        )
     return picked
 
 
@@ -106,9 +135,9 @@ def _is_combined_amount(desc: dict) -> bool:
 def build_qty_source(cols: list, index: dict) -> dict:
     """Validate the quantity picks and build the stored confirmation, or throw.
 
-    Refuses: an empty selection; a column the sheet does not have; a mapped column that is
-    not a quantity column; more than one scalar total; and a scalar total MIXED with
-    per-area quantity columns (which would double-count)."""
+    Refuses: an empty selection; a column the sheet does not have; the SAME column picked
+    twice; a mapped column that is not a quantity column; more than one scalar total; and
+    a scalar total MIXED with per-area quantity columns (which would double-count)."""
     if not cols:
         frappe.throw(
             "Pick at least one quantity column: either the sheet's Total Quantity column "
@@ -152,9 +181,10 @@ def build_amount_source(cols: list, index: dict) -> dict:
     Deliberately the MIRROR of build_qty_source (owner ruling 2026-08-02): the amount is
     either the sheet's one scalar Amount (Combined) column, or the per-area combined-amount
     columns whose SUM is the row's amount. Same shape, same refusals, same reasons --
-    an empty selection; a column the sheet does not have; a mapped column that is not a
-    combined-amount column (a rate column, or the supply/install HALF of an amount); more
-    than one scalar total; and a scalar total MIXED with its own per-area parts."""
+    an empty selection; a column the sheet does not have; the SAME column picked twice; a
+    mapped column that is not a combined-amount column (a rate column, or the
+    supply/install HALF of an amount); more than one scalar total; and a scalar total
+    MIXED with its own per-area parts."""
     if not cols:
         frappe.throw(
             "Pick at least one Amount (Combined) column: either the sheet's combined "
