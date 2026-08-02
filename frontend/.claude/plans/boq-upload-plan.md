@@ -17528,3 +17528,150 @@ The other three of the "seven" are `bcsColumns.test.ts` (frontend, **S2c's** to 
   guards cover every permitted pair.
 - **No `describe_amount_mode()` helper.** Turning a mode into plain words is S2c's copy decision, and
   inventing the wording here would pre-empt it.
+
+## BCS-S2c — the browser learns the eight amount shapes, and the record is corrected
+
+**Branch** `feature/bcs-columns` · **Base** `f1b6d1a6` · **Tier** FULL · **Date** 2026-08-02
+
+S2b widened the SERVER to accept eight amount shapes; the browser still refused the halves, so the owner's
+fix was real in principle and **invisible in practice** — the confirmation card's Amount list stayed empty
+on exactly the sheets that prompted the change. This slice mirrors those rules in `bcsColumns.ts` and
+carries the corrections the S2b review found. **No migration** (the schema landed in S2b). `PricingGrid.tsx`
+(S3), `pricing.py` and the carry path (S6) are untouched. Two commits, corrections FIRST, so a reviewer can
+read them without the feature diff on top.
+
+---
+
+### 1. The corrections — commit `a1a9d260`
+
+| Where | Was | Now |
+|---|---|---|
+| `boq_row_bcs_rate.py:6,16-17` | "ONLY THE TWO RATES PERSIST"; formula `quantity x (supply + install)` | all three inputs, which set a sheet uses, **both** formulas, and "never sum all three" |
+| `bcs.py:387` | "the two rates only" | names all three; points at `_BCS_READ_FIELDS` |
+| `sources.py:328` | "Adding a total to its own parts would count every amount twice" | states the rule + **both** reasons, true of every input that can now reach it |
+| `test_sources.py:430,441,451` · `test_bcs.py:776` | `assertRaises(ValidationError)` | message-pinned on `"already includes the supply and installation"` |
+| `bcsColumns.ts:25` | "THIS FILE IS PLAIN ASCII" | "NO CONTROL CHARACTERS" — the invariant that is actually true and actually load-bearing |
+| `SheetPricingPage.tsx:3294` | UNKNOWN "never borrows the OFF look" | the separator that really holds: **off is CLICKABLE, unknown is DISABLED** |
+
+**The blocking one.** The doctype docblock is the canonical description of what `BoQ Row BCS Rate` stores,
+and it gave the downstream formula as `quantity x (supply + install)` — written before `combined_rate`
+existed. **On a combined-rate sheet that evaluates to ZERO**, because both halves are 0.0 there by design.
+**BCS-S3 implements that formula against this description**, so it was a bug waiting to be copied, not a
+stale comment. `bcs.py`'s module docstring got the S2b update; this one was missed.
+
+**The `sources.py` reword.** Before S2b every amount pick had to be the combined amount, so a shape mix was
+*necessarily* a total beside its own per-area parts and the sentence was true. Two families reach that line
+now and it is false about both: `scalar supply + per-area supply` (no total in the pick at all) and
+`scalar supply + per-area install` (not even the same figure — the un-ruled shape). The rule was right; the
+voicing had not followed. A refusal explaining itself with a fact the user can see is false sends them
+hunting for a column they never picked.
+
+### 2. The mirror — commit `f67741dc`
+
+`bcsColumns.ts` is the browser's mirror of `services/boq_bcs/sources.py`, and **`sources.py` is the
+authority** — read rule for rule, in the same order.
+
+- **`BcsMode` 4 → 10 members**, matching `_AMOUNT_MODES` exactly. `amount_total` / `amount_by_area` are
+  byte-unchanged, so confirmations stored before the widening read back identically.
+- **`isBcsAmountColumn`** now routes through the new **`bcsAmountAxes`** — the client twin of the server's
+  `_amount_axes`, which *replaced* the `_is_combined_amount` that S2b deleted and this file still cited in a
+  comment. That replacement is the shape of the whole widening: the old predicate answered "is this THE
+  combined amount?", which stopped being the right question once a pick is judged against the OTHER picks.
+- **`validateBcsPicks`** keeps ONE entry point and one shared prefix (empty → unknown → duplicate letter →
+  duplicate value → class), then forks into `qtyTail` / `amountTail`, because the two sides genuinely
+  diverge past the class check. `qtyTail` is byte-equivalent to before.
+- **`AMOUNT_MODES`** is a lookup table keyed on **sorted** kinds, mirroring Python's `frozenset`, so the
+  order the user clicked cannot change the mode.
+
+**Precedence is load-bearing and is mirrored exactly.** `_resolve_picks` runs before every per-source rule,
+so a duplicate shadows seven titles; and on the amount side **KIND is checked before SHAPE**. `["F","I"]`
+violates both — the server answers *"the combined Amount already includes the halves"*, so the card must
+too. The same rules in a different order give a different complaint for one input, which a user does not
+experience as a wording nit: it reads as the screen and the server disagreeing about their sheet.
+
+**The eight sentences** (`bcsSummaryForMode`, pinned VERBATIM by a test because the copy is a deliverable):
+
+| mode | sentence |
+|---|---|
+| `amount_total` | % Profit is measured against the combined Amount in column F. |
+| `amount_supply_plus_install` | This sheet has no combined Amount column, so % Profit is measured against the Supply amount plus the Installation amount (columns J and P), added together. |
+| `amount_supply_only` | This sheet has no combined Amount column, so % Profit is measured against the Supply amount alone (column J). Installation is not included. |
+| `amount_install_only` | This sheet has no combined Amount column, so % Profit is measured against the Installation amount alone (column P). Supply is not included. |
+| `amount_by_area` | This sheet splits its combined Amount across areas, so % Profit is measured against columns G and H, added together. |
+| `amount_by_area_supply_plus_install` | This sheet has no combined Amount column and splits its amounts across areas, so % Profit is measured against the Supply and Installation amounts in columns I, S, R and T, all added together. |
+| `amount_by_area_supply_only` | This sheet has no combined Amount column and splits its amounts across areas, so % Profit is measured against the Supply amounts in columns I and S, added together. Installation is not included. |
+| `amount_by_area_install_only` | This sheet has no combined Amount column and splits its amounts across areas, so % Profit is measured against the Installation amounts in columns R and T, added together. Supply is not included. |
+
+**`bcsStoredSummary` reads the mode FROM the stored confirmation** and never recomputes it from the column
+list — pinned by a test that feeds it a record whose `mode` and `columns` deliberately disagree and asserts
+the **mode** wins. An unrecognised mode is an explicit unsupported state, never a silent blank and never a
+guess (the `ratePipelineInterpreter` convention).
+
+`BcsColumnsDialog` renames the amount side off "Amount (Combined)", documents the validity line as the
+safety mechanism it now is, and gains a **"Currently saved:"** line shown only while the selection would
+change the stored formula. `bcs.py`'s not-ready message stops naming a column the sheet is not required to
+have.
+
+### 3. The owner's reasoning — the part that must survive
+
+**ADAPT AND DISCLOSE, NEVER REFUSE.** A one-sided sheet is accepted, and in exchange the software *states
+the formula it is actually using*. **THE SENTENCE IS THE SAFETY.** Without it, acceptance is the failure
+mode: a sheet whose % Profit is measured against the supply half alone renders identically to one measured
+against the whole amount, and nobody finds out until the margin is wrong. The disclosure is a deliverable,
+not decoration — which is why the eight sentences are pinned word for word.
+
+**Divergence is a defect in BOTH directions, and this slice existed for the quiet one.** A card saying
+"valid" about something the server rejects produces a thrown error someone can report. A card *refusing*
+something the server would accept produces **nothing at all** — a legitimate sheet is simply unusable, with
+no message to investigate. That is what sat between S2b and S2c.
+
+**The un-ruled shape stays refused.** One kind scalar and the other per-area is not covered by any ruling,
+so it is refused rather than guessed at — a RULING, not a bug, if such a sheet turns up.
+
+### 4. Verification
+
+| Check | Command | Result |
+|---|---|---|
+| Frontend unit | `yarn test` (in-container) | **1279 → 1318**, 54 files, 0 failures |
+| `bcsColumns.test.ts` | (same) | **57 → 96** tests |
+| Pure rules | `run-tests --module ...boq_bcs.test_sources` | **48 → 48** OK |
+| Endpoints | `run-tests --module ...wizard.test_bcs` | **64 → 64** OK |
+| Regression | `test_export_writeback` / `test_pricing` / `test_commit_pipeline` / `test_review_screen` | **47 / 252 / 57 / 260** all OK |
+| Types | `npx tsc --noEmit` | `boq-wizard` **0**; 3236 elsewhere, pre-existing |
+| Residence | `python3 scripts/residence_check.py` | B1 **0/0** · B2 8/8 · B3 40/40 · F5 116/116 holding; **F2 = 208** |
+
+**F2 = 208 — ERRATUM ON THE S2b RECORD.** That record called 208 "the pre-edit baseline". The ratchet's
+baseline in `scripts/residence_baseline.json` is **207**; 208 is the pre-existing red, and 208 is what this
+slice also measures, so **this slice added zero**. The substance was right and the label misleading — an
+earlier record is never edited, so the correction lives here. B1 holding at 0 confirms `sources.py` stayed
+pure and `bcsColumns.ts` gained no React/fetch import.
+
+**RED BEFORE GREEN, both honestly.** The mirror: 36 failed / 59 passed against the not-yet-widened module,
+then 95 → 96 green. The four message-pins: **measured, not reasoned, and the first probe DISPROVED the
+obvious claim.** Re-injecting the pre-S2b rule (`if kinds - {_KIND_TOTAL}`) left all three `test_sources`
+tests green *even after* the pin — every input in them carries a total AND a half, so both rules refuse them
+in the same words and no pin can see a difference that is not there. What the pin *does* catch was then
+verified separately: give the kind refusal the shape refusal's sentence and all three go red where the
+type-only version stayed green. The comment in the file states both halves, so nobody inherits the
+overclaim. The honest guard for the "refuse ANY half" regression is the acceptance side —
+`TestSplitAmountShapes` goes 11 red.
+
+**⚠️ WHAT NO TEST HERE COVERS.** This repo has **no DOM test environment** by deliberate choice, so every
+`BcsColumnsDialog` change is structurally untestable: the widened chip list, the renamed heading, the
+"Currently saved:" line and the disclosure actually *rendering* are all React semantics. The pure rules
+behind them are covered; the screen is not. **Needs the owner's eyes** — see the report's live-check list.
+
+### 5. Deliberately NOT done
+
+- **`PricingGrid.tsx`** — S3. **`pricing.py`** — untouched all arc. **The carry path** — S6.
+- **The S2b plan record — not edited.** Records already written are never rewritten; the 208/207 correction
+  is the erratum above.
+- **The residence F2 red — not fixed, not re-baselined.** Reported exactly (**208**).
+- **The qty side — untouched**, because `build_qty_source` is byte-identical to BCS-S1c. Its two summary
+  strings keep their older `=`/`+` voice, which now sits beside the amount side's prose. **Unifying that
+  voice is a copy decision for the owner, not a silent tidy-up.**
+- **`BcsSource.mode` stays `string`**, not narrowed to `BcsMode`. It is the WIRE shape, and a server that
+  gains a ninth mode ships before the browser does; typing it as the union would invite an exhaustive
+  `switch` that is not safe. Narrow at the reader, never at the wire.
+- **The scalar-vs-per-area mixing refusal — still not widened**, per §3.
+- **`test_export_writeback.py`'s `combined_rate` sentinel** — still owed to whichever slice owns that file.
