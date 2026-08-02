@@ -21,6 +21,11 @@
  * server's class check, so the card cannot even attempt most refusals. It is a NARROWING, never a
  * widening -- the refusals still reachable from the offered set (mixing a total with its own
  * parts; two columns that hold the same number) are exactly what `validateBcsPicks` catches.
+ *
+ * THIS FILE IS PLAIN ASCII, DELIBERATELY (BCS-S2a, finding F4). It briefly contained a raw NUL
+ * byte as a key separator, which made the whole module read as BINARY: `file` reported "data"
+ * and `grep` skipped it without `-a`, so audit and ratchet tooling silently passed over every
+ * rule in here. Never introduce a control character; escape it or encode it.
  */
 import type { BcsSource, ColumnDescriptor } from "./boqTypes";
 import { ROLE_LABELS } from "./boqTypes";
@@ -208,9 +213,24 @@ export function validateBcsPicks(
 
   // 2c. two DIFFERENT letters carrying ONE number. Keyed on the RESOLVED identity
   // (value_field, value_key, rate_subkey), which SUBSUMES the letter case.
+  //
+  // THE KEY IS JSON, AND THAT CLOSES TWO FINDINGS AT ONCE (BCS-S2a).
+  //
+  //   F2 -- it keeps null DISTINCT from "". The server keys the RAW tuple
+  //   `(value_field, value_key, rate_subkey)` (sources.py `_resolve_picks`), where
+  //   `None != ""`. This used to interpolate `?? ""`, collapsing the two, so the client would
+  //   have REFUSED a pair the server accepts. That is the dangerous direction: the card
+  //   contradicting the authority it exists to mirror, with no error anywhere to show for it.
+  //   JSON renders them `null` and `""`, exactly as the server tells them apart.
+  //
+  //   F4 -- it is plain ASCII. The separator was a raw NUL byte; see the module docblock for
+  //   what that cost.
+  //
+  // JSON also removes the ambiguity every delimiter carries: ["a","b"] and ["ab"] cannot
+  // collide, whatever the values contain.
   const byValue = new Map<string, string[]>();
   for (const d of picked) {
-    const key = `${d.value_field} ${d.value_key ?? ""} ${d.rate_subkey ?? ""}`;
+    const key = JSON.stringify([d.value_field, d.value_key ?? null, d.rate_subkey ?? null]);
     const group = byValue.get(key);
     if (group) group.push(d.col);
     else byValue.set(key, [d.col]);
@@ -265,28 +285,85 @@ export function bcsSelectionSaveable(
  * Why the BCS button is greyed, or null when it is live. Returns the FIRST failing reason so the
  * title names one honest cause, mirroring the `suggestRatesReason` chain in SheetPricingPage.
  *
+ * TWO FETCHES FEED THIS, AND THEY ARE NAMED APART ON PURPOSE (BCS-S2a, finding F1). The fields
+ * used to be a bare `loading` / `error`, and the page passed the PRICED rows fetch's flags into
+ * them while `get_bcs_state`'s own flags went unread. Nothing typed-checked wrong, so the bug was
+ * invisible: a failed BCS read left no reason at all, the button stayed live, and -- because a
+ * missing payload rendered exactly like `bcs_enabled = 0` -- an enabled, fully confirmed sheet
+ * displayed as OFF with its chip gone and its amber banner suppressed. `sheetLoading` /
+ * `sheetError` are the SHEET's; `bcsLoading` / `bcsError` are the BCS state's. Keep them apart.
+ *
+ * WHY THE BCS PAIR SITS LAST. An uncommitted sheet, an earlier version and a locked sheet are all
+ * stable, self-explanatory reasons, and the BCS payload is meaningless in every one of them --
+ * so they are the better sentence to show. Ordering them first also stops a routine SWR
+ * revalidation from flickering the title while someone browses history.
+ *
  * The set is deliberate. `sheetLocked` is the DELIBERATE per-sheet lock, which the server itself
  * refuses BCS setup on (`_guard_sheet_not_locked` runs in both set_bcs_enabled and
  * confirm_bcs_columns). `viewingHistory` is not a server rule but a targeting one: BCS is
  * configured per sheet+version and the live version is the only one worth setting up.
  *
- * NOT in this set, on purpose: the single-editor CONCURRENCY lock. The BCS endpoints do not
- * acquire or check it, and the neighbouring Freeze Classification control is independent of it
- * for the same reason -- BCS setup is a separate axis from client-facing pricing.
+ * NOT in this set, on purpose: the single-editor CONCURRENCY lock. The BCS SETUP endpoints --
+ * `set_bcs_enabled`, `confirm_bcs_columns` and the `get_bcs_state` read -- neither acquire nor
+ * check it, and the neighbouring Freeze Classification control is independent of it for the same
+ * reason: choosing which columns BCS reads is a separate axis from client-facing pricing.
+ *
+ * ⚠️ THAT IS TRUE OF SETUP ONLY (corrected at BCS-S2a, finding F3 -- the earlier note said "the
+ * BCS endpoints", full stop, which is wrong and points the wrong way for whoever wires up cost
+ * entry). The cost-entry write `save_row_bcs_rates` DOES take the single-editor lock: it calls
+ * `pricing_lock.acquire_or_refresh` after its guards and before the write, exactly as
+ * `save_cell_price` does. So an S3 cost cell is subject to the concurrency lock even though this
+ * setup button is not, and its own gating must account for that.
  */
 export function bcsSetupReason(state: {
-  loading: boolean;
-  error: boolean;
+  /** The PRICED rows fetch (get_priced_rows) -- the sheet itself. */
+  sheetLoading: boolean;
+  sheetError: boolean;
   committedVersion: number | null;
   viewingHistory: boolean;
   sheetLocked: boolean;
+  /** The BCS state fetch (get_bcs_state) -- its OWN flags, never the sheet's. */
+  bcsLoading: boolean;
+  bcsError: boolean;
 }): string | null {
-  if (state.loading) return "Loading…";
-  if (state.error) return "This sheet could not be loaded.";
+  if (state.sheetLoading) return "Loading…";
+  if (state.sheetError) return "This sheet could not be loaded.";
   if (state.committedVersion === null) return "This sheet is not committed yet.";
   if (state.viewingHistory) return "You are viewing an earlier version. BCS is set up on the current version.";
   if (state.sheetLocked) return "This sheet is locked (read-only). Unlock it to set up BCS.";
+  if (state.bcsLoading) return "Checking the BCS setup…";
+  if (state.bcsError) return "The BCS setup could not be read. Reload the page to try again.";
   return null;
+}
+
+/** What the BCS control may honestly claim about the cost section being on. */
+export type BcsToggleState = "unknown" | "off" | "on";
+
+/**
+ * On, off, or honestly unknown -- the other half of finding F1 (BCS-S2a).
+ *
+ * S2 rendered the button as `bcs_enabled === 1 ? solid : outline`, which made "we have no
+ * payload" and "BCS is off" THE SAME PIXEL. A failed read therefore showed an enabled, confirmed
+ * sheet as off and invited a click. Absence of knowledge is not knowledge of absence, and this
+ * three-state is what keeps the two apart at every surface that renders BCS.
+ *
+ * A STALE PAYLOAD BEHIND A FAILED READ IS ALSO UNKNOWN. SWR keeps the last good `data` when a
+ * revalidation fails, so a payload can outlive its own truth; if the most recent read did not
+ * succeed we do not claim currency, in either direction.
+ *
+ * Use this rather than re-deriving `bcs_enabled === 1` at a render site -- that re-derivation IS
+ * the finding. Slice S3 hangs its cost cells off the same state and must make the same
+ * distinction: an unknown state must not present as an empty, editable cost cell.
+ */
+export function bcsToggleState(args: {
+  /** The BCS state fetch errored (SWR `error` is set). */
+  fetchFailed: boolean;
+  /** `bcs_enabled` off the payload; null / undefined when no payload has arrived. */
+  enabled: 0 | 1 | null | undefined;
+}): BcsToggleState {
+  if (args.fetchFailed) return "unknown";
+  if (args.enabled === null || args.enabled === undefined) return "unknown";
+  return args.enabled === 1 ? "on" : "off";
 }
 
 /** The picked column letters of a stored confirmation -- what re-opens the card pre-filled. */

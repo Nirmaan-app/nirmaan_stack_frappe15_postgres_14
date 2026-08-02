@@ -1759,19 +1759,18 @@ export interface GetBcsStateResponse {
   is_ready: boolean;
 }
 
-/** Response shape of `bcs.set_bcs_enabled`. */
-export interface SetBcsEnabledResponse {
-  ok: boolean;
-  bcs_enabled: 0 | 1;
-  is_ready: boolean;
-}
-
-/** Response shape of `bcs.confirm_bcs_columns`. */
-export interface ConfirmBcsColumnsResponse {
-  ok: boolean;
-  bcs_qty_source: BcsSource;
-  bcs_amount_source: BcsSource;
-  bcs_confirmed_by: string | null;
-  bcs_confirmed_at: string | null;
-  is_ready: boolean;
-}
+// The RESPONSE shapes of `bcs.set_bcs_enabled` and `bcs.confirm_bcs_columns` were declared here
+// at BCS-S2 and referenced nowhere; they are DELETED at BCS-S2a (finding F7) rather than wired
+// up, for three reasons:
+//
+//   1. The page DELIBERATELY discards both POST bodies. Each write is followed by `mutateBcs()`,
+//      because `is_ready` is server-authoritative and is never re-derived client-side. Typing a
+//      payload we have chosen not to read would document a dependency we do not have.
+//   2. There is no `useFrappePostCall<T>` generic anywhere on SheetPricingPage -- all 19 POST
+//      calls are untyped -- so "using" these would have meant inventing a convention inside a
+//      slice whose job is to close review findings.
+//   3. An unreferenced interface has nothing pinning it to `bcs.py`, so it rots silently. The
+//      wire shapes stay documented where they are enforced: the endpoint docstrings.
+//
+// If a caller ever needs to READ one of these bodies, declare the shape then -- next to the code
+// that consumes it.

@@ -74,7 +74,7 @@ import { VersionRibbon } from "./VersionRibbon";
 // BCS-S2: the cost section's enable button + two-column confirmation card. The RULES live in the
 // pure bcsColumns (which mirrors services/boq_bcs/sources.py); the page only orchestrates.
 import { BcsColumnsDialog } from "./BcsColumnsDialog";
-import { bcsChipLabel, bcsSetupReason } from "./bcsColumns";
+import { bcsChipLabel, bcsSetupReason, bcsToggleState } from "./bcsColumns";
 import { CopyForwardDialog, summarizeCopyForward } from "./CopyForwardDialog";
 import {
   CROSS_BOQ_CARRY_PLAN_METHOD,
@@ -462,7 +462,20 @@ const SheetPricingPage = () => {
   // the LIVE version is the only one worth setting up (a re-commit mints a fresh BoQ Sheet row, so
   // BCS correctly starts off + unconfirmed there). Disabled until the version is known (swrKey
   // gotcha: `undefined` enables, `null` disables -- never `{enabled}`). sheet_name VERBATIM (#152).
-  const { data: bcsData, mutate: mutateBcs } = useFrappeGetCall<{ message: GetBcsStateResponse }>(
+  //
+  // BCS-S2a (finding F1): this read's OWN `error` and `isLoading` are destructured and used.
+  // S2 took only { data, mutate } and fed the PRICED fetch's flags to the button instead, so a
+  // failed get_bcs_state produced no reason at all -- the button stayed live and, because a
+  // missing payload looked exactly like bcs_enabled = 0, an enabled and confirmed sheet rendered
+  // as OFF with its chip gone and its amber banner suppressed. Unlike `pricedLoading` /
+  // `pricedError` (derived from data === undefined / null, this page's older convention), these
+  // are SWR's real signals -- which is what makes the error branch reachable at all.
+  const {
+    data: bcsData,
+    error: bcsFetchError,
+    isLoading: bcsFetchLoading,
+    mutate: mutateBcs,
+  } = useFrappeGetCall<{ message: GetBcsStateResponse }>(
     "nirmaan_stack.api.boq.wizard.bcs.get_bcs_state",
     {
       boq_name: boqId ?? "",
@@ -1153,6 +1166,22 @@ const SheetPricingPage = () => {
     // G3b block below (that block must stay deletable in one cut -- owner commitment).
   }, [sheetName]);
 
+  // BCS-S2a (finding F10): the confirmation card must also close on a VERSION switch, not just a
+  // sheet switch. The card is fed `columnDescriptors`, which come from the ACTIVE payload -- and
+  // that flips to the HISTORY version's descriptors the moment someone browses back -- while its
+  // Save still targets `liveCommitVersion`. Left open across the switch it would therefore offer
+  // an older version's columns and then have the save refused by the live version's descriptor
+  // check. Closing it is the whole fix: the card re-hydrates from the stored confirmation on
+  // every open, so nothing is lost.
+  //
+  // Deliberately a SEPARATE effect from the [sheetName] reset above: a version switch must not
+  // drag that block's other resets (search, collapse, filters, classify state) with it.
+  // `bcsToggling` is left alone on purpose -- it guards an in-flight POST against
+  // liveCommitVersion, which a version switch does not change.
+  useEffect(() => {
+    setBcsCardOpen(false);
+  }, [selectedVersion]);
+
   // Toolbar Part 1 -- search: reset the hit pointer to the first hit whenever the query changes
   // (a fresh search starts at hit 1). The pointer is also clamped at render (safeSearchIdx).
   useEffect(() => {
@@ -1670,7 +1699,15 @@ const SheetPricingPage = () => {
   // `is_ready` is the SERVER's one readiness predicate (enabled AND both columns confirmed) --
   // read, never re-derived, so the button/banner cannot disagree with what a cost write will do.
   const bcsState = bcsData?.message ?? null;
-  const bcsEnabled = bcsState?.bcs_enabled === 1;
+  // BCS-S2a (finding F1): THREE states, not two. `bcsToggleState` keeps "we have no payload"
+  // apart from "BCS is off" -- S2 collapsed them into one pixel via `bcs_enabled === 1`, which
+  // is what made a failed read display an enabled sheet as OFF. Never re-derive `bcs_enabled`
+  // at a render site; read this. Slice S3's cost cells must make the same distinction (an
+  // unknown state must not present as an empty, editable cost cell).
+  const bcsToggle = bcsToggleState({
+    fetchFailed: !!bcsFetchError,
+    enabled: bcsState?.bcs_enabled ?? null,
+  });
   const bcsReady = bcsState?.is_ready ?? false;
   const bcsQtySource = bcsState?.bcs_qty_source ?? null;
   const bcsAmountSource = bcsState?.bcs_amount_source ?? null;
@@ -1678,16 +1715,23 @@ const SheetPricingPage = () => {
   // Greyed-with-a-reason, never hidden: BCS always EXISTS as an action on a committed sheet, so a
   // disabled button is honest here (unlike "Carry rates from original", which is hidden off a
   // revision precisely because the action does not exist there).
+  //
+  // The two fetches are named apart deliberately -- passing the sheet's flags where the BCS
+  // state's belong is exactly the S2 defect this closes.
   const bcsReason = bcsSetupReason({
-    loading: pricedLoading,
-    error: pricedError,
+    sheetLoading: pricedLoading,
+    sheetError: pricedError,
     committedVersion: liveCommitVersion,
     viewingHistory: isViewingHistory,
     sheetLocked: isLocked,
+    bcsLoading: bcsFetchLoading,
+    bcsError: !!bcsFetchError,
   });
   // BCS is ON but its two columns are not confirmed -> cost entry stays refused server-side
   // (_guard_bcs_ready). The amber banner + the collapsed-rail chip both key on this.
-  const bcsNeedsColumns = bcsEnabled && !bcsReady;
+  // Keyed on the KNOWN "on" state: an unknown BCS state must not assert "BCS needs columns",
+  // because we have not been told that it does.
+  const bcsNeedsColumns = bcsToggle === "on" && !bcsReady;
 
   // Click when OFF: turn BCS on AND open the card in one act (owner design) -- the two columns are
   // what makes it usable, so asking for them immediately is the honest flow. Click when ON: just
@@ -1695,8 +1739,11 @@ const SheetPricingPage = () => {
   // ribbon control is never a destructive toggle).
   const handleBcsButtonClick = async () => {
     if (bcsReason !== null || liveCommitVersion === null) return;
-    if (bcsEnabled) {
-      setBcsCardOpen(true);
+    // BCS-S2a: gate the WRITE on the known state too, not only on the reason chain above. An
+    // unknown state must never fall through to the enable POST -- that is how S2 could have
+    // re-enabled a sheet nobody had established was off.
+    if (bcsToggle !== "off") {
+      if (bcsToggle === "on") setBcsCardOpen(true);
       return;
     }
     setSaveError(null);
@@ -3243,30 +3290,41 @@ const SheetPricingPage = () => {
               confirmation card. On -> click reopens the card; turning BCS off lives in the card's
               footer, so this control is never a destructive toggle. Greyed with the reason in the
               title -- BCS always exists as an action here, so hiding it would be the lie. ── */}
+          {/* BCS-S2a (finding F1): THREE appearances, because there are three states.
+              SOLID = on. OUTLINE + calculator = off. UNKNOWN never borrows the OFF look: while
+              the state is loading it spins, and when the read FAILED it shows the warning glyph
+              the banners already use for "attention" -- still no new colour. `aria-pressed` is
+              OMITTED (not false) when unknown, because a toggle must not claim a state nobody
+              told it. S2 rendered unknown as OFF, which is how a confirmed sheet could show as
+              off with its chip gone. */}
           <Button
             size="sm"
-            variant={bcsEnabled ? "default" : "outline"}
+            variant={bcsToggle === "on" ? "default" : "outline"}
             className="gap-1.5"
-            aria-pressed={bcsEnabled}
+            aria-pressed={bcsToggle === "unknown" ? undefined : bcsToggle === "on"}
             disabled={bcsReason !== null || bcsToggling}
             onClick={handleBcsButtonClick}
             title={
               bcsReason ??
-              (bcsEnabled
+              (bcsToggle === "on"
                 ? "BCS cost section is on. Click to review the Total Quantity and Amount columns."
                 : "Turn on the BCS cost section and choose the Total Quantity and Amount columns.")
             }
           >
-            {bcsToggling ? (
+            {bcsToggling || bcsFetchLoading ? (
               <Loader2 className="h-4 w-4 animate-spin" />
+            ) : bcsFetchError ? (
+              <AlertTriangle className="h-4 w-4" />
             ) : (
               <Calculator className="h-4 w-4" />
             )}
             BCS
           </Button>
           {/* Confirmed -> a small clickable chip showing the chosen columns, mirroring the
-              "Frozen · date · by" chip beside it. Clicking it reopens the card. */}
-          {bcsEnabled && bcsReady && bcsChip && (
+              "Frozen · date · by" chip beside it. Clicking it reopens the card. It needs a
+              payload to have arrived at all, so an unknown state shows nothing rather than a
+              guess -- incomplete, but never wrong. */}
+          {bcsToggle === "on" && bcsReady && bcsChip && (
             <button
               type="button"
               onClick={() => setBcsCardOpen(true)}

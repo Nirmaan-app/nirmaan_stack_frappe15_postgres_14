@@ -18,6 +18,7 @@ import {
   bcsSelectionSaveable,
   bcsSetupReason,
   bcsSourceCols,
+  bcsToggleState,
   buildBcsDescriptorIndex,
   eligibleBcsColumns,
   isBcsAmountColumn,
@@ -183,7 +184,57 @@ describe("quantity picks -- mirroring build_qty_source", () => {
   it("refuses a scalar total MIXED with its own per-area parts", () => {
     const v = validateBcsPicks("qty", ["D", "B"], INDEX);
     expect(v.ok).toBe(false);
-    expect(!v.ok && v.message).toMatch(/twice/i);
+    // BCS-S2a / finding F8: /twice/i ALSO matches the duplicate-letter and same-number
+    // refusals, so it passed no matter which rule fired and could not catch a precedence
+    // regression -- the one thing this test exists for. Assert the mixing message's own words,
+    // and assert the two rules that precede it did NOT speak.
+    expect(!v.ok && v.message).toMatch(/not both/i);
+    expect(!v.ok && v.message).toMatch(/its own parts/i);
+    expect(!v.ok && v.message).not.toMatch(/picked twice|same number|mapped column/i);
+  });
+
+  it("checks the column CLASS before the mixed rule, as the server does", () => {
+    // BCS-S2a / finding F9: the amount side pinned this; the quantity side did not.
+    // ["D","F"] is both a wrong-class pick (F is an amount) and a would-be mix of two
+    // value_fields. The server runs its class check first, so the message must name the
+    // wrong column, not the mixing.
+    const v = validateBcsPicks("qty", ["D", "F"], INDEX);
+    expect(v.ok).toBe(false);
+    expect(!v.ok && v.message).toMatch(/F/);
+    expect(!v.ok && v.message).toMatch(/doesn't hold a quantity/i);
+    expect(!v.ok && v.message).not.toMatch(/not both/i);
+  });
+
+  it("keeps two DIFFERENT letters that hold DIFFERENT numbers pickable (finding F2)", () => {
+    // The server keys the duplicate check on the RAW tuple (value_field, value_key,
+    // rate_subkey), where None and "" are different keys. The client used to coerce a null
+    // value_key to "", collapsing the two -- so it would have REFUSED this pick while the
+    // server accepted it. That is the dangerous direction: the card contradicting the
+    // authority, with no error anywhere to show for it.
+    const nullKey = desc("M", "qty", "qty_by_area", null);
+    const blankKey: ColumnDescriptor = {
+      col: "N",
+      role: "qty",
+      area: "",
+      value_field: "qty_by_area",
+      value_key: "",
+      rate_subkey: null,
+    };
+    const idx = buildBcsDescriptorIndex([...SHEET, nullKey, blankKey]);
+    const v = validateBcsPicks("qty", ["M", "N"], idx);
+    expect(v.ok).toBe(true);
+    expect(v.ok && v.mode).toBe("qty_by_area");
+  });
+
+  it("still refuses two letters that DO share a resolved identity", () => {
+    // The F2 fix must not loosen the real rule: two columns whose whole identity matches are
+    // still one number picked twice.
+    const twinA = desc("M", "qty", "qty_by_area", null);
+    const twinB = desc("N", "qty", "qty_by_area", null);
+    const idx = buildBcsDescriptorIndex([...SHEET, twinA, twinB]);
+    const v = validateBcsPicks("qty", ["M", "N"], idx);
+    expect(v.ok).toBe(false);
+    expect(!v.ok && v.message).toMatch(/same number/i);
   });
 
   it("lets the duplicate-value rule SHADOW the too-many-totals rule, exactly as the server does", () => {
@@ -256,7 +307,11 @@ describe("amount picks -- mirroring build_amount_source", () => {
   it("refuses the scalar amount MIXED with its own per-area parts", () => {
     const v = validateBcsPicks("amount", ["F", "G"], INDEX);
     expect(v.ok).toBe(false);
-    expect(!v.ok && v.message).toMatch(/twice/i);
+    // BCS-S2a / finding F8, amount side -- see the quantity twin above for why /twice/i was
+    // not discriminating.
+    expect(!v.ok && v.message).toMatch(/not both/i);
+    expect(!v.ok && v.message).toMatch(/its own parts/i);
+    expect(!v.ok && v.message).not.toMatch(/picked twice|same number|mapped column/i);
   });
 
   it("checks the column CLASS before the mixed rule, as the server does", () => {
@@ -302,23 +357,25 @@ describe("the Save gate", () => {
 // ===========================================================================
 describe("bcsSetupReason -- why the BCS button is greyed", () => {
   const ready = {
-    loading: false,
-    error: false,
+    sheetLoading: false,
+    sheetError: false,
     committedVersion: 3,
     viewingHistory: false,
     sheetLocked: false,
+    bcsLoading: false,
+    bcsError: false,
   };
 
   it("gives no reason when the sheet is ready for setup", () => {
     expect(bcsSetupReason(ready)).toBeNull();
   });
 
-  it("reports loading first", () => {
-    expect(bcsSetupReason({ ...ready, loading: true })).toMatch(/loading/i);
+  it("reports the SHEET loading first", () => {
+    expect(bcsSetupReason({ ...ready, sheetLoading: true })).toMatch(/loading/i);
   });
 
-  it("reports a load error", () => {
-    expect(bcsSetupReason({ ...ready, error: true })).toBeTruthy();
+  it("reports a sheet load error", () => {
+    expect(bcsSetupReason({ ...ready, sheetError: true })).toBeTruthy();
   });
 
   it("reports an uncommitted sheet", () => {
@@ -334,7 +391,96 @@ describe("bcsSetupReason -- why the BCS button is greyed", () => {
   });
 
   it("prefers the earlier reason when several hold", () => {
-    expect(bcsSetupReason({ ...ready, loading: true, sheetLocked: true })).toMatch(/loading/i);
+    expect(bcsSetupReason({ ...ready, sheetLoading: true, sheetLocked: true })).toMatch(/loading/i);
+  });
+
+  // ── BCS-S2a / finding F1: the BCS state fetch has its OWN loading and error ────────
+  // Before S2a this function was handed the PRICED fetch's flags twice and never saw the BCS
+  // fetch at all, so a failed get_bcs_state returned NO reason -- the button stayed live and
+  // rendered OFF on a sheet that was really on and confirmed.
+
+  it("REFUSES setup while the BCS state itself is still loading", () => {
+    const r = bcsSetupReason({ ...ready, bcsLoading: true });
+    expect(r).toBeTruthy();
+    // Must name BCS, so it is distinguishable from the sheet's own "Loading…".
+    expect(r).toMatch(/BCS/);
+  });
+
+  it("REFUSES setup when the BCS state could not be read (finding F1)", () => {
+    const r = bcsSetupReason({ ...ready, bcsError: true });
+    expect(r).toBeTruthy();
+    expect(r).toMatch(/BCS/);
+  });
+
+  it("keeps the BCS-state reasons SEPARATE from the sheet's own load reasons", () => {
+    // Same failure on different fetches must not produce the same sentence, or the screen
+    // cannot tell the user which thing broke.
+    expect(bcsSetupReason({ ...ready, sheetError: true })).not.toEqual(
+      bcsSetupReason({ ...ready, bcsError: true }),
+    );
+    expect(bcsSetupReason({ ...ready, sheetLoading: true })).not.toEqual(
+      bcsSetupReason({ ...ready, bcsLoading: true }),
+    );
+  });
+
+  it("puts the BCS-state reasons LAST -- they only matter once the sheet itself is usable", () => {
+    // An uncommitted sheet, an earlier version and a locked sheet are all stable, explanatory
+    // reasons; the BCS payload is meaningless in each. Ordering them ahead of it also stops a
+    // routine SWR revalidation from flickering the title while the user browses history.
+    expect(bcsSetupReason({ ...ready, committedVersion: null, bcsError: true })).toMatch(
+      /committed/i,
+    );
+    expect(bcsSetupReason({ ...ready, viewingHistory: true, bcsError: true })).toMatch(/version/i);
+    expect(bcsSetupReason({ ...ready, sheetLocked: true, bcsError: true })).toMatch(/lock/i);
+  });
+
+  it("reports the BCS load before the BCS error when both somehow hold", () => {
+    expect(bcsSetupReason({ ...ready, bcsLoading: true, bcsError: true })).toEqual(
+      bcsSetupReason({ ...ready, bcsLoading: true }),
+    );
+  });
+});
+
+// ===========================================================================
+// Group 5b: what the button may honestly CLAIM about BCS being on or off
+// ===========================================================================
+// Finding F1's other half. The button used to render `bcsEnabled ? solid : outline`, where
+// `bcsEnabled` was `payload?.bcs_enabled === 1` -- so "we have no payload" and "BCS is off"
+// were the SAME pixel. This three-state exists so they cannot be. S3 hangs its cost cells off
+// the same state and must make the same distinction.
+describe("bcsToggleState -- on, off, or honestly unknown", () => {
+  it("reads a loaded payload", () => {
+    expect(bcsToggleState({ fetchFailed: false, enabled: 1 })).toBe("on");
+    expect(bcsToggleState({ fetchFailed: false, enabled: 0 })).toBe("off");
+  });
+
+  it("is UNKNOWN before any payload has arrived -- never OFF", () => {
+    expect(bcsToggleState({ fetchFailed: false, enabled: null })).toBe("unknown");
+    expect(bcsToggleState({ fetchFailed: false, enabled: undefined })).toBe("unknown");
+  });
+
+  it("is UNKNOWN when the read failed, even though OFF is what S2 showed (finding F1)", () => {
+    expect(bcsToggleState({ fetchFailed: true, enabled: null })).toBe("unknown");
+  });
+
+  it("does not trust a STALE payload behind a failed read", () => {
+    // SWR keeps the last good data when a revalidation fails. That payload may no longer be
+    // true, so a failed read means we do not know -- in either direction.
+    expect(bcsToggleState({ fetchFailed: true, enabled: 1 })).toBe("unknown");
+    expect(bcsToggleState({ fetchFailed: true, enabled: 0 })).toBe("unknown");
+  });
+
+  it("never answers OFF unless a successful read actually said so", () => {
+    const offs = (
+      [
+        { fetchFailed: false, enabled: null },
+        { fetchFailed: false, enabled: undefined },
+        { fetchFailed: true, enabled: null },
+        { fetchFailed: true, enabled: 0 },
+        { fetchFailed: true, enabled: 1 },
+      ] as const
+    ).filter((a) => bcsToggleState(a) === "off");
+    expect(offs).toEqual([]);
   });
 });
 
