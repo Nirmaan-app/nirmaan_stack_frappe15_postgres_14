@@ -15354,7 +15354,15 @@
       }
      ]
     }
-   }
+   },
+   "rules": [
+    {
+     "id": "R7",
+     "label": "Tray material substitution",
+     "applies_to": "material",
+     "guidance": "When a BoQ line describes a uPVC cable tray or raceway, price it as material GI with tray_type Solid. When a line describes a plain MS tray or raceway with no further finish stated, price it as material MS POWDER COATED. These substitutions reflect what is actually supplied; the stated material in the document does not price."
+    }
+   ]
   },
   {
    "category_id": "industrial_sockets",
@@ -16418,7 +16426,27 @@
      "note": "price every slot the catalog CAN satisfy; leave unmatchable components None/unpriced (ATS, standalone bus bars, MFM, weatherproof/IP enclosures, module-count flexi DBs, bespoke DBs); emit the partial number for what matched; a WHOLE-row no-match -> no price (fully manual)"
     }
    },
-   "extraction_none_guidance": true
+   "extraction_none_guidance": true,
+   "rules": [
+    {
+     "id": "R2",
+     "label": "Shell size: exact or next higher",
+     "applies_to": "db_shell_item",
+     "guidance": "When selecting the DB shell, match the stated way-count to the catalog exactly. If the exact way-count is not in the catalog, select the NEXT HIGHER way-count, never a lower one. A stated range takes the highest value first."
+    },
+    {
+     "id": "R3",
+     "label": "RCCB/RCBO with no stated current: 300mA",
+     "applies_to": "mcb_slots",
+     "guidance": "When a BoQ line describes an RCCB or RCBO but states NO leakage current rating (no mA value anywhere in the description), select the 300mA variant of that item from the catalog. If no 300mA variant exists for that amp rating and pole configuration, select the 100mA variant instead. Never leave it unmatched for want of a stated rating. When the description DOES state a current, match that stated value as normal."
+    },
+    {
+     "id": "R4",
+     "label": "ELCB priced as MCB + RCCB",
+     "applies_to": "mcb_slots",
+     "guidance": "An ELCB is a combined device and is priced as TWO components: an MCB plus an RCCB. When a BoQ line describes an ELCB, fill two slots - one MCB and one RCCB - both at the stated amp rating and pole configuration. If the ELCB line states a leakage current, apply it to the RCCB; if it states none, R3 applies to the RCCB."
+    }
+   ]
   },
   {
    "category_id": "miscellaneous",
@@ -18252,6 +18280,31 @@
      }
     },
     "oracle": "TPN 8WAY in table -> 1000 x1.5 = 1500 (lands on a ten, unrounded==rounded here)"
+   },
+   {
+    "id": "dbu3",
+    "attrs": {
+     "db_shell_item": "None",
+     "mcb1_item": "63A FP MCB C CURVE",
+     "mcb1_qty": 12,
+     "mcb2_item": "None",
+     "mcb3_item": "None",
+     "mcb4_item": "None",
+     "mcb5_item": "None",
+     "enclosure_item": "None"
+    },
+    "expect": {
+     "db_buildup_supply": {
+      "supply": 23840.0
+     },
+     "db_buildup_install": {
+      "install": 3580.0
+     },
+     "db_buildup_bcs": {
+      "bcs_supply": 14450.0
+     }
+    },
+    "oracle": "MCB-only DB (shell None) -- the sheet's IF(J9=0) branch. Re-derived against v17 at EA-4 ext-a; its EA-4c removal was collateral (the recorded rationale covered d1/d2 only)."
    },
    {
     "id": "dbu4",

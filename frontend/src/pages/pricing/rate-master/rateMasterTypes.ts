@@ -236,7 +236,21 @@ export interface RateCategoryConfig {
   matching_mode?: string;
   identity_attribute_id?: string | null;
   notes?: string;
+  /** EA-4 ext-a: owner-authored estimator rules. Injected VERBATIM into the extraction prompt for
+   * EVERY category (never composite-gated) and rendered read-only on the Derivation tab. The index
+   * signature below already round-tripped this key; the explicit field is for type safety only. */
+  rules?: RateCategoryRule[];
   [k: string]: unknown;
+}
+
+/** EA-4 ext-a: one estimator rule. Authored by the estimator and passed through unchanged -- the
+ * guidance text is the contract, so nothing in the app rewords or interprets it. */
+export interface RateCategoryRule {
+  id: string;
+  label: string;
+  /** The attribute id (or slot family) the rule governs, e.g. "db_shell_item" / "mcb_slots". */
+  applies_to?: string;
+  guidance: string;
 }
 
 // ---- Endpoint response envelopes (frappe-react-sdk unwraps `message`) ----

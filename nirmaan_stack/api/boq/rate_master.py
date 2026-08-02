@@ -955,6 +955,17 @@ _KNOWN_CONFIG_KEYS = {
     # consumed by extraction.build_slot_spec + the decomposition prompt injection, never structurally
     # validated here (so a composite config round-trips through the RM-4b whole-config editor).
     "composite_slots", "decomposition_rules",
+    # EA-4 ext-a: rules = [{id, label, applies_to, guidance}] -- owner-authored estimator guidance
+    # injected into the extraction prompt for EVERY category (never gated on matching_mode) and
+    # rendered read-only on the Derivation tab. Pass-through, exactly like item_kinds: stored
+    # VERBATIM and never structurally validated here.
+    #
+    # THIS ENTRY IS LOAD-BEARING, not decorative. _validate_config REJECTS any unknown top-level
+    # key, and RM-4b resubmits the WHOLE config -- so without "rules" here, adding the key would
+    # make every subsequent whole-config save of that category fail. The loader does NOT validate
+    # (this function has exactly one caller, update_rate_config), so an unregistered key imports
+    # cleanly and only breaks later, at the editor. Same trap the EA-2 pass-through keys document.
+    "rules",
 }
 _BAND_WHEN_RE = re.compile(r"^(<=|>=|<|>)\s*-?\d+(\.\d+)?$")
 
@@ -970,10 +981,33 @@ def _vthrow(msg):
     frappe.throw(msg, title="Invalid config")
 
 
+_FROM_ATTR_SUFFIX = "_from_attr"
+
+
 def _validate_params(params, where):
+    """EA-4 ext-a: two narrowly-scoped relaxations, both making this validator agree with what the
+    interpreter is EXPLICITLY built to execute (ratePipelineInterpreter.ts `s.params ?? {}`) and with
+    what the shipped asset already contains. Discovered because cabletray_raceway / popup_boxes could
+    not be saved through RM-4b AT ALL.
+
+    (1) params is OPTIONAL. A conditional `component` carries its params PER CONDITION, so it has no
+        top-level block at all -- that is the whole point of the shape, not an omission.
+    (2) a `*_from_attr` param binds an ATTRIBUTE ID, so it is necessarily a string (EA-1's
+        value-from-attribute shape, e.g. popup_boxes `module_count_from_attr: "module_count"`).
+        The exemption is scoped to that SUFFIX ONLY -- any other param carrying a string is still an
+        error, so a genuine typo is still caught.
+    """
+    if params is None:
+        return
     if not isinstance(params, dict):
         _vthrow(f"{where}: params must be an object.")
     for k, v in params.items():
+        if isinstance(k, str) and k.endswith(_FROM_ATTR_SUFFIX):
+            if not isinstance(v, str) or not v.strip():
+                _vthrow(
+                    f"{where}: parameter '{k}' must be a non-empty attribute id (a string)."
+                )
+            continue
         if not _is_finite_number(v):
             _vthrow(f"{where}: parameter '{k}' must be a finite number.")
 
@@ -1086,9 +1120,16 @@ def _validate_config(cfg):
                 if not isinstance(params, dict) or not _is_finite_number(params.get("digits")):
                     _vthrow(f"{where}: roundup needs params.digits (a finite number).")
             elif st == "component":
-                for key in ("name", "target", "formula"):
+                # EA-4 ext-a: `target` is OPTIONAL -- a conditional component whose formula is
+                # param-only reads no price off the matched row (e.g. the tray's ceiling_accessories,
+                # formula "accessories_per_mtr"). The interpreter already treats it as optional
+                # (`if (s.target !== undefined)`); this validator was stricter than its own executor.
+                # Present-but-blank is still an error, so a real typo is still caught.
+                for key in ("name", "formula"):
                     if not isinstance(s.get(key), str) or not s.get(key):
                         _vthrow(f"{where}: component needs a string '{key}'.")
+                if "target" in s and (not isinstance(s.get("target"), str) or not s.get("target")):
+                    _vthrow(f"{where}: component 'target', when present, must be a non-empty string.")
                 _validate_params(s.get("params"), where)
             elif st == "component_ref":
                 # EA-2c legacy: base from a referenced row (ref.kind + optional ref.attributes) priced by

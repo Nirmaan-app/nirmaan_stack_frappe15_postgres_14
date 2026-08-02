@@ -140,6 +140,12 @@ function detailFor(s: StepTrace): string {
 }
 
 export function RateMasterDerivation({ items, config, isAdmin, onSaveParam }: Props) {
+  // EA-4 ext-a: tolerate a config with no rules key at all (every category except the two that
+  // carry one) -- an absent key renders the empty state, never a crash.
+  const rules = useMemo(
+    () => (Array.isArray(config.rules) ? config.rules : []),
+    [config]
+  );
   const selectableDefs = useMemo(
     () => config.attribute_definitions.filter((d) => d.selector !== false),
     [config]
@@ -342,6 +348,37 @@ export function RateMasterDerivation({ items, config, isAdmin, onSaveParam }: Pr
               </div>
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* EA-4 ext-a: RULES -- owner-authored estimator guidance, read-only. It is the SAME text the
+          extraction prompt receives verbatim, so this panel is what the config actually tells the AI,
+          not a paraphrase. Unlike the pipelines grid below, it renders an explicit empty state: the
+          Derivation tab had no empty-state precedent (a config with no pipelines simply drew blank
+          space), and silent blankness reads as "broken" rather than "none configured". */}
+      <Card data-testid="rate-master-rules-panel">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">Rules</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {rules.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No rules configured for this category.</p>
+          ) : (
+            <ul className="space-y-3">
+              {rules.map((r) => (
+                <li key={r.id} className="rounded border bg-muted/30 p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="outline" className="font-mono text-xs">{r.id}</Badge>
+                    <span className="text-sm font-medium">{r.label}</span>
+                    {r.applies_to && (
+                      <span className="font-mono text-xs text-muted-foreground">{r.applies_to}</span>
+                    )}
+                  </div>
+                  <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">{r.guidance}</p>
+                </li>
+              ))}
+            </ul>
+          )}
         </CardContent>
       </Card>
 

@@ -679,3 +679,140 @@ class TestRateSuggest(FrappeTestCase):
             RuntimeError("something nobody has seen before"),
         ):
             self.assertTrue(extraction._is_transient(exc), repr(exc))
+
+    # ================= EA-4 ext-a: estimator rules + the validator fix =================
+
+    def test_21_rules_absent_prompt_is_byte_identical(self):
+        """BACKWARDS-COMPAT PIN: a category with NO rules key must produce exactly the prompt it
+        produced before ext-a -- no ESTIMATOR_RULES block, no stray whitespace."""
+        defn = {"id": "material", "type": "choice", "values": ["COPPER", "ALUMINIUM"]}
+        rows = [{"excel_row": 2, "description": "cable", "anc_headers": [], "anc_texts": []}]
+        sink = []
+
+        def responder(call, kwargs):
+            sink.append(kwargs["messages"][0]["content"])
+            return _Resp(json.dumps([{"id": 2, "attributes": {}}]))
+
+        # rules omitted entirely (the pre-ext-a call shape)
+        extraction._extract_batch(_FakeClient(responder), "m", "P", [defn], rows)
+        without = sink[0]
+        # rules explicitly None (the group_ctx shape for a category with no rules key)
+        extraction._extract_batch(_FakeClient(responder), "m", "P", [defn], rows, None, None, None, None, None, None)
+        with_none = sink[1]
+
+        self.assertNotIn("ESTIMATOR_RULES", without)
+        self.assertEqual(without, with_none, "an absent rules key must not alter the payload at all")
+
+    def test_22_rules_present_reach_the_prompt_verbatim(self):
+        """The owner-authored guidance must arrive in the payload UNCHANGED -- the text is the
+        contract, so nothing may reword or truncate it."""
+        defn = {"id": "material", "type": "choice", "values": ["COPPER"]}
+        rows = [{"excel_row": 2, "description": "cable", "anc_headers": [], "anc_texts": []}]
+        rules = [{
+            "id": "R3",
+            "label": "RCCB/RCBO with no stated current: 300mA",
+            "applies_to": "mcb_slots",
+            "guidance": "When a BoQ line describes an RCCB or RCBO but states NO leakage current rating, select the 300mA variant.",
+        }]
+        sink = []
+
+        def responder(call, kwargs):
+            sink.append(kwargs["messages"][0]["content"])
+            return _Resp(json.dumps([{"id": 2, "attributes": {}}]))
+
+        extraction._extract_batch(_FakeClient(responder), "m", "P", [defn], rows,
+                                  None, None, None, None, None, rules)
+        payload = sink[0]
+        self.assertIn("ESTIMATOR_RULES", payload)
+        self.assertIn(rules[0]["guidance"], payload, "guidance must appear verbatim")
+        self.assertIn("R3", payload)
+
+    def test_23_rules_are_ungated_reach_a_non_composite_category(self):
+        """R7 lands on cabletray_raceway, an ORDINARY attribute category. Unlike slot_spec /
+        resolution_rules (composite-only), rules must not be gated on matching_mode."""
+        cfg = {"matching_mode": None, "rules": [{"id": "R7", "label": "Tray material",
+                                                 "guidance": "price uPVC as GI Solid"}]}
+        # the group_ctx line under test: rules is read unconditionally, slot_spec/resolution_rules are not
+        is_composite = cfg.get("matching_mode") == "composite_decomposition"
+        self.assertFalse(is_composite)
+        self.assertIsNone(cfg.get("decomposition_rules"))          # composite-gated -> absent here
+        self.assertEqual(len(cfg.get("rules")), 1)                 # ungated -> present here
+
+        # and it survives the whole runner for a non-composite category
+        live = extraction._load_active_configs({"Electrical"})
+        tray = live.get(("Electrical", "cabletray_raceway")) or {}
+        self.assertNotEqual(tray.get("matching_mode"), "composite_decomposition")
+        self.assertTrue(tray.get("rules"), "the live tray config must carry its rules block")
+
+    # ---- the validator fix, both polarities ----
+    def _cfg_with_step(self, step):
+        return {
+            "discipline": "Electrical", "category_id": "t",
+            "attribute_definitions": [{"id": "a", "label": "A", "type": "choice", "values": ["x"]}],
+            "pipelines": {"p": {"output": ["o"], "steps": [step]}},
+        }
+
+    def test_24_validator_accepts_the_shipped_shapes(self):
+        """POSITIVE: the three shapes the interpreter is explicitly built for. Before ext-a these
+        made cabletray_raceway and popup_boxes unsavable through RM-4b."""
+        # component with NO params (a conditional component carries them per-condition)
+        rate_master._validate_config(self._cfg_with_step(
+            {"step": "component", "name": "cover", "target": "t", "formula": "base*factor",
+             "conditions": [{"when": {"a": "x"}, "params": {"factor": 1.0}}]}))
+        # component with NO target (a param-only formula reads no price off the matched row)
+        rate_master._validate_config(self._cfg_with_step(
+            {"step": "component", "name": "acc", "formula": "accessories_per_mtr",
+             "conditions": [{"when": {"a": "x"}, "params": {"accessories_per_mtr": 106.0}}]}))
+        # *_from_attr binding an attribute id (a string BY CONTRACT)
+        rate_master._validate_config(self._cfg_with_step(
+            {"step": "scale", "target": "t", "result": "r", "formula": "base*n",
+             "params": {"n_from_attr": "a"}}))
+
+    def test_25_validator_still_rejects_genuinely_bad_input(self):
+        """NEGATIVE (non-vacuity): the relaxation is scoped -- it must not swallow real errors."""
+        # a NON-suffixed param carrying a string is still an error
+        with self.assertRaises(frappe.ValidationError):
+            rate_master._validate_config(self._cfg_with_step(
+                {"step": "component", "name": "x", "target": "t", "formula": "base*f",
+                 "params": {"factor": "not_a_number"}}))
+        # a *_from_attr carrying a NUMBER is still an error (it must be an attribute id)
+        with self.assertRaises(frappe.ValidationError):
+            rate_master._validate_config(self._cfg_with_step(
+                {"step": "component", "name": "x", "formula": "1", "params": {"n_from_attr": 5}}))
+        # component missing formula
+        with self.assertRaises(frappe.ValidationError):
+            rate_master._validate_config(self._cfg_with_step(
+                {"step": "component", "name": "x", "target": "t"}))
+        # a PRESENT but blank target
+        with self.assertRaises(frappe.ValidationError):
+            rate_master._validate_config(self._cfg_with_step(
+                {"step": "component", "name": "x", "target": "", "formula": "1"}))
+        # unknown step type
+        with self.assertRaises(frappe.ValidationError):
+            rate_master._validate_config(self._cfg_with_step({"step": "teleport", "name": "x"}))
+        # unknown TOP-LEVEL key (the _KNOWN_CONFIG_KEYS allowlist still bites)
+        bad = self._cfg_with_step({"step": "component", "name": "x", "target": "t", "formula": "1"})
+        bad["totally_bogus_key"] = 1
+        with self.assertRaises(frappe.ValidationError):
+            rate_master._validate_config(bad)
+
+    def test_26_rules_is_an_accepted_top_level_key(self):
+        """The allowlist entry: without it, adding rules would make every whole-config RM-4b save of
+        that category fail -- and the loader would not have caught it, because it does not validate."""
+        cfg = self._cfg_with_step({"step": "component", "name": "x", "target": "t", "formula": "1"})
+        cfg["rules"] = [{"id": "R1", "label": "L", "applies_to": "a", "guidance": "G"}]
+        rate_master._validate_config(cfg)  # must not raise
+        self.assertIn("rules", rate_master._KNOWN_CONFIG_KEYS)
+
+    def test_27_live_configs_all_validate(self):
+        """Every active config must survive the RM-4b save path. Before ext-a, cabletray_raceway and
+        popup_boxes did not -- they were unsavable in the editor."""
+        rows = frappe.get_all("BoQ Rate Category Config", filters={"active": 1},
+                              fields=["category_id", "config"])
+        self.assertTrue(rows)
+        for r in rows:
+            cfg = r["config"] if isinstance(r["config"], dict) else json.loads(r["config"] or "{}")
+            try:
+                rate_master._validate_config(cfg)
+            except Exception as e:
+                self.fail(f"live config '{r['category_id']}' does not validate: {e}")

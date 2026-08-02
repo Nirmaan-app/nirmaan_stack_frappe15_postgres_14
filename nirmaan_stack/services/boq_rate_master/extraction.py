@@ -491,7 +491,7 @@ def _coerce_value(defn, raw, synonyms_for_attr=None):
     return sval
 
 
-def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=None, defaults=None, none_guidance=None, slot_spec=None, resolution_rules=None):
+def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=None, defaults=None, none_guidance=None, slot_spec=None, resolution_rules=None, rules=None):
     """One extraction batch call with retry/backoff. Returns {excel_row: {attr_id: {value,
     confidence[, defaulted]}}} for the batch's OWN rows only. Ports ai_voter._ai_batch mechanics
     (<=20 rows, 3 attempts, sleep 2*attempt).
@@ -519,6 +519,16 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
         content += "\n\nSLOT_SPEC:\n" + json.dumps(slot_spec, ensure_ascii=False)
     if resolution_rules:
         content += "\n\nRESOLUTION_RULES:\n" + json.dumps(resolution_rules, ensure_ascii=False)
+    # EA-4 ext-a: owner-authored estimator rules, injected for EVERY category (never composite-gated).
+    # The guidance text is authored by the estimator and passed through VERBATIM -- do not reword it
+    # here. Absent => this block is skipped and the payload is byte-identical to pre-ext-a.
+    if rules:
+        content += (
+            "\n\nESTIMATOR_RULES: apply these domain rules when choosing catalog items and attribute "
+            "values for these rows. They override your default reading of the row text where they "
+            "conflict.\n"
+            + json.dumps(rules, ensure_ascii=False)
+        )
     if synonyms:
         content += (
             "\n\nSYNONYMS: where a row states a variant key, extract the mapped canonical value "
@@ -752,6 +762,11 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None, checkpoint_cb
             # so _extract_batch stays byte-identical for item_identity / attribute categories).
             "slot_spec": build_slot_spec(cfg, disc) if is_composite else None,
             "resolution_rules": cfg.get("decomposition_rules") if is_composite else None,
+            # EA-4 ext-a: owner-authored estimator rules. DELIBERATELY UNGATED -- unlike slot_spec /
+            # resolution_rules (composite-only), these must reach EVERY category, composite or not
+            # (R7 lands on cabletray_raceway, an ordinary attribute category). Absent => None =>
+            # the prompt is byte-identical to before.
+            "rules": cfg.get("rules"),
         }
 
     def _defs_for(r):
@@ -800,7 +815,7 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None, checkpoint_cb
             gc = group_ctx[(disc, cat)]
             for b in range(0, len(grp_rows), _BATCH):
                 batch = grp_rows[b : b + _BATCH]
-                batch_out = _extract_batch(client, model, gc["prompt"], gc["defs"], batch, gc["synonyms"], gc["defaults"], gc["none_guidance"], gc["slot_spec"], gc["resolution_rules"])
+                batch_out = _extract_batch(client, model, gc["prompt"], gc["defs"], batch, gc["synonyms"], gc["defaults"], gc["none_guidance"], gc["slot_spec"], gc["resolution_rules"], gc["rules"])
                 ai_out.update(batch_out)
                 # The batch RETURNED, so its rows are genuinely attempted. A row the model simply
                 # did not answer for is still attempted (we asked); only a HALTED batch's rows stay
