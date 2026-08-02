@@ -161,6 +161,7 @@ import {
 // rule of its own -- there is no second copy of the gather, the gate order, or the arithmetic.
 import {
   BCS_RATE_FIELD,
+  BCS_RATE_FIELDS,
   BCS_RATE_LABEL,
   BCS_TOTAL_COL_KEY,
   bcsColumnAt,
@@ -1854,7 +1855,76 @@ const EMPTY_BCS_RATES_MAP: Map<number, BcsRowRate> = new Map();
 // `${row_index}:${col}` because it lives in its OWN state map -- BCS values must never be
 // merged into draftRates, which would churn every rate cell's slice on a cost keystroke and
 // defeat shallowEqualStrMap for unrelated rate edits on the same row.
-const bcsCellKey = (rowIndex: number, field: BcsRateField) => `${rowIndex}:${field}`;
+export const bcsCellKey = (rowIndex: number, field: BcsRateField) => `${rowIndex}:${field}`;
+
+/**
+ * ★ THE ONE TRANSLATOR BETWEEN THE TWO BCS KEY SPACES. Read this before touching a cost draft.
+ *
+ * `draftBcsRates` -- and every per-row slice `groupDraftsByRow` cuts out of it -- is keyed
+ * `${row_index}:${field}`. `bcsColumns.mergeBcsRowValues` reads BARE `BcsRateField` keys. The two
+ * are DIFFERENT KEY SPACES that share a type (`Record<string, string>`), so passing one where the
+ * other is wanted type-checks perfectly and silently finds nothing.
+ *
+ * ⚠️ THAT IS NOT HYPOTHETICAL -- IT SHIPPED. BCS-S3a passed a raw slice into `mergeBcsRowValues`
+ * behind an `as Partial<Record<BcsRateField, string>>` cast (the cast was the only reason `tsc`
+ * stayed silent). Every lookup missed, so the cost `<Input>` -- CONTROLLED on the merged value --
+ * re-rendered back to the stored value on every keystroke, and the 1 s debounce could commit a
+ * number the user never typed. A data-corruption path, not a display bug.
+ *
+ * It hid because TWO PASSING TESTS pinned the two key spaces and never met: one pins that
+ * `groupDraftsByRow` keeps FULL keys, the other pins that `mergeBcsRowValues` reads BARE ones.
+ * The only place they met was a rendered component, and this repo has NO DOM test environment by
+ * deliberate choice. So the translation is now a NAMED, EXPORTED, PURE function with exactly one
+ * definition -- which is a place a test can stand.
+ *
+ * ⚠️ AND IT RETURNS A `Map`, WHICH IS LOAD-BEARING. Removing the cast was NOT enough on its own:
+ * a `Record<string, string>` is structurally assignable to an all-optional
+ * `Partial<Record<BcsRateField, string>>`, so the same mistake still compiled silently with no
+ * cast at all (measured -- `tsc` reported nothing). A `Record` is NOT assignable to a `Map`, so
+ * `mergeBcsRowValues` now takes a `ReadonlyMap` and the wrong key space is a COMPILE ERROR.
+ *
+ * It accepts BOTH the whole `draftBcsRates` map and one row's `groupDraftsByRow` slice, because a
+ * slice keeps full keys. It iterates `BCS_RATE_FIELDS` (the canonical stored-field list) rather
+ * than the KIND vocabulary, so a fourth stored rate with no live box would still be carried.
+ */
+export function bcsDraftsForRow(
+  rowIndex: number,
+  drafts: Record<string, string>,
+): Map<BcsRateField, string> {
+  const out = new Map<BcsRateField, string>();
+  for (const f of BCS_RATE_FIELDS) {
+    const v = drafts[bcsCellKey(rowIndex, f)];
+    if (v !== undefined) out.set(f, v);
+  }
+  return out;
+}
+
+/**
+ * Which optimistic draft layers a BATCH (paste / cut / fill-down) drops when its promise settles.
+ * Pure policy, named so the ASYMMETRY is visible and testable rather than buried in a `.finally`.
+ *
+ * ⚠️ THE TWO LAYERS ARE NOT ALIKE, AND S3a TREATED THEM AS IF THEY WERE. `runBatch` dropped both
+ * in a single `.finally()`, so a batch that POSTed successfully but whose trailing refetch then
+ * REJECTED lost the drafts AND left the saved map stale. On a row with no prior stored record the
+ * next inline edit gathers that stale map and writes 0.0 for the pasted sibling -- because
+ * `save_row_bcs_rates` is a WHOLE-ROW SNAPSHOT WRITE. The pasted number is destroyed by an edit to
+ * a different box.
+ *
+ *   * RATES drop on ANY settlement (unchanged, pre-S3a certified). `save_cell_price` is a PER-CELL
+ *     write, so falling back to the last saved value is honest and cannot harm a neighbour.
+ *   * COST drafts SURVIVE A REJECTION, matching what the inline path already guarantees
+ *     (`commitBcsRate` keeps the draft in its `.catch` so the user still sees what they typed and
+ *     the next gather reads the live value, not a stale one).
+ *
+ * A partial mid-batch failure still RESOLVES (`{written, failed}`) -- the refetch landed, so both
+ * layers drop, exactly as before. Only a genuine rejection is treated differently.
+ */
+export function batchDraftsToDrop(settled: "fulfilled" | "rejected"): {
+  rates: boolean;
+  bcs: boolean;
+} {
+  return { rates: true, bcs: settled === "fulfilled" };
+}
 
 /** Shallow string-map equality (key set + values). Pure -- unit-tested. */
 function shallowEqualStrMap(a: Record<string, string>, b: Record<string, string>): boolean {
@@ -2980,7 +3050,11 @@ const PricingGridRow = memo(function PricingGridRow({
           // ONE merge per row, two readers: the boxes' displayed values and the Total's
           // multiplicand. Sharing it is what stops the number shown from differing from the
           // number written (gatherBcsRowRates reads the same merge at commit time).
-          const merged = mergeBcsRowValues(bcsRow, rowBcsDrafts as Partial<Record<BcsRateField, string>>);
+          //
+          // ⚠️ `rowBcsDrafts` is FULL-KEY (`${row_index}:${field}`) and `mergeBcsRowValues` reads
+          // BARE keys -- go through `bcsDraftsForRow`, NEVER a cast. S3a cast here and every
+          // lookup missed, which made this controlled <Input> revert on every keystroke.
+          const merged = mergeBcsRowValues(bcsRow, bcsDraftsForRow(row.row_index, rowBcsDrafts));
           const unit = bcsUnitCost(merged, bcsKinds);
           const total = bcsTotalAmount(bcsQty, unit);
           const editable = !!onSaveBcsRates && !!commitBcsRate && !!setDraftBcsRates;
@@ -3536,12 +3610,8 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
    *  committed right now, which may not have landed in state yet. */
   const gatherBcsForRow = useCallback(
     (row: PricedRow, extra?: { field: BcsRateField; value: string }): BcsRowRates => {
-      const drafts: Partial<Record<BcsRateField, string>> = {};
-      for (const f of Object.values(BCS_RATE_FIELD)) {
-        const v = draftBcsRatesRef.current[bcsCellKey(row.row_index, f)];
-        if (v !== undefined) drafts[f] = v;
-      }
-      if (extra) drafts[extra.field] = extra.value;
+      const drafts = bcsDraftsForRow(row.row_index, draftBcsRatesRef.current);
+      if (extra) drafts.set(extra.field, extra.value);
       return gatherBcsRowRates(
         mergeBcsRowValues(bcsRatesRef.current.get(row.source_row_number), drafts),
       );
@@ -3833,14 +3903,11 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
     return !!onSaveBcsRates && b !== null && b !== "total";
   };
   // One row's merged cost values (draft-or-stored) -- the SAME merge the cells render from.
-  const bcsMergedFor = (row: PricedRow): Record<BcsRateField, string | null> => {
-    const drafts: Partial<Record<BcsRateField, string>> = {};
-    for (const f of Object.values(BCS_RATE_FIELD)) {
-      const v = draftBcsRates[bcsCellKey(row.row_index, f)];
-      if (v !== undefined) drafts[f] = v;
-    }
-    return mergeBcsRowValues(bcsRatesByExcelRow.get(row.source_row_number), drafts);
-  };
+  const bcsMergedFor = (row: PricedRow): Record<BcsRateField, string | null> =>
+    mergeBcsRowValues(
+      bcsRatesByExcelRow.get(row.source_row_number),
+      bcsDraftsForRow(row.row_index, draftBcsRates),
+    );
   // Is the rate cell at (row, c) actually writable? Mirrors the inline edit gate EXACTLY: the cell
   // axis (isRateDescriptor) + the sheet gates (formulasComplete + categoryGateOpen, both ANDed
   // OUTSIDE) + the row axis (isRateEditableRow incl. the override). A paste can no more bypass these
@@ -3937,9 +4004,11 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
   };
 
   // Apply resolved writes optimistically (rate drafts show instantly) + fire the ONE-mutate batch.
-  // After the batch settles (its single mutate landed), drop the optimistic drafts so the cells fall
-  // back to the refetched saved values (on a partial failure the dropped draft reverts to the prior
-  // saved value -- honest, no fake atomicity). Remarks have no draft layer -> they rely on the mutate.
+  // After the batch settles, drop the optimistic drafts so the cells fall back to the refetched
+  // saved values (on a partial failure -- which still RESOLVES -- the dropped draft reverts to the
+  // prior saved value: honest, no fake atomicity). Remarks have no draft layer -> they rely on the
+  // mutate. ⚠️ Which layers drop is `batchDraftsToDrop`'s call, NOT a blanket `.finally()`: cost
+  // drafts survive a REJECTION because the whole-row cost write would otherwise zero a sibling.
   // Returns the batch promise (resolves to BatchOutcome) so a caller can read outcome.written --
   // the LANDED count (handleBatchWrite applies sequentially + breaks on first failure, so the
   // first `written` entries of `writes` are exactly the successes). undefined when read-only / empty.
@@ -3966,22 +4035,39 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
       });
     }
     if (bcsKeys.length > 0) setDraftBcsRates((prev) => ({ ...prev, ...optimisticBcsDrafts }));
-    return onBatchWrite(writes).finally(() => {
-      if (draftKeys.length > 0) {
-        setDraftRates((prev) => {
-          const next = { ...prev };
-          for (const k of draftKeys) delete next[k];
-          return next;
-        });
-      }
-      if (bcsKeys.length > 0) {
-        setDraftBcsRates((prev) => {
-          const next = { ...prev };
-          for (const k of bcsKeys) delete next[k];
-          return next;
-        });
-      }
-    });
+    const dropRateDrafts = () => {
+      if (draftKeys.length === 0) return;
+      setDraftRates((prev) => {
+        const next = { ...prev };
+        for (const k of draftKeys) delete next[k];
+        return next;
+      });
+    };
+    const dropBcsDrafts = () => {
+      if (bcsKeys.length === 0) return;
+      setDraftBcsRates((prev) => {
+        const next = { ...prev };
+        for (const k of bcsKeys) delete next[k];
+        return next;
+      });
+    };
+    // ⚠️ SETTLE, NOT `finally` -- the two draft layers have DIFFERENT lifecycles and the S3a
+    // `.finally()` gave them the same one. `batchDraftsToDrop` is the policy; see its comment for
+    // why. Rejection re-throws, so every caller sees exactly the settlement it saw before.
+    return onBatchWrite(writes).then(
+      (outcome) => {
+        const drop = batchDraftsToDrop("fulfilled");
+        if (drop.rates) dropRateDrafts();
+        if (drop.bcs) dropBcsDrafts();
+        return outcome;
+      },
+      (err) => {
+        const drop = batchDraftsToDrop("rejected");
+        if (drop.rates) dropRateDrafts();
+        if (drop.bcs) dropBcsDrafts();
+        throw err;
+      },
+    );
   };
 
   // Slice B (undo/redo): record a batch gesture's LANDED rate deltas as ONE history entry. `deltas`
@@ -5312,10 +5398,17 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
   // scalar and never the qty source itself. `bcsRowQuantity` sums the stored entries whatever
   // the mode; the entry and a ColumnDescriptor are the same six fields, which is exactly what
   // resolveDescriptorValue walks.
+  //
+  // ⚠️ THE `as ColumnDescriptor` CAST WAS REMOVED AT BCS-S3a-fix and must not come back. The two
+  // types ARE structurally identical today, so this compiles without it -- which means the cast
+  // bought nothing and cost the only warning we would ever get. Let `ColumnDescriptor` gain a
+  // seventh required field and the cast would silently hand `resolveDescriptorValue` an entry
+  // missing it; without the cast that is a compile error, which is the whole point. Same defect
+  // class as the draft key space this slice fixed: two shapes pinned separately, never jointly.
   const bcsQtyFor = (row: PricedRow): number | null =>
     bcsKinds.length === 0
       ? null
-      : bcsRowQuantity(bcsQtySource, (e) => resolveDescriptorValue(row, e as ColumnDescriptor));
+      : bcsRowQuantity(bcsQtySource, (e) => resolveDescriptorValue(row, e));
 
   const renderRow = (
     row: PricedRow,

@@ -48,7 +48,11 @@ import {
   descriptionWidthSeeds,
   colIndexFromColKeyPure,
   descriptionWidthKey,
+  bcsCellKey,
+  bcsDraftsForRow,
+  batchDraftsToDrop,
 } from "./PricingGrid";
+import { BCS_RATE_FIELDS, mergeBcsRowValues } from "./bcsColumns";
 import type { DescriptionColumn } from "./reviewRender";
 import type {
   AmountFormulaNode,
@@ -1413,5 +1417,101 @@ describe("MC-5 description fan-out geometry", () => {
       expect(dcs).toBe(DESCRIPTOR_COL_START);
       expect(colIndexFromColKeyPure("a4", anchorKeys, ["d:E"], dcs, 7)).toBe(4);
     });
+  });
+});
+
+// ── BCS-S3a-fix: THE KEY-SPACE SEAM ─────────────────────────────────────────────
+//
+// ★ THIS IS THE TEST THAT WOULD HAVE CAUGHT THE S3a DEFECT, AND THE REASON IT EXISTS HERE.
+//
+// Two passing tests pinned two INCOMPATIBLE key spaces and never met:
+//   * `groupDraftsByRow` keeps FULL `${row_index}:${field}` keys  (pinned above, still green);
+//   * `mergeBcsRowValues` reads BARE `BcsRateField` keys          (pinned in bcsColumns.test.ts).
+// Both were correct. Both stayed green. `PricingGrid` passed a full-key slice into the bare-key
+// reader behind an `as` cast, every lookup missed, and the controlled cost <Input> reverted on
+// every keystroke -- so the 1 s debounce could commit a number the user never typed.
+//
+// ⚠️ THE POINT OF THESE TESTS IS THAT THEY CROSS THE SEAM WITH A **REAL** `groupDraftsByRow`
+// SLICE. A hand-written bare-key literal is exactly what let the defect through: it agrees with
+// whichever side wrote it and can never disagree with the other. Do not "simplify" these to
+// object literals.
+describe("BCS draft key space -- where PricingGrid's drafts cross into bcsColumns", () => {
+  const key = bcsCellKey(12, "supply_rate");
+
+  it("THE REGRESSION: a REAL groupDraftsByRow slice reads through mergeBcsRowValues", () => {
+    const slice = groupDraftsByRow({ [key]: "150" }, new Map()).get(12)!;
+    const merged = mergeBcsRowValues(null, bcsDraftsForRow(12, slice));
+    expect(merged.supply_rate).toBe("150"); // was `null` before the fix
+  });
+
+  it("THE NEGATIVE: the two key spaces genuinely do not overlap (why the cast was fatal)", () => {
+    const slice = groupDraftsByRow({ [key]: "150" }, new Map()).get(12)!;
+    expect(slice["supply_rate"]).toBeUndefined(); // the bare-key read the cast promised
+    expect(slice[key]).toBe("150"); // the only key actually present
+  });
+
+  it("the draft WINS over the stored value -- what makes a keystroke visible at all", () => {
+    const slice = groupDraftsByRow({ [key]: "150" }, new Map()).get(12)!;
+    const merged = mergeBcsRowValues(
+      { supply_rate: 99, install_rate: 7, combined_rate: 0 },
+      bcsDraftsForRow(12, slice),
+    );
+    expect(merged.supply_rate).toBe("150"); // the draft
+    expect(merged.install_rate).toBe("7"); // the untouched sibling, from storage
+  });
+
+  it("a partially-typed decimal survives the crossing (the box must not fight the user)", () => {
+    const slice = groupDraftsByRow({ [bcsCellKey(4, "combined_rate")]: "12." }, new Map()).get(4)!;
+    expect(mergeBcsRowValues(null, bcsDraftsForRow(4, slice)).combined_rate).toBe("12.");
+  });
+
+  it("an EMPTIED box crosses as \"\", not as absent -- \"\" saves as 0, absent keeps the old value", () => {
+    const slice = groupDraftsByRow({ [key]: "" }, new Map()).get(12)!;
+    expect(bcsDraftsForRow(12, slice).get("supply_rate")).toBe("");
+    expect(mergeBcsRowValues({ supply_rate: 99 }, bcsDraftsForRow(12, slice)).supply_rate).toBe("");
+  });
+
+  it("reads only THIS row -- another row's drafts cannot leak into this row's merge", () => {
+    const drafts = { [bcsCellKey(12, "supply_rate")]: "150", [bcsCellKey(13, "supply_rate")]: "999" };
+    expect(bcsDraftsForRow(13, drafts).get("supply_rate")).toBe("999");
+    // The whole map and one row's slice are interchangeable inputs -- both are full-key.
+    const slice12 = groupDraftsByRow(drafts, new Map()).get(12)!;
+    expect(bcsDraftsForRow(12, slice12)).toEqual(bcsDraftsForRow(12, drafts));
+  });
+
+  it("no drafts -> an EMPTY map, so mergeBcsRowValues falls through to stored / null", () => {
+    expect(bcsDraftsForRow(12, {}).size).toBe(0);
+    expect(mergeBcsRowValues(null, bcsDraftsForRow(12, {})).supply_rate).toBeNull();
+    expect(mergeBcsRowValues({ supply_rate: 5 }, bcsDraftsForRow(12, {})).supply_rate).toBe("5");
+  });
+
+  it("a rate draft in the SAME row cannot be mistaken for a cost draft", () => {
+    // cellKey is `${row_index}:${col}` -- the same shape, a different vocabulary. A rate draft
+    // on column "E" must never resolve as a BCS field.
+    const merged = mergeBcsRowValues(null, bcsDraftsForRow(12, { "12:E": "42" }));
+    expect(merged.supply_rate).toBeNull();
+    expect(merged.install_rate).toBeNull();
+    expect(merged.combined_rate).toBeNull();
+  });
+
+  it("covers EVERY canonical stored field -- a fourth rate could not be dropped in translation", () => {
+    const drafts: Record<string, string> = {};
+    for (const f of BCS_RATE_FIELDS) drafts[bcsCellKey(12, f)] = "1";
+    expect([...bcsDraftsForRow(12, drafts).keys()].sort()).toEqual([...BCS_RATE_FIELDS].sort());
+  });
+});
+
+// ── BCS-S3a-fix, defect 2: the batch (paste) draft lifecycle ────────────────────
+describe("batchDraftsToDrop -- the two draft layers do NOT settle alike", () => {
+  it("drops BOTH layers when the batch fulfils (the refetch landed)", () => {
+    expect(batchDraftsToDrop("fulfilled")).toEqual({ rates: true, bcs: true });
+  });
+
+  it("KEEPS the cost drafts when the batch REJECTS -- the S3a defect", () => {
+    expect(batchDraftsToDrop("rejected").bcs).toBe(false);
+  });
+
+  it("still drops the RATE drafts on a rejection (pre-S3a behaviour, deliberately unchanged)", () => {
+    expect(batchDraftsToDrop("rejected").rates).toBe(true);
   });
 });

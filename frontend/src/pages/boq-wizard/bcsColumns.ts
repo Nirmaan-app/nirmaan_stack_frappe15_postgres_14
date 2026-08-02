@@ -790,14 +790,24 @@ export function bcsLiveRateKinds(descriptors: readonly ColumnDescriptor[]): BcsR
  * ONE MERGE, TWO READERS: `gatherBcsRowRates` turns it into the save payload and `bcsUnitCost`
  * turns it into the Total's multiplicand. Sharing it is what stops the number a user sees from
  * differing from the number that gets written.
+ *
+ * ⚠️ `drafts` IS A `ReadonlyMap`, AND THE MAP IS THE POINT -- DO NOT "SIMPLIFY" IT TO AN OBJECT.
+ * The grid's cost drafts live in a `Record<string, string>` keyed `${row_index}:${field}`; this
+ * function reads BARE `BcsRateField` keys. As a plain object parameter the two are STRUCTURALLY
+ * ASSIGNABLE -- an all-optional target accepts any string-indexed source -- so handing the wrong
+ * key space over compiles CLEANLY, finds nothing, and (this shipped at BCS-S3a) reverts a
+ * controlled cost `<Input>` on every keystroke while the debounce saves a number nobody typed.
+ * A `Record` is NOT assignable to a `Map`, so the mistake is now a COMPILE ERROR. Measured: with
+ * an object parameter `tsc` reported nothing, with or without the `as` cast S3a carried.
+ * `PricingGrid.bcsDraftsForRow` is the one blessed producer.
  */
 export function mergeBcsRowValues(
   saved: Partial<Record<BcsRateField, number | null | undefined>> | null | undefined,
-  drafts: Partial<Record<BcsRateField, string>>,
+  drafts: ReadonlyMap<BcsRateField, string>,
 ): Record<BcsRateField, string | null> {
   const out = {} as Record<BcsRateField, string | null>;
   for (const f of BCS_RATE_FIELDS) {
-    const draft = drafts[f];
+    const draft = drafts.get(f);
     if (draft !== undefined) out[f] = draft;
     else if (saved) out[f] = String(saved[f] ?? 0);
     else out[f] = null;
@@ -817,8 +827,16 @@ export function mergeBcsRowValues(
  *
  * So every save carries ALL THREE, gathered from the row's current draft-or-saved values. This
  * is the ONLY function that builds that payload; there is no second path a future edit could
- * take. It iterates BCS_RATE_FIELDS rather than naming three fields, so a fourth stored rate
- * could not be silently dropped from a write either.
+ * take.
+ *
+ * ⚠️ CORRECTED AT BCS-S3a-fix: this used to claim it "iterates BCS_RATE_FIELDS, so a fourth
+ * stored rate could not be silently dropped". IT DOES NOT ITERATE -- it names the three fields
+ * explicitly, and that is the RIGHT shape, because `BcsRowRates` requires exactly these three, so
+ * a fourth field added to the PAYLOAD type breaks this literal at compile time. What the old
+ * wording claimed but nothing enforced is the OTHER direction: a fourth field added to
+ * `BCS_RATE_FIELDS` (so `mergeBcsRowValues` produces it) while `BcsRowRates` stays at three would
+ * be dropped here in silence. `test: gatherBcsRowRates covers every BCS_RATE_FIELDS key` closes
+ * exactly that gap -- keep the two lists in step or that test fires.
  *
  * Absent / blank / partial-decimal -> 0, mirroring `commitRate`'s parseFloat semantics exactly
  * (and the server's own coercion), so a cleared box and a typed "-" both save as 0.
@@ -841,8 +859,19 @@ export function gatherBcsRowRates(merged: Record<BcsRateField, string | null>): 
  * entered. Blank-not-zero is the point -- an uncosted row showing a Total Amount of 0 reads as
  * "this costs us nothing", which is a claim, not an absence.
  *
- * It can only ever sum {supply, install} or {combined} because `bcsLiveRateKinds` never returns
- * a mixed set -- that is how `bcs.py:16`'s "never sum it with them" is enforced structurally.
+ * ⚠️ CORRECTED AT BCS-S3a-fix. This used to say the forbidden `combined + halves` sum "cannot be
+ * expressed". It CAN be: `kinds` is `readonly BcsRateKind[]`, so `["supply", "combined"]` type-
+ * checks here and would be summed. The guarantee is a PRODUCER guarantee, not a type guarantee --
+ * `bcsLiveRateKinds` is the only thing that builds this argument and its one branch returns either
+ * the halves present or `["combined"]`, never both (that is how `bcs.py:16`'s "never sum it with
+ * them" is honoured). It is pinned by `test: bcsLiveRateKinds NEVER returns a mixed set`, swept
+ * over every descriptor combination, rather than by the signature.
+ *
+ * A discriminated `["combined"] | BcsHalfKind[]` union WOULD make it a type guarantee and was
+ * weighed at S3a-fix; it was declined as disproportionate -- `bcsKinds` is threaded through two
+ * ~5,000-line components, a grid prop, a row prop and the colIndex geometry, so the union ripples
+ * far wider than the one-line risk it removes. If a SECOND producer of `kinds` ever appears, that
+ * trade flips: introduce the union then, because the producer guarantee is what is holding this up.
  */
 export function bcsUnitCost(
   merged: Record<BcsRateField, string | null>,

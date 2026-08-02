@@ -2298,11 +2298,22 @@ const SheetPricingPage = () => {
           } else if (w.kind === "bcs") {
             // BCS-S3a: ONE call per ROW (the grid folded the gesture's cost cells), carrying
             // all three stored fields -- see handleSaveBcsRates on why a partial payload zeroes.
+            //
+            // ⚠️ `liveCommitVersion`, NOT this function's `commitVersion` -- the two halves of ONE
+            // write must not read the version from two places. EVERY other BCS path is pinned to
+            // the live version (`get_bcs_state`, `get_sheet_bcs_rates`, `handleSaveBcsRates`),
+            // because cost is entered on the current version only. `commitVersion` follows the
+            // version being VIEWED. They are equal wherever a cost write can actually occur
+            // (`bcsColumnsVisible` and `locked` both exclude history mode, so no cost cell even
+            // renders there) -- which is why S3a's divergence was inert, not why it was right.
+            if (liveCommitVersion === null) {
+              throw new Error("This sheet has no committed version to cost.");
+            }
             await saveRowBcsRates({
               boq_name: boqId, // VERBATIM
               sheet_name: sheetName, // VERBATIM (#152)
               excel_row: w.args.excelRow,
-              committed_version: commitVersion,
+              committed_version: liveCommitVersion,
               supply_rate: w.args.rates.supply_rate,
               install_rate: w.args.rates.install_rate,
               combined_rate: w.args.rates.combined_rate,
@@ -2331,16 +2342,27 @@ const SheetPricingPage = () => {
         }
       }
     } finally {
-      await mutate(); // ONE trailing refetch -- markers / amounts re-derive once
-      // BCS-S3a: and ONE for the cost layer, only if the gesture wrote any (it lives in its own
-      // read, so a rate-only paste must not pay for it).
-      if (bcsTouched) await mutateBcsRates();
+      // ⚠️ THE COST REFETCH IS NOT CHAINED BEHIND THE RATE ONE. Written as two bare `await`s, a
+      // rejected `mutate()` skipped `mutateBcsRates()` entirely, so a gesture whose cost POSTs had
+      // all LANDED left `bcsRatesByExcelRow` stale -- and because `save_row_bcs_rates` is a
+      // WHOLE-ROW SNAPSHOT WRITE, the next inline edit on a row with no prior stored record gathers
+      // that stale map and writes 0.0 over the pasted sibling. The cost layer is its OWN read, so
+      // its refresh must not depend on another read succeeding. Either rejection still propagates
+      // (the batch settles REJECTED -> `batchDraftsToDrop` KEEPS the cost drafts, so the user's
+      // pasted numbers stay on screen and the next gather reads them, not the stale map).
+      try {
+        await mutate(); // ONE trailing refetch -- markers / amounts re-derive once
+      } finally {
+        // BCS-S3a: and ONE for the cost layer, only if the gesture wrote any (it lives in its own
+        // read, so a rate-only paste must not pay for it).
+        if (bcsTouched) await mutateBcsRates();
+      }
       if (failMsg) setSaveError(`Saved ${written} of ${writes.length}. ${failMsg}`);
       else setLastSavedAt(new Date());
       setInFlight((n) => n - 1);
     }
     return { written, failed };
-  }, [commitVersion, boqId, sheetName, override, saveCellPrice, saveRowRemark, saveRowBcsRates, mutate, mutateBcsRates]);
+  }, [commitVersion, liveCommitVersion, boqId, sheetName, override, saveCellPrice, saveRowRemark, saveRowBcsRates, mutate, mutateBcsRates]);
 
   // ── Slice 4b-A: the computed review-flag layer (Cluster A) ──────────────────────
   // Everything routes through the ONE shared priceability helper -- the in-grid markers,

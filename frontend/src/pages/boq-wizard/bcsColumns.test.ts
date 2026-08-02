@@ -21,6 +21,7 @@ import { describe, expect, it } from "vitest";
 import type { ColumnDescriptor } from "./boqTypes";
 import {
   BCS_RATE_FIELD,
+  BCS_RATE_FIELDS,
   BCS_RATE_LABEL,
   bcsChipLabel,
   bcsColumnAt,
@@ -1034,7 +1035,7 @@ describe("mergeBcsRowValues + gatherBcsRowRates -- THE WHOLE-ROW GATHER", () => 
 
   it("carries the untouched siblings' SAVED values when one box is edited", () => {
     const saved = { supply_rate: 100, install_rate: 40, combined_rate: 0 };
-    const merged = mergeBcsRowValues(saved, { supply_rate: "150" });
+    const merged = mergeBcsRowValues(saved, new Map([["supply_rate", "150"]]));
     expect(gatherBcsRowRates(merged)).toEqual({
       supply_rate: 150,
       install_rate: 40, // <- would have been 0.0 under a per-cell save
@@ -1044,7 +1045,7 @@ describe("mergeBcsRowValues + gatherBcsRowRates -- THE WHOLE-ROW GATHER", () => 
 
   it("prefers a live draft over the saved value, per field", () => {
     const saved = { supply_rate: 100, install_rate: 40, combined_rate: 0 };
-    const merged = mergeBcsRowValues(saved, { supply_rate: "150", install_rate: "55" });
+    const merged = mergeBcsRowValues(saved, new Map([["supply_rate", "150"], ["install_rate", "55"]]));
     expect(gatherBcsRowRates(merged)).toEqual({
       supply_rate: 150,
       install_rate: 55,
@@ -1056,24 +1057,24 @@ describe("mergeBcsRowValues + gatherBcsRowRates -- THE WHOLE-ROW GATHER", () => 
     // bcs.py:455 -- "a sheet that changes shape must never strand a number it already holds,
     // and a write that silently blanked the other field would do exactly that."
     const saved = { supply_rate: 0, install_rate: 0, combined_rate: 77 };
-    const merged = mergeBcsRowValues(saved, { supply_rate: "12" });
+    const merged = mergeBcsRowValues(saved, new Map([["supply_rate", "12"]]));
     expect(gatherBcsRowRates(merged).combined_rate).toBe(77);
   });
 
   it("treats a CLEARED box as 0, not as absent", () => {
     const saved = { supply_rate: 100, install_rate: 40, combined_rate: 0 };
-    const merged = mergeBcsRowValues(saved, { supply_rate: "" });
+    const merged = mergeBcsRowValues(saved, new Map([["supply_rate", ""]]));
     expect(gatherBcsRowRates(merged).supply_rate).toBe(0);
     expect(gatherBcsRowRates(merged).install_rate).toBe(40);
   });
 
   it("starts a never-costed row at all-absent, and a first edit still sends all three", () => {
-    expect(mergeBcsRowValues(undefined, {})).toEqual({
+    expect(mergeBcsRowValues(undefined, new Map())).toEqual({
       supply_rate: null,
       install_rate: null,
       combined_rate: null,
     });
-    expect(gatherBcsRowRates(mergeBcsRowValues(undefined, { supply_rate: "9" }))).toEqual({
+    expect(gatherBcsRowRates(mergeBcsRowValues(undefined, new Map([["supply_rate", "9"]])))).toEqual({
       supply_rate: 9,
       install_rate: 0,
       combined_rate: 0,
@@ -1081,7 +1082,7 @@ describe("mergeBcsRowValues + gatherBcsRowRates -- THE WHOLE-ROW GATHER", () => 
   });
 
   it("coerces a partial decimal to 0 rather than NaN (mirrors commitRate)", () => {
-    const merged = mergeBcsRowValues(undefined, { supply_rate: "-", install_rate: "." });
+    const merged = mergeBcsRowValues(undefined, new Map([["supply_rate", "-"], ["install_rate", "."]]));
     expect(gatherBcsRowRates(merged)).toEqual({
       supply_rate: 0,
       install_rate: 0,
@@ -1092,7 +1093,7 @@ describe("mergeBcsRowValues + gatherBcsRowRates -- THE WHOLE-ROW GATHER", () => 
   it("reads a null stored field as 0, never as absent", () => {
     const merged = mergeBcsRowValues(
       { supply_rate: null, install_rate: 40, combined_rate: null },
-      {},
+      new Map(),
     );
     expect(merged.supply_rate).toBe("0");
     expect(gatherBcsRowRates(merged).supply_rate).toBe(0);
@@ -1103,18 +1104,18 @@ describe("bcsUnitCost + bcsRowQuantity + bcsTotalAmount -- what Total Amount rea
   it("sums only the LIVE kinds", () => {
     const merged = mergeBcsRowValues(
       { supply_rate: 100, install_rate: 40, combined_rate: 999 },
-      {},
+      new Map(),
     );
     expect(bcsUnitCost(merged, ["supply", "install"])).toBe(140);
     expect(bcsUnitCost(merged, ["combined"])).toBe(999);
   });
 
   it("is BLANK, not 0, when nothing has been entered for any live kind", () => {
-    expect(bcsUnitCost(mergeBcsRowValues(undefined, {}), ["supply", "install"])).toBeNull();
+    expect(bcsUnitCost(mergeBcsRowValues(undefined, new Map()), ["supply", "install"])).toBeNull();
   });
 
   it("is 0 -- not blank -- once a row is genuinely costed at zero", () => {
-    const merged = mergeBcsRowValues({ supply_rate: 0, install_rate: 0, combined_rate: 0 }, {});
+    const merged = mergeBcsRowValues({ supply_rate: 0, install_rate: 0, combined_rate: 0 }, new Map());
     expect(bcsUnitCost(merged, ["supply", "install"])).toBe(0);
   });
 
@@ -1235,5 +1236,53 @@ describe("the BCS column block -- keys and geometry", () => {
     expect(BCS_RATE_FIELD.supply).toBe("supply_rate");
     expect(BCS_RATE_FIELD.install).toBe("install_rate");
     expect(BCS_RATE_FIELD.combined).toBe("combined_rate");
+  });
+});
+
+// ── BCS-S3a-fix: the two invariants S3a ASSERTED IN PROSE and enforced nowhere ──
+//
+// Neither of these can be shown RED without first introducing the defect it guards, so each was
+// proven FALSIFIABLE instead (see the slice record): the field list was temporarily grown to
+// four, and the live-kinds sweep was temporarily fed a producer that returns a mixed set.
+describe("the invariants BCS-S3a claimed but did not enforce", () => {
+  it("gatherBcsRowRates covers EVERY BCS_RATE_FIELDS key -- a fourth rate cannot be dropped", () => {
+    // S3a's comment claimed this function "iterates BCS_RATE_FIELDS". It does not -- it names the
+    // three fields. That is the right shape (BcsRowRates requires exactly these three, so a fourth
+    // PAYLOAD field breaks the literal at compile time), but it leaves the other direction open: a
+    // fourth field in BCS_RATE_FIELDS that mergeBcsRowValues produces would be dropped in silence.
+    const merged = Object.fromEntries(BCS_RATE_FIELDS.map((f) => [f, "1"])) as Record<
+      (typeof BCS_RATE_FIELDS)[number],
+      string | null
+    >;
+    expect(Object.keys(gatherBcsRowRates(merged)).sort()).toEqual([...BCS_RATE_FIELDS].sort());
+  });
+
+  it("bcsLiveRateKinds NEVER returns a mixed set -- swept over EVERY rate-column combination", () => {
+    // bcsUnitCost's signature does NOT forbid summing `combined` with the halves (it takes any
+    // readonly BcsRateKind[]). The prohibition in bcs.py:16 rests entirely on this ONE producer,
+    // so the producer is what gets swept -- all 2^6 subsets of the rate vocabulary.
+    const all: ColumnDescriptor[] = [
+      { col: "A", role: "r", area: null, value_field: "rate_supply", value_key: null, rate_subkey: null },
+      { col: "B", role: "r", area: null, value_field: "rate_install", value_key: null, rate_subkey: null },
+      { col: "C", role: "r", area: null, value_field: "rate_combined", value_key: null, rate_subkey: null },
+      { col: "D", role: "r", area: null, value_field: "rate_by_area", value_key: null, rate_subkey: "supply" },
+      { col: "E", role: "r", area: null, value_field: "rate_by_area", value_key: null, rate_subkey: "install" },
+      { col: "F", role: "r", area: null, value_field: "rate_by_area", value_key: null, rate_subkey: "total" },
+    ];
+    let sawHalves = false;
+    let sawCombined = false;
+    for (let mask = 0; mask < 1 << all.length; mask++) {
+      const picked = all.filter((_, i) => mask & (1 << i));
+      const kinds = bcsLiveRateKinds(picked);
+      const hasHalf = kinds.includes("supply") || kinds.includes("install");
+      const hasCombined = kinds.includes("combined");
+      expect(hasHalf && hasCombined).toBe(false); // THE INVARIANT
+      expect(new Set(kinds).size).toBe(kinds.length); // and never a duplicate box
+      if (hasHalf) sawHalves = true;
+      if (hasCombined) sawCombined = true;
+    }
+    // Anti-vacuity: the sweep really did exercise both arms of the one branch.
+    expect(sawHalves).toBe(true);
+    expect(sawCombined).toBe(true);
   });
 });
