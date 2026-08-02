@@ -16279,3 +16279,176 @@ elsewhere) — flagged, not taken, because it would break the "resume from this 
 
 No behaviour to test. `git diff --stat` on the commit confirms **three files, all in scope**, and
 **no `.py` / `.ts` / `.tsx` file present**.
+
+## BCS-S1 — the BCS cost layer's storage + endpoints (nothing renders yet)
+
+**Branch** `feature/bcs-columns` · **Base** `930802e2` · **Tier** FULL · **Date** 2026-08-02
+
+BCS is the **cost** side of the pricing editor: two hand-typed rates per committed row — a Supply
+Rate and an Installation Rate — recording what the work costs **us**, against the BoQ amount we
+charge the **client**. S1 lays the storage and the endpoint surface for the whole six-slice arc and
+**nothing else**: no frontend file was touched, nothing renders, and the owner accepted up front
+that this slice produces nothing visible. What it deliberately does NOT do is change `pricing.py` —
+that file is byte-untouched, which is what makes owner-locked rule 2 structural rather than a
+promise. The point of settling schema first is that the owner should pay for **one** production
+migration on this feature; that is why fields nothing reads yet (the provenance seam, the carry
+attribution triple) ship now.
+
+---
+
+### 1. What was built
+
+**A new doctype, `BoQ Row BCS Rate`** (`nirmaan_stack/doctype/boq_row_bcs_rate/`). Identity is
+`(boq, sheet_name [VERBATIM #152], excel_row, committed_version)` — **PER-ROW, with no
+`col_letter`**. That absence is the design: the two BCS columns are screen-only and have no Excel
+origin, so a sentinel column letter would be a lie about the source workbook. `BoQ Row Category`
+and `BoQ Cell Remark` are the established no-column precedent and were followed. Lifecycle is
+freeze-and-supersede (`bcs_version` / `is_current` / `bcs_rated_at`) copied from `BoQ Cell Pricing`,
+including its `is_filled` flag — `Currency` coerces unset to `0.0`, so without that flag a genuine
+zero cost is indistinguishable from "never entered". `description` (the match guard) and `node` (the
+re-resolvable pointer) mirror `BoQ Cell Pricing`; `track_changes` matches it at 1. The controller
+holds the `Document` class plus `on_doctype_update` and no business logic, per the practised
+convention in `boq_row_category.py:28-39`. The composite index is
+`(boq, sheet_name, committed_version, is_current, excel_row)` — the 4-column prefix serves the
+sheet-wide read, all five serve the per-row freeze-and-supersede lookup. **No `patches.txt` line**:
+a brand-new doctype creates its index atomically on fresh sync, so the `add_boq_read_indexes`
+precedent (which exists only for controller-only changes to already-shipped doctypes) does not
+apply.
+
+**Five new fields on `BoQ Sheet`**, shaped and worded on the `classification_frozen` and
+`category_gate_override` families: `bcs_enabled`, `bcs_qty_source`, `bcs_amount_source`,
+`bcs_confirmed_by`, `bcs_confirmed_at`. All written with
+`frappe.db.set_value(update_modified=False)` + commit, never `doc.save` — the list-valued
+`area_dimensions` JSON throws on a full save. The two confirmations are stored as **re-resolvable
+DICTs**, `{mode, columns:[{col, role, area, value_field, value_key}]}`, each entry carrying the full
+descriptor identity so a later reader resolves the value instead of re-deriving it from
+`column_role_map`. Top-level **dict, never a bare list** — deliberate: `base_document.py:391` throws
+`"Value for {0} cannot be a list"` on any list-valued non-table field, and this doctype already
+carries one such wall in `area_dimensions`; adding a second was avoidable at zero cost.
+
+**A new module `api/boq/wizard/bcs.py`** with six public names: `set_bcs_enabled`,
+`confirm_bcs_columns`, `get_bcs_state`, `get_sheet_bcs_rates`, `save_row_bcs_rates`, and the ONE
+shared readiness predicate `bcs_is_ready` (plus its throwing twin `_guard_bcs_ready`). Endpoints are
+thin orchestrators (ADR-0010 B4). `confirm_bcs_columns` validates both picks against the sheet's
+REAL descriptors via `pricing._committed_descriptors` — the same certified resolver the
+amount-formula gate uses, so "the columns this sheet really has" means exactly one thing across the
+app — and **both validations run to completion before the first write**, so a refusal stores nothing
+at all and a partial confirmation is impossible.
+
+`save_row_bcs_rates` runs the gates in `save_cell_price`'s order, all before any write: cell exists →
+deliberate sheet lock → BCS readiness → single-editor lock (`acquire_or_refresh`) → freeze + insert →
+one commit. A lock rejection therefore mutates nothing, which is asserted rather than assumed.
+
+### 2. The owner's reasoning — the part that must survive
+
+**Only the two rates persist.** Total Amount and % Profit are always computed downstream. A stored
+copy could disagree with the live sheet, and the sheet is the thing people trust. A test asserts the
+doctype has no `total_amount` / `profit_percent` / `profit` field, so a future slice cannot add one
+"just for convenience" without tripping it.
+
+**The BCS gate guards BCS cells only.** An unconfirmed BCS section must leave ordinary client-facing
+pricing fully editable. This is why BCS is its own module rather than more functions on `pricing.py`:
+`bcs` imports `pricing`, never the reverse, so the gate physically cannot reach the client rate
+chain. `test_bcs.py` greps `pricing.py`'s source for `bcs_is_ready`, `BoQ Row BCS Rate` and
+`wizard.bcs` and fails if any appears — the separation is enforced, not trusted.
+
+**BCS must never reach `export_priced_workbook`.** That export is handed to the client, so a BCS
+value in it leaks what the job costs us. The exclusion already holds by construction — the export
+reads `BoQ Cell Pricing` and names three fields explicitly — and BCS living in a separate doctype is
+what preserves that. **This is the reason BCS was not folded onto `BoQ Cell Pricing` as two extra
+columns**: that shape would have put internal cost one widened field-list away from a client
+workbook.
+
+**The install rate is a DELIBERATE divergence** from the Rate Master's recorded ruling that
+"BCS = discounted product cost + 5% wastage, **no install** (electrical labour is per-sqft, added at
+project level)". Owner-confirmed 2026-08-02: that ruling governs the Rate Master's *derived* BCS
+figure and is unchanged. This field is a different thing — a per-line installation cost the estimator
+enters directly in the pricing editor — and the two coexist meaning different things. The rationale
+is written into the field's own `description` in `boq_row_bcs_rate.json` as well as here, so a future
+reader who finds the apparent contradiction does not "restore consistency" by deleting the field.
+
+**The provenance seam.** A later slice must be able to record that a rate was derived from the Rate
+Master rather than hand-typed, at no further migration cost. That is one `Select` field
+(`rate_source`, default `Manual`) and nothing more — recording *that* it was derived is the whole
+requirement; a pointer to *which* rate-master row would be building a derivation system, which the
+prompt explicitly excluded. **Boundary flagged for the owner while it is still free:** if S-later
+needs that reference, it is a further field and therefore a further migration.
+
+### 3. Verification
+
+Real counts, in-container, `bench --site localhost run-tests`:
+
+| Suite | Baseline | Final |
+|---|---|---|
+| `test_bcs` | — (new file) | **35, OK** |
+| `test_export_writeback` | 42, OK | **47, OK** (+5) |
+
+Regression sweep, all unchanged and green: `test_pricing` **252 OK**, `test_commit_pipeline`
+**57 OK**, `test_review_screen` **260 OK**.
+
+**The red runs were real, not narrated.** Slice A's tests failed with
+`relation "tabBoQ Row BCS Rate" does not exist` (6 tests / 7 errors) before the doctype existed;
+slice B's failed with `ModuleNotFoundError: No module named 'nirmaan_stack.api.boq.wizard.bcs'`
+before the module existed. The export-exclusion guard is the honest exception: it pins a property
+that **already holds by construction**, so a genuine red is impossible without first breaking the
+export — and `export_writeback.py` was out of scope. Its power was proven instead by pointing the
+sentinel at `25`, a rate that IS in the fixture workbook, and confirming it fails
+(`AssertionError: Lists differ: ['25'] != [] : BCS cost 25 leaked into the CLIENT workbook`), then
+restoring `987654.21`. The guard also asserts the four BCS rows genuinely exist during the export,
+so a pass can never mean "there was nothing to leak".
+
+`bench --site localhost migrate` ran clean on the dev site (no `Traceback`, no `Error`). Every new
+column verified with `frappe.db.has_column`, all `True`: the 16 on `BoQ Row BCS Rate`
+(`boq`, `sheet_name`, `excel_row`, `committed_version`, `node`, `description`, `supply_rate`,
+`install_rate`, `is_filled`, `rate_source`, `bcs_version`, `is_current`, `bcs_rated_at`,
+`carried_from_boq`, `carried_from_version`, `carried_at`) and the 5 on `BoQ Sheet`. Negative control
+`has_column('BoQ Row BCS Rate', 'col_letter')` returned **False**, as intended. The composite index
+exists in `pg_indexes` as
+`btree (boq, sheet_name, committed_version, is_current, excel_row)`.
+
+⚠️ **PRODUCTION HAS NOT BEEN MIGRATED.** One new doctype + five new `BoQ Sheet` fields. Nothing in
+production reads them yet, but the migrate is owed before any BCS code ships.
+
+The **re-commit-invalidates** claim was verified, not assumed: `_write_committed_boq_sheet` inserts
+via `frappe.new_doc` and never touches the BCS fields, and a test makes a sheet ready at v1, inserts
+v2 the way the pipeline does, and asserts v2 is disabled, unconfirmed and not ready.
+
+`python3 scripts/residence_check.py`: B1/B2/B3/F5 all hold at baseline. **F2 reports 208 vs baseline
+207 — pre-existing at `930802e2`, not from this slice.** F2 counts `JSON.parse` in
+`frontend/src/pages`, and `git diff HEAD -- frontend/src` is empty; no frontend file was touched.
+Left alone deliberately (the fix is either a frontend page or `residence_baseline.json`, neither in
+scope).
+
+### 4. Deliberately NOT done
+
+- **`pricing.py` — byte-untouched.** It is out of scope, and its untouchedness is itself the
+  enforcement of owner-locked rule 2. `bcs.py` imports from it (`_committed_descriptors`,
+  `_resolve_committed_cell`, `_guard_sheet_not_locked`, `_current_sheet_name`, `_coerce_int`) so the
+  two layers cannot drift, but the dependency is strictly one-way — **`pricing` must never import
+  `bcs`**, the same rule it already records for `cross_boq_carry`.
+- **Every frontend file** — S2 onward. Nothing renders.
+- **The carry path** (`cross_boq_carry.py` / `committed_carry.py`) — S6. The three attribution
+  fields exist and are stamped by nothing.
+- **`patches.txt`** — a new doctype builds its index on fresh sync.
+- **No BCS gate on `save_cell_price`**, no BCS field on `BoQ Cell Pricing`, no stored total or
+  margin. Each is an owner-locked exclusion, each pinned by a test.
+
+### 5. Decisions this prompt did not settle — owner input wanted before S2
+
+1. **The amount confirmation is STRICT: only the scalar `amount_total` descriptor is accepted.**
+   The prompt named "Amount (Combined) == the `amount_total` descriptor", and that is implemented
+   literally. **Consequence:** a sheet that maps only PER-AREA amount columns
+   (`amount_total_by_area`, no scalar total) cannot confirm BCS at all. The shared committed test
+   fixture `COMMITTED_FIXTURE_ROLE_MAP` is exactly that shape, so this is not hypothetical. Widening
+   to accept the per-area total is a one-line change to `_AMOUNT_COMBINED_VALUE_FIELDS` with **no
+   migration** — which is why strict-and-flagged was chosen over quietly inventing scope. Needs a
+   real-data answer: how common is a committed sheet with no scalar Amount column?
+2. **Disabling BCS preserves the confirmation.** Re-enabling does not force re-picking the same two
+   columns; readiness simply goes false meanwhile. Not specified; reversible.
+3. **`is_filled` was added** although the prompt listed only the two Currency fields, because
+   `Currency` coerces unset to `0.0` and a real zero cost would otherwise be unreadable. Mirrors
+   `BoQ Cell Pricing.is_filled`.
+4. **Quantity picks arrive as `qty_cols`, a JSON list of column letters**, because the per-area mode
+   is inherently a set; the mode (`qty_total` vs `qty_by_area`) is DERIVED from the picked
+   descriptors, not trusted from the client. Mixing a scalar total with its own per-area parts is
+   refused — it would double-count.
