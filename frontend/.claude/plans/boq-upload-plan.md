@@ -17140,10 +17140,22 @@ ribbon control is never a destructive toggle.
 **Which gates the button respects, and which it deliberately does not.** `sheetLocked` (the deliberate
 per-sheet lock) is in, because the **server itself refuses** BCS setup there — `_guard_sheet_not_locked`
 runs in both `set_bcs_enabled` and `confirm_bcs_columns`. `viewingHistory` is in, not as a server rule but
-a targeting one. The **single-editor concurrency lock is deliberately OUT**: the BCS endpoints neither
-acquire nor check it, and the neighbouring Freeze Classification control is independent of it for the same
-reason — cost is a separate axis from client-facing pricing, exactly as `bcs.py`'s module docstring argues
-at length. Gating on the page's blanket `locked` would have been an invented client-side restriction.
+a targeting one. The **single-editor concurrency lock is deliberately OUT** of *this button's* gate set:
+the BCS **setup** endpoints — `set_bcs_enabled`, `confirm_bcs_columns` and the `get_bcs_state` read —
+neither acquire nor check it, and the neighbouring Freeze Classification control is independent of it for
+the same reason — choosing which columns BCS reads is a separate axis from client-facing pricing, exactly
+as `bcs.py`'s module docstring argues at length. Gating on the page's blanket `locked` would have been an
+invented client-side restriction.
+
+> ⚠️ **ERRATA — corrected at BCS-S2a (review finding F3).** As first written, the sentence above read
+> *"the BCS endpoints neither acquire nor check it"*, with no qualifier. That is **false of
+> `save_row_bcs_rates`**, the cost-entry write: it calls `pricing_lock.acquire_or_refresh` after its
+> guards and before the write (`bcs.py:88` imports it, `:472` calls it), exactly as `save_cell_price`
+> does. The claim is true of SETUP only. The original wording is quoted here rather than deleted so the
+> record still shows what S2 believed, but **do not build on it**: an S3 cost cell IS subject to the
+> single-editor concurrency lock even though this setup button is not, and its gating must say so. The
+> twin comment in `bcsColumns.ts` (`bcsSetupReason`'s docblock) carried the same error and was corrected
+> in the same slice. `bcs.py` itself was correct throughout and was not touched.
 
 **Multi-pick is load-bearing.** A sheet split per area needs *every* area column picked, because they
 **sum**; a scalar column is a lone pick; and a scalar must never be mixed with its own per-area parts. The
@@ -17188,3 +17200,166 @@ therefore **structurally untestable in this repo**; a green suite says nothing a
   sources; it reads the server's. One number, one owner.
 - **The repo-wide `tsc` reds — not touched.** 3772 lines of pre-existing errors outside `boq-wizard`;
   someone else's slice, and fixing them here would hide whether *this* change is clean.
+
+## BCS-S2a — close the S2 review findings, so S3 inherits a screen that never lies about BCS
+
+**Branch** `feature/bcs-columns` · **Base** `59b8049f` · **Tier** FULL · **Date** 2026-08-02
+
+Answers the Checklist B review of BCS-S2. Two substantive findings (**F1** the button read the wrong
+fetch's state; **F3** a comment that is false about the concurrency lock) plus five minor ones (**F2**,
+**F4**, **F7**, **F8/F9**, **F10**). Both substantive findings matter *before* S3, which hangs its cost
+cells off the same state and will be written by someone reading the same comments. **Frontend only** —
+no backend file, no doctype JSON, no migration, and `PricingGrid.tsx` is still untouched by this whole
+arc. Code in `e9503389`.
+
+---
+
+### 1. F1 — the button read the WRONG fetch's loading and error state
+
+`SheetPricingPage` fed `pricedLoading` / `pricedError` (the **priced rows** fetch) into `bcsSetupReason`,
+while `get_bcs_state`'s own `error` and `isLoading` were **never destructured**. Nothing type-checked
+wrong, which is why it survived review-by-reading.
+
+The consequence was not cosmetic. On a failed BCS read `bcsState` stayed null, so `bcs_enabled === 1`
+was false — and because *that one expression* was also the button's appearance, a sheet that was genuinely
+**enabled and confirmed** rendered **OFF and clickable**, dropped its confirmed chip, and **suppressed the
+amber banner**. No data harm (the click POSTs an idempotent enable and refetches), but it is exactly the
+screen-disagrees-with-the-server state the design exists to prevent.
+
+**The fix is two functions, not one flag,** because the finding has two halves:
+
+| Half | Change |
+|---|---|
+| *Is the control live, and why not?* | `bcsSetupReason` gains `bcsLoading` / `bcsError`, and its sheet-side fields are **renamed** `sheetLoading` / `sheetError` |
+| *What may the button CLAIM?* | new pure `bcsToggleState(...)` → `"unknown" \| "off" \| "on"` |
+
+**The rename is the actual defence.** The root cause of F1 is that `loading` / `error` did not say *whose*
+fetch they were, so the page passed the wrong pair and the reviewer could not see it. At the call site it
+now reads `sheetLoading: pricedLoading, … bcsLoading: bcsFetchLoading` — the mistake becomes visible on
+the page rather than needing to be remembered.
+
+**Three appearances, because there are three states.** SOLID = on. OUTLINE + calculator = off. Unknown
+**never borrows the OFF look**: it spins while loading, and shows the `AlertTriangle` glyph the banners
+already use for attention when the read failed — **no new colour** (the S2 palette ruling stands).
+`aria-pressed` is **omitted, not `false`**, when unknown: a toggle must not claim a state nobody told it.
+The enable POST is additionally gated on `bcsToggle !== "off"`, so an unknown state can never fall through
+to a write.
+
+`bcsSetupReason` is fed **SWR's real `error` / `isLoading`**, not this page's older
+`data === undefined / null` convention — which is what makes the error branch reachable at all. (That
+older convention is used at ~20 other call sites on this page and is **left alone**; see §5.)
+
+### 2. F3 — a comment that is false in the direction S3 will walk
+
+`bcsColumns.ts` and plan §3 both said the BCS endpoints *"do not acquire or check"* the single-editor
+concurrency lock. True of the three **setup** endpoints; **false of `save_row_bcs_rates`**, which imports
+`acquire_or_refresh` at `bcs.py:88` and calls it at `:472` — and that is precisely the endpoint S3 wires up.
+
+Both places now say **setup**, and both state positively that the **rate-save path DOES take the lock**.
+`bcs.py` was correct throughout and was **not edited**; only the frontend comment and the record were wrong.
+
+⚠️ The plan-§3 correction is written as **ERRATA**: the original sentence is quoted inside the correction
+rather than deleted, so the record still shows what S2 believed while the falsehood is neutralised. This is
+a deliberate, narrow departure from "never edit a record already written" — the standing rule protects
+history, and a *factual error aimed at the next slice* is the one thing it should not protect.
+
+### 3. The five minor findings
+
+- **F4 — a raw NUL byte** at the dup-key separator made the whole module read as **binary**: `file`
+  reported `data` and `grep` returned nothing without `-a`, so **audit and ratchet tooling silently skipped
+  every rule in the file**. Now `file` reports text and `grep` works unaided.
+- **F2 — the dup key coerced a null area to `""`** while the server keys the raw tuple, where `None != ""`.
+  Practically unreachable, but the **silent-unreachable direction**: the client refusing what the server
+  accepts. Both closed by **one** change — the key is now `JSON.stringify([value_field, value_key ?? null,
+  rate_subkey ?? null])`, which renders `null` and `""` distinctly (as the server does), is plain ASCII, and
+  removes the separator ambiguity a delimiter always carries.
+- **F7 — two dead types** (`SetBcsEnabledResponse`, `ConfirmBcsColumnsResponse`) → **DELETED**, not wired
+  up. Three reasons: the page *deliberately* discards both POST bodies and re-reads through `mutateBcs()`
+  because `is_ready` is server-authoritative; there is **no `useFrappePostCall<T>` generic anywhere on this
+  page** (19/19 untyped), so "using" them would invent a convention inside a findings-closing slice; and an
+  unreferenced interface has nothing pinning it to `bcs.py`, so it rots. The wire shapes stay documented in
+  the endpoint docstrings.
+- **F8/F9 — two non-discriminating assertions.** `/twice/i` **also matches** the duplicate-letter and
+  same-number refusals, so the mixed-rule tests passed whichever rule fired — they could not catch the
+  precedence regression they exist for. They now assert the mixing message's own words *and* that the two
+  preceding rules did **not** speak. Added the **qty-side class-before-mixed** precedence test that only the
+  amount side had.
+- **F10 — the card reset on sheet switch but not on version switch.** It is fed `columnDescriptors`, which
+  flip to the **history** version's descriptors on a version browse, while its Save still targets
+  `liveCommitVersion` — so it could offer a column the live-version save refuses. A **separate**
+  `[selectedVersion]` effect closes it (deliberately not folded into the `[sheetName]` block, whose other
+  resets — search, collapse, filters, classify state — must **not** fire on a version switch). `bcsToggling`
+  is left alone: it guards an in-flight POST against `liveCommitVersion`, which a version switch does not change.
+
+### 4. The owner's reasoning — the part that must survive
+
+**An unknown state is not an OFF state, and that is the whole finding.** S2's defect was not a wrong
+boolean; it was that *one expression* (`bcs_enabled === 1`) answered two different questions — "is BCS on?"
+and "what should this button look like?" — so absence of knowledge silently became knowledge of absence.
+`bcsToggleState` exists to make that collapse impossible to re-introduce. **S3 must read it rather than
+re-derive `bcs_enabled`** — an unknown state must not present as an empty, editable cost cell.
+
+**A stale payload behind a failed read is also unknown.** SWR keeps the last good `data` when a
+revalidation fails, so a payload can outlive its own truth. If the most recent read did not succeed we do
+not claim currency **in either direction** — including not claiming "on".
+
+**The chip and the banner stay silent when unknown, and that is correct.** The *lie* was the button
+claiming OFF; the chip's absence is merely **incomplete**. We cannot render columns we were never sent, and
+we must not assert "BCS needs columns" when nobody told us it does. Incomplete-but-honest beats
+complete-but-invented — and the button now carries the explanation for both.
+
+**The seam is `bcsColumns.ts`'s pure exported surface** (ADR-0010 F4). F1 happened precisely because a
+derivation lived inline in JSX, invisible to a repo with no DOM tests. Moving it behind a named pure
+function gives one small interface that the button variant, `aria-pressed`, the spinner, the write gate and
+S3's cost cells all share.
+
+### 5. Verification
+
+| Check | Command | Result |
+|---|---|---|
+| Unit tests (in-container) | `yarn test` | **1266 → 1279** (54 files, unchanged), all green. **+13** |
+| Red before green | `npx vitest run …/bcsColumns.test.ts` | RED **12 failed / 45 passed** → GREEN **57/57** |
+| Mutation proof (F8) | mixed rule emits a different `…twice…` message | **2 tests fail** — the old `/twice/i` would have passed |
+| Mutation proof (F9) | swap the class and mixed rules | **2 tests fail**, on **both** sides — pre-S2a only the amount side would have caught it |
+| Type-check | `npx tsc --noEmit` | **0 errors in `boq-wizard`** (baseline 0). Repo total **3236 → 3236**, unchanged |
+| Production build | `npx vite build` | clean; **0 tracked files changed** by the build |
+| Residence ratchet | `python3 scripts/residence_check.py` | B1 **0/0** · B2 **8/8** · B3 **40/40** · F5 **116/116** all holding; **F2 = 208 vs baseline 207** |
+| Scope | `git diff --stat` | 5 files, all in `files_in_scope`. `PricingGrid.tsx` **not** in the diff |
+
+**The residence F2 red is PRE-EXISTING and stays** (owner ruling 2026-08-02): it comes from the RM-4b Rate
+Master structure editor, not this arc. Measured at **208 on a clean tree before any edit in this slice, and
+208 after** — this slice added **zero**. The count is stated exactly, not as "still red", so a genuine
+increase to 209 would be unmistakably ours.
+
+**What no test here can cover, and needs a browser.** The repo has **no DOM test environment** (no jsdom,
+no testing-library — `vitest.config.ts` records the choice). The *rules* are fully unit-tested; every item
+below is a React **semantic** and is structurally untestable here, so a green suite says nothing about it:
+
+1. The button actually showing the **spinner** while `get_bcs_state` is in flight, and the **warning glyph**
+   after a failed read — rather than the OFF look. **This is the finding itself; it deserves the A/B.**
+   Force it by blocking the `get_bcs_state` request in DevTools on a sheet that is enabled and confirmed.
+2. The button being **unclickable** in that failed state (pre-S2a it was clickable).
+3. The confirmed **chip** and the amber **banner** staying absent while the state is unknown, and both
+   returning on a successful refetch.
+4. The card **closing** when the version ribbon switches version, and re-opening pre-filled afterwards.
+5. That the `React.memo(PricingGrid)` shield still bails — no grid prop was added or destabilised, so it
+   *should*, but "should" is the word that preceded T1 and T2. Confirm in the React DevTools Profiler.
+
+### 6. Deliberately NOT done
+
+- **The `!isGridOnly` gating — unchanged**, per the owner ruling: whether BCS belongs in grid-only mode is
+  unresolved and recon was out of scope.
+- **The residence F2 red — not fixed, not re-baselined**, per the owner ruling. Reported exactly (208).
+- **`PricingGrid.tsx` — untouched**, and still untouched by this whole arc. S3 owns it.
+- **Every backend file — untouched**, `bcs.py` included. The false statement was in the *frontend* comment
+  and the record; the backend was right.
+- **No doctype JSON, no migration.**
+- **The page's `data === undefined / null` loading convention — left alone at its ~20 other call sites.**
+  It looks inert against SWR (a rejected fetcher leaves `data` undefined and sets `error`, so
+  `pricedError` may never fire), but that is a **pre-existing, page-wide** question, not a BCS finding, and
+  widening into it would bury this slice. **Flagged for the owner as a separate recon.**
+- **`SheetPreviewFullResponse`** — a *third* unused interface noticed in `boqTypes.ts` while closing F7.
+  Left in place: it is not part of this arc and F7 named exactly two types.
+- **`BcsColumnsDialog.tsx` — in scope but unedited.** F10's fix is closing the card, not changing it; the
+  dialog already re-hydrates from the stored confirmation on every open.
+- **No BCS rate entry** — still nothing on this screen calls `save_row_bcs_rates`. S3.
