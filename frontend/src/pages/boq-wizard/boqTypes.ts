@@ -1788,3 +1788,76 @@ export interface GetBcsStateResponse {
 //
 // If a caller ever needs to READ one of these bodies, declare the shape then -- next to the code
 // that consumes it.
+
+// ── BCS-S3a: the COST-ENTRY wire shapes ──────────────────────────────────────────
+// The RULES (which boxes a sheet gets, what a Total reads, when a box is writable) live in the
+// pure `bcsColumns.ts`. These are only what crosses the wire, so `bcsColumns` and `undoHistory`
+// can both name them without either importing the other.
+
+/**
+ * The three stored cost fields, spelled EXACTLY as `save_row_bcs_rates` names its arguments.
+ * `combined_rate` is NOT a total of the other two (`bcs.py:16`) -- never sum it with them.
+ */
+export type BcsRateField = "supply_rate" | "install_rate" | "combined_rate";
+
+/**
+ * ⚠️ THE WHOLE-ROW SNAPSHOT. `save_row_bcs_rates` takes all three together and writes 0.0 for
+ * any it is not given (`bcs.py` `_num`), so this type exists to make a partial write
+ * unrepresentable: there is no shape in which a caller can send one rate and leave the others
+ * to chance. Built in exactly one place -- `bcsColumns.gatherBcsRowRates`.
+ */
+export interface BcsRowRates {
+  supply_rate: number;
+  install_rate: number;
+  combined_rate: number;
+}
+
+/**
+ * Per-ROW cost save args the PricingGrid hands up to the page's onSaveBcsRates. The grid
+ * supplies the row identity + the gathered triple; the page fills boq_name / sheet_name /
+ * committed_version and POSTs `save_row_bcs_rates`. Mirrors RemarkSaveArgs -- BCS identity is
+ * per-ROW, with no col_letter at all (the cost columns are screen-only, with no Excel origin).
+ */
+export interface BcsRowSaveArgs {
+  /** row.source_row_number (the Excel row). */
+  excelRow: number;
+  /** ALL THREE rates -- see BcsRowRates on why a partial payload is not expressible. */
+  rates: BcsRowRates;
+  /** row.description -- stored on the BCS record for the same re-resolvability the other
+   *  layers keep (optional, sent when present). */
+  description?: string;
+}
+
+/** One CURRENT stored cost row, as `bcs.get_sheet_bcs_rates` returns it (`_BCS_READ_FIELDS`). */
+export interface BcsRowRate {
+  name: string;
+  boq: string;
+  sheet_name: string;
+  excel_row: number;
+  committed_version: number;
+  node: string | null;
+  description: string | null;
+  supply_rate: number | null;
+  install_rate: number | null;
+  combined_rate: number | null;
+  is_filled: 0 | 1;
+  rate_source: string | null;
+  bcs_version: number;
+  is_current: 0 | 1;
+  bcs_rated_at: string | null;
+  carried_from_boq: string | null;
+  carried_from_version: number | null;
+  carried_at: string | null;
+}
+
+/**
+ * Response shape of `bcs.get_sheet_bcs_rates` -- every CURRENT cost row for one committed
+ * sheet+version. The stored INPUTS only: Total Amount and % Profit are computed by the reader
+ * and never stored, so a stored copy can never disagree with the live sheet.
+ */
+export interface GetSheetBcsRatesResponse {
+  boq: string;
+  sheet_name: string;
+  committed_version: number;
+  rows: BcsRowRate[];
+}

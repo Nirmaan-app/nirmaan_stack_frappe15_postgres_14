@@ -8,6 +8,7 @@ import {
   rectDims,
   shapesMatch,
   classifyPasteTarget,
+  foldBcsWrites,
 } from "./clipboard";
 
 describe("selectionRect", () => {
@@ -116,5 +117,103 @@ describe("classifyPasteTarget (all three verdicts)", () => {
   it("cross-kind beats the priceability check (kind is checked first)", () => {
     // rate clipboard, remark target, even with isRateWritable true -> cross-kind, never priceable.
     expect(classifyPasteTarget("rate", "remark", true)).toBe("SKIP_CROSS_KIND");
+  });
+
+  // ── BCS-S3a: the cost boxes are a THIRD kind ─────────────────────────────────
+  it("WRITE: bcs clipboard onto a writable bcs target", () => {
+    expect(classifyPasteTarget("bcs", "bcs", true)).toBe("WRITE");
+  });
+
+  it("SKIP_NOT_COSTABLE: bcs clipboard onto a bcs target that cannot be written", () => {
+    // Its OWN verdict, not SKIP_NON_PRICEABLE: a cost box is refused by the BCS gates
+    // (locked / not set up), never by priceability, so borrowing that word would put a
+    // wrong reason in the paste summary.
+    expect(classifyPasteTarget("bcs", "bcs", false)).toBe("SKIP_NOT_COSTABLE");
+  });
+
+  it("SKIP_CROSS_KIND: a cost value never lands in a rate, remark or Total cell", () => {
+    expect(classifyPasteTarget("bcs", "rate", true)).toBe("SKIP_CROSS_KIND");
+    expect(classifyPasteTarget("bcs", "remark", true)).toBe("SKIP_CROSS_KIND");
+    // The Total Amount column is computed, so it classifies as "other" and is never a target.
+    expect(classifyPasteTarget("bcs", "other", true)).toBe("SKIP_CROSS_KIND");
+  });
+
+  it("SKIP_CROSS_KIND: a rate or remark never lands in a cost box either", () => {
+    expect(classifyPasteTarget("rate", "bcs", true)).toBe("SKIP_CROSS_KIND");
+    expect(classifyPasteTarget("remark", "bcs", true)).toBe("SKIP_CROSS_KIND");
+  });
+});
+
+describe("foldBcsWrites -- N cost cells become ONE whole-row save per row", () => {
+  // ⚠️ THE ROW-VS-CELL SHAPE. save_row_bcs_rates is a WHOLE-ROW snapshot write that zeroes
+  // any rate it is not given, so a paste spanning several cost columns must gather each row's
+  // siblings into ONE call. Firing per cell would have the second call overwrite the first
+  // with a 0 for the column the first had just written.
+  const base = () => ({ supply_rate: 0, install_rate: 0, combined_rate: 0 });
+
+  it("folds two columns of one row into a single write carrying both", () => {
+    const writes = foldBcsWrites(
+      [
+        { excelRow: 7, field: "supply_rate", value: 100, description: "Cable" },
+        { excelRow: 7, field: "install_rate", value: 40, description: "Cable" },
+      ],
+      base,
+    );
+    expect(writes).toEqual([
+      {
+        kind: "bcs",
+        args: {
+          excelRow: 7,
+          description: "Cable",
+          rates: { supply_rate: 100, install_rate: 40, combined_rate: 0 },
+        },
+      },
+    ]);
+  });
+
+  it("keeps one write PER ROW, in first-touched order", () => {
+    const writes = foldBcsWrites(
+      [
+        { excelRow: 9, field: "supply_rate", value: 1 },
+        { excelRow: 7, field: "supply_rate", value: 2 },
+        { excelRow: 9, field: "install_rate", value: 3 },
+      ],
+      base,
+    );
+    expect(writes.map((w) => w.args.excelRow)).toEqual([9, 7]);
+    expect(writes[0].args.rates).toEqual({ supply_rate: 1, install_rate: 3, combined_rate: 0 });
+    expect(writes[1].args.rates).toEqual({ supply_rate: 2, install_rate: 0, combined_rate: 0 });
+  });
+
+  it("starts each row from ITS OWN current values, so untouched siblings survive", () => {
+    const writes = foldBcsWrites([{ excelRow: 7, field: "supply_rate", value: 100 }], (r) =>
+      r === 7 ? { supply_rate: 5, install_rate: 40, combined_rate: 77 } : base(),
+    );
+    expect(writes[0].args.rates).toEqual({
+      supply_rate: 100,
+      install_rate: 40, // <- would be 0 under a per-cell save
+      combined_rate: 77, // <- a field this sheet offers no box for is still not stranded
+    });
+  });
+
+  it("lets a later entry win for the same field (a fill-down over its own source)", () => {
+    const writes = foldBcsWrites(
+      [
+        { excelRow: 7, field: "supply_rate", value: 1 },
+        { excelRow: 7, field: "supply_rate", value: 2 },
+      ],
+      base,
+    );
+    expect(writes).toHaveLength(1);
+    expect(writes[0].args.rates.supply_rate).toBe(2);
+  });
+
+  it("writes nothing for an empty gesture", () => {
+    expect(foldBcsWrites([], base)).toEqual([]);
+  });
+
+  it("omits an absent description rather than sending an empty one", () => {
+    const writes = foldBcsWrites([{ excelRow: 7, field: "supply_rate", value: 1 }], base);
+    expect(writes[0].args.description).toBeUndefined();
   });
 });

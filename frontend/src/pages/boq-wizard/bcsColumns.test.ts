@@ -20,9 +20,20 @@
 import { describe, expect, it } from "vitest";
 import type { ColumnDescriptor } from "./boqTypes";
 import {
+  BCS_RATE_FIELD,
+  BCS_RATE_LABEL,
   bcsChipLabel,
+  bcsColumnAt,
+  bcsColumnKeys,
   bcsColumnLabel,
+  bcsCostEntryReason,
+  bcsLiveRateKinds,
+  bcsRowQuantity,
   bcsSelectionSaveable,
+  bcsTotalAmount,
+  bcsUnitCost,
+  gatherBcsRowRates,
+  mergeBcsRowValues,
   bcsSetupReason,
   bcsSourceCols,
   bcsStoredSummary,
@@ -916,5 +927,313 @@ describe("reading a stored confirmation", () => {
     };
     expect(bcsChipLabel(qty, null)).toBe("");
     expect(bcsChipLabel(null, null)).toBe("");
+  });
+});
+
+// ===========================================================================
+// Group 8 (BCS-S3a): COST ENTRY -- which boxes exist, what a save carries,
+// and what the Total Amount reads
+// ===========================================================================
+//
+// S1-S2d built storage, rules, a toggle and a confirmation card. Nothing was usable. These
+// tests cover the four pure decisions that make it usable, and the FIRST of them is the one
+// that would have shipped a silent data-loss bug: `save_row_bcs_rates` is a WHOLE-ROW
+// snapshot write (bcs.py:444-536) that writes 0.0 for any rate it is not given, so wiring
+// three boxes the way a client rate cell is wired -- one independent debounced save per box --
+// would zero the siblings on every keystroke.
+
+describe("bcsLiveRateKinds -- which cost boxes a sheet gets", () => {
+  const rateCol = (col: string, role: string, value_field: string) =>
+    scalar(col, role, value_field);
+  const rateArea = (col: string, area: string, subkey: string) => ({
+    col,
+    role: `rate_${subkey}_by_area`,
+    area,
+    value_field: "rate_by_area",
+    value_key: area,
+    rate_subkey: subkey,
+  });
+
+  it("gives a split sheet a Supply box and an Install box", () => {
+    expect(
+      bcsLiveRateKinds([
+        rateCol("E", "rate_supply", "rate_supply"),
+        rateCol("F", "rate_install", "rate_install"),
+      ]),
+    ).toEqual(["supply", "install"]);
+  });
+
+  it("gives a sheet with no Rate (Supply) column no Supply box", () => {
+    expect(bcsLiveRateKinds([rateCol("F", "rate_install", "rate_install")])).toEqual(["install"]);
+  });
+
+  it("gives a combined-rate sheet ONE undifferentiated box", () => {
+    expect(bcsLiveRateKinds([rateCol("E", "rate_combined", "rate_combined")])).toEqual([
+      "combined",
+    ]);
+  });
+
+  it("reads the per-area rate columns through rate_subkey, not just the scalar fields", () => {
+    expect(
+      bcsLiveRateKinds([rateArea("E", "Zone A", "supply"), rateArea("F", "Zone A", "install")]),
+    ).toEqual(["supply", "install"]);
+    // The per-area COMBINED subkey is "total", mirroring PER_AREA_AMOUNT_TO_RATE_KIND.
+    expect(bcsLiveRateKinds([rateArea("E", "Zone A", "total")])).toEqual(["combined"]);
+  });
+
+  it("does not mint a box from an amount or a quantity column", () => {
+    expect(bcsLiveRateKinds(SHEET.filter((d) => d.value_field !== "rate_combined"))).toEqual([]);
+  });
+
+  it("gives a sheet with no rate column at all NO cost boxes -- BCS cannot be done there", () => {
+    expect(bcsLiveRateKinds([scalar("D", "qty_total", "qty_total")])).toEqual([]);
+  });
+
+  it("THE HALVES WIN on a sheet that maps a combined rate BESIDE them", () => {
+    // MEASURED, not hypothetical: 22 of 553 current committed sheets carry all three rate
+    // kinds (Supply | Install | Total Rate is an ordinary BoQ layout). bcs.py:16 forbids
+    // summing combined_rate with the two halves, so the live set must never contain both --
+    // and the halves carry strictly more information than the total that contains them,
+    // exactly as the AMOUNT side rules a total-beside-its-half a double count.
+    expect(
+      bcsLiveRateKinds([
+        rateCol("E", "rate_supply", "rate_supply"),
+        rateCol("F", "rate_install", "rate_install"),
+        rateCol("G", "rate_combined", "rate_combined"),
+      ]),
+    ).toEqual(["supply", "install"]);
+  });
+
+  it("never returns a set that mixes combined with a half, whatever the column order", () => {
+    for (const order of [
+      ["rate_combined", "rate_supply"],
+      ["rate_supply", "rate_combined"],
+      ["rate_combined", "rate_install"],
+    ]) {
+      const kinds = bcsLiveRateKinds(
+        order.map((vf, i) => rateCol(String.fromCharCode(69 + i), vf, vf)),
+      );
+      expect(kinds.includes("combined") && kinds.length > 1).toBe(false);
+    }
+  });
+
+  it("orders the boxes canonically (supply, install) regardless of Excel column order", () => {
+    expect(
+      bcsLiveRateKinds([
+        rateCol("F", "rate_install", "rate_install"),
+        rateCol("E", "rate_supply", "rate_supply"),
+      ]),
+    ).toEqual(["supply", "install"]);
+  });
+});
+
+describe("mergeBcsRowValues + gatherBcsRowRates -- THE WHOLE-ROW GATHER", () => {
+  // save_row_bcs_rates takes supply/install/combined TOGETHER and coerces every absent one
+  // to 0.0 (bcs.py `_num`, pinned by test_bcs.py:1013-1024). So every save must carry the
+  // row's CURRENT draft-or-saved value for ALL THREE, not just the box that changed.
+
+  it("carries the untouched siblings' SAVED values when one box is edited", () => {
+    const saved = { supply_rate: 100, install_rate: 40, combined_rate: 0 };
+    const merged = mergeBcsRowValues(saved, { supply_rate: "150" });
+    expect(gatherBcsRowRates(merged)).toEqual({
+      supply_rate: 150,
+      install_rate: 40, // <- would have been 0.0 under a per-cell save
+      combined_rate: 0,
+    });
+  });
+
+  it("prefers a live draft over the saved value, per field", () => {
+    const saved = { supply_rate: 100, install_rate: 40, combined_rate: 0 };
+    const merged = mergeBcsRowValues(saved, { supply_rate: "150", install_rate: "55" });
+    expect(gatherBcsRowRates(merged)).toEqual({
+      supply_rate: 150,
+      install_rate: 55,
+      combined_rate: 0,
+    });
+  });
+
+  it("PRESERVES a stored value for a field this sheet no longer offers a box for", () => {
+    // bcs.py:455 -- "a sheet that changes shape must never strand a number it already holds,
+    // and a write that silently blanked the other field would do exactly that."
+    const saved = { supply_rate: 0, install_rate: 0, combined_rate: 77 };
+    const merged = mergeBcsRowValues(saved, { supply_rate: "12" });
+    expect(gatherBcsRowRates(merged).combined_rate).toBe(77);
+  });
+
+  it("treats a CLEARED box as 0, not as absent", () => {
+    const saved = { supply_rate: 100, install_rate: 40, combined_rate: 0 };
+    const merged = mergeBcsRowValues(saved, { supply_rate: "" });
+    expect(gatherBcsRowRates(merged).supply_rate).toBe(0);
+    expect(gatherBcsRowRates(merged).install_rate).toBe(40);
+  });
+
+  it("starts a never-costed row at all-absent, and a first edit still sends all three", () => {
+    expect(mergeBcsRowValues(undefined, {})).toEqual({
+      supply_rate: null,
+      install_rate: null,
+      combined_rate: null,
+    });
+    expect(gatherBcsRowRates(mergeBcsRowValues(undefined, { supply_rate: "9" }))).toEqual({
+      supply_rate: 9,
+      install_rate: 0,
+      combined_rate: 0,
+    });
+  });
+
+  it("coerces a partial decimal to 0 rather than NaN (mirrors commitRate)", () => {
+    const merged = mergeBcsRowValues(undefined, { supply_rate: "-", install_rate: "." });
+    expect(gatherBcsRowRates(merged)).toEqual({
+      supply_rate: 0,
+      install_rate: 0,
+      combined_rate: 0,
+    });
+  });
+
+  it("reads a null stored field as 0, never as absent", () => {
+    const merged = mergeBcsRowValues(
+      { supply_rate: null, install_rate: 40, combined_rate: null },
+      {},
+    );
+    expect(merged.supply_rate).toBe("0");
+    expect(gatherBcsRowRates(merged).supply_rate).toBe(0);
+  });
+});
+
+describe("bcsUnitCost + bcsRowQuantity + bcsTotalAmount -- what Total Amount reads", () => {
+  it("sums only the LIVE kinds", () => {
+    const merged = mergeBcsRowValues(
+      { supply_rate: 100, install_rate: 40, combined_rate: 999 },
+      {},
+    );
+    expect(bcsUnitCost(merged, ["supply", "install"])).toBe(140);
+    expect(bcsUnitCost(merged, ["combined"])).toBe(999);
+  });
+
+  it("is BLANK, not 0, when nothing has been entered for any live kind", () => {
+    expect(bcsUnitCost(mergeBcsRowValues(undefined, {}), ["supply", "install"])).toBeNull();
+  });
+
+  it("is 0 -- not blank -- once a row is genuinely costed at zero", () => {
+    const merged = mergeBcsRowValues({ supply_rate: 0, install_rate: 0, combined_rate: 0 }, {});
+    expect(bcsUnitCost(merged, ["supply", "install"])).toBe(0);
+  });
+
+  it("adds up the confirmed quantity columns, whatever the mode", () => {
+    const source = {
+      mode: "qty_by_area",
+      columns: [
+        { col: "B", role: "qty", area: "Zone A", value_field: "qty_by_area", value_key: "Zone A", rate_subkey: null },
+        { col: "C", role: "qty", area: "Zone B", value_field: "qty_by_area", value_key: "Zone B", rate_subkey: null },
+      ],
+    };
+    const vals: Record<string, unknown> = { B: 10, C: 5 };
+    expect(bcsRowQuantity(source, (e) => vals[e.col])).toBe(15);
+  });
+
+  it("treats one absent per-area quantity as 0, but a row with NO quantity at all as blank", () => {
+    const source = {
+      mode: "qty_by_area",
+      columns: [
+        { col: "B", role: "qty", area: "Zone A", value_field: "qty_by_area", value_key: "Zone A", rate_subkey: null },
+        { col: "C", role: "qty", area: "Zone B", value_field: "qty_by_area", value_key: "Zone B", rate_subkey: null },
+      ],
+    };
+    expect(bcsRowQuantity(source, (e) => (e.col === "B" ? 10 : undefined))).toBe(10);
+    expect(bcsRowQuantity(source, () => undefined)).toBeNull();
+  });
+
+  it("is blank with no confirmation at all -- never 0", () => {
+    expect(bcsRowQuantity(null, () => 5)).toBeNull();
+    expect(bcsRowQuantity({ mode: "qty_total", columns: [] }, () => 5)).toBeNull();
+  });
+
+  it("multiplies quantity by the per-unit cost, and stays blank if either side is blank", () => {
+    expect(bcsTotalAmount(10, 140)).toBe(1400);
+    expect(bcsTotalAmount(null, 140)).toBeNull();
+    expect(bcsTotalAmount(10, null)).toBeNull();
+    expect(bcsTotalAmount(10, 0)).toBe(0);
+  });
+});
+
+describe("bcsCostEntryReason -- the parallel gate, in save_row_bcs_rates' OWN order", () => {
+  // DELIBERATELY NOT the rate gate: save_row_bcs_rates runs FOUR gates (committed cell ->
+  // sheet not locked -> BCS ready -> single-editor lock) and SKIPS the formula, priceability
+  // and category gates on purpose (bcs.py:41-59). Reusing rateWritableAt here would silently
+  // re-impose all three.
+  const ok = {
+    sheetLoading: false,
+    sheetError: false,
+    committedVersion: 3,
+    viewingHistory: false,
+    sheetLocked: false,
+    editorLocked: false,
+    bcsToggle: "on" as const,
+    bcsReady: true,
+  };
+
+  it("permits cost entry when every BCS gate is clear", () => {
+    expect(bcsCostEntryReason(ok)).toBeNull();
+  });
+
+  it("refuses on an uncommitted sheet, an earlier version, and a locked sheet", () => {
+    expect(bcsCostEntryReason({ ...ok, committedVersion: null })).toMatch(/not committed/i);
+    expect(bcsCostEntryReason({ ...ok, viewingHistory: true })).toMatch(/earlier version/i);
+    expect(bcsCostEntryReason({ ...ok, sheetLocked: true })).toMatch(/locked/i);
+  });
+
+  it("refuses while BCS is off, unconfirmed, or unreadable -- and says which", () => {
+    expect(bcsCostEntryReason({ ...ok, bcsToggle: "off" })).toMatch(/off/i);
+    expect(bcsCostEntryReason({ ...ok, bcsReady: false })).toMatch(/confirm/i);
+    expect(bcsCostEntryReason({ ...ok, bcsToggle: "unknown" })).toMatch(/could not be read/i);
+  });
+
+  it("puts the single-editor lock LAST, exactly where bcs.py runs it", () => {
+    // A sheet that is BOTH unconfirmed and held by another editor must name the
+    // confirmation -- that is the gate the server hits first, and the one the user can act on.
+    expect(bcsCostEntryReason({ ...ok, bcsReady: false, editorLocked: true })).toMatch(/confirm/i);
+    expect(bcsCostEntryReason({ ...ok, editorLocked: true })).toMatch(/editing/i);
+  });
+
+  it("does NOT consult the formula, priceability or category gates", () => {
+    // The negative that keeps the asymmetry honest: nothing in the argument shape can express
+    // them, so a future 'restore consistency with save_cell_price' edit fails to compile.
+    expect(Object.keys(ok)).not.toContain("formulasComplete");
+    expect(Object.keys(ok)).not.toContain("categoryGateOpen");
+  });
+});
+
+describe("the BCS column block -- keys and geometry", () => {
+  it("adds ONE Total Amount column after the cost boxes", () => {
+    expect(bcsColumnKeys(["supply", "install"])).toEqual([
+      "bcs:supply",
+      "bcs:install",
+      "bcs:total",
+    ]);
+    expect(bcsColumnKeys(["combined"])).toEqual(["bcs:combined", "bcs:total"]);
+  });
+
+  it("renders NO block at all -- not even a Total -- when the sheet has no cost box", () => {
+    expect(bcsColumnKeys([])).toEqual([]);
+  });
+
+  it("places each column by its offset from the block start, and nothing outside it", () => {
+    const kinds = ["supply", "install"] as const;
+    expect(bcsColumnAt(9, 10, kinds)).toBeNull();
+    expect(bcsColumnAt(10, 10, kinds)).toBe("supply");
+    expect(bcsColumnAt(11, 10, kinds)).toBe("install");
+    expect(bcsColumnAt(12, 10, kinds)).toBe("total");
+    expect(bcsColumnAt(13, 10, kinds)).toBeNull();
+  });
+
+  it("places nothing anywhere when the block is empty", () => {
+    expect(bcsColumnAt(10, 10, [])).toBeNull();
+  });
+
+  it("names each box for the rate column it costs against", () => {
+    expect(BCS_RATE_LABEL.supply).toMatch(/supply/i);
+    expect(BCS_RATE_LABEL.install).toMatch(/install/i);
+    expect(BCS_RATE_FIELD.supply).toBe("supply_rate");
+    expect(BCS_RATE_FIELD.install).toBe("install_rate");
+    expect(BCS_RATE_FIELD.combined).toBe("combined_rate");
   });
 });
