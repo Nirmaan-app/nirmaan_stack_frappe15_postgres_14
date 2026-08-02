@@ -19061,3 +19061,186 @@ a test, a JSON fixture, or a comment. **No owner's-eyes item.**
   this slice only corrected its address.
 - **The F2 red was not re-baselined**, only held at delta zero. Still the owner's call.
 - **No commit was amended or re-typed.** §7 records the mistype instead.
+
+## PE-SPIN-1 — the pricing editor stops spinning forever on a failed load
+
+**Branch** `feature/bcs-columns` · **Base** `6890f4ba` · **Tier** FULL · **Date** 2026-08-03
+
+**REVIEW: pending**
+
+`SheetPricingPage` decided whether its own data was loading or failed by inspecting the SWR
+payload alone. SWR never reports failure that way, so on a real network error or a 500 the page
+showed a **permanent spinner and never an error** — users reported it as "the page is stuck".
+The derivation now reads SWR's real `error`, lives in a tested pure module, and all 23 gating
+sites route through it. What did NOT change: no backend file, no `PricingGrid` prop, no early
+return, no migration, and none of the BCS cost/margin wiring this page just gained.
+
+---
+
+### 1. The defect, exactly
+
+Two consts at `SheetPricingPage.tsx:1638-1639` were the whole of it:
+
+```
+pricedLoading = (data === undefined)
+pricedError   = (data === null)
+```
+
+`useFrappeGetCall` is `useSWR(key, () => call.get(method, params))`, and `call.get`
+(`frappe-js-sdk/lib/call/index.js:75-83`) resolves with `res.data` — the parsed HTTP body — and
+**throws** on a non-2xx. So SWR leaves `data` `undefined` on a first-load failure, or **retains
+the last good body** on a failed revalidation, and reports the failure on `error`. Nothing on the
+page read `error`.
+
+The failure therefore ran in **both** directions:
+
+| Situation | Old behaviour | Why it was bad |
+|---|---|---|
+| First load fails (network / 500) | `pricedLoading` true **forever** | Permanent spinner, no error, nothing to diagnose |
+| Revalidation fails (e.g. the `mutate()` after a rate save) | rows keep rendering as current | The failure was invisible; the grid silently lied |
+
+**⚠️ A CORRECTION TO THE BRIEF, established from source rather than assumed.** The slice was
+opened on the understanding that `pricedError` was "not entirely dead — Frappe returns
+`message: null` when an endpoint returns `None`, so it fires on *the server returned nothing*".
+**That is wrong, and the direction of the error matters.** `data` is the *whole body*, so a null
+return produces `{"message": null}` — an object, never `null`. `data === null` required the HTTP
+body itself to be literally `null`, which Frappe does not emit. `pricedError` was **entirely
+unreachable**, not partly reachable.
+
+The condition it was reaching for is real, but it sits one level down on `message`, and it was
+*also* unhandled: a null `message` fell through as "loaded" and rendered an **empty, editable
+grid**. So the old rule had three states collapsed into two, and got both of them wrong.
+
+### 2. The seam, and why it is there
+
+The seam is **the boundary between SWR's raw per-fetch signals and every gating decision on the
+page**. It already existed conceptually; it just had no name and no address — it was two inline
+ternaries in a component's JSX scope.
+
+That placement is the actual root cause, not a side note. **This repo has no DOM test
+environment** (deliberate, recorded in `vitest.config.ts`), so a derivation living inside a
+component body is *structurally* untestable here. The rule was invisible to every instrument the
+project owns, which is how a permanent spinner survived unexamined for months. Giving the seam a
+file (`pricingLoadState.ts`) is what makes it a thing tests can disagree with.
+
+The shape is **borrowed, not invented**: `bcsToggleState` (`bcsColumns.ts`, BCS-S2a) settled the
+same argument for the BCS control — *absence of knowledge is not knowledge of absence, and a
+stale payload behind a failed read is not current*. PE-SPIN-1 applies that ruling to the fetch the
+whole page gates on.
+
+### 3. What was built
+
+**`pricingLoadState.ts`** (new, pure, zero React imports) — `pricingLoadState(signals)` plus
+`activePricingLoadState({viewingHistory, live, history})`. Five states in precedence order:
+
+| Status | Condition | What the user gets |
+|---|---|---|
+| `stale` | `error` **and** usable content in hand | The grid **still renders**, above an amber strip saying it may be out of date, with Retry |
+| `error` | `error` and nothing worth showing | A destructive-bordered panel + **Try again** |
+| `loading` | no data, no error | The spinner — now meaning a load genuinely *in progress* |
+| `empty` | a response arrived with `message` null/absent | The `empty` wording, treated as a failure |
+| `ready` | payload, no error | The grid, **silently** (`message` is null) |
+
+The interface stayed deliberately small: the four booleans (`isLoading` / `isFailed` / `isUsable`
+/ `isStale`) exist so **no call site re-derives** `status === "ready"` inline — that re-derivation
+is precisely how these distinctions collapse back into each other one site at a time, which is
+the warning `bcsToggleState` already carries. The five returned objects are **module-level
+singletons**, so the function is reference-stable per status and can never contribute a fresh
+object to a downstream memo.
+
+**`SheetPricingPage.tsx`** — `error` destructured on **both** sheet fetches (`get_priced_rows` and
+`get_version_priced_rows`; the history one also gains `mutate` so Retry re-runs the fetch actually
+on screen), and **all 23 sites** converted. The brief estimated ~17; the real number is 23, in
+five shapes:
+
+| Shape | Count | Change |
+|---|---|---|
+| Toolbar `disabled={pricedLoading \|\| pricedError \|\| …}` | 12 | → `!sheetLoad.isUsable` |
+| Banner/panel gates `!pricedLoading && !pricedError` | 5 | → `sheetLoad.isUsable` |
+| Render fork (spinner / error / grid) | 3 | Rewritten — see below |
+| `bcsSetupReason` + `bcsCostEntryReason` args | 2 | → `isLoading` / `isFailed` |
+| `suggestRatesReason` | 1 | Split: it answered **"Loading…"** to a *failed* load |
+
+That last one is the page-level lie repeated in a tooltip, and it is why "do every site" was the
+right instruction: a page that fails differently depending on which fetch broke is worse than one
+that fails uniformly, because it is unpredictable.
+
+### 4. The owner's reasoning — the part that must survive
+
+**(a) "Server returned nothing" reads as a FAILURE, not as an empty sheet.** `get_priced_rows` is
+annotated `-> dict` and always returns a payload for a committed sheet, so a null `message` means
+something upstream went wrong. Rendering an empty *editable* grid would invite a user to price a
+sheet whose rows we simply failed to read — absence of knowledge presenting as knowledge of
+absence, the exact failure this module exists to stop. It keeps its **own wording**, because "the
+network failed" and "this sheet may not be committed" send a person to different places. The
+retired copy ("Check that this sheet has been committed") was describing *this* case all along,
+so it was inherited here rather than deleted.
+
+**(b) `stale` exists so the fix does not trade one harm for another.** Without it there were only
+two options and both were wrong: *error wins* would let one transient failed `mutate()` — which
+fires after **every rate save** — destroy a live editing session; *data wins* would leave the
+failed-revalidation half of the bug exactly as it was. `stale` is the honest third thing: show
+the rows, keep the session, and say plainly they may be out of date. This is the same
+"unknown never impersonates loaded or loading" rule, applied where content already exists.
+
+**(c) The interface carries booleans, not just a status,** because a small interface is not the
+same as a *bare* one. Twelve sites need "is this usable"; making each of them spell out a
+comparison against the union would re-scatter the rule immediately.
+
+### 5. Verification
+
+| Check | Result |
+|---|---|
+| `yarn test` (in-container) | **1438 → 1451** (+13), files **54 → 55**, all pass |
+| Red-before-green | Shown: the module was absent (`Cannot find module './pricingLoadState'`), then 13/13 green |
+| `tsc --noEmit`, `boq-wizard` | **0** errors, unchanged |
+| `test_sources` | Ran **62** — OK |
+| `test_bcs` | Ran **64** — OK |
+| `test_export_writeback` | Ran **47** — OK |
+| `test_pricing` | Ran **252** — OK |
+| `test_commit_pipeline` | Ran **57** — OK |
+| `test_review_screen` | Ran **260** — OK |
+| `git diff --stat` | 3 files, +440 / −47 |
+
+`python3 scripts/residence_check.py` — B3 40/40 ✓, B1 0/0 ✓, B2 8/8 ✓, F5 116/116 ✓,
+**F2 208 vs baseline 207 ✗**. **The gate EXITS 1.** That red is **pre-existing and this slice's
+delta is exactly zero** — verified, not assumed: F2 counts lines matching `JSON.parse` under
+`frontend/src/pages`, and all three touched files contain **zero** (`SheetPricingPage.tsx` had
+zero at base `6890f4ba` and has zero now). Re-baselining remains the owner's call.
+
+**⚠️ WHAT NO TEST HERE COVERS.** The 13 new tests pin the **derivation**. They **cannot** observe
+the thing a user actually complained about — that the page now renders an error instead of
+spinning — because there is no DOM test environment, and a component's render is a React
+semantic. That half is **live-check only**:
+
+1. **Reproduce the original.** DevTools → Network → **Offline**, then open
+   `/upload-boq/hub/<boq>/pricing/<sheet>`. Before: spinner forever. Now: the error panel with
+   **Try again**.
+2. **Retry works.** Back to **Online**, click *Try again* → the grid loads.
+3. **The stale path.** Load the sheet normally, then go **Offline** and edit a rate (the save's
+   `mutate()` fails) → the grid **stays on screen** under the amber "may be out of date" strip.
+4. **Block one endpoint only.** DevTools → Network → block `*get_priced_rows*` → error panel;
+   confirm the toolbar buttons are disabled rather than live over absent data.
+5. **History mode.** Select an earlier version with the network blocked → the *history* fetch's
+   failure must surface (a healthy live fetch must not mask it).
+6. **No regression:** a normal load is **silent** — no strip, no banner, grid as before; and the
+   BCS cost columns / margin totals behave exactly as at `6890f4ba`.
+
+### 6. Recorded, deliberately NOT fixed
+
+- **The `setInFlight` leak** (`SheetPricingPage.tsx`, `handleBatchWrite`'s `finally`):
+  `setInFlight((n) => n - 1)` sits **after** the awaits, so a throwing `mutate()` skips it
+  forever — the save chip then sticks on *"Saving…"* for the rest of the session and the sibling
+  *"Saved N of M"* message is swallowed on the same path. Real user cost, **different defect
+  class** (a counter-lifetime bug, not a state-derivation one). Left untouched by instruction.
+- **`PricingGrid.tsx:789`'s double cast** — still waiting for a slice with `reviewRender.tsx` in
+  scope.
+- **`scripts/` — untouched entirely.** `residence_check.py` *can* rewrite
+  `scripts/residence_baseline.json` on a decrease, so its md5 was captured before and after the
+  run and confirmed identical. The irreplaceable untracked files (`review_receipt.py`,
+  `prompt_lint.py`) are never written by it.
+- **The F2 red was not re-baselined**, only held at delta zero.
+- **No other page was converted.** The same `data === undefined` convention very likely exists on
+  sibling pages; establishing where is a survey, not this slice.
+- **`PricingGrid`, `bcsColumns.ts`, every backend file and the carry path** — out of scope and
+  untouched.
