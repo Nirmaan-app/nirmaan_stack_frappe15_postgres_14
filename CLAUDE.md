@@ -556,6 +556,37 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   `unsupported` status, page + helper NEVER hit the error boundary. The Data-Viewer **empty-scope** rule
   (`rateMasterStructure.isCategoryDataScopeEmpty`): a kind-less category renders an honest empty state (0 rows,
   note, no Add-row), NEVER the discipline-wide all-items list; LMS (declares `item_kinds`) is unchanged.
+- **Estimator `rules` (EA-4 ext-a, owner-authored config data; full as-built + the four rules verbatim in
+  the plan doc's "Build slice EA-4 ext-a"):** a category config may carry a top-level `rules` array
+  (`{id, label, applies_to, guidance}`) of OWNER-AUTHORED estimator guidance. It is a `_KNOWN_CONFIG_KEYS`
+  pass-through key, read into the extraction context **UNGATED** (unlike `slot_spec` /
+  `decomposition_rules`, which are composite-only — R7 lands on `cabletray_raceway`, an ordinary
+  attribute category) and injected as an `ESTIMATOR_RULES` prompt block beside SYNONYMS / DEFAULTS.
+  **NO interpreter change; absent key => byte-identical prompt.** The guidance text is the contract —
+  it is passed through VERBATIM and nothing in the app rewords it. Rendered read-only on the Derivation
+  tab, with an explicit "No rules configured for this category." empty state (that tab had no
+  empty-state precedent). Live: `db_switchgear` R2/R3/R4, `cabletray_raceway` R7.
+- **`_validate_config` must not be stricter than the interpreter (EA-4 ext-a).** Three shapes the
+  interpreter explicitly executes are valid config and must stay accepted: a `component` with **no
+  `params`** (a conditional component carries them per-condition), a `component` with **no `target`**
+  (a param-only formula reads no price off the matched row; present-but-blank is still an error), and a
+  **`*_from_attr` param holding a STRING** (an attribute-id binding — scoped to that suffix ONLY; any
+  other param carrying a string still raises). Before this, `cabletray_raceway` and `popup_boxes` could
+  not be saved through RM-4b at all.
+- **⚠️ THE LOADER DOES NOT VALIDATE, THE EDITOR DOES.** `_validate_config` has exactly ONE caller
+  (`update_rate_config`); `load_rate_master` / `_load_multi` validate nothing of the sort. **So an
+  un-validatable config imports cleanly and only fails later, at the editor** — a whole-config RM-4b
+  save. This asymmetry has now bitten TWICE in one slice (an unregistered top-level key, and step
+  shapes). **Closing it is BANKED as its own future slice — do not attempt it inside a feature slice.**
+- **⚠️ EXTRACTION CARRIES NO ANCESTOR NOTES (banked as EA-6).** Own-notes are empty on ~100% of real
+  Line Items (the parser attaches notes UPWARD to preambles, never to a line item), so ancestor notes
+  are the ONLY channel by which specification text could reach the rate-extraction engine — and
+  `_ai_item` sends bare `anc_headers`, discarding the richer `anc_texts` the context builder has already
+  computed. **18,723 of 19,537 Line Items (95.8%) reach extraction with empty notes.** The CLASSIFIER
+  does render ancestor notes, so this is a PAYLOAD gap, not a parsing gap. Owner target shape for the
+  fix (EXTRACTION ONLY — the classifier is NOT in scope): the row and its **immediate parent** carry
+  description + attached + appended notes; **grandparent and above** carry description + appended notes
+  ONLY, so sibling spec text is not flattened in.
 - **Pipelines are STORED CONFIG, not code:** the four derivation pipelines (cable/termination × BoQ/BCS)
   live in the config JSON and are interpreted downstream — RM-1 stores them faithfully; no interpreter
   ships this slice. Owner-decoded shapes: effective = `(1-discount)*(1+markup)`; termination = lug +

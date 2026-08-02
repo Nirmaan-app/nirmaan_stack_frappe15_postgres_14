@@ -15987,3 +15987,198 @@ file, outside the slice's exclusive FILES IN SCOPE. Recommended follow-up.
 `services/boq_category/ai_voter.py`, `api/boq/test_rate_suggest.py`,
 `services/boq_category/tests/test_hv2_voter_harness.py`, `SheetPricingPage.tsx`,
 `RateSuggestProgressModal.tsx`.
+
+---
+
+## Build slice EA-4 ext-a (four estimator rules + the RM-4b validator fix) COMPLETE
+
+**What shipped.** Four OWNER-AUTHORED estimator rules as config data, a Rules panel on the Derivation
+tab, and — found while building it — a fix for a PRE-EXISTING validator defect that made two live
+categories unsavable in the RM-4b editor.
+
+### 1. The four rules (verbatim, owner-authored — do NOT reword)
+
+`db_switchgear.rules`:
+
+- **R2 — Shell size: exact or next higher** (`applies_to: db_shell_item`)
+  *"When selecting the DB shell, match the stated way-count to the catalog exactly. If the exact
+  way-count is not in the catalog, select the NEXT HIGHER way-count, never a lower one. A stated range
+  takes the highest value first."*
+- **R3 — RCCB/RCBO with no stated current: 300mA** (`applies_to: mcb_slots`)
+  *"When a BoQ line describes an RCCB or RCBO but states NO leakage current rating (no mA value anywhere
+  in the description), select the 300mA variant of that item from the catalog. If no 300mA variant
+  exists for that amp rating and pole configuration, select the 100mA variant instead. Never leave it
+  unmatched for want of a stated rating. When the description DOES state a current, match that stated
+  value as normal."*
+- **R4 — ELCB priced as MCB + RCCB** (`applies_to: mcb_slots`)
+  *"An ELCB is a combined device and is priced as TWO components: an MCB plus an RCCB. When a BoQ line
+  describes an ELCB, fill two slots - one MCB and one RCCB - both at the stated amp rating and pole
+  configuration. If the ELCB line states a leakage current, apply it to the RCCB; if it states none, R3
+  applies to the RCCB."*
+
+`cabletray_raceway.rules`:
+
+- **R7 — Tray material substitution** (`applies_to: material`)
+  *"When a BoQ line describes a uPVC cable tray or raceway, price it as material GI with tray_type
+  Solid. When a line describes a plain MS tray or raceway with no further finish stated, price it as
+  material MS POWDER COATED. These substitutions reflect what is actually supplied; the stated material
+  in the document does not price."*
+
+**MECHANISM — NO INTERPRETER CHANGE.** `"rules"` is a pass-through key in `_KNOWN_CONFIG_KEYS`; the
+per-group extraction context reads `cfg.get("rules")` **UNGATED** (unlike `slot_spec` /
+`resolution_rules`, which are composite-only — R7 lands on an ordinary attribute category), and
+`_extract_batch` injects an `ESTIMATOR_RULES` block beside SYNONYMS / DEFAULTS. **Absent key =>
+byte-identical prompt.** R7 sets TWO attributes at once (material + tray_type), which the one-to-one
+`synonyms` mechanism cannot express — that is why it rides the rules block.
+
+### 2. The validator defect — PRE-EXISTING, found by ext-a
+
+**`cabletray_raceway` and `popup_boxes` could not be saved through the RM-4b editor AT ALL.**
+`_validate_config` rejected shapes the interpreter is EXPLICITLY built to accept
+(`ratePipelineInterpreter.ts`: `if (s.target !== undefined)`, `s.params ?? {}`).
+
+The **8 tray steps**: `tray_boq_supply` 2, 3, 4 · `tray_boq_install` 2 · `tray_bcs` 2, 3, 4 ·
+`tray_bcs_install` 1.
+The **2 popup steps**: `popup_boq` 1, 2 (`module_count_from_attr`).
+
+**The three fixes** (nothing else loosened):
+1. `_validate_params`: absent/`None` params ACCEPTED — a conditional `component` carries params
+   per-condition, so it has no top-level block by design.
+2. `component`: `target` is OPTIONAL (a param-only formula reads no price off the matched row);
+   present-but-blank is still an error.
+3. `_validate_params`: a `*_from_attr` param may be a non-empty STRING (an attribute-id binding),
+   scoped to that SUFFIX ONLY — any other param carrying a string still raises.
+
+Post-fix **13/13 configs validate**; 9/9 non-vacuity checks still reject bad input; compute is
+byte-identical (pipelines/attributes/goldens unchanged after save, interpreter goldens unchanged).
+
+### 3. ROOT CAUSE — the loader does not validate, the editor does
+
+`_validate_config` has exactly ONE caller (`update_rate_config`). Neither `load_rate_master` nor
+`_load_multi` validates. **So an un-validatable config imports cleanly and only fails later, at the
+editor.** This is the **SECOND instance of that asymmetry in this slice** — the first was
+`_KNOWN_CONFIG_KEYS` (a key the validator would reject, caught in recon before it shipped).
+**Closing the asymmetry is BANKED as a separate future slice — do NOT attempt it inside a feature slice.**
+
+### 4. Observed import/edit asymmetries (recon ADDENDUM 2, verbatim — observation only)
+
+1. **`_KNOWN_CONFIG_KEYS` (the first instance).** The loader never checks top-level keys; the editor
+   rejects unknown ones. An unregistered key imports cleanly and breaks the *next* whole-config save.
+2. **Step shapes (this slice's instance).** The loader never validates steps; the editor did — and was
+   stricter than the interpreter, so 12 legitimately-shipped steps made two categories unsavable.
+3. **`_validate_config` has exactly one caller** (`update_rate_config`, `rate_master.py:1288`). Neither
+   `load_rate_master` nor `_load_multi` calls it, or anything like it. `loader.py` contains **zero**
+   references to `_validate_config` / `_KNOWN_CONFIG_KEYS`.
+4. **The loader's own validation is shallow and disjoint.** `_validate_items` / `_validate_one_config`
+   check payload plumbing (required fields, duplicate `category_id`, list-ness of `retired_kinds`), not
+   config semantics — a different rule set from the editor's, not a subset.
+5. **`goldens` are config data on the edit path but payload data on the import path.** The loader merges
+   top-level per-category `goldens` into the config; the editor treats them as an ordinary key. Nothing
+   asserts the merged result matches the asset — which is precisely how dbu3 vanished from the DB while
+   the config's own `notes` still described it.
+6. **`_KNOWN_STEP_TYPES` admits pass-through types with no deep validation** (`lookup_or_ratio`,
+   `circuit_fit`), so a malformed instance of those is caught by neither path — it degrades at runtime
+   via the interpreter's Option-C `unsupported`.
+
+### 5. dbu3 — RE-DERIVED against v17, restored
+
+```
+shell None; mcb1 = 63A FP MCB C CURVE (list 4,012) x 12 = 48,144; all other slots None
+SUPPLY  = ROUNDUP(48,144 x 0.495, -1) = 23,840
+BCS     = ROUNDUP(48,144 x 0.300, -1) = 14,450
+INSTALL = ratio branch (shell "None") -> ROUNDUP(23,840 x 0.15, -1) = 3,580
+```
+
+Equal to the v16c figures, and the reason is now recorded: **dbu3 takes the RATIO branch, and EA-4d
+changed only `round_lookup` (the TABLE-HIT branch).** Its EA-4d removal was **COLLATERAL, not
+deliberate** — the recorded rationale covered `d1`/`d2` only, the v17 config's own `notes` still narrate
+dbu3, and the MCB-only branch it pins (`db_shell` `optional: true`) is still live. Verified live on the
+Derivation tab at its own inputs.
+
+### 6. CERT RESULTS
+
+| Item | Rule | Verdict | Figures |
+|---|---|---|---|
+| **C-DB** | R4 + R2 + R3 + multi-slot | **PASS** | 6 slots; components 51,512 -> supply **25,500** · install **1,500** · bcs **15,460** |
+| **C1** | R4 ELCB -> MCB + RCCB | **PASS** | 40A DP MCB x3 + 40A RCCB 100mA (DP) x3 -> supply **11,040** · install **1,660**; and a no-mA ELCB -> 63A FP MCB + **63A RCCB 300mA** (R4+R3 together) |
+| **C2** | R3 no-current -> 300mA | **PASS** | 40A DP RCCB -> **40A RCCB 300mA (DP)**, supply **2,590** |
+| **C3** | R3 fallback -> 100mA | **FAIL** | see KNOWN GAP below |
+| **C4** | R2 shell next-higher | **PASS** | "TPN DB 10 WAY" -> **TPN DB 12WAY**, supply **7,780** (8-way available and correctly not chosen) |
+| **C5** | R7 tray | **PASS** | uPVC -> **GI + Solid**; plain MS -> **MS POWDER COATED** |
+| **C6** | BOQ-26-00066 regression | **PASS** | row 430 = **2,290** (supply 1,990 + install 300), no drift across three runs |
+
+C-DB quantities were all correct (1 main / 3 sub / 18 outgoing), and **R3 correctly did NOT fire** where
+every device stated its mA.
+
+### 7. KNOWN GAP — C3, the R3 fallback
+
+A 10A DP RCBO with no stated current returned **no item at all**, where R3 requires a fallback to the
+100mA variant (`10A RCBO 100mA (DP)`, 6,991 — it exists in the catalog). The rule text reaches the
+prompt verbatim (proved by C2 and the no-mA ELCB working), so this is not a plumbing fault.
+
+**OWNER DIAGNOSIS: the model is doing lookup-style string matching where it should do feature matching.**
+**To be RE-TESTED after the payload slice** — not reworded now, because the likely cause is upstream.
+
+### 8. KNOWN GAP — R4 over-fired
+
+On synthetic row 90011, R4 split a **plain MCB** clause that named no ELCB: `'Main incomer - 63A, TPN,
+MCB,100mA- 1No.'` produced an MCB **and** a `63A RCCB 100mA(FP)`. **OWNER RULING: R4 is ELCB-ONLY.**
+Recorded as a KNOWN GAP, **to be re-tested after the payload slice** — real rows carry no spec text
+today, so this was only observable synthetically.
+
+### 9. THE PAYLOAD FINDING — the most consequential item (banked as EA-6)
+
+**The extraction engine carries NO ancestor notes.** Own-notes are empty on **100% of real Line Items**
+(notes attach upward to preambles by parser design), so ancestor notes are the ONLY channel through
+which specification text could reach extraction — and that channel is closed.
+
+```
+Line Items on all current committed sheets : 19,537
+reaching extraction with EMPTY notes       : 18,723   = 95.8%
+```
+
+The **classifier DOES render ancestor notes** (`  (notes: ...)` per ancestor); extraction picks the
+barest of three available feeds (`anc_headers`) while the richer `anc_texts` **is already computed and
+sitting unused on the same context row**. Same tree, same row: one engine sees the text, the other does
+not. **This is a PAYLOAD gap, not a parsing gap.**
+
+A second, narrower defect compounds it: notes attach to the **top preamble on the stack**, which on
+BOQ-26-00019 was the *grandparent* — so all six DB blocks' spec lines are flattened into one 53-entry
+list. A payload fix alone would deliver every DB's spec lines to every DB row.
+
+**OWNER TARGET SHAPE for the fix (EA-6, EXTRACTION ONLY — the classifier is NOT in scope):**
+- the row itself and its **IMMEDIATE PARENT**: description + **attached** + **appended** notes;
+- **GRANDPARENT AND ABOVE**: description + **appended** notes ONLY — attached notes EXCLUDED, so
+  sibling spec text is not flattened in.
+
+### 10. Mechanism deviation — RM-4b over scoped re-import
+
+The rules were written to the live configs via the RM-4b `update_rate_config` endpoint rather than a
+scoped re-import. Blast radius is exactly the target config rows with no batch churn; it is
+Version-audited (`doc.save(ignore_version=False)`); and the write itself PROVES the new allowlist entry
+by round-tripping `_validate_config`. A scoped re-import would have deactivated and reinserted every
+item of the affected kinds (including `db_switchgear_item`, which `industrial_sockets`
+cross-references) and minted a THIRD active batch, breaking the 1:1 asset<->DB correspondence that made
+the dbu3 question expensive to settle. The asset was edited in lockstep so a future re-import converges.
+
+### 11. Declared gap — vitest
+
+`deriveSuggestModalPhase`'s "partial" branch and the new Rules panel have **no vitest pin**; a pin needs
+a NEW test file, which was outside this slice's exclusive FILES IN SCOPE. Recommended follow-up.
+
+### 12. Reported, no ruling taken — "(EXISTING)" DBs still price a shell
+
+Row 90011 says `8way TPN DB (EXISTING)`, i.e. the DB is already installed, yet the shell priced at
+**10,593** (~40% of supply). The system has no notion of "existing" and prices the shell like any other
+component. **Reported for an owner ruling; nothing suppressed and no behaviour changed.**
+
+### Counts (bench-verified this session; not re-run at commit)
+
+`test_rate_suggest` 20 -> **27** · `test_rate_master` **32** · `test_pricing` **230** ·
+vitest **1229 / 53 files** · tsc **0 errors in the touched files** · `yarn build` **exit 0**.
+
+### Cert data left in place (owner may still click through)
+
+Synthetic rows on **BOQ-26-00019 / `'12 Internal Works '`**, all FABRICATED and marked: 90001-90007
+(C1-C5 rows) and 90010-90015 (the PDB / `8way TPN DB (EXISTING)` tree with its four spec lines).
+BOQ-26-00066 carries no fabricated rows — population verified 146 before and after.
