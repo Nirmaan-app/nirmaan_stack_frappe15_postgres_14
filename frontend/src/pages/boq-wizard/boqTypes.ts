@@ -1703,3 +1703,75 @@ export interface EngineCatalog {
   label: string;
   categories: CategoryCatalogEntry[];
 }
+
+// ── BCS-S2: the BCS cost section's two-column confirmation ───────────────────────
+// BCS records what a row costs US against what we charge the CLIENT, so it needs two numbers
+// off the committed sheet -- the row's Total Quantity and its Amount (Combined). Neither is a
+// fixed column across BoQs, so a human CONFIRMS which columns hold them, once per sheet+version.
+// The RULES about what may be picked live on the server (services/boq_bcs/sources.py) and are
+// mirrored for the card by the pure `bcsColumns.ts`; these are only the wire shapes.
+
+/**
+ * ONE stored, RE-RESOLVABLE confirmation entry -- the full descriptor identity, so a later
+ * reader resolves the value without re-deriving it from column_role_map. Mirrors the server's
+ * `sources._entry` field-for-field.
+ *
+ * `rate_subkey` is load-bearing for a PER-AREA AMOUNT (a three-hop resolve,
+ * amount_by_area[area][kind]); it is null on the two-hop shapes.
+ */
+export interface BcsColumnEntry {
+  col: string;
+  role: string;
+  area: string | null;
+  value_field: string;
+  value_key: string | null;
+  rate_subkey: string | null;
+}
+
+/**
+ * One side's stored confirmation: WHICH shape the sheet expresses the number in, plus the
+ * entries. `mode` is "qty_total" / "qty_by_area" for quantity and "amount_total" /
+ * "amount_by_area" for the amount; a per-area mode means the entries' values are SUMMED.
+ */
+export interface BcsSource {
+  mode: string;
+  columns: BcsColumnEntry[];
+}
+
+/**
+ * Response shape of `bcs.get_bcs_state` -- the BCS setup state of ONE committed sheet+version.
+ * A sheet with no current committed row at this version returns the all-empty, not-ready shape
+ * rather than throwing, so the caller can honestly render "BCS not set up".
+ *
+ * `is_ready` is the server's ONE readiness predicate (enabled AND both columns confirmed) --
+ * never re-derive it client-side. Note that disabling PRESERVES the two confirmations: readiness
+ * simply goes false, and re-enabling does not force a re-pick.
+ */
+export interface GetBcsStateResponse {
+  boq: string;
+  sheet_name: string;
+  committed_version: number;
+  bcs_enabled: 0 | 1;
+  bcs_qty_source: BcsSource | null;
+  bcs_amount_source: BcsSource | null;
+  bcs_confirmed_by: string | null;
+  bcs_confirmed_at: string | null;
+  is_ready: boolean;
+}
+
+/** Response shape of `bcs.set_bcs_enabled`. */
+export interface SetBcsEnabledResponse {
+  ok: boolean;
+  bcs_enabled: 0 | 1;
+  is_ready: boolean;
+}
+
+/** Response shape of `bcs.confirm_bcs_columns`. */
+export interface ConfirmBcsColumnsResponse {
+  ok: boolean;
+  bcs_qty_source: BcsSource;
+  bcs_amount_source: BcsSource;
+  bcs_confirmed_by: string | null;
+  bcs_confirmed_at: string | null;
+  is_ready: boolean;
+}
