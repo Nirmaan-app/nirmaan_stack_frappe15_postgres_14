@@ -816,3 +816,164 @@ class TestRateSuggest(FrappeTestCase):
                 rate_master._validate_config(cfg)
             except Exception as e:
                 self.fail(f"live config '{r['category_id']}' does not validate: {e}")
+
+    # ── SR-2: the reply ceiling, its diagnosis, and split-on-truncation ───────────────
+    # Coverage summary (plain English):
+    #   28  a reply CUT at the ceiling raises the new named error, not the generic truncated-JSON
+    #       ValueError -- and is NOT retried, because the cut is deterministic
+    #   29  NEGATIVE: a genuinely malformed reply (no ceiling cut) still raises and retries exactly
+    #       as it did before SR-2 -- the narrow special-case did not widen
+    #   30  a ceiling cut SPLITS the batch and both halves are actually sent
+    #   31  the split recurses at most twice (20 -> 10 -> 5) and then halts; it never degenerates
+    #       to one call per row
+    #   32  NEGATIVE: a transient error does NOT split -- today's retry/backoff is byte-identical
+    #   33  attempted_rows advances per HALF, so a halt mid-split keeps the halves already done
+    #   34  the constants are pinned: extraction at 32000, the classifier voter still at 8000
+    #       (deliberately out of scope), batch size still 20
+
+    @staticmethod
+    def _cut_resp(text=""):
+        """A reply the provider cut off at the token ceiling."""
+        r = _Resp(text)
+        r.stop_reason = "max_tokens"
+        return r
+
+    @staticmethod
+    def _rows_in(kwargs):
+        """The excel_rows the request actually asked about (parsed out of the ROWS block)."""
+        content = kwargs["messages"][0]["content"]
+        return [int(o["id"]) for o in json.loads(content.split("ROWS:\n", 1)[1])]
+
+    @staticmethod
+    def _fake_rows(n, start=1):
+        return [{"excel_row": start + i, "description": f"r{start + i}",
+                 "anc_headers": [], "anc_texts": []} for i in range(n)]
+
+    def test_28_ceiling_cut_raises_the_named_error_and_is_not_retried(self):
+        """CHANGE 1. A reply cut at max_tokens must be diagnosed as such BEFORE the text is parsed,
+        so it never degrades into the generic truncated-JSON ValueError -- the ambiguity that made
+        the 2026-08-02 failures opaque. And it must NOT be retried: the cut is deterministic for a
+        given batch, so three attempts are three guaranteed-failed calls."""
+        defn = {"id": "material", "type": "choice", "values": ["COPPER"]}
+        rows = self._fake_rows(3, start=2)
+        # a cut reply is also unparseable -- proving the ceiling check wins, not the parse
+        client = _FakeClient(lambda call, kwargs: self._cut_resp('[{"id": 2, "attributes": {"mat'))
+
+        with self.assertRaises(extraction.ReplyCeilingExceeded) as ctx:
+            extraction._extract_batch(client, "m", "P", [defn], rows)
+
+        self.assertEqual(client.messages.calls, 1, "a deterministic ceiling cut must not be retried")
+        self.assertEqual(ctx.exception.size, 3)
+        self.assertEqual(ctx.exception.max_tokens, extraction._AI_MAX_TOKENS)
+        self.assertIn("ceiling", str(ctx.exception))
+
+    def test_29_a_malformed_reply_still_raises_and_retries_as_before(self):
+        """NEGATIVE POLARITY / BACKWARDS-COMPAT. The special-case is narrow ON PURPOSE: a reply
+        that is garbled WITHOUT a ceiling cut keeps its pre-SR-2 behaviour byte-identical -- the
+        SR-1 default-to-retry rule still applies, 3 attempts, then a non-terminal halt."""
+        defn = {"id": "material", "type": "choice", "values": ["COPPER"]}
+        rows = self._fake_rows(3, start=2)
+        # no stop_reason at all -- the shape every pre-SR-2 test produces
+        client = _FakeClient(lambda call, kwargs: _Resp('[{"id": 2, "attributes": {"mat'))
+
+        with mock.patch("nirmaan_stack.services.boq_rate_master.extraction.time.sleep"):
+            with self.assertRaises(extraction.ExtractionHalted) as ctx:
+                extraction._extract_batch(client, "m", "P", [defn], rows)
+
+        self.assertNotIsInstance(ctx.exception, extraction.ReplyCeilingExceeded)
+        self.assertEqual(client.messages.calls, 3, "retry/backoff must be unchanged for a garbled reply")
+        self.assertIn("kept failing", ctx.exception.reason)
+        self.assertFalse(ctx.exception.terminal)
+
+    def test_30_a_ceiling_cut_splits_the_batch_and_sends_both_halves(self):
+        """CHANGE 3. The batch that does not fit is halved and BOTH halves are actually sent --
+        and between them they cover every row of the original, none dropped."""
+        rows = self._fake_rows(20, start=1)
+        seen = []
+
+        def call_batch(sub):
+            seen.append(len(sub))
+            if len(sub) > 10:
+                raise extraction.ReplyCeilingExceeded(len(sub), extraction._AI_MAX_TOKENS)
+            return {r["excel_row"]: {"material": {"value": "COPPER", "confidence": 0.9}} for r in sub}
+
+        pairs = list(extraction._extract_with_ceiling_split(call_batch, rows))
+
+        self.assertEqual(seen, [20, 10, 10], "the 20 must be tried, then each half")
+        self.assertEqual([len(sub) for sub, _ in pairs], [10, 10])
+        covered = [r["excel_row"] for sub, _ in pairs for r in sub]
+        self.assertEqual(covered, [r["excel_row"] for r in rows], "no row may be lost in a split")
+
+    def test_31_the_split_recurses_at_most_twice_then_halts(self):
+        """The depth cap. 20 -> 10 -> 5; a 5-row batch that STILL cuts is not a size problem, so it
+        halts with the run's work preserved rather than splitting to one call per row."""
+        rows = self._fake_rows(20, start=1)
+        seen = []
+
+        def call_batch(sub):
+            seen.append(len(sub))
+            raise extraction.ReplyCeilingExceeded(len(sub), extraction._AI_MAX_TOKENS)
+
+        with self.assertRaises(extraction.ExtractionHalted) as ctx:
+            list(extraction._extract_with_ceiling_split(call_batch, rows))
+
+        self.assertEqual(seen, [20, 10, 5], "depth-first: 20, its first half, that half's half")
+        self.assertEqual(min(seen), 5, "must never split below the depth cap")
+        self.assertEqual(extraction._MAX_SPLIT_DEPTH, 2)
+        self.assertFalse(ctx.exception.terminal, "a size problem is not a terminal provider error")
+        self.assertIn("splitting the batch down to 5 row(s)", ctx.exception.reason)
+
+    def test_32_a_transient_error_does_not_split(self):
+        """NEGATIVE POLARITY. The split triggers ONLY on a ceiling cut. A transient error must not
+        reach the splitter at all -- it is still absorbed by _extract_batch's own retry/backoff,
+        so batch sizes never change and today's behaviour is byte-identical."""
+        rows = self._fake_rows(20, start=1)
+        seen = []
+
+        def call_batch(sub):
+            seen.append(len(sub))
+            raise ValueError("truncated (unbalanced) JSON array in AI response")
+
+        with self.assertRaises(ValueError):
+            list(extraction._extract_with_ceiling_split(call_batch, rows))
+
+        self.assertEqual(seen, [20], "a non-ceiling error must propagate without splitting")
+
+    def test_33_attempted_rows_advances_per_half(self):
+        """The SR-1 composition. Each surviving half is checkpointed as it lands, so `attempted`
+        advances per HALF -- which is what makes a halt part-way through a split keep the halves
+        already done instead of discarding the whole batch."""
+        # fixture batch 1 is rows 2,3 (wiring_cabling); make it cut, but let 1-row batches through
+        def responder(call, kwargs):
+            ids = self._rows_in(kwargs)
+            if len(ids) > 1:
+                return self._cut_resp("[")
+            return _Resp(json.dumps(
+                [{"id": i, "attributes": {"material": {"value": "COPPER", "confidence": 0.9}}}
+                 for i in ids]))
+
+        seen = []
+        env = extraction.run_extraction(
+            self.boq, self.sheet_name, client=_FakeClient(responder),
+            checkpoint_cb=lambda rows_, attempted: seen.append((
+                [r["excel_row"] for r in rows_], list(attempted))),
+        )
+
+        self.assertTrue(env["complete"], "splitting must let the run finish, not halt it")
+        # the 2-row batch became two 1-row halves, each checkpointed on its own
+        self.assertEqual([rows_ for rows_, _ in seen][:2], [[2], [3]])
+        self.assertEqual([att for _, att in seen][:2], [[2], [2, 3]],
+                         "attempted must grow one half at a time")
+        self.assertEqual(seen[-1][1], [2, 3, 4])
+
+    def test_34_the_ceiling_is_32000_and_the_classifier_voter_is_untouched(self):
+        """The owner ruling, pinned. 32000 -- NOT the configured 100000, which is untested against
+        a non-streaming call with a 300s timeout. And the classifier voter stays at 8000: its reply
+        is one small object per row (~13x margin), so raising it would change a CERTIFIED surface
+        (rules 4.2-hv7 / prompt hvac-v1.3, measured on a now-spent corpus) for zero benefit."""
+        from nirmaan_stack.services.boq_category import ai_voter
+
+        self.assertEqual(extraction._AI_MAX_TOKENS, 32000)
+        self.assertEqual(ai_voter._AI_MAX_TOKENS, 8000,
+                         "the classifier voter is deliberately OUT OF SCOPE for SR-2")
+        self.assertEqual(extraction._BATCH, 20, "batch size was explicitly not changed")

@@ -52,7 +52,13 @@ CATEGORY_ID = "wiring_cabling"
 DISCIPLINE = "Electrical"
 
 _BATCH = 20
-_AI_MAX_TOKENS = 8000
+# SR-2: the reply ceiling. 8000 was INHERITED from the classifier voter (CL-1a, 2026-07-06), where
+# a reply is one small object per row; RM-3 copied it into a workload whose reply is ~7x heavier and
+# nothing revisited it. It only started BINDING on 2026-07-31, when the EA-4 series made 14-attribute
+# categories live and the measured reply grew 6.5x (169 -> 1,098 chars/row on the same sheet, same
+# category), landing a 20-row batch astride the ceiling. 32000 -- NOT the configured 100000: this
+# call is NON-STREAMING with a 300s timeout, and that region is untested. See the SR-2 recon.
+_AI_MAX_TOKENS = 32000
 _AI_TIMEOUT = 300
 _RETRIES = 3
 _DEFAULT_MODEL = "claude-opus-4-8"
@@ -74,6 +80,33 @@ class ExtractionHalted(Exception):
         self.reason = reason
         self.terminal = terminal
         self.detail = detail
+
+
+class ReplyCeilingExceeded(Exception):
+    """SR-2: the provider CUT the reply short because it hit `max_tokens`. The reply is incomplete
+    by construction, not malformed by accident.
+
+    Before SR-2 this surfaced ONLY as the downstream
+    `ValueError('truncated (unbalanced) JSON array in AI response')` from `_extract_json_array`,
+    which is indistinguishable from a genuinely garbled reply. That ambiguity is what made the
+    2026-08-02 failures a night of diagnosis instead of a glance at a log line -- and the two cases
+    need OPPOSITE responses: a garbled reply is a per-call artifact worth retrying (the SR-1
+    default-to-retry rule), while a ceiling cut is DETERMINISTIC for a given batch and will cut at
+    the same place on every attempt. Retrying it is guaranteed waste; the only thing that helps is
+    asking for less at a time (`_extract_with_ceiling_split`).
+
+    Mirrors the existing precedent in `boq_ai_assist._safe_text`, which already raises on an
+    unexpected `stop_reason` -- the pattern existed in this codebase and simply had not been
+    applied here.
+    """
+
+    def __init__(self, size, max_tokens):
+        super().__init__(
+            f"The AI reply hit the {max_tokens}-token ceiling on a {size}-row batch and was cut "
+            f"off mid-answer."
+        )
+        self.size = size
+        self.max_tokens = max_tokens
 
 
 # Errors that will NOT clear by trying again: the account/request itself is refused. Retrying these
@@ -571,6 +604,13 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
                 messages=[{"role": "user", "content": content}],
                 timeout=_AI_TIMEOUT,
             )
+            # SR-2 (1): diagnose a ceiling cut HERE, BEFORE the text is parsed, so it can never
+            # degrade into the generic truncated-JSON ValueError below. Deliberately NARROW: only
+            # `max_tokens` is special-cased, so every other stop_reason -- a refusal, an empty
+            # reply, anything unforeseen -- keeps its pre-SR-2 behaviour byte-identical and still
+            # falls through to the parse and the existing retry classification.
+            if getattr(resp, "stop_reason", None) == "max_tokens":
+                raise ReplyCeilingExceeded(len(rows_batch), _AI_MAX_TOKENS)
             text = "".join(getattr(b, "text", "") for b in resp.content)
             out = {}
             for el in _extract_json_array(text):
@@ -600,6 +640,11 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
                         row_out[aid]["defaulted"] = True
                 out[rid] = row_out
             return out
+        except ReplyCeilingExceeded:
+            # SR-2: NOT retried on purpose. The cut is deterministic for this batch -- an identical
+            # request produces an identical cut -- so the three attempts below would burn three
+            # guaranteed-failed calls. Propagate immediately and let the caller SPLIT instead.
+            raise
         except Exception as exc:
             last = exc
             # SR-1: classify BEFORE retrying. A TERMINAL error (usage limit / auth / invalid
@@ -618,6 +663,46 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
         terminal=False,
         detail=repr(last),
     )
+
+
+# ── SR-2 (3): split-on-truncation ──────────────────────────────────────────────────
+# 20 -> 10 -> 5. A 5-row batch that STILL cuts is not a size problem any more, so it halts with
+# the run's work preserved rather than splitting to single rows and burning a call per row.
+_MAX_SPLIT_DEPTH = 2
+
+
+def _extract_with_ceiling_split(call_batch, batch, depth=0):
+    """Yield `(sub_batch, batch_out)` for `batch`, halving it whenever the reply hits the ceiling.
+
+    Yields exactly ONE pair when the batch fits -- the overwhelming majority, and byte-identical
+    to the pre-SR-2 single call. After a cut it yields one pair per surviving half instead.
+
+    The caller treats every yielded pair exactly as it treated a batch that returned, which is
+    what makes this compose with SR-1 unchanged: `attempted` advances per HALF, each half is
+    checkpointed as it lands, and a halt part-way through a split KEEPS the halves already done.
+
+    This is the DURABLE half of the fix. Raising the ceiling moves the wall; splitting removes the
+    CLASS of failure -- a future category with more attributes per row, or a sheet with unusually
+    long values, adapts automatically instead of needing another constant bump.
+
+    Triggers ONLY on ReplyCeilingExceeded. A transient error and a genuinely garbled reply never
+    reach here: they are still handled by `_extract_batch`'s own retry/backoff, byte-identical.
+    """
+    try:
+        out = call_batch(batch)
+    except ReplyCeilingExceeded as cut:
+        if depth >= _MAX_SPLIT_DEPTH or len(batch) < 2:
+            raise ExtractionHalted(
+                f"The AI reply kept hitting the {cut.max_tokens}-token ceiling even after "
+                f"splitting the batch down to {len(batch)} row(s), so the run stopped early.",
+                terminal=False,
+                detail=repr(cut),
+            ) from cut
+        mid = len(batch) // 2
+        for half in (batch[:mid], batch[mid:]):
+            yield from _extract_with_ceiling_split(call_batch, half, depth + 1)
+        return
+    yield batch, out
 
 
 # ── regex corroborator (display-only) ──────────────────────────────────────────────
@@ -815,24 +900,32 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None, checkpoint_cb
             gc = group_ctx[(disc, cat)]
             for b in range(0, len(grp_rows), _BATCH):
                 batch = grp_rows[b : b + _BATCH]
-                batch_out = _extract_batch(client, model, gc["prompt"], gc["defs"], batch, gc["synonyms"], gc["defaults"], gc["none_guidance"], gc["slot_spec"], gc["resolution_rules"], gc["rules"])
-                ai_out.update(batch_out)
-                # The batch RETURNED, so its rows are genuinely attempted. A row the model simply
-                # did not answer for is still attempted (we asked); only a HALTED batch's rows stay
-                # pending. This is the done-marker a resume keys off -- never "are the attributes
-                # blank", which cannot tell not-asked from asked-and-got-null.
-                attempted.update(r["excel_row"] for r in batch)
-                done += len(batch)
-                if progress_cb:
-                    progress_cb(min(done, total), total)
-                # SR-1 CHECKPOINT: hand this batch's rows to the caller to persist, so the work
-                # survives a later halt. Same injection shape as progress_cb; the service layer
-                # performs no DB write of its own.
-                if checkpoint_cb:
-                    checkpoint_cb(
-                        [_row_result(r, ai_out.get(r["excel_row"])) for r in batch],
-                        sorted(attempted),
-                    )
+
+                def _call(rows_, _gc=gc):
+                    return _extract_batch(client, model, _gc["prompt"], _gc["defs"], rows_, _gc["synonyms"], _gc["defaults"], _gc["none_guidance"], _gc["slot_spec"], _gc["resolution_rules"], _gc["rules"])
+
+                # SR-2 (3): ONE iteration when the batch fits (byte-identical to the pre-SR-2 single
+                # call); one per surviving half after a ceiling cut. Everything below is unchanged
+                # and simply operates on `sub_batch` -- so a split advances `attempted` and
+                # checkpoints per HALF, and the halves already done survive a later halt.
+                for sub_batch, batch_out in _extract_with_ceiling_split(_call, batch):
+                    ai_out.update(batch_out)
+                    # The batch RETURNED, so its rows are genuinely attempted. A row the model simply
+                    # did not answer for is still attempted (we asked); only a HALTED batch's rows stay
+                    # pending. This is the done-marker a resume keys off -- never "are the attributes
+                    # blank", which cannot tell not-asked from asked-and-got-null.
+                    attempted.update(r["excel_row"] for r in sub_batch)
+                    done += len(sub_batch)
+                    if progress_cb:
+                        progress_cb(min(done, total), total)
+                    # SR-1 CHECKPOINT: hand this batch's rows to the caller to persist, so the work
+                    # survives a later halt. Same injection shape as progress_cb; the service layer
+                    # performs no DB write of its own.
+                    if checkpoint_cb:
+                        checkpoint_cb(
+                            [_row_result(r, ai_out.get(r["excel_row"])) for r in sub_batch],
+                            sorted(attempted),
+                        )
     except ExtractionHalted as halt:
         # Stop cleanly and KEEP everything extracted so far. Falls through to the same assembly the
         # complete path uses -- which already tolerates a partial ai_out.
