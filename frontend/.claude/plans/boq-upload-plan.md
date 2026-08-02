@@ -17051,3 +17051,140 @@ S2 ships the picker, so there is nothing a browser could observe.
 - **S1b's *"Only the PER-AREA shape was ever a hole"* bullet — left as written.** It is true on the axis
   S1b was reasoning about (repeated letters); the aliased hole is a different axis, and this record
   supersedes it. Only the three corrections the review actually named were edited into that record.
+
+## BCS-S2 — the BCS enable button and the two-column confirmation card
+
+**Branch** `feature/bcs-columns` · **Base** `cb21d74f` · **Tier** FULL · **Date** 2026-08-02
+
+The first **visible** surface of the BCS cost section. One button in the bottom ribbon beside Freeze
+Classification, a confirmation card behind it, an amber banner while it is on-but-unconfirmed, and a
+clickable chip once it is confirmed. **FRONTEND ONLY** — no backend file, no doctype JSON, no migration,
+and **no `PricingGrid.tsx` change**: no BCS column renders until S3, so the row-memo shield is untouched
+this slice. Two commits: `897a64f7` (the pure rules + tests) → `c492b1ab` (the surface).
+
+---
+
+### 1. The seam, and why the rules are not in the component
+
+The seam is **`frontend/src/pages/boq-wizard/bcsColumns.ts`** — a pure module (no React import) whose
+interface is *eligibility, labelling, validity, and the button's disabled reason*. The card is a thin
+renderer over it.
+
+That is the right seam for a reason this repo has already paid for twice. The question the card must
+answer — *"is this selection valid, and if not what do I say?"* — is a **domain rule whose authority
+lives on the server** (`services/boq_bcs/sources.py`). ADR-0010 **F1** says such a rule has one home,
+pinned to the backend's. Put it inside `BcsColumnsDialog.tsx` and two things follow immediately: it
+becomes **structurally untestable** (this repo has no DOM environment, by deliberate choice), and S3
+will need the same knowledge and grow a second copy. Extracted, the whole rule set is 44 unit tests and
+can be read side-by-side with the Python.
+
+**`validateBcsPicks` reproduces the server's PRECEDENCE, not just its conditions** — because the order
+decides *which* refusal a bad pick gets:
+
+| # | Refusal | Server origin |
+|---|---|---|
+| 1 | empty selection | `build_*_source` guard |
+| 2a | a column the sheet does not have | `_resolve_picks` loop — runs **first**, so an unknown column reads as unknown, the more fundamental fact, not as a duplicate |
+| 2b | the same letter twice | `_resolve_picks` dupes |
+| 2c | two **different** letters resolving to one value | `_resolve_picks` aliasing (the S1c fix) |
+| 3 | a mapped column of the wrong class | `fields <= {...}` / `_is_combined_amount` |
+| 4 | a scalar total mixed with its own per-area parts | `len(fields) > 1` |
+| 5 | more than one scalar total | `len(picked) != 1` |
+
+**Rule 5 is retained and unreachable, on the client exactly as on the server** — two scalar totals of one
+role necessarily share a resolved identity, so 2c fires first and shadows it. Deleting it would be a
+behaviour change of its own; a test pins the *shadowing* (`["D","L"]` → the duplicate message) so the two
+layers cannot drift apart silently.
+
+**Where the client narrows.** `eligibleBcsColumns` offers only columns that could pass the class check,
+so the card cannot even attempt most refusals. That is a **narrowing, never a widening** — the refusals
+still reachable from the offered set (mixing a total with its own parts; two columns holding one number)
+are exactly what the validity line catches. The wording is friendlier than a thrown error; the
+**conditions are identical**.
+
+### 2. The surface, and the invariants it had to respect
+
+- **`SheetPricingPage.tsx`** — reads `get_bcs_state` **pinned to `liveCommitVersion`, never the browsed
+  one** (BCS is configured per sheet+version; a re-commit mints a fresh `BoQ Sheet` row and correctly
+  starts BCS off + unconfirmed). POSTs `set_bcs_enabled` / `confirm_bcs_columns`, and mounts the card
+  **once at page level** with page-owned open state — mirroring `pickerState` + `CategoryVerdictPicker`,
+  never inside a row loop.
+- **`is_ready` is READ, never re-derived.** The server's one readiness predicate (enabled **and** both
+  columns confirmed) drives the button state, the banner and the chip, so none of them can disagree with
+  what a cost write will actually do.
+- **NO NEW COLOUR.** The button is `variant="outline"` off and `variant="default"` on — byte-identical in
+  kind to Freeze Classification beside it. Teal is the sheet lock, sky is Freeze-columns, emerald is
+  priced/succeeded, red is error, amber is attention; a sixth meaning would cost more than it buys.
+- **The banner is copied markup, on purpose.** There is no shared Banner component in this file — every
+  banner is copied amber `<div>` markup, so the new one matches character-for-character. Per the
+  category-gate precedent it **names the control and adds no jump button**.
+- **The collapsed rail gets one `chips.push` line.** `bcsNeedsColumns` is a visible banner *and* a state
+  in which every cost write is refused, which is precisely what that rail exists to keep a full-screen
+  collapse from hiding. One line, following the existing idiom — no second mechanism.
+- **Greyed with a reason, never hidden.** `bcsSetupReason` returns the first failing cause into the
+  native `title`, mirroring `suggestRatesReason`. BCS always *exists* as an action on a committed sheet,
+  so a disabled button is honest here — unlike "Carry rates from original", which is hidden off a
+  revision precisely because there the action does not exist and a disabled button would be a lie.
+
+### 3. The owner's reasoning — the part that must survive
+
+**Turning BCS off takes no confirm step, because it is not destructive.** This was checked against the
+backend, not assumed. `set_bcs_enabled(0)` writes **one flag**: the two confirmations are explicitly
+PRESERVED (so re-enabling never forces a re-pick — the endpoint's own docstring says so, and
+`test_enable_then_disable_round_trips` pins the round-trip), and **no `BoQ Row BCS Rate` is ever
+deleted** — nothing on this path deletes, and the doctype is freeze-and-supersede. Off therefore *hides*;
+it does not *discard*. That makes it the **Lock/Unlock shape** (a direct action), not the Freeze shape
+(fetch-a-summary, then confirm). It lives in the card's footer rather than on the ribbon button, so the
+ribbon control is never a destructive toggle.
+
+**Which gates the button respects, and which it deliberately does not.** `sheetLocked` (the deliberate
+per-sheet lock) is in, because the **server itself refuses** BCS setup there — `_guard_sheet_not_locked`
+runs in both `set_bcs_enabled` and `confirm_bcs_columns`. `viewingHistory` is in, not as a server rule but
+a targeting one. The **single-editor concurrency lock is deliberately OUT**: the BCS endpoints neither
+acquire nor check it, and the neighbouring Freeze Classification control is independent of it for the same
+reason — cost is a separate axis from client-facing pricing, exactly as `bcs.py`'s module docstring argues
+at length. Gating on the page's blanket `locked` would have been an invented client-side restriction.
+
+**Multi-pick is load-bearing.** A sheet split per area needs *every* area column picked, because they
+**sum**; a scalar column is a lone pick; and a scalar must never be mixed with its own per-area parts. The
+card surfaces that last refusal in its validity line rather than permitting the attempt.
+
+### 4. Verification
+
+| Check | Command | Result |
+|---|---|---|
+| Unit tests (in-container) | `yarn test` | **1222 → 1266** (53 → 54 files), all green. **+44** |
+| Red before green | `npx vitest run …/bcsColumns.test.ts` | RED: *"Cannot find module './bcsColumns'"* → GREEN: 44 passed |
+| Type-check | `npx tsc --noEmit` | **0 errors in `boq-wizard`** (baseline 0; 3772 lines pre-existing elsewhere, unchanged) |
+| Production build | `npx vite build` | `✓ built in 43.21s` — clean. Output dir is gitignored; **0 tracked files changed** |
+| Scope | `git diff --stat` | 5 files, all in `files_in_scope`. `PricingGrid.tsx` **not** in the diff |
+
+**What no test here can cover, and needs a browser.** The repo has **no DOM test environment** (no jsdom,
+no testing-library — `vitest.config.ts` records the choice). Everything below is a React *semantic* and is
+therefore **structurally untestable in this repo**; a green suite says nothing about any of it:
+
+1. The off→on click both enabling BCS **and** opening the card in one act.
+2. The card hydrating from a stored confirmation on **re**-open (and a mid-edit refetch not stomping
+   in-progress picks — the effect is keyed on `open` alone).
+3. The chip appearing only once **both** sides are confirmed, and reopening the card.
+4. The banner appearing/clearing on the enable→confirm transition.
+5. The collapsed full-screen rail showing the "BCS needs columns" chip.
+6. **That the `React.memo(PricingGrid)` shield still bails** when the card opens/closes. The change adds
+   no grid prop and destabilises none, so it *should* — but "should" is the word that preceded T1 and T2.
+   Confirm with the React DevTools Profiler ("Why did this render?").
+
+### 5. Deliberately NOT done
+
+- **`PricingGrid.tsx` — untouched.** No BCS column renders until S3, so the row-memo shield and
+  `pricingRowPropsAreEqual` stay byte-unchanged. Nothing here needed it.
+- **Every backend file — untouched.** The endpoints and the pure rules exist and are reviewed across
+  S1/S1a/S1b/S1c. This slice wires a UI to a finished backend; it does not adjust it.
+- **No doctype JSON, no migration.** Nothing schema-shaped in this slice.
+- **The carry path (S6) — untouched.**
+- **No BCS rate entry.** `save_row_bcs_rates` exists and is gated by `bcs_is_ready`, but nothing on this
+  screen calls it yet. The banner's "cost entry stays locked" is about the server's refusal, not about a
+  control that ships here.
+- **No second readiness derivation.** The client never recomputes `is_ready` from `bcs_enabled` + the two
+  sources; it reads the server's. One number, one owner.
+- **The repo-wide `tsc` reds — not touched.** 3772 lines of pre-existing errors outside `boq-wizard`;
+  someone else's slice, and fixing them here would hide whether *this* change is clean.
