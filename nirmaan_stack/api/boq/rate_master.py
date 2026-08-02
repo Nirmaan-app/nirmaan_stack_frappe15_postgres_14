@@ -206,10 +206,17 @@ def _guard_suggest_gate(boq, sheet_name, committed_version):
 
 # ── Run skeleton ────────────────────────────────────────────────────────────────────
 @frappe.whitelist(methods=["POST"])
-def start_suggest(boq=None, sheet_name=None):
+def start_suggest(boq=None, sheet_name=None, resume_run_id=None):
     """Enqueue a background rate-suggestion (attribute extraction) run for one committed sheet.
     Returns immediately. Re-checks the D8 gate server-side. URL:
-    /api/method/nirmaan_stack.api.boq.rate_master.start_suggest"""
+    /api/method/nirmaan_stack.api.boq.rate_master.start_suggest
+
+    SR-1 resume: pass `resume_run_id` to CONTINUE an existing partial run instead of starting a new
+    one. The resume fills only the rows that run has not attempted and completes the SAME run doc
+    (same run_id) -- it never spawns a second run. The D8 gate and the committed-version keying are
+    re-checked here exactly as for a fresh run, so a partial whose sheet has since been re-committed
+    is refused rather than resumed against rows that may have changed.
+    """
     _require_login()
     if not boq:
         frappe.throw("boq is required.", title="Missing field: boq")
@@ -222,6 +229,9 @@ def start_suggest(boq=None, sheet_name=None):
     if cv is None:
         frappe.throw(f"No current committed sheet '{sheet_name}' for this BoQ.", title="Sheet not committed")
     _guard_suggest_gate(boq, sheet_name, cv)
+
+    if resume_run_id:
+        _validate_resume_target(boq, sheet_name, cv, resume_run_id)
 
     marker = _s_get_marker(boq, sheet_name)
     if marker and _s_maybe_self_heal(boq, sheet_name, marker) == "running":
@@ -240,14 +250,141 @@ def start_suggest(boq=None, sheet_name=None):
         user=user,
         boq=boq,
         sheet_name=sheet_name,
+        resume_run_id=resume_run_id,
     )
     frappe.cache().delete_value(_s_status_key(boq, sheet_name))
     _s_set_marker(boq, sheet_name, raw_job_id, user)
     frappe.db.commit()
-    return {"status": "queued", "job_id": raw_job_id}
+    return {"status": "queued", "job_id": raw_job_id, "resumed_run_id": resume_run_id or None}
 
 
-def _suggest_worker(boq=None, sheet_name=None, user=None):
+def _validate_resume_target(boq, sheet_name, cv, resume_run_id):
+    """A resume target must exist, belong to THIS sheet, still be partial, and be pinned to the
+    sheet's CURRENT committed version. Anything else throws -- a resume must never write into a
+    completed run, another sheet's run, or a version whose rows may have changed underneath it."""
+    rows = frappe.get_all(
+        RUN_DOCTYPE,
+        filters={"boq": boq, "sheet_name": sheet_name, "run_id": resume_run_id},
+        fields=["name", "status", "committed_version"],
+        limit=1,
+    )
+    if not rows:
+        frappe.throw(
+            f"No suggestion run '{resume_run_id}' found for this sheet.", title="Run not found"
+        )
+    run = rows[0]
+    if (run.get("status") or "") != "partial":
+        frappe.throw(
+            f"That suggestion run is '{run.get('status') or 'unknown'}', not a partial run, so there is nothing to resume.",
+            title="Not resumable",
+        )
+    if run.get("committed_version") != cv:
+        frappe.throw(
+            "That partial run was made against an earlier committed version of this sheet. "
+            "Start a fresh suggestion run instead.",
+            title="Version moved on",
+        )
+
+
+# ── SR-1 run-doc lifecycle (the run doc IS the partial store) ───────────────────────
+# Writes here use frappe.db.set_value(update_modified=False) rather than doc.save. That is safe
+# and intentional for THIS doctype: BoQ Rate Suggestion Run is track_changes:0, so there is no
+# Version audit to bypass (unlike the rate-master editing endpoints, where set_value is FORBIDDEN
+# precisely because it would skip the audit). set_value also keeps a per-batch checkpoint cheap.
+def _open_run_doc(boq, sheet_name, cv, job_id, user, resume_run_id):
+    """Resolve the run doc a pass will write into: either the partial being RESUMED (same doc, same
+    run_id -- never a second doc) or a freshly created one at status=running / active=0.
+
+    Returns (run_name, run_id, prior_results, prior_attempted)."""
+    if resume_run_id:
+        rows = frappe.get_all(
+            RUN_DOCTYPE,
+            filters={"boq": boq, "sheet_name": sheet_name, "run_id": resume_run_id},
+            fields=["name", "results", "attempted_rows"],
+            limit=1,
+        )
+        if rows:
+            run = rows[0]
+            frappe.db.set_value(
+                RUN_DOCTYPE, run["name"],
+                {"status": "running", "halt_reason": None},
+                update_modified=False,
+            )
+            frappe.db.commit()
+            return (
+                run["name"], resume_run_id,
+                _parse_json(run.get("results"), []),
+                _parse_json(run.get("attempted_rows"), []),
+            )
+        # The target vanished between the endpoint's validation and here -- fall through and start
+        # a fresh run rather than losing the request entirely.
+
+    run_id = resume_run_id or job_id or frappe.generate_hash(length=32)
+    doc = frappe.new_doc(RUN_DOCTYPE)
+    doc.boq = boq
+    doc.sheet_name = sheet_name  # VERBATIM (#152)
+    doc.committed_version = cv
+    doc.run_id = run_id
+    doc.status = "running"
+    doc.ai_status = ""
+    doc.results = "[]"
+    doc.attempted_rows = "[]"
+    doc.run_by = user
+    doc.active = 0  # never supersede a prior COMPLETE run until this one completes
+    doc.insert(ignore_permissions=True)
+    frappe.db.commit()
+    return doc.name, run_id, [], []
+
+
+def _write_run_progress(run_name, acc_results, acc_attempted):
+    """One checkpoint: the rows so far + the done-marker, committed immediately."""
+    frappe.db.set_value(
+        RUN_DOCTYPE, run_name,
+        {
+            "results": json.dumps([acc_results[k] for k in sorted(acc_results)]),
+            "attempted_rows": json.dumps(sorted(acc_attempted)),
+        },
+        update_modified=False,
+    )
+    frappe.db.commit()
+
+
+def _finalise_run(run_name, cv, ai_status, merged, acc_attempted, complete, halt_reason,
+                  boq, sheet_name):
+    """Terminal state for a pass. COMPLETE flips active=1 and supersedes the prior active run --
+    that is the ONLY moment a run becomes the live one. A PARTIAL stays active=0, so the previously
+    completed run remains what the editor reads."""
+    values = {
+        "committed_version": cv,
+        "ai_status": ai_status,
+        "results": json.dumps(merged),
+        "attempted_rows": json.dumps(sorted(acc_attempted)),
+        "status": "complete" if complete else "partial",
+        "halt_reason": None if complete else halt_reason,
+    }
+    if complete:
+        values["active"] = 1
+        values["run_at"] = frappe.utils.now()
+        for prior in frappe.get_all(
+            RUN_DOCTYPE,
+            filters={"boq": boq, "sheet_name": sheet_name, "active": 1},
+            pluck="name",
+        ):
+            if prior != run_name:
+                frappe.db.set_value(RUN_DOCTYPE, prior, "active", 0, update_modified=False)
+    frappe.db.set_value(RUN_DOCTYPE, run_name, values, update_modified=False)
+
+
+def _mark_run_failed(run_name, halt_reason):
+    """An unexpected failure. The run KEEPS its checkpointed rows (active stays 0)."""
+    frappe.db.set_value(
+        RUN_DOCTYPE, run_name,
+        {"status": "failed", "halt_reason": halt_reason},
+        update_modified=False,
+    )
+
+
+def _suggest_worker(boq=None, sheet_name=None, user=None, resume_run_id=None):
     """Background worker: run extraction, WRITE the Suggestion Run doc (prior active -> active=0) at
     terminal SUCCESS, commit BEFORE publish, record + publish the terminal payload. On failure,
     records a terminal error payload and clears the marker (never left stuck)."""
@@ -264,47 +401,102 @@ def _suggest_worker(boq=None, sheet_name=None, user=None):
             **({"user": user} if user else {}),
         )
 
+    run_name = None
+    run_id = None
     try:
-        env = extraction.run_extraction(boq, sheet_name, progress_cb=_progress)
+        cv = _resolve_committed_version(boq, sheet_name)
+        # SR-1: the RUN DOC IS THE PARTIAL STORE. Resolve (resume) or create it UP FRONT at
+        # status=running / active=0, so every checkpoint has somewhere durable to land. active=0
+        # is load-bearing: a running or partial run must NEVER supersede a prior COMPLETE run --
+        # get_active_suggestion_run keeps returning the good one until this one truly completes.
+        run_name, run_id, prior_results, prior_attempted = _open_run_doc(
+            boq, sheet_name, cv, job_id, user, resume_run_id
+        )
+
+        acc_results = {int(r["excel_row"]): r for r in prior_results}
+        acc_attempted = set(prior_attempted)
+
+        def _checkpoint(row_results, attempted_now):
+            """Persist one completed batch. This is the whole point of SR-1: the work survives a
+            later halt, a crash, or the RQ job timeout."""
+            for row in row_results:
+                acc_results[int(row["excel_row"])] = row
+            acc_attempted.update(int(x) for x in attempted_now)
+            _write_run_progress(run_name, acc_results, acc_attempted)
+
+        env = extraction.run_extraction(
+            boq, sheet_name,
+            progress_cb=_progress,
+            checkpoint_cb=_checkpoint,
+            skip_rows=sorted(acc_attempted),
+        )
         cv = env["committed_version"]
         ai_status = env["ai_status"]
-        run_id = job_id or frappe.generate_hash(length=32)
 
-        # Freeze-and-supersede: deactivate the prior active run(s) for this sheet, then insert.
-        for prior in frappe.get_all(
-            RUN_DOCTYPE, filters={"boq": boq, "sheet_name": sheet_name, "active": 1}, pluck="name"
-        ):
-            frappe.db.set_value(RUN_DOCTYPE, prior, "active", 0, update_modified=False)
-        run = frappe.new_doc(RUN_DOCTYPE)
-        run.boq = boq
-        run.sheet_name = sheet_name  # VERBATIM (#152)
-        run.committed_version = cv
-        run.run_id = run_id
-        run.ai_status = ai_status
-        run.results = json.dumps(env["results"])
-        run.run_by = user
-        run.run_at = frappe.utils.now()
-        run.active = 1
-        run.insert(ignore_permissions=True)
+        # Fold in whatever the envelope reports (covers the fail-closed paths, which do not
+        # checkpoint because they never enter the batch loop).
+        for row in env["results"]:
+            acc_results[int(row["excel_row"])] = row
+        acc_attempted.update(int(x) for x in env.get("attempted_rows") or [])
+
+        # `complete` DEFAULTS TO TRUE for an envelope that predates SR-1's additive keys, so any
+        # caller (or test double) still producing the old shape keeps the old terminal-success
+        # behaviour rather than being silently downgraded to a partial. run_extraction itself
+        # always sets it explicitly.
+        population = {int(x) for x in env.get("population_rows") or []}
+        complete = bool(env.get("complete", True)) and not (population - acc_attempted)
+        merged = [acc_results[k] for k in sorted(acc_results)]
+
+        _finalise_run(
+            run_name, cv, ai_status, merged, acc_attempted,
+            complete=complete, halt_reason=env.get("halt_reason"), boq=boq, sheet_name=sheet_name,
+        )
+        if not complete:
+            # A graceful halt must still leave an OPERATOR trail. The pricer sees halt_reason; this
+            # records the provider's own error text, which would otherwise be lost precisely because
+            # the halt is handled instead of raised.
+            frappe.log_error(
+                title="BoQ suggest run halted (partial saved)",
+                message=(
+                    f"boq={boq} sheet={sheet_name} run_id={run_id}\n"
+                    f"terminal={env.get('halt_terminal')}\n"
+                    f"reason={env.get('halt_reason')}\n"
+                    f"detail={env.get('halt_detail')}\n"
+                    f"attempted={len(acc_attempted)} of population={len(population)}"
+                ),
+            )
 
         frappe.db.commit()  # commit BEFORE publish (CLAUDE.md rule)
         payload = {
-            "status": "success",
+            "status": "success" if complete else "partial",
             "boq": boq,
             "sheet_name": sheet_name,
             "committed_version": cv,
             "run_id": run_id,
             "ai_status": ai_status,
-            "results": env["results"],
+            "run_status": "complete" if complete else "partial",
+            "results": merged,
+            "attempted_count": len(acc_attempted),
+            "population_count": len(population) or len(acc_attempted),
+            "halt_reason": env.get("halt_reason"),
         }
     except Exception:
-        frappe.db.rollback()
+        # NOTE: deliberately NO frappe.db.rollback() here. Every checkpoint was committed as it was
+        # taken, and rolling back would throw away exactly the work SR-1 exists to preserve. The run
+        # is marked failed but keeps its rows, so it stays resumable.
         frappe.log_error(title="BoQ suggest worker failed", message=frappe.get_traceback())
+        halt_reason = "The suggestion run stopped unexpectedly. Anything already extracted was kept."
+        if run_name:
+            _mark_run_failed(run_name, halt_reason)
+            frappe.db.commit()
         payload = {
             "status": "error",
             "boq": boq,
             "sheet_name": sheet_name,
             "error_code": "suggest_failed",
+            "run_id": run_id,
+            "run_status": "failed",
+            "halt_reason": halt_reason,
         }
     frappe.cache().set_value(_s_status_key(boq, sheet_name), payload, expires_in_sec=_S_STATUS_TTL_SEC)
     _s_clear_marker(boq, sheet_name)
@@ -351,15 +543,35 @@ def get_active_suggestion_run(boq=None, sheet_name=None):
     rows = frappe.get_all(
         RUN_DOCTYPE,
         filters={"boq": boq, "sheet_name": sheet_name, "active": 1},
-        fields=["run_id", "committed_version", "ai_status", "results", "run_at"],
+        fields=["run_id", "committed_version", "ai_status", "results", "run_at", "status"],
         order_by="creation desc",
         limit=1,
     )
-    if not rows:
-        return {"run": None}
-    r = rows[0]
-    r["results"] = _parse_json(r.get("results"), [])
-    return {"run": r}
+    out = {"run": None, "partial_run": None}
+    if rows:
+        r = rows[0]
+        r["results"] = _parse_json(r.get("results"), [])
+        # Pre-SR-1 rows migrate to "complete"; treat any blank as complete so an old run can never
+        # retroactively lock "Use this value".
+        r["status"] = (r.get("status") or "complete")
+        out["run"] = r
+
+    # SR-1: the newest RESUMABLE partial, surfaced ALONGSIDE (never instead of) the active run --
+    # a partial is active=0 by design, so without this the editor could not offer a resume.
+    partials = frappe.get_all(
+        RUN_DOCTYPE,
+        filters={"boq": boq, "sheet_name": sheet_name, "status": "partial"},
+        fields=["run_id", "committed_version", "status", "attempted_rows", "halt_reason", "results"],
+        order_by="creation desc",
+        limit=1,
+    )
+    if partials:
+        p = partials[0]
+        p["attempted_count"] = len(_parse_json(p.get("attempted_rows"), []))
+        p["results"] = _parse_json(p.get("results"), [])
+        p.pop("attempted_rows", None)
+        out["partial_run"] = p
+    return out
 
 
 @frappe.whitelist(methods=["POST"])

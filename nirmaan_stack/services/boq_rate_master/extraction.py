@@ -57,6 +57,76 @@ _AI_TIMEOUT = 300
 _RETRIES = 3
 _DEFAULT_MODEL = "claude-opus-4-8"
 
+
+class ExtractionHalted(Exception):
+    """SR-1: a batch could not be completed and the RUN must stop cleanly, KEEPING everything
+    extracted so far (the caller saves a partial and the user resumes). Distinguishable from a
+    generic failure on purpose -- run_extraction catches exactly this to break out of the batch
+    loop and fall through to the normal results assembly.
+
+    `reason` is plain language shown to the pricer; `terminal` records whether the underlying
+    error was non-retryable (a usage limit / auth / invalid request) or a transient one that
+    exhausted its retries.
+    """
+
+    def __init__(self, reason, terminal=True, detail=""):
+        super().__init__(reason)
+        self.reason = reason
+        self.terminal = terminal
+        self.detail = detail
+
+
+# Errors that will NOT clear by trying again: the account/request itself is refused. Retrying these
+# burns two guaranteed-failed calls and delays the partial save.
+_TERMINAL_MARKERS = (
+    "USAGE LIMIT", "USAGE_LIMIT", "QUOTA", "CREDIT BALANCE", "BILLING",
+    "AUTHENTICATION", "UNAUTHORIZED", "INVALID_API_KEY", "INVALID API KEY", "PERMISSION_ERROR",
+    "INVALID_REQUEST_ERROR",
+)
+
+
+def _is_transient(exc):
+    """True when the error is worth retrying -- i.e. everything EXCEPT a positively-identified
+    terminal error.
+
+    THE DEFAULT DIRECTION IS LOAD-BEARING. An unrecognised error must keep the pre-SR-1 retry
+    behaviour, because that is what it had before; only errors we can positively name as
+    non-retryable may fast-fail. Defaulting the other way silently converted retryable failures
+    into instant halts -- a TRUNCATED AI reply (ValueError from _extract_json_array) is exactly
+    that case, and it is common enough to have caused a production run failure. It is a per-call
+    artifact that usually succeeds on the next attempt.
+
+    The transient vocabulary still ADOPTS the existing precedent (boq_ai_assist._TRANSIENT_MARKERS)
+    for the positive signals it recognises; the import is LAZY and defensive because boq_ai_assist
+    calls frappe.logger("boq_ai") at module load (the documented reason the raw unittest runner
+    fails on it), so a module-scope import would extend that constraint to every importer here.
+    """
+    blob = f"{type(exc).__name__} {exc}".upper()
+    if any(marker in blob for marker in _TERMINAL_MARKERS):
+        return False
+    try:
+        from nirmaan_stack.services.boq_ai_assist import _TRANSIENT_MARKERS
+    except Exception:
+        return True
+    if any(marker in blob for marker in _TRANSIENT_MARKERS):
+        return True
+    return True  # unrecognised -> retry, exactly as before SR-1
+
+
+def _halt_reason_for(exc):
+    """Plain-language halt reason for a NON-retryable error, for the pricer -- never the opaque
+    'suggest_failed'. Keeps the provider's own words in the detail for the log."""
+    blob = f"{type(exc).__name__} {exc}"
+    upper = blob.upper()
+    if "USAGE LIMIT" in upper or "USAGE_LIMIT" in upper or "CREDIT" in upper or "BILLING" in upper:
+        return "The AI account's usage limit was reached, so the run stopped early."
+    if "AUTHENTICATION" in upper or "UNAUTHORIZED" in upper or "API KEY" in upper or "API_KEY" in upper:
+        return "The AI API key was rejected, so the run stopped early."
+    if "PERMISSION" in upper or "FORBIDDEN" in upper:
+        return "The AI account is not permitted to run this request, so the run stopped early."
+    return "The AI request was refused, so the run stopped early."
+
+
 _ROW_CATEGORY = "BoQ Row Category"
 _BOQ_NODES = "BOQ Nodes"
 _BOQ_SHEET = "BoQ Sheet"
@@ -522,8 +592,22 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
             return out
         except Exception as exc:
             last = exc
+            # SR-1: classify BEFORE retrying. A TERMINAL error (usage limit / auth / invalid
+            # request) will not clear in six seconds, so retrying it burns two guaranteed-failed
+            # calls and delays the partial save. Fail fast and let the caller keep what it has.
+            # A TRANSIENT error keeps today's retry/backoff behaviour byte-identical.
+            if not _is_transient(exc):
+                raise ExtractionHalted(
+                    _halt_reason_for(exc), terminal=True, detail=repr(exc)
+                ) from exc
             time.sleep(2 * attempt)
-    raise RuntimeError(f"AI extraction batch failed after {_RETRIES} attempts: {last!r}")
+    # Retries exhausted on a transient error. Still a HALT, not a crash: the run keeps every batch
+    # completed so far and becomes resumable, instead of discarding the whole run's work.
+    raise ExtractionHalted(
+        f"An AI request kept failing after {_RETRIES} attempts, so the run stopped early.",
+        terminal=False,
+        detail=repr(last),
+    )
 
 
 # ── regex corroborator (display-only) ──────────────────────────────────────────────
@@ -588,7 +672,7 @@ def _corroborate(row, row_attrs):
 
 
 # ── the runner ──────────────────────────────────────────────────────────────────────
-def run_extraction(boq, sheet_name, client=None, progress_cb=None):
+def run_extraction(boq, sheet_name, client=None, progress_cb=None, checkpoint_cb=None, skip_rows=None):
     """Assemble the population and extract attributes ACROSS ALL eligible categories (EA-2). Returns
     {committed_version, ai_status, model, results} where results =
     [{excel_row, description, category_id, attributes:{id:{value, confidence, corroborated}}}].
@@ -599,22 +683,47 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None):
     Fails CLOSED (disabled / no key) -> results with all-null attributes + ai_status set; NO call.
     client is injectable for tests (a mock Anthropic client); when None and enabled, a real
     anthropic.Anthropic is built from the encrypted key.
+
+    SR-1 additions (all ADDITIVE -- absent => the pre-SR-1 behaviour):
+      * checkpoint_cb(row_results, attempted_rows) is called after EVERY completed batch, following
+        the SAME injection pattern as progress_cb. The service layer still performs NO frappe.db
+        writes -- the callback owns persistence, exactly as progress_cb owns the Redis marker.
+      * skip_rows: excel_rows already attempted by a previous run of THIS run doc; a resume passes
+        the persisted attempted_rows so only pending rows are processed.
+      * On a halt the loop BREAKS and falls through to the normal results assembly (which already
+        tolerates a partial ai_out), returning the additive keys `complete` / `halted` /
+        `halt_reason` / `attempted_rows`. ai_status is deliberately NOT widened -- it keeps its own
+        3-value vocabulary, which the doctype and the frontend both treat as a contract.
     """
     from nirmaan_stack.api.boq.wizard.ai_settings import (
         get_boq_ai_api_key,
         get_boq_ai_settings,
     )
 
-    cv, rows = assemble_population(boq, sheet_name)
+    cv, all_rows = assemble_population(boq, sheet_name)
     settings = get_boq_ai_settings()
     model = settings.get("model") or _DEFAULT_MODEL
 
-    def _envelope(ai_status, results):
+    # SR-1 resume: process only rows a previous pass of this run has NOT already attempted. The
+    # population itself is always recomputed in full so `population_rows` stays the completeness
+    # yardstick regardless of how many passes it took.
+    skip = {int(x) for x in (skip_rows or [])}
+    population_rows = [r["excel_row"] for r in all_rows]
+    rows = [r for r in all_rows if r["excel_row"] not in skip]
+
+    def _envelope(ai_status, results, complete=True, halt_reason=None, attempted=None):
+        attempted_now = sorted(attempted) if attempted is not None else [r["excel_row"] for r in results]
         return {
             "committed_version": cv,
             "ai_status": ai_status,
             "model": model,
             "results": results,
+            # SR-1 additive keys (never widen ai_status -- see the docstring).
+            "complete": complete,
+            "halted": not complete,
+            "halt_reason": halt_reason,
+            "attempted_rows": attempted_now,      # attempted by THIS pass only
+            "population_rows": population_rows,   # the full sheet population (completeness yardstick)
         }
 
     if cv is None or not rows:
@@ -670,25 +779,61 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None):
     total = len(rows)
     done = 0
     ai_out = {}
-    for (disc, cat), grp_rows in groups.items():
-        gc = group_ctx[(disc, cat)]
-        for b in range(0, len(grp_rows), _BATCH):
-            batch = grp_rows[b : b + _BATCH]
-            ai_out.update(_extract_batch(client, model, gc["prompt"], gc["defs"], batch, gc["synonyms"], gc["defaults"], gc["none_guidance"], gc["slot_spec"], gc["resolution_rules"]))
-            done += len(batch)
-            if progress_cb:
-                progress_cb(min(done, total), total)
+    attempted = set()
+    halt_reason = None
+    halt_detail = None
+    halt_terminal = None
 
-    results = []
-    for r in rows:
-        row_attrs = ai_out.get(r["excel_row"])
+    def _row_result(r, row_attrs):
         if row_attrs is None:
             row_attrs = {d["id"]: {"value": None, "confidence": 0.0} for d in _defs_for(r)}
         _corroborate(r, row_attrs)
-        results.append({
+        return {
             "excel_row": r["excel_row"],
             "description": r.get("description") or "",
             "category_id": r["category_id"],
             "attributes": row_attrs,
-        })
-    return _envelope("ran", results)
+        }
+
+    try:
+        for (disc, cat), grp_rows in groups.items():
+            gc = group_ctx[(disc, cat)]
+            for b in range(0, len(grp_rows), _BATCH):
+                batch = grp_rows[b : b + _BATCH]
+                batch_out = _extract_batch(client, model, gc["prompt"], gc["defs"], batch, gc["synonyms"], gc["defaults"], gc["none_guidance"], gc["slot_spec"], gc["resolution_rules"])
+                ai_out.update(batch_out)
+                # The batch RETURNED, so its rows are genuinely attempted. A row the model simply
+                # did not answer for is still attempted (we asked); only a HALTED batch's rows stay
+                # pending. This is the done-marker a resume keys off -- never "are the attributes
+                # blank", which cannot tell not-asked from asked-and-got-null.
+                attempted.update(r["excel_row"] for r in batch)
+                done += len(batch)
+                if progress_cb:
+                    progress_cb(min(done, total), total)
+                # SR-1 CHECKPOINT: hand this batch's rows to the caller to persist, so the work
+                # survives a later halt. Same injection shape as progress_cb; the service layer
+                # performs no DB write of its own.
+                if checkpoint_cb:
+                    checkpoint_cb(
+                        [_row_result(r, ai_out.get(r["excel_row"])) for r in batch],
+                        sorted(attempted),
+                    )
+    except ExtractionHalted as halt:
+        # Stop cleanly and KEEP everything extracted so far. Falls through to the same assembly the
+        # complete path uses -- which already tolerates a partial ai_out.
+        halt_reason = halt.reason
+        # Carry the provider's OWN words out with it. Handling a halt gracefully must not make the
+        # underlying cause unknowable: the pricer gets `halt_reason`, the operator needs this.
+        halt_detail = halt.detail
+        halt_terminal = halt.terminal
+
+    results = [_row_result(r, ai_out.get(r["excel_row"])) for r in rows]
+    if halt_reason is not None:
+        # Only the rows actually attempted are reported; the rest stay pending for the resume.
+        attempted_results = [row for row in results if row["excel_row"] in attempted]
+        env = _envelope("ran", attempted_results, complete=False,
+                        halt_reason=halt_reason, attempted=attempted)
+        env["halt_detail"] = halt_detail
+        env["halt_terminal"] = halt_terminal
+        return env
+    return _envelope("ran", results, complete=True, attempted=attempted)

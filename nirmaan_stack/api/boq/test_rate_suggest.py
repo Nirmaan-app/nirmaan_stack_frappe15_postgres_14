@@ -53,6 +53,12 @@ def _fake_extract(by_row):
     return _FakeClient(responder)
 
 
+def _j(value):
+    """A Frappe JSON field comes back ALREADY PARSED on PostgreSQL (list/dict), but as a str on
+    some paths -- normalize either way. Mirrors test_row_category._as_obj."""
+    return json.loads(value) if isinstance(value, str) else value
+
+
 def _insert_cat(boq, sheet_name, cv, excel_row, final_category_id, discipline="Electrical"):
     doc = frappe.new_doc(_ROW_CATEGORY)
     doc.boq = boq
@@ -389,3 +395,287 @@ class TestRateSuggest(FrappeTestCase):
         out2 = extraction._extract_batch(_FakeClient(responder2), "m", "P", [defn], rows)
         self.assertNotIn("SYNONYMS", sink2[0])
         self.assertIsNone(out2[22]["conduit_type"]["value"])
+
+    # ================= SR-1: checkpointing / partial / resume / halt =================
+    # Fixture note: the population is rows 2,3 (wiring_cabling) + row 4 (earthing) -> TWO
+    # single-category batches. Failing the SECOND call therefore halts after batch 1 has been
+    # checkpointed, which is exactly the "batch 7 of 10 fails" shape SR-1 exists to fix.
+
+    def _reset_runs(self):
+        frappe.db.delete(_RUN, {"boq": self.boq, "sheet_name": self.sheet_name})
+        frappe.db.commit()
+
+    def _prior_complete_run(self, run_id="prior-complete"):
+        doc = frappe.new_doc(_RUN)
+        doc.boq = self.boq
+        doc.sheet_name = self.sheet_name
+        doc.committed_version = self.cv
+        doc.run_id = run_id
+        doc.ai_status = "ran"
+        doc.status = "complete"
+        doc.results = json.dumps([{"excel_row": 2, "description": "prior", "attributes": {}}])
+        doc.attempted_rows = json.dumps([2, 3, 4])
+        doc.active = 1
+        doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return doc.name
+
+    def _run_worker_with(self, client, resume_run_id=None):
+        """Drive the real worker but force the injected fake client (never a live Anthropic)."""
+        real = extraction.run_extraction
+
+        def _with_client(boq, sheet_name, **kw):
+            kw.pop("client", None)
+            return real(boq, sheet_name, client=client, **kw)
+
+        with mock.patch.object(extraction, "run_extraction", side_effect=_with_client):
+            rate_master._suggest_worker(
+                boq=self.boq, sheet_name=self.sheet_name, user="Administrator",
+                resume_run_id=resume_run_id,
+            )
+
+    def _failing_after_first_batch(self, error):
+        """Batch 1 answers normally; batch 2 raises `error`."""
+        def responder(call, kwargs):
+            if call == 1:
+                return _Resp(json.dumps([
+                    {"id": 2, "attributes": {"material": {"value": "COPPER", "confidence": 0.9}}},
+                    {"id": 3, "attributes": {"material": {"value": "ALUMINIUM", "confidence": 0.9}}},
+                ]))
+            raise error
+        return _FakeClient(responder)
+
+    def test_13_mid_run_failure_saves_partial_and_keeps_prior_complete(self):
+        """THE CORE FIX: batch 1's rows are PERSISTED when batch 2 fails (pre-SR-1 they were
+        discarded), the run is partial/active=0, and the prior COMPLETE run stays live."""
+        self._reset_runs()
+        prior_name = self._prior_complete_run()
+
+        client = self._failing_after_first_batch(
+            RuntimeError("Error code 400: reached your specified API usage limits")
+        )
+        self._run_worker_with(client)
+
+        new = frappe.get_all(
+            _RUN, filters={"boq": self.boq, "sheet_name": self.sheet_name, "status": "partial"},
+            fields=["name", "run_id", "status", "active", "results", "attempted_rows", "halt_reason"],
+        )
+        self.assertEqual(len(new), 1, "exactly one partial run")
+        p = new[0]
+
+        # (a) the completed batch SURVIVED the failure
+        saved = _j(p["results"])
+        self.assertEqual(sorted(r["excel_row"] for r in saved), [2, 3])
+        self.assertEqual(saved[0]["attributes"]["material"]["value"], "COPPER")
+
+        # (b) attempted_rows is the done-marker: row 4 (the halted batch) stays PENDING
+        self.assertEqual(_j(p["attempted_rows"]), [2, 3])
+
+        # (c) R-SUPERSEDE: the partial did NOT supersede the prior complete run
+        self.assertEqual(p["active"], 0, "a partial must never be active")
+        self.assertEqual(frappe.db.get_value(_RUN, prior_name, "active"), 1)
+        active = rate_master.get_active_suggestion_run(self.boq, self.sheet_name)
+        self.assertEqual(active["run"]["run_id"], "prior-complete",
+                         "the editor must still read the prior COMPLETE run")
+        self.assertEqual(active["run"]["status"], "complete")
+
+        # (d) R-USE-GATE input + a CLEAR halt reason (never the opaque "suggest_failed")
+        self.assertEqual(active["partial_run"]["run_id"], p["run_id"])
+        self.assertEqual(active["partial_run"]["attempted_count"], 2)
+        self.assertIn("usage limit", (p["halt_reason"] or "").lower())
+        self.assertNotIn("suggest_failed", (p["halt_reason"] or ""))
+
+    def test_14_resume_completes_the_same_run_and_only_pending_rows(self):
+        """R-RESUME-SAME-RUN: the resume fills ONLY the pending row, completes the SAME doc/run_id,
+        and only THEN goes active (superseding the prior complete run). No second run doc."""
+        self._reset_runs()
+        prior_name = self._prior_complete_run()
+        self._run_worker_with(
+            self._failing_after_first_batch(
+                RuntimeError("Error code 400: reached your specified API usage limits")
+            )
+        )
+        partial = frappe.get_all(
+            _RUN, filters={"boq": self.boq, "sheet_name": self.sheet_name, "status": "partial"},
+            fields=["name", "run_id"],
+        )[0]
+        count_before = frappe.db.count(_RUN, {"boq": self.boq, "sheet_name": self.sheet_name})
+
+        seen = []
+
+        def responder(call, kwargs):
+            seen.append(kwargs["messages"][0]["content"])
+            return _Resp(json.dumps([{"id": 4, "attributes": {}}]))
+
+        self._run_worker_with(_FakeClient(responder), resume_run_id=partial["run_id"])
+
+        # (a) ONLY the pending row was sent -- one batch, containing id 4 and not id 2
+        self.assertEqual(len(seen), 1, "resume must send exactly one batch (the pending row)")
+        self.assertIn('"id": 4', seen[0])
+        self.assertNotIn('"id": 2', seen[0])
+
+        # (b) the SAME doc completed -- no second run was created
+        self.assertEqual(frappe.db.count(_RUN, {"boq": self.boq, "sheet_name": self.sheet_name}),
+                         count_before, "resume must not spawn a second run doc")
+        row = frappe.db.get_value(
+            _RUN, partial["name"],
+            ["run_id", "status", "active", "attempted_rows", "results", "halt_reason"],
+            as_dict=True,
+        )
+        self.assertEqual(row["run_id"], partial["run_id"], "same run_id")
+        self.assertEqual(row["status"], "complete")
+        self.assertIsNone(row["halt_reason"], "a completed run carries no halt reason")
+
+        # (c) the resume MERGED -- batch 1's rows were not lost
+        self.assertEqual(_j(row["attempted_rows"]), [2, 3, 4])
+        self.assertEqual(sorted(r["excel_row"] for r in _j(row["results"])), [2, 3, 4])
+
+        # (d) NOW it supersedes the prior complete run (and only now)
+        self.assertEqual(row["active"], 1)
+        self.assertEqual(frappe.db.get_value(_RUN, prior_name, "active"), 0)
+        active = rate_master.get_active_suggestion_run(self.boq, self.sheet_name)
+        self.assertEqual(active["run"]["run_id"], partial["run_id"])
+        self.assertIsNone(active["partial_run"], "no partial remains once it completed")
+
+    def test_15_usage_limit_fast_fails_without_retrying(self):
+        """A terminal 400 must NOT burn the 3x retry + 6s of sleep -- it cannot clear in six
+        seconds. Asserted on the call count AND on time.sleep never being called."""
+        self._reset_runs()
+        client = self._failing_after_first_batch(
+            RuntimeError("Error code 400: reached your specified API usage limits, regain 2026-08-01")
+        )
+        with mock.patch("nirmaan_stack.services.boq_rate_master.extraction.time.sleep") as slept:
+            self._run_worker_with(client)
+        self.assertEqual(client.messages.calls, 2,
+                         "batch 1 + ONE terminal attempt -- no retries on a usage limit")
+        slept.assert_not_called()
+        p = frappe.get_all(_RUN, filters={"boq": self.boq, "status": "partial"},
+                           fields=["halt_reason", "attempted_rows"])[0]
+        self.assertIn("usage limit", p["halt_reason"].lower())
+        self.assertEqual(_j(p["attempted_rows"]), [2, 3], "the completed batch was kept")
+
+    def test_16_transient_error_still_retries_unchanged(self):
+        """NEGATIVE control: a transient marker (529 overloaded) keeps the pre-SR-1 retry
+        behaviour byte-identical -- 3 attempts, with backoff sleeps."""
+        self._reset_runs()
+        client = self._failing_after_first_batch(RuntimeError("Error code 529: overloaded_error"))
+        with mock.patch("nirmaan_stack.services.boq_rate_master.extraction.time.sleep") as slept:
+            self._run_worker_with(client)
+        # batch 1 (ok) + 3 attempts on batch 2
+        self.assertEqual(client.messages.calls, 4, "transient errors still retry 3x")
+        self.assertEqual(slept.call_count, 3, "backoff preserved for transient errors")
+        p = frappe.get_all(_RUN, filters={"boq": self.boq, "status": "partial"},
+                           fields=["halt_reason", "attempted_rows"])[0]
+        self.assertEqual(_j(p["attempted_rows"]), [2, 3],
+                         "even an exhausted transient keeps the completed batches")
+
+    def test_17_attempted_row_is_not_inferred_from_blank_attributes(self):
+        """The done-marker must distinguish 'never asked' from 'asked and the AI returned null' --
+        the two are byte-identical in results, which is why attempted_rows exists at all."""
+        self._reset_runs()
+
+        def responder(call, kwargs):
+            # Batch 1 answers with an explicit NULL for rows 2/3; batch 2 halts.
+            if call == 1:
+                return _Resp(json.dumps([
+                    {"id": 2, "attributes": {"material": {"value": None, "confidence": 0.0}}},
+                    {"id": 3, "attributes": {"material": {"value": None, "confidence": 0.0}}},
+                ]))
+            raise RuntimeError("Error code 400: usage limit reached")
+
+        self._run_worker_with(_FakeClient(responder))
+        p = frappe.get_all(_RUN, filters={"boq": self.boq, "status": "partial"},
+                           fields=["results", "attempted_rows"])[0]
+        saved = _j(p["results"])
+        # rows 2/3 have blank attributes YET are attempted; row 4 is neither saved nor attempted
+        self.assertIsNone(saved[0]["attributes"]["material"]["value"])
+        self.assertEqual(_j(p["attempted_rows"]), [2, 3])
+        self.assertNotIn(4, [r["excel_row"] for r in saved])
+
+    def test_18_resume_validation_negatives(self):
+        """start_suggest refuses to resume anything that is not a live partial of THIS sheet at the
+        CURRENT committed version -- a resume must never write into the wrong run."""
+        self._reset_runs()
+        self._prior_complete_run(run_id="already-done")
+
+        # NEG: unknown run id
+        with self.assertRaises(frappe.ValidationError):
+            rate_master.start_suggest(boq=self.boq, sheet_name=self.sheet_name, resume_run_id="nope")
+        # NEG: the run is complete, not partial -> nothing to resume
+        with self.assertRaises(frappe.ValidationError):
+            rate_master.start_suggest(
+                boq=self.boq, sheet_name=self.sheet_name, resume_run_id="already-done"
+            )
+        # NEG: a partial pinned to a DIFFERENT committed version (rows may have changed)
+        stale = frappe.new_doc(_RUN)
+        stale.boq = self.boq
+        stale.sheet_name = self.sheet_name
+        stale.committed_version = self.cv + 5
+        stale.run_id = "stale-version"
+        stale.status = "partial"
+        stale.results = "[]"
+        stale.attempted_rows = "[]"
+        stale.active = 0
+        stale.insert(ignore_permissions=True)
+        frappe.db.commit()
+        with self.assertRaises(frappe.ValidationError):
+            rate_master.start_suggest(
+                boq=self.boq, sheet_name=self.sheet_name, resume_run_id="stale-version"
+            )
+
+    def test_19_unrecognised_error_still_retries_like_before(self):
+        """REGRESSION (caught by the SR-1 browser cert on real data, not by the unit tests): a
+        TRUNCATED AI reply raises ValueError from _extract_json_array. That is a per-call artifact
+        that usually succeeds on the next attempt, and pre-SR-1 it was retried 3x.
+
+        An early version of the terminal/transient split defaulted UNRECOGNISED errors to terminal,
+        which silently turned this common failure into an instant halt. The default direction must
+        stay 'retry unless positively identified as terminal'."""
+        self._reset_runs()
+        truncated = '[{"id": 2, "attributes": {"material": {"value": "COP'
+        calls = {"n": 0}
+
+        def responder(call, kwargs):
+            calls["n"] += 1
+            if call == 1:
+                return _Resp(json.dumps([
+                    {"id": 2, "attributes": {"material": {"value": "COPPER", "confidence": 0.9}}},
+                    {"id": 3, "attributes": {"material": {"value": "ALUMINIUM", "confidence": 0.9}}},
+                ]))
+            return _Resp(truncated)  # batch 2 always comes back cut off
+
+        client = _FakeClient(responder)
+        with mock.patch("nirmaan_stack.services.boq_rate_master.extraction.time.sleep") as slept:
+            self._run_worker_with(client)
+
+        # batch 1 (ok) + 3 attempts on the truncated batch -- NOT an instant halt
+        self.assertEqual(client.messages.calls, 4,
+                         "a truncated reply must be retried, exactly as it was before SR-1")
+        self.assertEqual(slept.call_count, 3, "backoff preserved for a retryable error")
+
+        # and the completed batch is still kept, with an honest non-provider-blaming reason
+        p = frappe.get_all(_RUN, filters={"boq": self.boq, "status": "partial"},
+                           fields=["halt_reason", "attempted_rows"])[0]
+        self.assertEqual(_j(p["attempted_rows"]), [2, 3])
+        self.assertIn("kept failing", p["halt_reason"])
+        self.assertNotIn("rejected", p["halt_reason"],
+                         "a local parse failure must not be reported as a provider rejection")
+
+    def test_20_terminal_markers_are_positively_identified_only(self):
+        """The classifier's contract, pinned directly: only positively-named terminal errors
+        fast-fail; everything else keeps the pre-SR-1 retry behaviour."""
+        # POSITIVE: terminal
+        for msg in (
+            "Error code: 400 - You have reached your specified API usage limits.",
+            "authentication_error: invalid x-api-key",
+            "invalid_request_error: bad payload",
+        ):
+            self.assertFalse(extraction._is_transient(RuntimeError(msg)), msg)
+        # NEGATIVE: retryable (incl. the unrecognised default)
+        for exc in (
+            ValueError("truncated (unbalanced) JSON array in AI response"),
+            RuntimeError("Error code 529: overloaded_error"),
+            RuntimeError("connection reset by peer"),
+            RuntimeError("something nobody has seen before"),
+        ):
+            self.assertTrue(extraction._is_transient(exc), repr(exc))

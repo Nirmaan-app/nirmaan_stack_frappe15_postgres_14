@@ -147,7 +147,7 @@ import {
   isRunForVersion,
   makePricingSheetHelper,
 } from "./rate-helper/pricingSheetHelper";
-import { RateSuggestProgressModal } from "./rate-helper/RateSuggestProgressModal";
+import { RateSuggestProgressModal, type SuggestModalSummary } from "./rate-helper/RateSuggestProgressModal";
 import type { RateCategoryConfig, RateMasterItem } from "@/pages/pricing/rate-master/rateMasterTypes";
 import { RATE_MASTER_DISCIPLINES } from "@/pages/pricing/rate-master/rateMasterRegistry";
 
@@ -334,6 +334,22 @@ interface SuggestStatusResponse {
   run_id?: string;
   committed_version?: number;
   results?: SuggestRunResultRow[];
+  // SR-1: the run LIFECYCLE (distinct from ai_status, which keeps its own 3-value vocabulary).
+  // A partial run is resumable and keeps "Use this value" LOCKED until it completes.
+  run_status?: "running" | "partial" | "complete" | "failed";
+  halt_reason?: string | null;
+  attempted_count?: number;
+  population_count?: number;
+}
+
+/** SR-1: a resumable partial run, surfaced ALONGSIDE the active (complete) run -- a partial is
+ * deliberately active=0, so it never supersedes a good run and must be read separately. */
+interface PartialSuggestRun {
+  run_id: string;
+  committed_version: number;
+  status: string;
+  halt_reason?: string | null;
+  attempted_count?: number;
 }
 
 /** RM-3: poll the suggest-run status for one sheet (cloned from ClassifyStatusPoller). `running`
@@ -536,7 +552,10 @@ const SheetPricingPage = () => {
   );
   // The ACTIVE suggestion run for this sheet (persistence -- version-keyed on load).
   const { data: activeRunData, mutate: mutateActiveRun } = useFrappeGetCall<{
-    message: { run: { run_id: string; committed_version: number; ai_status: string; results: SuggestRunResultRow[]; run_at?: string } | null };
+    message: {
+      run: { run_id: string; committed_version: number; ai_status: string; results: SuggestRunResultRow[]; run_at?: string; status?: string } | null;
+      partial_run?: PartialSuggestRun | null;
+    };
   }>(
     "nirmaan_stack.api.boq.rate_master.get_active_suggestion_run",
     { boq: boqId ?? "", sheet_name: sheetName ?? "" },
@@ -906,7 +925,9 @@ const SheetPricingPage = () => {
   const [suggestModalOpen, setSuggestModalOpen] = useState(false);
   const [suggestRunning, setSuggestRunning] = useState(false);
   const [suggestProgress, setSuggestProgress] = useState<{ done: number; total: number } | null>(null);
-  const [suggestSummary, setSuggestSummary] = useState<{ status?: string; ai_status?: string; results?: unknown[]; run_id?: string } | null>(null);
+  // SR-1: reuses the modal's own summary type so the run-lifecycle keys (run_status / halt_reason /
+  // attempted_count) stay declared in ONE place rather than drifting between page and modal.
+  const [suggestSummary, setSuggestSummary] = useState<SuggestModalSummary | null>(null);
   const suggestRunningRef = useRef(false);
   suggestRunningRef.current = suggestRunning;
   const usedPairsRef = useRef<Set<string>>(new Set());
@@ -2193,32 +2214,70 @@ const SheetPricingPage = () => {
       }
       if (msg.state === "done") {
         setSuggestRunning(false);
-        setSuggestSummary({ status: msg.status, ai_status: msg.ai_status, results: msg.results, run_id: msg.run_id });
+        setSuggestSummary({
+          status: msg.status,
+          ai_status: msg.ai_status,
+          results: msg.results,
+          run_id: msg.run_id,
+          run_status: msg.run_status,
+          halt_reason: msg.halt_reason,
+          attempted_count: msg.attempted_count,
+          population_count: msg.population_count,
+        });
+        // SR-1: only a COMPLETE run is adopted as the page's live run. A partial keeps whatever
+        // complete run was already there (it never superseded it server-side either), so the
+        // badges + "Use this value" keep reflecting a trustworthy, whole run.
         if (msg.status === "success" && typeof msg.committed_version === "number" && msg.run_id) {
           usedPairsRef.current = new Set(); // a NEW run supersedes -> no used pairs yet
           setSuggestRun({ runId: msg.run_id, committedVersion: msg.committed_version, results: msg.results ?? [] });
-          void mutateActiveRun();
-          void mutateSuggestEvents();
         }
+        // Refetch either way: a partial still needs the resume affordance to appear.
+        void mutateActiveRun();
+        void mutateSuggestEvents();
       }
     },
     [mutateActiveRun, mutateSuggestEvents],
   );
 
   // ASYNC press: enqueue the run, open the blocking modal; the poll/socket drive it to terminal.
-  const runSuggestRates = useCallback(async () => {
+  // SR-1: pass resumeRunId to CONTINUE a partial run -- the server fills only its pending rows and
+  // completes the SAME run doc, so a halted run is finished rather than restarted from scratch.
+  const runSuggestRates = useCallback(async (resumeRunId?: string) => {
     setHelperPanel(null);
     setSuggestSummary(null);
     setSuggestProgress(null);
     setSuggestRunning(true);
     setSuggestModalOpen(true);
     try {
-      await startSuggestCall({ boq: boqId, sheet_name: sheetName });
+      await startSuggestCall({
+        boq: boqId,
+        sheet_name: sheetName,
+        ...(resumeRunId ? { resume_run_id: resumeRunId } : {}),
+      });
     } catch {
       setSuggestRunning(false);
       setSuggestSummary({ status: "error" });
     }
   }, [startSuggestCall, boqId, sheetName]);
+
+  // SR-1: the resumable partial for this sheet, version-keyed exactly like the active run.
+  const partialSuggestRun = useMemo<PartialSuggestRun | null>(() => {
+    const p = activeRunData?.message?.partial_run ?? null;
+    if (!p || !isRunForVersion(p.committed_version, commitVersion)) return null;
+    return p;
+  }, [activeRunData, commitVersion]);
+
+  const resumeSuggestRun = useCallback(() => {
+    if (partialSuggestRun) void runSuggestRates(partialSuggestRun.run_id);
+  }, [partialSuggestRun, runSuggestRates]);
+
+  // SR-1 R-USE-GATE: "Use this value" is enabled ONLY when the run the page is showing is COMPLETE
+  // (every population row attempted). A blank status is a pre-SR-1 run, which migrated to complete.
+  const suggestRunComplete = useMemo(() => {
+    const run = activeRunData?.message?.run ?? null;
+    if (!run || !suggestRun) return false;
+    return (run.status ?? "complete") === "complete" && run.run_id === suggestRun.runId;
+  }, [activeRunData, suggestRun]);
 
   const handleSuggestionBadgeClick = useCallback(
     (excelRow: number, col: string, _cellEl: HTMLElement) => {
@@ -2234,6 +2293,14 @@ const SheetPricingPage = () => {
   const handleUseSuggestion = useCallback(
     (col: string, value: number, meta: UseMeta) => {
       if (!helperPanel) return;
+      // SR-1 R-USE-GATE: never write a rate from a run that is not COMPLETE. Structurally this is
+      // already true (a partial stays active=0, so the page only ever adopts a complete run as
+      // `suggestRun`) -- this is the explicit client-side half of the same rule, and it re-opens
+      // the run modal rather than dropping the click silently.
+      if (!suggestRunComplete) {
+        setSuggestModalOpen(true);
+        return;
+      }
       const excelRow = helperPanel.excelRow;
       gridRef.current?.applyRate(excelRow, col, value);
       usedPairsRef.current.add(`${excelRow}::${col}`);
@@ -2270,7 +2337,7 @@ const SheetPricingPage = () => {
         });
       setHelperPanel(null);
     },
-    [helperPanel, extractionByRow, boqId, sheetName, categoriesByExcelRow, suggestRun, recordSuggestEventCall, mutateSuggestEvents],
+    [helperPanel, extractionByRow, boqId, sheetName, categoriesByExcelRow, suggestRun, suggestRunComplete, recordSuggestEventCall, mutateSuggestEvents],
   );
 
   // The open panel's row context, built from the SAME page data buildSuggestions used.
@@ -3123,7 +3190,7 @@ const SheetPricingPage = () => {
               variant="outline"
               className="gap-1.5"
               disabled={suggestRatesDisabled}
-              onClick={runSuggestRates}
+              onClick={() => void runSuggestRates()}
               title={suggestRatesReason ?? "Suggest rates for editable rows"}
             >
               <Sparkles className="h-4 w-4" />
@@ -3363,7 +3430,32 @@ const SheetPricingPage = () => {
             setSuggestModalOpen(false);
             setSuggestProgress(null);
           }}
+          onResume={partialSuggestRun ? resumeSuggestRun : undefined}
         />
+      )}
+      {/* SR-1: a partial run must stay resumable ACROSS a reload -- the modal only exists for the
+          session that produced it, but the partial is persisted on the run doc. This strip is the
+          durable affordance, and it is the SR-1 bundle marker on this page. */}
+      {RATE_HELPER_ENABLED && !suggestRunning && partialSuggestRun && (
+        <div
+          className="flex items-start gap-2 rounded-md border border-amber-400/50 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
+          data-testid="sr1-partial-run-strip"
+        >
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <div className="flex-1">
+            <span className="font-medium">Rate suggestions stopped early.</span>{" "}
+            {partialSuggestRun.halt_reason || "The run did not process every row."}{" "}
+            {typeof partialSuggestRun.attempted_count === "number" && (
+              <span className="tabular-nums">
+                {partialSuggestRun.attempted_count} rows were saved.
+              </span>
+            )}{" "}
+            Resume to finish the remaining rows; &ldquo;Use this value&rdquo; unlocks when it completes.
+          </div>
+          <Button size="sm" variant="outline" className="h-6 px-2 text-xs" onClick={resumeSuggestRun}>
+            Resume run
+          </Button>
+        </div>
       )}
       {!classifyRunning && !classifyModalOpen && classifySummary && classifySummary.status === "error" && (
         <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
