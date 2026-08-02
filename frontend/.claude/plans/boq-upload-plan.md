@@ -19135,11 +19135,17 @@ whole page gates on.
 
 | Status | Condition | What the user gets |
 |---|---|---|
-| `stale` | `error` **and** usable content in hand | The grid **still renders**, above an amber strip saying it may be out of date, with Retry |
+| `stale` | `error` **and** usable content in hand | The grid **still renders**, below an amber strip saying it may be out of date, with Retry |
 | `error` | `error` and nothing worth showing | A destructive-bordered panel + **Try again** |
 | `loading` | no data, no error | The spinner — now meaning a load genuinely *in progress* |
 | `empty` | a response arrived with `message` null/absent | The `empty` wording, treated as a failure |
 | `ready` | payload, no error | The grid, **silently** (`message` is null) |
+
+> **ERRATUM (PE-SPIN-1-fix-the-two-survivors):** this record said the grid renders *"above an amber
+> strip"*. It is the other way round — the strip is rendered **before** the grid in source order
+> (`SheetPricingPage.tsx`, the `sheetLoad.isStale` block precedes the `sheetLoad.isUsable` block),
+> so the **strip sits above the grid**. Corrected in the row above. The behaviour was always right;
+> only the description was inverted.
 
 The interface stayed deliberately small: the four booleans (`isLoading` / `isFailed` / `isUsable`
 / `isStale`) exist so **no call site re-derives** `status === "ready"` inline — that re-derivation
@@ -19233,6 +19239,24 @@ semantic. That half is **live-check only**:
   forever — the save chip then sticks on *"Saving…"* for the rest of the session and the sibling
   *"Saved N of M"* message is swallowed on the same path. Real user cost, **different defect
   class** (a counter-lifetime bug, not a state-derivation one). Left untouched by instruction.
+
+  > **ERRATUM (PE-SPIN-1-fix-the-two-survivors):** the bullet above is accurate but **understates
+  > it on three counts**, and the understatement matters because it is what made this read as
+  > cosmetic.
+  >
+  > 1. The suppressed `setSaveError` swallows the **"Saved N of M"** partial-failure message —
+  >    **the only surface that names which cells failed.** Losing it is not a missing toast; it is
+  >    the loss of the sole report of a partial write.
+  > 2. `inFlight > 0` **outranks** `hasUnsaved` in `deriveSaveStatus`, so a **dirty** grid shows
+  >    *"Saving…"* instead of the amber unsaved warning for the rest of the session. The user is
+  >    told their work is being saved while it is not.
+  > 3. Its trigger is a **rejecting `mutate()`** — which is **exactly** what PE-SPIN-1 now surfaces
+  >    as the new amber stale strip. So after PE-SPIN-1 a failed paste-refresh shows **the strip
+  >    and a stuck chip together**: one control saying "may be out of date", another saying
+  >    "saving". The two defects are adjacent, not independent.
+  >
+  > Still **not fixed** — still a different defect class, and still out of scope at
+  > PE-SPIN-1-fix. Recorded here so the next reader sizes it correctly.
 - **`PricingGrid.tsx:789`'s double cast** — still waiting for a slice with `reviewRender.tsx` in
   scope.
 - **`scripts/` — untouched entirely.** `residence_check.py` *can* rewrite
@@ -19242,5 +19266,259 @@ semantic. That half is **live-check only**:
 - **The F2 red was not re-baselined**, only held at delta zero.
 - **No other page was converted.** The same `data === undefined` convention very likely exists on
   sibling pages; establishing where is a survey, not this slice.
+
+  > **ERRATUM (PE-SPIN-1-fix-the-two-survivors):** this record said *"No other **page** was
+  > converted"*, and a reader takes that to mean **this page is done**. **It was not.** Two more
+  > fetches on THIS SAME PAGE still carried the identical defect, and they survived because
+  > PE-SPIN-1 surveyed by **gating site** (finding 23) rather than by **fetch**:
+  >
+  > - **`get_committed_sheet_grid`** (`SheetPricingPage.tsx:747` at the time) did not destructure
+  >   `error`, and its consumer held the retired convention **verbatim** —
+  >   `isInitLoading={gridData === undefined}` / `initError={gridData === null ? … : null}`.
+  >   `SheetDataGrid` renders loading before error, so on a **grid-only sheet** (general specs,
+  >   Make Lists) a failed load **still span forever** — the very symptom PE-SPIN-1 was opened for.
+  > - **`get_cross_boq_carry_plan`** (`:435`) also dropped `error`, feeding
+  >   `loading: carryPlanData === undefined` to `carryButtonState`, so a failed plan fetch pinned
+  >   **"Carry rates from original"** in its loading state indefinitely.
+  >
+  > This is precisely the outcome §3 of this record warned against by name: *a page that fails
+  > differently depending on which fetch broke is worse than one that fails uniformly, because it
+  > is unpredictable.* PE-SPIN-1 argued that principle and then left the page in exactly that
+  > condition. Both are fixed at PE-SPIN-1-fix, which also records the **full fetch survey** this
+  > record could not offer. The sibling-**page** survey remains genuinely open.
 - **`PricingGrid`, `bcsColumns.ts`, every backend file and the carry path** — out of scope and
   untouched.
+
+---
+
+## PE-SPIN-1-fix — the two fetches PE-SPIN-1 did not reach
+
+**Branch** `feature/bcs-columns` · **Base** `c6525d5b` · **Tier** STANDARD · **Date** 2026-08-03
+
+**REVIEW: pending**
+
+PE-SPIN-1 fixed a real bug and passed review, but it surveyed by **gating site** and so converted
+only the two *sheet* fetches. **Two more fetches on the same page still carried the identical
+defect**: a failed `get_committed_sheet_grid` span forever on a grid-only sheet, and a failed
+`get_cross_boq_carry_plan` pinned the carry button on *"Checking what can be carried…"*. Both now
+route through the same rule. This slice designed nothing new — `pricingLoadState.ts` already
+existed, tested and proven; the only genuinely new thing is that the rule's **wording** became a
+parameter, because "could not load this sheet's pricing rows" is a lie on a sheet that has none.
+
+What did NOT change: no backend file, no `SheetDataGrid` prop, no `PricingGrid` prop, no early
+return, no migration.
+
+---
+
+### 1. Why these two survived a slice that was looking for exactly them
+
+PE-SPIN-1 counted **23 gating sites** and converted all 23. That number is correct and it is also
+the reason it stopped: a gating site is reached from the *consumer* end, and both survivors are
+consumers of a **different fetch**. Nothing in "convert every site that reads `pricedLoading`"
+reaches a site that reads `gridData`.
+
+The consequence is the sharp part. PE-SPIN-1's own §3 argued:
+
+> *a page that fails differently depending on which fetch broke is worse than one that fails
+> uniformly, because it is unpredictable.*
+
+It then left the page in precisely that condition — three fetches honest, two not, on one screen.
+An erratum against §6 of that record is filed above, because its disclaimer *"No other **page** was
+converted"* reads as "this page is done".
+
+**The methodological correction is the durable output of this slice: survey by FETCH, not by gating
+site.** The full survey is §5.
+
+### 2. The two survivors, exactly
+
+**Survivor 1 — the grid-only sheet.** `get_committed_sheet_grid` did not destructure `error`, and
+its consumer held the retired convention **verbatim**:
+
+```
+isInitLoading={gridData === undefined}
+initError={gridData === null ? "Failed to load the sheet grid." : null}
+```
+
+`SheetDataGrid` checks `isInitLoading` **before** `initError`, so even had the error branch been
+reachable the spinner would have won. It was not reachable anyway — `data` is the whole HTTP body,
+so Frappe's `{"message": null}` is an object and a literal `null` body is never emitted. The blast
+radius is **grid-only sheets** (general specs, Make Lists) — a live path a user reaches by clicking
+a sheet tab, where a failed load simply span.
+
+**Survivor 2 — the carry button.** `get_cross_boq_carry_plan` also dropped `error`, and fed
+`loading: isRevisionSheet && carryPlanData === undefined` into the pure `carryButtonState`. On a
+failure `loading` never went false, so the button stayed disabled on
+*"Checking what can be carried from the original…"* for the rest of the session.
+
+### 3. The seam — the same one, widened, not moved
+
+The seam is unchanged: **the boundary between SWR's raw per-fetch signals and every gating decision
+on the page**, addressed by `pricingLoadState.ts`. This slice widened what crosses it.
+
+The one design question was **wording**. The states carried three hard-coded sentences naming
+"this sheet's pricing rows", which is actively misleading on a general-specs sheet. Three options:
+
+| Option | Why rejected / chosen |
+|---|---|
+| Reuse the sheet wording | **Rejected** — misdirects the reader on a sheet with no pricing rows |
+| Page-side inline strings at the two new sites | **Rejected** — re-creates the untestable inline shape that let the original defect live for months |
+| Wording as a parameter, rule shared | **Chosen** |
+
+So `loadStatus(signals)` is now the single exported precedence rule, and `makeLoadStates(messages)`
+builds one **frozen five-state table per fetch**. `pricingLoadState` / `gridLoadState` /
+`carryPlanLoadState` are one-line accessors over it.
+
+**⚠️ The singleton property was load-bearing and is preserved.** PE-SPIN-1 relied on the returned
+object being reference-stable per status, so it can sit beside memoized `PricingGrid` props without
+churning a downstream memo. Building a message set per call would have destroyed that silently —
+hence *one table per fetch, built at module load*, and a test that pins `gridLoadState(a) ===
+gridLoadState(b)` for two different errors. Adding a fourth fetch is a message set plus a one-liner.
+
+### 4. What was built
+
+**`pricingLoadState.ts`** — `LoadStateMessages`, `makeLoadStates`, `loadStatus` (exported so a test
+can assert the three fetches agree), `gridLoadState`, `carryPlanLoadState`. `pricingLoadState` and
+`activePricingLoadState` keep their exact prior behaviour; the sheet's three message constants are
+unchanged and now simply seed the sheet table.
+
+**`SheetPricingPage.tsx`** —
+
+| Site | Change |
+|---|---|
+| `get_committed_sheet_grid` | destructures its own `error` **and** `mutate` (Retry needs it) |
+| `SheetDataGrid` props | `isInitLoading={gridLoad.isLoading}` / `initError={gridLoad.isFailed ? gridLoad.message : null}` |
+| Above the grid | a **stale strip** + Retry, same shape as the sheet fetch's |
+| `get_cross_boq_carry_plan` | destructures its own `error` |
+| `carryButtonState` input | `loading: isRevisionSheet && carryPlanLoad.isLoading` |
+| Carry button `title` | `carryDisabledReason ?? carryState.reason` |
+
+**`SheetDataGrid.tsx` was NOT touched, and did not need to be** — it already takes exactly
+`isInitLoading` + `initError`; it was being **fed** dishonest values. That was the slice's declared
+stopping condition and it did not trigger. The stale strip is rendered **page-side** rather than
+inside the component for the same reason.
+
+**⚠️ THE ONE JUDGEMENT CALL, recorded because it is a deviation.** Making `loading` honest is only
+*half* of survivor 2. With `loading` false and no plan in hand, `carryButtonState` falls through to
+its `nothing` reason — **"Nothing left to carry from the original."** — whose own source comment
+calls it *"not a transient state"*. That would trade an eternal *"checking…"* for a **confident
+permanent falsehood**, which is worse: a user told there is nothing to carry stops looking.
+
+`carryButtonState` lives in `CrossBoqCarryDialog.tsx`, **out of scope**. So the honest wording is
+applied at the single place that renders it (the button's `title`), via `carryDisabledReason`, with
+a comment naming the proper fix. **If that file is ever opened, the right home is an `error` input
+on the pure helper beside `loading`** — this page-side override should then be deleted.
+
+### 5. THE FETCH SURVEY — the question PE-SPIN-1 did not ask
+
+Every SWR read on `SheetPricingPage.tsx`, at commit `a7a46299`. **19 reads.** The middle column is
+*does it destructure `error`*; the last is *does every consumer of its state read an honest signal*.
+
+| # | Fetch | `error`? | Consumers honest? |
+|---|---|---|---|
+| 1 | `get_priced_rows` | **yes** | **yes** — `activePricingLoadState` (PE-SPIN-1) |
+| 2 | `get_version_priced_rows` | **yes** | **yes** — same rule, history branch (PE-SPIN-1) |
+| 3 | `get_bcs_state` | **yes** (+ `isLoading`) | **yes** — BCS-S2a finding F1 |
+| 4 | **`get_committed_sheet_grid`** | **yes — THIS SLICE** | **yes — THIS SLICE** (survivor 1) |
+| 5 | **`get_cross_boq_carry_plan`** | **yes — THIS SLICE** | **yes — THIS SLICE** (survivor 2) |
+| 6 | `BOQs` doc (`useFrappeGetDoc`) | no — but uses SWR's **real** `isLoading` | **no — see below.** Terminates, but mislabels |
+| 7 | `get_committed_state` | no | degrades — see below |
+| 8 | `get_sheet_versions` | no | degrades quietly (dropdown lists fewer versions) |
+| 9 | `get_sheet_bcs_rates` | no | degrades quietly (cost cells read as empty) |
+| 10 | `get_sheet_categories_resolved` | no | **fails CLOSED** (see below) |
+| 11 | `get_version_sheet_categories` | no | degrades quietly (history categories blank) |
+| 12 | `list_engines` | no | degrades quietly (picker groups lose labels) |
+| 13 | `get_category_catalog` (child) | no | degrades quietly (`labelFor` falls back to the id) |
+| 14 | `get_classify_status` (child poll) | no | self-heals — 3s `refreshInterval` |
+| 15 | `get_suggest_status` (child poll) | no | self-heals — 3s `refreshInterval` |
+| 16 | `get_rate_category_config` | no | DEV-only (`RATE_HELPER_ENABLED`); yields `NoSuggestion` |
+| 17 | `get_rate_master_items` | no | DEV-only; yields `NoSuggestion` |
+| 18 | `get_active_suggestion_run` | no | DEV-only |
+| 19 | `get_suggestion_events` | no | DEV-only (used-state restore) |
+
+**The decisive check.** The defect's signature is the retired convention used *as a gate*. Grepping
+`SheetPricingPage.tsx` for `data === undefined` / `data === null` now returns **7 hits, all inside
+comments** explaining the retired rule — **zero live gates**. That, not the table alone, is the
+evidence the page is done.
+
+**#6 is the one genuinely imperfect entry, and it is NOT fixed.** The `BOQs` fetch uses SWR's real
+`isLoading`, so it **terminates** — there is no spinner defect. But on a *failed* fetch `isLoading`
+goes false with `boq` undefined, and the page renders **"BoQ not found — No record found for …"**.
+That conflates *the fetch failed* with *the record does not exist*, which sends the user to
+entirely the wrong place. It is a **wording/classification** defect, not the derivation defect this
+arc is about, and fixing it changes a distinct user-facing screen this slice was not authorised to
+touch. **Recorded, not fixed, and the honest next candidate.**
+
+**#7 and #10 are worth naming because their failure directions are opposite, and both are safe.**
+`get_committed_state` feeds `isGridOnly`, which is documented to fail to **FALSE**, so a data sheet
+never briefly renders as grid-only. `get_sheet_categories_resolved` failing leaves the category map
+empty, so every eligible row counts blank and the **category gate SHUTS** — rates go read-only with
+the amber banner. Fail-closed on a write gate is the correct direction; neither is a lie.
+
+### 6. Verification
+
+| Check | Result |
+|---|---|
+| `yarn test` (in-container) | **1451 → 1466** (+15), files **55 → 55**, all pass |
+| Red-before-green | Shown — 15 failed with `gridLoadState is not a function` (13 pre-existing passing), then 28/28 green |
+| `tsc --noEmit`, `boq-wizard` | **0** errors |
+| `test_sources` | Ran **62** — OK |
+| `test_bcs` | Ran **64** — OK |
+| `test_export_writeback` | Ran **47** — OK |
+| `test_pricing` | Ran **252** — OK |
+| `test_commit_pipeline` | Ran **57** — OK |
+| `test_review_screen` | Ran **260** — OK |
+| `git diff --stat` | 3 files, +318 / −19 |
+| No early return added | Verified — the only `return` in the diff is the word *"returns"* in a comment |
+| `PricingGrid` JSX byte-identical | Verified — block md5 `8f53c4d6…98b8` at base **and** at HEAD |
+
+`python3 scripts/residence_check.py` — B3 40/40 ✓, B1 0/0 ✓, B2 8/8 ✓, F5 116/116 ✓,
+**F2 208 vs baseline 207 ✗**. **The gate EXITS 1.** That red is **pre-existing and this slice's
+delta is exactly zero** — verified, not assumed: all three touched files contain **zero**
+`JSON.parse`, at base `c6525d5b` and at HEAD. `scripts/residence_baseline.json` md5 was captured
+before and after (`80720f5a…2984`, **identical**) — the script can rewrite it on a decrease, and
+did not.
+
+**⚠️ WHAT NO TEST HERE COVERS.** The 15 new tests pin the **derivation**. They cannot observe that
+a grid-only sheet now renders an error instead of spinning, because that is a React semantic and
+there is **no DOM test environment** in this repo (deliberate, `vitest.config.ts`). That half is
+**live-check only**:
+
+1. **Reproduce survivor 1.** Open a **grid-only** sheet (general specs / Make Lists) so the faithful
+   grid path renders. DevTools → Network → block `*get_committed_sheet_grid*`, reload. **Before:**
+   spinner forever. **Now:** *"Could not load this sheet's grid…"*.
+2. **Grid Retry.** Unblock, then reload — the grid loads. (There is no in-place Retry on the error
+   panel itself; `SheetDataGrid` renders `initError` as bare text — the strip's Retry covers the
+   stale case.)
+3. **Grid stale.** Load the grid-only sheet normally, then block the endpoint and trigger a
+   revalidation (switch browser tab away and back → SWR focus revalidation). The grid **stays** on
+   screen under the amber *"Showing the last grid that loaded…"* strip; **Retry** clears it.
+4. **Reproduce survivor 2.** Open a **revision** sheet (`origin === "revision"` with a `source_boq`)
+   so *"Carry rates from original"* is visible. Block `*get_cross_boq_carry_plan*`, reload. **Before:**
+   the button sits on *"Checking what can be carried from the original…"* forever. **Now:** hover
+   shows *"Couldn't check what can be carried from the original — the server could not be reached."*
+5. **Carry not falsely negative.** Confirm the tooltip is **not** *"Nothing left to carry from the
+   original."* — that is the confident-falsehood outcome §4 rejects.
+6. **No regression on the normal paths.** A healthy grid-only sheet is **silent** (no strip); a
+   healthy revision sheet's carry button still goes emerald/ready and the dialog still opens; a
+   normal data sheet is **byte-unchanged** (it does not touch either fetch).
+7. **Non-revision sheet.** The carry button stays **hidden** (not a disabled button with an error
+   tooltip) — the disabled carry-plan fetch must read as `loading`, never as a failure.
+
+### 7. Recorded, deliberately NOT fixed
+
+- **The `BOQs` doc fetch (survey #6)** — says *"BoQ not found"* on a *failed* fetch. Terminates, so
+  it is not the spinner defect; it is a mislabel. Distinct screen, not authorised here. **The
+  honest next candidate.**
+- **`carryButtonState` has no `error` input.** The page compensates in the `title`. The proper fix
+  needs `CrossBoqCarryDialog.tsx`, which was out of scope; **delete the page-side override when it
+  is done.**
+- **The `setInFlight` leak** — an erratum above now sizes it properly (it swallows the *"Saved N of
+  M"* partial-failure message, outranks `hasUnsaved`, and is triggered by the same rejecting
+  `mutate()` that raises the stale strip). Still a different defect class. Still not fixed.
+- **`PricingGrid.tsx:789`'s double cast** — still waiting for a slice with `reviewRender.tsx` in scope.
+- **`scripts/` — untouched entirely.** Baseline md5 captured before and after; identical.
+- **The F2 red was not re-baselined**, only held at delta zero. Owner's call.
+- **Sibling PAGES** — still a survey, still open. The `data === undefined` convention very likely
+  exists elsewhere; this slice establishes only that **this** page is now uniform.
+- **`SheetDataGrid.tsx`, `CrossBoqCarryDialog.tsx`, `PricingGrid.tsx`, `bcsColumns.ts`, every
+  backend file and the carry path** — out of scope and untouched.
