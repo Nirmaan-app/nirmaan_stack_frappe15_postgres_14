@@ -86,7 +86,7 @@ import {
   type BcsRateKind,
 } from "./bcsColumns";
 // PE-SPIN-1: the sheet fetch's honest load state (loading / error / stale / empty / ready).
-import { activePricingLoadState } from "./pricingLoadState";
+import { activePricingLoadState, carryPlanLoadState, gridLoadState } from "./pricingLoadState";
 // BCS-S3a: a module-level stable empty -- a fresh [] per render would churn a grid prop and kill
 // the V0 React.memo shield (frontend/CLAUDE.md: "any new grid prop must stay identity-stable").
 const EMPTY_BCS_KINDS: BcsRateKind[] = [];
@@ -431,8 +431,14 @@ const SheetPricingPage = () => {
   // sheet_names, and the dialog fetches with the identical args -- SWR serves both from one
   // request, so opening the dialog is instant. Disabled (swrKey null) off a revision, which is the
   // common case: an upload/template BoQ pays nothing for this.
+  //
+  // PE-SPIN-1-fix (SURVIVOR 2): this read's OWN `error` is destructured and used. It used to take
+  // `data` alone, and fed `loading: carryPlanData === undefined` into carryButtonState -- so a
+  // failed plan fetch left `loading` true forever and pinned the carry button on "Checking what
+  // can be carried from the original…" for the rest of the session. Same defect as the sheet
+  // fetch's permanent spinner, on a different control.
   const isRevisionSheet = boq?.origin === "revision" && !!boq?.source_boq;
-  const { data: carryPlanData } = useFrappeGetCall<{ message: GetCrossBoqCarryPlanResponse }>(
+  const { data: carryPlanData, error: carryPlanFetchError } = useFrappeGetCall<{ message: GetCrossBoqCarryPlanResponse }>(
     CROSS_BOQ_CARRY_PLAN_METHOD,
     {
       dest_boq: boqId ?? "",
@@ -744,7 +750,19 @@ const SheetPricingPage = () => {
   const commitVersionForGrid = isViewingHistory
     ? selectedVersion
     : pricedData?.message?.commit_version ?? null;
-  const { data: gridData } = useFrappeGetCall<{ message: CommittedSheetGridResponse }>(
+  //
+  // PE-SPIN-1-fix (SURVIVOR 1): this read's OWN `error` + `mutate` are destructured and used. It
+  // used to take `data` alone, and its consumer below read the retired convention VERBATIM --
+  // `isInitLoading={gridData === undefined}` / `initError={gridData === null ? ... : null}`. SWR
+  // never sets `data` to null on failure, so the error branch was unreachable and a failed load
+  // span forever on a grid-only sheet (general specs, Make Lists) -- the SAME defect PE-SPIN-1
+  // fixed for the sheet fetch, still live on this one because that slice surveyed by gating site
+  // rather than by fetch. `mutate` is what makes the failure's Retry able to re-run it.
+  const {
+    data: gridData,
+    error: gridFetchError,
+    mutate: mutateGrid,
+  } = useFrappeGetCall<{ message: CommittedSheetGridResponse }>(
     "nirmaan_stack.api.boq.wizard.pricing.get_committed_sheet_grid",
     {
       boq_name: boqId ?? "",
@@ -1676,6 +1694,13 @@ const SheetPricingPage = () => {
   // Re-run the fetch that is actually on screen. Retry from the error branch + the stale strip.
   const handleRetryLoad = () => {
     void (isViewingHistory ? mutateHistory() : mutate());
+  };
+  // PE-SPIN-1-fix (SURVIVOR 1): the faithful committed grid's own load state, from the SAME rule.
+  // Only a grid-only sheet renders this; off one the fetch is disabled (no data, no error), which
+  // reads as `loading` and is never shown, because the whole grid-only branch is gated on isGridOnly.
+  const gridLoad = gridLoadState({ data: gridData, error: gridFetchError });
+  const handleRetryGrid = () => {
+    void mutateGrid();
   };
   // HARD READ-ONLY when held FRESH by another user (backend editable===false), after a mid-edit
   // takeover, OR when the sheet is DELIBERATELY locked. Withholding onSaveRate collapses ALL of
@@ -2677,13 +2702,36 @@ const SheetPricingPage = () => {
   const carryPlanSheet = isRevisionSheet
     ? carryPlanData?.message?.sheets?.[0] ?? null
     : null;
+  // PE-SPIN-1-fix (SURVIVOR 2): the plan fetch's load state, from the SAME rule as the sheet and
+  // the grid. `isRevisionSheet &&` stays on `loading` for the same reason it always was there --
+  // off a revision the fetch is disabled, so it has no data and no error, which honestly reads as
+  // `loading`; carryButtonState returns `hidden` first in that case, but the guard keeps the input
+  // truthful rather than relying on that precedence.
+  const carryPlanLoad = carryPlanLoadState({
+    data: carryPlanData,
+    error: carryPlanFetchError,
+  });
   const carryState = carryButtonState({
     isRevisionSheet,
-    loading: isRevisionSheet && carryPlanData === undefined,
+    loading: isRevisionSheet && carryPlanLoad.isLoading,
     locked,
     formulasComplete,
     sheet: carryPlanSheet,
   });
+  // ⚠️ WHY THE TOOLTIP IS OVERRIDDEN HERE RATHER THAN INSIDE carryButtonState. Feeding an honest
+  // `loading` is only half the fix: with `loading` false and no plan in hand, carryButtonState
+  // falls through to its `nothing` reason -- "Nothing left to carry from the original." -- whose
+  // own comment calls it "not a transient state". That would trade an eternal "checking…" for a
+  // confident permanent falsehood, which is worse: a user told there is nothing to carry stops
+  // looking. carryButtonState lives in CrossBoqCarryDialog.tsx, which is OUT OF SCOPE for this
+  // slice, so the honest wording is applied at the one place that renders it. If that file is ever
+  // opened, the right home for this is an `error` input on the pure helper beside `loading`.
+  const carryDisabledReason =
+    isRevisionSheet && carryPlanLoad.isFailed
+      ? carryPlanLoad.message
+      : carryState.kind === "disabled"
+        ? carryState.reason
+        : null;
   // Priced count: M = priceable lines; N = FULLY priced (every qty-bearing area filled).
   const pricedCount = computePricedCount(rows, columnDescriptors);
   const allPriced = pricedCount.total > 0 && pricedCount.priced === pricedCount.total;
@@ -3276,7 +3324,7 @@ const SheetPricingPage = () => {
               title={
                 carryState.kind === "ready"
                   ? "Copy the original BoQ's rates and annotations into this sheet"
-                  : carryState.reason
+                  : carryDisabledReason ?? carryState.reason
               }
             >
               <ArrowDownToLine className="h-4 w-4" />
@@ -4398,14 +4446,35 @@ const SheetPricingPage = () => {
         <div className={cn(embeddedPanel && "flex min-h-0 flex-1 items-start gap-3", expanded && "flex min-h-0 flex-1")}>
         <div className={cn(embeddedPanel && "min-w-0 flex-1", expanded && "flex min-h-0 flex-1 min-w-0 flex-col")}>
         {isGridOnly ? (
+          <>
+          {/* PE-SPIN-1-fix (SURVIVOR 1): the grid's stale strip, the same shape the sheet fetch
+              got at PE-SPIN-1 -- a retained grid still renders (a transient blip should not blank
+              a reference sheet someone is reading) but it must not claim to be current. Rendered
+              here rather than inside SheetDataGrid so that component's props are untouched: it
+              still takes exactly `isInitLoading` + `initError`, now fed honest values. */}
+          {gridLoad.isStale && (
+            <div className="mb-2 flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              <span className="flex-1">{gridLoad.message}</span>
+              <Button variant="outline" size="sm" onClick={handleRetryGrid}>
+                <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                Retry
+              </Button>
+            </div>
+          )}
           <SheetDataGrid
             // Faithful committed grid (general specs) -- READ-ONLY reference, all rows at
             // once (pagination stubbed). Reuses SheetDataGrid as-is; falls back to raw Excel
             // column letters when the config maps are empty (a general-specs sheet has none).
             rows={gridData?.message?.rows ?? []}
             hasMore={false}
-            isInitLoading={gridData === undefined}
-            initError={gridData === null ? "Failed to load the sheet grid." : null}
+            // PE-SPIN-1-fix (SURVIVOR 1): the honest pair. These two props used to be
+            // `gridData === undefined` and `gridData === null` -- the retired convention, whose
+            // error branch SWR can never reach, so a failed grid load span forever. SheetDataGrid
+            // renders loading BEFORE error, which is why isInitLoading must go false on a failure:
+            // a spinner would otherwise still win and swallow the message.
+            isInitLoading={gridLoad.isLoading}
+            initError={gridLoad.isFailed ? gridLoad.message : null}
             isLoadingMore={false}
             loadMoreError={null}
             onLoadMore={() => {}}
@@ -4415,6 +4484,7 @@ const SheetPricingPage = () => {
             areaList={gridData?.message?.area_dimensions ?? []}
             expanded={expanded} // Slice 4c: relax the height cap in full-screen
           />
+          </>
         ) : (
           <PricingGrid
             // Slice 3d: key on the VERBATIM sheetName so a tab switch UNMOUNTS+REMOUNTS the

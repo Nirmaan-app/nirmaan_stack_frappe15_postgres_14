@@ -34,6 +34,9 @@
 import { describe, expect, it } from "vitest";
 import {
   activePricingLoadState,
+  carryPlanLoadState,
+  gridLoadState,
+  loadStatus,
   pricingLoadState,
   type PricingFetchSignals,
 } from "./pricingLoadState";
@@ -176,5 +179,129 @@ describe("activePricingLoadState -- which fetch is being watched", () => {
 
     expect(state.status).toBe("loading");
     expect(state.isFailed).toBe(false);
+  });
+});
+
+// ── PE-SPIN-1-fix: the two fetches PE-SPIN-1 did not reach ────────────────────────────────────
+//
+// PE-SPIN-1 surveyed by GATING SITE and converted 23 of them, which is why it missed these: they
+// belong to DIFFERENT FETCHES on the same page. Two more reads carried the identical defect --
+//
+//   - get_committed_sheet_grid (the grid-only fork: general specs, Make Lists). Its consumer read
+//     `isInitLoading={gridData === undefined}` / `initError={gridData === null ? ... : null}`,
+//     the retired convention VERBATIM, so a failed grid load spun forever;
+//   - get_cross_boq_carry_plan, feeding `loading: carryPlanData === undefined` into
+//     carryButtonState, so a failed plan fetch pinned the carry button in its loading state.
+//
+// That outcome is worse than the uniform bug, and PE-SPIN-1's own brief said so by name: a page
+// whose failure behaviour differs by WHICH fetch broke is unpredictable. These tests exist to keep
+// all three fetches on ONE rule.
+describe("gridLoadState -- survivor 1, the grid-only sheet", () => {
+  it("reports a first-load failure as an error, NOT as still loading", () => {
+    // THE SURVIVING BUG, stated directly. `gridData === undefined` was the whole loading test, so
+    // a thrown fetch (data stays undefined, error is set) span forever on a general-specs sheet.
+    const state = gridLoadState({ data: undefined, error: new Error("Network Error") });
+
+    expect(state.status).toBe("error");
+    expect(state.isFailed).toBe(true);
+    expect(state.isLoading).toBe(false); // the permanent spinner, on the second fetch
+    expect(state.message).not.toBeNull();
+  });
+
+  it("describes ITS OWN fetch, not the sheet's pricing rows", () => {
+    // Wording is why this is a message SET and not a shared constant: a grid-only sheet has no
+    // pricing rows to fail to load, so the sheet fetch's wording would misdirect the reader.
+    const grid = gridLoadState({ data: undefined, error: new Error("boom") });
+    const sheet = pricingLoadState({ data: undefined, error: new Error("boom") });
+
+    expect(grid.message).not.toBe(sheet.message);
+    expect(grid.message).not.toMatch(/pricing rows/);
+  });
+
+  it("keeps the empty case worded apart from the network-failure case", () => {
+    const empty = gridLoadState({ data: { message: null }, error: undefined });
+    const failed = gridLoadState({ data: undefined, error: new Error("boom") });
+
+    expect(empty.status).toBe("empty");
+    expect(empty.isFailed).toBe(true);
+    expect(empty.message).not.toBe(failed.message);
+  });
+
+  it("keeps a retained grid on screen after a failed refresh, flagged stale", () => {
+    const state = gridLoadState({ data: { message: { rows: [{}] } }, error: new Error("500") });
+
+    expect(state.status).toBe("stale");
+    expect(state.isUsable).toBe(true); // the reference grid stays readable
+    expect(state.isFailed).toBe(false);
+    expect(state.message).not.toBeNull();
+  });
+});
+
+describe("carryPlanLoadState -- survivor 2, the carry button", () => {
+  it("stops claiming to be loading once the plan fetch has FAILED", () => {
+    // THE SURVIVING BUG. `loading: carryPlanData === undefined` never went false on a failure, so
+    // "Checking what can be carried from the original…" was the button's permanent state.
+    const state = carryPlanLoadState({ data: undefined, error: new Error("500") });
+
+    expect(state.isLoading).toBe(false);
+    expect(state.isFailed).toBe(true);
+    expect(state.message).not.toBeNull(); // ...and there is something honest to say instead
+  });
+
+  it("describes ITS OWN fetch", () => {
+    const carry = carryPlanLoadState({ data: undefined, error: new Error("boom") });
+    const sheet = pricingLoadState({ data: undefined, error: new Error("boom") });
+
+    expect(carry.message).not.toBe(sheet.message);
+  });
+
+  it("reports a DISABLED fetch as loading, never as a failure", () => {
+    // Off a revision the swrKey is null, so the fetch never runs: no data, no error. The button is
+    // hidden in that case, but the state must not read as a failure -- a disabled fetch has not
+    // failed, and treating it as one would put an error tooltip on a hidden control.
+    const state = carryPlanLoadState(pending);
+
+    expect(state.status).toBe("loading");
+    expect(state.isFailed).toBe(false);
+  });
+});
+
+describe("all three fetches share ONE rule", () => {
+  // The POINT of this slice: the precedence rule has a single implementation and the message set is
+  // the only thing that varies. If a future edit gives one fetch its own logic, this fails -- which
+  // is the drift that produced two survivors in the first place.
+  const cases: Array<[string, PricingFetchSignals]> = [
+    ["first-load failure", { data: undefined, error: new Error("x") }],
+    ["failed revalidation", { data: { message: { a: 1 } }, error: new Error("x") }],
+    ["pending", pending],
+    ["ready", { data: { message: { a: 1 } }, error: undefined }],
+    ["null message", { data: { message: null }, error: undefined }],
+    ["absent message key", { data: {}, error: undefined }],
+  ];
+
+  it.each(cases)("agrees on the status for a %s", (_label, signals) => {
+    const expected = loadStatus(signals);
+
+    expect(pricingLoadState(signals).status).toBe(expected);
+    expect(gridLoadState(signals).status).toBe(expected);
+    expect(carryPlanLoadState(signals).status).toBe(expected);
+  });
+
+  it("returns SHARED SINGLETONS per fetch, so a state never churns a downstream memo", () => {
+    // PE-SPIN-1 relied on this: the returned object is reference-stable per status, so it can be
+    // read beside memoized grid props without contributing a fresh object every render. Building a
+    // message set per call would have quietly destroyed that -- hence one frozen table per fetch,
+    // built at module load.
+    const a = gridLoadState({ data: undefined, error: new Error("1") });
+    const b = gridLoadState({ data: undefined, error: new Error("2") });
+    expect(a).toBe(b);
+
+    const c = carryPlanLoadState(pending);
+    const d = carryPlanLoadState({ data: undefined, error: null });
+    expect(c).toBe(d);
+  });
+
+  it("gives each fetch its OWN singletons, so no wording can leak between them", () => {
+    expect(gridLoadState(pending)).not.toBe(carryPlanLoadState(pending));
   });
 });
