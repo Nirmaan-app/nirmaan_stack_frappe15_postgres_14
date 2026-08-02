@@ -18118,6 +18118,11 @@ the write folding, the undo inversion. **What needs the owner's eyes, in plain E
 
 **Branch** `feature/bcs-columns` · **Base** `ba5ed9f4` · **Tier** FULL · **Date** 2026-08-03
 
+**REVIEW:** PASS WITH CAVEATS, 2026-08-03 — defect gone and guard real, both proven by execution; four
+findings booked as debt, none blocking. *(Three of those four are corrected in place as `ERRATUM (BCS-S3b)`
+blocks below; the fourth, the stale `BCS_RATE_FIELDS` "iterates" claim, was corrected in
+`bcsColumns.ts:707-708` — its twin had been fixed at S3a-fix and this copy survived.)*
+
 BCS-S3a claimed the headline capability — *"type a cost, it saves, Total Amount shows"* — and **the typing
 half did not work.** This slice fixes that defect and its sibling on the paste path, hardens the seam so the
 class cannot recur silently, closes two invariants S3a asserted in prose and enforced nowhere, and files six
@@ -18208,6 +18213,17 @@ optimistic value on the wrong row instead of self-healing on the next drop. It r
 been reassigned for the same Excel row mid-session, the failure is **display-only and transient**, and the
 hazard it replaces is silent data loss. The trade is deliberate.
 
+> ⚠️ **ERRATUM (BCS-S3b): this record said the failure is "display-only and transient".** It is
+> **WRITE-PENDING** state, not display-only. A retained cost draft is not merely rendered: `flush()` walks
+> `draftBcsRatesRef.current`, parses the `row_index` back out of each key (`k.slice(0, sep)`) and calls
+> `autoSaveBcsCellRef`, which **commits** it. A stale `draftKey` can therefore reach `save_row_bcs_rates` on
+> the wrong row — the same wrong row the record already named, but *written* rather than shown.
+> **The trade itself stands and no code changes**: the hazard it replaces is silent data loss on every
+> rejected paste, which is both likelier and worse, and the precondition remains narrow (`row_index`
+> reassigned for the same Excel row mid-session). What was wrong is the sentence that made the accepted
+> consequence sound harmless — a reader deciding whether to keep this trade needs to know a write is on the
+> table.
+
 ### 4. `commitVersion` vs `liveCommitVersion` — checked, then unified
 
 The two halves of one write read the version from two places: `handleSaveBcsRates` used `liveCommitVersion`,
@@ -18240,6 +18256,18 @@ pinned **separately and never jointly**. **Four found. One fixed, three reported
 were correct. The only place they met was a rendered component, and this repo has **no DOM test environment**
 by deliberate choice (`frontend/CLAUDE.md` documents exactly this trap). S3a then recorded *"`PricingGrid.test.ts`
 — NOT edited (out of scope)"* as a virtue. **That scope decision is what kept the two halves apart.**
+
+> ⚠️ **ERRATUM (BCS-S3b): this record said the S3a scope decision "is what kept the two halves apart".**
+> That **overstates it, and it points the blame away from the real cause.** Excluding `PricingGrid.test.ts`
+> demonstrably caused ONE thing: `colIndexFromColKeyPure`'s trailing parameters were weakened to OPTIONAL so
+> the untouched test file would still compile (finding 4 below says so in its own words). It did **not**
+> cause the key-space defect. The defect was a wrong `as` cast at a render site, and **no test in that file —
+> written before or after — could have caught it**, because catching it needs a mounted component and this
+> repo has no DOM environment at all. Widening the scope would have removed the optional-parameter weakening
+> and nothing else; the key-space defect was closed by making the two shapes **structurally incompatible**
+> (`ReadonlyMap` vs `Record`), which is a type change, not a test change. **Naming scope as the cause
+> matters because it suggests the wrong remedy** — the remedies that work here are the type-level one that
+> shipped, and the deferred jsdom environment `frontend/CLAUDE.md` records.
 
 1. **`as ColumnDescriptor` on the quantity `resolve` callback** (`PricingGrid.tsx`) — **FIXED.**
    `BcsColumnEntry` and `ColumnDescriptor` are structurally identical (the same six fields), so the cast
@@ -18338,6 +18366,15 @@ carry or second endpoint writing `columns` directly would defeat it with `column
   `setInFlight((n) => n - 1)` is the last statement after the awaits, so a throwing `mutate()` skips it and the
   page's in-flight counter never decrements. **Pre-existing, on the same failure path this slice hardened**, but
   a separate defect the brief did not name; fixing it would have restructured the block beyond the ask.
+
+  > ⚠️ **ERRATUM (BCS-S3b): this record said fixing it "would have restructured the block beyond the ask".**
+  > **The diff contradicts that** — S3a-fix had already restructured that very block, wrapping the trailing
+  > refetches so `mutateBcsRates()` runs in a nested `finally` (§3 above). The `setInFlight` decrement sits in
+  > the same `finally` that was being edited, and moving it ahead of the awaits would have been a line, not a
+  > restructure. **The honest reason is the one that actually applied: it is a different defect class** (a
+  > leaked UI counter, not cost-data loss) **and the deferral was to keep the diff tight and reviewable**,
+  > which is a legitimate call and did not need a technical justification it could not support. The
+  > disposition is unchanged — still open, still worth a line whenever someone is next in that block.
 - **Rate-draft behaviour on a rejected batch — deliberately unchanged.** Only the cost layer's lifecycle moved.
   Rates are per-cell writes; a stale saved value there cannot corrupt a sibling, and that path is pre-S3a
   certified.
@@ -18345,3 +18382,250 @@ carry or second endpoint writing `columns` directly would defeat it with `column
   pre-existing, our delta zero.
 - **Production remains unmigrated for the whole BCS arc.** This slice adds no migration; the arc's prior ones
   are still owed before any BCS use in prod.
+
+## BCS-S3b — Tendered Total Amount and % Profit: the cost section answers its question
+
+**Branch** `feature/bcs-columns` · **Base** `3a1228c0` · **Tier** FULL · **Date** 2026-08-03
+
+**REVIEW: pending.**
+
+Nine slices built storage, rules, a toggle, a confirmation card and cost entry that works. The block still
+showed only what a row costs **us**. It now also shows what the client is **charged** for that row and the
+**margin** between the two — which is the question BCS was built to answer. **Neither column is stored and
+neither is typeable:** both are computed every render, so a stored copy can never disagree with the live
+sheet (`bcs.py`'s property 1). **No migration, no new field, no backend change** — every Python file is
+byte-untouched and the six suites below are pure regressions. Two commits: `9c1ad235` (code), plus this
+record. `boqTypes.ts` was in scope and **needed no change**.
+
+---
+
+### 1. The trap, closed before the columns were added
+
+Seven call sites in `PricingGrid.tsx` asked **`b !== "total"`** to mean *"this is a cost box a user may type
+in"*: `cellKindAt`, `bcsWritableAt`, `readCellForCopy`, `doCut`, `doPaste`, `doFillDown`, `commitActiveBcs`
+(an eighth `"total"` was `bcsAt`'s return type).
+
+A second computed token **does not match that literal.** It falls through to the editable branch and becomes
+an editable, cut-able, **paste target** — on a column that has no storage to write to — silently, with **no
+type error anywhere**. So the guard was written and all seven replaced *before* either new column existed:
+
+```ts
+export function isBcsInputColumn(
+  b: BcsRateKind | BcsComputedKind | null | undefined,
+): b is BcsRateKind {
+  return b !== null && b !== undefined && !BCS_COMPUTED_SET.has(b);
+}
+```
+
+Three properties earn their keep. It is a **type guard**, so a caller that passes it comes out holding a
+`BcsRateKind` and `BCS_RATE_FIELD[b]` is legal afterwards without a cast at seven sites. It is phrased as
+**"not one of the computed kinds"**, not "is one of the rate kinds", so an unrecognised token is **refused**
+rather than admitted — refusing wrongly costs a dead cell someone reports, admitting wrongly writes a number
+into a column with nowhere to put it. And it answers by **membership in `BCS_COMPUTED_KINDS`**, so a third
+computed column is excluded by adding one entry to that list, not by remembering seven edits.
+
+`grep -n '"total"' PricingGrid.tsx` now returns **one hit — the comment that explains the rule.**
+
+### 2. The two columns, and where each number comes from
+
+| column | reads | blank when |
+|---|---|---|
+| **Total Amount** (S3a, upgraded) | `bcsQty × bcsUnitCost(merged, bcsKinds)` | no quantity · no cost |
+| **Tendered Total Amount** (new) | `bcsRowAmount(bcs_amount_source, …)` — the confirmed Amount columns, summed | no amount |
+| **% Profit** (new) | `(amount − cost) / amount × 100` | either of the above, or a zero denominator |
+
+**The denominator is new machinery.** Nothing in the editor summed across a confirmed column set before —
+`evaluateAmountCell` is per-column at all five of its call sites. `bcsRowAmount` mirrors `bcsRowQuantity`
+function for function (same caller-supplied resolver, so the module stays a type-only pure leaf; same
+absent-vs-blank contract) because the two sides of the confirmation are the same shape of question, and
+answering them differently is exactly how the number under the margin drifts from the number beside it.
+One column that does not resolve contributes **0**; a row where **nothing** resolves is `null` — blank, never
+0, because a 0 denominator is a claim ("we charge nothing") and an absent one is the absence of a claim.
+
+### 3. The owner's reasoning — the part that must survive
+
+**(a) Tendered is ALWAYS shown**, even on sheets where an existing amount column already displays the same
+number. It answers a *different question* — "what is BCS measuring against?" — and **a section that changes
+shape between sheets is harder to trust** than one that repeats a figure. Shipped unconditionally; there is
+no visibility flag to find later and no branch to reason about.
+
+**(b) % Profit divides by THE FIGURE ON SCREEN.** This is the load-bearing one. The amount a row charges is
+not simply its committed value: a formula may override it, and where the document and the formula **diverge**
+the screen shows the **document** amount by default (D1) until a human picks otherwise. A denominator that
+quietly used the formula value there would produce a margin the sheet **visibly contradicts**, on exactly the
+rows a human already flagged as needing a decision.
+
+So the decision was extracted whole rather than copied:
+
+```ts
+export function shownAmountValue(cell, documentVal, choice): number | null
+```
+
+The amount `<td>` and the Tendered sum now call the **same function**. That is the entire point of the
+Tendered column — it puts the denominator on screen beside the margin; if it showed one number while % Profit
+divided by another, **the column would be worse than useless.** The `<td>` keeps its own `resolveDivergence`
+call for the badge (which needs the resolution *shape*, not just the number); the value both render is one
+decision.
+
+**(c) The arithmetic direction is SETTLED and was once relayed backwards** (at S2d, corrected since), so it is
+**pinned by a test** rather than left to the arithmetic. Dividing by the **amount** means a one-sided
+confirmation — a sheet whose Amount columns cover only the supply half, which `bcsSummaryForMode` already
+discloses in words — makes the margin read **LOWER**, and once the amount falls below the cost it goes
+**sharply negative**: cost 800 against a whole amount of 1000 is **+20%**; the same cost against a supply-only
+600 is **−33.3%**. That visible collapse **is** the safety the disclosure sentence promises. Cost-over-amount,
+or a mark-up on cost, both read *higher* on precisely the sheets that need a warning.
+
+### 4. Blank always carries a reason
+
+The three computed cells share one shape — `BcsComputedCell = {kind:"value"} | {kind:"blank", reason}` —
+mirroring `AmountCellResult`'s discriminated form so the render stays a pure map. It is **BCS's own** reason
+vocabulary, deliberately not `AmountCellResult`'s `not_yet | broken`: those two describe **one column's
+formula**, and *"this row has no quantity"* is not a statement about a formula. The five sentences, verbatim:
+
+| reason | sentence |
+|---|---|
+| `no_quantity` | No quantity on this row. |
+| `no_cost` | No cost entered yet. |
+| `no_amount` | No amount on this row yet — % Profit is measured against the amount charged, and this row has none to read. |
+| `zero_amount` | The amount charged on this row is zero, so there is no margin to measure against it. |
+| `not_finite` | The numbers on this row are too extreme to produce a percentage. |
+
+An **unrecognised** reason produces an explicit unsupported state naming the token — the same forward-compat
+honesty `bcsSummaryForMode` gives an unknown mode. **A cell that cannot explain itself must not look like an
+ordinary empty cell**, because an empty cell on a cost screen reads as "nothing to see here".
+
+**Which reason wins when two apply:** the **cost** side is checked first. On a fresh sheet an uncosted row is
+the ordinary case, and naming the amount there would send a user to the sheet's Amount mapping when all they
+have to do is type a cost.
+
+**S3a's Total Amount was upgraded to the same shape**, and the prompt asked for that decision to be stated:
+**yes, done.** S3a computed a bare `number | null` and reconstructed its reason at the render site with a
+nested ternary over `bcsQty`. With two more computed columns arriving that would have been three render sites
+each re-deriving its own explanation. The arithmetic is untouched — `bcsTotalAmount` is still the multiply,
+still exported, still tested; `bcsTotalAmountCell` wraps it with the reason it always had and never said.
+
+### 5. NaN, Infinity, and the memo
+
+% Profit is a **division**, and a `NaN` here would fail twice over: it renders as nonsense, and compared with
+`===` (`NaN !== NaN`) it would defeat a `React.memo` **for the lifetime of the row**. A zero denominator is
+refused *before* the division (`zero_amount`); a result outside the double range is refused *after* it
+(`not_finite` — reachable with a denormal-tiny amount beside a huge cost). A sweep over the awkward numbers
+(`0, -0, ±1e-320, ±1e308, 0.1, -7.5` in both positions) asserts every returned value is finite.
+
+**Memo shield.** One new row prop, `bcsAmountSource`, compared by **identity** exactly like `reconChoiceMap`,
+plus one comparator line. The computed values **never cross the memo boundary at all**: both are built
+**inside the row body**, because the Tendered sum must read `rowDraftRates` — a rate typed but not yet saved
+has to move % Profit in the same keystroke it moves the amount cell, and the row's own draft slice is the only
+place that number exists. Keeping the compute behind the memo also means a cursor move elsewhere in the grid
+does not re-evaluate every row's formulas. **No draft key is ever minted for a computed column**, so `flush()`
+and `autoSaveBcsCellRef` — which parse a key back out with an unchecked `as BcsRateField` — can never receive
+one.
+
+**⚠️ One deviation from the brief, stated plainly.** The brief's GEOMETRY list said *"two row props, two
+comparator lines"*, which describes computing both values in `renderRow` and passing them down as scalars. It
+also said, with a ⚠️, that **the closure must be built inside the row body and not in `renderRow`**. The two
+cannot both hold. **The row body won**, on three grounds: the ⚠️ says so explicitly; the margin's numerator is
+the row's merged cost, and `renderRow` would have to mint a **second** merge to get it, breaking S3a's *"ONE
+merge per row, two readers"* invariant — the very thing that stops the number shown from differing from the
+number written; and `evaluateAmountCell` is materially heavier than `bcsRowQuantity`, so behind the memo it
+runs for the rows that re-render rather than for every rendered row on every grid render. **The cost of the
+choice is that this slice adds ONE row prop and ONE comparator line, not two.**
+
+### 6. Geometry
+
+`bcsColumnKeys` and `bcsColumnAt` are now **parametric over `BCS_COMPUTED_KINDS`** — the old bound
+(`off > kinds.length`) hardcoded exactly one trailing computed column, so the two new `<td>`s would have
+rendered while `bcsColumnAt` placed **nothing** at their indices: navigation, copy and paste would all have
+mis-resolved. **The empty-block property survives and is re-pinned:** no cost box ⇒ `bcsColumnKeys([]) === []`
+⇒ no computed columns either ⇒ `bcsColStart === remarksColIndex` and every colIndex on a non-BCS sheet is
+byte-identical to pre-S3a. That is also just true on its own terms — % Profit has no numerator without a cost.
+
+`seedForWidthKey` seeds the two new keys at **144px** (`w-36`) rather than the 112px default: *"Tendered Total
+Amount"* is a long header and both hold whole-row amounts rather than unit rates. All five BCS columns stay
+user-resizable through the same `colWidths` map — no second width state.
+
+### 7. Verification
+
+| check | baseline → final |
+|---|---|
+| `yarn test` (in container) | **1383 → 1422**, 54 files, all green |
+| `bcsColumns.test.ts` | **133 → 165** (+32) |
+| `PricingGrid.test.ts` | **176 → 183** (+7) |
+| `tsc --noEmit`, `boq-wizard` | **0 → 0** |
+| `test_sources` · `test_bcs` | **48 → 48** · **64 → 64** OK |
+| `test_export_writeback` · `test_pricing` | **47 → 47** · **252 → 252** OK |
+| `test_commit_pipeline` · `test_review_screen` | **57 → 57** · **260 → 260** OK |
+| `python3 scripts/residence_check.py` | **F2 208 vs baseline 207 — RED, EXIT 1, PRE-EXISTING. Our delta is ZERO** (output byte-identical to the baseline run). B1 0, B2 8, B3 40, F5 116 all holding |
+| `git diff --stat 3a1228c0..9c1ad235` | 5 files, **+795 / −65** |
+
+**RED SHOWN BEFORE GREEN, on all three cycles.** Cycle 1 (the guard + geometry): **8 failed**. Cycle 2 (the
+denominator, the three cells, the margin, the reasons, the formatter): **22 failed**. Cycle 3
+(`shownAmountValue`): **7 failed** (`shownAmountValue is not a function`). Each was then implemented to green.
+
+**Two S3a tests were superseded, not silently fixed.** *"adds ONE Total Amount column after the cost boxes"*
+and *"places each column by its offset…"* pinned the single-computed-column shape this slice deliberately
+changes. Both were **updated in place with a `SUPERSEDED AT BCS-S3b` note naming what they used to assert** —
+the same convention the S2c tests use where they reversed.
+
+**The bench suites WERE run.** `tabSessions.lastupdate` advanced mid-session (`00:36:06` → `01:39:47`), so it
+was re-sampled properly across **50 s** and found **frozen** — a page had been loaded, nothing was actively
+polling. All six suites then ran clean. (`test_pricing` printed the known `BoQ Sheet Pricing Lock_pkey`
+duplicate-key line on stderr — the pre-existing `acquire_or_refresh` non-atomic race — and still reported
+`Ran 252 tests … OK`.)
+
+**No DOM test environment**, so **nothing here claims coverage of a React semantic.** Every pure helper was
+extracted and tested; the rendering, the geometry as *rendered*, the memo behaviour and the keyboard/clipboard
+behaviour of the two new cells are **structurally untestable in this repo** and need eyes.
+
+**What needs the owner's eyes, in plain English** — this closes the original ask, so the list is the point:
+
+1. **★ Turn BCS on, confirm the columns, and look at a costed row.** You should see, left to right: your cost
+   box(es), **Total Amount** (what it costs us), **Tendered Total Amount** (what the client is charged), and
+   **% Profit**. That row is the whole feature.
+2. **★ Check the margin against the two numbers beside it.** Charged 1000, cost 800 must read **20.0%**. The
+   arithmetic direction was once relayed backwards, so this is worth doing on a real row with a calculator.
+3. **★ Type a cost and watch % Profit move as you type**, before any save. It reads the same live merge the
+   box does.
+4. **★ Type a RATE (not a cost) on a row and watch Tendered and % Profit move.** This is the one the closure's
+   placement was chosen for — an unsaved rate must move both immediately.
+5. **On a sheet with a reconciliation badge** (document and formula amounts differ), check that **Tendered
+   shows the same number the amount cell shows**, and switch the choice — both must move together. This is
+   owner ruling (b) and no unit test can see it.
+6. **Try to type into, paste into, and cut from Tendered and % Profit.** All three must be refused; the cells
+   are navigable and copy-skip only. This is the trap in §1 — the failure it guards would look like *"the
+   number I typed vanished"*, not like an error.
+7. **Hover a blank Tendered or % Profit cell** and read the tooltip: it must say which of the four things is
+   missing, never sit there empty.
+8. **A sheet with NO cost boxes must look exactly as it did before** — no Total, no Tendered, no % Profit, and
+   arrow-key navigation unchanged.
+9. **Widths:** both new headers should be readable without dragging, and both still drag-resizable.
+
+### 8. Deliberately NOT done
+
+- **`PricingGrid.tsx:775`'s double cast — NOT closed, and this is a STOP-AND-REPORT, not an oversight.** The
+  brief asked to narrow the parameter to `Pick<ColumnDescriptor, "value_field" | "value_key" | "rate_subkey">`.
+  That parameter belongs to **`resolveDescriptorValue`, which lives in `reviewRender.tsx` — not in this
+  slice's scope list.** The brief's own stopping condition (*"any file outside the scope list appears to need
+  editing"*) applies exactly. Two remedies, for whoever picks it up: put `reviewRender.tsx` in scope and do
+  the narrowing (it would close the `BcsColumnEntry` seam too, since that function reads only those three
+  fields); or, in-scope, replace the `as unknown as` with an explicit 6-field construction, which restores the
+  compile-time warning without touching the callee. **A different fix was not substituted** — the ask was
+  specific, and swapping in another one is the guessing the process forbids.
+- **`boqTypes.ts` — in scope, byte-untouched.** No wire shape changed: both computed columns are read from
+  `bcs_amount_source`, which `GetBcsStateResponse` has declared since S2.
+- **`pricing.py`, `bcs.py`, `sources.py`, the carry path** — out of scope, byte-untouched. **No backend file
+  changed at all.**
+- **`scripts/` — ALL of it, including `review_receipt.py` and `prompt_lint.py`.** The owner's uncommitted
+  pipeline tooling; read to learn its CLI, never modified, moved, staged or committed.
+- **`formulasComplete` was NOT added to the cost gate.** A blank % Profit for want of an amount formula is a
+  **render** fact. Making it a **write** gate would stop cost entry on a sheet whose formulas are not yet
+  declared — destroying exactly the independence `bcs.py:41-59` locks ("the asymmetry IS the decision").
+- **No visibility flag for Tendered** — owner ruling (a). It ships always-on.
+- **The three carried-over S3a-fix debts** (`row_index` vs `source_row_number` as bare numbers, the `flush()`
+  key cast, `colIndexFromColKeyPure`'s optional params) — still open, still fail-safe, unchanged here.
+- **`setInFlight`'s leak** — still open; its deferral *reason* is corrected above by erratum, its disposition
+  is not.
+- **The residence F2 red — not fixed, not re-baselined.** Reported exactly: **208 vs baseline 207, EXIT 1**,
+  pre-existing, our delta zero, output byte-identical to the pre-slice run.
+- **Production remains unmigrated for the whole BCS arc.** This slice adds no migration of its own; the arc's
+  prior ones are still owed before any BCS use in prod.
