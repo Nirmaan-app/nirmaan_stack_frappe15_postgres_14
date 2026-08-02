@@ -46,7 +46,21 @@ SKIP_DIRS = {"node_modules", "dist", "__pycache__", "public", ".git"}
 # a shrinking violation surface as the good pattern spreads).
 # NOTE: services/finance.py is deliberately NOT here — it makes live frappe.get_all
 # calls; it is a mixed module, not a pure one, so it is out of scope for this check.
-PURE_MODULES = ["nirmaan_stack/services/procurement_approval.py"]
+#
+# ⚠️ THIS CHECK IS CURRENTLY INERT, AND ADDING A MODULE HERE BUYS NOTHING TODAY.
+# ``strip_strings_and_comments`` (below) space-joins tokens, so ``frappe.db`` reaches the
+# regex as ``frappe . db`` and the B1 pattern cannot match it — in ANY file, however
+# impure. A green b1 count is therefore NOT evidence that a listed module was checked.
+# The bug is repo-wide and belongs in its own slice (fixing it here would silently change
+# what a shared enforcement script reports for every module); it is recorded as debt at
+# slice BCS-S1b. Registration below is correct-in-principle and starts covering these
+# modules the day the tokenizer is fixed.
+PURE_MODULES = [
+    "nirmaan_stack/services/procurement_approval.py",
+    # The two BCS column-confirmation rules (BCS-S1a relocation). Pure by contract: its
+    # ONE framework touch is frappe.throw, which this check does not count.
+    "nirmaan_stack/services/boq_bcs/sources.py",
+]
 
 
 # --- file walking + counting helpers -----------------------------------------
