@@ -131,6 +131,7 @@ import {
 } from "./reconcile";
 import {
   classifyPasteTarget,
+  foldBcsWrites,
   rectDims,
   rowSelectionRange,
   selectionRect,
@@ -150,14 +151,37 @@ import {
   popRedo,
   popUndo,
   pushEntry,
+  type BcsDelta,
   type HistoryEntry,
   type HistoryState,
   type RateDelta,
 } from "./undoHistory";
+// BCS-S3a: the cost layer's RULES all live in the pure bcsColumns (which mirrors
+// services/boq_bcs/sources.py + api/boq/wizard/bcs.py). The grid renders them and owns no BCS
+// rule of its own -- there is no second copy of the gather, the gate order, or the arithmetic.
+import {
+  BCS_RATE_FIELD,
+  BCS_RATE_LABEL,
+  BCS_TOTAL_COL_KEY,
+  bcsColumnAt,
+  bcsColumnKeys,
+  bcsRowQuantity,
+  bcsTotalAmount,
+  bcsUnitCost,
+  bcsWidthKey,
+  gatherBcsRowRates,
+  mergeBcsRowValues,
+  type BcsRateKind,
+} from "./bcsColumns";
 import type {
   AmountFormulaNode,
   AmountFormulaRef,
   AmountFormulaSaveArgs,
+  BcsRateField,
+  BcsRowRate,
+  BcsRowRates,
+  BcsRowSaveArgs,
+  BcsSource,
   ColorSaveArgs,
   ColumnDescriptor,
   ColumnFormula,
@@ -389,18 +413,25 @@ export function descriptionWidthSeeds(
 
 /** Resolve a clicked cell's grid colIndex from its data-colkey, PURE over the geometry.
  *  Anchor keys (a0..a3 + the fan-out desc:<col> slots) index into anchorWidthKeys;
- *  Remarks -> remarksColIndex; descriptor `d:<col>` keys -> descriptorColStart + position. */
+ *  Remarks -> remarksColIndex; descriptor `d:<col>` keys -> descriptorColStart + position.
+ *  BCS-S3a: the cost block's keys (`bcs:<kind>` + `bcs:total`) resolve off bcsColStart. Both
+ *  BCS params are OPTIONAL and default to the empty block, so a caller from before the cost
+ *  columns existed resolves byte-identically. */
 export function colIndexFromColKeyPure(
   colkey: string | undefined,
   anchorWidthKeys: readonly string[],
   descWidthKeys: readonly string[],
   descriptorColStart: number,
   remarksColIndex: number,
+  bcsColKeys: readonly string[] = [],
+  bcsColStart = 0,
 ): number | null {
   if (!colkey) return null;
   const anchor = anchorWidthKeys.indexOf(colkey);
   if (anchor >= 0) return anchor;
   if (colkey === REMARKS_WIDTH_KEY) return remarksColIndex;
+  const bcs = bcsColKeys.indexOf(colkey);
+  if (bcs >= 0) return bcsColStart + bcs;
   const idx = descWidthKeys.indexOf(colkey);
   return idx >= 0 ? descriptorColStart + idx : null;
 }
@@ -1708,6 +1739,45 @@ interface PricingGridProps {
    * The PAGE owns the A/B toggle (default true each open, session-scoped). false = the CLASSIC
    * render path, byte-identical to pre-V1. Stable boolean -> the V0 memo shield holds. */
   virtualized?: boolean;
+  /**
+   * BCS-S3a -- the cost boxes a sheet gets, from `bcsColumns.bcsLiveRateKinds` over the sheet's
+   * own rate columns. Page-computed and useMemo'd (V0 memo shield). EMPTY (the default) = no BCS
+   * block at all, so every colIndex below is byte-identical to pre-S3a: `bcsColStart ===
+   * remarksColIndex` and the whole family of carve-outs collapses.
+   *
+   * The page passes [] not only for a sheet with no rate column but for one where BCS is off,
+   * unconfirmed, or whose state could not be READ -- an unknown BCS state must never present as
+   * an empty, editable cost cell (bcsToggleState, S2a finding F1).
+   */
+  bcsKinds?: BcsRateKind[];
+  /**
+   * BCS-S3a -- the CURRENT stored cost rows (`bcs.get_sheet_bcs_rates`), keyed by Excel row.
+   * Page-fetched into a reference-stable Map that changes only on a fetch, exactly like
+   * `categoriesByExcelRow`. Each row reads ONLY its own entry (P1: NEVER the whole Map through
+   * the row memo). ABSENT/empty => every row is uncosted, and its Total Amount is blank.
+   */
+  bcsRatesByExcelRow?: Map<number, BcsRowRate>;
+  /**
+   * BCS-S3a -- the CONFIRMED Total Quantity columns (`bcs_qty_source`), the multiplicand of
+   * Total Amount. Read through `bcsRowQuantity`, which sums the stored entries whatever the
+   * mode. ABSENT => no quantity => a blank Total, never a 0.
+   */
+  bcsQtySource?: BcsSource | null;
+  /**
+   * BCS-S3a -- save ONE row's cost rates (`save_row_bcs_rates`). ⚠️ WHOLE-ROW: the args always
+   * carry all three stored fields (see `gatherBcsRowRates`).
+   *
+   * WITHHELD by the page when the sheet is locked / taken over / BCS is not ready -- that
+   * absence IS the read-only gate, exactly as for onSaveRate and onSaveRemark. There is
+   * deliberately no second per-cell `editable` signal.
+   */
+  onSaveBcsRates?: (args: BcsRowSaveArgs) => Promise<void>;
+  /**
+   * BCS-S3a -- why the cost boxes are read-only, from the pure `bcsCostEntryReason` (which
+   * mirrors `save_row_bcs_rates`' OWN gate order, NOT the client rate gate). Rendered as the
+   * cell title so a dead box always says why. null/absent when writable.
+   */
+  bcsReadOnlyReason?: string | null;
 }
 
 /** Slice 3c: imperative handle the page holds (via a ref) to force-flush pending saves. */
@@ -1776,6 +1846,15 @@ const EMPTY_CATEGORY_MAP: Map<number, SheetCategoryRow> = new Map();
 const EMPTY_CATEGORY_LABEL_MAP: Map<string, string> = new Map();
 // U1 rate-helper: stable empty default so an absent prop never churns the memo.
 const EMPTY_SUGGESTIONS_MAP: Map<number, RowSuggestions> = new Map();
+// BCS-S3a: stable empty defaults -- an absent cost block must not mint a fresh [] / Map per
+// render, which would defeat the row memo AND the V0 grid-level memo shield.
+const EMPTY_BCS_KINDS: BcsRateKind[] = [];
+const EMPTY_BCS_RATES_MAP: Map<number, BcsRowRate> = new Map();
+// The BCS draft key: `${row_index}:${field}`. A SEPARATE key space from cellKey's
+// `${row_index}:${col}` because it lives in its OWN state map -- BCS values must never be
+// merged into draftRates, which would churn every rate cell's slice on a cost keystroke and
+// defeat shallowEqualStrMap for unrelated rate edits on the same row.
+const bcsCellKey = (rowIndex: number, field: BcsRateField) => `${rowIndex}:${field}`;
 
 /** Shallow string-map equality (key set + values). Pure -- unit-tested. */
 function shallowEqualStrMap(a: Record<string, string>, b: Record<string, string>): boolean {
@@ -2035,6 +2114,30 @@ interface PricingGridRowProps {
   descriptorColStart: number;
   descriptionColumns: DescriptionColumn[];
   fanOut: boolean;
+  // ── BCS-S3a: the cost block. Grid-level geometry + stable callbacks, plus THIS row's own
+  //    values as per-row entries (P1: never the whole Map / the shared draft object). ALL
+  //    OPTIONAL -- absent everywhere means no block, and every cell below renders as before.
+  /** The live cost boxes, left to right. Grid-level, reference-stable (page useMemo). */
+  bcsKinds?: BcsRateKind[];
+  /** The colIndex of the FIRST cost box. Equals remarksColIndex when there is no block. */
+  bcsColStart?: number;
+  /** THIS row's stored cost record (`bcsRatesByExcelRow.get(excelRow)`), compared by reference. */
+  bcsRow?: BcsRowRate;
+  /** THIS row's cost-draft slice (FULL `${row_index}:${field}` keys) -- NEVER the shared map. */
+  rowBcsDrafts?: Record<string, string>;
+  /** THIS row's Total Quantity, resolved grid-side from the confirmed columns. A memo-safe
+   *  SCALAR (number | null), like `depth` -- so the row never gets the qty source itself. */
+  bcsQty?: number | null;
+  /** Present => the cost boxes are editable. Its ABSENCE is the read-only gate. */
+  onSaveBcsRates?: (args: BcsRowSaveArgs) => Promise<void>;
+  /** Why the boxes are read-only (grid-level string), rendered as the cell title. */
+  bcsReadOnlyReason?: string | null;
+  /** Commit ONE cost box (blur / Enter / the debounce firing). Gathers the whole row itself. */
+  commitBcsRate?: (row: PricedRow, kind: BcsRateKind, rawValue: string) => void;
+  /** Restart this box's 1s debounced auto-save (the onChange path). */
+  scheduleBcsAutoSave?: (row: PricedRow, kind: BcsRateKind) => void;
+  /** The optimistic cost-draft setter (mirrors setDraftRates). */
+  setDraftBcsRates?: Dispatch<SetStateAction<Record<string, string>>>;
   commitRate: (row: PricedRow, d: ColumnDescriptor, rawValue: string) => void;
   scheduleAutoSave: (row: PricedRow, d: ColumnDescriptor) => void;
   onCellFocus: (r: number, c: number) => void;
@@ -2113,6 +2216,19 @@ export function pricingRowPropsAreEqual(
     prev.descriptorColStart === next.descriptorColStart &&
     prev.descriptionColumns === next.descriptionColumns &&
     prev.fanOut === next.fanOut &&
+    // BCS-S3a: grid-level cost geometry (scalars/identities that flip for ALL rows together)
+    // plus this row's OWN cost values. `rowBcsDrafts` is the keystroke lever -- it is a
+    // groupDraftsByRow slice, so only the edited row's reference changes.
+    prev.bcsKinds === next.bcsKinds &&
+    prev.bcsColStart === next.bcsColStart &&
+    prev.bcsRow === next.bcsRow &&
+    prev.rowBcsDrafts === next.rowBcsDrafts &&
+    prev.bcsQty === next.bcsQty &&
+    prev.onSaveBcsRates === next.onSaveBcsRates &&
+    prev.bcsReadOnlyReason === next.bcsReadOnlyReason &&
+    prev.commitBcsRate === next.commitBcsRate &&
+    prev.scheduleBcsAutoSave === next.scheduleBcsAutoSave &&
+    prev.setDraftBcsRates === next.setDraftBcsRates &&
     prev.commitRate === next.commitRate &&
     prev.scheduleAutoSave === next.scheduleAutoSave &&
     prev.onCellFocus === next.onCellFocus &&
@@ -2179,6 +2295,16 @@ const PricingGridRow = memo(function PricingGridRow({
   descriptorColStart,
   descriptionColumns,
   fanOut,
+  bcsKinds = EMPTY_BCS_KINDS,
+  bcsColStart = 0,
+  bcsRow,
+  rowBcsDrafts = EMPTY_SLICE,
+  bcsQty = null,
+  onSaveBcsRates,
+  bcsReadOnlyReason = null,
+  commitBcsRate,
+  scheduleBcsAutoSave,
+  setDraftBcsRates,
   commitRate,
   scheduleAutoSave,
   onCellFocus,
@@ -2841,6 +2967,109 @@ const PricingGridRow = memo(function PricingGridRow({
           </td>
         );
       })}
+      {/* ── BCS-S3a: the cost block -- one editable box per live kind, then the computed Total
+             Amount. Placed AFTER the descriptors and BEFORE Remarks, which disturbs strictly
+             less colIndex algebra than a Category-style placement would: descriptorColStart and
+             every descriptor's own colIndex are untouched, and only the tail moves right.
+
+             READ-ONLY IS THE ABSENCE OF onSaveBcsRates -- there is no second per-cell editable
+             signal (the house rule). A read-only box still RENDERS its stored value, with
+             bcsReadOnlyReason as the title, so a dead box always says why it is dead. ── */}
+      {bcsKinds.length > 0 &&
+        (() => {
+          // ONE merge per row, two readers: the boxes' displayed values and the Total's
+          // multiplicand. Sharing it is what stops the number shown from differing from the
+          // number written (gatherBcsRowRates reads the same merge at commit time).
+          const merged = mergeBcsRowValues(bcsRow, rowBcsDrafts as Partial<Record<BcsRateField, string>>);
+          const unit = bcsUnitCost(merged, bcsKinds);
+          const total = bcsTotalAmount(bcsQty, unit);
+          const editable = !!onSaveBcsRates && !!commitBcsRate && !!setDraftBcsRates;
+          return (
+            <>
+              {bcsKinds.map((kind, i) => {
+                const colIndex = bcsColStart + i;
+                const field = BCS_RATE_FIELD[kind];
+                const key = bcsCellKey(row.row_index, field);
+                const value = merged[field] ?? "";
+                const costed = bcsRow?.is_filled === 1;
+                if (!editable) {
+                  return (
+                    <td
+                      key={field}
+                      {...tdFocusProps(colIndex)}
+                      data-colkey={bcsWidthKey(kind)}
+                      title={bcsReadOnlyReason ?? undefined}
+                      className={cn(
+                        "px-2 py-1.5 text-right align-top tabular-nums border-l border-border",
+                        cellNavClass(colIndex),
+                      )}
+                    >
+                      {renderDescriptorCell(value === "" ? null : Number(value))}
+                    </td>
+                  );
+                }
+                return (
+                  <td
+                    key={field}
+                    data-colkey={bcsWidthKey(kind)}
+                    title={costed ? "Cost entered" : undefined}
+                    className={cn(
+                      "relative px-1 py-1 align-top border-l border-border",
+                      // The cost layer gets the SAME priced-emerald wash the rate cells use --
+                      // one visual language for "this has been filled in", on both sides of the
+                      // sheet. It is a BACKGROUND, so it never masks the colour or focus channels.
+                      costed && "bg-emerald-50 dark:bg-emerald-950/30",
+                      selectionRing(colIndex),
+                    )}
+                  >
+                    <div className="flex items-center justify-end gap-0.5">
+                      <Input
+                        {...inputFocusProps(colIndex)}
+                        type="text"
+                        inputMode="decimal"
+                        value={value}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          if (DECIMAL_IN_PROGRESS.test(v)) {
+                            setDraftBcsRates((prev) => ({ ...prev, [key]: v }));
+                            // Deferred, never a synchronous commit: the draft flips the sheet
+                            // dirty, which fires the page's ensureLockAcquired BEFORE the save
+                            // runs. save_row_bcs_rates takes acquire_or_refresh too, so a
+                            // synchronous commit here would race lock acquisition exactly as it
+                            // did for rates (bcs.py:498-501; bcsColumns' S2a finding F3 note).
+                            scheduleBcsAutoSave?.(row, kind);
+                          }
+                        }}
+                        onBlur={() => commitBcsRate(row, kind, value)}
+                        className="h-7 w-20 text-right text-xs tabular-nums scroll-mt-9"
+                      />
+                    </div>
+                  </td>
+                );
+              })}
+              {/* Total Amount -- COMPUTED, never stored (bcs.py's property 1: a stored copy
+                  could disagree with the live sheet). Blank when the row has no quantity or
+                  nothing has been costed: a 0 here would read as "this costs us nothing". */}
+              <td
+                {...tdFocusProps(bcsColStart + bcsKinds.length)}
+                data-colkey={BCS_TOTAL_COL_KEY}
+                title={
+                  total === null
+                    ? bcsQty === null
+                      ? "No quantity on this row"
+                      : "No cost entered yet"
+                    : undefined
+                }
+                className={cn(
+                  "px-2 py-1.5 text-right align-top tabular-nums border-l border-border font-medium",
+                  cellNavClass(bcsColStart + bcsKinds.length),
+                )}
+              >
+                {renderDescriptorCell(total)}
+              </td>
+            </>
+          );
+        })()}
       {/* Slice 4a.2: trailing Remarks cell (per-row) -- the matrix's LAST column. */}
       <td
         {...tdFocusProps(remarksColIndex)}
@@ -2895,7 +3124,7 @@ PricingGridRow.displayName = "PricingGridRow";
 // grid props identity-stable (the 12 useMemo/useCallback wraps -- esp. `rows`/`displayRows`); a
 // future non-stable prop silently kills the shield (see frontend/CLAUDE.md).
 export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(function PricingGrid(
-  { rows, columnDescriptors, onSaveRate, onBatchWrite, onDirtyChange, onHistoryChange, override = false, formulasComplete = true, categoryGateOpen = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], categoriesByExcelRow = EMPTY_CATEGORY_MAP, hasRun = false, categoryLabelById = EMPTY_CATEGORY_LABEL_MAP, onCategoryClick, rowSuggestionsByExcelRow = EMPTY_SUGGESTIONS_MAP, onSuggestionBadgeClick, onSaveReconChoice, hiddenCols, currentHitExcelRow = null, collapsed, childrenByParent, onToggleCollapse, onRevealRow, frozen = false, virtualized = false },
+  { rows, columnDescriptors, onSaveRate, onBatchWrite, onDirtyChange, onHistoryChange, override = false, formulasComplete = true, categoryGateOpen = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], categoriesByExcelRow = EMPTY_CATEGORY_MAP, hasRun = false, categoryLabelById = EMPTY_CATEGORY_LABEL_MAP, onCategoryClick, rowSuggestionsByExcelRow = EMPTY_SUGGESTIONS_MAP, onSuggestionBadgeClick, onSaveReconChoice, hiddenCols, currentHitExcelRow = null, collapsed, childrenByParent, onToggleCollapse, onRevealRow, frozen = false, virtualized = false, bcsKinds = EMPTY_BCS_KINDS, bcsRatesByExcelRow = EMPTY_BCS_RATES_MAP, bcsQtySource = null, onSaveBcsRates, bcsReadOnlyReason = null },
   ref,
 ) {
   // Cluster B: per-cell reconciliation choice map (per-SHEET; reference-stable across a keystroke
@@ -2906,6 +3135,10 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
   // shows instantly (live amount) until the save's refetch lands, then it is dropped so the
   // cell falls back to the refetched saved rate.
   const [draftRates, setDraftRates] = useState<Record<string, string>>({});
+  // BCS-S3a: the cost layer's OWN optimistic drafts, keyed `${row_index}:${field}`. Same
+  // lifecycle as draftRates (shown instantly, dropped on save success, KEPT on failure so the
+  // user still sees what they typed) but a SEPARATE map -- see bcsSlicesByRow.
+  const [draftBcsRates, setDraftBcsRates] = useState<Record<string, string>>({});
   // Phase-2 prefill: cross-area PROPOSED rates -- displayed (muted/italic) but NOT
   // committed. Keyed by the SAME cellKey(row.row_index, d.col) as draftRates, but kept
   // STRICTLY SEPARATE: no save path (commitRate / commitActiveRate / scheduleAutoSave /
@@ -3044,6 +3277,17 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
   // Latest rows snapshot (synced each render) -- the post-save propagation trigger reads
   // it to check a corresponding cell's CURRENT priced state at save-resolve time.
   const rowsRef = useRef<PricedRow[]>(rows);
+  // BCS-S3a -- the cost layer's twin plumbing, kept in its OWN maps/refs throughout so a cost
+  // edit can never disturb a rate edit's bookkeeping (and vice versa).
+  const bcsDebouncersRef = useRef<Map<string, DebouncedFunc<() => void>>>(new Map());
+  const draftBcsRatesRef = useRef<Record<string, string>>({});
+  const bcsRatesRef = useRef<Map<number, BcsRowRate>>(EMPTY_BCS_RATES_MAP);
+  const bcsKindsRef = useRef<BcsRateKind[]>(EMPTY_BCS_KINDS);
+  const autoSaveBcsCellRef = useRef<(rowIndexField: number, field: BcsRateField) => void>(
+    () => {},
+  );
+  // The blur+Enter dedupe for cost boxes -- its OWN map, keyed in the BCS key space.
+  const bcsAttemptRef = useRef<Record<string, string>>({});
 
   // Editor perf fix (item 2): memoize the O(rows) / O(cols) grid derivations on their real
   // inputs so a cursor move (which changes only the grid-local activeCell, not rows /
@@ -3134,6 +3378,17 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
     proposedSlicesRef.current = next;
     return next;
   }, [proposedRates]);
+  // BCS-S3a: the cost layer's OWN draft slices. `groupDraftsByRow` is generic over the
+  // `${rowIndex}:${key}` shape and is reused VERBATIM -- but over a SEPARATE state map, which is
+  // the load-bearing half: merging cost values into draftRates would give every rate cell of the
+  // row a new slice on a cost keystroke, defeating shallowEqualStrMap for edits that have
+  // nothing to do with each other.
+  const bcsSlicesRef = useRef<Map<number, Record<string, string>>>(new Map());
+  const bcsSlicesByRow = useMemo(() => {
+    const next = groupDraftsByRow(draftBcsRates, bcsSlicesRef.current);
+    bcsSlicesRef.current = next;
+    return next;
+  }, [draftBcsRates]);
 
   // Commit a rate cell (blur / Enter). No-op when unchanged or a duplicate of the last
   // attempt (blur+Enter). Blank/NaN -> 0 (the endpoint coerces blank -> 0.0, still priced).
@@ -3266,6 +3521,128 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
     deb();
   }, [onSaveRate]);
 
+  // ── BCS-S3a: the cost save path ──────────────────────────────────────────────
+  //
+  // ★ THE ONE THING TO UNDERSTAND HERE. `save_row_bcs_rates` is a WHOLE-ROW SNAPSHOT WRITE: it
+  // takes supply / install / combined together and writes 0.0 for any it is not given. A client
+  // rate cell saves PER CELL, and porting that shape naively to three boxes would have zeroed
+  // the untouched siblings on every keystroke debounce -- correct while typing, wrong the moment
+  // you looked away. So every commit GATHERS the row's current draft-or-saved values for all
+  // three, through the single pure `mergeBcsRowValues` -> `gatherBcsRowRates` pair. There is no
+  // other way to build the payload.
+
+  /** THIS row's live triple, from the LATEST drafts (ref, not render state -- a debounce fire
+   *  must not gather a stale snapshot) plus the stored record. `extra` applies the value being
+   *  committed right now, which may not have landed in state yet. */
+  const gatherBcsForRow = useCallback(
+    (row: PricedRow, extra?: { field: BcsRateField; value: string }): BcsRowRates => {
+      const drafts: Partial<Record<BcsRateField, string>> = {};
+      for (const f of Object.values(BCS_RATE_FIELD)) {
+        const v = draftBcsRatesRef.current[bcsCellKey(row.row_index, f)];
+        if (v !== undefined) drafts[f] = v;
+      }
+      if (extra) drafts[extra.field] = extra.value;
+      return gatherBcsRowRates(
+        mergeBcsRowValues(bcsRatesRef.current.get(row.source_row_number), drafts),
+      );
+    },
+    [],
+  );
+  const gatherBcsForRowRef = useRef(gatherBcsForRow);
+  gatherBcsForRowRef.current = gatherBcsForRow;
+
+  // Commit ONE cost box. Mirrors commitRate exactly -- cancel this cell's debounce, no-op when
+  // unchanged, dedupe blur+Enter, drop the draft on success, KEEP it on failure -- except that
+  // the payload is the whole row. useCallback so the memoized rows get a stable reference.
+  const commitBcsRate = useCallback(
+    (row: PricedRow, kind: BcsRateKind, rawValue: string) => {
+      if (!onSaveBcsRates) return;
+      const field = BCS_RATE_FIELD[kind];
+      const key = bcsCellKey(row.row_index, field);
+      bcsDebouncersRef.current.get(key)?.cancel();
+      const stored = bcsRatesRef.current.get(row.source_row_number);
+      const saved = stored ? String(stored[field] ?? 0) : "";
+      if (rawValue === saved) return; // unchanged vs the saved value -> nothing to do
+      if (bcsAttemptRef.current[key] === rawValue) return; // dedupe blur+Enter same value
+      bcsAttemptRef.current[key] = rawValue;
+      const oldNum = (() => {
+        const n = parseFloat(saved);
+        return Number.isFinite(n) ? n : 0;
+      })();
+      const rates = gatherBcsForRowRef.current(row, { field, value: rawValue });
+      void onSaveBcsRates({
+        excelRow: row.source_row_number,
+        rates,
+        description: row.description ?? undefined,
+      })
+        .then(() => {
+          setDraftBcsRates((prev) => {
+            const next = { ...prev };
+            delete next[key];
+            return next;
+          });
+          delete bcsAttemptRef.current[key];
+          if (!isReplayingRef.current) {
+            setHistory((h) =>
+              pushEntry(h, {
+                deltas: [],
+                bcsDeltas: [
+                  {
+                    excelRow: row.source_row_number,
+                    field,
+                    draftKey: key,
+                    oldValue: oldNum,
+                    newValue: rates[field],
+                    description: row.description ?? undefined,
+                  },
+                ],
+              }),
+            );
+          }
+        })
+        .catch(() => {
+          // Keep the draft (the user sees what they typed); clear the dedupe so a retry works.
+          delete bcsAttemptRef.current[key];
+        });
+    },
+    [onSaveBcsRates],
+  );
+
+  // The debounced auto-save for one cost box, mirroring scheduleAutoSave.
+  const scheduleBcsAutoSave = useCallback(
+    (row: PricedRow, kind: BcsRateKind) => {
+      if (!onSaveBcsRates) return;
+      const field = BCS_RATE_FIELD[kind];
+      const key = bcsCellKey(row.row_index, field);
+      let deb = bcsDebouncersRef.current.get(key);
+      if (!deb) {
+        deb = debounce(() => autoSaveBcsCellRef.current(row.row_index, field), AUTOSAVE_MS);
+        bcsDebouncersRef.current.set(key, deb);
+      }
+      deb();
+    },
+    [onSaveBcsRates],
+  );
+
+  // Keep the latest-state closures fresh for the BCS debounce / flush (refs avoid stale
+  // captures), mirroring the rate path's effect above.
+  useEffect(() => {
+    draftBcsRatesRef.current = draftBcsRates;
+    bcsRatesRef.current = bcsRatesByExcelRow;
+    bcsKindsRef.current = bcsKinds;
+    autoSaveBcsCellRef.current = (rowIndexField, field) => {
+      const r = rowsRef.current.find((x) => x.row_index === rowIndexField);
+      if (!r) return;
+      const kind = (Object.keys(BCS_RATE_FIELD) as BcsRateKind[]).find(
+        (k) => BCS_RATE_FIELD[k] === field,
+      );
+      if (!kind) return;
+      const draft = draftBcsRates[bcsCellKey(r.row_index, field)];
+      if (draft === undefined) return; // nothing pending for this box
+      commitBcsRate(r, kind, draft);
+    };
+  });
+
   // ── Slice 3b.2 nav model ───────────────────────────────────────────────────
   // Slice 4a.2: the trailing Remarks column is now the matrix's LAST column. Its colIndex is
   // FIXED_ANCHOR_COUNT + displayDescriptors.length (just past the descriptors), and colCount
@@ -3274,7 +3651,12 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
   // FIXED_ANCHOR_COUNT + dIdx; anchors use 0..4).
   // Nav dims over the VISIBLE descriptor set (column-hide aware) so the matrix stays consistent
   // with what is rendered -- a hidden column is absent from the matrix + the ref map.
-  const remarksColIndex = descriptorColStart + visibleDescriptors.length;
+  // BCS-S3a: the cost block sits BETWEEN the descriptors and Remarks. Its keys are the single
+  // source for its width -- an EMPTY block gives bcsColStart === remarksColIndex, so every index
+  // below is byte-identical to pre-S3a and `descriptorAt`'s carve-out collapses to its old form.
+  const bcsColKeys = useMemo(() => bcsColumnKeys(bcsKinds), [bcsKinds]);
+  const bcsColStart = descriptorColStart + visibleDescriptors.length;
+  const remarksColIndex = bcsColStart + bcsColKeys.length;
   const colCount = remarksColIndex + 1;
   const anyCellActive = activeCell !== null;
 
@@ -3422,15 +3804,42 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
   // directly. Internal clipboard only (clipboardRef), NEVER navigator.clipboard.
 
   // The descriptor at a grid colIndex (descriptor columns only), else null.
+  // BCS-S3a: the upper bound is now bcsColStart -- the MIRROR-IMAGE carve-out of the leading
+  // `>= descriptorColStart` one that the Category column forced. Without it every cost cell
+  // would classify as the descriptor that happens to sit at its index minus the offset, and a
+  // paste into a cost box would be read as a paste into a rate column. With an EMPTY cost block
+  // bcsColStart === remarksColIndex, so this is byte-identical to the pre-S3a bound.
   const descriptorAt = (c: number): ColumnDescriptor | null =>
-    c >= descriptorColStart && c <= remarksColIndex - 1
+    c >= descriptorColStart && c < bcsColStart
       ? (visibleDescriptors[c - descriptorColStart] ?? null)
       : null;
-  // A target cell's kind: remark (last col), rate (a rate descriptor), else "other" (anchor/amount/qty).
+  // Which BCS column (a cost box's kind, or the computed "total") sits at c -- null outside.
+  const bcsAt = (c: number): BcsRateKind | "total" | null => bcsColumnAt(c, bcsColStart, bcsKinds);
+  // A target cell's kind: remark (last col), a BCS cost box, rate (a rate descriptor), else
+  // "other" (anchor / amount / qty -- AND the computed BCS Total, which is never a target).
   const cellKindAt = (c: number): CellKind => {
     if (c === remarksColIndex) return "remark";
+    const b = bcsAt(c);
+    if (b) return b === "total" ? "other" : "bcs";
     const d = descriptorAt(c);
     return d && isRateDescriptor(d) ? "rate" : "other";
+  };
+  // Is the cost box at colIndex c writable? DELIBERATELY NOT rateWritableAt: save_row_bcs_rates
+  // skips the formula, priceability and category gates on purpose (bcs.py:41-59), so cost entry
+  // is available on rows -- a qty-less Preamble included -- where a rate is not. The whole gate
+  // is the presence of the save callback, which the page withholds per bcsCostEntryReason.
+  const bcsWritableAt = (c: number): boolean => {
+    const b = bcsAt(c);
+    return !!onSaveBcsRates && b !== null && b !== "total";
+  };
+  // One row's merged cost values (draft-or-stored) -- the SAME merge the cells render from.
+  const bcsMergedFor = (row: PricedRow): Record<BcsRateField, string | null> => {
+    const drafts: Partial<Record<BcsRateField, string>> = {};
+    for (const f of Object.values(BCS_RATE_FIELD)) {
+      const v = draftBcsRates[bcsCellKey(row.row_index, f)];
+      if (v !== undefined) drafts[f] = v;
+    }
+    return mergeBcsRowValues(bcsRatesByExcelRow.get(row.source_row_number), drafts);
   };
   // Is the rate cell at (row, c) actually writable? Mirrors the inline edit gate EXACTLY: the cell
   // axis (isRateDescriptor) + the sheet gates (formulasComplete + categoryGateOpen, both ANDed
@@ -3449,6 +3858,12 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
     const row = rows[rArr];
     if (!row) return null;
     if (c === remarksColIndex) return { kind: "remark", value: row.remark ?? "" };
+    const b = bcsAt(c);
+    if (b) {
+      // The computed Total is not copyable -- it is a SKIP hole, like an amount cell.
+      if (b === "total") return null;
+      return { kind: "bcs", value: bcsMergedFor(row)[BCS_RATE_FIELD[b]] ?? "" };
+    }
     const d = descriptorAt(c);
     if (!d || !isRateDescriptor(d)) return null;
     const key = cellKey(row.row_index, d.col);
@@ -3504,10 +3919,19 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
       skipFlashTimeoutRef.current = null;
     }, 2500);
   };
-  const pasteSummary = (written: number, crossKind: number, nonPriceable: number): string => {
+  // BCS-S3a: `notCostable` is its OWN count, never folded into `nonPriceable` -- a cost box is
+  // refused by the BCS gates, which are deliberately independent of priceability, so borrowing
+  // that word would send the reader to fix a rule that was never in force.
+  const pasteSummary = (
+    written: number,
+    crossKind: number,
+    nonPriceable: number,
+    notCostable = 0,
+  ): string => {
     const head = `Wrote ${written} cell${written === 1 ? "" : "s"}`;
     const bits: string[] = [];
     if (nonPriceable) bits.push(`${nonPriceable} not priceable`);
+    if (notCostable) bits.push(`${notCostable} not costable`);
     if (crossKind) bits.push(`${crossKind} wrong type`);
     return bits.length ? `${head}; skipped ${bits.join(", ")}.` : `${head}.`;
   };
@@ -3522,9 +3946,12 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
   const runBatch = (
     writes: BatchWrite[],
     optimisticDrafts: Record<string, string>,
+    optimisticBcsDrafts: Record<string, string> = {},
   ): Promise<BatchOutcome> | undefined => {
     if (!onBatchWrite || writes.length === 0) return undefined;
     const draftKeys = Object.keys(optimisticDrafts);
+    // BCS-S3a: the cost drafts ride the SAME show-then-drop lifecycle, in their own map.
+    const bcsKeys = Object.keys(optimisticBcsDrafts);
     if (draftKeys.length > 0) {
       setDraftRates((prev) => ({ ...prev, ...optimisticDrafts }));
       setProposedRates((prev) => {
@@ -3538,11 +3965,19 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
         return changed ? next : prev;
       });
     }
+    if (bcsKeys.length > 0) setDraftBcsRates((prev) => ({ ...prev, ...optimisticBcsDrafts }));
     return onBatchWrite(writes).finally(() => {
       if (draftKeys.length > 0) {
         setDraftRates((prev) => {
           const next = { ...prev };
           for (const k of draftKeys) delete next[k];
+          return next;
+        });
+      }
+      if (bcsKeys.length > 0) {
+        setDraftBcsRates((prev) => {
+          const next = { ...prev };
+          for (const k of bcsKeys) delete next[k];
           return next;
         });
       }
@@ -3553,14 +3988,33 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
   // is aligned 1:1 with the `writes` array (null where a write was a remark -- not undoable);
   // `written` is the outcome's landed count, so only deltas[i] for i < written (and non-null) are
   // recorded. Skipped while replaying (the re-record guard) and when nothing landed.
-  const recordLandedBatch = (deltas: (RateDelta | null)[], written: number) => {
+  // BCS-S3a: `bcsGroups` is ALSO 1:1 with `writes` (null for a non-cost write). It has to be a
+  // GROUP rather than a single delta because one cost write covers a whole row -- two boxes
+  // edited in one gesture are two deltas behind one save (foldBcsWrites), and recording them
+  // folded would lose which box the user actually touched, so an undo would overwrite a sibling
+  // the gesture never wrote.
+  const recordLandedBatch = (
+    deltas: (RateDelta | null)[],
+    written: number,
+    bcsGroups: (BcsDelta[] | null)[] = [],
+  ) => {
     if (isReplayingRef.current) return;
     const landed: RateDelta[] = [];
+    const landedBcs: BcsDelta[] = [];
     for (let i = 0; i < written && i < deltas.length; i++) {
       const dlt = deltas[i];
       if (dlt) landed.push(dlt);
+      const grp = bcsGroups[i];
+      if (grp) landedBcs.push(...grp);
     }
-    if (landed.length > 0) setHistory((h) => pushEntry(h, { deltas: landed }));
+    if (landed.length > 0 || landedBcs.length > 0) {
+      setHistory((h) =>
+        pushEntry(h, {
+          deltas: landed,
+          ...(landedBcs.length > 0 ? { bcsDeltas: landedBcs } : {}),
+        }),
+      );
+    }
   };
 
   // Slice B (undo/redo): a target cell's current SAVED rate as a number (the "old" for a delta) --
@@ -3568,6 +4022,74 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
   const savedRateNum = (row: PricedRow, d: ColumnDescriptor): number => {
     const n = parseFloat(savedRateStr(row, d));
     return Number.isFinite(n) ? n : 0;
+  };
+
+  // ── BCS-S3a: one gesture's cost intents -> the FOLDED per-row writes ──────────────
+  // ⚠️ THE ROW-VS-CELL SHAPE, and the place it bites hardest. A paste spanning two cost columns
+  // must not fire save_row_bcs_rates twice for the same row: the second call is a whole-row
+  // snapshot and would overwrite the first with a 0 for the column it had just written. So the
+  // per-CELL intents are folded into ONE write per ROW (clipboard.foldBcsWrites), each starting
+  // from that row's own current draft-or-saved triple so untouched siblings survive.
+  interface BcsIntent {
+    row: PricedRow;
+    field: BcsRateField;
+    raw: string;
+  }
+  const buildBcsBatch = (intents: BcsIntent[]) => {
+    const drafts: Record<string, string> = {};
+    const perRow = new Map<number, BcsDelta[]>();
+    const folded: { excelRow: number; field: BcsRateField; value: number; description?: string }[] =
+      [];
+    for (const it of intents) {
+      const n = parseFloat(it.raw);
+      const value = Number.isFinite(n) ? n : 0;
+      const savedStr = bcsRatesByExcelRow.get(it.row.source_row_number)?.[it.field];
+      folded.push({
+        excelRow: it.row.source_row_number,
+        field: it.field,
+        value,
+        description: it.row.description ?? undefined,
+      });
+      drafts[bcsCellKey(it.row.row_index, it.field)] = it.raw;
+      const group = perRow.get(it.row.source_row_number) ?? [];
+      group.push({
+        excelRow: it.row.source_row_number,
+        field: it.field,
+        draftKey: bcsCellKey(it.row.row_index, it.field),
+        oldValue: typeof savedStr === "number" ? savedStr : 0,
+        newValue: value,
+        description: it.row.description ?? undefined,
+      });
+      perRow.set(it.row.source_row_number, group);
+    }
+    const writes = foldBcsWrites(folded, (excelRow) => {
+      const row = rows.find((r) => r.source_row_number === excelRow);
+      return row
+        ? gatherBcsRowRates(bcsMergedFor(row))
+        : { supply_rate: 0, install_rate: 0, combined_rate: 0 };
+    });
+    const groups = writes.map((w) => perRow.get(w.args.excelRow) ?? null);
+    return { writes, groups, drafts };
+  };
+  // Append the folded cost writes to a gesture's arrays, keeping BOTH parallel arrays 1:1 with
+  // `writes` (the rate/remark pushes above never touch bcsGroups, so it is padded here). The
+  // cost drafts land in their OWN map -- runBatch keeps the two draft layers apart.
+  const appendBcsWrites = (
+    intents: BcsIntent[],
+    writes: BatchWrite[],
+    deltas: (RateDelta | null)[],
+    bcsGroups: (BcsDelta[] | null)[],
+    bcsDrafts: Record<string, string>,
+  ) => {
+    if (intents.length === 0) return;
+    const built = buildBcsBatch(intents);
+    while (bcsGroups.length < writes.length) bcsGroups.push(null);
+    built.writes.forEach((w, i) => {
+      writes.push(w);
+      deltas.push(null);
+      bcsGroups.push(built.groups[i]);
+    });
+    Object.assign(bcsDrafts, built.drafts);
   };
 
   const doCopy = () => {
@@ -3592,7 +4114,10 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
     }
     const writes: BatchWrite[] = [];
     const deltas: (RateDelta | null)[] = []; // Slice B: 1:1 with writes (null = remark, not undoable)
+    const bcsGroups: (BcsDelta[] | null)[] = []; // BCS-S3a: also 1:1 with writes
     const drafts: Record<string, string> = {};
+    const bcsDrafts: Record<string, string> = {};
+    const bcsIntents: BcsIntent[] = [];
     const skips: { r: number; c: number }[] = [];
     for (let i = 0; i < block.rows; i++) {
       for (let j = 0; j < block.cols; j++) {
@@ -3608,6 +4133,14 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
             args: { excelRow: row.source_row_number, remark: "", description: row.description ?? undefined },
           });
           deltas.push(null);
+        } else if (cell.kind === "bcs") {
+          // A cut cost box clears to 0 -- collected, then folded into ONE write per row below.
+          const b = bcsAt(c);
+          if (b && b !== "total" && bcsWritableAt(c)) {
+            bcsIntents.push({ row, field: BCS_RATE_FIELD[b], raw: "" });
+          } else {
+            skips.push({ r, c });
+          }
         } else {
           const d = descriptorAt(c);
           if (d && rateWritableAt(row, c)) {
@@ -3622,12 +4155,18 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
         }
       }
     }
+    appendBcsWrites(bcsIntents, writes, deltas, bcsGroups, bcsDrafts);
     flashSkips(skips);
-    void runBatch(writes, drafts)?.then((o) => recordLandedBatch(deltas, o.written));
+    void runBatch(writes, drafts, bcsDrafts)?.then((o) =>
+      recordLandedBatch(deltas, o.written, bcsGroups),
+    );
+    // Count CELLS, not writes: the cost writes are folded per row, so writes.length would
+    // under-report a cut spanning two cost columns.
+    const cut = writes.length - (bcsGroups.filter(Boolean).length) + bcsIntents.length;
     showClipboardMsg(
       skips.length
-        ? `Cut ${writes.length} cell${writes.length === 1 ? "" : "s"}; skipped ${skips.length} (not writable).`
-        : `Cut ${writes.length} cell${writes.length === 1 ? "" : "s"}.`,
+        ? `Cut ${cut} cell${cut === 1 ? "" : "s"}; skipped ${skips.length} (not writable).`
+        : `Cut ${cut} cell${cut === 1 ? "" : "s"}.`,
     );
   };
 
@@ -3649,10 +4188,15 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
     }
     const writes: BatchWrite[] = [];
     const deltas: (RateDelta | null)[] = []; // Slice B: 1:1 with writes (null = remark, not undoable)
+    const bcsGroups: (BcsDelta[] | null)[] = []; // BCS-S3a: also 1:1 with writes
     const drafts: Record<string, string> = {};
+    const bcsDrafts: Record<string, string> = {};
+    const bcsIntents: BcsIntent[] = [];
     const skips: { r: number; c: number }[] = [];
     let crossKind = 0;
     let nonPriceable = 0;
+    let notCostable = 0;
+    let cellsWritten = 0;
     for (let i = 0; i < block.rows; i++) {
       for (let j = 0; j < block.cols; j++) {
         const clip = block.cells[i][j];
@@ -3664,7 +4208,8 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
         const verdict = classifyPasteTarget(
           clip.kind,
           cellKindAt(c),
-          clip.kind === "rate" && rateWritableAt(row, c),
+          (clip.kind === "rate" && rateWritableAt(row, c)) ||
+            (clip.kind === "bcs" && bcsWritableAt(c)),
         );
         if (verdict === "WRITE") {
           if (clip.kind === "remark") {
@@ -3673,6 +4218,15 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
               args: { excelRow: row.source_row_number, remark: clip.value, description: row.description ?? undefined },
             });
             deltas.push(null);
+            cellsWritten++;
+          } else if (clip.kind === "bcs") {
+            const b = bcsAt(c);
+            if (!b || b === "total") {
+              skips.push({ r, c });
+              continue;
+            }
+            bcsIntents.push({ row, field: BCS_RATE_FIELD[b], raw: clip.value });
+            cellsWritten++;
           } else {
             const d = descriptorAt(c);
             if (!d) {
@@ -3686,17 +4240,22 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
             writes.push({ kind: "rate", cell: cellArgs, rate });
             deltas.push({ cell: cellArgs, draftKey: dk, oldRate: savedRateNum(row, d), newRate: rate });
             drafts[dk] = clip.value;
+            cellsWritten++;
           }
         } else {
           skips.push({ r, c });
           if (verdict === "SKIP_CROSS_KIND") crossKind++;
+          else if (verdict === "SKIP_NOT_COSTABLE") notCostable++;
           else nonPriceable++;
         }
       }
     }
+    appendBcsWrites(bcsIntents, writes, deltas, bcsGroups, bcsDrafts);
     flashSkips(skips);
-    void runBatch(writes, drafts)?.then((o) => recordLandedBatch(deltas, o.written));
-    showClipboardMsg(pasteSummary(writes.length, crossKind, nonPriceable));
+    void runBatch(writes, drafts, bcsDrafts)?.then((o) =>
+      recordLandedBatch(deltas, o.written, bcsGroups),
+    );
+    showClipboardMsg(pasteSummary(cellsWritten, crossKind, nonPriceable, notCostable));
   };
 
   const doFillDown = () => {
@@ -3708,10 +4267,15 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
     }
     const writes: BatchWrite[] = [];
     const deltas: (RateDelta | null)[] = []; // Slice B: 1:1 with writes (null = remark, not undoable)
+    const bcsGroups: (BcsDelta[] | null)[] = []; // BCS-S3a: also 1:1 with writes
     const drafts: Record<string, string> = {};
+    const bcsDrafts: Record<string, string> = {};
+    const bcsIntents: BcsIntent[] = [];
     const skips: { r: number; c: number }[] = [];
     let crossKind = 0;
     let nonPriceable = 0;
+    let notCostable = 0;
+    let cellsWritten = 0;
     for (let c = rect.left; c <= rect.right; c++) {
       const top = readCellForCopy(rect.top, c);
       if (!top) continue; // a non-copyable top cell -> skip the whole column silently
@@ -3721,7 +4285,8 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
         const verdict = classifyPasteTarget(
           top.kind,
           cellKindAt(c),
-          top.kind === "rate" && rateWritableAt(row, c),
+          (top.kind === "rate" && rateWritableAt(row, c)) ||
+            (top.kind === "bcs" && bcsWritableAt(c)),
         );
         if (verdict === "WRITE") {
           if (top.kind === "remark") {
@@ -3730,6 +4295,15 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
               args: { excelRow: row.source_row_number, remark: top.value, description: row.description ?? undefined },
             });
             deltas.push(null);
+            cellsWritten++;
+          } else if (top.kind === "bcs") {
+            const b = bcsAt(c);
+            if (!b || b === "total") {
+              skips.push({ r, c });
+              continue;
+            }
+            bcsIntents.push({ row, field: BCS_RATE_FIELD[b], raw: top.value });
+            cellsWritten++;
           } else {
             const d = descriptorAt(c);
             if (!d) {
@@ -3743,17 +4317,22 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
             writes.push({ kind: "rate", cell: cellArgs, rate });
             deltas.push({ cell: cellArgs, draftKey: dk, oldRate: savedRateNum(row, d), newRate: rate });
             drafts[dk] = top.value;
+            cellsWritten++;
           }
         } else {
           skips.push({ r, c });
           if (verdict === "SKIP_CROSS_KIND") crossKind++;
+          else if (verdict === "SKIP_NOT_COSTABLE") notCostable++;
           else nonPriceable++;
         }
       }
     }
+    appendBcsWrites(bcsIntents, writes, deltas, bcsGroups, bcsDrafts);
     flashSkips(skips);
-    void runBatch(writes, drafts)?.then((o) => recordLandedBatch(deltas, o.written));
-    showClipboardMsg(pasteSummary(writes.length, crossKind, nonPriceable));
+    void runBatch(writes, drafts, bcsDrafts)?.then((o) =>
+      recordLandedBatch(deltas, o.written, bcsGroups),
+    );
+    showClipboardMsg(pasteSummary(cellsWritten, crossKind, nonPriceable, notCostable));
   };
 
   // ── Slice B: undo / redo -- replay rate gestures through the EXISTING save path ────
@@ -3778,16 +4357,48 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
   // Replay one entry: write each still-writable delta's newRate (undo passes invert(entry), so its
   // newRate is the OLD value). No history capture (runBatch is the low-level path; isReplayingRef is
   // the belt-and-suspenders guard). Skipped deltas are simply not written.
+  // BCS-S3a: is this cost delta's target still writable NOW? The box's kind must still be live
+  // on this sheet (a re-commit can change the sheet's rate columns under a session's history)
+  // and the row must still be rendered. NO priceability / formula / category test -- the same
+  // deliberate asymmetry the capture path has.
+  const isBcsDeltaWritable = (d: BcsDelta): boolean => {
+    if (!onSaveBcsRates) return false;
+    if (!rows.some((r) => r.source_row_number === d.excelRow)) return false;
+    return bcsKinds.some((k) => BCS_RATE_FIELD[k] === d.field);
+  };
+
   const replayEntry = (entry: HistoryEntry) => {
     if (!onBatchWrite) return;
     const live = entry.deltas.filter(isDeltaWritable);
-    if (live.length === 0) return;
+    const liveBcs = (entry.bcsDeltas ?? []).filter(isBcsDeltaWritable);
+    if (live.length === 0 && liveBcs.length === 0) return;
     isReplayingRef.current = true;
     try {
       const writes: BatchWrite[] = live.map((d) => ({ kind: "rate", cell: d.cell, rate: d.newRate }));
       const drafts: Record<string, string> = {};
       for (const d of live) drafts[d.draftKey] = String(d.newRate);
-      void runBatch(writes, drafts);
+      // The cost deltas re-fold into ONE write per row, off each row's CURRENT triple -- so a
+      // replay that touches one box cannot zero the sibling it never wrote.
+      const bcsDrafts: Record<string, string> = {};
+      if (liveBcs.length > 0) {
+        const folded = foldBcsWrites(
+          liveBcs.map((d) => ({
+            excelRow: d.excelRow,
+            field: d.field,
+            value: d.newValue,
+            description: d.description,
+          })),
+          (excelRow) => {
+            const row = rows.find((r) => r.source_row_number === excelRow);
+            return row
+              ? gatherBcsRowRates(bcsMergedFor(row))
+              : { supply_rate: 0, install_rate: 0, combined_rate: 0 };
+          },
+        );
+        writes.push(...folded);
+        for (const d of liveBcs) bcsDrafts[d.draftKey] = String(d.newValue);
+      }
+      void runBatch(writes, drafts, bcsDrafts);
     } finally {
       isReplayingRef.current = false;
     }
@@ -3830,6 +4441,8 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
       visibleDescriptors.map((d) => columnWidthKey("descriptor", d.col)),
       descriptorColStart,
       remarksColIndex,
+      bcsColKeys, // BCS-S3a: `bcs:<kind>` + `bcs:total`; [] when there is no cost block
+      bcsColStart,
     );
 
   // Compute each menu item's enabled state for a target rect NOW (open-time), reading the
@@ -3848,7 +4461,8 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
         copyable = true;
         const row = rows[rect.top + i];
         if (!row) continue;
-        if (cell.kind === "remark" || rateWritableAt(row, rect.left + j)) writable = true;
+        const c = rect.left + j;
+        if (cell.kind === "remark" || rateWritableAt(row, c) || bcsWritableAt(c)) writable = true;
       }
     }
     return {
@@ -3898,6 +4512,20 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
     if (!row) return;
     const key = cellKey(row.row_index, d.col);
     commitRate(row, d, draftRates[key] ?? savedRateStr(row, d));
+  };
+
+  // BCS-S3a: the same commit-on-move for a cost box (arrow/Tab away persists the typed value).
+  // A rate colIndex can never reach here and vice-versa -- `bcsAt` returns null outside the block.
+  const commitActiveBcs = (cell: CellCoord) => {
+    if (!onSaveBcsRates) return;
+    const b = bcsAt(cell.colIndex);
+    if (!b || b === "total") return;
+    const row = rows[cell.rowIndex];
+    if (!row) return;
+    const field = BCS_RATE_FIELD[b];
+    const draft = draftBcsRates[bcsCellKey(row.row_index, field)];
+    if (draft === undefined) return; // nothing typed -> nothing to commit
+    commitBcsRate(row, b, draft);
   };
 
   // The single grid keydown handler (on the <table>; cell/input keydowns bubble here).
@@ -3994,6 +4622,7 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
     if (!dir) return; // not a nav key -> let typing / the decimal guard handle it
     e.preventDefault(); // own the nav keys: no caret move, no tab-escape
     commitActiveRate(activeCell);
+    commitActiveBcs(activeCell); // BCS-S3a: the cost boxes commit on move too
     const next = nextCell(activeCell, dir, rows.length, colCount);
     if (next) {
       // Slice A (clipboard): Shift+arrow EXTENDS the selection (hold the anchor, move the focus); a
@@ -4006,7 +4635,12 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
 
   // ── Slice 3c: dirty signal + force-flush handle + flush-on-unmount ───────────
   // Surface "has uncommitted drafts" up to the page (drives the "Unsaved changes" status).
-  const hasUnsaved = Object.keys(draftRates).length > 0;
+  // BCS-S3a: a pending COST draft counts as dirty too. This is load-bearing, not cosmetic --
+  // the dirty signal is what fires the page's ensureLockAcquired, and save_row_bcs_rates takes
+  // the single-editor lock (acquire_or_refresh) exactly as save_cell_price does. Without it the
+  // very first cost keystroke would reach the server with no lock in hand.
+  const hasUnsaved =
+    Object.keys(draftRates).length > 0 || Object.keys(draftBcsRates).length > 0;
   useEffect(() => {
     onDirtyChange?.(hasUnsaved);
   }, [hasUnsaved, onDirtyChange]);
@@ -4065,6 +4699,13 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
           const sep = k.indexOf(":");
           autoSaveCellRef.current(Number(k.slice(0, sep)), k.slice(sep + 1));
         });
+        // BCS-S3a: the cost drafts flush through their OWN debouncers + retry path, so "Save
+        // now" (and the carry button's pre-open flush) persists a typed cost too.
+        bcsDebouncersRef.current.forEach((deb) => deb.flush());
+        Object.keys(draftBcsRatesRef.current).forEach((k) => {
+          const sep = k.indexOf(":");
+          autoSaveBcsCellRef.current(Number(k.slice(0, sep)), k.slice(sep + 1) as BcsRateField);
+        });
       },
       // Slice 4a: the review-list jump. Delegates to the shared jumpToRow (parent click-to-jump
       // uses the same path) -- resolve Excel row -> array index, focus + center the row's col-0
@@ -4084,8 +4725,10 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
   // Flush-on-unmount: a typed-but-uncommitted value persists on navigate-away (not dropped).
   useEffect(() => {
     const debouncers = debouncersRef.current;
+    const bcsDebouncers = bcsDebouncersRef.current; // BCS-S3a: same guarantee for a typed cost
     return () => {
       debouncers.forEach((deb) => deb.flush());
+      bcsDebouncers.forEach((deb) => deb.flush());
     };
   }, []);
 
@@ -4152,10 +4795,14 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
   const descWidthKeys = visibleDescriptors.map((d) => columnWidthKey("descriptor", d.col));
   // table-fixed needs an explicit total width (NOT w-full -- w-full would let table-fixed
   // redistribute slack and break the authoritative colgroup widths).
+  // BCS-S3a: the cost block's columns are user-resizable like any descriptor (seedForWidthKey's
+  // default 112px covers `bcs:*`), so they join the SAME colWidths map -- no second width state.
+  const bcsWidthTotal = bcsColKeys.reduce((s, k) => s + widthOf(k), 0);
   const totalWidth =
     anchorWidthKeys.reduce((s, k) => s + widthOf(k), 0) +
     CATEGORY_COL_WIDTH + // CL-2: the read-only Category column (fixed width, no colWidths entry)
     descWidthKeys.reduce((s, k) => s + widthOf(k), 0) +
+    bcsWidthTotal +
     widthOf(REMARKS_WIDTH_KEY);
   const tableStyle = { width: `${totalWidth}px` };
 
@@ -4276,6 +4923,7 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
   const scrollPaneTableWidth =
     CATEGORY_COL_WIDTH + // CL-2: the read-only Category column leads the scrolling pane
     descWidthKeys.reduce((s, k) => s + widthOf(k), 0) +
+    bcsWidthTotal + // BCS-S3a: the cost block rides the SCROLLING pane, never the frozen one
     widthOf(REMARKS_WIDTH_KEY);
 
   // RM-3b/RM-3c item A: the embedded horizontal-scrollbar PROXY is the SINGLE bar (the scroller's own
@@ -4471,6 +5119,11 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
     <col key={d.col} style={{ width: `${widthOf(columnWidthKey("descriptor", d.col))}px` }} />
   ));
   const remarksCol = <col style={{ width: `${widthOf(REMARKS_WIDTH_KEY)}px` }} />;
+  // BCS-S3a: the cost block's <col>s -- between descriptorCols and remarksCol, in the SCROLLING
+  // pane colgroup (never the frozen/anchor one). Empty array when there is no block.
+  const bcsCols = bcsColKeys.map((k) => (
+    <col key={k} style={{ width: `${widthOf(k)}px` }} />
+  ));
   // CL-2: the read-only Category <col> -- leads the scrolling pane (before descriptorCols). Fixed
   // width; never in the frozen/anchor colgroup.
   const categoryCol = <col style={{ width: `${CATEGORY_COL_WIDTH}px` }} />;
@@ -4599,6 +5252,33 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
     </th>
   );
 
+  // BCS-S3a: the cost block's headers -- one per live box, then Total Amount. Sky-tinted so the
+  // INTERNAL cost columns are visually distinct from the client-facing ones beside them: this is
+  // what we pay, not what we charge, and the two must not read as one continuous table.
+  const bcsHeaderCells = bcsKinds.length > 0 && (
+    <>
+      {bcsKinds.map((kind) => (
+        <th
+          key={kind}
+          data-colkey={bcsWidthKey(kind)}
+          title={`${BCS_RATE_LABEL[kind]} — what this row costs us (internal)`}
+          className="px-2 py-2 text-right font-medium text-sky-800 dark:text-sky-200 border-l border-border sticky top-0 z-20 align-top bg-sky-50 dark:bg-sky-950/40"
+        >
+          <span className="block truncate">{BCS_RATE_LABEL[kind]}</span>
+          {resizeHandle(bcsWidthKey(kind), true)}
+        </th>
+      ))}
+      <th
+        data-colkey={BCS_TOTAL_COL_KEY}
+        title="Total Amount — quantity x the cost entered (computed, never stored)"
+        className="px-2 py-2 text-right font-medium text-sky-800 dark:text-sky-200 border-l border-border sticky top-0 z-20 align-top bg-sky-50 dark:bg-sky-950/40"
+      >
+        <span className="block truncate">Total Amount</span>
+        {resizeHandle(BCS_TOTAL_COL_KEY, false)}
+      </th>
+    </>
+  );
+
   // Slice 4a: trailing Remarks column (per-row; click/Enter-to-open editor). NOT a descriptor;
   // Slice 4a.2 made it the matrix's last navigable column.
   const remarksHeaderCell = (
@@ -4627,6 +5307,16 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
       selectionAnchor.colIndex !== activeCell.colIndex)
       ? selectionRect(selectionAnchor, activeCell)
       : null;
+  // BCS-S3a: THIS row's Total Quantity, resolved from the CONFIRMED columns. Done here (once per
+  // RENDERED row -- ~40 under virtualization) so the memoized row receives a plain number|null
+  // scalar and never the qty source itself. `bcsRowQuantity` sums the stored entries whatever
+  // the mode; the entry and a ColumnDescriptor are the same six fields, which is exactly what
+  // resolveDescriptorValue walks.
+  const bcsQtyFor = (row: PricedRow): number | null =>
+    bcsKinds.length === 0
+      ? null
+      : bcsRowQuantity(bcsQtySource, (e) => resolveDescriptorValue(row, e as ColumnDescriptor));
+
   const renderRow = (
     row: PricedRow,
     rowIdx: number,
@@ -4695,6 +5385,16 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
       descriptorColStart={descriptorColStart}
       descriptionColumns={descriptionColumns}
       fanOut={fanOut}
+      bcsKinds={bcsKinds}
+      bcsColStart={bcsColStart}
+      bcsRow={bcsRatesByExcelRow.get(row.source_row_number)}
+      rowBcsDrafts={bcsSlicesByRow.get(row.row_index) ?? EMPTY_SLICE}
+      bcsQty={bcsQtyFor(row)}
+      onSaveBcsRates={onSaveBcsRates}
+      bcsReadOnlyReason={bcsReadOnlyReason}
+      commitBcsRate={commitBcsRate}
+      scheduleBcsAutoSave={scheduleBcsAutoSave}
+      setDraftBcsRates={setDraftBcsRates}
       commitRate={commitRate}
       scheduleAutoSave={scheduleAutoSave}
       onCellFocus={onCellFocus}
@@ -4721,7 +5421,13 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
     const { paddingTop, paddingBottom } = deriveSpacers(items, rowVirtualizer.getTotalSize());
     // MC-5: span the PARAMETRIC anchor count (fan-out description columns shift it), not the fixed
     // constant -- so the virtualizer spacer <tr> covers every frozen-pane column under fan-out.
-    const colSpan = paneColSpan(pane, effectiveAnchorCount, visibleDescriptors.length);
+    // BCS-S3a: the cost block widens the SCROLLING (and single-table) span. Added at the CALL
+    // SITE rather than inside `paneColSpan` -- pricingVirtual.ts is out of this slice's scope,
+    // and the addend is pure geometry the caller already holds. The frozen pane is unaffected
+    // (the cost columns never sit there).
+    const colSpan =
+      paneColSpan(pane, effectiveAnchorCount, visibleDescriptors.length) +
+      (pane === "frozen" ? 0 : bcsColKeys.length);
     return (
       <>
         {paddingTop > 0 && (
@@ -4891,12 +5597,14 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
                 <colgroup>
                   {categoryCol}
                   {descriptorCols}
+                  {bcsCols}
                   {remarksCol}
                 </colgroup>
                 <thead>
                   <tr>
                     {categoryHeaderCell}
                     {descriptorHeaderCells}
+                    {bcsHeaderCells}
                     {remarksHeaderCell}
                   </tr>
                 </thead>
@@ -4944,6 +5652,7 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
           {anchorCols}
           {categoryCol}
           {descriptorCols}
+          {bcsCols}
           {remarksCol}
         </colgroup>
         <thead>
@@ -4951,6 +5660,7 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
             {anchorHeaderCells}
             {categoryHeaderCell}
             {descriptorHeaderCells}
+            {bcsHeaderCells}
             {remarksHeaderCell}
           </tr>
         </thead>

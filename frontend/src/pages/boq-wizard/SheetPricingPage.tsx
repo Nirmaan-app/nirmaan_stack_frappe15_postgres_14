@@ -54,7 +54,10 @@ import type {
   EngineCatalog,
   EngineOption,
   ApplyCopyForwardResponse,
+  BcsRowRate,
+  BcsRowSaveArgs,
   GetBcsStateResponse,
+  GetSheetBcsRatesResponse,
   GetCommittedStateResponse,
   GetCrossBoqCarryPlanResponse,
   GetPricedRowsResponse,
@@ -74,7 +77,17 @@ import { VersionRibbon } from "./VersionRibbon";
 // BCS-S2: the cost section's enable button + two-column confirmation card. The RULES live in the
 // pure bcsColumns (which mirrors services/boq_bcs/sources.py); the page only orchestrates.
 import { BcsColumnsDialog } from "./BcsColumnsDialog";
-import { bcsChipLabel, bcsSetupReason, bcsToggleState } from "./bcsColumns";
+import {
+  bcsChipLabel,
+  bcsCostEntryReason,
+  bcsLiveRateKinds,
+  bcsSetupReason,
+  bcsToggleState,
+  type BcsRateKind,
+} from "./bcsColumns";
+// BCS-S3a: a module-level stable empty -- a fresh [] per render would churn a grid prop and kill
+// the V0 React.memo shield (frontend/CLAUDE.md: "any new grid prop must stay identity-stable").
+const EMPTY_BCS_KINDS: BcsRateKind[] = [];
 import { CopyForwardDialog, summarizeCopyForward } from "./CopyForwardDialog";
 import {
   CROSS_BOQ_CARRY_PLAN_METHOD,
@@ -485,6 +498,22 @@ const SheetPricingPage = () => {
     boqId && sheetName && liveCommitVersion !== null ? undefined : null,
   );
 
+  // ── BCS-S3a: the stored COST rows for this sheet+version ──────────────────────
+  // Pinned to liveCommitVersion for the same reason the setup fetch is: cost is entered on the
+  // current version only (the cost block is not rendered while browsing history), so a second
+  // version-following fetch would buy nothing and churn the grid's props on every version click.
+  const { data: bcsRatesData, mutate: mutateBcsRates } = useFrappeGetCall<{
+    message: GetSheetBcsRatesResponse;
+  }>(
+    "nirmaan_stack.api.boq.wizard.bcs.get_sheet_bcs_rates",
+    {
+      boq_name: boqId ?? "",
+      sheet_name: sheetName ?? "", // VERBATIM (#152)
+      committed_version: liveCommitVersion ?? 0,
+    },
+    boqId && sheetName && liveCommitVersion !== null ? undefined : null,
+  );
+
   // HV-10: the per-row MULTI-ENGINE resolved verdicts for THIS sheet (get_sheet_categories_resolved).
   // ONE index-covered read across every discipline; the server applies the resolution ladder per
   // row. mutateCategories refetches after a classify run / verdict write so the grid repaints.
@@ -673,6 +702,22 @@ const SheetPricingPage = () => {
     committedStateData?.message?.committed_state ?? [],
     sheetName ?? "",
   );
+  // BCS-S3a -- WHY A GRID-ONLY SHEET HAS NO COST COLUMNS, recorded because the outcome was
+  // always right but the CAUSE had never been written down, and a future reader could have
+  // changed it either way with equal confidence.
+  //
+  // THE CAUSE IS THE ZERO NODES, not a rendering choice. BCS identity is per committed ROW and
+  // `save_row_bcs_rates` resolves that row through `_resolve_committed_cell`, storing the
+  // resolved node as its re-resolvable pointer. A grid-only sheet commits a faithful CELL GRID
+  // and NO nodes at all (the line above is the same fact stated for pricing), so there is no
+  // per-line address for a cost to hang on -- every write would refuse at gate 1. Per-line cost
+  // on such a sheet is not withheld; it does not EXIST to be withheld.
+  //
+  // That it also renders through SheetDataGrid rather than PricingGrid is a CONSEQUENCE, not
+  // the reason. Do not "add BCS to the faithful grid" on the strength of the rendering fork
+  // alone: that would need the sheet to commit nodes first, which is a different decision
+  // entirely (and the reference sheets it covers -- Make Lists, general specs -- have no
+  // quantities to multiply, so Total Amount would have nothing to compute either).
   // commit_version comes from get_priced_rows (it carries it for BOTH dispositions -- a
   // grid-only sheet still has a current committed BoQ Sheet). The faithful-grid fetch is
   // disabled until it's a known grid-only sheet WITH a version.
@@ -774,6 +819,10 @@ const SheetPricingPage = () => {
   );
   const { call: confirmBcsColumnsCall } = useFrappePostCall(
     "nirmaan_stack.api.boq.wizard.bcs.confirm_bcs_columns",
+  );
+  // BCS-S3a: the ONE cost write. ⚠️ WHOLE-ROW -- see gatherBcsRowRates.
+  const { call: saveRowBcsRates } = useFrappePostCall(
+    "nirmaan_stack.api.boq.wizard.bcs.save_row_bcs_rates",
   );
   // The confirmation card's open-state is PAGE-owned (mirroring pickerState) and the card is
   // mounted ONCE at page level -- never inside a row loop. In-flight guard for the enable POST.
@@ -1792,6 +1841,43 @@ const SheetPricingPage = () => {
     await mutateBcs();
   };
 
+  // ── BCS-S3a: the cost block's grid inputs ─────────────────────────────────────
+  //
+  // VISIBILITY and EDITABILITY are two different questions, answered separately on purpose. The
+  // columns SHOW whenever BCS is set up on the version being viewed -- a locked sheet still
+  // displays what it costs, read-only. Whether a box can be TYPED IN is the full gate, and it is
+  // expressed the house way: by withholding `onSaveBcsRates`, never by a second per-cell flag.
+  //
+  // An UNKNOWN BCS state hides the block (bcsToggle !== "on"), which is the S2a rule applied one
+  // layer further out: absence of knowledge must not render as an empty, editable cost cell.
+  const bcsColumnsVisible =
+    bcsToggle === "on" && bcsReady && !isViewingHistory && liveCommitVersion !== null;
+  // Which boxes, from the SHEET's own rate columns (the pure rule; the halves win over a
+  // combined rate mapped beside them so Total Amount can never double-count).
+  const bcsKinds = useMemo(
+    () => (bcsColumnsVisible ? bcsLiveRateKinds(columnDescriptors) : EMPTY_BCS_KINDS),
+    [bcsColumnsVisible, columnDescriptors],
+  );
+  // The stored cost rows, keyed by Excel row -- reference-stable per fetch (the V0 memo shield).
+  const bcsRatesByExcelRow = useMemo(() => {
+    const m = new Map<number, BcsRowRate>();
+    for (const r of bcsRatesData?.message?.rows ?? []) m.set(r.excel_row, r);
+    return m;
+  }, [bcsRatesData]);
+  // The gate, in save_row_bcs_rates' OWN order (NOT the client rate gate -- BCS deliberately
+  // skips the formula, priceability and category gates).
+  const bcsCostReason = bcsCostEntryReason({
+    sheetLoading: pricedLoading,
+    sheetError: pricedError,
+    committedVersion: liveCommitVersion,
+    viewingHistory: isViewingHistory,
+    sheetLocked: isLocked,
+    editorLocked: takenOver || editable === false,
+    bcsToggle,
+    bcsReady,
+  });
+  const bcsWritable = bcsCostReason === null;
+
   // HV-10: pick / clear one row's human category verdict, DISCIPLINE-AWARE. A group pick carries
   // that engine's discipline (the write lands on ITS row identity; upsert-on-missing mints the row
   // if absent). "Clear verdict" passes discipline=null -> the page targets the row's currently
@@ -1963,6 +2049,49 @@ const SheetPricingPage = () => {
       setInFlight((n) => n - 1);
     }
   }, [commitVersion, boqId, sheetName, override, saveCellPrice, mutate]);
+
+  // ── BCS-S3a: save ONE row's cost rates (save_row_bcs_rates) ────────────────────
+  // Mirrors handleSaveRate (in-flight count, takeover detection, refetch, re-throw so the grid
+  // KEEPS the optimistic draft) with two deliberate differences:
+  //
+  //   1. ⚠️ IT IS A WHOLE-ROW WRITE. `args.rates` always carries all three stored fields --
+  //      the endpoint coerces anything absent to 0.0, so a partial payload would silently zero
+  //      the siblings. The grid gathers them; this page never assembles a rate itself.
+  //   2. It refetches ONLY `mutateBcsRates` -- not the whole priced-rows read. A cost is a
+  //      separate layer: it changes no client-facing marker, no amount and no flag, so pulling
+  //      get_priced_rows would churn `rows` and re-render the entire grid for nothing.
+  const handleSaveBcsRates = useCallback(
+    async (args: BcsRowSaveArgs) => {
+      if (liveCommitVersion === null) {
+        setSaveError("This sheet has no committed version to cost.");
+        throw new Error("no committed version");
+      }
+      setSaveError(null);
+      setInFlight((n) => n + 1);
+      try {
+        await saveRowBcsRates({
+          boq_name: boqId, // VERBATIM
+          sheet_name: sheetName, // VERBATIM (#152)
+          excel_row: args.excelRow,
+          committed_version: liveCommitVersion,
+          supply_rate: args.rates.supply_rate,
+          install_rate: args.rates.install_rate,
+          combined_rate: args.rates.combined_rate,
+          description: args.description,
+        });
+        await mutateBcsRates();
+        setLastSavedAt(new Date());
+      } catch (e: unknown) {
+        const msg = getFrappeError(e);
+        if (isTakeoverError(msg)) setTakenOver(true);
+        else setSaveError(msg || "Could not save the cost. Please try again.");
+        throw e; // let the grid keep the optimistic draft
+      } finally {
+        setInFlight((n) => n - 1);
+      }
+    },
+    [liveCommitVersion, boqId, sheetName, saveRowBcsRates, mutateBcsRates],
+  );
 
   // Slice 4a: save one row's remark (save_row_remark) -- a SEPARATE write path from rates,
   // mirroring handleSaveRate (in-flight count, takeover detection, mutate refresh). Blank
@@ -2149,6 +2278,7 @@ const SheetPricingPage = () => {
     let written = 0;
     let failed = 0;
     let failMsg: string | null = null;
+    let bcsTouched = false; // BCS-S3a: refetch the cost layer only when the gesture touched it
     try {
       for (const w of writes) {
         try {
@@ -2165,6 +2295,20 @@ const SheetPricingPage = () => {
               description: w.cell.description, // copy-forward MATCH GUARD
               allow_non_priceable: override, // Slice 3e: the asserted per-sheet override
             });
+          } else if (w.kind === "bcs") {
+            // BCS-S3a: ONE call per ROW (the grid folded the gesture's cost cells), carrying
+            // all three stored fields -- see handleSaveBcsRates on why a partial payload zeroes.
+            await saveRowBcsRates({
+              boq_name: boqId, // VERBATIM
+              sheet_name: sheetName, // VERBATIM (#152)
+              excel_row: w.args.excelRow,
+              committed_version: commitVersion,
+              supply_rate: w.args.rates.supply_rate,
+              install_rate: w.args.rates.install_rate,
+              combined_rate: w.args.rates.combined_rate,
+              description: w.args.description,
+            });
+            bcsTouched = true;
           } else {
             await saveRowRemark({
               boq_name: boqId, // VERBATIM
@@ -2188,12 +2332,15 @@ const SheetPricingPage = () => {
       }
     } finally {
       await mutate(); // ONE trailing refetch -- markers / amounts re-derive once
+      // BCS-S3a: and ONE for the cost layer, only if the gesture wrote any (it lives in its own
+      // read, so a rate-only paste must not pay for it).
+      if (bcsTouched) await mutateBcsRates();
       if (failMsg) setSaveError(`Saved ${written} of ${writes.length}. ${failMsg}`);
       else setLastSavedAt(new Date());
       setInFlight((n) => n - 1);
     }
     return { written, failed };
-  }, [commitVersion, boqId, sheetName, override, saveCellPrice, saveRowRemark, mutate]);
+  }, [commitVersion, boqId, sheetName, override, saveCellPrice, saveRowRemark, saveRowBcsRates, mutate, mutateBcsRates]);
 
   // ── Slice 4b-A: the computed review-flag layer (Cluster A) ──────────────────────
   // Everything routes through the ONE shared priceability helper -- the in-grid markers,
@@ -4236,6 +4383,18 @@ const SheetPricingPage = () => {
             // `f = ...` label; onSaveFormula is withheld when locked (header renders read-only).
             columnFormulas={columnFormulas}
             onSaveFormula={locked ? undefined : handleSaveFormula}
+            // ── BCS-S3a: the cost block. `bcsKinds` EMPTY (the default) removes it entirely and
+            //    every colIndex reverts to its pre-S3a value, so a sheet without BCS is unchanged.
+            //    NOTE the gating is NOT `locked ? undefined : ...` like its neighbours: BCS runs
+            //    save_row_bcs_rates' OWN four gates (bcsCostEntryReason), which deliberately skip
+            //    the formula, priceability and category gates -- reusing `locked` here would be
+            //    close but would miss the two BCS-specific conditions. Every prop is useMemo'd /
+            //    useCallback'd or a plain scalar, so the V0 grid memo shield holds.
+            bcsKinds={bcsKinds}
+            bcsRatesByExcelRow={bcsRatesByExcelRow}
+            bcsQtySource={bcsQtySource}
+            onSaveBcsRates={bcsWritable ? handleSaveBcsRates : undefined}
+            bcsReadOnlyReason={bcsCostReason}
             onDirtyChange={handleDirtyChange}
             // Slice B (undo/redo): the grid surfaces {canUndo, canRedo}; the bottom-ribbon buttons
             // read it (the onDirtyChange precedent). The undo/redo ACTIONS ride the imperative handle.
