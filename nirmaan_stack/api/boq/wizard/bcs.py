@@ -120,9 +120,12 @@ _BCS_READ_FIELDS = [
     "carried_from_boq", "carried_from_version", "carried_at",
 ]
 
+# "Amount (Combined)" until BCS-S2c. The KIND widening made that name wrong on most sheets --
+# it points at a column the sheet is not required to have, and being told to confirm a column
+# that does not exist is worse than being told nothing.
 _NOT_READY_MESSAGE = (
     "BCS is not set up on this sheet yet. Turn BCS on and confirm the Total Quantity and "
-    "Amount (Combined) columns before entering any cost rates."
+    "Amount columns before entering any cost rates."
 )
 
 

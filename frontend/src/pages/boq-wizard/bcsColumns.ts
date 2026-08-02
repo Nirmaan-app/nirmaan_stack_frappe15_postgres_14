@@ -2,16 +2,37 @@
  * bcsColumns -- the BCS two-column confirmation rules, client side (slice BCS-S2).
  *
  * BCS records what a row costs US against what we charge the CLIENT. To do that it needs two
- * numbers off the committed sheet -- the row's Total Quantity and its Amount (Combined) -- and
+ * numbers off the committed sheet -- the row's Total Quantity and the Amount charged -- and
  * neither is a fixed column across BoQs. A sheet may express either as ONE scalar column or as
  * SEVERAL per-area columns that add up, so a human confirms which columns to use, once per
  * sheet+version, and the confirmation is stored re-resolvably.
  *
  * THE SERVER IS THE AUTHORITY. Every rule below mirrors
- * `nirmaan_stack/services/boq_bcs/sources.py` (slices S1a-S1c): the same conditions, in the same
- * PRECEDENCE, so the card can never say "looks fine" about a pick `confirm_bcs_columns` will
- * throw on. The WORDING is deliberately friendlier than a thrown error -- that is the only
- * licensed difference (ADR-0010 F1: a domain rule has one home, pinned to the backend's).
+ * `nirmaan_stack/services/boq_bcs/sources.py` (slices S1a-S1c, widened at S2b): the same
+ * conditions, in the same PRECEDENCE, so the card can never say "looks fine" about a pick
+ * `confirm_bcs_columns` will throw on. The WORDING is deliberately friendlier than a thrown error
+ * -- that is the only licensed difference (ADR-0010 F1: a domain rule has one home, pinned to the
+ * backend's).
+ *
+ * DIVERGENCE IS A DEFECT IN BOTH DIRECTIONS, and the second one is the quiet one. The card saying
+ * "valid" about something the server rejects produces a thrown error a user can report. The card
+ * REFUSING something the server would accept produces nothing at all -- a legitimate sheet is
+ * simply unusable, with no message to investigate. That second failure is exactly what BCS-S2c
+ * exists to repair.
+ *
+ * WHAT S2b WIDENED, AND WHY THIS FILE HAD TO FOLLOW (owner ruling 2026-08-02). The amount varies
+ * along TWO axes: the SHAPE axis (one scalar column, or N per-area columns that sum) and the KIND
+ * axis (the combined total, or the supply / installation HALVES). S1 accepted only the combined
+ * kind. Most real sheets turned out to have no single "Amount (Total)" column at all, so this
+ * card's Amount list came up EMPTY on most of them and the owner could not use the feature. S2b
+ * widened the KIND axis on the server; until S2c the browser still refused every half, which made
+ * the fix real in principle and invisible in practice.
+ *
+ * ADAPT AND DISCLOSE, NEVER REFUSE. A sheet carrying only ONE half is ACCEPTED, and the software
+ * STATES the formula it is actually using (`bcsSummaryForMode`). THE SENTENCE IS THE SAFETY: a
+ * sheet whose % Profit is measured against supply alone looks identical to one measured against
+ * the whole amount, so without the disclosure, acceptance IS the failure mode. Do not reinstate
+ * the refusal, and do not let the sentence become decoration.
  *
  * PURE (ADR-0010 F4). No React import, no fetch, no component state -- so the whole rule set is
  * unit-testable in a repo that deliberately has NO DOM test environment. `BcsColumnsDialog` is a
@@ -19,8 +40,9 @@
  *
  * WHY A NARROWER MENU IS SAFE. `eligibleBcsColumns` offers only columns that could pass the
  * server's class check, so the card cannot even attempt most refusals. It is a NARROWING, never a
- * widening -- the refusals still reachable from the offered set (mixing a total with its own
- * parts; two columns that hold the same number) are exactly what `validateBcsPicks` catches.
+ * widening -- the refusals still reachable from the offered set (a total picked beside a half;
+ * mixing the two shapes; two columns that hold the same number) are exactly what
+ * `validateBcsPicks` catches.
  *
  * THIS FILE CONTAINS NO CONTROL CHARACTERS, DELIBERATELY (BCS-S2a, finding F4). It briefly
  * contained a raw NUL byte as a key separator, which made the whole module read as BINARY:
@@ -43,10 +65,30 @@ import { ROLE_LABELS } from "./boqTypes";
 export type BcsSide = "qty" | "amount";
 
 /**
- * The stored `mode` of one side -- WHICH of the two shapes the sheet uses. A `*_by_area` mode
- * means the picked columns' values are SUMMED to make the row's number.
+ * The stored `mode` of one side -- WHICH shape the sheet uses, and on the amount side WHICH
+ * KINDS of amount. A `*_by_area` mode means the picked columns' values are SUMMED.
+ *
+ * TEN MEMBERS since BCS-S2c (two quantity, eight amount), mirroring `sources._AMOUNT_MODES`
+ * exactly. `amount_total` and `amount_by_area` are BYTE-UNCHANGED from S1a, so confirmations
+ * stored before the widening read back identically.
+ *
+ * ⚠️ THE MODE NEVER BRANCHES THE ARITHMETIC. In every one of the ten the computation is
+ * "resolve each stored entry and add them up" -- no coefficient, no subtraction, no dropped
+ * column. The mode exists for DISCLOSURE (which sentence to say) and for REFUSAL. Two different
+ * formulas may therefore never share a mode: BCS-S3 reads the stored mode to know what it is
+ * computing, so a reader of the record must be able to tell which formula was in force.
  */
-export type BcsMode = "qty_total" | "qty_by_area" | "amount_total" | "amount_by_area";
+export type BcsMode =
+  | "qty_total"
+  | "qty_by_area"
+  | "amount_total"
+  | "amount_supply_plus_install"
+  | "amount_supply_only"
+  | "amount_install_only"
+  | "amount_by_area"
+  | "amount_by_area_supply_plus_install"
+  | "amount_by_area_supply_only"
+  | "amount_by_area_install_only";
 
 /** The outcome of validating one side's picks: a save-able selection, or a refusal to voice. */
 export type BcsSideValidation =
@@ -56,15 +98,24 @@ export type BcsSideValidation =
 // ── The value_field vocabulary, mirroring sources.py's module constants ──────────
 const QTY_SCALAR_VALUE_FIELD = "qty_total";
 const QTY_AREA_VALUE_FIELD = "qty_by_area";
-const AMOUNT_SCALAR_VALUE_FIELD = "amount_total";
 const AMOUNT_AREA_VALUE_FIELD = "amount_by_area";
+
+/** The AMOUNT axes, mirroring sources.py. Kept apart because the rules read them separately. */
+export type BcsAmountKind = "total" | "supply" | "install";
+export type BcsAmountShape = "scalar" | "area";
+
 /**
- * A per-area amount column carries its KIND in the descriptor's third hop (`rate_subkey`):
- * "total" is the per-area COMBINED amount, while "supply" and "install" are the split halves.
- * Only the combined kind is what we charge the client -- accepting a half here would silently
- * compare our cost against a fraction of the charged amount.
+ * WHERE a column's kind is written differs by shape -- the one genuine asymmetry, and the reason
+ * this is a lookup rather than a predicate. A SCALAR amount carries its kind in the value_field
+ * itself (one hop, no subkey); a PER-AREA amount carries it in the descriptor's THIRD hop,
+ * `rate_subkey`, because all three per-area kinds share the one value_field `amount_by_area`.
  */
-const AMOUNT_AREA_COMBINED_SUBKEY = "total";
+const SCALAR_AMOUNT_FIELD_TO_KIND: Record<string, BcsAmountKind> = {
+  amount_total: "total",
+  amount_supply: "supply",
+  amount_install: "install",
+};
+const AREA_AMOUNT_KINDS = new Set<string>(["total", "supply", "install"]);
 
 /** Is this descriptor a quantity column BCS can read? (sources.build_qty_source's class check.) */
 export function isBcsQtyColumn(d: ColumnDescriptor): boolean {
@@ -72,16 +123,39 @@ export function isBcsQtyColumn(d: ColumnDescriptor): boolean {
 }
 
 /**
- * Is this descriptor a COMBINED amount column -- the thing we charge the client?
- * Mirrors `sources._is_combined_amount`: the scalar `amount_total`, or a per-area
- * `amount_by_area` whose kind is "total". The supply / install halves are NOT amounts here.
+ * Place one descriptor on the two amount axes, or null if it is not an amount column at all.
+ * Mirrors `sources._amount_axes`, which REPLACED the old `_is_combined_amount` at BCS-S2b.
+ *
+ * That replacement is the shape of the whole widening: the old predicate answered one yes/no
+ * question -- "is this THE combined amount?" -- which is exactly the question that stopped being
+ * the right one when the halves became acceptable. A pick is no longer judged on its own; it is
+ * judged against the OTHER picks (a half is fine; a half beside the total that contains it is
+ * not), so this READS each column's position and the rules compare positions afterwards.
+ */
+export function bcsAmountAxes(
+  d: ColumnDescriptor,
+): { shape: BcsAmountShape; kind: BcsAmountKind } | null {
+  const scalarKind = SCALAR_AMOUNT_FIELD_TO_KIND[d.value_field];
+  if (scalarKind) return { shape: "scalar", kind: scalarKind };
+  if (d.value_field === AMOUNT_AREA_VALUE_FIELD) {
+    const subkey = d.rate_subkey;
+    if (subkey && AREA_AMOUNT_KINDS.has(subkey)) {
+      return { shape: "area", kind: subkey as BcsAmountKind };
+    }
+  }
+  return null;
+}
+
+/**
+ * Is this descriptor an Amount column BCS can read -- combined OR half, in either shape?
+ *
+ * WIDENED AT BCS-S2c. It used to return false for both halves and its comment cited
+ * `sources._is_combined_amount`, a function BCS-S2b deleted. Widening the KIND axis does NOT
+ * widen this class check: a rate column or a quantity column is still not an amount, however the
+ * rest of the pick is shaped.
  */
 export function isBcsAmountColumn(d: ColumnDescriptor): boolean {
-  if (d.value_field === AMOUNT_SCALAR_VALUE_FIELD) return true;
-  if (d.value_field === AMOUNT_AREA_VALUE_FIELD) {
-    return d.rate_subkey === AMOUNT_AREA_COMBINED_SUBKEY;
-  }
-  return false;
+  return bcsAmountAxes(d) !== null;
 }
 
 /** The columns the card may offer for one side, in the descriptors' own (Excel) order. */
@@ -112,50 +186,184 @@ export function buildBcsDescriptorIndex(
   return m;
 }
 
-/** Per-side wording. The CONDITIONS are the server's; only these strings are ours. */
-const SIDE_WORDS: Record<
-  BcsSide,
-  {
-    empty: string;
-    wrongClass: (cols: string) => string;
-    mixed: string;
-    tooMany: string;
-    scalarMode: BcsMode;
-    areaMode: BcsMode;
-    scalarSummary: (col: string) => string;
-    areaSummary: (cols: string[]) => string;
+/** "column G" / "columns G and H" / "columns G, H and I" -- so a sentence reads like English. */
+function columnPhrase(cols: string[]): string {
+  if (cols.length === 0) return "no columns";
+  if (cols.length === 1) return `column ${cols[0]}`;
+  return `columns ${cols.slice(0, -1).join(", ")} and ${cols[cols.length - 1]}`;
+}
+
+/**
+ * THE DISCLOSURE. One sentence per mode, stating the formula ACTUALLY IN FORCE.
+ *
+ * This is the owner's safety mechanism, not decoration. The ruling is "adapt and disclose, never
+ * refuse": a one-sided sheet is accepted, and in exchange the software says out loud what it is
+ * measuring % Profit against. Without the sentence, acceptance is the failure mode -- a sheet
+ * costed against the supply half alone renders identically to one costed against the whole
+ * amount, and nobody finds out until the margin is wrong.
+ *
+ * THE MODE SELECTS THE TEMPLATE; `cols` FILLS IT. The mode carries the formula's SHAPE and
+ * nothing else -- no column letters, no area names, no count -- which is why every sentence takes
+ * its operands from the picked/stored columns rather than from the mode string.
+ *
+ * ONE FUNCTION, TWO CALLERS, DELIBERATELY. `validateBcsPicks` uses it to PREDICT what the server
+ * will decide about a live pick; `bcsStoredSummary` uses it to REPORT what the server already
+ * decided. Sharing the templates is what stops the sentence a user reads before saving from
+ * differing from the one they read after.
+ */
+export function bcsSummaryForMode(mode: string, cols: string[]): string {
+  const where = columnPhrase(cols);
+  switch (mode) {
+    // -- quantity: unchanged wording, because the qty rules are byte-identical to BCS-S1c --
+    case "qty_total":
+      return `Total Quantity comes from ${where}.`;
+    case "qty_by_area":
+      return `Total Quantity = column ${cols.join(" + column ")}, added up.`;
+
+    // -- amount: the eight, in the same order as sources._AMOUNT_MODES --
+    case "amount_total":
+      return `% Profit is measured against the combined Amount in ${where}.`;
+    case "amount_supply_plus_install":
+      return (
+        `This sheet has no combined Amount column, so % Profit is measured against the Supply ` +
+        `amount plus the Installation amount (${where}), added together.`
+      );
+    case "amount_supply_only":
+      return (
+        `This sheet has no combined Amount column, so % Profit is measured against the Supply ` +
+        `amount alone (${where}). Installation is not included.`
+      );
+    case "amount_install_only":
+      return (
+        `This sheet has no combined Amount column, so % Profit is measured against the ` +
+        `Installation amount alone (${where}). Supply is not included.`
+      );
+    case "amount_by_area":
+      return (
+        `This sheet splits its combined Amount across areas, so % Profit is measured against ` +
+        `${where}, added together.`
+      );
+    case "amount_by_area_supply_plus_install":
+      return (
+        `This sheet has no combined Amount column and splits its amounts across areas, so ` +
+        `% Profit is measured against the Supply and Installation amounts in ${where}, all ` +
+        `added together.`
+      );
+    case "amount_by_area_supply_only":
+      return (
+        `This sheet has no combined Amount column and splits its amounts across areas, so ` +
+        `% Profit is measured against the Supply amounts in ${where}, added together. ` +
+        `Installation is not included.`
+      );
+    case "amount_by_area_install_only":
+      return (
+        `This sheet has no combined Amount column and splits its amounts across areas, so ` +
+        `% Profit is measured against the Installation amounts in ${where}, added together. ` +
+        `Supply is not included.`
+      );
+
+    // An UNRECOGNISED mode is an explicit unsupported state, never a silent blank and never a
+    // guess -- the same forward-compat honesty `ratePipelineInterpreter` gives an unknown step
+    // type. If the server grows a ninth mode before this file does, the card says so rather
+    // than describing a formula that is not the one in force.
+    default:
+      return (
+        `This sheet's Amount setup uses a mode this screen does not recognise ("${mode}"), so ` +
+        `the formula in force cannot be stated here. Ask the team before relying on % Profit.`
+      );
   }
-> = {
+}
+
+/**
+ * The formula in force for an ALREADY-STORED confirmation, read from its OWN `mode`.
+ *
+ * ⚠️ NEVER RECOMPUTE THE MODE FROM THE COLUMN LIST. The server decided it and will compute from
+ * it; a client that re-derives can disagree with the record after any rule change, and would then
+ * disclose a formula that is not the one in force -- the precise failure the disclosure exists to
+ * prevent. Read `source.mode`; pass it through. "" when there is nothing stored, so a caller
+ * renders nothing rather than a half-truth.
+ */
+export function bcsStoredSummary(source: BcsSource | null | undefined): string {
+  if (!source || !source.mode) return "";
+  return bcsSummaryForMode(source.mode, bcsSourceCols(source));
+}
+
+/**
+ * Per-side wording for the REFUSALS. The CONDITIONS are the server's; only these strings are ours.
+ *
+ * The amount side gained `mixedKinds` at BCS-S2c and lost its half-blaming class message. The
+ * shape message (`mixedShapes`) mirrors the server's BCS-S2c reword: it no longer says "Adding a
+ * total to its own parts", which the widening made false for the half-vs-half mixes that can now
+ * reach it -- there is no total in those picks, and blaming one sends the user hunting for a
+ * column they never chose.
+ */
+interface SideWords {
+  empty: string;
+  wrongClass: (cols: string) => string;
+  mixedShapes: string;
+  tooMany: string;
+}
+
+const SIDE_WORDS: Record<BcsSide, SideWords> = {
   qty: {
     empty:
       "Pick the sheet's Total Quantity column, or the per-area quantity columns that add up to it.",
     wrongClass: (cols) => `Column ${cols} doesn't hold a quantity on this sheet.`,
-    mixed:
+    mixedShapes:
       "Pick either the Total Quantity column or the per-area quantity columns — not both. " +
       "Adding a total to its own parts would count every quantity twice.",
     tooMany: "A sheet has one Total Quantity column. Pick one.",
-    scalarMode: "qty_total",
-    areaMode: "qty_by_area",
-    scalarSummary: (col) => `Total Quantity comes from column ${col}.`,
-    areaSummary: (cols) => `Total Quantity = column ${cols.join(" + column ")}, added up.`,
   },
   amount: {
     empty:
-      "Pick the sheet's Amount (Combined) column, or the per-area Amount columns that add up to it.",
+      "Pick the sheet's Amount column, the per-area Amount columns that add up to it, or its " +
+      "Supply and Installation amounts.",
     wrongClass: (cols) =>
-      `Column ${cols} isn't a combined Amount column. BCS compares what a row costs us against ` +
-      `the amount charged to the client, so it needs the combined Amount — not a rate, and not ` +
-      `the supply or install half of an amount.`,
-    mixed:
-      "Pick either the combined Amount column or the per-area Amount columns — not both. " +
-      "Adding a total to its own parts would count every amount twice.",
-    tooMany: "A sheet has one combined Amount column. Pick one.",
-    scalarMode: "amount_total",
-    areaMode: "amount_by_area",
-    scalarSummary: (col) => `Amount comes from column ${col}.`,
-    areaSummary: (cols) => `Amount = column ${cols.join(" + column ")}, added up.`,
+      `Column ${cols} isn't an Amount column on this sheet. BCS compares what a row costs us ` +
+      `against the amount charged to the client, so it needs an Amount column — not a rate, and ` +
+      `not a quantity.`,
+    mixedShapes:
+      "Pick Amount columns of one shape — either the scalar Amount column(s) or the per-area " +
+      "Amount columns, not a mix of the two. A scalar column holds the row's whole figure while " +
+      "the per-area columns split a figure across areas, so mixing them either counts the same " +
+      "amount twice or combines two figures BCS has no rule for adding together.",
+    tooMany:
+      "Pick each scalar Amount column once — one combined Amount, or one Supply and one " +
+      "Installation amount.",
   },
 };
+
+/**
+ * THE EIGHT ACCEPTED AMOUNT SHAPES, and the `mode` each stores -- the client twin of
+ * `sources._AMOUNT_MODES`.
+ *
+ * A TABLE, not a string built by concatenation, for the same reason the server keeps one: the
+ * accepted set has to be ENUMERABLE at a glance, and a combination nobody ruled on must be
+ * impossible to express rather than quietly producing a plausible-looking mode string.
+ *
+ * The key mirrors Python's `frozenset` by SORTING the kinds, so the order the user clicked the
+ * columns in cannot change the mode.
+ */
+const AMOUNT_MODES: Record<string, BcsMode> = {
+  "scalar|total": "amount_total",
+  "scalar|install,supply": "amount_supply_plus_install",
+  "scalar|supply": "amount_supply_only",
+  "scalar|install": "amount_install_only",
+  "area|total": "amount_by_area",
+  "area|install,supply": "amount_by_area_supply_plus_install",
+  "area|supply": "amount_by_area_supply_only",
+  "area|install": "amount_by_area_install_only",
+};
+
+function amountModeKey(shape: BcsAmountShape, kinds: Set<BcsAmountKind>): string {
+  return `${shape}|${[...kinds].sort().join(",")}`;
+}
+
+/** The KIND refusal -- the ONE piece of the half-refusal that survived the S2b reversal. */
+const MIXED_KINDS_MESSAGE =
+  "Pick either the sheet's combined Amount column(s) or its Supply and Installation amounts — " +
+  "not both. The combined Amount already includes the supply and installation halves, so adding " +
+  "one to it would count that half twice.";
 
 /**
  * Validate one side's picks against the sheet's REAL descriptors, or say why not.
@@ -171,13 +379,23 @@ const SIDE_WORDS: Record<
  *        c. two DIFFERENT columns that resolve to the same value (BCS-S1c: the role map
  *           imposes no uniqueness on (role, area), so one number really can sit on two letters)
  *   3. a mapped column of the wrong class for this side
- *   4. a scalar total MIXED with its own per-area parts
- *   5. more than one scalar total
+ *   then the per-side tail, because the two sides diverge from here (BCS-S2c):
+ *     QUANTITY  4. a scalar total MIXED with its own per-area parts
+ *               5. more than one scalar total
+ *     AMOUNT    4. a TOTAL picked together with a half        <- KIND, checked FIRST
+ *               5. scalar amounts mixed with per-area ones    <- SHAPE
+ *               6. more than one scalar amount of a kind
  *
- * Rule 5 is UNREACHABLE, on the client exactly as on the server: two scalar totals of one role
- * necessarily share a resolved identity, so rule 2c fires first and SHADOWS it. It is RETAINED,
- * not deleted -- it is the correctly voiced refusal should that key ever narrow, and the
- * shadowing itself is pinned by a test so the two layers cannot drift apart.
+ * ON THE AMOUNT SIDE, KIND IS CHECKED BEFORE SHAPE, and that is not cosmetic. ["F","I"] (a scalar
+ * total beside a per-area supply half) violates BOTH; the server answers "the combined Amount
+ * already includes the halves", so this must too. The same rules in a different order give a
+ * different complaint for the same input, which a user does not experience as a wording nit -- it
+ * reads as the screen and the server disagreeing about their sheet.
+ *
+ * The last rule of each tail is UNREACHABLE, on the client exactly as on the server: two scalar
+ * columns of one kind necessarily share a resolved identity, so rule 2c fires first and SHADOWS
+ * it. RETAINED, not deleted -- it is the correctly voiced refusal should that key ever narrow,
+ * and the shadowing itself is pinned by a test so the two layers cannot drift apart.
  */
 export function validateBcsPicks(
   side: BcsSide,
@@ -254,32 +472,82 @@ export function validateBcsPicks(
     };
   }
 
-  // 3. the wrong class for this side.
+  // 3. the wrong class for this side. Widening the KIND axis did NOT widen this: a rate or a
+  // quantity column is still not an amount, however the rest of the pick is shaped.
   const test = side === "qty" ? isBcsQtyColumn : isBcsAmountColumn;
   const bad = picked.filter((d) => !test(d));
   if (bad.length > 0) {
     return { ok: false, message: words.wrongClass(bad.map((d) => d.col).join(", ")) };
   }
 
+  // From here the two sides diverge -- see the docblock's per-side tails.
+  return side === "qty" ? qtyTail(picked, words) : amountTail(picked, words);
+}
+
+/** Mirrors the tail of `sources.build_qty_source`. BYTE-UNCHANGED by BCS-S2c. */
+function qtyTail(picked: ColumnDescriptor[], words: SideWords): BcsSideValidation {
   // 4. a scalar total mixed with its own per-area parts.
   const fields = new Set(picked.map((d) => d.value_field));
-  if (fields.size > 1) return { ok: false, message: words.mixed };
+  if (fields.size > 1) return { ok: false, message: words.mixedShapes };
 
   // 5. more than one scalar total (shadowed by 2c -- see the docblock).
-  const isScalar = fields.has(side === "qty" ? QTY_SCALAR_VALUE_FIELD : AMOUNT_SCALAR_VALUE_FIELD);
-  if (isScalar) {
+  if (fields.has(QTY_SCALAR_VALUE_FIELD)) {
     if (picked.length !== 1) return { ok: false, message: words.tooMany };
+    return { ok: true, mode: "qty_total", summary: bcsSummaryForMode("qty_total", [picked[0].col]) };
+  }
+  const cols = picked.map((d) => d.col);
+  return { ok: true, mode: "qty_by_area", summary: bcsSummaryForMode("qty_by_area", cols) };
+}
+
+/**
+ * Mirrors the tail of `sources.build_amount_source`, WIDENED at BCS-S2b along the KIND axis.
+ *
+ * Every pick here has already passed the class check, so each one has axes. The rules compare
+ * those axes ACROSS the picked set -- a half is judged by what it sits beside, never on its own.
+ */
+function amountTail(picked: ColumnDescriptor[], words: SideWords): BcsSideValidation {
+  const axes = picked.map((d) => bcsAmountAxes(d)!);
+  const shapes = new Set(axes.map((a) => a.shape));
+  const kinds = new Set(axes.map((a) => a.kind));
+  const cols = picked.map((d) => d.col);
+
+  // 4. the KIND axis: a TOTAL already CONTAINS its halves. THE ONE PIECE OF THE HALF-REFUSAL
+  // THAT SURVIVED THE REVERSAL -- a lone half is perfectly acceptable now; a half sitting beside
+  // the total that already includes it is a double-count, exactly like a total beside its own
+  // per-area parts. Checked BEFORE the shape rule, mirroring the server.
+  if (kinds.has("total") && kinds.size > 1) {
+    return { ok: false, message: MIXED_KINDS_MESSAGE };
+  }
+
+  // 5. the SHAPE axis. Deliberately NOT widened: no owner ruling covers a sheet that genuinely
+  // splits one kind scalar and the other per area, so that stays refused rather than guessed at.
+  // A RULING, not a bug, if such a sheet turns up.
+  if (shapes.size > 1) return { ok: false, message: words.mixedShapes };
+
+  const shape = axes[0].shape;
+
+  // 6. RETAINED and UNREACHABLE by construction, the same disposition rule 5 has on the quantity
+  // side. On the scalar shape a column's kind IS its value_field, so two picks of one kind
+  // necessarily share a resolved identity and rule 2c has already refused them. Note what this is
+  // NOT: the pre-S2b "a sheet has exactly one Amount column" rule, which the widening made simply
+  // FALSE -- a scalar sheet legitimately contributes TWO columns now, its supply and its install.
+  if (shape === "scalar" && picked.length !== kinds.size) {
+    return { ok: false, message: words.tooMany };
+  }
+
+  // Looked up, NOT built by concatenation: every (shape, kinds) pair the guards above permit is
+  // in the table, so a miss can only mean a new amount KIND arrived without anyone deciding what
+  // formula it stores. That must fail visibly rather than mint a plausible-looking mode string.
+  const mode = AMOUNT_MODES[amountModeKey(shape, kinds)];
+  if (!mode) {
     return {
-      ok: true,
-      mode: words.scalarMode,
-      summary: words.scalarSummary(picked[0].col),
+      ok: false,
+      message:
+        `This combination of Amount columns (${columnPhrase(cols)}) is not one BCS has a rule ` +
+        `for. Pick the combined Amount, or the Supply and Installation amounts, in one shape.`,
     };
   }
-  return {
-    ok: true,
-    mode: words.areaMode,
-    summary: words.areaSummary(picked.map((d) => d.col)),
-  };
+  return { ok: true, mode, summary: bcsSummaryForMode(mode, cols) };
 }
 
 /** The Save gate: BOTH sides must be valid, because the server stores them together or not at all. */

@@ -1706,7 +1706,7 @@ export interface EngineCatalog {
 
 // ── BCS-S2: the BCS cost section's two-column confirmation ───────────────────────
 // BCS records what a row costs US against what we charge the CLIENT, so it needs two numbers
-// off the committed sheet -- the row's Total Quantity and its Amount (Combined). Neither is a
+// off the committed sheet -- the row's Total Quantity and the Amount charged. Neither is a
 // fixed column across BoQs, so a human CONFIRMS which columns hold them, once per sheet+version.
 // The RULES about what may be picked live on the server (services/boq_bcs/sources.py) and are
 // mirrored for the card by the pure `bcsColumns.ts`; these are only the wire shapes.
@@ -1730,8 +1730,22 @@ export interface BcsColumnEntry {
 
 /**
  * One side's stored confirmation: WHICH shape the sheet expresses the number in, plus the
- * entries. `mode` is "qty_total" / "qty_by_area" for quantity and "amount_total" /
- * "amount_by_area" for the amount; a per-area mode means the entries' values are SUMMED.
+ * entries. A per-area mode means the entries' values are SUMMED.
+ *
+ * TEN MODES since BCS-S2b widened the amount rules (this comment corrected at BCS-S2c, which
+ * had named only the two original amount modes):
+ *
+ *   quantity  qty_total | qty_by_area
+ *   amount    amount_total | amount_supply_plus_install | amount_supply_only |
+ *             amount_install_only | amount_by_area | amount_by_area_supply_plus_install |
+ *             amount_by_area_supply_only | amount_by_area_install_only
+ *
+ * `mode` stays a plain `string` here ON PURPOSE, even though `bcsColumns.BcsMode` enumerates
+ * the ten. This is the WIRE shape, and the wire can carry a mode this build has never heard of
+ * -- a server that gains a ninth amount mode ships before the browser does. Typing it as the
+ * union would let a reader assume an exhaustive `switch` is safe when it is not.
+ * `bcsSummaryForMode` handles the unknown case explicitly rather than silently. Narrow AT the
+ * reader, never at the wire.
  */
 export interface BcsSource {
   mode: string;

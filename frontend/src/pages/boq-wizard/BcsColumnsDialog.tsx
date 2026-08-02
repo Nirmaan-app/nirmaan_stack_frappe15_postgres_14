@@ -3,7 +3,7 @@
  *
  * BCS records what a row costs US against what we charge the CLIENT. To compute a Total Amount
  * and a % Profit it needs two numbers off the committed sheet -- the row's Total Quantity and
- * its Amount (Combined) -- and neither sits on a fixed column across BoQs. This card is where a
+ * the Amount charged -- and neither sits on a fixed column across BoQs. This card is where a
  * human says which columns hold them, once per sheet+version.
  *
  * MULTI-PICK IS LOAD-BEARING. Each side is potentially multi-select: a sheet split per area
@@ -11,6 +11,17 @@
  * pick, and a scalar must NEVER be mixed with its own per-area parts -- that would count every
  * value twice. The server refuses the mix; this card surfaces the refusal in the validity line
  * rather than letting the user attempt it.
+ *
+ * THE AMOUNT SIDE ACCEPTS THE SUPPLY / INSTALLATION HALVES (BCS-S2b on the server, mirrored here
+ * at BCS-S2c, owner ruling 2026-08-02). Most real sheets have no single "Amount (Total)" column,
+ * so the earlier card -- which offered only combined Amounts -- showed an EMPTY Amount list on
+ * most of them and could not be used at all. A sheet carrying only ONE half is accepted too.
+ *
+ * WHICH MAKES THE VALIDITY LINE THE SAFETY, NOT DECORATION. "Adapt and disclose, never refuse":
+ * because a one-sided sheet is now accepted, the line under each side STATES THE FORMULA IN
+ * FORCE ("% Profit is measured against the Supply amount alone (column G). Installation is not
+ * included."). A sheet measured against half its amount otherwise looks exactly like one
+ * measured against all of it. Never demote that line to a hint, and never truncate it.
  *
  * THIS COMPONENT HOLDS NO RULES. Eligibility, labelling and validity all come from the pure
  * `bcsColumns.ts`, which mirrors `services/boq_bcs/sources.py` condition-for-condition and in the
@@ -43,6 +54,7 @@ import {
   bcsColumnLabel,
   bcsSelectionSaveable,
   bcsSourceCols,
+  bcsStoredSummary,
   buildBcsDescriptorIndex,
   eligibleBcsColumns,
   validateBcsPicks,
@@ -74,6 +86,7 @@ function SideSection({
   picks,
   onToggle,
   validity,
+  storedSummary,
   disabled,
 }: {
   side: BcsSide;
@@ -83,8 +96,15 @@ function SideSection({
   picks: string[];
   onToggle: (col: string) => void;
   validity: ReturnType<typeof validateBcsPicks>;
+  /** The formula CURRENTLY saved, read from the stored mode. "" when nothing is stored. */
+  storedSummary: string;
   disabled: boolean;
 }) {
+  // Show what is saved only when it differs from what is about to be saved -- otherwise the two
+  // lines are the same sentence twice. When they differ, the user is replacing one formula with
+  // another and ought to see both.
+  const liveSummary = validity.ok ? validity.summary : "";
+  const showStored = storedSummary !== "" && storedSummary !== liveSummary;
   return (
     <div className="space-y-2">
       <div>
@@ -96,8 +116,8 @@ function SideSection({
         // An honest dead end: the sheet maps nothing this side can use. Saying so beats an
         // empty box the user will read as a loading state.
         <p className="text-xs text-destructive">
-          This sheet has no {side === "qty" ? "quantity" : "combined Amount"} column mapped, so
-          BCS cannot read {side === "qty" ? "a quantity" : "an amount"} from it.
+          This sheet has no {side === "qty" ? "quantity" : "Amount"} column mapped, so BCS cannot
+          read {side === "qty" ? "a quantity" : "an amount"} from it.
         </p>
       ) : (
         <div className="flex flex-wrap gap-1.5">
@@ -126,11 +146,24 @@ function SideSection({
         </div>
       )}
 
-      {/* The plain-English validity line. It is the CARD's voice for the server's refusal set,
-          so the user never gets as far as a thrown error for something knowable here. */}
+      {/* THE DISCLOSURE LINE. Two jobs in one place: when the pick is invalid it is the CARD's
+          voice for the server's refusal set, so the user never gets as far as a thrown error for
+          something knowable here; when the pick is VALID it states the formula that will actually
+          be in force. The second job is the owner's safety mechanism for accepting one-sided
+          sheets -- see the module docblock. */}
       <p className={cn("text-xs", validity.ok ? "text-muted-foreground" : "text-destructive")}>
         {validity.ok ? validity.summary : validity.message}
       </p>
+
+      {/* What is saved RIGHT NOW, read from the stored confirmation's own mode -- never
+          recomputed from its columns, because the server decided that mode and will compute
+          from it. Shown only while the selection would change it, so replacing one formula with
+          another is a visible act rather than a silent one. */}
+      {showStored && (
+        <p className="text-xs text-muted-foreground">
+          <span className="font-medium">Currently saved:</span> {storedSummary}
+        </p>
+      )}
     </div>
   );
 }
@@ -170,6 +203,11 @@ export function BcsColumnsDialog({
 
   const qtyValidity = validateBcsPicks("qty", qtyPicks, index);
   const amountValidity = validateBcsPicks("amount", amountPicks, index);
+  // The formula CURRENTLY in force, taken from each stored confirmation's own `mode`. Never
+  // re-derived from its columns: the server decided that mode and BCS-S3 will compute from it,
+  // so a client that recomputed could quietly disclose a formula that is not the one running.
+  const qtyStoredSummary = bcsStoredSummary(qtySource);
+  const amountStoredSummary = bcsStoredSummary(amountSource);
   const busy = saving || disabling;
   const canSave = !busy && bcsSelectionSaveable(qtyValidity, amountValidity);
 
@@ -226,16 +264,18 @@ export function BcsColumnsDialog({
             picks={qtyPicks}
             onToggle={(col) => toggle("qty", col)}
             validity={qtyValidity}
+            storedSummary={qtyStoredSummary}
             disabled={busy}
           />
           <SideSection
             side="amount"
-            heading="Amount (Combined)"
-            hint="What we charge the client — the combined Amount, not a rate and not the supply or install half."
+            heading="Amount charged to the client"
+            hint="The sheet's combined Amount, the per-area Amount columns that add up to it, or its Supply and Installation amounts."
             columns={amountColumns}
             picks={amountPicks}
             onToggle={(col) => toggle("amount", col)}
             validity={amountValidity}
+            storedSummary={amountStoredSummary}
             disabled={busy}
           />
         </div>
