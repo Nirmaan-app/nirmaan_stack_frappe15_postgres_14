@@ -586,6 +586,34 @@ invariants:
   `get_suggest_status` / `get_active_suggestion_run` / `record_rate_suggestion_event` /
   `get_suggestion_events`, gated by the shared D8 chain (not locked + formulas complete + category gate,
   REUSING the `pricing.py` predicates). Marker + terminal payload live in Redis keyed by (boq, sheet_name).
+- **SR-1 run resilience (owner-locked, MIGRATE-carrying; full as-built in `.claude/context/domain/boq-backend.md`):**
+  a run is NO LONGER all-or-nothing. **The run doc IS the partial store** (never Redis — its TTL is the wrong
+  lifetime): created up front at `status=running`/`active=0` and updated per completed batch via a
+  `checkpoint_cb` that mirrors the existing `progress_cb` injection (the service layer still performs NO
+  `frappe.db` writes). Three fields: `status` (`running|partial|complete|failed`, **`default: "complete"`** so
+  pre-SR-1 rows backfill on migrate and never retroactively lock Use), `attempted_rows` (the per-row
+  done-marker), `halt_reason`. **`ai_status` is NOT widened** — it keeps its own `ran|disabled|no_key`
+  vocabulary, which the doctype and frontend treat as a contract. **`attempted_rows` is load-bearing:** a blank
+  row is byte-identical whether never-asked, asked-and-null, or fail-closed, so the marker is explicit and is
+  set **only AFTER a batch returns** — a FAILED batch's rows are never marked and stay pending. **R-SUPERSEDE:**
+  a partial NEVER supersedes a prior COMPLETE run; `active` flips to 1 ONLY at `complete` (so
+  `get_active_suggestion_run` also returns the newest resumable partial under a separate additive `partial_run`
+  key). **R-RESUME-SAME-RUN:** a resume completes the SAME doc/`run_id`, never a second; it re-checks the D8
+  gate AND the committed-version keying. **R-USE-GATE:** "Use this value" requires `status=complete`. Writes use
+  `set_value(update_modified=False)`, never `doc.save` — this doctype is `track_changes:0` (no audit to bypass)
+  AND its list-valued JSON hits the documented `doc.save()`/`delete_doc` wall. **`ExtractionHalted` splits
+  terminal from transient — and the DEFAULT DIRECTION IS LOAD-BEARING: an UNRECOGNISED error must keep the
+  pre-SR-1 retry behaviour** (a positive-terminal test, adopting `boq_ai_assist._TRANSIENT_MARKERS` for the
+  transient signals). Classifying unrecognised errors as terminal turned a truncated reply into an instant halt
+  — worse than the behaviour replaced; caught by the browser cert, not by the tests. A graceful halt still
+  `log_error`s the provider's own words, so handling it never makes the cause unknowable.
+- **`_extract_json_array` is STRICTLY MORE PERMISSIVE (SR-1):** it takes the FIRST BALANCED array span
+  (string-aware) and ignores trailing data, fixing the production `Extra data: line 1 column 845`. It never
+  rejects a previously-accepted shape (prose-wrapped array, element order, HV-2 bare object), and still RAISES
+  on genuine garbage and on a TRUNCATED array (which must NOT degrade to its first element). **Shared by three
+  production consumers BY DESIGN** — the classifier voter (def site), the certified harness (by import
+  identity), rate extraction. ⚠️ The same-named function at `services/boq_ai_assist.py:431` returns a `str` and
+  is a DIFFERENT function — do not confuse them.
 - **Extraction prompt rulings (owner, `prompts/boq_rate_attr_extraction_prompt.md`):** tolerate spelling
   variants (map to the canonical value), and — for an ARMOURED/UNARMOURED insulation attribute — a FLEXIBLE
   cable is UNARMOURED, and insulation DEFAULTS to UNARMOURED when neither armoured nor unarmoured is stated.

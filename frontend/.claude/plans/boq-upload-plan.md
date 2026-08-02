@@ -15897,3 +15897,93 @@ all-or-nothing". SR-1 Part 2 addresses those directly.
 
 **Files:** `nirmaan_stack/api/boq/wizard/test_classify.py`, `nirmaan_stack/api/boq/wizard/test_row_category.py`
 (+ the root `CLAUDE.md` Testing Conventions rule). No production code touched.
+
+---
+
+## Build slice SR-1 (suggest-run resilience: checkpointing + resume + halt classification + tolerant parse) COMPLETE
+
+**What shipped.** A suggest run is no longer all-or-nothing. The `BoQ Rate Suggestion Run` doc is created up
+front at `status=running` / `active=0` and updated after EVERY completed batch, so a halt keeps everything
+extracted so far and the run is resumable. Full backend as-built (fields, invariants, the terminal/transient
+contract, the parser contract, the test map): `.claude/context/domain/boq-backend.md`, section
+"SR-1 -- suggest-run resilience".
+
+**Why:** EA-4d's own cert recorded both production failures this fixes -- `BOQ-26-00106` / `BOQ-26-00113` hit
+the Anthropic usage limit and an `_extract_json_array` `Extra data` parse failure, "and the run is
+all-or-nothing". The Error Log of 2026-07-31 holds both tracebacks at the pre-SR-1 line numbers.
+
+**Owner rulings implemented:** R-SUPERSEDE (a partial never supersedes a prior complete run; `active` flips
+only at `complete`), R-RESUME-SAME-RUN (the resume completes the SAME doc/`run_id`, never a second),
+R-USE-GATE ("Use this value" requires `status=complete`).
+
+**MIGRATE-CARRYING.** Three new fields (`status`, `attempted_rows`, `halt_reason`). Migrate clean; all 8
+pre-existing runs backfilled to `status=complete` via the column default, so no old run retroactively locks
+Use. No `patches.txt` line -- deliberately, it was out of scope and the default made one unnecessary.
+
+### The lesson of this slice: the cert caught what the tests could not
+
+The first terminal/transient split classified UNRECOGNISED errors as terminal. A truncated AI reply raises
+`ValueError` from the new parser -- unrecognised -- so it fast-failed instantly where pre-SR-1 it retried 3x.
+**That is worse than the behaviour being replaced**, and the halt text blamed the provider for a local parse
+failure. The unit tests missed it because they only ever raised errors with explicitly terminal or explicitly
+transient text.
+
+It was visible only because a second gap had already been closed: handling the halt gracefully had removed the
+only record of WHY, so a `frappe.log_error` on halt was added carrying the provider's own words. That log
+produced `detail=ValueError('truncated (unbalanced) JSON array in AI response')` on real data.
+
+Fix: a POSITIVE-terminal test; anything unrecognised keeps the pre-SR-1 retry behaviour. Pinned by `test_19`
+and `test_20`. **Standing lesson: when adding a fast-fail classifier, the DEFAULT for unrecognised inputs must
+be the OLD behaviour, never the new one.**
+
+### Cert (browser + real AI, `BOQ-26-00106 / ELECTRICAL BOQ`)
+
+De-staled in order (storage + caches cleared, 1 service worker unregistered, tab closed, new tab, bare root
+first, then the deep route). **Bundle marker confirmed on screen before judging anything:**
+`data-testid="sr1-partial-run-strip"`, an element that exists only in the new code.
+
+- **S1 migrate** -- clean; 8/8 runs backfilled to `complete`.
+- **S2 checkpoint + partial** -- watched land live on real data: `attempted 109 -> 129 -> 133 -> 155`,
+  `results 69 -> 89 -> 93 -> 115`, incrementally, while `status='running'`. Pre-SR-1 nothing existed until the
+  end. Partial saved with a clear halt reason; `active=0`.
+- **S3 resume** -- clicking **Resume run** re-invoked the SAME `run_id` on only the pending rows. The partial
+  strip SURVIVES a full page reload (the point of persisting on the run doc rather than Redis).
+- **S4 usage-limit fast-fail** -- `test_15` (2 calls, no sleep); `test_16` negative control (529 -> 4 calls,
+  3 sleeps, byte-identical).
+- **S5 tolerant parser** -- trailing-data replies parse (with a non-vacuity test asserting the OLD slice raised
+  on the same input); truncated + garbage still raise; harness identity pin green; `test_classify` 77 pass.
+- **S6 browser** -- R-SUPERSEDE proven live via the API: `run` = the complete run (144 rows), `partial_run` =
+  the 155-attempted partial, returned separately. **Two sub-items dispositioned by the owner (2026-08-02):**
+  a real run to `status=complete` is **WAIVED** (the truncating batch is proven pre-existing -- same sheet, same
+  failure, Error Log 2026-07-31 -- and becomes SR-2; batch size and `_AI_MAX_TOKENS` deliberately untouched);
+  **Use + undo rupee-verified is ACCEPTED AS MET IN SUBSTANCE** (SR-1 gates an untouched write path and both
+  sides of the gate are verified).
+- **S7** -- suites/tsc/build green.
+
+**Cert data:** synthetic only; zero residual verified (synthetic run deleted, 8 total runs = the original
+count, the original active run restored, no Use events created). `BOQ-26-00114` never touched.
+
+### `attempted_count` display -- KNOWN DEFECT, carried to SR-2
+
+The cert modal read "155 of 144 rows". Settled read-only as **BENIGN, display-only**: the cert's SYNTHETIC
+partial seeded `attempted_rows = range(1, 41)` while the sheet's population is 144 rows starting at
+`excel_row 59` (`population rows <= 40` is EMPTY), so all 40 seeded entries sit outside the population --
+that is the constant `attempted - results == 40`, and `155 = 40 + 115`. No duplicates exist (`acc_attempted`
+is a set; the write is a full REPLACE, not an append). **In production the display cannot occur**, because
+`attempted` only ever receives population rows. Resume is a SET DIFFERENCE on row identity and completeness is
+`not (population - attempted)`, so out-of-population entries can never skip a row or make a run read complete.
+SR-2 hardening: intersect with the population before display.
+
+### Counts
+
+`test_rate_suggest` 12 -> **20**; `test_hv2_voter_harness` 14 -> **29**. Unchanged: `test_rate_master` **32**
+(bench-verified; supersedes the 30 previously carried), `test_pricing` 230, `test_classify` 77,
+`test_row_category` 29, vitest **1229** / 53 files, tsc 0 errors in the 3 touched files, `yarn build` exit 0.
+
+**Declared gap:** `deriveSuggestModalPhase`'s new "partial" branch has no vitest pin -- that needs a NEW test
+file, outside the slice's exclusive FILES IN SCOPE. Recommended follow-up.
+
+**Files:** `boq_rate_suggestion_run.json`, `api/boq/rate_master.py`, `services/boq_rate_master/extraction.py`,
+`services/boq_category/ai_voter.py`, `api/boq/test_rate_suggest.py`,
+`services/boq_category/tests/test_hv2_voter_harness.py`, `SheetPricingPage.tsx`,
+`RateSuggestProgressModal.tsx`.
