@@ -16657,3 +16657,206 @@ JSON changed.
   and a fix belongs in `pricing_lock` with its own slice. Qualified in §5 rather than quietly inherited.
 - **No live browser E2E.** This slice is backend-only with no rendering surface; the bench suites are
   the whole of the observable behaviour.
+
+## BCS-S1b — harden the pure service layer before any UI lands on it
+
+**Branch** `feature/bcs-columns` · **Base** `36013170` · **Tier** FULL · **Date** 2026-08-02
+
+BCS-S1a passed Checklist B with caveats. Its review found one gap that is **unreachable today and
+load-bearing tomorrow**: `_resolve_picks` de-duplicated nothing, so a pick of `["F","F"]` stored two
+identical entries and any later sum double-counts the row. Nothing can reach it — no column picker
+exists yet — and S2 ships one. This slice closes it while nothing leans on it, adds the pure unit
+suite the module never had, registers the module with the B1 purity check, and records a doctype
+description drift as debt.
+
+**No migration. No doctype JSON. No frontend file. `api/boq/wizard/bcs.py` untouched** — the refusal
+belongs in the pure module, not the endpoint. Two commits: `cdc55d2d` (the refusal + tests),
+`798665ee` (the residence registration).
+
+---
+
+### 1. The sixth refusal — a duplicate column pick
+
+`services/boq_bcs/sources.py` `_resolve_picks` appended one descriptor per picked letter with no
+de-duplication. Treated as a **missing SIXTH member of an existing family of five**, not a new idea:
+same `frappe.throw` shape, same named title, same voice. The existing family, for reference —
+
+| # | Refusal | Title | Home |
+|---|---|---|---|
+| 1 | column not on the sheet | `Unknown column` | `_resolve_picks` (shared) |
+| 2 | empty selection | `No quantity/amount column picked` | each builder |
+| 3 | mapped column of the wrong class | `Not a quantity column` / `Not the Amount (Combined) column` | each builder |
+| 4 | scalar total mixed with its own per-area parts | `Mixed quantity/amount sources` | each builder |
+| 5 | more than one scalar total | `Too many total-quantity/amount columns` | each builder |
+| **6** | **same column picked twice** | **`Duplicate column`** | **`_resolve_picks` (shared)** |
+
+Three decisions inside it, none of which the prompt settled:
+
+- **It lives in the SHARED `_resolve_picks`, so both the quantity and the amount path are covered by
+  construction** rather than by two copies that could drift. The review found neither branch checked;
+  one implementation answers both. This is also why the message is source-neutral ("would count its
+  value twice") — exactly like refusal #1, the other shared one.
+- **It sits AFTER the resolve loop, not before it.** `["Z","Z"]` on a sheet with no Z therefore still
+  reports *unknown column* — the more fundamental fact about that pick — rather than *duplicate*. The
+  consequence that matters: **every input that threw before this slice throws identically.** Pinned by
+  `test_an_unknown_column_beats_a_duplicate`.
+- **Only the PER-AREA shape was ever a hole.** A repeated *scalar* pick already fell foul of the
+  one-scalar-column rule (#5), so it was refused **by accident of a rule aimed at something else**. It
+  is now refused for the reason that is actually true of it, which changes that input's *message*
+  (`Too many total-quantity columns` → `Duplicate column`) but not its outcome. No test asserted the
+  old message; the new one is strictly more accurate. Pinned by
+  `test_a_repeated_scalar_column_is_refused_on_purpose_now`.
+
+Emitted text, verified live rather than assumed:
+
+```
+Column(s) D are picked more than once. Pick each column once -- repeating one would count its value twice.
+Column(s) D, E are picked more than once. ...          # each repeat named once, however many times it appears
+```
+
+Both builders' public `Refuses:` docstring lists were updated — that list *is* the interface.
+
+### 2. Real unit tests for the pure module — `services/boq_bcs/test_sources.py` (NEW, 29 tests)
+
+The module had **no unit test file at all**; its behaviour was covered only *through the endpoints* —
+which is the roundabout coverage S1a's relocation existed to move away from. Covering it only
+end-to-end left the relocation half-done: the rules lived in a pure module but were still specified by
+a test needing a site, a project and three seeded sheets to say *"a rate column is not an amount
+column"*. Shape follows `services/test_procurement_approval.py` and
+`services/boq_revision/test_column_diff.py` (plain `unittest.TestCase`, module-level fixtures, no
+`FrappeTestCase`) — the closest structural matches, not a new shape.
+
+Tested at the module's own seam: `(picked letters, descriptor index) -> confirmation dict`, both sides
+supplied literally. Groups: quantity shapes · amount shapes · the stored entry (incl. the
+`rate_subkey` **three-hop** resolve S1a added — the subtlest thing in the module, and invisible on
+every other shape) · shared refusals · quantity refusals · amount refusals. All six refusals covered
+on both sources.
+
+The descriptor fixtures are **not invented** — each mirrors exactly what
+`review_screen._build_column_descriptors` emits for that role (`_SINGLETON_ROLE_TO_FIELD`, the `qty`
+branch, the `_AMOUNT_ROLE_TO_KIND` branch), which is what `bcs._descriptor_index` feeds the module in
+production.
+
+**On purity, precisely.** The tests touch no `frappe.db`, need no fixture, no site data, no request
+context, and create/read no document. They do need `frappe.local` **bound**, because the module's one
+deliberate framework touch is `frappe.throw` (its own docstring records why: a refusal here is
+user-facing and named, so a bare `ValueError` would make every caller re-voice it). Bare
+`python -m unittest` raises `RuntimeError: object is not bound`; the bench runner supplies the binding,
+which is how **both** sibling pure suites are run — and how CI runs them
+(`bench --site test_site run-tests --app nirmaan_stack`). This is a property of the module's
+documented design, **not** a sign the relocation failed to achieve what it claimed.
+
+### 3. Registered with the B1 purity check — and it buys nothing today
+
+`scripts/residence_check.py` `PURE_MODULES` was a hand-list of exactly one unrelated file;
+`services/boq_bcs/sources.py` is added to it.
+
+⚠️ **State plainly, so no future reader mistakes a green B1 for evidence this module was checked: rule
+B1 is INERT.** `strip_strings_and_comments` returns `" ".join(kept)`, so `frappe.db` reaches the regex
+as `frappe . db` and the B1 pattern `frappe\.(db\b|get_all\(|get_doc\(|sql\()` **cannot match it in any
+file, however impure.** Verified rather than asserted — feeding the checker a source that calls both
+`frappe.db.get_value` and `frappe.get_all` yields `[]` on the stripped text and `['db', 'get_all(']`
+on the raw. The registration is correct-in-principle and starts covering this module the day the
+tokenizer is fixed.
+
+**The tokenizer bug was deliberately NOT fixed here.** It is repo-wide with real blast radius: it
+would silently change what a shared enforcement script reports for every module in the codebase. Its
+own slice. A warning block above `PURE_MODULES` now records all of this in the file itself.
+
+Registration changed no rule count: **b1 holds at 0**.
+
+### 4. Doctype description drift — recorded as debt, deliberately not edited
+
+`boq_sheet.json` was **not touched** — editing it forces a migration this slice must not carry.
+S1a's record presented "no doctype JSON changes" as pure virtue while this drift sat there; that
+framing is corrected here. The drift is **wider than the S1a review named** (it named the first
+three):
+
+| Field | Says | Truth since |
+|---|---|---|
+| `bcs_amount_source` | "which is the `amount_total` descriptor" | S1a — a per-area `amount_by_area` + `rate_subkey:"total"` is equally valid |
+| `bcs_amount_source` | "a single entry" | S1a — the per-area shape sums N entries |
+| both | shape `{col, role, area, value_field, value_key}` | S1a — omits **`rate_subkey`**, which a three-hop per-area amount *requires* |
+| `bcs_amount_source` | refusals: absent column, wrong class | S1a/S1b — omits the supply/install **HALF** guard, the mixed refusal, the two-scalars refusal, the duplicate refusal |
+| `bcs_qty_source` | refusals: absent column, mixed | S1b — omits the duplicate refusal and the two-scalars refusal |
+| `bcs_amount_source` | (silent on mode values) | S1a — `amount_total` / `amount_by_area` |
+
+**Named remedy:** whichever future slice next carries a migration on `BoQ Sheet` corrects these two
+`description` strings in the same diff. Nothing else about the fields changes; this is wording only.
+
+### 5. The owner's reasoning — the part that must survive
+
+**Why harden server-side at all, when S2's picker will only ever send distinct letters?** Owner,
+2026-08-02: *an unwritten "the UI will not send bad data" assumption is exactly the shape that breaks
+later.* The picker is one caller; the builders will acquire more (S6's carry among them), and a rule
+that lives in the module holds for all of them without anyone remembering.
+
+**Why now, ahead of the visible work?** The gap is unreachable today. That is precisely what makes
+this the cheap moment — there is no UI to re-test, no data to migrate, and no user to surprise. The
+same fix after S2 ships costs a coordination.
+
+**Why refuse rather than silently de-duplicate?** De-duplicating would accept a malformed pick and
+hide the client bug that produced it. A refusal is how the defect stays visible.
+
+### 6. Verification
+
+Run in-container (`bench --site localhost`), no live browser session — last session activity
+2026-07-31 22:51 against 2026-08-02 17:06, so the `tabSeries` naming-lock collision was not in play.
+
+| Suite | Command module | Baseline | Final |
+|---|---|---|---|
+| BCS endpoints | `nirmaan_stack.api.boq.wizard.test_bcs` | 48 | **49** OK |
+| **BCS pure rules (NEW)** | `nirmaan_stack.services.boq_bcs.test_sources` | — | **29** OK |
+| export write-back | `nirmaan_stack.api.boq.wizard.test_export_writeback` | 47 | 47 OK |
+| pricing | `nirmaan_stack.api.boq.wizard.test_pricing` | 252 | 252 OK |
+| commit pipeline | `nirmaan_stack.api.boq.wizard.test_commit_pipeline` | 57 | 57 OK |
+| review screen | `nirmaan_stack.api.boq.wizard.test_review_screen` | 260 | 260 OK |
+
+The new suite's invocation is the sibling precedents' own:
+`bench --site localhost run-tests --module nirmaan_stack.services.boq_bcs.test_sources`.
+
+**Red before green, shown.** The duplicate refusal was written test-first at BOTH levels and both runs
+failed on `AssertionError: ValidationError not raised` before `sources.py` was touched — pure
+(2 failures) and endpoint (1 failure, 49 tests). The remaining 27 pure tests are **characterization**
+tests of behaviour that already existed; they have **no red phase by construction**, and saying
+otherwise would be a fiction. Their value is that the rules are now specified at the seam that owns
+them.
+
+`python3 scripts/residence_check.py` → b1 **0/0 holding**, b2 8/8, b3 40/40, f5 116/116;
+**f2 208 vs baseline 207 — the PRE-EXISTING red** traced to `fe61165a` (RM-4b). Not re-baselined, not
+fixed. `scripts/residence_baseline.json` shows an empty `git diff`.
+
+`git diff --stat` for the code commits: `test_bcs.py` +35, `sources.py` +44/−8, `residence_check.py`
++16/−1, `test_sources.py` new (29 tests).
+
+**Surfaced, not silently absorbed:** the `test_pricing` run prints
+`duplicate key value violates unique constraint "tabBoQ Sheet Pricing Lock_pkey"` after its `OK`. It is
+the known non-atomic `pricing_lock.acquire_or_refresh` race — an explicitly *handled*
+`DuplicateEntryError` (pricing_lock.py:171, with its own long note). Pre-existing and unrelated:
+`test_pricing`, `pricing.py` and `pricing_lock.py` contain zero references to `boq_bcs`, so this slice
+cannot have caused it.
+
+### 7. Deliberately NOT done
+
+- **`api/boq/wizard/bcs.py` — not touched.** The refusal is a rule about what a valid confirmation is,
+  which is the pure module's business (ADR-0010 B1); validating in the endpoint would put half the
+  confirmation rules in one module and half in another — the exact drift S1a's relocation removed.
+- **The B1 tokenizer bug — not fixed**, though it is one line and provably breaks the check. Repo-wide
+  blast radius; its own slice. Registering into an inert check is stated as buying nothing rather than
+  quietly implying coverage.
+- **`scripts/residence_baseline.json` — not re-baselined.** The F2 red is someone else's and stays visible.
+- **`boq_sheet.json` — not edited.** Would force a migration this slice must not carry; recorded as
+  debt with a named remedy in §4 instead.
+- **`pricing.py` — untouched**, keeping the `test_bcs_module_never_touches_the_client_facing_rate_gate`
+  grep meaningful.
+- **No case-folding of column letters.** `["f","F"]` is refused as an *unknown column* (the index is
+  keyed by the sheet's real uppercase letters), which is correct. Making duplicate detection
+  case-insensitive would be a behaviour change beyond this slice.
+- **The duplicate rule is NOT applied across the two sources.** Picking the same column as both the
+  quantity and the amount source is a different question with a different answer (the class checks
+  already refuse it in every real sheet shape), and conflating them would invent a rule nobody ruled on.
+- **No frontend file, no migration, no doctype JSON.** S2 onward.
+- **The carry path (S6) — untouched.**
+- **The `acquire_or_refresh` duplicate race — not fixed.** Pre-existing; belongs in `pricing_lock`.
+- **No live browser E2E.** Backend-only, nothing renders; and the changed behaviour is unreachable from
+  any UI until S2 ships the picker, so there is literally nothing a browser could observe.
