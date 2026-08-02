@@ -1,22 +1,28 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and Contributors
 # See license.txt
 
-"""Tests for the BCS (cost & margin) foundation -- slices BCS-S1 + BCS-S1a.
+"""Tests for the BCS (cost & margin) foundation -- slices BCS-S1 / S1a / S1b / S1c / S2b.
 
-BCS is the COST side of a committed BoQ row: two hand-typed rates (Supply + Install)
-representing what the work costs US, sitting against the BoQ amount we charge the CLIENT.
-S1 is STORAGE + ENDPOINTS only -- nothing renders, and Total Amount / % Profit are NEVER
-stored (they are always computed downstream from the two rates + the confirmed quantity
-and amount columns).
+BCS is the COST side of a committed BoQ row: hand-typed rates representing what the work
+costs US, sitting against the BoQ amount we charge the CLIENT. This layer is STORAGE +
+ENDPOINTS only -- nothing renders, and Total Amount / % Profit are NEVER stored (they are
+always computed downstream from the stored rates + the confirmed quantity and amount
+columns).
 
 Coverage:
-  Group 1   doctype identity -- per-ROW (no col_letter), sheet_name VERBATIM (#152).
+  Group 1   doctype identity -- per-ROW (no col_letter), sheet_name VERBATIM (#152), and
+            the three stored cost inputs (S2b added combined_rate).
   Group 2   freeze-and-supersede -- a re-save supersedes; exactly ONE current row, ever.
   Group 3   enable / disable + the confirmation of the two columns, validated against the
             sheet's REAL column_descriptors (a column the sheet does not have is REFUSED
             and NOTHING is stored).
   Group 3b  (S1a) the AMOUNT source has the SAME two shapes as quantity -- a scalar total
             OR the per-area combined amounts, SUMMED. Same refusals, same reasons.
+  Group 3c  (S2b) SPLIT amount sheets reach the store -- Supply + Installation summed, and
+            a one-sided sheet accepted with the formula disclosed in the stored `mode`.
+            What survived: a TOTAL picked together with a half is still refused.
+  Group 3d  (S2b) the combined_rate input -- the one undifferentiated cost a combined-rate
+            sheet quotes, accepted exactly as the two halves are.
   Group 4   the readiness gate -- a rate write is refused while BCS is disabled or the
             columns are unconfirmed.
   Group 5   the single-editor pricing lock -- a lock rejection mutates NOTHING.
@@ -116,9 +122,11 @@ _AREA_ROLE_MAP = {
 # sheet could not enable BCS at all; S1a sums the per-area amounts exactly as quantity is
 # already summed (owner ruling 2026-08-02).
 #   F + G -- the per-area COMBINED amounts, whose SUM is the row's amount;
-#   H     -- a per-area SUPPLY half, present on purpose: a half is NOT the amount charged
-#            to the client, so picking it must be refused (the per-area twin of refusing
-#            the scalar amount_supply).
+#   H     -- Zone A's SUPPLY half, sitting BESIDE Zone A's combined amount. What this is
+#            FOR changed at BCS-S2b: it used to prove a half was refused OUTRIGHT, and it
+#            now proves the narrower rule that survived the owner's reversal -- F already
+#            CONTAINS H, so picking them together counts Zone A's supply twice. A half with
+#            no total beside it is perfectly acceptable; see Group 3c's split sheets.
 _AREA_AMOUNT_ROLE_MAP = {
     "A": {"role": "sl_no", "area": None},
     "B": {"role": "description", "area": None},
@@ -336,7 +344,7 @@ class TestBcsRateDoctypeIdentity(FrappeTestCase):
         self.assertEqual(frappe.db.get_value(_BCS, doc.name, "rate_source"), "Manual")
 
     def test_no_stored_total_amount_or_profit_column(self):
-        """OWNER-LOCKED: only the two input rates persist. Total Amount and % Profit are
+        """OWNER-LOCKED: only the INPUT rates persist. Total Amount and % Profit are
         ALWAYS computed downstream -- a stored copy could disagree with the live sheet."""
         meta = frappe.get_meta(_BCS)
         for banned in ("total_amount", "profit_percent", "percent_profit", "profit"):
@@ -344,6 +352,39 @@ class TestBcsRateDoctypeIdentity(FrappeTestCase):
                 meta.get_field(banned),
                 f"{banned} must never be stored -- it is always computed",
             )
+
+    def test_a_combined_rate_field_exists_beside_the_two_halves(self):
+        """BCS-S2b: not every sheet splits supply from installation. A combined-rate sheet
+        quotes ONE undifferentiated cost, and it needs an honest home rather than being
+        shoved into a field named "supply" -- a name that would lie about what the number
+        is and would strand anyone later trying to read the split back out."""
+        field = frappe.get_meta(_BCS).get_field("combined_rate")
+        self.assertIsNotNone(
+            field, "BoQ Row BCS Rate must carry combined_rate (BCS-S2b)")
+        self.assertEqual(field.fieldtype, "Currency",
+                         "combined_rate is money, like the two halves beside it")
+
+    def test_the_combined_rate_is_not_a_total_of_the_other_two(self):
+        """The load-bearing thing about this field, pinned so a later reader cannot assume
+        otherwise: it is a THIRD, INDEPENDENT input, not a derived sum. Stored alone it
+        stays alone -- nothing computes it from supply + install, and nothing splits it
+        back into them."""
+        doc = frappe.new_doc(_BCS)
+        doc.boq = self.boq
+        doc.sheet_name = self.sheet
+        doc.excel_row = 10
+        doc.committed_version = self.cv
+        doc.combined_rate = 250.75
+        doc.bcs_version = 1
+        doc.is_current = 1
+        doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+        row = frappe.db.get_value(
+            _BCS, doc.name, ["supply_rate", "install_rate", "combined_rate"],
+            as_dict=True)
+        self.assertEqual(row.combined_rate, 250.75)
+        self.assertEqual(row.supply_rate, 0.0, "a combined rate does not populate a half")
+        self.assertEqual(row.install_rate, 0.0)
 
 
 # ===========================================================================
@@ -413,7 +454,8 @@ class _BcsEndpointBase(FrappeTestCase):
             _BCS,
             filters={"boq": self.boq, "sheet_name": sheet or self.sheet,
                      "excel_row": excel_row, "committed_version": self.cv, "is_current": 1},
-            fields=["name", "supply_rate", "install_rate", "bcs_version", "node", "is_filled"],
+            fields=["name", "supply_rate", "install_rate", "combined_rate",
+                    "bcs_version", "node", "is_filled"],
         )
 
     def _all_versions(self, excel_row, sheet=None):
@@ -731,11 +773,17 @@ class TestBcsPerAreaAmountSource(_BcsEndpointBase):
         self.assertIsInstance(parsed, dict, "the stored confirmation must be a DICT")
         self.assertIsInstance(parsed["columns"], list)
 
-    def test_a_per_area_supply_half_is_refused_as_the_amount_source(self):
-        """H is a real, mapped per-area amount column -- but it is the SUPPLY half, not
-        what we charge the client. Accepting it would silently compare our cost against a
-        fraction of the charged amount. The per-area twin of refusing scalar
-        amount_supply."""
+    def test_a_per_area_half_picked_WITH_its_own_combined_amount_is_refused(self):
+        """WAS: "a per-area supply half is refused as the amount source" (BCS-S1).
+
+        The owner reversed the half-refusal on 2026-08-02 -- a lone half is accepted now,
+        and BCS-S2b's endpoint tests below cost a split sheet end to end. What survived is
+        the double-count underneath it: F is Zone A's COMBINED amount and H is Zone A's
+        SUPPLY half, so F already contains H and the pair counts Zone A's supply twice.
+
+        The endpoint's job here is the usual one -- that the pure module's refusal SURFACES
+        as a clean named error and leaves the confirmation untouched. Which refusal it is,
+        and why, is pinned in services/boq_bcs/test_sources.py."""
         with self.assertRaises(frappe.ValidationError):
             confirm_bcs_columns(
                 boq_name=self.boq, sheet_name=self.area_amount_sheet,
@@ -797,6 +845,238 @@ class TestBcsPerAreaAmountSource(_BcsEndpointBase):
                             committed_version=self.cv)["bcs_amount_source"]
         self.assertEqual(amt["mode"], "amount_total")
         self.assertEqual([c["col"] for c in amt["columns"]], ["F"])
+
+
+# ===========================================================================
+# Group 3c: SPLIT amount sheets reach the store (BCS-S2b)
+# ===========================================================================
+class TestBcsSplitAmountSource(_BcsEndpointBase):
+    """OWNER RULING 2026-08-02, reversing a BCS-S1 decision.
+
+    Most real sheets have no single "Amount (Total)" column -- they carry Amount (Supply)
+    and Amount (Installation) separately -- so refusing the halves left the confirmation
+    card's Amount list EMPTY on most real sheets. Where there is no scalar total the
+    denominator is the two halves SUMMED; and a sheet carrying only ONE half is ACCEPTED
+    with the formula disclosed, because a one-sided package is a genuine commercial shape
+    rather than a data gap.
+
+    These are the ENDPOINT's half of that: that a split sheet can be confirmed, stored and
+    then actually COSTED end to end -- the thing S1a's strictness made impossible. What the
+    refusals ARE is pinned in services/boq_bcs/test_sources.py."""
+
+    # A sheet with NO combined amount anywhere: each area carries its supply and install
+    # amounts separately, so the row's amount sums across BOTH axes at once.
+    _SPLIT_ROLE_MAP = {
+        "A": {"role": "description", "area": None},
+        "D": {"role": "qty_total", "area": None},
+        "E": {"role": "amount_supply_by_area", "area": "Zone A"},
+        "F": {"role": "amount_install_by_area", "area": "Zone A"},
+        "G": {"role": "amount_supply_by_area", "area": "Zone B"},
+        "H": {"role": "amount_install_by_area", "area": "Zone B"},
+    }
+
+    # A scalar sheet that splits: no amount_total, just the two scalar halves.
+    _SCALAR_SPLIT_ROLE_MAP = {
+        "A": {"role": "description", "area": None},
+        "D": {"role": "qty_total", "area": None},
+        "E": {"role": "amount_supply", "area": None},
+        "F": {"role": "amount_install", "area": None},
+    }
+
+    def test_a_sheet_with_only_scalar_halves_can_be_confirmed_and_says_which_formula(self):
+        _seed_sheet(self.boq, "ScalarSplit BCS ", self.cv,
+                    self._SCALAR_SPLIT_ROLE_MAP, [], 11)
+        confirm_bcs_columns(
+            boq_name=self.boq, sheet_name="ScalarSplit BCS ", committed_version=self.cv,
+            qty_cols=json.dumps(["D"]), amount_cols=json.dumps(["E", "F"]),
+        )
+        amt = get_bcs_state(boq_name=self.boq, sheet_name="ScalarSplit BCS ",
+                            committed_version=self.cv)["bcs_amount_source"]
+        self.assertEqual(amt["mode"], "amount_supply_plus_install")
+        self.assertEqual([c["col"] for c in amt["columns"]], ["E", "F"])
+
+    def test_a_split_per_area_sheet_sums_across_both_axes(self):
+        """The shape S1a could not express at ALL -- every column on this sheet was
+        refused, so it could not enable BCS. Four columns, two areas x two kinds."""
+        _seed_sheet(self.boq, "Split BCS ", self.cv, self._SPLIT_ROLE_MAP,
+                    ["Zone A", "Zone B"], 12)
+        confirm_bcs_columns(
+            boq_name=self.boq, sheet_name="Split BCS ", committed_version=self.cv,
+            qty_cols=json.dumps(["D"]), amount_cols=json.dumps(["E", "F", "G", "H"]),
+        )
+        amt = get_bcs_state(boq_name=self.boq, sheet_name="Split BCS ",
+                            committed_version=self.cv)["bcs_amount_source"]
+        self.assertEqual(amt["mode"], "amount_by_area_supply_plus_install")
+        self.assertEqual([c["area"] for c in amt["columns"]],
+                         ["Zone A", "Zone A", "Zone B", "Zone B"])
+        self.assertEqual([c["rate_subkey"] for c in amt["columns"]],
+                         ["supply", "install", "supply", "install"])
+
+    def test_a_one_sided_sheet_is_accepted_and_the_stored_mode_discloses_it(self):
+        """ADAPT AND DISCLOSE. A sheet with only an installation amount is confirmable,
+        and the stored mode is what tells S2c to say so out loud instead of implying a
+        whole amount was used."""
+        _seed_sheet(self.boq, "OneSided BCS ", self.cv, {
+            "A": {"role": "description", "area": None},
+            "D": {"role": "qty_total", "area": None},
+            "E": {"role": "amount_install", "area": None},
+        }, [], 13)
+        confirm_bcs_columns(
+            boq_name=self.boq, sheet_name="OneSided BCS ", committed_version=self.cv,
+            qty_cols=json.dumps(["D"]), amount_cols=json.dumps(["E"]),
+        )
+        amt = get_bcs_state(boq_name=self.boq, sheet_name="OneSided BCS ",
+                            committed_version=self.cv)["bcs_amount_source"]
+        self.assertEqual(amt["mode"], "amount_install_only")
+
+    def test_a_split_sheet_can_actually_be_costed_end_to_end(self):
+        """The end-to-end the strictness blocked: confirm a split sheet, then write a cost
+        against it. Confirming without being able to cost would be half a fix."""
+        _seed_sheet(self.boq, "SplitCost BCS ", self.cv,
+                    self._SCALAR_SPLIT_ROLE_MAP, [], 14)
+        set_bcs_enabled(boq_name=self.boq, sheet_name="SplitCost BCS ",
+                        committed_version=self.cv, enabled=1)
+        confirm_bcs_columns(
+            boq_name=self.boq, sheet_name="SplitCost BCS ", committed_version=self.cv,
+            qty_cols=json.dumps(["D"]), amount_cols=json.dumps(["E", "F"]),
+        )
+        self.assertTrue(bcs_is_ready(self.boq, "SplitCost BCS ", self.cv))
+        res = save_row_bcs_rates(
+            boq_name=self.boq, sheet_name="SplitCost BCS ", excel_row=10,
+            committed_version=self.cv, supply_rate=60.0, install_rate=15.0,
+        )
+        self.assertTrue(res["ok"])
+        cur = self._current(10, sheet="SplitCost BCS ")
+        self.assertEqual(len(cur), 1)
+        self.assertEqual(cur[0]["supply_rate"], 60.0)
+
+    def test_a_scalar_total_picked_with_a_scalar_half_is_still_refused(self):
+        """The surviving refusal at the endpoint: the combined Amount already contains the
+        supply half, so picking both counts it twice. Widening the kind axis must not
+        reopen this."""
+        _seed_sheet(self.boq, "TotalAndHalf BCS ", self.cv, {
+            "A": {"role": "description", "area": None},
+            "D": {"role": "qty_total", "area": None},
+            "E": {"role": "amount_total", "area": None},
+            "F": {"role": "amount_supply", "area": None},
+        }, [], 15)
+        with self.assertRaises(frappe.ValidationError):
+            confirm_bcs_columns(
+                boq_name=self.boq, sheet_name="TotalAndHalf BCS ",
+                committed_version=self.cv,
+                qty_cols=json.dumps(["D"]), amount_cols=json.dumps(["E", "F"]),
+            )
+        self.assertIsNone(
+            get_bcs_state(boq_name=self.boq, sheet_name="TotalAndHalf BCS ",
+                          committed_version=self.cv)["bcs_amount_source"],
+            "a refused confirmation stores NOTHING",
+        )
+
+
+# ===========================================================================
+# Group 3d: the combined_rate input (BCS-S2b)
+# ===========================================================================
+class TestBcsCombinedRate(_BcsEndpointBase):
+    """Not every sheet splits supply from installation -- some quote ONE undifferentiated
+    combined rate. That cost needs an honest home, so it gets its own field rather than
+    riding in `supply_rate` under a name that lies about what the number is.
+
+    It is accepted EXACTLY as the other two are (owner ruling: not stricter) -- optional,
+    defaulting to 0.0 on absent or empty. WHICH input a sheet offers is the SCREEN's
+    decision (BCS-S2c / S3); storage deliberately imposes no cross-field rule, so a sheet
+    that changes shape never strands a number it already holds."""
+
+    def _ready(self):
+        set_bcs_enabled(boq_name=self.boq, sheet_name=self.sheet,
+                        committed_version=self.cv, enabled=1)
+        confirm_bcs_columns(boq_name=self.boq, sheet_name=self.sheet,
+                            committed_version=self.cv,
+                            qty_cols=json.dumps(["D"]), amount_cols=json.dumps(["F"]))
+
+    def test_save_accepts_and_stores_a_combined_rate(self):
+        self._ready()
+        save_row_bcs_rates(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=10,
+            committed_version=self.cv, combined_rate=310.5,
+        )
+        cur = self._current(10)
+        self.assertEqual(len(cur), 1)
+        self.assertEqual(cur[0]["combined_rate"], 310.5)
+
+    def test_an_absent_combined_rate_defaults_to_zero_like_the_other_two(self):
+        """Absent means 0.0, exactly as supply_rate and install_rate already behave --
+        NOT required, NOT an error. Every pre-S2b caller omits it, and must keep working
+        unchanged."""
+        self._ready()
+        save_row_bcs_rates(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=10,
+            committed_version=self.cv, supply_rate=5.0, install_rate=2.0,
+        )
+        cur = self._current(10)
+        self.assertEqual(cur[0]["combined_rate"], 0.0)
+        self.assertEqual(cur[0]["supply_rate"], 5.0)
+
+    def test_an_empty_string_combined_rate_is_zero_not_an_error(self):
+        """The HTTP shape: a cleared input arrives as "". The two halves already coerce it
+        to 0.0 and this must not be stricter."""
+        self._ready()
+        save_row_bcs_rates(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=10,
+            committed_version=self.cv, combined_rate="",
+        )
+        self.assertEqual(self._current(10)[0]["combined_rate"], 0.0)
+
+    def test_a_non_numeric_combined_rate_is_refused_by_name(self):
+        """The same named refusal the halves get -- a number field says so, rather than
+        failing later as a database error."""
+        self._ready()
+        with self.assertRaises(frappe.ValidationError):
+            save_row_bcs_rates(
+                boq_name=self.boq, sheet_name=self.sheet, excel_row=10,
+                committed_version=self.cv, combined_rate="abc",
+            )
+        self.assertEqual(self._current(10), [], "a refused BCS write stores nothing")
+
+    def test_the_combined_rate_rides_freeze_and_supersede_like_the_halves(self):
+        """It is a stored value on the same record, so it must inherit the lifecycle
+        rather than being special-cased: a re-save supersedes and the new current carries
+        the new number."""
+        self._ready()
+        save_row_bcs_rates(boq_name=self.boq, sheet_name=self.sheet, excel_row=10,
+                           committed_version=self.cv, combined_rate=100.0)
+        save_row_bcs_rates(boq_name=self.boq, sheet_name=self.sheet, excel_row=10,
+                           committed_version=self.cv, combined_rate=175.0)
+        cur = self._current(10)
+        self.assertEqual(len(cur), 1, "exactly one current row, ever")
+        self.assertEqual(cur[0]["combined_rate"], 175.0)
+        self.assertEqual(cur[0]["bcs_version"], 2)
+
+    def test_the_sheet_read_returns_the_combined_rate(self):
+        """A stored value nobody can read back is not stored for any purpose. S3 renders
+        from this read, so the field has to be in its explicit field list."""
+        self._ready()
+        save_row_bcs_rates(boq_name=self.boq, sheet_name=self.sheet, excel_row=10,
+                           committed_version=self.cv, combined_rate=42.0)
+        rows = get_sheet_bcs_rates(boq_name=self.boq, sheet_name=self.sheet,
+                                   committed_version=self.cv)["rows"]
+        self.assertEqual(len(rows), 1)
+        self.assertIn("combined_rate", rows[0],
+                      "get_sheet_bcs_rates must surface combined_rate")
+        self.assertEqual(rows[0]["combined_rate"], 42.0)
+
+    def test_all_three_rates_can_coexist_on_one_record(self):
+        """Storage imposes no cross-field rule ON PURPOSE. A sheet that switches from a
+        combined quote to a split one must not strand the number it already holds, and a
+        write path that silently blanked the other field would do exactly that."""
+        self._ready()
+        save_row_bcs_rates(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=10,
+            committed_version=self.cv, supply_rate=10.0, install_rate=3.0,
+            combined_rate=13.0,
+        )
+        cur = self._current(10)[0]
+        self.assertEqual((cur["supply_rate"], cur["install_rate"], cur["combined_rate"]),
+                         (10.0, 3.0, 13.0))
 
 
 # ===========================================================================

@@ -17,6 +17,7 @@
   "value_section",
   "supply_rate",
   "install_rate",
+  "combined_rate",
   "is_filled",
   "provenance_section",
   "rate_source",
@@ -95,7 +96,7 @@
    "label": "Cost Rates (the ONLY stored values)"
   },
   {
-   "description": "The Supply Rate the user hand-typed for this row: what supplying the material costs US, per unit. One of exactly TWO stored BCS values. Total Amount (quantity x (supply + install)) and % Profit are NEVER stored -- they are ALWAYS computed downstream from these two rates plus the sheet's confirmed quantity and amount columns, so a stored copy can never drift from the live sheet.",
+   "description": "The Supply Rate the user hand-typed for this row: what supplying the material costs US, per unit. One of the stored BCS cost INPUTS -- used on a sheet that splits supply from installation (see combined_rate for the sheets that do not). Total Amount and % Profit are NEVER stored -- they are ALWAYS computed downstream from the stored rates plus the sheet's confirmed quantity and amount columns, so a stored copy can never drift from the live sheet.",
    "fieldname": "supply_rate",
    "fieldtype": "Currency",
    "in_list_view": 1,
@@ -107,6 +108,13 @@
    "fieldtype": "Currency",
    "in_list_view": 1,
    "label": "Installation Rate"
+  },
+  {
+   "description": "The ONE undifferentiated cost rate the user hand-typed for this row: what the work costs US per unit, supply and installation together, on a sheet whose original quotes a single combined rate instead of splitting the two. WHEN IT IS USED: on a combined-rate sheet, where it is the only cost input the screen offers and supply_rate / install_rate stay 0.0. WHEN IT IS NOT: on a sheet that quotes supply and installation separately, where the two halves beside it carry the cost and this stays 0.0. IT IS NOT A TOTAL OF THE OTHER TWO -- nothing computes it from supply + install, nothing splits it back into them, and no reader may add it to them (that would double-count the row). Added at BCS-S2b, owner ruling 2026-08-02: a combined-rate sheet's cost needed an honest home rather than being shoved into a field named 'supply', a name that would lie about what the number is. WHICH input a sheet offers is the SCREEN's decision; storage deliberately imposes NO cross-field rule, so a sheet that changes shape never strands a number it already holds.",
+   "fieldname": "combined_rate",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Combined Rate"
   },
   {
    "default": "0",

@@ -3,20 +3,27 @@
 
 """BCS -- the per-row COST layer of the BoQ pricing editor (slice BCS-S1).
 
-BCS is the cost side of a committed BoQ sheet: two hand-typed rates per row -- a Supply
-Rate and an Installation Rate -- representing what the work costs US, sitting against the
-BoQ amount we charge the CLIENT. From those two numbers the screen LATER computes Total
-Amount (quantity x (supply + install)) and % Profit (how much of the charged amount is
-margin).
+BCS is the cost side of a committed BoQ sheet: hand-typed cost rates per row representing
+what the work costs US, sitting against the BoQ amount we charge the CLIENT. From those
+numbers the screen LATER computes Total Amount (quantity x rate) and % Profit (how much of
+the charged amount is margin).
+
+THREE cost inputs are stored, and which of them a sheet uses is the SCREEN's decision, not
+this module's (BCS-S2b, owner ruling 2026-08-02): a sheet that splits its quote carries a
+Supply Rate and an Installation Rate; a sheet that quotes ONE undifferentiated figure
+carries a Combined Rate instead. The third field exists so a combined-rate sheet's cost has
+an honest home rather than riding in a field named "supply". `combined_rate` is NOT a total
+of the other two -- never sum it with them, never derive it from them.
 
 S1 is STORAGE + ENDPOINTS ONLY. Nothing renders; no frontend file is touched.
 
 WHY THIS IS ITS OWN MODULE, and not more functions on pricing.py -- three owner-locked
 properties become STRUCTURAL rather than conventional:
 
-  1. ONLY THE TWO RATES PERSIST. Total Amount and % Profit are ALWAYS computed downstream
-     from the two rates plus the sheet's confirmed quantity/amount columns. A stored copy
-     could disagree with the live sheet, so there is deliberately no column for either.
+  1. ONLY THE INPUT RATES PERSIST. Total Amount and % Profit are ALWAYS computed downstream
+     from the stored rates plus the sheet's confirmed quantity/amount columns. A stored
+     copy could disagree with the live sheet, so there is deliberately no column for
+     either.
 
   2. THE BCS READINESS GATE GUARDS BCS WRITES ONLY. It is NOT ANDed into save_cell_price's
      rate gate: an unconfirmed BCS section leaves ordinary client-facing pricing fully
@@ -108,7 +115,7 @@ _IDENTITY_FIELDS = ("boq", "sheet_name", "excel_row", "committed_version")
 # field list is what makes a read's blast radius legible).
 _BCS_READ_FIELDS = [
     "name", "boq", "sheet_name", "excel_row", "committed_version",
-    "node", "description", "supply_rate", "install_rate", "is_filled",
+    "node", "description", "supply_rate", "install_rate", "combined_rate", "is_filled",
     "rate_source", "bcs_version", "is_current", "bcs_rated_at",
     "carried_from_boq", "carried_from_version", "carried_at",
 ]
@@ -263,20 +270,25 @@ def confirm_bcs_columns(boq_name=None, sheet_name=None, committed_version=None,
                         qty_cols=None, amount_cols=None):
     """Confirm the TWO columns BCS needs, validated against the sheet's REAL columns.
 
-    BOTH picks are JSON lists of Excel column letters, and BOTH accept the SAME two shapes
+    BOTH picks are JSON lists of Excel column letters, and BOTH accept the SAME two SHAPES
     (owner ruling 2026-08-02, BCS-S1a -- they are one idea, not two):
       `qty_cols`    -- the one scalar Total Quantity column, OR the per-area quantity
                        columns whose SUM is the total (a sheet that maps quantity per area
                        has no scalar total of its own);
-      `amount_cols` -- the one scalar Amount (Combined) column, OR the per-area combined
-                       Amount columns whose SUM is the row's amount. This is what we charge
-                       the client, and the denominator of % Profit.
+      `amount_cols` -- the one scalar Amount column, OR the per-area Amount columns whose
+                       SUM is the row's amount. This is what we charge the client, and the
+                       denominator of % Profit. BCS-S2b widened it along a SECOND axis: the
+                       Supply and Installation HALVES are accepted too, summed, in either
+                       shape and including a sheet that carries only ONE of them -- most
+                       real sheets have no single "Amount (Total)" column at all. The
+                       stored `mode` discloses which of the eight shapes is in force.
 
     Both are validated against _committed_descriptors, the same resolver the amount-formula
     gate uses. A column the sheet does not have, a mapped column of the wrong class (a rate
-    column, or the supply/install HALF of an amount), or a scalar total mixed with its own
-    per-area parts is REFUSED with a named error and NOTHING is stored -- validation runs to
-    completion BEFORE the first write, so a partial confirmation is impossible.
+    or quantity column), a TOTAL picked together with a half (the total already contains
+    it), or a scalar total mixed with its own per-area parts is REFUSED with a named error
+    and NOTHING is stored -- validation runs to completion BEFORE the first write, so a
+    partial confirmation is impossible.
 
     Stored as re-resolvable DICTs (never bare lists -- a list-valued JSON field throws in
     get_valid_dict), each entry carrying the full descriptor identity INCLUDING rate_subkey,
@@ -425,8 +437,15 @@ def _next_bcs_version(boq_name, sheet_name, excel_row, committed_version) -> int
 @frappe.whitelist(methods=["POST"])
 def save_row_bcs_rates(boq_name=None, sheet_name=None, excel_row=None,
                        committed_version=None, supply_rate=None, install_rate=None,
-                       description=None):
-    """Save the two BCS cost rates for ONE committed row -- freeze-and-supersede.
+                       combined_rate=None, description=None):
+    """Save the BCS cost rates for ONE committed row -- freeze-and-supersede.
+
+    ALL THREE rates are OPTIONAL and coerce absent/empty to 0.0. `combined_rate` (BCS-S2b)
+    is accepted on exactly the same terms as the two halves -- deliberately NOT stricter,
+    and deliberately NOT cross-validated against them. WHICH input a sheet offers is the
+    SCREEN's decision, so storage refuses to have an opinion: a sheet that changes shape
+    must never strand a number it already holds, and a write that silently blanked the
+    other field would do exactly that. It is NOT a total of the halves.
 
     Freezes any prior current (set_value is_current=0, never doc.save), then inserts the
     new current (is_current=1, bcs_version = max(prior)+1, is_filled=1, bcs_rated_at=now).
@@ -461,6 +480,7 @@ def save_row_bcs_rates(boq_name=None, sheet_name=None, excel_row=None,
 
     supply_val = _num(supply_rate, "supply_rate")
     install_val = _num(install_rate, "install_rate")
+    combined_val = _num(combined_rate, "combined_rate")
 
     # 1. the cell must exist in the committed tier (yields the node pointer).
     node = _resolve_committed_cell(boq_name, sheet_name, excel_row, committed_version)
@@ -488,6 +508,7 @@ def save_row_bcs_rates(boq_name=None, sheet_name=None, excel_row=None,
     doc.description = description
     doc.supply_rate = supply_val
     doc.install_rate = install_val
+    doc.combined_rate = combined_val
     doc.is_filled = 1
     # The provenance seam ships defaulted to manual entry; nothing in this arc sets it to
     # anything else (see boq_row_bcs_rate.json rate_source).
