@@ -645,6 +645,23 @@ invariants:
   production consumers BY DESIGN** — the classifier voter (def site), the certified harness (by import
   identity), rate extraction. ⚠️ The same-named function at `services/boq_ai_assist.py:431` returns a `str` and
   is a DIFFERENT function — do not confuse them.
+- **The reply ceiling (SR-2, owner-locked, EXTRACTION ONLY):** `extraction._AI_MAX_TOKENS` is an EXPLICIT
+  constant and is deliberately **NOT** the configured `ai_settings.max_tokens` — the call is NON-STREAMING
+  with a fixed timeout and the higher configured region is UNTESTED, so extraction still does not read the
+  setting. **The classifier voter and the offline harness keep their own lower constant deliberately**: the
+  voter's reply is one small object per row (a wide margin that does not bind) and it is a CERTIFIED surface
+  whose corpus is spent, so raising it is all risk and no benefit — changing it belongs in its own slice with
+  a fresh harness run. A `stop_reason == "max_tokens"` cut raises the distinct **`ReplyCeilingExceeded`**
+  BEFORE the reply text is parsed, so it can never degrade into the generic truncated-JSON `ValueError`, and
+  it is **NEVER retried** — a ceiling cut is DETERMINISTIC for a given batch, so retrying is guaranteed waste
+  (a garbled reply is the opposite case and keeps the SR-1 default-to-retry rule). **The special-case is
+  NARROW: every other `stop_reason` keeps its pre-SR-2 behaviour byte-identical.**
+  `_extract_with_ceiling_split` halves a cut batch (`_MAX_SPLIT_DEPTH`), triggers ONLY on
+  `ReplyCeilingExceeded` — never on a transient error or a garbled reply — and composes with SR-1 unchanged:
+  `attempted` advances and checkpoints per HALF, so a halt mid-split keeps the halves already done. Batch size
+  is unchanged. **The trigger was ANY high-attribute-count category at the full batch size, NOT
+  `composite_decomposition` specifically** — the failing batch was a non-composite assembly category, so a fix
+  scoped to composite mode would have missed it.
 - **Extraction prompt rulings (owner, `prompts/boq_rate_attr_extraction_prompt.md`):** tolerate spelling
   variants (map to the canonical value), and — for an ARMOURED/UNARMOURED insulation attribute — a FLEXIBLE
   cable is UNARMOURED, and insulation DEFAULTS to UNARMOURED when neither armoured nor unarmoured is stated.

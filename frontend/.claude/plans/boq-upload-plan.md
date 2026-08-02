@@ -16182,3 +16182,197 @@ vitest **1229 / 53 files** · tsc **0 errors in the touched files** · `yarn bui
 Synthetic rows on **BOQ-26-00019 / `'12 Internal Works '`**, all FABRICATED and marked: 90001-90007
 (C1-C5 rows) and 90010-90015 (the PDB / `8way TPN DB (EXISTING)` tree with its four spec lines).
 BOQ-26-00066 carries no fabricated rows — population verified 146 before and after.
+
+---
+
+## Build slice SR-2 — the reply ceiling, its diagnosis, and split-on-truncation (2026-08-03)
+
+Branch `feature/boq-pricing-helper`. Three changes, all in
+`services/boq_rate_master/extraction.py`, plus 7 tests. **No frontend surface changed**, so no
+browser cert. Batch size, the classifier voter, the harness, the interpreter and every config/rule
+were explicitly OUT OF SCOPE and untouched.
+
+### 1. What was actually wrong (the SR-2 recon, measured)
+
+**`_AI_MAX_TOKENS = 8000` was INHERITED, never justified for this workload.** It originates in the
+classifier voter (`ai_voter.py`, CL-1a, 2026-07-06), where a reply is one small object per row.
+The harness copied it; RM-3's extraction engine copied it again on 2026-07-28 (`22165f67`). No
+commit message anywhere ties 8000 to a measured reply size.
+
+**It only started BINDING on 2026-07-31.** Measured from stored run results — the same sheet, the
+same category, either side of the boundary:
+
+```
+BOQ-26-00066  db_switchgear  2026-07-30 :   169 chars/row
+BOQ-26-00066  db_switchgear  2026-07-31 : 1,098 chars/row      <-- 6.5x
+```
+
+A 20-row batch went from ~3,300 chars (~1,000 tok, 6.7x headroom) to ~22,400 chars, landing
+**astride** the 8000 ceiling rather than clearly over it. That is why the same batch size completed
+on one sheet and failed every time on another.
+
+**THE TRIGGER IS NOT COMPOSITE MODE.** The owner's hypothesis named EA-4d's
+`composite_decomposition` as the cause. The evidence corrects the scope: the batch that actually
+halted on BOQ-26-00019 is **`point_wiring`**, which is NOT composite — it is a plain
+14-attribute assembly category that went live at **EA-4a (`f5b21cbc`, 2026-07-31 01:00)**, nineteen
+hours before EA-4d (`b2be0011`, 2026-07-31 20:53). Its 66-row checkpoint lands exactly on that
+batch's boundary, and it is the heaviest category measured anywhere (p90 1,156 chars/row, above
+`db_switchgear`'s 1,118). **The real trigger is ANY ~14-attribute category at batch size 20.**
+Scoping the fix to composite mode would have left `point_wiring` broken.
+
+Note also that the git commit time is not the behaviour-change time: the rate-master config lives
+in the DB, and v17 was imported before it was committed — BOQ-26-00066's run at 20:11 already shows
+the new composite shape, 42 minutes before `b2be0011`.
+
+### 2. The three changes
+
+**(1) `stop_reason` inspection — the diagnostic, landed first so the other two are verifiable.**
+New `ReplyCeilingExceeded`, raised in `_extract_batch` **before the text is parsed**, when
+`resp.stop_reason == "max_tokens"`. Before SR-2 a ceiling cut surfaced ONLY as the downstream
+`ValueError('truncated (unbalanced) JSON array in AI response')` — indistinguishable from a
+genuinely garbled reply, which is what made the 2026-08-02 failures a night of diagnosis. The two
+need OPPOSITE responses: a garbled reply is a per-call artifact worth retrying (the SR-1
+default-to-retry rule), a ceiling cut is deterministic and will cut identically every attempt.
+**It is therefore NOT retried** — it propagates immediately so the caller can split.
+**Deliberately NARROW:** only `max_tokens` is special-cased; every other `stop_reason` keeps its
+pre-SR-2 behaviour byte-identical. Mirrors the existing precedent
+`boq_ai_assist._safe_text` (line 617) — the pattern already existed in this codebase and simply
+had not been applied here.
+
+**(2) Ceiling 8000 -> 32000, explicit constant.** **NOT the configured 100000.** The call is
+`client.messages.create(...)` NON-STREAMING with `_AI_TIMEOUT = 300`; Anthropic's guidance is to
+stream above roughly 16000 because a long non-streaming reply can exceed HTTP timeouts, and the
+Python SDK is documented to refuse some large non-streaming requests outright. That region is
+UNTESTED here, and the recon was not allowed to test it. 32000 clears the measured worst case with
+~3.7x margin (below). `ai_settings.max_tokens` is still not read by extraction — deliberately.
+
+**(3) Split-on-truncation retry — the durable half.** `_extract_with_ceiling_split(call_batch,
+batch, depth=0)` yields `(sub_batch, batch_out)`: exactly ONE pair when the batch fits
+(byte-identical to the pre-SR-2 single call), one pair per surviving half after a cut. Depth capped
+at `_MAX_SPLIT_DEPTH = 2` (**20 -> 10 -> 5**); a 5-row batch that still cuts is not a size problem,
+so it halts with the run's work preserved rather than splitting to one call per row.
+**Triggers ONLY on `ReplyCeilingExceeded`** — a transient error or a garbled reply never reaches it
+and is still absorbed by `_extract_batch`'s own retry/backoff.
+**Composes with SR-1 unchanged:** `run_extraction`'s loop body is otherwise untouched and simply
+operates on `sub_batch`, so `attempted` advances per HALF, each half is checkpointed as it lands,
+and a halt part-way through a split keeps the halves already done.
+
+**Raising the ceiling moves the wall; splitting removes the CLASS of failure** — a future category
+with more attributes per row adapts automatically instead of needing another constant bump.
+
+### 3. Why the classifier voter was deliberately left at 8000
+
+`ai_voter.py` keeps `_AI_MAX_TOKENS = 8000`, pinned by `test_34`. Three reasons:
+
+- **Its ceiling does not bind and is not close to binding.** Its reply is one small object per row
+  — a 20-row batch emits roughly 2,000 chars / ~600 tokens against 8000, a **~13x margin**.
+- **It is a CERTIFIED surface.** Rules `4.2-hv7` + prompt `hvac-v1.3` + Electrical `2.1-tuning2`
+  were measured on a corpus that is now SPENT (Set-1 and Set-2 both used; the next honest
+  out-of-sample measurement is production Set-3).
+- **So the change would be all risk and no benefit.** If it is ever made, it belongs in its own
+  slice with a re-run of the certification harness, not as a rider.
+
+The offline harness constant is likewise untouched — changing it would break comparability with
+banked eval results.
+
+### 4. Cert — real data, real AI (4 runs)
+
+Every provider call was recorded through a proxy, so the token figures below are **the provider's
+own `usage.output_tokens`**, not estimates.
+
+| # | Sheet | Result | Run | Rows | Cuts | Largest reply |
+|---|---|---|---|---|---|---|
+| C1 | BOQ-26-00019 / `12 Internal Works ` | **COMPLETE** | BRSR-26-00157 | 106/106 | 0 | **8,708 tok** (27.2% of 32000) |
+| C2 | BOQ-26-00106 / `ELECTRICAL BOQ` | **COMPLETE** | BRSR-26-00158 | 144/144 | 0 | 8,306 tok (26.0%) |
+| C3 | BOQ-26-00146 / `Wiring` | **NOT RUNNABLE** — see below | — | — | — | — |
+| C3' | BOQ-26-00019 (repeat, owner-requested) | **COMPLETE** | BRSR-26-00160 | 106/106 | 0 | **8,708 tok** (27.2%) |
+| C4 | BOQ-26-00066 / `ELECTRICAL BOQ` | **COMPLETE** | BRSR-26-00159 | 146/146 | 0 | 6,369 tok (19.9%) |
+
+**THE SMOKING GUN.** The `point_wiring` batch on BOQ-26-00019 — the one that halted four times at
+exactly 63/66 rows — needs **8,708 output tokens.** Against the old ceiling of 8000 that is a
+**708-token overshoot: an 8.9% miss.** It was never a large-margin failure; it was a hair over.
+
+**It is also exactly reproducible: 8,708 tokens on BOTH runs of that sheet, to the token.** That
+determinism is precisely why it halted four times at the same boundary, and it is the empirical
+justification for not retrying a ceiling cut (change 1). BOQ-26-00019's `db_switchgear` batch was
+*not* deterministic across runs (5,253 then 8,099 tokens) — the second of which would ALSO have
+breached the old ceiling.
+
+**No split was triggered in any cert run** — zero ceiling cuts at 32000. The splitter is therefore
+proven by unit test (`test_30`/`test_31`), not by the cert; it is standing insurance for the next
+category expansion, not a hot path today.
+
+**C5 — is 32000 comfortable or still marginal?** Comfortable. The largest reply the system has ever
+produced is **8,708 tokens = 27.2% of the ceiling**, i.e. **~3.7x headroom**. The previous ceiling
+sat at 92% of that same reply.
+
+**C3 — BOQ-26-00146 could not be run: the BoQ no longer exists.** No `BOQs` document, no
+`BoQ Sheet` rows, no `BOQ Nodes` — it was deleted between the recon (its 5 halts are logged at
+2026-08-03 00:37) and this build. Reported, not worked around. The owner substituted a repeat run
+on BOQ-26-00019, recorded above as C3'.
+
+**C4 regression — row 430 holds.** Of the three run IDs the owner named (BRSR-26-00128/129/131),
+only **BRSR-26-00131** exists in the DB; the comparable priors are BRSR-26-00047 and BRSR-26-00131.
+Row 430's attributes in the SR-2 run vs BRSR-26-00131 differ in **exactly one field**:
+
+```
+db_shell_qty : 1 -> null
+```
+
+**This is NOT drift, and the rate cannot have moved.** Both runs have `db_shell_item = "None"`, and
+that component_ref carries `none_skips: true` — the EA-4a-r contract fires the skip BEFORE the ref
+lookup, so `qty.from_attr: db_shell_qty` is never read; the install pipeline's `lookup_or_ratio`
+branches on `when_shell_absent.attr = db_shell_item`, not on the qty. Every rate-bearing input is
+byte-identical. It is also confirmed empirically twice over: **BRSR-26-00047 already had
+`db_shell_qty: null` while BRSR-26-00131 had `1`**, so the field oscillates between prior runs
+independently of this slice — and the owner's own observation that row 430 read Rs 2,290 across
+three runs spans BOTH values of it. Row counts unchanged at 146.
+
+### 5. Tests — 27 -> 34 (bench-verified)
+
+| Test | What it pins | Polarity |
+|---|---|---|
+| `test_28` | a ceiling cut raises `ReplyCeilingExceeded`, not the generic ValueError — and is NOT retried (1 call, not 3) | + |
+| `test_29` | a genuinely malformed reply (no cut) still raises and retries exactly as before — 3 calls, non-terminal halt | **–** |
+| `test_30` | a cut splits the batch and BOTH halves are sent; no row is lost | + |
+| `test_31` | the split recurses at most twice (20 -> 10 -> 5) then halts; never below the cap | + |
+| `test_32` | a transient error does NOT split — sizes never change | **–** |
+| `test_33` | `attempted_rows` advances per HALF, checkpointed one half at a time | + |
+| `test_34` | ceiling is 32000; the classifier voter is still 8000; batch size still 20 | + |
+
+Backwards-compat: `test_29` and `test_32` are the guards — the special-case is narrow, so every
+non-ceiling failure path is byte-identical to pre-SR-2. `test_30`'s single-pair-when-it-fits shape
+is the third guard: an ordinary batch takes exactly one call, as before.
+
+### 6. Counts (bench-verified this session, never from memory)
+
+```
+test_rate_suggest  27 -> 34   OK
+test_rate_master        32    OK  (unchanged)
+test_pricing           230    OK  (unchanged)
+```
+
+`test_pricing` prints a `tabBoQ Sheet Pricing Lock_pkey` message AFTER its `OK` line — pre-existing
+teardown noise in that suite's fixture; nothing in this slice touches pricing locks.
+
+No vitest / tsc / build run and no browser cert: **this slice changes no frontend file and no UI
+surface.** Stated as a rationale rather than skipped silently.
+
+### 7. Banked / owed
+
+- **EA-6 remains banked and is NOT blocked by SR-2.** `max_tokens` caps OUTPUT only; prompt and
+  reply share the 1M context window, and the largest prompt measured is ~19.5k input tokens — about
+  2% of it. The two are separate budgets. **But the EA-6 payload cost is now measured and is
+  larger than expected:** adding each row's ancestor-notes chain grows BOQ-26-00019's 20-row
+  composite ROWS block from **2,830 to ~35,500 chars (~12x)**, while BOQ-26-00106's grows by
+  **zero** (its ancestor chains carry no notes). Much of that 12x is **per-row duplication of
+  SHARED ancestors** — each of the 20 rows repeats its own chain. If EA-6 emits notes once per
+  shared ancestor rather than per row, most of the increase disappears. That is an EA-6 design
+  point, cheaper to see now than after it ships.
+- **Untested and deliberately not attempted:** whether the SDK accepts a large non-streaming
+  `max_tokens` (the reason 32000 was chosen over the configured 100000). A single call at a higher
+  value would answer it; streaming would remove the question entirely, but that needs a ruling.
+- **Data left behind:** four new runs (BRSR-26-00157/158/159/160), each now `active=1` for its
+  sheet, superseding the prior active run per freeze-and-supersede (prior runs retained, not
+  deleted). The synthetic rows 90001-90015 on BOQ-26-00019 were NOT touched. Nothing else created,
+  changed or removed.
