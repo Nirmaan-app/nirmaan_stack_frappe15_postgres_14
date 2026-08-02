@@ -1731,6 +1731,12 @@ const PARITY = PARITY_RAW as unknown as {
   codes: Record<string, string>;
   order: Record<"qty" | "amount", string[]>;
   unreachable: Record<string, { why: string; shadowed_by: string[] }>;
+  unconstructible_adjacencies: Array<{
+    side: "qty" | "amount";
+    earlier: string;
+    later: string;
+    why: string;
+  }>;
   client_only_codes: Record<string, string>;
   descriptors: ColumnDescriptor[];
   cases: Array<{
@@ -1848,7 +1854,73 @@ describe("rule parity -- the shared case table, this side", () => {
         `${c.beats} never answers any case, so beating it proves nothing`,
       ).toBe(true);
     }
-    expect(checked).toBeGreaterThanOrEqual(8);
+    // The `checked >= 8` floor that used to close this test is GONE on purpose (BCS-S2e-fix):
+    // the table carries 11, so it was three cases of slack, and a COUNT cannot say which
+    // precedence claim went missing. The next test replaces it with the real property.
+    expect(checked).toBe(PARITY.cases.filter((c) => !!c.beats && !c.expect.ok).length);
+  });
+
+  it("★ pins a precedence case for every constructible adjacency in each chain", () => {
+    // THE COVERAGE FLOOR (BCS-S2e-fix), and it REPLACES a count. The old `>= 8` against a table
+    // of 11 was not a hypothetical weakness: deleting `amount-precedence-kind-beats-shape` --
+    // the case the table itself labels THE LOAD-BEARING ONE -- left BOTH suites green.
+    //
+    // So walk each side's declared chain PAIRWISE and require every neighbouring pair to be
+    // settled: by a real `beats` case, or by an `unconstructible_adjacencies` entry saying why
+    // no single input can violate both. Two properties follow that the count never had. A NAMED
+    // case cannot be dropped in silence, because dropping it strands its pair. And adding a case
+    // needs no edit here, so this guard cannot drift behind the table the way the number did.
+    //
+    // NOT BOTH, deliberately: an exemption CLAIMS a pair is unbuildable, so a table that also
+    // builds it has one of the two wrong.
+    //
+    // Honest scope: this does not cover a NON-adjacent `beats` pair -- today only the
+    // `aliased_columns` > `too_many_scalars` shadow on each side, which is pinned BY NAME through
+    // `unreachable.shadowed_by` above. Between the two, all 11 precedence cases are load-bearing.
+    for (const side of ["qty", "amount"] as const) {
+      const order: readonly string[] = BCS_REFUSAL_ORDER[side];
+      const covered = new Set(
+        PARITY.cases
+          .filter((c) => c.side === side && !!c.beats && !c.expect.ok)
+          .map((c) => `${(c.expect as { code: string }).code}>${c.beats}`),
+      );
+      const exempt = new Set(
+        PARITY.unconstructible_adjacencies
+          .filter((e) => e.side === side)
+          .map((e) => `${e.earlier}>${e.later}`),
+      );
+      for (let i = 0; i < order.length - 1; i += 1) {
+        const pair = `${order[i]}>${order[i + 1]}`;
+        expect(
+          covered.has(pair) && exempt.has(pair),
+          `${side} ${pair} is declared unconstructible AND a case constructs it -- one is wrong`,
+        ).toBe(false);
+        expect(
+          covered.has(pair) || exempt.has(pair),
+          `${side}: no case pins that ${order[i]} beats its neighbour ${order[i + 1]}, and the ` +
+            `pair is not declared unconstructible. Add a \`beats\` case, or say in ` +
+            `\`unconstructible_adjacencies\` why no input can violate both.`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  it("keeps every declared unconstructible adjacency a real neighbouring pair", () => {
+    // The exemption list is the one way to satisfy the floor without a case, so it must be
+    // unable to grow into a blanket. Every entry must name a pair that really IS adjacent in that
+    // side's chain -- so a reorder that strands an exemption goes red rather than quietly
+    // widening it -- and must carry a reason a reader can weigh.
+    for (const e of PARITY.unconstructible_adjacencies) {
+      const order: readonly string[] = BCS_REFUSAL_ORDER[e.side];
+      const earlier = order.indexOf(e.earlier);
+      const later = order.indexOf(e.later);
+      expect(earlier, `${e.side} ${e.earlier}: not in the chain`).toBeGreaterThanOrEqual(0);
+      expect(later, `${e.side} ${e.later}: not in the chain`).toBeGreaterThanOrEqual(0);
+      expect(later, `${e.side} ${e.earlier}>${e.later}: exemptions excuse ADJACENT rules only`).toBe(
+        earlier + 1,
+      );
+      expect(e.why.length, `${e.side} ${e.earlier}>${e.later}`).toBeGreaterThan(30);
+    }
   });
 
   it("is not a trivially satisfiable table", () => {

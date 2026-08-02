@@ -27,13 +27,32 @@
     "AUTHORITY -- bcsColumns.ts says so in its own docblock and mirrors it. The table describes",
     "the authority's rules; housing it with the client would invert the direction the whole",
     "arrangement depends on. Python reads it with json.load relative to __file__; the vitest suite",
-    "reads it with readFileSync off import.meta.url (NOT a bundler import -- no Vite fs-allow",
-    "question, and the node test environment makes it trivial).",
+    "takes it as a PLAIN BUNDLER IMPORT of this path, resolved by the toolchain (resolveJsonModule",
+    "is on in frontend/tsconfig.json), which is what bcsColumns.test.ts:26 actually does.",
+    "",
+    "CORRECTED AT BCS-S2e-fix. This paragraph used to say the vitest suite read the file with",
+    "readFileSync off import.meta.url, 'NOT a bundler import -- no Vite fs-allow question'. Both",
+    "halves were false about what SHIPS: that was the ABANDONED first draft (bcsColumns.test.ts's",
+    "own docblock records why it was dropped -- the inline decode tripped the ADR-0010 F2 ratchet),",
+    "and because the shipped import crosses out of frontend/ the module-resolution question is",
+    "raised rather than avoided. It is ANSWERED -- the suite resolves and both sides demonstrably",
+    "read this one file -- but a comment claiming a safety property the shipped approach lacks is",
+    "worse than no comment, because the next reader plans against it.",
     "",
     "ADDING A CASE: add it here once. Both suites pick it up with no edit. Adding a RULE means a",
     "new code in `order`, at its real position, plus a `beats` case against each neighbour it can",
     "actually be constructed against -- and both suites assert `order` against the module's own",
-    "declared order, so a code added to one side alone goes red on that side."
+    "declared order, so a code added to one side alone goes red on that side.",
+    "",
+    "THE PRECEDENCE FLOOR IS PER-ADJACENCY, NOT A COUNT (BCS-S2e-fix). Until this slice both",
+    "suites asked only for `>= 8` `beats` cases while this table carried 11 -- three cases of",
+    "slack, in the one guard whose whole job is to stop a precedence claim going unpinned. The",
+    "reviewer proved it: deleting `amount-precedence-kind-beats-shape`, the case labelled below as",
+    "THE LOAD-BEARING ONE, left both suites GREEN. That is the same 'looks closed' failure this",
+    "table exists to prevent, one level down. Both suites now walk each side's chain PAIRWISE and",
+    "require every adjacent pair to be covered by a real `beats` case or declared unconstructible",
+    "in `unconstructible_adjacencies` below -- so a NAMED case cannot be dropped in silence, and",
+    "no hand-maintained number has to be bumped when a case is added."
   ],
   "version": 1,
 
@@ -77,6 +96,29 @@
     }
   },
 
+  "_unconstructible_adjacencies_note": [
+    "THE EXEMPTION LIST for the per-adjacency precedence floor, and it is DATA so that the",
+    "guard never needs hand-editing. Both suites require every ADJACENT pair in each side's",
+    "`order` to be covered by a `beats` case OR named here with a reason -- and NEVER both, since",
+    "an entry here claiming a pair cannot be built while a case builds it is a false statement,",
+    "not a waiver. Each entry is also checked to BE a real adjacency of its side's chain, so a",
+    "reorder that strands one goes red instead of quietly widening the exemption.",
+    "",
+    "Only two shapes are exempt, both for reasons about the RULES rather than about effort: a",
+    "pick cannot be simultaneously empty and wrong, and a pick that reaches `too_many_scalars`",
+    "has already been answered by `aliased_columns` much earlier in the chain."
+  ],
+  "unconstructible_adjacencies": [
+    {"side": "qty", "earlier": "no_pick", "later": "unknown_column",
+     "why": "`no_pick` fires only on an EMPTY selection and `unknown_column` needs a letter to be wrong about, so no single input violates both. Not a coverage gap -- an impossibility."},
+    {"side": "qty", "earlier": "mixed_shapes", "later": "too_many_scalars",
+     "why": "Two scalar totals necessarily share a resolved identity, so `aliased_columns` -- which sits EARLIER than both -- always answers first. `too_many_scalars` can never be the loser to its own neighbour; the shadow that really governs it is pinned instead by `qty-shadow-two-scalar-totals` and by `unreachable`."},
+    {"side": "amount", "earlier": "no_pick", "later": "unknown_column",
+     "why": "As on the quantity side: empty and wrong are mutually exclusive."},
+    {"side": "amount", "earlier": "mixed_shapes", "later": "too_many_scalars",
+     "why": "As on the quantity side: `aliased_columns` shadows `too_many_scalars` from far earlier in the chain, and `amount-shadow-two-scalar-supplies` is what pins that."}
+  ],
+
   "client_only_codes": {
     "unruled_combination": "The client's (shape, kinds) table miss. The server's equivalent is a deliberate bare KeyError on `_AMOUNT_MODES` -- 'fail loudly rather than mint a plausible mode'. Both are unreachable by construction (every combination the guards permit is in both tables), and the two sides answer DIFFERENTLY on purpose, so this code is deliberately NOT part of the parity vocabulary. Do not add it to `order`."
   },
@@ -99,7 +141,9 @@
     {"col": "S", "role": "amount_supply_by_area", "area": "Zone B", "value_field": "amount_by_area", "value_key": "Zone B", "rate_subkey": "supply"},
     {"col": "T", "role": "amount_install_by_area", "area": "Zone B", "value_field": "amount_by_area", "value_key": "Zone B", "rate_subkey": "install"},
     {"col": "U", "role": "amount_total_by_area", "area": "Zone A", "value_field": "amount_by_area", "value_key": "Zone A", "rate_subkey": "total"},
-    {"col": "V", "role": "amount_supply", "area": null, "value_field": "amount_supply", "value_key": null, "rate_subkey": null}
+    {"col": "V", "role": "amount_supply", "area": null, "value_field": "amount_supply", "value_key": null, "rate_subkey": null},
+    {"col": "W", "role": "amount_total_by_area", "area": "Zone A", "value_field": "amount_by_area", "value_key": "Zone A", "rate_subkey": null},
+    {"col": "X", "role": "amount_supply_by_area", "area": "Zone B", "value_field": "amount_by_area", "value_key": "Zone B", "rate_subkey": "net"}
   ],
   "_descriptors_note": [
     "EXACTLY the shape review_screen._build_column_descriptors emits, which is what",
@@ -189,6 +233,10 @@
      "why": "Widening the KIND axis did NOT widen the class check."},
     {"id": "amount-wrong-class-among-halves", "side": "amount", "cols": ["J", "P", "K"], "expect": {"ok": false, "code": "wrong_class"},
      "why": "A rate is still not an amount however the rest of the pick is shaped."},
+    {"id": "amount-wrong-class-null-rate-subkey", "side": "amount", "cols": ["W"], "expect": {"ok": false, "code": "wrong_class"},
+     "why": "ADDED AT BCS-S2e-fix, closing the one edge the S2e net named but did not compare. W's value_field IS the per-area amount field and its ROLE reads as an amount, but its THIRD HOP is missing -- so the number cannot be resolved at all, and both sides must place it OUTSIDE the amount class rather than accept an unresolvable pick. Until this case the two class guards were never compared on the family the net exists for: the server keys on `subkey in _AREA_AMOUNT_KINDS`, the browser on a truthiness test AND a set membership, and only an input like this can tell whether those two agree."},
+    {"id": "amount-wrong-class-unknown-rate-subkey", "side": "amount", "cols": ["X"], "expect": {"ok": false, "code": "wrong_class"},
+     "why": "The other half of the same edge, and NOT redundant with it: a null third hop is caught by the browser's truthiness test alone, while an unknown-but-present one ('net') reaches the set membership. Two different lines of the client guard, one line of the server's -- so a client that dropped its membership check would still pass the null case and fail only this one."},
     {"id": "amount-mixed-kinds-scalar", "side": "amount", "cols": ["F", "J"], "expect": {"ok": false, "code": "mixed_kinds"},
      "why": "THE ONE PIECE OF THE HALF-REFUSAL THAT SURVIVED BCS-S2b. F already CONTAINS J, so the pair counts the supply half twice."},
     {"id": "amount-mixed-kinds-per-area", "side": "amount", "cols": ["G", "I"], "expect": {"ok": false, "code": "mixed_kinds"},

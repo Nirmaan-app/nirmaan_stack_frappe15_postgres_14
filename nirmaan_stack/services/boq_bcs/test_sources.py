@@ -68,8 +68,14 @@ from nirmaan_stack.services.boq_bcs.sources import (
 
 # The SHARED rule-parity table (BCS-S2e), read from disk rather than imported, so the ONE
 # artifact both languages consume has no build step and no duplicate. `bcsColumns.test.ts`
-# reads this same file off `import.meta.url`; see its Group "rule parity" and the file's own
-# `_readme` for why it lives beside the authority rather than beside the mirror.
+# reaches the same file by a plain BUNDLER IMPORT of this path (`resolveJsonModule`); see its
+# Group "rule parity" and the file's own `_readme` for why it lives beside the authority
+# rather than beside the mirror.
+#
+# CORRECTED AT BCS-S2e-fix: this comment used to say the vitest suite read the file off
+# `import.meta.url`. That was the ABANDONED first draft, not what ships -- and the same false
+# sentence sat in the JSON's `_readme` too, so the one artifact both languages share described
+# its own consumer wrongly in both places at once.
 _PARITY_CASES_PATH = os.path.join(os.path.dirname(__file__), "parity_cases.json")
 
 
@@ -807,6 +813,65 @@ class TestRuleParityTable(unittest.TestCase):
                     f"{beaten} never answers any case, so beating it proves nothing",
                 )
 
+    def test_every_constructible_adjacency_in_the_chain_has_a_precedence_case(self):
+        """★ THE COVERAGE FLOOR (BCS-S2e-fix), and it REPLACES a count.
+
+        Until this slice both suites asked only for `>= 8` `beats` cases while the table carried
+        11 -- three cases of slack in the guard whose entire job is to stop a precedence claim
+        going unpinned. It is not a hypothetical: deleting `amount-precedence-kind-beats-shape`,
+        the case the table itself labels THE LOAD-BEARING ONE, left BOTH suites green. A count
+        cannot see WHICH case vanished, which is the only thing worth knowing here.
+
+        So the floor is now per-ADJACENCY: walk each side's declared chain pairwise and require
+        every neighbouring pair to be settled -- by a real `beats` case, or by an entry in
+        `unconstructible_adjacencies` saying why no input can violate both at once. Two
+        properties follow that the count never had. A NAMED case cannot be dropped in silence,
+        because dropping it strands its pair. And adding a case needs no edit here at all, so
+        the guard cannot drift behind the table the way the number did.
+
+        NOT BOTH, deliberately: an exemption is a claim that a pair is unbuildable, so a table
+        that also BUILDS it has one of the two wrong, and silently preferring either would be
+        this guard making the same mistake it was written to catch.
+
+        NOTE what this does NOT cover, so the claim stays honest: a NON-adjacent `beats` pair --
+        today only the `aliased_columns` > `too_many_scalars` shadow on each side. Those two are
+        pinned BY NAME through `unreachable.shadowed_by` instead, in the test above this one, so
+        all 11 of the table's precedence cases are load-bearing somewhere.
+        """
+        exemptions = self._PARITY["unconstructible_adjacencies"]
+        for side in ("qty", "amount"):
+            order = list(self._ORDER[side])
+            covered = {(c["expect"]["code"], c["beats"]) for c in self._PARITY["cases"]
+                       if c["side"] == side and c.get("beats") and not c["expect"]["ok"]}
+            exempt = {(e["earlier"], e["later"]) for e in exemptions if e["side"] == side}
+            for earlier, later in zip(order, order[1:]):
+                with self.subTest(side=side, pair=f"{earlier}>{later}"):
+                    self.assertFalse(
+                        (earlier, later) in covered and (earlier, later) in exempt,
+                        f"{side} {earlier} > {later} is declared unconstructible AND a case "
+                        f"constructs it -- one of the two is wrong",
+                    )
+                    self.assertTrue(
+                        (earlier, later) in covered or (earlier, later) in exempt,
+                        f"{side}: no case pins that {earlier} beats its neighbour {later}, and "
+                        f"the pair is not declared unconstructible. Add a `beats` case, or say "
+                        f"in `unconstructible_adjacencies` why no input can violate both.",
+                    )
+
+    def test_every_declared_unconstructible_adjacency_is_a_real_neighbouring_pair(self):
+        """The exemption list is the one way to satisfy the floor without a case, so it has to
+        be unable to grow into a blanket. Every entry must name a pair that really IS adjacent in
+        that side's chain -- so a reorder that strands an exemption goes red rather than quietly
+        widening it -- and must carry a reason a reader can weigh."""
+        for e in self._PARITY["unconstructible_adjacencies"]:
+            with self.subTest(side=e["side"], pair=f"{e['earlier']}>{e['later']}"):
+                order = list(self._ORDER[e["side"]])
+                self.assertIn(e["earlier"], order)
+                self.assertIn(e["later"], order)
+                self.assertEqual(order.index(e["later"]), order.index(e["earlier"]) + 1,
+                                 "an exemption may only excuse ADJACENT rules")
+                self.assertGreater(len(e["why"]), 30, "an exemption without a reason is a waiver")
+
     def test_the_shared_table_is_not_trivially_satisfiable(self):
         """The other end of anti-vacuity: a table of only-accepts (or only-refuses) would sail
         through both suites while comparing almost nothing. Pins that the table really carries
@@ -826,7 +891,10 @@ class TestRuleParityTable(unittest.TestCase):
              "amount_by_area_supply_plus_install", "amount_by_area_supply_only",
              "amount_by_area_install_only"},
         )
-        self.assertGreaterEqual(len([c for c in refused if c.get("beats")]), 8)
+        # The `beats` COUNT that used to sit here (`>= 8`, against a table of 11) is gone on
+        # purpose: it was three cases of slack, and a number cannot say WHICH precedence claim
+        # went missing. `test_every_constructible_adjacency_in_the_chain_has_a_precedence_case`
+        # replaced it with the property the number was standing in for.
 
     def test_the_client_only_code_is_deliberately_outside_the_vocabulary(self):
         """The ONE place the two sides answer differently on purpose. The client's amount-mode
