@@ -15844,3 +15844,56 @@ accepted BOQ-26-00066 as the D3 evidence and directed proceed.** D5 gates all gr
 
 **EA-4c CLOSED the assembly-category arc; EA-4d makes it REACHABLE end-to-end for DB and generalises the
 extraction seam for the next composites. EA-5 is next.**
+
+---
+
+## Build slice SR-1 Part 1 (the AI-toggle test leak) COMPLETE
+
+**What:** the two classify test suites silently turned the site's AI toggle OFF. Both mutate
+`BOQ Upload Review AI Settings.enabled` via `frappe.db.set_single_value` against the LIVE localhost site;
+neither restored what it found.
+
+- `test_classify.TestOrchestrator.tearDownClass` restored a **hardcoded 0**, so the restore was only correct
+  when the toggle happened to already be off. With AI on, running the suite turned it off.
+- `test_row_category.TestAiVoter` had **no restore at all** -- it left the toggle wherever its last test put it.
+
+Both now capture the original in `setUpClass` and restore THAT in `tearDownClass` -- the pattern
+`test_ai_settings.py` already used correctly (capture + `addCleanup`).
+
+**WHY THE VERSION LOG NEVER SHOWED IT (the load-bearing part).** `set_single_value` bypasses the doc
+lifecycle, so it writes **no `Version` row** -- the same class of bypass as the `set_value`-skips-the-audit
+rule in the RM-4a note. Human ON flips go through Desk (`doc.save`) and ARE tracked; these test OFF flips were
+invisible **by construction**. The Version log for the doctype held only `0 -> 1` rows and never a single
+`1 -> 0`. HV-11 added `track_changes: 1` to this doctype precisely to catch the flips -- but the instrument was
+pointed at a write path that was not the one in use, so it could never have caught them.
+
+**THIS CLOSES the standing unattributed-self-flip incident** and DOWNGRADES it from a suspected production
+risk to a **dev-environment hazard**: the flips only ever came from tests run against the localhost site, not
+from any production code path. No production writer of this field was ever found.
+
+**Standing rule (recorded in the root CLAUDE.md Testing Conventions):** any test mutating a Single doctype
+field captures and restores the ORIGINAL value; never a hardcoded restore constant.
+
+**PROOF (non-vacuous).** Toggle read verbatim before and after each suite, on a site where `enabled` was
+genuinely ON:
+
+| Step | Reading |
+|---|---|
+| before `test_classify` | `{"enabled": true, ...}` |
+| `test_classify` | **77 pass** (baseline 77) |
+| after `test_classify` | `{"enabled": true, ...}` |
+| before `test_row_category` | `{"enabled": true, ...}` |
+| `test_row_category` | **29 pass** |
+| after `test_row_category` | `{"enabled": true, ...}` |
+
+Non-vacuity: BEFORE this fix the post-suite reading was `{"enabled": false, ...}`. That is not hypothetical --
+it is how the bug was found. A `test_rate_suggest` run went 12/12 pass, then FAILED (failures=3) minutes later
+with no code change; all three failures were `'disabled' != 'ran'` (the runner failing closed), because the
+baseline sweep in between had run `test_classify`.
+
+**Cross-reference:** the EA-4d cert above records BOTH production symptoms this unblocks -- the Anthropic
+usage-limit 400 and the `_extract_json_array` `Extra data` parse failure, with the note "the run is
+all-or-nothing". SR-1 Part 2 addresses those directly.
+
+**Files:** `nirmaan_stack/api/boq/wizard/test_classify.py`, `nirmaan_stack/api/boq/wizard/test_row_category.py`
+(+ the root `CLAUDE.md` Testing Conventions rule). No production code touched.

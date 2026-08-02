@@ -164,6 +164,12 @@ For BoQ Upload dev-environment setup, clean bench-restart sequence, the CSRF cle
 - **Existing tests:** Nearly all are empty stubs. Don't rely on them to catch regressions.
 - **New code:** Pure-Python modules (parsers, services) must have real unit tests with fixture files. No stubs for logic-bearing code.
 - **Frontend E2E:** Cypress 13.7 configured in `frontend/cypress.config.ts` — largely unimplemented.
+- **Single-doctype state (STANDING RULE):** a test that mutates a field on a Single doctype MUST capture the
+  site's original value and restore **that** — never a hardcoded restore constant. These suites run against the
+  LIVE localhost site, so a hardcoded restore rewrites the owner's real setting whenever it differs. The failure
+  is SILENT because `frappe.db.set_single_value` bypasses the doc lifecycle and writes **no `Version` row**: a
+  `track_changes` audit cannot see it, so the setting appears to change by itself. Correct pattern:
+  `test_ai_settings.py` (capture + `addCleanup`) or a `setUpClass` capture restored in `tearDownClass`.
 - **After editing any doctype JSON:** Always run `bench --site localhost migrate`. Tests use a separate test database that auto-migrates, so **passing tests do not guarantee the runtime database has the new column**. Verify with `frappe.db.has_column("DocType Name", "field_name")` in the bench console after migration.
 
 ### Projects row fixture pattern
