@@ -217,7 +217,7 @@ def _cleanup_committed(boq_name):
 # ===========================================================================
 class TestBcsRateDoctypeIdentity(FrappeTestCase):
     """The BCS rate row is addressed PER ROW -- (boq, sheet_name, excel_row,
-    committed_version). There is deliberately NO col_letter: the two BCS columns are
+    committed_version). There is deliberately NO col_letter: the BCS columns are
     screen-only and have no Excel origin, so inventing a sentinel letter would be a lie.
     BoQ Row Category / BoQ Cell Remark are the established no-column precedent."""
 

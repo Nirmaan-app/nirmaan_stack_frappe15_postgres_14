@@ -56,7 +56,7 @@
    "reqd": 1
   },
   {
-   "description": "The source Excel row number this BCS cost annotates (= BOQ Nodes.source_row_number = the committed grid row_number). Durable identity component. BCS is PER-ROW: there is deliberately NO col_letter, because the two BCS columns are SCREEN-ONLY and have no Excel origin -- inventing a sentinel column letter for them would be a lie about the source workbook. BoQ Row Category and BoQ Cell Remark are the established no-column precedent.",
+   "description": "The source Excel row number this BCS cost annotates (= BOQ Nodes.source_row_number = the committed grid row_number). Durable identity component. BCS is PER-ROW: there is deliberately NO col_letter, because the BCS columns are SCREEN-ONLY and have no Excel origin -- inventing a sentinel column letter for them would be a lie about the source workbook. BoQ Row Category and BoQ Cell Remark are the established no-column precedent.",
    "fieldname": "excel_row",
    "fieldtype": "Int",
    "in_list_view": 1,
@@ -130,7 +130,7 @@
   },
   {
    "default": "Manual",
-   "description": "How these two rates came to be. THE PROVENANCE SEAM (owner decision, BCS-S1): a later slice must be able to record that a rate was DERIVED from the BoQ Rate Master rather than hand-typed, and that must cost NO further production migration -- so the field ships now, defaulted to Manual. NOTHING in the S1-S6 arc reads or writes anything but the default; this is storage capacity, not a derivation system. If a later slice needs to record WHICH rate-master row/config a value came from, that reference is a further field and therefore a further migration -- deliberately not pre-built here.",
+   "description": "How these cost rates came to be. THE PROVENANCE SEAM (owner decision, BCS-S1): a later slice must be able to record that a rate was DERIVED from the BoQ Rate Master rather than hand-typed, and that must cost NO further production migration -- so the field ships now, defaulted to Manual. NOTHING in the S1-S6 arc reads or writes anything but the default; this is storage capacity, not a derivation system. If a later slice needs to record WHICH rate-master row/config a value came from, that reference is a further field and therefore a further migration -- deliberately not pre-built here.",
    "fieldname": "rate_source",
    "fieldtype": "Select",
    "label": "Rate Source",

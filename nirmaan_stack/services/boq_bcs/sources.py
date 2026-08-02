@@ -4,10 +4,18 @@
 """The TWO BCS column confirmations -- the business rules, defined once.
 
 BCS compares what a row costs US against what we charge the CLIENT, so it needs two
-numbers off the committed sheet: the row's Total Quantity, and the row's combined Amount.
+numbers off the committed sheet: the row's Total Quantity, and the AMOUNT CHARGED.
 Neither is a single fixed column across BoQs -- a sheet may express either as one scalar
 column or as several per-area columns -- so the human CONFIRMS which columns to use, once
 per sheet, and that confirmation is stored re-resolvably.
+
+⚠️ "THE ROW'S COMBINED AMOUNT" IS NOT THE RULE, AND HAS NOT BEEN SINCE BCS-S2b (corrected
+at BCS-S2d). This header said exactly that, which is the pre-S2b world: the amount also
+varies along a KIND axis, and the SUPPLY / INSTALLATION halves are accepted -- including a
+sheet that carries only ONE of them. See the AMOUNT block below for the eight shapes. The
+stale sentence mattered more here than anywhere else it appeared: this module DEFINES the
+rules, so its own header is the first thing a reader trusts and the last thing they think
+to doubt.
 
 This module owns the decisions in that sentence: what a valid quantity source is, what a
 valid amount source is, and which combinations are refused. They were relocated out of
