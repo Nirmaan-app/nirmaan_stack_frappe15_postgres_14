@@ -17860,3 +17860,236 @@ Both are design changes to two modules, not a test.
   in §1 of this record and in git.
 - **`BcsColumnsDialog.tsx` — checked, no change needed.** Its docblock already quoted the sentence in the
   clause-free form, so it became correct rather than stale. It is out of scope regardless.
+
+## BCS-S3a — the cost columns become real: type, paste and undo a cost, and see Total Amount
+
+**Branch** `feature/bcs-columns` · **Base** `dd02fd4d` · **Tier** FULL · **Date** 2026-08-02
+
+Seven slices built storage, rules, a toggle and a confirmation card, and **nothing was usable**. This one
+makes it usable: the cost inputs appear in the pricing grid, you type or paste into them, they save, and
+**Total Amount** reads quantity × what you entered. **Tendered Total Amount and % Profit are S3b** and are
+not here. No migration; the schema was already complete. Three commits: `40786348` (the pure rules),
+`99c7eec6` (the grid + page), `2089aab2` (the export sentinel + the CLAUDE.md note).
+
+---
+
+### 1. The whole-row gather — how the slice's one real hazard was solved
+
+`save_row_bcs_rates` is a **WHOLE-ROW SNAPSHOT WRITE**. It takes `supply_rate`, `install_rate` and
+`combined_rate` together and coerces every one it is *not* given to `0.0` (`bcs.py` `_num`, pinned by
+`test_bcs.py:1013-1024`). A client rate cell saves **per cell** — type in one, that one saves — and porting
+that shape to three cost boxes would have zeroed the untouched siblings on every keystroke debounce. It
+would have looked correct while typing and been wrong the moment anyone looked away.
+
+The solution is **one merge with two readers**, both pure, both in `bcsColumns.ts`:
+
+| function | what it produces | who reads it |
+|---|---|---|
+| `mergeBcsRowValues(saved, drafts)` | the row's three fields as display strings, three-valued: a live draft, else the stored value, else `null` for "never costed" | everything below |
+| `gatherBcsRowRates(merged)` | the numeric triple a save carries | **every** write path |
+| `bcsUnitCost(merged, kinds)` | the Total's multiplicand, `null` when nothing is entered | the Total Amount cell |
+
+**`gatherBcsRowRates` is the only place a cost payload is built.** It iterates `BCS_RATE_FIELDS` rather than
+naming three fields, so a fourth stored rate could not be silently dropped from a write either. `BcsRowRates`
+lives in `boqTypes.ts` precisely so a **partial payload is not expressible** — there is no shape in which a
+caller can send one rate and leave the others to chance.
+
+Three call sites all route through it, and each had its own way of getting this wrong:
+
+1. **The inline edit.** `commitBcsRate` gathers from the **latest drafts via a ref** (not render state — a
+   debounce fire must not gather a stale snapshot) plus the stored record, with the value being committed
+   applied on top since it may not have landed in state yet.
+2. **Paste / cut / fill-down.** ⚠️ This is where the row-vs-cell shape bites hardest. A block spanning two
+   cost columns must **not** fire twice for one row: the second call is a whole-row snapshot and would
+   overwrite the first with a `0` for the column it had just written. `clipboard.foldBcsWrites` folds the
+   per-CELL intents into **ONE write per ROW**, each starting from that row's own current triple.
+3. **Undo / redo.** A delta stays **per-field** even though the write is per-row — recording them folded
+   would lose which box the user actually touched, so an undo would overwrite a sibling the gesture never
+   wrote. The replay re-folds them through the same `foldBcsWrites`, off each row's *current* triple.
+
+### 2. Which boxes a sheet gets — and the one ruling this slice had to make
+
+The owner's rule is mechanical: the live boxes follow the sheet's **own rate columns**. No Rate (Supply)
+column ⇒ no Supply box; a combined-rate sheet ⇒ one undifferentiated box; no rate column at all ⇒ BCS cannot
+be done there. `bcsLiveRateKinds` implements exactly that, reading both the scalar `rate_*` fields and the
+per-area `rate_subkey` (where the combined one is spelled `total`).
+
+**But a sheet can map all three, and `bcs.py:16` forbids summing `combined_rate` with the two halves.** Left
+alone, such a sheet would get three boxes and a Total Amount that double-counts.
+
+**This is not hypothetical. Measured on the live bench: 22 of 553 current committed sheets map all three**
+(`Supply | Install | Total Rate` is an ordinary BoQ layout — e.g. `BQSH-26-00247 ELECTRICAL`,
+`BQSH-26-00300 HVAC Low side`). Distribution: 251 halves-only, 155 no rate column, 120 combined-only, 22 all
+three, 5 one-half-only.
+
+**Ruling made here: the HALVES WIN; `combined` is offered only when no half is mapped.** ⚠️ **This was a
+build-time decision, not an owner instruction, and it is the one thing in this slice that most wants the
+owner's eye.** The reasoning:
+
+- It makes the prohibition **structural** rather than conventional — the live set is either `{supply,
+  install}` or `{combined}`, never mixed, so the arithmetic downstream *cannot express* the forbidden sum.
+- On such a sheet the combined column is the sheet's **own** sum of its halves, and the halves carry
+  strictly more information. This is the same reading the AMOUNT side already takes when it refuses a total
+  picked beside the half it contains.
+- Collapsing such a sheet to one box would discard the supply/install split the sheet is built around.
+
+It is a **narrowing, never a widening** (the same safety argument `eligibleBcsColumns` makes), and reversing
+it is a one-function change — nothing downstream reads the rate columns again.
+
+### 3. Where the columns went, and the carve-out that had to follow
+
+The block sits **AFTER the descriptors and BEFORE Remarks**: one editable box per live kind, then a computed
+Total Amount. That placement disturbs strictly less colIndex algebra than a Category-style one —
+`descriptorColStart` and every descriptor's own colIndex are untouched, and only the tail moves right.
+
+**`descriptorAt` needed the mirror-image carve-out** of the leading `>= descriptorColStart` bound the
+Category column forced: its upper bound became `< bcsColStart`. Without it every cost cell would classify as
+the descriptor sitting at its index minus the offset, and a paste into a cost box would be read as a paste
+into a rate column. **With an empty block `bcsColStart === remarksColIndex`, so every index reverts to its
+pre-S3a value** and a sheet without BCS renders unchanged.
+
+Also touched, all of them collapsing to their old form on an empty block: `cellKindAt` (a new `"bcs"` kind;
+the computed Total classifies as `"other"` so it is never a paste target), `colCount`, `remarksColIndex`,
+`colIndexFromColKeyPure` (**two OPTIONAL trailing params**, so `PricingGrid.test.ts` — out of scope — and
+every existing caller compile and pass untouched), the two colgroups/headers, and the virtualizer spacer's
+`colSpan` (widened **at the call site**, because `pricingVirtual.ts` is out of scope and the addend is pure
+geometry the caller already holds).
+
+### 4. The gates, and why the rate predicate could not be reused
+
+`rateWritableAt` / `isDeltaWritable` gate on `formulasComplete` and `categoryGateOpen`. `save_row_bcs_rates`
+runs **four** gates and **skips those three on purpose** (`bcs.py:41-59`: *"Do NOT add any of the three 'to
+restore consistency with save_cell_price' — the asymmetry IS the decision"*). Reusing them here would have
+silently re-imposed all three, and nothing would have failed — the boxes would just have been inexplicably
+dead on a normal sheet.
+
+So `bcsCostEntryReason` is a **parallel** predicate in the server's own gate order: committed cell exists →
+sheet not deliberately locked → BCS ready → single-editor lock. **The lock is LAST**, for the same reason it
+is fourth in `bcs.py`: it is the only one of the four that is someone else's transient state rather than
+this sheet's own setup, so naming it first would hide the gate the user can act on. A negative test pins
+that the argument shape *cannot express* the three skipped gates, so a future "restore consistency" edit
+fails to compile rather than passing quietly.
+
+**Read-only is the ABSENCE of `onSaveBcsRates`** — no second per-cell `editable` signal. Visibility and
+editability are answered separately on purpose: a locked sheet still **shows** its costs read-only (with the
+reason as the cell title), while an **unknown** BCS state hides the block entirely, which is `bcsToggleState`'s
+S2a rule applied one layer out — absence of knowledge must not render as an empty, editable cost cell.
+
+**The deferred commit is load-bearing here exactly as it is for rates.** `onChange` writes a draft and
+schedules the 1 s debounce; the draft flips the sheet dirty, which fires the page's `ensureLockAcquired`
+**before** the save runs. `save_row_bcs_rates` takes `acquire_or_refresh` too (`bcs.py:498-501`), so a
+synchronous commit would race lock acquisition and trip a spurious takeover. For the same reason
+`hasUnsaved` now counts cost drafts — without that the very first cost keystroke would reach the server
+with no lock in hand.
+
+### 5. The memo shield
+
+`draftBcsRates` is **its own state map**, sliced by the reused (generic) `groupDraftsByRow`. Merging cost
+values into `draftRates` would have given every rate cell of the row a new slice on a cost keystroke,
+defeating `shallowEqualStrMap` for edits that have nothing to do with each other. Each row receives only its
+own draft slice, its own stored record (by reference) and its quantity as a **scalar** — never the whole
+`bcsRatesByExcelRow` Map, never the qty source. All eleven new row props are in `pricingRowPropsAreEqual`;
+all five new grid props are `useMemo`'d / `useCallback`'d or plain scalars, including a module-level
+`EMPTY_BCS_KINDS` so an absent block never mints a fresh `[]`.
+
+### 6. The two questions this slice was asked to decide
+
+**(a) Why BCS is absent on grid-only sheets — the CAUSE, recorded in `SheetPricingPage` beside the fork.**
+The outcome was always right; the reasoning had never been written down, so a future reader could have
+changed it either way with equal confidence. **The cause is the ZERO NODES.** BCS identity is per committed
+ROW and `save_row_bcs_rates` resolves that row through `_resolve_committed_cell`, storing the resolved node
+as its pointer. A grid-only sheet commits a faithful **cell grid** and no nodes at all, so there is no
+per-line address for a cost to hang on — every write would refuse at gate 1. **Per-line cost there is not
+withheld; it does not exist to be withheld.** That it also renders through `SheetDataGrid` is a
+*consequence*, not the reason — so "add BCS to the faithful grid" on the strength of the rendering fork
+alone would be wrong twice over (it needs the sheet to commit nodes first, and those reference sheets have
+no quantities to multiply anyway).
+
+**(b) Should the duplicate guard re-validate on READ? — DECIDED NO.** `validateBcsPicks` catches a pick where
+two different letters resolve to one number (BCS-S1c), but only at write time; a stored confirmation is never
+re-checked. **It cannot go stale.** The confirmation lives on the *same* `BoQ Sheet` row as the
+`column_role_map` it was validated against, and that row is version-pinned and immutable — a re-commit mints
+a **new** row which starts BCS-disabled and unconfirmed. So the pairing a read-time check would defend
+against is unreachable by construction. Adding it would cost a `_committed_descriptors` resolve on the
+Total Amount render path to defend a state that cannot occur, and worse, would need a policy for what to *do*
+on failure — inventing a failure mode rather than catching one. **There is an honest fail-safe residue:**
+`bcsRowQuantity` skips any entry that does not resolve to a number, so a hypothetical stale entry degrades
+the Total to **blank**, never to a wrong figure. ⚠️ **The one thing that would change this answer: if a
+future slice ever lets a committed sheet's `column_role_map` be edited in place, the read-time check becomes
+necessary.**
+
+### 7. The export leak guard was green for the wrong reason
+
+`TestBcsCostRatesNeverReachTheExport` seeded only `supply_rate` and `install_rate`. BCS-S2b widened storage
+to a **third** field, `combined_rate` — and that is the **only** field a combined-rate sheet uses. So on the
+entire axis S2b opened, the guard was passing because **there was nothing there to leak**: precisely the
+vacuity its own docstring says it exists to avoid. A combined-rate sheet's internal cost could have reached a
+CLIENT workbook with the standing guard green.
+
+Fixed: `_COMBINED = 456789.33` seeded on every fixture row, asserted genuinely stored by the anti-vacuity
+test, and checked in both leak tests plus the module-grep token list. ⚠️ The derived-total test checks
+`_COMBINED` as **its own** per-unit cost and **not** added to the halves — that sum is an arithmetic the
+product never performs, so a sentinel for it could only ever pass.
+
+**VERIFIED FALSIFIABLE.** A guard that cannot fail is worse than none, so the sentinel was temporarily set to
+`25.0` — a value the fixture really stamps at `E2` — and **both** new assertions failed with the intended
+message (`BCS cost 25.0 leaked into the CLIENT workbook: ['25']`). Restored, green.
+
+⚠️ **A cleaner probe was BLOCKED and not routed around.** The first attempt injected a simulated BCS-stamping
+pass into `export_writeback.py` — the exact defect the guard exists to catch. `guard_scope.py` **DENIED** the
+write as out of scope, correctly. The file was verified untouched and the falsifiability was proven in-scope
+instead.
+
+### 8. Verification
+
+| check | baseline → final |
+|---|---|
+| `yarn test` (in container) | **1320 → 1369**, 54 files, all green |
+| `bcsColumns.test.ts` | 98 → **131** |
+| `clipboard.test.ts` | 18 → **29** |
+| `undoHistory.test.ts` | 16 → **22** |
+| **RED shown before green** | 32 failed / 99 passed (bcsColumns); 10 failed / 41 passed (clipboard + undoHistory); 2 failed (the export sentinel probe) |
+| `tsc --noEmit`, `boq-wizard` | **0 → 0** |
+| `test_export_writeback` | **47 → 47** OK (existing tests widened, none added) |
+| `test_sources` · `test_bcs` | **48 → 48** · **64 → 64** OK |
+| `test_pricing` · `test_commit_pipeline` · `test_review_screen` | **252 → 252** · **57 → 57** · **260 → 260** OK |
+| `python3 scripts/residence_check.py` | F2 **208** (baseline 207 — the pre-existing red; a 209 would have been ours). B1 0, B2 8, B3 40, F5 116, all holding |
+| `git diff --stat dd02fd4d..HEAD` | 11 files, **+1874 / −48** |
+
+**The bench suites WERE run.** The recorded collision is with an actively polling browser tab, not with
+`bench start` merely being up, so `tabSessions.lastupdate` was sampled across ~50 s: frozen at `22:14:32`
+(≈29 minutes stale), i.e. no live session. Both a baseline and a final pass ran clean.
+
+**No DOM test environment**, so nothing here claims coverage of a React semantic. Every pure helper is
+covered — the whole-row gather, the live-kinds rule, the arithmetic, the gate order, the colIndex geometry,
+the write folding, the undo inversion. **What needs the owner's eyes, in plain English:**
+
+1. **Typing a cost actually saves, and the sibling boxes keep their values.** The gather is unit-tested; that
+   the React commit path *calls* it with the live drafts is not observable here. Type in Supply on a
+   supply+install sheet, look away, come back: Install must still hold its number.
+2. **Paste across two cost columns writes one save per row.** The fold is unit-tested; that the grid feeds it
+   the right intents is not.
+3. **Ctrl+Z on a cost restores the previous value** without disturbing the sibling.
+4. **Total Amount reads quantity × cost** on a real sheet, and is **blank** (not 0) on a row with no
+   quantity or no cost entered.
+5. **The 22 all-three-rate sheets** now show **two** boxes (Supply, Install) and no Combined — the §2 ruling.
+6. **A locked sheet still shows costs, read-only, with a reason on hover.**
+
+### 9. Deliberately NOT done
+
+- **Tendered Total Amount and % Profit — S3b**, per the build's explicit boundary. The S2d record's held
+  item (stating which way % Profit moves under a one-sided amount) belongs there too: this slice ships the
+  cost numerator, not the margin.
+- **`pricing.py` / `save_cell_price` / the carry path / `scripts/residence_*`** — out of scope, untouched.
+- **`bcs.py` — untouched.** The whole hazard was handled on the client side, where the per-cell save shape
+  lives; the endpoint's whole-row contract is correct as written and needed no softening.
+- **`pricingVirtual.paneColSpan` — NOT edited** (out of scope). The cost columns' addend is applied at the
+  call site instead, which is where the caller already holds the geometry.
+- **`PricingGrid.test.ts` — NOT edited** (out of scope). This is why `colIndexFromColKeyPure`'s new
+  parameters are OPTIONAL and every new row prop is optional: the existing 143 tests construct their own
+  props objects and compile unchanged.
+- **A read-time duplicate re-validation — decided against**, with the reasoning and its one reversal
+  condition in §6(b). Recorded rather than silently skipped.
+- **The residence F2 red — not fixed, not re-baselined.** Reported exactly (**208**).
+- **Production remains unmigrated for the whole BCS arc.** This slice adds no migration of its own, but the
+  arc's prior ones are still owed before any BCS use in prod.
