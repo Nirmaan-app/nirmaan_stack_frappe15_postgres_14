@@ -99,6 +99,14 @@ export type DialogStore = {
   newWODialog: boolean;
   setNewWODialog: (open: boolean) => void;
   toggleNewWODialog: () => void;
+
+  // New Reminder Dialog (Reminders page "Add Reminder" right-action button)
+  newReminderDialog: boolean;
+  setNewReminderDialog: (open: boolean) => void;
+  toggleNewReminderDialog: () => void;
+  /** When set, NewReminderDialog opens in EDIT mode for this Reminder Schedule; null = create. */
+  editReminderScheduleName: string | null;
+  setEditReminderScheduleName: (name: string | null) => void;
   // --- (Explanation)
   // Added state and actions for the "New Non-Project Expense" dialog.
   // - `newNonProjectExpenseDialog`: Boolean to control its visibility.
@@ -199,4 +207,10 @@ export const useDialogStore = create<DialogStore>((set) => ({
     log('toggleNewWODialog:', !state.newWODialog);
     return { newWODialog: !state.newWODialog };
   }),
+
+  newReminderDialog: false,
+  setNewReminderDialog: (open: boolean) => set({ newReminderDialog: open }),
+  toggleNewReminderDialog: () => set((state) => ({ newReminderDialog: !state.newReminderDialog })),
+  editReminderScheduleName: null,
+  setEditReminderScheduleName: (name: string | null) => set({ editReminderScheduleName: name }),
 }));

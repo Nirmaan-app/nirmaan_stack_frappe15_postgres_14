@@ -216,8 +216,8 @@ export const PurchaseOrder = ({
   useEffect(() => {
     if (po) {
       setPO(po);
-      const data = { ...po, invoice_data: po?.invoice_data && JSON.parse(po?.invoice_data), delivery_data: po?.delivery_data && JSON.parse(po?.delivery_data) }
-      setInvoicePO(data);
+      const data = { ...po, delivery_data: po?.delivery_data && JSON.parse(po?.delivery_data as string) }
+      setInvoicePO(data as any);
     }
   }, [po]);
 

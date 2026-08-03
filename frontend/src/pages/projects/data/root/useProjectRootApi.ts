@@ -396,7 +396,6 @@ export const useProjectViewFinancialData = (projectId: string) => {
         "amount",
         "tax_amount",
         "total_amount",
-        "invoice_data",
         "po_amount_delivered",
         "amount_paid",
       ] as const,

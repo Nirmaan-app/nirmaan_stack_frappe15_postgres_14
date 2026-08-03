@@ -11,9 +11,11 @@ STATUSES_WITH_SUB_STATUS = {"Clarification Awaiting", "Revision Pending"}
 @frappe.whitelist()
 def bulk_update_task_status(tracker_id, task_names, task_status, task_sub_status=None):
     user = frappe.session.user
-    roles = frappe.get_roles(user)
-    if ADMIN_ROLE not in roles and user != "Administrator":
-        frappe.throw("Only Admin can perform bulk status updates.", frappe.PermissionError)
+    
+    if user != "Administrator":
+        role_profile = frappe.db.get_value("User", user, "role_profile_name")
+        if role_profile != ADMIN_ROLE:
+            frappe.throw("Only Admin can perform bulk status updates.", frappe.PermissionError)
 
     task_names = frappe.parse_json(task_names) or []
     if not task_names:
@@ -26,6 +28,9 @@ def bulk_update_task_status(tracker_id, task_names, task_status, task_sub_status
     target = set(task_names)
     updated = 0
     for task in doc.design_tracker_task:
+        # Pass the bypass flag down to the child doc so its own validate() skips evidence checks
+        task.flags.ignore_design_tracker_status_validation = True
+        
         if task.name not in target:
             continue
 

@@ -54,8 +54,8 @@ interface ProjectExpenseListParams extends ListParams { }
 
 // --- Define Fields Constants (Good Practice) ---
 const PROJECT_REPORT_FIELDS: (keyof Projects)[] = ['name', 'project_name', 'project_value', 'creation', 'modified'];
-const PO_REPORT_FIELDS: (keyof ProcurementOrder)[] = ['name', 'creation', 'project', 'vendor', 'total_amount', 'loading_charges', 'freight_charges', 'invoice_data', 'status', 'modified', 'project_name', 'vendor_name', 'dispatch_date','expected_delivery_date',"latest_delivery_date","latest_payment_date",'amount_paid','po_amount_delivered'];
-const SR_REPORT_FIELDS: (keyof ServiceRequests)[] = ['name', 'creation', 'project', 'vendor', 'gst', 'invoice_data', 'status', 'modified', 'amount_paid', 'total_amount'];
+const PO_REPORT_FIELDS: (keyof ProcurementOrder)[] = ['name', 'creation', 'project', 'vendor', 'total_amount', 'loading_charges', 'freight_charges', 'status', 'modified', 'project_name', 'vendor_name', 'dispatch_date','expected_delivery_date',"latest_delivery_date","latest_payment_date",'amount_paid','po_amount_delivered'];
+const SR_REPORT_FIELDS: (keyof ServiceRequests)[] = ['name', 'creation', 'project', 'vendor', 'gst', 'status', 'modified', 'amount_paid', 'total_amount'];
 const PAYMENT_REPORT_FIELDS: (keyof ProjectPayments)[] = ['name', 'document_type', 'document_name', 'project', 'amount', 'status','creation','payment_date']; // Added 'project'
 const INFLOW_REPORT_FIELDS: (keyof ProjectInflows)[] = ['name', 'project', 'amount', 'payment_date', 'creation']; // Add fields as needed
 const PROJECT_INVOICE_REPORT_FIELDS: (keyof ProjectInvoice)[] = ['name', 'project', 'amount','creation','invoice_date']; // Add fields as needed
@@ -236,7 +236,7 @@ export const getProjectReportListOptions = (): ProjectListParams => ({
 });
 
 export const getPOForProjectInvoiceOptions = (): POListParams => ({
-  fields: ['name', 'project', 'loading_charges', 'freight_charges', 'invoice_data',"total_amount","amount","tax_amount",'creation', 'po_amount_delivered', 'amount_paid'], // Added po_amount_delivered and amount_paid for totalLiabilities calc
+  fields: ['name', 'project', 'loading_charges', 'freight_charges', "total_amount","amount","tax_amount",'creation', 'po_amount_delivered', 'amount_paid'], // Added po_amount_delivered and amount_paid for totalLiabilities calc
   filters: [["status", "not in", ["Merged", "Cancelled", "Inactive"]]], // Match PO report filters
   limit: 100000,
 });
@@ -244,7 +244,7 @@ export const getPOForProjectInvoiceOptions = (): POListParams => ({
 export const getSRForProjectInvoiceOptions = (): SRListParams => ({
   // `total_amount` is required by getSRTotal() (reads sr.total_amount directly).
   // Used by Cash Sheet report to compute "Total PO+SR Value incl. GST" per project.
-  fields: ['name', 'project', 'gst', 'invoice_data', 'creation', 'total_amount'],
+  fields: ['name', 'project', 'gst', 'creation', 'total_amount'],
   filters: [['status', '=', "Approved"]],
   limit: 100000,
 });

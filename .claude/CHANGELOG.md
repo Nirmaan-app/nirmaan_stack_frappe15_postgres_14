@@ -1,6 +1,56 @@
 # Changelog
 
-Changes made by Claude Code sessions.
+Changes made by AI coding assistants (Claude Code / Gemini).
+
+---
+
+## 2026-07-31: Reminder Schedule & Action Center
+
+**Summary:** Implemented a comprehensive Reminder Schedule feature and Action Center for role-based compliance task reminders. Features a pure-math services layer for schedule calculation, a daily cron worker (8 AM) gated by `notify_before_days`, and a unified frontend Action Center (right-rail panel) to display actionable tasks to users based on their Role Profiles. Includes Mark Done with remarks, completion history, real-time updates, and schedule edit reconciliation.
+
+### What was built
+
+- **Backend Doctypes:**
+  - `Reminder Schedule`: Configures recurring reminders (autonamed `REM-.####`, editable title), schedules (Monthly/Quarterly/Half-Yearly/Custom), target roles (via `Reminder Role Profile`), and notification settings.
+  - `Reminder Schedule Log`: Per-cycle task instances (Pending/Done) with `reminder_title` (fetch_from), `remarks`, and completion stamps (`completed_by`/`completed_at`). Publishes `reminder_logs_updated` realtime event on update.
+  - `Reminder Due Date`: Child table for non-monthly schedule dates (from/to period + due month/day).
+  - `Reminder Role Profile`: Child table linking Role Profiles to schedules.
+- **Backend Services & Tasks:**
+  - `nirmaan_stack/services/reminders.py`: Pure schedule math module (`next_due_date`, `reminds_on`, `fill_end_months`, `bucket`, `_clamp`) without DB context.
+  - `nirmaan_stack/tasks/reminders.py`: Daily cron (8 AM) that recomputes due dates and idempotently creates logs, gated by `notify_before_days` (only creates logs when `days_until_due <= notify_before_days`).
+  - `nirmaan_stack/integrations/controllers/reminder_schedule.py`: `on_update` hook that re-dates future Pending logs when a schedule's due date changes (UPDATE only, never deletes — preserves audit trail).
+  - `nirmaan_stack/api/reminders/read.py`: GET endpoints (`get_my_reminders`, `get_my_reminder_logs`, `get_role_profiles`, `get_reminder_schedule_role_profiles`) with bulk enrichment (`_enrich_logs` adds lifecycle state, days, message, clamped/due_note) and role-profile scoping.
+  - `nirmaan_stack/api/reminders/write.py`: POST endpoints (`mark_reminder_done` with optional remarks, `reopen_reminder`) with role-profile scope gate.
+- **Frontend Action Center & Pages:**
+  - `ActionCenter.tsx`: Reusable shell composing role-scoped sections (right rail on desktop, top on mobile).
+  - `RemindersSection.tsx`: Pending task list with state-based styling, Mark Done with Remarks Dialog, month-end clamp warnings, real-time refresh via `useFrappeEventListener`.
+  - `CompletedRemindersDialog.tsx`: History view showing last 30 Done logs.
+  - `ActionTabs.tsx`, `FinanceActionTabs.tsx`: Project and Finance action queues.
+  - `RemindersPage.tsx`: Admin list page with role profiles column (hydrated via grouped map endpoint).
+  - `NewReminderDialog.tsx`: Unified create/edit dialog with `react-hook-form` + `zod`, dynamic field arrays, explicit form reset on close.
+  - Integration into Accountant and Project Manager dashboards.
+
+### Fixes applied
+
+1. **Form state bleeding**: `close()` explicitly resets all fields to blank defaults (including `due_day: "" as any`) to prevent stale edit data.
+2. **Title made editable**: Changed from `autoname: field:title` to `REM-.####` with `title_field`. Added `reminder_title` fetch field to Log.
+3. **Notification window honored**: Cron now gates log creation by `days_until_due <= notify_before_days`.
+
+### Key files
+
+| File | Change |
+|---|---|
+| `nirmaan_stack/services/reminders.py` | NEW — Pure schedule math |
+| `nirmaan_stack/tasks/reminders.py` | NEW — Daily cron (8 AM, notify-gated) |
+| `nirmaan_stack/integrations/controllers/reminder_schedule.py` | NEW — on_update log re-dating |
+| `nirmaan_stack/api/reminders/read.py` | NEW — Read endpoints with bulk enrichment |
+| `nirmaan_stack/api/reminders/write.py` | NEW — Write endpoints (mark done / reopen) |
+| `nirmaan_stack/hooks.py` | MODIFIED — cron + doc_events wiring |
+| `frontend/src/components/layout/action-center/*` | NEW — Action Center (5 components) |
+| `frontend/src/pages/Reminders/*` | NEW — Management UI (2 components) |
+| `frontend/src/components/layout/dashboards/*` | MODIFIED — ActionCenter integration |
+| `frontend/src/zustand/useDialogStore.ts` | MODIFIED — Dialog state |
+
 
 ---
 
