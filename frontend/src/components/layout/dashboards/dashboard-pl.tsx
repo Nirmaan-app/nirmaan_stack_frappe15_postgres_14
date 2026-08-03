@@ -3,6 +3,7 @@ import { useDocCountStore } from "@/zustand/useDocCountStore";
 import { useCounts } from "@/hooks/useCounts";
 import { TailSpin } from "react-loader-spinner";
 import { Link } from "react-router-dom";
+import { ActionCenter } from "@/components/layout/action-center/ActionCenter";
 
 export const ProjectLead = () => {
 
@@ -17,9 +18,14 @@ export const ProjectLead = () => {
         "dashboard-pl-counts"
     );
 
+    if (isLoading) {
+        return <div>Loading project details...</div>;
+    }
+
     return (
-        <div className="flex-1 space-y-4">
-            <div className=" space-y-2">
+        <div className="flex-1 flex flex-col bg-gray-50/50 xl:flex-row">
+            <div className="min-w-0 flex-1 space-y-4 p-6 md:p-8">
+                <div className=" space-y-2">
                 <h2 className="text-base font-bold tracking-tight">Procurement Actions</h2>
                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4 border border-gray-100 rounded-lg p-4">
                     <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
@@ -107,6 +113,8 @@ export const ProjectLead = () => {
                     </Card>
                 </div>
             </div>
+            </div>
+            <ActionCenter />
         </div>
     );
 }

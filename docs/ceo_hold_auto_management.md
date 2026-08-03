@@ -1,12 +1,27 @@
 # CEO Hold — How the system auto-holds and auto-releases projects
 
-*Last updated: 2026-05-16*
+*Last updated: 2026-06-24 (multi-source model — ADR-0004)*
 
 > **Audience:** Admins, Project Leads, Accountants, PMO, and external stakeholders who need to understand *why* a project is on CEO Hold and *what changes its state*.
 >
 > **TL;DR:** Every time a payment, expense, inflow, or PO changes, the system recomputes the project's *cashflow gap* in real time. If the gap exceeds the project's configured limit, the project is auto-placed on CEO Hold immediately. If the gap later drops back below the limit, the system auto-releases — unless the hold was manually placed by an authorized user.
 >
 > **Primary mechanism:** realtime checks fire on every relevant save, no waiting for a scheduled job. A weekly safety-net cron exists in code as a backstop for missed edge cases; whether it is actively scheduled depends on environment configuration.
+
+---
+
+## 0. 2026-06 update — CEO Hold is now MULTI-SOURCE (ADR-0004)
+
+The cashflow gap described below is **no longer the only thing that can auto-hold a project** — it is now one *source* among several. Each active automatic condition is recorded as its own **`CEO Hold Reason`** row (`source` = `cashflow` or `dn_pending`, plus a live `reason_text`). A project is on CEO Hold while it has **one or more** reason rows **or** a manual hold, and it leaves CEO Hold only when **none** remain. `status` / `ceo_hold_by` are now *derived mirrors* maintained by a single serialized owner, `services/ceo_hold/core.recompute_ceo_hold` (which takes the Projects row `FOR UPDATE`, so the sources can never race on the slot).
+
+Consequences for everything below:
+
+- **`ceo_hold_by = "System (Cashflow Cron)"` is now the generic "held by the system" marker** for *any* automatic source, not only cashflow. The specific *why* lives in the `CEO Hold Reason` rows, which the Project Detail + PMO banners and the blocked-action toast surface.
+- **Second automatic source — Delivery-Pending Hold:** a project is auto-held when it has **more than 4 Purchase Orders awaiting delivery** (dispatched but not fully delivered — the `DN_PENDING` action-item count), and auto-releases symmetrically when the count drops to 4 or fewer. It is evaluated inside the Project Action Item reconcile, not the cashflow engine.
+- **Auto-release now requires no OTHER active reason.** The cashflow gap recovering drops only the `cashflow` reason; if a `dn_pending` reason (or a manual hold) still holds the project, it stays on CEO Hold. §3–§5 below describe the **cashflow source in isolation** — read them as "the cashflow reason is added/removed", with the final hold state decided by `recompute`.
+- **A manual move OFF CEO Hold is rejected while any reason row is active** (even for the authorized user) — the system condition is the source of truth and clears on its own.
+
+Full design: **`docs/adr/0004-multi-source-ceo-hold.md`**. The cashflow mechanics below remain accurate for the cashflow source.
 
 ---
 

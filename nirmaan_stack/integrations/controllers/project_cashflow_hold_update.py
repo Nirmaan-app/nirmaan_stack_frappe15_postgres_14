@@ -1,112 +1,26 @@
-import json
-
 import frappe
 from frappe import _
 from frappe.utils import flt
 
 from nirmaan_stack.nirmaan_stack.doctype.projects.projects import CEO_HOLD_SYSTEM_USER
+from nirmaan_stack.services.ceo_hold import core
 from ..Notifications.pr_notifications import PrNotification
 
-EXCLUDED_STATUSES = ("CEO Hold", "Completed")
-FALLBACK_REVERT_STATUS = "WIP"
 
-
-def evaluate_project_ceo_hold(project_id: str) -> bool:
+def sync_cashflow_reason(project_id: str) -> None:
 	"""
-	Evaluate a single project: if its cashflow gap exceeds cashflow_gap_limit,
-	place it on CEO Hold. Hold-only — never auto-releases.
+	Single entry point for the cashflow-gap hold SOURCE.
 
-	Uses frappe.db.set_value(..., update_modified=False) to skip the validate()
-	and on_update hooks (so Administrator can write CEO Hold without tripping
-	the manual-only check, and so we don't recursively re-trigger ourselves
-	from Projects.on_update).
+	Adds / refreshes / removes THIS project's `cashflow` CEO Hold Reason row to match the
+	current gap-vs-limit state, then defers the status mirror to
+	`core.recompute_ceo_hold` (the single serialized owner). It never writes
+	status / ceo_hold_by directly and never commits — the host save transaction (realtime
+	path) or `update_projects_cashflow_hold` (bulk path) owns the commit.
 
-	Returns True if a hold was applied, False otherwise.
-	"""
-	row = frappe.db.get_value(
-		"Projects",
-		project_id,
-		["status", "cashflow_gap_limit"],
-		as_dict=True,
-	)
-	if not row:
-		return False
-	if row.status in EXCLUDED_STATUSES:
-		return False
-	if flt(row.cashflow_gap_limit) <= 0:
-		return False
-
-	gap = _compute_cashflow_gap(project_id)
-	if gap <= flt(row.cashflow_gap_limit):
-		return False
-
-	frappe.db.set_value(
-		"Projects",
-		project_id,
-		{
-			"status": "CEO Hold",
-			"ceo_hold_by": CEO_HOLD_SYSTEM_USER,
-		},
-		update_modified=False,
-	)
-	frappe.logger().info(
-		"[cashflow-hold] %s: gap=%.2f > limit=%.2f → CEO Hold"
-		% (project_id, gap, flt(row.cashflow_gap_limit))
-	)
-	return True
-
-
-def _is_user_owned(owner) -> bool:
-	"""A Version is 'user-owned' if its owner is a real user email (contains '@').
-	Skips Administrator, the cron's System (Cashflow Cron) marker, and any
-	other non-mail actor."""
-	return bool(owner) and "@" in owner
-
-
-def _find_previous_status(project_id: str) -> str:
-	"""
-	Walk the Version history for this project and return the new_value of the
-	most recent user-driven status change (not 'CEO Hold'). Falls back to
-	FALLBACK_REVERT_STATUS when no user-driven status change is on record.
-
-	Cron writes use frappe.db.set_value(update_modified=False) which bypasses
-	Version creation, so the Version table naturally contains only saves made
-	by real users — but we still filter on owner for defense in depth (in case
-	a script ever runs a real save() on a project).
-	"""
-	rows = frappe.db.sql(
-		"""
-		SELECT data, owner FROM "tabVersion"
-		WHERE ref_doctype = 'Projects' AND docname = %s
-		ORDER BY creation DESC
-		LIMIT 50
-		""",
-		(project_id,),
-	)
-	for data_str, owner in rows:
-		if not _is_user_owned(owner):
-			continue
-		try:
-			d = json.loads(data_str or "{}")
-		except (TypeError, ValueError):
-			continue
-		for change in d.get("changed") or []:
-			if change and len(change) >= 3 and change[0] == "status":
-				new_val = change[2]
-				if new_val and new_val != "CEO Hold":
-					return new_val
-	return FALLBACK_REVERT_STATUS
-
-
-def evaluate_project_ceo_release(project_id: str) -> bool:
-	"""
-	If a project is on cron-set CEO Hold, restore the most recent user-set
-	status from Version history when EITHER:
-	  - the limit has been cleared to 0 (user opted out of auto-management), OR
-	  - the cashflow gap has dropped at or below cashflow_gap_limit.
-	Hands off entirely on human-set holds.
-
-	Returns True if a release was applied, False otherwise.
+	The `cashflow` reason exists iff the project is active (not Completed), has a positive
+	`cashflow_gap_limit`, and its computed gap exceeds that limit. (Replaces the former
+	evaluate_project_ceo_hold / evaluate_project_ceo_release pair, which wrote status
+	directly — see docs/adr/0004-multi-source-ceo-hold.md.)
 	"""
 	row = frappe.db.get_value(
 		"Projects",
@@ -114,51 +28,36 @@ def evaluate_project_ceo_release(project_id: str) -> bool:
 		["status", "ceo_hold_by", "cashflow_gap_limit"],
 		as_dict=True,
 	)
-	if not row or row.status != "CEO Hold":
-		return False
-	if row.ceo_hold_by != CEO_HOLD_SYSTEM_USER:
-		# Human-set hold: never auto-release. But if the cashflow gap has
-		# recovered to within the limit (an auto-hold would release here), give
-		# the holder a heads-up that it's now eligible for a manual release.
-		# The hold itself is left untouched.
-		manual_limit = flt(row.cashflow_gap_limit)
-		if manual_limit > 0 and _compute_cashflow_gap(project_id) <= manual_limit:
-			_notify_manual_hold_releasable(project_id, row.ceo_hold_by)
-		return False
+	if not row:
+		return
 
 	limit = flt(row.cashflow_gap_limit)
-	if limit <= 0:
-		revert_to = _find_previous_status(project_id)
-		frappe.db.set_value(
-			"Projects",
-			project_id,
-			{"status": revert_to, "ceo_hold_by": None},
-			update_modified=False,
-		)
-		frappe.logger().info(
-			"[cashflow-hold] %s: limit cleared → released to %s" % (project_id, revert_to)
-		)
-		return True
+	over_limit = False
+	if row.status != "Completed" and limit > 0:
+		gap = _compute_cashflow_gap(project_id)
+		over_limit = gap > limit
+		if over_limit:
+			core.set_reason(
+				project_id, core.SOURCE_CASHFLOW, core.cashflow_reason_text(gap, limit)
+			)
+		else:
+			core.clear_reason(project_id, core.SOURCE_CASHFLOW)
+	else:
+		core.clear_reason(project_id, core.SOURCE_CASHFLOW)
 
-	gap = _compute_cashflow_gap(project_id)
-	if gap > limit:
-		return False
+	core.recompute_ceo_hold(project_id)
 
-	revert_to = _find_previous_status(project_id)
-	frappe.db.set_value(
-		"Projects",
-		project_id,
-		{
-			"status": revert_to,
-			"ceo_hold_by": None,
-		},
-		update_modified=False,
-	)
-	frappe.logger().info(
-		"[cashflow-hold] %s: gap=%.2f ≤ limit=%.2f → released to %s"
-		% (project_id, gap, limit, revert_to)
-	)
-	return True
+	# Manual-hold-releasable nudge (unchanged behaviour): a human-set hold never
+	# auto-releases; if its gap has now recovered to within the limit, ping the holder so
+	# they can release it by hand. A real mail-id in ceo_hold_by == a manual hold.
+	if (
+		limit > 0
+		and not over_limit
+		and row.status == "CEO Hold"
+		and row.ceo_hold_by
+		and "@" in row.ceo_hold_by
+	):
+		_notify_manual_hold_releasable(project_id, row.ceo_hold_by)
 
 
 def _notify_manual_hold_releasable(project_id: str, holder_user: str) -> None:
@@ -254,10 +153,10 @@ def update_projects_cashflow_hold():
 	by doc_events on the source doctypes; this remains as a catch-up
 	for direct SQL writes, partial rollbacks, or missed events.
 
-	Evaluates BOTH directions (hold + release) for every non-completed
-	project. evaluate_project_ceo_hold early-exits on already-held projects;
-	evaluate_project_ceo_release early-exits on non-held projects — so the
-	two passes are mutually exclusive per project.
+	Funnels every selected project through `sync_cashflow_reason`, which manages that
+	project's `cashflow` hold reason and defers the status mirror to
+	`core.recompute_ceo_hold`. Selects active projects with a positive limit OR any
+	project currently held by the cashflow system marker (so a recovered hold is released).
 	"""
 	projects = frappe.db.sql(
 		"""
@@ -273,8 +172,7 @@ def update_projects_cashflow_hold():
 	)
 
 	for project_id in projects:
-		if not evaluate_project_ceo_hold(project_id):
-			evaluate_project_ceo_release(project_id)
+		sync_cashflow_reason(project_id)
 
 	frappe.db.commit()
 
@@ -283,7 +181,7 @@ def update_projects_cashflow_hold():
 
 
 def trigger_check(project_id):
-	"""Evaluate one project for CEO Hold. Deduped per request, skipped during bulk loads."""
+	"""Re-evaluate one project's cashflow hold reason. Deduped per request, skipped during bulk loads."""
 	if not project_id:
 		return
 	if frappe.flags.in_import or frappe.flags.in_patch or frappe.flags.in_migrate or frappe.flags.in_install:
@@ -299,12 +197,7 @@ def trigger_check(project_id):
 	frappe.flags[flag_key] = True
 
 	try:
-		# Bidirectional: try the hold path first (covers gap rising over limit);
-		# if nothing flipped, try the release path (covers gap dropping back
-		# under limit or limit being raised). At most one of them mutates state
-		# per call because their early-exits are mutually exclusive on status.
-		if not evaluate_project_ceo_hold(project_id):
-			evaluate_project_ceo_release(project_id)
+		sync_cashflow_reason(project_id)
 	except Exception:
 		# Never let a hold/release failure block the user's save.
 		frappe.log_error(frappe.get_traceback(), f"CEO Hold evaluation failed for {project_id}")
@@ -321,7 +214,7 @@ def on_project_payment(doc, method=None):
 	  * a row leaves  Paid (status flipped away from 'Paid')
 	  * a Paid row is trashed
 	"""
-	
+
 	if not doc.has_value_changed("status"):
 		return
 
