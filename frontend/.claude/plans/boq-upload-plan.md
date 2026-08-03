@@ -19982,3 +19982,350 @@ that the header aligns, or that the grand row lines up. Live checks:
 - **`marginView.ts` was in scope and not edited.** Nothing this slice needed lived there.
 - **`assets/plan-record-template.md` does not exist in this repo** (searched by `find`). This record
   mirrors the shape of the surrounding records, which is the de facto template.
+
+  > **Addendum (BCS-S6-carry-layer), not an erratum:** the sentence above is literally true and its
+  > conclusion is right, but the file *does* exist outside the repo, at
+  > `~/.claude/skills/nirmaan-stack-delivery-process/assets/plan-record-template.md` — found by
+  > `find ~/.claude`. BCS-S6 followed it. It codifies exactly what BCS-S5 inferred from the corpus
+  > (`##` record, `###` sections, one `·`-separated metadata line, Verification and
+  > Deliberately-NOT-done as the closers), so nothing about that record's shape was wrong. Recorded
+  > only so the next reader searches the right place instead of re-deriving the template a third time.
+
+---
+
+## BCS-S6-carry-layer — BCS costs become the fifth opt-in carry layer
+
+**Branch** `feature/bcs-columns` · **Base** `7b19f093` · **Tier** FULL · **Date** 2026-08-03
+
+Closes the last clause of the owner's carry ask: *"Carry Rate from original (versioned sheet in same
+BOQ, or revised upload) gets a new option to copy the BCS Section; precondition: BCS enabled on the
+destination sheet AND its formulas confirmed."* `bcs_costs` joins `committed_carry.LAYER_KEYS`, so
+ONE registration lights **both** carry surfaces.
+
+**NO migration.** `carried_from_boq` / `carried_from_version` / `carried_at` were provisioned on
+`BoQ Row BCS Rate` at BCS-S1 and marked *"UNUSED in S1"*. This is what uses them.
+
+What did NOT change: the BCS write path (`save_row_bcs_rates` is byte-untouched and is deliberately
+**not** called by the carry), the four existing layers, both carry endpoints' signatures, the rate
+carry, and every gate ordering. Two files were in scope and **not edited** — `CrossBoqCarryDialog.tsx`
+and `CopyForwardDialog.tsx` — because both already loop `CARRY_LAYER_KEYS`; that they needed nothing
+is the design working, and is recorded rather than left to look like an oversight.
+
+---
+
+### 1. The seam, and why it is the right one
+
+The seam is **`committed_carry.walk_layers`** — the single dispatch point both carry surfaces share
+(`cross_boq_carry._carry_ctx` / `_plan_layer_counts`, and `pricing._copy_forward_carry_ctx` /
+`_copy_forward_layer_preview`). Working here buys, for one registration: the plan/apply symmetry, the
+uniform six-bucket outcome shape, the D6 twin map, the opt-in wire coercion (`pricing.coerce_layers`),
+the transaction both carries already own, and **both** surfaces. A bespoke "carry the BCS section"
+action on either endpoint would have needed its own plan path, its own outcome shape, its own dialog
+wiring, and a second copy of all of it for the other seam.
+
+Seven registration sites, per the dispatch brief; all seven landed:
+
+| # | Site | File |
+|---|---|---|
+| 1 | `LAYER_KEYS` | `committed_carry.py` |
+| 2 | the `walk_layers` if/elif/else dispatch | `committed_carry.py` |
+| 3 | `CARRY_LAYER_KEYS` | `boqTypes.ts` |
+| 4 | `LAYER_LABEL` | `CarryLayers.tsx` |
+| 5 | the `layerHint` switch | `CarryLayers.tsx` |
+| 6 | `initialLayerChoices()` | `CarryLayers.tsx` |
+| 7 | hand-typed test tuples | `test_pricing.py`, `test_cross_boq_carry.py` |
+
+`summarizeSheetCarry`, `carryWriteBreakdown`, `armedLayerReplacements`, `buildLayersPayload` and
+`CarryLayersBlock` were free — all five iterate `CARRY_LAYER_KEYS`.
+
+### 2. `carry_bcs_cost_layer` — bespoke, and what it deliberately does not copy
+
+Mirrors `carry_category_layer`, **not** an `_ANNOT_LAYERS` entry. The reason is precise: that function
+is bespoke because it needed a **sheet-level guard slot**, and `_walk_annot_layer` has none. BCS needs
+exactly that slot — readiness is a fact about the destination *sheet*, not about a row.
+
+⚠️ It does **not** copy the category layer's per-discipline fan-out. A BCS identity is a 4-tuple —
+`(boq, sheet_name VERBATIM #152, excel_row, committed_version)`. No `col_letter`, no `discipline`, at
+most one current record per address. A discipline loop would iterate a dimension that does not exist.
+
+Two outcome buckets stay `0` for this layer, honestly:
+
+- `ineligible` — categories-only. There is **no** `node_type` restriction on a cost: `bcs.py`'s own
+  docstring records that a qty-less Preamble *is* costable, because `save_row_bcs_rates` deliberately
+  skips the priceability gate. Filtering here would contradict the write path.
+- `dropped` — colours-only. Row-addressed, so there is no column letter to lose.
+
+**Three writes resolve against the DESTINATION, not the source**, and each for its own reason:
+
+- `node` — a **per-version** pointer (its own field description says node names change on re-commit),
+  so carrying the source's would point a v2 cost row at a v1 node. `_dest_bcs_node_index` is the
+  batched form of `pricing._resolve_committed_cell`'s read, filtered identically (sheet docname +
+  `commit_version`).
+- `description` — the field's description calls it a **carry-forward MATCH GUARD** against the row the
+  cost sits on, so it must be *that* row's description. This is also what the rate carry writes on the
+  mirrored `BoQ Cell Pricing.description` (`cross_boq_carry` uses `dest_description`). Under the D6
+  match the two are normalize-equal anyway; taking the destination's stops a future *"the description
+  changed under this cost"* warning firing on nothing but whitespace.
+- `bcs_version` — `max(prior at the destination) + 1`, never the source's and never a hardcoded `1`
+  (a frozen prior can exist with no current).
+
+Carried verbatim: all three rate inputs independently (`combined_rate` is **not** a total of the two
+halves — owner-locked at BCS-S2b), `is_filled`, and `rate_source` — provenance of the *numbers*, which
+is a property of the values and survives a copy, as distinct from provenance of the *record*.
+
+### 3. `carry_bcs_rows` — why the carry does not reuse the endpoint
+
+⚠️ **The carry inserts directly and must never route through `bcs.save_row_bcs_rates`.** That endpoint
+is a **whole-row snapshot**: it coerces every absent rate to `0.0` and writes all three
+unconditionally. A source row holding only a combined rate, carried through it, would silently **zero**
+a supply/install pair the destination already held. `test_a_partial_carry_never_zeroes_a_rate_the_destination_already_held`
+constructs exactly that shape and measures it; `test_the_carry_does_not_route_through_the_whole_row_snapshot_writer`
+is the structural half.
+
+That second test reads the module through **`ast`, not a substring grep** — and that is a finding in
+its own right. Written first as `assertNotIn("save_row_bcs_rates", inspect.getsource(...))` it went
+**red against the module's own docstring stating the prohibition**. A substring tripwire fires on the
+comment warning against the thing, and the only way to keep it green is to delete the explanation. The
+`ast` form asks the real question (does executable code reference this name?) and leaves the prose
+alone. The sibling grep tripwire on `pricing.py` is safe as a substring only because `pricing.py`
+happens to name none of its tokens in prose either — worth knowing before the next one is written.
+
+**Provenance is keyword-REQUIRED** after a bare `*`, exactly as on `persist.carry_row_categories`: a
+`TypeError` at the call site, not a `None` discovered in the database later.
+
+⚠️ **`bcs_rated_at` is carried VERBATIM and stays OLDER than the carry**; `carried_at` is the fresh
+stamp. Instructed on the field itself (`boq_row_bcs_rate.json`), mirroring the `human_verdict_at`
+precedent. **HONEST CAVEAT:** no live reader tie-breaks on `bcs_rated_at` today, so this is
+forward-looking rather than load-bearing right now. Honoured and pinned anyway — the cheapest moment
+to get an age right is before anything depends on it.
+
+### 4. The silent skip, and the symmetry that makes it acceptable
+
+The guard runs **first** and is sheet-scoped. A destination that is not BCS-ready yields the zero
+outcome: nothing written, **no exception**, and the rest of the carry — rates included — proceeds.
+
+That is the most dangerous property of this layer, so both halves are stated plainly. Refusing the
+whole action instead would let one unconfigured cost section block a rate carry the user actually
+asked for. What makes the silence acceptable is that **the plan read runs the same guard**:
+`walk_layers` dispatches plan and apply through one function, so a not-ready sheet reports zeros to the
+dialog, `layerHasWork` is false, and the row renders **disabled** with *"Nothing to carry"*. Without
+that symmetry the user would tick a layer showing *"2 to copy"*, apply, and watch nothing happen with
+no explanation anywhere. The guard must never move behind the `apply` branch.
+
+Because a disabled row saying *"Nothing to carry"* is otherwise indistinguishable from *"the source
+had no costs"*, the hint **names the precondition**: *"Cost rates typed into the BCS section. Carries
+only where BCS is switched on and its columns are confirmed."* That sentence is the diagnosis, and it
+is why the hint is not decoration.
+
+### 5. The readiness relocation — forced by an import ring
+
+`bcs_is_ready` moved from `api/boq/wizard/bcs.py` to **`services/boq_bcs/readiness.py`**; `bcs.py`
+imports the name straight back, so `bcs.bcs_is_ready` still resolves and no caller changed.
+
+It had to move. The ring, verified at module level:
+
+```
+committed_carry -> bcs -> pricing -> committed_carry
+```
+
+`bcs.py:88` imports `pricing`; `pricing.py:45` imports `committed_carry`. Two pre-existing invariants
+name this, and both are quoted here because a naive import would have invalidated the first one
+**silently**:
+
+> `pricing.py:41-44` — *"WBC S2 (ADR-0014 Amendment F): the within-BoQ copy-forward adopts the SHARED
+> committed-tier row match + the SHARED layer-carry engine, so the two carry seams cannot drift. Safe
+> at module level in THIS direction only -- committed_carry imports no api module that reaches back
+> here, whereas cross_boq_carry imports `pricing`, so `pricing` must never import `cross_boq_carry`."*
+
+> `bcs.py:97-102` — *"api -> service, the ONE-WAY direction ADR-0010 B1 asks for: … `services/boq_bcs`
+> must never import back into `api/`."*
+
+The second mandates the service path **and** forbids `readiness.py` importing `pricing` — which is why
+`_coerce_int` is a deliberate three-line duplicate rather than an import, documented as such at the
+site. The precedent is exact: `committed_carry` already reaches classification state through
+`services/boq_category/persist.py`, never the sibling api module.
+
+**ONE definition, pinned by identity** (`assertIs(bcs.bcs_is_ready, readiness.bcs_is_ready)`) plus a
+source read that the api module has not re-added a local `def`. Two copies of a readiness rule would be
+bad anywhere; here they would sit either side of a carry and could disagree about the same sheet at
+exactly the moment it mattered — the plan offering a layer the apply then drops.
+
+### 6. The version-coercion trap — measured, and different from the prediction
+
+The dispatch brief warned that `bcs_is_ready` gets its coercion for free from
+`pricing._current_sheet_name` (`_coerce_int` on `commit_version`), while the obvious service-layer
+model — `persist.is_sheet_classification_frozen`, same doctype, same key — passes it **raw**; and
+predicted that copying the raw form would make the predicate *"silently return False"*.
+
+**That prediction is FALSE, and it was built and run rather than assumed.** `readiness.py` was first
+written in the raw form and measured:
+
+- A **numeric string** works fine either way. `bcs_is_ready(boq, sheet, "1")` returned `True`,
+  identical to the int — PostgreSQL casts the unknown-type literal `'1'` to bigint. Isolated run:
+  `test_a_string_committed_version_answers_exactly_as_the_int_does` — 1 test, **OK**, against the raw
+  form.
+- The **real** defect is worse than a silent `False`. A non-numeric version reaches PostgreSQL as
+  `invalid input syntax for type bigint: "not-a-number"`, raising `psycopg2.InvalidTextRepresentation`,
+  which **aborts the enclosing transaction** — `InFailedSqlTransaction: current transaction is aborted,
+  commands ignored until end of transaction block` — and took **4 further tests** down with it in the
+  same run (12 ran: 3 failures, 4 errors). On the carry path that transaction also holds the rate
+  writes, so a raw psycopg2 error would replace a named refusal and roll the whole carry back.
+
+Same fix, stronger reason. The coercion is preserved (including the named `frappe.ValidationError` the
+pre-relocation body raised, which is why `_coerce_int` was copied rather than replaced with a bare
+`int()`), and pinned by `TestReadinessVersionCoercion` — three tests, both string cases asserted
+**True**/**False** rather than merely equal, because two `False`s would agree vacuously.
+
+### 7. The `layerHint` claim — also falsified, in the safe direction
+
+The brief flagged site 5 as the one that gets forgotten: *"NOT type-enforced, no `default`. A missed
+case returns `undefined` SILENTLY at runtime."*
+
+**Measured and false.** Widening `CARRY_LAYER_KEYS` alone and running `tsc --noEmit` produced all three
+frontend sites as hard errors, including:
+
+```
+CarryLayers.tsx(45,14): error TS2741: Property 'bcs_costs' is missing in type ... [LAYER_LABEL]
+CarryLayers.tsx(72,4):  error TS2366: Function lacks ending return statement and return type
+                        does not include 'undefined'                              [layerHint]
+CarryLayers.tsx(99,3):  error TS2741: Property 'bcs_costs' is missing in type 'LayerChoices'
+                                                                        [initialLayerChoices]
+```
+
+TypeScript's exhaustiveness analysis over the literal union proves the endpoint reachable, and the
+explicit `: string` return annotation under `strict` then rejects it. A note to this effect is now on
+`layerHint` itself, **including the instruction not to add a `default:` branch "for safety"** — that
+would make the endpoint unreachable and switch the guard off, trading a compile error for exactly the
+silent `undefined` it was feared to have. The runtime symptom of a missing `LAYER_LABEL` entry was also
+observed during the red run: `LAYER_LABEL[key].toLowerCase()` throws a `TypeError` in
+`carryWriteBreakdown` — loud, not silent.
+
+The tests kept for this site guard what the compiler cannot: not that a branch *exists*, but that it
+says the right thing — specifically that it names the precondition.
+
+### 8. The owner's reasoning — the part that must survive
+
+- **Default OFF (R7).** `initialLayerChoices()` ticks categories and nothing else. The asymmetry is
+  not arbitrary: **ON is the exception, not the rule.** Categories are ON by an *explicit* owner
+  ruling; cost data has had no such ruling. Carried records arriving un-asked-for is half the defect
+  ADR-0014 Amendment D deleted this whole feature over, and an **internal cost rate** — what the job
+  costs *us* — is the last layer on which to relax that. The default lives ONLY in the client; an
+  omitted `layers` payload is still rates-only server-side, so a client that never learned about
+  `bcs_costs` keeps the pre-S6 behaviour exactly.
+- **Provenance mandatory (R6), keyword-required rather than checked.** Amendment D's objection had
+  two halves — un-asked-for *and* un-attributed — and both must stay answered or the original defect
+  returns. A stamp a caller *may* omit is a stamp that eventually *will* be omitted, so it is a
+  `TypeError` at the call site.
+- **Keep the carried `bcs_rated_at` old (R5).** The same reasoning that keeps `human_verdict_at` old
+  on a carried category: an age that is honestly older is what lets a decision made *on* this version
+  outrank an inherited one, with no precedence code anywhere. Recorded with its honest caveat above.
+- **Silent skip, not refusal (R3).** One unconfigured cost section must not block a rate carry the
+  user asked for. Acceptable only because the plan read shares the guard, so nothing is ever offered
+  that would be dropped.
+- **Insert directly, never through the endpoint (R4).** A whole-row snapshot writer on a partial
+  carry destroys destination data. The prohibition is a data-integrity ruling, not a style choice.
+
+### 9. Verification
+
+Every gate run in-session, in the dev container. Backend via the bench runner; **the full bench suite
+was deliberately not run** (a live browser session against `localhost` collides on the `tabSeries`
+naming lock), only the named modules plus the two regression neighbours.
+
+| Suite | Baseline | Final |
+|---|---|---|
+| `nirmaan_stack.api.boq.wizard.test_bcs` | 64 OK | **79 OK** |
+| `nirmaan_stack.api.boq.wizard.test_pricing` | 252 OK | **258 OK** |
+| `nirmaan_stack.api.boq.wizard.test_cross_boq_carry` | 68 OK | **70 OK** |
+| `nirmaan_stack.api.boq.wizard.test_committed_carry` (regression, out of scope) | 58 OK | **58 OK** |
+| `nirmaan_stack.services.boq_bcs.test_readiness` (**new**) | — | **12 OK** |
+| `nirmaan_stack.services.boq_bcs.test_sources` (regression, out of scope) | — | **62 OK** |
+| `yarn test` (vitest) | 1537 / 57 files | **1548 / 57 files** |
+
+`npx tsc --noEmit`: **3236 errors repo-wide before and after — an unchanged total, and `0` in
+`src/pages/boq-wizard` in both runs.** The repo-wide figure is long-standing pre-existing noise; the
+`boq-wizard` figure is the real gate, and the slice's delta is zero.
+
+**Red before green, per surface:**
+
+1. *Frontend.* Key widened alone → 3 `tsc` errors (§7). Tests written → **9 failed / 114 passed** in
+   `CrossBoqCarryDialog.test.ts`, failing on the missing label, the `undefined` hint and the missing
+   default. Sites 4/5/6 implemented → **173 passed** across both dialog suites.
+2. *Readiness service.* Suite written → `ModuleNotFoundError`. Raw-form experiment → 3 failures + 4
+   errors (§6). Real module + `bcs.py` re-export → **11/12**, the one remaining failure being the
+   Slice-B red (`committed_carry` did not yet import the service).
+3. *Carry layer.* `test_bcs` → **5 failures, 6 errors**; `test_pricing` → **1 failure, 3 errors**, all
+   on the absent `bcs_costs` key. Layer implemented → all green.
+
+One red was a **fixture defect, not a real red**, and is recorded because it would otherwise look like
+a passing test that had always passed: `test_omitting_layers_carries_rates_only_and_no_cost_lands`
+asserts pre-S6 behaviour and should have been green from the start, but reported `copied == 0` — the
+new fixture seeded no source *rate*. Fixed by seeding one, verified green **before** the layer was
+built, so the class exercises rates and costs riding one transaction together.
+
+`python3 scripts/residence_check.py` — **EXITS 1**, pre-existing:
+
+```
+✓ b3_workflow_state_writers    (B3): current=40  baseline=40
+✓ b1_pure_module_purity        (B1): current=0   baseline=0
+✓ b2_predicate_literal_scatter (B2): current=8   baseline=8
+✓ f5_raw_updatedoc_files       (F5): current=116 baseline=116
+✗ f2_inline_json_parse_pages   (F2): current=208 baseline=207  — 1 NEW violation
+```
+
+**The slice's F2 delta is zero, proved from the diff rather than asserted.** F2 counts `JSON.parse`
+lines under `frontend/src/pages` (`.ts`/`.tsx`); this slice's frontend diff adds **zero** such lines
+(`git diff -U0 -- frontend/src | grep '^+' | grep -c 'JSON.parse'` → `0`). The 208-vs-207 overshoot
+predates the slice and is left alone.
+
+`git status` at start and at end matched the pre-declared noise list exactly: **53 untracked paths, 0
+modified tracked files** at start; the same 53 plus the slice's own two new files, and 0 modified
+tracked files, after the commit. `scripts/` was never written to.
+
+**Commit** `1167a16d` — 10 files, +1228 / −39.
+
+### 10. Deliberately NOT done
+
+- **`services/boq_bcs/__init__.py` was NOT edited, and it now carries a false clause.** Its docstring
+  says of the package: *"Nothing here may import from `api/`, touch `frappe.db`, or read request
+  context."* That was written when the package held only `sources.py`, a pure rule builder.
+  `readiness.py` **must** read `frappe.db` — readiness is a fact about a stored `BoQ Sheet` row —
+  exactly as `services/boq_category/persist.py` does. The `api/` bar and the request-context bar both
+  still hold and are still load-bearing; **only the `frappe.db` clause is now false.** The file was not
+  in this slice's scope, so the contradiction is reported rather than fixed, and is restated at length
+  inside `readiness.py`'s own docstring so the next reader is not misled at the place it matters. It is
+  owed a one-line correction.
+- **No BCS-specific row matcher.** `committed_carry.committed_excel_row_match` /
+  `version_addressed_excel_row_match` are inherited free (R8). Writing one would have been a second
+  answer to "is this the same row?".
+- **No `_ANNOT_LAYERS` entry, and no `_AnnotLayer` spec built to reuse `_dest_current_map` /
+  `_dest_max_version_map`.** Faking a spec to borrow two helpers is the entry R1 forbids, wearing a
+  disguise — it would drag `payload` and `stamped_at_field` semantics along with it. Two small bespoke
+  helpers instead.
+- **No `revision_overlay` registration.** `test_committed_carry.py:206-211,343-349,720-726` is a
+  regression pin on a **deleted** feature that shares field names; registering there would have been a
+  write into a tombstone.
+- **No eligibility filter on the destination row.** Categories skip rows the revision no longer
+  classifies; BCS has no equivalent, because `save_row_bcs_rates` deliberately skips the priceability
+  gate and a qty-less Preamble *is* costable. Adding one would contradict the write path.
+- **No unreachable-node branch.** Every value in `ctx.twin` is by construction a destination node of
+  that sheet+version (the match is *built* from those rows), so a `_dest_bcs_node_index` miss cannot
+  happen; a defensive `unmatched` branch would be dead code, and — worse — would have to be built on
+  the plan path too or break the plan/apply symmetry §4 depends on.
+- **`CrossBoqCarryDialog.tsx` and `CopyForwardDialog.tsx` were in scope and not edited.** Both loop
+  `CARRY_LAYER_KEYS`; needing no change is the shared-module design working.
+- **`CopyForwardDialog.test.ts` and `test_committed_carry.py` were NOT in scope and were not touched.**
+  Both were checked against the widening first: the former's three `CARRY_LAYER_KEYS` loops all survive
+  a key that defaults OFF and whose hint names no destination; the latter's `_all()` helper builds its
+  choices from `LAYER_KEYS`, so the new layer simply runs and silently skips. Both re-run green.
+- **No UI for the precondition beyond the hint.** No "set up BCS first" link, no jump-to-config. The
+  disabled row plus the hint states the fact; a navigation affordance from inside a carry dialog was
+  not asked for.
+- **No `layerSkipNote` branch for `bcs_costs`.** `ineligible` and `dropped` are other layers' per-row
+  reasons. A BCS layer that carries nothing does so because the destination **sheet** is not ready —
+  a whole-sheet fact the disabled row and the hint already state. A per-row note would invent a reason.
+- **The `rate_source` provenance seam is still storage capacity only.** Nothing in this slice writes
+  anything but `Manual`; a carried row keeps whatever the source had.
+- **No browser E2E.** Structurally unavailable here — the repo has no DOM test environment by
+  deliberate choice (`vitest.config.ts`), and nothing in this slice turns on a React semantic in any
+  case: every frontend change is a pure helper or a literal, all covered by vitest. A live A/B remains
+  the honest check for the dialog's rendered row, and is **not** claimed as done.
