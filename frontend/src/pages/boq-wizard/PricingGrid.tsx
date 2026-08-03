@@ -3407,7 +3407,7 @@ const PricingGridRow = memo(function PricingGridRow({
                 bcsColStart + bcsKinds.length,
                 totalCell,
                 (v) => renderDescriptorCell(v),
-                "Total Amount — quantity x the cost entered",
+                "BCS Total Amount — quantity x the cost entered",
               )}
               {computedCell(
                 BCS_TENDERED_COL_KEY,
@@ -5680,12 +5680,18 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
           {resizeHandle(bcsWidthKey(kind), true)}
         </th>
       ))}
+      {/* BCS-S7 (owner ruling 2026-08-03): "BCS Total Amount", not the bare "Total Amount" this
+          shipped as. The prefix is the same one the two cost boxes now carry, and it is what
+          stops this column reading as a total of the SHEET when it is a total of the COST. It
+          also brings the grid into line with SummaryPanel, which has said "BCS Total Amount"
+          since BCS-S5 -- those two headers disagreed until now, and the summary's own comment
+          claimed they matched. */}
       <th
         data-colkey={BCS_TOTAL_COL_KEY}
-        title="Total Amount — quantity x the cost entered (computed, never stored)"
+        title="BCS Total Amount — quantity x the cost entered (computed, never stored)"
         className="px-2 py-2 text-right font-medium text-sky-800 dark:text-sky-200 border-l border-border sticky top-0 z-20 align-top bg-sky-50 dark:bg-sky-950/40"
       >
-        <span className="block truncate">Total Amount</span>
+        <span className="block truncate">BCS Total Amount</span>
         {resizeHandle(BCS_TOTAL_COL_KEY, false)}
       </th>
       {/* BCS-S3b: the client-facing pair. ALWAYS SHOWN (owner ruling) -- even where an existing

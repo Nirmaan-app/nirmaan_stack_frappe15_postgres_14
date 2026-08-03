@@ -821,11 +821,31 @@ export const BCS_RATE_FIELDS: readonly BcsRateField[] = [
   "install_rate",
   "combined_rate",
 ];
-/** Column headers. Named for the RATE column each box costs against, so a pricer reading across
- *  the row sees "Rate (Supply)" beside "Cost (Supply)" and the pairing needs no explanation. */
+/**
+ * Column headers. Named for the RATE column each box costs against, so a pricer reading across
+ * the row sees "Rate (Supply)" beside "BCS Cost (Supply)" and the pairing needs no explanation.
+ *
+ * ⚠️ THE `BCS ` PREFIX AND THE WORD "Installation" ARE AN OWNER RULING (2026-08-03), pinned by
+ * test. The prefix is what tells a pricer at a glance which side of the sheet a figure belongs
+ * to: everything named BCS is what the work costs US, everything else is what we charge the
+ * CLIENT. On a wide sheet the two blocks scroll apart, and an unprefixed "Cost (Supply)" beside
+ * "Amount (Supply)" gives no clue which is which.
+ *
+ * ⚠️ THE MIRROR IS NO LONGER WORD-FOR-WORD, and that is deliberate rather than an oversight to
+ * be tidied: the sheet's own role label is "Rate (Install)" (boqTypes `ROLE_LABEL`) while this
+ * box is "BCS Cost (Installation)". The owner chose the longer word for the header a pricer
+ * reads; the role vocabulary is the parser's and is not his to re-word. Do NOT "restore
+ * consistency" by shortening this one -- it would silently overturn a ruling.
+ *
+ * ⚠️ `combined` IS UNPREFIXED, AND IT IS AN OPEN QUESTION, NOT A DECISION. The owner named the
+ * two split boxes and the Total; a combined-rate sheet gets ONE box (`bcsLiveRateKinds` returns
+ * `["combined"]`) and it still reads "Cost". Prefixing it was NOT ruled on, so it was left alone
+ * and reported at BCS-S7 rather than guessed at. If a ruling arrives, change it here and add it
+ * to the pin beside the other two.
+ */
 export const BCS_RATE_LABEL: Record<BcsRateKind, string> = {
-  supply: "Cost (Supply)",
-  install: "Cost (Install)",
+  supply: "BCS Cost (Supply)",
+  install: "BCS Cost (Installation)",
   combined: "Cost",
 };
 

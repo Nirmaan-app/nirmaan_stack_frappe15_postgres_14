@@ -1265,6 +1265,21 @@ describe("the BCS column block -- keys and geometry", () => {
     expect(BCS_RATE_FIELD.install).toBe("install_rate");
     expect(BCS_RATE_FIELD.combined).toBe("combined_rate");
   });
+
+  // BCS-S7: the OWNER dictated these two strings verbatim ("BCS Cost (Supply)" /
+  // "BCS Cost (Installation)", 2026-08-03). The expected values come from that ruling, not from
+  // re-reading the module -- which is what makes this a pin rather than a tautology. The regex
+  // test above still stands and is the one that would survive a future re-wording; this one
+  // exists so a re-wording has to be a DECISION, taken against a named ruling, rather than a
+  // tidy-up nobody notices.
+  //
+  // `combined` is DELIBERATELY not pinned here: the owner named two of the three boxes, and a
+  // sheet mapping only a combined rate still shows the un-prefixed "Cost". That gap is REPORTED,
+  // not guessed at -- pinning a string he never said would launder a guess into an assertion.
+  it("carries the owner's BCS-prefixed box names verbatim (BCS-S7)", () => {
+    expect(BCS_RATE_LABEL.supply).toBe("BCS Cost (Supply)");
+    expect(BCS_RATE_LABEL.install).toBe("BCS Cost (Installation)");
+  });
 });
 
 // ── BCS-S3a-fix: the two invariants S3a ASSERTED IN PROSE and enforced nowhere ──
