@@ -167,16 +167,17 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
         [cartItems]
     );
 
-    // Picker options: one per group result. We attach a `subtitle` ("contains …")
-    // when the group surfaced via a member hit, and search the visible label +
-    // group id locally (the server already did the heavy member matching).
+    // Picker options: one per group result. ADR-0004 — the picker searches GROUP
+    // NAMES only (stakeholder ruling), so there is no member hit to attribute and
+    // the old "contains <member>" subtitle is gone. `search_tds_items` still
+    // returns `matched_member`, but always null unless someone opts back in via
+    // its default-off `include_member_matches`.
     const groupOptions = useMemo(() => {
         const groups = searchData?.message ?? [];
         return groups.map(g => ({
             label: g.tds_item_name,
             value: g.tds_item,
             workPackage: g.work_package,
-            subtitle: g.matched_member ? `contains ${g.matched_member.item_name}` : "",
             group: g,
         }));
     }, [searchData]);
@@ -438,11 +439,11 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                         <FuzzySearchSelect
                             allOptions={groupOptions}
                             tokenSearchConfig={{
-                                searchFields: ['label', 'value', 'subtitle'],
+                                searchFields: ['label', 'value'],
                                 minSearchLength: 1,
                                 partialMatch: true,
                                 minTokenLength: 1,
-                                fieldWeights: { label: 2.0, value: 1.5, subtitle: 1.0 },
+                                fieldWeights: { label: 2.0, value: 1.5 },
                                 minTokenMatches: 1,
                             }}
                             value={selectedGroup ? { label: selectedGroup.tds_item_name, value: selectedGroup.tds_item } : null}
@@ -451,12 +452,9 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                             formatOptionLabel={(option: any) => (
                                 <div className="flex flex-col">
                                     <span>{option.label}</span>
-                                    {option.subtitle && (
-                                        <span className="text-xs text-blue-600">{option.subtitle}</span>
-                                    )}
                                 </div>
                             )}
-                            placeholder="Search TDS item or member item..."
+                            placeholder="Search TDS item..."
                             isClearable
                             isLoading={isSearching}
                             noOptionsMessage={() => isSearching ? "Searching..." : "No matching TDS items"}

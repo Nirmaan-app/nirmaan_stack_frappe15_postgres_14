@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Trash2 } from "lucide-react";
+import { useFrappeGetCall } from "frappe-react-sdk";
 
 import {
     Dialog,
@@ -41,6 +42,12 @@ interface StagedRow {
     category: string;
     /** human-readable category name for display. */
     categoryName: string;
+    /**
+     * ADR-0004: the group this SKU currently belongs to, if any. Membership is
+     * N:1, so staging an already-linked item MOVES it out of that group. Carried
+     * on the staged row so the warning survives from pick to commit.
+     */
+    linkedGroupName?: string;
 }
 
 export interface MultiAddMembersDialogProps {
@@ -77,6 +84,21 @@ export const MultiAddMembersDialog: React.FC<MultiAddMembersDialogProps> = ({
         }
     }, [open]);
 
+    // ADR-0004: current linkage for every SKU in this Work Package, fetched ONCE
+    // (batched, not per option) so each picker row can show whether adding it
+    // would MOVE it out of another group. "No silent member theft" — and this is
+    // the surface where it would otherwise be silent, because the picker does not
+    // filter out items that already belong somewhere.
+    const { data: linkageData } = useFrappeGetCall<{
+        message: Record<string, { linked_tds_item: string; group_name: string }>;
+    }>(
+        "nirmaan_stack.api.tds.linking.get_items_linkage",
+        { work_package: workPackage },
+        open && workPackage ? `tds_linkage_for_wp_${workPackage}` : null
+    );
+
+    const linkageByItem = linkageData?.message || {};
+
     // Picker options = WP items minus existing members minus already-staged ids.
     // Annotate showCategory when the same item_name appears under multiple
     // categories so we can disambiguate in the option label (mirrors the wizard).
@@ -97,8 +119,9 @@ export const MultiAddMembersDialog: React.FC<MultiAddMembersDialogProps> = ({
                 category: item.category,
                 categoryName: item.categoryName,
                 showCategory: (nameCounts.get(item.label) || 0) > 1,
+                linkedGroupName: linkageByItem[item.value]?.group_name || "",
             }));
-    }, [itemOptionsForWP, existingItems, staged]);
+    }, [itemOptionsForWP, existingItems, staged, linkageByItem]);
 
     const handleStage = (opt: any) => {
         if (!opt?.value) return;
@@ -112,6 +135,7 @@ export const MultiAddMembersDialog: React.FC<MultiAddMembersDialogProps> = ({
                 label: opt.label,
                 category: opt.category,
                 categoryName: opt.categoryName,
+                linkedGroupName: opt.linkedGroupName || "",
             },
         ]);
     };
@@ -173,6 +197,12 @@ export const MultiAddMembersDialog: React.FC<MultiAddMembersDialogProps> = ({
                                             ({option.categoryName})
                                         </span>
                                     )}
+                                    {/* ADR-0004: N:1 membership — adding this MOVES it. */}
+                                    {option.linkedGroupName && (
+                                        <span className="text-amber-600 ml-1 text-xs">
+                                            · linked to {option.linkedGroupName}
+                                        </span>
+                                    )}
                                 </span>
                             )}
                         />
@@ -202,6 +232,13 @@ export const MultiAddMembersDialog: React.FC<MultiAddMembersDialogProps> = ({
                                         <span className="text-xs text-gray-400 font-mono truncate">
                                             {s.value}
                                         </span>
+                                        {/* The move warning has to survive from pick to
+                                            commit — this is the last screen before it. */}
+                                        {s.linkedGroupName && (
+                                            <span className="text-xs text-amber-600 truncate">
+                                                will move out of {s.linkedGroupName}
+                                            </span>
+                                        )}
                                     </div>
                                     <span className="text-gray-600 truncate">{s.categoryName}</span>
                                     <Button

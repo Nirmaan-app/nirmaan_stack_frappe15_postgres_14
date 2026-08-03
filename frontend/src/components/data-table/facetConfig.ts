@@ -22,6 +22,19 @@ import { Column } from "@tanstack/react-table";
  * sites keep type-safety with `satisfies FacetDeclaration` (or the `facetMeta` helper).
  */
 
+/**
+ * Sentinel for the "blank"/"not set" facet bucket (ADR-0004). It round-trips as an ordinary
+ * facet value: the backend emits it as an option when `include_blank_bucket` is on, and
+ * `_process_filters_for_query` recognises this exact string inside an `in` filter and rewrites
+ * it to `is not set` (NULL or ''). That keeps the whole selection path — checkbox state, URL
+ * persistence, TanStack `ColumnFiltersState` — unaware that one option is special.
+ *
+ * MUST stay byte-identical to `NOT_SET_FACET_VALUE` in
+ * `nirmaan_stack/api/data_table/facets.py`. This is the ONE frontend definition — import it,
+ * never re-type the literal.
+ */
+export const NOT_SET_FACET_VALUE = "__NOT_SET__";
+
 /** STATIC facet identity — lives on the column in *.config.ts (`meta.facet`). */
 export interface FacetDeclaration {
   /**
@@ -44,6 +57,24 @@ export interface FacetDeclaration {
    * `facetDoctype` DataTable prop.
    */
   doctype?: string;
+  /**
+   * Surface a "not set" bucket alongside the real values (ADR-0004). Every facet query
+   * branch filters out NULL/'' , so an unset row is otherwise INVISIBLE to the facet and
+   * "show me the ones with no value" is unexpressible.
+   *
+   * This belongs on the DECLARATION, not `FacetOverride`, because it is a property of the
+   * FIELD — a link field either has a meaningful "unset" state or it does not — so every
+   * page rendering that column wants the same answer. Backend-side it only applies to
+   * text-storing, top-level (non-child, non-JSON) fields.
+   */
+  includeBlankBucket?: boolean;
+  /**
+   * Human label for the blank bucket (e.g. "Not Linked"). Only meaningful with
+   * `includeBlankBucket`; defaults to "Not Set". The backend deliberately returns the raw
+   * sentinel as the label — naming it is a UI concern, and the same empty state reads
+   * differently per field ("Not Linked" / "Unassigned" / "No Category").
+   */
+  blankLabel?: string;
 }
 
 /** RENDER-SCOPE facet context — supplied per column id via the DataTable `facetOverrides` prop. */
