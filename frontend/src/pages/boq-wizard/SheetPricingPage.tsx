@@ -2064,10 +2064,25 @@ const SheetPricingPage = () => {
   // The SAME four inputs the grid's cost block reads, handed to the rollup so the panel can show
   // BCS Total Amount / Tendered Total Amount / % Profit per BoQ SECTION.
   //
-  // Gated on `bcsColumnsVisible` -- the identical condition that decides whether the grid shows a
-  // cost column at all. So the panel gains cost columns exactly when the grid has them, and in
-  // version history (or behind a failed costs read) it shows none rather than a screenful of
-  // blanks that would read as "this sheet costs nothing".
+  // Gated on `bcsColumnsVisible`, so in version history (or behind a failed costs read) the panel
+  // shows no cost columns rather than a screenful of blanks that would read as "this sheet costs
+  // nothing". That is what this gate buys, and it is the reason it is here.
+  //
+  // ⚠️ CORRECTED AT BCS-S7 -- IT IS NOT THE SAME CONDITION AS THE GRID'S. This said "the identical
+  // condition that decides whether the grid shows a cost column at all. So the panel gains cost
+  // columns exactly when the grid has them." The grid's block has a SECOND term this one does not:
+  // `PricingGrid` renders `bcsHeaderCells` only when `bcsKinds.length > 0`, and `bcsLiveRateKinds`
+  // returns `[]` for a sheet that maps NO rate column (bcsColumns.ts, the "no rate column at all
+  // cannot do BCS" ruling). `bcs_is_ready` never inspects rate columns, so such a sheet can be
+  // BCS-enabled with both sources confirmed. On it the grid shows NO cost block while this panel
+  // shows its three -- all blank. The two surfaces are ALIGNED IN PRACTICE only because a sheet
+  // with no rate column is not a sheet anyone prices.
+  //
+  // NOT "fixed" here, deliberately: ANDing `bcsKinds.length > 0` in would be a render-gate change,
+  // and this repo has no DOM test environment (`vitest.config.ts`), so it would ship verified by
+  // nothing. The owner declined the browser sweep that could have checked it. A comment that
+  // describes what the code does is fully verifiable by reading; a gate change is not. If this is
+  // ever revisited, the honest check is a live A/B on a rate-column-less sheet.
   //
   // MEMOISED because it is a `rollupByParent` argument: a fresh object each render would re-walk
   // every row's tree on every keystroke. Each input is already stable per fetch.

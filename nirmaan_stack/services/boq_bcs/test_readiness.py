@@ -205,24 +205,95 @@ class TestOneDefinition(FrappeTestCase):
 
         self.assertIs(bcs.bcs_is_ready, readiness.bcs_is_ready)
 
+    # ── BCS-S7: both tripwires below read the module through `ast`, NOT a substring grep ──
+    #
+    # ⚠️ THEY WERE SUBSTRING GREPS UNTIL BCS-S7, AND THEY WERE PASSING BY PUNCTUATION LUCK. The
+    # precedent for the fix is `test_bcs.test_the_carry_does_not_route_through_the_whole_row_
+    # snapshot_writer`, written in the SAME arc, whose docstring records that its substring form
+    # went RED against the module's own docstring stating the prohibition -- so the tripwire fired
+    # on the comment warning against the thing, and the only way to keep it green was to DELETE
+    # the explanation. That note ends "the sibling grep tripwire on `pricing.py` is safe as a
+    # substring only because `pricing.py` happens to name none of its tokens in prose either --
+    # worth knowing before the next one is written." These two were the next ones, and they were
+    # NOT safe. Measured at BCS-S7:
+    #
+    #   * `bcs.py:114` already contains the phrase `def bcs_is_ready` in a COMMENT (". . . do NOT
+    #     re-add a local `def bcs_is_ready` here"). `assertNotIn("def bcs_is_ready(", src)` stays
+    #     green ONLY because a backtick sits where the `(` would be. Rewriting that comment as
+    #     "`def bcs_is_ready()`" -- an entirely reasonable edit -- turns the test RED against a
+    #     module that is perfectly correct, and the cheapest way out is deleting the warning.
+    #   * `assertIn("services.boq_bcs.readiness", src)` is worse, because it fails OPEN: delete
+    #     the import, leave any comment mentioning the path, and the tripwire stays green while
+    #     the property it guards is gone.
+    #
+    # `ast` asks the real questions instead -- "does this module DEFINE this name?" and "does this
+    # module IMPORT this module?" -- and leaves the prose alone in both directions.
+    #
+    # HONEST LIMIT: `_imported_modules` resolves ABSOLUTE imports only. Every import in this
+    # package and in `api/boq/wizard` is absolute, so nothing is missed today; a future RELATIVE
+    # import (`from . import bcs`) carries no resolvable module path on the node and would slip
+    # past. Stated rather than silently tolerated.
+
+    @staticmethod
+    def _imported_modules(module) -> set:
+        """Every module path this module's EXECUTABLE code imports, absolute imports only.
+
+        Both `import a.b.c` and `from a.b import c` are folded to the dotted path, so a caller
+        may ask about `...wizard.bcs` without caring which form was used. Function-local imports
+        are included -- `ast.walk` reaches them, and an import hidden inside a function closes an
+        import ring exactly as well as one at module level.
+        """
+        import ast
+        import inspect
+
+        found = set()
+        for node in ast.walk(ast.parse(inspect.getsource(module))):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    found.add(alias.name)
+            elif isinstance(node, ast.ImportFrom) and not node.level and node.module:
+                found.add(node.module)
+                for alias in node.names:
+                    found.add(f"{node.module}.{alias.name}")
+        return found
+
     def test_the_api_module_does_not_redefine_it(self):
         """The identity check above passes for a re-export; it would ALSO pass for a moment if
-        someone re-added a local `def` below the import. This reads the source."""
+        someone re-added a local `def` below the import. This reads the source -- through `ast`,
+        so it answers "is there a definition?" rather than "does this text appear anywhere?".
+
+        Strictly stronger than the substring it replaced in both directions: it cannot fire on a
+        comment, and it DOES catch `async def`, an unusual-whitespace `def  bcs_is_ready (`, and
+        a definition nested inside a function -- none of which the literal `"def bcs_is_ready("`
+        matched."""
+        import ast
         import inspect
 
         from nirmaan_stack.api.boq.wizard import bcs
 
-        self.assertNotIn("def bcs_is_ready(", inspect.getsource(bcs))
+        defined = {
+            node.name
+            for node in ast.walk(ast.parse(inspect.getsource(bcs)))
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        self.assertNotIn(
+            "bcs_is_ready", defined,
+            "api/boq/wizard/bcs.py must RE-EXPORT the predicate, never redefine it -- two copies "
+            "either side of a carry can disagree about the same sheet at the moment it matters",
+        )
+        # Not vacuous: the module really is being parsed and really does define other functions.
+        self.assertIn("save_row_bcs_rates", defined)
 
     def test_the_carry_engine_reaches_it_without_importing_the_api_module(self):
         """The whole point of the relocation. `committed_carry` importing `bcs` would close
         committed_carry -> bcs -> pricing -> committed_carry, which `pricing.py`'s header
-        records as forbidden."""
-        import inspect
+        records as forbidden.
 
+        Both halves matter and they fail in opposite directions, which is why both are asserted:
+        the api module must be ABSENT (a ring), and the service module must be PRESENT (without
+        it there is no shared predicate and the plan/apply symmetry silently dies)."""
         from nirmaan_stack.api.boq.wizard import committed_carry
 
-        src = inspect.getsource(committed_carry)
-        self.assertNotIn("wizard.bcs", src)
-        self.assertNotIn("wizard import bcs", src)
-        self.assertIn("services.boq_bcs.readiness", src)
+        imported = self._imported_modules(committed_carry)
+        self.assertNotIn("nirmaan_stack.api.boq.wizard.bcs", imported)
+        self.assertIn("nirmaan_stack.services.boq_bcs.readiness", imported)

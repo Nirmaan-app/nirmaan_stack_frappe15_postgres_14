@@ -2231,3 +2231,142 @@ typed quantities that silently return if the group is re-selected).
 - `test_template_select` 22 → **29** (3 pure + 6 endpoint, incl. the no-provenance and
   re-select-does-not-restore guarantees). Live-verified: typed 42 → deselect → `qty_total` 0,
   `qty_by_area` `{Area1:0,B2:0,B3:0}`, cell read-only, row out of the nav matrix.
+
+---
+
+## BCS — the internal COST layer, frontend (branch `feature/bcs-columns`)
+
+Per-slice narrative for the whole arc lives in the plan doc; backend storage, endpoints, the
+readiness predicate and the carry layer are in `boq-backend.md`. **This section is the frontend
+reference.** Everything BCS renders lives inside the existing pricing editor — there is no new page
+and no new route.
+
+⚠️ **NAME COLLISION.** "BCS" here is the BoQ cost layer. "BCS" in the **Rate Master** conventions
+(`frontend/CLAUDE.md`) is a derivation pipeline. Unrelated concepts, same three letters; the acronym
+is never expanded anywhere in the codebase and should not be given an invented expansion.
+
+### The modules, and the one-way dependency
+
+| Module | Role |
+|---|---|
+| `bcsColumns.ts` | **the pure leaf** — eligibility, the confirmation rules' client mirror, refusal codes + ordering, labels, the draft/stored merge, and every computed cell |
+| `bcsRollup.ts` | pure — the per-SECTION cost/tendered/margin rollup |
+| `marginView.ts` | pure — the flat margin-ordered view |
+| `BcsColumnsDialog.tsx` | the enable + two-column confirmation card |
+| `PricingGrid.tsx` | the cost block itself (input boxes + three computed columns) |
+| `SummaryPanel.tsx` | the section cost axis |
+| `SheetPricingPage.tsx` | all page state, gating and writes |
+| `CarryLayers.tsx` / `boqTypes.ts` | the `bcs_costs` carry layer registration |
+
+`bcsColumns.ts` imports only types. `PricingGrid` imports **it**, never the reverse — the same
+one-way rule `priceability.ts` already keeps.
+
+### The cost block in the grid
+
+Rendered only when `bcsKinds.length > 0`. Left to right the block is the whole question BCS exists
+to answer: **what this row costs us, what we charge for it, and the margin between the two.**
+
+- **Which input boxes a sheet gets is derived from the sheet's OWN rate columns** (`bcsLiveRateKinds`,
+  owner ruling): no Supply rate column means no Supply box; a combined-rate sheet gets ONE
+  undifferentiated box; a sheet with no rate column at all gets none.
+  ⚠️ **THE HALVES WIN OVER A COMBINED RATE MAPPED BESIDE THEM, and that is a ruling, not a detail.**
+  The backend forbids summing `combined_rate` with the two halves, so the live set must never contain
+  both or the total double-counts. **This makes the prohibition STRUCTURAL** — the arithmetic
+  downstream cannot express the forbidden sum, because the set it is handed never holds both. It is a
+  NARROWING, never a widening; reversing it is a one-function change.
+- **Column headers (owner ruling):** `BCS Cost (Supply)`, `BCS Cost (Installation)`, `BCS Total
+  Amount`. The `BCS ` prefix marks which side of the sheet a figure belongs to — everything named BCS
+  is what the work costs us, everything else is what we charge the client — which matters because on
+  a wide sheet the two blocks scroll apart. Pinned by test. ⚠️ The mirror to the parser's role labels
+  is deliberately **not** word-for-word (`Rate (Install)` vs `BCS Cost (Installation)`): the owner
+  chose the longer word for the header, and the role vocabulary is the parser's. Do not shorten it
+  back. ⚠️ A **combined**-rate sheet's single box still reads the unprefixed `Cost` — the owner named
+  two of the three boxes, so that one is an **open question**, not a decision.
+- **The sky tint marks THE BCS BLOCK, not "internal".** It once meant "what we pay, not what we
+  charge", and stopped meaning that when the client-facing Tendered and % Profit columns joined the
+  block. What it marks now is one contiguous, **screen-only** section that is not part of the sheet's
+  own columns and never reaches the client export. The internal-vs-client distinction lives in the
+  per-column `title` text, where it can be said per column.
+- **The three computed columns are never stored, never typeable, and never a paste target.**
+
+### ⚠️ Blank is never zero, and every blank knows why
+
+`BcsComputedCell` is a discriminated `{kind:"value"} | {kind:"blank", reason}` with six reasons
+(`no_quantity`, `no_cost`, `no_amount`, `zero_amount`, `negative_amount`, `not_finite`), surfaced as
+the cell's `title`. **A 0 is a claim; an absence is not** — an uncosted row showing a Total Amount of
+`0`, or a section showing `0%` profit, asserts "this costs nothing" / "we make nothing on it" about
+something nobody has costed. An **unrecognised** reason renders as an explicit *unsupported* state,
+never a silent blank, because an empty cell on a cost screen reads as "nothing to see here".
+
+**% Profit is NEVER `NaN` and NEVER `Infinity`** — a zero denominator is refused before the division
+and an out-of-range result after it. Both matter twice: a displayed `NaN` is nonsense, and a `NaN`
+compared with `===` would defeat a `React.memo` for the lifetime of the row.
+
+⭐ **AND NEVER A PROFIT ON A LOSS.** A **negative** denominator flips the inequality — an amount of
+−100 against a cost of 50 computes as **+150%**, so a loss-making row would display positive profit,
+the exact inverse of what the column exists to show and the one failure mode worse than a blank,
+because it is confidently wrong rather than visibly absent. Measured unreachable from data (zero
+negative amounts across the committed corpus) but reachable **by typing**, since no cost input
+carries a `min=`. ⚠️ It is a **blank with a reason, not a blocked keystroke** — refusing the input
+would be a guess about whether negative amounts are legitimate in this owner's BoQs. Do not convert
+it into a validation. **The cost side is deliberately unguarded**: a negative cost against a positive
+amount is arithmetically a margin above 100%, which is what it should read; only the denominator's
+sign inverts the comparison.
+
+⚠️ **% Profit divides by THE FIGURE ON SCREEN (owner ruling).** The Tendered Total Amount column sums
+the confirmed Amount columns and the margin divides by that sum, so the denominator and the amount
+`<td>` beside it come from **one** function. On a diverging cell the screen shows the DOCUMENT amount
+by default, so a second copy that skipped reconciliation would silently divide by a number that is
+not the one printed next to it.
+
+### ⚠️ The known partial-cost overstatement (owner-accepted — ship as-is, recorded)
+
+**A section with only SOME of its lines costed reports % Profit from a PARTIAL cost over a FULL
+tendered amount, and therefore reads FATTER than reality.** Mechanism: in `bcsRollup.rollBcsSections`
+an uncosted row contributes `0.0` to the section's cost sum, while the has-costs flag is an **OR**
+across the subtree — so one costed line among ten makes the whole section "costed", and its lone cost
+is divided into the whole section's tendered amount. Pinned (not merely tolerated) by
+`bcsRollup.test.ts`'s `T5b`, which asserts exactly this shape and its inflated margin.
+
+This is an **accepted owner decision, not an open defect** — the alternative (blanking any section
+that is not fully costed) hides real information during the normal state of a job being costed. It is
+recorded because a section-level margin that reads high is *plausible*, and a reader who does not
+know this will trust it.
+
+### State, gating and the memo shield
+
+- **`bcsToggleState` has THREE states — `unknown` / `off` / `on` — not two.** "We have no payload
+  yet" is not "BCS is off", and collapsing them makes a loading screen assert a fact.
+- **`bcsColumnsVisible = bcsBlockConfigured && bcsRatesLoad.isUsable`.** The `isUsable` half is
+  load-bearing: an empty map on a FAILED read would turn "we do not know this sheet's costs" into
+  "this sheet has no costs".
+  ⚠️ **It is NOT the same condition the grid's block uses** — the grid also requires
+  `bcsKinds.length > 0`, and the Summary panel has no such term, so a BCS-ready sheet that maps no
+  rate column shows three blank cost columns in the panel and none in the grid. Aligned in practice
+  only because such a sheet is not one anyone prices. Not "fixed", deliberately: it is a render-gate
+  change in a repo with **no DOM test environment**, so it would ship verified by nothing.
+- **The margin view must not outlive the costs it is built on** — it closes on the FALSE edge of
+  `bcsColumnsVisible` (BCS switched off, confirmation cleared, version changed, costs read failed).
+  Otherwise it keeps rendering, ordered by a number no longer on screen, while the direction button
+  still claims a sort it can no longer perform.
+- ⚠️ **THE `ReadonlyMap` IN `mergeBcsRowValues` IS THE POINT — do not "simplify" it to an object.**
+  The grid's cost drafts live in a `Record<string,string>` keyed `` `${row_index}:${field}` `` while
+  the merge reads **bare** field keys. As a plain object parameter the two are structurally
+  assignable — an all-optional target accepts any string-indexed source — so handing over the wrong
+  key space **compiles cleanly, finds nothing**, and (this shipped once) reverts a controlled cost
+  input on every keystroke while the debounce saves a number nobody typed. `tsc` reported nothing. A
+  `Record` is not assignable to a `Map`, so the mistake is now a compile error.
+- **Memo shield (the P1 per-row rule) holds throughout**: the grid receives BCS drafts per-row as its
+  own slice, never the shared draft object; grid-level BCS props flip identically for all rows. No
+  BCS surface added a per-row prop that changes on a keystroke.
+
+### The carry layer, frontend
+
+`bcs_costs` is one entry in `CARRY_LAYER_KEYS`, so the dialog's "Also carry" block, its counts, its
+overwrite pairs and its payload builder all picked it up **free** — everything iterates the key list.
+⚠️ **It defaults OFF**, and that asymmetry is not arbitrary: categories are ON by an explicit owner
+ruling and cost data has had no such ruling, so **ON is the exception, not the rule**. Carried records
+arriving un-asked-for is half the defect that once deleted this whole feature, and an internal cost
+rate — what the job costs *us* — is the last layer on which to relax it. ⚠️ **The default lives ONLY
+in the client**; an omitted `layers` payload is rates-only server-side, so a client that never learned
+about `bcs_costs` keeps the earlier behaviour exactly. Never push the default into the server.

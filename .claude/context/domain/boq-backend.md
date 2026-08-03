@@ -9,6 +9,32 @@
 
 ---
 
+## Residence — concept → owner (ADR-0010)
+
+This manifest names the **one owning module** for each BoQ backend concept (per [ADR-0010](../../../docs/adr/0010-module-residence-rules.md)). It exists because root `CLAUDE.md` tells every reader to *"consult the domain doc's `## Residence — concept → owner` manifest"* before creating a helper for an existing concept — and until now BoQ had no such manifest to consult, so that instruction dead-ended on the largest active feature in the app. Shape copied from `procurement.md`, per its own template note.
+
+**No-new-scatter rule:** an edit touching one of these concepts must route through its owner — or at minimum must not create a *new* copy of the rule/shape/state. An **UNASSIGNED** owner means no single home exists yet: do **not** pick one ad-hoc; ask.
+
+⚠️ **Rows here are VERIFIED, not aspirational** — every owner below was resolved to a real definition when the row was written. Do not add a row you have not opened the file for.
+
+| Concept | Owner (module) | Nothing else may… |
+|---|---|---|
+| **BCS readiness** — "may a BCS cost be written on this committed sheet+version?" | `services/boq_bcs/readiness.py` (`bcs_is_ready`); `api/boq/wizard/bcs.py` **re-exports** it | define a second copy, or reach it by importing the api module — that closes `committed_carry -> bcs -> pricing -> committed_carry`. Pinned by identity **and** by an import-graph test |
+| **BCS column-confirmation rules** — what a valid quantity source is, what the amount denominator is, which combinations are refused | `services/boq_bcs/sources.py` (`build_qty_source` / `build_amount_source`) — a **pure** module, registered in `scripts/residence_check.py` `PURE_MODULES` | re-decide any of the three inside an endpoint. ⚠️ Do **not** register `readiness.py` alongside it: that module reads `frappe.db` by design and would fail the purity ratchet |
+| **Classification freeze state** | `services/boq_category/persist.py` (`is_sheet_classification_frozen`) — THE single frozen-reader | read `classification_frozen` off `BoQ Sheet` directly, or OR it into the pricing lock (pricing stays live under a classification freeze) |
+| **Effective category for a row across engines** (the multi-engine ladder) | `services/boq_category/persist.py` (`resolve_row_ladder`) | re-implement the human > auto > confidence precedence at a call site |
+| **Blank-category eligible count** (gate, banner, freeze summary, stamp inverse) | `services/boq_category/persist.py` (`blank_category_eligible_rows`, `population=` selects the set) | count blanks independently — the gate and the number on screen must come from ONE function or they can disagree |
+| **Committed-node qty-bearing test** | `services/boq_category/persist.py` (`node_is_qty_bearing` / `is_nonzero_qty`) | re-derive it in an endpoint. The client `isRowQtyBearing` is a DELIBERATE cross-language duplicate, not a second owner |
+| **Category gate condition** (may a rate be written at all?) | `api/boq/wizard/pricing.py` (`_categories_gate_ok`) — one condition, each call site keeping its own voiced message | invent a second condition. ⚠️ The cross-BoQ revision carry is deliberately **NOT** gated on it (ADR-0014 Amendment E) — that omission is load-bearing, not an oversight |
+| **Mandatory amount-formula completeness** | `api/boq/wizard/pricing.py` (`_sheet_formulas_complete`) | bypass it via the priceability override — the formula gate is ABSOLUTE and outranks it |
+| **Layer-carry dispatch** (plan **and** apply, both carry surfaces) | `api/boq/wizard/committed_carry.py` (`walk_layers`) | add a bespoke "carry X" action on either endpoint. One registration must light both surfaces, or the plan read and the apply can disagree |
+| **"Is this the same row?" across committed versions/BoQs** | `api/boq/wizard/committed_carry.py` (`committed_excel_row_match` / `version_addressed_excel_row_match`) | write a per-layer row matcher — that is a second answer to one question |
+| **Single-editor pricing lock** | `api/boq/wizard/pricing_lock.py` (`acquire_or_refresh`) | invent a second lock. A lock reject must mutate NOTHING |
+| **The joined `description` + `description_parts_raw` shape** | `services/boq_parser/classifier.py` (`_description_columns` / `_description_parts`) — owner-locked | re-join description columns anywhere else, or assume a single description column |
+| **Committed-tier amount / parent-rate recomputation** | **NONE, deliberately** — the committed controllers are CAPTURE-ONLY; the future tendering module owns calculations | re-add `amount = qty x rate` or a parent-rate overwrite to a committed controller |
+
+---
+
 ## Recent slice changelog (relocated header)
 
 **`make_model` fieldtype Data→Text on `BOQ Nodes` + `BoQ Review Row` (2026-07-01, committed on develop — sanctioned-exception schema fix per root CLAUDE.md "Don't Touch"):** the running DB DocField was already `Text` and both columns already `text` (a prior out-of-band Desk change), while the committed JSON still said `Data`. Frappe developer-mode auto-export surfaced this divergence during an unrelated session (it also injected timestamp/trailing-newline noise). Resolved by committing the **minimal 1-line fieldtype diff** on each doctype JSON (auto-export noise stripped), aligning the committed code to the already-migrated runtime. Verified: both columns `text` via `information_schema` + clean `reload-doctype` — **no full `bench migrate` needed** (DB already migrated). This is the required "explicitly noted here" record for the CLAUDE.md sanctioned exception (post context-split, per-instance records live here, not in CLAUDE.md). NOT part of the BoQ review-refinements work — incidental cleanup captured while merging that work to develop.
@@ -1257,3 +1283,196 @@ of typed quantities.
 
 `test_template_select` 22 → **29** (3 pure `zeroed_qty_by_area` + 6 endpoint: single row, cascade,
 per-area keys preserved, re-select does not restore, SELECT never clears, no provenance stamp).
+
+---
+
+## BCS — the per-row internal COST layer (backend as-built, branch `feature/bcs-columns`)
+
+Per-slice narrative for the whole BCS arc (S1 → S6) lives in the plan doc. This section is the
+**backend reference**: what exists, what its rules are, and which of them are owner-locked. Frontend
+surfaces are in `boq-frontend.md`.
+
+⚠️ **NAME COLLISION.** "BCS" here is the BoQ cost layer. "BCS" in the **BoQ Rate Master** material
+(root `CLAUDE.md`, `frontend/CLAUDE.md`) is a *derivation pipeline* — discounted product cost plus
+wastage, no install. Unrelated concept, same three letters. The acronym is **never expanded anywhere
+in the codebase**; do not invent an expansion for it.
+
+### What BCS is
+
+The cost side of a committed BoQ sheet: hand-typed cost rates per row representing what the work
+costs **us**, sitting against the BoQ amount we charge the **client**. From those inputs the screen
+computes *BCS Total Amount* (quantity × cost) and *% Profit*.
+
+**Three cost inputs are stored, and which of them a sheet uses is the SCREEN's decision, not the
+backend's** (owner ruling): a sheet that splits its quote carries a Supply Rate and an Installation
+Rate; a sheet quoting one undifferentiated figure carries a Combined Rate instead. The third field
+exists so a combined-rate sheet's cost has an honest home rather than riding in a field named
+"supply". ⚠️ **`combined_rate` is NOT a total of the other two — never sum it with them, never derive
+it from them.** The frontend enforces this structurally: the live-kinds rule returns the halves OR
+the combined, never both, so the forbidden sum is not expressible downstream.
+
+### Storage
+
+**`BoQ Row BCS Rate`** — standalone (`istable=0`), `track_changes: 1`, autoname `BBCS-.YY.-.#####`.
+
+- **Identity is PER-ROW: `(boq, sheet_name` VERBATIM #152`, excel_row, committed_version)`.**
+  ⚠️ **There is deliberately NO `col_letter`** — the BCS columns are screen-only and have no Excel
+  origin. This is not an omission to be "completed": it is what keeps BCS structurally unable to
+  reach the client-facing export (below), and it is why the carry needs no per-column fan-out.
+- **Lifecycle is freeze-and-supersede** (`bcs_version` / `is_current` / `bcs_rated_at`), mirroring
+  `BoQ Cell Pricing` exactly. A cost row is never overwritten in place.
+- Semantic (non-identity) fields: `node` — a **per-version** pointer, re-resolved rather than
+  carried; `description` — a carry-forward **match guard**, not part of the key.
+- Values: `supply_rate` / `install_rate` / `combined_rate` (Currency) + `is_filled` (the layer's own
+  filled-state — committed node rates read `0.0`, not blank).
+- Provenance: `rate_source` (a Select; **storage capacity only today** — nothing writes anything but
+  `Manual`).
+- Carry provenance: `carried_from_boq` / `carried_from_version` / `carried_at`, provisioned unused at
+  S1 and consumed by the carry layer at S6.
+
+**`BoQ Sheet` gains five BCS data fields** (plus a section break): `bcs_enabled` (Check — the
+per-sheet, per-committed-version switch), `bcs_qty_source` + `bcs_amount_source` (JSON — the
+CONFIRMED column sources, stored as re-resolvable dicts rather than re-guessed), and
+`bcs_confirmed_by` / `bcs_confirmed_at` (who last confirmed the two columns, and when).
+
+### Endpoints — `api/boq/wizard/bcs.py`
+
+| Endpoint | Kind |
+|---|---|
+| `set_bcs_enabled` | whitelisted POST |
+| `confirm_bcs_columns` | whitelisted POST |
+| `get_bcs_state` | whitelisted, GET-capable |
+| `get_sheet_bcs_rates` | whitelisted, GET-capable |
+| `save_row_bcs_rates` | whitelisted POST |
+| `bcs_is_ready` | **not an endpoint** — the shared predicate, re-exported from the service layer |
+
+### ⚠️ Three owner-locked properties — the reason this is its own module
+
+**1. ONLY THE INPUT RATES PERSIST.** Total Amount and % Profit are ALWAYS computed downstream from
+the stored rates plus the sheet's confirmed quantity/amount columns. A stored copy could disagree
+with the live sheet, so there is deliberately **no column for either**.
+
+**2. THE READINESS GATE GUARDS BCS WRITES ONLY.** It is **NOT** ANDed into `save_cell_price`'s rate
+gate: an unconfirmed BCS section leaves ordinary client-facing pricing fully editable. **The failure
+mode is what makes this load-bearing — getting it wrong silently freezes client pricing in
+production**, every rate cell read-only for a reason nobody on the screen can see. A test greps
+`pricing.py` to keep the separation true.
+
+`save_row_bcs_rates` runs exactly four gates —
+
+    committed cell exists -> sheet not deliberately locked -> BCS readiness -> single-editor lock
+
+— and **SKIPS, on purpose**, the three that guard a CLIENT rate: the mandatory amount-formula gate,
+the ASYMMETRIC priceability gate (so **a qty-less Preamble IS costable**), and the category gate.
+Cost is a separate axis with its own two-column confirmation; someone must be able to cost a job
+while amount formulas are still being declared and rows are still being categorised. **The asymmetry
+IS the decision — do not add any of the three "to restore consistency".** Each skip is pinned by its
+own test.
+
+**3. BCS NEVER REACHES `export_priced_workbook`.** That export is handed to the CLIENT, so a BCS
+value in it leaks what the job costs us — **cost, every BCS-derived total, and the margin alike**.
+The exclusion holds **by construction**: the export reads `BoQ Cell Pricing` and names three fields
+explicitly (`excel_row`, `col_letter`, `rate`), while BCS lives in its own doctype with no
+`col_letter` at all. Pinned by a standing guard in `test_export_writeback.py`, which is
+**anti-vacuous by design** — it first asserts the BCS rows genuinely exist for the exported sheets,
+so a pass can never mean "there was nothing to leak".
+
+⚠️ **A NEW STORED COST FIELD MUST BE SEEDED INTO THAT GUARD'S FIXTURE.** This has already gone wrong
+once: when storage widened to a third field, the guard kept seeding only the two halves, so on the
+whole axis the widening opened it was passing because there was nothing there to leak — and a
+combined-rate sheet uses that field and *only* that field, so its cost could have reached a client
+workbook with the guard green.
+
+### The readiness predicate lives in `services/`, and it had to
+
+`bcs_is_ready(boq_name, sheet_name, committed_version) -> bool` — BCS enabled for this sheet+version
+AND both columns confirmed. A pure read; never mutates; never throws for a missing sheet (an
+uncommitted or re-committed-away version is simply *not ready*).
+
+It sits in **`services/boq_bcs/readiness.py`**, not in `api/`, because reaching it from the carry
+engine closes a ring verified at module level:
+
+```
+committed_carry -> bcs -> pricing -> committed_carry
+```
+
+`bcs.py` imports `pricing`; `pricing.py` imports `committed_carry`. **No placement anywhere inside
+`api/` avoids it** — `cross_boq_carry` imports both and `commit_pipeline` is a third dependent — so
+the predicate moved DOWN to the layer both sides may import (`api -> service` is the one legal
+direction). `bcs.py` imports the name straight back, so `bcs.bcs_is_ready` still resolves and no
+caller changed. Precedent is exact: `committed_carry` already reaches classification state through
+`services/boq_category/persist.py`, never the sibling api module.
+
+⚠️ **`committed_version` IS COERCED here, and that must not be "simplified" away.** The obvious model
+for a service-layer predicate over `BoQ Sheet` is `persist.is_sheet_classification_frozen`, which
+filters the same doctype on the same key but passes the version **RAW**. Measured, both halves:
+
+- a **numeric string** is fine either way — PostgreSQL casts the unknown-type literal to bigint, so
+  the raw form answers identically;
+- a **non-numeric** version is where the raw form fails, and it fails far worse than silently:
+  PostgreSQL raises `invalid input syntax for type bigint`, which **aborts the enclosing
+  transaction** and takes every later statement with it. On the carry path that transaction also
+  holds the rate writes, so a raw driver error replaces a named refusal and rolls the whole carry
+  back.
+
+That matters more here than at most call sites because this predicate's failure mode is a **silent
+skip** (below). `_coerce_int` is a deliberate three-line duplicate of `pricing._coerce_int` — copied
+rather than imported because importing would re-close the ring, and copied rather than replaced with
+a bare `int()` because that would change *which exception* a malformed version raises.
+
+⚠️ **RAW-vs-COERCED ASYMMETRY ON ONE PATH (documented, currently safe, deliberately not "fixed").**
+`committed_carry` calls `persist.is_sheet_classification_frozen(..., ctx.dest_version)` **raw** and
+`bcs_is_ready(..., ctx.dest_version)` **coerced** — the same value, on the same carry path. It is
+unreachable today: `_CarryCtx.dest_version` is annotated `int`, and both production builders read it
+from the `BoQ Sheet.commit_version` **Int** column. It is recorded because the raw shape's failure is
+transaction-aborting rather than local, so if a future caller ever supplies a non-DB version, the
+first of those two calls destroys the carry. Changing `persist.py` is a `boq_category` decision, not
+a BCS one.
+
+### The carry layer — `bcs_costs`, the fifth opt-in layer
+
+`bcs_costs` joins `committed_carry.LAYER_KEYS`, so **one registration lights both carry surfaces**
+(the cross-BoQ revision carry and the within-BoQ copy-forward). No migration — the three carry
+provenance fields were provisioned at S1.
+
+- **`carry_bcs_cost_layer` mirrors `carry_category_layer`, not an `_ANNOT_LAYERS` entry**, because it
+  needs a **sheet-level guard slot** and the generic annotation walker has none. It does **not** copy
+  the category layer's per-discipline fan-out: a BCS identity has no `discipline` dimension.
+- **Three writes resolve against the DESTINATION**: `node` (a per-version pointer — carrying the
+  source's would point a new cost row at an old node), `description` (it is the match guard *for the
+  row the cost sits on*), and `bcs_version` (`max(prior at destination) + 1`, never the source's and
+  never a hardcoded `1` — a frozen prior can exist with no current).
+- **Carried verbatim**: all three rate inputs independently, `is_filled`, and `rate_source` —
+  provenance of the *numbers*, which survives a copy, as distinct from provenance of the *record*.
+- ⚠️ **`bcs_rated_at` is carried VERBATIM and stays OLDER than the carry**; `carried_at` is the fresh
+  stamp. Mirrors the `human_verdict_at` precedent. HONEST CAVEAT: no live reader tie-breaks on
+  `bcs_rated_at` today, so this is forward-looking rather than load-bearing right now.
+- **Provenance is keyword-REQUIRED** (after a bare `*`, no defaults) — an unstamped carried record is
+  a `TypeError` at the call site, not a `None` discovered in the database later.
+- ⚠️ **THE CARRY MUST NEVER ROUTE THROUGH `save_row_bcs_rates`.** That endpoint is a **whole-row
+  snapshot**: it coerces every absent rate to `0.0` and writes all three unconditionally, so a source
+  row holding only a combined rate, carried through it, would silently **zero** a supply/install pair
+  the destination already held. This is a data-integrity ruling, not a style choice; it is pinned
+  both behaviourally and structurally.
+- **THE SILENT SKIP (owner ruling).** The readiness guard runs **first** and is sheet-scoped. A
+  destination that is not BCS-ready yields the zero outcome: nothing written, **no exception**, and
+  the rest of the carry — rates included — proceeds. Refusing the whole action instead would let one
+  unconfigured cost section block a rate carry the user actually asked for. **What makes the silence
+  acceptable is that the plan read runs the same guard** through the same dispatch, so a not-ready
+  sheet reports zeros, the layer renders disabled, and nothing is ever offered that would be dropped.
+  **The guard must never move behind the `apply` branch.**
+- **Default OFF in the client, never in the server.** An omitted `layers` payload is rates-only, so a
+  client that never learned about `bcs_costs` keeps the earlier behaviour exactly. ON is the
+  exception, not the rule, and an internal cost rate is the last layer on which to relax that.
+
+### Structural tripwires guarding all of the above
+
+Three of this layer's properties are held by tests that read **source structure**, not behaviour.
+
+⚠️ **They read the module through `ast`, never a substring grep, and that distinction is earned.**
+Written first as `assertNotIn(...)`, such a tripwire goes **red against the module's own docstring
+stating the prohibition** — it fires on the comment warning against the thing, and the only way back
+to green is to delete the explanation. A presence-side grep is worse still: it fails **open**, since
+a comment naming the path satisfies it while the import it guards is gone. The `ast` form asks the
+real questions — *does this module DEFINE this name?*, *does this module IMPORT that module?* — and
+leaves prose alone in both directions. **Write the next one this way from the start.**

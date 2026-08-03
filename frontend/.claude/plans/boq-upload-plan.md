@@ -20329,3 +20329,346 @@ tracked files, after the commit. `scripts/` was never written to.
   deliberate choice (`vitest.config.ts`), and nothing in this slice turns on a React semantic in any
   case: every frontend change is a pure helper or a literal, all covered by vitest. A live A/B remains
   the honest check for the dialog's rendered row, and is **not** claimed as done.
+
+### 11. Errata, filed by BCS-S7-merge-prep
+
+Four corrections to the record above. They are marked rather than silently edited: a reviewer must be
+able to see what the record used to say.
+
+**ERRATUM (BCS-S7-merge-prep): this record was SILENT about a `git stash` incident during the slice,
+and its §9 cleanliness paragraph asserts a state story that a stash cycle is invisible to.**
+While probing the residence baseline, the S6 builder ran `git stash push` — the exact anti-pattern
+this repo has written down **twice**: once in this very document (the "never bare `git stash
+push`/`pop` for a baseline compare" write-up) and once as a standing rule, both recording that
+unrelated stashes on other branches get popped by mistake. **Four unrelated stashes were sitting
+below it.** The builder recovered cleanly and self-reported, and an independent reviewer has since
+verified all four intact with their original SHAs and committer dates — **nothing was lost.** It is
+filed here anyway, and the reason is the sentence it undermines: §9 says *"`git status` at start and
+at end matched the pre-declared noise list exactly"*, which is true and which **a stash cycle cannot
+disturb** — `git status` is structurally blind to the stash stack. A clean status is therefore not
+evidence that nothing happened to it, and a record whose only cleanliness claim is `git status` reads
+as a stronger guarantee than it is. **The correct alternative, and the one to use next time:**
+`git show HEAD:./path` to read a pristine copy of one file, or a separate worktree for anything
+wider. Neither touches the stash stack at all.
+
+**ERRATUM (BCS-S7-merge-prep): two source citations in §5 are stale, and one attribution in §10 names
+the wrong file.** Each was re-verified against the shipped source before being corrected here; the
+line numbers below are the ones that are true now.
+
+- §5 says *"`bcs.py:88` imports `pricing`"*. It is **`bcs.py:90`**; line 88 is a comment.
+- §5 quotes *"`bcs.py:97-102`"* for the api → service one-way rule. It is **`bcs.py:99-104`**.
+- §10 says *"No `revision_overlay` registration. `test_committed_carry.py:206-211,343-349,720-726` is
+  a regression pin on a deleted feature that shares field names"*. **The line ranges are right (each
+  off by one at the start) and the reasoning is right, but `revision_overlay` names none of them.**
+  Those ranges are `_carry_all` (the Amendment D shim, `:203-211`) and two
+  `TestCommitOverlayCarry`-family `test_summary_reports_provenance_only` cases. The symbol
+  `revision_overlay` does exist — but in a **different file**, `test_commit_pipeline.py`, where it is
+  a tombstone pin on the commit-pipeline payload key. So the concept was right and the file was
+  wrong. ⚠️ Worth noting for anyone re-checking this: the S7 brief asserted `revision_overlay` "does
+  not exist (grep returns nothing)". **That is false — grep returns four hits.** The defect was
+  narrower than the brief described.
+
+**POINTER (BCS-S7-merge-prep):** §6 discusses the version-coercion trap thoroughly and names
+`persist.is_sheet_classification_frozen` as "the obvious model" that passes the version **raw** — but
+does not record that **`committed_carry` calls both, on the same path, with the same value**. That
+asymmetry is measured and filed in the BCS-S7 record below. It is an omission, not a false claim, so
+§6 is left as written.
+
+---
+
+## BCS-S7-merge-prep — the docs the arc owed, the record corrections it owed, and three small fixes
+
+**Branch** `feature/bcs-columns` · **Base** `ef50c211` · **Tier** FULL · **Date** 2026-08-03
+
+The last slice of the BCS arc. Nothing here was invented: every item came from an independent review
+of BCS-S6 or from a merge-readiness sweep that found **one FAIL** — the arc's documentation
+obligation. Two commits, deliberately separable.
+
+Merge position, verified this session: **89 commits ahead of `develop`, 0 behind, merge-base IS
+`develop`'s tip** — a fast-forward is possible and `git merge-tree` is clean.
+
+---
+
+### 0. The one thing that was actually failing
+
+The plan doc was carrying this entire arc **alone**. `boq-frontend.md` had not been touched by any of
+the arc's commits; `boq-backend.md` contained **zero** BCS content (its one apparent hit was a false
+positive — `BCSG-.YY.-.#####` is the BoQ Committed Sheet **Grid**); and neither always-loaded
+`CLAUDE.md` carried a single one of the arc's invariants.
+
+That is not a tidiness problem. The plan doc is a per-slice narrative read by someone who already
+knows they are working on BCS. The domain docs and `CLAUDE.md` are what a person reads **before** they
+know what they are about to break. Three of this arc's invariants are of exactly that kind — invisible
+from the code, catastrophic to get wrong, and reachable by someone who never opens the plan doc.
+
+### 1. The seam, and why it is the right one
+
+**The seam is the documentation routing layer** — the CLAUDE.md ↔ domain-doc ↔ plan-doc split that the
+DOCS-UPDATE RULE defines and `guard_claude_md.py` enforces. The interface is *what a reader is handed
+before they touch the code*; the change is which facts sit behind it.
+
+Working here rather than in the code was the whole point, and it is a real design decision rather than
+a default. Each of the four `CLAUDE.md` additions is a fact that **cannot be derived by reading the
+file you are about to edit**:
+
+- the import-direction law is invisible from `bcs.py` (it is a property of a *ring* across four
+  modules, and the ring is only visible if you already suspect it);
+- the scope fence looks like a missing `and` in `save_cell_price` — the "fix" is one token long;
+- the export boundary holds *by construction*, and construction is precisely what a refactor
+  dissolves without noticing;
+- the name collision is invisible by definition, because the reader who hits it thinks they have
+  found the right section.
+
+**Placement followed the DOCS-UPDATE RULE strictly**, and the split is the seam doing its job: the
+four invariants (stable, load-bearing, timeless) went to `CLAUDE.md`; the as-built (doctypes, fields,
+endpoints, carry semantics) went to the domain docs; the per-slice narrative stayed here. Nothing was
+duplicated across the three.
+
+⚠️ **`guard_claude_md.py` never fired**, and that is reported as a fact rather than a boast: both
+CLAUDE.md edits were phrased timelessly from the start — no test counts, no hashes, no dates, no
+"Slice N" — because the hook's rule and the goal are the same rule. An invariant that needs a date to
+make sense is a changelog entry wearing an invariant's clothes.
+
+### 2. The residence manifest gap (A4)
+
+Root `CLAUDE.md` instructs every reader to *"consult the domain doc's `## Residence — concept → owner`
+manifest"* before creating a helper for an existing domain concept. **Exactly one such manifest
+existed** (`procurement.md`), so on the largest active feature in the app that instruction dead-ended.
+`boq_bcs` appeared in no manifest at all, even though the arc had registered `boq_bcs/sources.py` in
+`scripts/residence_check.py`'s `PURE_MODULES`.
+
+**Home chosen: `.claude/context/domain/boq-backend.md`, at the top, mirroring `procurement.md`.**
+The convention decided it rather than taste — `procurement.md`'s manifest ends with an explicit
+*"Template note: copy this section shape into other domain docs as they're touched"*, and it sits at
+the top of the domain doc, immediately after the title. Both were followed. The alternative (a manifest
+in `CLAUDE.md`) was rejected because the instruction itself points at the **domain doc**, so putting it
+anywhere else would leave the dead end in place while looking like it had been fixed.
+
+**Thirteen rows, and every owner was resolved to a real definition before its row was written.** The
+manifest carries that as an explicit rule (*"rows here are VERIFIED, not aspirational — do not add a
+row you have not opened the file for"*), because a residence manifest listing an owner that does not
+exist is worse than no manifest: it is a wrong answer delivered with authority. Two rows carry
+deliberate negatives — `readiness.py` must **not** join `PURE_MODULES` (it reads `frappe.db` by design
+and would redden the purity ratchet), and committed-tier amount recomputation has **no** owner on
+purpose.
+
+### 3. Group B — the record corrections
+
+Filed as marked errata on the BCS-S6 record (§11 above), not as silent edits. The reasoning behind
+each is there; what belongs here is why the first one was worth the space.
+
+**The stash incident is the principal finding, and the reason is not the stash.** Nothing was lost —
+four unrelated stashes, all verified intact afterwards by an independent reviewer, original SHAs and
+committer dates. The builder used the anti-pattern, noticed, recovered, and **self-reported**, which is
+the behaviour you want. What was wrong is that the durable record stayed silent while its own
+cleanliness paragraph rested on `git status` — and `git status` **cannot see the stash stack**. So the
+record's evidence was true, and was being read as covering something it structurally does not cover. A
+reader six months out would take "status matched at start and end" as "the tree was never disturbed".
+That is the correction: not the incident, the **inference the record invited**.
+
+### 4. The partial-cost overstatement — owner ruling: ship as-is, AND record it
+
+**A BoQ section with only SOME of its lines costed reports % Profit from a PARTIAL cost over a FULL
+tendered amount, and therefore reads FATTER than reality.**
+
+Mechanism, exactly (`bcsRollup.rollBcsSections`): an uncosted row's own cost resolves to `null`, and
+the running sum adds `own ?? 0` — so it contributes **0.0**. The has-costs flag, meanwhile, is an
+**OR** across the subtree (`costPresent = costPresent || agg.costPresent`), so **one** costed line
+among ten makes the entire section "costed", and that lone cost is then divided into the whole
+section's tendered amount. Pinned — not merely tolerated — by `bcsRollup.test.ts`'s `T5b`
+("ONE costed line among uncosted ones makes the section costed — the rest contribute 0"), which
+constructs a two-line section with one cost of 60 against a tendered 200 and asserts the margin reads
+**70%**.
+
+**Owner ruling (2026-08-03): ship as-is AND record it.** The record IS the deliverable here — "ship
+as-is" *without* the record is precisely the state the review flagged as the defect, so shipping
+quietly would have been the one outcome that failed the ruling while appearing to satisfy it.
+
+**Owner rationale, uncompressed.** The obvious alternative — blank any section that is not *fully*
+costed — is worse, and worse in the normal case rather than an edge case. A job is costed
+incrementally; the state "some lines done" is not an anomaly, it is Tuesday. Blanking the section
+during it would withhold the only figure the estimator has while the work is in progress, to protect
+them from a number they are already in the middle of changing. So the choice was between a figure that
+is optimistic while incomplete and no figure at all until complete, and the owner took the figure.
+
+**This is an accepted decision, not an open defect**, and it is recorded rather than merely accepted
+for one reason: a section-level margin that reads high is entirely **plausible**. There is nothing on
+screen to make a reader suspicious, and a reader who does not know this will trust it. Also filed in
+`boq-frontend.md`, where a person building on the rollup will meet it.
+
+### 5. The raw-vs-coerced asymmetry — measured, currently safe, deliberately not changed
+
+**On ONE carry path, the same value is passed two different ways**, roughly 490 lines apart in
+`committed_carry.py`:
+
+| Line | Call | Version handling |
+|---|---|---|
+| `:425` | `category_persist.is_sheet_classification_frozen(..., ctx.dest_version)` | **RAW** — `persist.py:42` filters on it directly |
+| `:918` | `bcs_is_ready(..., ctx.dest_version)` | **COERCED** — `readiness.py:115` runs `_coerce_int` |
+
+**It is not reachable today, and the reason is worth stating precisely rather than as "it's fine":**
+`_CarryCtx.dest_version` is annotated `int`, and both production builders source it from the
+`BoQ Sheet.commit_version` **Int** column (`cross_boq_carry.py:184` reads `dest_sheet_row.commit_version`;
+`pricing.py:2888` passes a `frappe.db.get_value` result). A non-numeric version cannot arrive through
+either.
+
+**It is recorded anyway because the raw form's failure is not local.** BCS-S6 measured it: a
+non-numeric version reaches PostgreSQL as `invalid input syntax for type bigint`, raising
+`InvalidTextRepresentation`, which **aborts the enclosing transaction** and takes every subsequent
+statement with it. On this path that transaction also holds the rate writes. So if a future caller
+ever supplies a version from somewhere other than the DB, the **raw** call at `:425` fires first and
+destroys the whole carry — and the coerced call at `:918`, which was hardened precisely against this,
+never gets the chance to behave well.
+
+**`persist.py` was NOT changed** — out of scope, and it is a `boq_category` decision rather than a BCS
+one. Reported, not reached for.
+
+⚠️ **A brief-vs-source divergence worth recording**, since this arc has had several: the S7 brief
+described these two calls as *"~12 lines apart"*. They are **~493 lines apart** (`:425` and `:918`).
+The line numbers themselves were correct.
+
+### 6. Group C — three small corrections
+
+**C1 — `services/boq_bcs/__init__.py` carried a FALSE clause, and now does not.** Its docstring said
+*"Nothing here may import from `api/`, touch `frappe.db`, or read request context."* BCS-S6 made the
+middle clause false by adding `readiness.py`, which **must** read `frappe.db` (readiness is a fact
+about a stored `BoQ Sheet` row), and reported the contradiction rather than fixing it — correctly, as
+the file was out of its scope. **Only the `frappe.db` clause was dropped.** The `api/` bar and the
+request-context bar are untouched and were made *more* emphatic, because they are the load-bearing
+half: `readiness.py` exists at all because importing the sibling api module closes a ring, so reaching
+back into `api/` from the service layer would re-close it from the other side. The correction also
+states the distinction the original sentence collapsed — **a DB read is not a dependency on `api/`** —
+and records that purity is **per-module, not per-package**: `sources.py` is registered in
+`PURE_MODULES` and `readiness.py` must never be, or the ratchet reddens on a module that is correct.
+
+**C2 — two structural tripwires in `test_readiness.py` were passing by punctuation luck.** They used
+substring greps that this same arc had already identified as a defect and replaced elsewhere with an
+`ast`-based check (`test_bcs`'s whole-row-snapshot-writer tripwire, whose docstring even warns *"worth
+knowing before the next one is written"* — these were the next ones). **Both were converted.**
+
+The fragility was not hypothetical, and was measured rather than argued:
+
+- `assertNotIn("def bcs_is_ready(", src)` — **`bcs.py:114` already contains the phrase
+  `def bcs_is_ready` in a COMMENT** (*"do NOT re-add a local `def bcs_is_ready` here"*). The assertion
+  is green **only because a backtick sits where the `(` would be.** Rewriting that comment as
+  `` `def bcs_is_ready()` `` — an entirely reasonable edit — turns the test red against a module that
+  is perfectly correct, and the cheapest way back to green is deleting the warning.
+- `assertIn("services.boq_bcs.readiness", src)` is worse, because it fails **OPEN**: delete the import,
+  leave any comment naming the path, and the tripwire stays green while the property is gone.
+
+The `ast` forms ask the real questions — *does this module DEFINE this name?* and *does this module
+IMPORT that module?* — and are **strictly stronger in both directions**: they cannot fire on prose, and
+they catch three cases the literal substring missed entirely (`async def`, unusual whitespace, and a
+definition nested inside a function). One honest limit is stated at the site: `_imported_modules`
+resolves **absolute** imports only, which covers everything in this package today but would miss a
+future relative import.
+
+**C3 — a comment in `SheetPricingPage.tsx` claimed something false, and was corrected to describe what
+the code does.** It said the Summary panel's cost gate was *"the identical condition that decides
+whether the grid shows a cost column at all. So the panel gains cost columns exactly when the grid has
+them."* It is not identical: the grid's block also requires `bcsKinds.length > 0`, and
+`bcsLiveRateKinds` returns `[]` for a sheet mapping no rate column, while `bcs_is_ready` never inspects
+rate columns at all. On such a sheet the panel shows three blank cost columns and the grid shows none.
+
+⚠️ **The gate was NOT "fixed" to make the claim true, and that constraint is deliberate.** It was the
+original recommendation; **the owner withdrew it.** He declined the browser sweep, and this repo has no
+DOM test environment (`vitest.config.ts`), so a render-gate change would ship **verified by nothing** —
+covered by no test that can see a render, and by no live check either. A comment correction is fully
+verifiable by reading. The divergence is documented at the site with the honest check named (a live A/B
+on a rate-column-less sheet) for whoever revisits it.
+
+### 7. The owner-authorised label rename (mid-slice addition)
+
+Delivered as its **own commit** so a label change is revertible without unpicking the docs work.
+
+Owner ruling: the sheet-view BCS columns read **`BCS Cost (Supply)`**, **`BCS Cost (Installation)`**,
+**`BCS Total Amount`**. His words: *"This is just a label correction."* It is — the three computed
+column KEYS (`bcs:total` / `bcs:tendered` / `bcs:margin`), every rate field name, and every payload key
+are untouched, so nothing a server reads moved.
+
+**The rename ENDED a real divergence rather than creating one.** `SummaryPanel` has read
+`BCS Total Amount` since BCS-S5, while the grid read a bare `Total Amount` — and `SummaryPanel`'s own
+comment claimed *"header text mirrors the grid's own column titles, so the same figure is called the
+same thing in both places."* That was false until now. The two agree after the rename, and the summary
+has no Supply/Install counterpart, so no new drift was introduced anywhere.
+
+⚠️ **One label was NOT renamed, and it is an open question rather than a decision.** The owner named two
+of the three input boxes; a **combined**-rate sheet gets a single box that still reads the unprefixed
+`Cost`. Prefixing it was not ruled on, so it was left alone and flagged in place. Pinning a string the
+owner never said would have laundered a guess into an assertion — the test deliberately pins only the
+two he dictated.
+
+### 8. Verification
+
+Every gate run in-session, in the dev container. ⚠️ **The full bench suite was deliberately NOT run** —
+a live browser session against `localhost` collides on the `tabSeries` naming lock — only the two named
+modules.
+
+| Suite | Baseline | Final |
+|---|---|---|
+| `nirmaan_stack.services.boq_bcs.test_readiness` | 12 OK | **12 OK** |
+| `nirmaan_stack.api.boq.wizard.test_bcs` | 79 OK | **79 OK** |
+| `yarn test` (frontend, 57 files) | 1548 | **1549** |
+
+`npx tsc --noEmit`: **3236 errors repo-wide before and after — unchanged — and `0` in
+`src/pages/boq-wizard` in both runs.** The repo-wide figure is long-standing pre-existing noise; the
+`boq-wizard` figure is the real gate and the slice's delta is zero.
+
+The readiness count is **12 before and after by design**: C2 replaced two assertions in place and added
+one anti-vacuity assertion inside an existing test. A count that did not move is the correct outcome
+for a hardening change, and is stated so it does not read as a suite that was never run.
+
+**Red before green.**
+
+1. *The label rename* had a genuine RED. The pin was written first and run:
+   `AssertionError: expected 'Cost (Supply)' to be 'BCS Cost (Supply)'` — 1 failed / 181 skipped. The
+   labels were then changed and the suite went to 182 passed.
+2. *C2 has no natural red* — a hardening change cannot fail against correct code, which is the whole
+   difficulty with structural tripwires. **Falsifiability was proven instead**, the way this arc has
+   done before: each converted assertion was run against synthetic module sources covering ten cases,
+   and every one behaved as claimed — silent on prose (both the real `bcs.py:114` shape *and* the
+   parenthesised rewrite that would break the old grep), firing on a real redefinition, on `async def`,
+   on odd whitespace, on a nested definition, on all three import forms including one hidden inside a
+   function, and — the presence-side check — **failing** on a module that only mentions the path in a
+   comment, where the substring form passes.
+3. *C1, C3 and every documentation change are comment/prose only.* No red is possible and none is
+   claimed; they are verifiable by reading, which is the point.
+
+`python3 scripts/residence_check.py` — **EXITS 1, pre-existing and pre-declared**:
+
+```
+✓ b3_workflow_state_writers    (B3): current=40  baseline=40
+✓ b1_pure_module_purity        (B1): current=0   baseline=0
+✓ b2_predicate_literal_scatter (B2): current=8   baseline=8
+✓ f5_raw_updatedoc_files       (F5): current=116 baseline=116
+✗ f2_inline_json_parse_pages   (F2): current=208 baseline=207  — 1 NEW violation
+```
+
+**The slice's F2 delta is zero, proved from the diff rather than asserted** (`git diff -U0 ef50c211 --
+frontend/src | grep '^+' | grep -c 'JSON.parse'` → `0`). `git status -- scripts/` was captured before
+and after the run and is **identical**, so the script did not rewrite `residence_baseline.json`.
+⚠️ `scripts/` holds another session's uncommitted work and was never written to.
+
+`git status`: **0 modified tracked files and 53 untracked paths at start**, all inside the pre-declared
+noise list; at end the same 53 untracked and 0 modified tracked after commit. (The brief said "~59
+untracked"; the true figure is 53, matching BCS-S6's record.)
+
+### 9. Deliberately NOT done
+
+- **The `combined` cost box label was not prefixed.** Owner named two of three; see §7.
+- **The Summary-vs-grid cost-gate divergence was not closed.** Owner withdrew the fix; see §6 (C3).
+- **`persist.is_sheet_classification_frozen` was not changed** to coerce its version. Out of scope, and
+  a `boq_category` decision; see §5.
+- **`{message: {}}` still renders as a confidently uncosted sheet.** A pre-existing gap one level down
+  in `pricingLoadState.ts` (`hasContent` cannot tell an empty envelope from a real answer), already
+  recorded at the site by an earlier slice. Not in scope, not fixed, restated here so it is not lost at
+  the merge boundary.
+- **`readiness.py` was NOT added to `scripts/residence_check.py` `PURE_MODULES`.** It reads
+  `frappe.db` by design and would redden the B1 ratchet. Recorded as a deliberate negative in the new
+  residence manifest so a future reader does not "restore consistency".
+- **No browser E2E.** Structurally unavailable (no DOM test environment, by deliberate repo choice) and
+  the owner declined the sweep. Nothing in this slice turns on a React semantic: the only rendered
+  change is three literal strings, and the only behavioural claim made about them is that they are the
+  strings the owner asked for, which a unit test pins directly.
+- **The plan doc was never read whole.** It is larger than one context window; the append followed the
+  `wc -l` → partial `Read` → single anchored `Edit` protocol.
