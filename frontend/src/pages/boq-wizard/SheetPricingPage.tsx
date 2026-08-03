@@ -24,7 +24,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useFrappeGetCall, useFrappeGetDoc, useFrappePostCall, FrappeContext, type FrappeConfig } from "frappe-react-sdk";
 import { useUserData } from "@/hooks/useUserData";
 import { BoqPresence } from "./BoqPresence";
-import { AlertTriangle, ArrowDownToLine, ArrowLeft, Calculator, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, ChevronUp, ClipboardList, Filter, Loader2, Lock, Maximize2, Minimize2, Pin, PinOff, Redo2, RefreshCw, Save, Search, ShieldCheck, ShieldOff, Sigma, SlidersHorizontal, Snowflake, Sparkles, Undo2, Unlock, X } from "lucide-react";
+import { AlertTriangle, ArrowDownToLine, ArrowDownWideNarrow, ArrowLeft, ArrowUpNarrowWide, Calculator, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, ChevronUp, ClipboardList, Filter, Loader2, Lock, Maximize2, Minimize2, Percent, Pin, PinOff, Redo2, RefreshCw, Save, Search, ShieldCheck, ShieldOff, Sigma, SlidersHorizontal, Snowflake, Sparkles, Undo2, Unlock, X } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -93,9 +93,27 @@ import {
   gridLoadState,
   withStaleNote,
 } from "./pricingLoadState";
+// BCS-S4: the margin view's ORDER, ROW SET and SECTION labels -- a pure leaf, unit-tested
+// (ADR-0010 F4: the page renders, the rule lives in a module a test can reach).
+import {
+  buildMarginOrder,
+  buildSectionLabels,
+  flipMarginSortDir,
+  marginViewRows,
+  type MarginSortDir,
+} from "./marginView";
 // BCS-S3a: a module-level stable empty -- a fresh [] per render would churn a grid prop and kill
 // the V0 React.memo shield (frontend/CLAUDE.md: "any new grid prop must stay identity-stable").
 const EMPTY_BCS_KINDS: BcsRateKind[] = [];
+// BCS-S4: the margin view's section labels when the view is closed. Module-level so the closed
+// state hands PricingGrid the SAME Map reference on every render -- the grid is React.memo'd with
+// React's default shallow comparison, and a fresh `new Map()` here would defeat it outright.
+const EMPTY_SECTION_LABELS: Map<number, string> = new Map();
+// BCS-S4: what the grid gets for `childrenByParent` in the margin view. A collapse chevron on a
+// flat, margin-ordered list would offer to fold away rows that are not underneath it -- so the
+// grid is told, truthfully for that view, that nothing has children. Module-level for the same
+// memo-shield reason as above.
+const EMPTY_CHILDREN_BY_PARENT: Map<number, number[]> = new Map();
 import { CopyForwardDialog, summarizeCopyForward } from "./CopyForwardDialog";
 import {
   CROSS_BOQ_CARRY_PLAN_METHOD,
@@ -1032,6 +1050,23 @@ const SheetPricingPage = () => {
   });
   // Summary panel (parent-tree amount rollups) -- pull-in, computed page-side.
   const [summaryOpen, setSummaryOpen] = useState(false);
+  // ── BCS-S4: the MARGIN VIEW ───────────────────────────────────────────────────
+  // A separate FLAT, line-items-only presentation of this sheet ordered by % Profit. The owner
+  // chose it over sorting the tree in place (2026-08-02): re-ordering an N-deep hierarchy by
+  // margin leaves collapse hiding rows from scattered places and indentation implying nesting
+  // under a parent nowhere near. See marginView.ts.
+  const [marginViewOpen, setMarginViewOpen] = useState(false);
+  // DEFAULT ASCENDING = worst margin first. The view's job is to find the rows that are losing
+  // money or making nothing; opening on the best margins would put the answer at the far end.
+  const [marginSortDir, setMarginSortDir] = useState<MarginSortDir>("asc");
+  // ⚠️ THE ORDER IS A SNAPSHOT, HELD IN STATE, AND THAT IS THE WHOLE SAFETY PROPERTY.
+  // It is recomputed at exactly two moments -- opening the view, and a % Profit header click --
+  // and NEVER derived during a render. Inside PricingGrid the cursor (`activeCell`) is
+  // ARRAY-INDEX addressed into the `rows` prop, and clipboard multi-row selection is a contiguous
+  // RANGE over the same indices, so an order that moved while someone typed would slide a
+  // different row under the cursor and land the next keystroke on it. Values stay live (the rows
+  // themselves are re-read every fetch); only the POSITIONS are frozen between sorts.
+  const [marginOrder, setMarginOrder] = useState<number[] | null>(null);
   // Priceability override (Slice 3e, per-sheet per-session). Default OFF: a rate cell is
   // editable ONLY on a priceable row (node_type Preamble / Line Item). When ON, it unlocks
   // editing on non-priceable rows for THIS sheet THIS session AND sends allow_non_priceable
@@ -1227,6 +1262,11 @@ const SheetPricingPage = () => {
     setReviewOpen(false); // Slice 4a: the review-list strip is per-sheet
     setShowDismissed(false); // Slice 4b-ACKNOWLEDGE: the show-dismissed toggle is per-sheet
     setShowOnlyUnpriced(false); // Slice 4b-A: the unpriced filter is per-sheet
+    // BCS-S4: the margin view + its captured order are per-sheet. The ORDER especially -- it is a
+    // list of the previous sheet's row_index values, and applying it to another sheet's rows would
+    // silently reorder them by numbers that mean nothing there.
+    setMarginViewOpen(false);
+    setMarginOrder(null);
     // CL-2: classify state is per-sheet -- a tab switch starts clean (the socket/poll below
     // re-recovers a genuinely in-flight run from get_classify_status on the new sheet).
     setClassifyOpen(false);
@@ -2832,7 +2872,12 @@ const SheetPricingPage = () => {
   collapsedRef.current = collapsed;
   byRowIndexRef.current = byRowIndex;
   byExcelRowRef.current = byExcelRow;
-  const collapseActive = collapsed.size > 0;
+  // BCS-S4: collapse does NOT apply in the margin view. A collapsed section in the tree must not
+  // silently remove its line items from a flat margin review -- that would under-report exactly
+  // the rows someone opened the view to find, and invisibly, because a flat list gives no clue
+  // that a parent is folded somewhere. The `collapsed` SET is preserved, so closing the view
+  // restores the tree exactly as it was.
+  const collapseActive = collapsed.size > 0 && !marginViewOpen;
 
   // The view-filter predicate (show-unpriced + row-type), WITHOUT collapse -- shared by the
   // search universe (R3: search ignores collapse) and folded into displayRows below.
@@ -2857,7 +2902,7 @@ const SheetPricingPage = () => {
   // not change the row set / filters / collapse. Fast path returns the (stable) `rows` when nothing
   // is filtered/collapsed. `passesViewFilter` is a per-render closure over the LISTED deps, so it is
   // referenced inside but deliberately not a dep (the underlying values are the real deps).
-  const displayRows = useMemo(
+  const treeDisplayRows = useMemo(
     () =>
       !anyViewFilter && !collapseActive
         ? rows
@@ -2882,6 +2927,71 @@ const SheetPricingPage = () => {
       byRowIndex,
     ],
   );
+
+  // ── BCS-S4: the margin view's row set ─────────────────────────────────────────
+  // ANOTHER DERIVATION AT THE SAME SEAM `displayRows` already is: a VIEW-ONLY transform of `rows`
+  // handed to the grid. Nothing about row identity, the save paths or the grid's geometry changes
+  // -- only which rows it is given and in what order, exactly as for the filters and collapse.
+  //
+  // The view FILTERS still compose (they are row predicates, and "show unpriced + worst margin
+  // first" is a sensible pair). COLLAPSE does not and is switched off above, not applied here --
+  // `treeDisplayRows` is therefore filter-only while this view is open, which is why it can be
+  // taken as the input directly.
+  //
+  // The ORDER comes from state, never from a derivation here -- see `marginOrder`.
+  const marginDisplayRows = useMemo(
+    () => (marginViewOpen && marginOrder ? marginViewRows(treeDisplayRows, marginOrder) : null),
+    [marginViewOpen, marginOrder, treeDisplayRows],
+  );
+  const displayRows = marginDisplayRows ?? treeDisplayRows;
+
+  // Each row's section, for the margin view's context line. Built over the FULL `rows` (the
+  // ancestors a line item's section comes from are exactly the rows the flat view drops) and
+  // memoized on them, so it is reference-stable per fetch -- a grid-level Map, never a per-row
+  // prop. EMPTY outside the view: the tree shows a row's section by POSITION, so repeating it in
+  // the cell would be noise there.
+  const sectionByRowIndex = useMemo(
+    () => (marginViewOpen ? buildSectionLabels(rows) : EMPTY_SECTION_LABELS),
+    [marginViewOpen, rows],
+  );
+
+  // ── The TWO moments a sort is allowed: opening the view, and a % Profit header click ──
+  // Both take a fresh reading of every row's margin FROM THE GRID -- which is where the unsaved
+  // drafts live, so a cost typed a second ago is in the sort -- then freeze the result. Neither
+  // runs from a render, an effect or a keystroke.
+  //
+  // Refs, not deps: `handleToggleMarginSort` is a PricingGrid PROP and the grid is React.memo'd
+  // with React's DEFAULT shallow comparison, so a callback that changed identity when `rows` or
+  // `marginSortDir` changed would defeat the whole shield (V0/T2). Syncing both through refs keeps
+  // it stable for the life of the page while still reading current values.
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
+  const marginSortDirRef = useRef(marginSortDir);
+  marginSortDirRef.current = marginSortDir;
+  // `sortMarginView` is re-created each render; the stable callback below reaches the latest one
+  // through this ref (the undo/redo/applyRate precedent inside the grid).
+  const sortMarginViewRef = useRef<(dir: MarginSortDir) => void>(() => {});
+  const sortMarginView = (dir: MarginSortDir) => {
+    const margins = gridRef.current?.computeMargins(rowsRef.current) ?? new Map<number, number | null>();
+    setMarginOrder(
+      buildMarginOrder(rowsRef.current, (r) => margins.get(r.row_index) ?? null, dir),
+    );
+  };
+  const handleToggleMarginView = () => {
+    if (marginViewOpen) {
+      setMarginViewOpen(false);
+      return;
+    }
+    sortMarginView(marginSortDir); // sort ON OPEN
+    setMarginViewOpen(true);
+  };
+  const handleToggleMarginSort = useCallback(() => {
+    // Read-then-set, never a side effect inside a state updater (an updater may run twice).
+    const next = flipMarginSortDir(marginSortDirRef.current);
+    setMarginSortDir(next);
+    sortMarginViewRef.current(next); // sort ON HEADER CLICK
+  }, []);
+  sortMarginViewRef.current = sortMarginView;
 
   // Toolbar Part 1 -- description search. Hits are the Excel row numbers of matching rows. R3:
   // search PIERCES collapse -- hits are computed over the view-filtered set IGNORING collapse, so
@@ -3528,14 +3638,58 @@ const SheetPricingPage = () => {
               per-parent chevrons read via CollapseContext, so the chevrons + "+N hidden" reflect a
               bulk collapse with ZERO new wiring (no new state, no memo touch). DISABLED on a flat
               sheet (no collapsible parents -- nothing to fold). ── */}
+          {/* ── BCS-S4: the MARGIN VIEW toggle + its direction control ──────────────
+              A separate FLAT, line-items-only view ordered by % Profit. Disabled without the cost
+              columns, because % Profit is one of them: with no margins to order by, the view would
+              be a flat list sorted by nothing. The direction button appears only while the view is
+              on and does the SAME thing as clicking the % Profit header. ── */}
+          <Button
+            size="sm"
+            variant={marginViewOpen ? "default" : "outline"}
+            className="gap-1.5"
+            aria-pressed={marginViewOpen}
+            disabled={!sheetLoad.isUsable || (!marginViewOpen && !bcsColumnsVisible)}
+            onClick={handleToggleMarginView}
+            title={
+              marginViewOpen
+                ? "Showing line items only, ordered by % Profit. Click to return to the sheet."
+                : bcsColumnsVisible
+                  ? "Review margins: every line item on one flat list, ordered by % Profit, each with its section."
+                  : "Margins need the BCS cost columns — turn BCS on and confirm its two columns first."
+            }
+          >
+            <Percent className="h-4 w-4" />
+            Margin view
+          </Button>
+          {marginViewOpen && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              onClick={handleToggleMarginSort}
+              title="Reverse the order. Rows with no % Profit yet stay at the end either way."
+            >
+              {marginSortDir === "asc" ? (
+                <ArrowUpNarrowWide className="h-4 w-4" />
+              ) : (
+                <ArrowDownWideNarrow className="h-4 w-4" />
+              )}
+              {marginSortDir === "asc" ? "Lowest first" : "Highest first"}
+            </Button>
+          )}
+
           <Button
             size="sm"
             variant="outline"
             className="gap-1.5"
-            disabled={!sheetLoad.isUsable || childrenByParent.size === 0}
+            // BCS-S4: nothing to collapse in the flat margin view -- a live control that silently
+            // did nothing would be the same kind of lie as the rest of this slice.
+            disabled={!sheetLoad.isUsable || childrenByParent.size === 0 || marginViewOpen}
             aria-label={collapsed.size === 0 ? "Collapse all rows" : "Expand all rows"}
             title={
-              childrenByParent.size === 0
+              marginViewOpen
+                ? "The margin view is a flat list — there is no hierarchy to collapse."
+                : childrenByParent.size === 0
                 ? "This sheet has no hierarchy to collapse."
                 : collapsed.size === 0
                 ? "Collapse every parent (only top-level rows stay visible)."
@@ -4698,7 +4852,9 @@ const SheetPricingPage = () => {
             // childrenByParent (over FULL rows) + the toggle drive the grid's chevrons; onRevealRow
             // powers reveal-then-scroll. GRID-LEVEL props -- NONE enter the row memo (R6).
             collapsed={collapsed}
-            childrenByParent={childrenByParent}
+            // BCS-S4: no chevrons in the flat margin view (see EMPTY_CHILDREN_BY_PARENT). Both
+            // branches are stable references, so the memo shield is untouched.
+            childrenByParent={marginViewOpen ? EMPTY_CHILDREN_BY_PARENT : childrenByParent}
             onToggleCollapse={toggleCollapse}
             onRevealRow={revealRow}
             // Frozen-left Slice 1: two-pane frozen-left + measure-at-freeze heights. Page-owned
@@ -4706,6 +4862,16 @@ const SheetPricingPage = () => {
             // is the non-grid-only PricingGrid; SheetDataGrid never receives it).
             frozen={frozen}
             virtualized={virtualized}
+            // ── BCS-S4: the margin view. `rows` above is ALREADY the flat, ordered set (the page
+            //    owns the order; the grid never sorts). These four only tell the grid to stop
+            //    making tree CLAIMS about it -- flatten the indent, show the section instead, and
+            //    turn the % Profit header into the sort control. All four are identity-stable:
+            //    two scalars, a module-level-empty-or-per-fetch Map, and a useCallback -- the V0
+            //    memo shield is React's DEFAULT shallow compare and a fresh value here kills it.
+            marginView={marginViewOpen}
+            sectionByRowIndex={sectionByRowIndex}
+            marginSortDir={marginSortDir}
+            onToggleMarginSort={handleToggleMarginSort}
           />
         )}
         </div>
