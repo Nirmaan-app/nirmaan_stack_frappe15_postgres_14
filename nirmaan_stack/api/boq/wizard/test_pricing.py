@@ -74,6 +74,7 @@ _REMARK_DT = "BoQ Cell Remark"
 _COLOR_DT = "BoQ Cell Color"
 _FORMULA_DT = "BoQ Cell Amount Formula"
 _DISMISSAL_DT = "BoQ Cell Dismissal"
+_BCS_DT = "BoQ Row BCS Rate"  # BCS-S6: the fifth carry layer
 _CHOICE_DT = "BoQ Cell Reconciliation Choice"
 
 
@@ -4449,7 +4450,7 @@ class TestCopyForwardLayers(FrappeTestCase):
 
     @classmethod
     def tearDownClass(cls):
-        for dt in (cls._ROW_CATEGORY, _REMARK_DT, _COLOR_DT, _DISMISSAL_DT):
+        for dt in (cls._ROW_CATEGORY, _REMARK_DT, _COLOR_DT, _DISMISSAL_DT, _BCS_DT):
             frappe.db.delete(dt, {"boq": cls.boq})
         cleanup_committed_fixture(cls.boq)
         _cleanup_project(cls.test_project.name)
@@ -4457,9 +4458,11 @@ class TestCopyForwardLayers(FrappeTestCase):
 
     def setUp(self):
         """Reset to: destination v2 completely blank (no rates, NO categories, no annotations,
-        override OFF, unlocked, not classification-frozen), source v1 carrying every layer."""
+        no costs, override OFF, unlocked, not classification-frozen), source v1 carrying every
+        layer. BCS cost rows are seeded PER TEST (`_seed_source_bcs_costs`) rather than here --
+        most of this class predates the fifth layer and must keep running without it."""
         frappe.db.delete(_PRICING, {"boq": self.boq, "committed_version": 2})
-        for dt in (self._ROW_CATEGORY, _REMARK_DT, _COLOR_DT, _DISMISSAL_DT):
+        for dt in (self._ROW_CATEGORY, _REMARK_DT, _COLOR_DT, _DISMISSAL_DT, _BCS_DT):
             frappe.db.delete(dt, {"boq": self.boq})
         frappe.db.delete(_LOCK_DT, {"boq": self.boq})
         frappe.db.set_value(self._SHEET_DT, self.dest_sheet_v2, {
@@ -4780,6 +4783,79 @@ class TestCopyForwardLayers(FrappeTestCase):
         layers = get_copy_forward_plan(
             boq_name=self.boq, sheet_name=self.SHEET, from_version=1)["layers"]
         self.assertEqual(layers["remarks"], dict(committed_carry.zero_layer_outcome(), kept=1))
+
+    # ── BCS-S6: the NOT-READY half of the fifth layer ────────────────────────────────
+    # This fixture's destination has no BCS section at all -- `_MAP` carries no quantity column
+    # and no amount column, so BCS could not be enabled on it even deliberately. That makes it
+    # the natural home for the not-ready contract, with no setup: the READY half lives in
+    # test_bcs.TestBcsCostCarryLayer, which builds a BCS-capable two-version fixture.
+    #
+    # ⚠️ THE CONTRACT IS A SILENT SKIP, and it is the layer's most dangerous property: not-ready
+    # carries nothing, reports zeros, raises NOTHING, and lets the rest of the carry proceed.
+    # Refusing the whole action instead would mean one unconfigured cost section blocked a rate
+    # carry the user actually asked for. The safety net is the PLAN, which runs the SAME guard --
+    # so the dialog shows the layer with nothing to carry and disables it, and the user is never
+    # offered a write that would be dropped.
+    def test_bcs_costs_is_registered_as_a_layer_key(self):
+        self.assertIn("bcs_costs", committed_carry.LAYER_KEYS)
+
+    def test_a_destination_with_no_bcs_section_takes_no_cost_write_and_says_so_with_zeros(self):
+        self._seed_source_bcs_costs()
+        res = self._apply(self._choices("bcs_costs"))
+        self.assertEqual(res["layers"]["bcs_costs"], committed_carry.zero_layer_outcome(),
+                         "a not-ready destination reports the zero outcome, not partial counts")
+        self.assertEqual(self._dest_count(_BCS_DT), 0)
+
+    def test_the_rates_still_land_when_the_cost_layer_silently_skips(self):
+        """The whole reason the skip is silent rather than a refusal."""
+        self._seed_source_bcs_costs()
+        res = self._apply(self._choices("bcs_costs"))
+        self.assertEqual(res["copied"], 1)
+        self.assertEqual(self._dest_rate(50), 150.0)
+
+    def test_the_other_layers_are_unaffected_by_the_cost_layers_skip(self):
+        """Per-layer isolation: one layer's sheet-level precondition must not quietly take the
+        rest of the carry down with it."""
+        self._seed_source_bcs_costs()
+        res = self._apply(self._choices("categories", "remarks", "bcs_costs"))
+        self.assertEqual(res["layers"]["bcs_costs"], committed_carry.zero_layer_outcome())
+        self.assertEqual(res["layers"]["categories"]["carried"], 2)
+        self.assertEqual(res["layers"]["remarks"]["carried"], 1)
+
+    def test_the_plan_read_runs_the_SAME_guard_so_the_dialog_cannot_offer_the_write(self):
+        """⚠️ THE SYMMETRY, and it is what makes a silent skip acceptable. If the plan did not
+        run the guard, the dialog would show "2 to copy", the user would tick it, apply, and
+        nothing would land with no explanation anywhere. PURE READ -- nothing written."""
+        self._seed_source_bcs_costs()
+        layers = get_copy_forward_plan(
+            boq_name=self.boq, sheet_name=self.SHEET, from_version=1)["layers"]
+        self.assertEqual(layers["bcs_costs"], committed_carry.zero_layer_outcome())
+        self.assertEqual(frappe.db.count(_BCS_DT, {"boq": self.boq}), 2,
+                         "the plan wrote nothing -- only the two seeded SOURCE rows exist")
+
+    def test_omitting_layers_still_means_rates_only_for_costs_too(self):
+        self._seed_source_bcs_costs()
+        res = self._apply()
+        self.assertEqual(res["layers"], {})
+        self.assertEqual(self._dest_count(_BCS_DT), 0)
+
+    def _seed_source_bcs_costs(self):
+        """Two BCS cost rows on the SOURCE version. Inserted directly: v1 is superseded, so
+        `save_row_bcs_rates` cannot reach it (readiness resolves the CURRENT sheet row), and this
+        fixture's sheet has no BCS-capable columns in any case."""
+        for excel_row, combined in ((50, 40.0), (51, 41.0)):
+            d = frappe.new_doc(_BCS_DT)
+            d.boq = self.boq
+            d.sheet_name = self.SHEET  # VERBATIM (#152)
+            d.excel_row = excel_row
+            d.committed_version = 1
+            d.combined_rate = combined
+            d.is_filled = 1
+            d.bcs_version = 1
+            d.is_current = 1
+            d.bcs_rated_at = frappe.utils.now()
+            d.insert(ignore_permissions=True)
+        frappe.db.commit()
 
 
 class TestRateEditableBlankCount(FrappeTestCase):

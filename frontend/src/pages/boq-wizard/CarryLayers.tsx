@@ -40,13 +40,16 @@ export interface CarryLayerSource {
   layers?: Partial<Record<CarryLayerKey, CarryLayerOutcome>>;
 }
 
-/** Display names for the four layers. Module-level so the dialog and its tests read the SAME
+/** Display names for every layer. Module-level so the dialog and its tests read the SAME
  *  strings. RENDER ORDER comes from CARRY_LAYER_KEYS, never from this map's key order. */
 export const LAYER_LABEL: Record<CarryLayerKey, string> = {
   categories: "Categories",
   remarks: "Remarks",
   colors: "Cell colours",
   remark_dismissals: "Dismissed review flags",
+  // BCS-S6. The label is also what `carryWriteBreakdown` lowercases into the "Will copy ..."
+  // line, so it has to read as a plural noun there too ("40 bcs costs").
+  bcs_costs: "BCS costs",
 };
 
 /**
@@ -63,9 +66,18 @@ export const LAYER_LABEL: Record<CarryLayerKey, string> = {
 export const CARRY_DESTINATION_CROSS_BOQ = "the revision";
 export const CARRY_DESTINATION_WITHIN_BOQ = "the current version";
 
-/** What each layer actually is, in the reviewer's vocabulary -- these are opt-in choices, so the
- *  dialog has to say what is being opted into. Only COLOURS names the destination; the other three
- *  are surface-independent and come back identical whatever is passed. */
+/**
+ * What each layer actually is, in the reviewer's vocabulary -- these are opt-in choices, so the
+ * dialog has to say what is being opted into. Only COLOURS names the destination; the others are
+ * surface-independent and come back identical whatever is passed.
+ *
+ * ⚠️ This switch IS exhaustiveness-checked, contrary to a note that circulated at BCS-S6. Widening
+ * `CarryLayerKey` without adding a case emits `TS2366: Function lacks ending return statement and
+ * return type does not include 'undefined'` -- TypeScript proves the endpoint reachable, and the
+ * explicit `: string` annotation under `strict` then rejects it. MEASURED, not assumed. Do NOT add
+ * a `default:` branch "for safety": that would make the endpoint unreachable and switch this guard
+ * OFF, trading a compile error for the silent `undefined` it was feared to have.
+ */
 export function layerHint(
   key: CarryLayerKey,
   destination: string = CARRY_DESTINATION_CROSS_BOQ,
@@ -79,6 +91,16 @@ export function layerHint(
       return `Colour marks. Only columns that still exist in ${destination} can carry.`;
     case "remark_dismissals":
       return "Review flags someone has already dismissed.";
+    // BCS-S6. This is the ONE layer with a SHEET-LEVEL precondition, and the server's contract on
+    // failing it is a SILENT SKIP -- zero counts, no error, the rest of the carry proceeding. The
+    // row then renders disabled and says "Nothing to carry", which without this sentence is
+    // indistinguishable from "the source had no costs". Naming the precondition here is what makes
+    // the disabled row diagnosable, so it is not decoration.
+    case "bcs_costs":
+      return (
+        "Cost rates typed into the BCS section. Carries only where BCS is switched on and its " +
+        "columns are confirmed."
+      );
   }
 }
 
@@ -87,13 +109,18 @@ export function layerHint(
 export type LayerChoices = Record<CarryLayerKey, CarryLayerChoice>;
 
 /**
- * The dialog's default per-layer choice: CATEGORIES ON, the three annotation layers OFF
- * (ADR-0014 Amendment E, owner decision 6).
+ * The dialog's default per-layer choice: CATEGORIES ON, everything else OFF
+ * (ADR-0014 Amendment E, owner decision 6; BCS-S6 R7 for `bcs_costs`).
  *
  * ⚠️ The asymmetry is a UI DEFAULT and lives ONLY here. The backend carries nothing it is not
  * explicitly asked for, so an omitted/empty payload is rates-only -- which is exactly the
  * Amendment D behaviour. Do not push this default down into the server "for consistency": a
  * client that never learned about layers must keep getting rates only.
+ *
+ * ⚠️ `bcs_costs` is OFF, and the reason is that ON is the exception here, not the rule: categories
+ * are ON by an EXPLICIT owner ruling, and cost data has had no such ruling (BCS-S6 R7). Carried
+ * records arriving un-asked-for is the defect Amendment D deleted this whole feature over, and an
+ * internal cost rate is the last layer to relax that on.
  */
 export function initialLayerChoices(): LayerChoices {
   return {
@@ -101,6 +128,7 @@ export function initialLayerChoices(): LayerChoices {
     remarks: { carry: false, overwrite: false },
     colors: { carry: false, overwrite: false },
     remark_dismissals: { carry: false, overwrite: false },
+    bcs_costs: { carry: false, overwrite: false },
   };
 }
 

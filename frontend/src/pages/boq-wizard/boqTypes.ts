@@ -1374,6 +1374,7 @@ export const CARRY_LAYER_KEYS = [
   "remarks",
   "colors",
   "remark_dismissals",
+  "bcs_costs",
 ] as const;
 export type CarryLayerKey = (typeof CARRY_LAYER_KEYS)[number];
 

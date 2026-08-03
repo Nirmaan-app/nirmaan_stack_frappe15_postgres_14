@@ -73,7 +73,9 @@ Public API:
   get_bcs_state(...)        -> dict   [whitelisted, GET-capable]
   get_sheet_bcs_rates(...)  -> dict   [whitelisted, GET-capable]
   save_row_bcs_rates(...)   -> dict   [whitelisted POST]
-  bcs_is_ready(...)         -> bool   [the ONE shared readiness predicate]
+  bcs_is_ready(...)         -> bool   [the ONE shared readiness predicate -- RE-EXPORTED from
+                                       services/boq_bcs/readiness.py since BCS-S6; still a
+                                       supported name here, but no longer DEFINED here]
 """
 from __future__ import annotations
 
@@ -104,6 +106,13 @@ from nirmaan_stack.services.boq_bcs.sources import (
     build_amount_source,
     build_qty_source,
 )
+# BCS-S6: the readiness predicate RELOCATED to the service layer and is imported straight back,
+# so `bcs.bcs_is_ready` still resolves and no caller here or elsewhere changed. It had to move:
+# `committed_carry` needs it for the BCS carry layer, and importing this module from there would
+# close committed_carry -> bcs -> pricing -> committed_carry (see readiness.py for the full
+# reasoning and the measured version-coercion note). ONE definition -- do NOT re-add a local
+# `def bcs_is_ready` here; `test_readiness.TestOneDefinition` greps this file for exactly that.
+from nirmaan_stack.services.boq_bcs.readiness import bcs_is_ready
 
 _BCS = "BoQ Row BCS Rate"
 _BOQ_SHEET = "BoQ Sheet"
@@ -187,28 +196,11 @@ def _validate_common_args(boq_name, sheet_name, committed_version) -> int:
 
 
 # ── the ONE shared readiness predicate ───────────────────────────────────────────
-def bcs_is_ready(boq_name, sheet_name, committed_version) -> bool:
-    """THE readiness condition, defined ONCE and used by every BCS write path: BCS is
-    enabled for this sheet+version AND both columns have been confirmed.
-
-    A pure read -- never mutates, never throws for a missing sheet (an uncommitted or
-    re-committed-away version is simply not ready). sheet_name VERBATIM (#152).
-
-    SCOPE (owner-locked): this gates BCS CELLS ONLY. It must NOT be ANDed into
-    save_cell_price's rate gate -- an unconfirmed BCS section leaves ordinary
-    client-facing pricing fully editable."""
-    name = _current_sheet_name(boq_name, sheet_name, committed_version)
-    if not name:
-        return False
-    row = frappe.db.get_value(
-        _BOQ_SHEET, name, ["bcs_enabled", "bcs_qty_source", "bcs_amount_source"],
-        as_dict=True,
-    )
-    if not row or not row.get("bcs_enabled"):
-        return False
-    qty = _parse_json_value(row.get("bcs_qty_source"), None)
-    amount = _parse_json_value(row.get("bcs_amount_source"), None)
-    return bool(qty and qty.get("columns")) and bool(amount and amount.get("columns"))
+# `bcs_is_ready` LIVES IN `services/boq_bcs/readiness.py` since BCS-S6 and is imported at the
+# top of this file. Its behaviour is unchanged (including the version coercion the old body got
+# for free from `pricing._current_sheet_name`); only its address moved, so that the carry engine
+# could reach it without closing an import ring. The THROWING shape stays here, because throwing
+# is an endpoint concern.
 
 
 def _guard_bcs_ready(boq_name, sheet_name, committed_version) -> None:

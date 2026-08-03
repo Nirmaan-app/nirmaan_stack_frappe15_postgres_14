@@ -50,6 +50,7 @@ from nirmaan_stack.api.boq.wizard.pricing import (
     _categories_gate_ok,
     _node_priceable_without_override,
     _sheet_formulas_complete,
+    apply_copy_forward,
     save_amount_formula,
     save_cell_price,
 )
@@ -139,10 +140,16 @@ _AREA_AMOUNT_ROLE_MAP = {
 }
 
 
-def _seed_sheet(boq_name, sheet_name, commit_version, role_map, area_dims, sheet_order):
-    """Insert one current committed BoQ Sheet + a Preamble root + 2 Line Item children.
+def _seed_sheet(boq_name, sheet_name, commit_version, role_map, area_dims, sheet_order,
+                is_current=1):
+    """Insert one committed BoQ Sheet + a Preamble root + 2 Line Item children.
     sheet_name stored VERBATIM (#152). Mirrors build_committed_sheet_fixture's shape but
-    with the role maps this slice needs (a scalar-qty sheet and a per-area-qty sheet)."""
+    with the role maps this slice needs (a scalar-qty sheet and a per-area-qty sheet).
+
+    `is_current` defaults to 1, so every pre-BCS-S6 caller is byte-identical. BCS-S6 needs a
+    SUPERSEDED version too (a carry has an older source and a current destination), and the
+    within-BoQ row match reads nodes by sheet DOCNAME with no is_current filter -- so a
+    superseded source still matches, which is exactly the case the carry exists for."""
     now = frappe.utils.now()
     bs = frappe.new_doc(_BOQ_SHEET)
     bs.boq = boq_name
@@ -155,7 +162,7 @@ def _seed_sheet(boq_name, sheet_name, commit_version, role_map, area_dims, sheet
     bs.column_headers = {}
     bs.area_dimensions = json.dumps(area_dims)   # list JSON -> json.dumps
     bs.commit_version = commit_version
-    bs.is_current = 1
+    bs.is_current = is_current
     bs.committed_at = now
     bs.insert(ignore_permissions=True)
 
@@ -169,7 +176,7 @@ def _seed_sheet(boq_name, sheet_name, commit_version, role_map, area_dims, sheet
     pre.sort_order = 0
     pre.source_row_number = 5
     pre.commit_version = commit_version
-    pre.is_current = 1
+    pre.is_current = is_current
     pre.committed_at = now
     pre.insert(ignore_permissions=True)
 
@@ -187,7 +194,7 @@ def _seed_sheet(boq_name, sheet_name, commit_version, role_map, area_dims, sheet
         li.source_row_number = source_row
         li.sort_order = sort_order
         li.commit_version = commit_version
-        li.is_current = 1
+        li.is_current = is_current
         li.committed_at = now
         li.insert(ignore_permissions=True)
         line_items.append(li.name)
@@ -1476,3 +1483,341 @@ class TestBcsDoesNotGateOrdinaryPricing(_BcsEndpointBase):
                 f"pricing.py must not reference {token!r} -- the BCS gate guards BCS "
                 f"cells ONLY and must never reach the client-facing rate gate",
             )
+
+
+# ===========================================================================
+# Group 7 (BCS-S6): BCS costs as the fifth opt-in CARRY layer
+# ===========================================================================
+class TestBcsCostCarryLayer(FrappeTestCase):
+    """The owner's ask, closed: "Carry Rate from original gets a new option to copy the BCS
+    Section; precondition: BCS enabled on the destination sheet AND its formulas confirmed."
+
+    `bcs_costs` is registered in `committed_carry.LAYER_KEYS`, so ONE registration lights BOTH
+    carry surfaces -- the cross-BoQ revision carry and the within-BoQ copy-forward share
+    `walk_layers`. This class drives the WITHIN-BoQ endpoint because it is the cheaper fixture
+    (one BoQ, two versions); `test_pricing.TestCopyForwardLayers` owns the NOT-READY half and
+    `test_cross_boq_carry` owns the cross-BoQ plan.
+
+    Fixture: sheet "BCS Carry " at v1 (SUPERSEDED, the source) and v2 (CURRENT, the destination),
+    both on the scalar role map -- D qty_total, E rate_combined, F amount_total. The destination
+    is made BCS-ready THROUGH the live endpoints; v2's amount formula is declared through
+    `save_amount_formula`, because the mandatory amount-formula gate is ABSOLUTE on this path and
+    a fixture that bypassed it would not be testing the shipped carry.
+
+    Source costs are inserted directly (v1 is superseded, so `save_row_bcs_rates` cannot reach
+    it -- readiness resolves the CURRENT sheet row). That mirrors how every other layer seeds its
+    source side in `test_pricing.TestCopyForwardLayers._seed_source_layers`.
+    """
+
+    SHEET = "BCS Carry "  # VERBATIM trailing space (#152)
+    _OLD_RATED_AT = "2020-01-01 00:00:00"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "BCS Carry Layer BoQ"
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq = boq.name
+
+        # v2 CURRENT (destination) first, v1 SUPERSEDED (source) second -- the same order the
+        # copy-forward fixtures use, so `is_current` is never briefly true on two versions.
+        _seed_sheet(cls.boq, cls.SHEET, 2, _SCALAR_ROLE_MAP, [], 1, is_current=1)
+        _seed_sheet(cls.boq, cls.SHEET, 1, _SCALAR_ROLE_MAP, [], 1, is_current=0)
+        cls.dest_sheet_v2 = frappe.db.get_value(
+            _BOQ_SHEET, {"boq": cls.boq, "sheet_name": cls.SHEET, "commit_version": 2}, "name")
+        # The mandatory amount-formula gate is ABSOLUTE on the carry path -- satisfy it through
+        # the live endpoint rather than writing the record.
+        _declare_scalar_amount_formula(cls.boq, cls.SHEET, 2)
+        # One CLIENT rate on the source, so every carry in this class moves a rate AND a cost.
+        # That pairing is the point: the two axes ride one transaction, and a test that carried
+        # costs with no rate in flight could not see one axis break the other.
+        rate = frappe.new_doc(_PRICING)
+        rate.boq = cls.boq
+        rate.sheet_name = cls.SHEET  # VERBATIM (#152)
+        rate.excel_row = 10
+        rate.col_letter = "E"
+        rate.committed_version = 1
+        rate.area = None
+        rate.rate_kind = "combined_rate"
+        rate.rate = 500.0
+        rate.is_filled = 1
+        rate.pricing_version = 1
+        rate.is_current = 1
+        rate.priced_at = frappe.utils.now()
+        rate.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        _cleanup_committed(cls.boq)
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        """Reset to: destination v2 BCS-READY and completely uncosted; source v1 carrying two
+        cost rows with a deliberately OLD `bcs_rated_at`."""
+        frappe.db.delete(_BCS, {"boq": self.boq})
+        frappe.db.delete(_PRICING, {"boq": self.boq, "committed_version": 2})
+        frappe.db.delete(_LOCK_DT, {"boq": self.boq})
+        set_bcs_enabled(boq_name=self.boq, sheet_name=self.SHEET,
+                        committed_version=2, enabled=1)
+        confirm_bcs_columns(boq_name=self.boq, sheet_name=self.SHEET, committed_version=2,
+                            qty_cols='["D"]', amount_cols='["F"]')
+        self._seed_source_costs()
+        frappe.db.commit()
+
+    # ── helpers ──────────────────────────────────────────────────────────────────────
+    def _seed_source_costs(self):
+        """Two cost rows on the SUPERSEDED v1, at the two Line Item Excel addresses (10, 11)."""
+        for excel_row, supply, install, combined in ((10, 90.0, 10.0, 0.0),
+                                                     (11, 0.0, 0.0, 77.5)):
+            d = frappe.new_doc(_BCS)
+            d.boq = self.boq
+            d.sheet_name = self.SHEET  # VERBATIM (#152)
+            d.excel_row = excel_row
+            d.committed_version = 1
+            d.description = f"cable {'1.1' if excel_row == 10 else '1.2'}"
+            d.supply_rate = supply
+            d.install_rate = install
+            d.combined_rate = combined
+            d.is_filled = 1
+            d.rate_source = "Manual"
+            d.bcs_version = 1
+            d.is_current = 1
+            d.bcs_rated_at = self._OLD_RATED_AT
+            d.insert(ignore_permissions=True)
+
+    @staticmethod
+    def _choices(*keys, overwrite=False):
+        return {k: {"carry": True, "overwrite": overwrite} for k in keys}
+
+    def _apply(self, layers=None, rows=(10,)):
+        kwargs = {
+            "boq_name": self.boq, "sheet_name": self.SHEET, "from_version": 1,
+            "decisions": json.dumps([
+                {"excel_row": r, "area": None, "rate_kind": "combined_rate"} for r in rows]),
+        }
+        if layers is not None:
+            kwargs["layers"] = json.dumps(layers)
+        return apply_copy_forward(**kwargs)
+
+    def _dest_costs(self):
+        return frappe.get_all(
+            _BCS,
+            filters={"boq": self.boq, "sheet_name": self.SHEET,
+                     "committed_version": 2, "is_current": 1},
+            fields=["name", "excel_row", "node", "description", "supply_rate", "install_rate",
+                    "combined_rate", "is_filled", "rate_source", "bcs_version", "bcs_rated_at",
+                    "carried_from_boq", "carried_from_version", "carried_at"],
+            order_by="excel_row asc",
+        )
+
+    # ── the carry ────────────────────────────────────────────────────────────────────
+    def test_a_ready_destination_takes_the_costs(self):
+        res = self._apply(self._choices("bcs_costs"))
+        self.assertEqual(res["layers"]["bcs_costs"]["carried"], 2)
+        rows = self._dest_costs()
+        self.assertEqual([r.excel_row for r in rows], [10, 11])
+        self.assertEqual((rows[0].supply_rate, rows[0].install_rate, rows[0].combined_rate),
+                         (90.0, 10.0, 0.0))
+        self.assertEqual((rows[1].supply_rate, rows[1].install_rate, rows[1].combined_rate),
+                         (0.0, 0.0, 77.5))
+
+    def test_all_three_rates_move_independently_and_none_is_derived_from_the_others(self):
+        """`combined_rate` is NOT a total of the two halves (owner-locked, BCS-S2b). Row 10 is a
+        split-rate row and row 11 a combined-rate row; each must arrive with the OTHER field(s)
+        at zero and nothing summed, derived or cross-validated."""
+        self._apply(self._choices("bcs_costs"))
+        by_row = {r.excel_row: r for r in self._dest_costs()}
+        self.assertEqual(by_row[10].combined_rate, 0.0, "a split row gains no combined rate")
+        self.assertEqual(by_row[11].supply_rate, 0.0, "a combined row gains no supply half")
+        self.assertEqual(by_row[11].install_rate, 0.0)
+
+    def test_every_carried_cost_is_provenance_stamped(self):
+        """Amendment E's attribution half, which BCS-S6 inherits. The three fields shipped with
+        the doctype at BCS-S1 marked UNUSED; this is what uses them."""
+        self._apply(self._choices("bcs_costs"))
+        rows = self._dest_costs()
+        self.assertTrue(rows, "carried nothing -- the assertions below would be vacuous")
+        for r in rows:
+            self.assertEqual(r.carried_from_boq, self.boq)
+            self.assertEqual(r.carried_from_version, 1)
+            self.assertIsNotNone(r.carried_at)
+
+    def test_bcs_rated_at_keeps_the_sources_older_value_and_is_never_restamped(self):
+        """⚠️ OWNER-LOCKED, and instructed on the field itself (boq_row_bcs_rate.json): the
+        carried record keeps the SOURCE's `bcs_rated_at`, which is therefore OLDER than the carry.
+        `carried_at` is the fresh stamp. Mirrors the `human_verdict_at` precedent, where keeping
+        the carried timestamp old is what makes a decision taken ON this version outrank an
+        inherited one with no precedence code anywhere.
+
+        HONEST CAVEAT recorded at BCS-S6: no live reader tie-breaks on `bcs_rated_at` today, so
+        this is forward-looking rather than load-bearing right now. It is still pinned, because
+        the cheapest moment to get an age right is before anything depends on it."""
+        self._apply(self._choices("bcs_costs"))
+        for r in self._dest_costs():
+            self.assertEqual(str(r.bcs_rated_at), self._OLD_RATED_AT)
+            self.assertNotEqual(str(r.carried_at), self._OLD_RATED_AT)
+
+    def test_the_carried_row_points_at_the_DESTINATION_node_not_the_sources(self):
+        """`node` is a PER-VERSION pointer (its own field description says node names change on
+        re-commit), so copying the source's would point a v2 cost row at a v1 node. The
+        destination's description travels with it, for the same reason the rate carry writes the
+        DEST description: the field is a carry-forward MATCH GUARD against the row it sits on."""
+        self._apply(self._choices("bcs_costs"))
+        for r in self._dest_costs():
+            self.assertTrue(r.node, "a carried cost with no node pointer")
+            self.assertEqual(
+                frappe.db.get_value("BOQ Nodes", r.node, "sheet"), self.dest_sheet_v2,
+                "the node pointer must belong to the DESTINATION version's sheet",
+            )
+
+    def test_a_fresh_destination_record_starts_at_bcs_version_1(self):
+        self._apply(self._choices("bcs_costs"))
+        self.assertEqual([r.bcs_version for r in self._dest_costs()], [1, 1])
+
+    def test_rate_source_travels_verbatim(self):
+        """Provenance of the NUMBERS (where they came from) is a property of the values and
+        survives a copy -- unlike the carry stamp, which is provenance of the RECORD."""
+        self._apply(self._choices("bcs_costs"))
+        self.assertEqual({r.rate_source for r in self._dest_costs()}, {"Manual"})
+
+    # ── opt-in ───────────────────────────────────────────────────────────────────────
+    def test_omitting_layers_carries_rates_only_and_no_cost_lands(self):
+        """The backend default is "no layers at all": a client that never learned about
+        `bcs_costs` keeps getting exactly the pre-S6 behaviour."""
+        res = self._apply()
+        self.assertEqual(res["copied"], 1)
+        self.assertEqual(res["layers"], {})
+        self.assertEqual(self._dest_costs(), [])
+
+    def test_ticking_another_layer_does_not_drag_costs_in(self):
+        res = self._apply(self._choices("remarks"))
+        self.assertEqual(set(res["layers"]), {"remarks"})
+        self.assertEqual(self._dest_costs(), [])
+
+    # ── presence / overwrite ─────────────────────────────────────────────────────────
+    def test_an_existing_destination_cost_is_kept_by_default(self):
+        """Keep is the default on every layer. A cost typed ON the current version must not be
+        superseded by an inherited one just because the user ticked the box."""
+        self._apply(self._choices("bcs_costs"))
+        first = self._dest_costs()
+        res = self._apply(self._choices("bcs_costs"))
+        self.assertEqual(res["layers"]["bcs_costs"]["kept"], 2)
+        self.assertEqual(res["layers"]["bcs_costs"]["carried"], 0)
+        self.assertEqual([r.name for r in self._dest_costs()], [r.name for r in first],
+                         "the replay changed nothing -- same records, not new ones")
+
+    def test_overwrite_supersedes_and_leaves_exactly_one_current(self):
+        self._apply(self._choices("bcs_costs"))
+        res = self._apply(self._choices("bcs_costs", overwrite=True))
+        self.assertEqual(res["layers"]["bcs_costs"]["replaced"], 2)
+        self.assertEqual(len(self._dest_costs()), 2, "still exactly one current per row")
+        self.assertEqual([r.bcs_version for r in self._dest_costs()], [2, 2],
+                         "max(prior) + 1, never a hardcoded 1")
+        self.assertEqual(
+            frappe.db.count(_BCS, {"boq": self.boq, "committed_version": 2, "is_current": 0}), 2,
+            "the prior records are FROZEN, never deleted",
+        )
+
+    def test_a_source_row_with_no_twin_lands_nothing(self):
+        """Row 11's destination node is reworded, so the D6 match cannot pair it. Its cost is
+        reported `unmatched` and the sheet keeps a genuinely blank cost cell -- never a value
+        landed on a row it was not entered against."""
+        node = frappe.db.get_value("BOQ Nodes", {
+            "boq": self.boq, "sheet": self.dest_sheet_v2, "source_row_number": 11}, "name")
+        frappe.db.set_value("BOQ Nodes", node, "description", "something else entirely",
+                            update_modified=False)
+        frappe.db.commit()
+        try:
+            res = self._apply(self._choices("bcs_costs"))
+            self.assertEqual(res["layers"]["bcs_costs"]["carried"], 1)
+            self.assertEqual(res["layers"]["bcs_costs"]["unmatched"], 1)
+            self.assertEqual([r.excel_row for r in self._dest_costs()], [10])
+        finally:
+            frappe.db.set_value("BOQ Nodes", node, "description", "cable 1.2",
+                                update_modified=False)
+            frappe.db.commit()
+
+    # ── R4: the write must NOT go through save_row_bcs_rates ─────────────────────────
+    def test_a_partial_carry_never_zeroes_a_rate_the_destination_already_held(self):
+        """⚠️ THE REASON THE CARRY INSERTS DIRECTLY (BCS-S6 R4). `save_row_bcs_rates` is a
+        WHOLE-ROW SNAPSHOT: it coerces every absent rate to 0.0 and writes all three
+        unconditionally. Routing the carry through it would mean a source row carrying only a
+        combined rate silently ZEROED a supply/install pair the destination already held.
+
+        Here the destination row 11 holds a SPLIT pair; the source row 11 holds a combined rate
+        only. With Overwrite armed the carry supersedes it -- and the superseded record must
+        still be readable with its original numbers intact, which is what proves nothing was
+        blanked in place."""
+        d = frappe.new_doc(_BCS)
+        d.boq = self.boq
+        d.sheet_name = self.SHEET
+        d.excel_row = 11
+        d.committed_version = 2
+        d.supply_rate = 55.0
+        d.install_rate = 5.0
+        d.combined_rate = 0.0
+        d.is_filled = 1
+        d.bcs_version = 1
+        d.is_current = 1
+        d.bcs_rated_at = frappe.utils.now()
+        d.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        self._apply(self._choices("bcs_costs", overwrite=True))
+        frozen = frappe.get_all(
+            _BCS,
+            filters={"boq": self.boq, "committed_version": 2, "excel_row": 11, "is_current": 0},
+            fields=["supply_rate", "install_rate", "combined_rate"],
+        )
+        self.assertEqual(len(frozen), 1)
+        self.assertEqual((frozen[0].supply_rate, frozen[0].install_rate), (55.0, 5.0),
+                         "the superseded record kept its own numbers -- nothing overwrote it")
+        current = {r.excel_row: r for r in self._dest_costs()}[11]
+        self.assertEqual(current.combined_rate, 77.5, "the carried combined rate landed")
+
+    def test_the_carry_does_not_route_through_the_whole_row_snapshot_writer(self):
+        """The structural half of the test above: `committed_carry` must not call
+        `save_row_bcs_rates` at all. A future refactor reaching for it "to reuse the write" is
+        exactly the mistake the test above measures the cost of.
+
+        ⚠️ Read through `ast`, NOT a substring grep. A plain grep would also match the module's
+        own docstring stating the prohibition -- so the tripwire would fire on the very comment
+        warning against the thing, and the only way to keep it green would be to DELETE the
+        explanation. (Measured: that is exactly what happened when this test was first written
+        as `assertNotIn`.) The sibling grep tripwire on `pricing.py` is safe as a substring only
+        because `pricing.py` genuinely names none of its tokens in prose either."""
+        import ast
+        import inspect
+
+        from nirmaan_stack.api.boq.wizard import committed_carry
+
+        tree = ast.parse(inspect.getsource(committed_carry))
+        referenced = {
+            node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)
+        } | {
+            node.id for node in ast.walk(tree) if isinstance(node, ast.Name)
+        }
+        self.assertNotIn(
+            "save_row_bcs_rates", referenced,
+            "committed_carry must not reach the whole-row snapshot writer -- a partial carry "
+            "through it would silently zero rates the destination already held",
+        )
+
+    # ── R6: provenance is keyword-REQUIRED, not a runtime None check ─────────────────
+    def test_the_cost_writer_cannot_be_called_without_provenance(self):
+        """Mirrors `persist.carry_row_categories`: `source_boq` / `source_version` sit after a
+        bare `*` and have no defaults, so an unstamped carried record is a TypeError at the call
+        site rather than a None discovered in the database later. A stamp a caller MAY omit is a
+        stamp that eventually WILL be omitted."""
+        from nirmaan_stack.api.boq.wizard import committed_carry
+
+        with self.assertRaises(TypeError):
+            committed_carry.carry_bcs_rows(self.boq, self.SHEET, 2, [])
+        with self.assertRaises(TypeError):
+            committed_carry.carry_bcs_rows(self.boq, self.SHEET, 2, [], source_boq=self.boq)
