@@ -7,9 +7,10 @@
 
 ## Terms
 
-- **TDS Item** *("TDS SKU")* — The **grouping entity** (new doctype). Holds a
-  **set of Items SKUs** — "which catalog items does this spec group cover." A TDS
-  Item has **no Make and no datasheet of its own**. It is **scoped to a single
+- **TDS Item** *("TDS SKU")* — The **grouping entity** (new doctype). Its
+  **members are the Items SKUs that name it** as their group — "which catalog
+  items does this spec group cover" (membership is **N:1, item-owned**; see
+  ADR-0004). A TDS Item has **no Make and no datasheet of its own**. It is **scoped to a single
   Work Package**, but its members **may span multiple Categories** within that WP
   (so `work_package` lives on the TDS Item; `category` is per-member, not a single
   group attribute — the TDS Item itself has no category field). **Members are
@@ -25,9 +26,10 @@
   attachment)** — the direct `Items` link is replaced by a `TDS Item` link.
 
 - **Items SKU** — A row from the **Items** master catalog (the company-wide item
-  master: item code + name + category). An Items SKU is *mapped into one or more
-  TDS Items* (the mapping is **many-to-many** — the same Items SKU may belong to
-  several TDS Items). It is no longer referenced directly by a Repository Entry.
+  master: item code + name + category). An Items SKU names **at most one** TDS
+  Item as its group, via its own `linked_tds_item` — membership is **N:1, owned by
+  the item** (supersedes the original many-to-many; see ADR-0004). It is no longer
+  referenced directly by a Repository Entry.
 
 - **TDS Repository** — The global master catalog of **TDS Repository Entries**
   (and, transitively, **TDS Items**). Not project-scoped. Admin-maintained.
