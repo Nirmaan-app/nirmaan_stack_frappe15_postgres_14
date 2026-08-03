@@ -2,56 +2,31 @@
  "actions": [],
  "allow_import": 1,
  "allow_rename": 1,
- "creation": "2026-01-08 13:28:02.837893",
+ "autoname": "TDS-ITEM-.#####",
+ "creation": "2026-06-08 00:00:00.000000",
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
-  "links_section",
-  "tds_item",
+  "tds_item_name",
   "work_package",
-  "make",
-  "status",
-  "section_break_veve",
   "description",
-  "tds_attachment"
+  "members"
  ],
  "fields": [
   {
-   "fieldname": "links_section",
-   "fieldtype": "Section Break",
-   "label": "Links"
-  },
-  {
-   "fieldname": "tds_item",
-   "fieldtype": "Link",
-   "label": "TDS Item",
-   "options": "TDS Items",
+   "fieldname": "tds_item_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "TDS Item Name",
    "reqd": 1
   },
   {
-   "fetch_from": "tds_item.work_package",
    "fieldname": "work_package",
    "fieldtype": "Link",
+   "in_list_view": 1,
    "label": "Work Package",
    "options": "Procurement Packages",
-   "read_only": 1
-  },
-  {
-   "fieldname": "make",
-   "fieldtype": "Data",
-   "label": "Make",
-   "options": "Makelist"
-  },
-  {
-   "default": "Not Verified",
-   "fieldname": "status",
-   "fieldtype": "Select",
-   "label": "Status",
-   "options": "Verified\nNot Verified"
-  },
-  {
-   "fieldname": "section_break_veve",
-   "fieldtype": "Section Break"
+   "reqd": 1
   },
   {
    "fieldname": "description",
@@ -59,18 +34,20 @@
    "label": "Description"
   },
   {
-   "fieldname": "tds_attachment",
-   "fieldtype": "Attach",
-   "label": "TDS Attachment"
+   "fieldname": "members",
+   "fieldtype": "Table",
+   "label": "Members",
+   "options": "TDS Items Child Table"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-02-05 16:02:42.047523",
+ "modified": "2026-06-08 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
- "name": "TDS Repository",
+ "name": "TDS Items",
+ "naming_rule": "Expression (old style)",
  "owner": "Administrator",
  "permissions": [
   {
@@ -249,7 +226,6 @@
   }
  ],
  "row_format": "Dynamic",
- "rows_threshold_for_grid_search": 20,
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": [],

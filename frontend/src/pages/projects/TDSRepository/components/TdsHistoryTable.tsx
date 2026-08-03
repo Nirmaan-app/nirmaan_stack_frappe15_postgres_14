@@ -78,7 +78,7 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, ref
         return map;
     }, [nirmaanUsers]);
 
-    const canManageTDS = role !== "Nirmaan Procurement Executive Profile";
+    const canManageTDS = role === "Nirmaan Admin Profile" || role === "Administrator";
 
     // --- 2. Define Columns (with dependency on userMap) ---
     const columns = useMemo<ColumnDef<ProjectTDSItem>[]>(() => [
@@ -101,7 +101,7 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, ref
             accessorKey: "tds_work_package",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Work Package" />,
             cell: ({ row }) => <div title={row.getValue("tds_work_package")}>{row.getValue("tds_work_package")}</div>,
-            size: 150,
+            size: 120,
             enableSorting: true,
             filterFn: (row, id, value) => value.includes(row.getValue(id)),
             meta: {
@@ -122,7 +122,7 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, ref
         {
             accessorKey: "tds_item_id",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Item ID" />,
-            cell: ({ row }) => <div className="font-medium whitespace-nowrap">{row.getValue("tds_item_id")}</div>,
+            cell: ({ row }) => <div className="font-medium whitespace-wrap">{row.getValue("tds_item_id")}</div>,
             size: 100,
             enableSorting: true,
             meta: {
