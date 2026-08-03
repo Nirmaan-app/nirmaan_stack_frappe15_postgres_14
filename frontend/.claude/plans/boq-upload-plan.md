@@ -19522,3 +19522,231 @@ there is **no DOM test environment** in this repo (deliberate, `vitest.config.ts
   exists elsewhere; this slice establishes only that **this** page is now uniform.
 - **`SheetDataGrid.tsx`, `CrossBoqCarryDialog.tsx`, `PricingGrid.tsx`, `bcsColumns.ts`, every
   backend file and the carry path** — out of scope and untouched.
+
+## BCS-S4 — two honesty gaps closed, then the margin view
+
+**Branch** `feature/bcs-columns` · **Base** `55945c16` · **Tier** FULL · **Date** 2026-08-03
+
+**REVIEW: pending**
+
+Two commits, deliberately readable apart. Commit 1 (`4d4363e0`) closes the fourth and last fetch on
+the pricing page that lied about its own state — the BCS cost rows, **this arc's own defect from
+BCS-S3a** — and renders `CARRY_PLAN_STATES.stale`, a state PE-SPIN-1-fix built and nothing ever
+showed. Commit 2 (`597a2c78`) adds the margin view: a separate flat, line-items-only presentation
+ordered by % Profit. **No backend file changed, no migration, no schema.** `bcsColumns.ts` — which
+owns what a margin *is* — was **not touched**; the margin arithmetic is reused, never re-derived.
+
+---
+
+### 1. Commit 1a — the lie, and it was ours
+
+`SheetPricingPage` read the BCS cost rows as `bcsRatesData?.message?.rows ?? []`. That `?? []` is
+not a degrade to *unknown*; it is a degrade to **a confident answer**. An empty rate map makes every
+cost box, every Total Amount and every % Profit on a **fully costed sheet** render blank — and,
+before this slice, still editable. A costed sheet and a sheet nobody had touched were pixel-identical
+behind a failed read.
+
+The two honest reactions to that screen are to **re-enter two hundred figures over costs that already
+exist**, or to **report the data as lost**. This is strictly worse than the permanent spinner
+PE-SPIN-1 closed: a spinner is *visibly unfinished*; this was **finished-looking and wrong**.
+
+The fix is the seam the module already names in its own header — *"IF YOU ADD A FETCH TO THIS PAGE,
+ADD IT HERE TOO"*:
+
+| Piece | Where |
+|---|---|
+| `BCS_RATES_STATES` + `bcsRatesLoadState` — the FOURTH message set on the ONE shared `loadStatus` rule | `pricingLoadState.ts` |
+| The read's own `error`, destructured (S3a took only `{data, mutate}`) | `SheetPricingPage.tsx` |
+| `bcsColumnsVisible = bcsBlockConfigured && bcsRatesLoad.isUsable` | `SheetPricingPage.tsx` |
+| `bcsRatesByExcelRow` built **only** from a usable payload | `SheetPricingPage.tsx` |
+| A destructive banner + Retry; a separate amber stale strip + Retry | `SheetPricingPage.tsx` |
+
+**⭑ THE DECISION THE BRIEF ASKED FOR, STATED: on a failed or empty costs read the cost block is
+WITHHELD ENTIRELY — not shown read-only.** Read-only was considered and rejected. It still leaves a
+row of empty cost boxes and two empty computed columns on screen, and *empty is the falsehood*: a
+reader cannot tell a cell blank because nothing was costed from one blank because we failed to read
+it. Absence of knowledge must render as **nothing plus a stated reason**, never as a blank the eye
+reads as zero. This is not a new rule — it is the S2a rule (*"an unknown BCS state must not render as
+an empty, editable cost cell"*) applied one layer out, from the SETUP fetch to the COSTS themselves.
+
+`isUsable` rather than `!isFailed` is deliberate: it is also false while the first read is in flight,
+so the block never flashes empty-then-fills — the identical lie in miniature.
+
+**`stale` keeps the block, editable.** The last good costs stay on screen behind the amber strip. The
+same trade the sheet and grid fetches already make: blanking a live costing session over one transient
+blip is its own harm, and the single-editor lock means the whole-row snapshot write has no concurrent
+writer to clobber.
+
+**`empty` here is NOT "nothing is costed".** An uncosted sheet answers `{rows: []}` — a real answer,
+`ready`, block renders blank and normal. `empty` is a **null `message`**: no answer at all. Collapsing
+those two back together *is* the original defect restated.
+
+### 2. Commit 1b — a state built and never shown
+
+`CARRY_PLAN_STATES.stale` shipped at PE-SPIN-1-fix and **nothing read `carryPlanLoad.isStale`**. It
+is reachable, and it is the quiet case: a failed *revalidation* leaves `data.message` populated with
+`error` set, so `isFailed` is false, the carry button stays **enabled**, and it offers to carry from
+a plan of **unknown age with no indication whatever**. The sheet and grid fetches each got an amber
+strip for exactly this; the carry button has no strip — its only surface is a tooltip — so the state
+was built and never rendered.
+
+**Rendered, not deleted.** New pure `withStaleNote(title, load)` composes a fetch's stale wording onto
+whatever text a control already shows. It fires **only** on `stale`: a hard failure already has its
+own voiced message on its own surface, and appending *"this may be out of date"* there would say it
+about data we are not holding; a healthy load stays silent. The page's `carryTitle` threads the
+existing copy through it, so **the healthy and hard-failed tooltips are byte-identical to before**.
+
+One incidental correction: the tooltip expression had to be hoisted out of the JSX, and
+`CarryButtonState.hidden` carries no `reason` — the old inline form type-checked only because the
+`carryState.kind !== "hidden" &&` guard narrowed it *in the same expression*. The hoisted version
+spells the three arms out.
+
+### 3. Commit 2 — the margin view
+
+**Seam: `displayRows`.** The page already owns a view-only transform of `rows` handed to the grid
+(filters, collapse). The margin view is another derivation at that same seam — flat, line-items-only,
+snapshot-ordered. Nothing about row identity, the save paths or the grid's colIndex geometry changes;
+only *which rows the grid is given and in what order*.
+
+| Piece | Where |
+|---|---|
+| `compareByMargin` · `buildMarginOrder` · `marginViewRows` · `buildSectionLabels` · `flipMarginSortDir` · `isMarginViewRow` | `marginView.ts` (new, pure leaf, 30 tests) |
+| `computeBcsRowCells` — the BCS composition extracted to module level | `PricingGrid.tsx` |
+| `PricingGridHandle.computeMargins(rows)` | `PricingGrid.tsx` |
+| `marginView` / `sectionByRowIndex` / `marginSortDir` / `onToggleMarginSort` props; flat depths; section line; % Profit header as sort control | `PricingGrid.tsx` |
+| `marginViewOpen` / `marginSortDir` / `marginOrder` state, the two sort moments, the ribbon pair | `SheetPricingPage.tsx` |
+
+**⭑ BLANKS SORT LAST IN BOTH DIRECTIONS.** The blank test sits **outside** the direction flip. The
+idiom this repo already uses — substitute a low sentinel (`InventoryReport`'s `?? -2` beneath its
+`-1` unknown) and let the comparator do the rest — gives blanks-last in *one* direction and
+blanks-**first** in the other, and descending is the one that breaks. Most rows have no margin until
+someone costs them, so a descending view whose blanks float up **opens on a screenful of nothing,
+exactly where the best margins are supposed to be.** There is no sentinel that fixes it: *"sorts
+below every number"* and *"sorts above every number"* are contradictory requirements for one
+substitute. The absence has to be handled as an absence. A **0%** and a **negative** margin are real
+values (they are the findings the view exists to surface); **NaN/Infinity are blanks** — a NaN
+reaching a comparator makes every comparison false and the order depend on input order.
+
+**⭑ THE ORDER IS A SNAPSHOT IN STATE, recomputed at exactly two moments: opening the view, and a
+% Profit header click.** Never in a render, an effect or a keystroke. Inside `PricingGrid` the cursor
+(`activeCell`) is **array-index addressed** into the `rows` prop, and clipboard multi-row selection is
+a **contiguous array range** over the same indices — so an order that moved while someone typed would
+slide a different row under the cursor and land the next character on it. **Values stay live** (the
+row objects are re-read every fetch and reordered by the held snapshot); only the *positions* freeze.
+
+**One composition, two readers.** `computeBcsRowCells` was extracted from the row render because the
+sort key and the % Profit column a user reads **must be the same number**, and two compositions is
+how they stop being. It stays behind the row memo for rendering; `computeMargins` calls the same
+function. Every operation inside it is still a `bcsColumns` export — the arithmetic did not move.
+
+**`computeMargins` is on the imperative handle, and takes its rows.** On the handle because the
+**drafts live in the grid** — a page-side re-implementation would sort on the last *saved* figures
+and disagree with the column. Taking its rows because the grid's own `rows` prop is the *displayed*
+set (filtered, collapsed, or already flattened) and the order must be decided over the whole sheet.
+Imperative rather than reactive by design: a subscribed margin feed would re-sort while someone types.
+
+**What the grid stops claiming in this view:** depth is forced flat (indentation asserts nesting under
+a parent that is elsewhere — and `computeDepths` would not even reproduce the tree's numbers, since
+the ancestors are absent from the row set, so its chain-walk hands a top-level line a depth of 1);
+chevrons are suppressed (`EMPTY_CHILDREN_BY_PARENT`); the section label carries the real context.
+
+**Collapse is switched OFF in the view, not applied.** A folded parent must not silently remove its
+line items from a margin review — that under-reports exactly the rows someone opened the view to
+find, and invisibly, because a flat list gives no clue a parent is folded. The `collapsed` set is
+preserved, so closing the view restores the tree. The row **filters** still compose (they are
+predicates; *"show unpriced + worst margin first"* is a sensible pair). Collapse-all is **disabled**
+with a reason rather than left live and inert.
+
+**Memo shield.** `PricingGrid` is `React.memo`'d with React's **default shallow** comparison. All four
+new props are identity-stable: two scalars, a Map that is module-level-empty when closed and
+per-fetch-memoized when open, and a `useCallback` over refs (`rowsRef` / `marginSortDirRef` /
+`sortMarginViewRef` — the grid's own undo/redo/applyRate precedent). The per-row addition is a
+**string** `section` compared **by value**, exactly like `skipColsCsv`; the section Map never reaches
+a memoized row (the P1 per-row-collection rule).
+
+### 4. The owner's reasoning — the part that must survive
+
+- **Flat view over a sorted tree (owner, 2026-08-02).** The grid is an N-deep hierarchy with
+  collapse/expand. A flat re-order makes collapsing a section hide rows from scattered places on
+  screen, while indentation implies nesting under a parent that is nowhere near. **A distinct view
+  over an incoherent tree.**
+- **Line items ONLY** — as briefed. A Preamble is excluded not for being unpriceable (it can be
+  qty-bearing and costable) but for being a **heading**: in a margin-ordered list it would sit among
+  lines from a different section entirely and mean nothing there.
+- **Default direction: ascending (worst first).** *Builder's call, owner-visible.* The view's job is
+  to find the rows losing money or making nothing; opening on the best margins puts the answer at the
+  far end. One state flip to reverse if the owner disagrees.
+- **Section label = the NEAREST described ancestor, not the root.** *Builder's call, owner-visible.*
+  In a BoQ the immediate preamble identifies a line (*"1.1 kV XLPE cabling"*) while the root is
+  usually the whole discipline and would be the same string on every row — context that distinguishes
+  nothing. **If the owner wants the top-level section instead, the change is the direction of the
+  walk in `buildSectionLabels` and nothing else.**
+- **Withhold-not-read-only on a failed costs read.** See §1. The strictly stronger option, and the
+  one consistent with the rule S2a already set.
+
+### 5. Verification
+
+| Check | Result |
+|---|---|
+| `yarn test` (in-container) | baseline **1466 / 55 files** → final **1507 / 56 files**, all pass |
+| ↳ `pricingLoadState.test.ts` | 28 → **39** |
+| ↳ `marginView.test.ts` (new) | **30** |
+| `tsc --noEmit`, `boq-wizard` errors | **0** → **0** |
+| `python3 scripts/residence_check.py` | **EXITS 1** — F2 `208 vs 207`, **pre-existing, delta zero**. B3 40/40, B1 0/0, B2 8/8, F5 116/116 all hold. `scripts/residence_baseline.json` md5 `80720f5a53276931d43648c0ff082984` **before and after** — unchanged, no auto-tighten |
+| `bench run-tests` (6 suites, nothing backend changed) | `boq_bcs.test_sources` **62** · `test_bcs` **64** · `test_export_writeback` **47** · `test_pricing` **252** · `test_commit_pipeline` **57** · `test_review_screen` **260** — all OK |
+| `git diff --stat` | commit 1: 3 files, +319/−10 · commit 2: 4 files, +957/−62 |
+
+**Red before green, both pure modules.** `pricingLoadState`: 18 failed / 21 passed
+(`bcsRatesLoadState is not a function`, `withStaleNote is not a function`) → 39/39.
+`marginView`: import failure, *no tests collected* → 30/30.
+
+**⚠ One correction during the loop, disclosed:** three `marginViewRows` expectations I wrote were
+**internally inconsistent with the append-the-unnamed rule asserted two tests above them**. The
+implementation was right; the tests were wrong. Corrected the expectations, not the code.
+
+**⚠ WHAT NO TEST HERE CAN SEE.** There is **no DOM test environment** in this repo (deliberate,
+`vitest.config.ts`). These tests pin the *derivations*: the load-state precedence, the comparator, the
+row set, the section labels. **They cannot observe** that the page withholds the cost block, that the
+banner renders, that the tooltip carries the stale note, that the grid renders flat, or that the
+cursor stays put across a sort. That half is live-check only:
+
+1. **Failed BCS costs read.** DevTools → Network → block request URL pattern
+   `*get_sheet_bcs_rates*` → reload a sheet with BCS on and costs entered. **Expect:** no cost
+   columns at all, a red banner *"Could not load this sheet's costs…"* + **Try again**. **Must NOT
+   see:** the cost columns present and empty. Unblock → Try again → the costs return.
+2. **Stale BCS costs.** Load the sheet healthy, *then* block the pattern, then trigger a refetch (save
+   a cost). **Expect:** costs still on screen, amber strip, boxes still editable.
+3. **Uncosted sheet is unaffected.** BCS on, nothing costed → block renders blank and normal, no banner.
+4. **Carry stale tooltip.** On a revision sheet, load healthy, block `*get_cross_boq_carry_plan*`,
+   trigger a revalidate. **Expect:** button still enabled, tooltip now ends *"…may be out of date —
+   the last check of the original failed."* Healthy tooltip unchanged.
+5. **Margin view.** Open on a costed sheet → flat, line items only, worst margin first, section line
+   above each description, no chevrons, no indent. Uncosted rows **at the bottom**. Click the
+   **% Profit** header → order reverses, **uncosted rows still at the bottom**.
+6. **Sort timing.** In the margin view, focus a cost cell, type, wait past the 1s autosave + refetch.
+   **Expect:** the row under the cursor does not move; the % Profit value updates. Then click the
+   header — the order changes only then.
+7. **Collapse interaction.** Collapse a section in the tree, open the margin view → its line items are
+   **present**; Collapse-all is disabled with a reason. Close the view → the collapse is restored.
+8. **Memo shield.** React DevTools Profiler, *"Why did this render?"* — typing in a cost box must
+   re-render **one** row, not the grid, with the margin view both open and closed.
+
+### 6. Deliberately NOT done
+
+- **`scripts/` — untouched entirely.** Baseline md5 captured before and after; identical. The **F2 red
+  was not re-baselined**, only held at delta zero. Owner's call.
+- **`bcsColumns.ts` — untouched.** It owns what a margin *is*. The margin view reuses it through
+  `computeBcsRowCells`; there is no second implementation of the arithmetic anywhere.
+- **Every backend file, and the carry path** — out of scope. No migration, no schema, nothing to run.
+- **`carryButtonState` still has no `error` input** (`CrossBoqCarryDialog.tsx` remains out of scope).
+  The page still compensates in the `title`, and now also composes the stale note there. **When that
+  file is finally opened, both page-side overrides should move into the pure helper and be deleted here.**
+- **The `setInFlight` leak** — unchanged, still a different defect class, still recorded.
+- **`PricingGrid.tsx:789`'s double cast** — still waiting for a slice with `reviewRender.tsx` in scope.
+- **The BOQs fetch's *"BoQ not found"* mislabel** — still the honest next candidate, still a distinct screen.
+- **Sibling PAGES** — still a survey, still open.
+- **No margin EXPORT, no margin totals, no jump-back-to-the-tree-row affordance.** Not asked for. The
+  view is a read-and-fix surface; rates and costs are edited in place through the unchanged save paths.
+- **The margin view does not appear in the version-history browser.** It keys on the live cost block,
+  which is not rendered while browsing an earlier version — so the toggle is simply disabled there by
+  the existing `bcsColumnsVisible` chain, with no new condition.
