@@ -42,9 +42,16 @@ export const STEP_VOCABULARY = [
   "scale",
   "roundup",
   "component",
+  "component_ref",
   "component_band",
   "sum_components",
   "install_as_ratio",
+  // EA-4a: the assembly engine's conduit-sizing step (component_ref is extended in place, so it stays one
+  // vocabulary entry; only circuit_fit is new).
+  "circuit_fit",
+  // EA-4c: the DB build-up install -- the sheet's exact IFERROR three-way (shell absent -> ratio; shell
+  // in the install table -> table x mult; else fallback ratio).
+  "lookup_or_ratio",
 ] as const;
 
 export type StepType = (typeof STEP_VOCABULARY)[number];
@@ -120,12 +127,20 @@ export function blankStep(type: StepType): PipelineStep {
       return { step: "roundup", target: "", params: { digits: 0 } };
     case "component":
       return { step: "component", name: "", target: "", formula: "", params: {} };
+    case "component_ref":
+      return { step: "component_ref", name: "", ref: { kind: "", attributes: {} }, target: "", formula: "base", params: {} };
     case "component_band":
       return { step: "component_band", name: "", band_on: "", bands: [], params: {} };
     case "sum_components":
       return { step: "sum_components", result: "" };
     case "install_as_ratio":
       return { step: "install_as_ratio", result: "", params: { ratio: 0.25 } };
+    case "circuit_fit":
+      return {
+        step: "circuit_fit",
+        params: { sizes: [], usable: {}, wire_specs: [], length_attr: "", conduit_type_attr: "" },
+        binds: ["fitted_size", "circuits", "conduit_qty"],
+      };
     default:
       return { step: type };
   }
@@ -151,9 +166,74 @@ export function referencedAttrIds(config: RateCategoryConfig): Set<string> {
   return out;
 }
 
+/**
+ * EA-1c: the master-item kinds belonging to a category, used to SCOPE the Data tab to just this
+ * category's items/columns. Fallback order: the config's declared `item_kinds` if present; else derive
+ * from the pipelines' `match_master_row` `params.kind` (the legacy wiring config predates item_kinds --
+ * its pipelines match `cable` + `termination`). Returns [] only for a config with neither (an
+ * empty-pipelines config that also declares no item_kinds -- the caller then shows nothing to scope).
+ */
+export function categoryItemKinds(config: RateCategoryConfig): string[] {
+  const declared = config.item_kinds;
+  if (Array.isArray(declared) && declared.length) {
+    return declared.filter((k): k is string => typeof k === "string" && k.length > 0);
+  }
+  const kinds: string[] = [];
+  for (const pl of Object.values(config.pipelines ?? {})) {
+    for (const raw of pl.steps ?? []) {
+      const s = raw as { step: string; params?: { kind?: string } };
+      if (s.step === "match_master_row" && s.params?.kind && !kinds.includes(s.params.kind)) {
+        kinds.push(s.params.kind);
+      }
+    }
+  }
+  return kinds;
+}
+
+/**
+ * EA-DIFF (owner-observed D5 defect): the SENTINEL for a category that owns NO data rows of its own --
+ * its resolved kind set is EMPTY (declared `item_kinds:[]` AND no pipeline-derivable `match_master_row`
+ * kind). point_wiring is the first such category (a composite whose pricing derives from OTHER
+ * categories' items). The Data tab MUST render an honest empty state for these, NEVER the
+ * discipline-wide all-items list. A category with any resolved kind (incl. LMS -> `["lms_item"]`,
+ * empty pipelines but declared kinds) is NOT empty-scope. PURE.
+ */
+export function isCategoryDataScopeEmpty(config: RateCategoryConfig): boolean {
+  return categoryItemKinds(config).length === 0;
+}
+
 /** A blank attribute definition (choice with one empty value slot, or a number). */
 export function blankAttributeDefinition(type: "choice" | "number"): AttributeDefinition {
   return type === "choice"
     ? { id: "", label: "", type: "choice", values: [] }
     : { id: "", label: "", type: "number" };
+}
+
+/**
+ * EA-2 (rider 1): a validator-MINIMAL pipeline for the Add-pipeline affordance. The server
+ * `_validate_config` requires `output` (a list of strings) + a NON-empty `steps` list whose every
+ * step is a known type; a single `match_master_row` (the natural first step -- it selects the item to
+ * price) is the one blankStep the server accepts UNEDITED (its params.kind is a non-empty string).
+ * The author then adds the real computation steps via the existing AddStep machinery. This is what
+ * makes authoring a pipeline into an EMPTY-pipelines config (the LMS path) possible.
+ */
+export function blankPipeline(outputKeys: string[], kind?: string): Pipeline {
+  const first = blankStep("match_master_row") as PipelineStep & { params: { kind: string } };
+  first.params = { kind: kind && kind.trim() ? kind.trim() : "item" };
+  return { output: outputKeys.filter((k) => k.trim().length > 0), steps: [first] };
+}
+
+/**
+ * EA-2 (rider 2): the distinct numeric values present in the loaded items for a NUMBER attribute,
+ * ascending -- the datalist suggestions behind the Derivation tab's free numeric input (so a defined
+ * number attribute with no data, e.g. module_count, still accepts a typed value instead of an empty
+ * Select). PURE.
+ */
+export function distinctNumberValues(items: RateMasterItem[], attrId: string): number[] {
+  const set = new Set<number>();
+  for (const it of items) {
+    const v = it.attributes?.[attrId];
+    if (typeof v === "number" && Number.isFinite(v)) set.add(v);
+  }
+  return Array.from(set).sort((a, b) => a - b);
 }

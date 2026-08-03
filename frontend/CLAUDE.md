@@ -1074,6 +1074,17 @@ in the plan doc.
   definition, the rate fields present, unit, source) -- never a hardcoded column list.
 - **Unknown step type = an explicit "unsupported" state, never a silent skip** (forward-compat honesty for
   future step types). A combination with no master row renders an honest no-match with zero computed values.
+- **`runPipeline` NEVER throws on data shape (EA-DIFF Option C, owner-locked):** the step loop is wrapped so a
+  data-shape formula throw (an unbound identifier / malformed expression -- e.g. a `scale` step carrying
+  `conditions`, a shape only `component` binds) DEGRADES to the honest `unsupported` status for that pipeline;
+  the Derivation tab AND the pricing helper render the honest state and NEVER hit the React error boundary. A
+  well-formed pipeline is byte-unaffected. Contract enforcement, not new vocabulary.
+- **Data-Viewer empty-scope rule (EA-DIFF, owner ADDENDUM):** a category whose resolved kind set is EMPTY
+  (declared `item_kinds:[]` AND no pipeline-derivable kind -- `point_wiring`, the first kind-less category)
+  renders an HONEST EMPTY STATE (0 items, no kind chips, no Add-row, a "no data rows of its own" note) via the
+  pure `rateMasterStructure.isCategoryDataScopeEmpty(config)`. It MUST NEVER fall through to the discipline-wide
+  all-items list (the pre-EA-DIFF `: items` fallback surfaced all rows with mixed columns). LMS
+  (`item_kinds:["lms_item"]`, empty pipelines) resolves a kind -> UNCHANGED.
 - **BCS pipelines ARE shown here** (internal transparency surface); only the pricer-facing helper defers BCS.
 - **The viewer search is CASE-SENSITIVE across all displayed cell values** -- the data is canonical
   UPPERCASE, so a mixed-case query intentionally finds nothing (mirrors the RM ethos: no case-insensitive
@@ -1101,6 +1112,22 @@ in the plan doc.
   filtering never drift. Composition: **AND across columns, OR within a column**; a global `Clear filters (N)`
   control shows the active-column count and resets. Purely CLIENT-SIDE over the already-loaded active items
   -- no new query, no backend change, read-only (composes cleanly with the RM-4a admin editing above).
+- **Data Viewer is CATEGORY-SCOPED (`RateMasterDataViewer.tsx`, owner-locked).** The tab shows ONLY the
+  selected category's items + columns. The category's kinds come from `categoryItemKinds(config)`
+  (`rateMasterStructure.ts`, pure + vitested): the config's declared `item_kinds` if present, ELSE derived
+  from the pipelines' `match_master_row` params (the legacy wiring config predates item_kinds ->
+  {cable, termination}). `scopedItems = items.filter(kind in categoryKinds)` drives every derivation (rate
+  columns first-seen over ITS items, kind chips, filters, the count badge). The KIND column + chips render
+  ONLY when the category spans >1 kind. **A top-level `item_kinds` config key is accepted by the RM-4b
+  `_validate_config` allowlist** (else editing an E-ALL config would break). **Actions column is FIRST and
+  `sticky left-0`** (visible at any H-scroll); admin hide-not-disable is unchanged -- a non-admin renders NO
+  actions column (no ghost gutter). **The always-visible horizontal scrollbar is the RM-3b PROXY pattern**
+  (from `PricingGrid.tsx`, now the STANDING single-bar rule for ALL wide tables): the real scroller
+  suppresses its native H-bar (a `*-hidehbar` webkit CSS class, X-scroll capability kept) and a sticky-bottom
+  proxy mirrors its `scrollLeft` two-way, with the proxy's visible width == the scroller's `clientWidth`
+  (V-bar leak accounted) and a spacer == `scrollWidth`, both live-measured via a ResizeObserver;
+  `border-t`-only on the proxy so proxyMax == scrollerMax. The Add-row form is likewise category-scoped (its
+  attribute definitions + rate keys + kind preselected read-only for one kind, a select for several).
 - **RM-4b structure editor -- the THIRD tab "Pipelines" (`RateMasterPipelines.tsx` + `rateMasterStructure.ts`).**
   LIFTS the RM-4a param-values-only line: add/remove params, steps, conditions, and attribute definitions.
   READ-ONLY structural view for everyone (attribute-definitions table + each pipeline as its ordered step
@@ -1118,6 +1145,104 @@ in the plan doc.
   authority); the refetch flows the new structure into the Derivation + Data tabs and the pricing helper
   with no code + no AI re-run (persistence split). **Goldens are CONFIG DATA** seeded via the endpoint; the
   vitest golden files stay independent pins. Full as-built + cert: plan doc "Build slice RM-4b".
+- **Interpreter step vocabulary (owner-locked, MINIMAL; full detail in the plan doc's "Build slice EA-1").**
+  The pure `ratePipelineInterpreter.ts` is the SINGLE compute source; there is NO loose-formula
+  generalization (that is how silently-wrong sneaks in) — the stored configs normalize every formula to
+  `base` = the step's target value + EXACT param names. Beyond the wiring set it supports: `component_band`
+  STRING-EQUALITY bands (`chooseBand`; band_on read from the matched item, falling back to the selection)
+  alongside the legacy numeric comparator bands; a `scale` value-from-attribute multiply (a `*_from_attr`
+  param binds the selected attribute — missing/non-numeric → HONEST `no_match`, never a zero default);
+  `match_master_row` on the stored-vs-selected INTERSECTION (a row matches on the keys it carries, exact
+  where they overlap — wiring is byte-unchanged); a conditional `component` (params via attribute
+  conditions on the SELECTION, formula may be param-only — unmatched → HONEST no-compute, never a zero
+  adder). **A `component` may carry BOTH a `target` (base bound from the matched row) AND `conditions`
+  (params from the selection) in one step** — e.g. the tray `cover` (`base*factor`); this shape needed no
+  interpreter change. **EA-2b — the CORRECTED cable-tray config is FOUR pipelines** (`tray_boq_supply` /
+  `tray_boq_install` / `tray_bcs` / `tray_bcs_install`): conditional-`component` adders (cover /
+  ceiling-accessories 106 / refill 180 / cutting 200) + a **width-table install match** (kind
+  `tray_install_rate`, ×4). The old single `tray_boq` (install = supply ×0.2, golden 280/60) was WRONG and
+  is DELETED; the oracle goldens t1/t2/t3 (431/120/297/0, 415/120/286, 410/200) are the standing pins (the
+  dead 280/60 interpreter-test fixture was replaced). **EA-2c — `component_ref` (a NEW interpreter step):
+  base from a SEPARATELY-REFERENCED master row** matched by `ref.kind` AND every `ref.attributes` (exact
+  canonical, this discipline); UNIQUE resolution (zero OR multiple -> HONEST no-compute); the referenced
+  row's `target` binds as `base`, conditions/params/formula per the component contract; the trace names the
+  referenced row (`StepTrace.refItem`, rendered by `detailFor`). First-class vocabulary member
+  (STEP_VOCABULARY + blankStep + the server validator). **Owner: the earthing adder ADDS A BUS BAR (the
+  existing Bus bar earthing_item row), NOT an earth chamber** (the chamber attempt was reverted; asset
+  skipped v8, v7->v9). ONE ROW, TWO ROLES: the Bus bar row prices both as a selectable item AND as the
+  adder; an edit flows into both. **component_ref is the ASSEMBLY PRIMITIVE's simplest form.** **EA-4a
+  SHIPPED the assembly engine (owner-locked, `ratePipelineInterpreter.ts`):** `circuit_fit` (sizes conduit +
+  counts circuits, binds `fitted_size`/`circuits`/`conduit_qty`) and `component_ref` extended (ref attrs
+  literal | `@attr` | `@fitted_size`; `rate_stages [{mult,round?:up0|up-1}]` with PER-STAGE rounding; `qty` =
+  number | `{from_attr}` | `{from_fit}` | `{if_attr,then,else}`; UNIQUE resolution else honest no-compute;
+  Option-C never-throws). **PER-STAGE rounding is faithful + INTENTIONAL** (install switch `ceil(list*0.3625)`
+  THEN `*0.2` UNROUNDED — pw1 `155*0.2=31`, pw2 White `131*0.2=26.2`); never collapse to one final round.
+  **`point_wiring` is LIVE**; goldens **pw1 1869/735/1370** + **pw2 1823/722.2/1342** (MS→3 circuits;
+  fractional 722.2) are config data + standing pins, and a golden's attrs are an ATOMIC SET. **`values_from`
+  is resolved in the editor helper too (owner Option 1):** `pricingSheetHelper.attributeOptions` (pure,
+  exported) mirrors the Derivation resolution — options from the live master by `kind` + `where` — so an
+  AI-extracted item with no static `values` DISPLAYS in the panel select and a partial row completes from the
+  catalog (the switch/socket/plate dropdowns were empty before). **EA-4a-r SHIPPED the NONE mechanism
+  (owner-locked):** the sentinel string `"None"` (`NONE_SENTINEL`, exported from `ratePipelineInterpreter`) is
+  POSITIVE ABSENCE, distinct from blank=unknown -> that component line is an EXPLICIT ZERO. A `component_ref`
+  `none_skips` zeroes a line whose ref binds an `@attr`=="None" (fired before the ref lookup; back_box binds
+  @plate_item, so plate=None zeroes it too); `circuit_fit.optional_wire_when_none` drops that wire from the dia
+  (single-wire fit). **The affordance is GENERIC + input-appropriate:** a CHOICE allow_none def offers "None" at
+  the top of its select (`optionsFor`/`attributeOptions`); a NUMBER allow_none def offers a "None" CHECKBOX
+  beside the numeric input (checked -> sentinel + input greys/clears) -- both in RateMaster Derivation AND the
+  editor panel; `WorkingsAttribute` gained `disabled` + `allowNone`. `coerceForMatch` PRESERVES "None" for an
+  allow_none def (number included). Selecting None greys+clears the `disables_when_none` targets. Goldens: pw3
+  (socket="None") -> supply 1682; single-wire (wire2="None") -> 1362. **A switch-only light point (socket_item
+  null, no None set) is an HONEST NON-COMPUTE — became priceable via the None sentinel at EA-4a-r.** **EA-4b
+  SHIPPED switches_point + the industrial_sockets paired-MCB (DATA-ONLY, no interpreter change):**
+  `switches_point` = a 6-line switch/socket/plate/box assembly (TWO None-able socket slots, distinct from
+  point_wiring; golden sp1 2320/470/1600; a new registry line "Switches Point"); `industrial_sockets` gained a
+  CROSS-CATEGORY `paired_mcb` `component_ref` (ref.kind `db_switchgear_item`) gated by a `qty if_attr`
+  interlocked rule, with `extraction_defaults={paired_mcb:"None"}` so a socket-only row prices (absent=unknown
+  ->no_match; "None"=positive-absence->0). Tray ceiling-accessories = a CONFIRMED FIXED 106 scalar. **switches_point
+  has ZERO production coverage until the Electrical CLASSIFIER emits it (rows resolve to switches_sockets today) --
+  a classifier-vocab gap like popup_boxes/LMS; industrial_sockets IS emitted.** **EA-4c SHIPPED the DB build-up +
+  the `lookup_or_ratio` interpreter step (owner-ruled ONE new capability):** the build-up is FIVE FIXED None-able
+  MCB slots (sheet I10:I14) + a `db_shell` slot (allow_none -- **MCB-only, shell None, is a REAL product = the
+  sheet's `IF(J9=0)` branch**) + enclosure, summed x0.495/x0.3 -- supply+bcs are EXISTING vocabulary
+  (`component_ref none_skips` cross-kind to the NEW `db_shell` kind), so the old "variable-length list + list
+  extraction extension" prediction was WRONG (the scalar payload carries the fixed slots, no extension). **`lookup_or_ratio`**
+  (in `ratePipelineInterpreter.ts`; `LookupOrRatioStep` in `rateMasterTypes.ts`; `STEP_VOCABULARY` in
+  `rateMasterStructure.ts`) is the sheet's EXACT IFERROR three-way install: shell absent (`when_shell_absent.attr=="None"`)
+  -> `ROUNDUP(ratio.of x mult)`; else the unique install-table lookup (`kind`+`item`==`@attr`) resolves -> `ROUNDUP(matched[target] x mult)`
+  [table-hit]; lookup MISS -> the ratio fallback. Uncomputed `ratio.of` -> honest no_match; malformed shape NEVER throws
+  (Option C -> `unsupported`); the trace NAMES the branch. Goldens dbu1 (VTPN fallback 24360/**3660**/14760) / dbu2 (TPN 8WAY
+  table-hit install **1500**) / dbu3 (MCB-only shell None 23840/**3580**/14450) -- all live-verified in the Derivation. **This
+  CLOSES the assembly-category arc.** A discarded v16b data-only attempt (shell REQUIRED, no none_skips) was reverted for the
+  owner ruling that MCB-only is real. **EA-4d (owner-locked) SPLIT the `lookup_or_ratio` rounding: `round_lookup`
+  (the install-table-hit branch) + `round_ratio` (the shell-absent + IFERROR-fallback ratio branches) round
+  SEPARATELY; the legacy single `round` stays the fallback for both (backwards-compat).** v17's step sets
+  `round_lookup: null` -> the table-hit is UNROUNDED `matched[target] x mult` (sheet-faithful), while
+  `round_ratio: -1` rounds the ratio branches to tens. This corrected the EA-4c drift: **dbu4 TPN-6WAY table-hit
+  install `850 x 1.5` = 1275 UNROUNDED** (was over-rounded to 1280); goldens are now dbu1 (fallback 24360/3660/
+  14760) / dbu2 (TPN-8WAY table-hit 1500) / **dbu4 (TPN-6WAY 1275)**, d1/d2/dbu3-single-item removed. **The wiring + point_wiring + switches_point + DB-build-up goldens are the standing regression pins for every addition.** The Rate Master
+  category selector is REGISTRY-driven (`rateMasterRegistry.ts` lists all eleven Electrical categories),
+  NOT config-read. **EA-2: the pricing-sheet helper (`pricingSheetHelper.ts`) is N-CATEGORY** — it resolves
+  the config PER row category (`configsByCategory`, fetched by a child `RateConfigFetcher` for all 11
+  registry categories in `SheetPricingPage.tsx`); a category with no ELIGIBLE config (pipelines + defs, so
+  an empty-pipelines LMS is excluded) returns the `{kind:"none", "…coming soon."}` guard. Groups render ONE
+  per NON-BCS pipeline (ids containing "bcs" NEVER surface), labelled `config.pipeline_labels?.[id]` (config
+  data) else `prettifyPipelineId(id)`; `values` come from the FIRST non-BCS pipeline. **The `wiring_cabling`
+  paired Cable+Termination display stays a TEMPORARY named-category special-case (owner Decision 2) — EA-4
+  designs the generic pairing/assembly mechanism and wiring migrates then; do NOT extend it.** The helper
+  Deps accept EITHER a single `config` (legacy RM-3 tests) OR `configsByCategory`; keep the memo shield
+  (every grid input identity-stable). **HONEST-PARTIAL (owner-locked):** a `scale` step whose target rate is missing
+  (`null`/`NaN`) SKIPS that output (it stays absent, renders `-`), NEVER inventing a 0; the pipeline's other
+  outputs still compute — so a source row carrying supply but not install (or vice-versa; the misc CEIG /
+  AS Built rows) prices only what exists. **Empty-pipelines configs render honestly with ZERO frontend
+  changes:** a config with `pipelines: {}` (a DATA-ONLY category such as `lighting_mgmt_system`, authored
+  in-system later) shows its data + attribute definitions on the Data / Derivation / Pipelines tabs and the
+  preview gate with no derivation output and no crash. **EA-2 SHIPPED the authoring path:** the Pipelines-tab
+  edit mode has an **Add-pipeline** control (validated id + output keys -> a validator-minimal pipeline via
+  `blankPipeline`, seeded with `match_master_row`), so a NEW pipeline can be authored into an empty config;
+  the RM-4b `distinctNumberValues` datalist makes number attributes (e.g. module_count) a free numeric input
+  in the Derivation tab; and the Data-Viewer header row is sticky-top (a scoped `<style>` forces `top:0`
+  because a global Ant Design table reset overrides Tailwind's `top-0`).
 
 ## Important Notes
 

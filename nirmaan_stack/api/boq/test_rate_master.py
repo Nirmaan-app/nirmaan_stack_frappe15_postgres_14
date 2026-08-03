@@ -27,16 +27,26 @@ Coverage map (behavior -> test):
   - RM-4b validation: unknown top-level key rejected                           -> test_20
   - RM-4b: identity repoint (discipline/category_id) rejected                  -> test_21
   - RM-4b: a valid add-step + add-param replace persists                       -> test_22
+  - EA-1: multi-config load -- counts, shared batch, 10 configs, goldens merge -> test_23
+  - EA-1: SCOPED replace supersedes only the E-ALL scope, WIRING UNTOUCHED     -> test_24
+  - EA-1b: retired-scope (ups) also deactivated on replace, else untouched     -> test_25
+  - EA-1c: update_rate_config accepts a top-level item_kinds (Data-tab scope)   -> test_26
+  - EA-2: relaxed validator -- empty pipelines accepted; bad non-empty rejected -> test_27
+  - EA-2: pass-through keys (matching_mode/identity_attribute_id/notes/
+    pipeline_labels) accepted + a pipeline_labels edit audited (Version doc)     -> test_28
+  - EA-2c: the earthing config's component_ref step round-trips through the
+    RM-4b validator (accepted); a component_ref missing ref.kind is rejected     -> test_29
 """
 
 import copy
 import json
+import os
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.boq import rate_master
-from nirmaan_stack.services.boq_rate_master import loader
+from nirmaan_stack.services.boq_rate_master import extraction, loader
 
 PIPELINE_KEYS = {"cable_boq", "termination_boq", "cable_bcs", "termination_bcs"}
 
@@ -53,6 +63,12 @@ class TestRateMaster(FrappeTestCase):
         super().setUpClass()
         with open(loader.DEFAULT_DATA_FILE, "r", encoding="utf-8") as fh:
             cls.raw = json.load(fh)
+        # EA-1/EA-1b: the all-categories (E-ALL) asset, loaded by path (DEFAULT_DATA_FILE stays wiring).
+        cls.eall_path = os.path.join(
+            os.path.dirname(loader.__file__), "data", "rate_master_electrical_all_v12.json"
+        )
+        with open(cls.eall_path, "r", encoding="utf-8") as fh:
+            cls.eall = json.load(fh)
         cls._disciplines = set()
 
     @classmethod
@@ -580,3 +596,344 @@ class TestRateMaster(FrappeTestCase):
         stored = self._full_config(cfg_name)
         self.assertEqual(stored["pipelines"]["cable_boq"]["steps"][1]["conditions"][0]["params"]["surcharge"], 0.02)
         self.assertEqual(stored["pipelines"]["cable_boq"]["steps"][-1]["step"], "roundup")
+
+    # ---- EA-1: the all-categories (E-ALL) multi-config load ----
+    def _eall_payload(self, discipline):
+        p = copy.deepcopy(type(self).eall)
+        p["discipline"] = discipline  # loader stamps every item + config from this
+        return p
+
+    def test_23_eall_multi_config_load_counts_and_goldens_merge(self):
+        disc = self._new_disc()
+        r = loader.load_rate_master(payload=self._eall_payload(disc))
+        # per-kind counts land EXACTLY (EA-DIFF v11: -4 GI conduit rows, +8 db_install_rate -> 768)
+        self.assertEqual(r["items_total"], 768)
+        self.assertEqual(r["items_by_kind"]["cable_tray"], 450)
+        self.assertEqual(r["items_by_kind"]["tray_install_rate"], 10)  # EA-2b: the width->install-rate table
+        self.assertEqual(r["items_by_kind"]["db_switchgear_item"], 137)
+        self.assertEqual(r["items_by_kind"]["db_install_rate"], 8)  # EA-DIFF: the per-DB install table
+        self.assertEqual(r["items_by_kind"]["conduit"], 8)  # EA-DIFF: GI conduit rows excluded (was 12)
+        self.assertEqual(r["items_by_kind"]["earthing_item"], 25)
+        self.assertEqual(r["items_by_kind"]["popup_box_module"], 1)
+        self.assertNotIn("ups_per_kva", r["items_by_kind"])  # UPS removed by the Floor BOX correction
+        # GI conduit rows are EXCLUDED (retired via replace) -> zero active conduit carries conduit_type GI
+        conduit_gi = [
+            c for c in frappe.get_all("BoQ Rate Master Item", filters={"discipline": disc, "kind": "conduit"}, fields=["attributes"])
+            if _obj(c.attributes).get("conduit_type") == "GI"
+        ]
+        self.assertEqual(len(conduit_gi), 0)
+        self.assertEqual(r["configs_loaded"], 11)  # EA-DIFF: + point_wiring (data-only)
+        # ONE shared batch across the whole scope (items + configs)
+        item_batches = {
+            x.import_batch
+            for x in frappe.get_all("BoQ Rate Master Item", filters={"discipline": disc}, fields=["import_batch"])
+        }
+        self.assertEqual(item_batches, {r["batch"]})
+        # 11 active configs, discipline stamped INTO the config JSON, per-category goldens merged
+        cfgs = frappe.get_all(
+            "BoQ Rate Category Config", filters={"discipline": disc, "active": 1}, fields=["category_id", "config"]
+        )
+        self.assertEqual(len(cfgs), 11)
+        by_cat = {c["category_id"]: _obj(c["config"]) for c in cfgs}
+        self.assertEqual(by_cat["earthing"]["discipline"], disc)
+        self.assertIn("goldens", by_cat["earthing"])
+        self.assertEqual(len(by_cat["earthing"]["goldens"]), 2)  # e1 + e2
+        g = by_cat["earthing"]["goldens"][0]
+        # RM-4b machine contract: {id, attrs, expect: {pipeline_id: {output_key: number}}}
+        self.assertIn("attrs", g)
+        self.assertIn("expect", g)
+        self.assertIn("earthing_boq", g["expect"])
+        # EA-1b: the LMS config loads DATA-ONLY -- empty pipelines, active, items present
+        self.assertIn("lighting_mgmt_system", by_cat)
+        self.assertEqual(by_cat["lighting_mgmt_system"]["pipelines"], {})
+        self.assertEqual(r["items_by_kind"]["lms_item"], 24)
+        # EA-DIFF: point_wiring is DATA-ONLY too -- empty pipelines, active, banked EA-4 oracle in notes
+        self.assertIn("point_wiring", by_cat)
+        self.assertEqual(by_cat["point_wiring"]["pipelines"], {})
+        self.assertIn("1869", json.dumps(by_cat["point_wiring"].get("notes", "")))
+        self.assertNotIn("ups", by_cat)  # no UPS config
+
+    def test_24_eall_scoped_replace_preserves_wiring(self):
+        disc = self._new_disc()
+        # wiring loaded first under this discipline (kinds cable/termination, category wiring_cabling)
+        loader.load_rate_master(payload=self._real_payload(disc))
+        wiring_active = self._active_items(disc, kind="cable") + self._active_items(disc, kind="termination")
+        self.assertEqual(wiring_active, 588)
+        wiring_cfg_active = frappe.db.count(
+            "BoQ Rate Category Config", {"discipline": disc, "category_id": "wiring_cabling", "active": 1}
+        )
+        self.assertEqual(wiring_cfg_active, 1)
+
+        # E-ALL loads WITHOUT replace -- its kinds/categories are disjoint from wiring, no scope overlap
+        r1 = loader.load_rate_master(payload=self._eall_payload(disc))
+        self.assertEqual(r1["configs_loaded"], 11)
+        self.assertEqual(r1["items_deactivated"], 0)
+        # wiring UNTOUCHED
+        self.assertEqual(
+            self._active_items(disc, kind="cable") + self._active_items(disc, kind="termination"), 588
+        )
+
+        # a SECOND E-ALL load now refuses (its scope is active)
+        with self.assertRaises(frappe.ValidationError):
+            loader.load_rate_master(payload=self._eall_payload(disc))
+
+        # replace supersedes ONLY the E-ALL scope (768 items / 11 configs, EA-DIFF v11), never wiring
+        r2 = loader.load_rate_master(payload=self._eall_payload(disc), replace=True)
+        self.assertEqual(r2["items_deactivated"], 768)
+        self.assertEqual(r2["configs_deactivated"], 11)
+        # THE NAMED INVARIANT: wiring cable/termination still active + wiring_cabling config still active
+        self.assertEqual(
+            self._active_items(disc, kind="cable") + self._active_items(disc, kind="termination"), 588
+        )
+        self.assertEqual(
+            frappe.db.count("BoQ Rate Category Config", {"discipline": disc, "category_id": "wiring_cabling", "active": 1}),
+            1,
+        )
+        # a fresh active E-ALL batch: 768 items, 11 configs
+        self.assertEqual(self._active_items(disc, kind="cable_tray"), 450)
+        self.assertEqual(
+            frappe.db.count("BoQ Rate Category Config", {"discipline": disc, "category_id": "earthing", "active": 1}),
+            1,
+        )
+
+    def test_25_eall_retired_scope_deactivated_on_replace(self):
+        disc = self._new_disc()
+        # simulate a PRIOR batch that carried UPS (now retired by the Floor BOX correction): a
+        # ups_per_kva item + a ups config, both active.
+        frappe.get_doc({
+            "doctype": "BoQ Rate Master Item", "discipline": disc, "kind": "ups_per_kva",
+            "attributes": "{}", "rates": "{}", "import_batch": "prior-eall", "active": 1,
+        }).insert(ignore_permissions=True)
+        frappe.get_doc({
+            "doctype": "BoQ Rate Category Config", "discipline": disc, "category_id": "ups",
+            "config": "{}", "import_batch": "prior-eall", "active": 1,
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        # first v4 load (no replace) leaves the retired UPS rows untouched (not in the payload scope)
+        loader.load_rate_master(payload=self._eall_payload(disc))
+        self.assertEqual(self._active_items(disc, kind="ups_per_kva"), 1)
+
+        # replace ALSO supersedes the retired scope
+        r = loader.load_rate_master(payload=self._eall_payload(disc), replace=True)
+        self.assertEqual(r["retired_kinds"], ["ups_per_kva", "ups_reference"])
+        self.assertEqual(r["retired_category_ids"], ["ups"])
+        self.assertGreaterEqual(r["retired_items_deactivated"], 1)
+        self.assertGreaterEqual(r["retired_configs_deactivated"], 1)
+        # UPS item + config now inactive (RETAINED, never deleted)
+        self.assertEqual(self._active_items(disc, kind="ups_per_kva"), 0)
+        self.assertEqual(
+            frappe.db.count("BoQ Rate Category Config", {"discipline": disc, "category_id": "ups", "active": 1}), 0
+        )
+        self.assertEqual(frappe.db.count("BoQ Rate Master Item", {"discipline": disc, "kind": "ups_per_kva"}), 1)
+        # and the E-ALL scope itself is freshly active
+        self.assertEqual(self._active_items(disc, kind="cable_tray"), 450)
+
+    def test_26_update_rate_config_accepts_item_kinds(self):
+        # EA-1c: the config carries a top-level item_kinds (Data-tab scoping); the RM-4b whole-config
+        # validator must ACCEPT it (else editing any E-ALL config's pipelines would break).
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._real_payload(disc))
+        cfg_name = self._config_name(disc)
+        cfg = self._full_config(cfg_name)
+        cfg["item_kinds"] = ["cable", "termination"]
+        res = rate_master.update_rate_config(name=cfg_name, config=json.dumps(cfg))
+        self.assertTrue(res["ok"])
+        self.assertEqual(self._full_config(cfg_name)["item_kinds"], ["cable", "termination"])
+
+    # ---- EA-2c: the component_ref step is a first-class RM-4b vocabulary member ----
+    def test_29_component_ref_config_roundtrips(self):
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._eall_payload(disc))
+        cfg_name = frappe.db.get_value(
+            "BoQ Rate Category Config", {"discipline": disc, "category_id": "earthing", "active": 1}, "name"
+        )
+        cfg = _obj(frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config"))
+        # sanity: the earthing config really carries a QUALIFIED component_ref (ref.kind + ref.attributes)
+        refs = [s for p in cfg["pipelines"].values() for s in p["steps"] if s["step"] == "component_ref"]
+        self.assertTrue(refs)
+        self.assertEqual(refs[0]["ref"]["attributes"], {"type": "Bus bar"})
+        # the RM-4b validator ACCEPTS component_ref -> the whole earthing config round-trips
+        res = rate_master.update_rate_config(name=cfg_name, config=json.dumps(cfg))
+        self.assertTrue(res["ok"])
+        # NEGATIVE: a component_ref missing ref.kind is rejected, no write
+        before = frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config")
+        bad = copy.deepcopy(_obj(before))  # deep copy -- _obj returns `before` itself when it is a dict
+        for p in bad["pipelines"].values():
+            for s in p["steps"]:
+                if s["step"] == "component_ref":
+                    s.pop("ref", None)
+        with self.assertRaises(frappe.ValidationError):
+            rate_master.update_rate_config(name=cfg_name, config=json.dumps(bad))
+        self.assertEqual(frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config"), before)
+
+    # ---- EA-DIFF: the synonyms key is a first-class RM-4b pass-through ----
+    def test_30_update_rate_config_accepts_synonyms(self):
+        # EA-DIFF: a config may carry a top-level `synonyms` map ({attr_id: {variant: canonical}}) --
+        # the extraction prompt injects it and _coerce_value maps it (defence in depth). The RM-4b
+        # whole-config validator must ACCEPT it verbatim (pass-through, not structurally validated),
+        # exactly like item_kinds / pipeline_labels, else editing the conduit config would break.
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._real_payload(disc))
+        cfg_name = self._config_name(disc)
+        cfg = self._full_config(cfg_name)
+        cfg["synonyms"] = {"conduit_type": {"GI": "MS"}}
+        res = rate_master.update_rate_config(name=cfg_name, config=json.dumps(cfg))
+        self.assertTrue(res["ok"])
+        self.assertEqual(self._full_config(cfg_name)["synonyms"], {"conduit_type": {"GI": "MS"}})
+
+    # ---- EA-2: relaxed empty-pipelines validator + pass-through keys ----
+    def test_27_relaxed_empty_pipelines_accepted_bad_nonempty_rejected(self):
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._real_payload(disc))
+        cfg_name = self._config_name(disc)
+        cfg = self._full_config(cfg_name)
+        # (a) EA-2: an EMPTY pipelines dict is now ACCEPTED (the LMS in-system authoring path). Its
+        # goldens must also empty (goldens reference pipelines).
+        cfg["pipelines"] = {}
+        cfg["goldens"] = []
+        res = rate_master.update_rate_config(name=cfg_name, config=json.dumps(cfg))
+        self.assertTrue(res["ok"])
+        self.assertEqual(self._full_config(cfg_name)["pipelines"], {})
+        # (b) a NON-empty but structurally BAD pipeline is STILL rejected, no write
+        before = frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config")
+        bad = self._full_config(cfg_name)
+        bad["pipelines"] = {"x": {"output": ["y"], "steps": [{"step": "quantum_flux"}]}}
+        with self.assertRaises(frappe.ValidationError):
+            rate_master.update_rate_config(name=cfg_name, config=json.dumps(bad))
+        self.assertEqual(frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config"), before)
+
+    def test_28_pass_through_keys_and_pipeline_labels_audited(self):
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._real_payload(disc))
+        cfg_name = self._config_name(disc)
+        self.assertEqual(len(self._versions("BoQ Rate Category Config", cfg_name)), 0)
+        cfg = self._full_config(cfg_name)
+        # EA-2 pass-through keys: accepted by the allowlist, stored verbatim (NOT structurally
+        # validated) -- exactly like item_kinds. pipeline_labels is the wiring-helper label source.
+        cfg["pipeline_labels"] = {"cable_boq": "Cable — per Mtr", "termination_boq": "Termination — per Set"}
+        cfg["matching_mode"] = "item_identity"
+        cfg["identity_attribute_id"] = "material"
+        cfg["notes"] = "authored by test"
+        res = rate_master.update_rate_config(name=cfg_name, config=json.dumps(cfg))
+        self.assertTrue(res["ok"])
+        stored = self._full_config(cfg_name)
+        self.assertEqual(stored["pipeline_labels"]["cable_boq"], "Cable — per Mtr")
+        self.assertEqual(stored["matching_mode"], "item_identity")
+        self.assertEqual(stored["notes"], "authored by test")
+        # AUDIT: a Version doc records the config diff
+        versions = self._versions("BoQ Rate Category Config", cfg_name)
+        self.assertEqual(len(versions), 1)
+        changed = {c[0] for c in json.loads(versions[0]["data"]).get("changed", [])}
+        self.assertIn("config", changed)
+
+    # ---- EA-4d: DB composite-decomposition + the single-item removal + the round-split fix ----
+    def test_31_eall_v17_db_composite_decomposition_and_round_split(self):
+        # EA-4d loads the CURRENT E-ALL asset (v17) by path. Pins: the four SINGLE-ITEM DB pipelines +
+        # the family/item attrs are GONE; only the 3 build-up pipelines remain; matching_mode is now
+        # composite_decomposition with a composite_slots descriptor; the lookup_or_ratio step carries the
+        # SPLIT rounding (round_lookup null / round_ratio -1); the goldens are dbu1/dbu2/dbu4 (d1/d2 gone,
+        # dbu4 pins the UNROUNDED table-hit 1275). Items are UNCHANGED (795; db_switchgear_item 137).
+        disc = self._new_disc()
+        path = os.path.join(os.path.dirname(loader.__file__), "data", "rate_master_electrical_all_v17.json")
+        with open(path, "r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+        payload["discipline"] = disc
+        r = loader.load_rate_master(payload=payload)
+        self.assertEqual(r["items_total"], 795)
+        self.assertEqual(r["items_by_kind"]["db_shell"], 27)
+        self.assertEqual(r["items_by_kind"]["db_install_rate"], 8)
+        self.assertEqual(r["items_by_kind"]["db_switchgear_item"], 137)  # items UNCHANGED -- only the config moved
+        self.assertEqual(r["configs_loaded"], 12)
+        cfg_name = frappe.db.get_value(
+            "BoQ Rate Category Config", {"discipline": disc, "category_id": "db_switchgear", "active": 1}, "name"
+        )
+        cfg = _obj(frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config"))
+        pids = set(cfg["pipelines"].keys())
+        # the 3 build-up pipelines remain; the 4 single-item pipelines are REMOVED
+        self.assertEqual(pids, {"db_buildup_supply", "db_buildup_install", "db_buildup_bcs"})
+        self.assertNotIn("db_boq", pids)
+        self.assertNotIn("db_install_db", pids)
+        self.assertNotIn("db_install_nondb", pids)
+        self.assertNotIn("db_bcs", pids)
+        # the single-item identity attrs are GONE; the build-up slot attrs remain
+        attr_ids = {d["id"] for d in cfg["attribute_definitions"]}
+        self.assertNotIn("family", attr_ids)
+        self.assertNotIn("item", attr_ids)
+        self.assertLessEqual({"db_shell_item", "mcb1_item", "mcb5_item", "enclosure_item"}, attr_ids)
+        # the composite-decomposition mode + descriptor
+        self.assertEqual(cfg.get("matching_mode"), "composite_decomposition")
+        cs = cfg.get("composite_slots")
+        self.assertEqual(cs["shell"]["attr"], "db_shell_item")
+        self.assertEqual(cs["repeatable"]["prefix"], "mcb")
+        self.assertEqual(cs["repeatable"]["count"], 5)
+        self.assertEqual(cs["fixed"][0]["attr"], "enclosure_item")
+        self.assertIn("curve", cfg.get("decomposition_rules", {}))
+        # the lookup_or_ratio step: the SPLIT rounding (table-hit unrounded, ratio branches tens)
+        lor = [s for s in cfg["pipelines"]["db_buildup_install"]["steps"] if s.get("step") == "lookup_or_ratio"]
+        self.assertEqual(len(lor), 1)
+        self.assertIsNone(lor[0]["round_lookup"])  # table-hit UNROUNDED (the sheet fidelity)
+        self.assertEqual(lor[0]["round_ratio"], -1)  # ratio branches roundup tens
+        # goldens: dbu1 fallback / dbu2 table-hit / dbu4 UNROUNDED 1275; the old d1/d2 single-item goldens are gone
+        gs = {g["id"]: g for g in cfg.get("goldens", [])}
+        self.assertLessEqual({"dbu1", "dbu2", "dbu4"}, set(gs))
+        self.assertNotIn("d1", gs)
+        self.assertNotIn("d2", gs)
+        self.assertEqual(gs["dbu1"]["expect"]["db_buildup_install"]["install"], 3660)  # fallback -> tens
+        self.assertEqual(gs["dbu2"]["expect"]["db_buildup_install"]["install"], 1500)  # table-hit lands on a ten
+        self.assertEqual(gs["dbu4"]["expect"]["db_buildup_install"]["install"], 1275)  # TPN-6WAY table-hit UNROUNDED
+        # PASS-THROUGH: the RM-4b whole-config validator ACCEPTS composite_slots + decomposition_rules
+        # (new pass-through keys) AND a lookup_or_ratio step -- proven on a ROUND-TRIPPABLE config (wiring).
+        wdisc = self._new_disc()
+        loader.load_rate_master(payload=self._real_payload(wdisc))
+        wcfg_name = self._config_name(wdisc)
+        wcfg = self._full_config(wcfg_name)
+        wcfg["matching_mode"] = "composite_decomposition"
+        wcfg["composite_slots"] = {"shell": {"attr": "material", "values_from": {"kind": "cable", "attr": "material"}}}
+        wcfg["decomposition_rules"] = {"curve": {"order": ["default_C"]}}
+        some_pid = next(iter(wcfg["pipelines"]))
+        wcfg["pipelines"][some_pid]["steps"].append({
+            "step": "lookup_or_ratio", "result": "install",
+            "lookup": {"kind": "db_install_rate", "item": "@db_shell_item", "target": "install_rate", "mult": 1.5},
+            "ratio": {"of": "supply", "mult": 0.15},
+            "when_shell_absent": {"attr": "db_shell_item", "equals": "None", "use": "ratio"},
+            "round_lookup": None, "round_ratio": -1,
+        })
+        res = rate_master.update_rate_config(name=wcfg_name, config=json.dumps(wcfg))
+        self.assertTrue(res["ok"])  # composite_slots / decomposition_rules / lookup_or_ratio all accepted
+        stored = self._full_config(wcfg_name)
+        self.assertEqual(stored.get("matching_mode"), "composite_decomposition")
+        self.assertIn("composite_slots", stored)
+
+    # ---- EA-4d: the GENERAL composite-decomposition extraction seam (config-driven, no DB-specifics) ----
+    def test_32_composite_decomposition_extraction_seam(self):
+        # The seam is entirely config-driven: build_slot_spec expands composite_slots (shell + the
+        # repeatable group -> its enumerated slot attrs + each slot's catalog resolved via values_from),
+        # and select_prompt_text routes composite_decomposition -> the decomposition prompt. NOTHING
+        # db-specific is hardcoded -- a future composite inherits this by declaring the config keys.
+        disc = self._new_disc()
+        path = os.path.join(os.path.dirname(loader.__file__), "data", "rate_master_electrical_all_v17.json")
+        with open(path, "r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+        payload["discipline"] = disc
+        loader.load_rate_master(payload=payload)
+        db_cfg = _obj(frappe.db.get_value(
+            "BoQ Rate Category Config",
+            {"discipline": disc, "category_id": "db_switchgear", "active": 1}, "config",
+        ))
+        # POSITIVE: the slot spec expands from composite_slots + resolves each slot's live catalog
+        spec = extraction.build_slot_spec(db_cfg, disc)
+        self.assertEqual(spec["shell"]["item_attr"], "db_shell_item")
+        self.assertEqual(spec["repeatable"]["item_attrs"], [f"mcb{i}_item" for i in range(1, 6)])
+        self.assertEqual(spec["repeatable"]["qty_attrs"], [f"mcb{i}_qty" for i in range(1, 6)])
+        self.assertIn("63A FP MCB C CURVE", spec["repeatable"]["catalog"])  # Switchgear catalog, live
+        self.assertEqual(len(spec["shell"]["catalog"]), 27)  # db_shell catalog, live
+        self.assertEqual(spec["fixed"][0]["item_attr"], "enclosure_item")
+        # POSITIVE: the mode routes to the decomposition prompt (its own distinctive text)
+        prompt = extraction.select_prompt_text(db_cfg)
+        self.assertIn("SLOT_SPEC", prompt)
+        self.assertIn("decompose", prompt.lower())
+        # NEGATIVE: a NON-composite config yields no slot spec and NOT the decomposition prompt
+        non_composite = {"category_id": "x", "attribute_definitions": [], "pipelines": {}, "matching_mode": "attribute"}
+        self.assertIsNone(extraction.build_slot_spec(non_composite, disc))
+        self.assertNotIn("SLOT_SPEC", extraction.select_prompt_text(non_composite))
