@@ -1425,3 +1425,55 @@ vitest 1229, build exit 0.
 
 **Declared gap:** the frontend `deriveSuggestModalPhase` "partial" branch has no vitest pin -- a pin needs a NEW
 test file, which was outside the slice's exclusive FILES IN SCOPE. Recommended follow-up.
+
+
+---
+
+## EA-6a slice 1 -- note re-parenting (backend as-built, 2026-08-04)
+
+**`services/boq_parser/hierarchy.py`** -- a NOTE attaches to the **nearest PREAMBLE OR LINE ITEM above it**
+(was: always the nearest preamble on the stack). Flag `NOTE_PARENT_NEAREST_ROW_ENABLED` (default `True`).
+
+```python
+candidates = [i for i in (_top_non_none(stack), last_line_item_index, level0_ancestor) if i is not None]
+target = max(candidates) if candidates else None
+attached_to_index = note_parent_index = target
+```
+
+- **`last_line_item_index` is READ ONLY in the note branch.** The LINE_ITEM branch RECORDS it in one line
+  after `resolved.append`; nothing else reads it. Line-item / preamble / subtotal parenting and level logic
+  is **byte-unchanged** (measured: 5 fixtures, identical `parent_index` / `level` / `path` flag-off vs on).
+- **`level0_ancestor` is a FULL CANDIDATE, not a fallback.** A level-0 section header IS a PREAMBLE
+  (`classifier._promote_section_header` sets `classification = PREAMBLE`); it is merely never pushed onto the
+  stack, so `_top_non_none(stack)` cannot see it. The `else level0_ancestor` fallback form is **WRONG** --
+  measured **42 real mis-attachments** to a stale line item preceding the header.
+- **Reset: SUBTOTAL_MARKER ONLY**, in lockstep with `stack.clear()`. Root-preamble / any-preamble resets are
+  **provable no-ops** (a later preamble is by construction nearer) -- do not add them.
+- Notes keep `path=None` and carry **no level**; the demotion pass is path-based and therefore sees
+  byte-identical input (209 demotions across 5 fixtures, zero drift).
+- `attached_to_index == parent_index` now holds for **every** note (both `None` in the master-bucket case),
+  removing the pre-existing Bug-24 divergence for free. The post-walk `notes_to_attach` loop keys on the SAME
+  `target`, so pointer and text can never diverge.
+- Master-bucket else-arm (nothing at all above the note) is **byte-unchanged**.
+
+**Prompt/rules alignment.** `prompts/boq_composite_decomposition_prompt.md` names the row own notes in three
+clauses (source list, breaker enumeration, CURVE/UPS trigger) -- read from disk per request, so live on edit.
+R3 reworded in the new asset `data/rate_master_electrical_all_v18.json` (one JSON leaf differs from v17;
+v17 untouched) and applied LIVE via the audited RM-4b `update_rate_config` (`Version` 4 -> 5).
+
+⚠ **The live estimator rules come from the `BoQ Rate Category Config` DB row, NOT the JSON asset**
+(`extraction._load_active_configs`). Editing the asset alone is **inert at runtime** -- a trap that cost a
+whole verify-first pass. The asset is the record; the config row is what the model reads.
+
+⚠ **The R3 reword changed NOTHING.** C2 ran a before/after pair on the same re-parsed rows: extractions were
+**byte-identical** (row 16 -> `40A RCBO 30mA (DP)` under BOTH wordings). **The notes arriving is the fix**;
+the reword only removes ambiguity.
+
+**Cert:** C1 PASS (re-parse -> commit v3, 249 nodes; classify 164 rows) · C2 byte-identical · C3 PASS (real
+ELCB -> MCB + RCCB) · C4 PASS (capture-as-sent; instrumentation hash-verified removed) · C5 PASS (00066, 146
+rows, row 430 unchanged) · C6 PASS (209 demotions, zero drift). Browser B1/B3/B4/B5 PASS on screen
+(20,550 / 22,080 / 22,600), B2 partial, B4 negative half backend-verified.
+
+**Tests:** whole `boq_parser` suite **625, OK**. One pre-existing assertion updated by owner ruling
+(`test_note_after_level0_subhead_attaches_to_the_anchor`) -- it pinned the divergence the fix removes; the
+three genuine top-of-BoQ master-bucket assertions are unchanged and green.

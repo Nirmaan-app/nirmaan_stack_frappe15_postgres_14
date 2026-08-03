@@ -16376,3 +16376,137 @@ surface.** Stated as a rationale rather than skipped silently.
   sheet, superseding the prior active run per freeze-and-supersede (prior runs retained, not
   deleted). The synthetic rows 90001-90015 on BOQ-26-00019 were NOT touched. Nothing else created,
   changed or removed.
+
+---
+
+## Build slice EA-6a slice 1 -- note re-parenting (nearest preamble-or-line-item) + prompt/R3 alignment
+
+**Date:** 2026-08-04 · **Branch:** `feature/boq-pricing-helper` · Cert: C1-C6 + browser B1-B5.
+
+### The rule, and the invariant
+
+A NOTE now attaches to the **nearest PREAMBLE OR LINE ITEM above it**, instead of always the nearest
+preamble. Gated by `hierarchy.NOTE_PARENT_NEAREST_ROW_ENABLED` (default `True`, same convention as the five
+existing `BUG_*` toggles; flag OFF restores pre-EA-6a behaviour exactly).
+
+**HARD INVARIANT (held, and measured):** the new `last_line_item_index` marker is **READ ONLY in the note
+branch**. The LINE_ITEM branch only RECORDS it (one line, after `resolved.append`); no line item, preamble,
+subtotal or other row reads it. All existing parenting and level logic is **byte-unchanged**. Notes keep
+`path=None` and carry no level. The master-bucket else-arm (nothing at all above the note) is byte-unchanged,
+so top-of-BoQ general notes behave exactly as before.
+
+**WHY:** the parser attaches notes UPWARD to preambles, so a line item's own specification notes (a DB
+incomer/outgoing schedule) piled onto a distant section header and never reached the row they describe --
+**18,723 of 19,537 committed Line Items reached the AI engines with empty notes**; `BOQ-26-00019` had **1 in
+430**.
+
+### THREE-WAY NEAREST-WINS -- and why the fallback form was rejected
+
+```python
+candidates = [i for i in (_top_non_none(stack), last_line_item_index, level0_ancestor) if i is not None]
+target = max(candidates) if candidates else None
+```
+
+`level0_ancestor` is a **FULL CANDIDATE, never a fallback**. The earlier `max(...) if candidates else
+level0_ancestor` form is WRONG: whenever a line item precedes a level-0 section header with no subtotal
+between, it attaches the note to the **stale line item from before the header**. Measured on the live
+corpus: **42 real notes mis-attached** (e.g. `BOQ-26-00003 / PUNE ELECTRICAL BOQ` rows 1211-1214 would go to
+line item row 1205 instead of the `EARTHING` header at row 1209). Do not reintroduce the `else` form.
+
+### THE ANCHOR IS A PREAMBLE -- there is no third case
+
+A level-0 section header **is** a `RowClassification.PREAMBLE` (`classifier._promote_section_header` sets it;
+SUB HEAD rows enter the PREAMBLE branch already) and commits as `node_type="Preamble"`. It is simply never
+pushed onto the stack, so `_top_non_none(stack)` is blind to it -- `level0_ancestor` is the variable holding
+it. Including it in the candidate set makes a note under it an **ordinary preamble attachment**. Consequently
+the pre-existing `attached_to_index` / `parent_index` divergence (which the `BUG_24` comment admits:
+"gates only parent_index, not attached_to_index") **disappears for free**, and
+`attached_to_index == parent_index` now holds for EVERY note including master-bucket ones (both `None`).
+
+### Reset policy: SUBTOTAL ONLY
+
+`last_line_item_index = None` in lockstep with `stack.clear()` at `SUBTOTAL_MARKER`. **No other reset.**
+Root-preamble and any-preamble resets were measured to be **provable no-ops** (a preamble opening after a
+line item is by construction nearer, so it wins the comparison anyway) -- adding one would be dead code that
+reads as safety. A no-reset control differed on only 4 notes corpus-wide, all trailing "TOTAL FOR ..." lines
+after a closed section, all of which would have mis-attached.
+
+### The prompt + R3 changes
+
+- `prompts/boq_composite_decomposition_prompt.md` -- three clauses now name the row own notes (`:3` source
+  list, `:7` breaker enumeration, `:12` CURVE/UPS trigger). Live-on-edit (read from disk per request).
+- **R3 reworded** (300mA default fires only when no mA is stated in the description **or its attached
+  notes**). Asset **`rate_master_electrical_all_v18.json`** minted from v17 -- **exactly one JSON leaf
+  differs** (`category_configs[6].rules[1].guidance`); v17 untouched, lineage preserved. Applied LIVE to the
+  `db_switchgear` config via the audited RM-4b `update_rate_config`; **`Version` rows 4 -> 5**.
+  WARNING: the live rules come from the `BoQ Rate Category Config` DB row, **not** the JSON asset. Editing
+  the asset alone is INERT at runtime.
+
+### THE R3 REWORD CHANGED NOTHING -- the notes delivery is the fix
+
+C2 ran as a before/after pair on the SAME re-parsed rows: one suggest under the OLD R3 wording, one after
+applying v18. **The extractions are byte-identical on all five DB rows** (row 16 returned
+`40A RCBO 30mA (DP)` in BOTH). Under the old wording the model already read the stated mA out of the newly
+attached notes and did not default to 300mA. **EA-6a delivering the notes is what fixed R3; the reword only
+removes ambiguity.** The held-push rationale must be stated that way.
+
+### Cert results
+
+| | result |
+|---|---|
+| **C1** re-parse -> review -> finalize -> commit -> classify -> suggest | **PASS.** 425 rows; 79 notes -> **60 on line items**; 0 pointer/text divergence; 0 notes with path/level. Finalize 0 breaks. **Commit v3**, 249 nodes, 262 frozen. Classify 164 rows, 15 `db_switchgear`, rules `2.1-tuning2` / prompt `v1.3`. `12 UPS` also re-parsed + committed v3 (18 nodes). |
+| **C2** R3 before/after | **COMPLETE -- byte-identical.** See above. |
+| **C3** R4 ELCB on real notes | **PASS.** Rows 30/44 ("Sub incomer - 40A, DP, ELCB,100mA- 3No.") -> `40A DP MCB C CURVE` x3 **+** `40A RCCB 100mA (DP)` x3. First time R4 has run on real attached notes. |
+| **C4** capture-as-sent | **PASS.** Captured at the 2026-08-02 instrument point (`extraction.py`, after the ROWS append). Payload 24,120 chars; the ROWS block carries the row own notes verbatim; the prompt as sent says "fill the slots from the description, the row's own notes, and the ancestors". **Prompt points exactly where the data is.** Instrumentation removed and **hash-verified byte-identical** (`extraction.py` `a0430cf5...`, `ai_voter.py` `9555f3f7...`, `git diff` empty). |
+| **C5** BOQ-26-00066 regression | **PASS, no drift.** `BRSR-26-00164`, **146 rows**; row 430 -> `db_shell_item "None"` + `63A FP MCB C CURVE` x1, identical to the `BRSR-26-00159` baseline (the 2,290 = supply 1,990 + install 300 shape). |
+| **C6** demotion gate | **PASS.** 5 real fixtures, **209 demotions**, demotion set identical flag-off vs flag-on, and every line item / preamble / subtotal kept a byte-identical `parent_index`, `level`, `path`. 144 notes moved, so the comparison is not vacuous. |
+
+### Browser cert (live, on screen)
+
+Driven by **attaching to the owner own running Chrome over CDP** (`connect_over_cdp`, `127.0.0.1:9222`) --
+owner profile, owner window. Playwright is only the client; it launched nothing. (The owner Chrome must be
+started with `--remote-debugging-port=9222` for this; an isolated Playwright-launched browser is NOT the
+same thing and causes login churn.) `sid` is **HttpOnly**, so the signed-in check must use the CDP cookie
+API, not `document.cookie`. De-stale ran in order (1 SW unregistered, caches + sessionStorage cleared, tab
+cycled, bare root first); **cookies deliberately preserved** -- clearing them ends the session. Freshness
+marker is a **data** marker (`Version 3 -- Current (live)`, `committed v3`, 86 priceable lines) because this
+slice ships **zero frontend changes**.
+
+| | result |
+|---|---|
+| **B1** tree | **PASS.** Rows 17-20 render under 16, 23-26 under 22, 31-34 under 30, 37-40 under 36, 45-48 under 44. |
+| **B2** anchor | **PARTIAL.** `12 UPS`: no divergence anywhere (`attached_to == parent` on all 5 notes); but no note hangs directly off the level-0 anchor in that sheet. |
+| **B3** suggestion | **PASS.** Row 16: shell `TPN DB 6WAY (DOUBLE DOOR IP 43)` x1, `40A TP MCB C CURVE` x1, `40A RCBO 30mA (DP)` x3, `16A SP MCB C CURVE` x18 -- **20,550**. |
+| **B4** R3 live | **PASS (positive, on screen)**: row 16 shows `40A RCBO 30mA (DP)`, not 300mA, with the mA present ONLY in the notes. **Negative half BACKEND-VERIFIED (owner ruling):** re-fabricated row 90021 (no mA anywhere) returned **`40A RCCB 300mA (DP)`** in `BRSR-26-00163`. Not re-committed just to render one synthetic row. |
+| **B5** R4 | **PASS both polarities.** Row 30 -> MCB + RCCB, **22,080**. Row 90 `8WAY VTPN DB` (MCB-only) -> **no spurious split**, **22,600**. |
+
+### SEPARATE DEFECT LOGGED (rules-fix queue, does NOT block this push)
+
+Fabricated row 90022 ("Supply and fixing of 10A DP RCBO for lighting final circuit", no mA anywhere)
+returned **`10A RCBO 30mA (DP)`**. R3 says: "If no 300mA variant exists for that amp rating and pole
+configuration, select the 100mA variant instead." The model returned 30mA, not the 100mA fallback.
+**Pre-existing, unrelated to EA-6a** (bare description, no notes involved), and very likely the tail of the
+ext-a C3 failure. Queued as its own rules-fix item.
+
+### Tests
+
+`test_bug_23_24_parent_fix.py` +10 (`TestEA6aNoteNearestRow`), `test_hierarchy.py` +1 (note ORDER preserved
+across a line item -- order is load-bearing because `_notes_text` joins with the pipe separator).
+**Whole `boq_parser` suite: 625 tests, OK**, 0 failures, no fixture golden broken, nothing auto-fixed.
+
+**ONE pre-existing assertion updated, by owner ruling:**
+`test_note_after_level0_subhead_empty_stack_parents_under_anchor` ->
+`test_note_after_level0_subhead_attaches_to_the_anchor`. It pinned the Bug-24 divergence, which the new rule
+removes. **The three assertions protecting genuine top-of-BoQ master-bucket notes are UNCHANGED and green.**
+
+### Data left behind
+
+`BOQ-26-00019`: `12 Internal Works ` and `12 UPS` re-parsed + **committed v3**; classified; suggestion runs
+`BRSR-26-00161/162/163` (163 active). Synthetic rows 90001-90015 **retained** but `is_current=0` (frozen by
+the v3 re-commit -- freeze-and-supersede, never deleted). **New cert fixtures 90021/90022 left in place**
+(marked `routing_reason = "EA-6a B4 cert fixture"`). `BOQ-26-00066`: run `BRSR-26-00164` now active.
+`BoQ Rate Category Config` db_switchgear: `Version` 4 -> 5.
+
+### HELD PUSH
+
+SR-2 + ext-a + this slice push **together**, on the owner confirmation. Nothing pushed.
