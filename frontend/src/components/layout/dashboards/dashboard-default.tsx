@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { TailSpin } from "react-loader-spinner";
+import { ActionCenter } from "@/components/layout/action-center/ActionCenter";
 
 // Brand primary color (rose)
 const BRAND_PRIMARY = "#D03B45";
@@ -306,36 +307,41 @@ export default function DefaultDashboard() {
   }));
 
   return (
-    <div className="flex-1 space-y-8">
-      {/* Header */}
-      <div className="space-y-1">
-        <h2 className="text-2xl font-semibold tracking-tight text-gray-900 dark:text-gray-100">
-          Admin Dashboard
-        </h2>
-        <p className="text-sm text-gray-500 dark:text-gray-400">
-          System overview and quick access to all modules
-        </p>
+    <div className="flex-1 flex flex-col bg-gray-50/50 xl:flex-row">
+      <div className="min-w-0 flex-1 space-y-8 p-6 md:p-8">
+        {/* Header */}
+        <div className="space-y-1">
+          <h2 className="text-2xl font-semibold tracking-tight text-gray-900 dark:text-gray-100">
+            Admin Dashboard
+          </h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            System overview and quick access to all modules
+          </p>
+        </div>
+
+        {/* Grid */}
+        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {metricDataHooks.map(
+            ({ id, title, description, linkTo, Icon, dataCy, hideCount, data, isLoading, error }) => (
+              <DashboardMetricCard
+                key={id}
+                title={title}
+                description={description}
+                linkTo={linkTo}
+                Icon={Icon}
+                count={hideCount ? undefined : data}
+                isLoading={hideCount ? false : isLoading}
+                error={hideCount ? undefined : error}
+                dataCy={dataCy}
+                hideCount={hideCount}
+              />
+            )
+          )}
+        </div>
       </div>
 
-      {/* Grid */}
-      <div className="grid gap-4 grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {metricDataHooks.map(
-          ({ id, title, description, linkTo, Icon, dataCy, hideCount, data, isLoading, error }) => (
-            <DashboardMetricCard
-              key={id}
-              title={title}
-              description={description}
-              linkTo={linkTo}
-              Icon={Icon}
-              count={hideCount ? undefined : data}
-              isLoading={hideCount ? false : isLoading}
-              error={hideCount ? undefined : error}
-              dataCy={dataCy}
-              hideCount={hideCount}
-            />
-          )
-        )}
-      </div>
+      {/* Action Center Right Rail */}
+      <ActionCenter />
     </div>
   );
 }

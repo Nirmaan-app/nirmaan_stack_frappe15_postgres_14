@@ -255,7 +255,6 @@ export const ReleasePOSelect: React.FC = () => {
         "amount",
         // "loading_charges",
         // "freight_charges",
-        "invoice_data",
         ...([PO_TABS.PARTIALLY_DISPATCHED_PO, PO_TABS.DISPATCHED_PO, PO_TABS.PARTIALLY_DELIVERED_PO, PO_TABS.DELIVERED_PO].includes(tab as any)
             ? ["expected_delivery_date"] : []),
         ...([PO_TABS.PARTIALLY_DISPATCHED_PO, PO_TABS.PARTIALLY_DELIVERED_PO, PO_TABS.DELIVERED_PO].includes(tab as any)

@@ -27,6 +27,11 @@ export interface WorkingsAttribute {
   confidence?: number;
   /** The regex corroborator agreed with the AI value (display-only tick). */
   corroborated?: boolean;
+  /** EA-4a-r: greyed + non-editable because an allow_none controller is set to "None" (positive absence). */
+  disabled?: boolean;
+  /** EA-4a-r: this def may itself be "None" (positive absence). For a NUMBER def the panel renders a "None"
+   * checkbox beside the numeric input (a choice def carries None as its top option instead). */
+  allowNone?: boolean;
 }
 
 /** One row's AI-extracted attributes from a suggestion run (RM-3). The value is null when the AI

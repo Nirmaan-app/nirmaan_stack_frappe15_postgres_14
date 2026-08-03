@@ -74,6 +74,7 @@ import { MilestoneTab } from "@/pages/Manpower-and-WorkMilestones/MilestoneTab";
 import MilestoneDailySummary from "@/pages/Manpower-and-WorkMilestones/MilestoneDailySummary";
 import { DeliveryChallansAndMirs } from "@/pages/DeliveryChallansAndMirs";
 import { TDSRepositoryMaster } from "@/pages/tds/TDSRepositoryMaster";
+const TDSItemDetail = lazy(() => import("@/pages/tds/TDSItemDetail"));
 // --- End component imports ---
 
 // NEW COMMISSION REPORT PAGES
@@ -133,6 +134,8 @@ const WarehouseStockPage = lazy(() => import("@/pages/Warehouse/WarehouseStockPa
 const RequestFromWarehouse = lazy(() => import("@/pages/Warehouse/RequestFromWarehouse"));
 // TEMPORARY — Resolve Invoices admin tool (~1 week; delete this line + the route + the page when done)
 const ResolveInvoices = lazy(() => import("@/pages/temp/ResolveInvoices"));
+
+const RemindersPage = lazy(() => import("@/pages/Reminders/RemindersPage"));
 // Document Search
 
 export const appRoutes: RouteObject[] = [
@@ -154,6 +157,9 @@ export const appRoutes: RouteObject[] = [
 
           // Resolve Invoices — Admin tool (lazy → MUST be wrapped in Suspense, like every other lazy route)
           { path: "resolve-invoices", element: <Suspense fallback={null}><ResolveInvoices /></Suspense> },
+
+          // Reminders — compliance reminder schedules (lazy → Suspense-wrapped)
+          { path: "reminders", element: <Suspense fallback={null}><RemindersPage /></Suspense> },
 
           // --- PRs & Milestones Section ---
           {
@@ -720,6 +726,7 @@ export const appRoutes: RouteObject[] = [
           { path: "pmo-packages", element: <Navigate to="/packages-settings?tab=pmo-packages" replace /> },
           { path: "critical-po-categories", element: <Navigate to="/packages-settings?tab=critical-po-categories" replace /> },
           { path: "tds-repository", element: <TDSRepositoryMaster /> },
+          { path: "tds-repository/item/:id", element: <Suspense fallback={null}><TDSItemDetail /></Suspense> },
 
           // ======================================================
           // --- START: PMO DASHBOARD SECTION ---

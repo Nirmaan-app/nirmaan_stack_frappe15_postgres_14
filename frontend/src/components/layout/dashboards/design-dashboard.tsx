@@ -154,7 +154,7 @@ const MetricCard: React.FC<MetricCardProps> = ({
 
 export const DesignDashboard = () => {
   return (
-    <div className="flex-1 space-y-8">
+    <div className="flex-1 space-y-8 p-6 md:p-8">
       {/* Header */}
       <div className="space-y-1">
         <h2 className="text-2xl font-semibold tracking-tight text-gray-900 dark:text-gray-100">

@@ -21,16 +21,26 @@ export const useTDSItemOptions = ({ selectedWP, selectedCategory, watchedTdsItem
     const { data: makeList } = useFrappeGetDocList("Makelist", { fields: ["name", "make_name"], limit: 0 });
     const { data: catMakeList } = useFrappeGetDocList("Category Makelist", { fields: ["category", "make"], limit: 0 });
 
-    // Fetch ALL TDS Repository entries for validation and custom items
+    // Fetch ALL TDS Repository entries.
+    // NOTE (Phase 1 TDS restructure): TDS Repository no longer has
+    // tds_item_id / tds_item_name / category — those were removed when entries
+    // became (tds_item, make). We only request fields that still exist so this
+    // unconditional fetch never queries a dropped column. The repo-derived
+    // outputs below (allCustomItems, taken-make de-dup) are consumed solely by
+    // the now-frozen/unwired old authoring + project-assembly components, so
+    // they degrade to empty here without affecting the live "Add TDS Item"
+    // wizard (which uses only wpOptions + itemOptionsForWP). Phase 2 reworks
+    // this hook for the group-driven flow.
     const { data: allTdsEntries } = useFrappeGetDocList("TDS Repository", {
-        fields: ["name", "tds_item_id", "tds_item_name", "work_package", "category", "make"],
+        fields: ["name", "tds_item", "work_package", "make", "status"],
         limit: 0
     });
 
-    // Fetch entries for current category (for make filtering)
+    // Legacy per-category make filtering (old flow only, frozen). Kept gated so
+    // it never runs in Phase 1 — selectedCategory is only ever set by the frozen
+    // old dialogs; the live wizard passes selectedWP only.
     const { data: categoryEntries } = useFrappeGetDocList("TDS Repository", {
-        filters: selectedCategory ? [["category", "=", selectedCategory]] : undefined,
-        fields: ["tds_item_id", "make"],
+        fields: ["name", "tds_item", "make"],
         limit: 0
     }, selectedCategory ? undefined : null);
 

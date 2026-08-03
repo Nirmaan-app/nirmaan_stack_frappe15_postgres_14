@@ -46,6 +46,7 @@ import {
 } from "frappe-react-sdk";
 import Cookies from "js-cookie";
 import {
+  BellRing,
   Calendar,
   LayoutGrid,
   List,
@@ -194,6 +195,15 @@ export function NewSidebar() {
 
   const items = useMemo(() => [
     { key: "/", icon: LayoutGrid, label: "Dashboard" },
+    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile"].includes(role as string)
+      ? [
+        {
+          key: "/reminders",
+          icon: BellRing,
+          label: "Reminders Dashboard",
+        },
+      ]
+      : []),
     ...(["Nirmaan Sales Executive Profile", "Nirmaan Sales Lead Profile"].includes(role as string)
       ? [
         {
@@ -734,6 +744,7 @@ export function NewSidebar() {
     'help-repository',
     "work-order-rate-card",
     "pmo-dashboard",
+    "reminders",
     'commission-tracker',
     "upload-boq",
     // Pricing Module (PW-1): one key per registry workbook.
@@ -783,6 +794,7 @@ export function NewSidebar() {
     '/help-repository': ['help-repository'],
     '/commission-tracker': ['commission-tracker'],
     '/pmo-dashboard': ['pmo-dashboard'],
+    '/reminders': ['reminders'],
     '/work-order-rate-card': ['work-order-rate-card'],
     '/upload-boq': ['upload-boq'],
     // Pricing Module (PW-1): each registry workbook maps to its own single-segment
@@ -902,6 +914,7 @@ export function NewSidebar() {
                     "Internal Transfer Memos",
                     "Warehouse",
                     "PMO Dashboard",
+                    "Reminders Dashboard",
                     "Upload BoQ",
                     // Pricing Module (PW-1): flat nav buttons, one per registry workbook.
                     ...PRICING_WORKBOOKS.map((w) => w.label),

@@ -258,7 +258,7 @@ export const MainLayout: React.FC = () => {
         </header>
 
         {/* Main Content Area */}
-        <main className="flex-1 overflow-auto px-4 sm:px-6 py-4">
+        <main className={`flex-1 overflow-auto ${location.pathname === "/" || location.pathname === "/prs&milestones" ? "p-0" : "px-4 sm:px-6 py-4"}`}>
           <ErrorBoundaryWithNavigationReset>
             <ScrollToTop />
             <Outlet />

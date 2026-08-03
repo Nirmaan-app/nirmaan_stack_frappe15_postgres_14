@@ -1,0 +1,68 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-07-29 12:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "from_month",
+  "to_month",
+  "col_break_due",
+  "due_month",
+  "due_day"
+ ],
+ "fields": [
+  {
+   "description": "First of the 3 months this filing covers (informational, shown in the reminder).",
+   "fieldname": "from_month",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Covers From",
+   "options": "\nJan\nFeb\nMar\nApr\nMay\nJun\nJul\nAug\nSep\nOct\nNov\nDec"
+  },
+  {
+   "description": "Last of the 3 months this filing covers (informational, shown in the reminder).",
+   "fieldname": "to_month",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Covers To",
+   "options": "\nJan\nFeb\nMar\nApr\nMay\nJun\nJul\nAug\nSep\nOct\nNov\nDec"
+  },
+  {
+   "fieldname": "col_break_due",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Month the filing is due.",
+   "fieldname": "due_month",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Due Month",
+   "options": "\nJan\nFeb\nMar\nApr\nMay\nJun\nJul\nAug\nSep\nOct\nNov\nDec",
+   "reqd": 1
+  },
+  {
+   "description": "Day of the due month (clamped to month length, e.g. 31 in Feb -> 28/29).",
+   "fieldname": "due_day",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Due Day",
+   "reqd": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-07-29 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Reminder Due Date",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
