@@ -2060,6 +2060,29 @@ const SheetPricingPage = () => {
     for (const r of bcsRatesData?.message?.rows ?? []) m.set(r.excel_row, r);
     return m;
   }, [bcsRatesData, bcsRatesLoad]);
+  // ── BCS-S5: the Summary panel's cost axis ─────────────────────────────────────
+  // The SAME four inputs the grid's cost block reads, handed to the rollup so the panel can show
+  // BCS Total Amount / Tendered Total Amount / % Profit per BoQ SECTION.
+  //
+  // Gated on `bcsColumnsVisible` -- the identical condition that decides whether the grid shows a
+  // cost column at all. So the panel gains cost columns exactly when the grid has them, and in
+  // version history (or behind a failed costs read) it shows none rather than a screenful of
+  // blanks that would read as "this sheet costs nothing".
+  //
+  // MEMOISED because it is a `rollupByParent` argument: a fresh object each render would re-walk
+  // every row's tree on every keystroke. Each input is already stable per fetch.
+  const summaryBcsInput = useMemo(
+    () =>
+      bcsColumnsVisible
+        ? {
+            ratesByExcelRow: bcsRatesByExcelRow,
+            kinds: bcsKinds,
+            qtySource: bcsQtySource,
+            amountSource: bcsAmountSource,
+          }
+        : null,
+    [bcsColumnsVisible, bcsRatesByExcelRow, bcsKinds, bcsQtySource, bcsAmountSource],
+  );
   // The gate, in save_row_bcs_rates' OWN order (NOT the client rate gate -- BCS deliberately
   // skips the formula, priceability and category gates).
   const bcsCostReason = bcsCostEntryReason({
@@ -4522,6 +4545,7 @@ const SheetPricingPage = () => {
           columnDescriptors={columnDescriptors}
           columnFormulas={columnFormulas}
           reconChoices={reconChoices}
+          bcs={summaryBcsInput}
           sheetName={displaySheetName}
           onClose={() => setSummaryOpen(false)}
         />

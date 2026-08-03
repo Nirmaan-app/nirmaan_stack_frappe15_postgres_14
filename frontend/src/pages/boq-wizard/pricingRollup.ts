@@ -49,6 +49,16 @@ import {
 import { evaluateAmountColumn, pickFormula } from "./amountFormula";
 import { computeDepths, resolveDescriptorValue } from "./reviewRender";
 import { isRowIncomplete } from "./priceability";
+// BCS-S5: the cost axis of the SAME tree. The arithmetic lives in bcsColumns (unchanged); the
+// section rolling + the recomputed ratio live in the pure bcsRollup leaf.
+import { rollBcsSections, type BcsRollupResult } from "./bcsRollup";
+import {
+  bcsRowQuantity,
+  bcsTotalAmount,
+  bcsUnitCost,
+  mergeBcsRowValues,
+  type BcsRateKind,
+} from "./bcsColumns";
 import {
   amountsEqual,
   buildReconChoiceMap,
@@ -58,12 +68,40 @@ import {
 import { ROLE_LABELS } from "./boqTypes";
 import type {
   AmountFormulaRef,
+  BcsRateField,
+  BcsRowRate,
+  BcsSource,
   ColumnDescriptor,
   ColumnFormula,
   PricedRow,
   ReconChoice,
   ReconciliationChoiceRef,
 } from "./boqTypes";
+
+/**
+ * BCS-S5: SAVED-ONLY cost drafts. The summary is a save-time view (see `rowOwnAmount`), so the
+ * cost side is merged against an EMPTY draft map exactly as the amount side is -- a drafted
+ * numerator over a saved denominator would be a margin belonging to neither moment. Module-level
+ * so the fold never allocates one per row.
+ */
+const NO_BCS_DRAFTS: ReadonlyMap<BcsRateField, string> = new Map();
+
+/**
+ * What the rollup needs to add the BCS cost axis. OMIT IT ENTIRELY and `RollupResult.bcs` is null
+ * -- the panel then renders exactly as it did before this slice, which is the state every sheet
+ * without BCS set up (and every sheet browsed in version history) is in.
+ */
+export interface BcsRollupInput {
+  /** Stored per-row cost rates from `get_sheet_bcs_rates`, keyed by EXCEL row -- the key the grid
+   *  looks up with (`bcsRatesByExcelRow.get(row.source_row_number)`). */
+  ratesByExcelRow: ReadonlyMap<number, BcsRowRate>;
+  /** The sheet's live rate kinds (`bcsLiveRateKinds`) -- halves OR combined, never both. */
+  kinds: readonly BcsRateKind[];
+  /** The confirmed QUANTITY source: the cost's multiplicand. */
+  qtySource: BcsSource | null;
+  /** The confirmed AMOUNT source. Its columns ARE the tendered denominator. */
+  amountSource: BcsSource | null;
+}
 
 /** One amount column in the rollup -- mirrors one amount-bearing descriptor on the sheet. */
 export interface RollupColumn {
@@ -121,6 +159,18 @@ export interface RollupResult {
   grandTotals: Record<string, number>;
   /** Per-column reconciliation failures (Option 1 vs Option 2). Empty = clean. */
   integrityErrors: IntegrityError[];
+  /**
+   * BCS-S5: the PARALLEL cost/tendered/% Profit structure -- null when BCS is not set up on the
+   * version being viewed.
+   *
+   * ⚠️ IT IS PARALLEL TO `columns`, NEVER PART OF IT, AND THAT IS STRUCTURAL. Every `RollupColumn`
+   * carries a real `ColumnDescriptor` and `columns` is built 1:1 from `amountDescs`, so there is
+   * no seam for a column with no backing descriptor -- and a computed cost, a summed tendered
+   * amount and a percentage have none. Forcing a synthetic descriptor in would put a fake entry in
+   * front of every consumer that reads `columns` for the sheet's real amount structure. The panel
+   * renders these three OUTSIDE its `columns.map` loop.
+   */
+  bcs: BcsRollupResult | null;
 }
 
 /** Mirror the grid header label for an amount descriptor. */
@@ -208,6 +258,7 @@ export function rollupByParent(
   columnDescriptors: ColumnDescriptor[],
   columnFormulas: ColumnFormula[] = [],
   reconChoices: ReconciliationChoiceRef[] = [],
+  bcsInput?: BcsRollupInput | null,
 ): RollupResult {
   const amountDescs = columnDescriptors.filter(isAmountDescriptor);
   // Cluster B (D4): the per-cell choice map, built ONCE -> rowOwnAmount resolves the chosen value
@@ -345,7 +396,38 @@ export function rollupByParent(
     }
   }
 
-  return { columns, roots, grandTotals, integrityErrors };
+  // ── BCS-S5: the cost axis of the SAME tree ─────────────────────────────────────
+  // Deliberately computed HERE, after `roots` and `grandTotals`, and delegated to `bcsRollup`:
+  //
+  //   * THE CONSISTENCY RULE. The tendered figure IS `node.totals` / `grandTotals` -- the numbers
+  //     the panel's own amount columns show. Deriving it a second way would let the summary and
+  //     the grid disagree about one section on formula resolution, reconciliation choice or draft
+  //     state, and the Tendered column exists precisely so the two can be read against each other.
+  //   * SAVED-ONLY on both sides. `rowOwnAmount` above resolves amounts with no drafts; the cost
+  //     below merges against `NO_BCS_DRAFTS` for the same reason.
+  //   * The cost per row is composed from `bcsColumns` primitives ONLY -- quantity x unit cost,
+  //     the same three calls the grid's `computeBcsRowCells` makes. `bcsColumns.ts` stays the sole
+  //     owner of what a cost and a margin ARE; nothing is re-derived here.
+  let bcs: BcsRollupResult | null = null;
+  if (bcsInput) {
+    const bcsRowByIdx = new Map<number, number | null>();
+    for (const r of rows) {
+      const qty = bcsRowQuantity(bcsInput.qtySource, (e) => resolveDescriptorValue(r, e));
+      const merged = mergeBcsRowValues(
+        bcsInput.ratesByExcelRow.get(r.source_row_number),
+        NO_BCS_DRAFTS,
+      );
+      bcsRowByIdx.set(r.row_index, bcsTotalAmount(qty, bcsUnitCost(merged, bcsInput.kinds)));
+    }
+    bcs = rollBcsSections(
+      roots,
+      (idx) => bcsRowByIdx.get(idx) ?? null,
+      (bcsInput.amountSource?.columns ?? []).map((c) => c.col),
+      grandTotals,
+    );
+  }
+
+  return { columns, roots, grandTotals, integrityErrors, bcs };
 }
 
 // ── Summary-panel default-view helpers (display support; rollupByParent UNCHANGED) ──
