@@ -1,8 +1,7 @@
-import { InvoiceDataType } from "@/types/NirmaanStack/ProcurementOrders";
 import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
 import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
-import { ServiceItemType, ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
+import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import memoize from "lodash/memoize";
 import { parseNumber } from "./parseNumber";
 import { ProjectInvoice } from "@/types/NirmaanStack/ProjectInvoice";
@@ -120,75 +119,7 @@ export const getTotalProjectInvoiceAmount = memoize(
 );
 
 
-/**
- * Calculates the total invoice amount from a procurement order's invoice data
- * with currency-safe precision handling and error protection.
- *
- * @deprecated This function parses the old JSON-based `invoice_data` field stored
- * directly in PO/SR documents. Use one of these alternatives instead:
- *
- * - **For pre-fetched Vendor Invoice data:** Use `getTotalVendorInvoiceAmount(vendorInvoices)`
- *   from this same file.
- *
- * - **For React components:** Use `useDocumentInvoiceTotals` hook from
- *   `@/hooks/useDocumentInvoiceTotals.ts` which fetches from Vendor Invoices doctype.
- *
- * The Vendor Invoices doctype provides:
- * - Better queryability and filtering
- * - Consistent data across all views
- * - Support for multi-vendor invoicing
- *
- * This function will be removed in a future version.
- *
- * @param data - The invoice_data JSON from a procurement order
- * @returns The total invoice amount formatted as a number with 2 decimal places
- *
- * @example
- * // OLD (deprecated):
- * const total = getTotalInvoiceAmount(procurementOrder.invoice_data);
- *
- * // NEW (recommended):
- * const { totalsMap } = useDocumentInvoiceTotals("Procurement Orders", poNames);
- * const total = totalsMap.get(poName) ?? 0;
- */
-export const getTotalInvoiceAmount = memoize(
-  (data: any): number => {
-    if (!data) return 0;
-    try {
-      let invoiceData: InvoiceDataType
-      if (typeof data === "string") {
-        invoiceData = JSON.parse(data)?.data || {};
-      } else {
-        invoiceData = data?.data || {};
-      }
 
-      const invoiceItems = Object.values(invoiceData);
-      if (!Array.isArray(invoiceItems)) return 0;
-
-      // Calculate total with currency-safe operations
-      const total = invoiceItems.reduce((acc: number, item) => {
-        // Validate item structure
-        if (!item || typeof item !== 'object' || item?.status !== "Approved") return acc;
-
-        const amount = item?.amount
-
-        // Handle valid numbers only
-        if (Number.isFinite(amount)) {
-          // Use currency-safe arithmetic
-          const amountInCents = Math.round(amount * 100);
-          return acc + amountInCents;
-        }
-        return acc;
-      }, 0);
-
-      // Convert back to dollars with proper rounding
-      return Number((total / 100).toFixed(2));
-    } catch (error) {
-      // Log error and return safe value
-      console.error('Error calculating invoice total:', error);
-      return 0;
-    }
-  }, (order: any) => JSON.stringify(order));
 
 
 /**

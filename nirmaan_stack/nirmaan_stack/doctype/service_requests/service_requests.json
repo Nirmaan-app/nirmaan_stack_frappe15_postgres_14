@@ -12,7 +12,6 @@
   "service_order_list",
   "work_order_items",
   "service_category_list",
-  "invoice_data",
   "status",
   "notes",
   "gst",
@@ -93,11 +92,6 @@
    "fieldname": "project_gst",
    "fieldtype": "Data",
    "label": "Project GST"
-  },
-  {
-   "fieldname": "invoice_data",
-   "fieldtype": "JSON",
-   "label": "Invoice Data"
   },
   {
    "fieldname": "invoice_no",
