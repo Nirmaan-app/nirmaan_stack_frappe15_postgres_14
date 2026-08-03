@@ -1320,8 +1320,21 @@ const SheetPricingPage = () => {
   // drag that block's other resets (search, collapse, filters, classify state) with it.
   // `bcsToggling` is left alone on purpose -- it guards an in-flight POST against
   // liveCommitVersion, which a version switch does not change.
+  //
+  // ── BCS-S5: THE MARGIN VIEW BELONGS HERE TOO ──────────────────────────────────
+  // BCS-S4 shipped the margin reset on the SHEET axis only, and its record then claimed the
+  // version axis needed no condition because "the toggle is simply disabled there". The toggle is
+  // disabled only for OPENING (`!marginViewOpen && !bcsColumnsVisible`) -- an ALREADY-OPEN view
+  // rode straight into history, where the cost columns and % Profit are not rendered at all, and
+  // `marginViewRows` then applied the LIVE version's `row_index` snapshot to the HISTORY version's
+  // rows. That is exactly the hazard the [sheetName] reset names one axis over: an order is a list
+  // of row_index values belonging to ONE (sheet, version), and applying it anywhere else reorders
+  // rows by numbers that mean nothing there. Blast radius is narrow -- history is read-only -- but
+  // a silently mis-ordered review list is the kind of wrong nobody can see.
   useEffect(() => {
     setBcsCardOpen(false);
+    setMarginViewOpen(false);
+    setMarginOrder(null);
   }, [selectedVersion]);
 
   // Toolbar Part 1 -- search: reset the hit pointer to the first hit whenever the query changes
@@ -1997,6 +2010,23 @@ const SheetPricingPage = () => {
   const handleRetryBcsRates = () => {
     void mutateBcsRates();
   };
+  // ── BCS-S5: AN OPEN MARGIN VIEW MUST NOT OUTLIVE THE COSTS IT IS BUILT ON ─────
+  // The [selectedVersion] reset above closes the version axis. This closes every OTHER way the
+  // cost block can go away underneath an open view -- BCS switched off, the confirmation cleared,
+  // the sheet lock/version changing, or the costs read failing on a revalidate. In all of them the
+  // view keeps rendering with its two cost columns and % Profit GONE, which leaves a flat list
+  // ordered by a number that is no longer on screen, while the direction button still claims
+  // "Lowest first" and a click would silently re-sort it into document order (every margin now
+  // reads blank, and blanks hold document order in both directions).
+  //
+  // Guarded on the FALSE edge only: this effect also fires when the costs come BACK, and closing
+  // the view then would be a second, unrelated behaviour. `bcsColumnsVisible` is a plain boolean
+  // derived above, so the dependency is stable and this cannot loop.
+  useEffect(() => {
+    if (bcsColumnsVisible) return;
+    setMarginViewOpen(false);
+    setMarginOrder(null);
+  }, [bcsColumnsVisible]);
   // Which boxes, from the SHEET's own rate columns (the pure rule; the halves win over a
   // combined rate mapped beside them so Total Amount can never double-count).
   const bcsKinds = useMemo(
@@ -2010,6 +2040,20 @@ const SheetPricingPage = () => {
   // The empty map is still the shape returned on a failed read, but `bcsColumnsVisible` is false
   // in that state so it never reaches a rendered cell; the explicit gate is what stops a later
   // reader reintroducing the lie by relaxing one condition and not the other.
+  //
+  // ⚠️ BCS-S5 -- WHY THE `?? []` BELOW STAYS, having been questioned in the S4 review. It looks
+  // neutralised by the `isUsable` guard one line above it, and for the FAILED read it is: that
+  // path returns early. It is NOT dead on the SUCCESSFUL one. `loadStatus` decides content on
+  // `data.message != null` ALONE, so a payload of `{message: {}}` -- an envelope with no `rows`
+  // key at all -- is classified `ready`, reaches this loop, and `for (const r of undefined)`
+  // THROWS, taking the whole page down. So this is genuine null-safety on a live path, not
+  // leftover defensiveness, and removing it would trade a wrong number for a blank screen.
+  //
+  // The real gap is one level down and is NOT fixed here: `hasContent` cannot tell an empty
+  // envelope from a real answer, so `{message: {}}` renders as a confidently uncosted sheet --
+  // the same class of lie S4 closed for the FAILED read, surviving on the malformed-success one.
+  // Closing it means tightening `loadStatus`/`hasContent` in `pricingLoadState.ts`, which is NOT
+  // in this slice's scope; recorded rather than reached for.
   const bcsRatesByExcelRow = useMemo(() => {
     const m = new Map<number, BcsRowRate>();
     if (!bcsRatesLoad.isUsable) return m;
