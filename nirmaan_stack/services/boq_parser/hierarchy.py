@@ -149,6 +149,29 @@ BUG_24_NOTE_PARENT_INDEX_ENABLED: bool = True
 # When the stack is empty but level0_ancestor is set, parent_index = level0_ancestor.
 # Set False for regression isolation; gates only parent_index, not attached_to_index.
 
+NOTE_PARENT_NEAREST_ROW_ENABLED: bool = True
+# EA-6a slice 1: a NOTE attaches to the NEAREST PREAMBLE-OR-LINE-ITEM above it, instead of
+# always the nearest preamble. Rationale: the parser attaches notes UPWARD to preambles, so a
+# line item's own specification notes (a DB's incomer/outgoing schedule, a unit's spec block)
+# pile onto a distant section header and never reach the row they describe -- 18,723 of 19,537
+# committed Line Items reach the AI engines with empty notes.
+#
+# Selection is a plain THREE-WAY NEAREST-WINS over (stack top, last line item, level0_ancestor).
+# level0_ancestor is a FULL CANDIDATE, not a fallback: a level-0 section header IS a PREAMBLE
+# (classifier._promote_section_header sets classification = PREAMBLE; SUB HEAD rows enter the
+# PREAMBLE branch already), it is simply never pushed onto the stack, so _top_non_none(stack)
+# is blind to it. Treating it as an `else` fallback mis-attaches a note to a line item from
+# BEFORE the section header whenever one precedes the header with no subtotal between --
+# 42 such notes measured on the live corpus. There is NO anchor special case: either something
+# is above the note (attach to the nearest) or nothing is (master bucket, unchanged).
+#
+# INVARIANT: last_line_item_index is READ ONLY in the NOTE branch. The LINE_ITEM branch only
+# RECORDS it; no line item, preamble, subtotal or other row reads it, so all existing parenting
+# and level logic is byte-unchanged. Notes keep path=None and carry no level.
+#
+# Set False for regression isolation -- flag off restores the pre-EA-6a nearest-preamble
+# behaviour exactly (the C6 demotion before/after comparison runs off this toggle).
+
 
 def pattern_signature(sl_no: str) -> str:
     """
@@ -524,6 +547,13 @@ def resolve_hierarchy(
     # their parent, making them children of the enclosing section header.
     # Reset to None on each SUBTOTAL_MARKER (universal section boundary).
     level0_ancestor: int | None = None
+    # EA-6a slice 1: resolved-row index of the most recent LINE_ITEM. RECORDED by the LINE_ITEM
+    # branch, READ ONLY by the NOTE branch (see NOTE_PARENT_NEAREST_ROW_ENABLED). Reset to None
+    # on each SUBTOTAL_MARKER, in lockstep with stack.clear() + level0_ancestor -- the ONLY
+    # reset: a root-preamble or any-preamble reset was measured to be a provable no-op (a
+    # preamble opening after a line item is by construction nearer, so it wins the comparison
+    # anyway), and adding one would be dead code that reads as safety.
+    last_line_item_index: int | None = None
 
     # Determine level_1_style: use the override if provided, else auto-detect.
     if sheet_config.level_1_style_override is not None:
@@ -554,6 +584,7 @@ def resolve_hierarchy(
             # zero mid-section subtotals — universal reset is safe.
             stack.clear()
             level0_ancestor = None  # Bug 20-ext: reset section anchor at each boundary
+            last_line_item_index = None  # EA-6a: in lockstep -- no note may reach back across
             # Re-detect level_1_style from the next section's first preamble.
             # Only re-detect if no override is in effect.
             if sheet_config.level_1_style_override is None:
@@ -718,19 +749,42 @@ def resolve_hierarchy(
                 qty_total=classified_row.qty_total_raw,
                 amount_total=classified_row.amount_total,
             ))
+            # EA-6a slice 1: RECORD ONLY. Never read in this branch -- the LINE_ITEM parenting
+            # above is byte-unchanged. Consumed solely by the NOTE branch below.
+            last_line_item_index = idx
             continue
 
         # ---------------------------------------------------------- #
         # NOTE                                                         #
         # ---------------------------------------------------------- #
         if cls == RowClassification.NOTE:
-            preamble_index = _top_non_none(stack)
             note_text = classified_row.description or ""
-            if preamble_index is not None:
-                notes_to_attach.setdefault(preamble_index, []).append(note_text)
-                attached_to_index = preamble_index
-                note_parent_index = preamble_index
+            if NOTE_PARENT_NEAREST_ROW_ENABLED:
+                # THREE-WAY NEAREST-WINS. All three are resolved-row indices in document order,
+                # so "nearest above" is simply the LARGEST index. level0_ancestor is a FULL
+                # candidate (a level-0 section header is a PREAMBLE the stack cannot see), never
+                # a fallback -- see the flag comment for the 42-note evidence.
+                candidates = [
+                    i
+                    for i in (_top_non_none(stack), last_line_item_index, level0_ancestor)
+                    if i is not None
+                ]
+                target = max(candidates) if candidates else None
             else:
+                # Pre-EA-6a behaviour: nearest preamble ON THE STACK only.
+                target = _top_non_none(stack)
+            if target is not None:
+                # ONE variable drives the pointer AND the text destination, so attached_to_index
+                # and attached_notes can never point at different rows.
+                notes_to_attach.setdefault(target, []).append(note_text)
+                attached_to_index = target
+                note_parent_index = target
+            else:
+                # MASTER BUCKET -- byte-unchanged. Reached only when nothing at all sits above
+                # the note (no stack preamble, no line item, no level-0 anchor), i.e. genuine
+                # top-of-BoQ general notes. level0_ancestor is None here by construction, so
+                # attached_to_index == note_parent_index == None and the no-divergence
+                # invariant holds universally.
                 master_preamble_notes.append(note_text)
                 attached_to_index = None
                 note_parent_index = level0_ancestor
@@ -754,9 +808,11 @@ def resolve_hierarchy(
         # Fallback for any future classification values
         resolved.append(ResolvedRow(classified_row=classified_row))
 
-    # Post-walk: copy accumulated notes into their respective preamble rows
-    for preamble_idx, notes in notes_to_attach.items():
-        resolved[preamble_idx].attached_notes = list(notes)
+    # Post-walk: copy accumulated notes onto the rows they attached to. Key-agnostic by design
+    # -- it writes to whatever index the NOTE branch keyed on (EA-6a: a PREAMBLE **or** a
+    # LINE_ITEM), which is the same `target` that set attached_to_index.
+    for target_idx, notes in notes_to_attach.items():
+        resolved[target_idx].attached_notes = list(notes)
 
     return ResolvedSheet(
         rows=resolved,

@@ -11,7 +11,7 @@ Bug 24: NOTE rows never set parent_index (defaults to None on ResolvedRow).
 Fix: when stack has an entry, mirror attached_to_index into parent_index;
 when stack is empty and level0_ancestor is set, parent_index = level0_ancestor.
 
-18 tests across 7 groups:
+28 tests across 8 groups:
   TestBug23LineItemUnit           (5) -- LINE_ITEM parenting via level0_ancestor
   TestBug24NoteUnit               (5) -- NOTE parent_index assignment
   TestBug23Toggle                 (2) -- BUG_23_LINE_ITEM_LEVEL0_ANCESTOR_ENABLED
@@ -19,6 +19,13 @@ when stack is empty and level0_ancestor is set, parent_index = level0_ancestor.
   TestDemotionPostPassUnaffected  (1) -- zero-children demotion unaffected by Bug 24 fix
   TestBillOfQuantitiesIntegration (2) -- BoQ ELV LINE_ITEMS + NOTEs post-fix
   TestAloricaIntegration          (1) -- alorica_1row LINE_ITEM Bug 23 candidates
+  TestEA6aNoteNearestRow         (10) -- EA-6a slice 1 three-way nearest-wins note parenting
+
+EA-6a slice 1 (2026-08-03): a NOTE now attaches to the NEAREST preamble-or-line-item above it
+(NOTE_PARENT_NEAREST_ROW_ENABLED). ONE pre-existing assertion was updated by owner ruling --
+test_note_after_level0_subhead_attaches_to_the_anchor (was ..._empty_stack_parents_under_anchor):
+it pinned the Bug-24 pointer/text divergence, which the new rule removes. The three assertions
+that protect genuine top-of-BoQ master-bucket notes are UNCHANGED and green.
 """
 from __future__ import annotations
 
@@ -202,18 +209,38 @@ class TestBug24NoteUnit(unittest.TestCase):
         self.assertEqual(note_rr.parent_index, 0, "Bug 24: parent_index must mirror attached_to_index")
         self.assertIn("note text", preamble_rr.attached_notes)
 
-    def test_note_after_level0_subhead_empty_stack_parents_under_anchor(self):
-        """[SUB HEAD level=0] + [NOTE] -> parent_index=level0_ancestor, attached_to_index=None."""
+    def test_note_after_level0_subhead_attaches_to_the_anchor(self):
+        """[SUB HEAD level=0] + [NOTE] -> the note ATTACHES to the anchor (EA-6a).
+
+        UPDATED at EA-6a slice 1 (authorised). This test previously asserted
+        attached_to_index=None + the text in master_preamble_notes while parent_index was the
+        anchor -- i.e. it PINNED the pointer/text divergence that BUG_24's own comment admits
+        ("gates only parent_index, not attached_to_index").
+
+        A level-0 section header IS a PREAMBLE (classifier._promote_section_header sets
+        classification = PREAMBLE); it is merely never pushed onto the stack, so
+        _top_non_none(stack) is blind to it. Under the three-way nearest-wins rule it is a full
+        candidate, so this is an ORDINARY preamble attachment -- and the divergence disappears.
+        The master bucket is NOT involved here: it is reached only when nothing at all sits
+        above the note (see TestBug24NoteUnit.test_note_at_sheet_start_no_anchor_remains_rootless,
+        which stays green).
+        """
         rows = [
             _preamble(2, sl_no="SUB HEAD A"),
             _note(3, description="section note"),
         ]
         result = resolve_hierarchy(rows, _sheet_cfg(), _GS)
+        anchor_rr = result.rows[0]
         note_rr = result.rows[1]
-        self.assertIsNone(note_rr.attached_to_index, "Stack empty -> attached_to_index=None")
-        self.assertIsNotNone(note_rr.parent_index, "Bug 24: parent_index must use level0_ancestor")
-        self.assertEqual(note_rr.parent_index, 0)
-        self.assertIn("section note", result.master_preamble_notes)
+        self.assertEqual(note_rr.parent_index, 0, "the anchor is the nearest preamble above")
+        self.assertEqual(
+            note_rr.attached_to_index, note_rr.parent_index,
+            "EA-6a: attached_to_index must equal parent_index (no divergence)",
+        )
+        self.assertIn("section note", anchor_rr.attached_notes,
+                      "the text lands on the row the pointer names")
+        self.assertEqual(result.master_preamble_notes, [],
+                         "the master bucket is for notes with NOTHING above them")
 
     def test_note_at_sheet_start_no_anchor_remains_rootless(self):
         """[NOTE] at sheet start, no PREAMBLE -> parent_index=None, attached_to_index=None."""
@@ -545,6 +572,227 @@ class TestAloricaIntegration(unittest.TestCase):
         ]
         # 7 Rule-A2 rootless cases deliberately deferred to Phase 3+ AI layer.
         _ = rootless
+
+
+# ==================================================================
+# Group 8: EA-6a slice 1 -- note attaches to the NEAREST preamble-or-line-item (10 tests)
+# ==================================================================
+
+class TestEA6aNoteNearestRow(unittest.TestCase):
+    """NOTE_PARENT_NEAREST_ROW_ENABLED: three-way nearest-wins note parenting.
+
+    The rule: a note attaches to the nearest of (stack-top preamble, last line item,
+    level0_ancestor) ABOVE it -- one rule, no special cases. Flag off restores the
+    pre-EA-6a nearest-preamble-on-the-stack behaviour exactly.
+    """
+
+    # -- the core new case -------------------------------------------------
+
+    def test_note_attaches_to_a_nearer_line_item(self):
+        """[PREAMBLE] [LINE_ITEM] [NOTE] -> the NOTE attaches to the LINE ITEM, not the preamble.
+
+        This is the whole point of EA-6a: a DB's schedule note lands on the DB row.
+        """
+        rows = [
+            _preamble(2, sl_no="A."),
+            _line_item(3, sl_no="1"),
+            _note(4, description="Sub incomer - 40A, DP, RCBO,30mA- 3No."),
+        ]
+        result = resolve_hierarchy(rows, _sheet_cfg(), _GS)
+        preamble_rr, line_item_rr, note_rr = result.rows
+        self.assertEqual(note_rr.parent_index, 1, "the line item is nearer than the preamble")
+        self.assertEqual(note_rr.attached_to_index, 1)
+        self.assertIn("Sub incomer - 40A, DP, RCBO,30mA- 3No.", line_item_rr.attached_notes)
+        self.assertEqual(preamble_rr.attached_notes, [],
+                         "the preamble must NOT also collect the text")
+
+    def test_note_with_only_a_preamble_above_still_attaches_to_the_preamble(self):
+        """[PREAMBLE] [NOTE] -> unchanged behaviour (no line item to beat it)."""
+        rows = [
+            _preamble(2, sl_no="A."),
+            _note(3, description="section spec"),
+        ]
+        result = resolve_hierarchy(rows, _sheet_cfg(), _GS)
+        preamble_rr, note_rr = result.rows
+        self.assertEqual(note_rr.parent_index, 0)
+        self.assertEqual(note_rr.attached_to_index, 0)
+        self.assertIn("section spec", preamble_rr.attached_notes)
+
+    def test_a_preamble_opening_after_a_line_item_wins_it_back(self):
+        """[PREAMBLE] [LINE_ITEM] [PREAMBLE] [NOTE] -> the NEW preamble is nearest.
+
+        The negative of the core case: the marker does not 'stick' once a nearer preamble
+        opens. This is also why a per-preamble reset would be a no-op.
+        """
+        rows = [
+            _preamble(2, sl_no="A."),
+            _line_item(3, sl_no="1"),
+            _preamble(4, sl_no="B."),
+            _note(5, description="belongs to B"),
+        ]
+        result = resolve_hierarchy(rows, _sheet_cfg(), _GS)
+        note_rr = result.rows[3]
+        self.assertEqual(note_rr.parent_index, 2, "preamble B is nearer than the line item")
+        self.assertIn("belongs to B", result.rows[2].attached_notes)
+
+    def test_level0_anchor_beats_a_line_item_that_precedes_it(self):
+        """[LINE_ITEM] [SUB HEAD level=0] [NOTE] -> the ANCHOR wins, not the stale line item.
+
+        The level-0 header is a PREAMBLE the stack cannot see, so it must be a FULL candidate.
+        An `else level0_ancestor` FALLBACK would return the line item here -- the shape that
+        mis-attaches 42 notes on the live corpus.
+        """
+        rows = [
+            _line_item(2, sl_no="1"),
+            _preamble(3, sl_no="SUB HEAD A"),
+            _note(4, description="Supplier shall provide installation methodology"),
+        ]
+        result = resolve_hierarchy(rows, _sheet_cfg(), _GS)
+        anchor_rr, note_rr = result.rows[1], result.rows[2]
+        self.assertEqual(note_rr.parent_index, 1, "the anchor is nearer than the line item")
+        self.assertEqual(note_rr.attached_to_index, 1)
+        self.assertIn("Supplier shall provide installation methodology", anchor_rr.attached_notes)
+        self.assertEqual(result.rows[0].attached_notes, [],
+                         "the pre-anchor line item must NOT collect it")
+
+    # -- the master bucket, unchanged --------------------------------------
+
+    def test_note_with_nothing_above_still_goes_to_the_master_bucket(self):
+        """[NOTE] alone -> master bucket, byte-identical to pre-EA-6a."""
+        rows = [_note(2, description="General scope statement")]
+        result = resolve_hierarchy(rows, _sheet_cfg(), _GS)
+        note_rr = result.rows[0]
+        self.assertIsNone(note_rr.parent_index)
+        self.assertIsNone(note_rr.attached_to_index)
+        self.assertIn("General scope statement", result.master_preamble_notes)
+
+    def test_note_after_subtotal_with_a_prior_line_item_is_rootless(self):
+        """[PREAMBLE] [LINE_ITEM] [SUBTOTAL] [NOTE] -> rootless; the marker reset fires.
+
+        The variant the pre-EA-6a suite could not exercise: without the subtotal reset the
+        stale line item would be the only candidate and would wrongly win.
+        """
+        rows = [
+            _preamble(2, sl_no="A."),
+            _line_item(3, sl_no="1"),
+            _subtotal(4),
+            _note(5, description="TOTAL FOR EARTH ELECTRODES AND EARTH STRIPS"),
+        ]
+        result = resolve_hierarchy(rows, _sheet_cfg(), _GS)
+        note_rr = result.rows[3]
+        self.assertIsNone(note_rr.parent_index, "the subtotal reset must clear the marker")
+        self.assertIsNone(note_rr.attached_to_index)
+        self.assertIn("TOTAL FOR EARTH ELECTRODES AND EARTH STRIPS", result.master_preamble_notes)
+        self.assertEqual(result.rows[1].attached_notes, [],
+                         "the pre-subtotal line item must NOT collect it")
+
+    # -- the invariants ----------------------------------------------------
+
+    def test_reparented_note_keeps_path_none_and_no_level(self):
+        """A note that re-parents onto a LINE ITEM is still not a tree node."""
+        rows = [
+            _preamble(2, sl_no="A."),
+            _line_item(3, sl_no="1"),
+            _note(4, description="spec"),
+        ]
+        result = resolve_hierarchy(rows, _sheet_cfg(), _GS)
+        note_rr = result.rows[2]
+        self.assertEqual(note_rr.parent_index, 1, "precondition: it did re-parent")
+        self.assertIsNone(note_rr.path, "NOTE must keep path=None")
+        self.assertIsNone(note_rr.level, "NOTE must carry no level")
+
+    def test_attached_to_index_equals_parent_index_for_every_note(self):
+        """The no-divergence invariant, over every note shape incl. the master bucket."""
+        rows = [
+            _note(2, description="top-of-BoQ general note"),   # master bucket (both None)
+            _preamble(3, sl_no="SUB HEAD A"),                  # level-0 anchor
+            _note(4, description="under the anchor"),
+            _preamble(5, sl_no="A."),
+            _note(6, description="under the preamble"),
+            _line_item(7, sl_no="1"),
+            _note(8, description="under the line item"),
+            _subtotal(9),
+            _note(10, description="after the subtotal"),       # master bucket (both None)
+        ]
+        result = resolve_hierarchy(rows, _sheet_cfg(), _GS)
+        notes = [
+            rr for rr in result.rows
+            if rr.classified_row.classification == RowClassification.NOTE
+        ]
+        self.assertEqual(len(notes), 5)
+        for rr in notes:
+            self.assertEqual(
+                rr.attached_to_index, rr.parent_index,
+                f"divergence on row {rr.classified_row.raw_row.row_number}",
+            )
+
+    def test_line_item_and_preamble_parenting_is_byte_unchanged(self):
+        """THE HARD INVARIANT: the marker changes NOTE parents only.
+
+        Same fixture resolved with the flag OFF and ON -- every LINE_ITEM and PREAMBLE keeps
+        an identical parent_index, level and path. Only the notes move.
+        """
+        def _fixture():
+            return [
+                _preamble(2, sl_no="SUB HEAD A"),
+                _preamble(3, sl_no="A."),
+                _line_item(4, sl_no="1"),
+                _note(5, description="n1"),
+                _line_item(6, sl_no="2"),
+                _note(7, description="n2"),
+                _preamble(8, sl_no="B."),
+                _line_item(9, sl_no="3"),
+                _subtotal(10),
+                _preamble(11, sl_no="C."),
+                _note(12, description="n3"),
+                _line_item(13, sl_no="4"),
+            ]
+
+        try:
+            hierarchy_mod.NOTE_PARENT_NEAREST_ROW_ENABLED = False
+            before = resolve_hierarchy(_fixture(), _sheet_cfg(), _GS)
+            hierarchy_mod.NOTE_PARENT_NEAREST_ROW_ENABLED = True
+            after = resolve_hierarchy(_fixture(), _sheet_cfg(), _GS)
+        finally:
+            hierarchy_mod.NOTE_PARENT_NEAREST_ROW_ENABLED = True
+
+        def _non_note_shape(res):
+            return [
+                (rr.classified_row.raw_row.row_number, rr.parent_index, rr.level, rr.path)
+                for rr in res.rows
+                if rr.classified_row.classification != RowClassification.NOTE
+            ]
+
+        self.assertEqual(
+            _non_note_shape(before), _non_note_shape(after),
+            "line item / preamble / subtotal parenting, level and path must be byte-identical",
+        )
+        # ...and the notes DID move, or the comparison above proves nothing.
+        moved = [
+            (b.parent_index, a.parent_index)
+            for b, a in zip(before.rows, after.rows)
+            if b.classified_row.classification == RowClassification.NOTE
+            and b.parent_index != a.parent_index
+        ]
+        self.assertTrue(moved, "precondition: at least one note must re-parent under the flag")
+
+    def test_flag_off_restores_pre_ea6a_note_parenting(self):
+        """Flag OFF: [PREAMBLE] [LINE_ITEM] [NOTE] -> the note attaches to the PREAMBLE."""
+        rows = [
+            _preamble(2, sl_no="A."),
+            _line_item(3, sl_no="1"),
+            _note(4, description="spec"),
+        ]
+        try:
+            hierarchy_mod.NOTE_PARENT_NEAREST_ROW_ENABLED = False
+            result = resolve_hierarchy(rows, _sheet_cfg(), _GS)
+        finally:
+            hierarchy_mod.NOTE_PARENT_NEAREST_ROW_ENABLED = True
+        note_rr = result.rows[2]
+        self.assertEqual(note_rr.parent_index, 0, "flag off -> nearest preamble on the stack")
+        self.assertEqual(note_rr.attached_to_index, 0)
+        self.assertIn("spec", result.rows[0].attached_notes)
+        self.assertEqual(result.rows[1].attached_notes, [])
 
 
 if __name__ == "__main__":
