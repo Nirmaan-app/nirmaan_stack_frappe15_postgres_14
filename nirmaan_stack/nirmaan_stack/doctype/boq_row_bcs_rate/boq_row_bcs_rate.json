@@ -1,0 +1,318 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "BBCS-.YY.-.#####",
+ "creation": "2026-08-02 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "identity_section",
+  "boq",
+  "sheet_name",
+  "excel_row",
+  "committed_version",
+  "semantic_section",
+  "node",
+  "description",
+  "value_section",
+  "supply_rate",
+  "install_rate",
+  "combined_rate",
+  "is_filled",
+  "provenance_section",
+  "rate_source",
+  "lifecycle_section",
+  "bcs_version",
+  "is_current",
+  "bcs_rated_at",
+  "carry_provenance_section",
+  "carried_from_boq",
+  "carried_from_version",
+  "carried_at"
+ ],
+ "fields": [
+  {
+   "fieldname": "identity_section",
+   "fieldtype": "Section Break",
+   "label": "Row Identity"
+  },
+  {
+   "description": "The workbook (BOQs) this BCS cost row belongs to. Denormalized (mirrors BoQ Cell Pricing / BoQ Row Category) so the layer is filterable by BoQ.",
+   "fieldname": "boq",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "BoQ",
+   "options": "BOQs",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "description": "The committed sheet name, stored VERBATIM (#152 -- never stripped/trimmed). Part of the durable Excel-address identity (survives a re-commit).",
+   "fieldname": "sheet_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Sheet Name",
+   "reqd": 1
+  },
+  {
+   "description": "The source Excel row number this BCS cost annotates (= BOQ Nodes.source_row_number = the committed grid row_number). Durable identity component. BCS is PER-ROW: there is deliberately NO col_letter, because the BCS columns are SCREEN-ONLY and have no Excel origin -- inventing a sentinel column letter for them would be a lie about the source workbook. BoQ Row Category and BoQ Cell Remark are the established no-column precedent.",
+   "fieldname": "excel_row",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Excel Row",
+   "reqd": 1
+  },
+  {
+   "default": "1",
+   "description": "The committed-tier commit_version of the sheet this cost row costs (BoQ Sheet / BOQ Nodes / grid share one commit_version per (boq, sheet)). BCS is anchored to a committed version; identity component.",
+   "fieldname": "committed_version",
+   "fieldtype": "Int",
+   "in_standard_filter": 1,
+   "label": "Committed Version",
+   "reqd": 1
+  },
+  {
+   "fieldname": "semantic_section",
+   "fieldtype": "Section Break",
+   "label": "Semantic (re-resolvable / guards -- NOT identity)"
+  },
+  {
+   "description": "A SETTABLE per-version pointer to the committed BOQ Nodes row this cost belongs to (re-resolvable from the Excel address + committed version). A convenience reference, NOT part of the identity key (node names change on re-commit). Mirrors BoQ Cell Pricing.node.",
+   "fieldname": "node",
+   "fieldtype": "Link",
+   "label": "Node",
+   "options": "BOQ Nodes"
+  },
+  {
+   "description": "A copy of the committed row's description at BCS-entry time -- a carry-forward MATCH GUARD (a later slice warns when the committed description changed under a cost). NOT part of the unique key; never branched on. Mirrors BoQ Cell Pricing.description.",
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description (guard)"
+  },
+  {
+   "fieldname": "value_section",
+   "fieldtype": "Section Break",
+   "label": "Cost Rates (the ONLY stored values)"
+  },
+  {
+   "description": "The Supply Rate the user hand-typed for this row: what supplying the material costs US, per unit. One of the stored BCS cost INPUTS -- used on a sheet that splits supply from installation (see combined_rate for the sheets that do not). Total Amount and % Profit are NEVER stored -- they are ALWAYS computed downstream from the stored rates plus the sheet's confirmed quantity and amount columns, so a stored copy can never drift from the live sheet.",
+   "fieldname": "supply_rate",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Supply Rate"
+  },
+  {
+   "description": "The Installation Rate the user hand-typed for this row: what installing the item costs US, per unit. DELIBERATE DIVERGENCE, owner-confirmed 2026-08-02: the BoQ Rate Master records that its own BCS pipeline is 'discounted product cost + 5% wastage, NO install (electrical labour is per-sqft, added at project level)'. That ruling governs the Rate Master's derived BCS figure and is UNCHANGED. This field is a different thing -- a per-line installation cost the estimator enters directly in the pricing editor -- and the two coexist meaning different things. Do NOT delete this field to 'restore consistency' with the Rate Master ruling.",
+   "fieldname": "install_rate",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Installation Rate"
+  },
+  {
+   "description": "The ONE undifferentiated cost rate the user hand-typed for this row: what the work costs US per unit, supply and installation together, on a sheet whose original quotes a single combined rate instead of splitting the two. WHEN IT IS USED: on a combined-rate sheet, where it is the only cost input the screen offers and supply_rate / install_rate stay 0.0. WHEN IT IS NOT: on a sheet that quotes supply and installation separately, where the two halves beside it carry the cost and this stays 0.0. IT IS NOT A TOTAL OF THE OTHER TWO -- nothing computes it from supply + install, nothing splits it back into them, and no reader may add it to them (that would double-count the row). Added at BCS-S2b, owner ruling 2026-08-02: a combined-rate sheet's cost needed an honest home rather than being shoved into a field named 'supply', a name that would lie about what the number is. WHICH input a sheet offers is the SCREEN's decision; storage deliberately imposes NO cross-field rule, so a sheet that changes shape never strands a number it already holds.",
+   "fieldname": "combined_rate",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Combined Rate"
+  },
+  {
+   "default": "0",
+   "description": "The BCS layer's OWN filled-state. Currency coerces unset -> 0.0, so a genuine zero cost is indistinguishable from 'never entered' on the value alone -- this flag is the source of truth for 'has anyone costed this row'. Mirrors BoQ Cell Pricing.is_filled.",
+   "fieldname": "is_filled",
+   "fieldtype": "Check",
+   "label": "Is Filled"
+  },
+  {
+   "fieldname": "provenance_section",
+   "fieldtype": "Section Break",
+   "label": "Rate Provenance"
+  },
+  {
+   "default": "Manual",
+   "description": "How these cost rates came to be. THE PROVENANCE SEAM (owner decision, BCS-S1): a later slice must be able to record that a rate was DERIVED from the BoQ Rate Master rather than hand-typed, and that must cost NO further production migration -- so the field ships now, defaulted to Manual. NOTHING in the S1-S6 arc reads or writes anything but the default; this is storage capacity, not a derivation system. If a later slice needs to record WHICH rate-master row/config a value came from, that reference is a further field and therefore a further migration -- deliberately not pre-built here.",
+   "fieldname": "rate_source",
+   "fieldtype": "Select",
+   "label": "Rate Source",
+   "options": "Manual\nRate Master"
+  },
+  {
+   "fieldname": "lifecycle_section",
+   "fieldtype": "Section Break",
+   "label": "BCS Lifecycle"
+  },
+  {
+   "default": "1",
+   "description": "Per-(boq, sheet_name, excel_row, committed_version) BCS version. Incremented on re-save by the write path (freeze-and-supersede, mirroring BoQ Cell Pricing.pricing_version). Distinct from committed_version (the version of the data being costed). A cost row is NEVER overwritten in place.",
+   "fieldname": "bcs_version",
+   "fieldtype": "Int",
+   "label": "BCS Version",
+   "reqd": 1
+  },
+  {
+   "default": "1",
+   "description": "Exactly one current BCS record per (boq, sheet_name, excel_row, committed_version). The one-current invariant is enforced by the write path (api/boq/wizard/bcs.py save_row_bcs_rates), NOT in this controller -- mirrors the pricing / classification / annotation convention. The prior current is frozen via frappe.db.set_value(is_current=0), never doc.save.",
+   "fieldname": "is_current",
+   "fieldtype": "Check",
+   "in_standard_filter": 1,
+   "label": "Is Current"
+  },
+  {
+   "description": "When this BCS record was written. Set by the write path. Mirrors BoQ Cell Pricing.priced_at.",
+   "fieldname": "bcs_rated_at",
+   "fieldtype": "Datetime",
+   "label": "BCS Rated At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "carry_provenance_section",
+   "fieldtype": "Section Break",
+   "label": "Carry Provenance"
+  },
+  {
+   "description": "Set ONLY on a record created by the revision carry (slice S6): the ORIGINAL BoQ these cost rates were copied from. NULL on every record written by a human entry. This is what makes a carried cost distinguishable from one entered on this sheet -- the absence of exactly this attribution was ADR-0014 Amendment D's stated reason for deleting the category/annotation carry ('un-asked-for and un-attributed'), so it ships with the schema rather than being retrofitted. UNUSED in S1.",
+   "fieldname": "carried_from_boq",
+   "fieldtype": "Link",
+   "label": "Carried From BoQ",
+   "options": "BOQs",
+   "read_only": 1
+  },
+  {
+   "description": "The SOURCE sheet's committed_version these cost rates were copied from. NULL/0 when not carried. UNUSED in S1.",
+   "fieldname": "carried_from_version",
+   "fieldtype": "Int",
+   "label": "Carried From Version",
+   "read_only": 1
+  },
+  {
+   "description": "When the carry ran. NOT the same as bcs_rated_at, which is carried verbatim from the source and therefore stays OLDER -- keep that age (it is what lets a cost entered ON the revision outrank a carried one without any precedence code). UNUSED in S1.",
+   "fieldname": "carried_at",
+   "fieldtype": "Datetime",
+   "label": "Carried At",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 0,
+ "links": [],
+ "modified": "2026-08-02 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "BoQ Row BCS Rate",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Procurement Executive",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Lead",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Estimates Executive",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Design Lead",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Design Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Accountant",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan HR Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan PMO Executive",
+   "share": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

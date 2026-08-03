@@ -657,6 +657,38 @@ All BoQ wizard / pricing frontend code lives in `src/pages/boq-wizard/`. This se
   memo shield holds; classic stays byte-identical). Same shape as the page-owned CategoryVerdictPicker's IO close. The
   grid-level `shouldCloseOverlay` mounted-set effect stays only as the remark BACKSTOP. Closing discards any unsaved draft
   (owner-accepted). EXEMPT: a popover in the STICKY `<th>` header (AmountFormulaBuilder) never scrolls off -> no observer.
+- **BCS -- the INTERNAL cost block inside the pricing editor** (`bcsColumns.ts` pure leaf + `bcsRollup.ts` +
+  `marginView.ts` + `BcsColumnsDialog.tsx`; the block itself renders inside `PricingGrid`/`SummaryPanel`, no new
+  route). Full frontend as-built in `frontend/.claude/context/domain/boq-frontend.md`; storage, endpoints and the
+  carry layer in `.claude/context/domain/boq-backend.md`. ⚠️ **NAME COLLISION: "BCS" in the Rate Master section
+  below is a derivation pipeline -- an unrelated concept sharing three letters.** The acronym is never expanded
+  anywhere in the codebase; do not invent an expansion. The load-bearing invariants:
+  - **WHICH cost boxes a sheet gets is derived from the sheet's OWN rate columns** (`bcsLiveRateKinds`, owner
+    ruling): no Supply rate column -> no Supply box; a combined-rate sheet gets ONE box; no rate column at all ->
+    no block. ⚠️ **THE HALVES WIN OVER A COMBINED RATE MAPPED BESIDE THEM.** The backend forbids summing
+    `combined_rate` with the two halves, so the live set must never hold both or the total double-counts -- which
+    makes the prohibition **STRUCTURAL**: the arithmetic downstream cannot express the forbidden sum, because the
+    set it is given never contains both. A NARROWING, never a widening.
+  - **Column headers are an owner ruling, pinned by test:** `BCS Cost (Supply)` · `BCS Cost (Installation)` ·
+    `BCS Total Amount`. The prefix marks which side of the sheet a figure belongs to (BCS = what it costs US;
+    everything else = what we charge the CLIENT), which matters because the two blocks scroll apart on a wide
+    sheet. The mirror to the parser's `Rate (Install)` role label is deliberately NOT word-for-word -- do not
+    shorten `Installation` back to match it.
+  - **A BLANK IS NEVER A 0, and every blank knows WHY** (`BcsComputedCell` = value | blank+reason, surfaced as the
+    cell `title`). A `0` is a claim ("this costs nothing"); an absence is not. An unrecognised reason renders as an
+    explicit UNSUPPORTED state, never a silent blank. ⭐ **% Profit is never NaN, never Infinity, and NEVER A
+    PROFIT ON A LOSS** -- a NEGATIVE denominator flips the inequality (amount -100 vs cost 50 computes +150%), so
+    a loss-making row would display positive profit: confidently wrong, which is worse than visibly absent. It is
+    a **blank with a reason, not a blocked keystroke** (do not convert it into a validation); the COST side is
+    deliberately unguarded, since only the denominator's sign inverts the comparison.
+  - ⚠️ **`mergeBcsRowValues` takes a `ReadonlyMap` ON PURPOSE -- never "simplify" it to an object.** The grid's cost
+    drafts are keyed `` `${row_index}:${field}` `` while the merge reads BARE field keys; as plain objects the two
+    are structurally assignable, so passing the wrong key space COMPILES CLEANLY, finds nothing, and reverts a
+    controlled cost input on every keystroke while the debounce saves a number nobody typed. A `Record` is not
+    assignable to a `Map`, so the mistake is now a compile error.
+  - **The `bcs_costs` carry layer defaults OFF, and the default lives ONLY in the client** -- an omitted `layers`
+    payload is rates-only server-side. ON is the exception, not the rule, and an internal cost rate is the last
+    layer on which to relax "nothing arrives un-asked-for".
 
 ### Review screen (`ReviewTree.tsx`) -- load-bearing invariants
 

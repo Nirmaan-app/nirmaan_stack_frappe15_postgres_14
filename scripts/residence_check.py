@@ -46,7 +46,32 @@ SKIP_DIRS = {"node_modules", "dist", "__pycache__", "public", ".git"}
 # a shrinking violation surface as the good pattern spreads).
 # NOTE: services/finance.py is deliberately NOT here — it makes live frappe.get_all
 # calls; it is a mixed module, not a pure one, so it is out of scope for this check.
-PURE_MODULES = ["nirmaan_stack/services/procurement_approval.py"]
+#
+# ⚠️ THIS CHECK IS EFFECTIVELY INERT, AND ADDING A MODULE HERE BUYS ALMOST NOTHING TODAY.
+# ``strip_strings_and_comments`` (below) space-joins tokens, so ``frappe.db.get_value(...)``
+# reaches the regex as ``frappe . db . get_value ( )`` and the B1 pattern cannot match it.
+# This is NOT specific to ``frappe.db``: ALL FOUR alternatives — ``frappe.db``,
+# ``frappe.get_all(``, ``frappe.get_doc(``, ``frappe.sql(`` — are missed identically,
+# because every one of them spans a token boundary the joiner pads.
+#
+# The one case that DOES still match is an UNPARSEABLE file: the tokenize/IndentationError/
+# SyntaxError branch fails OPEN and returns the RAW source, which the pattern then matches
+# — including inside comments and docstrings, where a mere MENTION of ``frappe.db`` counts
+# as a violation. So the check is not uniformly blind; it is blind on every file that
+# parses, and over-eager on any that does not. Either way a green b1 count is NOT evidence
+# that a listed module was checked.
+#
+# The bug is repo-wide and belongs in its own slice (fixing it here would silently change
+# what a shared enforcement script reports for every module); it is recorded as debt at
+# slice BCS-S1b, and this note was corrected at BCS-S1c after the two claims above were
+# reproduced by execution. Registration below is correct-in-principle and starts covering
+# these modules the day the tokenizer is fixed.
+PURE_MODULES = [
+    "nirmaan_stack/services/procurement_approval.py",
+    # The two BCS column-confirmation rules (BCS-S1a relocation). Pure by contract: its
+    # ONE framework touch is frappe.throw, which this check does not count.
+    "nirmaan_stack/services/boq_bcs/sources.py",
+]
 
 
 # --- file walking + counting helpers -----------------------------------------

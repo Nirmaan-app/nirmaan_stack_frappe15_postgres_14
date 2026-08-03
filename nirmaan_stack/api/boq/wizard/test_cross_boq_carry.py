@@ -1057,6 +1057,40 @@ class TestApplySheetCarrySynchronous(FrappeTestCase):
             frappe.db.count("BoQ Cell Remark", {"boq": self.rev, "is_current": 1}), 0
         )
 
+    # ── BCS-S6: the fifth layer reaches THIS seam too, from one registration ─────────
+    def test_bcs_costs_reaches_the_cross_boq_seam_from_the_same_registration(self):
+        """ONE registration lights BOTH carry surfaces -- `cross_boq_carry` and `pricing`'s
+        copy-forward share `committed_carry.walk_layers`, so the cross-BoQ dialog gains the
+        cost layer with no code of its own. That sharing is the reason a BCS-specific carry
+        function outside the layer engine was rejected."""
+        self.assertIn("bcs_costs", committed_carry.LAYER_KEYS)
+        out = cross_boq_carry.apply_sheet_carry(
+            dest_boq=self.rev, sheet_name=self.DEST,
+            decisions=json.dumps([
+                {"dest_excel_row": 10, "area": None, "rate_kind": "combined_rate"},
+            ]),
+            layers=json.dumps({"bcs_costs": {"carry": True, "overwrite": False}}),
+        )
+        self.assertTrue(out["ok"])
+        self.assertEqual(set(out["layers"]), {"bcs_costs"})
+        # This revision has no BCS section, so the layer takes the SILENT-SKIP path: zero
+        # counts, no error, and the rate still copied. Distinct from the unknown-key case
+        # above, where the layer does not run AT ALL and is absent from the result.
+        self.assertEqual(out["layers"]["bcs_costs"], committed_carry.zero_layer_outcome())
+        self.assertEqual(out["copied"], 1, "the rate carry is untouched by the skip")
+        self.assertEqual(
+            frappe.db.count("BoQ Row BCS Rate", {"boq": self.rev}), 0
+        )
+
+    def test_the_cross_boq_plan_previews_the_cost_layer_with_the_same_guard(self):
+        """The plan/apply symmetry at THIS seam. The plan walks every layer with apply=False, so
+        a not-BCS-ready revision reports the same zeros the apply produces -- the dialog disables
+        the row instead of offering a write that would be dropped. PURE READ."""
+        sheet = self._plan_sheet()
+        self.assertIn("bcs_costs", sheet["layers"])
+        self.assertEqual(sheet["layers"]["bcs_costs"], committed_carry.zero_layer_outcome())
+        self.assertEqual(frappe.db.count("BoQ Row BCS Rate", {"boq": self.rev}), 0)
+
     def test_categories_and_rates_land_in_one_action(self):
         """THE Amendment E outcome, end to end: one call, both layers, one transaction.
 

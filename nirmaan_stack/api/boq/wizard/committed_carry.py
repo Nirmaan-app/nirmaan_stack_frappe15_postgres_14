@@ -16,6 +16,14 @@ category, remark, colour and `remark` dismissal -- to the explicit per-sheet act
 OPT-IN (category offered ON by default in the dialog, the annotations OFF), and every carried
 record is STAMPED with `carried_from_boq` / `carried_from_version` / `carried_at`.
 
+⚠️ BCS-S6 (2026-08-03) ADDS A FIFTH, `bcs_costs` -- the per-row BCS cost rates. "FOUR" above is
+Amendment E's own count and is left as written because it is history, not the running total;
+`LAYER_KEYS` is the live answer to how many layers there are. The fifth arrives on Amendment E's
+terms and adds one of its own: it is opt-in (defaulting OFF -- categories are ON by an explicit
+owner ruling that cost data has never had), it is stamped with the same three provenance fields,
+and it carries a SHEET-LEVEL PRECONDITION -- the destination must have BCS switched on with its
+columns confirmed, or the layer silently carries nothing. See `carry_bcs_cost_layer`.
+
 Those two properties are the whole answer to Amendment D, which deleted the carry because
 annotations arrived **un-asked-for** and **un-attributed**. Opt-in fixes the first; the stamp
 fixes the second. Neither alone would have been enough, and a restoration with only one of them
@@ -62,6 +70,11 @@ from nirmaan_stack.api.boq.wizard.review_carry import (
     revision_source_boq,
 )
 from nirmaan_stack.services.boq_category import persist as category_persist
+# BCS-S6: the BCS readiness predicate, reached at the SERVICE layer on purpose. Importing
+# `api/boq/wizard/bcs.py` (where it used to live) would close the ring
+# committed_carry -> bcs -> pricing -> committed_carry, which `pricing.py`'s header forbids.
+# api -> service is the one legal direction; this is the same shape as `category_persist` above.
+from nirmaan_stack.services.boq_bcs.readiness import bcs_is_ready
 from nirmaan_stack.services.boq_revision.normalize import normalize_n2
 from nirmaan_stack.services.boq_revision.row_match import MatchRow, match_rows
 
@@ -289,11 +302,15 @@ def _content_match_rows(nodes) -> list:
 #: `categories` is offered ON by default in the dialog; the three annotation layers are offered OFF
 #: by default (owner decision) -- that asymmetry lives in the FRONTEND, not here. The backend
 #: default is "no layers at all", which is what an omitted `layers` payload means.
-LAYER_KEYS = ("categories", "remarks", "colors", "remark_dismissals")
+#: BCS-S6 appends `bcs_costs`. ONE registration lights BOTH carry surfaces -- the cross-BoQ
+#: revision carry and the within-BoQ copy-forward both dispatch through `walk_layers` -- which is
+#: why the BCS carry is a layer here rather than a bespoke action on either endpoint.
+LAYER_KEYS = ("categories", "remarks", "colors", "remark_dismissals", "bcs_costs")
 
 _REMARK = "BoQ Cell Remark"
 _COLOR = "BoQ Cell Color"
 _DISMISSAL = "BoQ Cell Dismissal"
+_BCS = "BoQ Row BCS Rate"
 _GRID = "BoQ Committed Sheet Grid"
 _GRID_ROW = "BoQ Committed Sheet Grid Row"
 
@@ -697,6 +714,255 @@ def _dest_column_universe(dest_boq, dest_sheet_name, dest_version, grid_rows) ->
     return cols
 
 
+# ── BCS cost carry (slice BCS-S6) ──────────────────────────────────────────────────
+#
+# The fifth layer, and the owner's ask verbatim: "Carry Rate from original (versioned sheet in
+# same BOQ, or revised upload) gets a new option to copy the BCS Section; precondition: BCS
+# enabled on the destination sheet AND its formulas confirmed."
+#
+# NO MIGRATION. `carried_from_boq` / `carried_from_version` / `carried_at` were provisioned on
+# `BoQ Row BCS Rate` at BCS-S1 and marked "UNUSED in S1". This is what uses them.
+#
+# WHY IT MIRRORS `carry_category_layer` AND NOT `_ANNOT_LAYERS` (BCS-S6 R1): `carry_category_layer`
+# is bespoke because it needed a SHEET-LEVEL GUARD SLOT, and `_walk_annot_layer` has none. BCS
+# needs exactly that slot -- readiness is a fact about the destination SHEET, not about a row.
+#
+# ⚠️ IT DOES NOT COPY THE CATEGORY LAYER'S PER-DISCIPLINE FAN-OUT (R2). A BCS identity is a
+# 4-tuple -- (boq, sheet_name VERBATIM #152, excel_row, committed_version). No col_letter, no
+# discipline, at most ONE current record per address. A discipline loop here would iterate a
+# dimension that does not exist.
+#
+# Two outcome buckets stay 0 for this layer, and honestly so:
+#   `ineligible` -- categories-only. There is no node_type restriction on a cost: the BCS module
+#                   docstring records that a qty-less Preamble IS costable, deliberately, because
+#                   `save_row_bcs_rates` skips the priceability gate.
+#   `dropped`    -- colours-only. Row-addressed, so there is no column letter to lose.
+
+#: What a carried cost copies from the source record. `description` and `node` are DELIBERATELY
+#: absent: both are per-DESTINATION facts (see `_dest_bcs_node_index`).
+_BCS_CARRY_READ_FIELDS = (
+    "excel_row", "supply_rate", "install_rate", "combined_rate",
+    "is_filled", "rate_source", "bcs_rated_at",
+)
+
+
+def _dest_current_bcs(ctx: _CarryCtx) -> dict:
+    """{dest excel_row -> docname} for the DESTINATION's current cost records. ONE query, and it
+    doubles as the freeze target for an overwrite (no second lookup)."""
+    return {
+        r.excel_row: r.name
+        for r in frappe.db.get_all(
+            _BCS,
+            filters={
+                "boq": ctx.dest_boq, "sheet_name": ctx.dest_sheet_name,
+                "committed_version": ctx.dest_version, "is_current": 1,
+            },
+            fields=["name", "excel_row"],
+        )
+    }
+
+
+def _dest_max_bcs_version(ctx: _CarryCtx) -> dict:
+    """{dest excel_row -> max bcs_version} over ALL the DESTINATION's cost records, current AND
+    frozen. ONE grouped query; drives `max(prior) + 1` without a per-record max(). A frozen prior
+    can exist with no current (an earlier carry superseded by a hand edit and back again), so a
+    hardcoded 1 would collide."""
+    return {
+        r.excel_row: (r.mv or 0)
+        for r in frappe.db.get_all(
+            _BCS,
+            filters={
+                "boq": ctx.dest_boq, "sheet_name": ctx.dest_sheet_name,
+                "committed_version": ctx.dest_version,
+            },
+            fields=["excel_row", "max(bcs_version) as mv"],
+            group_by="excel_row",
+        )
+    }
+
+
+def _dest_bcs_node_index(ctx: _CarryCtx) -> dict:
+    """{dest excel_row -> (node docname, description)} for the DESTINATION committed sheet.
+
+    BOTH values are per-DESTINATION and must NOT be copied from the source record:
+
+    `node` is a per-VERSION pointer -- its own field description says node names change on
+    re-commit -- so carrying the source's would point a destination cost row at a node belonging
+    to another version. `save_row_bcs_rates` resolves it through `_resolve_committed_cell`; this
+    is the batched form of the same read, filtered identically (sheet docname + commit_version).
+
+    `description` is a carry-forward MATCH GUARD against the row the cost SITS ON (its field
+    description says so), so it has to be that row's description -- which is also what the RATE
+    carry writes on the mirrored `BoQ Cell Pricing.description`. Under the D6 match the two are
+    normalize-equal anyway; taking the destination's keeps a later "the description changed under
+    this cost" warning from firing on nothing but whitespace.
+
+    Every value in `ctx.twin` is by construction a destination node of this sheet+version (the
+    match is BUILT from these rows), so a lookup miss is structurally unreachable."""
+    sheet = frappe.db.get_value(
+        _BOQ_SHEET,
+        {
+            "boq": ctx.dest_boq,
+            "sheet_name": ctx.dest_sheet_name,  # VERBATIM (#152)
+            "commit_version": ctx.dest_version,
+        },
+        "name",
+    )
+    if not sheet:
+        return {}
+    return {
+        n.source_row_number: (n.name, n.description)
+        for n in frappe.db.get_all(
+            _NODE,
+            filters={"boq": ctx.dest_boq, "sheet": sheet, "commit_version": ctx.dest_version},
+            fields=["name", "source_row_number", "description"],
+        )
+        if n.source_row_number is not None
+    }
+
+
+def carry_bcs_rows(
+    dest_boq, dest_sheet_name, dest_version, rows, *, source_boq, source_version
+) -> int:
+    """Write a batch of carried BCS cost records -- freeze-and-supersede, then insert.
+
+    ⚠️ PROVENANCE IS MANDATORY, not optional (BCS-S6 R6, and the exact shape of
+    `persist.carry_row_categories`). `source_boq` / `source_version` sit after a bare `*` with no
+    defaults, so an unstamped carried cost is a TypeError at the call site rather than a NULL
+    discovered in the database months later. A stamp a caller MAY omit is a stamp that eventually
+    WILL be omitted -- and an unattributed carried record is precisely what ADR-0014 Amendment D
+    deleted the whole carry feature over.
+
+    ⚠️ THIS DOES NOT CALL `bcs.save_row_bcs_rates`, and must not (R4). That endpoint is a
+    WHOLE-ROW SNAPSHOT: it coerces every absent rate to 0.0 and writes all three
+    unconditionally. Routing a carry through it would mean a source row holding only a combined
+    rate silently ZEROED a supply/install pair the destination already held. It would also drag
+    in that endpoint's four gates and its own commit, on a path that owns neither.
+
+    ⚠️ `bcs_rated_at` is carried VERBATIM and therefore stays OLDER than the carry -- instructed
+    on the field itself, mirroring `human_verdict_at`. `carried_at` is the fresh stamp. NEVER
+    restamp `bcs_rated_at` to now(): the age is what would let a cost entered ON this version
+    outrank an inherited one with no precedence code. (HONEST CAVEAT, BCS-S6: no live reader
+    tie-breaks on it today. It is forward-looking, and honoured anyway -- the cheapest moment to
+    get an age right is before something depends on it.)
+
+    Each row dict carries the `_BCS_CARRY_READ_FIELDS` values with `excel_row` ALREADY re-mapped
+    to the destination address by the caller's D6 twin, PLUS the destination-resolved `node` /
+    `description`, the computed `bcs_version`, and `supersedes` (the prior current's docname, or
+    None). Returns the count written. NO commit -- the caller owns the transaction."""
+    carried_at = frappe.utils.now()
+    count = 0
+    for r in rows:
+        prior = r.get("supersedes")
+        if prior:
+            # Freeze via set_value, NEVER doc.save -- the pricing-tier idiom that
+            # `save_row_bcs_rates` itself uses.
+            frappe.db.set_value(_BCS, prior, "is_current", 0)
+
+        doc = frappe.new_doc(_BCS)
+        doc.boq = dest_boq
+        doc.sheet_name = dest_sheet_name  # VERBATIM (#152)
+        doc.excel_row = r["excel_row"]
+        doc.committed_version = dest_version
+        doc.node = r.get("node")
+        doc.description = r.get("description")
+        # All THREE inputs travel independently. `combined_rate` is NOT a total of the two halves
+        # (owner-locked, BCS-S2b) -- never sum them, never derive one from the others.
+        doc.supply_rate = r.get("supply_rate") or 0.0
+        doc.install_rate = r.get("install_rate") or 0.0
+        doc.combined_rate = r.get("combined_rate") or 0.0
+        doc.is_filled = 1 if r.get("is_filled") else 0
+        # Provenance of the NUMBERS -- a property of the values, so it survives the copy. Distinct
+        # from the three fields below, which are provenance of the RECORD.
+        doc.rate_source = r.get("rate_source") or "Manual"
+        doc.bcs_version = r["bcs_version"]
+        doc.is_current = 1
+        doc.bcs_rated_at = r.get("bcs_rated_at")
+        doc.carried_from_boq = source_boq
+        doc.carried_from_version = source_version
+        doc.carried_at = carried_at
+        doc.insert(ignore_permissions=True)
+        count += 1
+    return count
+
+
+def carry_bcs_cost_layer(ctx: _CarryCtx, *, apply: bool, overwrite: bool) -> dict:
+    """Plan (apply=False) or perform (apply=True) the BCS COST carry for one sheet pair.
+
+    ⚠️ THE GUARD RUNS FIRST AND IS SHEET-SCOPED: a destination with no BCS section takes NO cost
+    write at all. It is the owner's stated precondition -- BCS enabled on the destination AND its
+    columns confirmed -- read through the ONE shared `bcs_is_ready`, so the carry and the BCS
+    write path can never disagree about whether a sheet is set up.
+
+    ⚠️ THE FAILURE SHAPE IS A SILENT SKIP, deliberately, and it is the most dangerous property of
+    this layer. A not-ready destination yields the ZERO outcome: nothing written, no exception,
+    and the rest of the carry -- rates included -- proceeds. Refusing the whole action instead
+    would let one unconfigured cost section block a rate carry the user actually asked for. It is
+    the same shape `carry_category_layer` takes against a classification-frozen sheet.
+
+    ⚠️ WHAT MAKES THAT ACCEPTABLE IS THE PLAN READ RUNNING THE SAME GUARD. `walk_layers` dispatches
+    plan and apply through this one function, so a not-ready sheet reports zeros to the dialog,
+    which renders the layer disabled with nothing to carry. Without that symmetry the user would
+    tick a layer showing "2 to copy", apply, and watch nothing happen with no explanation
+    anywhere. Do NOT move the guard behind the `apply` branch.
+
+    Presence-aware exactly like every other layer: a destination row that ALREADY holds a current
+    cost is `kept` unless `overwrite` is asserted, in which case the prior is frozen and
+    superseded. A source row with no D6 twin is `unmatched` and lands nothing, so a genuinely new
+    row in the destination keeps a blank cost cell rather than inheriting a number that was never
+    entered against it.
+
+    PURE READ when apply=False -- safe to call for the dialog's counts. Returns the outcome dict.
+    """
+    outcome = zero_layer_outcome()
+    if not bcs_is_ready(ctx.dest_boq, ctx.dest_sheet_name, ctx.dest_version):
+        return outcome
+
+    rows = frappe.db.get_all(
+        _BCS,
+        filters={
+            "boq": ctx.source_boq, "sheet_name": ctx.source_sheet_name,
+            "committed_version": ctx.source_version, "is_current": 1,
+        },
+        fields=list(_BCS_CARRY_READ_FIELDS),
+    )
+    if not rows:
+        return outcome
+
+    dest_current = _dest_current_bcs(ctx)
+    dest_max_version = _dest_max_bcs_version(ctx) if apply else {}
+    dest_nodes = _dest_bcs_node_index(ctx) if apply else {}
+
+    carry_rows = []
+    for r in rows:
+        dest_row = ctx.twin.get(r.excel_row)
+        if dest_row is None:
+            outcome["unmatched"] += 1  # moved / reworded / removed -> cannot land
+            continue
+        prior_name = dest_current.get(dest_row)
+        if prior_name and not overwrite:
+            outcome["kept"] += 1  # a cost typed HERE is never clobbered by default
+            continue
+        outcome["replaced" if prior_name else "carried"] += 1
+        if not apply:
+            continue
+        node, description = dest_nodes.get(dest_row, (None, None))
+        payload = dict(r)
+        payload["excel_row"] = dest_row  # re-key to the DEST Excel address
+        payload["node"] = node
+        payload["description"] = description
+        payload["bcs_version"] = dest_max_version.get(dest_row, 0) + 1
+        payload["supersedes"] = prior_name
+        carry_rows.append(payload)
+
+    if apply and carry_rows:
+        carry_bcs_rows(
+            ctx.dest_boq, ctx.dest_sheet_name, ctx.dest_version, carry_rows,
+            source_boq=ctx.source_boq, source_version=ctx.source_version,
+        )
+    return outcome
+
+
 def walk_layers(ctx: _CarryCtx, choices: dict, *, apply: bool) -> dict:
     """Run every SELECTED layer for one sheet pair. `choices` = {layer_key: {carry, overwrite}};
     an absent or carry-False layer is SKIPPED ENTIRELY and omitted from the result, so the summary
@@ -711,8 +977,13 @@ def walk_layers(ctx: _CarryCtx, choices: dict, *, apply: bool) -> dict:
         if not choice.get("carry"):
             continue
         overwrite = bool(choice.get("overwrite"))
+        # THE dispatch table. The two BESPOKE layers are the ones needing a sheet-level guard slot
+        # that `_walk_annot_layer` does not have -- categories for the classification freeze,
+        # `bcs_costs` for BCS readiness. Everything else is the parametric annotation walk.
         if key == "categories":
             out[key] = carry_category_layer(ctx, apply=apply, overwrite=overwrite)
+        elif key == "bcs_costs":
+            out[key] = carry_bcs_cost_layer(ctx, apply=apply, overwrite=overwrite)
         else:
             out[key] = _walk_annot_layer(ctx, _ANNOT_LAYERS[key], apply=apply, overwrite=overwrite)
     return out

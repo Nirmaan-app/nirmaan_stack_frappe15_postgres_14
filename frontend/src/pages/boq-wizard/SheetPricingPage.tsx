@@ -24,7 +24,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useFrappeGetCall, useFrappeGetDoc, useFrappePostCall, FrappeContext, type FrappeConfig } from "frappe-react-sdk";
 import { useUserData } from "@/hooks/useUserData";
 import { BoqPresence } from "./BoqPresence";
-import { AlertTriangle, ArrowDownToLine, ArrowLeft, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, ChevronUp, ClipboardList, Filter, Loader2, Lock, Maximize2, Minimize2, Pin, PinOff, Redo2, RefreshCw, Save, Search, ShieldCheck, ShieldOff, Sigma, SlidersHorizontal, Snowflake, Sparkles, Undo2, Unlock, X } from "lucide-react";
+import { AlertTriangle, ArrowDownToLine, ArrowDownWideNarrow, ArrowLeft, ArrowUpNarrowWide, Calculator, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, ChevronUp, ClipboardList, Filter, Loader2, Lock, Maximize2, Minimize2, Percent, Pin, PinOff, Redo2, RefreshCw, Save, Search, ShieldCheck, ShieldOff, Sigma, SlidersHorizontal, Snowflake, Sparkles, Undo2, Unlock, X } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -54,6 +54,10 @@ import type {
   EngineCatalog,
   EngineOption,
   ApplyCopyForwardResponse,
+  BcsRowRate,
+  BcsRowSaveArgs,
+  GetBcsStateResponse,
+  GetSheetBcsRatesResponse,
   GetCommittedStateResponse,
   GetCrossBoqCarryPlanResponse,
   GetPricedRowsResponse,
@@ -70,6 +74,46 @@ import type {
 } from "./boqTypes";
 import { ROLE_LABELS } from "./boqTypes";
 import { VersionRibbon } from "./VersionRibbon";
+// BCS-S2: the cost section's enable button + two-column confirmation card. The RULES live in the
+// pure bcsColumns (which mirrors services/boq_bcs/sources.py); the page only orchestrates.
+import { BcsColumnsDialog } from "./BcsColumnsDialog";
+import {
+  bcsChipLabel,
+  bcsCostEntryReason,
+  bcsLiveRateKinds,
+  bcsSetupReason,
+  bcsToggleState,
+  type BcsRateKind,
+} from "./bcsColumns";
+// PE-SPIN-1: the sheet fetch's honest load state (loading / error / stale / empty / ready).
+import {
+  activePricingLoadState,
+  bcsRatesLoadState,
+  carryPlanLoadState,
+  gridLoadState,
+  withStaleNote,
+} from "./pricingLoadState";
+// BCS-S4: the margin view's ORDER, ROW SET and SECTION labels -- a pure leaf, unit-tested
+// (ADR-0010 F4: the page renders, the rule lives in a module a test can reach).
+import {
+  buildMarginOrder,
+  buildSectionLabels,
+  flipMarginSortDir,
+  marginViewRows,
+  type MarginSortDir,
+} from "./marginView";
+// BCS-S3a: a module-level stable empty -- a fresh [] per render would churn a grid prop and kill
+// the V0 React.memo shield (frontend/CLAUDE.md: "any new grid prop must stay identity-stable").
+const EMPTY_BCS_KINDS: BcsRateKind[] = [];
+// BCS-S4: the margin view's section labels when the view is closed. Module-level so the closed
+// state hands PricingGrid the SAME Map reference on every render -- the grid is React.memo'd with
+// React's default shallow comparison, and a fresh `new Map()` here would defeat it outright.
+const EMPTY_SECTION_LABELS: Map<number, string> = new Map();
+// BCS-S4: what the grid gets for `childrenByParent` in the margin view. A collapse chevron on a
+// flat, margin-ordered list would offer to fold away rows that are not underneath it -- so the
+// grid is told, truthfully for that view, that nothing has children. Module-level for the same
+// memo-shield reason as above.
+const EMPTY_CHILDREN_BY_PARENT: Map<number, number[]> = new Map();
 import { CopyForwardDialog, summarizeCopyForward } from "./CopyForwardDialog";
 import {
   CROSS_BOQ_CARRY_PLAN_METHOD,
@@ -382,9 +426,14 @@ const SheetPricingPage = () => {
   );
 
   // Priced rows: committed rows + merged saved prices for (boqId, sheetName).
-  // GET-capable endpoint, SWR-managed. Loading: data === undefined. Error: data === null.
-  // mutate() refetches after a rate save -> the priced_* markers re-derive authoritatively.
-  const { data: pricedData, mutate } = useFrappeGetCall<{ message: GetPricedRowsResponse }>(
+  // GET-capable endpoint, SWR-managed. mutate() refetches after a rate save -> the priced_*
+  // markers re-derive authoritatively.
+  //
+  // PE-SPIN-1: this read's OWN `error` is destructured and used. It used to be dropped, and the
+  // page inferred its state from the payload alone (`data === undefined` -> loading,
+  // `data === null` -> error). SWR never sets `data` to null on failure, so the error branch was
+  // unreachable and a failed load span forever -- see pricingLoadState.ts for the full account.
+  const { data: pricedData, error: pricedFetchError, mutate } = useFrappeGetCall<{ message: GetPricedRowsResponse }>(
     "nirmaan_stack.api.boq.wizard.pricing.get_priced_rows",
     { boq_name: boqId ?? "", sheet_name: sheetName ?? "" },
     boqId && sheetName ? undefined : null,
@@ -406,8 +455,14 @@ const SheetPricingPage = () => {
   // sheet_names, and the dialog fetches with the identical args -- SWR serves both from one
   // request, so opening the dialog is instant. Disabled (swrKey null) off a revision, which is the
   // common case: an upload/template BoQ pays nothing for this.
+  //
+  // PE-SPIN-1-fix (SURVIVOR 2): this read's OWN `error` is destructured and used. It used to take
+  // `data` alone, and fed `loading: carryPlanData === undefined` into carryButtonState -- so a
+  // failed plan fetch left `loading` true forever and pinned the carry button on "Checking what
+  // can be carried from the original…" for the rest of the session. Same defect as the sheet
+  // fetch's permanent spinner, on a different control.
   const isRevisionSheet = boq?.origin === "revision" && !!boq?.source_boq;
-  const { data: carryPlanData } = useFrappeGetCall<{ message: GetCrossBoqCarryPlanResponse }>(
+  const { data: carryPlanData, error: carryPlanFetchError } = useFrappeGetCall<{ message: GetCrossBoqCarryPlanResponse }>(
     CROSS_BOQ_CARRY_PLAN_METHOD,
     {
       dest_boq: boqId ?? "",
@@ -450,6 +505,65 @@ const SheetPricingPage = () => {
     "nirmaan_stack.api.boq.wizard.commit_gate.get_sheet_versions",
     { boq_name: boqId ?? "", sheet_name: sheetName ?? "" },
     boqId && sheetName ? undefined : null,
+  );
+
+  // ── BCS-S2: the cost section's per-sheet setup state ──────────────────────────
+  // Pinned to liveCommitVersion, NOT the browsed version: BCS is configured per sheet+version and
+  // the LIVE version is the only one worth setting up (a re-commit mints a fresh BoQ Sheet row, so
+  // BCS correctly starts off + unconfirmed there). Disabled until the version is known (swrKey
+  // gotcha: `undefined` enables, `null` disables -- never `{enabled}`). sheet_name VERBATIM (#152).
+  //
+  // BCS-S2a (finding F1): this read's OWN `error` and `isLoading` are destructured and used.
+  // S2 took only { data, mutate } and fed the PRICED fetch's flags to the button instead, so a
+  // failed get_bcs_state produced no reason at all -- the button stayed live and, because a
+  // missing payload looked exactly like bcs_enabled = 0, an enabled and confirmed sheet rendered
+  // as OFF with its chip gone and its amber banner suppressed. These are SWR's real signals --
+  // which is what makes the error branch reachable at all.
+  //
+  // ⚠️ UPDATED AT PE-SPIN-1: this note used to contrast these signals with `pricedLoading` /
+  // `pricedError`, "derived from data === undefined / null, this page's older convention". That
+  // convention is GONE -- it was the same defect one layer up (a failed sheet fetch span forever)
+  // and the sheet read now goes through `activePricingLoadState` off its own real `error` too.
+  const {
+    data: bcsData,
+    error: bcsFetchError,
+    isLoading: bcsFetchLoading,
+    mutate: mutateBcs,
+  } = useFrappeGetCall<{ message: GetBcsStateResponse }>(
+    "nirmaan_stack.api.boq.wizard.bcs.get_bcs_state",
+    {
+      boq_name: boqId ?? "",
+      sheet_name: sheetName ?? "",
+      committed_version: liveCommitVersion ?? 0,
+    },
+    boqId && sheetName && liveCommitVersion !== null ? undefined : null,
+  );
+
+  // ── BCS-S3a: the stored COST rows for this sheet+version ──────────────────────
+  // Pinned to liveCommitVersion for the same reason the setup fetch is: cost is entered on the
+  // current version only (the cost block is not rendered while browsing history), so a second
+  // version-following fetch would buy nothing and churn the grid's props on every version click.
+  //
+  // BCS-S4 (SURVIVOR 3): this read's OWN `error` is destructured and used. S3a took only
+  // { data, mutate } and degraded the payload via `?? []`, so a FAILED read emptied the rate map
+  // and a fully costed sheet rendered as entirely uncosted -- every box blank, every Total Amount
+  // and % Profit blank, and still editable. That is the same class of confident falsehood
+  // PE-SPIN-1 closed on three other fetches, and worse than all of them: a spinner is visibly
+  // unfinished, this was finished-looking and wrong. See pricingLoadState.BCS_RATES_STATES.
+  const {
+    data: bcsRatesData,
+    error: bcsRatesFetchError,
+    mutate: mutateBcsRates,
+  } = useFrappeGetCall<{
+    message: GetSheetBcsRatesResponse;
+  }>(
+    "nirmaan_stack.api.boq.wizard.bcs.get_sheet_bcs_rates",
+    {
+      boq_name: boqId ?? "",
+      sheet_name: sheetName ?? "", // VERBATIM (#152)
+      committed_version: liveCommitVersion ?? 0,
+    },
+    boqId && sheetName && liveCommitVersion !== null ? undefined : null,
   );
 
   // HV-10: the per-row MULTI-ENGINE resolved verdicts for THIS sheet (get_sheet_categories_resolved).
@@ -580,7 +694,14 @@ const SheetPricingPage = () => {
 
   // The selected EARLIER version's read-only rows + its OWN pricing (ADDITIVE endpoint; the live
   // get_priced_rows hot path above is byte-for-byte untouched). Disabled unless viewing history.
-  const { data: historyData } = useFrappeGetCall<{ message: GetPricedRowsResponse }>(
+  // PE-SPIN-1: its own `error` + `mutate`, for the same reason the live read above takes them --
+  // while browsing history THIS is the fetch on screen, so it is the one whose failure must show
+  // and the one a Retry must re-run.
+  const {
+    data: historyData,
+    error: historyFetchError,
+    mutate: mutateHistory,
+  } = useFrappeGetCall<{ message: GetPricedRowsResponse }>(
     "nirmaan_stack.api.boq.wizard.pricing.get_version_priced_rows",
     {
       boq_name: boqId ?? "",
@@ -640,6 +761,22 @@ const SheetPricingPage = () => {
     committedStateData?.message?.committed_state ?? [],
     sheetName ?? "",
   );
+  // BCS-S3a -- WHY A GRID-ONLY SHEET HAS NO COST COLUMNS, recorded because the outcome was
+  // always right but the CAUSE had never been written down, and a future reader could have
+  // changed it either way with equal confidence.
+  //
+  // THE CAUSE IS THE ZERO NODES, not a rendering choice. BCS identity is per committed ROW and
+  // `save_row_bcs_rates` resolves that row through `_resolve_committed_cell`, storing the
+  // resolved node as its re-resolvable pointer. A grid-only sheet commits a faithful CELL GRID
+  // and NO nodes at all (the line above is the same fact stated for pricing), so there is no
+  // per-line address for a cost to hang on -- every write would refuse at gate 1. Per-line cost
+  // on such a sheet is not withheld; it does not EXIST to be withheld.
+  //
+  // That it also renders through SheetDataGrid rather than PricingGrid is a CONSEQUENCE, not
+  // the reason. Do not "add BCS to the faithful grid" on the strength of the rendering fork
+  // alone: that would need the sheet to commit nodes first, which is a different decision
+  // entirely (and the reference sheets it covers -- Make Lists, general specs -- have no
+  // quantities to multiply, so Total Amount would have nothing to compute either).
   // commit_version comes from get_priced_rows (it carries it for BOTH dispositions -- a
   // grid-only sheet still has a current committed BoQ Sheet). The faithful-grid fetch is
   // disabled until it's a known grid-only sheet WITH a version.
@@ -648,7 +785,19 @@ const SheetPricingPage = () => {
   const commitVersionForGrid = isViewingHistory
     ? selectedVersion
     : pricedData?.message?.commit_version ?? null;
-  const { data: gridData } = useFrappeGetCall<{ message: CommittedSheetGridResponse }>(
+  //
+  // PE-SPIN-1-fix (SURVIVOR 1): this read's OWN `error` + `mutate` are destructured and used. It
+  // used to take `data` alone, and its consumer below read the retired convention VERBATIM --
+  // `isInitLoading={gridData === undefined}` / `initError={gridData === null ? ... : null}`. SWR
+  // never sets `data` to null on failure, so the error branch was unreachable and a failed load
+  // span forever on a grid-only sheet (general specs, Make Lists) -- the SAME defect PE-SPIN-1
+  // fixed for the sheet fetch, still live on this one because that slice surveyed by gating site
+  // rather than by fetch. `mutate` is what makes the failure's Retry able to re-run it.
+  const {
+    data: gridData,
+    error: gridFetchError,
+    mutate: mutateGrid,
+  } = useFrappeGetCall<{ message: CommittedSheetGridResponse }>(
     "nirmaan_stack.api.boq.wizard.pricing.get_committed_sheet_grid",
     {
       boq_name: boqId ?? "",
@@ -731,6 +880,25 @@ const SheetPricingPage = () => {
     { uncategorised_preambles: number; uncategorised_line_items: number } | null
   >(null);
   const [unfreezeConfirm, setUnfreezeConfirm] = useState(false);
+
+  // ── BCS-S2: the cost section's enable + column confirmation ───────────────────────
+  // Two writes, both re-read through mutateBcs() (the server's is_ready is authoritative and is
+  // never re-derived client-side). Enabling alone does NOT permit a cost write -- the two columns
+  // must also be confirmed -- which is exactly what the amber banner explains.
+  const { call: setBcsEnabledCall } = useFrappePostCall(
+    "nirmaan_stack.api.boq.wizard.bcs.set_bcs_enabled",
+  );
+  const { call: confirmBcsColumnsCall } = useFrappePostCall(
+    "nirmaan_stack.api.boq.wizard.bcs.confirm_bcs_columns",
+  );
+  // BCS-S3a: the ONE cost write. ⚠️ WHOLE-ROW -- see gatherBcsRowRates.
+  const { call: saveRowBcsRates } = useFrappePostCall(
+    "nirmaan_stack.api.boq.wizard.bcs.save_row_bcs_rates",
+  );
+  // The confirmation card's open-state is PAGE-owned (mirroring pickerState) and the card is
+  // mounted ONCE at page level -- never inside a row loop. In-flight guard for the enable POST.
+  const [bcsCardOpen, setBcsCardOpen] = useState(false);
+  const [bcsToggling, setBcsToggling] = useState(false);
 
   // ── Single-editor concurrency lock -- realtime layer (A2 / ADR-0011) ──────────
   // The transient BoQ Sheet Pricing Lock now propagates LIVE: acquire on FIRST edit-intent
@@ -882,6 +1050,23 @@ const SheetPricingPage = () => {
   });
   // Summary panel (parent-tree amount rollups) -- pull-in, computed page-side.
   const [summaryOpen, setSummaryOpen] = useState(false);
+  // ── BCS-S4: the MARGIN VIEW ───────────────────────────────────────────────────
+  // A separate FLAT, line-items-only presentation of this sheet ordered by % Profit. The owner
+  // chose it over sorting the tree in place (2026-08-02): re-ordering an N-deep hierarchy by
+  // margin leaves collapse hiding rows from scattered places and indentation implying nesting
+  // under a parent nowhere near. See marginView.ts.
+  const [marginViewOpen, setMarginViewOpen] = useState(false);
+  // DEFAULT ASCENDING = worst margin first. The view's job is to find the rows that are losing
+  // money or making nothing; opening on the best margins would put the answer at the far end.
+  const [marginSortDir, setMarginSortDir] = useState<MarginSortDir>("asc");
+  // ⚠️ THE ORDER IS A SNAPSHOT, HELD IN STATE, AND THAT IS THE WHOLE SAFETY PROPERTY.
+  // It is recomputed at exactly two moments -- opening the view, and a % Profit header click --
+  // and NEVER derived during a render. Inside PricingGrid the cursor (`activeCell`) is
+  // ARRAY-INDEX addressed into the `rows` prop, and clipboard multi-row selection is a contiguous
+  // RANGE over the same indices, so an order that moved while someone typed would slide a
+  // different row under the cursor and land the next keystroke on it. Values stay live (the rows
+  // themselves are re-read every fetch); only the POSITIONS are frozen between sorts.
+  const [marginOrder, setMarginOrder] = useState<number[] | null>(null);
   // Priceability override (Slice 3e, per-sheet per-session). Default OFF: a rate cell is
   // editable ONLY on a priceable row (node_type Preamble / Line Item). When ON, it unlocks
   // editing on non-priceable rows for THIS sheet THIS session AND sends allow_non_priceable
@@ -1077,6 +1262,11 @@ const SheetPricingPage = () => {
     setReviewOpen(false); // Slice 4a: the review-list strip is per-sheet
     setShowDismissed(false); // Slice 4b-ACKNOWLEDGE: the show-dismissed toggle is per-sheet
     setShowOnlyUnpriced(false); // Slice 4b-A: the unpriced filter is per-sheet
+    // BCS-S4: the margin view + its captured order are per-sheet. The ORDER especially -- it is a
+    // list of the previous sheet's row_index values, and applying it to another sheet's rows would
+    // silently reorder them by numbers that mean nothing there.
+    setMarginViewOpen(false);
+    setMarginOrder(null);
     // CL-2: classify state is per-sheet -- a tab switch starts clean (the socket/poll below
     // re-recovers a genuinely in-flight run from get_classify_status on the new sheet).
     setClassifyOpen(false);
@@ -1110,9 +1300,42 @@ const SheetPricingPage = () => {
     // old sheet's uncategorised counts as its payload.
     setFreezeConfirm(null);
     setUnfreezeConfirm(false);
+    // BCS-S2: the confirmation card is per-sheet -- it carries the OLD sheet's descriptors +
+    // stored picks, so leaving it open across a tab switch would offer another sheet's columns.
+    setBcsCardOpen(false);
+    setBcsToggling(false);
     // NOTE: the G3b override popover has its OWN [sheetName] reset, inside the self-contained
     // G3b block below (that block must stay deletable in one cut -- owner commitment).
   }, [sheetName]);
+
+  // BCS-S2a (finding F10): the confirmation card must also close on a VERSION switch, not just a
+  // sheet switch. The card is fed `columnDescriptors`, which come from the ACTIVE payload -- and
+  // that flips to the HISTORY version's descriptors the moment someone browses back -- while its
+  // Save still targets `liveCommitVersion`. Left open across the switch it would therefore offer
+  // an older version's columns and then have the save refused by the live version's descriptor
+  // check. Closing it is the whole fix: the card re-hydrates from the stored confirmation on
+  // every open, so nothing is lost.
+  //
+  // Deliberately a SEPARATE effect from the [sheetName] reset above: a version switch must not
+  // drag that block's other resets (search, collapse, filters, classify state) with it.
+  // `bcsToggling` is left alone on purpose -- it guards an in-flight POST against
+  // liveCommitVersion, which a version switch does not change.
+  //
+  // ── BCS-S5: THE MARGIN VIEW BELONGS HERE TOO ──────────────────────────────────
+  // BCS-S4 shipped the margin reset on the SHEET axis only, and its record then claimed the
+  // version axis needed no condition because "the toggle is simply disabled there". The toggle is
+  // disabled only for OPENING (`!marginViewOpen && !bcsColumnsVisible`) -- an ALREADY-OPEN view
+  // rode straight into history, where the cost columns and % Profit are not rendered at all, and
+  // `marginViewRows` then applied the LIVE version's `row_index` snapshot to the HISTORY version's
+  // rows. That is exactly the hazard the [sheetName] reset names one axis over: an order is a list
+  // of row_index values belonging to ONE (sheet, version), and applying it anywhere else reorders
+  // rows by numbers that mean nothing there. Blast radius is narrow -- history is read-only -- but
+  // a silently mis-ordered review list is the kind of wrong nobody can see.
+  useEffect(() => {
+    setBcsCardOpen(false);
+    setMarginViewOpen(false);
+    setMarginOrder(null);
+  }, [selectedVersion]);
 
   // Toolbar Part 1 -- search: reset the hit pointer to the first hit whenever the query changes
   // (a fresh search starts at hit 1). The pointer is also clamped at render (safeSearchIdx).
@@ -1517,9 +1740,38 @@ const SheetPricingPage = () => {
   const categoryOverrideBy = activeMessage?.category_override_by ?? null;
   const categoryOverrideAt = activeMessage?.category_override_at ?? null;
   classificationFrozenRef.current = classificationFrozen;
-  // Loading/error track the ACTIVE source (the history fetch while in history mode).
-  const pricedLoading = isViewingHistory ? historyData === undefined : pricedData === undefined;
-  const pricedError = isViewingHistory ? historyData === null : pricedData === null;
+  // ── PE-SPIN-1: what this page may honestly claim about its own data ──────────────────────────
+  // Tracks the ACTIVE source (the history fetch while in history mode), as before -- but from
+  // SWR's REAL signals (`data` + `error`) rather than from the payload alone. The retired rule was
+  //
+  //     pricedLoading = (data === undefined);  pricedError = (data === null)
+  //
+  // and SWR never sets `data` to null on failure: it leaves it undefined on a first load and
+  // RETAINS the last good value on a failed revalidation, reporting the failure on `error`, which
+  // nothing here read. So a genuine network failure or a 500 left `pricedError` false and
+  // `pricedLoading` true FOREVER -- a permanent spinner, no error, and a user report of "the page
+  // is stuck". The whole rule (and why "the server returned nothing" is treated as a failure
+  // rather than as an empty sheet) lives in pricingLoadState.ts, where it is unit-tested; a
+  // derivation inline here was structurally untestable, which is why it survived unexamined.
+  //
+  // The returned object is one of five SHARED singletons, so it is reference-stable per status --
+  // it never contributes a fresh object to a downstream memo.
+  const sheetLoad = activePricingLoadState({
+    viewingHistory: isViewingHistory,
+    live: { data: pricedData, error: pricedFetchError },
+    history: { data: historyData, error: historyFetchError },
+  });
+  // Re-run the fetch that is actually on screen. Retry from the error branch + the stale strip.
+  const handleRetryLoad = () => {
+    void (isViewingHistory ? mutateHistory() : mutate());
+  };
+  // PE-SPIN-1-fix (SURVIVOR 1): the faithful committed grid's own load state, from the SAME rule.
+  // Only a grid-only sheet renders this; off one the fetch is disabled (no data, no error), which
+  // reads as `loading` and is never shown, because the whole grid-only branch is gated on isGridOnly.
+  const gridLoad = gridLoadState({ data: gridData, error: gridFetchError });
+  const handleRetryGrid = () => {
+    void mutateGrid();
+  };
   // HARD READ-ONLY when held FRESH by another user (backend editable===false), after a mid-edit
   // takeover, OR when the sheet is DELIBERATELY locked. Withholding onSaveRate collapses ALL of
   // the grid's edit gates (the single onSaveRate root gate) to the read-only render -- no per-cell
@@ -1626,6 +1878,239 @@ const SheetPricingPage = () => {
       setFreezeToggling(false);
     }
   };
+
+  // ── BCS-S2: the cost section's enable button + confirmation card ──────────────────
+  // `is_ready` is the SERVER's one readiness predicate (enabled AND both columns confirmed) --
+  // read, never re-derived, so the button/banner cannot disagree with what a cost write will do.
+  const bcsState = bcsData?.message ?? null;
+  // BCS-S2a (finding F1): THREE states, not two. `bcsToggleState` keeps "we have no payload"
+  // apart from "BCS is off" -- S2 collapsed them into one pixel via `bcs_enabled === 1`, which
+  // is what made a failed read display an enabled sheet as OFF. Never re-derive `bcs_enabled`
+  // at a render site; read this. Slice S3's cost cells must make the same distinction (an
+  // unknown state must not present as an empty, editable cost cell).
+  const bcsToggle = bcsToggleState({
+    fetchFailed: !!bcsFetchError,
+    enabled: bcsState?.bcs_enabled ?? null,
+  });
+  const bcsReady = bcsState?.is_ready ?? false;
+  const bcsQtySource = bcsState?.bcs_qty_source ?? null;
+  const bcsAmountSource = bcsState?.bcs_amount_source ?? null;
+  const bcsChip = bcsChipLabel(bcsQtySource, bcsAmountSource);
+  // Greyed-with-a-reason, never hidden: BCS always EXISTS as an action on a committed sheet, so a
+  // disabled button is honest here (unlike "Carry rates from original", which is hidden off a
+  // revision precisely because the action does not exist there).
+  //
+  // The two fetches are named apart deliberately -- passing the sheet's flags where the BCS
+  // state's belong is exactly the S2 defect this closes.
+  const bcsReason = bcsSetupReason({
+    sheetLoading: sheetLoad.isLoading,
+    sheetError: sheetLoad.isFailed,
+    committedVersion: liveCommitVersion,
+    viewingHistory: isViewingHistory,
+    sheetLocked: isLocked,
+    bcsLoading: bcsFetchLoading,
+    bcsError: !!bcsFetchError,
+  });
+  // BCS is ON but its two columns are not confirmed -> cost entry stays refused server-side
+  // (_guard_bcs_ready). The amber banner + the collapsed-rail chip both key on this.
+  // Keyed on the KNOWN "on" state: an unknown BCS state must not assert "BCS needs columns",
+  // because we have not been told that it does.
+  const bcsNeedsColumns = bcsToggle === "on" && !bcsReady;
+
+  // Click when OFF: turn BCS on AND open the card in one act (owner design) -- the two columns are
+  // what makes it usable, so asking for them immediately is the honest flow. Click when ON: just
+  // reopen the card (turning BCS off lives in the card's footer, never on this button, so the
+  // ribbon control is never a destructive toggle).
+  const handleBcsButtonClick = async () => {
+    if (bcsReason !== null || liveCommitVersion === null) return;
+    // BCS-S2a: gate the WRITE on the known state too, not only on the reason chain above. An
+    // unknown state must never fall through to the enable POST -- that is how S2 could have
+    // re-enabled a sheet nobody had established was off.
+    if (bcsToggle !== "off") {
+      if (bcsToggle === "on") setBcsCardOpen(true);
+      return;
+    }
+    setSaveError(null);
+    setBcsToggling(true);
+    try {
+      await setBcsEnabledCall({
+        boq_name: boqId,
+        sheet_name: decodedSheetName, // VERBATIM (#152)
+        committed_version: liveCommitVersion,
+        enabled: 1,
+      });
+      await mutateBcs();
+      setBcsCardOpen(true);
+    } catch (e) {
+      setSaveError(getFrappeError(e) || "Could not turn BCS on. Please try again.");
+    } finally {
+      setBcsToggling(false);
+    }
+  };
+
+  // The card's Save. Both picks are sent as JSON lists of column letters; the server re-validates
+  // (it is the authority) and a refusal is surfaced IN the card by rethrowing to its catch.
+  const handleBcsConfirm = async (qtyCols: string[], amountCols: string[]) => {
+    if (liveCommitVersion === null) return;
+    await confirmBcsColumnsCall({
+      boq_name: boqId,
+      sheet_name: decodedSheetName, // VERBATIM (#152)
+      committed_version: liveCommitVersion,
+      qty_cols: JSON.stringify(qtyCols),
+      amount_cols: JSON.stringify(amountCols),
+    });
+    await mutateBcs();
+  };
+
+  // The card's "Turn BCS off". NON-DESTRUCTIVE, which is why there is no confirm step: the two
+  // confirmations are preserved (re-enabling does not force a re-pick) and no BoQ Row BCS Rate is
+  // ever deleted. Readiness simply goes false meanwhile.
+  const handleBcsDisable = async () => {
+    if (liveCommitVersion === null) return;
+    await setBcsEnabledCall({
+      boq_name: boqId,
+      sheet_name: decodedSheetName, // VERBATIM (#152)
+      committed_version: liveCommitVersion,
+      enabled: 0,
+    });
+    await mutateBcs();
+  };
+
+  // ── BCS-S3a: the cost block's grid inputs ─────────────────────────────────────
+  //
+  // VISIBILITY and EDITABILITY are two different questions, answered separately on purpose. The
+  // columns SHOW whenever BCS is set up on the version being viewed -- a locked sheet still
+  // displays what it costs, read-only. Whether a box can be TYPED IN is the full gate, and it is
+  // expressed the house way: by withholding `onSaveBcsRates`, never by a second per-cell flag.
+  //
+  // An UNKNOWN BCS state hides the block (bcsToggle !== "on"), which is the S2a rule applied one
+  // layer further out: absence of knowledge must not render as an empty, editable cost cell.
+  //
+  // ── BCS-S4: the SAME rule, applied to the COSTS themselves ────────────────────
+  // S3a stopped at the SETUP fetch. The RATES fetch degraded via `?? []`, and an empty rate map is
+  // not silence -- it is the sentence "nothing on this sheet has been costed", rendered in every
+  // cost box on a sheet that may be fully costed.
+  //
+  // ⚠️ THE CHOICE, STATED: on a failed/empty costs read the cost block is WITHHELD ENTIRELY, not
+  // shown read-only. Read-only would still leave a row of empty cost cells and two empty computed
+  // columns on screen, and "empty" is exactly the falsehood -- a reader cannot tell a cell that is
+  // blank because nothing was costed from one that is blank because we failed to read it. Absence
+  // of knowledge must render as nothing plus a stated reason, never as a blank the eye reads as
+  // zero. The banner below carries the reason and a Retry.
+  //
+  // `isUsable` (not `!isFailed`) is deliberate: it is FALSE while the first read is in flight too,
+  // so the block never flashes empty-then-fills. `stale` IS usable -- the last good costs stay on
+  // screen and editable, flagged by the amber strip, the same trade the sheet and grid fetches make.
+  const bcsBlockConfigured =
+    bcsToggle === "on" && bcsReady && !isViewingHistory && liveCommitVersion !== null;
+  const bcsRatesLoad = bcsRatesLoadState({ data: bcsRatesData, error: bcsRatesFetchError });
+  const bcsColumnsVisible = bcsBlockConfigured && bcsRatesLoad.isUsable;
+  /** BCS is set up on this version, but its stored costs could not be read. */
+  const bcsCostsUnreadable = bcsBlockConfigured && bcsRatesLoad.isFailed;
+  const handleRetryBcsRates = () => {
+    void mutateBcsRates();
+  };
+  // ── BCS-S5: AN OPEN MARGIN VIEW MUST NOT OUTLIVE THE COSTS IT IS BUILT ON ─────
+  // The [selectedVersion] reset above closes the version axis. This closes every OTHER way the
+  // cost block can go away underneath an open view -- BCS switched off, the confirmation cleared,
+  // the sheet lock/version changing, or the costs read failing on a revalidate. In all of them the
+  // view keeps rendering with its two cost columns and % Profit GONE, which leaves a flat list
+  // ordered by a number that is no longer on screen, while the direction button still claims
+  // "Lowest first" and a click would silently re-sort it into document order (every margin now
+  // reads blank, and blanks hold document order in both directions).
+  //
+  // Guarded on the FALSE edge only: this effect also fires when the costs come BACK, and closing
+  // the view then would be a second, unrelated behaviour. `bcsColumnsVisible` is a plain boolean
+  // derived above, so the dependency is stable and this cannot loop.
+  useEffect(() => {
+    if (bcsColumnsVisible) return;
+    setMarginViewOpen(false);
+    setMarginOrder(null);
+  }, [bcsColumnsVisible]);
+  // Which boxes, from the SHEET's own rate columns (the pure rule; the halves win over a
+  // combined rate mapped beside them so Total Amount can never double-count).
+  const bcsKinds = useMemo(
+    () => (bcsColumnsVisible ? bcsLiveRateKinds(columnDescriptors) : EMPTY_BCS_KINDS),
+    [bcsColumnsVisible, columnDescriptors],
+  );
+  // The stored cost rows, keyed by Excel row -- reference-stable per fetch (the V0 memo shield).
+  //
+  // ⚠️ BCS-S4: built ONLY from a USABLE payload. The `?? []` that used to stand alone here is the
+  // whole defect -- it turns "we do not know this sheet's costs" into "this sheet has no costs".
+  // The empty map is still the shape returned on a failed read, but `bcsColumnsVisible` is false
+  // in that state so it never reaches a rendered cell; the explicit gate is what stops a later
+  // reader reintroducing the lie by relaxing one condition and not the other.
+  //
+  // ⚠️ BCS-S5 -- WHY THE `?? []` BELOW STAYS, having been questioned in the S4 review. It looks
+  // neutralised by the `isUsable` guard one line above it, and for the FAILED read it is: that
+  // path returns early. It is NOT dead on the SUCCESSFUL one. `loadStatus` decides content on
+  // `data.message != null` ALONE, so a payload of `{message: {}}` -- an envelope with no `rows`
+  // key at all -- is classified `ready`, reaches this loop, and `for (const r of undefined)`
+  // THROWS, taking the whole page down. So this is genuine null-safety on a live path, not
+  // leftover defensiveness, and removing it would trade a wrong number for a blank screen.
+  //
+  // The real gap is one level down and is NOT fixed here: `hasContent` cannot tell an empty
+  // envelope from a real answer, so `{message: {}}` renders as a confidently uncosted sheet --
+  // the same class of lie S4 closed for the FAILED read, surviving on the malformed-success one.
+  // Closing it means tightening `loadStatus`/`hasContent` in `pricingLoadState.ts`, which is NOT
+  // in this slice's scope; recorded rather than reached for.
+  const bcsRatesByExcelRow = useMemo(() => {
+    const m = new Map<number, BcsRowRate>();
+    if (!bcsRatesLoad.isUsable) return m;
+    for (const r of bcsRatesData?.message?.rows ?? []) m.set(r.excel_row, r);
+    return m;
+  }, [bcsRatesData, bcsRatesLoad]);
+  // ── BCS-S5: the Summary panel's cost axis ─────────────────────────────────────
+  // The SAME four inputs the grid's cost block reads, handed to the rollup so the panel can show
+  // BCS Total Amount / Tendered Total Amount / % Profit per BoQ SECTION.
+  //
+  // Gated on `bcsColumnsVisible`, so in version history (or behind a failed costs read) the panel
+  // shows no cost columns rather than a screenful of blanks that would read as "this sheet costs
+  // nothing". That is what this gate buys, and it is the reason it is here.
+  //
+  // ⚠️ CORRECTED AT BCS-S7 -- IT IS NOT THE SAME CONDITION AS THE GRID'S. This said "the identical
+  // condition that decides whether the grid shows a cost column at all. So the panel gains cost
+  // columns exactly when the grid has them." The grid's block has a SECOND term this one does not:
+  // `PricingGrid` renders `bcsHeaderCells` only when `bcsKinds.length > 0`, and `bcsLiveRateKinds`
+  // returns `[]` for a sheet that maps NO rate column (bcsColumns.ts, the "no rate column at all
+  // cannot do BCS" ruling). `bcs_is_ready` never inspects rate columns, so such a sheet can be
+  // BCS-enabled with both sources confirmed. On it the grid shows NO cost block while this panel
+  // shows its three -- all blank. The two surfaces are ALIGNED IN PRACTICE only because a sheet
+  // with no rate column is not a sheet anyone prices.
+  //
+  // NOT "fixed" here, deliberately: ANDing `bcsKinds.length > 0` in would be a render-gate change,
+  // and this repo has no DOM test environment (`vitest.config.ts`), so it would ship verified by
+  // nothing. The owner declined the browser sweep that could have checked it. A comment that
+  // describes what the code does is fully verifiable by reading; a gate change is not. If this is
+  // ever revisited, the honest check is a live A/B on a rate-column-less sheet.
+  //
+  // MEMOISED because it is a `rollupByParent` argument: a fresh object each render would re-walk
+  // every row's tree on every keystroke. Each input is already stable per fetch.
+  const summaryBcsInput = useMemo(
+    () =>
+      bcsColumnsVisible
+        ? {
+            ratesByExcelRow: bcsRatesByExcelRow,
+            kinds: bcsKinds,
+            qtySource: bcsQtySource,
+            amountSource: bcsAmountSource,
+          }
+        : null,
+    [bcsColumnsVisible, bcsRatesByExcelRow, bcsKinds, bcsQtySource, bcsAmountSource],
+  );
+  // The gate, in save_row_bcs_rates' OWN order (NOT the client rate gate -- BCS deliberately
+  // skips the formula, priceability and category gates).
+  const bcsCostReason = bcsCostEntryReason({
+    sheetLoading: sheetLoad.isLoading,
+    sheetError: sheetLoad.isFailed,
+    committedVersion: liveCommitVersion,
+    viewingHistory: isViewingHistory,
+    sheetLocked: isLocked,
+    editorLocked: takenOver || editable === false,
+    bcsToggle,
+    bcsReady,
+  });
+  const bcsWritable = bcsCostReason === null;
 
   // HV-10: pick / clear one row's human category verdict, DISCIPLINE-AWARE. A group pick carries
   // that engine's discipline (the write lands on ITS row identity; upsert-on-missing mints the row
@@ -1798,6 +2283,49 @@ const SheetPricingPage = () => {
       setInFlight((n) => n - 1);
     }
   }, [commitVersion, boqId, sheetName, override, saveCellPrice, mutate]);
+
+  // ── BCS-S3a: save ONE row's cost rates (save_row_bcs_rates) ────────────────────
+  // Mirrors handleSaveRate (in-flight count, takeover detection, refetch, re-throw so the grid
+  // KEEPS the optimistic draft) with two deliberate differences:
+  //
+  //   1. ⚠️ IT IS A WHOLE-ROW WRITE. `args.rates` always carries all three stored fields --
+  //      the endpoint coerces anything absent to 0.0, so a partial payload would silently zero
+  //      the siblings. The grid gathers them; this page never assembles a rate itself.
+  //   2. It refetches ONLY `mutateBcsRates` -- not the whole priced-rows read. A cost is a
+  //      separate layer: it changes no client-facing marker, no amount and no flag, so pulling
+  //      get_priced_rows would churn `rows` and re-render the entire grid for nothing.
+  const handleSaveBcsRates = useCallback(
+    async (args: BcsRowSaveArgs) => {
+      if (liveCommitVersion === null) {
+        setSaveError("This sheet has no committed version to cost.");
+        throw new Error("no committed version");
+      }
+      setSaveError(null);
+      setInFlight((n) => n + 1);
+      try {
+        await saveRowBcsRates({
+          boq_name: boqId, // VERBATIM
+          sheet_name: sheetName, // VERBATIM (#152)
+          excel_row: args.excelRow,
+          committed_version: liveCommitVersion,
+          supply_rate: args.rates.supply_rate,
+          install_rate: args.rates.install_rate,
+          combined_rate: args.rates.combined_rate,
+          description: args.description,
+        });
+        await mutateBcsRates();
+        setLastSavedAt(new Date());
+      } catch (e: unknown) {
+        const msg = getFrappeError(e);
+        if (isTakeoverError(msg)) setTakenOver(true);
+        else setSaveError(msg || "Could not save the cost. Please try again.");
+        throw e; // let the grid keep the optimistic draft
+      } finally {
+        setInFlight((n) => n - 1);
+      }
+    },
+    [liveCommitVersion, boqId, sheetName, saveRowBcsRates, mutateBcsRates],
+  );
 
   // Slice 4a: save one row's remark (save_row_remark) -- a SEPARATE write path from rates,
   // mirroring handleSaveRate (in-flight count, takeover detection, mutate refresh). Blank
@@ -1984,6 +2512,7 @@ const SheetPricingPage = () => {
     let written = 0;
     let failed = 0;
     let failMsg: string | null = null;
+    let bcsTouched = false; // BCS-S3a: refetch the cost layer only when the gesture touched it
     try {
       for (const w of writes) {
         try {
@@ -2000,6 +2529,31 @@ const SheetPricingPage = () => {
               description: w.cell.description, // copy-forward MATCH GUARD
               allow_non_priceable: override, // Slice 3e: the asserted per-sheet override
             });
+          } else if (w.kind === "bcs") {
+            // BCS-S3a: ONE call per ROW (the grid folded the gesture's cost cells), carrying
+            // all three stored fields -- see handleSaveBcsRates on why a partial payload zeroes.
+            //
+            // ⚠️ `liveCommitVersion`, NOT this function's `commitVersion` -- the two halves of ONE
+            // write must not read the version from two places. EVERY other BCS path is pinned to
+            // the live version (`get_bcs_state`, `get_sheet_bcs_rates`, `handleSaveBcsRates`),
+            // because cost is entered on the current version only. `commitVersion` follows the
+            // version being VIEWED. They are equal wherever a cost write can actually occur
+            // (`bcsColumnsVisible` and `locked` both exclude history mode, so no cost cell even
+            // renders there) -- which is why S3a's divergence was inert, not why it was right.
+            if (liveCommitVersion === null) {
+              throw new Error("This sheet has no committed version to cost.");
+            }
+            await saveRowBcsRates({
+              boq_name: boqId, // VERBATIM
+              sheet_name: sheetName, // VERBATIM (#152)
+              excel_row: w.args.excelRow,
+              committed_version: liveCommitVersion,
+              supply_rate: w.args.rates.supply_rate,
+              install_rate: w.args.rates.install_rate,
+              combined_rate: w.args.rates.combined_rate,
+              description: w.args.description,
+            });
+            bcsTouched = true;
           } else {
             await saveRowRemark({
               boq_name: boqId, // VERBATIM
@@ -2022,13 +2576,27 @@ const SheetPricingPage = () => {
         }
       }
     } finally {
-      await mutate(); // ONE trailing refetch -- markers / amounts re-derive once
+      // ⚠️ THE COST REFETCH IS NOT CHAINED BEHIND THE RATE ONE. Written as two bare `await`s, a
+      // rejected `mutate()` skipped `mutateBcsRates()` entirely, so a gesture whose cost POSTs had
+      // all LANDED left `bcsRatesByExcelRow` stale -- and because `save_row_bcs_rates` is a
+      // WHOLE-ROW SNAPSHOT WRITE, the next inline edit on a row with no prior stored record gathers
+      // that stale map and writes 0.0 over the pasted sibling. The cost layer is its OWN read, so
+      // its refresh must not depend on another read succeeding. Either rejection still propagates
+      // (the batch settles REJECTED -> `batchDraftsToDrop` KEEPS the cost drafts, so the user's
+      // pasted numbers stay on screen and the next gather reads them, not the stale map).
+      try {
+        await mutate(); // ONE trailing refetch -- markers / amounts re-derive once
+      } finally {
+        // BCS-S3a: and ONE for the cost layer, only if the gesture wrote any (it lives in its own
+        // read, so a rate-only paste must not pay for it).
+        if (bcsTouched) await mutateBcsRates();
+      }
       if (failMsg) setSaveError(`Saved ${written} of ${writes.length}. ${failMsg}`);
       else setLastSavedAt(new Date());
       setInFlight((n) => n - 1);
     }
     return { written, failed };
-  }, [commitVersion, boqId, sheetName, override, saveCellPrice, saveRowRemark, mutate]);
+  }, [commitVersion, liveCommitVersion, boqId, sheetName, override, saveCellPrice, saveRowRemark, saveRowBcsRates, mutate, mutateBcsRates]);
 
   // ── Slice 4b-A: the computed review-flag layer (Cluster A) ──────────────────────
   // Everything routes through the ONE shared priceability helper -- the in-grid markers,
@@ -2081,6 +2649,9 @@ const SheetPricingPage = () => {
     // hides the fact; note when the gate is overridden.
     if (!locked && categoryBlankCount > 0)
       chips.push(`${categoryBlankCount} without category${categoryGateOverride ? " (override)" : ""}`);
+    // BCS-S2: BCS on but unconfirmed has a VISIBLE amber banner and refuses every cost write, so
+    // it is exactly the kind of state this rail exists to keep from being hidden by a collapse.
+    if (!locked && bcsNeedsColumns) chips.push("BCS needs columns");
     return chips;
   }, [
     isViewingHistory,
@@ -2091,24 +2662,30 @@ const SheetPricingPage = () => {
     formulasComplete,
     categoryBlankCount,
     categoryGateOverride,
+    bcsNeedsColumns,
   ]);
 
   // ── U1 rate-helper (DEV): D8 gate REUSE + run / badge-click / use handlers. The enable chain is
   // EXACTLY what a rate write consumes -- !locked (locked => onSaveRate withheld), formulasComplete,
   // categoryGateOpen -- read straight from the existing vars, never re-derived. Disabled surfaces
   // the first failing reason (title). Synchronous: the run builds suggestionsByExcelRow in place. ──
+  // PE-SPIN-1: loading and failed are separate reasons. This site used to answer "Loading..." to
+  // both, so a sheet that had FAILED to load explained its dead button as a load still in
+  // progress -- the page-level spinner lie, repeated in a tooltip.
   const suggestRatesReason: string | null =
-    pricedLoading || pricedError
+    sheetLoad.isLoading
       ? "Loading..."
-      : commitVersion === null
-        ? "Sheet is not committed"
-        : locked
-          ? "Sheet is locked / read-only"
-          : !formulasComplete
-            ? "Declare amount formulas first"
-            : !categoryGateOpen
-              ? "Every eligible row needs a category first"
-              : null;
+      : sheetLoad.isFailed
+        ? "This sheet could not be loaded"
+        : commitVersion === null
+          ? "Sheet is not committed"
+          : locked
+            ? "Sheet is locked / read-only"
+            : !formulasComplete
+              ? "Declare amount formulas first"
+              : !categoryGateOpen
+                ? "Every eligible row needs a category first"
+                : null;
   const suggestRatesDisabled = suggestRatesReason !== null;
 
   // RM-3: config + master (SWR) feed the RM-2 interpreter CLIENT-SIDE (the single compute source).
@@ -2294,13 +2871,59 @@ const SheetPricingPage = () => {
   const carryPlanSheet = isRevisionSheet
     ? carryPlanData?.message?.sheets?.[0] ?? null
     : null;
+  // PE-SPIN-1-fix (SURVIVOR 2): the plan fetch's load state, from the SAME rule as the sheet and
+  // the grid. `isRevisionSheet &&` stays on `loading` for the same reason it always was there --
+  // off a revision the fetch is disabled, so it has no data and no error, which honestly reads as
+  // `loading`; carryButtonState returns `hidden` first in that case, but the guard keeps the input
+  // truthful rather than relying on that precedence.
+  const carryPlanLoad = carryPlanLoadState({
+    data: carryPlanData,
+    error: carryPlanFetchError,
+  });
   const carryState = carryButtonState({
     isRevisionSheet,
-    loading: isRevisionSheet && carryPlanData === undefined,
+    loading: isRevisionSheet && carryPlanLoad.isLoading,
     locked,
     formulasComplete,
     sheet: carryPlanSheet,
   });
+  // ⚠️ WHY THE TOOLTIP IS OVERRIDDEN HERE RATHER THAN INSIDE carryButtonState. Feeding an honest
+  // `loading` is only half the fix: with `loading` false and no plan in hand, carryButtonState
+  // falls through to its `nothing` reason -- "Nothing left to carry from the original." -- whose
+  // own comment calls it "not a transient state". That would trade an eternal "checking…" for a
+  // confident permanent falsehood, which is worse: a user told there is nothing to carry stops
+  // looking. carryButtonState lives in CrossBoqCarryDialog.tsx, which is OUT OF SCOPE for this
+  // slice, so the honest wording is applied at the one place that renders it. If that file is ever
+  // opened, the right home for this is an `error` input on the pure helper beside `loading`.
+  const carryDisabledReason =
+    isRevisionSheet && carryPlanLoad.isFailed
+      ? carryPlanLoad.message
+      : carryState.kind === "disabled"
+        ? carryState.reason
+        : null;
+  // ── BCS-S4: the state that was BUILT AND NEVER SHOWN ──────────────────────────
+  // `CARRY_PLAN_STATES.stale` shipped at PE-SPIN-1-fix and nothing read `carryPlanLoad.isStale`.
+  // It is reachable and it is the quiet case: a failed REVALIDATION keeps `data.message`
+  // populated, so `isFailed` is false, the button stays ENABLED, and it offers to carry from a
+  // plan of unknown age with no indication whatever -- while the fix that produced the state was
+  // explicitly about a page whose failure behaviour must not differ by which fetch broke.
+  //
+  // The sheet and the grid each got an amber STRIP for this case. The carry button has no strip;
+  // its only surface is the tooltip, which is why `withStaleNote` composes the note onto whatever
+  // the button was already going to say rather than replacing it. Render it or delete it -- this
+  // is rendering it.
+  //
+  // The `hidden` arm is spelled out rather than folded into a `!== "ready"` else, because
+  // `CarryButtonState.hidden` carries no `reason` -- the old inline version type-checked only
+  // because the JSX `carryState.kind !== "hidden" &&` guard narrowed it in the same expression,
+  // and that guard does not reach up here.
+  const carryBaseTitle =
+    carryState.kind === "ready"
+      ? "Copy the original BoQ's rates and annotations into this sheet"
+      : carryState.kind === "disabled"
+        ? carryDisabledReason ?? carryState.reason
+        : null;
+  const carryTitle = withStaleNote(carryBaseTitle, carryPlanLoad);
   // Priced count: M = priceable lines; N = FULLY priced (every qty-bearing area filled).
   const pricedCount = computePricedCount(rows, columnDescriptors);
   const allPriced = pricedCount.total > 0 && pricedCount.priced === pricedCount.total;
@@ -2331,7 +2954,12 @@ const SheetPricingPage = () => {
   collapsedRef.current = collapsed;
   byRowIndexRef.current = byRowIndex;
   byExcelRowRef.current = byExcelRow;
-  const collapseActive = collapsed.size > 0;
+  // BCS-S4: collapse does NOT apply in the margin view. A collapsed section in the tree must not
+  // silently remove its line items from a flat margin review -- that would under-report exactly
+  // the rows someone opened the view to find, and invisibly, because a flat list gives no clue
+  // that a parent is folded somewhere. The `collapsed` SET is preserved, so closing the view
+  // restores the tree exactly as it was.
+  const collapseActive = collapsed.size > 0 && !marginViewOpen;
 
   // The view-filter predicate (show-unpriced + row-type), WITHOUT collapse -- shared by the
   // search universe (R3: search ignores collapse) and folded into displayRows below.
@@ -2356,7 +2984,7 @@ const SheetPricingPage = () => {
   // not change the row set / filters / collapse. Fast path returns the (stable) `rows` when nothing
   // is filtered/collapsed. `passesViewFilter` is a per-render closure over the LISTED deps, so it is
   // referenced inside but deliberately not a dep (the underlying values are the real deps).
-  const displayRows = useMemo(
+  const treeDisplayRows = useMemo(
     () =>
       !anyViewFilter && !collapseActive
         ? rows
@@ -2381,6 +3009,71 @@ const SheetPricingPage = () => {
       byRowIndex,
     ],
   );
+
+  // ── BCS-S4: the margin view's row set ─────────────────────────────────────────
+  // ANOTHER DERIVATION AT THE SAME SEAM `displayRows` already is: a VIEW-ONLY transform of `rows`
+  // handed to the grid. Nothing about row identity, the save paths or the grid's geometry changes
+  // -- only which rows it is given and in what order, exactly as for the filters and collapse.
+  //
+  // The view FILTERS still compose (they are row predicates, and "show unpriced + worst margin
+  // first" is a sensible pair). COLLAPSE does not and is switched off above, not applied here --
+  // `treeDisplayRows` is therefore filter-only while this view is open, which is why it can be
+  // taken as the input directly.
+  //
+  // The ORDER comes from state, never from a derivation here -- see `marginOrder`.
+  const marginDisplayRows = useMemo(
+    () => (marginViewOpen && marginOrder ? marginViewRows(treeDisplayRows, marginOrder) : null),
+    [marginViewOpen, marginOrder, treeDisplayRows],
+  );
+  const displayRows = marginDisplayRows ?? treeDisplayRows;
+
+  // Each row's section, for the margin view's context line. Built over the FULL `rows` (the
+  // ancestors a line item's section comes from are exactly the rows the flat view drops) and
+  // memoized on them, so it is reference-stable per fetch -- a grid-level Map, never a per-row
+  // prop. EMPTY outside the view: the tree shows a row's section by POSITION, so repeating it in
+  // the cell would be noise there.
+  const sectionByRowIndex = useMemo(
+    () => (marginViewOpen ? buildSectionLabels(rows) : EMPTY_SECTION_LABELS),
+    [marginViewOpen, rows],
+  );
+
+  // ── The TWO moments a sort is allowed: opening the view, and a % Profit header click ──
+  // Both take a fresh reading of every row's margin FROM THE GRID -- which is where the unsaved
+  // drafts live, so a cost typed a second ago is in the sort -- then freeze the result. Neither
+  // runs from a render, an effect or a keystroke.
+  //
+  // Refs, not deps: `handleToggleMarginSort` is a PricingGrid PROP and the grid is React.memo'd
+  // with React's DEFAULT shallow comparison, so a callback that changed identity when `rows` or
+  // `marginSortDir` changed would defeat the whole shield (V0/T2). Syncing both through refs keeps
+  // it stable for the life of the page while still reading current values.
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
+  const marginSortDirRef = useRef(marginSortDir);
+  marginSortDirRef.current = marginSortDir;
+  // `sortMarginView` is re-created each render; the stable callback below reaches the latest one
+  // through this ref (the undo/redo/applyRate precedent inside the grid).
+  const sortMarginViewRef = useRef<(dir: MarginSortDir) => void>(() => {});
+  const sortMarginView = (dir: MarginSortDir) => {
+    const margins = gridRef.current?.computeMargins(rowsRef.current) ?? new Map<number, number | null>();
+    setMarginOrder(
+      buildMarginOrder(rowsRef.current, (r) => margins.get(r.row_index) ?? null, dir),
+    );
+  };
+  const handleToggleMarginView = () => {
+    if (marginViewOpen) {
+      setMarginViewOpen(false);
+      return;
+    }
+    sortMarginView(marginSortDir); // sort ON OPEN
+    setMarginViewOpen(true);
+  };
+  const handleToggleMarginSort = useCallback(() => {
+    // Read-then-set, never a side effect inside a state updater (an updater may run twice).
+    const next = flipMarginSortDir(marginSortDirRef.current);
+    setMarginSortDir(next);
+    sortMarginViewRef.current(next); // sort ON HEADER CLICK
+  }, []);
+  sortMarginViewRef.current = sortMarginView;
 
   // Toolbar Part 1 -- description search. Hits are the Excel row numbers of matching rows. R3:
   // search PIERCES collapse -- hits are computed over the view-filtered set IGNORING collapse, so
@@ -2748,7 +3441,7 @@ const SheetPricingPage = () => {
             )}
             aria-pressed={isLocked}
             onClick={handleToggleLock}
-            disabled={lockToggling || pricedLoading || pricedError || commitVersion === null || isViewingHistory}
+            disabled={lockToggling || !sheetLoad.isUsable || commitVersion === null || isViewingHistory}
             title={
               isLocked
                 ? "This sheet is locked (read-only). Click to unlock and allow edits."
@@ -2777,7 +3470,7 @@ const SheetPricingPage = () => {
             )}
             aria-pressed={frozen}
             onClick={() => setFrozen((v) => !v)}
-            disabled={pricedLoading || pricedError || rows.length === 0}
+            disabled={!sheetLoad.isUsable || rows.length === 0}
             title={
               frozen
                 ? "Unfreeze columns -- let every column scroll normally."
@@ -2796,7 +3489,7 @@ const SheetPricingPage = () => {
             className="gap-1.5 text-muted-foreground"
             aria-pressed={virtualized}
             onClick={() => setVirtualized((v) => !v)}
-            disabled={pricedLoading || pricedError || rows.length === 0}
+            disabled={!sheetLoad.isUsable || rows.length === 0}
             title={
               virtualized
                 ? "Windowed rendering is ON (faster on big sheets). Click to use the classic full render."
@@ -2811,7 +3504,7 @@ const SheetPricingPage = () => {
             variant="outline"
             className="gap-1.5"
             onClick={() => setSummaryOpen((o) => !o)}
-            disabled={pricedLoading || pricedError || rows.length === 0}
+            disabled={!sheetLoad.isUsable || rows.length === 0}
             title="Toggle the parent-tree amount summary"
           >
             <Sigma className="h-4 w-4" />
@@ -2823,7 +3516,7 @@ const SheetPricingPage = () => {
             variant="outline"
             className="gap-1.5"
             onClick={() => setReviewOpen((o) => !o)}
-            disabled={pricedLoading || pricedError}
+            disabled={!sheetLoad.isUsable}
             title="Rows flagged for review (remarks + computed flags)"
           >
             <ClipboardList className="h-4 w-4" />
@@ -2890,11 +3583,10 @@ const SheetPricingPage = () => {
                 setCarryMsg(null);
                 setCarryOpen(true);
               }}
-              title={
-                carryState.kind === "ready"
-                  ? "Copy the original BoQ's rates and annotations into this sheet"
-                  : carryState.reason
-              }
+              // BCS-S4: the SAME text as before, now with the carry fetch's STALE note appended
+              // when the last plan check failed over a retained plan (withStaleNote is a no-op
+              // otherwise, so the healthy and hard-failed tooltips are byte-identical to before).
+              title={carryTitle ?? undefined}
             >
               <ArrowDownToLine className="h-4 w-4" />
               Carry rates from original
@@ -3008,7 +3700,7 @@ const SheetPricingPage = () => {
             className="gap-1.5"
             aria-pressed={showOnlyUnpriced}
             onClick={() => setShowOnlyUnpriced((o) => !o)}
-            disabled={pricedLoading || pricedError || pricedCount.total === 0}
+            disabled={!sheetLoad.isUsable || pricedCount.total === 0}
             title={
               showOnlyUnpriced
                 ? "Showing only unpriced lines. Click to show all rows."
@@ -3028,14 +3720,58 @@ const SheetPricingPage = () => {
               per-parent chevrons read via CollapseContext, so the chevrons + "+N hidden" reflect a
               bulk collapse with ZERO new wiring (no new state, no memo touch). DISABLED on a flat
               sheet (no collapsible parents -- nothing to fold). ── */}
+          {/* ── BCS-S4: the MARGIN VIEW toggle + its direction control ──────────────
+              A separate FLAT, line-items-only view ordered by % Profit. Disabled without the cost
+              columns, because % Profit is one of them: with no margins to order by, the view would
+              be a flat list sorted by nothing. The direction button appears only while the view is
+              on and does the SAME thing as clicking the % Profit header. ── */}
+          <Button
+            size="sm"
+            variant={marginViewOpen ? "default" : "outline"}
+            className="gap-1.5"
+            aria-pressed={marginViewOpen}
+            disabled={!sheetLoad.isUsable || (!marginViewOpen && !bcsColumnsVisible)}
+            onClick={handleToggleMarginView}
+            title={
+              marginViewOpen
+                ? "Showing line items only, ordered by % Profit. Click to return to the sheet."
+                : bcsColumnsVisible
+                  ? "Review margins: every line item on one flat list, ordered by % Profit, each with its section."
+                  : "Margins need the BCS cost columns — turn BCS on and confirm its two columns first."
+            }
+          >
+            <Percent className="h-4 w-4" />
+            Margin view
+          </Button>
+          {marginViewOpen && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              onClick={handleToggleMarginSort}
+              title="Reverse the order. Rows with no % Profit yet stay at the end either way."
+            >
+              {marginSortDir === "asc" ? (
+                <ArrowUpNarrowWide className="h-4 w-4" />
+              ) : (
+                <ArrowDownWideNarrow className="h-4 w-4" />
+              )}
+              {marginSortDir === "asc" ? "Lowest first" : "Highest first"}
+            </Button>
+          )}
+
           <Button
             size="sm"
             variant="outline"
             className="gap-1.5"
-            disabled={pricedLoading || pricedError || childrenByParent.size === 0}
+            // BCS-S4: nothing to collapse in the flat margin view -- a live control that silently
+            // did nothing would be the same kind of lie as the rest of this slice.
+            disabled={!sheetLoad.isUsable || childrenByParent.size === 0 || marginViewOpen}
             aria-label={collapsed.size === 0 ? "Collapse all rows" : "Expand all rows"}
             title={
-              childrenByParent.size === 0
+              marginViewOpen
+                ? "The margin view is a flat list — there is no hierarchy to collapse."
+                : childrenByParent.size === 0
                 ? "This sheet has no hierarchy to collapse."
                 : collapsed.size === 0
                 ? "Collapse every parent (only top-level rows stay visible)."
@@ -3060,7 +3796,7 @@ const SheetPricingPage = () => {
             size="sm"
             variant="outline"
             className="gap-1.5"
-            disabled={pricedLoading || pricedError || classifyRunning || classificationFrozen}
+            disabled={!sheetLoad.isUsable || classifyRunning || classificationFrozen}
             onClick={() => setClassifyOpen(true)}
             title={
               classificationFrozen
@@ -3090,7 +3826,7 @@ const SheetPricingPage = () => {
             variant={classificationFrozen ? "default" : "outline"}
             className="gap-1.5"
             disabled={
-              pricedLoading || pricedError || classifyRunning || commitVersion === null || freezeToggling
+              !sheetLoad.isUsable || classifyRunning || commitVersion === null || freezeToggling
             }
             onClick={classificationFrozen ? () => setUnfreezeConfirm(true) : handleFreezeClick}
             title={
@@ -3112,6 +3848,75 @@ const SheetPricingPage = () => {
               {frozenAt ? ` · ${formatDate(frozenAt)}` : ""}
               {frozenBy ? ` · ${frozenBy}` : ""}
             </span>
+          )}
+
+          {/* ── BCS-S2: the cost section's enable button. NO NEW COLOUR -- it goes SOLID when on,
+              exactly like Freeze Classification beside it (teal is the sheet lock, sky is
+              Freeze-columns, emerald is priced/succeeded, red is error, amber is attention; a
+              sixth meaning would cost more than it buys). Off -> click turns BCS on AND opens the
+              confirmation card. On -> click reopens the card; turning BCS off lives in the card's
+              footer, so this control is never a destructive toggle. Greyed with the reason in the
+              title -- BCS always exists as an action here, so hiding it would be the lie. ── */}
+          {/* BCS-S2a (finding F1): THREE states, and the button must never present UNKNOWN as
+              OFF -- S2 did, which is how a confirmed sheet showed as off with its chip gone.
+              `aria-pressed` is OMITTED (not false) when unknown, because a toggle must not
+              claim a state nobody told it.
+
+              WHAT ACTUALLY SEPARATES THEM, corrected at BCS-S2c. The earlier note said UNKNOWN
+              "never borrows the OFF look", which overstates it: unknown and off share
+              `variant="outline"`, and in one branch they share the calculator glyph too. The
+              real and sufficient separator is that OFF IS CLICKABLE AND UNKNOWN IS NOT --
+
+                off      outline + calculator, ENABLED, title invites the click;
+                unknown  outline, DISABLED, title says which thing we are waiting on
+                         (spinner while loading, warning glyph when the read failed,
+                         plain calculator when there is simply no payload yet).
+
+              That holds on every reachable path, and it holds by CONSTRUCTION rather than by
+              matching branches: `bcsToggleState` returns "unknown" only when the payload is
+              absent or the read failed, and each of those cases also produces a `bcsReason`,
+              which is what disables the button. The fetch and the reason chain gate on the SAME
+              `liveCommitVersion`, so a disabled swrKey cannot leave an enabled button with no
+              payload behind it. ⚠️ S3 INHERITS THIS: hang cost cells off `bcsToggle` and keep
+              the guarantee at the same seam -- "unknown" is carried by DISABLED-ness, so an S3
+              cost cell that renders unknown as an ordinary empty editable cell breaks it even
+              though it changed no colour. Do not read the glyph as the distinction. */}
+          <Button
+            size="sm"
+            variant={bcsToggle === "on" ? "default" : "outline"}
+            className="gap-1.5"
+            aria-pressed={bcsToggle === "unknown" ? undefined : bcsToggle === "on"}
+            disabled={bcsReason !== null || bcsToggling}
+            onClick={handleBcsButtonClick}
+            title={
+              bcsReason ??
+              (bcsToggle === "on"
+                ? "BCS cost section is on. Click to review the Total Quantity and Amount columns."
+                : "Turn on the BCS cost section and choose the Total Quantity and Amount columns.")
+            }
+          >
+            {bcsToggling || bcsFetchLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : bcsFetchError ? (
+              <AlertTriangle className="h-4 w-4" />
+            ) : (
+              <Calculator className="h-4 w-4" />
+            )}
+            BCS
+          </Button>
+          {/* Confirmed -> a small clickable chip showing the chosen columns, mirroring the
+              "Frozen · date · by" chip beside it. Clicking it reopens the card. It needs a
+              payload to have arrived at all, so an unknown state shows nothing rather than a
+              guess -- incomplete, but never wrong. */}
+          {bcsToggle === "on" && bcsReady && bcsChip && (
+            <button
+              type="button"
+              onClick={() => setBcsCardOpen(true)}
+              className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+              title="Change which columns BCS reads the quantity and amount from."
+            >
+              {bcsChip}
+            </button>
           )}
 
           {/* ── U1 rate-helper (DEV ONLY, guardrail G1): "Suggest rates". Sits after Freeze (owner
@@ -3142,7 +3947,7 @@ const SheetPricingPage = () => {
             onClick={() => setShowNeedsReview((o) => !o)}
             // WBC-S8: enabled off the DISPLAYED version -- the same size>0 truth as hasRun, so the
             // button and what it would filter always describe the same version.
-            disabled={pricedLoading || pricedError || activeCategoriesByExcelRow.size === 0}
+            disabled={!sheetLoad.isUsable || activeCategoriesByExcelRow.size === 0}
             title={
               showNeedsReview
                 ? "Showing only rows whose category needs a check. Click to show all rows."
@@ -3196,7 +4001,7 @@ const SheetPricingPage = () => {
                 placeholder="Search description…"
                 className="h-8 w-48 pl-7 pr-7 text-xs"
                 aria-label="Search descriptions"
-                disabled={pricedLoading || pricedError}
+                disabled={!sheetLoad.isUsable}
               />
               {searchQuery !== "" && (
                 <button
@@ -3249,7 +4054,7 @@ const SheetPricingPage = () => {
                   size="sm"
                   variant="outline"
                   className="gap-1.5"
-                  disabled={pricedLoading || pricedError}
+                  disabled={!sheetLoad.isUsable}
                 >
                   <SlidersHorizontal className="h-4 w-4" />
                   Columns
@@ -3484,6 +4289,21 @@ const SheetPricingPage = () => {
         onClose={() => setPickerState(null)}
       />
 
+      {/* BCS-S2: the two-column confirmation card. Mounted ONCE at page level (never inside a row
+          loop) with page-owned open-state, mirroring CategoryVerdictPicker above. It is fed the
+          COMMITTED sheet's descriptors -- the same set _committed_descriptors validates against --
+          so the columns it offers and the columns the server accepts are one list. */}
+      <BcsColumnsDialog
+        open={bcsCardOpen}
+        sheetLabel={decodedSheetName.trim() || decodedSheetName}
+        descriptors={columnDescriptors}
+        qtySource={bcsQtySource}
+        amountSource={bcsAmountSource}
+        onClose={() => setBcsCardOpen(false)}
+        onSave={handleBcsConfirm}
+        onDisable={handleBcsDisable}
+      />
+
       {/* Freeze confirm -- warns when eligible rows have no category (they are skipped from the
           snapshot, not blocked). Plain confirm when everything is categorised. */}
       <AlertDialog open={!!freezeConfirm} onOpenChange={(o) => !o && setFreezeConfirm(null)}>
@@ -3579,7 +4399,7 @@ const SheetPricingPage = () => {
           (declaration works under the gate). A trivially-complete sheet (zero amount columns)
           never shows it (areFormulasComplete is true). Amber-note styling (mirrors the
           override / unmapped-column notes). */}
-      {!isGridOnly && !locked && !pricedLoading && !pricedError && !formulasComplete && (
+      {!isGridOnly && !locked && sheetLoad.isUsable && !formulasComplete && (
         <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-xs text-amber-900 dark:text-amber-100 flex-wrap">
           <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-700 dark:text-amber-300" />
           <span>Declare amount formulas to enable rate entry.</span>
@@ -3592,7 +4412,7 @@ const SheetPricingPage = () => {
           the count STILL shows the blanks). It NAMES the existing "Check Category" toolbar control; it
           does NOT add a button and there is no click-to-jump (owner ruling). Amber-note styling,
           verbatim from the formula banner. */}
-      {!isGridOnly && !locked && !pricedLoading && !pricedError && categoryBlankCount > 0 && (
+      {!isGridOnly && !locked && sheetLoad.isUsable && categoryBlankCount > 0 && (
         <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-xs text-amber-900 dark:text-amber-100 flex-wrap">
           <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-700 dark:text-amber-300" />
           {categoryGateOverride ? (
@@ -3668,6 +4488,62 @@ const SheetPricingPage = () => {
         </div>
       )}
 
+      {/* ── BCS SETUP banner (Slice BCS-S2) ──────────────────────────────────────
+          Shown when BCS is ON but its two columns are not confirmed -- the state in which every
+          cost write is refused server-side (_guard_bcs_ready). Same conditions as the formula and
+          category banners above, and the SAME amber-note markup (there is no shared Banner
+          component in this file -- every banner is copied markup, and drift here would be
+          visible). Per the category-gate precedent it NAMES the control and adds no jump button;
+          the BCS button in the bottom ribbon is the one way in. */}
+      {!isGridOnly && !locked && sheetLoad.isUsable && bcsNeedsColumns && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-xs text-amber-900 dark:text-amber-100 flex-wrap">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-700 dark:text-amber-300" />
+          <span>
+            BCS is on, but it still needs to know which columns hold the Total Quantity and the
+            Amount charged to the client. Cost entry stays locked until both are confirmed — use
+            the BCS button to choose them.
+          </span>
+        </div>
+      )}
+
+      {/* ── BCS COSTS UNREADABLE (slice BCS-S4) ─────────────────────────────────
+          The visible half of survivor 3. BCS is set up on this version, so the cost block SHOULD
+          be here -- and it is not, because we could not read what this sheet costs.
+
+          ⚠️ THIS BANNER IS THE WHOLE POINT OF WITHHOLDING THE BLOCK. Hiding the columns silently
+          would swap one lie for another ("this sheet has no BCS"); the columns are absent AND the
+          screen says why, which is the only combination that leaves the reader with a true picture.
+          Destructive styling, not amber: an amber note reads as an advisory, and "you cannot see
+          this sheet's costs right now" is not advisory. */}
+      {!isGridOnly && bcsCostsUnreadable && (
+        <div className="flex flex-col items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+          <p className="flex items-start gap-2 font-medium">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+            {bcsRatesLoad.message}
+          </p>
+          <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={handleRetryBcsRates}>
+            <RefreshCw className="mr-1.5 h-3 w-3" />
+            Try again
+          </Button>
+        </div>
+      )}
+
+      {/* ── BCS COSTS STALE (slice BCS-S4) ──────────────────────────────────────
+          A failed REFRESH over costs we already hold. The block stays -- blanking a live costing
+          session over one transient blip is its own harm, the same trade the sheet and grid
+          fetches make -- but it must not claim to be current. Amber here, because the data IS
+          usable and the note IS advisory; that is exactly the distinction the banner above is not. */}
+      {!isGridOnly && bcsBlockConfigured && bcsRatesLoad.isStale && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-xs text-amber-900 dark:text-amber-100 flex-wrap">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-700 dark:text-amber-300" />
+          <span className="flex-1">{bcsRatesLoad.message}</span>
+          <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={handleRetryBcsRates}>
+            <RefreshCw className="mr-1.5 h-3 w-3" />
+            Retry
+          </Button>
+        </div>
+      )}
+
       {/* ── Inline save error (a save throw surfaces here; the cell keeps your input). */}
       {!isGridOnly && saveError && (
         <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-destructive/40 bg-destructive/10 text-xs text-destructive flex-wrap">
@@ -3678,12 +4554,13 @@ const SheetPricingPage = () => {
       {/* ── Summary panel (top-down, grid-aligned, fixed-height, internal scroll) ──
           Opens ABOVE the grid; computed page-side from the same rows + descriptors the
           grid renders (no new backend call). The grid stays usable below. */}
-      {!isGridOnly && summaryOpen && !pricedLoading && !pricedError && (
+      {!isGridOnly && summaryOpen && sheetLoad.isUsable && (
         <SummaryPanel
           rows={rows}
           columnDescriptors={columnDescriptors}
           columnFormulas={columnFormulas}
           reconChoices={reconChoices}
+          bcs={summaryBcsInput}
           sheetName={displaySheetName}
           onClose={() => setSummaryOpen(false)}
         />
@@ -3695,7 +4572,7 @@ const SheetPricingPage = () => {
           click-jumps to its row via the grid's scrollToRow handle, and carries a per-entry
           "Looks OK" dismiss (4b-ACKNOWLEDGE) that HIDES it from the active view (toggle
           "Show dismissed" to reveal + restore). The default view is ACTIVE-only. */}
-      {!isGridOnly && reviewOpen && !pricedLoading && !pricedError && (
+      {!isGridOnly && reviewOpen && sheetLoad.isUsable && (
         <div className="rounded-md border border-border bg-muted/20">
           <div className="flex items-center justify-between border-b border-border px-3 py-2">
             <p className="text-sm font-medium text-foreground">
@@ -3852,16 +4729,41 @@ const SheetPricingPage = () => {
       )}
 
       {/* ── Grid ──────────────────────────────────────────────────────────────── */}
-      {pricedLoading && (
+      {/* PE-SPIN-1: three honest outcomes where there used to be two, one of which could not be
+          reached. A spinner now means a load genuinely IN PROGRESS; a failure says so and offers
+          a Retry instead of spinning forever; and a payload whose latest refresh failed still
+          renders (destroying a live editing session over one transient blip is its own harm) but
+          says plainly that it may be out of date. `sheetLoad.message` carries the wording -- the
+          three cases are worded apart on purpose, because "the network failed" and "this sheet
+          may not be committed" send a user to different places. */}
+      {sheetLoad.isLoading && (
         <div className="flex items-center justify-center py-16">
           <Loader2 className="h-6 w-6 animate-spin text-primary" />
         </div>
       )}
 
-      {pricedError && (
-        <p className="text-sm text-destructive">
-          Failed to load pricing rows. Check that this sheet has been committed and try again.
-        </p>
+      {sheetLoad.isFailed && (
+        <div className="flex flex-col items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-4 py-3">
+          <p className="flex items-center gap-2 text-sm font-medium text-destructive">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            {sheetLoad.message}
+          </p>
+          <Button variant="outline" size="sm" onClick={handleRetryLoad}>
+            <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+            Try again
+          </Button>
+        </div>
+      )}
+
+      {sheetLoad.isStale && (
+        <div className="mb-2 flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          <span className="flex-1">{sheetLoad.message}</span>
+          <Button variant="outline" size="sm" onClick={handleRetryLoad}>
+            <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+            Retry
+          </Button>
+        </div>
       )}
 
       {/* ── Render fork: grid-only -> faithful read-only grid; else the pricing grid.
@@ -3870,7 +4772,7 @@ const SheetPricingPage = () => {
           expanded (the root is flex-col) so the grid fills the freed full-screen height; the
           grid's own container relaxes its rem-cap (its `expanded` prop). Embedded -> no class
           (the grid keeps its own viewport-rem cap, byte-for-byte the prior behaviour). */}
-      {!pricedLoading && !pricedError && (
+      {sheetLoad.isUsable && (
         <div className={cn(expanded && "flex min-h-0 flex-1 flex-col")}>
         {/* RM-3a/RM-3b: the rate-helper panel mount + the FULL-SCREEN flex chain.
             - EMBEDDED (feature on): the panel is ALWAYS mounted (panel-as-default), so this is a
@@ -3888,14 +4790,35 @@ const SheetPricingPage = () => {
         <div className={cn(embeddedPanel && "flex min-h-0 flex-1 items-start gap-3", expanded && "flex min-h-0 flex-1")}>
         <div className={cn(embeddedPanel && "min-w-0 flex-1", expanded && "flex min-h-0 flex-1 min-w-0 flex-col")}>
         {isGridOnly ? (
+          <>
+          {/* PE-SPIN-1-fix (SURVIVOR 1): the grid's stale strip, the same shape the sheet fetch
+              got at PE-SPIN-1 -- a retained grid still renders (a transient blip should not blank
+              a reference sheet someone is reading) but it must not claim to be current. Rendered
+              here rather than inside SheetDataGrid so that component's props are untouched: it
+              still takes exactly `isInitLoading` + `initError`, now fed honest values. */}
+          {gridLoad.isStale && (
+            <div className="mb-2 flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              <span className="flex-1">{gridLoad.message}</span>
+              <Button variant="outline" size="sm" onClick={handleRetryGrid}>
+                <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                Retry
+              </Button>
+            </div>
+          )}
           <SheetDataGrid
             // Faithful committed grid (general specs) -- READ-ONLY reference, all rows at
             // once (pagination stubbed). Reuses SheetDataGrid as-is; falls back to raw Excel
             // column letters when the config maps are empty (a general-specs sheet has none).
             rows={gridData?.message?.rows ?? []}
             hasMore={false}
-            isInitLoading={gridData === undefined}
-            initError={gridData === null ? "Failed to load the sheet grid." : null}
+            // PE-SPIN-1-fix (SURVIVOR 1): the honest pair. These two props used to be
+            // `gridData === undefined` and `gridData === null` -- the retired convention, whose
+            // error branch SWR can never reach, so a failed grid load span forever. SheetDataGrid
+            // renders loading BEFORE error, which is why isInitLoading must go false on a failure:
+            // a spinner would otherwise still win and swallow the message.
+            isInitLoading={gridLoad.isLoading}
+            initError={gridLoad.isFailed ? gridLoad.message : null}
             isLoadingMore={false}
             loadMoreError={null}
             onLoadMore={() => {}}
@@ -3905,6 +4828,7 @@ const SheetPricingPage = () => {
             areaList={gridData?.message?.area_dimensions ?? []}
             expanded={expanded} // Slice 4c: relax the height cap in full-screen
           />
+          </>
         ) : (
           <PricingGrid
             // Slice 3d: key on the VERBATIM sheetName so a tab switch UNMOUNTS+REMOUNTS the
@@ -3965,6 +4889,24 @@ const SheetPricingPage = () => {
             // `f = ...` label; onSaveFormula is withheld when locked (header renders read-only).
             columnFormulas={columnFormulas}
             onSaveFormula={locked ? undefined : handleSaveFormula}
+            // ── BCS-S3a: the cost block. `bcsKinds` EMPTY (the default) removes it entirely and
+            //    every colIndex reverts to its pre-S3a value, so a sheet without BCS is unchanged.
+            //    NOTE the gating is NOT `locked ? undefined : ...` like its neighbours: BCS runs
+            //    save_row_bcs_rates' OWN four gates (bcsCostEntryReason), which deliberately skip
+            //    the formula, priceability and category gates -- reusing `locked` here would be
+            //    close but would miss the two BCS-specific conditions. Every prop is useMemo'd /
+            //    useCallback'd or a plain scalar, so the V0 grid memo shield holds.
+            bcsKinds={bcsKinds}
+            bcsRatesByExcelRow={bcsRatesByExcelRow}
+            bcsQtySource={bcsQtySource}
+            // BCS-S3b: the Amount side of the SAME confirmation the card already stores -- it
+            // fills the Tendered Total Amount column and is % Profit's denominator. No new
+            // fetch and no new state: `bcsAmountSource` has been read off `get_bcs_state` since
+            // S2 (it is what `bcsChipLabel` names in the chip), and it is reference-stable
+            // between refetches, which is what keeps the PricingGrid memo shield intact.
+            bcsAmountSource={bcsAmountSource}
+            onSaveBcsRates={bcsWritable ? handleSaveBcsRates : undefined}
+            bcsReadOnlyReason={bcsCostReason}
             onDirtyChange={handleDirtyChange}
             // Slice B (undo/redo): the grid surfaces {canUndo, canRedo}; the bottom-ribbon buttons
             // read it (the onDirtyChange precedent). The undo/redo ACTIONS ride the imperative handle.
@@ -3993,7 +4935,9 @@ const SheetPricingPage = () => {
             // childrenByParent (over FULL rows) + the toggle drive the grid's chevrons; onRevealRow
             // powers reveal-then-scroll. GRID-LEVEL props -- NONE enter the row memo (R6).
             collapsed={collapsed}
-            childrenByParent={childrenByParent}
+            // BCS-S4: no chevrons in the flat margin view (see EMPTY_CHILDREN_BY_PARENT). Both
+            // branches are stable references, so the memo shield is untouched.
+            childrenByParent={marginViewOpen ? EMPTY_CHILDREN_BY_PARENT : childrenByParent}
             onToggleCollapse={toggleCollapse}
             onRevealRow={revealRow}
             // Frozen-left Slice 1: two-pane frozen-left + measure-at-freeze heights. Page-owned
@@ -4001,6 +4945,16 @@ const SheetPricingPage = () => {
             // is the non-grid-only PricingGrid; SheetDataGrid never receives it).
             frozen={frozen}
             virtualized={virtualized}
+            // ── BCS-S4: the margin view. `rows` above is ALREADY the flat, ordered set (the page
+            //    owns the order; the grid never sorts). These four only tell the grid to stop
+            //    making tree CLAIMS about it -- flatten the indent, show the section instead, and
+            //    turn the % Profit header into the sort control. All four are identity-stable:
+            //    two scalars, a module-level-empty-or-per-fetch Map, and a useCallback -- the V0
+            //    memo shield is React's DEFAULT shallow compare and a fresh value here kills it.
+            marginView={marginViewOpen}
+            sectionByRowIndex={sectionByRowIndex}
+            marginSortDir={marginSortDir}
+            onToggleMarginSort={handleToggleMarginSort}
           />
         )}
         </div>
