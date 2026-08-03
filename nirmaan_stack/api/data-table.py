@@ -50,7 +50,8 @@ def get_facet_values(
     search_term: str | None = None,
     current_search_fields: str | None = None,
     limit: int | str = 100,
-    require_pending_items: bool | str = False
+    require_pending_items: bool | str = False,
+    include_blank_bucket: bool | str = False
 ) -> dict:
     """
     Whitelisted entry point for dynamic facet value calculation.
@@ -63,5 +64,6 @@ def get_facet_values(
         search_term=search_term,
         current_search_fields=current_search_fields,
         limit=limit,
-        require_pending_items=require_pending_items
+        require_pending_items=require_pending_items,
+        include_blank_bucket=include_blank_bucket
     )

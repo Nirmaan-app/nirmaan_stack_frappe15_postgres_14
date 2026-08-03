@@ -171,9 +171,12 @@ doc_events = {
 		"on_update": "nirmaan_stack.nirmaan_stack.doctype.vendor_category.vendor_category.update_vendor_category",
         "on_trash": "nirmaan_stack.nirmaan_stack.doctype.vendor_category.vendor_category.delete_vendor_category"
     },
+    # `on_update` was retired at ADR-0004: it synced item_name/category onto
+    # `TDS Items Child Table` member rows, but membership is now N:1 owned by the
+    # Item (`Items.linked_tds_item`) and members are DERIVED live from `Items` —
+    # so there are no denormalized display fields left to keep in sync.
     "Items": {
-        "after_insert": "nirmaan_stack.integrations.controllers.items.after_insert",
-        "on_update": "nirmaan_stack.integrations.controllers.items.on_update"
+        "after_insert": "nirmaan_stack.integrations.controllers.items.after_insert"
     },
     "Project TDS Item List": {
         "before_save": "nirmaan_stack.integrations.controllers.project_tds_item_list.before_save"

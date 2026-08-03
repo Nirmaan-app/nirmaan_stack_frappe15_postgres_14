@@ -16,6 +16,56 @@ class Items(Document):
 			if duplicate:
 				frappe.throw(frappe._("Product Name '{0}' already exists (ID: {1})").format(self.item_name, duplicate))
 
+		self._validate_linked_tds_item()
+
+	def _validate_linked_tds_item(self):
+		"""Hard-enforce the ADR-0004 work-package invariant on `linked_tds_item`.
+
+		An item may only belong to a TDS group in its OWN work package. The item's
+		WP is derived `Items.category -> Category.work_package`; the group's is
+		`TDS Items.work_package`.
+
+		This runs behind a UI that already filters the dropdown to matching-WP
+		groups, so a throw here means either a non-UI writer or stale data — both
+		worth failing loudly on. It is deliberately a `validate` (not a
+		`before_save`) so it also guards a bare `doc.save()` from a console.
+
+		NOTE for migrations: `frappe.db.set_value` bypasses this entirely. Any
+		patch that backfills `linked_tds_item` must re-implement the check itself
+		(see `patches/v3_0/backfill_item_linked_tds_item.py`), or it will plant
+		links that make the item unsaveable the next time anyone edits it.
+		"""
+		if not self.linked_tds_item:
+			return
+
+		item_wp = None
+		if self.category:
+			item_wp = frappe.db.get_value("Category", self.category, "work_package")
+
+		if not item_wp:
+			frappe.throw(
+				frappe._(
+					"Cannot link a TDS Item: product '{0}' has no resolvable work package "
+					"(its category '{1}' does not map to one). Set a category with a work "
+					"package first."
+				).format(self.item_name or self.name, self.category or "—")
+			)
+
+		group_wp = frappe.db.get_value("TDS Items", self.linked_tds_item, "work_package")
+		if item_wp != group_wp:
+			frappe.throw(
+				frappe._(
+					"Work package mismatch: product '{0}' is in '{1}', but TDS Item '{2}' "
+					"is in '{3}'. An item can only be linked to a TDS group in its own "
+					"work package."
+				).format(
+					self.item_name or self.name,
+					item_wp,
+					self.linked_tds_item,
+					group_wp or "—",
+				)
+			)
+
 	def before_insert(self):
 		# Set default values if not provided
 		if not self.item_status:
@@ -26,43 +76,12 @@ class Items(Document):
 			self.order_category = "Local"
 
 	def on_update(self):
-		"""Sync item_name and category changes to all matching TDS Repository records."""
+		"""Propagate a billing_category change onto dependent PR / SB / PO line items."""
 		old_doc = self.get_doc_before_save()
 		if not old_doc:
 			return
 
-		# Propagate a billing_category change to the billing_status of every
-		# Procurement Request / Sent Back / Purchase Order line item for this item.
 		self._propagate_billing_status(old_doc)
-
-		# Build dict of changed fields: Items field -> TDS Repository field
-		updates = {}
-
-		old_name = old_doc.get("item_name") or ""
-		new_name = self.get("item_name") or ""
-		if old_name != new_name:
-			updates["tds_item_name"] = new_name
-
-		old_category = old_doc.get("category") or ""
-		new_category = self.get("category") or ""
-		if old_category != new_category:
-			updates["category"] = new_category
-
-		if not updates:
-			return
-
-		tds_records = frappe.get_all(
-			"TDS Repository",
-			filters={"tds_item_id": self.name},
-			fields=["name"],
-		)
-
-		for rec in tds_records:
-			frappe.db.set_value("TDS Repository", rec.name, updates, update_modified=False)
-
-		if tds_records:
-			frappe.db.commit()
-			print(f"[Items on_update] '{self.name}': Synced {updates} to {len(tds_records)} TDS Repository record(s).")
 
 	# PR / SB parent workflow states that are still heading toward a PO ("upcoming PO").
 	# Terminal / done states are intentionally excluded so historical PR/SB rows are left
@@ -141,11 +160,12 @@ class Items(Document):
 			""",
 			(self.name,),
 		)
-	# NOTE: The former `on_update` hook synced item_name/category into TDS Repository
-	# rows (which used to denormalize those fields and link via `tds_item_id`). The
-	# TDS Repository restructure (3-level TDS Item grouping model) removed
-	# `tds_item_id`, `tds_item_name`, and `category` from TDS Repository — those
-	# values now live on `TDS Items Child Table` child rows via `fetch_from`. The old
-	# hook was therefore obsolete and would raise on the removed columns, so it was
-	# removed. Keeping `TDS Items Child Table` display fields fresh on Items rename/
-	# recategorize is a Phase 2 concern (see tds/phase-1-plan.md).
+	# HISTORY (ADR-0004): `on_update` used to also sync item_name/category into
+	# `TDS Repository` rows via a `tds_item_id` filter. The 3-level restructure had
+	# already removed those columns from the doctype JSON, but Frappe never dropped
+	# them from PostgreSQL — so the block kept running against orphan columns, and a
+	# trailing NOTE claimed it had been deleted when it had not. It is now genuinely
+	# gone, and `patches/v3_0/backfill_item_linked_tds_item.py` drops the columns.
+	#
+	# ORDERING: that column drop and this deletion must ship together. Drop the
+	# columns while the block is live and every item rename throws.

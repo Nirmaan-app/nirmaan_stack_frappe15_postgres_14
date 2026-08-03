@@ -13,6 +13,17 @@ from .utils import (
 )
 from .token_search import tokenize
 
+# Sentinel value for the "blank"/"not set" facet bucket. Surfaced as a facet
+# option (the frontend renders it with a caller-supplied label, e.g. "Not
+# Linked") only when `include_blank_bucket` is true.
+# `_process_filters_for_query` (utils.py) recognises this exact string in an
+# `in` filter and rewrites it to `is not set` so it matches both NULL and ''.
+#
+# MUST stay byte-identical to `NOT_LINKED_FACET_VALUE` in
+# `frontend/src/pages/Items/items.constants.ts`.
+NOT_SET_FACET_VALUE = "__NOT_SET__"
+
+
 def get_facet_values_impl(
     doctype=None,
     field=None,
@@ -20,7 +31,8 @@ def get_facet_values_impl(
     search_term=None,
     current_search_fields=None,
     limit=100,
-    require_pending_items=False
+    require_pending_items=False,
+    include_blank_bucket=False
 ):
     try:
         if not frappe.db.exists("DocType", doctype): frappe.throw(_("Invalid DocType: {0}").format(doctype))
@@ -338,7 +350,35 @@ def get_facet_values_impl(
             value = row.get("value")
             label = (_label_map.get(value) or value) if value else value
             facet_values.append({"value": value, "label": label, "count": row.get("count", 0)})
-        
+
+        # --- Optional "blank"/"not set" bucket (opt-in via include_blank_bucket) ---
+        # Every query branch above filters out NULL/'' values, so an unset row is
+        # invisible to the normal facet. This surfaces ONE sentinel option counting
+        # those rows (within the already-filtered `matching_names`), letting a user
+        # filter to "never linked". Only for text-storing, top-level (non-child,
+        # non-JSON) fields — the sentinel rewrite in utils.py handles the parent
+        # table only. The frontend supplies the human label; selecting it sends the
+        # sentinel back, which _process_filters_for_query rewrites to `is not set`.
+        include_blank_bucket_bool = (
+            isinstance(include_blank_bucket, str) and include_blank_bucket.lower() == 'true'
+        ) or include_blank_bucket is True
+
+        if include_blank_bucket_bool and field_is_text and not child_doctype and not is_json_field and matching_names:
+            blank_sql = (
+                f"SELECT COUNT(*) FROM `tab{doctype}` "
+                f"WHERE name IN %(names)s AND (`{field}` IS NULL OR `{field}` = '')"
+            )
+            blank_count = cint(
+                (frappe.db.sql(blank_sql, {"names": tuple(matching_names)}, as_list=True) or [[0]])[0][0]
+            )
+            if blank_count > 0:
+                facet_values.append({
+                    "value": NOT_SET_FACET_VALUE,
+                    "label": NOT_SET_FACET_VALUE,
+                    "count": blank_count,
+                })
+        # --- End blank bucket ---
+
         return {"values": facet_values}
         
     except Exception as e:

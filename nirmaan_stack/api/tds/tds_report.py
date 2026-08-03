@@ -69,20 +69,23 @@ def _enrich_model_no(items):
         valid_groups = set(existing)
 
         if valid_groups:
+            # ADR-0004: membership is N:1 owned by the Item, so a group's members
+            # are `Items WHERE linked_tds_item = <group>`. This is the BATCHED
+            # equivalent of `members.get_group_category` (which is per-group and
+            # would be an N+1 here) — the two must stay semantically identical:
+            # distinct member categories, first-seen order.
             rows = frappe.get_all(
-                "TDS Items Child Table",
-                filters={
-                    "parent": ["in", list(valid_groups)],
-                    "parenttype": "TDS Items",
-                },
-                fields=["parent", "category"],
-                order_by="idx asc",
+                "Items",
+                filters={"linked_tds_item": ["in", list(valid_groups)]},
+                fields=["linked_tds_item", "category"],
+                order_by="item_name asc",
                 limit_page_length=0,
             )
             for r in rows:
-                if not r.parent or not r.category:
+                parent = r.get("linked_tds_item")
+                if not parent or not r.category:
                     continue
-                cats = member_cats.setdefault(r.parent, [])
+                cats = member_cats.setdefault(parent, [])
                 if r.category not in cats:  # distinct, preserve order
                     cats.append(r.category)
 
