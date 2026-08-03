@@ -290,10 +290,8 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                           </span>
                           {a.options ? (
                             <select
-                              // EA-4a-r: disabled = greyed (an allow_none controller is set to "None").
-                              className="h-7 rounded border bg-background px-1 text-xs disabled:opacity-50"
+                              className="h-7 rounded border bg-background px-1 text-xs"
                               value={a.value}
-                              disabled={a.disabled}
                               onChange={(e) => setAttr(helper.id, a.id, e.target.value)}
                             >
                               {/* An EMPTY value (the AI could not read it, or a manual row) must not
@@ -309,27 +307,11 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                               ))}
                             </select>
                           ) : (
-                            <span className="flex items-center gap-1">
-                              {/* EA-4a-r: a NUMBER allow_none def offers "None" (positive absence) as a
-                                  checkbox -- the input-appropriate analogue of a choice def's top-of-list
-                                  "None". Checked -> the sentinel + the numeric field greys/clears. */}
-                              {a.allowNone && (
-                                <label className="flex items-center gap-0.5 text-[10px] text-muted-foreground">
-                                  <input
-                                    type="checkbox"
-                                    checked={a.value === "None"}
-                                    onChange={(e) => setAttr(helper.id, a.id, e.target.checked ? "None" : "")}
-                                  />
-                                  None
-                                </label>
-                              )}
-                              <Input
-                                className="h-7 w-28 text-xs disabled:opacity-50"
-                                value={a.value === "None" ? "" : a.value}
-                                disabled={a.disabled || a.value === "None"}
-                                onChange={(e) => setAttr(helper.id, a.id, e.target.value)}
-                              />
-                            </span>
+                            <Input
+                              className="h-7 w-28 text-xs"
+                              value={a.value}
+                              onChange={(e) => setAttr(helper.id, a.id, e.target.value)}
+                            />
                           )}
                         </label>
                       ))}

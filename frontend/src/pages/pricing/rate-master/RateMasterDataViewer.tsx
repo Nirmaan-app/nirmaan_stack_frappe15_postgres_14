@@ -5,7 +5,7 @@
 // "Aluminium" finds nothing -- the data is canonical UPPERCASE). No virtualization
 // by design -- this is an admin table, not the editor.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { Pencil, Trash2, Check, X, Plus, Filter } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,7 +21,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { RateCategoryConfig, RateMasterItem } from "./rateMasterTypes";
 import { parseFiniteInput } from "./rateMasterEdit";
-import { categoryItemKinds, isCategoryDataScopeEmpty } from "./rateMasterStructure";
 
 interface Props {
   items: RateMasterItem[];
@@ -64,68 +63,34 @@ export function RateMasterDataViewer({
   const [confirmDeactivate, setConfirmDeactivate] = useState<{ name: string; label: string } | null>(null);
   const [addOpen, setAddOpen] = useState(false);
 
-  // EA-1c change 1: SCOPE the Data tab to the selected category's items. The kinds come from the
-  // config's declared item_kinds, else (legacy wiring) derived from its pipelines' match_master_row.
-  // The `items` prop is discipline-wide; we show only rows whose kind belongs to this category.
-  // EA-DIFF (owner-observed D5 defect): a category whose resolved kind set is EMPTY -- declared
-  // item_kinds:[] AND no pipeline-derivable kind (point_wiring, the first kind-less category) -- owns
-  // NO data rows of its own; its pricing derives from OTHER categories' items. It MUST render an honest
-  // empty state, NEVER fall through to the discipline-wide all-items list (the old `: items` fallback,
-  // which surfaced all 1356 rows with mixed columns). LMS (item_kinds:["lms_item"], empty pipelines)
-  // still resolves a kind, so it is UNCHANGED.
-  const categoryKinds = useMemo(() => categoryItemKinds(config), [config]);
-  const emptyScope = useMemo(() => isCategoryDataScopeEmpty(config), [config]);
-  const scopedItems = useMemo(
-    () => (emptyScope ? [] : items.filter((it) => categoryKinds.includes(it.kind))),
-    [items, categoryKinds, emptyScope]
-  );
-  // The kind column + chips only appear when the category spans MORE THAN ONE kind.
-  const showKindCol = categoryKinds.length > 1;
-
   // Attribute columns = every definition EXCEPT brand (brand is its own named column).
   const attrCols = useMemo(
     () => config.attribute_definitions.filter((d) => d.id !== "brand"),
     [config]
   );
 
-  // Rate columns = union of rate keys across THIS CATEGORY's items, in first-seen order.
+  // Rate columns = union of rate keys across items, in first-seen order.
   const rateCols = useMemo(() => {
     const seen: string[] = [];
-    for (const it of scopedItems) {
+    for (const it of items) {
       for (const k of Object.keys(it.rates || {})) if (!seen.includes(k)) seen.push(k);
     }
     return seen;
-  }, [scopedItems]);
+  }, [items]);
 
-  // Kind filter chips = this category's kinds (present in its items), sorted.
   const kinds = useMemo(() => {
     const set = new Set<string>();
-    for (const it of scopedItems) set.add(it.kind);
+    for (const it of items) set.add(it.kind);
     return Array.from(set).sort();
-  }, [scopedItems]);
+  }, [items]);
 
-  const batchId = scopedItems[0]?.import_batch ?? "(none)";
-
-  // EA-1c change 3: the RM-3b PROXY H-SCROLLBAR -- ONE always-visible bar. The real scroller's native
-  // H-bar is suppressed (boq-embed-hidehbar), a sticky bottom proxy mirrors its scrollLeft two-way, and
-  // the proxy's visible width == the scroller's clientWidth (V-bar leak accounted) with a spacer ==
-  // scrollWidth (full extent, live-measured via ResizeObserver). Same pattern as PricingGrid.tsx.
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-  const proxyRef = useRef<HTMLDivElement | null>(null);
-  const [hScroll, setHScroll] = useState({ clientWidth: 0, scrollWidth: 0 });
-
-  // Reset the filter/search state when switching category (the component persists across categories).
-  useEffect(() => {
-    setKind("all");
-    setSearch("");
-    setColumnFilters({});
-  }, [config.category_id]);
+  const batchId = items[0]?.import_batch ?? "(none)";
 
   // Per-column faceted filters: a unified column model (key + how to read the cell) drives BOTH the
   // distinct-value dropdowns and the row predicate, so a new attribute/rate column self-registers.
   const columns = useMemo(
     () => [
-      ...(showKindCol ? [{ key: "kind", get: (it: RateMasterItem) => it.kind }] : []),
+      { key: "kind", get: (it: RateMasterItem) => it.kind },
       { key: "brand", get: (it: RateMasterItem) => it.brand },
       ...attrCols.map((d) => ({ key: `attr:${d.id}`, get: (it: RateMasterItem) => it.attributes?.[d.id] })),
       ...rateCols.map((k) => ({ key: `rate:${k}`, get: (it: RateMasterItem) => it.rates?.[k] })),
@@ -133,20 +98,20 @@ export function RateMasterDataViewer({
       { key: "source_sheet", get: (it: RateMasterItem) => it.source_sheet },
       { key: "source_row", get: (it: RateMasterItem) => it.source_row },
     ],
-    [showKindCol, attrCols, rateCols],
+    [attrCols, rateCols],
   );
   const distinctByColumn = useMemo(() => {
     const m: Record<string, string[]> = {};
     for (const c of columns) {
       const set = new Set<string>();
-      for (const it of scopedItems) {
+      for (const it of items) {
         const v = cellText(c.get(it));
         if (v !== "") set.add(v);
       }
       m[c.key] = Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
     }
     return m;
-  }, [columns, scopedItems]);
+  }, [columns, items]);
   const getForColumn = useMemo(() => {
     const m: Record<string, (it: RateMasterItem) => unknown> = {};
     for (const c of columns) m[c.key] = c.get;
@@ -165,7 +130,7 @@ export function RateMasterDataViewer({
 
   // Precompute a per-row searchable string over EVERY displayed cell.
   const rows = useMemo(() => {
-    return scopedItems.map((it) => {
+    return items.map((it) => {
       const cells: string[] = [
         cellText(it.kind),
         cellText(it.brand),
@@ -177,7 +142,7 @@ export function RateMasterDataViewer({
       ];
       return { it, cells, haystack: cells.join("  ") };
     });
-  }, [scopedItems, attrCols, rateCols]);
+  }, [items, attrCols, rateCols]);
 
   const filtered = useMemo(() => {
     const filterEntries = Object.entries(columnFilters);
@@ -185,63 +150,13 @@ export function RateMasterDataViewer({
       if (kind !== "all" && r.it.kind !== kind) return false;
       if (search && !r.haystack.includes(search)) return false; // CASE-SENSITIVE
       // per-column facets: a row passes iff its cell value is in EVERY active column's selected set (AND
-      // across columns, OR within a column). A stale filter key whose column no longer exists (e.g. the
-      // kind funnel after switching to a single-kind category) is skipped, not treated as no-match.
+      // across columns, OR within a column).
       for (const [key, sel] of filterEntries) {
-        const getter = getForColumn[key];
-        if (!getter) continue;
-        if (!sel.includes(cellText(getter(r.it)))) return false;
+        if (!sel.includes(cellText(getForColumn[key]?.(r.it)))) return false;
       }
       return true;
     });
   }, [rows, kind, search, columnFilters, getForColumn]);
-
-  // Proxy scrollbar metrics: live-measure the real scroller (+ its table for content-width changes)
-  // via a ResizeObserver. clientWidth (excludes the V-bar -> no end clamp) = proxy visible width;
-  // scrollWidth (full extent) = spacer width. A guarded no-op keeps re-renders to genuine size changes.
-  useEffect(() => {
-    const scroller = scrollRef.current;
-    if (!scroller) return;
-    const measure = () =>
-      setHScroll((m) => {
-        const clientWidth = scroller.clientWidth;
-        const scrollWidth = scroller.scrollWidth;
-        return m.clientWidth === clientWidth && m.scrollWidth === scrollWidth ? m : { clientWidth, scrollWidth };
-      });
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(scroller);
-    const table = scroller.querySelector("table");
-    if (table) ro.observe(table);
-    return () => ro.disconnect();
-  }, [columns.length, filtered.length]);
-  // Two-way scrollLeft sync between the proxy bar and the real scroller (layout only; a latch stops the
-  // ping-pong). Re-wired when the content width changes.
-  useEffect(() => {
-    const proxy = proxyRef.current;
-    const scroller = scrollRef.current;
-    if (!proxy || !scroller) return;
-    let syncing = false;
-    const fromProxy = () => {
-      if (syncing) return;
-      syncing = true;
-      scroller.scrollLeft = proxy.scrollLeft;
-      syncing = false;
-    };
-    const fromScroller = () => {
-      if (syncing) return;
-      syncing = true;
-      proxy.scrollLeft = scroller.scrollLeft;
-      syncing = false;
-    };
-    proxy.addEventListener("scroll", fromProxy, { passive: true });
-    scroller.addEventListener("scroll", fromScroller, { passive: true });
-    fromScroller(); // seed the proxy thumb to the current position
-    return () => {
-      proxy.removeEventListener("scroll", fromProxy);
-      scroller.removeEventListener("scroll", fromScroller);
-    };
-  }, [hScroll.scrollWidth]);
 
   // RM-4a edit handlers -----------------------------------------------------------------------------
   const beginEdit = (it: RateMasterItem) => {
@@ -325,29 +240,13 @@ export function RateMasterDataViewer({
     </div>
   );
 
-  // EA-DIFF: kind-less category -> honest empty state (zero rows, no chips, no Add-row, a note). It
-  // NEVER renders the all-items list. A category may legitimately own no data rows of its own.
-  if (emptyScope) {
-    return (
-      <div className="space-y-3">
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          <span className="font-medium">{disciplineLabel} / {categoryLabel}</span>
-          <Badge variant="outline">0 items</Badge>
-        </div>
-        <div className="rounded border border-dashed p-6 text-sm text-muted-foreground">
-          This category has no data rows of its own &mdash; its pricing derives from other categories&rsquo; items.
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-3">
       {/* header line: batch id + item count */}
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <span className="font-medium">{disciplineLabel} / {categoryLabel}</span>
         <Badge variant="secondary">batch {batchId}</Badge>
-        <Badge variant="outline">{scopedItems.length} items</Badge>
+        <Badge variant="outline">{items.length} items</Badge>
         <span className="text-muted-foreground">showing {filtered.length}</span>
       </div>
 
@@ -379,32 +278,23 @@ export function RateMasterDataViewer({
         )}
       </div>
 
-      {/* table -- EA-1c change 3: native H-bar hidden (proxy below is the single bar).
-          EA-2 rider 3: force the sticky header's top:0 with a scoped rule -- the Tailwind `top-0`
-          utility is overridden to `top:auto` here (a global table reset from Ant Design), which
-          silently defeated `position:sticky`. z-index is left to the cell classes (z-20 / corner
-          z-30). The container is the scroller (max-h), so this pins the header under vertical scroll. */}
-      <style>{".rm-data-hidehbar::-webkit-scrollbar:horizontal{display:none;height:0}.rm-data-hidehbar thead th{position:sticky;top:0;background:hsl(var(--background))}"}</style>
-      <div ref={scrollRef} className="overflow-auto rounded border rm-data-hidehbar max-h-[calc(100vh-19rem)]">
+      {/* table */}
+      <div className="overflow-x-auto rounded border">
         <Table>
           <TableHeader>
             <TableRow>
-              {/* EA-1c change 2: actions FIRST + sticky-left (absent entirely for non-admins).
-                  EA-2 rider 3: the whole header row is ALSO sticky-top; the actions CORNER cell gets
-                  z-30 so it wins over both the sticky row (z-20) and the sticky body column (z-10) and
-                  never ghosts. */}
-              {canEdit && <TableHead className="sticky left-0 top-0 z-30 bg-background text-right">actions</TableHead>}
-              {showKindCol && <TableHead className="sticky top-0 z-20 bg-background">{hdr("kind", "kind")}</TableHead>}
-              <TableHead className="sticky top-0 z-20 bg-background">{hdr("brand", "brand")}</TableHead>
+              <TableHead>{hdr("kind", "kind")}</TableHead>
+              <TableHead>{hdr("brand", "brand")}</TableHead>
               {attrCols.map((d) => (
-                <TableHead key={d.id} className="sticky top-0 z-20 bg-background">{hdr(`attr:${d.id}`, d.label)}</TableHead>
+                <TableHead key={d.id}>{hdr(`attr:${d.id}`, d.label)}</TableHead>
               ))}
               {rateCols.map((k) => (
-                <TableHead key={k} className="sticky top-0 z-20 bg-background text-right">{hdr(`rate:${k}`, k, true)}</TableHead>
+                <TableHead key={k} className="text-right">{hdr(`rate:${k}`, k, true)}</TableHead>
               ))}
-              <TableHead className="sticky top-0 z-20 bg-background">{hdr("unit", "unit")}</TableHead>
-              <TableHead className="sticky top-0 z-20 bg-background">{hdr("source_sheet", "source sheet")}</TableHead>
-              <TableHead className="sticky top-0 z-20 bg-background text-right">{hdr("source_row", "row", true)}</TableHead>
+              <TableHead>{hdr("unit", "unit")}</TableHead>
+              <TableHead>{hdr("source_sheet", "source sheet")}</TableHead>
+              <TableHead className="text-right">{hdr("source_row", "row", true)}</TableHead>
+              {canEdit && <TableHead className="text-right">actions</TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -412,36 +302,7 @@ export function RateMasterDataViewer({
               const editing = canEdit && editingRow === r.it.name;
               return (
               <TableRow key={r.it.name ?? i}>
-                {canEdit && (
-                  <TableCell className="sticky left-0 z-10 bg-background text-right">
-                    {editing ? (
-                      <div className="flex items-center justify-end gap-1">
-                        {rowErr && <span className="text-[10px] text-destructive">{rowErr}</span>}
-                        <Button size="icon" variant="ghost" className="h-7 w-7" disabled={rowSaving} aria-label="Save row" onClick={() => void saveEdit(r.it)}>
-                          <Check className="h-4 w-4 text-emerald-600" />
-                        </Button>
-                        <Button size="icon" variant="ghost" className="h-7 w-7" disabled={rowSaving} aria-label="Cancel edit" onClick={cancelEdit}>
-                          <X className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    ) : (
-                      <div className="flex items-center justify-end gap-1">
-                        <Button size="icon" variant="ghost" className="h-7 w-7" aria-label="Edit row" onClick={() => beginEdit(r.it)}>
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        {onDeactivateItem && (
-                          <Button
-                            size="icon" variant="ghost" className="h-7 w-7 text-destructive" aria-label="Deactivate row"
-                            onClick={() => setConfirmDeactivate({ name: r.it.name ?? "", label: `${r.it.kind} ${cellText(r.it.attributes?.material)}` })}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        )}
-                      </div>
-                    )}
-                  </TableCell>
-                )}
-                {showKindCol && <TableCell>{r.it.kind}</TableCell>}
+                <TableCell>{r.it.kind}</TableCell>
                 <TableCell>{r.it.brand}</TableCell>
                 {attrCols.map((d) => (
                   <TableCell key={d.id}>
@@ -479,12 +340,41 @@ export function RateMasterDataViewer({
                 <TableCell>{r.it.unit}</TableCell>
                 <TableCell>{r.it.source_sheet}</TableCell>
                 <TableCell className="text-right tabular-nums">{r.it.source_row}</TableCell>
+                {canEdit && (
+                  <TableCell className="text-right">
+                    {editing ? (
+                      <div className="flex items-center justify-end gap-1">
+                        {rowErr && <span className="text-[10px] text-destructive">{rowErr}</span>}
+                        <Button size="icon" variant="ghost" className="h-7 w-7" disabled={rowSaving} aria-label="Save row" onClick={() => void saveEdit(r.it)}>
+                          <Check className="h-4 w-4 text-emerald-600" />
+                        </Button>
+                        <Button size="icon" variant="ghost" className="h-7 w-7" disabled={rowSaving} aria-label="Cancel edit" onClick={cancelEdit}>
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-end gap-1">
+                        <Button size="icon" variant="ghost" className="h-7 w-7" aria-label="Edit row" onClick={() => beginEdit(r.it)}>
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        {onDeactivateItem && (
+                          <Button
+                            size="icon" variant="ghost" className="h-7 w-7 text-destructive" aria-label="Deactivate row"
+                            onClick={() => setConfirmDeactivate({ name: r.it.name ?? "", label: `${r.it.kind} ${cellText(r.it.attributes?.material)}` })}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </TableCell>
+                )}
               </TableRow>
               );
             })}
             {filtered.length === 0 && (
               <TableRow>
-                <TableCell colSpan={(canEdit ? 1 : 0) + (showKindCol ? 1 : 0) + 1 + attrCols.length + rateCols.length + 3} className="text-center text-muted-foreground">
+                <TableCell colSpan={2 + attrCols.length + rateCols.length + 3 + (canEdit ? 1 : 0)} className="text-center text-muted-foreground">
                   No rows match.
                 </TableCell>
               </TableRow>
@@ -492,20 +382,6 @@ export function RateMasterDataViewer({
           </TableBody>
         </Table>
       </div>
-      {/* EA-1c change 3: the single proxy H-scrollbar -- sticky at the bottom of the visible area,
-          full extent (spacer == scrollWidth, visible width == clientWidth). Rendered only when the
-          content actually overflows horizontally. */}
-      {hScroll.scrollWidth > hScroll.clientWidth && (
-        <div
-          ref={proxyRef}
-          // border-t only (a left/right border would shrink the content width -> proxy range != scroller range).
-          className="sticky bottom-0 z-20 overflow-x-auto overflow-y-hidden border-t border-border bg-background/95"
-          style={{ height: 14, width: hScroll.clientWidth || undefined }}
-          aria-hidden
-        >
-          <div style={{ width: `${hScroll.scrollWidth}px`, height: 1 }} />
-        </div>
-      )}
 
       {/* RM-4a: deactivate confirm (freeze-and-supersede -- the row is retained inactive, never deleted). */}
       <AlertDialog open={!!confirmDeactivate} onOpenChange={(o) => !o && setConfirmDeactivate(null)}>
@@ -524,11 +400,9 @@ export function RateMasterDataViewer({
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* RM-4a: add a manual item (built from the attribute definitions + known rate keys). EA-1c: keyed
-          by category so its internal state (kind/attrs/rates) is fresh per category, and category-scoped. */}
+      {/* RM-4a: add a manual item (built from the attribute definitions + known rate keys). */}
       {isAdmin && onCreateItem && (
         <AddItemDialog
-          key={config.category_id}
           open={addOpen}
           onOpenChange={setAddOpen}
           config={config}
@@ -608,19 +482,14 @@ function AddItemDialog({
         <div className="grid grid-cols-2 gap-3 text-sm">
           <label className="flex flex-col gap-1">
             <span className="text-xs text-muted-foreground">kind</span>
-            {/* EA-1c change 4: preselected read-only text when the category has one kind; a select when several. */}
-            {kinds.length <= 1 ? (
-              <div className="flex h-8 items-center rounded border px-3 text-sm text-muted-foreground">{kind || "(none)"}</div>
-            ) : (
-              <Select value={kind} onValueChange={setKind}>
-                <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {kinds.map((k) => (
-                    <SelectItem key={k} value={k}>{k}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
+            <Select value={kind} onValueChange={setKind}>
+              <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {(kinds.length ? kinds : ["cable", "termination"]).map((k) => (
+                  <SelectItem key={k} value={k}>{k}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-xs text-muted-foreground">brand</span>

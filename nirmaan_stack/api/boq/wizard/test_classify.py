@@ -23,11 +23,8 @@ Coverage matrix:
   GET_SHEET_CATEGORIES  effective = human when set else final; only current-version rows.
   SET_ROW_CATEGORY  valid id writes + returns effective; unknown id -> throw; "" clears to machine.
 
-AI settings are toggled per test via set_single_value; TestOrchestrator CAPTURES the site's original
-enabled value in setUpClass and restores THAT in tearDownClass, because persist.write_row_categories
-commits (so the toggle would otherwise leak). It must never restore a hardcoded constant: these tests
-run against the live localhost site, so a hardcoded 0 silently turns the owner's AI toggle off -- and
-set_single_value bypasses the doc lifecycle, so that flip is invisible in the Version log.
+AI settings are toggled per test via set_single_value; TestOrchestrator restores enabled=0 in
+tearDownClass because persist.write_row_categories commits (so the toggle would otherwise leak).
 """
 
 import json
@@ -223,8 +220,6 @@ class TestOrchestrator(FrappeTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        # The SITE's real AI toggle, captured so tearDownClass restores THIS value (never a constant).
-        cls._orig_ai_enabled = frappe.db.get_single_value(_AI_SETTINGS, "enabled")
         cls.project = _make_project()
         cls.boq = _new_boq(cls.project.name, "Orchestrator BoQ")
         cls.sheet = "OrchFix "  # VERBATIM trailing space (#152)
@@ -238,8 +233,7 @@ class TestOrchestrator(FrappeTestCase):
 
     @classmethod
     def tearDownClass(cls):
-        # Restore the ORIGINAL captured value -- never a hardcoded constant (persist commits leak it).
-        frappe.db.set_single_value(_AI_SETTINGS, "enabled", cls._orig_ai_enabled)
+        frappe.db.set_single_value(_AI_SETTINGS, "enabled", 0)  # restore (persist commits leak it)
         frappe.db.delete(_ROW_CATEGORY, {"boq": cls.boq})
         frappe.db.delete("BOQ Nodes", {"boq": cls.boq})
         frappe.db.delete("BoQ Sheet", {"boq": cls.boq})

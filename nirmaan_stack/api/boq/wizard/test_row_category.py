@@ -510,18 +510,7 @@ class TestAiVoter(FrappeTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        # The SITE's real AI toggle, captured so tearDownClass restores THIS value. These tests run
-        # against the live localhost site and _set_enabled commits, so without a restore the suite
-        # leaves the owner's toggle wherever the last test happened to put it -- and set_single_value
-        # bypasses the doc lifecycle, so that flip never lands in the Version log.
-        cls._orig_ai_enabled = frappe.db.get_single_value(_AI_SETTINGS, "enabled")
         cls.a_valid = sorted({c["category_id"] for c in load_ruleset()["categories"]})[0]
-
-    @classmethod
-    def tearDownClass(cls):
-        frappe.db.set_single_value(_AI_SETTINGS, "enabled", cls._orig_ai_enabled)
-        frappe.db.commit()
-        super().tearDownClass()
 
     def _set_enabled(self, enabled):
         frappe.db.set_single_value(_AI_SETTINGS, "enabled", 1 if enabled else 0)

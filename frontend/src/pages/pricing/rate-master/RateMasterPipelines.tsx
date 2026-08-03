@@ -26,8 +26,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import type { AttributeDefinition, RateCategoryConfig, RateMasterItem } from "./rateMasterTypes";
 import {
-  STEP_VOCABULARY, StepType, blankAttributeDefinition, blankPipeline, blankStep, categoryItemKinds,
-  cloneConfig, evaluateGoldens, goldenDeltas, referencedAttrIds,
+  STEP_VOCABULARY, StepType, blankAttributeDefinition, blankStep, cloneConfig, evaluateGoldens,
+  goldenDeltas, referencedAttrIds,
 } from "./rateMasterStructure";
 
 interface Props {
@@ -396,20 +396,6 @@ export function RateMasterPipelines({ config, items, isAdmin, onSaveConfig }: Pr
         ))}
       </div>
 
-      {/* EA-2 rider 1: author a NEW pipeline (works on an EMPTY-pipelines config -- the LMS path).
-          Seeds a validator-minimal {output, [match_master_row]} the server accepts; the author then
-          adds real steps via the per-pipeline AddStep above. */}
-      {editing && (
-        <AddPipeline
-          existingIds={Object.keys(view.pipelines)}
-          onAdd={(id, outputs) =>
-            updateDraft((dd) => {
-              dd.pipelines[id] = blankPipeline(outputs, categoryItemKinds(dd)[0]);
-            })
-          }
-        />
-      )}
-
       {/* GOLDENS (read-only reference) */}
       {Array.isArray(view.goldens) && view.goldens.length > 0 && (
         <Card>
@@ -447,63 +433,6 @@ export function RateMasterPipelines({ config, items, isAdmin, onSaveConfig }: Pr
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
-  );
-}
-
-// EA-2 rider 1: the Add-pipeline control (edit mode). Validates the id (a lowercase identifier, not
-// already used) + at least one output key, then creates a validator-minimal pipeline the author fills.
-function AddPipeline({
-  existingIds,
-  onAdd,
-}: {
-  existingIds: string[];
-  onAdd: (id: string, outputs: string[]) => void;
-}) {
-  const [id, setId] = useState("");
-  const [outputs, setOutputs] = useState("");
-  const idSyntaxOk = /^[a-z][a-z0-9_]*$/.test(id);
-  const idTaken = existingIds.includes(id);
-  const outList = outputs.split(",").map((s) => s.trim()).filter(Boolean);
-  const canAdd = idSyntaxOk && !idTaken && outList.length > 0;
-  return (
-    <div className="flex flex-wrap items-end gap-2 rounded border border-dashed p-2">
-      <div className="flex flex-col gap-1">
-        <label className="text-[10px] text-muted-foreground">new pipeline id</label>
-        <input
-          value={id}
-          onChange={(e) => setId(e.target.value)}
-          placeholder="e.g. lms_boq"
-          className="h-7 w-40 rounded border bg-background px-2 font-mono text-xs"
-        />
-      </div>
-      <div className="flex flex-col gap-1">
-        <label className="text-[10px] text-muted-foreground">output keys (comma-separated)</label>
-        <input
-          value={outputs}
-          onChange={(e) => setOutputs(e.target.value)}
-          placeholder="e.g. supply_per_no, install_per_no"
-          className="h-7 w-64 rounded border bg-background px-2 font-mono text-xs"
-        />
-      </div>
-      <Button
-        type="button"
-        size="sm"
-        variant="outline"
-        className="h-7 text-xs"
-        disabled={!canAdd}
-        onClick={() => {
-          onAdd(id, outList);
-          setId("");
-          setOutputs("");
-        }}
-      >
-        <Plus className="mr-1 h-3 w-3" /> add pipeline
-      </Button>
-      {id && !idSyntaxOk && (
-        <span className="text-[10px] text-destructive">id: lowercase letters/digits/underscore, start with a letter</span>
-      )}
-      {id && idSyntaxOk && idTaken && <span className="text-[10px] text-destructive">id already exists</span>}
     </div>
   );
 }

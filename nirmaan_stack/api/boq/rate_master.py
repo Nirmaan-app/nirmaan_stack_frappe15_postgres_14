@@ -206,17 +206,10 @@ def _guard_suggest_gate(boq, sheet_name, committed_version):
 
 # ── Run skeleton ────────────────────────────────────────────────────────────────────
 @frappe.whitelist(methods=["POST"])
-def start_suggest(boq=None, sheet_name=None, resume_run_id=None):
+def start_suggest(boq=None, sheet_name=None):
     """Enqueue a background rate-suggestion (attribute extraction) run for one committed sheet.
     Returns immediately. Re-checks the D8 gate server-side. URL:
-    /api/method/nirmaan_stack.api.boq.rate_master.start_suggest
-
-    SR-1 resume: pass `resume_run_id` to CONTINUE an existing partial run instead of starting a new
-    one. The resume fills only the rows that run has not attempted and completes the SAME run doc
-    (same run_id) -- it never spawns a second run. The D8 gate and the committed-version keying are
-    re-checked here exactly as for a fresh run, so a partial whose sheet has since been re-committed
-    is refused rather than resumed against rows that may have changed.
-    """
+    /api/method/nirmaan_stack.api.boq.rate_master.start_suggest"""
     _require_login()
     if not boq:
         frappe.throw("boq is required.", title="Missing field: boq")
@@ -229,9 +222,6 @@ def start_suggest(boq=None, sheet_name=None, resume_run_id=None):
     if cv is None:
         frappe.throw(f"No current committed sheet '{sheet_name}' for this BoQ.", title="Sheet not committed")
     _guard_suggest_gate(boq, sheet_name, cv)
-
-    if resume_run_id:
-        _validate_resume_target(boq, sheet_name, cv, resume_run_id)
 
     marker = _s_get_marker(boq, sheet_name)
     if marker and _s_maybe_self_heal(boq, sheet_name, marker) == "running":
@@ -250,141 +240,14 @@ def start_suggest(boq=None, sheet_name=None, resume_run_id=None):
         user=user,
         boq=boq,
         sheet_name=sheet_name,
-        resume_run_id=resume_run_id,
     )
     frappe.cache().delete_value(_s_status_key(boq, sheet_name))
     _s_set_marker(boq, sheet_name, raw_job_id, user)
     frappe.db.commit()
-    return {"status": "queued", "job_id": raw_job_id, "resumed_run_id": resume_run_id or None}
+    return {"status": "queued", "job_id": raw_job_id}
 
 
-def _validate_resume_target(boq, sheet_name, cv, resume_run_id):
-    """A resume target must exist, belong to THIS sheet, still be partial, and be pinned to the
-    sheet's CURRENT committed version. Anything else throws -- a resume must never write into a
-    completed run, another sheet's run, or a version whose rows may have changed underneath it."""
-    rows = frappe.get_all(
-        RUN_DOCTYPE,
-        filters={"boq": boq, "sheet_name": sheet_name, "run_id": resume_run_id},
-        fields=["name", "status", "committed_version"],
-        limit=1,
-    )
-    if not rows:
-        frappe.throw(
-            f"No suggestion run '{resume_run_id}' found for this sheet.", title="Run not found"
-        )
-    run = rows[0]
-    if (run.get("status") or "") != "partial":
-        frappe.throw(
-            f"That suggestion run is '{run.get('status') or 'unknown'}', not a partial run, so there is nothing to resume.",
-            title="Not resumable",
-        )
-    if run.get("committed_version") != cv:
-        frappe.throw(
-            "That partial run was made against an earlier committed version of this sheet. "
-            "Start a fresh suggestion run instead.",
-            title="Version moved on",
-        )
-
-
-# ── SR-1 run-doc lifecycle (the run doc IS the partial store) ───────────────────────
-# Writes here use frappe.db.set_value(update_modified=False) rather than doc.save. That is safe
-# and intentional for THIS doctype: BoQ Rate Suggestion Run is track_changes:0, so there is no
-# Version audit to bypass (unlike the rate-master editing endpoints, where set_value is FORBIDDEN
-# precisely because it would skip the audit). set_value also keeps a per-batch checkpoint cheap.
-def _open_run_doc(boq, sheet_name, cv, job_id, user, resume_run_id):
-    """Resolve the run doc a pass will write into: either the partial being RESUMED (same doc, same
-    run_id -- never a second doc) or a freshly created one at status=running / active=0.
-
-    Returns (run_name, run_id, prior_results, prior_attempted)."""
-    if resume_run_id:
-        rows = frappe.get_all(
-            RUN_DOCTYPE,
-            filters={"boq": boq, "sheet_name": sheet_name, "run_id": resume_run_id},
-            fields=["name", "results", "attempted_rows"],
-            limit=1,
-        )
-        if rows:
-            run = rows[0]
-            frappe.db.set_value(
-                RUN_DOCTYPE, run["name"],
-                {"status": "running", "halt_reason": None},
-                update_modified=False,
-            )
-            frappe.db.commit()
-            return (
-                run["name"], resume_run_id,
-                _parse_json(run.get("results"), []),
-                _parse_json(run.get("attempted_rows"), []),
-            )
-        # The target vanished between the endpoint's validation and here -- fall through and start
-        # a fresh run rather than losing the request entirely.
-
-    run_id = resume_run_id or job_id or frappe.generate_hash(length=32)
-    doc = frappe.new_doc(RUN_DOCTYPE)
-    doc.boq = boq
-    doc.sheet_name = sheet_name  # VERBATIM (#152)
-    doc.committed_version = cv
-    doc.run_id = run_id
-    doc.status = "running"
-    doc.ai_status = ""
-    doc.results = "[]"
-    doc.attempted_rows = "[]"
-    doc.run_by = user
-    doc.active = 0  # never supersede a prior COMPLETE run until this one completes
-    doc.insert(ignore_permissions=True)
-    frappe.db.commit()
-    return doc.name, run_id, [], []
-
-
-def _write_run_progress(run_name, acc_results, acc_attempted):
-    """One checkpoint: the rows so far + the done-marker, committed immediately."""
-    frappe.db.set_value(
-        RUN_DOCTYPE, run_name,
-        {
-            "results": json.dumps([acc_results[k] for k in sorted(acc_results)]),
-            "attempted_rows": json.dumps(sorted(acc_attempted)),
-        },
-        update_modified=False,
-    )
-    frappe.db.commit()
-
-
-def _finalise_run(run_name, cv, ai_status, merged, acc_attempted, complete, halt_reason,
-                  boq, sheet_name):
-    """Terminal state for a pass. COMPLETE flips active=1 and supersedes the prior active run --
-    that is the ONLY moment a run becomes the live one. A PARTIAL stays active=0, so the previously
-    completed run remains what the editor reads."""
-    values = {
-        "committed_version": cv,
-        "ai_status": ai_status,
-        "results": json.dumps(merged),
-        "attempted_rows": json.dumps(sorted(acc_attempted)),
-        "status": "complete" if complete else "partial",
-        "halt_reason": None if complete else halt_reason,
-    }
-    if complete:
-        values["active"] = 1
-        values["run_at"] = frappe.utils.now()
-        for prior in frappe.get_all(
-            RUN_DOCTYPE,
-            filters={"boq": boq, "sheet_name": sheet_name, "active": 1},
-            pluck="name",
-        ):
-            if prior != run_name:
-                frappe.db.set_value(RUN_DOCTYPE, prior, "active", 0, update_modified=False)
-    frappe.db.set_value(RUN_DOCTYPE, run_name, values, update_modified=False)
-
-
-def _mark_run_failed(run_name, halt_reason):
-    """An unexpected failure. The run KEEPS its checkpointed rows (active stays 0)."""
-    frappe.db.set_value(
-        RUN_DOCTYPE, run_name,
-        {"status": "failed", "halt_reason": halt_reason},
-        update_modified=False,
-    )
-
-
-def _suggest_worker(boq=None, sheet_name=None, user=None, resume_run_id=None):
+def _suggest_worker(boq=None, sheet_name=None, user=None):
     """Background worker: run extraction, WRITE the Suggestion Run doc (prior active -> active=0) at
     terminal SUCCESS, commit BEFORE publish, record + publish the terminal payload. On failure,
     records a terminal error payload and clears the marker (never left stuck)."""
@@ -401,102 +264,47 @@ def _suggest_worker(boq=None, sheet_name=None, user=None, resume_run_id=None):
             **({"user": user} if user else {}),
         )
 
-    run_name = None
-    run_id = None
     try:
-        cv = _resolve_committed_version(boq, sheet_name)
-        # SR-1: the RUN DOC IS THE PARTIAL STORE. Resolve (resume) or create it UP FRONT at
-        # status=running / active=0, so every checkpoint has somewhere durable to land. active=0
-        # is load-bearing: a running or partial run must NEVER supersede a prior COMPLETE run --
-        # get_active_suggestion_run keeps returning the good one until this one truly completes.
-        run_name, run_id, prior_results, prior_attempted = _open_run_doc(
-            boq, sheet_name, cv, job_id, user, resume_run_id
-        )
-
-        acc_results = {int(r["excel_row"]): r for r in prior_results}
-        acc_attempted = set(prior_attempted)
-
-        def _checkpoint(row_results, attempted_now):
-            """Persist one completed batch. This is the whole point of SR-1: the work survives a
-            later halt, a crash, or the RQ job timeout."""
-            for row in row_results:
-                acc_results[int(row["excel_row"])] = row
-            acc_attempted.update(int(x) for x in attempted_now)
-            _write_run_progress(run_name, acc_results, acc_attempted)
-
-        env = extraction.run_extraction(
-            boq, sheet_name,
-            progress_cb=_progress,
-            checkpoint_cb=_checkpoint,
-            skip_rows=sorted(acc_attempted),
-        )
+        env = extraction.run_extraction(boq, sheet_name, progress_cb=_progress)
         cv = env["committed_version"]
         ai_status = env["ai_status"]
+        run_id = job_id or frappe.generate_hash(length=32)
 
-        # Fold in whatever the envelope reports (covers the fail-closed paths, which do not
-        # checkpoint because they never enter the batch loop).
-        for row in env["results"]:
-            acc_results[int(row["excel_row"])] = row
-        acc_attempted.update(int(x) for x in env.get("attempted_rows") or [])
-
-        # `complete` DEFAULTS TO TRUE for an envelope that predates SR-1's additive keys, so any
-        # caller (or test double) still producing the old shape keeps the old terminal-success
-        # behaviour rather than being silently downgraded to a partial. run_extraction itself
-        # always sets it explicitly.
-        population = {int(x) for x in env.get("population_rows") or []}
-        complete = bool(env.get("complete", True)) and not (population - acc_attempted)
-        merged = [acc_results[k] for k in sorted(acc_results)]
-
-        _finalise_run(
-            run_name, cv, ai_status, merged, acc_attempted,
-            complete=complete, halt_reason=env.get("halt_reason"), boq=boq, sheet_name=sheet_name,
-        )
-        if not complete:
-            # A graceful halt must still leave an OPERATOR trail. The pricer sees halt_reason; this
-            # records the provider's own error text, which would otherwise be lost precisely because
-            # the halt is handled instead of raised.
-            frappe.log_error(
-                title="BoQ suggest run halted (partial saved)",
-                message=(
-                    f"boq={boq} sheet={sheet_name} run_id={run_id}\n"
-                    f"terminal={env.get('halt_terminal')}\n"
-                    f"reason={env.get('halt_reason')}\n"
-                    f"detail={env.get('halt_detail')}\n"
-                    f"attempted={len(acc_attempted)} of population={len(population)}"
-                ),
-            )
+        # Freeze-and-supersede: deactivate the prior active run(s) for this sheet, then insert.
+        for prior in frappe.get_all(
+            RUN_DOCTYPE, filters={"boq": boq, "sheet_name": sheet_name, "active": 1}, pluck="name"
+        ):
+            frappe.db.set_value(RUN_DOCTYPE, prior, "active", 0, update_modified=False)
+        run = frappe.new_doc(RUN_DOCTYPE)
+        run.boq = boq
+        run.sheet_name = sheet_name  # VERBATIM (#152)
+        run.committed_version = cv
+        run.run_id = run_id
+        run.ai_status = ai_status
+        run.results = json.dumps(env["results"])
+        run.run_by = user
+        run.run_at = frappe.utils.now()
+        run.active = 1
+        run.insert(ignore_permissions=True)
 
         frappe.db.commit()  # commit BEFORE publish (CLAUDE.md rule)
         payload = {
-            "status": "success" if complete else "partial",
+            "status": "success",
             "boq": boq,
             "sheet_name": sheet_name,
             "committed_version": cv,
             "run_id": run_id,
             "ai_status": ai_status,
-            "run_status": "complete" if complete else "partial",
-            "results": merged,
-            "attempted_count": len(acc_attempted),
-            "population_count": len(population) or len(acc_attempted),
-            "halt_reason": env.get("halt_reason"),
+            "results": env["results"],
         }
     except Exception:
-        # NOTE: deliberately NO frappe.db.rollback() here. Every checkpoint was committed as it was
-        # taken, and rolling back would throw away exactly the work SR-1 exists to preserve. The run
-        # is marked failed but keeps its rows, so it stays resumable.
+        frappe.db.rollback()
         frappe.log_error(title="BoQ suggest worker failed", message=frappe.get_traceback())
-        halt_reason = "The suggestion run stopped unexpectedly. Anything already extracted was kept."
-        if run_name:
-            _mark_run_failed(run_name, halt_reason)
-            frappe.db.commit()
         payload = {
             "status": "error",
             "boq": boq,
             "sheet_name": sheet_name,
             "error_code": "suggest_failed",
-            "run_id": run_id,
-            "run_status": "failed",
-            "halt_reason": halt_reason,
         }
     frappe.cache().set_value(_s_status_key(boq, sheet_name), payload, expires_in_sec=_S_STATUS_TTL_SEC)
     _s_clear_marker(boq, sheet_name)
@@ -543,35 +351,15 @@ def get_active_suggestion_run(boq=None, sheet_name=None):
     rows = frappe.get_all(
         RUN_DOCTYPE,
         filters={"boq": boq, "sheet_name": sheet_name, "active": 1},
-        fields=["run_id", "committed_version", "ai_status", "results", "run_at", "status"],
+        fields=["run_id", "committed_version", "ai_status", "results", "run_at"],
         order_by="creation desc",
         limit=1,
     )
-    out = {"run": None, "partial_run": None}
-    if rows:
-        r = rows[0]
-        r["results"] = _parse_json(r.get("results"), [])
-        # Pre-SR-1 rows migrate to "complete"; treat any blank as complete so an old run can never
-        # retroactively lock "Use this value".
-        r["status"] = (r.get("status") or "complete")
-        out["run"] = r
-
-    # SR-1: the newest RESUMABLE partial, surfaced ALONGSIDE (never instead of) the active run --
-    # a partial is active=0 by design, so without this the editor could not offer a resume.
-    partials = frappe.get_all(
-        RUN_DOCTYPE,
-        filters={"boq": boq, "sheet_name": sheet_name, "status": "partial"},
-        fields=["run_id", "committed_version", "status", "attempted_rows", "halt_reason", "results"],
-        order_by="creation desc",
-        limit=1,
-    )
-    if partials:
-        p = partials[0]
-        p["attempted_count"] = len(_parse_json(p.get("attempted_rows"), []))
-        p["results"] = _parse_json(p.get("results"), [])
-        p.pop("attempted_rows", None)
-        out["partial_run"] = p
-    return out
+    if not rows:
+        return {"run": None}
+    r = rows[0]
+    r["results"] = _parse_json(r.get("results"), [])
+    return {"run": r}
 
 
 @frappe.whitelist(methods=["POST"])
@@ -921,40 +709,11 @@ def deactivate_rate_master_item(name=None):
 # finals per pipeline); the frontend preview gate computes them against a draft before save.
 _KNOWN_STEP_TYPES = {
     "match_master_row", "apply_effective_multiplier", "scale", "roundup",
-    "component", "component_ref", "component_band", "sum_components", "install_as_ratio",
-    # EA-4a: the assembly engine's conduit-sizing step (component_ref is EXTENDED in place, so it stays
-    # the same step type -- only circuit_fit is a new type).
-    "circuit_fit",
-    # EA-4c: the DB build-up install -- the sheet's exact IFERROR three-way (shell absent -> supply ratio;
-    # shell in the install table -> table rate x mult; else fallback to the supply ratio). PASS-THROUGH:
-    # no deep structural validation (the pure interpreter's Option-C degrades a malformed shape to the
-    # honest `unsupported`); its @attr (db_shell_item) is already reference-guarded via the component_ref
-    # supply steps that bind it.
-    "lookup_or_ratio",
+    "component", "component_band", "sum_components", "install_as_ratio",
 }
 _KNOWN_CONFIG_KEYS = {
     "discipline", "category_id", "category_display", "pairing_rule",
     "attribute_definitions", "pipelines", "bcs_surfacing", "normalization_rule", "goldens",
-    "item_kinds",  # EA-1c: the category's master-item kinds (Data-tab scoping); pass-through, not validated
-    # EA-2 pass-through keys (stored VERBATIM, NOT structurally validated -- exactly like item_kinds).
-    # An item-identity config carries identity_attribute_id + matching_mode + notes, and the helper
-    # reads pipeline_labels; the RM-4b editor resubmits the WHOLE config, so these must be accepted or
-    # editing/authoring an EA-2 config would be rejected as an unknown key.
-    "identity_attribute_id", "matching_mode", "notes", "pipeline_labels",
-    # EA-DIFF: synonyms = {attr_id: {variant: canonical}} (e.g. conduit_type GI->MS). Pass-through;
-    # consumed by the extraction injection + coercion, never structurally validated here.
-    "synonyms",
-    # EA-4a: extraction_defaults = {attr_id: default | {default, text_overrides}}. Pass-through; consumed
-    # by the extraction prompt injection (defaults + the raceway text-override), never validated here.
-    "extraction_defaults",
-    # EA-4a-r: extraction_none_guidance = optional per-config wording for the "None" (positive-absence)
-    # prompt line. Pass-through; consumed by the extraction injection, never structurally validated here.
-    "extraction_none_guidance",
-    # EA-4d: composite_slots ({shell, repeatable {prefix,count,...}, fixed[]}) + decomposition_rules
-    # ({curve, amp, partial_pricing}) drive the composite-decomposition extraction mode. Pass-through;
-    # consumed by extraction.build_slot_spec + the decomposition prompt injection, never structurally
-    # validated here (so a composite config round-trips through the RM-4b whole-config editor).
-    "composite_slots", "decomposition_rules",
 }
 _BAND_WHEN_RE = re.compile(r"^(<=|>=|<|>)\s*-?\d+(\.\d+)?$")
 
@@ -1006,29 +765,13 @@ def _validate_config(cfg):
             _vthrow(f"attribute definition '{did}' needs a label.")
         if d.get("type") not in ("choice", "number"):
             _vthrow(f"attribute definition '{did}' type must be 'choice' or 'number'.")
-        # EA-4a: a choice may declare `values_from` (allowed values resolved from the live master at
-        # extraction time) INSTEAD of a static `values` list -- point_wiring's switch/socket/plate selects.
-        if (
-            d.get("type") == "choice"
-            and not d.get("values_from")
-            and (not isinstance(d.get("values"), list) or not d.get("values"))
-        ):
-            _vthrow(f"choice attribute '{did}' needs a non-empty values list (or values_from).")
-        # EA-4a-r: allow_none (bool) marks a POSITIVELY-ABSENT-capable component; disables_when_none is the
-        # list of dependent attr ids greyed/cleared when it is set to "None" (pass-through, shape-checked).
-        if "allow_none" in d and not isinstance(d.get("allow_none"), bool):
-            _vthrow(f"attribute '{did}' allow_none must be true/false.")
-        dwn = d.get("disables_when_none")
-        if dwn is not None and (not isinstance(dwn, list) or not all(isinstance(x, str) and x for x in dwn)):
-            _vthrow(f"attribute '{did}' disables_when_none must be a list of attribute ids.")
+        if d.get("type") == "choice" and (not isinstance(d.get("values"), list) or not d.get("values")):
+            _vthrow(f"choice attribute '{did}' needs a non-empty values list.")
 
     # pipelines ------------------------------------------------------------------------------
-    # EA-2: an EMPTY pipelines dict is ACCEPTED -- a DATA-ONLY config (definitions + items, no
-    # derivation yet), the owner's in-system authoring path (e.g. lighting_mgmt_system). A NON-empty
-    # pipelines object is still validated fully, pipeline by pipeline, below.
     pipelines = cfg.get("pipelines")
-    if not isinstance(pipelines, dict):
-        _vthrow("pipelines must be an object.")
+    if not isinstance(pipelines, dict) or not pipelines:
+        _vthrow("pipelines must be a non-empty object.")
     referenced = {}  # attr id -> [locations] (for the reference guard's named error)
 
     def _ref(attr, loc):
@@ -1090,65 +833,6 @@ def _validate_config(cfg):
                     if not isinstance(s.get(key), str) or not s.get(key):
                         _vthrow(f"{where}: component needs a string '{key}'.")
                 _validate_params(s.get("params"), where)
-            elif st == "component_ref":
-                # EA-2c legacy: base from a referenced row (ref.kind + optional ref.attributes) priced by
-                # `formula`. EA-4a assembly: ref attrs INLINE (values literal | "@attr" | "@fitted_size"),
-                # priced by rate_stages x qty (no formula). name + target always required; formula required
-                # ONLY for the legacy shape.
-                is_assembly = s.get("rate_stages") is not None or s.get("qty") is not None
-                required = ("name", "target") if is_assembly else ("name", "target", "formula")
-                for key in required:
-                    if not isinstance(s.get(key), str) or not s.get(key):
-                        _vthrow(f"{where}: component_ref needs a string '{key}'.")
-                if is_assembly:
-                    rs = s.get("rate_stages")
-                    if rs is not None:
-                        if not isinstance(rs, list):
-                            _vthrow(f"{where}: component_ref rate_stages must be a list.")
-                        for ri, stage in enumerate(rs):
-                            if not isinstance(stage, dict) or not _is_finite_number(stage.get("mult")):
-                                _vthrow(f"{where}: rate_stages[{ri}] needs a finite 'mult'.")
-                            if stage.get("round") is not None and stage.get("round") not in ("up0", "up-1"):
-                                _vthrow(f"{where}: rate_stages[{ri}].round must be 'up0' or 'up-1'.")
-                    q = s.get("qty")
-                    if q is not None and not (
-                        _is_finite_number(q)
-                        or (isinstance(q, dict) and ("from_attr" in q or "from_fit" in q or "if_attr" in q))
-                    ):
-                        _vthrow(f"{where}: component_ref qty must be a number or a from_attr/from_fit/if_attr object.")
-                    # EA-4a-r: none_skips (bool) -> a ref @attr resolving to "None" makes this an explicit zero.
-                    if "none_skips" in s and not isinstance(s.get("none_skips"), bool):
-                        _vthrow(f"{where}: component_ref none_skips must be true/false.")
-                ref = s.get("ref")
-                if not isinstance(ref, dict) or not isinstance(ref.get("kind"), str) or not ref.get("kind"):
-                    _vthrow(f"{where}: component_ref needs ref.kind (a string).")
-                ref_attrs = ref.get("attributes")
-                if ref_attrs is not None:
-                    if not isinstance(ref_attrs, dict):
-                        _vthrow(f"{where}: component_ref ref.attributes must be an object of attribute = value.")
-                    for ak, av in ref_attrs.items():
-                        if isinstance(av, (dict, list)):
-                            _vthrow(f"{where}: component_ref ref.attributes['{ak}'] must be an exact value.")
-                if s.get("params") is not None:
-                    _validate_params(s.get("params"), where)
-                conds = s.get("conditions")
-                if conds is not None:
-                    if not isinstance(conds, list):
-                        _vthrow(f"{where}: component_ref conditions must be a list.")
-                    for ci, c in enumerate(conds):
-                        if not isinstance(c, dict):
-                            _vthrow(f"{where} condition {ci}: must be an object.")
-                        when = c.get("when")
-                        if not isinstance(when, dict) or not when:
-                            _vthrow(f"{where} condition {ci}: 'when' must be a non-empty object of attribute = value.")
-                        for wk, wv in when.items():
-                            if isinstance(wv, (dict, list)):
-                                _vthrow(
-                                    f"{where} condition {ci}: predicate '{wk}' must be an exact value "
-                                    "(attribute = value); range/in predicates are not executable."
-                                )
-                            _ref(wk, f"{where} condition {ci}")
-                        _validate_params(c.get("params"), f"{where} condition {ci}")
             elif st == "component_band":
                 for key in ("name", "band_on", "formula"):
                     if not isinstance(s.get(key), str) or not s.get(key):
@@ -1174,41 +858,6 @@ def _validate_config(cfg):
                 params = s.get("params")
                 if not isinstance(params, dict) or not _is_finite_number(params.get("ratio")):
                     _vthrow(f"{where}: install_as_ratio needs params.ratio (a finite number).")
-            elif st == "circuit_fit":
-                # EA-4a: sizes the conduit + counts circuits. params.wire_specs reference attribute ids
-                # (each a [core_attr, thickness_attr] pair) -> the reference guard covers them; length_attr
-                # + conduit_type_attr likewise. sizes/usable are finite-number tables (structure, not attrs).
-                p = s.get("params")
-                if not isinstance(p, dict):
-                    _vthrow(f"{where}: circuit_fit needs a params object.")
-                if not isinstance(p.get("sizes"), list) or not all(_is_finite_number(x) for x in p.get("sizes") or []):
-                    _vthrow(f"{where}: circuit_fit params.sizes must be a list of finite numbers.")
-                if not isinstance(p.get("usable"), dict):
-                    _vthrow(f"{where}: circuit_fit params.usable must be an object of conduit_type -> fractions.")
-                for ct, fracs in p["usable"].items():
-                    if not isinstance(fracs, list) or not all(_is_finite_number(x) for x in fracs):
-                        _vthrow(f"{where}: circuit_fit usable['{ct}'] must be a list of finite numbers.")
-                specs = p.get("wire_specs")
-                if not isinstance(specs, list) or not specs:
-                    _vthrow(f"{where}: circuit_fit needs a non-empty wire_specs list.")
-                for wi, pair in enumerate(specs):
-                    if not isinstance(pair, list) or len(pair) != 2 or not all(isinstance(x, str) and x for x in pair):
-                        _vthrow(f"{where}: circuit_fit wire_specs[{wi}] must be a [core_attr, thickness_attr] pair.")
-                    _ref(pair[0], f"{where} (wire_specs)")
-                    _ref(pair[1], f"{where} (wire_specs)")
-                for key in ("length_attr", "conduit_type_attr"):
-                    if not isinstance(p.get(key), str) or not p.get(key):
-                        _vthrow(f"{where}: circuit_fit needs a string '{key}'.")
-                    _ref(p[key], f"{where} ({key})")
-                if not isinstance(s.get("binds"), list) or not all(isinstance(b, str) and b for b in s.get("binds") or []):
-                    _vthrow(f"{where}: circuit_fit needs a 'binds' list of strings.")
-                # EA-4a-r: optional_wire_when_none names the thickness attr of an OPTIONAL wire (omitted from
-                # the dia when it is "None"). Reference-guard it like the other attr keys.
-                own = p.get("optional_wire_when_none")
-                if own is not None:
-                    if not isinstance(own, str) or not own:
-                        _vthrow(f"{where}: circuit_fit optional_wire_when_none must be an attribute id.")
-                    _ref(own, f"{where} (optional_wire_when_none)")
 
     # REFERENCE GUARD: every attr a pipeline references must be defined (names where each is used) ----
     missing = {a: locs for a, locs in referenced.items() if a not in def_ids}

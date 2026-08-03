@@ -12,11 +12,8 @@
   "committed_version",
   "run_section",
   "run_id",
-  "status",
   "ai_status",
   "results",
-  "attempted_rows",
-  "halt_reason",
   "provenance_section",
   "run_by",
   "run_at",
@@ -68,16 +65,6 @@
    "search_index": 1
   },
   {
-   "default": "complete",
-   "description": "SR-1 run LIFECYCLE: running (created up front, results filling in) | partial (a batch halted; the rows attempted so far ARE saved and the run is resumable) | complete (every population row attempted) | failed. DISTINCT from ai_status, which stays its own 3-value vocabulary. 'Use this value' is enabled ONLY at complete. The default is 'complete' so pre-SR-1 rows backfill as complete on migrate and never retroactively lock Use; the worker always sets this explicitly, so the default never applies to a new run.",
-   "fieldname": "status",
-   "fieldtype": "Select",
-   "in_list_view": 1,
-   "in_standard_filter": 1,
-   "label": "Status",
-   "options": "running\npartial\ncomplete\nfailed"
-  },
-  {
    "description": "Whether the AI extraction voter actually ran: 'ran' | 'disabled' | 'no_key'. A fail-closed run (disabled/no_key) is still recorded honestly (no fallback extraction).",
    "fieldname": "ai_status",
    "fieldtype": "Data",
@@ -88,18 +75,6 @@
    "fieldname": "results",
    "fieldtype": "JSON",
    "label": "Results"
-  },
-  {
-   "description": "SR-1 per-row DONE-MARKER: the excel_row numbers actually ATTEMPTED (a batch that returned). JSON list. This is what distinguishes 'not attempted' from 'attempted and the AI returned null' -- the two are byte-identical in results, so a resume MUST key off this, never off whether a row's attributes are blank. A halted batch's rows are NOT listed (they stay pending).",
-   "fieldname": "attempted_rows",
-   "fieldtype": "JSON",
-   "label": "Attempted Rows"
-  },
-  {
-   "description": "SR-1: why a partial run stopped, in plain language (e.g. the Anthropic usage limit). Persisted so the reason survives a page reload and can drive the resume affordance -- the pre-SR-1 opaque 'suggest_failed' error code could not.",
-   "fieldname": "halt_reason",
-   "fieldtype": "Small Text",
-   "label": "Halt Reason"
   },
   {
    "fieldname": "provenance_section",
