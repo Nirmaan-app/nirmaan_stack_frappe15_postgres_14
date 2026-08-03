@@ -19750,3 +19750,235 @@ cursor stays put across a sort. That half is live-check only:
 - **The margin view does not appear in the version-history browser.** It keys on the live cost block,
   which is not rendered while browsing an earlier version — so the toggle is simply disabled there by
   the existing `bcsColumnsVisible` chain, with no new condition.
+
+  > **ERRATUM (BCS-S5-summary-margin): this record said the margin view does not appear in the
+  > version-history browser, and that no new condition was needed. Both halves were false.** The
+  > `bcsColumnsVisible` chain disables the toggle only for **opening** it —
+  > `!marginViewOpen && !bcsColumnsVisible` — so a view that was ALREADY OPEN rode into history with
+  > its cost columns and % Profit gone, and `marginViewRows` applied the LIVE version's `row_index`
+  > snapshot to the HISTORY version's rows. `marginViewOpen` was reset on the SHEET axis only; the
+  > `[selectedVersion]` effect reset `bcsCardOpen` and nothing else. Blast radius was narrow
+  > (history is read-only) but a silently mis-ordered review list is invisible to the reader.
+  > Three verifiers found this independently. **Closed at BCS-S5 commit 1** by two resets — the
+  > version axis in the existing `[selectedVersion]` effect, and a `bcsColumnsVisible`-false edge
+  > that also covers BCS being switched off, unconfirmed, or its costs read failing underneath an
+  > open view. The claim above is retained verbatim so the correction is legible against it.
+
+---
+
+## BCS-S5 — the S4 one-liners, then BCS in the summary
+
+**Branch** `feature/bcs-columns` · **Base** `f4fde3bb` · **Tier** FULL · **Date** 2026-08-03
+
+**REVIEW: pending**
+
+Two commits. Commit 1 (`ac454053`) closes what the BCS-S4 review found — chiefly that the margin
+view **survives a version switch**, which the S4 record claimed it could not. Commit 2 (`4af0241d`)
+puts **BCS Total Amount, Tendered Total Amount and % Profit per BoQ section** into the summary
+panel. **No backend file changed, no migration, no schema.** `bcsColumns.ts` — which owns what a
+margin *is* — was **not touched**; `PricingGrid.tsx` was not touched either.
+
+---
+
+### 1. Commit 1 — the view outlived the thing it was built on
+
+`marginViewOpen` was reset on the **sheet** axis only. The `[selectedVersion]` effect reset
+`bcsCardOpen` and nothing else, and the toggle's `disabled` guard —
+`!sheetLoad.isUsable || (!marginViewOpen && !bcsColumnsVisible)` — is a gate on **opening**, not on
+staying open. So an already-open margin view rode into version history, where the cost columns and
+% Profit are not rendered at all, and `marginViewRows` applied the **live version's `row_index`
+snapshot to the history version's rows**.
+
+That is the hazard the `[sheetName]` reset already names, one axis over: *an order is a list of
+`row_index` values belonging to ONE (sheet, version), and applying it anywhere else reorders rows by
+numbers that mean nothing there.* Three verifiers found it independently.
+
+**Blast radius is narrow — history is read-only — and that is exactly why it mattered enough to
+fix.** Nothing can be mis-saved through it; what it produces is a *silently* mis-ordered review
+list, on the one screen whose entire purpose is the order. There is no cell to check it against.
+
+Two resets, because they guard two different invariants and only one of them is about versions:
+
+| Reset | Guards |
+|---|---|
+| `setMarginViewOpen(false)` + `setMarginOrder(null)` in the existing `[selectedVersion]` effect | *the snapshot belongs to this version* |
+| the same pair on the **`bcsColumnsVisible` FALSE edge** (new effect) | *the columns the view is ordered by still exist* |
+
+The second is not redundant. `bcsColumnsVisible` also goes false when BCS is switched off, when its
+confirmation is cleared, and when the costs read fails on a revalidate — in each of those the view
+keeps rendering, ordered by a number no longer on screen, while the direction button still claims
+*"Lowest first"* and a click would silently produce **document order** (every margin now reads
+blank, and blanks hold document order in both directions). It is guarded on the false edge only, so
+the costs coming back is not a second, unrelated behaviour.
+
+### 2. Commit 1 — the four minors, and the two that could not be fixed here
+
+| # | Finding | Disposition |
+|---|---|---|
+| a | grid-side destructure default `marginSortDir = "desc"` contradicts the documented and page-side `"asc"` | **NOT FIXED — `PricingGrid.tsx` is out of scope.** Dead today (the page always passes the prop); inverted for any future caller. Carried below |
+| b | `?? []` survives at the BCS rates read | **KEPT, and now says why.** See below |
+| c | the empty-state banner says *"check that BCS is set up on this version"* but renders only when BCS demonstrably **is** set up | **NOT FIXED — the copy lives in `pricingLoadState.ts`, out of scope.** Carried below |
+| d | the S4 anchor-`<div>` decision was disclosed only in a source comment | **RECORDED**, §3 |
+| e | carried errata cite `PricingGrid.tsx:789`; this arc moved it | **CORRECTED to `:792`**, §6 |
+
+**On (b) — the `?? []` stays, and the reason is not the one it looks like.** It appears neutralised
+by the `isUsable` guard directly above it, and on the **failed** read it is: that path returns
+early. It is **not dead on the successful one.** `loadStatus` decides content on
+`data.message != null` **alone**, so a payload of `{message: {}}` — an envelope with no `rows` key —
+is classified `ready`, reaches the loop, and `for (const r of undefined)` **throws**, taking the
+page down. Removing it would trade a wrong number for a blank screen.
+
+⚠️ **The real gap is one level down and is NOT closed.** `hasContent` cannot tell an empty envelope
+from a real answer, so `{message: {}}` renders as a confidently **uncosted** sheet — the same class
+of lie S4 closed for the failed read, surviving on the malformed-success one. Closing it means
+tightening `loadStatus` / `hasContent` in `pricingLoadState.ts`. **Recorded rather than reached
+for**, because that file is not in this slice's scope.
+
+### 3. The S4 anchor-`<div>` decision, recorded at last (minor d)
+
+S4 gave `DescriptionAnchorInner` a `section` line for the margin view. The no-section branch was
+kept as the **bare span**, byte-identical to before:
+
+> *Wrapping unconditionally would insert a block element into the flex row on EVERY sheet in the
+> product for the sake of a view most of them never open.*
+
+**A product-wide DOM change on every sheet was contemplated and averted.** That belongs in the
+record, not only in a comment — it is the kind of decision a later reader would otherwise re-open
+as "why is this conditional?", and re-taking it the other way is a one-line change with a blast
+radius of every committed sheet in the system.
+
+### 4. Commit 2 — the two rules that govern the numbers
+
+**★ THE RATIO RULE.** A section's % Profit is **recomputed** from its **summed** cost and its
+**summed** tendered amount. Never averaged. Never summed.
+
+Averaging per-line percentages weights a ₹10 line at 90% exactly as heavily as a ₹10 lakh line at
+2%. That is not a small error, it is an unrelated number — and it is the worst available shape of
+wrong, because it lands in a plausible range and moves in a plausible direction while meaning
+nothing, on a screen someone prices from.
+
+It is pinned twice, at the unit and the integration layer, over a fixture built so the three
+candidate answers are far apart:
+
+| Section holding | weighted (correct) | mean | sum |
+|---|---|---|---|
+| cost 1 / tendered 10 (90%) **and** cost 980,000 / tendered 1,000,000 (2%) | **≈ 2.0009%** | 46% | 92% |
+
+**★ THE CONSISTENCY RULE.** The tendered figure **is** `pricingRollup`'s own numbers —
+`node.totals[col]` per section, `grandTotals[col]` for the project — never a second derivation. A
+separate path can diverge from the grid on formula resolution, on the document-vs-formula
+reconciliation choice and on draft state, and **the Tendered column exists precisely so the two are
+comparable on screen.** A summary that disagrees with the grid about the same section is worse than
+no summary.
+
+Both sides are **saved-only**: `rowOwnAmount` already resolves amounts with an empty draft map (the
+panel is a save-time view), so the cost side merges against `NO_BCS_DRAFTS` for the same reason. A
+drafted numerator over a saved denominator would be a margin belonging to neither moment.
+
+### 5. The seam, and what a blank section shows
+
+**The seam is `RollupResult`** — the interface `rollupByParent` presents to `SummaryPanel`. It is
+the right place because it is *already* the single definition of "what a section's total is", and
+the consistency rule requires the BCS numbers to **be** those numbers rather than a second walk.
+The BCS *arithmetic* is not put there: it lives in the new pure leaf `bcsRollup.ts`, unit-testable
+without the rollup's fixture machinery, and `sectionMarginPercent` **wraps**
+`bcsColumns.bcsMarginPercent` so the owner-settled direction and its zero / negative / non-finite
+denominator guards keep exactly one home. A section whose amounts sum **negative** is therefore
+refused rather than shown as a profit — the sign inversion `bcsMarginPercent` documents at length is
+reachable by *summation*, not only by typing.
+
+⚠️ **`bcs` is PARALLEL to `columns`, never part of it.** Every `RollupColumn` carries a real
+`ColumnDescriptor` and `columns` is built 1:1 from `amountDescs`, so there is **no seam for a column
+with no backing descriptor** — and a computed cost, a summed amount and a percentage have none. No
+synthetic descriptor was forced in; the three render **outside** the `columns.map` loop in header,
+body and grand row. Omitting the input leaves `bcs` null and every prior caller byte-identical.
+
+**WHAT A SECTION WITH NO COSTED LINES SHOWS — asked explicitly, answered explicitly.** Its BCS Total
+Amount cell is **EMPTY** and its % Profit cell is **EMPTY**, carrying the reason *"No cost entered
+yet."* as its `title`. It is **not** `0`, and **not** `0%`. `cost` is `number | null` for exactly
+this reason: rendering 0 would be a confident claim ("this section costs nothing") and 0% a second
+one ("we make nothing on it"), about a section where nothing is known. `fmtAmount` already
+distinguishes them — `null` → `""`, a genuine `0` → `"0"` — so a section costed **at** zero still
+reads `0` and a 100% margin, which is a real finding and stays visible. The same absent-vs-zero rule
+applies to the tendered side (`no_amount`), and it mirrors what `bcsRowAmount` and `bcsRowQuantity`
+already keep one level down.
+
+### 6. Verification
+
+| Check | Result |
+|---|---|
+| `yarn test` (in-container) | baseline **1507 / 56 files** → final **1537 / 57 files**, all pass |
+| ↳ `bcsRollup.test.ts` (new) | **23** |
+| ↳ `pricingRollup.test.ts` | 28 → **35** |
+| `tsc --noEmit`, `boq-wizard` errors | **0** → **0** |
+| `python3 scripts/residence_check.py` | **EXITS 1** — F2 `208 vs 207`, **pre-existing, delta zero** (identical to the pre-edit run). B3 40/40, B1 0/0, B2 8/8, F5 116/116 all hold. `scripts/residence_baseline.json` md5 `80720f5a53276931d43648c0ff082984` **before and after** — unchanged, no auto-tighten |
+| `bench run-tests` (6 suites, nothing backend changed) | `boq_bcs.test_sources` **62** · `test_bcs` **64** · `test_export_writeback` **47** · `test_pricing` **252** · `test_commit_pipeline` **57** · `test_review_screen` **260** — all OK |
+| `git diff --stat` | commit 1: 1 file, +44/−0 · commit 2: 6 files, +808/−7 |
+
+**Red before green — and an honest note about which layer got which.** `bcsRollup.test.ts` was
+written first and run first: *"Cannot find module './bcsRollup'"*, **no tests collected** → 23/23.
+The seven `pricingRollup` integration tests (B1–B7) were written **after** the wiring, which is the
+weaker order, so they were verified by **mutation** instead of assertion: replacing the
+recomputation with an average of the children's percentages fails `bcsRollup` T1 and `pricingRollup`
+**B2**, the latter reporting *"expected 46 to be close to 2.00088"* — 46 being exactly the forbidden
+mean. The mutation was then reverted and the suite re-confirmed green. The guard bites.
+
+**⚠ WHAT NO TEST HERE CAN SEE.** There is **no DOM test environment** in this repo (deliberate,
+`vitest.config.ts`). **Commit 1 is entirely React-effect semantics and is therefore structurally
+untestable — it added no tests at all, and that is the honest outcome, not an omission.** Commit 2's
+tests pin the arithmetic and the wiring; they cannot observe that the panel renders three columns,
+that the header aligns, or that the grand row lines up. Live checks:
+
+1. **The version-switch fix (commit 1's whole point).** Costed sheet, BCS on → open the margin view
+   → switch to an earlier version in the history browser. **Expect:** the view closes, the tree
+   returns, the toggle is disabled with its reason. **Must NOT see:** a flat list with no % Profit
+   column. Switch back to live → the toggle is live again and re-opens sorted.
+2. **BCS switched off under an open view.** Open the margin view → open the BCS card → *Turn BCS
+   off*. **Expect:** the view closes. **Must NOT see:** a flat list whose direction button still
+   reads "Lowest first".
+3. **Costs read fails under an open view.** Open the margin view → DevTools block
+   `*get_sheet_bcs_rates*` → trigger a refetch. **Expect:** the view closes and the red costs banner
+   appears.
+4. **The summary's three columns.** Costed sheet → **Summary**. **Expect:** BCS Total Amount,
+   Tendered Total Amount, % Profit to the RIGHT of every amount column, in header, every row and the
+   grand row; horizontal scroll intact; `colSpan` correct on the empty state.
+5. **★ The ratio, against the grid.** Pick a section with one small high-margin line and one large
+   low-margin line. **Expect:** the section's % Profit sits close to the LARGE line's, not midway
+   between the two. Hand-check `(tendered − cost) / tendered` from the two figures beside it.
+6. **Tendered agrees with the amount column.** For any section, the Tendered Total Amount must equal
+   the sum of the sheet's BCS-confirmed amount columns on that same row of the panel.
+7. **A blank section.** A section with nothing costed → BCS Total Amount **empty**, % Profit
+   **empty**, tooltip *"No cost entered yet."* **Must NOT see:** `0` or `0%`.
+8. **No BCS / version history.** A sheet with BCS off, and any sheet in history → the summary shows
+   its amount columns and **no** cost columns, exactly as before this slice.
+
+### 7. Deliberately NOT done
+
+- **`scripts/` — untouched entirely.** Baseline md5 captured before and after; identical. The **F2
+  red was not re-baselined**, only held at delta zero.
+- **`bcsColumns.ts` and `PricingGrid.tsx` — untouched.** The margin arithmetic and its
+  owner-settled direction are reused through `bcsMarginPercent`, never re-derived.
+- **Every backend file, and the carry path** — out of scope. No migration, no schema, nothing to run.
+- **Minor (a), `marginSortDir = "desc"` in `PricingGrid.tsx`** — **NOT FIXED**, the file is out of
+  scope. Harmless today because `SheetPricingPage` always passes the prop; a future caller that
+  omits it gets the documented default **inverted**. Needs a slice with `PricingGrid.tsx` in scope.
+- **Minor (c), the empty-state banner copy** — **NOT FIXED**, it lives in `pricingLoadState.ts`,
+  out of scope. `BCS_RATES_STATES.empty` tells the reader to *"check that BCS is set up on this
+  version"*, but `bcsCostsUnreadable` requires `bcsBlockConfigured`, i.e. BCS **on and ready** — so
+  the sentence renders only when BCS demonstrably **is** set up and sends the reader to look at the
+  one thing already known to be fine. Overriding the text at the render site was rejected: two
+  sources for one sentence is how they drift.
+- **The `hasContent` / `{message: {}}` gap** (§2) — same file, same reason. The honest next
+  candidate on this page.
+- **The `setInFlight` leak** — unchanged, still a different defect class, still recorded.
+- **`PricingGrid.tsx:792`'s double cast** — still waiting for a slice with `reviewRender.tsx` in
+  scope. **ERRATUM (BCS-S5-summary-margin): the carried errata and the four prior records cite
+  `PricingGrid.tsx:789`. This arc moved it to `:792`** (`rd ?? (ref as unknown as ColumnDescriptor)`);
+  `:789` is now the `return undefined` two lines above it. The finding is unchanged — only the line.
+- **The BOQs fetch's *"BoQ not found"* mislabel** — still a distinct screen.
+- **No per-section EXPORT, no colour scale on % Profit, no drill-through from a section to the
+  margin view.** Not asked for. The grid presents % Profit as plain right-aligned figures and a
+  second visual language for the same number in the panel above it would be its own confusion.
+- **`marginView.ts` was in scope and not edited.** Nothing this slice needed lived there.
+- **`assets/plan-record-template.md` does not exist in this repo** (searched by `find`). This record
+  mirrors the shape of the surrounding records, which is the de facto template.
