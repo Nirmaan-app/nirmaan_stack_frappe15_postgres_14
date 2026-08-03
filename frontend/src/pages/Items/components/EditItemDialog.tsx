@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/components/ui/use-toast";
 import { useFrappeUpdateDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import { SelectUnit } from "@/components/helpers/SelectUnit";
-import { ListChecks, CheckCircle2, XCircle } from "lucide-react";
+import { ListChecks, CheckCircle2, XCircle, AlertTriangle } from "lucide-react";
 import { cn } from '@/lib/utils';
 import ReactSelect from 'react-select';
 
@@ -21,14 +21,22 @@ interface EditItemDialogProps {
     isOpen: boolean;
     onOpenChange: (isOpen: boolean) => void;
     onItemUpdated: () => void;
+    /**
+     * Show the ADR-0004 "Linked TDS Item" control. Admin + PMO Executive only —
+     * the CALLER decides (it already knows the role), so this dialog stays a dumb
+     * renderer. The server (`Items.validate` + `api/tds/linking.py`) is the real
+     * boundary; this is UX.
+     */
+    canLinkTds?: boolean;
 }
 
-export const EditItemDialog: React.FC<EditItemDialogProps> = ({ item, isOpen, onOpenChange, onItemUpdated }) => {
+export const EditItemDialog: React.FC<EditItemDialogProps> = ({ item, isOpen, onOpenChange, onItemUpdated, canLinkTds = false }) => {
     const [itemName, setItemName] = useState("");
     const [selectedUnit, setSelectedUnit] = useState("");
     const [selectedCategory, setSelectedCategory] = useState("");
     const [selectedBillingCategory, setSelectedBillingCategory] = useState("");
     const [selectedItemStatus, setSelectedItemStatus] = useState("");
+    const [selectedTdsItem, setSelectedTdsItem] = useState("");
     const [formError, setFormError] = useState<string | null>(null);
 
     const { toast } = useToast();
@@ -64,6 +72,47 @@ export const EditItemDialog: React.FC<EditItemDialogProps> = ({ item, isOpen, on
         [categoryList]
     );
 
+    // ── ADR-0004: Linked TDS Item ────────────────────────────────────────────
+    // The item's work package is DERIVED from the currently-selected category
+    // (`Items.category -> Category.work_package`), NOT from the saved item — so
+    // changing the category in this very dialog re-filters the group list live and
+    // an unsaved category change can never leave a WP-mismatched link staged.
+    const itemWorkPackage = useMemo(
+        () => categoryList?.find((c) => c.name === selectedCategory)?.work_package || "",
+        [categoryList, selectedCategory]
+    );
+
+    const { data: tdsItemList, isLoading: tdsItemsLoading } = useFrappeGetDocList<{
+        name: string;
+        tds_item_name?: string;
+        work_package?: string;
+    }>(
+        "TDS Items",
+        { fields: ["name", "tds_item_name", "work_package"], limit: 0 },
+        canLinkTds ? 'tds_items_for_edit_item_dialog' : null
+    );
+
+    // Groups are scoped to the item's WP — the invariant `Items.validate` enforces
+    // server-side. Filtering here means the mismatch is normally unreachable rather
+    // than reachable-and-then-rejected.
+    const tdsItemOptions = useMemo(() => {
+        if (!itemWorkPackage) return [];
+        return (tdsItemList || [])
+            .filter((t) => t.work_package === itemWorkPackage)
+            .map((t) => ({ value: t.name, label: t.tds_item_name || t.name }));
+    }, [tdsItemList, itemWorkPackage]);
+
+    const originalTdsItem = item?.linked_tds_item || "";
+    const originalTdsItemName = useMemo(
+        () => (tdsItemList || []).find((t) => t.name === originalTdsItem)?.tds_item_name || originalTdsItem,
+        [tdsItemList, originalTdsItem]
+    );
+    // Warn-and-confirm MOVE (ADR-0004): re-pointing an already-linked item takes it
+    // out of its current group. Surfaced inline rather than as a modal — the change
+    // is not yet saved, so a blocking confirm here would be premature.
+    const isReassignment = !!originalTdsItem && !!selectedTdsItem && selectedTdsItem !== originalTdsItem;
+    const isUnlinking = !!originalTdsItem && !selectedTdsItem;
+
     // Initialize state when item changes
     useEffect(() => {
         if (item) {
@@ -72,8 +121,18 @@ export const EditItemDialog: React.FC<EditItemDialogProps> = ({ item, isOpen, on
             setSelectedCategory(item.category || "");
             setSelectedBillingCategory(item.billing_category || "");
             setSelectedItemStatus(item.item_status || "");
+            setSelectedTdsItem(item.linked_tds_item || "");
         }
     }, [item, isOpen]);
+
+    // A category change can move the item to a different work package, which would
+    // strand a now-invalid link. Drop it rather than let the save fail server-side.
+    useEffect(() => {
+        if (!canLinkTds || !selectedTdsItem) return;
+        if (tdsItemsLoading || !tdsItemList?.length) return;
+        const stillValid = tdsItemOptions.some((o) => o.value === selectedTdsItem);
+        if (!stillValid) setSelectedTdsItem("");
+    }, [canLinkTds, selectedTdsItem, tdsItemOptions, tdsItemsLoading, tdsItemList]);
 
     const handleSave = async () => {
         if (!item) return;
@@ -94,6 +153,11 @@ export const EditItemDialog: React.FC<EditItemDialogProps> = ({ item, isOpen, on
                 category: selectedCategory,
                 billing_category: selectedBillingCategory,
                 item_status: selectedItemStatus,
+                // Only sent when the caller enabled the control, so a non-privileged
+                // edit can never clear an existing link by omission. `updateDoc` goes
+                // through the doc lifecycle, so `Items.validate` re-checks the WP
+                // invariant server-side — this field is NOT written via set_value.
+                ...(canLinkTds ? { linked_tds_item: selectedTdsItem || null } : {}),
             });
 
             toast({
@@ -119,9 +183,10 @@ export const EditItemDialog: React.FC<EditItemDialogProps> = ({ item, isOpen, on
             selectedUnit !== (item.unit_name || "") ||
             selectedCategory !== (item.category || "") ||
             selectedBillingCategory !== (item.billing_category || "") ||
-            selectedItemStatus !== (item.item_status || "")
+            selectedItemStatus !== (item.item_status || "") ||
+            (canLinkTds && selectedTdsItem !== (item.linked_tds_item || ""))
         );
-    }, [item, itemName, selectedUnit, selectedCategory, selectedBillingCategory, selectedItemStatus]);
+    }, [item, itemName, selectedUnit, selectedCategory, selectedBillingCategory, selectedItemStatus, canLinkTds, selectedTdsItem]);
 
     return (
         <Dialog open={isOpen} onOpenChange={onOpenChange}>
@@ -184,6 +249,62 @@ export const EditItemDialog: React.FC<EditItemDialogProps> = ({ item, isOpen, on
                                 />
                             </div>
                         </div>
+
+                        {canLinkTds && (
+                            <div className="flex flex-col items-start">
+                                <label htmlFor="linkedTdsItem" className="block text-sm font-medium text-gray-700">
+                                    Linked TDS Item
+                                </label>
+                                <div className="w-full mt-1">
+                                    <ReactSelect
+                                        inputId="linkedTdsItem"
+                                        options={tdsItemOptions}
+                                        value={tdsItemOptions.find(opt => opt.value === selectedTdsItem) || null}
+                                        onChange={val => setSelectedTdsItem(val ? (val as any).value : "")}
+                                        isClearable={true}
+                                        isDisabled={tdsItemsLoading || !itemWorkPackage}
+                                        placeholder={
+                                            !itemWorkPackage
+                                                ? "Select a category with a work package first"
+                                                : tdsItemsLoading
+                                                    ? "Loading..."
+                                                    : tdsItemOptions.length
+                                                        ? "Select TDS Item (optional)"
+                                                        : `No TDS groups in ${itemWorkPackage}`
+                                        }
+                                    />
+                                </div>
+                                {!itemWorkPackage ? (
+                                    <p className="mt-1 text-xs text-muted-foreground">
+                                        A product can only join a TDS group in its own work package, which
+                                        comes from its category.
+                                    </p>
+                                ) : (
+                                    <p className="mt-1 text-xs text-muted-foreground">
+                                        Showing TDS groups in <span className="font-medium">{itemWorkPackage}</span>.
+                                    </p>
+                                )}
+                                {isReassignment && (
+                                    <p className="mt-1 flex items-start gap-1 text-xs text-amber-700">
+                                        <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-px" />
+                                        <span>
+                                            This will MOVE the product out of{" "}
+                                            <span className="font-medium">{originalTdsItemName}</span>. A product
+                                            belongs to one TDS group at a time.
+                                        </span>
+                                    </p>
+                                )}
+                                {isUnlinking && (
+                                    <p className="mt-1 flex items-start gap-1 text-xs text-amber-700">
+                                        <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-px" />
+                                        <span>
+                                            This will REMOVE the product from{" "}
+                                            <span className="font-medium">{originalTdsItemName}</span>.
+                                        </span>
+                                    </p>
+                                )}
+                            </div>
+                        )}
 
                         <div className="flex flex-col items-start pt-2">
                             <label htmlFor="itemStatus" className="block text-sm font-medium text-gray-700">Item Status<sup className="pl-1 text-sm text-red-600">*</sup></label>

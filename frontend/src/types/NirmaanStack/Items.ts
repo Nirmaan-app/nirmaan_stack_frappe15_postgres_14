@@ -25,4 +25,11 @@ export interface Items {
 	item_status?: "Active" | "Inactive"
 	/**	Billing Category : Data	*/
 	billing_category?: string
+	/**	Linked TDS Item : Link - TDS Items
+
+		The item's ONE TDS datasheet group (ADR-0004, N:1 membership owned by the
+		Item). A group's members are derived live as
+		`Items WHERE linked_tds_item = <group>` — this field is the SOLE store,
+		not a mirror of the retired `TDS Items Child Table`.	*/
+	linked_tds_item?: string
 }

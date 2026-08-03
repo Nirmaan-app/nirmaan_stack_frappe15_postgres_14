@@ -28,6 +28,12 @@ export interface UseFacetValuesConfig {
     enabled?: boolean;
     limit?: number;
     requirePendingItems?: boolean;
+    /**
+     * Ask the backend to append a "not set" bucket (the `NOT_SET_FACET_VALUE` sentinel)
+     * counting rows where the field is NULL or ''. Off by default — every existing caller
+     * keeps its exact current payload. See `FacetDeclaration.includeBlankBucket`.
+     */
+    includeBlankBucket?: boolean;
 }
 
 export interface UseFacetValuesReturn {
@@ -50,7 +56,8 @@ export function useFacetValues({
     additionalFilters = [],
     enabled = true,
     limit = 0,  // 0 means no limit - return all facet values
-    requirePendingItems = false
+    requirePendingItems = false,
+    includeBlankBucket = false
 }: UseFacetValuesConfig): UseFacetValuesReturn {
 
     const [facetValues, setFacetValues] = useState<FacetValue[]>([]);
@@ -112,7 +119,8 @@ export function useFacetValues({
                         ? JSON.stringify([searchFieldParam])
                         : undefined,
                     limit: limit,
-                    require_pending_items: requirePendingItems
+                    require_pending_items: requirePendingItems,
+                    include_blank_bucket: includeBlankBucket
                 };
 
                 const response = await fetchFacetValues(payload);
@@ -131,7 +139,7 @@ export function useFacetValues({
                 setIsLoading(false);
             }
         }, DEBOUNCE_DELAY),
-        [enabled, fetchFacetValues, resetApiState, limit, requirePendingItems]
+        [enabled, fetchFacetValues, resetApiState, limit, requirePendingItems, includeBlankBucket]
     );
 
     // Effect to trigger fetch when dependencies change

@@ -150,12 +150,13 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
         open && mode === "existing" ? `tds_request_search_${debouncedQuery}` : null
     );
 
+    // ADR-0004: group-name-only search, so no member hit to attribute — the old
+    // "contains <member>" subtitle is gone.
     const groupOptions = useMemo(() => {
         const groups = searchData?.message ?? [];
         return groups.map(g => ({
             label: g.tds_item_name,
             value: g.tds_item,
-            subtitle: g.matched_member ? `contains ${g.matched_member.item_name}` : "",
             group: g,
         }));
     }, [searchData]);
@@ -260,17 +261,17 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
                                                 <FuzzySearchSelect
                                                     allOptions={groupOptions}
                                                     tokenSearchConfig={{
-                                                        searchFields: ['label', 'value', 'subtitle'],
+                                                        searchFields: ['label', 'value'],
                                                         minSearchLength: 1,
                                                         partialMatch: true,
                                                         minTokenLength: 1,
-                                                        fieldWeights: { label: 2.0, value: 1.5, subtitle: 1.0 },
+                                                        fieldWeights: { label: 2.0, value: 1.5 },
                                                         minTokenMatches: 1,
                                                     }}
                                                     value={selectedGroup ? { label: selectedGroup.tds_item_name, value: selectedGroup.tds_item } : null}
                                                     onChange={handleGroupChange as any}
                                                     onSearchInputChange={(v) => setSearchQuery(v)}
-                                                    placeholder="Search TDS item or member item..."
+                                                    placeholder="Search TDS item..."
                                                     classNamePrefix="react-select"
                                                     isClearable
                                                     isLoading={isSearching}
@@ -281,9 +282,6 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
                                                     formatOptionLabel={(option: any) => (
                                                         <div className="flex flex-col">
                                                             <span>{option.label}</span>
-                                                            {option.subtitle && (
-                                                                <span className="text-xs text-blue-600">{option.subtitle}</span>
-                                                            )}
                                                         </div>
                                                     )}
                                                 />

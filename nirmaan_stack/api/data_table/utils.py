@@ -58,6 +58,12 @@ def _process_filters_for_query(filters_list: list, doctype: str) -> list:
     processed_filters = []
     COMMON_DATE_FIELDS = {"creation", "modified"}
     sql_date_format = "%Y-%m-%d"
+    # Sentinel emitted by the facet "blank"/"not set" bucket (see facets.py
+    # NOT_SET_FACET_VALUE). When present in an `in` filter it means "match rows
+    # where this field is unset", which Frappe expresses as `is not set`
+    # (NULL or ''). No real link/data value equals this string, so this branch
+    # is inert for every other facet.
+    NOT_SET_FACET_VALUE = "__NOT_SET__"
 
     for f in filters_list:
         if not isinstance(f, list) or len(f) < 3: continue
@@ -75,6 +81,36 @@ def _process_filters_for_query(filters_list: list, doctype: str) -> list:
         else: continue
 
         if not isinstance(field, str) or not field.strip(): continue
+
+        # --- "Not set" facet bucket: handle the sentinel inside an `in` filter ---
+        if operator == "in" and isinstance(value, list) and NOT_SET_FACET_VALUE in value:
+            remaining = [v for v in value if v != NOT_SET_FACET_VALUE]
+            if not remaining:
+                # Only "not set" selected → simple `is not set` (NULL or '').
+                processed_filters.append([original_filter_doctype, field, "is", "not set"])
+            else:
+                # "Not set" selected alongside concrete values. Reportview filters
+                # are AND-combined, so two rows (`is not set` + `in [...]`) would
+                # return nothing. Resolve the intended OR (unset OR in remaining)
+                # to a `name in (...)` set via a single sub-query.
+                try:
+                    placeholders = ", ".join(["%s"] * len(remaining))
+                    union_sql = (
+                        f"SELECT name FROM `tab{original_filter_doctype}` "
+                        f"WHERE `{field}` IS NULL OR `{field}` = '' "
+                        f"OR `{field}` IN ({placeholders})"
+                    )
+                    union_names = frappe.db.sql(union_sql, tuple(remaining), pluck=True)
+                    if union_names:
+                        processed_filters.append([original_filter_doctype, "name", "in", union_names])
+                    else:
+                        processed_filters.append([original_filter_doctype, "name", "=", "NoMatchFound_NotSet_Filter"])
+                except Exception as e:
+                    print(f"Error processing 'not set' union filter for {field}: {e}")
+                    # Fall back to the unset bucket alone rather than crashing.
+                    processed_filters.append([original_filter_doctype, field, "is", "not set"])
+            continue
+        # --- End "not set" bucket ---
 
         filter_processed_correctly = False
         is_date_type, is_datetime_type = False, False

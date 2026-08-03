@@ -1,6 +1,9 @@
 # TDS Item grouping model
 
-Status: accepted
+Status: accepted — **membership clause superseded by ADR-0004** (M:N → N:1,
+owned by the Item). The three-level grouping (Items SKU → TDS Item → Repository
+Entry) and WP scoping stand; only the *cardinality and ownership* of membership
+changed.
 
 A TDS datasheet typically covers a whole manufacturer product family (several
 catalog item codes at once), so the old "one TDS Repository row = one Items SKU ×

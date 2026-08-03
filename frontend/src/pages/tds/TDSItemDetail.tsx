@@ -23,9 +23,10 @@
 import React, { useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
+    useFrappeGetCall,
     useFrappeGetDoc,
     useFrappeGetDocList,
-    useFrappeUpdateDoc,
+    useFrappePostCall,
     useFrappeDeleteDoc,
 } from "frappe-react-sdk";
 import {
@@ -240,13 +241,26 @@ export const TDSItemDetail: React.FC = () => {
         id ? undefined : null
     );
 
-    const members: TDSItemMember[] = doc?.members || [];
+    // ADR-0004: members are DERIVED — `Items WHERE linked_tds_item = <group>` —
+    // not read off `doc.members` (that child table is retired as a writer and
+    // left dormant; reading it here would show a frozen snapshot of the old
+    // model). `get_tds_item_members` returns the same {item, item_name, category}
+    // shape, so everything downstream is unchanged.
+    const {
+        data: memberRows,
+        mutate: mutateMembers,
+    } = useFrappeGetCall<{ message: TDSItemMember[] }>(
+        "nirmaan_stack.api.tds.members.get_tds_item_members",
+        { tds_item: id ?? "" },
+        id ? undefined : null
+    );
+
+    const members: TDSItemMember[] = memberRows?.message || [];
     const memberCount = members.length;
     const entryCount = entries?.length ?? 0;
     const isCustom = memberCount === 0;
 
     // ---- Mutations ----
-    const { updateDoc, loading: savingMembers } = useFrappeUpdateDoc();
     const { deleteDoc, loading: deletingEntry } = useFrappeDeleteDoc();
     const { deleteDoc: deleteTdsItem, loading: deletingItem } = useFrappeDeleteDoc();
 
@@ -268,19 +282,61 @@ export const TDSItemDetail: React.FC = () => {
     const [entriesSorting, setEntriesSorting] = useState<SortingState>([]);
     const [entriesColumnFilters, setEntriesColumnFilters] = useState<ColumnFiltersState>([]);
 
-    // ---- Member persistence ----
-    // Persist members by sending the FULL list of {item} rows. Sending only the
-    // item link is enough — item_name/category are fetched server-side from the
-    // Items master (fetch_from on the TDS Items Child Table).
-    const persistMembers = async (nextItems: string[]) => {
-        if (!id) return;
+    // ---- Member persistence (ADR-0004: writes land on `Items.linked_tds_item`) ----
+    // This page and the Items-side edit form are TWO WRITERS over ONE store, so
+    // "add member" is really "point these items at this group" and can MOVE an
+    // item out of another group. `set_items_tds_link` reports each such move in
+    // `reassigned`, and the WP invariant it enforces means some staged items can
+    // be refused while others succeed — hence the partial-outcome reporting.
+    const { call: setItemsTdsLink, loading: linkingMembers } = useFrappePostCall<{
+        message: {
+            updated: string[];
+            reassigned: { item: string; item_name: string; from_group_name: string }[];
+            errors: { item: string; reason: string }[];
+        };
+    }>("nirmaan_stack.api.tds.linking.set_items_tds_link");
+
+    const { call: clearItemsTdsLink, loading: clearingMember } = useFrappePostCall<{
+        message: { cleared: string[]; errors: { item: string; reason: string }[] };
+    }>("nirmaan_stack.api.tds.linking.clear_items_tds_link");
+
+    const savingMembers = linkingMembers || clearingMember;
+
+    const handleAddMembers = async (newItemIds: string[]) => {
+        if (!id || !newItemIds.length) return;
         try {
-            await updateDoc("TDS Items", id, {
-                members: nextItems.map((item) => ({ item })),
+            const res = await setItemsTdsLink({
+                item_ids: JSON.stringify(newItemIds),
+                tds_item: id,
             });
+            const { updated = [], reassigned = [], errors = [] } = res?.message || {};
+
+            mutateMembers();
             mutateDoc();
+
+            if (errors.length) {
+                toast({
+                    title: updated.length ? "Partly added" : "Could not add",
+                    description:
+                        `${updated.length} added. ${errors.length} refused: ` +
+                        errors.map((e) => `${e.item} (${e.reason})`).join("; "),
+                    variant: "destructive",
+                });
+            } else if (reassigned.length) {
+                toast({
+                    title: `${updated.length} item(s) added`,
+                    description:
+                        `Moved from another group: ` +
+                        reassigned
+                            .map((r) => `${r.item_name || r.item} (was in ${r.from_group_name})`)
+                            .join("; "),
+                    variant: "success",
+                });
+            } else {
+                toast({ title: `${updated.length} item(s) added`, variant: "success" });
+            }
         } catch (e: any) {
-            console.error("Error updating members:", e);
+            console.error("Error linking members:", e);
             toast({
                 title: "Error",
                 description: e?.message || "Failed to update members",
@@ -289,10 +345,22 @@ export const TDSItemDetail: React.FC = () => {
         }
     };
 
+    // Removing a member CLEARS the item's link — under N:1 that is the whole
+    // operation; the item simply belongs to no group until it is re-tagged.
     const handleRemoveMember = async (item: string) => {
-        const next = members.map((m) => m.item).filter((i) => i !== item);
-        await persistMembers(next);
-        toast({ title: "Member removed", variant: "success" });
+        try {
+            await clearItemsTdsLink({ item_ids: JSON.stringify([item]) });
+            mutateMembers();
+            mutateDoc();
+            toast({ title: "Member removed", variant: "success" });
+        } catch (e: any) {
+            console.error("Error removing member:", e);
+            toast({
+                title: "Error",
+                description: e?.message || "Failed to remove member",
+                variant: "destructive",
+            });
+        }
     };
 
     const handleDeleteEntry = async () => {
@@ -735,10 +803,10 @@ export const TDSItemDetail: React.FC = () => {
                         onOpenChange={setIsAddMembersOpen}
                         workPackage={doc.work_package}
                         existingItems={members.map((m) => m.item)}
-                        onCommit={async (newIds) => {
-                            await persistMembers([...members.map((m) => m.item), ...newIds]);
-                            toast({ title: "Members added", variant: "success" });
-                        }}
+                        // `handleAddMembers` owns its own toasts — it has to report
+                        // partial outcomes (WP-refused items, cross-group moves) that
+                        // a blanket "Members added" would paper over.
+                        onCommit={handleAddMembers}
                     />
 
                     <AddTDSEntryDialog

@@ -34,6 +34,7 @@ import {
     LinkedSKUsPeekDialog,
     RepositoryEntriesPeekDialog,
 } from "./components/TDSItemPeekDialogs";
+import { ItemsSKUTab } from "./components/ItemsSKUTab";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TDS Repository master — two tabs after the 3-level grouping restructure:
@@ -55,7 +56,7 @@ import {
 const ITEM_DOCTYPE = "TDS Items";
 const ENTRY_DOCTYPE = "TDS Repository";
 
-type TabKey = "items" | "entries";
+type TabKey = "items" | "entries" | "skus";
 
 // A TDS Item row enriched with derived counts. We extend the base TDSItem type
 // with the in-memory derived fields so TanStack accessors are typed.
@@ -589,6 +590,9 @@ const TDSEntriesTab: React.FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
 const TAB_OPTIONS: { key: TabKey; label: string }[] = [
     { key: "items", label: "TDS Items" },
     { key: "entries", label: "Repository Entries" },
+    // ADR-0004: membership is authored from the Item side, so the curation hub
+    // needs the catalog itself — including SKUs no group has claimed yet.
+    { key: "skus", label: "Items SKUs" },
 ];
 
 export const TDSRepositoryMaster: React.FC = () => {
@@ -598,7 +602,8 @@ export const TDSRepositoryMaster: React.FC = () => {
     const isAdmin = role === "Nirmaan Admin Profile";
 
     const [tab, setTab] = useStateSyncedWithParams<TabKey>("tab", "items");
-    const activeTab: TabKey = tab === "entries" ? "entries" : "items";
+    const activeTab: TabKey =
+        tab === "entries" ? "entries" : tab === "skus" ? "skus" : "items";
 
     return (
         <div className="flex-1 space-y-6 p-4 md:p-6">
@@ -629,8 +634,10 @@ export const TDSRepositoryMaster: React.FC = () => {
 
             {activeTab === "items" ? (
                 <TDSItemsTab isAdmin={isAdmin} />
-            ) : (
+            ) : activeTab === "entries" ? (
                 <TDSEntriesTab isAdmin={isAdmin} />
+            ) : (
+                <ItemsSKUTab isAdmin={isAdmin} />
             )}
         </div>
     );
