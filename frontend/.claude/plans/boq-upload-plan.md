@@ -14834,3 +14834,1448 @@ semantics, the registry, run/persistence, wizard endpoints beyond the `_is_nirma
 patches.txt, `.claude/settings.local.json`. NOTE: goldens are seeded into the DB via the endpoint, NOT the
 `data/` asset -- a future benchmark re-import (`--replace`) would need them re-seeded (flagged for a later
 slice, consistent with the "seed via the endpoint" instruction).
+
+## Within-BoQ carry parity with the cross-BoQ revision carry
+
+**Opened** 2026-07-29 · **Tier** Full · **Track** feature
+**Branch** `feature/boq-within-boq-carry`, cut from `develop` @ `61f82798`
+**No migration.** Every provenance field this arc needs already existed from ADR-0014 Amendment E.
+**Nothing pushed. Owner live-certification: NOT STARTED.**
+
+> ✅ **ADR-0014 Amendment F is WRITTEN** (S6, 2026-07-30) — a banner in the ADR's Status section plus a
+> full detail block under D8. The citations in `pricing.py` / `committed_carry.py` / the test docstrings
+> now resolve. The **sixteen** rulings below are its content.
+>
+> ⚠️ **S6 could only complete ONE of its three doc targets.** Three in-scope files were denied by the
+> `SIZE CEILING` hook and two do not exist — see **F7 / F8** and **"S6 doc-correction backlog"** below.
+> The as-built detail that could not land in the reference docs is recorded in this fragment instead,
+> which is the destination the hook itself names.
+>
+> ✅ **S7 (2026-07-30) CLOSED that gap and made this register true again.** The 2026-07-30 repo carve
+> plus a same-day hook patch obsoleted the blockers: **F3 corrected** (the scope guard now whitelists
+> its own state file), **F7 obsolete** (all three over-ceiling docs carved into routers), **F9
+> superseded** (a 2,000 B repair band, sized from THIS arc's +133 B incident), **backlog #2 closed**
+> (the prose moved and is correct at `frontend-pricing-editor.md:61-79`). Nothing in the backlog is
+> outstanding. ⚠️ **F6 is separately stale — flagged, not corrected** (see the findings preamble).
+>
+> ➡️ **CONTINUED IN [`…-parity-part2.md`](2026-07-29-within-boq-carry-parity-part2.md)** — this file
+> reached its 32,000 B ceiling. Part 2 holds **S8** (a pre-existing `develop` defect: the pricing
+> editor rendered the CURRENT version's categories against an OLDER version's rows — 106 contradicted
+> rows measured in production), rulings **R20–R23**, and **S9**'s first bench-verified test counts.
+> **R22 lifted the facts-doc freeze, so F6 is now CORRECTED in part 2** — and its own "actual is 1188
+> across 50" was itself stale; measured at `f215d6a9` it is **1222 across 53**.
+
+---
+
+### The ask
+
+The owner shipped ADR-0014 Amendment E: the cross-BoQ revision carry
+(`cross_boq_carry.apply_sheet_carry`) moves rates plus an opt-in, provenance-stamped subset of
+`LAYER_KEYS = ("categories", "remarks", "colors", "remark_dismissals")`.
+
+He asked for the same on the WITHIN-BoQ version carry — `pricing.apply_copy_forward`, the
+"Copy rates forward" button that appears in the pricing editor when you browse to an older
+committed version of the same sheet.
+
+**His assumption was correct**: that button existed and carried rates ONLY.
+
+---
+
+### Ruling register (owner, 2026-07-29 / 2026-07-30)
+
+| # | Ruling | Notes |
+|---|---|---|
+| **R1** | Carry categories + remarks + colours + remark dismissals. | Reconciliation choices OUT — that doctype has no provenance fields, so including it would be a MIGRATE. Amount formulas OUT and still owner-locked never-carry in either seam (Amendment C). |
+| **R2** | The category gate moves to AFTER the layer carry: lock-check → formulas → acquire lock → carry layers → **category gate** → rates → commit, one transaction, rollback on refusal. | **REVERSES the G2c ruling.** The invariant is unchanged in words — no rate lands on an uncategorised row — only the moment of judgement moves, so the guard can no longer block its own remedy. An incomplete SOURCE still refuses and unwinds the carried layers. The formula gate keeps precedence. |
+| **R3** | Within-BoQ provenance is expressed by VERSION, not BoQ. | "carried from Version 2" within a BoQ; cross-BoQ keeps "carried from BOQ-26-…". Also settles the within-BoQ destination noun as "the current version". |
+| **~~R4~~** | ~~A local hand-pick outranks the carry in the display.~~ | **PARKED — see R10.** |
+| **R5** | The within-BoQ carry adopts the shared N2 description rule. | **Changes shipped rate behaviour**, five signed deltas: trailing-space / case / internal-whitespace now pair; blank descriptions stop pairing; a duplicated Excel row is dropped instead of last-silently-wins. Owner reads the last two as fixes. |
+| **R6** | `committed_carry.committed_excel_row_match` stays byte-frozen; a version-addressed sibling sits beside it. | Owner ruled AGAINST merging them behind a `current_only` flag. The sibling points at the original's warning rather than restating it. |
+| **R7** | The pricing record shows the DESTINATION's description text. | Under N2, a matched pair's descriptions can differ. Matches what the cross-BoQ carry already does. |
+| **R8** | The category gate is UNCONDITIONAL. | An annotations-only carry into an uncategorised destination is still refused. No carve-out. |
+| **R9** | Dialog copy fixes fold into the S3 slice rather than a separate pass. | |
+| **R10** | R4 is PARKED. | Nothing in the schema records WHO decided a row — see Finding F1. A precedence flip cannot be made truthful, and as ruled it would have started falsely claiming authorship on verdicts carried from a source. |
+| **R11** | The apply button reports WRITES, not selection — on BOTH dialogs in one change. | Same defect class `313697e7` fixed on the line and never on the button. Fixing one dialog only would recreate the divergence S1's extraction existed to prevent. |
+| **R12** | S5's two strings confirmed as drafted. | The dropped "Rates only" description, and `LAYER_BLOCK_SUBTEXT_WITHIN_BOQ` ("marked with the version it came from"). |
+| **R13** | The button noun is **"changes"**, not "items". | "items" collides with `node_type === "Line Item"` on this exact grid. Now enforced by test (`not.toContain("item")`), not by comment. |
+| **R14** | The cross-BoQ single-sheet bare "Carry" button stands. | Amendment E upheld; R11 named only the selection-based strings. ⚠️ Holds at the LABEL only — that button's `disabled` expression did change under R15, so its all-Keep case now disables where it previously enabled. |
+| **R15** | The apply button is gated on WRITES, not selection. | Finishes R11: one number governs both the label and enablement. **Reverses a parked code comment.** Implemented by DELETING `nothingToCarry`, which was the second source of truth. |
+| **R16** | The same-BoQ-vs-cross-BoQ decision is made SERVER-SIDE. | `get_sheet_categories_resolved` emits a derived `carried_from_other_boq` alongside BOTH raw provenance fields (additive; the raw fields stay). The grid renders what it is told: no comparison, no new prop, nothing crossing the React memo boundary. **Rejected:** threading a `boq` prop to `PricingGrid` (touches `pricingRowPropsAreEqual` on a grid rendering thousands of rows) and passing the BoQ into `resolvedToSheetCategoryRow` (a domain rule in a UI adapter with no DOM tests). **Rationale: "was this carried from elsewhere, or from an earlier version of myself" is a domain fact, not a presentation choice** — it belongs on the read that already calls itself resolved. ⚠️ Load-bearing: the signal is `bool(carried_from_boq) and carried_from_boq != boq`, **never** version truthiness, because `carried_from_version` is `bigint NOT NULL DEFAULT 0` so an uncarried row reads `0`. Pinned by `test_carry_stamped_at_version_zero_is_still_a_carry`. |
+
+| **R18** | One more attempt at backlog #2: tightening verbose prose AROUND a correction to pay for it is legitimate; compromising the correction to fit is not. | **Attempted, STOPPED at +133 B.** Confirms R17's fallback. The two `isNeedsReviewCategory` refs (retired, replaced by `isMasterSetBlank` — verified in `PricingGrid.tsx:491` + `ClassifySheetDialog.tsx:117`) DID land, -26 B. |
+| **R17** | Correct and prune in ONE net-shrinking edit per file: each of the three hook-blocked docs must come out SMALLER than it went in. | The answer to F7. Pruning must be genuine rot — (a) demonstrably stale/false, or (b) per-slice changelog detail the DOCS-UPDATE RULE bars from `CLAUDE.md` **and** whose substance already exists in a reference doc. **Do NOT reword a correction to squeeze under a ceiling**; if a file cannot be made both correct and smaller, STOP and report. Owner-locked invariant prose is never prunable, however verbose. |
+
+Three rulings reverse shipped decisions — **R2, R5, R15**.
+
+---
+
+### Load-bearing recon findings
+
+1. **The category gate already deadlocked this button before the arc.** It gates on the DESTINATION
+   (`pricing.py:3146` — recon read it at `:2950` BEFORE this arc's own R2 commit moved it; the
+   citation drifted because we edited the very line we had cited, which is the general lesson:
+   **a line number recorded in a fragment is invalidated by the slice that fragment describes**,
+   so cite the SYMBOL (`_categories_gate_ok` inside `apply_copy_forward`) and treat the number as
+   perishable), against `current_version`; every layer's identity includes
+   `committed_version`, so a re-commit mints a version with zero category rows;
+   `blank_category_eligible_rows` counts a never-classified row as blank because it keys on the
+   eligible `BOQ Nodes` set (`persist.py:202-206, 260-263`) and filters by `committed_version`
+   (`persist.py:250-251`). No grandfathering; the admin override lives per-version and does not
+   survive a re-commit. Pinned by `test_a_refused_when_destination_blank` /
+   `test_c_succeeds_once_categorised` / `test_e_uncategorised_source_does_not_block`.
+
+2. **Neither matcher is fuzzy.** `match_rows` (`services/boq_revision/row_match.py:127-151`) joins
+   on identical Excel position then requires N2-identical descriptions.
+   `committed_carry._match_rows_from_nodes` sets `row_id == excel_row` on both sides, so its twin
+   map can only pair a row with itself. Pinned by
+   `test_row_match.py::test_same_text_at_a_different_row_does_not_match`. **Tolerance for moved
+   rows exists nowhere in this codebase.** An early plan claim that consolidating the matchers was
+   "a pure consolidation, not a behaviour change" was WRONG and was caught by a builder stop.
+
+3. **`_match_rows_from_nodes` filters `is_current: 1`**, which within one BoQ empties the source
+   side (the older version's nodes were frozen to `is_current=0` at re-commit,
+   `commit_pipeline.py:857-858`). Measured: source v1 = 6 nodes all `=0`, dest v2 = 5 all `=1`.
+   Wired in naively this would have made the button silently carry nothing.
+
+4. **`set_human_verdict` annotates in place** (`persist.py:597-606`), writing exactly
+   `human_category_id` / `human_verdict_at` / `human_verdict_by` and never touching carry
+   provenance. `deriveVerdictState` checks `carried_from_boq` BEFORE `human_category_id`, so a
+   local pick on a carried row renders as "carried". The ladder is unaffected —
+   `carried_from_boq` is not a ladder input.
+
+---
+
+### Findings that outlive this arc
+
+> ⚠️ **The hooks named in F3 / F4 / F7 / F9 are PERSONAL/GLOBAL — `~/.claude/hooks/`
+> (`nirmaan_guard_scope.py`, `nirmaan_ceilings.py`, `nirmaan_guard_doc_size.py`,
+> `nirmaan_guard_push.py`, `nirmaan_context_digest.py`) — and are NOT committed to this repo.**
+> The repo's own `.claude/hooks/README.md` documents only two things: `guard_claude_md.py` and the
+> `.githooks/commit-msg` conventional-commit hook. **On another machine, or for another
+> contributor, those four findings may not apply at all** — the guard that produced them may be
+> absent, or at a different version. Treat them as observations about ONE operator's tooling on a
+> dated day, never as repo invariants. This is also why F3 and F9 went stale within days: the
+> tooling was patched out from under them, and nothing in the repo records that.
+
+**S7 (2026-07-30) re-verified the findings below against current tooling.** F3 corrected, F7 and F9
+superseded, **F2 and F8 re-checked and still standing** (no `typecheck` script in
+`frontend/package.json` — only `build`/`test`/`preview`/`test-local`, none of which invokes `tsc`;
+both dead doc paths still absent). **F1 and F5 were NOT re-checked by S7** — F1 is a code claim
+carried by the five-agent verification pass, F5 is a process observation with nothing to check
+against. **F6 was OVERTAKEN at S7 and left FLAGGED; S9 has now CORRECTED it** — the facts doc was
+refolded at `5de64ed8` (v5.91, `status: current`), quotes no count, and explicitly asks for the
+numbers it lacked; **R22** lifted the freeze that kept S7 out. See F6 below, and part 2.
+
+**F1 — the freeze authorship gap (pre-existing, not introduced here).**
+`persist.stamp_human_verdicts_bulk` writes `human_category_id`, `human_verdict_at = now` and
+`human_verdict_by` onto EVERY resolved non-blank row it stamps — carried or not, human-decided or
+machine-decided. Consequences: after any freeze, a carried row's `human_verdict_at` is newer than
+its `carried_at`, indistinguishable from a genuine local pick; and `deriveVerdictState` already
+returns `"human"` for auto-accepted machine verdicts on any frozen sheet. **Nothing in the schema
+records who actually decided a row.** This killed R4 and it will kill any future display-layer fix.
+The honest remedy is a verdict-provenance field, not another badge patch.
+
+**F2 — nothing ever invokes `tsc`.** No `typecheck` script in `frontend/package.json`; `build` is
+`vite build` (esbuild, strips types without checking); CI runs only the bench Python suite.
+Repo-wide baseline is ~3236 errors. The shared frontend types introduced in this arc are sound
+today but are enforced by a compiler no automated gate runs.
+
+**F3 — ~~`guard_scope.py` cannot rotate its own state file.~~ CORRECTED 2026-07-30 (S7): the fix
+F3 asked for now exists.** `nirmaan_guard_scope.py:108-120` declares
+`CONTROL_PLANE = (".claude/state/*", ".claude/state/**")` and unions it into `allowed`, with the
+comment *"The state file is the guard's CONTROL PLANE, never the work… Always allow it"* and an
+explicit statement of the tradeoff (an agent can widen its own scope; the guard's job is catching
+the write you did not mean to make, not defeating a determined one). **The finding was TRUE when
+written** — every rotation earlier in this arc genuinely was denied and required the owner to edit
+the file by hand — so it is recorded as corrected, not deleted. S7 rotated its own state file with
+no denial. ⚠️ Do not re-derive the old conclusion from the arc's earlier slices: they ran against
+an older hook.
+
+**F4 — a hook denies `git stash push`**, matching the substring "push". False positive; it cost a
+builder its plan to verify intermediate commits. Tighten the pattern to `git push`.
+
+**F5 — self-reported counts do not survive mechanical checking.** Three instances this arc:
+"92 assertions" was a test-CASE count (real assertions 133 → 161); a "~359px floor" was presented
+as derivable when independent arithmetic gives a ~280–400px band; "twelve changed assertions" was
+eleven (4 + 7, counted off the pre-image). None changed a verdict. All were caught by reviewers
+re-counting rather than reading. Report cases and assertions as separate numbers, always.
+
+**F6 — ✅ CORRECTED 2026-07-30 (S9).** As written: *the facts doc is stale on a metric this arc
+reports* — it recorded vitest **976 across 46 files**, and was owner-ruled untouchable. Both halves
+are now gone: the doc was refolded at `5de64ed8` and **R22** lifted the freeze. ⚠️ **F6's own
+replacement figure — "actual is 1188 across 50" — was ITSELF stale** by the time it was read.
+Measured at `f215d6a9`: **1222 across 53, zero skips**. Full disposition in part 2.
+
+**F7 — ~~three reference/convention docs are permanently uncorrectable at their size ceilings.~~
+OBSOLETE 2026-07-30 (S7): the carve F7 called for HAPPENED, on the same day.** All three trunks were
+cut down to routers and their content rehomed:
+
+| Doc | At S6 (F7) | Now | Content moved to |
+|---|---|---|---|
+| `CLAUDE.md` | 64 KB (1.6× a 40 KB ceiling) | **19.0 KB** | `.claude/context/conventions/backend-active-features.md` (37.7 KB) |
+| `frontend/CLAUDE.md` | 104 KB (2.6×) | **16.3 KB** | `frontend/.claude/context/conventions/frontend-pricing-editor.md` (41.9 KB) + siblings |
+| `.claude/context/domain/boq-backend.md` | 184 KB (2.3×) | **1.7 KB** (pure router) | `boq-backend-{wizard-endpoints,revised-boq,slice-changelog,doctypes-and-rules,operations}.md` |
+
+**The deadlock F7 described is gone**, and by the route F7 itself named ("the remedy is the surface
+split `boq-frontend.md` already received at `61f82798`"). All three now sit well UNDER their
+ceilings, so an ordinary correction lands with no special handling. **The ceiling VALUES also moved**
+— `CLAUDE.md` is now warn 20,000 / deny 30,000 (was a flat 40 KB), so do not reason from F7's
+numbers. Retained as a record because the reasoning still holds in general: *a guard that keeps a
+file small can block the edit that makes it correct* — which is exactly what F9's repair band was
+then built to answer.
+
+**F8 — two in-scope doc paths no longer exist; both were dissolved by the two commits this branch was
+cut from.** The branch is cut from `develop @ 61f82798`, and that commit plus its parent `15e9b81e`
+are exactly the two that removed them:
+
+| Path named in the S6 scope | Reality | Correct destination now |
+|---|---|---|
+| `frontend/.claude/context/domain/boq-frontend.md` | **deleted at `61f82798`** (287 KB → 10 surface files) | `domain/boq-frontend-revised-boq.md` (ADR-0014 amendments) · `-pricing-controls.md` (dialogs) · `-pricing-grid.md` (tooltip) |
+| `frontend/.claude/plans/boq-upload-plan.md` | **rotated at `15e9b81e`** | `frontend/.claude/plans/boq/` — `README.md`, `_slices.md`, `phasing.md`, `known-issues.md`, `decisions/`, `slices/` |
+
+**F9 — ~~the size guard is enforced PER TOOL CALL, so a correction can only land beside contiguous
+rot.~~ SUPERSEDED 2026-07-30 (S7): the tooling now has a REPAIR BAND built for exactly this.**
+`~/.claude/hooks/nirmaan_ceilings.py` sets `REPAIR_DELTA = 2_000` under a comment headed *"REPAIR
+BAND (load-bearing, added 2026-07-30)"* whose rationale **cites THIS ARC's incident by its numbers**:
+*"Sized from the real blocked correction (+133 B) with an order of magnitude of headroom: comfortably
+fits a factual fix or a redirect note, nowhere near enough to re-grow a document. A file in repair
+mode is TRACKED (the digest reports it), not silently forgiven."* So an over-ceiling file may still
+grow by up to 2,000 B **per tool call** — a one-clause correction of a false sentence now lands
+without needing an adjacent prunable byte. **The per-call granularity F9 described is still real; it
+simply no longer bites**, because the band is per-call too. The mechanism F9 recommended as the
+remedy (the carve) ALSO shipped — see F7.
+
+⚠️ **Do not infer from F9 that you must hunt for adjacent prose to delete.** That instruction was
+correct only under the pre-repair-band guard. R17's "one net-shrinking edit per file" was the
+workaround for a constraint that no longer exists; it is NOT a standing doc-hygiene rule, and
+applying it now would delete good prose to buy bytes you already have. What survives from R17 is its
+hard limit, which is unconditional: **never paraphrase or degrade a correction, or drop owner
+rationale, to fit a ceiling** — if a fix genuinely needs more than the band, the carve is overdue,
+so report and stop.
+
+⚠️ **Re-creating either file would directly undo those two commits** and was not attempted. None of
+the real destinations is in the S6 `files_in_scope`, so writing them is a `guard_scope.py` denial — a
+follow-up slice needs a corrected scope list. ⚠️ Both dead paths are still cited as live in
+`CLAUDE.md` (×5), `frontend/CLAUDE.md` (×3) and `boq-backend.md` (×6); every one of those pointers is
+dangling, and F7 blocks fixing them too.
+
+---
+
+### S6 doc-correction backlog — FULLY CLOSED (#1/#3/#4 at S6b, #2 at S7)
+
+| # | File | False statement | Outcome at S6b |
+|---|---|---|---|
+| 1 | `CLAUDE.md` | carry gate *"checked ONCE up front … and BEFORE the lock acquire"* | ✅ **FIXED.** Now states the gate is checked ONCE per call, and that the two seams differ DELIBERATELY: cross-BoQ REMOVED it (Amdt E), within-BoQ REORDERED it (Amdt F) to after the lock acquire and after the layer carry, one transaction, rollback on refusal; formula gate keeps precedence in both. |
+| 2 | ~~`frontend/CLAUDE.md`~~ → `frontend-pricing-editor.md` | carried-verdict cue *"Its one input is `SheetCategoryRow.carried_from_boq`"* | ✅ **CLOSED 2026-07-30 (S7) — the debt was PAID by the carve, not by another byte-squeeze.** The prose moved out of `frontend/CLAUDE.md` into `.claude/context/conventions/frontend-pricing-editor.md`, where it is now correct at **`:61-79`**, headed *"inputs corrected 2026-07-30 per R3/R16"*. It documents exactly the drafted wording: **three inputs** — `carried_from_boq` (and that the STATE still keys on this field ALONE), `carried_from_version` (R3), and `carried_from_other_boq` (R16, *"derived SERVER-SIDE… Do not re-derive cross-BoQ-ness from a string compare in the frontend"*) — plus the two-flavour tooltip, `carried from Version N` within a BoQ vs `carried from BOQ-…` across one, naming the pre-R16 bug. Nothing is owed. **Lesson: the blocked +133 B was never the real problem** — the file being 2.6× its ceiling was, and the structural fix dissolved the byte problem entirely. |
+| 3 | `frontend/CLAUDE.md` | *"`nothingToCarry` replaces `selectedCount === 0`"* | ✅ **FIXED.** Now: the apply gate is `carryWriteCount(...) === 0` (**R15 deleted `nothingToCarry`**), not `selectedCount === 0`. Paid for by correcting the same bullet's stale header `Amendment C + Amendment D` → `Amendment C + E`. |
+| 4 | `boq-backend.md` | *"`save_cell_price` and `apply_copy_forward` KEEP the gate **and are untouched**"* | ✅ **FIXED** (concise form, budget-limited): *"Both KEEP the gate; `save_cell_price` untouched, `apply_copy_forward`'s REORDERED (Amendment F)."* The **position** detail was omitted for want of bytes — it lives in ADR-0014 Amendment F and in `pricing.apply_copy_forward`'s own docstring, which records `was: lock → formulas → CATEGORY GATE → acquire → rates` / `now: lock → formulas → acquire → CARRY LAYERS → CATEGORY GATE → rates`. |
+
+**Where the as-built detail went instead.** The backend + frontend as-built for this arc — the
+`layers=` wire shape, the R2 gate order with line numbers, `coerce_layers` as the single coercion with
+`cross_boq_carry._coerce_layers` as an `assertIs`-pinned alias, the R6 sibling and why
+`committed_excel_row_match` must keep `is_current: 1` while the sibling cannot, the N2 deltas, and the
+three R16 keys with the derivation expression — is written into **ADR-0014's Amendment F block**,
+which accepted the write. It is not duplicated here.
+
+#### Three citation corrections found while verifying S6 (code is right; earlier notes were wrong)
+
+1. **`categoryCellTitle` lives in `sheetCategoryResolve.ts:85-93`, not `PricingGrid.tsx`** — the grid
+   only imports (`:175`) and calls it (`:2505-2509`). The per-surface branch is `carriedFromNoun`
+   (`:104-108`).
+2. **`deriveVerdictState` lives in `CategoryVerdictPicker.tsx:47-57`**, not in `sheetCategoryResolve.ts`.
+3. **`overflow-hidden` is absent from `CopyForwardDialog.tsx` entirely** — `rounded-md` at `:410` wraps
+   the plan table with no clipping context. The deferred item is *adding* `overflow-clip`, not
+   replacing an existing `overflow-hidden`. `carryWriteBreakdown` is also **not exported** (private by
+   design); the two public readers `carrySelectionSummary` / `carryWriteCount` are what the dialogs call.
+
+---
+
+### Slice status
+
+| # | Slice | Commits | Tests | Review |
+|---|---|---|---|---|
+| S1 | Extract `CarryLayers` from `CrossBoqCarryDialog` (no behaviour change) | `2490ac63` | vitest 1112, unchanged | — |
+| S2 | Backend: `layers=` on `apply_copy_forward`, gate reorder (R2), N2 routing (R5), frozen sibling (R6) | `89e46c74` `a786190c` `ebbceb24` `62801470` `7762e63c` `30cc5f83` | **OBSERVED GREEN** 255 / 49 / 60, zero skips | CAVEATS → blocking item cleared by an independent run |
+| S5 | `CopyForwardDialog` gains the layer block | `2a89cdb0` `12d5a023` | vitest 1131 | **FAIL** — unbounded `DialogContent` |
+| S3a | Truth-and-fit rework: viewport bound, write-count button, `\0` escapes, per-surface noun, toast, `layers?` types | `1fd6ea9a` `3e26a275` `5219c79d` | vitest **1167/1167**, verified by an independent run | CAVEATS, **blocking: none** |
+| S3a-rework | R13 noun ("changes"), R15 write-gate, dead whole-BoQ gate, `PENDING` marker removed | `37fd65c6` `edd424e0` | vitest **1173/1173**, 50 files, zero skips, verified by an independent run. In-scope: cases 156→162, assertions 237→248; 11 restated, 0 dropped, 0 weakened | CAVEATS, **blocking: none** |
+| S3b | R3: plumb `carried_from_version` end to end; R16 server-side `carried_from_other_boq`; delete two stale `PENDING OWNER CONFIRMATION` markers falsified by R12 (`CarryLayers.tsx:317`, `CopyForwardDialog.tsx:363`) | `eabd1a42` `eb627c11` `2d9450d7` `1df36531` `f31aa47d` | `test_classify` 77 → **83 OK**; vitest 1173 → **1188 / 50 files**, zero skips | **DONE** |
+| S6b | **R17 correct-and-prune.** Sizes: `CLAUDE.md` 63,829→**63,117** (−712) · `frontend/CLAUDE.md` 104,028→**91,286** (−12,742) · `boq-backend.md` 188,177→**187,338** (−839). All 14 dangling refs repointed (`plans/boq/`, `boq-frontend-*`); 3 of 4 falsehoods fixed (#2 hook-denied, F9); 2 EXTRA falsehoods found + fixed in `CLAUDE.md` (`_categories_gate_ok` documented as `population="rate_editable"` — code passes `"eligible"` at all 3 call sites; `"rate_editable"` has ZERO live call sites) | docs only | **PARTIAL** — #2 outstanding |
+| ~~S4~~ | ~~precedence flip~~ | **PARKED (R10)** | | |
+| S6 | **ADR-0014 Amendment F** + reference docs | ADR written 2026-07-30 | docs only — no suite implicated | **PARTIAL** — ADR ✅; 3 files hook-denied + 2 files do not exist (F7/F8) |
+| S8 | **Version-scoped category read** (detail in **part 2**). Fixes a defect PRE-EXISTING on `develop`: history mode rendered the CURRENT version's categories against an OLDER version's rows — measured 106 contradicted + 181 wrongly-blank rows on `BOQ-26-00133`. R20 twin endpoint `get_version_sheet_categories`; display follows the viewed version, the **gate does not** | `8d70f5f0` `f215d6a9` | `test_classify` 83 → **94 OK**, zero skips; vitest unchanged (React semantic, no DOM env); tsc 0 in both touched files | needs live A/B — R23 |
+| S9 | **Record and verify.** S8 recorded (part 2), R20–R23 registered, ADR-0014 Amendment F extended, F6 corrected, first bench-verified counts in the facts doc | docs only | **All suites OBSERVED GREEN** at `f215d6a9` — see the part-2 table | — |
+| S7 | **Record-truth cleanup.** F3 corrected · F7 obsolete · F9 superseded · backlog #2 closed · `pricing.py` citation `:2950`→`:3146` · global-hooks caveat · F6 flagged. **One comment-only code edit:** `_apply_sheet_carry`'s docstring said "RATES ONLY (Amendment D)" while the body carries layers (Amendment E) | | `test_cross_boq_carry` **60 → 60 OK**, zero skips (comment-only; unchanged as expected) | **CLOSES THE ARC's doc debt** |
+
+S3b scope: `classify.py` (+ field list and emit), `test_classify.py`, `boqTypes.ts`,
+`sheetCategoryResolve.ts` (this is where `resolvedToSheetCategoryRow` lives — NOT
+`SheetPricingPage.tsx`), `PricingGrid.tsx` (tooltip), plus the two marker files above.
+
+**Deferred, deliberately:** the `rounded-md` corner clip on `CopyForwardDialog.tsx:410`.
+`overflow-hidden` would establish a scroll container and re-bind the sticky `<thead>` to a box that
+never scrolls, breaking the sticky header. `overflow-clip` is the correct tool but has ZERO
+precedent in this repo and cannot be verified without a DOM. Try it during live certification.
+
+---
+
+### Owner live-certification — NOT STARTED
+
+1. **The footer at 1366×768.** Copy rates forward, 8+ rows, layer block visible. Copy and Cancel
+   must both be visible and clickable. **The one check no test in this repo can substitute for** —
+   there is no DOM environment (`environment: "node"`, deliberate). This is the failure that got S5
+   rejected.
+2. **The R15 gate, BOTH dialogs.** A version whose rows are all conflicts, every one left on Keep,
+   every layer unticked → the button must be DISABLED, name no figure, and have no "Will copy" line.
+   It was enabled before. Tick Categories → it must enable and read "Copy N changes forward" with a
+   matching line. Repeat on the cross-BoQ dialog: its button stays bare "Carry" (R14) but must flip
+   enabled/disabled identically. **No test anywhere can cover this** — the change lives in a
+   `disabled={...}` expression.
+3. **The deadlock break (R2 positive).** Freshly re-committed sheet, zero categories; source
+   version categories complete; tick Categories; apply. Must SUCCEED and open the gate with no
+   admin override. Before this arc it refused.
+4. **Refusal atomicity (R2 negative).** Source categories incomplete; tick Categories; apply. Must
+   refuse, write nothing of any layer, and leave pre-existing destination rates byte-identical.
+5. **R8.** Annotations-only into an uncategorised destination must refuse honestly.
+6. **Rates-only regression.** No layers ticked — behaviour identical to before the arc.
+7. **R5 on real data.** Rows differing only by case or spacing now carry.
+8. **R13 on the grid.** Read the button against the pricing grid BEHIND the dialog — the whole point
+   of the ruling is the collision with "Line Item" in the row behind it.
+9. **One number, not two.** Toggle rates and layers on and off; the button figure and the
+   "Will copy" line must move together every frame.
+10. **Sticky header pre-state.** Scroll the plan table and confirm the column header stays pinned.
+    Untouched by this arc — capture it now, because the deferred corner-clip fix is what could
+    break it.
+11. **Provenance spot-check, PRE-FREEZE only** (see F1): `carried_from_version` stamped,
+    `carried_at` fresh, and a carried category's `human_verdict_at` retaining the SOURCE's older
+    timestamp — never freshened.
+
+## Within-BoQ carry parity — PART 2 (S8, S9)
+
+**Chained from** [`2026-07-29-within-boq-carry-parity.md`](2026-07-29-within-boq-carry-parity.md)
+(part 1), which reached its 32,000 B fragment ceiling. Part 1 holds the ask, rulings **R1–R18**, the
+recon findings, findings **F1–F9**, and slices **S1–S7**. This part holds **S8** (a shipped defect
+found and fixed on this branch), rulings **R20–R23**, and the **S9 record-and-verify** slice with the
+first bench-verified test counts this arc has ever had.
+
+**Branch** `feature/boq-within-boq-carry` · **Tip at writing** `f215d6a9` · **Nothing pushed.**
+
+---
+
+### S8 — the pricing editor showed the WRONG version's categories
+
+`8d70f5f0` (backend) + `f215d6a9` (frontend), 2026-07-30.
+
+#### The defect
+
+Browsing an older committed version of a sheet, the pricing editor rendered the **CURRENT** version's
+category verdicts against the **OLDER** version's rows. Two independent causes, one visible symptom:
+
+1. `classify.get_sheet_categories_resolved` (`classify.py:528`) has **no version parameter**. It
+   resolves `_resolve_committed_version(boq, sheet_name)` (`:558`) and answers for whatever is
+   current — there was no way to ask it for an older version.
+2. The page's SWR key carried no version either, so switching version did not even **refetch**.
+
+#### Measured production impact
+
+On `BOQ-26-00133 | 'B- BOQ- Elec.'`, viewing v1 while v2 is current: **106 rows disagreed** and
+**181 more were wrongly blank**. Recorded in the twin's docstring (`classify.py:570-574`).
+
+⚠️ **No data was ever lost.** v1's 561 rows were intact the whole time; the reader simply could not
+be asked for them. This matters for triage: the remedy was a read path, never a repair.
+
+#### PRE-EXISTING on `develop` — not introduced by this arc
+
+Verified from git, not recalled:
+
+| What | Commit | Date | On `develop`? |
+|---|---|---|---|
+| Version-view — read-only committed-version history browser (Phase 5) | `184caed3` | 2026-06-26 | ✅ yes |
+| HV-10 — multi-engine per-row resolution + grouped picker, which put `get_sheet_categories_resolved` into `SheetPricingPage.tsx` | `76a41050` | 2026-07-22 | ✅ yes |
+
+`76a41050` is the **first and only** commit to introduce that reader into the page
+(`git log -S "get_sheet_categories_resolved" -- frontend/src/pages/boq-wizard/SheetPricingPage.tsx`).
+It wired the reader to the page and **never wired it to the version selector**.
+
+⚠️ **This was an OMISSION, not a decision. No ADR records a choice to scope it that way** — so S8 is
+a *fix*, and deliberately not an amendment: there is nothing to reverse. The defect shipped on
+`develop` roughly five weeks before this branch existed, and this branch merely found it.
+
+#### R20 — the fix is a separate version TWIN, not a parameter
+
+| | Rows | Categories |
+|---|---|---|
+| Live (current version) | `pricing.get_priced_rows` (`pricing.py:2196`) | `classify.get_sheet_categories_resolved` (`classify.py:528`) |
+| History (explicit version) | `pricing.get_version_priced_rows` (`pricing.py:2475`) | **`classify.get_version_sheet_categories` (`classify.py:565`)** — new |
+
+The twin follows the shape this repo **already established for the ROWS at this same seam**. The two
+cannot drift because the whole resolution body was extracted to
+**`classify._resolved_categories_at_version(boq, sheet_name, committed_version)`** (`:433`) and both
+endpoints end in a call to it — the live reader at `:561`, the twin at `:599`.
+
+Why not parameterise the live reader: it is the editor hot path **and** the source the blank-count
+and the category gate read. Leaving it untouched is precisely what keeps the gate on the current
+version. The twin coerces its version through `pricing._coerce_int` (`:597`) rather than minting a
+second coercion, so both version twins reject a bad version with the *same* message; an unknown
+version returns **graceful empty**, mirroring `get_version_priced_rows`.
+
+#### ⚠️ The load-bearing constraint: DISPLAY follows the viewed version, the GATE does not
+
+**In history mode the page deliberately holds TWO category reads at once.** This is not redundancy
+and must not be "tidied up" into one:
+
+- **Display** follows the version being **VIEWED** — otherwise the Category column lies.
+- **The gate** stays on the **CURRENT** version — because it governs *writes*, and writes always land
+  on the current version. A gate computed from a historical version's categories would be a **worse**
+  defect than the one being fixed: it would let a rate land on an uncategorised current row because
+  some older version happened to be complete.
+
+This is recorded in the live reader's own docstring (`classify.py:531-536`), which is the right home
+for it — it is the reason that reader must never gain a version parameter, and the docstring is what
+a future editor reads immediately before trying to add one.
+
+#### Frontend wiring (`f215d6a9`)
+
+- The twin fetch (`SheetPricingPage.tsx:604`), **disabled unless viewing history**; its SWR key is
+  derived from the params, so `committed_version` is in the key and a version switch refetches.
+- `categoriesByExcelRow` → **`liveCategoriesByExcelRow`** (`:562`) — the blank count, the category
+  gate, and every write path. The rename is the point: the old name did not say which version it was.
+- **`activeCategoriesByExcelRow`** (`:629`) joins the existing `isViewingHistory` funnel (`:444`).
+- **Four DISPLAY surfaces** repointed at the active map: the grid's Category column, `hasRun`, the
+  Check-Category view filter, and that filter's button.
+- `boqTypes.ts:1679` — `GetSheetCategoriesResolvedResponse` now records that it is the twin's payload
+  too. **One type, because the two endpoints share one server-side body.**
+
+#### Tests
+
+11 new cases in `TestVersionScopedSheetCategories` (`test_classify.py`), including the two that make
+the twin honest: **`test_twin_at_the_current_version_equals_the_live_reader`** (byte-equality pin —
+the two cannot diverge) and **`test_live_reader_still_resolves_the_current_version`** (a pin that the
+live reader was not quietly re-pointed while nobody was looking). `test_classify` **83 → 94 OK**.
+
+Frontend: vitest unchanged by S8 — the change lives in hook wiring and a memo funnel, which is a
+React semantic and therefore **structurally untestable here** (no DOM environment, deliberate). This
+is why S8 needs a live check rather than a unit test.
+
+---
+
+### Ruling register, continued (owner, 2026-07-30)
+
+Part 1 carries R1–R18. R19 was not issued.
+
+| # | Ruling | Notes |
+|---|---|---|
+| **R20** | The version-scoped category read is a **separate TWIN endpoint** (`get_version_sheet_categories`), **not** a parameter on the live reader. | Follows the `pricing.get_priced_rows` / `get_version_priced_rows` precedent at the same seam. **One shared private body** (`_resolved_categories_at_version`) so the two cannot drift — the twin is a second door onto one room, not a second room. |
+| **R21** | S8 lands on `feature/boq-within-boq-carry` rather than its own branch. | The defect is pre-existing on `develop` and unrelated to the carry arc, so a separate branch was defensible. The owner ruled for this lane: the arc is about to be certified in a browser, and the certifier will be sitting in exactly this screen. Splitting it would certify the fix nowhere. |
+| **R22** | **Record bench-verified test counts in `.claude/facts/handover.md`.** | ⚠️ **Supersedes the earlier "the facts doc is untouchable" ruling**, which applied to the OLD stale copy. The doc was refolded at `5de64ed8` (v5.91, `status: current`) and now *explicitly asks* for these numbers at its own next-action item 3. Recording them closes finding **F6** — see below. |
+| **R23** | **Browser certification is APPROVED**, against an eight-journey list, to run after this slice. | ⚠️ **The eight-journey list was not supplied to S9 and is not reproduced here.** Part 1's "Owner live-certification" section carries **ELEVEN** items. Whether the eight is a subset of those eleven or a separate list is **unresolved** — obtain the list before the certifier runs, and do not assume part 1's eleven are it. |
+
+---
+
+### S9 — record and verify (2026-07-30)
+
+Documentation and test runs only; **no code changed**. Closes the two gaps a Checklist B review
+raised: S8 was recorded nowhere, and no bench-verified test count existed anywhere in the arc.
+
+#### Bench-verified counts — measured at `f215d6a9`
+
+Every number below was **OBSERVED** in this session, in-container, via the bench runner. Cases and
+assertions are reported separately, per finding **F5**. Assertion counts are static counts of
+assertion call sites in each file, not runtime counts.
+
+| Suite | Cases | Assertions | Result | Skips |
+|---|---|---|---|---|
+| `api.boq.wizard.test_pricing` | **255** | 787 | OK | 0 |
+| `api.boq.wizard.test_committed_carry` | **49** | 101 | OK | 0 |
+| `api.boq.wizard.test_cross_boq_carry` | **60** | 152 | OK | 0 |
+| `api.boq.wizard.test_classify` | **94** | 303 | OK | 0 |
+| `services.boq_category.tests.test_decay` | **12** | 35 | OK | 0 |
+| `services.boq_category.tests.test_hv2_voter_harness` | **14** | 33 | OK | 0 |
+| `services.boq_category.tests.test_routing_policy` | **23** | 47 | OK | 0 |
+| `services.boq_category.tests.test_runner_electrical` | **82** | 146 | OK | 0 |
+| `services.boq_category.tests.test_runner_hvac` | **104** | 181 | OK | 0 |
+| **boq_category subtotal** | **235** | 442 | OK | 0 |
+| **vitest** (in-container) | **1222** across **53** files | 2216 `expect(` | passed | 0 |
+
+`tsc --noEmit`, run by hand in-container: **3,236 error lines repo-wide — the pre-existing baseline,
+unchanged** — and **0 in either file S8 touched** (`SheetPricingPage.tsx`, `boqTypes.ts`). **Nothing
+in the repo invokes tsc automatically** (finding F2 still stands: no `typecheck` script, `build` is
+`vite build`/esbuild which strips types without checking, CI runs the bench suite only). So this
+number is only ever as fresh as the last time someone ran it by hand.
+
+**Cross-check:** every backend suite's `Ran N tests` equals its count of `def test_` definitions, so
+no case was silently filtered out by a name pattern.
+
+⚠️ **`test_pricing` prints a SQL traceback and a duplicate-key line** from
+`test_atomicity_concurrent_first_edit_exactly_one_winner` (`test_pricing.py:794`). This is the
+suite **deliberately racing the pricing lock** and observing that exactly one insert wins — the
+noise is the assertion working, not a failure. It is a known tracked rider in the facts doc. The
+suite reports `OK`.
+
+#### F6 — CORRECTED (was: flagged, not corrected)
+
+Part 1 left F6 flagged because the facts doc was ruled untouchable. **R22 lifted that**, so F6 is
+now closed — and closing it exposed that **F6's own replacement number was itself stale**:
+
+| Claim | Source | Status |
+|---|---|---|
+| "vitest 976 across 46 files" | facts doc, v5.90 | ❌ was already historical |
+| "actual is 1188 across 50" | F6, as written in part 1 | ❌ **also stale** — that was true at S3b |
+| **1222 across 53 files, zero skips** | measured this session at `f215d6a9` | ✅ **verified** |
+
+**F6's conclusion always held; only its evidence rotted, twice.** This is finding **F5** demonstrated
+on F5's own author: a number recorded as "actual" is a *measurement with a date*, and stops being
+actual the moment the next slice lands. Cite the measurement commit or do not cite the number.
+
+#### Branch state — verified, and one earlier claim retracted
+
+Measured with `git rev-list --left-right --count develop...HEAD` and `git branch --contains`:
+
+- `feature/boq-within-boq-carry` is **29 commits ahead** of `develop`; `develop` is **0 ahead**.
+- Merge-base is `2bd6032f`, which **is** `develop`'s tip — a **clean fast-forward**, no conflicts.
+
+❌ **RETRACTED:** an earlier claim in this session's planning that the **RM-1…RM-4b** Rate Master arc
+landed on this branch as branch-only work. **It did not.** `bc997eeb` and `fe61165a` are both on
+`develop` (merged via PR #1133), and this branch's merge-base *is* that merge. The facts doc had this
+right all along (`handover.md:34` records the arc as MERGED via PR #1133) — the error was in the
+session narrative, not in the repo record. Nothing needed correcting in the fragment, which never
+repeated it.
+
+#### Scope note
+
+`frontend/.claude/plans/boq/_slices.md` is **NOT** in S9's `files_in_scope`, so **no register row was
+added for S8, S9, or this part-2 file.** Per the fragment-chaining convention that row is owed
+(`nirmaan_ceilings.py:73-75`: chain to `<slug>-part2.md` *and add its row to `_slices.md` beside part
+1*). It needs a follow-up slice with `_slices.md` in scope — until then these records are reachable
+only from part 1's pointer, not from the register.
+
+## WBC-S6c — the structural carve of both `CLAUDE.md` files
+
+**Date:** 2026-07-30 · **Tier:** Full · **Branch:** `feature/boq-within-boq-carry`
+**Supersedes:** `WBC-S6b-correct-and-prune` — byte-by-byte pruning to buy room for
+corrections. S6b was not wrong; it was working at the wrong altitude. The carve
+removes the need for it.
+
+---
+
+### Why this slice exists
+
+S6b hit a wall that was not a budget problem but a **design** problem. Recorded in
+the S6 fragment as F9, and worth restating because it is the whole justification:
+
+> The size guard allowed a write iff `projected <= current`, computed per tool
+> call. So a prune and a correction only offset each other when they sit in ONE
+> contiguous span. For backlog #2 — the carried-verdict cue in
+> `frontend/CLAUDE.md` — the best achievable after losslessly tightening both
+> carry bullets, dropping the optional F1 note and maximally compressing the new
+> text was **+133 B over a 3,329 B span**. Nothing in that span is duplicated
+> anywhere in the repo (0/30 lines). Closing the last 133 B would have meant
+> paraphrasing owner rationale prose. No edit was attempted.
+
+That is the process working correctly and the guard punishing it. Two root causes
+sat underneath:
+
+1. **The ceilings were targets, enforced as invariants.** When the guard was
+   installed, `frontend/CLAUDE.md` was already 104,028 B against a 40,000 B
+   ceiling (2.6x) and `CLAUDE.md` was 63,829 B (1.6x). Both files were born
+   non-compliant, so the only permitted operation was "shrink" — and because a
+   correction usually ADDS bytes, the documents were frozen in a state known to
+   be wrong. Being over budget must not mean being unable to tell the truth.
+2. **`CLAUDE.md` got a ceiling but never got a rotation rule.** The two documents
+   that were fixed before this — `boq-frontend.md` (287 KB → 10 surface files) and
+   `boq-upload-plan.md` (1.29 MB → trunk + fragments + registers) — each got a
+   *partition axis*. `CLAUDE.md` got only a number. A ceiling without a rotation
+   rule is a wall, not a policy.
+
+`CLAUDE.md` cannot be carved the way `boq-frontend.md` was, because its whole
+value is being **auto-loaded**. Split it into ten peers and nothing reads them. So
+it takes the shape the delivery skill already uses on itself: `SKILL.md` is 88
+lines routing to nine references. `CLAUDE.md` becomes a router.
+
+---
+
+### What changed
+
+#### The carve
+
+| File | Before | After | Ratio |
+|---|---|---|---|
+| `frontend/CLAUDE.md` | 105,817 B | **16,301 B** router | 6.5x smaller |
+| `CLAUDE.md` | 71,995 B | **19,048 B** router | 3.8x smaller |
+| **auto-loaded total** | **177,812 B** | **35,349 B** | **5.0x — ~35,600 tokens per session** |
+
+147,900 B moved to eleven on-demand surfaces:
+
+| New file | Bytes |
+|---|---|
+| `frontend/.claude/context/conventions/frontend-pricing-editor.md` | 41,173 |
+| `frontend/.claude/context/conventions/frontend-pricing-module.md` | 23,824 |
+| `frontend/.claude/context/conventions/frontend-gotchas.md` | 14,228 |
+| `frontend/.claude/context/conventions/frontend-rate-master.md` | 6,792 |
+| `frontend/.claude/context/conventions/frontend-wizard.md` | 3,416 |
+| `frontend/.claude/context/conventions/frontend-review-invariants.md` | 3,251 |
+| `.claude/context/conventions/backend-active-features.md` | 37,687 |
+| `.claude/context/conventions/backend-rate-master.md` | 6,829 |
+| `.claude/context/conventions/backend-domain-gotchas.md` | 4,303 |
+| `.claude/context/conventions/backend-pricing-module.md` | 3,919 |
+| `.claude/context/conventions/backend-rate-suggestion.md` | 2,478 |
+
+**Method — structural, never regex on content.** Phase 1 learned this the
+expensive way, when a regex classifier filed eight slice records as design
+records because their headings looked like design headings. Sections here were
+located by heading level and byte span, each span ending at "the next heading at
+the same or a shallower level".
+
+**Losslessness — verified, not asserted.** Independently of the migration
+script, every non-blank line of `git show HEAD:CLAUDE.md` and
+`git show HEAD:frontend/CLAUDE.md` was confirmed present in either the new router
+or exactly one destination file. **954 + 359 content lines, 0 lost.**
+
+A byte-accounting bug was caught mid-run and fixed before apply: the script
+reported `len(str)` while the guard measures UTF-8 **bytes**, and these documents
+are full of em-dashes, arrows and warning glyphs — a ~1% under-report (105,001 vs
+105,817). Every number above is bytes.
+
+#### Correction #2 — finally landed
+
+The carried-verdict cue in `frontend-pricing-editor.md` now states **three**
+inputs instead of one:
+
+- `carried_from_boq` — the row's origin BoQ. **The STATE still keys on this field
+  alone**; the other two shape the tooltip, never the verdict.
+- `carried_from_version` (R3) — which VERSION a within-BoQ carry came from.
+- `carried_from_other_boq` (R16) — **derived SERVER-SIDE** in
+  `get_sheet_categories_resolved`. Do not re-derive cross-BoQ-ness in the client.
+
+The tooltip reads `carried from Version N` within a BoQ and `carried from BOQ-…`
+across one. Rendering the BoQ form for both was the pre-R16 bug.
+
+The correction **grew** its file by ~1.2 KB — precisely the write the old guard
+denied. It landed because the file is now 42 KB against a 100 KB ceiling. The
+debt S6b recorded as "accepted, structurally uncorrectable" is closed.
+
+#### Fragment repatriated
+
+`.claude/plans/boq/slices/2026-07-29-within-boq-carry-parity.md` (24,752 B) was
+living in a **second, orphaned plan tree at the app root** — one file, while the
+real tree under `frontend/` holds 175 and owns `_slices.md`. Its record existed
+but was unreachable from the map, which is the literal form of "the documentation
+stopped making sense".
+
+Cause: `process-config.md` declares `fragments: frontend/.claude/plans/boq/…`,
+but the slice-state examples in `planner.md` and `orchestration.md` both showed
+`.claude/plans/boq/…` with no `frontend/` prefix — while `orchestration.md`
+simultaneously *mandates* launching from the app root. A relative `.claude/…`
+therefore resolved to the app root, and `guard_scope.py` waved it through because
+`plan_fragment` is always in scope.
+
+`git mv`d into the real tree, indexed in `_slices.md`, stray directories removed.
+
+---
+
+### Follow-on state
+
+- `.claude/context/domain/boq-backend.md` is **187,338 B against a 100,000 B
+  ceiling (1.9x)** and is now in repair mode. It has 20 `##` sections and is the
+  next carve. It is on-demand rather than auto-loaded, so it costs nothing per
+  session — but it can only take corrections up to 2 KB until it is split.
+- The facts doc is **51 commits behind `develop`, 75 behind HEAD**. A fold is owed.
+- The restructure (this slice plus `0060499e` and `dbd51571`) is **24 commits
+  ahead of `develop`, a clean fast-forward, published nowhere.** Until it merges,
+  every other clone still sees the 1.35 MB monolith and no `plans/boq/` tree.
+
+### Ratified process changes
+
+Recorded in `process-config.md`'s changelog on 2026-07-30, owner-approved:
+
+1. **Repair band.** A file over ceiling may still grow by up to 2,000 B per call,
+   so a document over budget stays correctable. Bounded and reported — the
+   session-open digest lists every over-ceiling file with its ratio.
+2. **Ceilings derived from the measured corpus**, with the derivation recorded
+   inline in `nirmaan_ceilings.py`, shared by the guard and the digest so the two
+   cannot disagree.
+3. **Fragment chaining.** Fragments stay write-once, but a slice too large for one
+   opens `<slug>-part2.md` and adds its own row beside part 1. Hard ceiling
+   22 KB warn / 32 KB deny.
+4. **Monotonic files rotate at the WARN band, not the deny band.** `_slices.md`
+   grows one row per slice forever; at the old 45,000 B deny it had roughly 100
+   slices left before no slice could register itself.
+5. **Path form.** Every slice-state path is repo-root-relative and carries the
+   `frontend/` prefix where the tree lives there.
+
+## WBC-S10 — ungate the within-BoQ copy-forward
+
+**Branch** `feature/boq-within-boq-carry` · **Base** `cb1241ba` · **Tier** FULL · **Date** 2026-07-30
+
+The within-BoQ "copy rates forward" action (`apply_copy_forward`) refused when the destination sheet
+had rows without a category. That gate is removed. Nothing else about the action changed.
+
+---
+
+### The owner's reasoning — the part that must survive
+
+The gate exists to stop a **HAND-TYPED** rate landing on an uncategorised row. A **copy** moves known
+values from a known-good source, which is a **different risk**.
+
+Rates still cannot be **EDITED** until categories are complete. That protection lives in
+`_guard_categories_complete` on the SAVE path and is **untouched** — byte-identical, verified.
+
+This is the **identical reasoning already recorded in `cross_boq_carry.py`** for the cross-BoQ carry
+(the Amendment E comment block). **This slice is NOT a reversal of Amendment E; it is an extension of
+its logic to the same-sheet copy.** Do not "restore consistency" by re-adding the gate.
+
+The resulting state is one the owner explicitly accepts: a copy into an uncategorised destination
+arrives with **rates visible but rate editing locked**, the amber banner naming the rows still
+missing a category — exactly the shape the revision carry already produces.
+
+#### Gate sequence
+
+```
+was (G2c):        lock -> formulas -> CATEGORY GATE -> acquire -> rates -> commit
+was (Amend F R2): lock -> formulas -> acquire -> CARRY LAYERS -> CATEGORY GATE -> rates -> commit
+now (S10):        lock -> formulas -> acquire -> CARRY LAYERS -> rates -> commit
+```
+
+The mandatory amount-formula gate is **unaffected and keeps precedence** — still first, before the
+lock and the layers.
+
+---
+
+### Seam
+
+`apply_copy_forward`'s **interface** — specifically its documented refusal set. The change removes one
+condition from that set. It is the right seam because the refusal set is what both callers cross:
+`CopyForwardDialog` (which mirrors gates into `disabled`) and the tests. The gate was never a
+property of the write loop or of `_write_cell_price_record`; it was a sheet-level precondition
+evaluated once at the endpoint, which is precisely where an endpoint-level policy belongs.
+
+`_categories_gate_ok` itself was NOT removed — it survives as `rate_master._guard_suggest_gate`'s
+condition. After this slice it has **exactly one caller**, `api/boq/rate_master.py:203`.
+
+---
+
+### What changed
+
+| File | Change |
+|---|---|
+| `nirmaan_stack/api/boq/wizard/pricing.py` | Gate block + its 12-line justification comment deleted from `apply_copy_forward`. Docstring gate diagram rewritten. `_categories_gate_ok` docstring caller list corrected. `_resolve_and_guard_cell` docstring corrected. Formula-gate comment re-voiced. |
+| `nirmaan_stack/api/boq/wizard/test_pricing.py` | 8 refusal tests disposed (see table). 1 new test. 2 class docstrings + 6 stale comments corrected. |
+| `frontend/src/pages/boq-wizard/CopyForwardDialog.tsx` | **Comment-only.** Docblock note corrected. |
+
+#### Documentation corrected because this change made it false
+
+- `_categories_gate_ok`'s docstring named `apply_copy_forward` as a caller (about to be untrue) **and**
+  claimed `cross_boq_carry` maps `False` to a `'categories_incomplete'` reason tuple — **that half was
+  already untrue at HEAD**; Amendment E removed the gate from that path and no such reason code
+  exists. Both corrected.
+- The "AMENDMENT F R2 REORDERS THE GATES" diagram in `apply_copy_forward`'s docstring.
+- `_resolve_and_guard_cell`'s docstring claimed **both** carry paths run "the deliberate-lock +
+  formula + category gates" — false for `cross_boq_carry` since Amendment E, and now false here too.
+
+---
+
+### Test dispositions
+
+Eight tests asserted this copy REFUSES. None were bulk-deleted and none were merely made to pass.
+
+| # | Test | Disposition | Why |
+|---|---|---|---|
+| a | `test_a_refused_when_destination_blank` | **INVERTED** → `test_a_copies_into_a_blank_destination` | Asserted the G3a refusal text. Now asserts the opposite over the same fixture, plus the stronger fact: the destination has zero categories **before and after**, so the rate demonstrably landed on an uncategorised row. |
+| b | `test_b_refusal_writes_nothing` | **DELETED** | Protected "a category refusal writes nothing". Void — no category refusal exists. Refusal-writes-nothing on the surviving axes is pinned by the lock test, the formula-precedence test, and `test_apply_rolls_back_on_mid_batch_failure`. |
+| d | `test_d_admin_override_unlocks` | **DELETED** | Protected "the admin override is the escape from the copy-path gate". Void — there is no gate to escape. The override's surviving job (the SAVE path) is covered by `TestCategoryGate` `test_d`/`test_e`. *(This test still PASSED after the change — deleted anyway, because a passing test whose subject no longer exists is worse than none.)* |
+| f | `test_f_replay_and_no_double_apply` | **MODIFIED** | Kept; only its opening "refused while blank" step removed. Its real subject — replay without double-apply — is untouched and still asserted. |
+| h | `test_h_qtyless_preamble_gates_carry` | **DELETED** | Protected the G2e "empty is empty" widening **as a carry refusal**. Void. The widening still governs the SAVE path and is covered by `TestCategoryGate` `test_g` and the whole of `TestEligibleGateWidened`. |
+| j | `test_j_preexisting_dest_rate_survives_refused_carry` | **INVERTED** → `test_j_preexisting_dest_rate_is_kept_as_a_conflict_not_overwritten` | Same fixture now proves the thing worth protecting: ungating did **not** turn a conflict into an overwrite. Row 30 holds 777.0, so the copy runs, classifies it outcome 3, and KEEPS it — byte-identical, no superseded history row. |
+| r2-1 | `test_r2_without_the_category_layer_the_gate_still_refuses` | **INVERTED** → `test_without_the_category_layer_the_rates_still_land` | Rates land; destination legitimately left priced-but-uncategorised; the ticked layer still carries. |
+| r2-2 | `test_r2_incomplete_source_categories_refuse_and_roll_back_every_layer` | **INVERTED** → `test_incomplete_source_categories_carry_what_exists_and_still_price_both_rows` | The most valuable inversion. Source row 51 has no category, so destination row 51 ends up **priced but uncategorised** — exactly the state the removed gate existed to prevent and exactly the state the owner ruled is fine. Asserts both rates land, only the one existing category carries, and the other three layers carry normally. |
+| r2-3 | `test_r2_a_refused_carry_leaves_a_preexisting_destination_rate_byte_identical` | **DELETED** | Protected "a CATEGORY-refused carry leaves a pre-existing rate byte-identical under R2's post-carry ordering". Void. Refusal-on-a-surviving-axis is pinned by the lock + formula tests; non-refused conflict-keep is now pinned by the inverted `j`. |
+
+#### `test_k` — kept, deliberately
+
+`test_k_gate_sees_uncommitted_category_writes_in_the_same_transaction` calls `_categories_gate_ok`
+**directly**, never through `apply_copy_forward`, so S10 does not touch what it exercises. It was
+written to prove the Amendment F R2 precondition, which is void — **but it is the only direct test of
+a helper that survives** and still gates Rate Master. Kept and re-voiced: what it now pins is that
+`_categories_gate_ok` is a **live** read, not a committed-only one.
+
+*(Checked: `rate_master._guard_suggest_gate` is a pre-flight endpoint check, so transaction
+visibility is not load-bearing for it. The test is kept for coverage of the helper, not for R2.)*
+
+#### New test
+
+`TestCopyForwardLayers.test_rates_only_carry_lands_on_a_destination_with_no_categories` — the
+headline. Layers **omitted** entirely (so nothing in the call could populate categories) into a
+destination with **no categories at all**. Asserts `copied == 1`, `layers == {}`, the rate lands, and
+— the assertion no other test makes — **the destination still has zero category rows afterwards**.
+
+**Red run shown before green:** the test failed with
+`ValidationError: Nothing was copied. The destination sheet 'CFL Fix ' still has rows without a
+category…` (`Ran 1 test … FAILED (errors=1)`), then passed after the gate removal (`Ran 1 test … OK`).
+
+#### Verified unchanged
+
+`_guard_categories_complete` and `_get_category_gate_override` confirmed **byte-identical** by
+extraction-and-compare against HEAD (1566 B and 468 B, unchanged). `_categories_gate_ok`'s **body**
+byte-identical (docstring only was corrected). `save_cell_price`'s call site untouched. Formula-gate
+precedence, lock-held refusal, duplicate-source-position drop, replay/no-double-apply, per-layer tick
+behaviour, and both save-path gate classes (`TestCategoryGate`, `TestEligibleGateWidened`) all pass
+unchanged.
+
+#### Fixture setup removed as newly-pointless
+
+Four `_categorise_fixture_eligible_rows` calls existed **only** to stop the removed gate refusing:
+`TestCopyForward.setUpClass`, `test_apply_re_resolves_drifted_column`, `test_omitted_layers_is_rates_only`,
+and `test_a_classification_frozen_destination_takes_no_category_write`. Removed with their comments —
+keeping the call would have required keeping a comment that is now false. Those tests now run against
+uncategorised destinations, which is the more honest fixture. The bare call in
+`TestCopyForwardN2Matching.setUpClass` was **left alone** (no false comment attached to it).
+
+---
+
+### Frontend finding (item 5)
+
+**`CopyForwardDialog.tsx` contains no user-visible category messaging at all — there was nothing to
+remove.** Stated explicitly rather than silently changing nothing:
+
+- No banner, warning, label, or helper text mentions categories or the category gate.
+- The only user-facing gate banner is the **amount-formula** one ("The current version still has
+  amount columns without a formula. Declare them before copying.") — **unchanged**.
+- `disabled={!formulasComplete}` on both the layer block and the apply button — **unchanged**, as
+  required.
+- The word "categories" appears only as the label of the opt-in **layer** checkbox, supplied by the
+  shared `CarryLayersBlock` (out of scope, and not gate messaging).
+- `grep` for `Categories incomplete` / `Categorise the destination` across `frontend/src/` — **no
+  matches**. The frontend never special-cased the removed server message.
+- One coincidence worth not misreading: the post-apply summary string `"Nothing was copied into the
+  current version."` (line ~200) is `summarizeCopyForward`'s zero-write branch. It shares wording
+  with the deleted server refusal but is unrelated. **Left alone.**
+
+The only category-gate content in the file was the **docblock**, which promised "the server still
+refuses and rolls the whole transaction back" and "R8 keeps that gate UNCONDITIONAL". That is now
+false, so it was corrected. **The frontend diff is comment-only** — verified by reading the diff.
+
+---
+
+### Verification — observed output
+
+| Suite | Baseline | Final |
+|---|---|---|
+| `test_pricing` | **Ran 255 — OK** | **Ran 252 — OK** |
+| `test_committed_carry` | **Ran 49 — OK** | **Ran 49 — OK** |
+| `test_cross_boq_carry` | **Ran 60 — OK** | **Ran 60 — OK** |
+| vitest (in-container) | **1222 passed, 53 files** | **1222 passed, 53 files** |
+
+`test_pricing` 255 → 252 reconciles exactly: **−4 deleted** (b, d, h, r2-3) **+1 new** = 252.
+
+Intermediate red state after the gate removal and before the dispositions: **8 failures**, exactly
+the 8 refusal tests listed above and nothing else — which is itself the evidence that the removal's
+blast radius was confined to the category axis.
+
+Run in-container via `docker exec … bench --site localhost run-tests --module …`. `test_pricing`
+prints a SQL traceback from the deliberate lock-race test (`duplicate key … tabBoQ Sheet Pricing
+Lock_pkey`) — expected noise; the suite still reports OK. No browser session ran against localhost
+during the bench runs (`tabSeries` naming-lock collision).
+
+**`tsc --noEmit`: 3236 errors repo-wide, ALL pre-existing — `CopyForwardDialog.tsx` contributes
+NONE.** Recorded because the number is alarming out of context; the frontend diff here is a comment.
+
+---
+
+### Findings
+
+1. **A pre-existing false claim was found while correcting a true one.** `_categories_gate_ok`'s
+   docstring said `cross_boq_carry` maps `False` to a `'categories_incomplete'` reason tuple. That
+   was **already wrong at HEAD** — Amendment E removed the gate from that path and no such reason
+   code exists anywhere. Corrected as part of item 3.
+
+2. **⚠️ OWNER RULING NEEDED — a stale clause survives inside a byte-identical function.**
+   `_guard_categories_complete`'s docstring (`pricing.py:360`) still reads *"(the carry paths keep
+   delegating to `_categories_gate_ok`, whose bool needs no count)"*. **No carry path delegates to it
+   any more** — Amendment E removed one, S10 the other. This is now false.
+   **It was NOT corrected**, because the build prompt required that function to survive
+   **byte-identical**, and that instruction carried an explicit failure test ("if editing stops being
+   gated, the change is wrong"). Obeying the stricter constraint and reporting the residue is the
+   safe order of operations; silently editing a function declared byte-identical is not.
+   **Owed: a one-line docstring fix, in a slice that puts `_guard_categories_complete` in scope.**
+
+3. No hook denied any write. No guard fired. No scope violation attempted.
+
+---
+
+### Deliberately NOT done
+
+- **`cross_boq_carry.py` not touched** — out of scope, already ungated. Read once for voice only.
+- **`rate_master.py` not touched** — out of scope. Confirmed it is now `_categories_gate_ok`'s sole
+  caller; its behaviour is unchanged.
+- **`_categories_gate_ok` not deleted** — it still has a live caller.
+- **Save path not touched** — the whole point of the slice is that editing stays gated.
+- **No browser E2E.** The frontend change is a comment, so there is nothing to see. The behaviour
+  change is server-side and fully covered by bench tests. A live check would be worth it only as part
+  of the arc's certification pass, against the pricing grid's amber-banner behaviour on a
+  freshly-copied uncategorised sheet.
+- **Finding 2 not fixed** — see above; needs the guarded function in scope.
+
+## WBC-S11 — serial-number second-pass match
+
+**Branch** `feature/boq-within-boq-carry` · **Base** `283a0199` · **Tier** FULL · **Date** 2026-07-30
+
+The original → revised rate carry could only match a row that had **not moved**: `match_rows`
+required identical Excel position AND identical N2 description, a conjunction with no fallback. A
+row that shifted could not carry even with byte-identical text. It now gets a second pass keyed on
+**serial number + description**.
+
+---
+
+### ADR-0014 **Amendment G** — the boundary
+
+#### The rule
+
+Pass 1 is unchanged and takes precedence. Pass 2 runs **only** over rows unmatched on **both** sides
+after pass 1, and pairs two rows only when all of:
+
+- serial non-blank on both sides
+- N2-normalized descriptions equal (the same comparison pass 1 makes)
+- the `(serial, description)` key occurs **exactly once** among unmatched originals **and** exactly
+  once among unmatched revised
+
+Anything else stays unmatched. This mirrors the existing *second sighting → neither is trustworthy →
+drop the key outright* discipline already used for duplicate positions. The owner's chosen failure
+mode: **a bad serial LOSES a match, it never CREATES a wrong one.**
+
+#### Where it is enabled
+
+| call site | pass 2 | consumer |
+|---|---|---|
+| `committed_carry.committed_excel_row_match` | **ON** | `cross_boq_carry` — the rate carry **and** the opt-in layer carry |
+| `committed_carry.version_addressed_excel_row_match` | off | `pricing.apply_copy_forward`, the within-BoQ copy-forward |
+| `review_carry.merge_revision_review_carry` | off | the parse-time classification + parenting carry |
+
+`serial_second_pass` is **keyword-only, default False**, so the consumers that must not have it are
+unaffected **by construction**, not by care.
+
+#### ⚠️ The boundary is STRUCTURE vs. everything else — not rates vs. layers
+
+**The build prompt's original framing was wrong and the owner corrected it mid-slice (2026-07-30).**
+It listed four consumers and said only the rate carry may have pass 2, with the cross-BoQ *layer*
+carry (categories / remarks / colours / dismissals) explicitly "unchanged". That is not achievable
+and not desirable:
+
+- **Not achievable.** #1 and #2 are not two `match_rows` call sites. `cross_boq_carry` derives **one**
+  match per sheet and four consumers read it — `_classify_carry` (rates), `_count_new_priceable_rows`,
+  `_plan_layer_counts` and `_carry_layers` (both via `_carry_ctx`, which takes
+  `twin=match.original_to_revised`). Holding the layers back would have required a second, stricter
+  derivation.
+- **Not desirable.** The risk the strict position rule contains is a row being **re-parented under a
+  stale or superseded heading** — a structural fault that propagates silently through every
+  descendant, unlike a wrong rate, which is a visible number a human catches in the pricing grid.
+  That risk lives in consumer #4, the **parse-time** carry, which stays strict and is untouched by
+  this slice. Categories, remarks and colours are **row-addressed annotations, not parenting**;
+  putting one on a row the match has *already decided is the same row* adds no structural risk the
+  rate does not already carry.
+- **And splitting would have partly undone Amendment E**, whose whole point is that the carry moves
+  categories and rates in **one** action so the category gate cannot block its own remedy. A moved
+  row left priced-but-uncategorised reinstates exactly the manual finishing step E removed. This is
+  the strongest argument for the ruling.
+
+**Ruling: one match, the layers ride along.** #1 and #2 both get pass 2. #3 and #4 stay strict, and
+the tests pinning them are now the entire boundary.
+
+#### ⚠️ If you are bisecting: commit `72933a60`'s message is SUPERSEDED
+
+`72933a60` (the pure-matcher commit) says the flag exists so that *"the three consumers that must
+not get it (the cross-BoQ layer carry, the within-BoQ copy-forward, the parse-time
+classification/parenting carry) are unaffected"*. **The first of those three is wrong.** The owner's
+ruling above arrived *after* that commit was written, and the cross-BoQ **layer** carry **does** get
+pass 2 — it reads the very same match object as the rate carry, so it was never separable.
+
+Corrected one commit later in `bce47806`, whose message and code docstrings carry the true boundary
+(structure vs. everything else). **Commit history is immutable, so the message itself cannot be
+fixed** — this note is the correction of record. Only two consumers must not get the flag:
+`version_addressed_excel_row_match` and the parse-time carry.
+
+#### This is a sanctioned exception, not drift
+
+`row_match.py`'s docstring warns that the design went through **four owner narrowings** and says not
+to loosen it back toward a diff or a walk. That warning stands. This slice is a deliberate,
+owner-approved, **opt-in and narrowly-scoped** exception, recorded so a future reader sees intent
+rather than erosion. What keeps it from being a re-run of the description-only engine D6 rejected:
+**pass 2 never guesses.** A key that is not unique on both sides pairs nothing.
+
+#### Deliberately out of scope — no float repair
+
+Live `code` values include `"2.3000000000000003"` (a formula cell whose float precision leaked into
+stored text), plus prose (`"GRAND TOTAL (EX GST 18%)"`), date strings (`"2010-06-01 00:00:00"`),
+`"SUB HEAD A"`, `"A."`, `"1.1.7"` and blanks. **No numeric coercion, no trailing-zero repair** —
+clever coercion is exactly how a wrong pairing gets made. Such rows stay unmatched. A possible later
+refinement, not an oversight.
+
+`normalize_n2` was **not modified** — it is single-homed across three unrelated carry axes. It is
+reused on both halves of the key, and **no separate serial normalizer was added**: trim + lowercase +
+whitespace-collapse is already the right rule for a printed serial. Case folding cannot mis-pair,
+because a fold that collided two real serials produces a duplicate key, which is dropped.
+
+---
+
+### Seam (A21)
+
+**`match_rows`'s interface.** The flag, the `MatchRow.serial` input and the `RowMatchResult.serial_matched`
+output all live there. It is the right seam because it is the **only** place the four consumers
+differ: they already share one row projection (`_content_match_rows`) and one result type, so the
+matching *rule* is the single thing that can vary between them. Putting the switch anywhere else
+makes the boundary worse:
+
+- on `_content_match_rows` (withholding the serial from the within-BoQ reader) — the boundary becomes
+  invisible at the call site, and a reader of `version_addressed_excel_row_match` cannot see why it
+  behaves differently. Pinned against by `test_both_entry_points_see_the_same_serials`.
+- as a parameter on `committed_excel_row_match` — the owner already ruled against widening that entry
+  point with a flag (Amendment F R6), and `test_freeze_pin_committed_excel_row_match_signature`
+  enforces it. That test still passes untouched: the flag is passed *through* to `match_rows`, so the
+  entry point's own signature is unchanged.
+
+The interface stayed small: one keyword-only boolean in, one frozenset out, both defaulted.
+
+---
+
+### What changed
+
+| File | Change |
+|---|---|
+| `services/boq_revision/row_match.py` | `MatchRow.serial`, `RowMatchResult.serial_matched`, the `serial_second_pass` flag, `_serial_second_pass` + `_serial_key`. `_index_by_excel_row` generalised to `_unique_index(rows, key)`; `_entered(rows)` becomes the one definition of which rows enter a match. Amendment G docstring. |
+| `services/boq_revision/test_row_match.py` | 22 new tests (17 → 39). |
+| `api/boq/wizard/committed_carry.py` | `code` added to `_NODE_MATCH_FIELDS`; `_content_match_rows` projects it onto `MatchRow.serial` for **both** readers; flag enabled in `committed_excel_row_match` only, with the ruling recorded on both entry points. |
+| `api/boq/wizard/test_committed_carry.py` | `_node()` gains `code=`. `TestCommitOverlayShiftStopsCarry` widened. New `TestSerialSecondPassBoundary` (9 new tests, 49 → 58). |
+| `api/boq/wizard/cross_boq_carry.py` | `match_pass` on every plan row; `removed` reason string corrected; Amendment G module docstring. |
+| `api/boq/wizard/test_cross_boq_carry.py` | `_seed_sheet` accepts `code`; `_color_on` / `_dismissal_on` helpers. Rich fixture gains row 17 → 30. New `TestSerialMovedRowCarriesEverything` (8 new tests, 60 → 68). |
+| `api/boq/wizard/pricing.py` | **Doc-only.** `_guard_categories_complete` docstring; body byte-identical. |
+
+**No `.tsx` touched** — owner's explicit call: plan data only, the dialog does not change.
+
+#### Intended consequence: `_count_new_priceable_rows` shrinks
+
+A serial-matched destination row genuinely **no longer needs a value typed by hand**, so it correctly
+drops out of the "N rows need new values" figure. Recorded as intended, not incidental, and pinned by
+causation: `test_a_serial_matched_row_does_not_count_as_needing_a_new_value` strips the destination
+serial and watches the figure go 3 → 4.
+
+#### The `removed` bucket is narrower
+
+Was *"moved, reworded or removed"*. A moved row can now carry, so the string reads
+**"removed, reworded, or moved without a matching serial number"** — which is exactly what is left in
+the bucket.
+
+---
+
+### Documentation rot corrected (commit `f289889a`)
+
+Five sites asserted that `pricing.apply_copy_forward` still keeps the category gate. All became false
+at **`283a0199`** (WBC-S10), not at this slice: `cross_boq_carry.py` ×2, `test_cross_boq_carry.py` ×2,
+`pricing.py` ×1.
+
+The `pricing.py` one is **S10's Finding 2, now discharged** — S10 recorded it as *"owed: a one-line
+docstring fix, in a slice that puts `_guard_categories_complete` in scope"*. This slice does.
+`_guard_categories_complete`'s **body verified byte-identical (646 B)**; only the docstring changed.
+
+In the **S10 fragment**, `Three` → `Four` in the `_categorise_fixture_eligible_rows` count sentence
+(it listed four). Sentence-initial, so capitalised; owner confirmed.
+
+---
+
+### Test dispositions
+
+Nothing was bulk-deleted. **40 tests added, 1 renamed away as a disclosed split — net +39.** The one
+that went is `test_the_shifted_row_is_not_a_twin` (row 2 below); it was replaced by two tests that
+cover *both* outcomes of the same move, so coverage is strictly stronger after the split.
+
+| # | Test | Disposition | Why |
+|---|---|---|---|
+| 1 | `TestPositionIsLoadBearing` (`test_row_match.py`) | **UNTOUCHED — verbatim** | The prompt's own failure test: it drives `match_rows` with the default and must keep passing. It does. If it ever fails, the default has leaked and the slice is wrong. Deliberately not modified even to add a comment. |
+| 2 | `test_the_shifted_row_is_not_a_twin` (`test_committed_carry.py`) | **SPLIT** → `test_the_shifted_row_without_a_serial_is_not_a_twin` + `test_the_shifted_row_WITH_a_matching_serial_is_a_twin` | The fixture had no serials, so with the flag on this test would have kept passing **for the wrong reason** — nothing in it could reach pass 2. The fixture gains a third row that moves *with* a serial, so both outcomes of the same move now sit side by side and neither can go green vacuously. A third test pins `serial_matched`. |
+| 3 | `test_plan_unmatched_rows_all_report_removed` (`test_cross_boq_carry.py`) | **MODIFIED, kept** | Row 14 is genuinely still `removed` — it moved *and has no serial*. Kept because that is a real, distinct case worth protecting. But "a moved row does not carry" is now only half true, so the test asserts the reason explicitly **and asserts row 14 really is serial-less** — otherwise a later fixture edit could silently turn it into a vacuous pass. Also now asserts `match_pass is None` on every skip. |
+| 4 | `test_plan_counts` (`test_cross_boq_carry.py`) | **MODIFIED** | `clean` 1 → 2: row 17 joins row 10 via the serial pass. The only count that moved; `removed` stays 3. |
+| 5 | `test_plan_new_rows_absent_but_counted` | **UNCHANGED, and checked** | `needs_new_value_count` stays 3. Dest row 30 is *matched*, so it never enters the unmatched set. Verified rather than assumed. |
+| 6 | `test_freeze_pin_committed_excel_row_match_signature` | **UNCHANGED** | Amendment F R6 pins this entry point's signature against exactly this kind of widening. It still passes: the flag is passed through to `match_rows`, not added as a parameter here. |
+| 7 | all apply tests in `TestCrossBoqRateCarry` | **UNCHANGED** | They pass explicit decisions, so an extra plan row cannot reach them. |
+
+#### New tests
+
+**`test_row_match.py` (+22)** — `TestSerialSecondPassIsOptIn` (default-off + keyword-only signature
+pin; a moved+serialled row does *not* pair with the flag off) and `TestSerialSecondPass`: the moved
+row carries; blank serial (both sides, one side, whitespace-only); differing serial; differing
+description on a matching serial; duplicate key on either side; sticky third sighting; same serial
+under *different* descriptions still pairs; pass 1 wins over a competing pass-2 candidate (both
+directions); a position-dropped duplicate can still pair on its serial; no float repair; a non-string
+serial does not raise; symmetry across both passes.
+
+**`test_committed_carry.py` (+9)** — `TestSerialSecondPassBoundary` seeds **the same** moved-and-
+serialled row into both committed shapes, so the two entry points are compared on identical data and
+the only difference can be the flag: cross-BoQ pairs it, within-BoQ does not. Plus blank / changed /
+duplicated serials against real `BOQ Nodes`, and `test_both_entry_points_see_the_same_serials`, which
+closes the one way the within-BoQ pin could pass hollowly (if the serial never reached `MatchRow` at
+all, the pin would hold even with the flag on).
+
+**`test_cross_boq_carry.py` (+8)** — the serial-moved row planned as a clean copy; `match_pass`
+reported per row; the reason string; the `needs_new_value_count` shrink proved by stripping the
+serial; and `TestSerialMovedRowCarriesEverything`, the end-to-end proof through `apply_sheet_carry`
+that a moved row carries its **rate and all four layers**, each still attributed with
+`carried_from_boq` / `carried_from_version`, and that stripping the destination serial makes all five
+stop landing.
+
+#### Consumers #3 and #4 — the whole boundary, pinned two ways
+
+- **Behavioural**: `test_the_within_boq_entry_point_does_NOT_pair_the_same_moved_row`.
+- **Structural**: `test_exactly_one_production_call_site_enables_the_second_pass` walks the app's
+  **AST** and asserts `serial_second_pass` appears as a call keyword in exactly one non-test file.
+  It covers the parse-time carry, which has no fixture here, and it catches a *third* consumer added
+  later — the actual regression this slice invites. Source-scanning is deliberate; a behavioural
+  mirror would need a full parse-worker fixture to assert a negative and still would not catch that.
+
+---
+
+### Live data — the expected-unmatched population
+
+Read-only query against the dev bench, 2026-07-30. **This is the number someone will ask about when
+a row does not carry.**
+
+| Measure | Value |
+|---|---|
+| current `BOQ Nodes` | 37,800 |
+| …with a non-blank `code` | **24,926** (~66%) |
+| unique `(sheet, code, description)` groups | **22,646** |
+| rows sitting in duplicate `(sheet, code, description)` groups | **2,280** — unmatched **by design** |
+
+**Serial alone was never viable**, and this is the evidence: within the live corpus `'a'` occurs
+**999** times, `'b'` 849, `'c'` 615, `'a.'` 333; inside a *single* sheet `'i)'` occurs 71 times and
+`'ii'` 62. It is the **pair** that carries the information — which is why the key is
+`(serial, description)` and never the serial on its own.
+
+The ~2,280 duplicate-group rows staying unmatched **is the safe failure mode working**, not a defect.
+Rows with no serial at all (~34%) are likewise untouched by pass 2 and keep behaving exactly as
+before.
+
+*(No `code` matching `%.%0000%` was found on this bench, so the `"2.3000000000000003"` shape was not
+directly observed here — but equivalent noise was: prose headers and date strings. The no-coercion
+ruling stands on that evidence regardless.)*
+
+---
+
+### Verification — observed output
+
+One suite at a time, in-container. No browser session ran against localhost during the bench runs
+(`tabSeries` naming-lock collision).
+
+| Suite | Baseline | Final |
+|---|---|---|
+| `test_row_match` | **Ran 17 — OK** | **Ran 39 — OK** |
+| `test_carry` | **Ran 29 — OK** | **Ran 29 — OK** |
+| `test_committed_carry` | **Ran 49 — OK** | **Ran 58 — OK** |
+| `test_cross_boq_carry` | **Ran 60 — OK** | **Ran 68 — OK** |
+| `test_pricing` | **Ran 252 — OK** | **Ran 252 — OK** |
+| vitest (in-container) | **1222 passed, 53 files** | **1222 passed, 53 files** |
+
+Net **+39** (40 added, 1 renamed away as the disclosed split). `test_pricing` prints a SQL traceback from
+`test_atomicity_concurrent_first_edit_exactly_one_winner` (`duplicate key … tabBoQ Sheet Pricing
+Lock_pkey`), which deliberately races the pricing lock — expected noise; the suite reports OK.
+
+#### Red runs shown before green (A22)
+
+| Cycle | Red | Green |
+|---|---|---|
+| the pure matcher | `Ran 39 … FAILED (errors=39)` — `TypeError: MatchRow.__init__() got an unexpected keyword argument 'serial'`, `KeyError: 'serial_second_pass'` | `Ran 39 … OK` |
+| the wiring | `Ran 58 … FAILED (failures=5)` | `Ran 58 … OK` |
+| plan data | `Ran 68 … FAILED (failures=1, errors=3)` | `Ran 68 … OK` |
+
+The doc-rot commit has no red run — it is comment-only, and there is no behaviour to fail.
+
+---
+
+### Findings
+
+1. **The spec's four-way consumer list was wrong; the build STOPPED and asked.** #1 and #2 are one
+   match, not two call sites. Resolved by owner ruling (b) — see the boundary section. The stop was
+   the right call: the two resolutions differed in user-visible behaviour (a moved row arriving
+   priced-but-uncategorised, or not).
+
+2. **⚠️ The prompt's predicted test conflicts did not exist, and that was the most dangerous thing in
+   the slice.** `_node()` and `_seed_sheet()` never populated `code`, so with the flag on, pass 2 was
+   **inert across every existing fixture** — `test_the_shifted_row_is_not_a_twin` and
+   `test_plan_unmatched_rows_all_report_removed` would both have stayed green **because the feature
+   never executed**. Fixed by extending both helpers and seeding serial-bearing moved rows beside the
+   serial-less ones. Recorded because the same trap will recur: *a green suite is not evidence a
+   fixture reaches the code under test.*
+
+3. **A test of mine was wrong twice before it was right, and both defects were in the test.** The
+   call-site pin first scanned raw text — which flagged `row_match.py` for merely *mentioning* the
+   flag in a docstring — and used a path root one level too shallow. Rewritten to match on the AST. A
+   pin a comment can trip is a pin people learn to ignore.
+
+4. **`_NODE_MATCH_FIELDS` fetches `level`, which `_content_match_rows` never uses.** Pre-existing dead
+   read. **NOT fixed** — out of scope. Harmless (`row_match` bars `level` from the matcher and the
+   projection does not pass it), but it should go in a slice that owns the file.
+
+5. **`scripts/residence_check.py` fails on rule F2 (207 → 208) — PRE-EXISTING, not this slice.**
+   Verified by running the checker from a throwaway worktree at base `283a0199`: byte-identical
+   output. This slice touched no frontend page (F2 is a frontend-page rule) and no `.tsx` at all.
+   Reported rather than worked around; the ratchet was **not** re-baselined.
+
+6. No hook denied any write. No guard fired. No scope violation attempted.
+
+---
+
+### Deliberately NOT done
+
+- **No frontend.** Owner's explicit call: plan data only. `match_pass` is served and nothing renders
+  it. The dialog still says "N rows will carry" without distinguishing how they matched — a
+  deliberate deferral, not an omission.
+- **`normalize_n2` not modified**, and no separate serial normalizer added.
+- **No float repair / numeric coercion** — see above.
+- **`version_addressed_excel_row_match` not widened**, and `review_carry` not touched at all.
+- **Finding 4 not fixed** — out of scope.
+- **The F2 ratchet not re-baselined** — it is not this slice's violation to absorb.
+- **No browser E2E.** The change is server-side and fully covered by bench tests; the frontend diff
+  is empty. Worth a live check at the arc's certification pass: a revision whose rows shifted should
+  now show rates carried onto the moved rows, with the "needs new value" count correspondingly lower.
+
+## WBC-S12 — record Amendment G, and correct three residues
+
+**Branch** `feature/boq-within-boq-carry` · **Base** `8b845cd4` · **Tier** STANDARD · **Date** 2026-07-31
+
+**This slice changes NO behaviour.** Every edit is prose — a docstring, an ADR, two plan documents.
+No function body, no signature, no test. The one `.py` file touched was verified docstring-only by
+AST comparison, not by eye (see *Verification*).
+
+WBC-S11 shipped the serial second-pass match on an owner ruling made **mid-slice**. The ruling was
+recorded in the slice fragment and in code docstrings, but **never in the ADR** — so the canonical
+decision record still read as though Amendment F were the latest word, and a future reader consulting
+it would not know the boundary had moved. This slice writes it down, and clears three factual
+residues found alongside it.
+
+---
+
+### 1. ADR-0014 gains **Amendment G** — the point of the slice
+
+Two blocks, matching the file's established structure (a summary block in `## Status`, a detail block
+under the decision it amends):
+
+- **`## Status`** — a `⚠️ AMENDMENT G — 2026-07-30, owner-directed` block, placed directly after
+  Amendment B's and before F's, which is where this file puts its newest amendment.
+- **`### D6`** (the row match key) — the detail block, placed **after** Amendment B's block and
+  before D6's original superseded prose. G *layers on* B rather than superseding it: pass 1 **is**
+  B's key, unchanged; G adds a fallback for the rows B leaves unmatched.
+
+**The letter G was free.** Latest in the file was F (2026-07-29). The blocks record the rule, the
+one enabled call site, the two seams that stay strict, the sanctioned-exception framing against
+`row_match.py`'s four-narrowings warning, the no-float-repair rejection, and the live-corpus
+evidence — cross-referencing the S11 fragment as the as-built record.
+
+**The boundary, stated correctly.** It is **structure vs. everything else**, NOT rates vs. layers.
+The original build prompt drew it at rates-vs-layers; the owner corrected that mid-S11. All three
+supporting arguments are carried into the ADR: the split was **not achievable** (one match object,
+four consumers), **not desirable** (the structural risk is stale-heading re-parenting, which lives
+in the parse-time carry), and would have **partly undone Amendment E** by letting a moved row arrive
+priced-but-uncategorised.
+
+### 2. The S11 fragment contradicted itself on test counts
+
+It asserted *"Zero tests deleted in this slice"* two sections above a disposition table whose row 2
+records a **SPLIT** — one test renamed away into two. Corrected to the true figure: **40 added, 1
+renamed away as a disclosed split, net +39**, with the note that coverage is strictly stronger after
+the split.
+
+**The same claim appeared twice.** `"+39 tests, 0 deleted"` in the Verification section made the
+identical assertion. Correcting only the named sentence would have left the document still
+contradicting itself, so both were fixed. Minimal edits — this fragment is write-once and this is a
+factual repair, not a rewrite.
+
+### 3. A bisect warning on commit `72933a60`
+
+`72933a60`'s message says the flag exists so *"the three consumers that must not get it (the
+cross-BoQ layer carry, the within-BoQ copy-forward, the parse-time classification/parenting carry)
+are unaffected"*. **The first of those three is wrong.** The owner's ruling arrived *after* that
+commit, and the cross-BoQ layer carry **does** get pass 2 — it reads the same match object as the
+rate carry and was never separable. Corrected one commit later in `bce47806`.
+
+**Commit history is immutable, so the message cannot be fixed.** A clearly-headed note in the S11
+fragment is now the correction of record, so anyone bisecting to `72933a60` is not misled.
+
+### 4. A stale Amendment-D-era sentence in `committed_carry.py`
+
+`stamp_revision_provenance`'s docstring claimed *"no seam anywhere copies row content between a
+revision and its original except the rates"*. **Amendment E falsified this on 2026-07-28** — the
+cross-BoQ per-sheet action moves categories, remarks, colours and dismissals too, opt-in and
+stamped. Corrected in place rather than deleted, so the claim is not reintroduced by someone reading
+the surrounding Amendment-C/D history. The surviving distinction is **COMMIT vs. explicit ACTION**,
+not rates vs. layers.
+
+Pre-existing rot, unrelated to S11 — the file's own module docstring has recorded Amendment E
+correctly since July; only this one function-level sentence was left behind.
+
+---
+
+### ⚠️ Two ADRs are numbered 0014
+
+`docs/adr/` holds **both** `0014-boq-revised-upload-and-carry.md` (this one) and
+`0014-invoice-mutation-permissions.md`. The collision is pre-existing and untouched. ADR-0014's own
+Status section already declares that historical `0002`/`0007`/`0008`/`0009` collisions are
+deliberately **not** renumbered as out of scope; this is a fourth instance of the same situation and
+is recorded here so the next person editing "ADR-0014" checks which file they have open. **Not
+fixed** — renumbering a referenced ADR is its own decision, not a documentation slice's to take.
+
+---
+
+### Verification
+
+No behaviour changed, so no suite run was owed. One smoke check was run because a `.py` file was
+edited:
+
+| Suite | Result |
+|---|---|
+| `test_committed_carry` | **Ran 58 — OK** (expected 58, matching S11's final count) |
+
+Before the smoke check, the docstring-only claim was proved **structurally** rather than by reading
+the diff: both revisions of `committed_carry.py` were parsed with `ast`, every module/class/function
+docstring stripped, and the resulting trees compared — **identical**. A prose edit that had
+accidentally landed inside a statement would have failed that check.
+
+**No red run (A22).** A red run is structurally impossible for this slice: there is no behaviour to
+fail. The `.py` edit is inside a docstring, and the other four files are documents. The honest
+verification is the AST equality above plus the unchanged suite count, and that is what was done.
+
+---
+
+### Findings
+
+1. **The prompt located the stale sentence at "around line 150"; it is at lines 88–90**, inside
+   `stamp_revision_provenance`'s docstring. Line ~150 holds a *different* docstring, the Amendment G
+   note on `committed_excel_row_match`. The quoted text was unambiguous, so this was a stale line
+   reference rather than a spec conflict, and the edit was made where the sentence actually lives.
+
+2. **⚠️ Commit `8b845cd4`'s message overclaims.** It reads *"docs(boq): record slice WBC-S11 **and
+   ADR-0014 Amendment G**"*, but it touched only `_slices.md` and the S11 fragment — **the ADR was
+   never opened**. That is exactly the gap this slice closes, and it is the second immutable commit
+   message in this arc whose text outran what it did (see the `72933a60` note in the S11 fragment).
+   Recorded, not fixable.
+
+3. **The prompt's corpus statistics differed slightly from the measured record.** It described `'a'`
+   ×999 / `'b'` ×849 / `'i)'` ×71 as all being within *one sheet*; the S11 fragment records `'a'`,
+   `'b'`, `'c'`, `'a.'` as **corpus-wide** counts and `'i)'` ×71 / `'ii'` ×62 as the *single-sheet*
+   ones. The fragment is the measurement record, so the ADR follows the fragment. The point both
+   versions make — serial alone is unusable, the pair rescues it — is unaffected.
+
+4. No hook denied any write. No guard fired. No scope violation attempted. Nothing was pushed.
+
+---
+
+### Deliberately NOT done
+
+- **The duplicate ADR number not resolved** — see above.
+- **`committed_carry.py`'s module-level opening line still reads `(ADR-0014, Amendment D)`.** Only
+  the sentence the prompt named was corrected. The line is arguably stale too, but the module
+  docstring immediately below it walks D → E → G accurately, so it is not misleading in place; a
+  slice that owns the file should decide it.
+- **S11 Finding 4 (`_NODE_MATCH_FIELDS` fetches an unused `level`) still not fixed** — still out of
+  scope, still owed a slice that owns the file.
+- **No other suite run, and no browser session against localhost** (the `tabSeries` naming-lock
+  collision rule).
+
+## WBC-S13 — fold the handover from git (v5.91 → v5.92)
+
+**Branch** `feature/boq-within-boq-carry` · **Base** `9cc5e689` · **Tier** STANDARD · **Date** 2026-07-31
+
+**This slice changes NO code.** One document was rewritten from git, plus this record and its index
+row. No `.py`, `.ts` or `.tsx` file was opened for edit; no test suite was run, deliberately — there
+is nothing for a test to observe.
+
+`.claude/facts/handover.md` is the first thing a fresh session reads, and the owner is about to open
+one. It was last folded at `e7f4602f`. **14 commits had landed since and it knew about none of
+them** — its tip, commit count, test table, next action and risk list were all stale or wrong. Every
+volatile fact was re-derived from `git log` / `git diff` in this checkout.
+
+---
+
+### 1. What was folded
+
+**Range `e7f4602f..9cc5e689` — 14 commits, 21 files, +2,683 / −408, Abhishek sole author.**
+Every figure verified against git; all three matched the build prompt exactly.
+
+| Slice | Commits | Landed |
+|---|---|---|
+| **WBC-S10** | `283a0199` | Copy-forward may land rates on uncategorised rows |
+| **WBC-S11** | `f289889a` `72933a60` `bce47806` `3cd922da` `8b845cd4` | Opt-in serial + description second-pass match, cross-BoQ only |
+| **WBC-S12** | `50a437a4` `9cc5e689` | ADR-0014 Amendment G under D6; three residues corrected |
+
+Lane state re-measured, not carried: **39 commits ahead of `develop`, 0 behind**; merge-base *is*
+`develop` (`2bd6032f`), so the merge is **still a clean fast-forward** (`git merge-tree
+--write-tree develop HEAD` returns a tree). `git branch -r --contains 9cc5e689` → 0, still unpushed.
+
+### 2. What was corrected
+
+- **Frontmatter** → `recorded_tip: 9cc5e689`, `v5.92`, dated 2026-07-31. Follows the established
+  convention of recording the tip *before* the fold commit, as `e7f4602f` did.
+- **Test table replaced.** The recorded `255 / 49 / 60` were historical. New figures are the
+  in-container observations made this session by an independent agent, each **re-checked here as a
+  static `def test_` count** — all six matched. Zero skips confirmed: no `@skip` decorator exists in
+  any of these modules (every `grep` hit for "skip" is the carry plan's own `skip_reason` taxonomy,
+  domain vocabulary, not a test skip).
+- **Next action rewritten.** Owner live certification for **both** S10 and S11 is now item 1 and
+  explicitly gates the merge, with the specific paired checks spelled out. Push/merge demoted to 2.
+- **Risks refreshed** — added *the arc is code-complete but UNCERTIFIED in a browser* as the top
+  risk; "25 commits unpushed" → 39.
+- **Migration debt restated as carried, not new.** This range adds **no** new exposure: the
+  doctype-JSON and `patches.txt` diffs over the range are both empty. The 4-new / 7-modified debt is
+  v5.91's, still undischarged.
+- **Standing noise:** `cert-shots/` added to the macOS list — it exists in `git status` and was
+  unrecorded, which is exactly the A13 misfire the section warns about.
+- **Plan-tree counts** refreshed: `_slices.md` 185 data rows, `slices/` 183 fragments.
+
+### 3. Three deferred items added (register is now OVER ceiling)
+
+The register was at its 5/5 ceiling. It is now **8**, and the doc says so plainly rather than
+dropping anything. Each was verified in this checkout before being written down:
+
+- **(f)** `_NODE_MATCH_FIELDS` (`committed_carry.py:77`) fetches `level`, but `_content_match_rows`
+  projects only `source_row_number`, `description` and `code`. **Confirmed dead read**, pre-existing.
+- **(g)** `docs/adr/` has **duplicate ADR numbers** — two files each at 0002, 0007, 0008, 0009 and
+  0014. "ADR-0014" by number alone is genuinely ambiguous here
+  (`0014-boq-revised-upload-and-carry.md` vs `0014-invoice-mutation-permissions.md`).
+- **(h)** Two immutable commit messages overclaim. `72933a60`'s body lists "the cross-BoQ layer
+  carry" among the consumers that must *not* get the second pass — the owner's ruling then changed
+  exactly that, and `bce47806` enabled it there. `8b845cd4`'s subject claims it wrote ADR-0014
+  Amendment G, but its diff touches only `_slices.md` and the S11 fragment; the ADR was not opened
+  until `50a437a4`. Anyone bisecting to either commit will be misled.
+
+Discharge candidates named in the doc: (a) and (b). (d) and (e) are marked load-bearing.
+
+### 4. Where git and the prompt differed
+
+**Nothing contradicted.** All 14 commits, both file/line totals, all six test counts, the
+sole-caller claim, the dead read, the duplicate ADR numbers and both overclaiming messages verified
+exactly as described. Two things the prompt did not mention, resolved by judgement and reported:
+
+1. **The replacement test table omitted two rows that are still true.** `test_classify` (94) and
+   `services.boq_category.tests` (235) were bench-verified at `f215d6a9`. `boq_category` is
+   untouched in this range, and `test_classify`'s count is unchanged (94 at `f215d6a9`, 94 at
+   `9cc5e689`). Replacing the table *literally* would have silently discarded two verified facts, so
+   **both rows were retained with their observation commit and provenance shown**, visually separated
+   from this session's six.
+2. **The `Assertions` column was dropped.** The prompt's replacement table has no assertion figures
+   and none were observed this session; inventing them by static grep would have added unverified
+   numbers. The `Suite` column still satisfies agreement #20's suite-distinguishing intent.
+
+### 5. Size
+
+17,952 B / 220 lines → **19,902 B / 250 lines**. Above the ~18 KB target and reported as such.
+~1.2 KB of genuinely historical content was deleted to make room rather than layered over: the
+v5.90-noise-list incident forensics (superseded by the corrected list itself), the "was 177.8 KB"
+before/after figures from the context restructure, the split/rotation commit trivia, and the
+per-slice test bookkeeping in the S10/S11 blocks — the last of which belongs in a slice fragment
+under the DOCS-UPDATE RULE, not in an always-read doc.
+
+The residual growth is content the fold *required*: three new deferred items, and a certification
+block the prompt asked to be explicit because it is what the next session acts on. **No owner
+rationale or ruling was paraphrased away to buy bytes.** If the doc must return to 18 KB, the
+honest carve is the 59-row Working-agreements index (3.3 KB, a pure lookup whose full text lives
+elsewhere) — flagged, not taken, because it would break the "resume from this doc alone" property.
+
+### 6. Verification
+
+No behaviour to test. `git diff --stat` on the commit confirms **three files, all in scope**, and
+**no `.py` / `.ts` / `.tsx` file present**.

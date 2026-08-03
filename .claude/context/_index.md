@@ -15,6 +15,10 @@ Quick navigation to detailed documentation. Read only when working on related ta
 | [domain/projects.md](domain/projects.md) | Projects | Project status lifecycle, status effects on features |
 | [domain/internal-transfer-memos.md](domain/internal-transfer-memos.md) | Internal Transfer Memos | Inter-project material transfer (ITM) — doctype, state machine, invariants, phase roadmap |
 | [domain/boq-backend.md](domain/boq-backend.md) | BoQ backend | Wizard endpoints, BoQ doctypes, commit pipeline, parse/review, slice changelog (relocated from CLAUDE.md 2026-06-25). Live status: `../../frontend/.claude/plans/boq-upload-plan.md` |
+| [domain/customer-po-autofill.md](domain/customer-po-autofill.md) | Customer PO autofill | Autofill of customer PO fields |
+| [domain/expenses.md](domain/expenses.md) | Expenses | Expense doctypes, approval flow, project scoping |
+| [domain/invoice-autofill.md](domain/invoice-autofill.md) | Invoice autofill | Invoice field autofill behaviour |
+| [domain/invoice-qty.md](domain/invoice-qty.md) | Invoice quantities | Invoiced-quantity derivation and reconciliation |
 
 ### Frontend Context (in `frontend/.claude/context/`)
 

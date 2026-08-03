@@ -18,15 +18,23 @@ key, so a carried pair now ALWAYS shares its Excel row -- `source_excel_row == d
 every non-skip plan entry. The two rows that used to prove "ambiguous" are repurposed to prove the
 two ways position/text can now break a pair.
 
-  source row  desc            priced          dest      -> outcome
-    10        Item A          combined 100     10           clean copy
-    11        Item B          combined 200     11 (filled)  conflict
-    12        Header (Pre)    combined 300     12           non_priceable
-    13        Item Removed    combined 400     (none)       removed -- gone entirely
-    14        Item Moved      combined 500     20           removed -- same text, MOVED row
-    15        Item Reworded   combined 550     15 (retext)  removed -- same row, NEW text
-    16        Item NoCol      supply   600     16           no_rate_column (dest has no supply col)
-    (dest 20 / 15 / 99 are unmatched and priceable -> needs_new_value_count = 3)
+⚠️ EXTENDED FOR **WBC-S11 / ADR-0014 Amendment G** (2026-07-30). The cross-BoQ carry gained an
+opt-in SECOND matching pass on `serial number + description`, so a row that MOVED can now carry --
+but only when it has a serial to be recognised by. Row 17 -> 30 is that row. Row 14 -> 20 is kept
+UNCHANGED beside it with NO serial, so the fixture holds both outcomes of the same move and this
+suite cannot go green merely because nothing here has a serial.
+
+  source row  desc            serial  priced        dest      -> outcome
+    10        Item A            --    combined 100   10           clean copy (position)
+    11        Item B            --    combined 200   11 (filled)  conflict
+    12        Header (Pre)      --    combined 300   12           non_priceable
+    13        Item Removed      --    combined 400   (none)       removed -- gone entirely
+    14        Item Moved        --    combined 500   20           removed -- MOVED, no serial
+    15        Item Reworded     --    combined 550   15 (retext)  removed -- same row, NEW text
+    16        Item NoCol        --    supply   600   16           no_rate_column (no supply col)
+    17        Item Serial Moved 17.1  combined 650   30           clean copy (SERIAL, pass 2)
+    (dest 20 / 15 / 99 are unmatched and priceable -> needs_new_value_count = 3; dest 30 is
+     MATCHED and so is deliberately NOT in that figure)
 """
 
 import json
@@ -59,7 +67,12 @@ _UNIT = {"role": "unit", "area": None}
 
 
 def _seed_sheet(boq, sheet, version, is_current, role_map, nodes, sheet_order=1):
-    """A committed BoQ Sheet + its BOQ Nodes (scalar role map; sheet_name VERBATIM #152)."""
+    """A committed BoQ Sheet + its BOQ Nodes (scalar role map; sheet_name VERBATIM #152).
+
+    A node dict may carry an optional `"code"` -- the committed SERIAL NUMBER, which feeds
+    Amendment G's second pass. Omitted means serial-less, which is what most rows here are on
+    purpose: a serial-less row can only ever match on POSITION, so those rows keep asserting the
+    Amendment B rule unchanged."""
     bs = frappe.new_doc(_SHEET)
     bs.boq = boq
     bs.sheet_name = sheet
@@ -83,6 +96,8 @@ def _seed_sheet(boq, sheet, version, is_current, role_map, nodes, sheet_order=1)
             nd.level = 1  # the controller forbids `level` on Line Item nodes
         nd.description = n["description"]
         nd.source_row_number = n["srn"]
+        if n.get("code") is not None:
+            nd.code = n["code"]
         nd.sort_order = i
         nd.qty = n.get("qty", 0.0)
         nd.commit_version = version
@@ -159,6 +174,10 @@ class TestCrossBoqRateCarry(FrappeTestCase):
                 {"srn": 14, "node_type": "Line Item", "description": "Item Moved", "qty": 5.0},
                 {"srn": 15, "node_type": "Line Item", "description": "Item Reworded", "qty": 5.0},
                 {"srn": 16, "node_type": "Line Item", "description": "Item NoCol", "qty": 5.0},
+                # WBC-S11: the SAME shape as row 14, plus a serial -> the one row that now carries
+                # despite moving. Row 14 stays beside it, serial-less, and must still NOT carry.
+                {"srn": 17, "node_type": "Line Item", "description": "Item Serial Moved",
+                 "qty": 5.0, "code": "17.1"},
             ])
         _price(cls.orig, cls.SRC, 1, 10, "D", "combined_rate", 100.0)  # clean
         _price(cls.orig, cls.SRC, 1, 11, "D", "combined_rate", 200.0)  # conflict
@@ -167,6 +186,7 @@ class TestCrossBoqRateCarry(FrappeTestCase):
         _price(cls.orig, cls.SRC, 1, 14, "D", "combined_rate", 500.0)  # removed (row moved)
         _price(cls.orig, cls.SRC, 1, 15, "D", "combined_rate", 550.0)  # removed (text changed)
         _price(cls.orig, cls.SRC, 1, 16, "D", "supply_rate", 600.0)    # no_rate_column
+        _price(cls.orig, cls.SRC, 1, 17, "D", "combined_rate", 650.0)  # clean, via the SERIAL pass
 
         # REVISION "Data Rev" v1 -- surviving rows KEEP their Excel positions (Amendment B's key),
         # rate MOVED to col E, NO supply column. Row 14's text reappears at row 20 (a MOVE) and
@@ -180,6 +200,9 @@ class TestCrossBoqRateCarry(FrappeTestCase):
                 {"srn": 16, "node_type": "Line Item", "description": "Item NoCol", "qty": 5.0},
                 {"srn": 20, "node_type": "Line Item", "description": "Item Moved", "qty": 5.0},
                 {"srn": 99, "node_type": "Line Item", "description": "Brand New", "qty": 5.0},
+                # 17 -> 30 with the serial intact: same words, same serial, new position.
+                {"srn": 30, "node_type": "Line Item", "description": "Item Serial Moved",
+                 "qty": 5.0, "code": "17.1"},
             ])
         _stamp_provenance(cls.dest_sheet, cls.orig, cls.SRC)
         _price(cls.rev, cls.DEST, 1, 11, "E", "combined_rate", 999.0)  # dest already filled
@@ -267,15 +290,76 @@ class TestCrossBoqRateCarry(FrappeTestCase):
         self.assertEqual(r["current_rate"], 999.0)
 
     def test_plan_unmatched_rows_all_report_removed(self):
-        # Amendment B retired the ambiguity class: gone / moved / reworded are ONE reason now.
+        """Amendment B retired the ambiguity class: gone / moved / reworded are ONE reason.
+
+        ⚠️ WBC-S11: row 14 is STILL in this bucket, and the reason is now specific -- it moved AND
+        has no serial number. Asserted explicitly below rather than left implicit, because after
+        Amendment G "a moved row does not carry" is only half true, and a reader who takes this
+        test at face value would draw the wrong conclusion."""
         _, by = self._plan_by_dest()
         self.assertEqual(by[13]["skip_reason"], "removed")  # absent from the revision
-        self.assertEqual(by[14]["skip_reason"], "removed")  # same text, but the row MOVED
+        self.assertEqual(by[14]["skip_reason"], "removed")  # MOVED, and no serial to be found by
         self.assertEqual(by[15]["skip_reason"], "removed")  # same row, but the text CHANGED
         for srn in (13, 14, 15):
             self.assertEqual(by[srn]["outcome"], pricing._CF_SKIP)
             self.assertIsNone(by[srn]["dest_excel_row"])
             self.assertIsNone(by[srn]["target_col_letter"])
+            self.assertIsNone(by[srn]["match_pass"], "a skipped row matched by nothing")
+        self.assertFalse(
+            frappe.db.get_value("BOQ Nodes", {
+                "boq": self.orig, "sheet": self.src_sheet, "source_row_number": 14}, "code"),
+            "row 14 must stay serial-less, or this test proves nothing about the move",
+        )
+
+    def test_the_removed_reason_string_still_reads_true(self):
+        """The copy says "moved, reworded or removed". After Amendment G a moved row with a good
+        serial CARRIES, so the sentence has to describe what is actually left in the bucket."""
+        _, by = self._plan_by_dest()
+        reason = by[14]["reason"]
+        self.assertIn("moved without a matching serial number", reason)
+        for srn in (13, 15):
+            self.assertEqual(by[srn]["reason"], reason, "one reason string for the whole bucket")
+
+    # ── WBC-S11 / Amendment G: the serial second pass, through the real plan ────────
+    def test_a_moved_row_with_a_matching_serial_is_planned_as_a_clean_copy(self):
+        _, by = self._plan_by_dest()
+        r = by[17]
+        self.assertEqual(r["outcome"], pricing._CF_CLEAN)
+        self.assertEqual(r["dest_excel_row"], 30, "paired across a MOVE, which pass 1 cannot do")
+        self.assertEqual(r["source_rate"], 650.0)
+        self.assertEqual(r["target_col_letter"], "E", "the dest column is still re-resolved")
+        self.assertIsNone(r["skip_reason"])
+
+    def test_the_plan_reports_which_pass_matched_each_row(self):
+        _, by = self._plan_by_dest()
+        self.assertEqual(by[10]["match_pass"], "position")
+        self.assertEqual(by[11]["match_pass"], "position")
+        self.assertEqual(by[17]["match_pass"], "serial")
+
+    def test_a_serial_matched_row_does_not_count_as_needing_a_new_value(self):
+        """`_count_new_priceable_rows` shrinks under Amendment G, and that is the POINT: a dest row
+        the carry now prices genuinely no longer needs a value typed by hand.
+
+        Proved by CAUSATION, not coincidence -- the dest serial is stripped and the same read is
+        taken again, so the figure can only move because of the serial."""
+        sheet, by = self._plan_by_dest()
+        self.assertEqual(sheet["needs_new_value_count"], 3)      # 15, 20, 99 -- NOT 30
+        self.assertEqual(by[17]["dest_excel_row"], 30)
+
+        node = frappe.db.get_value("BOQ Nodes", {
+            "boq": self.rev, "sheet": self.dest_sheet, "source_row_number": 30}, "name")
+        frappe.db.set_value("BOQ Nodes", node, "code", "", update_modified=False)
+        frappe.db.commit()
+        try:
+            sheet2, by2 = self._plan_by_dest()
+            self.assertEqual(sheet2["needs_new_value_count"], 4,
+                             "row 30 falls back into 'needs a new value' the moment it loses its "
+                             "serial")
+            self.assertEqual(by2[17]["skip_reason"], "removed")
+            self.assertIsNone(by2[17]["match_pass"])
+        finally:
+            frappe.db.set_value("BOQ Nodes", node, "code", "17.1", update_modified=False)
+            frappe.db.commit()
 
     def test_plan_non_priceable_and_no_rate_column(self):
         _, by = self._plan_by_dest()
@@ -292,9 +376,11 @@ class TestCrossBoqRateCarry(FrappeTestCase):
         self.assertEqual(sheet["needs_new_value_count"], 3)
 
     def test_plan_counts(self):
+        # WBC-S11: clean is 2, not 1 -- row 17 joins row 10 via the SERIAL pass. `removed` stays 3
+        # (13 gone, 14 moved-without-a-serial, 15 reworded).
         sheet, _ = self._plan_by_dest()
         self.assertEqual(sheet["counts"], {
-            "clean": 1, "conflict": 1, "removed": 3,
+            "clean": 2, "conflict": 1, "removed": 3,
             "no_rate_column": 1, "non_priceable": 1,
         })
         self.assertTrue(sheet["formulas_complete"])
@@ -709,6 +795,34 @@ def _remark(boq, sheet, version, excel_row, text):
     d.insert(ignore_permissions=True)
 
 
+def _color_on(boq, sheet, version, excel_row, col_letter, color):
+    d = frappe.new_doc("BoQ Cell Color")
+    d.boq = boq
+    d.sheet_name = sheet
+    d.excel_row = excel_row
+    d.col_letter = col_letter
+    d.committed_version = version
+    d.color = color
+    d.color_version = 1
+    d.is_current = 1
+    d.colored_at = frappe.utils.now()
+    d.insert(ignore_permissions=True)
+
+
+def _dismissal_on(boq, sheet, version, excel_row, flag_kind):
+    d = frappe.new_doc("BoQ Cell Dismissal")
+    d.boq = boq
+    d.sheet_name = sheet
+    d.excel_row = excel_row
+    d.flag_kind = flag_kind
+    d.committed_version = version
+    d.dismissal_version = 1
+    d.is_current = 1
+    d.dismissed_at = frappe.utils.now()
+    d.is_finalized = 0
+    d.insert(ignore_permissions=True)
+
+
 def _category(boq, sheet, version, excel_row, discipline, final="", human=""):
     d = frappe.new_doc("BoQ Row Category")
     d.boq = boq
@@ -1078,6 +1192,162 @@ class TestApplySheetCarrySynchronous(FrappeTestCase):
             cross_boq_carry.apply_sheet_carry(dest_boq=self.orig, sheet_name=self.SRC)
 
 
+class TestSerialMovedRowCarriesEverything(FrappeTestCase):
+    """WBC-S11 / ADR-0014 **Amendment G**, end to end through `apply_sheet_carry`.
+
+    THE OWNER RULING IN ONE TEST CLASS: a serial-matched moved row carries its RATE **and** its
+    categories / remarks / colours / dismissals. `cross_boq_carry` derives ONE match per sheet and
+    every consumer of that sheet pair reads it, so the layers ride along with the rate by
+    construction -- there is no second, stricter derivation holding them back.
+
+    Why that is right rather than merely convenient: the boundary is STRUCTURE vs. everything else.
+    The risk the strict position rule contains is a row being re-parented under a stale heading,
+    and that lives in the parse-time carry (`review_carry`), which is untouched. Categories,
+    remarks and colours are ROW-ADDRESSED annotations; putting one on a row we have already decided
+    is the same row adds no structural risk the rate does not. Splitting the derivation would also
+    have partly undone AMENDMENT E, whose whole point is that rates and categories land in ONE
+    action so the category gate cannot block its own remedy -- a moved row left priced-but-
+    uncategorised is exactly the manual finishing step E removed.
+
+    Fixture: row 10 "Anchor" holds its position (the control, matched by pass 1) and row 11
+    "Shifted Item" moves to 60 carrying serial "2.4" and one record of every layer.
+    """
+
+    SRC = "SM"
+    DEST = "SM Rev"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.project = _make_project()
+        cls.orig = _make_boq(cls.project.name, origin="upload", boq_name="SM ORIG").name
+        cls.rev = _make_revision(cls.project.name, cls.orig).name
+
+        cls.src_sheet = _seed_sheet(cls.orig, cls.SRC, 1, 1,
+            {"B": _DESC, "C": _UNIT, "D": _SCALAR_RATE}, [
+                {"srn": 10, "node_type": "Line Item", "description": "Anchor", "qty": 5.0},
+                {"srn": 11, "node_type": "Line Item", "description": "Shifted Item", "qty": 5.0,
+                 "code": "2.4"},
+            ])
+        _price(cls.orig, cls.SRC, 1, 10, "D", "combined_rate", 100.0)
+        _price(cls.orig, cls.SRC, 1, 11, "D", "combined_rate", 250.0)
+        # Every layer, all on the MOVED row -- the row whose carry this class exists to prove.
+        _remark(cls.orig, cls.SRC, 1, 11, "moved with me")
+        _category(cls.orig, cls.SRC, 1, 11, "Electrical",
+                  final="sm_machine", human="sm_human")
+        _color_on(cls.orig, cls.SRC, 1, 11, "B", "yellow")  # a Select, not a hex value
+        _dismissal_on(cls.orig, cls.SRC, 1, 11, "remark")
+
+        cls.dest_sheet = _seed_sheet(cls.rev, cls.DEST, 1, 1,
+            {"B": _DESC, "C": _UNIT, "E": _SCALAR_RATE}, [
+                {"srn": 10, "node_type": "Line Item", "description": "Anchor", "qty": 5.0},
+                {"srn": 60, "node_type": "Line Item", "description": "Shifted Item", "qty": 5.0,
+                 "code": "2.4"},
+            ])
+        _stamp_provenance(cls.dest_sheet, cls.orig, cls.SRC)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        for boq in (cls.rev, cls.orig):
+            for dt in (_PRICING, _LOCK_DT, "BoQ Cell Remark", "BoQ Cell Color",
+                       "BoQ Cell Dismissal", "BoQ Row Category", "BOQ Nodes", _SHEET):
+                frappe.db.delete(dt, {"boq": boq})
+        frappe.db.commit()
+        _cleanup_project(cls.project.name)
+        super().tearDownClass()
+
+    def tearDown(self):
+        for dt in (_PRICING, _LOCK_DT, "BoQ Cell Remark", "BoQ Cell Color",
+                   "BoQ Cell Dismissal", "BoQ Row Category"):
+            frappe.db.delete(dt, {"boq": self.rev})
+        frappe.db.commit()
+
+    def _carry_everything(self):
+        return cross_boq_carry.apply_sheet_carry(
+            dest_boq=self.rev, sheet_name=self.DEST,
+            decisions=json.dumps([
+                {"dest_excel_row": 60, "area": None, "rate_kind": "combined_rate"},
+            ]),
+            layers=json.dumps({key: {"carry": True, "overwrite": False}
+                               for key in committed_carry.LAYER_KEYS}),
+        )
+
+    def test_the_rate_lands_on_the_moved_row(self):
+        out = self._carry_everything()
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["copied"], 1)
+        self.assertEqual(
+            frappe.db.get_value(_PRICING, {
+                "boq": self.rev, "sheet_name": self.DEST, "excel_row": 60,
+                "col_letter": "E", "is_current": 1, "is_filled": 1}, "rate"),
+            250.0,
+            "the source rate landed at the DEST position, in the re-resolved column",
+        )
+
+    def test_every_layer_lands_on_the_moved_row_too(self):
+        """The ruling, asserted layer by layer. Each id is the SOURCE's distinctive value, so
+        finding it on the destination is evidence it travelled."""
+        out = self._carry_everything()
+        self.assertEqual(out["layers"]["categories"]["carried"], 1)
+        self.assertEqual(out["layers"]["remarks"]["carried"], 1)
+        self.assertEqual(out["layers"]["colors"]["carried"], 1)
+        self.assertEqual(out["layers"]["remark_dismissals"]["carried"], 1)
+
+        self.assertEqual(
+            frappe.get_all("BoQ Row Category",
+                           filters={"boq": self.rev, "is_current": 1},
+                           fields=["excel_row", "final_category_id"]),
+            [{"excel_row": 60, "final_category_id": "sm_machine"}])
+        self.assertEqual(
+            [(r.excel_row, r.remark) for r in frappe.get_all(
+                "BoQ Cell Remark", filters={"boq": self.rev, "is_current": 1},
+                fields=["excel_row", "remark"])],
+            [(60, "moved with me")])
+        self.assertEqual(
+            [(r.excel_row, r.col_letter) for r in frappe.get_all(
+                "BoQ Cell Color", filters={"boq": self.rev, "is_current": 1},
+                fields=["excel_row", "col_letter"])],
+            [(60, "B")])
+        self.assertEqual(
+            [r.excel_row for r in frappe.get_all(
+                "BoQ Cell Dismissal", filters={"boq": self.rev, "is_current": 1},
+                fields=["excel_row"])],
+            [60])
+
+    def test_every_carried_record_is_still_attributed(self):
+        """Amendment E's other half must survive Amendment G: a record that arrived by the SERIAL
+        pass is stamped exactly like one that arrived by position. An unattributed carried record
+        is the defect Amendment D deleted the whole feature over."""
+        self._carry_everything()
+        for doctype in ("BoQ Row Category", "BoQ Cell Remark", "BoQ Cell Color",
+                        "BoQ Cell Dismissal"):
+            rows = frappe.get_all(doctype, filters={"boq": self.rev, "is_current": 1},
+                                  fields=["carried_from_boq", "carried_from_version"])
+            self.assertEqual([r.carried_from_boq for r in rows], [self.orig], doctype)
+            self.assertEqual([r.carried_from_version for r in rows], [1], doctype)
+
+    def test_stripping_the_serial_strips_the_whole_carry(self):
+        """Causation, for the layers as well as the rate: with the dest serial gone the row is
+        unmatched again and NOTHING lands on it -- so the pass 2 match really is what carried all
+        five things, not some other coincidence in the fixture."""
+        node = frappe.db.get_value("BOQ Nodes", {
+            "boq": self.rev, "sheet": self.dest_sheet, "source_row_number": 60}, "name")
+        frappe.db.set_value("BOQ Nodes", node, "code", "", update_modified=False)
+        frappe.db.commit()
+        try:
+            out = self._carry_everything()
+            self.assertEqual(out["copied"], 0)
+            self.assertEqual(out["skipped"]["invalid"], 1,
+                             "dest row 60 is no longer a carryable cell at all")
+            for key in ("categories", "remarks", "colors", "remark_dismissals"):
+                self.assertEqual(out["layers"][key]["carried"], 0, key)
+                self.assertEqual(out["layers"][key]["unmatched"], 1, key)
+        finally:
+            frappe.db.set_value("BOQ Nodes", node, "code", "2.4", update_modified=False)
+            frappe.db.commit()
+
+
 class TestCrossBoqCarryCategoryGate(FrappeTestCase):
     """⚠️ INVERTED at ADR-0014 AMENDMENT E (owner decision). This class was Slice G2c's guard that
     the CROSS-BoQ revision carry is gated on the DESTINATION's categories. **That gate is removed
@@ -1093,9 +1363,11 @@ class TestCrossBoqCarryCategoryGate(FrappeTestCase):
     WHAT REPLACES IT: nothing on this path. The gate keeps working everywhere else and does its
     normal job on what follows -- the revision arrives with rates visible but rate EDITING locked,
     the banner names the rows still missing a category, the user categorises them, and editing
-    opens sheet-wide. `pricing.save_cell_price` and `pricing.apply_copy_forward` are UNTOUCHED and
-    keep their own G2c coverage; the distinction is that those write HAND-TYPED rates, while this
-    moves known values from a known-good source.
+    opens sheet-wide. `pricing.save_cell_price` is UNTOUCHED and keeps its own G2c coverage; the
+    distinction is that it writes HAND-TYPED rates, while this moves known values from a known-good
+    source. (WBC-S10, 2026-07-30, applied that same distinction to `pricing.apply_copy_forward` and
+    ungated it too -- a copy is not a hand-typed rate either. The SAVE path is now the only rate
+    write the gate stands in front of.)
 
     STILL GATED HERE, and now the only gate: the deliberate sheet lock and the mandatory
     amount-formula declaration.
@@ -1220,10 +1492,11 @@ class TestCrossBoqCarryCategoryGate(FrappeTestCase):
 
     # (d) INVERTED -- the admin override is now IRRELEVANT to this path.
     def test_d_admin_override_is_irrelevant_here(self):
-        """The override still exists and still governs `save_cell_price` / `apply_copy_forward`.
-        It simply has nothing left to unlock on THIS path, so the carry behaves identically with
-        it and without it. Asserted rather than assumed: an override that silently became a
-        precondition again would be invisible otherwise."""
+        """The override still exists and still governs `save_cell_price` (WBC-S10 ungated
+        `apply_copy_forward`, so the override has nothing left to unlock there either). It simply
+        has nothing left to unlock on THIS path, so the carry behaves identically with it and
+        without it. Asserted rather than assumed: an override that silently became a precondition
+        again would be invisible otherwise."""
         without = self._apply_inner_10()
         frappe.db.delete(_PRICING, {"boq": self.rev})
         pricing.set_category_override(
@@ -1326,3 +1599,52 @@ class TestCrossBoqCarryCategoryGate(FrappeTestCase):
                 "boq": self.rev, "sheet_name": self.AMT_DEST, "committed_version": 1,
                 "excel_row": 20, "col_letter": "D"}),
             rows_before, "the refused carry minted no superseded history row")
+
+
+class TestLayerCoercionHasOneHome(FrappeTestCase):
+    """WBC S2 / ADR-0014 Amendment F -- the within-BoQ copy-forward accepts `layers` on the SAME wire
+    shape as this endpoint. Two endpoints reading one wire shape must not grow two readers: a drift
+    between them would mean the same payload is honoured on one carry and ignored on the other, which
+    is exactly the class of bug the shared `_classify_carry` / `walk_layers` split exists to prevent.
+
+    The coercion's home is `pricing.coerce_layers`. It cannot live in `committed_carry` (that module
+    must not import `pricing`, or pricing -> committed_carry -> pricing cycles) and `pricing` cannot
+    import `cross_boq_carry` at module level for the same reason -- while `pricing` is ALREADY the
+    shared carry-primitives home this module imports from (`_resolve_rate_carry_target`,
+    `_assert_carry_versions_distinct`, `_coerce_bool`, the `_CF_*` outcomes). Pure -- no DB."""
+
+    def test_cross_boq_delegates_to_the_one_coercion(self):
+        self.assertIs(cross_boq_carry._coerce_layers, pricing.coerce_layers)
+
+    def test_json_string_over_http_is_parsed(self):
+        self.assertEqual(
+            pricing.coerce_layers('{"categories": {"carry": true, "overwrite": false}}'),
+            {"categories": {"carry": True, "overwrite": False}},
+        )
+
+    def test_http_string_truthiness_on_both_flags(self):
+        """`_coerce_bool` semantics, inherited: over HTTP every value arrives as a string."""
+        self.assertEqual(
+            pricing.coerce_layers({"remarks": {"carry": "true", "overwrite": "0"}}),
+            {"remarks": {"carry": True, "overwrite": False}},
+        )
+
+    def test_omitted_and_empty_mean_rates_only(self):
+        for payload in (None, "", {}, "{}"):
+            self.assertEqual(pricing.coerce_layers(payload), {}, repr(payload))
+
+    def test_unknown_keys_are_dropped_silently(self):
+        self.assertNotIn("formulas", committed_carry.LAYER_KEYS)
+        self.assertEqual(
+            pricing.coerce_layers({"formulas": {"carry": True}, "colors": {"carry": True}}),
+            {"colors": {"carry": True, "overwrite": False}},
+        )
+
+    def test_a_non_dict_choice_is_ignored_not_coerced(self):
+        self.assertEqual(pricing.coerce_layers({"categories": True}), {})
+
+    def test_a_malformed_payload_throws(self):
+        with self.assertRaises(frappe.ValidationError):
+            pricing.coerce_layers("not json")
+        with self.assertRaises(frappe.ValidationError):
+            pricing.coerce_layers([1, 2, 3])

@@ -172,6 +172,7 @@ import type {
   SheetCategoryRow,
 } from "./boqTypes";
 import { deriveVerdictState, isRowEditable, labelFor } from "./CategoryVerdictPicker";
+import { categoryCellTitle } from "./sheetCategoryResolve";
 import { type RowSuggestions, rowSuggestionsEqual } from "./rate-helper/rateHelperTypes";
 
 // Depth indent step -- mirrors ReviewTree.INDENT_PX (kept in sync; the pricing grid does
@@ -2505,17 +2506,16 @@ const PricingGridRow = memo(function PricingGridRow({
         const amberFill = isMasterSetBlank(row, cat)
           ? "bg-amber-50 dark:bg-amber-950/30"
           : undefined;
+        // R3/R16: the whole tooltip lives in the pure categoryCellTitle, so its wording is pinned
+        // by assertion instead of by comment (there is no DOM here to test a `title=` through).
+        // The grid does NO comparison and gets no new prop: the SERVER decided whether the carry
+        // crossed BoQs, which it must -- this grid is never told which BoQ it is rendering.
+        const title = categoryCellTitle(label, state, cat);
         return (
           <td
             {...tdFocusProps(colIndex)}
             data-colkey="category"
-            title={
-              isHuman
-                ? `${label} (your pick)`
-                : isCarried
-                  ? `${label} (carried from ${cat?.carried_from_boq})`
-                  : label || undefined
-            }
+            title={title}
             onClick={
               editable
                 ? (e) => onCategoryClick?.(row.source_row_number, e.currentTarget as HTMLElement)

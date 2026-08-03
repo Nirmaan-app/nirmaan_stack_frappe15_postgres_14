@@ -27,6 +27,10 @@ This directory contains reference documentation for the Nirmaan Stack frontend. 
 | [domain/invoices.md](./domain/invoices.md) | Invoices | PO/SR invoices, 2B reconciliation, date filters |
 | [domain/milestones.md](./domain/milestones.md) | Milestones | Daily progress reports, zone tracking, work headers |
 | [domain/projects.md](./domain/projects.md) | Projects | Project status lifecycle, ProjectSelect component, status restrictions |
+| [domain/po-revisions.md](./domain/po-revisions.md) | PO Revisions | PO revision lifecycle, revision commits and carry behaviour |
+| [domain/po-merge.md](./domain/po-merge.md) | PO Merge | Merging purchase orders, merge constraints and side effects |
+| [domain/vendor-hold.md](./domain/vendor-hold.md) | Vendor Hold | Vendor hold status, blocked operations, guard hooks |
+| [domain/commissioning-report-templates.md](./domain/commissioning-report-templates.md) | Commissioning Reports | Commissioning report templates and generation |
 | [domain/ceo-hold.md](./domain/ceo-hold.md) | CEO Hold | Project hold status, blocked operations, guard hooks |
 | [domain/delivery-notes.md](./domain/delivery-notes.md) | Delivery Notes | DN doctype, DN Item child table, APIs, received_quantity, 51-point linkage map |
 | [domain/po-status-map.md](./domain/po-status-map.md) | PO Status | Full PO status lifecycle, all codebase usage (28 frontend + 19 backend files), cross-module linkages, DataTable/API call map |

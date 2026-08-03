@@ -7,7 +7,9 @@ Two things live here, and neither of them is row content:
      commit does for a revision.
   2. `committed_excel_row_match` -- the shared committed-tier D6 row match between two committed
      sheets, keyed by the durable Excel address. The rate carry in `cross_boq_carry` is its only
-     production consumer.
+     production consumer. `version_addressed_excel_row_match` is its WITHIN-BoQ sibling (two
+     versions of ONE sheet), consumed by `pricing`'s copy-forward; they are separate entry points by
+     owner ruling, not one function behind a flag.
 
 ⚠️ AMENDMENT E (2026-07-28, owner-directed) restores ALL FOUR layers Amendment D deleted --
 category, remark, colour and `remark` dismissal -- to the explicit per-sheet action. Each is
@@ -68,8 +70,11 @@ _NODE = "BOQ Nodes"
 _ROW_CATEGORY = "BoQ Row Category"
 
 # Committed BOQ Nodes fields the excel-row twin map reads (both sides). source_row_number = the
-# durable Excel address; description feeds the pure D6 match.
-_NODE_MATCH_FIELDS = ["source_row_number", "description", "level"]
+# durable Excel address; description feeds the pure D6 match; `code` is the SERIAL NUMBER and feeds
+# AMENDMENT G's opt-in second pass (commit_pipeline maps review `sl_no_value` -> `code`, so on a
+# committed node the serial is always `code` -- BOTH sides of every carry here read committed nodes,
+# so there is no cross-field translation anywhere).
+_NODE_MATCH_FIELDS = ["source_row_number", "description", "level", "code"]
 
 
 def stamp_revision_provenance(
@@ -80,9 +85,15 @@ def stamp_revision_provenance(
 
     ⚠️ AMENDMENT C (C5): this used to be `carry_commit_overlay`, which ALSO carried five layers
     (formula / remark / colour / `remark` dismissal / category) silently at commit. **A revision
-    commit carries NOTHING.** Amendment D then removed the annotation carry from the per-sheet
-    action too, so no seam anywhere copies row content between a revision and its original except
-    the rates (`cross_boq_carry.apply_sheet_carry`).
+    commit carries NOTHING** -- still true, and keeping it true is what this function is for.
+
+    ⚠️ The sentence that used to stand here said that, Amendment D having stripped the annotation
+    carry from the per-sheet action too, no seam anywhere copied row content between a revision and
+    its original EXCEPT the rates. **Amendment E (2026-07-28) falsified that**, and it is corrected
+    rather than deleted so the claim is not reintroduced: the explicit per-sheet action
+    `cross_boq_carry.apply_sheet_carry` moves the rates AND any of the four row-addressed layers the
+    user ticks (category / remark / colour / `remark` dismissal), each stamped with its origin. The
+    distinction that actually survives is **COMMIT vs. explicit ACTION** -- not rates vs. layers.
 
     **The stamp itself MUST stay.** `cross_boq_carry._resolve_sheet_carry` reads `source_sheet_name`
     off this row to find the source at all -- it is sheet-level IDENTITY, not row information, so it
@@ -142,10 +153,20 @@ def committed_excel_row_match(source_boq, source_sheet_docname, dest_boq, dest_s
     the matcher entirely, and both remaining inputs (`source_row_number`, `description`) are
     immutable after parse and are not functions of the tree. That equivalence is exactly what lets
     the committed tier RE-DERIVE the copied set with no new schema -- so never reintroduce a
-    tree-derived input here. Only matched pairs appear in the twin map; an unmatched row is absent."""
+    tree-derived input here. Only matched pairs appear in the twin map; an unmatched row is absent.
+
+    ⚠️ AMENDMENT G (WBC-S11, owner-directed): **this is the ONE production call site that enables the
+    serial second pass**, so a row that MOVED still carries when its serial number and description
+    both survive. Everything `cross_boq_carry` does with a sheet pair reads this single result --
+    the rate plan, the "needs a new value" count, and the opt-in layer carry (categories / remarks /
+    colours / dismissals) -- and the owner ruled they all move together: the boundary is structure
+    vs. everything else, and the structural risk lives in the parse-time carry, not here. See
+    `row_match`'s module docstring for the full ruling. `version_addressed_excel_row_match` below
+    MUST NOT enable it; that is an owner ruling, not an oversight, and it is pinned by
+    `test_the_within_boq_entry_point_does_NOT_pair_the_same_moved_row`."""
     orig = _match_rows_from_nodes(source_boq, source_sheet_docname)
     rev = _match_rows_from_nodes(dest_boq, dest_sheet_docname)
-    return match_rows(orig, rev)
+    return match_rows(orig, rev, serial_second_pass=True)
 
 
 def _excel_twin_map(source_boq, source_sheet_docname, dest_boq, dest_sheet_docname) -> dict:
@@ -157,19 +178,84 @@ def _excel_twin_map(source_boq, source_sheet_docname, dest_boq, dest_sheet_docna
     ).original_to_revised
 
 
+def version_addressed_excel_row_match(
+    source_boq, source_sheet_docname, dest_boq, dest_sheet_docname
+):
+    """The WITHIN-BoQ sibling of `committed_excel_row_match` -- same match, addressed by committed
+    sheet DOCNAME alone, with NO `is_current` filter on the nodes.
+
+    ⚠️ Read `committed_excel_row_match`'s docstring above for the load-bearing warning about what may
+    and may not feed this match (never a tree-derived input). That warning is deliberately NOT
+    restated here: one copy in the codebase, so it cannot be updated in one place and go stale in the
+    other.
+
+    WHY A SIBLING AND NOT A PARAMETER (owner ruling, ADR-0014 Amendment F R6): the two differ only in
+    node visibility, but the cross-BoQ entry point's `is_current` filter is load-bearing there -- it
+    is what stops that carry reading superseded nodes -- so it must not become optional. Within ONE
+    BoQ the source is an OLDER version of the same sheet, and a re-commit froze its nodes to
+    `is_current = 0`; the cross-BoQ matcher therefore sees NOTHING on the source side and returns an
+    empty twin map. That single filter is the whole difference.
+
+    Dropping it here is SAFE because the docname already pins the version: `BOQ Nodes.sheet` links
+    the version-specific `BoQ Sheet` row, and `is_current` is uniform per sheet docname. This is the
+    same reasoning `review_screen.get_committed_rows_at_version` states for its own version read.
+
+    Returns the full `RowMatchResult`, exactly like the original -- the rate carry needs the per-row
+    outcome, not just the twin map. Only matched pairs appear in `original_to_revised`; within one
+    BoQ a pair is always (row N -> row N), because `match_rows` joins on the SAME Excel position.
+
+    ⚠️ AMENDMENT G: this entry point does **NOT** enable the serial second pass, and that absence is
+    LOAD-BEARING. `pricing.apply_copy_forward` is its only consumer and the owner ruled the
+    within-BoQ copy-forward keeps the strict position rule, so a moved row does not carry here even
+    with a byte-identical serial. The nodes DO carry their serials (`_content_match_rows` projects
+    them on both readers) -- what differs is permission to use them, which is decided here and
+    nowhere else. Do NOT "restore consistency" with `committed_excel_row_match` by adding the flag:
+    that reads as a one-word tidy-up and is a silent behaviour change to a separate feature."""
+    orig = _match_rows_from_nodes_at_version(source_boq, source_sheet_docname)
+    rev = _match_rows_from_nodes_at_version(dest_boq, dest_sheet_docname)
+    return match_rows(orig, rev)
+
+
 def _match_rows_from_nodes(boq, sheet_docname) -> list:
-    """Build the pure `MatchRow` list from one side's committed content nodes (non-blank N2
-    description, keyed by source_row_number = the durable Excel address)."""
-    nodes = frappe.db.get_all(
-        _NODE,
-        filters={"boq": boq, "sheet": sheet_docname, "is_current": 1},
-        fields=_NODE_MATCH_FIELDS,
+    """Build the pure `MatchRow` list from one side's CURRENT committed content nodes. The cross-BoQ
+    reader -- `is_current = 1` is load-bearing here (see `version_addressed_excel_row_match`)."""
+    return _content_match_rows(
+        frappe.db.get_all(
+            _NODE,
+            filters={"boq": boq, "sheet": sheet_docname, "is_current": 1},
+            fields=_NODE_MATCH_FIELDS,
+        )
     )
+
+
+def _match_rows_from_nodes_at_version(boq, sheet_docname) -> list:
+    """The same list from a committed sheet addressed by DOCNAME ALONE -- current or superseded. The
+    within-BoQ reader; the docname pins the version, so `is_current` adds nothing but a blind spot."""
+    return _content_match_rows(
+        frappe.db.get_all(
+            _NODE,
+            filters={"boq": boq, "sheet": sheet_docname},
+            fields=_NODE_MATCH_FIELDS,
+        )
+    )
+
+
+def _content_match_rows(nodes) -> list:
+    """Project committed node rows onto the pure `MatchRow` list: keyed by `source_row_number` (the
+    durable Excel address), non-blank N2 description only.
+
+    The ONE definition of "which committed rows enter a match" -- shared by both readers above so the
+    two seams cannot disagree about what a content row is. Blank-description rows never enter (they
+    carry nothing and demand nothing); a node with no Excel address has no durable identity."""
     return [
         MatchRow(
             row_id=n.source_row_number,
             excel_row=n.source_row_number,
             description=n.description or "",
+            # AMENDMENT G's pass-2 key half. Projected on BOTH readers on purpose: "which committed
+            # rows enter a match, and what do they look like" stays ONE definition, and whether the
+            # serial may be USED is decided at the `match_rows` call, not by withholding the data.
+            serial=n.code or "",
         )
         for n in nodes
         if n.source_row_number is not None and normalize_n2(n.description)

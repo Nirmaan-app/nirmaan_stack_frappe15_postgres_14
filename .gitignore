@@ -12,3 +12,5 @@ nirmaan_stack/www/frontend.html
 build
 .env
 .roo*
+# Nirmaan delivery process - per-worktree slice state (local only)
+.claude/state/
