@@ -4,6 +4,7 @@ import {
   acceptClassifyEvent,
   addRunningDisciplines,
   buildSheetEngineCatalogs,
+  categoryCellTitle,
   removeRunningDiscipline,
   resolvedToSheetCategoryRow,
   summariseResolvedOutcome,
@@ -21,6 +22,8 @@ function resolved(over: Partial<ResolvedSheetCategory>): ResolvedSheetCategory {
     human_category_id: "",
     human_discipline: null,
     carried_from_boq: null,
+    carried_from_version: null,
+    carried_from_other_boq: null,
     votes: {},
     ...over,
   };
@@ -108,6 +111,164 @@ describe("resolvedToSheetCategoryRow (adapter -> grid shape)", () => {
     const bare = resolved({ effective_source: "auto", effective_category_id: "x" });
     delete (bare as unknown as Record<string, unknown>).carried_from_boq;
     expect(resolvedToSheetCategoryRow(bare).carried_from_boq).toBeNull();
+  });
+
+  // ── ADR-0014 Amendment F, ruling R3 ───────────────────────────────────────────────
+  // carried_from_version is the OTHER half of the provenance pair, and within one BoQ it is the
+  // only informative half: the source and the destination ARE the same BoQ there, so
+  // carried_from_boq names the document the reader is already looking at. It rides the same
+  // not-telemetry path as carried_from_boq and must reach the grid for the same reason.
+  it("PASSES carried_from_version through for a carried HUMAN verdict", () => {
+    const r = resolvedToSheetCategoryRow(
+      resolved({
+        effective_source: "human",
+        effective_category_id: "x",
+        human_category_id: "x",
+        carried_from_boq: "BOQ-26-00066",
+        carried_from_version: 2,
+      }),
+    );
+    expect(r.carried_from_version).toBe(2);
+  });
+
+  it("passes carried_from_version through for a carried MACHINE verdict too", () => {
+    const r = resolvedToSheetCategoryRow(
+      resolved({
+        effective_source: "auto",
+        effective_category_id: "x",
+        carried_from_boq: "BOQ-26-00066",
+        carried_from_version: 5,
+      }),
+    );
+    expect(r.carried_from_version).toBe(5);
+  });
+
+  // The server column is `bigint NOT NULL DEFAULT 0`, so an uncarried row that HAS a resolving
+  // discipline arrives as 0, not null. The adapter passes that through VERBATIM rather than
+  // coercing it -- carried_from_boq is what says "carried at all", so 0 is never read on its own
+  // and inventing a null here would be inventing a semantic the server never sent.
+  it("preserves an uncarried row's 0 verbatim -- it does not coerce it to null", () => {
+    const r = resolvedToSheetCategoryRow(
+      resolved({ effective_source: "auto", effective_category_id: "x", carried_from_version: 0 }),
+    );
+    expect(r.carried_from_boq).toBeNull();
+    expect(r.carried_from_version).toBe(0);
+  });
+
+  it("normalises a missing carried_from_version to null, never undefined", () => {
+    const bare = resolved({ effective_source: "auto", effective_category_id: "x" });
+    delete (bare as unknown as Record<string, unknown>).carried_from_version;
+    expect(resolvedToSheetCategoryRow(bare).carried_from_version).toBeNull();
+  });
+
+  // ── R16: the server-decided cross-BoQ signal ──────────────────────────────────────
+  it("PASSES carried_from_other_boq through -- the grid cannot re-derive it", () => {
+    const r = resolvedToSheetCategoryRow(
+      resolved({
+        effective_source: "auto",
+        effective_category_id: "x",
+        carried_from_boq: "BOQ-26-00066",
+        carried_from_version: 4,
+        carried_from_other_boq: true,
+      }),
+    );
+    expect(r.carried_from_other_boq).toBe(true);
+  });
+
+  it("keeps a FALSE signal false -- it must not be flattened into null", () => {
+    const r = resolvedToSheetCategoryRow(
+      resolved({
+        effective_source: "auto",
+        effective_category_id: "x",
+        carried_from_boq: "BOQ-26-00099",
+        carried_from_version: 2,
+        carried_from_other_boq: false,
+      }),
+    );
+    expect(r.carried_from_other_boq).toBe(false);
+  });
+
+  it("normalises a missing carried_from_other_boq to null, never undefined", () => {
+    const bare = resolved({ effective_source: "auto", effective_category_id: "x" });
+    delete (bare as unknown as Record<string, unknown>).carried_from_other_boq;
+    expect(resolvedToSheetCategoryRow(bare).carried_from_other_boq).toBeNull();
+  });
+});
+
+// ── R3/R16: the category cell's tooltip ─────────────────────────────────────────────
+// Extracted from JSX so the ruling is enforceable by assertion. There is no DOM environment in
+// this repo (`environment: "node"`, deliberate), so a string built inline in the grid's `title=`
+// attribute cannot be tested at all -- the same reasoning that produced `carryChangesPhrase`.
+describe("categoryCellTitle (the Category cell's tooltip)", () => {
+  const carried = (over: Partial<ResolvedSheetCategory>) =>
+    resolvedToSheetCategoryRow(
+      resolved({ effective_source: "auto", effective_category_id: "x", ...over }),
+    );
+
+  it("names the SOURCE BoQ when the carry crossed BoQs", () => {
+    const cat = carried({
+      carried_from_boq: "BOQ-26-00066",
+      carried_from_version: 4,
+      carried_from_other_boq: true,
+    });
+    expect(categoryCellTitle("Panels", "carried", cat)).toBe(
+      "Panels (carried from BOQ-26-00066)",
+    );
+  });
+
+  it("names the SOURCE VERSION when the carry stayed inside one BoQ (R3)", () => {
+    const cat = carried({
+      carried_from_boq: "BOQ-26-00099",
+      carried_from_version: 2,
+      carried_from_other_boq: false,
+    });
+    expect(categoryCellTitle("Panels", "carried", cat)).toBe("Panels (carried from Version 2)");
+  });
+
+  it("never names the BoQ the reader is already looking at", () => {
+    const cat = carried({
+      carried_from_boq: "BOQ-26-00099",
+      carried_from_version: 2,
+      carried_from_other_boq: false,
+    });
+    expect(categoryCellTitle("Panels", "carried", cat)).not.toContain("BOQ-26-00099");
+  });
+
+  // Back-compat: a payload from before R16 (or one cached across the deploy) has no signal at
+  // all. Falling back to the BoQ noun keeps today's behaviour, which is right on the cross-BoQ
+  // carry that shipped first; guessing "within" from the version's presence would be wrong the
+  // moment a cross-BoQ carry surfaced its version, which it now always does.
+  it("falls back to the BoQ noun when the server sent no signal", () => {
+    const cat = carried({ carried_from_boq: "BOQ-26-00066", carried_from_version: 4 });
+    delete (cat as unknown as Record<string, unknown>).carried_from_other_boq;
+    expect(categoryCellTitle("Panels", "carried", cat)).toBe(
+      "Panels (carried from BOQ-26-00066)",
+    );
+  });
+
+  // 0 is what an uncarried row reads on that NOT-NULL Int column, so it is never a real source
+  // version. Rendering "Version 0" would invent a version that does not exist.
+  it("falls back to the BoQ noun rather than inventing a Version 0", () => {
+    const cat = carried({
+      carried_from_boq: "BOQ-26-00066",
+      carried_from_version: 0,
+      carried_from_other_boq: false,
+    });
+    expect(categoryCellTitle("Panels", "carried", cat)).toBe(
+      "Panels (carried from BOQ-26-00066)",
+    );
+  });
+
+  it("keeps the human branch as it was", () => {
+    expect(categoryCellTitle("Panels", "human", carried({}))).toBe("Panels (your pick)");
+  });
+
+  it("is the bare label on an auto verdict", () => {
+    expect(categoryCellTitle("Panels", "auto", carried({}))).toBe("Panels");
+  });
+
+  it("is undefined when there is no label to show", () => {
+    expect(categoryCellTitle("", "unclassified", undefined)).toBeUndefined();
   });
 });
 

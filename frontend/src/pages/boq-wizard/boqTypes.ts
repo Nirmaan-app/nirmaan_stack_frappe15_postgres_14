@@ -1277,6 +1277,10 @@ export interface GetCopyForwardPlanResponse {
     no_rate_column: number;
     non_priceable: number;
   };
+  /** ADR-0014 Amendment F R1: what each non-rate layer WOULD do, planned with overwrite OFF -- the
+   *  same preview `CrossBoqCarrySheet` carries, from the same shared walk. Optional so a response
+   *  from a pre-Amendment-F server degrades to the rate-only dialog instead of throwing. */
+  layers?: Partial<Record<CarryLayerKey, CarryLayerOutcome>>;
 }
 
 /** One user decision posted to apply_copy_forward. Presence = "copy this cell"; `overwrite` matters only for a conflict. */
@@ -1299,6 +1303,10 @@ export interface ApplyCopyForwardResponse {
     non_priceable: number;
     invalid: number;
   };
+  /** ADR-0014 Amendment F R1: what each non-rate layer ACTUALLY did, reporting ONLY the layers that
+   *  ran. Mirrors `ApplySheetCarryResponse.layers`, but OPTIONAL here -- a pre-Amendment-F server
+   *  sends no such key, and the post-apply line degrades to rates rather than reading undefined. */
+  layers?: Partial<Record<CarryLayerKey, CarryLayerOutcome>>;
 }
 
 // ── Cross-BOQ rate carry (S10 / #1106, ADR-0014 D9) ────────────────────────────────
@@ -1605,6 +1613,18 @@ export interface SheetCategoryRow {
    *  someone else made on another BoQ -- the un-attributed arrival Amendment D deleted the carry
    *  over. */
   carried_from_boq?: string | null;
+  /** ADR-0014 Amendment F (ruling R3): the source VERSION of that same carry. It is the
+   *  informative half WITHIN one BoQ -- there the source and destination are the same BoQ, so
+   *  `carried_from_boq` names the document the reader is already looking at and tells them
+   *  nothing. Read off the resolving discipline, exactly like `carried_from_boq`. An uncarried
+   *  row that resolved arrives as 0 (the server column is a NOT-NULL Int); `carried_from_boq` is
+   *  what says "carried at all", so this is never read on its own. */
+  carried_from_version?: number | null;
+  /** ADR-0014 Amendment F (ruling R16): did the carry come from a DIFFERENT BoQ? Decided by the
+   *  SERVER, which is the only place holding both operands -- the grid is never told which BoQ it
+   *  is rendering. null means the server said nothing (a pre-R16 payload), which the tooltip
+   *  treats as the cross-BoQ case, i.e. the behaviour that shipped first. */
+  carried_from_other_boq?: boolean | null;
 }
 
 /**
@@ -1638,11 +1658,24 @@ export interface ResolvedSheetCategory {
   /** Amendment E: provenance of the verdict that RESOLVED this row (not "any vote is carried") --
    *  a row can be carried in one engine and classified locally in another. */
   carried_from_boq: string | null;
+  /** Amendment F (R3): the VERSION half of that same pair, read off the SAME resolving
+   *  discipline. null when the row resolved blank (no resolving discipline to read it off);
+   *  0 when the resolving discipline's row was never carried (NOT-NULL Int on the server). */
+  carried_from_version: number | null;
+  /** Amendment F (R16): whether that source was a DIFFERENT BoQ. Server-derived -- no client can
+   *  compute it, because the pricing grid is never told which BoQ it is rendering. */
+  carried_from_other_boq: boolean | null;
   votes: Record<string, ResolvedVote>;
 }
 
 /** HV-10: the get_sheet_categories_resolved payload. `disciplines` = every engine with current
- * rows on the sheet (the picker's group set). */
+ * rows on the sheet (the picker's group set).
+ *
+ * WBC-S8: this is ALSO the payload of `classify.get_version_sheet_categories`, the version-scoped
+ * twin the pricing editor reads while browsing an OLDER committed version. ONE type because the
+ * two endpoints share ONE server-side body and are pinned byte-equal at the current version --
+ * so a field added to one arrives on both, and this interface can never describe only half of
+ * them. `committed_version` is the version RESOLVED (live reader) or REQUESTED (twin). */
 export interface GetSheetCategoriesResolvedResponse {
   committed_version: number | null;
   disciplines: string[];
