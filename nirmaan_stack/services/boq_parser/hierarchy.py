@@ -143,11 +143,13 @@ BUG_23_LINE_ITEM_LEVEL0_ANCESTOR_ENABLED: bool = True
 # level=0 PREAMBLE (SUB HEAD or anchor-promoted row) which clears the stack.
 # Set False for regression isolation.
 
-BUG_24_NOTE_PARENT_INDEX_ENABLED: bool = True
-# Bug 24 (cycle 4 session 1): NOTE rows receive parent_index in the tree structure.
-# When a PREAMBLE is on the stack, parent_index mirrors attached_to_index.
-# When the stack is empty but level0_ancestor is set, parent_index = level0_ancestor.
-# Set False for regression isolation; gates only parent_index, not attached_to_index.
+# Bug 24 (cycle 4 session 1) is RETIRED as of EA-6a slice 2 (owner decision D4). Its flag
+# `BUG_24_NOTE_PARENT_INDEX_ENABLED` gated ONLY parent_index, never attached_to_index -- a
+# split that made sense when the two could legitimately disagree. EA-6a slice 1 removed that
+# possibility (one `target` variable drives the pointer, the parent and the notes-dict key),
+# so setting the flag False would no longer isolate a regression: it would MANUFACTURE a
+# divergence (attached_to_index = target while parent_index = None) on a code path that is
+# otherwise divergence-free. The flag is gone and NOTE rows always receive parent_index.
 
 NOTE_PARENT_NEAREST_ROW_ENABLED: bool = True
 # EA-6a slice 1: a NOTE attaches to the NEAREST PREAMBLE-OR-LINE-ITEM above it, instead of
@@ -788,8 +790,6 @@ def resolve_hierarchy(
                 master_preamble_notes.append(note_text)
                 attached_to_index = None
                 note_parent_index = level0_ancestor
-            if not BUG_24_NOTE_PARENT_INDEX_ENABLED:
-                note_parent_index = None
             resolved.append(ResolvedRow(
                 classified_row=classified_row,
                 attached_to_index=attached_to_index,

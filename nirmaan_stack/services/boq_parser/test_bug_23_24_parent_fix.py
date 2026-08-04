@@ -11,11 +11,11 @@ Bug 24: NOTE rows never set parent_index (defaults to None on ResolvedRow).
 Fix: when stack has an entry, mirror attached_to_index into parent_index;
 when stack is empty and level0_ancestor is set, parent_index = level0_ancestor.
 
-28 tests across 8 groups:
+27 tests across 8 groups:
   TestBug23LineItemUnit           (5) -- LINE_ITEM parenting via level0_ancestor
   TestBug24NoteUnit               (5) -- NOTE parent_index assignment
   TestBug23Toggle                 (2) -- BUG_23_LINE_ITEM_LEVEL0_ANCESTOR_ENABLED
-  TestBug24Toggle                 (2) -- BUG_24_NOTE_PARENT_INDEX_ENABLED
+  TestBug24Toggle                 (1) -- BUG_24 flag RETIREMENT pin (EA-6a slice 2, D4)
   TestDemotionPostPassUnaffected  (1) -- zero-children demotion unaffected by Bug 24 fix
   TestBillOfQuantitiesIntegration (2) -- BoQ ELV LINE_ITEMS + NOTEs post-fix
   TestAloricaIntegration          (1) -- alorica_1row LINE_ITEM Bug 23 candidates
@@ -300,8 +300,12 @@ class TestBug23Toggle(unittest.TestCase):
         warns = [w for w in result.warnings if "standalone line item" in w]
         self.assertGreater(len(warns), 0, "Standalone warning must fire when toggle is off")
 
-    def test_bug23_toggle_off_does_not_affect_bug24(self):
-        """BUG_23 off, BUG_24 on: NOTEs still receive parent_index from level0_ancestor."""
+    def test_bug23_toggle_off_does_not_affect_note_parenting(self):
+        """BUG_23 off: NOTEs still receive parent_index from level0_ancestor.
+
+        Renamed at EA-6a slice 2 (D4) -- it used to say "BUG_24 on", but that flag is retired
+        and note parenting is now unconditional. The ASSERTIONS are unchanged.
+        """
         rows = [
             _preamble(2, sl_no="SUB HEAD A"),
             _note(3, description="section note"),
@@ -317,42 +321,46 @@ class TestBug23Toggle(unittest.TestCase):
 
 
 # ==================================================================
-# Group 4: Bug 24 toggle tests (2 tests)
+# Group 4: Bug 24 flag RETIREMENT (1 test)
 # ==================================================================
 
 class TestBug24Toggle(unittest.TestCase):
+    """EA-6a slice 2 (owner decision D4) RETIRED BUG_24_NOTE_PARENT_INDEX_ENABLED.
 
-    def test_bug24_toggle_off_restores_pre_fix_behavior(self):
-        """BUG_24_NOTE_PARENT_INDEX_ENABLED=False: NOTEs have parent_index=None, attached_to_index still set."""
+    The two toggle-off tests that lived here were REMOVED, not rewritten, because the
+    behaviour they pinned no longer exists and cannot be reached:
+      - test_bug24_toggle_off_restores_pre_fix_behavior -- pinned parent_index=None while
+        attached_to_index stayed set. Slice 1 made ONE `target` variable drive the pointer,
+        the parent AND the notes-dict key, so that divergence is now unreachable by design.
+      - test_bug24_toggle_off_does_not_affect_bug23 -- pinned flag INDEPENDENCE; with one of
+        the two flags gone there is no independence left to assert, and the BUG_23 half it
+        checked is already covered by TestBug23Toggle + TestBug23LineItemUnit.
+    This single test replaces both: it pins the RETIREMENT itself (the flag must not come
+    back) plus the invariant that made retirement safe.
+    """
+
+    def test_bug24_flag_is_retired_and_notes_always_get_parent_index(self):
+        """The flag is GONE, and a NOTE unconditionally receives parent_index == attached_to_index."""
+        self.assertFalse(
+            hasattr(hierarchy_mod, "BUG_24_NOTE_PARENT_INDEX_ENABLED"),
+            "BUG_24_NOTE_PARENT_INDEX_ENABLED was retired at EA-6a slice 2 (D4) -- it must "
+            "not be reintroduced: setting it False would now MANUFACTURE a pointer/parent "
+            "divergence on a path that is otherwise divergence-free.",
+        )
         rows = [
             _preamble(2, sl_no="A."),
             _note(3, description="the note"),
         ]
-        try:
-            hierarchy_mod.BUG_24_NOTE_PARENT_INDEX_ENABLED = False
-            result = resolve_hierarchy(rows, _sheet_cfg(), _GS)
-        finally:
-            hierarchy_mod.BUG_24_NOTE_PARENT_INDEX_ENABLED = True
+        result = resolve_hierarchy(rows, _sheet_cfg(), _GS)
         note_rr = result.rows[1]
         preamble_rr = result.rows[0]
-        self.assertIsNone(note_rr.parent_index, "Toggle off: parent_index must be None (pre-fix behavior)")
-        self.assertEqual(note_rr.attached_to_index, 0, "attached_to_index must still be set correctly")
+        self.assertEqual(note_rr.parent_index, 0, "NOTE must always receive parent_index now")
+        self.assertEqual(note_rr.attached_to_index, 0)
+        self.assertEqual(
+            note_rr.parent_index, note_rr.attached_to_index,
+            "the slice-1 no-divergence invariant is what makes the flag safe to retire",
+        )
         self.assertIn("the note", preamble_rr.attached_notes)
-
-    def test_bug24_toggle_off_does_not_affect_bug23(self):
-        """BUG_24 off, BUG_23 on: LINE_ITEMs still inherit level0_ancestor as parent."""
-        rows = [
-            _preamble(2, sl_no="SUB HEAD A"),
-            _line_item(3, sl_no="1"),
-        ]
-        try:
-            hierarchy_mod.BUG_24_NOTE_PARENT_INDEX_ENABLED = False
-            result = resolve_hierarchy(rows, _sheet_cfg(), _GS)
-        finally:
-            hierarchy_mod.BUG_24_NOTE_PARENT_INDEX_ENABLED = True
-        line_item_rr = result.rows[1]
-        self.assertIsNotNone(line_item_rr.parent_index, "Bug 23 must still fire when Bug 24 is off")
-        self.assertEqual(line_item_rr.parent_index, 0)
 
 
 # ==================================================================
