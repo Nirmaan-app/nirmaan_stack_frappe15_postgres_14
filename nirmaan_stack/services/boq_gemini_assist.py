@@ -265,28 +265,41 @@ def build_row_payload(row: dict) -> dict:
     return {k: v for k, v in payload.items() if v is not None}
 
 
-def _looks_like_section_start(payload: dict) -> bool:
-    """A row likely starting a new section -- a preferred chunk-cut boundary.
-    Uses the parser's derived candidate score (a SIGNAL, not its verdict)."""
-    try:
-        return (payload.get("preamble_candidate_score") or 0) > 0
-    except TypeError:
-        return False
+# EA-6b: `_looks_like_section_start` (cut on `preamble_candidate_score > 0`) was REMOVED.
+# It keyed on a derived SIGNAL rather than the classification, so cuts landed MID-SECTION
+# and severed notes from the row they describe: 774 stranded notes across 97 of 110 sheets
+# (118 with a line-item target), median 2 rows behind the cut, plus 19 blind hard-max cuts.
+# Re-running the same corpus with a classification-based cut took every one of those to 0.
+# Cuts now come from `section_flags`, resolved by the API layer (see chunk_rows).
 
 
-def chunk_rows(payloads: list[dict]) -> list[list[dict]]:
+def chunk_rows(payloads: list[dict], section_flags: list[bool] = None) -> list[list[dict]]:
     """Order-preserving chunker. <= threshold -> one chunk. Above -> boundary-aware
-    chunks: cut just before a likely section start once at target size, with a hard
-    ceiling so a section-less run still terminates."""
+    chunks: cut just before a SECTION HEADER once at target size, with a hard ceiling so a
+    section-less run still terminates.
+
+    `section_flags` is a PARALLEL list, one bool per payload: "this row's EFFECTIVE
+    classification is preamble". It is deliberately a separate list rather than a payload
+    key -- the payload is the WIRE, and the model must never be shown the parser's verdict
+    (owner ruling: independence = (a), WIRE independence; pinned by
+    services/test_boq_gemini_assist.TestWirePayloadPin). The API layer resolves it, because
+    only it holds the human override layer.
+
+    ABSENT / short `section_flags` -> NO section cuts, ceiling only. Deliberately fail-safe
+    rather than falling back to the old score rule: a stale caller degrades to coarser
+    chunks, never to the defect this replaced.
+    """
     if not payloads:
         return []
     if len(payloads) <= _CHUNK_THRESHOLD:
         return [list(payloads)]
+    flags = section_flags or []
     chunks: list[list[dict]] = []
     cur: list[dict] = []
-    for p in payloads:
+    for i, p in enumerate(payloads):
         at_target = len(cur) >= _CHUNK_TARGET
-        if cur and ((at_target and _looks_like_section_start(p)) or len(cur) >= _CHUNK_HARD_MAX):
+        is_section = i < len(flags) and bool(flags[i])
+        if cur and ((at_target and is_section) or len(cur) >= _CHUNK_HARD_MAX):
             chunks.append(cur)
             cur = []
         cur.append(p)
@@ -388,7 +401,8 @@ def classify_chunk(client, model: str, settings: dict, chunk_payloads: list[dict
     return suggestions, tokens
 
 
-def classify_sheet(client, model: str, settings: dict, payloads: list[dict]) -> tuple[list[dict], int]:
+def classify_sheet(client, model: str, settings: dict, payloads: list[dict],
+                   section_flags: list[bool] = None) -> tuple[list[dict], int]:
     """Classify ALL payloads for one sheet (the stateless pass entry point).
 
     Chunks the payloads, classifies each chunk in order while carrying the running
@@ -406,7 +420,8 @@ def classify_sheet(client, model: str, settings: dict, payloads: list[dict]) -> 
     failure -- a blocked/empty chunk raises _NonRetryable and a still-transient chunk
     re-raises; the worker maps either to an error_code and clears gemini_in_progress.
     """
-    chunks = chunk_rows(payloads)
+    # EA-6b: cuts come from the API-resolved effective classification, never the payload.
+    chunks = chunk_rows(payloads, section_flags)
     all_suggestions: list[dict] = []
     known_preambles: list[dict] = []
     token_total = 0
