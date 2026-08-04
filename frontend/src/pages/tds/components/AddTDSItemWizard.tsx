@@ -39,6 +39,7 @@ import { cn } from "@/lib/utils";
 import { WizardSteps } from "@/components/ui/wizard-steps";
 import { FuzzySearchSelect } from "@/components/ui/fuzzy-search-select";
 import { useTDSItemOptions } from "../hooks/useTDSItemOptions";
+import { getFrappeError } from "@/utils/frappeErrors";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Why this exists: the restructured TDS Repository groups several Items-master
@@ -370,9 +371,15 @@ export const AddTDSItemWizard: React.FC<AddTDSItemWizardProps> = ({
             onOpenChange(false);
         } catch (e: any) {
             console.error("Error creating TDS Item:", e);
+            // `e.message` on a Frappe throw is the generic transport failure
+            // ("Document creation failed" / "Internal Server Error"); the REAL
+            // reason — e.g. the duplicate-name message from
+            // `TDSItems.validate_unique_group` — travels in `_server_messages`.
+            // `getFrappeError` unwraps that (then `exception`, then `message`),
+            // so the user is told what to fix instead of that it failed.
             toast({
-                title: "Error",
-                description: e?.message || "Failed to create TDS Item",
+                title: "Could not create TDS Item",
+                description: getFrappeError(e),
                 variant: "destructive",
             });
         }

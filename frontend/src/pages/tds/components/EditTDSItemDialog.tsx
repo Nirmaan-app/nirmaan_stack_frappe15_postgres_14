@@ -32,6 +32,7 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/use-toast";
+import { getFrappeError } from "@/utils/frappeErrors";
 
 export interface EditTDSItemDialogProps {
     open: boolean;
@@ -147,9 +148,13 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({
             onOpenChange(false);
         } catch (e: any) {
             console.error("Error updating TDS Item:", e);
+            // Renaming hits the SAME `validate_unique_group` as creating, so the
+            // most likely failure here is a duplicate name — and that reason
+            // lives in `_server_messages`, not `e.message` (which carries only
+            // the generic transport failure).
             toast({
-                title: "Error",
-                description: e?.message || "Failed to update TDS Item",
+                title: "Could not update TDS Item",
+                description: getFrappeError(e),
                 variant: "destructive",
             });
         }

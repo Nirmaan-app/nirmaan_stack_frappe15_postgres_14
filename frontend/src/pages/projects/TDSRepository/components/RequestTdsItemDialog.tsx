@@ -238,14 +238,14 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
                                     onClick={() => handleModeChange("existing")}
                                     className={`flex-1 px-3 py-2 text-sm font-medium transition-colors ${mode === "existing" ? "bg-red-600 text-white" : "bg-white text-gray-600 hover:bg-gray-50"}`}
                                 >
-                                    Existing Item
+                                    Existing TDS Item
                                 </button>
                                 <button
                                     type="button"
                                     onClick={() => handleModeChange("new")}
                                     className={`flex-1 px-3 py-2 text-sm font-medium transition-colors border-l border-gray-200 ${mode === "new" ? "bg-red-600 text-white" : "bg-white text-gray-600 hover:bg-gray-50"}`}
                                 >
-                                    New Item Group
+                                    New TDS Item Group
                                 </button>
                             </div>
 
