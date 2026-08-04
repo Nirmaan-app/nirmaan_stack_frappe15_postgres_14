@@ -977,3 +977,327 @@ class TestRateSuggest(FrappeTestCase):
         self.assertEqual(ai_voter._AI_MAX_TOKENS, 8000,
                          "the classifier voter is deliberately OUT OF SCOPE for SR-2")
         self.assertEqual(extraction._BATCH, 20, "batch size was explicitly not changed")
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════
+# EA-7 -- the rate-extraction payload builder
+# ══════════════════════════════════════════════════════════════════════════════════════
+def _deep_node(boq, sheet_doc, node_type, src, parent, desc, sort, qty=None,
+               notes=None, attached=None, appended=None):
+    """A committed node carrying the THREE distinct note kinds, which test_classify._node cannot
+    set. Deliberately local: test_classify.py is out of scope for EA-7."""
+    n = frappe.new_doc("BOQ Nodes")
+    n.boq = boq
+    n.sheet = sheet_doc
+    n.node_type = node_type
+    n.source_row_number = src
+    n.parent_node = parent
+    n.description = desc
+    n.sort_order = sort
+    n.commit_version = 1
+    n.is_current = 1
+    if node_type == "Preamble":
+        n.level = 0
+    if node_type == "Line Item":
+        n.qty = 0 if qty is None else qty
+    if notes is not None:
+        n.notes = notes
+    if attached is not None:
+        # The documented list-valued-JSON wall: a LIST assigned to a JSON field trips Frappe's
+        # "Value for Attached Notes cannot be a list" on insert. Pre-serialize, exactly as the
+        # commit pipeline's _LIST_JSON_FIELDS rule does. _notes_text json.loads it back.
+        n.attached_notes = json.dumps(attached)
+    if appended is not None:
+        n.append_notes_raw = appended
+    n.insert(ignore_permissions=True)
+    return n.name
+
+
+class TestEA7PayloadShape(FrappeTestCase):
+    """EA-7 C1 -- THE TRIPWIRE PINS for the rate-extraction payload builder.
+
+    Before EA-7 this builder was pinned by NOTHING: extraction._ai_item could change its keys, its
+    ancestor content or its note handling and the whole suite stayed green (the only incidental
+    coverage was test_21's byte-equality of two calls that BOTH go through it, and the `ROWS:`
+    split helper, which only needs an `id` key). Closing that gap is part of this slice's value.
+
+    These pins were written against the UNCHANGED code and proven GREEN first, then updated in the
+    SAME commit -- so the test diff shows exactly what the payload carried before and after (the
+    W4/P5 tripwire pattern from the EA-6c wording slice).
+
+    Fixture: a 5-deep chain so every tier is reachable --
+        A (d=4, above the boundary) -> B (d=3, great-grandparent) -> C (d=2, grandparent)
+          -> D (d=1, immediate parent) -> LI (d=0, self)
+    every node carrying all three note kinds, so a tier that wrongly includes or drops one is
+    visible rather than vacuous.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.project = _make_project()
+        cls.boq = _new_boq(cls.project.name, f"EA7_{frappe.generate_hash(length=6)}")
+        cls.sheet_name = "Deep Sheet "  # trailing space is deliberate (#152 verbatim)
+        cls.cv = 1
+        cls.sheet_doc = _new_sheet(cls.boq, cls.sheet_name, commit_version=cls.cv)
+
+        def _notes_for(tag):
+            return dict(notes=f"{tag}-own", attached=[f"{tag}-att1", f"{tag}-att2"],
+                        appended={"Remarks": f"{tag}-app"})
+
+        a = _deep_node(cls.boq, cls.sheet_doc, "Preamble", 1, None, "SECTION A", 1, **_notes_for("A"))
+        b = _deep_node(cls.boq, cls.sheet_doc, "Preamble", 2, a, "SUBSECTION B", 2, **_notes_for("B"))
+        c = _deep_node(cls.boq, cls.sheet_doc, "Preamble", 3, b, "SUB SUB C", 3, **_notes_for("C"))
+        d = _deep_node(cls.boq, cls.sheet_doc, "Preamble", 4, c, "PARENT D", 4, **_notes_for("D"))
+        _deep_node(cls.boq, cls.sheet_doc, "Line Item", 5, d, "3C x 2.5 sqmm cable", 5, qty=1,
+                   **_notes_for("LI"))
+        # A SIBLING under the same parent -- the no-dedup pin needs two rows sharing an ancestor.
+        _deep_node(cls.boq, cls.sheet_doc, "Line Item", 6, d, "4C x 16 sqmm cable", 6, qty=1)
+        frappe.db.commit()
+        _insert_cat(cls.boq, cls.sheet_name, cls.cv, 5, "wiring_cabling")
+        _insert_cat(cls.boq, cls.sheet_name, cls.cv, 6, "wiring_cabling")
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        for dt in (_EVENT, _RUN, _ROW_CATEGORY, "BOQ Nodes", "BoQ Sheet"):
+            frappe.db.delete(dt, {"boq": cls.boq})
+        frappe.db.commit()
+        _cleanup_project(cls.project.name)
+        super().tearDownClass()
+
+    def _self_row(self):
+        from nirmaan_stack.services.boq_category.context_builder import build_sheet_context
+        ctx = build_sheet_context(self.boq, self.sheet_name)
+        return next(r for r in ctx["rows"] if r["excel_row"] == 5)
+
+    # ---- P1: the key set ----
+    def test_p1_payload_item_key_set_is_pinned(self):
+        """The four keys, exactly -- UNCHANGED by EA-7. EA-7 deepened the VALUES of `notes` and
+        `ancestor_chain`; it deliberately did not add or rename a top-level key, which keeps the
+        `ROWS:`/`id` contract and the prompt assets' key names accurate."""
+        item = extraction._ai_item(self._self_row())
+        self.assertEqual(set(item), {"id", "description", "ancestor_chain", "notes"})
+        self.assertEqual(item["id"], 5)
+        self.assertEqual(item["description"], "3C x 2.5 sqmm cable")
+
+    # ---- P2: ancestors are LABELLED objects carrying their own note blocks ----
+    def test_p2_ancestor_chain_entries_are_labelled_objects(self):
+        """EA-7. Was: a flat list of description strings, every ancestor's note text discarded.
+        Now: one labelled object per ancestor, root-first, each carrying relation + distance +
+        tier + node_type + description + its own kind-keyed note block. The sheet stays the
+        outermost entry and is a LABEL, not a node -- no distance, no tier, no notes."""
+        item = extraction._ai_item(self._self_row())
+        chain = item["ancestor_chain"]
+        self.assertEqual(chain[0], {"relation": "sheet", "description": "Deep Sheet "})
+        self.assertTrue(all(isinstance(x, dict) for x in chain))
+        self.assertEqual([e.get("relation") for e in chain],
+                         ["sheet", "ancestor", "great_grandparent", "grandparent", "parent"])
+        self.assertEqual([e.get("distance") for e in chain], [None, 4, 3, 2, 1])
+        self.assertEqual([e.get("tier") for e in chain],
+                         [None, "lean", "lean", "full", "full"])
+        self.assertEqual([e.get("description") for e in chain],
+                         ["Deep Sheet ", "SECTION A", "SUBSECTION B", "SUB SUB C", "PARENT D"])
+        # the immediate parent, in full
+        self.assertEqual(chain[4]["notes"], {
+            "appended": {"Remarks": "D-app"},
+            "own": ["D-own"],
+            "attached": ["D-att1", "D-att2"],
+        })
+
+    # ---- P3: self's note kinds are SEPARATED and LABELLED ----
+    def test_p3_self_notes_is_a_kind_keyed_map(self):
+        """EA-7. Was: one pipe-joined string collapsing all three kinds, so the model could not
+        tell which fragment was which. Now: a map keyed by note KIND, with `appended` keeping its
+        {column-header: value} shape so the source column is part of the provenance."""
+        item = extraction._ai_item(self._self_row())
+        self.assertIsInstance(item["notes"], dict)
+        self.assertEqual(item["notes"], {
+            "appended": {"Remarks": "LI-app"},
+            "own": ["LI-own"],
+            "attached": ["LI-att1", "LI-att2"],
+        })
+
+    # ---- P4: the SHARED helper's contract (C2 guard) ----
+    def test_p4_notes_text_is_the_shared_pipe_join_in_order(self):
+        """context_builder._notes_text is SHARED with the classifier voter. EA-7 must not change
+        it. Pinned: own notes first, then every attached note, then every appended value, ' | '."""
+        from nirmaan_stack.services.boq_category.context_builder import _notes_text
+        node = {"notes": "own", "attached_notes": ["at1", "at2"],
+                "append_notes_raw": {"Remarks": "ap1"}}
+        self.assertEqual(_notes_text(node), "own | at1 | at2 | ap1")
+        self.assertEqual(_notes_text({}), "")
+
+    # ---- P5: C2 byte-identity, as a GOLDEN the voter's own code did not produce ----
+    def test_p5_classifier_voter_payload_is_byte_identical(self):
+        """C2. The classifier voter is OUT OF SCOPE and its input must not move by one byte. The
+        expected value below is written out by hand from ai_voter._ai_item's documented shape --
+        it is NOT derived by calling the code under test, so it is a real golden, not a tautology."""
+        from nirmaan_stack.services.boq_category import ai_voter
+        expected = {
+            "id": 5,
+            "description": "3C x 2.5 sqmm cable",
+            "ancestor_chain": [
+                "[sheet] Deep Sheet ",
+                "  Preamble: SECTION A  (notes: A-own | A-att1 | A-att2 | A-app)",
+                "    Preamble: SUBSECTION B  (notes: B-own | B-att1 | B-att2 | B-app)",
+                "      Preamble: SUB SUB C  (notes: C-own | C-att1 | C-att2 | C-app)",
+                "        Preamble: PARENT D  (notes: D-own | D-att1 | D-att2 | D-app)",
+            ],
+            "notes": "LI-own | LI-att1 | LI-att2 | LI-app",
+        }
+        self.assertEqual(ai_voter._ai_item(self._self_row()), expected)
+
+    # ---- P6: THE TIER BOUNDARY (positive AND negative in one assertion pair) ----
+    def test_p6_full_tier_reaches_the_grandparent_and_stops(self):
+        """The owner-locked boundary. self / parent / grandparent -> every note kind. The
+        great-grandparent and everything above -> appended ONLY. Both halves are asserted: the
+        grandparent MUST have own+attached, the great-grandparent MUST NOT."""
+        chain = extraction._ai_item(self._self_row())["ancestor_chain"]
+        by_rel = {e["relation"]: e for e in chain if "relation" in e}
+
+        gp = by_rel["grandparent"]           # distance 2 -- the LAST full tier
+        self.assertEqual(gp["tier"], "full")
+        self.assertEqual(gp["notes"], {"appended": {"Remarks": "C-app"},
+                                       "own": ["C-own"], "attached": ["C-att1", "C-att2"]})
+
+        ggp = by_rel["great_grandparent"]    # distance 3 -- the FIRST lean tier
+        self.assertEqual(ggp["tier"], "lean")
+        self.assertEqual(ggp["notes"], {"appended": {"Remarks": "B-app"}})
+        self.assertNotIn("own", ggp["notes"], "a lean ancestor must not carry own notes")
+        self.assertNotIn("attached", ggp["notes"], "a lean ancestor must not carry attached notes")
+
+        far = by_rel["ancestor"]             # distance 4 -- above the named relations
+        self.assertEqual(far["tier"], "lean")
+        self.assertEqual(far["notes"], {"appended": {"Remarks": "A-app"}})
+        self.assertEqual(extraction._FULL_TIER_MAX_DISTANCE, 2,
+                         "the boundary is a named constant, not a magic number")
+
+    # ---- P7: NO DEDUP (owner-locked) ----
+    def test_p7_shared_ancestor_text_is_repeated_per_row_never_deduped(self):
+        """Owner-locked after measurement: 86-94% of ancestor text on real sheets is repetition,
+        and that cost is accepted so each row reads independently inline. Two siblings under the
+        same parent must EACH carry that parent's full text -- no reference, no shared block."""
+        from nirmaan_stack.services.boq_category.context_builder import build_sheet_context
+        ctx = build_sheet_context(self.boq, self.sheet_name)
+        rows = {r["excel_row"]: r for r in ctx["rows"]}
+        a = extraction._ai_item(rows[5])
+        b = extraction._ai_item(rows[6])
+
+        parent_a = next(e for e in a["ancestor_chain"] if e.get("relation") == "parent")
+        parent_b = next(e for e in b["ancestor_chain"] if e.get("relation") == "parent")
+        self.assertEqual(parent_a, parent_b, "both siblings carry the parent block in full")
+        self.assertEqual(parent_b["notes"]["attached"], ["D-att1", "D-att2"])
+        # and nothing in either item points at the other row instead of carrying the text
+        self.assertNotIn("$ref", json.dumps(a))
+        self.assertNotIn("$ref", json.dumps(b))
+
+    # ---- P8: an empty kind is OMITTED, not sent as an empty container ----
+    def test_p8_absent_note_kinds_are_omitted_entirely(self):
+        """Row 6 carries no notes at all -- so it must have NO `notes` key, not an empty map.
+        Absence is then unambiguous and the payload does not pay for silence."""
+        from nirmaan_stack.services.boq_category.context_builder import build_sheet_context
+        ctx = build_sheet_context(self.boq, self.sheet_name)
+        row6 = next(r for r in ctx["rows"] if r["excel_row"] == 6)
+        item = extraction._ai_item(row6)
+        self.assertNotIn("notes", item)
+        self.assertEqual(set(item), {"id", "description", "ancestor_chain"})
+
+    # ---- P9: the shape guidance reaches the prompt ----
+    def test_p9_row_context_shape_guidance_is_in_the_prompt(self):
+        """The labels are only useful if the model is told how to read them. The guidance lives in
+        the wrapper (the SYNONYMS / DEFAULTS / ESTIMATOR_RULES convention) so the .md prompt assets
+        stay untouched -- they are out of scope for EA-7."""
+        defn = {"id": "material", "type": "choice", "values": ["COPPER"]}
+        rows = [{"excel_row": 2, "description": "cable", "ancestors": [], "sheet_name": "S"}]
+        sink = []
+
+        def responder(call, kwargs):
+            sink.append(kwargs["messages"][0]["content"])
+            return _Resp(json.dumps([{"id": 2, "attributes": {}}]))
+
+        extraction._extract_batch(_FakeClient(responder), "m", "P", [defn], rows)
+        self.assertIn("ROW_CONTEXT_SHAPE", sink[0])
+        self.assertIn("distance", sink[0])
+        self.assertIn("NOT SUPPLIED", sink[0], "the lean tier's silence must be explained")
+
+    # ---- P10: the dump, OFF (the default) ----
+    def test_p10_dump_off_writes_nothing_and_changes_no_payload(self):
+        """NEGATIVE POLARITY / the default. Flag OFF must produce NO file and a byte-identical
+        payload. The flag ships FALSE -- this test also pins that default."""
+        import os as _os
+        import tempfile
+
+        self.assertIs(extraction.EA7_PAYLOAD_DUMP_ENABLED, False,
+                      "the dump is TEMPORARY instrumentation and must ship OFF")
+
+        target = _os.path.join(tempfile.mkdtemp(), "ea7_off.jsonl")
+        defn = {"id": "material", "type": "choice", "values": ["COPPER"]}
+        rows = [{"excel_row": 2, "description": "cable", "ancestors": [], "sheet_name": "S",
+                 "committed_version": 1, "category_id": "wiring_cabling"}]
+        sink = []
+
+        def responder(call, kwargs):
+            sink.append(kwargs["messages"][0]["content"])
+            return _Resp(json.dumps([{"id": 2, "attributes": {}}]))
+
+        with mock.patch.object(extraction, "_dump_path", return_value=target):
+            extraction._extract_batch(_FakeClient(responder), "m", "P", [defn], rows,
+                                      dump_ctx={"boq": "BOQ-TEST"})
+        self.assertFalse(_os.path.exists(target), "flag OFF must not create the file")
+
+        # and the payload itself is identical to a call that passes no dump context at all
+        with mock.patch.object(extraction, "_dump_path", return_value=target):
+            extraction._extract_batch(_FakeClient(responder), "m", "P", [defn], rows)
+        self.assertEqual(sink[0], sink[1], "the dump must not touch the payload")
+
+    # ---- P11: the dump, ON ----
+    def test_p11_dump_on_writes_one_joinable_record_per_row(self):
+        """POSITIVE. Flag ON writes one JSON line per row carrying the join key (boq, sheet_name
+        VERBATIM, committed_version, excel_row) + category_id + the EXACT payload item as sent.
+        `boq` is not on the row dict -- it is threaded from run_extraction's scope via dump_ctx."""
+        import os as _os
+        import tempfile
+
+        target = _os.path.join(tempfile.mkdtemp(), "ea7_on.jsonl")
+        defn = {"id": "material", "type": "choice", "values": ["COPPER"]}
+        rows = [{"excel_row": 5, "description": "3C x 2.5 sqmm cable", "ancestors": [],
+                 "sheet_name": "Deep Sheet ", "committed_version": 1,
+                 "category_id": "wiring_cabling", "discipline": "Electrical"}]
+
+        def responder(call, kwargs):
+            return _Resp(json.dumps([{"id": 5, "attributes": {}}]))
+
+        with mock.patch.object(extraction, "EA7_PAYLOAD_DUMP_ENABLED", True), \
+             mock.patch.object(extraction, "_dump_path", return_value=target):
+            extraction._extract_batch(_FakeClient(responder), "m", "P", [defn], rows,
+                                      dump_ctx={"boq": "BOQ-26-99999"})
+
+        with open(target, encoding="utf-8") as fh:
+            lines = [json.loads(x) for x in fh if x.strip()]
+        self.assertEqual(len(lines), 1)
+        rec = lines[0]
+        self.assertEqual(rec["boq"], "BOQ-26-99999")
+        self.assertEqual(rec["sheet_name"], "Deep Sheet ", "sheet_name must stay VERBATIM")
+        self.assertEqual(rec["committed_version"], 1)
+        self.assertEqual(rec["excel_row"], 5)
+        self.assertEqual(rec["category_id"], "wiring_cabling")
+        self.assertEqual(rec["payload_item"], extraction._ai_item(rows[0]),
+                         "the record must carry the EXACT item that was sent")
+
+    # ---- P12: an unresolvable dump path can never break a run ----
+    def test_p12_a_failing_dump_never_fails_the_run(self):
+        """Instrumentation that can break the thing it observes is worse than none. With the flag
+        ON and no writable path, the batch must still complete normally."""
+        defn = {"id": "material", "type": "choice", "values": ["COPPER"]}
+        rows = [{"excel_row": 5, "description": "cable", "ancestors": [], "sheet_name": "S"}]
+
+        def responder(call, kwargs):
+            return _Resp(json.dumps(
+                [{"id": 5, "attributes": {"material": {"value": "COPPER", "confidence": 0.9}}}]))
+
+        with mock.patch.object(extraction, "EA7_PAYLOAD_DUMP_ENABLED", True), \
+             mock.patch.object(extraction, "_dump_path", return_value=None):
+            out = extraction._extract_batch(_FakeClient(responder), "m", "P", [defn], rows,
+                                            dump_ctx={"boq": "B"})
+        self.assertEqual(out[5]["material"]["value"], "COPPER")

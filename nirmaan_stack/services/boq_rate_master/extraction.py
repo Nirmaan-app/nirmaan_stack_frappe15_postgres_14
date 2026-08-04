@@ -160,6 +160,65 @@ def _halt_reason_for(exc):
     return "The AI request was refused, so the run stopped early."
 
 
+# ── EA-7: the TEMPORARY payload dump ────────────────────────────────────────────────
+# TEMPORARY DIAGNOSTIC INSTRUMENTATION, not a feature. No doctype, no UI, no endpoint, no
+# permanent write path. It exists to capture the real payload for ONE diagnostic run and is
+# meant to be DELETED.
+#
+# TO REMOVE (whole slice, no migration, no data to clean): delete this constant, _dump_path,
+# _dump_payload_items, the `dump_ctx` keyword on _extract_batch and its two-line call inside it,
+# the `dump_ctx=` argument in run_extraction's _call, and the dump tests in test_rate_suggest.py.
+# Nothing else references any of them.
+#
+# The module-level-boolean convention is the one already used across the parser
+# (NOTE_PARENT_NEAREST_ROW_ENABLED, BUG_23_LINE_ITEM_LEVEL0_ANCESTOR_ENABLED, ...). Those all
+# default True because they gate a SHIPPED behaviour; this one defaults FALSE because it gates
+# diagnostics. os.environ is deliberately NOT used -- no production service module in this
+# codebase reads it (only the offline harness does).
+EA7_PAYLOAD_DUMP_ENABLED: bool = False
+EA7_PAYLOAD_DUMP_FILENAME = "ea7_payload_dump.jsonl"
+
+
+def _dump_path():
+    """The bench logs directory -- resolved, never hardcoded -- alongside the existing boq_*.log
+    family. Returns None if it cannot be resolved or is not writable, so the dump can never break
+    a run by failing to find somewhere to write."""
+    try:
+        logs = os.path.join(frappe.utils.get_bench_path(), "logs")
+        if os.path.isdir(logs) and os.access(logs, os.W_OK):
+            return os.path.join(logs, EA7_PAYLOAD_DUMP_FILENAME)
+    except Exception:
+        pass
+    return None
+
+
+def _dump_payload_items(payload_items, rows_batch, boq):
+    """Append one JSON line per row: the join key + category + the EXACT payload item as sent.
+
+    Wrapped so a dump failure can never fail a run -- this is instrumentation, and instrumentation
+    that can break the thing it observes is worse than none.
+    """
+    path = _dump_path()
+    if not path:
+        return None
+    try:
+        with open(path, "a", encoding="utf-8") as fh:
+            for item, row in zip(payload_items, rows_batch):
+                fh.write(json.dumps({
+                    # the join key back to the suggestion output (the durable Excel address)
+                    "boq": boq,
+                    "sheet_name": row.get("sheet_name"),   # VERBATIM, trailing space and all
+                    "committed_version": row.get("committed_version"),
+                    "excel_row": row.get("excel_row"),
+                    "category_id": row.get("category_id"),
+                    "discipline": row.get("discipline"),
+                    "payload_item": item,                  # exactly what was sent
+                }, ensure_ascii=False) + "\n")
+        return path
+    except Exception:
+        return None
+
+
 _ROW_CATEGORY = "BoQ Row Category"
 _BOQ_NODES = "BOQ Nodes"
 _BOQ_SHEET = "BoQ Sheet"
@@ -482,15 +541,156 @@ def assemble_population(boq, sheet_name):
 
 
 # ── AI extraction (mirrors ai_voter) ────────────────────────────────────────────────
+# ── EA-7: the tiered, labelled payload ──────────────────────────────────────────────
+# The FULL tier reaches self (distance 0), the immediate parent (1) and the grandparent (2).
+# The great-grandparent (3) and everything above it is LEAN. Owner-locked 2026-08-04; this
+# SUPERSEDES the earlier banked note that put the boundary after the immediate parent.
+_FULL_TIER_MAX_DISTANCE = 2
+
+# distance -> the human-legible relation label. Beyond the named ones the numeric `distance`
+# carries the provenance, so nothing is lost by falling back to a generic label.
+_RELATION_BY_DISTANCE = {0: "self", 1: "parent", 2: "grandparent", 3: "great_grandparent"}
+
+
+def _as_list(raw):
+    """A raw JSON note field -> a flat list of non-empty strings. Mirrors the shapes
+    context_builder._notes_text tolerates (list | dict | str | already-parsed), but keeps the
+    values SEPARATE instead of joining them."""
+    if not raw:
+        return []
+    v = raw
+    if isinstance(v, str):
+        try:
+            v = json.loads(v)
+        except Exception:
+            s = v.strip()
+            return [s] if s else []
+    if isinstance(v, list):
+        return [str(x).strip() for x in v if str(x).strip()]
+    if isinstance(v, dict):
+        out = []
+        for val in v.values():
+            if isinstance(val, list):
+                out += [str(x).strip() for x in val if str(x).strip()]
+            elif str(val).strip():
+                out.append(str(val).strip())
+        return out
+    s = str(v).strip()
+    return [s] if s else []
+
+
+def _as_labelled_map(raw):
+    """append_notes_raw is {column-header: value}. Keeping it as a MAP preserves which COLUMN each
+    appended note came from -- free extra provenance, and exactly the machine-legible labelling
+    EA-7 is for. Non-dict shapes degrade to a list under a generic key."""
+    if not raw:
+        return {}
+    v = raw
+    if isinstance(v, str):
+        try:
+            v = json.loads(v)
+        except Exception:
+            s = v.strip()
+            return {"note": s} if s else {}
+    if isinstance(v, dict):
+        return {str(k): str(x).strip() for k, x in v.items() if str(x).strip()}
+    vals = _as_list(v)
+    return {"note": " | ".join(vals)} if vals else {}
+
+
+def _note_block(own_raw, attached_raw, appended_raw, tier):
+    """The labelled note block for one node, honouring the tier.
+
+    FULL -> own + appended + attached. LEAN -> appended ONLY.
+
+    The flat `notes` field rides the FULL tier with `attached`: it is node-borne body text of the
+    same class, not a per-column append, and the owner's lean-tier wording is "description +
+    appended notes ONLY" -- which excludes everything it does not name. Measured inert on the whole
+    cert corpus (0 of 1,714 nodes across the five sheets carry a flat note; 337 of 35,734 DB-wide),
+    so the reading is cheap to revisit if the owner rules otherwise.
+
+    An EMPTY kind is OMITTED rather than sent as an empty container: absence is then unambiguous
+    and the payload does not pay for silence.
+    """
+    block = {}
+    appended = _as_labelled_map(appended_raw)
+    if appended:
+        block["appended"] = appended
+    if tier == "full":
+        own = _as_list(own_raw)
+        if own:
+            block["own"] = own
+        attached = _as_list(attached_raw)
+        if attached:
+            block["attached"] = attached
+    return block
+
+
 def _ai_item(row):
-    """One extraction payload item: {id, description, ancestor_chain, notes}. ancestor_chain =
-    the section headers above the row, outermost first (anc_headers)."""
-    return {
+    """One extraction payload item: {id, description, notes, ancestor_chain} -- the SAME four keys
+    as before, with LABELLED values.
+
+    `notes` is no longer one pipe-joined string. It is a map keyed by NOTE KIND (own / attached /
+    appended), so the model -- and a later weighting slice -- can tell which text is the row's own
+    body, which was attached to it, and which column an appended note came from. `appended` stays a
+    {column-header: value} map so the column itself is part of the provenance.
+
+    `ancestor_chain` is no longer a flat list of description strings. Each entry is a labelled
+    object carrying `relation` + `distance` + `tier` alongside its description and its own note
+    block, so every text fragment in the payload says WHOSE it is and WHAT KIND it is. Root-first,
+    unchanged. The sheet name stays the outermost entry (it is a label, not a node: no distance,
+    no tier, no notes).
+
+    PER-ROW, NEVER DEDUPED (owner-locked after measurement): a shared ancestor's text is repeated
+    in full on every row beneath it. 86-94% of ancestor text on real sheets is repetition and that
+    cost is accepted in exchange for each row being independently readable inline.
+    """
+    anc = row.get("ancestors") or []
+    n = len(anc)
+    chain = [{"relation": "sheet", "description": str(row.get("sheet_name") or "")}]
+    for i, a in enumerate(anc):  # root-first
+        distance = n - i  # 1 == the immediate parent
+        tier = "full" if distance <= _FULL_TIER_MAX_DISTANCE else "lean"
+        entry = {
+            "relation": _RELATION_BY_DISTANCE.get(distance, "ancestor"),
+            "distance": distance,
+            "tier": tier,
+            "node_type": a.get("node_type") or "",
+            "description": a.get("description") or "",
+        }
+        block = _note_block(a.get("own_notes_raw"), a.get("attached_notes"),
+                            a.get("append_notes_raw"), tier)
+        if block:
+            entry["notes"] = block
+        chain.append(entry)
+
+    item = {
         "id": row["excel_row"],
         "description": row.get("description") or "",
-        "ancestor_chain": row.get("anc_headers") or [],
-        "notes": row.get("notes") or "",
+        "ancestor_chain": chain,
     }
+    self_block = _note_block(row.get("own_notes_raw"), row.get("attached_notes"),
+                             row.get("append_notes_raw"), "full")
+    if self_block:
+        item["notes"] = self_block
+    return item
+
+
+# The one paragraph that tells the model how to read the labels. It lives HERE, in the wrapper,
+# following the established convention in _extract_batch (SYNONYMS / DEFAULTS / ESTIMATOR_RULES /
+# SLOT_SPEC are all appended the same way) -- the .md prompt ASSETS stay untouched.
+_ROW_CONTEXT_SHAPE_GUIDANCE = (
+    "\n\nROW_CONTEXT_SHAPE: each row in ROWS carries labelled provenance. `description` is the "
+    "row's own text. `notes` (when present) is keyed by note KIND: `own` = the row's own note "
+    "body, `attached` = notes attached to that row, `appended` = a {column-header: value} map of "
+    "per-column appended notes. `ancestor_chain` runs OUTERMOST FIRST and each entry carries "
+    "`relation` (sheet / great_grandparent / grandparent / parent), `distance` (1 = the immediate "
+    "parent), `tier`, `description` and its own `notes` block in the same kind-keyed shape. "
+    "Entries with tier `full` (distance 1-2) carry every note kind; entries with tier `lean` "
+    "(distance 3 and above) deliberately carry appended notes only, so absent `own`/`attached` "
+    "there means NOT SUPPLIED, not absent in the source. A nearer ancestor's text describes this "
+    "row more specifically than a farther one's.\n"
+)
 
 
 def _coerce_value(defn, raw, synonyms_for_attr=None):
@@ -524,7 +724,7 @@ def _coerce_value(defn, raw, synonyms_for_attr=None):
     return sval
 
 
-def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=None, defaults=None, none_guidance=None, slot_spec=None, resolution_rules=None, rules=None):
+def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=None, defaults=None, none_guidance=None, slot_spec=None, resolution_rules=None, rules=None, *, dump_ctx=None):
     """One extraction batch call with retry/backoff. Returns {excel_row: {attr_id: {value,
     confidence[, defaulted]}}} for the batch's OWN rows only. Ports ai_voter._ai_batch mechanics
     (<=20 rows, 3 attempts, sleep 2*attempt).
@@ -540,10 +740,17 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
     of that override value. That per-attribute `defaulted` flag is carried into the result (coercion
     keeps the value; this wrapper keeps the flag). Absent synonyms AND defaults -> byte-identical."""
     payload_items = [_ai_item(r) for r in rows_batch]
+    # EA-7 TEMPORARY DUMP. Default OFF -> this is one falsy check per batch and nothing else:
+    # no path resolution, no open(), no write, and the payload is untouched either way.
+    if EA7_PAYLOAD_DUMP_ENABLED and dump_ctx:
+        _dump_payload_items(payload_items, rows_batch, dump_ctx.get("boq"))
     content = (
         prompt_text
         + "\n\nATTRIBUTE_DEFINITIONS:\n"
         + json.dumps(attr_defs, ensure_ascii=False)
+        # EA-7: how to read the labelled row context. Unconditional -- the shape always carries
+        # labels now, so the explanation must always be present.
+        + _ROW_CONTEXT_SHAPE_GUIDANCE
     )
     # EA-4d: the composite-decomposition mode passes a SLOT_SPEC (shell / repeatable / fixed, each with
     # its catalog) + RESOLUTION_RULES (curve/amp/partial). Absent (item_identity / attribute modes) ->
@@ -902,7 +1109,9 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None, checkpoint_cb
                 batch = grp_rows[b : b + _BATCH]
 
                 def _call(rows_, _gc=gc):
-                    return _extract_batch(client, model, _gc["prompt"], _gc["defs"], rows_, _gc["synonyms"], _gc["defaults"], _gc["none_guidance"], _gc["slot_spec"], _gc["resolution_rules"], _gc["rules"])
+                    # EA-7: `boq` is NOT on the row dict -- it lives only in this enclosing scope,
+                    # so the dump's join key is threaded in from here.
+                    return _extract_batch(client, model, _gc["prompt"], _gc["defs"], rows_, _gc["synonyms"], _gc["defaults"], _gc["none_guidance"], _gc["slot_spec"], _gc["resolution_rules"], _gc["rules"], dump_ctx={"boq": boq})
 
                 # SR-2 (3): ONE iteration when the batch fits (byte-identical to the pre-SR-2 single
                 # call); one per surviving half after a ceiling cut. Everything below is unchanged

@@ -106,7 +106,8 @@ def build_sheet_context(boq, sheet_name):
 
     Each row dict:
         excel_row (= source_row_number), node_type, description, sheet_name, committed_version,
-        notes (own, combined), attached_notes (own, raw), append_notes_raw (own, raw),
+        notes (own, combined), own_notes_raw (own, the FLAT notes field alone -- EA-7, additive),
+        attached_notes (own, raw), append_notes_raw (own, raw),
         anc_texts (rules feed: [sheet] + desc+notes per ancestor, root-first),
         anc_headers (rules feed: [sheet] + desc-only per ancestor, root-first),
         ancestors (structured, root-first: [{node_type, description, notes, attached_notes,
@@ -184,11 +185,19 @@ def build_sheet_context(boq, sheet_name):
         anc_headers = [str(sheet_name)] + [str(a.get("description") or "") for a in anc]
 
         # Structured per-ancestor material -- the AI voter rebuilds the indented chain from this.
+        #
+        # EA-7 (ADDITIVE ONLY): `own_notes_raw` is the ancestor's FLAT `notes` field on its own,
+        # i.e. the first component _notes_text folds into its ' | ' join. The rate-extraction
+        # payload needs the three note kinds SEPARATELY so it can label them and apply the tier
+        # rule; it cannot recover them from the joined string. Adding a key here changes nothing
+        # for any existing consumer -- `notes` still carries the identical joined value, and the
+        # classifier voter (ai_voter._ai_item) reads only node_type / description / notes.
         ancestors_struct = [
             {
                 "node_type": a.get("node_type"),
                 "description": a.get("description") or "",
                 "notes": _notes_text(a),
+                "own_notes_raw": a.get("notes"),
                 "attached_notes": a.get("attached_notes"),
                 "append_notes_raw": a.get("append_notes_raw"),
             }
@@ -203,6 +212,10 @@ def build_sheet_context(boq, sheet_name):
                 "sheet_name": sheet_name,  # VERBATIM (#152)
                 "committed_version": committed_version,
                 "notes": own_notes,
+                # EA-7 (ADDITIVE ONLY): the row's FLAT `notes` field on its own. `notes` above is
+                # the joined string _notes_text builds and is UNCHANGED; this is the un-folded
+                # first component, so extraction can label the three kinds separately.
+                "own_notes_raw": n.get("notes"),
                 "attached_notes": n.get("attached_notes"),
                 "append_notes_raw": n.get("append_notes_raw"),
                 "anc_texts": anc_texts,
