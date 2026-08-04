@@ -48,6 +48,8 @@ interface StagedRow {
      * on the staged row so the warning survives from pick to commit.
      */
     linkedGroupName?: string;
+    /** That group's ID — names alone are not unique enough to identify a group. */
+    linkedGroupId?: string;
 }
 
 export interface MultiAddMembersDialogProps {
@@ -60,6 +62,11 @@ export interface MultiAddMembersDialogProps {
     /** Parent persists the staged ids; the dialog just returns them. */
     onCommit: (newItemIds: string[]) => Promise<void> | void;
 }
+
+/** "Y Strainer (TDS-ITEM-00351)" — kept identical to AddTDSItemWizard's groupRef;
+ *  these two pickers must read the same or one of them starts lying. */
+const groupRef = (name?: string, id?: string) =>
+    name ? (id ? `${name} (${id})` : name) : id || "";
 
 export const MultiAddMembersDialog: React.FC<MultiAddMembersDialogProps> = ({
     open,
@@ -120,6 +127,7 @@ export const MultiAddMembersDialog: React.FC<MultiAddMembersDialogProps> = ({
                 categoryName: item.categoryName,
                 showCategory: (nameCounts.get(item.label) || 0) > 1,
                 linkedGroupName: linkageByItem[item.value]?.group_name || "",
+                linkedGroupId: linkageByItem[item.value]?.linked_tds_item || "",
             }));
     }, [itemOptionsForWP, existingItems, staged, linkageByItem]);
 
@@ -136,6 +144,7 @@ export const MultiAddMembersDialog: React.FC<MultiAddMembersDialogProps> = ({
                 category: opt.category,
                 categoryName: opt.categoryName,
                 linkedGroupName: opt.linkedGroupName || "",
+                linkedGroupId: opt.linkedGroupId || "",
             },
         ]);
     };
@@ -200,7 +209,7 @@ export const MultiAddMembersDialog: React.FC<MultiAddMembersDialogProps> = ({
                                     {/* ADR-0004: N:1 membership — adding this MOVES it. */}
                                     {option.linkedGroupName && (
                                         <span className="text-amber-600 ml-1 text-xs">
-                                            · linked to {option.linkedGroupName}
+                                            · linked to {groupRef(option.linkedGroupName, option.linkedGroupId)}
                                         </span>
                                     )}
                                 </span>
@@ -236,7 +245,7 @@ export const MultiAddMembersDialog: React.FC<MultiAddMembersDialogProps> = ({
                                             commit — this is the last screen before it. */}
                                         {s.linkedGroupName && (
                                             <span className="text-xs text-amber-600 truncate">
-                                                will move out of {s.linkedGroupName}
+                                                will move out of {groupRef(s.linkedGroupName, s.linkedGroupId)}
                                             </span>
                                         )}
                                     </div>
