@@ -16817,3 +16817,257 @@ the data.
 `services/test_boq_ai_assist` 25 -> **32** · `services/test_boq_gemini_assist` 8 -> **15** ·
 `test_ai_assist` **50** · `test_gemini_assist` **36** · `test_review_screen` **273** ·
 `test_commit_pipeline` **64**. All green. The EA-6b wire-payload pin stayed green throughout (P8).
+
+---
+
+## Build slice EA-7 -- the tiered, labelled extraction payload + a temporary payload dump
+
+**Date:** 2026-08-04 · **Branch:** `feature/boq-pricing-helper` · feat `dcf73649` · Backend only, NO
+migrate, NO UI surface. **Slice name is EA-7** -- `EA-6b` was already taken by the Gemini chunker fix
+and `EA-6c` by the wording slice (owner ruling).
+
+### The gap this closes
+
+The EA6b recon (2026-08-04) established, and this slice re-verified in code, that the rate-extraction
+payload discarded almost everything the context builder had already computed:
+
+* `extraction._ai_item` sent four keys -- `id`, `description`, `ancestor_chain`, `notes`.
+* `ancestor_chain` was `anc_headers`: the sheet name plus each ancestor's **description only**. Every
+  ancestor's note text (`anc_texts`, the `ancestors` struct, `anc_attached_notes`,
+  `anc_append_notes_raw`) was computed by `context_builder` and then **thrown away**.
+* `notes` was `_notes_text`'s `' | '`-joined string, collapsing the row's own notes + attached notes +
+  appended notes into ONE unlabelled blob -- the model could not tell which fragment was which.
+
+So the gap was on the ancestor side (content) plus a labelling gap on self (provenance).
+
+### THE TIER -- owner-locked 2026-08-04
+
+| distance | relation | tier | carries |
+|---|---|---|---|
+| 0 | self | **full** | description + own + appended + attached |
+| 1 | parent | **full** | description + own + appended + attached |
+| 2 | **grandparent** | **full** | description + own + appended + attached |
+| 3 | great_grandparent | **lean** | description + **appended ONLY** |
+| 4+ | ancestor | **lean** | description + **appended ONLY** |
+
+**This SUPERSEDES the banked EA-6 note**, which put the boundary one level higher (full = self +
+immediate parent). Root `CLAUDE.md` was corrected in the docs commit. The boundary is the named
+constant `extraction._FULL_TIER_MAX_DISTANCE = 2`, pinned by test -- never a magic number.
+
+**One interpretation, stated explicitly.** The owner's wording names three things (description,
+appended, attached) but `BOQ Nodes` has **four** text fields -- the flat `notes` field is distinct from
+both JSON fields (the doctype descriptions say so in as many words). EA-7 rides the flat `notes` on the
+**FULL** tier alongside `attached` (it is node-borne body text, not a per-column append) and excludes it
+from the lean tier, whose ruling is "description + appended notes ONLY" -- and "ONLY" excludes what it
+does not name. **Measured inert on the entire cert corpus:** 0 of 1,714 committed nodes across the five
+sheets carry a flat note (337 of 35,734 DB-wide, 0.9%), so the reading is cheap to revisit.
+
+### NO DEDUP -- owner-locked after measurement
+
+Shared ancestor text is repeated **in full, per row**. The recon measured **86-94% of ancestor text on
+every production-scale sheet as repetition** (63-84% of the entire payload), and the owner accepted that
+cost in exchange for each row being independently readable inline. **Do NOT implement dedup,
+reference-passing, or a shared-ancestor block.** Pinned by `test_p7_...`, which also asserts no `$ref`
+appears in either sibling's item.
+
+### The labelling scheme
+
+The four top-level keys are **unchanged** -- deliberately. Deepening the VALUES rather than adding keys
+keeps the `ROWS:`/`id` contract intact and keeps the `.md` prompt assets' key names accurate, which
+matters because those assets are out of scope for this slice.
+
+* `notes` -> a map keyed by note **KIND**: `own` (list), `attached` (list), `appended` (**map**).
+* `appended` stays `{column-header: value}` -- the column name is free extra provenance, and it is
+  exactly the machine-legible labelling this slice exists to provide.
+* `ancestor_chain` -> a list of **objects**, root-first, each with `relation` + `distance` + `tier` +
+  `node_type` + `description` + its own kind-keyed `notes` block.
+* The sheet name stays the outermost entry but is a **LABEL, not a node**: `{relation, description}`
+  only -- no distance, no tier, no notes.
+* **An empty kind is OMITTED**, never sent as an empty container, so absence is unambiguous and the
+  payload does not pay for silence. A row with no notes at all has no `notes` key (`test_p8_...`).
+
+**Why structured over embedded markers.** The stated purpose is that a later slice will *weight*
+extraction by where text came from. A weighting pass over `entry["distance"]` and
+`entry["notes"]["attached"]` is a dictionary lookup; the same pass over a string carrying `[parent:
+attached]` prefixes is a parser -- one that has to survive note text that itself contains brackets, and
+that silently mis-weights instead of failing when it does not. The structured form also makes the tier
+machine-checkable (`tier` is emitted, not inferred), which is what let the tier boundary be pinned from
+both sides. The cost is real and measured: labels and JSON scaffolding are **21.7-37.6%** of the new
+payload. That is the price of provenance, paid once, and it is why the M1 deltas below are positive.
+
+Verbatim example -- **`BOQ-26-00019 / '12 Internal Works '`, excel_row 422** (M4 exhibit; a real row
+whose great-grandparent carries three attached notes in the source and correctly emits none):
+
+```json
+{
+  "id": 422,
+  "description": "300 X 40mm size",
+  "ancestor_chain": [
+    { "relation": "sheet", "description": "12 Internal Works " },
+    { "relation": "great_grandparent", "distance": 3, "tier": "lean",
+      "node_type": "Preamble", "description": "RACEWAYS" },
+    { "relation": "grandparent", "distance": 2, "tier": "full",
+      "node_type": "Preamble", "description": "RACEWAY IN CEILING",
+      "notes": { "attached": [
+        "Supply & Installation of following size Tubular Pre galvanised raceway with cover, made out of 16 SWG GI for body and 14 SWG GI for cover for all Floor raceways. ...",
+        "Race ways to be covered with Chicken mesh before concreting. ...",
+        "The channels shall be earthed at the boxes and at the joints with 14 SWG bare copper wire ..." ] } },
+    { "relation": "parent", "distance": 1, "tier": "full",
+      "node_type": "Preamble", "description": "FOR NETWORKING" }
+  ]
+}
+```
+
+The model is told how to read this by `_ROW_CONTEXT_SHAPE_GUIDANCE`, appended in `_extract_batch`
+alongside SYNONYMS / DEFAULTS / ESTIMATOR_RULES -- **the `.md` prompt ASSETS stay untouched**, which is
+the established convention in that wrapper. It explicitly warns that a lean entry's missing
+`own`/`attached` means **NOT SUPPLIED**, not absent in the source (`test_p9_...`).
+
+### C2 -- the classifier's input is byte-identical, PROVEN
+
+`context_builder._notes_text` is shared with `ai_voter`. EA-7 did not touch it. The two additive keys
+(`own_notes_raw` on the row and on each `ancestors` entry) are the whole `context_builder` diff --
+15 lines, all additive. Two independent proofs:
+
+1. **A hand-written golden** (`test_p5_classifier_voter_payload_is_byte_identical`): the expected value
+   is written out by hand from `ai_voter._ai_item`'s documented shape, NOT produced by calling the code
+   under test, so it is a real golden rather than a tautology. Green before AND after.
+2. **A measured before/after hash** over the live corpus -- every context row of all five cert sheets,
+   `sha256` of the voter's assembled payload:
+
+| sheet | rows | voter payload sha256 (before == after) |
+|---|---|---|
+| `BOQ-26-00019 / '12 Internal Works '` | 166 | `42274b35f08b6c3f…4fec` |
+| `BOQ-26-00106 / 'ELECTRICAL BOQ'` | 493 | `c2edd4eed5ebdb2d…69b9` |
+| `BOQ-26-00113 / 'Elect - BOQ'` | 307 | `49089ca6d4954672…ff73` |
+| `BOQ-26-00114 / 'Electrical '` | 156 | `7040f00810dfdbb6…a936f` |
+| `BOQ-26-00131 / 'ESTIMATE '` | 121 | `2bd514253883b3a8…0ef4` |
+| **grand, 1,243 rows** | **1,243** | **`12fb34a368cf2b8f7944103d01ee420eeb1048cac4b3071bdce1c6bffb441641`** |
+
+Identical in both directions. `test_row_category` 29, `test_classify` 77 and
+`test_hv2_voter_harness` 29 all unchanged green.
+
+### THE PINS -- written first, proven green first, then updated (C1)
+
+The payload builder was pinned by **NOTHING** before this slice: `_ai_item` had zero test references,
+and the only incidental coverage was a byte-equality test whose two calls both went through it (so any
+change moved both sides equally) plus a `ROWS:` split that needs only an `id` key.
+
+| phase | suite | result |
+|---|---|---|
+| baseline, before any edit | `test_rate_suggest` | **34** OK (bench-verified in session) |
+| **pins P1-P5 vs UNCHANGED code** | `test_rate_suggest` | **39** OK -- **before-green** |
+| pins updated + EA-7 behaviour pins | `test_rate_suggest` | **46** OK -- **after-green** |
+
+`TestEA7PayloadShape` fixture is a 5-deep chain (A -> B -> C -> D -> LI) where **every** node carries
+all three note kinds, so a tier that wrongly includes or drops one is visible rather than vacuous, plus
+a note-free sibling for the no-dedup and omit-empty pins.
+
+| pin | pins what | polarity |
+|---|---|---|
+| P1 | the four-key set (unchanged by EA-7) | positive |
+| P2 | ancestor entries are labelled objects; relation/distance/tier sequences | positive |
+| P3 | self `notes` is a kind-keyed map, `appended` keeps its column map | positive |
+| P4 | `_notes_text` order + `' \| '` join -- the C2 guard | positive |
+| P5 | the classifier voter's payload, hand-written golden -- the C2 guard | positive |
+| P6 | tier boundary, **both halves**: grandparent MUST carry every kind, great-grandparent MUST NOT | positive + negative |
+| P7 | no dedup -- two siblings each carry the parent block in full, no `$ref` | positive |
+| P8 | a note-free row has **no** `notes` key, not an empty map | negative |
+| P9 | `ROW_CONTEXT_SHAPE` guidance reaches the prompt, incl. the NOT SUPPLIED warning | positive |
+| P10 | dump flag OFF -> no file AND a byte-identical payload; the shipped default is `False` | negative |
+| P11 | dump flag ON -> one joinable record per row carrying the EXACT item sent | positive |
+| P12 | an unresolvable dump path never fails the run | negative |
+
+P4 and P5 were left **textually unchanged** across the edit -- that is what makes their staying green a
+statement about the production code rather than about the test.
+
+### MEASURED CERT (no UI surface -- rationale + precedent)
+
+EA-7 changes a server-side payload builder with no rendered surface; there is nothing a browser could
+observe. Precedent: the EA-6b Gemini cut-rule slice. **Zero AI calls** -- the cert scripts either call
+`_ai_item` directly or drive `run_extraction` with a local stub client, so no `anthropic` client is ever
+constructed and no request leaves the process (M6).
+
+**M1 -- actual vs the recon's SIMULATION** (the simulation carried labelling overhead of ZERO):
+
+| sheet | rows | median | max | **actual total** | simulated | delta | delta % | label scaffolding |
+|---|---|---|---|---|---|---|---|---|
+| `BOQ-26-00019 / '12 Internal Works '` | 96 | 719 | 1,886 | **78,308** | 58,000 | +20,308 | +35.0% | 30.6% |
+| `BOQ-26-00106 / 'ELECTRICAL BOQ'` | 144 | 906 | 1,534 | **128,521** | 94,978 | +33,543 | +35.3% | 29.0% |
+| `BOQ-26-00113 / 'Elect - BOQ'` | 175 | 1,505 | 3,614 | **255,202** | 210,045 | +45,157 | +21.5% | 21.7% |
+| `BOQ-26-00114 / 'Electrical '` | 125 | 1,108 | 2,241 | **145,374** | 119,017 | +26,357 | +22.1% | 21.8% |
+| `BOQ-26-00131 / 'ESTIMATE '` | 9 | 508 | 547 | **4,321** | 3,114 | +1,207 | +38.8% | 37.6% |
+
+**The delta is the cost of labels, and it is accounted for, not hand-waved.** The last column is the
+payload re-serialised with every description and note VALUE blanked -- i.e. keys, `relation`/`distance`/
+`tier`/`node_type` labels and JSON punctuation alone. It tracks the delta per sheet, in the same order
+and the same direction: the two sheets with the **lowest** delta (`00113` +21.5%, `00114` +22.1%) are
+the two with the **lowest** scaffolding share (21.7%, 21.8%) because their long note blobs amortise the
+labels, and the highest delta (`00131` +38.8%) is the highest scaffolding share (37.6%) because its
+rows are short. No divergence is unexplained.
+
+**M2 -- the NULL CONTROL. PASS.** `BOQ-26-00106`'s ancestors carry no notes at all. Under the new shape:
+**0 of 305 ancestor entries** carry a `notes` block and **0 of 144** self rows do. Its +35.3% is pure
+scaffolding -- it gained structure, not text, which is exactly right.
+
+**M3 -- no corpus row has self notes AND a note-bearing grandparent.** Stated rather than glossed. The
+full distribution over all 549 population rows:
+
+| self notes | note-bearing ancestors | rows |
+|---|---|---|
+| yes | 1 | 15 |
+| yes | 0 | 5 |
+| no | 2 | 83 |
+| no | 1 | 190 |
+| no | 0 | 256 |
+
+The closest available is `BOQ-26-00019` **excel_row 16** ("6way TPN DB"): self `attached` = 4 DB-schedule
+lines, parent `MCB Distribution Boards` carrying a 400-word attached specification -- exactly the
+"specification text that never reached the row it describes" this arc exists to fix. Shown verbatim in
+the build report.
+
+**M4 -- tier boundary, proven on LIVE data, not just the unit pin.** `BOQ-26-00019` excel_row 422: its
+great-grandparent `RACEWAYS` carries **3 attached notes in the source** and emits **no notes block at
+all**, while its grandparent `RACEWAY IN CEILING` (distance 2, full) carries its 3 attached notes in
+full. Suppression demonstrated, not asserted.
+
+**M5 -- the dump.** Path `/workspace/development/frappe-bench/logs/ea7_payload_dump.jsonl`, resolved via
+`frappe.utils.get_bench_path()` (never hardcoded) alongside the existing `boq_*.log` family; verified
+present and writable. Flag OFF -> **file does not exist**. Flag ON, one sheet
+(`BOQ-26-00019 / '12 Internal Works '`) -> **96 records for 96 population rows, 96 distinct excel_rows,
+95,665 bytes**. Each record: `boq` + `sheet_name` (VERBATIM, trailing space preserved) +
+`committed_version` + `excel_row` + `category_id` + `discipline` + the exact `payload_item`.
+
+### The dump is TEMPORARY -- how to remove it
+
+Diagnostic instrumentation for one run, **not a feature**: no doctype, no UI, no endpoint, no permanent
+write path. Gated by the module-level `EA7_PAYLOAD_DUMP_ENABLED: bool = False` -- the parser's
+module-level-boolean convention (`NOTE_PARENT_NEAREST_ROW_ENABLED` et al.), except that those gate
+shipped behaviour and default `True` while this gates diagnostics and defaults **`False`**.
+`os.environ` was deliberately not used: no production service module in this codebase reads it.
+
+**TO REMOVE (no migration, no data to clean):** delete `EA7_PAYLOAD_DUMP_ENABLED`,
+`EA7_PAYLOAD_DUMP_FILENAME`, `_dump_path`, `_dump_payload_items`, the `dump_ctx` keyword-only parameter
+on `_extract_batch` and its two-line call inside it, the `dump_ctx={"boq": boq}` argument in
+`run_extraction`'s `_call`, and pins P10-P12 in `test_rate_suggest.py`. Nothing else references any of
+them. `boq` is threaded through `dump_ctx` because it is **not on the row dict** -- it exists only in
+`run_extraction`'s scope.
+
+### Tests
+
+`test_rate_suggest` **34 -> 46** (all baselines bench-verified in session, never quoted from a doc).
+Regression, unchanged green: `test_row_category` **29** · `test_classify` **77** ·
+`services/test_boq_category/tests/test_hv2_voter_harness` **29**.
+
+### Notes for the next slice
+
+* **The `.md` prompt assets still describe the OLD shape** (`boq_rate_attr_extraction_prompt.md` line 5
+  and its two siblings say "ancestor_chain (section headers above the row, outermost first)"). They were
+  out of scope here and the wrapper guidance now carries the authoritative description, so the model is
+  correctly informed -- but the assets and the wrapper now disagree in emphasis and should be
+  reconciled in a slice that owns them.
+* **`_ai_item` is still triplicated** -- `extraction.py`, `ai_voter.py` and the offline harness each
+  build their own. They have now diverged further by design (extraction is labelled+tiered; the voter is
+  the certified indented-string feed). Noted, not fixed: the voter's shape is a CERTIFIED surface.
+* The dump file from the M5 cert was left in place for the owner's live run; deleting it is safe and
+  the flag ships OFF, so it cannot regrow.

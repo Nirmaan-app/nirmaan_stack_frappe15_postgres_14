@@ -617,15 +617,38 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   un-validatable config imports cleanly and only fails later, at the editor** — a whole-config RM-4b
   save. This asymmetry has now bitten TWICE in one slice (an unregistered top-level key, and step
   shapes). **Closing it is BANKED as its own future slice — do not attempt it inside a feature slice.**
-- **⚠️ EXTRACTION CARRIES NO ANCESTOR NOTES (banked as EA-6).** Own-notes are empty on ~100% of real
-  Line Items (the parser attaches notes UPWARD to preambles, never to a line item), so ancestor notes
-  are the ONLY channel by which specification text could reach the rate-extraction engine — and
-  `_ai_item` sends bare `anc_headers`, discarding the richer `anc_texts` the context builder has already
-  computed. **18,723 of 19,537 Line Items (95.8%) reach extraction with empty notes.** The CLASSIFIER
-  does render ancestor notes, so this is a PAYLOAD gap, not a parsing gap. Owner target shape for the
-  fix (EXTRACTION ONLY — the classifier is NOT in scope): the row and its **immediate parent** carry
-  description + attached + appended notes; **grandparent and above** carry description + appended notes
-  ONLY, so sibling spec text is not flattened in.
+- **The extraction payload is TIERED, LABELLED and NEVER DEDUPED (EA-7, owner-locked; SUPERSEDES the
+  banked EA-6 note, whose boundary sat one level higher).** The rate-extraction payload
+  (`extraction._ai_item`) keeps its four top-level keys (`id` / `description` / `notes` /
+  `ancestor_chain`) but their VALUES are labelled: `notes` is a map keyed by note KIND (`own` /
+  `attached` / `appended`, the last a `{column-header: value}` map so the source COLUMN is part of the
+  provenance), and each `ancestor_chain` entry is an object carrying `relation` + `distance` + `tier` +
+  `node_type` + `description` + its own kind-keyed note block, root-first, with the sheet name as an
+  outermost LABEL entry (no distance/tier/notes — it is not a node). **An empty kind is OMITTED, never
+  sent as an empty container**, so absence is unambiguous. **THE TIER (owner-locked 2026-08-04): self
+  (distance 0), immediate parent (1) and GRANDPARENT (2) carry every note kind; great-grandparent (3)
+  and every ancestor above carries description + APPENDED ONLY.** The boundary is the named constant
+  `extraction._FULL_TIER_MAX_DISTANCE`, never a magic number. The flat `notes` field rides the FULL tier
+  with `attached` (it is node-borne body text, and the lean-tier ruling names only description +
+  appended). **PER-ROW, NEVER DEDUPED** — a shared ancestor's text is repeated in full on every row
+  beneath it; the repetition was MEASURED and the cost accepted in exchange for each row being
+  independently readable inline, so do NOT add dedup, reference-passing or a shared-ancestor block. The
+  model is told how to read the labels by `_ROW_CONTEXT_SHAPE_GUIDANCE`, appended in `_extract_batch`
+  following the existing SYNONYMS / DEFAULTS / ESTIMATOR_RULES convention — **the `.md` prompt ASSETS
+  stay untouched.** EXTRACTION ONLY; the CLASSIFIER is NOT in scope and its input is byte-identical.
+- **⚠️ `context_builder._notes_text` is SHARED with the classifier voter — changes there must be
+  ADDITIVE (EA-7).** EA-7 needed the three self note-kinds separately and added `own_notes_raw` to the
+  row dict AND to each entry of the `ancestors` struct **without touching `_notes_text` or any existing
+  key**; `notes` still carries the identical `' | '`-joined string. Byte-identity of the voter's
+  assembled payload is PROVEN, not asserted — a hand-written golden test (`TestEA7PayloadShape.
+  test_p5_...`) plus a measured before/after hash over the live corpus. Any future change here owes the
+  same proof.
+- **The extraction payload shape is TEST-PINNED (EA-7).** `TestEA7PayloadShape` in
+  `api/boq/test_rate_suggest.py` pins the key set, the labelled ancestor objects, the kind-keyed self
+  notes, the tier boundary (both halves — the grandparent MUST carry every kind, the great-grandparent
+  MUST NOT), the no-dedup rule, and the omit-empty-kinds rule. Before EA-7 this builder was pinned by
+  NOTHING. **Pin first, change second** — the pins were proven green against the unchanged code, then
+  updated in the same commit, so the test diff shows what the payload carried before and after.
 - **Pipelines are STORED CONFIG, not code:** the four derivation pipelines (cable/termination × BoQ/BCS)
   live in the config JSON and are interpreted downstream — RM-1 stores them faithfully; no interpreter
   ships this slice. Owner-decoded shapes: effective = `(1-discount)*(1+markup)`; termination = lug +
