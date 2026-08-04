@@ -16510,3 +16510,150 @@ the v3 re-commit -- freeze-and-supersede, never deleted). **New cert fixtures 90
 ### HELD PUSH
 
 SR-2 + ext-a + this slice push **together**, on the owner confirmation. Nothing pushed.
+
+---
+
+## Build slice EA-6a slice 2 -- note attachment follows re-parents AND re-labels; commit DERIVES attached_notes
+
+**Date:** 2026-08-04 · **Branch:** `feature/boq-pricing-helper` · Backend-only (frontend untouched).
+
+### The defect this closes
+
+A reviewer's note re-parent moved ONLY the parent. `attached_to_index` and -- the part the AI
+engines actually read -- the note TEXT on the old parent's `attached_notes` blob both stayed put,
+so the correction was silently discarded downstream. Re-labelling a row into/out of a note had the
+same shape.
+
+### THE INVARIANT (owner decision D1 + D3)
+
+**Committed `attached_notes` is DERIVED from the effective tree at commit; the review-row copy is
+DISPLAY-TIER; a disagreement LOGS A WARNING and never fails the commit.** No committed pointer
+field, no schema change, no migrate.
+
+### The six changes
+
+- **C1 -- edit-time rebuild (review tier).** `review_screen._apply_and_save_row_edit` gains an
+  attachment hook: a `human_parent` write that moves a NOTE's effective parent removes its text
+  from the old parent's blob, adds it to the new one (row_index order), and repoints
+  `attached_to_index`. Root/clear -> pointer 0.
+- **C2 -- template insert/delete.** (a) `row_renumber._delete_remap_attached` now MIRRORS
+  `_delete_remap`'s grandparent re-point instead of detaching (signature gained `grandparent`;
+  both callers updated). (b) the deleted row's notes' TEXT follows the pointer -- both delete
+  paths rebuild the grandparent's blob after the remap loop. (c) INSERT needs no blob movement:
+  an insert renumbers indices but never changes ownership, and the blob stores text, not indices
+  (pinned by `test_insert_shift_still_mirrors_for_real_targets`).
+- **C3 -- commit derivation (THE AUTHORITY).** `commit_pipeline._derive_attached_notes(node_rows)`
+  keys on effective parent + effective classification, row_index order; pass 3 writes the DERIVED
+  list. A node with no derived notes stays null. Master-bucket notes attach nowhere (byte-unchanged).
+- **C4 -- reconciliation re-point, CALL SITE ONLY.** `_jsn("attached_notes", ...)` now asserts the
+  DERIVED value. The shared `_jsn` helper is UNTOUCHED (it guards `append_notes_raw` / `edit_log` /
+  `description_parts_raw`), and none of the other 20 assertions changed. The assertion's real job --
+  proving the pass-3 deferred list-JSON write landed -- is preserved. Drift emits ONE
+  `frappe.logger("boq_commit").warning` naming boq_sheet / sheet / row_index / source_row / both values.
+- **C5 -- `BUG_24_NOTE_PARENT_INDEX_ENABLED` RETIRED** (D4). Slice 1 made one `target` drive the
+  pointer, the parent AND the notes-dict key, so setting the flag False would now MANUFACTURE a
+  divergence rather than isolate one.
+- **C6 -- re-label trigger (owner ruling E2, "not a rare case").** The same hook also fires on
+  `human_classification` writes that transition INTO or OUT OF "note". One trigger expression
+  serves both shapes: `(_was_note or _is_note) and ((_was_note != _is_note) or (_old_parent != _new_parent))`.
+  A classification change touching "note" on neither side rebuilds NOTHING.
+
+### ⚠️ THE REBUILD KEYS ON THE EFFECTIVE PARENT, NEVER `attached_to_index`
+
+A first cut keyed the review-tier rebuild on `attached_to_index`. **That silently DROPPED the text
+of every note whose parent is `row_index` 0**, because `attached_to_index` uses 0 = "not attached"
+-- the documented sentinel collision, biting for real. Caught by
+`test_relabel_into_note_joins_the_parents_blob`.
+
+`rebuild_attached_notes_blobs` now keys on **effective parent + effective classification -- the
+SAME two things `_derive_attached_notes` keys on** -- so the display tier and the authoritative
+commit tier agree BY CONSTRUCTION, not by two implementations that happen to match. **This SHRINKS
+the known sentinel limit: it now affects the POINTER field only, never the text.** Doctype-parametric
+via `_ATTACH_ROW_FIELDS` (`BoQ Template Row` has no `human_*` columns and `frappe.db.get_all` raises
+on unknown fields; `resolve_effective` tolerates the absent keys).
+
+### ROUTE INVENTORY (owner ruling E3 -- proven, not assumed)
+
+| Gesture | Caller | Endpoint | Chokepoint |
+|---|---|---|---|
+| Classification pill, childless row | `ReviewTree.tsx:668` | `save_review_restructure` | YES |
+| Classification pill, with-children -> `RestructureModal` (5 options) | `RestructureModal.tsx:143` | `save_review_restructure` | YES |
+| Row's own re-parent (`row_new_parent`) | `RestructureModal.tsx:143` | `save_review_restructure` | YES |
+| Revert to parser | `ReviewTree.tsx:705` | `revert_to_parser` | YES |
+| AI accept / Gemini accept | `ReviewTree.tsx:693` / `GeminiAcceptBlock.tsx:106` | `accept_ai_suggestion` / `accept_gemini_suggestion` | YES |
+| Inline value edit | `ReviewTree.tsx:576` | `save_review_edit` | N/A -- value fields only |
+| **Drag-to-reparent** | **DOES NOT EXIST** | -- | -- |
+| **Bulk / multi-select** | **DOES NOT EXIST** | -- | -- |
+
+Backend writers of `human_parent`/`human_is_root`/`human_classification` outside the chokepoint:
+ONLY the known creation seeds (`parse_run:436`, `create_from_template:195-196`,
+`template_rows:252-253`) and the renumber/remap pointer arithmetic (`template_rows:234,:374`).
+**`human_classification` has NO writer outside the chokepoint at all.**
+`revert_ai_acceptance` / `revert_gemini_acceptance` have NO frontend caller (R3a/ADR-0006 replaced
+both with the unified `revert_to_parser`); they still route through the chokepoint.
+
+### EDGE, TRACED AND PINNED (Task 3d): a note parented under a note
+
+The derivation keys PURELY on the effective parent and applies NO classification filter to it, so
+a note nested under another note puts its text in the OUTER note's blob, and the outer note's text
+still lands in ITS parent's blob -- i.e. **a node of `node_type="Other"` CAN carry `attached_notes`.**
+Well-defined and consistent across both tiers. **The parser can never produce this shape**
+(consecutive notes are FLAT -- they all attach to the same target, never to each other), so it
+arises only from a reviewer action. Pinned on both tiers
+(`test_c3_note_parented_under_a_note_nests_the_text_EDGE`,
+`test_relabel_a_note_carrying_row_into_a_note_EDGE`).
+
+### Owner ledger
+
+D1 A+B shape, derived wins · D2 re-point at the call site, drift WARNS never fails · D3 no committed
+pointer field, no schema change · D4 BUG_24 retired · D5 forward-only, re-commit self-heals ·
+D6 SummaryPanel untouched · D7 RestructureModal untouched · D8 Case-2 ride-along unchanged +
+regression-pinned. E1 blocker = option C · E2 re-label in scope · E3 route inventory proven.
+
+### E1 -- the blocker, resolved
+
+`test_human_layer_and_notes_carried_as_provenance` ->
+**`test_human_layer_and_row_provenance_carried_verbatim`**. Its `attached_notes` assertion (and the
+matching fixture seed) was removed; **five** of the original **six** assertions remain, still
+pinning verbatim carry for `human_classification` / `human_is_root` / `notes` / `append_notes_raw` /
+`edit_log`. `attached_notes` coverage moved wholesale to the C3/C4 tests.
+
+### Tests (bench-verified in-session)
+
+| Suite | Before | After |
+|---|---|---|
+| `boq_parser` | 625 | **624** (C5: -2 +1) |
+| `test_review_screen` | 260 | **273** (+13: 7 C1 + 6 C6) |
+| `test_commit_pipeline` | 57 | **64** (+7 C3/C4) |
+| `test_row_renumber` | 8 | **14** (+6 C2) |
+| `test_parse_run` | 110 | **110** |
+| `test_commit_validation` | 51 | **51** |
+| `test_template_rows` / `test_template_edit` | 23 / 40 | **23 / 40** (run because C2 changed both delete paths) |
+
+### CERT -- live, CDP-attached to the owner's Chrome, synthetic throwaway `BOQ-26-00165`
+
+De-stale ran in order (1 service worker unregistered, caches + storage cleared, every app tab
+closed, fresh tab, bare root, then the deep route); **cookies preserved** (`sid` is HttpOnly, read
+via the CDP cookie API). No classify, no suggest anywhere in the cert.
+
+| | Result |
+|---|---|
+| **S1** genuine parse (1 preamble, 3 line items, 3 notes) | **PASS.** All 3 notes attached to the nearest LINE ITEM (row 3), not the preamble -- slice-1's rule visible in real data; `attached_to_index == parent_index` on all 3. |
+| **S2** re-parent a note (modal) | **PASS.** Old parent lost the note, new parent gained it, pointer moved. On screen the row flipped to `Edited ... ↑ 3`. |
+| **S2b** re-label item -> note, then back | **PASS both directions.** Into note: the PREAMBLE (row_index **0**) gained the text -- **the exact sentinel-collision case the keying fix repaired**. Back to item: text left, pointer 0. |
+| **S3** ride-along (D8) | **PASS.** Parent moved with "keep all children under this row"; both notes' pointers and the mover's blob byte-unchanged. |
+| **S4** `revert_to_parser` | **PASS.** Blob returned to the parser parent in row_index order; the overridden parent emptied. |
+| **S5** finalize + commit | **PASS (v1).** The moved note's text is on the NEW parent's committed node and ABSENT from the old one. |
+| **S5b** induced drift + re-commit | **PASS (v2).** Commit SUCCEEDED despite a stale review-row blob; exactly ONE warning logged naming both values; the committed node carried the DERIVED value -- **D5 self-heal proven on real data.** |
+| **S6** cleanup | **PASS.** Zero residual across BOQs / Review Row / Nodes / Sheet / Grid / Sheet Draft / File. |
+
+**Cert finding (product rule, not a defect):** the S3 ride-along initially placed a line item under
+a line item, which the finalize gate correctly refused -- *"Item not under a section heading"*.
+**An item cannot be the parent of another item** (owner-confirmed during the cert). Corrected by
+moving the row back under the section heading; the D8 assertion was proven on both moves.
+
+### Known limit (documented, deliberately not fixed)
+
+`attached_to_index` uses 0 = "not attached", so a note whose parent is `row_index` 0 is ambiguous
+**in the POINTER field**. The committed blob is DERIVED from the effective tree, and the review-tier
+rebuild keys on the effective parent, so the ambiguity can never reach the text or the AI engines.
