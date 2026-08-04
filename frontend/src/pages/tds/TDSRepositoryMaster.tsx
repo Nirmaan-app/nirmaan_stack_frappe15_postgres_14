@@ -387,6 +387,13 @@ const TDSEntriesTab: React.FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
             enableColumnFilter: true,
             filterFn: "arrIncludesSome" as any,
             meta: {
+                // Facet by NAME, not id. The text search beside it can only LIKE the
+                // raw `TDS-ITEM-#####` column (an app-wide Link-search limitation —
+                // hence the "TDS Item ID" label below), so this picker is the only
+                // way to narrow by the name the column actually displays. The labels
+                // come from the `tds_item` LINK_FIELD_MAP entry server-side; without
+                // it this facet would list raw ids.
+                facet: { field: "tds_item", title: "TDS Item" } satisfies FacetDeclaration,
                 exportHeaderName: "TDS Item",
                 exportValue: (row: TDSRepository) => tdsItemLabelMap.get(row.tds_item) || row.tds_item,
             },
@@ -467,9 +474,19 @@ const TDSEntriesTab: React.FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
         ] : []),
     ], [isAdmin, tdsItemLabelMap, navigate]);
 
+    // `tds_item` is a Link column holding `TDS-ITEM-#####`, and the server search
+    // is a plain LIKE on that stored column — so this searches the ID, never the
+    // group name the cell displays. Labelled "TDS Item ID" like every other Link
+    // search in the app (Project ID / Vendor ID) rather than left reading as a
+    // name search that silently returns nothing.
+    //
+    // To narrow by NAME, use the column's facet — that is what the `tds_item`
+    // LINK_FIELD_MAP entry exists for. Searching a Link by its label from this
+    // box would need the backend to resolve label -> ids, which it does not do
+    // for any table.
     const searchableFields = useMemo(() => [
         { label: "Make", value: "make", default: true },
-        { label: "TDS Item", value: "tds_item" },
+        { label: "TDS Item ID", value: "tds_item", placeholder: "Search by TDS Item ID (e.g. TDS-ITEM-00301)..." },
         { label: "Description", value: "description" },
     ], []);
 
