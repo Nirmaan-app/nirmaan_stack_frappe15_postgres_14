@@ -31,6 +31,14 @@
   the item** (supersedes the original many-to-many; see ADR-0004). It is no longer
   referenced directly by a Repository Entry.
 
+- **Members mirror** — The `TDS Items.members` child table. It is **not** a store:
+  it is a **one-way, read-only copy** of `Items.linked_tds_item`, rebuilt from it
+  so the Frappe Desk form shows a group's members instead of "No Data". **Nothing
+  in the product reads it** — every member list, count and category derives from
+  `Items` — and a membership change is only ever made by setting
+  `linked_tds_item`, never by editing this grid (it is `read_only` precisely
+  because an edit there would be silently discarded). See ADR-0004 Amendment B.
+
 - **TDS Repository** — The global master catalog of **TDS Repository Entries**
   (and, transitively, **TDS Items**). Not project-scoped. Admin-maintained.
 

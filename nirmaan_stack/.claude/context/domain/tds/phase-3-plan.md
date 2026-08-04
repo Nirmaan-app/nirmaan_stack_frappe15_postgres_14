@@ -207,3 +207,95 @@ why, and for the two owner rulings and the architectural re-expression).
 - Two out-of-scope files still read the now-always-null `matched_member`
   (`ProjectEditTDSItemModal.tsx`, `EditRequestItemModal.tsx`). They degrade to an
   empty string — harmless, but they are residue worth a follow-up.
+
+---
+
+## AS BUILT — `tds/phase3-fixs`, 2026-08-04
+
+Six commits on top of the Phase-3 as-built above. Decision-level changes are in
+**ADR-0004 Amendment B**; this is the file-level record.
+
+| Commit | What |
+|---|---|
+| `eb7e15f3` | Repository Entries: facet by TDS Item NAME; label the text search "TDS Item ID" |
+| `c9faaa24` | Wizard members land on the real store; picker warns before a move; case-insensitive group names |
+| `053a7702` | Move confirmation before members are taken from another group |
+| `e0152184` | Show the real failure reason; name the request modes fully |
+| `70fbb44e` | Delete TDS Item unlinks members first, and says why when it cannot |
+| `3d6542a7` | `members` display mirror + read indexes + two patches |
+
+### The bug that started it
+
+`AddTDSItemWizard` posted `payload.members` into `TDS Items Child Table` — retired
+as a writer at ADR-0004 and read by NOTHING. The save succeeded, the toast said
+success, and the members were invisible forever. **Four groups created that way on
+2026-08-03** (`TDS-ITEM-00004 / 00297 / 00301 / 00333`) had child rows and zero
+real members. Members now go through `linking.set_items_tds_link`.
+
+`ITEM-002184` ('DX Inverter (3 Star) - 1.5TR Hi-Wall', from `TDS-ITEM-00333`) is
+**still unlinked** — the one stranded item never resolved.
+
+### Membership moves are disclosed, not silent
+
+Membership is N:1, so adding an already-linked SKU MOVES it. Three surfaces now
+say so: amber `· linked to <group>` in the picker, `will move out of <group>` on
+the staged row, and a **blocking confirmation** listing each mover as
+`from → to` (red losing, green gaining). Both `AddTDSItemWizard` and
+`MultiAddMembersDialog` — the latter needed a new `groupName` prop, because it
+only received `workPackage` and literally could not say where items were going.
+
+⚠️ The move is **unrecorded**: `set_items_tds_link` writes with
+`update_modified=False`, so no Version row and no `modified` bump. That is *why*
+a confirmation is warranted rather than a passive label — afterwards there is no
+trail back.
+
+### Group names are unique case- and whitespace-insensitively
+
+`validate_unique_group` used `frappe.db.exists` with `=`, and PostgreSQL `=` on
+varchar is case-sensitive, so `'Y Strainer'`, `'Y strainer'` and `'y strainer'`
+coexisted under one WP. Now raw SQL on `lower(trim(...))` (the ORM cannot express
+it), plus `normalize_name` to strip padding. **Case is preserved** — this is a
+human display label, and rewriting it would desync every project's frozen
+`tds_item_name` snapshot. The one existing duplicate (`TDS-ITEM-00353`, 0
+members / 0 entries / 0 project rows) was deleted first; without that, the next
+save of either twin would have started failing. All 352 existing groups dry-ran
+the new check with 0 failures.
+
+It catches case and spacing only — **not typos**. `'Y Startiner'` still creates a
+separate group.
+
+### Delete TDS Item
+
+Frappe refuses to delete a Link target, so a group with members failed with a raw
+`LinkExistsError`. Delete now unlinks members itself, then deletes, after saying
+so in the confirm dialog. Repository Entries still hard-block (they hold the
+signed datasheets); the disabled button's tooltip names the blocker and count.
+
+### `validate_no_duplicate_members` removed
+
+It guarded a many-to-many store that no longer exists. Under N:1 a duplicate is
+impossible by construction, and the mirror derives from a distinct set. Left in
+place it read as a live guard over real membership — the same misreading that let
+the retired child table keep being written.
+
+### Verification actually run
+
+- **20 tests**, `api/tds/test_members_mirror.py` — rebuild/diff/idempotency,
+  every trigger, recursion guard (counted, not reasoned), `read_only`, index
+  presence, and the store-not-mirror read. ⚠️ Runs against the LIVE site DB
+  (endpoints commit, so per-test rollback does not isolate) — fixtures are
+  hash-named `ZZTEST…` and purged; verified 0 residue afterwards.
+- **Real `bench migrate`** from a production-like state (mirror empty, both
+  indexes dropped): 345 rows across 353 groups in 0.7s, 0 missing, 0 unbacked,
+  0 mismatched, both patches in Patch Log, `read_only` applied by doctype sync.
+- Index plan flip verified: `Seq Scan` (cost 131.20) → `Index Scan` (cost 19.80);
+  all five TDS read surfaces returned byte-identical payloads with and without.
+
+### NOT done — deliberately
+
+- **`patches.txt` is wired, but production has not migrated.** Run `dry_run()`
+  there first: read `mirror rows MISSING` and `legacy rows to DISCARD`.
+- The four stranded groups' orphan child rows were **consumed by the dev
+  backfill** — that evidence now exists only in ADR-0004 Amendment B and here.
+- ~8 other TDS dialogs still surface `e?.message` rather than `getFrappeError`.
+- `Items.item_name`'s declared index still does not exist (name collision).
