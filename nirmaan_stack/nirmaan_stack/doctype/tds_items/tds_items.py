@@ -9,7 +9,6 @@ class TDSItems(Document):
 	def validate(self):
 		self.normalize_name()
 		self.validate_unique_group()
-		self.validate_no_duplicate_members()
 
 	def normalize_name(self):
 		"""Strip surrounding whitespace off the human label.
@@ -74,20 +73,17 @@ class TDSItems(Document):
 				"case and surrounding spaces."
 			)
 
-	def validate_no_duplicate_members(self):
-		"""Reject the same Items SKU listed twice within THIS TDS Item.
-
-		This is an intra-document check only. The same Items SKU is allowed to
-		belong to multiple TDS Items (membership is many-to-many), so no
-		cross-parent uniqueness check is performed.
-		"""
-		seen = set()
-		for member in (self.members or []):
-			if not member.item:
-				continue
-			if member.item in seen:
-				frappe.throw(
-					f"Duplicate member: item '{member.item}' is listed more "
-					"than once in this TDS Item."
-				)
-			seen.add(member.item)
+	# `validate_no_duplicate_members` was REMOVED on 2026-08-04.
+	#
+	# It rejected the same Items SKU appearing twice in `members`, which was a
+	# real risk only while `members` was the WRITABLE many-to-many store. It is
+	# now two things at once, and both make the check wrong to keep:
+	#
+	#   * membership is N:1 (`Items.linked_tds_item`), so an item points at
+	#     exactly one group — a duplicate is impossible by construction; and
+	#   * `members` is a read-only MIRROR rebuilt by
+	#     `api/tds/members.rebuild_group_members`, which derives its rows from a
+	#     `get_all` over distinct items, so it cannot emit one twice.
+	#
+	# Leaving it would have read as a live guard over real membership, which is
+	# exactly the misreading that let the retired child table keep being written.
