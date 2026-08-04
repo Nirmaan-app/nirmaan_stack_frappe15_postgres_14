@@ -16657,3 +16657,82 @@ moving the row back under the section heading; the D8 assertion was proven on bo
 `attached_to_index` uses 0 = "not attached", so a note whose parent is `row_index` 0 is ambiguous
 **in the POINTER field**. The committed blob is DERIVED from the effective tree, and the review-tier
 rebuild keys on the effective parent, so the ambiguity can never reach the text or the AI engines.
+
+---
+
+## Build slice EA-6b -- Gemini cuts chunks on the CLASSIFICATION, not the candidate score
+
+**Date:** 2026-08-04 · **Branch:** `feature/boq-pricing-helper` · Backend-only, no UI surface.
+
+### The defect
+
+`boq_gemini_assist._looks_like_section_start` cut chunks on `preamble_candidate_score > 0` -- a derived
+SIGNAL, not the classification. Claude has always cut on the verdict
+(`_is_preamble_payload`). Because a score-based cut lands MID-SECTION, it severed notes from the row
+they describe. Measured across the 110 chunked sheets (>120 rows):
+
+| | before | after |
+|---|---|---|
+| cross-boundary stranded notes | **774** | **0** |
+| ...with a LINE-ITEM target | **118** | **0** |
+| sheets affected | **97 of 110** | **0** |
+| ceiling (blind hard-max) cuts | **19** | **0** |
+| worst sheet `BOQ-26-00066 / 'HVAC BOQ'` | **64** | **0** |
+
+Median stranded distance was **2 rows** -- these were immediate neighbours cut apart, not distant
+references. Claude's equivalent number was already 0, which is what identified the cut rule as the sole
+cause.
+
+### The owner ruling that unblocked it -- independence = (a), WIRE independence
+
+The fix needs the effective classification, but `_GEMINI_FETCH_FIELDS` deliberately did NOT fetch the
+verdict, and `_fetch_review_rows_for_gemini`'s docstring asserted the service "reads ONLY raw facts ...
+and never the parser's verdict". That structural exclusion was the guarantee.
+
+**Owner ruling: independence means the MODEL never sees the verdict (a), not that the SERVICE never
+holds it (b).** So the verdict may be fetched and used OUT-OF-BAND for cutting.
+
+### The change (three edits, exactly)
+
+1. **`api/.../gemini_assist.py`** -- `_GEMINI_FETCH_FIELDS` gains `classification` /
+   `human_classification`, and `_section_flags(rows)` maps them to one bool per row
+   (`human_classification or classification == preamble` -- resolve_effective's precedence).
+   `resolve_effective` itself is deliberately NOT called: it would merge `effective_*` into the very
+   dicts `build_row_payload` reads, and keeping the verdict out of those dicts preserves the narrower
+   blast radius the original design chose.
+2. **`services/boq_gemini_assist.py`** -- `chunk_rows(payloads, section_flags=None)` cuts on the
+   PARALLEL flag list; `classify_sheet` threads it through. **`_looks_like_section_start` REMOVED**
+   (one caller, no test references).
+3. Sizes/threshold/hard-max UNCHANGED (120/100/200). Claude untouched. Prompts untouched. Schema untouched.
+
+**ABSENT `section_flags` -> NO section cuts, ceiling only.** Deliberately fail-safe: a stale caller
+degrades to coarser chunks, never back to the defect.
+
+### ⚠️ THE WIRE PIN IS NOW THE INVARIANT'S ENFORCEMENT
+
+The structural guarantee (not fetching the columns) is GONE. `services/test_boq_gemini_assist.py`
+`TestWirePayloadPin` replaces it: it freezes the exact 11-key payload contract and proves a
+verdict-carrying input row still emits a verdict-free payload. **If that pin goes red, the model is
+about to be shown the parser's verdict.** It was written and proven GREEN on the UNCHANGED code first,
+then re-run green after -- so payload byte-identity is demonstrated, not asserted. This is also what
+keeps the wording slice's Gemini A/B control clean.
+
+### Tests
+
+NEW `services/test_boq_gemini_assist.py` (**8**) -- the Gemini service had no service-level test file.
+`test_gemini_assist` 36 · `test_ai_assist` 50 · `services/test_boq_ai_assist` 25, all unchanged green.
+
+### M1-M4 measured cert (read-only, real code, zero AI calls)
+
+M1 774/118/97 -> **0/0/0**. M2 `BOQ-26-00066` 64 -> **0**, all 6 cuts on `effclass='preamble'`, sizes
+`[140,116,108,105,108,109,46]`. M3 ceiling cuts 19 -> **0** (section cuts 255 -> 316: the classification
+rule finds real headers the score rule missed). M4 425 chunks, min 4 / p50 103 / max 176 / mean 94.3.
+
+**Two anomalies, reported not tuned:** (1) five chunks < 10 rows -- ALL are FINAL remainders (4-7 rows
+at a sheet's end), normal tail behaviour, no interior degenerate chunk exists; (2) chunked sheets
+110 -> 109: `BOQ-26-00104 / 'HVAC BOQ'` (125 rows) now yields ONE chunk -- just over the 120 threshold
+with no preamble past the 100 target and under the 200 ceiling, so it correctly never cuts. The score
+rule had been splitting it spuriously.
+
+**No browser cert:** this slice has no UI surface; the proof is the measurement, and the wording slice's
+A/B exercises the new chunker with real AI calls.
