@@ -802,6 +802,9 @@ export const TDSItemDetail: React.FC = () => {
                         open={isAddMembersOpen}
                         onOpenChange={setIsAddMembersOpen}
                         workPackage={doc.work_package}
+                        // Destination name for the move confirmation — it has to
+                        // name where an item is going, not only what it leaves.
+                        groupName={doc.tds_item_name || doc.name}
                         existingItems={members.map((m) => m.item)}
                         // `handleAddMembers` owns its own toasts — it has to report
                         // partial outcomes (WP-refused items, cross-group moves) that

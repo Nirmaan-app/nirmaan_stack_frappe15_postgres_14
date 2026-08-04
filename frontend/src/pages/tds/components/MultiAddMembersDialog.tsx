@@ -10,6 +10,16 @@ import {
     DialogDescription,
     DialogFooter,
 } from "@/components/ui/dialog";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { FuzzySearchSelect } from "@/components/ui/fuzzy-search-select";
 import { useTDSItemOptions } from "../hooks/useTDSItemOptions";
@@ -57,6 +67,13 @@ export interface MultiAddMembersDialogProps {
     onOpenChange: (open: boolean) => void;
     /** The TDS Item's Work Package — scopes the picker to its Items SKUs. */
     workPackage: string;
+    /**
+     * This TDS Item's display name — the DESTINATION shown in the move
+     * confirmation. Without it the confirmation can only say what an item is
+     * taken FROM, which reads as pure loss and is what made the first version
+     * of that copy confusing.
+     */
+    groupName?: string;
     /** Item ids already members of the group — excluded from the picker. */
     existingItems: string[];
     /** Parent persists the staged ids; the dialog just returns them. */
@@ -72,11 +89,14 @@ export const MultiAddMembersDialog: React.FC<MultiAddMembersDialogProps> = ({
     open,
     onOpenChange,
     workPackage,
+    groupName,
     existingItems,
     onCommit,
 }) => {
     const [staged, setStaged] = useState<StagedRow[]>([]);
     const [committing, setCommitting] = useState(false);
+    // Last-stop confirmation when the commit would TAKE members from other groups.
+    const [showMoveConfirm, setShowMoveConfirm] = useState(false);
 
     // `itemOptionsForWP` lists every Items SKU under the Work Package across all
     // its categories (we pass no `selectedCategory`) — exactly the cross-category
@@ -88,6 +108,7 @@ export const MultiAddMembersDialog: React.FC<MultiAddMembersDialogProps> = ({
         if (!open) {
             setStaged([]);
             setCommitting(false);
+            setShowMoveConfirm(false);
         }
     }, [open]);
 
@@ -153,8 +174,33 @@ export const MultiAddMembersDialog: React.FC<MultiAddMembersDialogProps> = ({
         setStaged((prev) => prev.filter((s) => s.value !== value));
     };
 
+    // Same exposure as the create wizard: an already-linked SKU is MOVED, not
+    // copied, and the write leaves no audit trail. Confirm before taking members
+    // from other groups. Kept in step with AddTDSItemWizard's move confirmation.
+    const movingRows = useMemo(() => staged.filter((s) => s.linkedGroupName), [staged]);
+    const destGroupName = groupName?.trim() || "this TDS Item";
+    // One mover => there is a single source to name. Several => sources differ,
+    // so the sentence stays general and the per-row from -> to list carries it.
+    const singleFromGroup =
+        movingRows.length === 1
+            ? groupRef(movingRows[0].linkedGroupName, movingRows[0].linkedGroupId)
+            : "";
+
     const handleCommit = async () => {
         if (staged.length === 0) return;
+        if (movingRows.length > 0) {
+            setShowMoveConfirm(true);
+            return;
+        }
+        await performCommit();
+    };
+
+    const confirmAndCommit = async () => {
+        setShowMoveConfirm(false);
+        await performCommit();
+    };
+
+    const performCommit = async () => {
         try {
             setCommitting(true);
             await onCommit(staged.map((s) => s.value));
@@ -285,6 +331,62 @@ export const MultiAddMembersDialog: React.FC<MultiAddMembersDialogProps> = ({
                     </Button>
                 </DialogFooter>
             </DialogContent>
+
+            {/* Move confirmation — sibling of DialogContent so it portals above
+                this dialog. Mirrors AddTDSItemWizard's; keep the two in step. */}
+            <AlertDialog open={showMoveConfirm} onOpenChange={setShowMoveConfirm}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>
+                            {movingRows.length} item{movingRows.length === 1 ? "" : "s"} will change TDS Item
+                        </AlertDialogTitle>
+                        {/* Say what CONTINUING does, in one line, naming the destination. */}
+                        <AlertDialogDescription>
+                            If you continue, {movingRows.length === 1 ? "this item is" : "these items are"}{" "}
+                            removed from{" "}
+                            <span className="font-semibold text-red-600">
+                                {singleFromGroup || "their current TDS Item"}
+                            </span>{" "}
+                            and added to{" "}
+                            <span className="font-semibold text-green-700">{destGroupName}</span>
+                            . An item can belong to only one TDS Item.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+
+                    <div className="max-h-[240px] overflow-y-auto rounded-lg border divide-y">
+                        {movingRows.map((s) => (
+                            <div key={s.value} className="px-3 py-2 text-sm">
+                                <div className="font-medium truncate">{s.label}</div>
+                                <div className="flex items-center gap-1.5 text-xs mt-0.5">
+                                    <span className="text-red-600 truncate">
+                                        {groupRef(s.linkedGroupName, s.linkedGroupId)}
+                                    </span>
+                                    <span className="text-gray-400 shrink-0">→</span>
+                                    <span className="font-medium text-green-700 truncate">
+                                        {destGroupName}
+                                    </span>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={committing}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={(e) => {
+                                e.preventDefault();
+                                confirmAndCommit();
+                            }}
+                            disabled={committing}
+                            className="bg-[#dc2626] hover:bg-[#b91c1c]"
+                        >
+                            {committing
+                                ? "Adding..."
+                                : `Yes, move ${movingRows.length === 1 ? "it" : "them"}`}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </Dialog>
     );
 };

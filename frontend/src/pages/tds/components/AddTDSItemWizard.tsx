@@ -24,6 +24,16 @@ import {
     FormLabel,
     FormMessage,
 } from "@/components/ui/form";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { toast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
 import { WizardSteps } from "@/components/ui/wizard-steps";
@@ -98,6 +108,8 @@ export const AddTDSItemWizard: React.FC<AddTDSItemWizardProps> = ({
     const [mode, setMode] = useState<Mode>("Normal");
     const [step, setStep] = useState(0); // Normal mode only (0=details,1=members,2=review)
     const [members, setMembers] = useState<MemberRow[]>([]);
+    // Last-stop confirmation when the save would TAKE members from other groups.
+    const [showMoveConfirm, setShowMoveConfirm] = useState(false);
 
     const { createDoc, loading: creating } = useFrappeCreateDoc();
 
@@ -170,11 +182,19 @@ export const AddTDSItemWizard: React.FC<AddTDSItemWizardProps> = ({
             }));
     }, [itemOptionsForWP, members, linkageByItem]);
 
-    // How many staged members would be TAKEN from an existing group.
-    const movingCount = useMemo(
-        () => members.filter((m) => m.linkedGroupName).length,
+    // Staged members that would be TAKEN from an existing group.
+    const movingMembers = useMemo(
+        () => members.filter((m) => m.linkedGroupName),
         [members]
     );
+    const movingCount = movingMembers.length;
+    // The destination group — the name being typed on step 1.
+    const destGroupName = form.watch("tds_item_name")?.trim() || "this new TDS Item";
+    // With exactly one mover there IS a single source to name, so name it. With
+    // several the sources differ, so the sentence stays general and the per-row
+    // from → to list below carries the detail. ("the TDS Item on the left" was
+    // the earlier wording and pointed at nothing on screen.)
+    const singleFromGroup = movingCount === 1 ? movingMembers[0].linkedGroupName : "";
 
     // Reset everything when the dialog closes.
     useEffect(() => {
@@ -183,6 +203,7 @@ export const AddTDSItemWizard: React.FC<AddTDSItemWizardProps> = ({
             setMembers([]);
             setStep(0);
             setMode("Normal");
+            setShowMoveConfirm(false);
         }
     }, [open, form]);
 
@@ -248,6 +269,11 @@ export const AddTDSItemWizard: React.FC<AddTDSItemWizardProps> = ({
         if (step > 0) setStep((s) => s - 1);
     };
 
+    // Membership is N:1, so staging an already-linked SKU is a MOVE: the item is
+    // taken out of its current TDS Item, and that write leaves no audit trail
+    // (`set_items_tds_link` uses `update_modified=False`, so no Version row and
+    // no `modified` bump — afterwards there is no record of where it came from).
+    // The amber labels warn while staging; this is the last stop before it happens.
     const submit = async () => {
         const valid = await form.trigger();
         if (!valid) {
@@ -255,6 +281,19 @@ export const AddTDSItemWizard: React.FC<AddTDSItemWizardProps> = ({
             if (mode === "Custom") setStep(0);
             return;
         }
+        if (movingCount > 0) {
+            setShowMoveConfirm(true);
+            return;
+        }
+        await performCreate();
+    };
+
+    const confirmAndCreate = async () => {
+        setShowMoveConfirm(false);
+        await performCreate();
+    };
+
+    const performCreate = async () => {
         const values = form.getValues();
 
         try {
@@ -658,6 +697,61 @@ export const AddTDSItemWizard: React.FC<AddTDSItemWizardProps> = ({
                     </div>
                 </div>
             </DialogContent>
+
+            {/* Move confirmation — the last stop before members are TAKEN from
+                other TDS Items. Rendered as a sibling of DialogContent (inside
+                Dialog) so it portals above the wizard rather than inside its
+                scroll container. */}
+            <AlertDialog open={showMoveConfirm} onOpenChange={setShowMoveConfirm}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>
+                            {movingCount} item{movingCount === 1 ? "" : "s"} will change TDS Item
+                        </AlertDialogTitle>
+                        {/* Say what CONTINUING does, naming BOTH ends. Red = what it
+                            leaves, green = where it lands, matching the rows below. */}
+                        <AlertDialogDescription>
+                            If you continue, {movingCount === 1 ? "this item is" : "these items are"}{" "}
+                            removed from{" "}
+                            <span className="font-semibold text-red-600">
+                                {singleFromGroup || "their current TDS Item"}
+                            </span>{" "}
+                            and added to{" "}
+                            <span className="font-semibold text-green-700">{destGroupName}</span>
+                            . An item can belong to only one TDS Item.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+
+                    <div className="max-h-[240px] overflow-y-auto rounded-lg border divide-y">
+                        {movingMembers.map((m) => (
+                            <div key={m.value} className="px-3 py-2 text-sm">
+                                <div className="font-medium truncate">{m.label}</div>
+                                {/* from → to, so the outcome is readable at a glance */}
+                                <div className="flex items-center gap-1.5 text-xs mt-0.5">
+                                    <span className="text-red-600 truncate">{m.linkedGroupName}</span>
+                                    <span className="text-gray-400 shrink-0">→</span>
+                                    <span className="font-medium text-green-700 truncate">
+                                        {destGroupName}
+                                    </span>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={(e) => {
+                                e.preventDefault();
+                                confirmAndCreate();
+                            }}
+                            className="bg-[#dc2626] hover:bg-[#b91c1c]"
+                        >
+                            Yes, move {movingCount === 1 ? "it" : "them"}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </Dialog>
     );
 };
