@@ -13,6 +13,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from nirmaan_stack.services.boq_ai_assist import (
+    _AI_PASS_PROMPT_TEMPLATE,
     _NonRetryable,
     _build_row_payload,
     _effective_level_for_payload,
@@ -367,3 +368,85 @@ class TestRunAIPass(unittest.TestCase):
             MockAnthropic.return_value.messages.create.return_value = empty
             with self.assertRaises(_NonRetryable):
                 run_ai_pass("Sheet", _rows(), _SETTINGS, "fake-key")
+
+
+class TestPromptParentingPins(unittest.TestCase):
+    """PINS for _AI_PASS_PROMPT_TEMPLATE's parenting rules (EA-6c, owner ruling P5).
+
+    The prompts were entirely unpinned: wording could change with nothing going red. These
+    freeze the load-bearing passages so a reword is a DELIBERATE, visible test diff.
+
+    STATE AS PINNED HERE = PRE-EA-6c. Unlike Gemini, Claude's prompt states nothing FALSE --
+    it is SILENT on where a note parents, and measurement showed it already suggests a
+    line_item parent for ~26% of note rows. EA-6c adds W4 (the note rule) and W3 (the
+    line_item rule); when it does, THESE TESTS ARE UPDATED IN THE SAME COMMIT.
+    """
+
+    def test_line_item_parenting_line_is_pinned(self):
+        """Still TRUE after EA-6c -- line items DO parent to preambles, and W3 hardens it."""
+        self.assertIn(
+            "- line_items are parented to the preamble (section) they belong to.\n",
+            _AI_PASS_PROMPT_TEMPLATE,
+        )
+
+    def test_preamble_children_line_is_pinned(self):
+        """The preamble-centric framing W4 sits directly after."""
+        self.assertIn(
+            "- A preamble's children are the rows that sit under it until the next preamble "
+            "of equal or higher level.\n",
+            _AI_PASS_PROMPT_TEMPLATE,
+        )
+
+    def test_note_parenting_rule_is_pinned(self):
+        """W4 -- ADDED by EA-6c. Was `test_prompt_is_currently_silent_on_note_parenting`,
+        which asserted this sentence's ABSENCE; flipping it here IS the visible wording diff
+        the pin-first discipline (P5) exists to produce.
+
+        Claude previously said nothing about where a note parents, and already suggested a
+        line_item parent for ~26% of note rows anyway. This states the slice-1 rule outright.
+        """
+        self.assertIn(
+            "- A note is parented to the nearest preamble or line_item above it - "
+            "whichever row it actually describes.\n",
+            _AI_PASS_PROMPT_TEMPLATE,
+        )
+
+    def test_line_item_parent_rule_is_pinned(self):
+        """W3 -- ADDED by EA-6c, IDENTICAL sentence on both engines (one rule, zero drift).
+        Hardens what was previously only implied, and matches the finalize gate, which
+        hard-blocks an item under any non-heading parent."""
+        self.assertIn(
+            "- A line_item is never the parent of another line_item. Only a preamble may "
+            "parent a line_item.\n",
+            _AI_PASS_PROMPT_TEMPLATE,
+        )
+
+    def test_children_instruction_is_pinned(self):
+        """Load-bearing and UNTOUCHED by EA-6c: suggestions stay single-row, so an accepted
+        suggestion can never separate a note from its parent (the ride-along guarantee)."""
+        self.assertIn(
+            "do NOT also suggest re-parenting that preamble's existing children",
+            _AI_PASS_PROMPT_TEMPLATE,
+        )
+
+    def test_open_sections_carry_block_is_pinned(self):
+        """The cross-chunk carry. W5 is DEAD (no tail carry exists), so this must stay TRUE
+        and unchanged -- no carry sentence may be added."""
+        self.assertIn(
+            "- OPEN SECTIONS lists the section headers (preambles) still open above this "
+            "slice, with their excel_row and level",
+            _AI_PASS_PROMPT_TEMPLATE,
+        )
+        self.assertIn(
+            "Only suggest a suggested_parent that is an excel_row present in THIS slice or "
+            "listed under OPEN SECTIONS",
+            _AI_PASS_PROMPT_TEMPLATE,
+        )
+
+    def test_prompt_is_silent_on_note_under_note(self):
+        """W6 NEGATIVE, pinned BOTH sides of the reword: silence is the mechanism (P7). W4
+        names only preamble/line_item as note targets; an explicit prohibition is forbidden."""
+        lowered = _AI_PASS_PROMPT_TEMPLATE.lower()
+        for phrase in ("note under a note", "note-under-note", "parent of another note",
+                       "notes may not parent", "note as a parent"):
+            self.assertNotIn(phrase, lowered, f"prompt must stay SILENT on {phrase!r}")

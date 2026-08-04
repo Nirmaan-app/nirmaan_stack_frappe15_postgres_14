@@ -21,6 +21,7 @@ the parser's verdict.
 import unittest
 
 from nirmaan_stack.services.boq_gemini_assist import (
+    _BOQ_CLASSIFY_PROMPT,
     _CHUNK_HARD_MAX,
     _CHUNK_TARGET,
     _CHUNK_THRESHOLD,
@@ -177,6 +178,89 @@ class TestChunkCutRule(unittest.TestCase):
         payloads = self._payloads(n, **{str(_CHUNK_TARGET + 3): {"preamble_candidate_score": 9}})
         chunks = chunk_rows(payloads)
         self.assertEqual(len(chunks[0]), _CHUNK_HARD_MAX)
+
+
+class TestPromptParentingPins(unittest.TestCase):
+    """PINS for _BOQ_CLASSIFY_PROMPT's parenting rules (EA-6c, owner ruling P5).
+
+    The prompts were entirely unpinned: wording could change with nothing going red. These
+    freeze the load-bearing passages so a reword is a DELIBERATE, visible test diff.
+
+    STATE AS PINNED HERE = PRE-EA-6c (the slice-1-FALSE wording). Gemini forbids a
+    note->line_item parent three times and obeys perfectly -- measured 600/600 suggested
+    parents were rows Gemini itself classified preamble. EA-6c replaces these three
+    absolutes (W1) and adds the line_item-parent rule (W3); when it does, THESE TESTS ARE
+    UPDATED IN THE SAME COMMIT so the diff shows exactly what the model was told before
+    and after.
+    """
+
+    def test_preamble_line_is_pinned(self):
+        """W1 target #1 -- REWORDED by EA-6c. Was "The ONLY valid parent" (false since
+        EA-6a slice 1); now names notes as a legitimate child too."""
+        self.assertIn(
+            "- preamble: a section header that groups the rows beneath it. The parent of "
+            "line_items and often of notes.\n",
+            _BOQ_CLASSIFY_PROMPT,
+        )
+        self.assertNotIn("The ONLY valid parent", _BOQ_CLASSIFY_PROMPT)
+
+    def test_line_item_line_is_pinned(self):
+        """W1 target #2 -- REWORDED by EA-6c. Was the blanket "Never a parent"; now the
+        narrower truth: never of another line_item, but may parent a note."""
+        self.assertIn(
+            "- line_item: a priced/quantified work entry. Never a parent of another "
+            "line_item, but may be the parent of a note that describes it.\n",
+            _BOQ_CLASSIFY_PROMPT,
+        )
+        self.assertNotIn("(a leaf). Never a parent.", _BOQ_CLASSIFY_PROMPT)
+
+    def test_parenting_rule_is_pinned(self):
+        """W1 target #3 -- REPLACED by EA-6c. Was "Only preambles are valid parents"
+        (false since slice 1); now states the nearest-wins rule for notes."""
+        self.assertIn(
+            "- A line_item's parent is the preamble heading its section. A note's parent "
+            "is the nearest preamble or line_item above it - whichever it actually "
+            "describes.\n",
+            _BOQ_CLASSIFY_PROMPT,
+        )
+        self.assertNotIn("Only preambles are valid parents", _BOQ_CLASSIFY_PROMPT)
+
+    def test_line_item_parent_rule_is_pinned(self):
+        """W3 -- ADDED by EA-6c, IDENTICAL sentence on both engines (one rule, zero drift).
+        Verbatim-equal to the Claude pin in services/test_boq_ai_assist.py."""
+        self.assertIn(
+            "- A line_item is never the parent of another line_item. Only a preamble may "
+            "parent a line_item.\n",
+            _BOQ_CLASSIFY_PROMPT,
+        )
+
+    def test_note_line_is_pinned_and_stays_untouched(self):
+        """W2: this line is ALREADY slice-1-compatible ('a section/item') and must SURVIVE
+        the reword unchanged -- it is the one place the current prompt contradicts its own
+        three absolutes."""
+        self.assertIn(
+            "- note: explanatory text attached to a section/item.\n",
+            _BOQ_CLASSIFY_PROMPT,
+        )
+
+    def test_known_preambles_carry_block_is_pinned(self):
+        """The cross-chunk carry sentence. W5 is DEAD (no tail carry exists), so this must
+        stay TRUE and unchanged -- no carry sentence may be added."""
+        self.assertIn(
+            "- Preambles already identified earlier in this sheet are listed under KNOWN "
+            "PREAMBLES with their `id` and description. You MAY reference them as a parent_id. "
+            "Do NOT invent ids that are not a row in this request or a KNOWN PREAMBLE.\n",
+            _BOQ_CLASSIFY_PROMPT,
+        )
+
+    def test_prompt_is_silent_on_note_under_note(self):
+        """W6 NEGATIVE, pinned BOTH sides of the reword: the prompt must never discuss a
+        note parenting another note. W1 names only preamble/line_item as note targets, and
+        silence is the mechanism -- an explicit prohibition is what P7 forbids."""
+        lowered = _BOQ_CLASSIFY_PROMPT.lower()
+        for phrase in ("note under a note", "note-under-note", "parent of another note",
+                       "notes may not parent", "note as a parent"):
+            self.assertNotIn(phrase, lowered, f"prompt must stay SILENT on {phrase!r}")
 
 
 if __name__ == "__main__":
