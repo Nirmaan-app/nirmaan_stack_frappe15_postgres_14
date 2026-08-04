@@ -16736,3 +16736,84 @@ rule had been splitting it spuriously.
 
 **No browser cert:** this slice has no UI surface; the proof is the measurement, and the wording slice's
 A/B exercises the new chunker with real AI calls.
+
+---
+
+## Build slice EA-6c -- slice-1-true parenting wording for both engines, with prompt pins
+
+**Date:** 2026-08-04 · **Branch:** `feature/boq-pricing-helper` · Prompt constants + tests only.
+
+### The motivation
+
+Since EA-6a slice 1 a note legally parents to the nearest preamble OR line item. Gemini's prompt
+forbade this THREE times and obeyed perfectly -- measured **600/600** suggested parents were rows Gemini
+itself classified preamble. Claude's prompt said nothing about note parenting and already suggested a
+line_item parent ~26% of the time. Chunking was stabilised first (EA-6b) and Gemini's wire payload is
+pinned byte-stable, so a wording-only A/B is a CLEAN CONTROL.
+
+### The wording, as applied (owner-locked verbatim)
+
+**W1 (Gemini)** -- the three absolutes DELETED and replaced:
+- `preamble: ... The ONLY valid parent.` -> `... The parent of line_items and often of notes.`
+- `line_item: ... (a leaf). Never a parent.` -> `... Never a parent of another line_item, but may be
+  the parent of a note that describes it.`
+- `A row's parent is the id of the preamble ... Only preambles are valid parents.` -> `A line_item's
+  parent is the preamble heading its section. A note's parent is the nearest preamble or line_item
+  above it - whichever it actually describes.`
+
+**W2 (Gemini)** -- `note: explanatory text attached to a section/item.` UNTOUCHED (it was already
+slice-1-compatible, and was the one line contradicting the three absolutes).
+
+**W3 (BOTH, identical sentence, zero drift):** `A line_item is never the parent of another line_item.
+Only a preamble may parent a line_item.`
+
+**W4 (Claude):** `A note is parented to the nearest preamble or line_item above it - whichever row it
+actually describes.`
+
+**W5 -- DEAD.** No tail carry exists; no carry sentence was added, and both carry blocks are pinned
+unchanged. **W6** -- both prompts stay SILENT on note-under-note; W1/W4 name only preamble or line_item
+as note targets, and a NEGATIVE pin on each engine enforces the silence.
+
+### Pin strategy (P5) -- pins BEFORE wording, updated WITH it
+
+Both prompts were entirely unpinned: wording could change with nothing going red. Pins were written
+against the OLD wording and run GREEN first, then updated in the same commit -- so the test diff shows
+exactly what the model was told before and after. The sharpest one:
+`test_prompt_is_currently_silent_on_note_parenting` asserted W4's ABSENCE and was designed to FAIL the
+moment W4 landed; it became `test_note_parenting_rule_is_pinned`. **That flip IS the visible diff.**
+
+### THE MEASUREMENT -- two points, same sheet, `BOQ-26-00019 / '12 Internal Works '` (79 notes)
+
+Pre-state recorded first: **zero** prior suggestions on both engines -- a clean slate.
+
+| | BASELINE (old wording) | AFTER (new wording) |
+|---|---|---|
+| **GEMINI** parent:line_item | **0** | **47** |
+| GEMINI parent:preamble | 24 | 24 |
+| GEMINI parent:note | 55 | 8 |
+| GEMINI -- target class by GEMINI'S OWN verdict | **preamble 79 / line_item 0** | **preamble 32 / line_item 47** |
+| **CLAUDE** parent suggestions | 3 (all preamble) | **0** |
+| CLAUDE no-suggestion | 76 | 76 |
+
+**Reading.** Gemini went from **0 to 47 line-item parents on 79 note rows** -- from perfect obedience to
+a false rule, to applying nearest-wins. Its payload was byte-identical across the two points (pinned),
+so the wording is the only variable. Claude moved the other way: its 3 preamble re-parent suggestions
+became 0. On a slice-1-parsed sheet the parser is already right, and once W4 told Claude the rule it
+stopped proposing changes -- fewer corrections, not more. Reported as measured; no conclusion beyond
+the data.
+
+### Cert (live, synthetic throwaway `BOQ-26-00166`, 8 rows, single chunk)
+
+| | Result |
+|---|---|
+| **S1** parse | **PASS.** 4 notes, all attached to their line items; slice-1 invariant holds. |
+| **S2** suggest, both engines | **PASS.** Gemini suggested the LINE ITEM for **all 4** notes (impossible under the old wording). Claude suggested nothing -- correct, the parser is already right. **ZERO note-under-note from either engine (W6/P7 holds).** |
+| **S3** accept | **PASS, in two halves.** A manual displacement proved the slice-2 hook moves text + pointer (LI1 lost the note, LI6 gained it, pointer 1->6); revert moved it back; then the Gemini accept completed through the chokepoint (`human_parent=1`, status `Accepted`, `chosen_source=gemini`). **A blob-MOVING accept was not constructible: Gemini agreed with the parser on every note -- which is the slice's desired outcome.** The ADR-0006 block-then-revert guard also fired correctly on the overridden row. |
+| **S4** finalize + commit | **PASS.** Committed v1; every note's text on the correct LINE ITEM node; no new C4 drift warning. |
+| **S5** cleanup | **PASS.** Zero residual across all 7 tables. **`'12 Internal Works '` restored to `Finalized`** -- it was un-finalized under owner authorisation to run the passes (both engines refuse a Finalized sheet). |
+
+### Tests
+
+`services/test_boq_ai_assist` 25 -> **32** · `services/test_boq_gemini_assist` 8 -> **15** ·
+`test_ai_assist` **50** · `test_gemini_assist` **36** · `test_review_screen` **273** ·
+`test_commit_pipeline` **64**. All green. The EA-6b wire-payload pin stayed green throughout (P8).
