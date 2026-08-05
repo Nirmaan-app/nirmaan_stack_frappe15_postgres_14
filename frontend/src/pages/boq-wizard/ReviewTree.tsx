@@ -2977,7 +2977,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                               {aiInfo.hasClass && (
                                 <AiConfBadge
                                   conf={aiInfo.classConf}
-                                  title={`AI suggests classification: ${row.ai_suggested_classification ?? "?"}${aiInfo.classConf ? ` (${aiInfo.classConf})` : ""}`}
+                                  title={`AI suggests ${ROW_TYPE_LABEL.toLowerCase()}: ${row.ai_suggested_classification ?? "?"}${aiInfo.classConf ? ` (${aiInfo.classConf})` : ""}`}
                                 />
                               )}
                               {aiInfo.hasParent && (
@@ -3477,7 +3477,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                                       />
                                       <AiConfBadge conf={row.ai_classification_confidence ?? null} title={`AI ${ROW_TYPE_LABEL.toLowerCase()} confidence`} />
                                       <span>
-                                        Classification &rarr;{" "}
+                                        {ROW_TYPE_LABEL} &rarr;{" "}
                                         <span className="font-medium">{CLS_LABELS[row.ai_suggested_classification ?? ""] ?? row.ai_suggested_classification}</span>
                                         {!clsIsChange && <span className="text-muted-foreground italic"> (no change)</span>}
                                       </span>

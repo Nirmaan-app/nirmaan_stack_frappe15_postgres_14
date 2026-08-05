@@ -33,6 +33,7 @@ import { getFrappeError } from "@/utils/frappeErrors";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { GeminiConfBadge } from "./GeminiSuggestionColumn";
+import { ROW_TYPE_LABEL } from "./reviewRender";
 import type { ReviewRow } from "./boqTypes";
 
 // Mirror of ReviewTree's CLS_LABELS (label the suggested class). Local copy -- boqTypes.ts
@@ -247,10 +248,10 @@ export function GeminiAcceptBlock({
           />
           <GeminiConfBadge
             conf={row.gemini_classification_confidence ?? null}
-            title="Gemini classification confidence"
+            title={`Gemini ${ROW_TYPE_LABEL.toLowerCase()} confidence`}
           />
           <span>
-            Classification &rarr;{" "}
+            {ROW_TYPE_LABEL} &rarr;{" "}
             <span className="font-medium">
               {CLS_LABELS[row.gemini_suggested_classification ?? ""] ??
                 row.gemini_suggested_classification}

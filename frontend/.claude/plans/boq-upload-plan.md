@@ -17487,6 +17487,64 @@ same row-type concept (a `Classification` label, a "Select a classification" pla
 "Change this row classification..." dialog description). It IS a `ClassificationPill` consumer but is
 NOT in the enumerated consumer list and is not "the review screen". **Left untouched, owner call owed.**
 
+### U3-closeout -- the remaining nine renames, and the settled LEAVE list
+
+**U3's "re-inventory: zero" was wrong, and the tripwire is why it got caught.** Two successive
+inventories each reported complete and each missed something. The gap: U3 enumerated ELEMENTS, not
+the CONCEPT, so `TemplateRowsEditor.tsx` (absent from the recon's file list) and the AI/Gemini
+suggestion blocks ON the review screen were never examined. `ReviewTree.tsx` :3480 rendered
+`Classification -> Item` directly beneath the :3478 tooltip U3 HAD renamed to `AI row type
+confidence` -- a half-rename inside one visual block, on the surface recorded as clean.
+
+**THE OWNER'S PRINCIPLE (2026-08-05, standing):** *the FIELD is "Row Type"; the ACT is still
+classifying; the ENGINE is still the classifier.* Rename NOUN references to the row-type field.
+Leave verb forms, engine names, and copy that deliberately means something broader.
+
+Nine further strings renamed, all through the shared `ROW_TYPE_LABEL`, never a new literal:
+`TemplateRowsEditor.tsx` (label, placeholder, dialog description), `ReviewTree.tsx` :2980 (the
+`AI suggests row type` tooltip) + :3480 (`Row Type ->`), `GeminiAcceptBlock.tsx` :251/:254 (the twin
+tooltip + arrow), `GeminiSuggestionColumn.tsx` :206 (the Gemini in-grid tooltip), and
+`priceability.ts` :350 (which named the same concept twice by two names in one sentence). Three
+files gained a `ROW_TYPE_LABEL` import, which is what extends the structural tripwire to them --
+`reviewRender` is a leaf (utils + types only), so no cycle. `GeminiAcceptBlock`'s LOCAL `CLS_LABELS`
+copy is deliberate and stays; only the label constant is imported.
+
+**THE LEAVE LIST -- SETTLED, DO NOT RE-LITIGATE.** A future sweep will surface these; they are
+correct as they stand:
+
+| left as-is | reason |
+|---|---|
+| `GeminiAcceptBlock.tsx` :54 `Gemini classifies this as a detection-only class` | VERB form |
+| `RestructureModal.tsx` :326/:328 `Reclassify and position row` / `Reclassify row and place its children` | VERB form |
+| `ReviewTree.tsx` :682 `Reclassify failed. Please try again.` | VERB form |
+| `ReviewTree.tsx` :986 edit-log verb `Reclassified` | VERB form |
+| `ReviewTree.tsx` :411 flag label `classifier warning` | names the parser ENGINE, not the field |
+| `revisionChangeBlocks.ts` :69 + :82/:88/:92/:98/:101/:103/:107 (8 strings) | its own docblock states *"'Classification' stands in for classification-and-parenting throughout"* -- a DELIBERATELY BROADER meaning, so "Row Type" would be NARROWER and wrong. **The docblock is the reason; read it before touching these.** |
+
+Verb forms stay because a different word form is not the field label, and "re-type" reads worse.
+
+**Confirmed as the CATEGORY-CLASSIFICATION RUN (a different concept sharing the word), unchanged:**
+`ClassifySheetDialog` (it starts the run), `CrossBoqCarryDialog` :339 (the category verdict layer),
+`ClassifyProgressModal`, and the `SheetPricingPage` Freeze/run family. **That family is ELEVEN
+strings, not the "five" or "nine" earlier counts claimed** (:881, :1646, :1659, :2112, :3200, :3201,
+:3231, :3240, :3531, :3659, :3690) -- the miscount is recorded because it is the same
+enumerate-the-elements error that hid the renames above; the CONCEPT ruling covers all eleven.
+
+**Third sweep: bucket (c) EMPTY.** No label, tooltip, placeholder, aria-label or bare JSX text
+naming the row-type field survives anywhere. Re-confirmed: **no user-facing row-type string exists
+outside `src/pages/boq-wizard/`** (the sole hit elsewhere is a code comment in
+`pricingPipeline.test.ts`).
+
+**Browser cert (CDP-attached, full de-stale + marker gate).** On the review screen the AI block reads
+`Row Type -> Item` under tooltip `AI row type confidence`, and the Gemini block reads
+`Row Type -> Note` under `Gemini row type confidence` -- the two now agree, which is exactly the
+half-rename c1 existed to fix. In-grid tooltips read `AI suggests row type: note (High)` and
+`Gemini suggests row type: note (High)`. `/lassification/` over the rendered review body: **0 hits**;
+the only broader `/classif/i` matches are `classifier warning` (LEAVE, engine name).
+
+Gates: vitest **54 files / 1,269 passing**; `tsc --noEmit` **3,236 -- zero new**; tripwire re-proved
+(constant reverted -> **3 tests red**, restored green).
+
 ### U4 -- the Runs default (config data only)
 
 `wiring_cabling` `runs` attribute definition gained `"default": 1`, promoting the Derivation seed
