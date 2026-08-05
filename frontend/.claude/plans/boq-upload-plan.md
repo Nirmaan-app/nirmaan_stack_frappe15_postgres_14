@@ -17708,3 +17708,85 @@ excursion exited without saving (verified: 0 `Version` rows on the untouched con
 - **Box material is CLOSED, not a finding:** the catalog prices back boxes by module count only, so the
   BoQ's "MS box" / "PVC box" text is descriptive, not a pricing dimension.
 - **point_wiring's blanker is slice 1b** -- untouched here by design.
+
+## Build slice 1b -- point_wiring's blanker + the back_box dependency fix
+
+**Asset `rate_master_electrical_all_v21.json` -> `rate_master_electrical_all_v22.json`**
+(sha256 `f1344c1853614d75d5ade6ac56b4034286fff0ebcea027171c139279559bcdc3`, 795 items / 12 configs,
+batch `rmbulk-5b25ec0903a5`). Small by design: no interpreter code, no rules, no module computation.
+
+### (1) point_wiring gains a blanker
+
+`blank_item` / `blank_qty`, mirroring the shape 1a built on switches_sockets and the switches_point
+template. **Verified, not assumed:** the only blanker item is `1M Blanker` and it is filed under
+`family: "Switch"` -- there is no blanker family -- so the slot binds
+`values_from.where = {"family": "Switch"}`. `allow_none: true`, `disables_when_none: ["blank_qty"]`,
+and `extraction_defaults.blank_qty = 1.0` (consistent with its sibling qty defaults).
+
+One `none_skips` component line per pipeline -- point_wiring has THREE. **It follows point_wiring's OWN
+per-component UNIT rounding, never switches_sockets' tens**; the two categories are deliberately
+different and both sheet-faithful. Stages: `pw_boq_supply` `0.3625 up0`, `pw_boq_install` `0.0725 up0`
+(the "0.3625 x 0.2 rounded once" treatment the sheet gives socket/plate), `pw_bcs` `0.25 up0`.
+
+⚠️ **Recorded as a judgement, not a derivation:** the blanker follows the **plate/socket** install
+treatment rather than the switch's two-stage one. Nothing in the guiding sheet covers a blanker's
+install, and every stored golden sets `blank_item: "None"`, so **no golden pins this choice**. Live
+values are correct against the catalog (Grey `1M Blanker` 79: supply `ceil(79 x 0.3625) = 29`, install
+`ceil(79 x 0.0725) = 6`, BCS `ceil(79 x 0.25) = 20`), but if the sheet says otherwise for a blanker's
+install, this is the line to revisit.
+
+### (2) The back_box dependency defect -- fixed on BOTH categories
+
+`plate_item.disables_when_none` listed BOTH `plate_qty` AND `back_box`, so setting the face plate to
+`"None"` greyed out the back-box control. **A back box can exist with no face plate**, so such a row was
+UNPRICEABLE -- a wrong answer, not merely a wrong UI.
+
+**The relationship is ONE-WAY (owner ruling):** a plate present DEFAULTS the box to yes; a plate set to
+None leaves the box SELECTABLE. `back_box` removed from the list; `plate_qty` kept.
+
+**It was NOT only a 1a regression.** switches_sockets inherited it from the 1a spec, but **point_wiring
+has carried the identical list since EA-4a-r, predating 1a entirely.** The ruling is physical rather
+than category-specific, so **both** were fixed (owner-confirmed mid-slice after the parallel surfaced).
+
+⚠️ **The `@plate_item` binding on the back_box component is UNCHANGED and must stay.** Owner precedence:
+**box module = the PLATE's module when a plate exists, else the computed module.** The existing binding
+is correct for the plate-present case; the fallback branch needs the module computation, which does not
+exist yet, and is slice 2. Removing the disable was the whole fix here.
+
+### (3) The three goldens gained the blanker, totals UNMOVED
+
+A golden's attrs are an ATOMIC SET, so `blank_item: "None"` + `blank_qty: 0` went onto all three. With
+`none_skips` the line contributes zero, so nothing moved:
+
+| golden | supply | install | bcs |
+|---|---|---|---|
+| pw1 | 1869 | 735 | 1370 |
+| pw2 | 1823 | **722.2** (fractional by design -- pins the per-stage rounding, never round it) | 1342 |
+| pw3 | 1682 | -- | -- |
+
+switches_sockets' `s1` (110/30/80) and `ss1` (700/140/480) are likewise unmoved -- the back_box fix
+touches a UI-dependency hint, not a pricing input.
+
+### Gates + cert
+
+| gate | before | after |
+|---|---|---|
+| backend `test_rate_master` | 41 | **44** (3 pins, before-green then after-green) |
+| vitest | 54 files / 1,275 | **54 files / 1,277** (+2 interpreter cases) |
+| `tsc --noEmit` | 3,236 | **3,236 -- zero new** |
+| `_validate_config` | -- | **ACCEPTED on all 12 configs in v22** |
+| golden ids per category | -- | **IDENTICAL before and after the apply** |
+| `stored == asset` | -- | **key-by-key MATCH on both changed categories** |
+
+Preview gate in EDIT MODE, **fresh page load per category** (a stale draft persisted between categories
+in 1a's cert -- that is why): **point_wiring 7/7 green, switches_sockets 6/6, wiring_cabling 20/20,
+db_switchgear 8/8**, every exit via Cancel.
+
+Live cert: `Blank plate` + `Blank plate qty` render on point_wiring; pw1's trace shows
+`component: blank  None -> 0` with totals 1869/735/1370; a real blanker contributes 58 (supply),
+12 (install), 40 (BCS); and with `Frame/Face plate = None` the **Back box control is NOT disabled and
+accepts Yes** -- the defect fix, confirmed on screen.
+
+**Two stale pins updated in the same slice:** `_ASSET` v21 -> v22, and 1a's `test_38`, which asserted
+`back_box` was IN the disables list -- exactly the behaviour 1b corrects. Both surfaced as honest test
+failures rather than being anticipated, which is the pins working.

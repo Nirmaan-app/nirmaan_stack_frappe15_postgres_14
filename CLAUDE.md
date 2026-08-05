@@ -159,6 +159,13 @@ First worked proof: the `sidebar_counts` aggregate rewrite + the shared `service
   the tens convention is what keeps switches_sockets' standing golden value-identical across the rebuild.
 - **The only blanker item in the catalog is `1M Blanker`, and it lives under `family: "Switch"`** -- there is
   no blanker family. Any `blank_item` slot therefore binds `values_from.where = {"family": "Switch"}`.
+  **BOTH `switches_sockets` and `point_wiring` carry a blanker slot.**
+- **The plate / back-box relationship is ONE-WAY (owner-locked).** A face plate present DEFAULTS the box to
+  yes; a face plate set to `"None"` must leave `back_box` **STILL SELECTABLE**, because a back box can exist
+  with no face plate. `plate_item.disables_when_none` therefore lists **`plate_qty` ONLY** -- never `back_box`.
+  Greying the box out makes such a row UNPRICEABLE, which is a wrong answer and not merely a wrong UI.
+  The back_box component's `@plate_item` binding is SEPARATE and stays: **box module = the PLATE's module
+  when a plate exists**; the no-plate fallback needs the module computation and is a later slice.
 - **Goldens live in the asset's TOP-LEVEL `goldens` dict, keyed by category_id, and NOWHERE ELSE.**
   `loader.load_rate_master` reads `payload["goldens"]` and OVERWRITES each config's `goldens` key from it, so
   a golden written into a `category_configs[*].goldens` entry is SILENTLY IGNORED. A golden added in-system
@@ -597,8 +604,8 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   to the asset filename (a known wart flagged for a future de-pinning slice), so a rename forces a loader
   edit in lockstep.
 - **29-Jul truth-file cycle (EA-DIFF, owner-locked; the E-ALL benchmark of THAT cycle was
-  `rate_master_electrical_all_v12.json` — the CURRENT E-ALL asset is `rate_master_electrical_all_v21.json`,
-  sha256 prefix `607b7b4504c9ac36`; asset lineage v9->v12, v10/v11 skipped):** four
+  `rate_master_electrical_all_v12.json` — the CURRENT E-ALL asset is `rate_master_electrical_all_v22.json`,
+  sha256 prefix `f1344c1853614d75`; asset lineage v9->v12, v10/v11 skipped):** four
   data changes + two owner-ruled invariants. (1) **Synonyms** — a config may carry top-level `synonyms`
   `{attr_id:{variant:canonical}}` (conduit `{conduit_type:{GI:MS}}`); consumed TWICE (defence in depth) — the
   extraction prompt INJECTION (`extraction._extract_batch`, `.md` assets untouched) AND `_coerce_value`

@@ -1460,9 +1460,9 @@ attached_to_index = note_parent_index = target
 clauses (source list, breaker enumeration, CURVE/UPS trigger) -- read from disk per request, so live on edit.
 R3 reworded in the new asset `data/rate_master_electrical_all_v18.json` (one JSON leaf differs from v17;
 v17 untouched) and applied LIVE via the audited RM-4b `update_rate_config` (`Version` 4 -> 5).
-**Asset pin (current): the E-ALL asset is now `data/rate_master_electrical_all_v21.json`**
-(sha256 prefix `607b7b4504c9ac36`, 795 items / 12 configs), minted at slice 1a for the
-`switches_sockets` per-component rebuild. v18 above is the historical record of THAT cycle, not the
+**Asset pin (current): the E-ALL asset is now `data/rate_master_electrical_all_v22.json`**
+(sha256 prefix `f1344c1853614d75`, 795 items / 12 configs), minted at slice 1b for point_wiring's
+blanker + the back_box dependency fix (v21 was slice 1a's `switches_sockets` rebuild). v18 above is the historical record of THAT cycle, not the
 current pointer. `loader.DEFAULT_DATA_FILE` still points at the WIRING asset, so E-ALL loads by path.
 
 ⚠ **The live estimator rules come from the `BoQ Rate Category Config` DB row, NOT the JSON asset**
