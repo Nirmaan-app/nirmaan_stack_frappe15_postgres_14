@@ -17388,3 +17388,138 @@ Cores 1 finds a real wire; runs 6 drives the geometry. The two halves no longer 
 **What is NOT proven by this:** the runs multiplier and the runs-aware geometry are proven by 82 green
 vitest tests against the real interpreter file, and the extraction half is proven by A1-A3 on real
 rows -- but the two have not been observed together ON SCREEN. V3-V6 are OWED after a vite restart.
+
+---
+
+## Build slice UI-SLICE -- header filters, blank/defaulted highlights, the Row Type rename, the Runs default
+
+**Date:** 2026-08-05 · **Branch:** `feature/boq-pricing-helper` · Four items (U1-U4), one defect found
+by the owner mid-cert and fixed, cert green before either commit.
+
+### U1 -- Excel-style header filters on Row Type + Category
+
+A new sibling component `boq-wizard/GridColumnFilter.tsx`: funnel in the `<th>`, type-to-search,
+checkbox multi-select, select/clear-all, an active count badge.
+
+**State placement, and why it cannot reach the row memo.** The selections live at PAGE level in
+`SheetPricingPage` as `ReadonlySet<string>` of stable IDS; they act on the ROW SET as a FOURTH clause
+in `passesViewFilter`, which already composes the three existing view filters. The grid receives only
+what it needs to draw the funnel and its ticks (`rowTypeFilterOptions` / `rowTypeFilter` /
+`onRowTypeFilterChange` and the Category trio) -- six PER-GRID props, none added to
+`pricingRowPropsAreEqual`. **The type-to-search box is LOCAL state inside the popover and is never
+lifted**, which is the property that makes typing cheap: a keystroke re-renders the popover only.
+Measured live on a 588-row sheet: **max 3.7 ms per keystroke, mounted rows unchanged 16 -> 16** (the
+grid did not re-render at all while typing). The option lists are page `useMemo`s computed once per
+sheet, and the module-level `EMPTY_FILTER_SET` / `EMPTY_FILTER_OPTIONS` defaults exist so the
+destructuring default cannot mint a new identity per render and defeat the `PricingGrid` memo.
+
+**Deliberate duplication (owner ruling), recorded so it reads as a choice, not drift:**
+`GridColumnFilter` duplicates the shape of `ColumnFilter` in
+`pages/pricing/rate-master/RateMasterDataViewer.tsx` rather than exporting it. Exporting would couple
+two independent modules, and the two already diverge -- this one carries "(Blanks)" and a label/id
+split; the data viewer needs neither.
+
+**Filter on the label, match on the id.** An option carries `{id, label}`: display, sort and search
+use the label (matching what the Category CELL renders via `labelFor`), the predicate compares ids.
+A catalog label edit therefore cannot silently break a live filter selection.
+
+**"(Blanks)" is not a new blank test.** It reuses the SHARED `isMasterSetBlank` -- so the filter
+agrees with the amber cell fill, the Check-Category view filter, the live blank count and the server
+gate. Measured live: ticking "(Blanks)" alone left **308** rows and the page banner independently read
+**"308 rows still have no category"** -- one definition, five surfaces. A row that is neither
+master-set-blank nor categorised (a note/spacer, not eligible) belongs to no bucket and is excluded
+while the filter is active, by construction. Empty selection = pass-through; AND across columns, OR
+within a column.
+
+### The frozen-pane defect -- found by the owner mid-cert, fixed, re-certified
+
+In FROZEN (two-pane) mode the Row Type header lives in the frozen table and Category in the scrolling
+table. The funnel ACTIVE-state count badge made the trigger grow 16px -> 20px, which grew the a3
+`<th>` 32 -> 36 and with it the whole FROZEN header row, while the scrolling header row stayed 32.
+**A 4px header divergence offsets that pane body, so the two grids visibly stop lining up.** Fix:
+the trigger carries `h-4` + `leading-none` so the badge cannot change its height -- load-bearing, not
+styling. After the fix both header rows stay 32px in both states, and a real wheel scroll keeps the
+panes together (scrollTop delta 0, first-row-top delta 0, identical row indices). Filtering is
+identical in both modes: **588 -> 252 -> 24** unfrozen and frozen alike.
+
+**Harness lesson worth keeping:** three separate wrong verdicts came from the MEASUREMENT, not the
+product -- counting `tr[data-index]` in a virtualized grid counts the ~18-row window; guessing one
+scroller misses the two-pane case; and measuring on a page a previous script left filtered is
+meaningless. The counter that works scrolls only the pane that OWNS scrolling and unions every index
+it sees. No V-verdict was recorded until the counter reproduced 588 twice.
+
+### U2 -- blank / defaulted highlights in the rate-helper panel
+
+`defaulted` ALWAYS arrived per attribute from the server; the helper read it through an UNDECLARED
+cast and flattened it into one prose line. Now `ExtractedAttr` and `WorkingsAttribute` both declare
+`defaulted?: boolean`, the cast is gone, and ONE condition drives both surfaces so they cannot
+disagree. The prose trace line is KEPT (a different surface). Two pure predicates
+(`isAttrBlank` / `isAttrDefaulted`) encode a three-way state: **BLANK (`value === ""`) -> red border;
+DEFAULTED -> the established amber token; POSITIVELY ABSENT ("None", or `disabled` because its
+controller is None) -> NEITHER.** Both highlights clear on their own, because `setAttr` writes an
+override and the helper recomputes -- no highlight state is held that could outlive the correction.
+Certified on one screen (row 196): red on `Wire 1 - runs` / `Wire 2 - runs` / `Colour`, amber + a
+`default` chip on `Circuit length (m)=15`, and neither on `Switch` / `Socket` / `Frame/Face plate`.
+
+### U3 -- Classification -> Row Type (user-facing text only)
+
+**Inventory first, re-inventory after, tripwire added.** Nine in-scope strings renamed: two in the
+pricing grid header (title + visible text) and seven on the review screen (column header, the filter
+button aria-label + title, the filter popover heading, the row-detail line, the AI-confidence
+tooltip, the change dialog title, the create-row dialog label). Re-inventory: **zero** user-facing
+occurrences remain on those surfaces.
+
+Deliberately UNCHANGED, each for its own reason: `exportReviewCsv.ts` (a file format), the
+`ClassifyProgressModal` strings AND the `SheetPricingPage` "Classification frozen / Freeze
+Classification" family (both name the CATEGORY-CLASSIFICATION RUN, a different concept sharing the
+word -- renaming them would be actively wrong), every backend field / API key / type / variable, the
+AI prompt constants, and `data-colkey="a3"`.
+
+**The tripwire is structural, not just a test.** Both screens read ONE shared constant
+`reviewRender.ROW_TYPE_LABEL` (plus a derived `ROW_TYPE_FILTER_LABEL`), so a half-rename is not
+merely caught -- it cannot be expressed without deleting an import. The new pins in
+`reviewRender.test.ts` assert the value, assert it has NOT reverted, and assert the DATA vocabulary
+(`CLS_LABELS` keys + values) is untouched. Proven by temporarily reverting the constant: **3 tests
+went red**, restored green.
+
+**ONE AMBIGUITY, NOT GUESSED:** `TemplateRowsEditor.tsx` carries three user-facing strings for the
+same row-type concept (a `Classification` label, a "Select a classification" placeholder, and a
+"Change this row classification..." dialog description). It IS a `ClassificationPill` consumer but is
+NOT in the enumerated consumer list and is not "the review screen". **Left untouched, owner call owed.**
+
+### U4 -- the Runs default (config data only)
+
+`wiring_cabling` `runs` attribute definition gained `"default": 1`, promoting the Derivation seed
+from the fragile tier-3 fallback (`goldens[0].attrs.runs`, which ext-b added incidentally) to tier-2.
+Both things required to be PROVEN rather than assumed:
+
+- **Round-trip:** applied through the audited RM-4b `update_rate_config`, re-read from the DB -- the
+  key persisted, all 5 goldens preserved with expected values unchanged, every other config key
+  identical, and one `Version` row recorded.
+- **Extraction payload byte diff:** built before/after WITHOUT any AI call. Exactly **one added
+  line** (`"default": 1`), nothing removed, +20 bytes. `_validate_config` PASS.
+
+**A correction, recorded:** `rateMasterTypes.ts` commented this field "Display-only here". That is
+wrong -- `extraction.build_attribute_defs` copies it into the per-attribute definitions sent to the
+model, so setting one CHANGES THE AI PROMPT. The comment now says so, and distinguishes it from the
+separate top-level `extraction_defaults` map.
+
+**OUT-OF-SCOPE GAP FOUND, NOT FIXED:** `RateMasterDerivation.tsx` renders the `default N` hint chip
+only in the CHOICE branch; the NUMBER branch has no chip. `runs` is a number def, so the chip does
+not appear despite the config being correct. That file is outside this slice scope -- reported, not
+touched.
+
+### Gates
+
+| gate | before | after |
+|---|---|---|
+| vitest | 53 files / 1,241 tests | **54 files / 1,269 tests, all passing** |
+| `tsc --noEmit` | 3,236 pre-existing errors | **3,236 -- zero new** |
+| U3 re-inventory | 9 in-scope occurrences | **0** |
+| U3 tripwire | did not exist | **exists; proven red on revert, green on restore** |
+| `_validate_config` | -- | **PASS** |
+| U4 round-trip / payload diff | -- | **survived / exactly one added key** |
+| RM-4b preview gate (wiring_cabling) | -- | **5 goldens, no changed goldens, gate green** |
+
+Pins were written and proven GREEN against the UNCHANGED code first (196/196), then updated in the
+same slice so the diff shows what the contract carried before and after.

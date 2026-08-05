@@ -652,6 +652,55 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   grid-level `shouldCloseOverlay` mounted-set effect stays only as the remark BACKSTOP. Closing discards any unsaved draft
   (owner-accepted). EXEMPT: a popover in the STICKY `<th>` header (AmountFormulaBuilder) never scrolls off -> no observer.
 
+- **Header column filters + the Row Type label (UI slice, owner-locked).** The pricing grid's Row Type
+  and Category headers each carry a funnel (`boq-wizard/GridColumnFilter.tsx`) opening a type-to-search
+  checkbox popover. Load-bearing invariants:
+  - **FILTER STATE IS PAGE-LEVEL AND ACTS ON THE ROW SET, NEVER ON A ROW.** It is a FOURTH clause in
+    `SheetPricingPage.passesViewFilter`, beside the three existing view filters. The grid gets only the
+    option list, the current selection and a callback -- six PER-GRID props, NONE in
+    `pricingRowPropsAreEqual`. **The popover's type-to-search box is LOCAL to the popover and must never
+    be lifted to the page**; that is what keeps a keystroke from re-rendering the grid. The
+    module-level `EMPTY_FILTER_SET` / `EMPTY_FILTER_OPTIONS` destructuring defaults exist so a default
+    cannot mint a new identity per render and defeat the `PricingGrid` memo -- do not inline `new Set()`.
+  - **FILTER ON THE LABEL, MATCH ON THE ID.** An option is `{id, label}`: display/sort/search use the
+    label (agreeing with the Category cell's `labelFor`), the predicate compares ids. Selections are
+    ALWAYS sets of ids, so editing a catalog label cannot silently break a live filter.
+  - **`isMasterSetBlank` is THE single blank predicate and now drives FIVE surfaces** -- the server
+    gate/count, the grid's amber Category fill, the Check-Category view filter, the page's live blank
+    count, and the Category filter's **"(Blanks)"** entry. Never write a sixth definition. An empty
+    selection is a PASS-THROUGH (never "hide everything"); AND across columns, OR within a column.
+  - **The funnel trigger's `h-4` + `leading-none` is LOAD-BEARING, not styling.** In FROZEN (two-pane)
+    mode the Row Type header lives in the frozen table and Category in the scrolling table; an
+    unpinned trigger height let the active-state count badge grow the frozen header row, offsetting
+    that pane's body so the two grids visibly stopped lining up. Any affordance added to a header cell
+    in EITHER pane must be height-neutral across all of its states.
+  - **`GridColumnFilter` deliberately DUPLICATES `RateMasterDataViewer`'s `ColumnFilter` rather than
+    importing it** (owner ruling): exporting would couple two independent modules, and the two already
+    diverge. Do not "de-duplicate" them.
+- **The rate-helper panel's three-way attribute state (owner-locked).** `ExtractedAttr` and
+  `WorkingsAttribute` both declare `defaulted?: boolean` (it always arrived on the wire; it is no longer
+  read through a cast), and the pure `isAttrBlank` / `isAttrDefaulted` in `rateHelperTypes.ts` are the
+  ONE definition of the render rule: **BLANK (`value === ""`) -> red border; DEFAULTED -> the amber
+  attention token; POSITIVELY ABSENT (the `"None"` sentinel, or `disabled` because its controller is
+  None) -> NEITHER.** `"None"` is a DECISION, not a gap, and must never render as missing. ONE condition
+  in `pricingSheetHelper` drives both the structural flag and the prose derivation line, so they cannot
+  disagree; the prose line is a separate surface and is KEPT. Neither highlight holds state -- a human
+  override recomputes the helper, which clears the mark at source, so a highlight can never outlive the
+  correction.
+- **User-facing text says "Row Type"; every field stays `classification` (U3, owner-locked).** The
+  rename is WORDING, not a migration: `classification` / `human_classification` /
+  `effective_classification` / `new_classification`, the AI prompt constants, the review CSV export
+  headers, and `data-colkey="a3"` are all UNCHANGED. Strings naming the CATEGORY-CLASSIFICATION RUN
+  (the classify modal, the Freeze/Unfreeze Classification family) are a DIFFERENT concept that shares
+  the word and must NOT be renamed. Both screens render the ONE shared constant
+  `reviewRender.ROW_TYPE_LABEL` (and the derived `ROW_TYPE_FILTER_LABEL`), which is what makes a
+  half-rename structurally impossible rather than merely caught; `reviewRender.test.ts` pins it.
+- **An `attribute_definitions[].default` is NOT display-only -- it reaches the AI.**
+  `extraction.build_attribute_defs` copies it into the per-attribute definitions sent to the model, and
+  it also seeds the Rate Master Derivation screen ahead of the goldens fallback. It is DISTINCT from the
+  top-level `extraction_defaults` map. Treat adding one as a behavioural change, and prove the
+  whole-config RM-4b round-trip -- the loader does not validate, only `update_rate_config` does.
+
 ### Review screen (`ReviewTree.tsx`) -- load-bearing invariants
 
 - **Depth / indent comes from the `effective_parent_index` chain (`computeDepths`), NEVER the stored `level`** (which
