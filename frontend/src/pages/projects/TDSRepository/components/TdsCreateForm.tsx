@@ -273,11 +273,11 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
         // the group) is a no-op — it must NOT wipe the selection.
         if (nextWP === selectedWP) return;
         setSelectedWP(nextWP);
-        // Any real change drops the whole selection. A group belongs to exactly
-        // one work package, so switching always strands it; and clearing the
-        // scope discards the context the pick was made in. The BOQ ref goes too
-        // — it describes the item being added, which no longer exists.
-        resetSelection();
+        // Drop the picks that hang off the old scope — a group belongs to exactly
+        // one work package, so any change strands it, and the BOQ ref describes an
+        // item that no longer exists. `clearPicks`, NOT `resetSelection`: the
+        // latter blanks the work package too and would undo the line above.
+        clearPicks();
     };
 
     const handleAddItem = () => {
@@ -352,11 +352,20 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
     // Clears the WHOLE selection — scope included. Every entry starts from a
     // blank form: after an item lands in the cart, after a rejected-row
     // resubmit, and on the explicit Reset button.
-    const resetSelection = () => {
-        setSelectedWP("");
+    // Clears everything that hangs off a work package — but NOT the scope itself.
+    // Used when the scope CHANGES (the new one must survive).
+    const clearPicks = () => {
         setSelectedGroup(null);
         setSelectedMake(null);
         setSelectedBoqLineItem("");
+    };
+
+    // Full reset, scope included: after an item lands in the cart, after a
+    // rejected-row resubmit, and on the Reset button. Never call this from the
+    // work-package handler — it would blank the value the user just chose.
+    const resetSelection = () => {
+        setSelectedWP("");
+        clearPicks();
     };
 
     const handleReset = () => {
