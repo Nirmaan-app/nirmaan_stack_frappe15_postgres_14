@@ -197,17 +197,32 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
         open && mode === "existing" ? `tds_request_groups_${filterWP || "all"}` : null
     );
 
+    // Member count per group — ONE batched pass over `Items`. A group ABSENT from
+    // `counts` has ZERO members: a "custom item" (Work Package + label only).
+    //
+    // It matters HERE too, not just on the create form: a "New" request against
+    // an existing group still produces a `Project TDS Item List` row, and the
+    // same before_save hook derives its `tds_category` from the group's members'
+    // `Items.category`. Member-less group ⇒ the row freezes an EMPTY category.
+    // Shares the create form's swrKey, so the two screens hit one cached fetch.
+    const { data: memberIndexData } = useFrappeGetCall<{
+        message: { counts: Record<string, number>; categories: string[] };
+    }>("nirmaan_stack.api.tds.members.get_tds_member_index", undefined, "tds_member_index");
+
+    const memberCounts = memberIndexData?.message?.counts ?? {};
+
     // ADR-0004: group-name-only search, so no member hit to attribute — the old
     // "contains <member>" subtitle is gone.
     const groupOptions = useMemo(() => {
         const groups = searchData?.message ?? [];
         return groups.map(g => ({
+            memberCount: memberCounts[g.tds_item] ?? 0,
             label: g.tds_item_name,
             value: g.tds_item,
             workPackage: g.work_package,
             group: g,
         }));
-    }, [searchData]);
+    }, [searchData, memberIndexData]);
 
     const handleGroupChange = (opt: any) => {
         const g: GroupResult | null = opt?.group || null;
@@ -400,7 +415,15 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
                                                     styles={PORTAL_SELECT_STYLES}
                                                     formatOptionLabel={(option: any) => (
                                                         <div className="flex flex-col">
-                                                            <span>{option.label}</span>
+                                                            <span>
+                                                                {option.label}
+                                                                {/* No members ⇒ the frozen category will be blank. */}
+                                                                {option.memberCount === 0 && (
+                                                                    <span className="ml-2 text-[10px] uppercase text-amber-600">
+                                                                        custom · no SKUs
+                                                                    </span>
+                                                                )}
+                                                            </span>
                                                             {/* Unscoped, the list spans every package, so the
                                                                 name alone can't say which one a result is in. */}
                                                             {!filterWP && option.workPackage && (
@@ -410,6 +433,16 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
                                                     )}
                                                 />
                                             </FormControl>
+                                            {/* Picked a member-less group: say what it costs BEFORE the
+                                                request is filed. Approval creates the row either way, and
+                                                the blank only surfaces in the history / exported PDF. */}
+                                            {selectedGroup && (memberCounts[selectedGroup.tds_item] ?? 0) === 0 && (
+                                                <p className="text-xs text-amber-600">
+                                                    Custom item — no linked product SKUs, so this row's <b>Category will be blank</b>.
+                                                    Category is derived from the item's linked SKUs; link SKUs to it in the TDS
+                                                    Repository first if the report needs one.
+                                                </p>
+                                            )}
                                             <FormMessage />
                                         </FormItem>
                                     )}

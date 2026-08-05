@@ -190,6 +190,23 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
         [cartItems]
     );
 
+    // Member count per group — ONE batched pass over `Items` (the same endpoint
+    // the TDS master page uses). A group ABSENT from `counts` has ZERO members:
+    // a "custom item" in the domain's vocabulary (Work Package + label only).
+    //
+    // Why the picker has to say so: a TDS Item has no category of its own, so
+    // `Project TDS Item List.tds_category` is DERIVED from its members'
+    // `Items.category` (`get_group_category`, run in the before_save hook). A
+    // member-less group therefore freezes an EMPTY category — and the cart has
+    // no Category column, so nothing reveals that until the submittal history or
+    // the exported PDF. These groups are fully pickable (all of them carry
+    // datasheets), which is exactly why the blank is easy to walk into.
+    const { data: memberIndexData } = useFrappeGetCall<{
+        message: { counts: Record<string, number>; categories: string[] };
+    }>("nirmaan_stack.api.tds.members.get_tds_member_index", undefined, "tds_member_index");
+
+    const memberCounts = memberIndexData?.message?.counts ?? {};
+
     // Picker options: one per group result. ADR-0004 — the picker searches GROUP
     // NAMES only (stakeholder ruling), so there is no member hit to attribute and
     // the old "contains <member>" subtitle is gone. `search_tds_items` still
@@ -198,12 +215,13 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
     const groupOptions = useMemo(() => {
         const groups = searchData?.message ?? [];
         return groups.map(g => ({
+            memberCount: memberCounts[g.tds_item] ?? 0,
             label: g.tds_item_name,
             value: g.tds_item,
             workPackage: g.work_package,
             group: g,
         }));
-    }, [searchData]);
+    }, [searchData, memberIndexData]);
 
     // Make options for the picked group — only makes-with-datasheet, minus any
     // (group, make) pair already consumed by the project or staged in the cart.
@@ -331,20 +349,18 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
         setCartItems(prev => prev.filter((_, i) => i !== index));
     };
 
-    // Clears the PICK, not the SCOPE. Called after an item lands in the cart, and
-    // a user adding several items is almost always working inside one work
-    // package — wiping the filter there would make them re-choose it every time.
-    // The explicit Reset button (`handleReset`) is what clears the scope.
+    // Clears the WHOLE selection — scope included. Every entry starts from a
+    // blank form: after an item lands in the cart, after a rejected-row
+    // resubmit, and on the explicit Reset button.
     const resetSelection = () => {
+        setSelectedWP("");
         setSelectedGroup(null);
         setSelectedMake(null);
         setSelectedBoqLineItem("");
     };
 
-    // The explicit Reset button — clears the SCOPE as well as the pick.
     const handleReset = () => {
         resetSelection();
-        setSelectedWP("");
     };
 
     // A "New" request from the RequestTdsItemDialog. Dedup on (tds_item_id, make);
@@ -534,7 +550,15 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                             onChange={handleGroupChange as any}
                             formatOptionLabel={(option: any) => (
                                 <div className="flex flex-col">
-                                    <span>{option.label}</span>
+                                    <span>
+                                        {option.label}
+                                        {/* No members ⇒ the frozen category will be blank. */}
+                                        {option.memberCount === 0 && (
+                                            <span className="ml-2 text-[10px] uppercase text-amber-600">
+                                                custom · no SKUs
+                                            </span>
+                                        )}
+                                    </span>
                                     {/* Unscoped, the list spans every package, so the group
                                         name alone can't say which one a result belongs to. */}
                                     {!selectedWP && option.workPackage && (
@@ -548,6 +572,16 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                             noOptionsMessage={() => isSearching ? "Loading TDS items..." : "No matching TDS items"}
                             onMenuOpen={handleItemMenuOpen}
                         />
+                        {/* Picked a member-less group: say what it costs BEFORE the row is
+                            created, since the cart shows no category and the blank only
+                            surfaces in the submittal history and the exported PDF. */}
+                        {selectedGroup && (memberCounts[selectedGroup.tds_item] ?? 0) === 0 && (
+                            <p className="text-xs text-amber-600">
+                                Custom item — no linked product SKUs, so this row's <b>Category will be blank</b>.
+                                Category is derived from the item's linked SKUs; link SKUs to it in the TDS
+                                Repository first if the report needs one.
+                            </p>
+                        )}
                         <p className="text-xs text-muted-foreground">
                             Can't find it?{" "}
                             {canRequestNew ? (
