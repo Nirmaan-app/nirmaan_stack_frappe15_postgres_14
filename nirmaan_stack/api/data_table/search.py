@@ -15,7 +15,8 @@ from .constants import (
 from .utils import (
     _parse_filters_input, _process_filters_for_query,
     _parse_search_fields_input, _parse_target_search_field,
-    split_name_in_constraints, enumerate_matching_names
+    split_name_in_constraints, enumerate_matching_names,
+    append_search_filter, merge_name_constraint
 )
 from .aggregations import get_aggregates, get_group_by_results
 from .token_search import rank_parents_by_token_score, tokenize
@@ -268,7 +269,12 @@ def get_list_with_count_enhanced_impl(
             child_status_field = search_config.get("status_field")
             if child_status_field:
                 if search_term and target_search_field_name and target_search_field_name not in CHILD_TABLE_ITEM_SEARCH_MAP[doctype]:
-                    final_and_filters.append([doctype, target_search_field_name, "like", f"%{search_term}%"])
+                    # A non-text field returns names instead of a filter; fold them into the
+                    # name constraint, which is re-applied to this branch's result below.
+                    base_name_constraint = merge_name_constraint(
+                        base_name_constraint,
+                        append_search_filter(doctype, target_search_field_name, search_term, final_and_filters),
+                    )
                 parent_names_query_args = {"doctype": doctype, "filters": final_and_filters, "fields": ["name"], "limit_page_length": 0}
                 potential_parent_names = [doc.get("name") for doc in reportview_execute(**parent_names_query_args) if doc.get("name")]
                 if potential_parent_names:
@@ -326,7 +332,11 @@ def get_list_with_count_enhanced_impl(
                 total_records = len(final_matching_parent_names)
 
         elif use_json_pending_filter:
-            if search_term and target_search_field_name: final_and_filters.append([doctype, target_search_field_name, "like", f"%{search_term}%"])
+            if search_term and target_search_field_name:
+                base_name_constraint = merge_name_constraint(
+                    base_name_constraint,
+                    append_search_filter(doctype, target_search_field_name, search_term, final_and_filters),
+                )
             parent_names_query_args = {"doctype": doctype, "filters": final_and_filters, "fields": ["name"], "limit_page_length": 0}
             potential_parent_names = [doc.get("name") for doc in reportview_execute(**parent_names_query_args) if doc.get("name")]
             if potential_parent_names:
@@ -340,7 +350,13 @@ def get_list_with_count_enhanced_impl(
 
         else: # Standard Search -- Frappe-native: count via COUNT(*), page via direct LIMIT/OFFSET.
             if search_term and target_search_field_name:
-                for token in tokenize(search_term): final_and_filters.append([doctype, target_search_field_name, "like", f"%{token}%"])
+                for token in tokenize(search_term):
+                    # Successive intersection gives AND-across-tokens, matching the
+                    # stacked `like` filters the text path still produces.
+                    base_name_constraint = merge_name_constraint(
+                        base_name_constraint,
+                        append_search_filter(doctype, target_search_field_name, token, final_and_filters),
+                    )
             if base_name_constraint is None:
                 # Total via a single COUNT(*) (frappe.db.count -> query builder, which bypasses the sqlparse
                 # gate). No enumeration of the full name set, no `name IN (...)`.

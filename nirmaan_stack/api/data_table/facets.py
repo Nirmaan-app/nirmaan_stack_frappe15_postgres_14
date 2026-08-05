@@ -9,7 +9,8 @@ from .constants import LINK_FIELD_MAP, CHILD_TABLE_ITEM_SEARCH_MAP, JSON_ITEM_SE
 from .utils import (
     _parse_filters_input, _process_filters_for_query,
     _parse_target_search_field,
-    split_name_in_constraints, enumerate_matching_names
+    split_name_in_constraints, enumerate_matching_names,
+    append_search_filter
 )
 from .token_search import tokenize
 
@@ -189,7 +190,17 @@ def get_facet_values_impl(
                 else:
                     # Plain column field — original behavior
                     for token in search_tokens:
-                        processed_filters.append([doctype, target_search_field, "like", f"%{token}%"])
+                        # A non-text field returns names rather than appending a filter.
+                        # Appending them as `name in` is safe HERE (and only here) because
+                        # `split_name_in_constraints` runs a few lines below and pulls the
+                        # set straight back out, so it never reaches the generated SQL.
+                        _name_matches = append_search_filter(
+                            doctype, target_search_field, token, processed_filters
+                        )
+                        if _name_matches is not None:
+                            processed_filters.append(
+                                [doctype, "name", "in", list(_name_matches) or ["__NO_MATCH__"]]
+                            )
         
         # limit=0 means no limit, otherwise use the requested limit (no artificial cap)
         limit_int = cint(limit) if cint(limit) > 0 else None
