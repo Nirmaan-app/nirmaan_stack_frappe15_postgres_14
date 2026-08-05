@@ -1039,3 +1039,143 @@ class TestRateMaster(FrappeTestCase):
         with self.assertRaises(frappe.ValidationError) as cm:
             rate_master._validate_config(cfg)
         self.assertIn("wire1_thicknes_sqmm", str(cm.exception))
+
+    # ---- SLICE 1a: switches_sockets rebuilt as a per-component composite ----
+    #
+    # ROOT CAUSE these pins guard: `matching_mode: "item_identity"` routes a category to
+    # prompts/boq_rate_item_identity_prompt.md, whose lines 18-21 tell the model to return null for any
+    # row describing "MULTIPLE items or an assembled unit". EVERY switches_sockets production row IS an
+    # assembly, so the model refused DELIBERATELY -- 48/48 attribute cells blank at confidence 0.9 --
+    # while point_wiring (same run, same sheet, same model, NO matching_mode) filled 310/368. The fix is
+    # the QUESTION SHAPE, not the attributes.
+    #
+    # These are the C1 BEFORE-pins: they assert the CURRENT behaviour and are proven green against the
+    # unchanged state, then UPDATED IN THIS SAME SLICE, so the diff shows exactly what changed.
+
+    # SLICE 1a: bump with the rebuild. `cls.eall` stays pinned to v12 on purpose (test_23 asserts that
+    # asset's historical counts) -- the current asset is loaded by path, as test_31 does for v17.
+    _ASSET = "rate_master_electrical_all_v21.json"
+
+    def _asset_payload(self, discipline):
+        path = os.path.join(os.path.dirname(loader.__file__), "data", self._ASSET)
+        with open(path, "r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+        payload["discipline"] = discipline
+        return payload
+
+    def test_37_switches_sockets_routing_and_ownership(self):
+        """The ROUTING pin, both directions.
+
+        AFTER: matching_mode and identity_attribute_id are REMOVED TOGETHER (the latter is only read
+        when the mode is item_identity, so leaving it would be a dangling key), which routes the
+        category to the ordinary attribute prompt -- the one with NO refusal clause.
+        `item_kinds` is asserted either way: it is a SEPARATE key, and switches_sockets stays the sole
+        owner of switch_socket_item (point_wiring / switches_point are kind-less borrowers).
+        """
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._asset_payload(disc))
+        cfg = _obj(frappe.db.get_value(
+            "BoQ Rate Category Config",
+            {"discipline": disc, "category_id": "switches_sockets", "active": 1}, "config",
+        ))
+
+        self.assertIsNone(cfg.get("matching_mode"))
+        self.assertIsNone(cfg.get("identity_attribute_id"))
+        self.assertEqual(cfg.get("item_kinds"), ["switch_socket_item"])
+
+        prompt = extraction.select_prompt_text(cfg)
+        # NEGATIVE: the refusal clause must be GONE -- this is the whole point of the slice.
+        # NB: the asset hard-wraps, so "assemblies are priced\nelsewhere" -- match within one line.
+        self.assertNotIn("assemblies are priced", prompt)
+        self.assertNotIn("MULTIPLE items or an assembled unit", prompt)
+        # NEGATIVE: nor is it the composite-decomposition prompt.
+        self.assertNotIn("SLOT_SPEC", prompt)
+
+    def test_38_switches_sockets_attribute_shape(self):
+        """The SHAPE pin.
+
+        AFTER: six per-component slots, each a LIVE catalog choice (values_from + a `where` family
+        filter, never a static list that goes stale) and each None-able with its qty disabled when None.
+        The three flat attributes (family / item) are gone; only `colour` survives, joined by `back_box`.
+        """
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._asset_payload(disc))
+        cfg = _obj(frappe.db.get_value(
+            "BoQ Rate Category Config",
+            {"discipline": disc, "category_id": "switches_sockets", "active": 1}, "config",
+        ))
+        defs = {d["id"]: d for d in cfg["attribute_definitions"]}
+        self.assertEqual(len(defs), 12)
+        # NEGATIVE: the flat identity attributes are gone
+        self.assertNotIn("family", defs)
+        self.assertNotIn("item", defs)
+
+        # the ONLY blanker (1M Blanker) is filed under the Switch family -- verified against the catalog
+        families = {"switch_item": "Switch", "socket1_item": "Socket", "socket2_item": "Socket",
+                    "blank_item": "Switch", "plate_item": "Grid and Face Plates"}
+        for slot, family in families.items():
+            d = defs[slot]
+            self.assertEqual(d["type"], "choice")
+            self.assertTrue(d.get("allow_none"), f"{slot} must be None-able")
+            self.assertIsNone(d.get("values"), f"{slot} must use values_from, never a static list")
+            self.assertEqual(d["values_from"]["kind"], "switch_socket_item")
+            self.assertEqual(d["values_from"]["where"]["family"], family)
+            qty = slot.replace("_item", "_qty")
+            self.assertIn(qty, d["disables_when_none"])
+            self.assertEqual(defs[qty]["type"], "number")
+            # POSITIVE: each slot resolves a NON-EMPTY catalog from the live master rows
+            self.assertTrue(extraction.values_from_catalog(disc, d["values_from"]))
+        # a None plate ALSO disables the back box -- the box is keyed by the plate size
+        self.assertIn("back_box", defs["plate_item"]["disables_when_none"])
+
+        self.assertEqual(defs["back_box"]["values"], ["Yes", "No"])
+        self.assertEqual(defs["colour"]["type"], "choice")
+        # the qty defaults ship; C2: NO colour default and NO rules this slice
+        self.assertEqual(cfg["extraction_defaults"]["switch_qty"], 1.0)
+        self.assertTrue(cfg.get("extraction_none_guidance"))
+        self.assertNotIn("colour", cfg["extraction_defaults"])
+        self.assertFalse(cfg.get("rules"))                     # C2: no rules, before or after
+
+    def test_39_switches_sockets_goldens_live(self):
+        """The GOLDEN pin, read from the LIVE production config (not a synthetic load) -- these are the
+        values a live re-import must not move, and the asset-goldens trap (C7) is exactly that a
+        replace=True import from an asset WITHOUT `goldens` silently drops them.
+
+        s1 arithmetic, derived from catalog list prices x the stored rate stages, NOT from the config:
+          6A 3-Pin Socket White list_price 282
+          supply : 282 x 0.3625 = 102.225 -> roundup tens = 110
+          install: 110 x 0.2     =  22    -> roundup tens =  30
+          bcs    : 282 x 0.25    =  70.5  -> roundup tens =  80
+        """
+        cfg = _obj(frappe.db.get_value(
+            "BoQ Rate Category Config",
+            {"discipline": "Electrical", "category_id": "switches_sockets", "active": 1}, "config",
+        ))
+        by_id = {g["id"]: g for g in (cfg.get("goldens") or [])}
+        self.assertIn("s1", by_id)
+        s1 = by_id["s1"]
+        # the VALUES are the invariant -- they must read identically before and after the rebuild
+        self.assertEqual(s1["expect"]["swsock_boq"]["supply"], 110.0)
+        self.assertEqual(s1["expect"]["swsock_boq"]["install"], 30.0)
+        self.assertEqual(s1["expect"]["swsock_bcs"]["bcs_supply"], 80.0)
+        # AFTER: re-stated as ONE socket, every other component POSITIVELY ABSENT ("None", not blank)
+        self.assertEqual(s1["attrs"]["socket1_item"], "6A 3-Pin Socket")
+        self.assertEqual(s1["attrs"]["socket1_qty"], 1.0)
+        for absent in ("switch_item", "socket2_item", "blank_item", "plate_item"):
+            self.assertEqual(s1["attrs"][absent], "None")
+        self.assertNotIn("family", s1["attrs"])
+        self.assertNotIn("item", s1["attrs"])
+
+        # POSITIVE: the composite golden exists -- s1 is single-item and cannot prove a composite.
+        # Its values are derived from CATALOG list prices x the rate stages, not from the config:
+        #   258x1 + 425x1 + 282x2 + 61x2 + 302x1 + 247x1 = raw 1918
+        #   1918 x0.3625 = 695.275 -> tens 700 ; 700 x0.2 = 140 ; 1918 x0.25 = 479.5 -> tens 480
+        self.assertIn("ss1", by_id)
+        ss1 = by_id["ss1"]
+        self.assertEqual(ss1["expect"]["swsock_boq"]["supply"], 700.0)
+        self.assertEqual(ss1["expect"]["swsock_boq"]["install"], 140.0)
+        self.assertEqual(ss1["expect"]["swsock_bcs"]["bcs_supply"], 480.0)
+        # it exercises BOTH socket slots -- the shape a single-socket category cannot express
+        self.assertEqual(ss1["attrs"]["socket1_item"], "6A/16A 3-Pin Socket")
+        self.assertEqual(ss1["attrs"]["socket2_item"], "6A 3-Pin Socket")
+        self.assertEqual(ss1["attrs"]["socket2_qty"], 2.0)

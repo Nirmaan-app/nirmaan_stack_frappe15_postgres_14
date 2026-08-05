@@ -975,6 +975,87 @@ describe("EA-4b switches_point (6-line assembly)", () => {
   });
 });
 
+// ---- SLICE 1a: switches_sockets rebuilt as a per-component composite ----
+//
+// It was `matching_mode: "item_identity"`, which routed it to the identity prompt whose
+// composite-refusal clause made the model return null for every assembly row (48/48 blank at
+// confidence 0.9). It now carries the SAME six-line shape as the switches_point template, under the
+// switches_sockets id. ROUNDING is the pre-existing switches_sockets convention and is owner-ruled:
+// sum the RAW component lines, multiply ONCE, roundup to TENS -- NOT point_wiring's per-component UNIT
+// rounding, which its own notes record as "INTENTIONAL, per the sheet". The two are deliberately
+// different; adopting units here would silently reprice every live row.
+//
+// The one structural difference from SWPT: `swsock_boq` emits supply AND install from ONE pipeline
+// (switches_point splits them), which is what keeps the pre-rebuild golden `s1`'s expect-shape intact.
+const SS_BOQ: Pipeline = { output: ["supply", "install"], steps: [...SWPT_LINES,
+  { step: "sum_components", result: "supply" },
+  { step: "scale", target: "supply", result: "supply", params: { m: 0.3625 }, formula: "base*m" },
+  { step: "roundup", target: "supply", params: { digits: -1 } },
+  { step: "scale", target: "supply", result: "install", params: { m: 0.2 }, formula: "base*m" },
+  { step: "roundup", target: "install", params: { digits: -1 } },
+] };
+const SS_BCS: Pipeline = { output: ["bcs_supply"], steps: [...SWPT_LINES,
+  { step: "sum_components", result: "bcs_supply" },
+  { step: "scale", target: "bcs_supply", result: "bcs_supply", params: { m: 0.25 }, formula: "base*m" },
+  { step: "roundup", target: "bcs_supply", params: { digits: -1 } },
+] };
+// the six REAL catalog rows these goldens price (list prices read from the live master, 2026-08-06)
+const SS_ITEMS: RateMasterItem[] = [
+  ssItem("Switch", "16A 1 WAY SWITCH", "White", 258), ssItem("Socket", "6A/16A 3-Pin Socket", "White", 425),
+  ssItem("Socket", "6A 3-Pin Socket", "White", 282), ssItem("Switch", "1M Blanker", "White", 61),
+  ssItem("Grid and Face Plates", "6M", "White", 302), ssItem("Back Box", "6M", "NA", 247),
+];
+const SS1 = { switch_item: "16A 1 WAY SWITCH", switch_qty: 1, socket1_item: "6A/16A 3-Pin Socket", socket1_qty: 1,
+  socket2_item: "6A 3-Pin Socket", socket2_qty: 2, blank_item: "1M Blanker", blank_qty: 2,
+  plate_item: "6M", plate_qty: 1, colour: "White", back_box: "Yes" };
+// s1 re-stated: ONE socket, every other component POSITIVELY ABSENT ("None", not blank)
+const S1 = { switch_item: "None", switch_qty: 0, socket1_item: "6A 3-Pin Socket", socket1_qty: 1,
+  socket2_item: "None", socket2_qty: 0, blank_item: "None", blank_qty: 0,
+  plate_item: "None", plate_qty: 0, colour: "White", back_box: "No" };
+
+describe("SLICE 1a switches_sockets composite (tens rounding, two socket slots)", () => {
+  it("ss1 composite -> supply 700 / install 140 / BCS 480 (raw 1918, derived from catalog prices)", () => {
+    // 258x1 + 425x1 + 282x2 + 61x2 + 302x1 + 247x1 = 1918
+    // 1918 x0.3625 = 695.275 -> tens 700 ; 700 x0.2 = 140 -> tens 140 ; 1918 x0.25 = 479.5 -> tens 480
+    expect(runPipeline("swsock_boq", SS_BOQ, SS_ITEMS, SS1).finals).toEqual({ supply: 700, install: 140 });
+    expect(runPipeline("swsock_bcs", SS_BCS, SS_ITEMS, SS1).finals).toEqual({ bcs_supply: 480 });
+  });
+
+  it("BOTH socket slots contribute -- a row naming two distinct socket types is expressible", () => {
+    const r = runPipeline("swsock_boq", SS_BOQ, SS_ITEMS, SS1);
+    expect(r.steps.find((x) => x.produced?.key === "socket1")?.produced?.value).toBe(425);
+    expect(r.steps.find((x) => x.produced?.key === "socket2")?.produced?.value).toBe(564); // 282 x 2
+  });
+
+  it("s1 re-stated as a lone socket is UNMOVED -> 110 / 30 / 80 (the backwards-compat pin)", () => {
+    // raw 282 x0.3625 = 102.225 -> tens 110 ; 110 x0.2 = 22 -> tens 30 ; 282 x0.25 = 70.5 -> tens 80
+    expect(runPipeline("swsock_boq", SS_BOQ, SS_ITEMS, S1).finals).toEqual({ supply: 110, install: 30 });
+    expect(runPipeline("swsock_bcs", SS_BCS, SS_ITEMS, S1).finals).toEqual({ bcs_supply: 80 });
+  });
+
+  it("NEGATIVE: socket2=None is an ABSENCE, not a zero-priced line -- the row still prices", () => {
+    const r = runPipeline("swsock_boq", SS_BOQ, SS_ITEMS, { ...SS1, socket2_item: "None", socket2_qty: 0 });
+    expect(r.status).toBe("ok");
+    expect(r.steps.find((x) => x.produced?.key === "socket2")?.produced?.value).toBe(0);
+    // (1918 - 564) x 0.3625 = 490.825 -> tens 500
+    expect(r.finals).toEqual({ supply: 500, install: 100 });
+  });
+
+  it("NEGATIVE: plate=None zeroes the back box too (it is keyed @plate_item)", () => {
+    const r = runPipeline("swsock_boq", SS_BOQ, SS_ITEMS, { ...SS1, plate_item: "None", plate_qty: 0 });
+    expect(r.steps.find((x) => x.produced?.key === "plate")?.produced?.value).toBe(0);
+    expect(r.steps.find((x) => x.produced?.key === "back_box")?.produced?.value).toBe(0);
+  });
+
+  it("NEGATIVE (F2): a stated-but-unmatchable item is an honest no-compute, never a silent zero", () => {
+    // rows 243/249/251 name a "6A SP Switch"; no 6A switch exists in the catalog. A null/unknown
+    // @attr is NOT the "None" sentinel -- None means positively absent, this means unresolved.
+    const r = runPipeline("swsock_boq", SS_BOQ, SS_ITEMS, { ...SS1, switch_item: "6A SP SWITCH" });
+    expect(r.status).toBe("no_match");
+    expect(r.finals).toEqual({});
+  });
+});
+
 describe("EA-4b industrial_sockets paired-MCB (None default / interlocked)", () => {
   it("socket-only (paired_mcb='None' -- the extraction default) -> MCB line 0 -> supply 2196 / install 770", () => {
     const attrs = { ...IBASE, item: "Plug + Socket in Enclosure Box", paired_mcb: "None" };
