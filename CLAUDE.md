@@ -630,6 +630,25 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
 - **`rules` remains an UNGATED `_KNOWN_CONFIG_KEYS` pass-through** reaching every category regardless
   of `matching_mode`; an absent/empty array yields a byte-identical prompt. Rule text is owner-authored
   and passes through VERBATIM — nothing in the app rewords it.
+- **point_wiring records RUNS and CORES SEPARATELY, and they are NEVER multiplied together
+  (owner-locked).** `wire1_runs`/`wire2_runs` are per-WIRE attributes, each defaulting to 1 beside
+  `wire1_core`/`wire2_core`. **CORES is the CATALOG MATCH KEY** (the `ref.core` binding), **RUNS drives
+  the conduit GEOMETRY and the WIRE RATE.** One attribute serving both purposes is exactly what broke
+  the previous rule: folding runs into cores wrote a core count with no catalog row behind it, and the
+  row stopped computing. ⚠️ This is the OPPOSITE of `wiring_cabling`, where runs and cores are also
+  separate but the core count is itself a match key with no geometry — do not unify the two categories.
+- **`circuit_fit`'s third `wire_spec` element is OPTIONAL and ABSENT MEANS 1.** A wire spec is
+  `[core_attr, thickness_attr]` or `[core_attr, thickness_attr, runs_attr]`; the dia sum becomes
+  `sqrt(sqmm/PI) * 2 * cores * runs`. Absence must never change behaviour — every pre-existing config
+  carries 2-tuples, so a non-optional third element would break all of them on ship. The same
+  absent-means-1 rule governs a rate stage's optional `mult_from_attr`, which folds its attribute in
+  BEFORE that stage's rounding (`x runs then round`). **This DELIBERATELY DIVERGES from `scale`'s
+  `<ident>_from_attr`, which hard-fails to an honest no-compute** — a run count is a multiplier whose
+  neutral element is 1, not a missing measurement. Both sites share one helper so they cannot drift.
+- **CONDUIT is runs-aware through the GEOMETRY ALONE and must never carry a second runs multiplier.**
+  `conduit_qty` derives from `circuits`, which derives from the runs-scaled diameter. Adding a
+  multiplier to the conduit component would charge runs-squared. Switch, socket, plate and back box
+  never multiply by runs at all.
 - **`_validate_config` must not be stricter than the interpreter (EA-4 ext-a).** Three shapes the
   interpreter explicitly executes are valid config and must stay accepted: a `component` with **no
   `params`** (a conditional component carries them per-condition), a `component` with **no `target`**

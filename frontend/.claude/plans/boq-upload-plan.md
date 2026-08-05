@@ -17234,3 +17234,157 @@ throwaway BoQ was created and none needed cleaning up).**
 - **Multi-run goldens (runs > 1)** -- owner-authored values required; no sheet basis exists.
 - **V3 and V5** of the browser cert.
 - **The B4 10A-RCBO misfire** stands as a model-behaviour defect on the rules-fix queue.
+
+---
+
+## Build slice point_wiring RUNS -- separate runs from cores, make conduit sizing runs-aware
+
+**Date:** 2026-08-05 · **Branch:** `feature/boq-pricing-helper` · TWO interpreter changes + validator +
+config. Asset **E-ALL v19 -> v20** (`c17f207d922693a0`).
+
+### Why R9 failed -- one attribute, two diverging consumers
+
+ext-b's R9 folded runs INTO the wire core value. The owner tested it and it FAILED: `6R x 1C` wrote
+`wire1_core = 6`, no 6-core wire exists at 2.5 sqmm, and the row did not compute.
+
+`wire1_core` had exactly TWO consumers, and they want DIFFERENT numbers:
+
+| consumer | wants | why |
+|---|---|---|
+| `circuit_fit` geometry (`wire_specs`) | **runs x cores** | six parallel strands really do occupy six strands of conduit |
+| `component_ref` catalog match (`ref.core`) | **cores ONLY** | the catalog is indexed by core count; there is no 6-core 2.5 sqmm row |
+
+Folding them satisfied the geometry and destroyed the match. The fix separates the attributes and
+sends each consumer the value it actually needs.
+
+### (1)+(2) The two interpreter changes
+
+**`circuit_fit` accepts an OPTIONAL third wire_spec element:**
+
+```ts
+for (const [coreAttr, thickAttr, runsAttr] of p.wire_specs) {
+  …
+  overallDia += Math.sqrt(thick / Math.PI) * 2 * core * absentMeansOne(selected, runsAttr);
+}
+```
+
+**A rate stage can bind an attribute** -- and the PREFERRED shape worked, so the runs binding rides the
+EXISTING wire stage rather than adding one:
+
+```ts
+for (const st of stages ?? [])
+  r = roundByMode(r * st.mult * absentMeansOne(selected, st.mult_from_attr), st.round);
+```
+
+`{"mult": 0.602, "mult_from_attr": "wire1_runs", "round": "up0"}` gives `base * 0.602 * runs` THEN
+roundup -- the owner's multiply-then-round ruling. A vitest case DISCRIMINATES the two orders: wire2 at
+2 runs gives **61** (`ceil(30.37*2)`), not 62 (`ceil(30.37)*2`).
+
+### (4) ABSENT MEANS 1 -- a deliberate divergence from cables, recorded
+
+Both sites share ONE helper, `absentMeansOne`, whose doc-comment carries the reasoning: (a) backward
+compatibility REQUIRES it in `circuit_fit` -- every shipped wire_spec is a 2-tuple with no runs attr at
+all; (b) differing absent-semantics between the two sites inside one category would be incoherent; (c)
+the cable `_from_attr` hard-fail produced a configurator regression where every row read no-compute
+until the user filled a box that is 1 in almost every case. **A run count is a multiplier whose neutral
+element is 1, not a missing measurement.** `wiring_cabling`'s cable runs keep the hard-fail; the two
+categories are deliberately inconsistent and the owner accepted that at ext-b.
+
+### (3) Validator -- both relaxations, both REFERENCE-GUARDED
+
+`wire_specs` accepts `len in (2, 3)` and now guards **every** element (`for el in pair`, replacing the
+`pair[0]`/`pair[1]` pair); `rate_stages[i].mult_from_attr` must be a non-empty string and is
+`_ref`-guarded. **The guard matters more than usual here: absent-means-1 at runtime, so an unguarded
+typo would read as "no runs" and silently UNDER-PRICE rather than failing.**
+
+### (5)+(6) Config -- point_wiring
+
+`wire1_runs`/`wire2_runs` added (type number, default 1.0 each); fed into `circuit_fit.wire_specs` as
+the third element in all THREE pipelines; the runs multiplier attached at **SIX** points (wire1+wire2 in
+supply/install/BCS) and nowhere else; `wire2_thickness_sqmm.disables_when_none` now disables
+`wire2_runs` too; the cores RELABELLED `"Wire N - runs (Core)"` -> **`"Wire N - cores"`** (IDs
+unchanged); the `explain` string now reads `...*2*cores*runs`. R9 deleted and replaced verbatim.
+`ref.core` is UNTOUCHED. Conduit/switch/socket/plate/back_box carry no multiplier.
+
+### The goldens held -- and the ext-b trap was pre-empted
+
+| golden | expected | after |
+|---|---|---|
+| pw1 | supply **1869** / install **735** / bcs **1370** | unchanged |
+| pw2 | supply **1823** / install **722.2** / bcs **1342** | unchanged |
+| pw3 | supply **1682** | unchanged |
+
+`wire1_runs: 1` / `wire2_runs: 1` were added to all three stored goldens' attrs BEFORE applying -- a
+golden's attrs are an ATOMIC SET, and ext-b proved that omitting a new attribute makes every golden
+fall to honest no-compute in production while vitest passes anyway (its helper injects values). The
+apply script asserted `golden EXPECTED VALUES unchanged: True`.
+
+### The `circuit_fit` sweep (C3) -- measured, not assumed
+
+Swept all **13** active configs and every asset file. **`point_wiring` is the ONLY user** -- 3 steps,
+all 2-tuples before this slice. Every other category (wiring_cabling, db_switchgear, cabletray_raceway,
+popup_boxes, switches_point, lighting_mgmt_system, miscellaneous, switches_sockets, industrial_sockets,
+junction_box_raceway, conduit_piping, earthing) has none. So the signature change's blast radius is
+exactly one category. The broader surface is the `stageRate` signature, covered by 82 green vitest tests
+spanning every category's assembly steps.
+
+### Gates + counts (all bench-verified in-session)
+
+| gate | baseline | final |
+|---|---|---|
+| `test_rate_suggest` | **54** OK | **54** OK |
+| `test_rate_master` | **32** OK | **38** OK |
+| vitest interpreter | **75** OK | **82** OK |
+| `tsc --noEmit` | **3236** | **3236** -- zero new |
+
+Pins before-green: vitest **77** (incl. "a THIRD element is SILENTLY DISCARDED") and `test_rate_master`
+**36** (incl. "a triple is REJECTED"), both against UNCHANGED code; both tripwires then flipped.
+
+**ONE OUT-OF-SCOPE PIN NEEDED A SCOPE ADDENDUM.** Replacing R9 invalidated ext-b's
+`test_e4_point_wiring_carries_r9_and_keeps_its_shipped_defaults`, which lives in `test_rate_suggest.py`
+-- not in this slice's file list. The build STOPPED and reported; the owner granted a narrow addendum.
+The test is renamed `test_e4_point_wiring_r9_records_runs_and_cores_separately` and now pins the new
+`applies_to`, the label, two distinctive phrases, AND asserts the retired wording is ABSENT so a revert
+fails loudly. The `extraction_defaults["wire1_core"] == 1.0` assertion was left untouched.
+
+### AI verification (2 calls + 1 reachability probe; ceiling 40)
+
+**A1 -- the real rows** (`BOQ-26-00113 / 'Elect - BOQ'`). ⚠️ **5 rows, not the 16 the prompt cited** --
+5 is the measured count of point_wiring rows carrying `NR x` notation at the current committed version.
+
+| row | wire1_runs | wire1_core | wire1_sqmm | wire2_runs | wire2_core |
+|---|---|---|---|---|---|
+| 391 | **3** | **1** | 2.5 | 3 | 1 |
+| 396 | **3** | **1** | 2.5 | 1 | 1 |
+| 402 | **3** | **1** | 1.5 | 1 | 1 |
+| 407 | **3** | **1** | 2.5 | 3 | 1 |
+| 411 | **3** | **1** | 1.5 | 1 | 1 |
+
+Runs 3, cores 1 on every row -- exactly the target shape.
+
+**A2 -- `3R x 2C`** -> `wire1_runs = 3`, `wire1_core = 2`. **NOT the product 6.** This is the precise
+case ext-b's R9 got wrong.
+
+**A3 -- `6R x 1C`, the owner's failing case -> IT NOW COMPUTES.**
+
+| | |
+|---|---|
+| extracted | runs **6**, cores **1**, 2.5 sqmm |
+| catalog | `cable COPPER/UNARMOURED/1C/2.5` -> **1 row FOUND**, list 82.95 |
+| geometry (PVC, 15 m) | dia **10.705** -> **25mm**, **1 circuit**, **conduit qty 15** |
+| at runs = 1 for comparison | dia 1.784 -> 25mm, 7 circuits |
+
+Cores 1 finds a real wire; runs 6 drives the geometry. The two halves no longer fight.
+
+### Browser cert -- V1/V2 PASS, V3-V6 BLOCKED on a stale vite module
+
+| | result |
+|---|---|
+| **V1** | **PASS.** `Wire 1 - cores`, `Wire 2 - cores`, `Wire 1 - runs`, `Wire 2 - runs` all present, both runs defaulting to **1**; the old `(Core)` wording is GONE. |
+| **V2** | **PASS.** Derivation at runs=1: `dia 3.166 -> 25mm, 4 circuits, conduit qty 4`, **supply = 1869**, install 735, bcs 1370 -- pw1 exactly, with every component line matching the banked oracle (wire1 750, wire2 465, conduit 168, switch 155, socket 187, plate 86, back_box 58). The live `explain` string reads `...*2*cores*runs`. |
+| **V3/V4** | **BLOCKED.** Setting `Wire 1 - runs` to 3, 2 or 1 leaves the geometry frozen at dia 3.166. **Root cause: vite is serving a STALE module** -- fetching `/src/.../ratePipelineInterpreter.ts` through the page returns a body with **no** `absentMeansOne`, `mult_from_attr` or `runsAttr`, while the file on disk (and in the container) has all three. This is the known vite stale-module trap, an ENVIRONMENT issue, not a product defect. Fix per the standing recipe: kill + restart vite, clear site data, re-login. |
+| **V5/V6** | **NOT RUN** -- same blocker. |
+
+**What is NOT proven by this:** the runs multiplier and the runs-aware geometry are proven by 82 green
+vitest tests against the real interpreter file, and the extraction half is proven by A1-A3 on real
+rows -- but the two have not been observed together ON SCREEN. V3-V6 are OWED after a vite restart.
