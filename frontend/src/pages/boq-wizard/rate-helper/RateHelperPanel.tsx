@@ -11,7 +11,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { resolveRateHelpers } from "./rateHelperRegistry";
-import { isSuggestion, type RateHelper, type RateHelperRowContext } from "./rateHelperTypes";
+import {
+  isAttrBlank,
+  isAttrDefaulted,
+  isSuggestion,
+  type RateHelper,
+  type RateHelperRowContext,
+} from "./rateHelperTypes";
 
 // RM-3c item B: the FULL-SCREEN panel is a resizable PUSH panel (occupies real layout width, narrows
 // the grid). Width persists per-user across sessions. The default is meaningfully below the RM-3a
@@ -272,10 +278,33 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                 <div className="space-y-2 border-t px-3 py-2">
                   {result.workings.attributes.length > 0 && (
                     <div className="space-y-1.5">
-                      {result.workings.attributes.map((a) => (
+                      {result.workings.attributes.map((a) => {
+                        // U2: the three-way state. BLANK -> red border (needs filling); DEFAULTED ->
+                        // the grid's established amber attention token (filled from a config default,
+                        // worth checking). A POSITIVELY-ABSENT attribute ("None", or disabled because
+                        // its controller is None) gets NEITHER -- that is a decision, not a gap.
+                        // Both clear on their own: setAttr writes an override, the helper recomputes,
+                        // the value goes non-empty and the defaulted mark is dropped at source. There
+                        // is deliberately NO highlight state held here to outlive the correction.
+                        const blank = isAttrBlank(a);
+                        const defaulted = isAttrDefaulted(a);
+                        const fieldTone = blank
+                          ? "border-red-500 dark:border-red-500"
+                          : defaulted
+                            ? "bg-amber-50 dark:bg-amber-950/30"
+                            : undefined;
+                        return (
                         <label key={a.id} className="flex items-center justify-between gap-2 text-xs">
                           <span className="flex items-center gap-1 text-muted-foreground">
                             {a.label}
+                            {defaulted && (
+                              <span
+                                className="rounded bg-amber-100 px-1 text-[9px] font-medium leading-none text-amber-800 dark:bg-amber-900 dark:text-amber-200"
+                                title="Filled from a config default -- the row text gave no positive identification"
+                              >
+                                default
+                              </span>
+                            )}
                             {typeof a.confidence === "number" && (
                               <span className="tabular-nums text-[10px] opacity-70">
                                 {Math.round(a.confidence * 100)}%
@@ -291,7 +320,10 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                           {a.options ? (
                             <select
                               // EA-4a-r: disabled = greyed (an allow_none controller is set to "None").
-                              className="h-7 rounded border bg-background px-1 text-xs disabled:opacity-50"
+                              className={cn(
+                                "h-7 rounded border bg-background px-1 text-xs disabled:opacity-50",
+                                fieldTone,
+                              )}
                               value={a.value}
                               disabled={a.disabled}
                               onChange={(e) => setAttr(helper.id, a.id, e.target.value)}
@@ -324,7 +356,7 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                                 </label>
                               )}
                               <Input
-                                className="h-7 w-28 text-xs disabled:opacity-50"
+                                className={cn("h-7 w-28 text-xs disabled:opacity-50", fieldTone)}
                                 value={a.value === "None" ? "" : a.value}
                                 disabled={a.disabled || a.value === "None"}
                                 onChange={(e) => setAttr(helper.id, a.id, e.target.value)}
@@ -332,7 +364,8 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                             </span>
                           )}
                         </label>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
 

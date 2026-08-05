@@ -32,6 +32,28 @@ export interface WorkingsAttribute {
   /** EA-4a-r: this def may itself be "None" (positive absence). For a NUMBER def the panel renders a "None"
    * checkbox beside the numeric input (a choice def carries None as its top option instead). */
   allowNone?: boolean;
+  /** U2: the extraction filled this value from a CONFIG DEFAULT -- the row text gave no positive
+   * identification. The panel tints it amber so the pricer can see, and correct, every defaulted value
+   * before using the rate. A human override CLEARS this (the helper drops the mark on recompute), so the
+   * highlight can never outlive the correction. */
+  defaulted?: boolean;
+}
+
+/**
+ * U2 -- the two per-attribute HIGHLIGHT predicates, pure so they are unit-testable in the node env
+ * (component render is not). They encode a THREE-WAY distinction that must not be collapsed:
+ *
+ *   BLANK              value === ""      the AI could not read it / a manual row -> RED border, needs filling
+ *   DEFAULTED          defaulted === true  filled from a config default, not read -> AMBER, worth checking
+ *   POSITIVELY ABSENT  value === "None" (NONE_SENTINEL) or `disabled` (its controller is None)
+ *                                       -> NEITHER highlight. This is a DECISION, not a gap; flagging it
+ *                                          as missing would be wrong.
+ */
+export function isAttrBlank(a: Pick<WorkingsAttribute, "value" | "disabled">): boolean {
+  return !a.disabled && a.value === "";
+}
+export function isAttrDefaulted(a: Pick<WorkingsAttribute, "disabled" | "defaulted">): boolean {
+  return !a.disabled && a.defaulted === true;
 }
 
 /** One row's AI-extracted attributes from a suggestion run (RM-3). The value is null when the AI
@@ -41,6 +63,10 @@ export interface ExtractedAttr {
   value: string | number | null;
   confidence: number;
   corroborated?: boolean;
+  /** EA-4a: the server filled this from the category config's `extraction_defaults` because the row text
+   * gave no positive identification. It ALWAYS arrived on the wire; U2 declares it so the helper can carry
+   * it onto the per-attribute contract instead of reading it through an undeclared cast. */
+  defaulted?: boolean;
 }
 export interface ExtractionRow {
   excelRow: number;

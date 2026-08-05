@@ -21,6 +21,9 @@ import {
   buildDescriptionColumns,
   descriptionCellValue,
   sheetHasDescriptionParts,
+  ROW_TYPE_LABEL,
+  ROW_TYPE_FILTER_LABEL,
+  CLS_LABELS,
 } from "./reviewRender";
 import type { ReviewRow, ColumnDescriptor } from "./boqTypes";
 
@@ -209,5 +212,48 @@ describe("sheetHasDescriptionParts", () => {
   it("is false for an empty rows array or an empty parts list", () => {
     expect(sheetHasDescriptionParts([])).toBe(false);
     expect(sheetHasDescriptionParts([rowParts(0, [])])).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// U3 TRIPWIRE -- the rename guard. There was NO test asserting this rendered string before, which
+// is exactly why a HALF-rename was the risk: nothing would have gone red.
+//
+// The rendered DOM is unreachable here (node env, no jsdom by deliberate config), so the pin bites
+// on the CONSTANT the headers render from. That constant is SHARED by both screens (the pricing
+// editor's Row Type column header and the review tree's header + filter + detail line + dialogs),
+// so a half-rename is not merely caught -- it is structurally impossible: a screen cannot drift
+// without deleting its import, and the literal it would have to reintroduce no longer exists.
+// ---------------------------------------------------------------------------------------------
+describe("U3 -- the Row Type label is one shared constant", () => {
+  it("reads 'Row Type' -- the user-facing name of the row-taxonomy axis", () => {
+    expect(ROW_TYPE_LABEL).toBe("Row Type");
+  });
+
+  it("(negative) has NOT reverted to 'Classification'", () => {
+    expect(ROW_TYPE_LABEL).not.toBe("Classification");
+    expect(ROW_TYPE_LABEL.toLowerCase()).not.toContain("classification");
+  });
+
+  it("derives the filter affordance's label from it, so the two can never disagree", () => {
+    expect(ROW_TYPE_FILTER_LABEL).toBe("Filter by row type");
+    expect(ROW_TYPE_FILTER_LABEL).toContain(ROW_TYPE_LABEL.toLowerCase());
+  });
+
+  // The FIELD is untouched -- only the label moved. The pill still renders the per-token labels and
+  // every token stays `classification`-shaped on the wire.
+  it("(negative) the DATA vocabulary is unchanged -- the rename is wording, not a migration", () => {
+    expect(CLS_LABELS.line_item).toBe("Item");
+    expect(CLS_LABELS.subtotal_marker).toBe("Subtotal");
+    expect(CLS_LABELS.header_repeat).toBe("Header");
+    // the KEYS are the wire tokens and are untouched by the rename
+    expect(Object.keys(CLS_LABELS).sort()).toEqual([
+      "header_repeat",
+      "line_item",
+      "note",
+      "preamble",
+      "spacer",
+      "subtotal_marker",
+    ]);
   });
 });

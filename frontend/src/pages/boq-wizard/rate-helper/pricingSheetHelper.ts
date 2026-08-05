@@ -239,7 +239,12 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       // A defaulted attribute is one the model filled from the config default (no positive text
       // identification); the pricer should see WHICH values came from a default, not read (EA-4a). An
       // override (the pricer typed it) clears the defaulted mark.
-      if (!disabled && overridden === undefined && coerced !== null && (cell as { defaulted?: boolean })?.defaulted) {
+      // U2: `defaulted` is now DECLARED on ExtractedAttr, so the undeclared cast is gone. The SAME
+      // condition drives both surfaces -- the prose trace line below AND the per-attribute flag the
+      // panel tints -- so the two can never disagree about which values came from a default.
+      const isDefaulted =
+        !disabled && overridden === undefined && coerced !== null && cell?.defaulted === true;
+      if (isDefaulted) {
         defaulted.push(`${d.label}=${coerced}`);
       }
       workingsAttrs.push({
@@ -251,6 +256,7 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
         corroborated: disabled ? undefined : cell?.corroborated,
         disabled: disabled || undefined,
         allowNone: d.allow_none || undefined,
+        defaulted: isDefaulted || undefined,
       });
     }
 

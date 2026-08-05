@@ -3,7 +3,7 @@
 import { describe, it, expect } from "vitest";
 import type { Pipeline, RateCategoryConfig, RateMasterItem } from "@/pages/pricing/rate-master/rateMasterTypes";
 import type { ExtractionRow, RateHelperRowContext } from "./rateHelperTypes";
-import { isSuggestion } from "./rateHelperTypes";
+import { isAttrBlank, isAttrDefaulted, isSuggestion } from "./rateHelperTypes";
 import {
   attributeOptions,
   buildExtractionByRow,
@@ -531,5 +531,134 @@ describe("makePricingSheetHelper -- EA-4a-r allow_none NUMBER def (None checkbox
     const core = r.workings.attributes.find((a) => a.id === "wire2_core")!;
     expect(core.disabled).toBe(true);
     expect(core.value).toBe("");
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// UI SLICE (U2) PINS -- these assert the PRE-CHANGE truth and are proven GREEN against the
+// UNCHANGED helper. The marked pin below is UPDATED (not deleted) once U2 lands, so the diff
+// shows exactly what the contract carried before and after.
+//
+// Pre-change truth: the `defaulted` flag arrives per attribute from the server and the helper READS
+// it (through an undeclared cast at pricingSheetHelper.ts:242), but only to flatten it into ONE
+// PROSE derivation line. It never reaches the per-attribute contract the panel renders.
+// ---------------------------------------------------------------------------------------------
+describe("U2 pins -- how `defaulted` is carried today", () => {
+  // NOTE: attrOverrides is compute's SECOND POSITIONAL argument, not a ctx property.
+  const pwCompute = (overrides?: Record<string, string>) => {
+    const map = buildExtractionByRow([{ excel_row: 40, attributes: PW_EXT as never }]);
+    const helper = makePricingSheetHelper({
+      configsByCategory: new Map([["point_wiring", PW_CONFIG]]),
+      items: PW_HELPER_ITEMS,
+      extractionByRow: map,
+    });
+    return helper.compute(
+      { ...ctx(40, "Point wiring for a light point"), category: "point_wiring" },
+      overrides,
+    );
+  };
+
+  // STAYS GREEN THROUGH U2 (U2e: the prose trace is a different surface and must NOT be removed).
+  it("surfaces the defaulted attributes as ONE prose derivation line that NAMES them", () => {
+    const r = pwCompute();
+    expect(isSuggestion(r)).toBe(true);
+    if (!isSuggestion(r)) return;
+    const line = r.workings.derivation.find((d) => d.includes("defaulted"));
+    expect(line).toBeDefined();
+    expect(line).toContain("no positive text identification");
+    expect(line).toContain("Length=15");
+  });
+
+  // >>> THE PIN U2 UPDATED <<<  Pre-change this asserted `toBeUndefined()` (the flag existed on the
+  // wire but never reached the per-attribute contract, so the panel could not highlight it). U2 makes
+  // it structural; the cast at pricingSheetHelper.ts:242 is gone.
+  it("carries `defaulted` on the per-attribute contract", () => {
+    const r = pwCompute();
+    expect(isSuggestion(r)).toBe(true);
+    if (!isSuggestion(r)) return;
+    // circuit_length_m / switch_qty / back_box carry defaulted:true in PW_EXT
+    expect(r.workings.attributes.find((a) => a.id === "circuit_length_m")!.defaulted).toBe(true);
+    expect(r.workings.attributes.find((a) => a.id === "switch_qty")!.defaulted).toBe(true);
+    expect(r.workings.attributes.find((a) => a.id === "back_box")!.defaulted).toBe(true);
+  });
+
+  it("(negative) a POSITIVELY-READ attribute is NOT marked defaulted", () => {
+    const r = pwCompute();
+    expect(isSuggestion(r)).toBe(true);
+    if (!isSuggestion(r)) return;
+    // socket_qty / plate_qty / colour carry NO defaulted flag in PW_EXT
+    expect(r.workings.attributes.find((a) => a.id === "socket_qty")!.defaulted).toBeUndefined();
+    expect(r.workings.attributes.find((a) => a.id === "plate_qty")!.defaulted).toBeUndefined();
+    expect(r.workings.attributes.find((a) => a.id === "colour")!.defaulted).toBeUndefined();
+  });
+
+  it("(U2d) a human OVERRIDE clears the STRUCTURAL flag too -- both surfaces agree", () => {
+    const r = pwCompute({ circuit_length_m: "20" });
+    expect(isSuggestion(r)).toBe(true);
+    if (!isSuggestion(r)) return;
+    const len = r.workings.attributes.find((a) => a.id === "circuit_length_m")!;
+    expect(len.value).toBe("20");
+    expect(len.defaulted).toBeUndefined();
+    // ...and the attribute is gone from the prose line as well (the ONE condition drives both)
+    expect(r.workings.derivation.find((d) => d.includes("defaulted"))).not.toContain("Length=");
+  });
+
+  // The U2d rule ALREADY exists, expressed through the prose line: a human override drops the
+  // attribute from it. U2 must carry this same rule onto the structural flag, not contradict it.
+  it("(negative) a human OVERRIDE drops that attribute from the defaulted line", () => {
+    const r = pwCompute({ circuit_length_m: "20" });
+    expect(isSuggestion(r)).toBe(true);
+    if (!isSuggestion(r)) return;
+    const line = r.workings.derivation.find((d) => d.includes("defaulted"));
+    expect(line).toBeDefined();
+    expect(line).not.toContain("Length=");
+    expect(r.workings.attributes.find((a) => a.id === "circuit_length_m")!.value).toBe("20");
+  });
+
+  // A blank attribute is `value: ""`; a POSITIVELY-ABSENT one is the "None" sentinel or `disabled`.
+  // U2 must highlight the first and NEITHER of the last two -- pinned here on the pre-change shape.
+  it("distinguishes blank ('') from positively-absent (disabled) on the contract", () => {
+    const partial = { ...PW_EXT, wire1_thickness_sqmm: { value: null, confidence: 0.2 } };
+    const map = buildExtractionByRow([{ excel_row: 41, attributes: partial as never }]);
+    const helper = makePricingSheetHelper({
+      configsByCategory: new Map([["point_wiring", PW_CONFIG]]),
+      items: PW_HELPER_ITEMS,
+      extractionByRow: map,
+    });
+    const r = helper.compute({ ...ctx(41, "Point wiring"), category: "point_wiring" });
+    expect(isSuggestion(r)).toBe(true);
+    if (!isSuggestion(r)) return;
+    const blank = r.workings.attributes.find((a) => a.id === "wire1_thickness_sqmm")!;
+    expect(blank.value).toBe("");
+    expect(blank.disabled).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// U2 -- the two pure HIGHLIGHT predicates. The panel's render is structurally untestable here (node
+// env, no jsdom by deliberate config), so the RULE is pinned instead of the pixels.
+// ---------------------------------------------------------------------------------------------
+describe("U2 -- isAttrBlank / isAttrDefaulted (the three-way state)", () => {
+  it("BLANK: an empty value with no positive-absence marker", () => {
+    expect(isAttrBlank({ value: "", disabled: undefined })).toBe(true);
+    expect(isAttrBlank({ value: "2.5", disabled: undefined })).toBe(false);
+  });
+
+  it("DEFAULTED: the flag, and only when the attribute is live", () => {
+    expect(isAttrDefaulted({ defaulted: true, disabled: undefined })).toBe(true);
+    expect(isAttrDefaulted({ defaulted: undefined, disabled: undefined })).toBe(false);
+    expect(isAttrDefaulted({ defaulted: false, disabled: undefined })).toBe(false);
+  });
+
+  it('(negative) POSITIVE ABSENCE gets NEITHER highlight -- "None" is a decision, not a gap', () => {
+    // the NONE sentinel carries a value, so it is not blank
+    expect(isAttrBlank({ value: "None", disabled: undefined })).toBe(false);
+    expect(isAttrDefaulted({ value: "None", disabled: undefined, defaulted: undefined } as never)).toBe(false);
+  });
+
+  it("(negative) a DISABLED attribute (its controller is None) gets NEITHER highlight", () => {
+    // disabled attrs carry value "" -- without the disabled guard they would read as blank
+    expect(isAttrBlank({ value: "", disabled: true })).toBe(false);
+    expect(isAttrDefaulted({ defaulted: true, disabled: true })).toBe(false);
   });
 });

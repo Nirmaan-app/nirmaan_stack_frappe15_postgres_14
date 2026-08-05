@@ -19,6 +19,13 @@
  * "Unsaved changes". The save MECHANISM is unchanged. The single-editor lock is a later slice
  * (editable / lock_info stay INERT -- read from the payload, threaded into the grid, no lock).
  */
+import {
+  passesColumnFilter,
+  BLANKS_FILTER_ID,
+  BLANKS_FILTER_LABEL,
+  type ColumnFilterOption,
+} from "./GridColumnFilter";
+import { CLS_LABELS } from "./reviewRender";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useFrappeGetCall, useFrappeGetDoc, useFrappePostCall, FrappeContext, type FrappeConfig } from "frappe-react-sdk";
@@ -77,7 +84,7 @@ import {
   carryButtonState,
   summarizeSheetCarry,
 } from "./CrossBoqCarryDialog";
-import { CategoryVerdictPicker, buildEngineGroups } from "./CategoryVerdictPicker";
+import { CategoryVerdictPicker, buildEngineGroups, labelFor } from "./CategoryVerdictPicker";
 import {
   acceptClassifyEvent,
   addRunningDisciplines,
@@ -809,6 +816,14 @@ const SheetPricingPage = () => {
   );
   const [classifySummary, setClassifySummary] = useState<ClassifySummary | null>(null);
   const [showNeedsReview, setShowNeedsReview] = useState(false);
+  // U1 -- the two header column filters. PAGE-LEVEL state holding sets of stable IDS (never labels:
+  // "filter on the label, match on the id", so editing a catalog label cannot silently break a live
+  // filter). It acts on the ROW SET via passesViewFilter below and NEVER reaches the memoized row --
+  // only the funnel's ticks reach the grid, and the popover's search box is local to the popover.
+  const [rowTypeFilter, setRowTypeFilter] = useState<ReadonlySet<string>>(() => new Set<string>());
+  const [categoryFilter, setCategoryFilter] = useState<ReadonlySet<string>>(() => new Set<string>());
+  const onRowTypeFilterChange = useCallback((next: ReadonlySet<string>) => setRowTypeFilter(next), []);
+  const onCategoryFilterChange = useCallback((next: ReadonlySet<string>) => setCategoryFilter(next), []);
   const classifyRunningRef = useRef(false);
   // HV-10: a ref mirror of classifySummary so the stable per-discipline status callback can read
   // "is a terminal summary showing?" without re-registering the pollers.
@@ -2402,6 +2417,51 @@ const SheetPricingPage = () => {
 
   // The view-filter predicate (show-unpriced + row-type), WITHOUT collapse -- shared by the
   // search universe (R3: search ignores collapse) and folded into displayRows below.
+  // U1 -- the funnel option lists. Computed ONCE per sheet in a memo (deps: the row set + the
+  // category map + the label catalog), NEVER per render and NEVER per keystroke -- the popover's
+  // search box filters this already-built list locally.
+  const rowTypeFilterOptions = useMemo<ColumnFilterOption[]>(() => {
+    const seen = new Set<string>();
+    for (const r of rows) seen.add(r.effective_classification ?? BLANKS_FILTER_ID);
+    return [...seen]
+      .map((id) => ({
+        id,
+        label: id === BLANKS_FILTER_ID ? BLANKS_FILTER_LABEL : (CLS_LABELS[id] ?? id),
+      }))
+      .sort((a, b) =>
+        a.id === BLANKS_FILTER_ID ? -1 : b.id === BLANKS_FILTER_ID ? 1 : a.label.localeCompare(b.label),
+      );
+  }, [rows]);
+
+  // CATEGORY: DISPLAY LABELS, sorted by label, with "(Blanks)" pinned first. The option's `id` is
+  // the category id the predicate matches on -- the label is display/sort/search only.
+  const categoryFilterOptions = useMemo<ColumnFilterOption[]>(() => {
+    const ids = new Set<string>();
+    let anyBlank = false;
+    for (const r of rows) {
+      const cat = categoriesByExcelRow.get(r.source_row_number);
+      if (isMasterSetBlank(r, cat)) { anyBlank = true; continue; }
+      const id = cat?.effective_category_id ?? "";
+      if (id) ids.add(id);
+    }
+    const out = [...ids]
+      .map((id) => ({ id, label: labelFor(id, categoryLabelById) }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+    return anyBlank ? [{ id: BLANKS_FILTER_ID, label: BLANKS_FILTER_LABEL }, ...out] : out;
+  }, [rows, categoriesByExcelRow, categoryLabelById]);
+
+  // U1 -- the Category axis. "(Blanks)" is NOT a new blank test: it is the SHARED isMasterSetBlank
+  // predicate (the same one behind the server gate, the amber cell fill, the Check-Category filter
+  // and the live blank count) -- so ticking (Blanks) alone yields EXACTLY the page's blank count.
+  // A row that is neither master-set-blank nor categorised (a note/spacer -- not eligible, so not a
+  // "blank") belongs to no bucket and is excluded while the filter is active, by construction.
+  const passesCategoryFilter = (r: PricedRow) => {
+    if (categoryFilter.size === 0) return true;
+    const cat = categoriesByExcelRow.get(r.source_row_number);
+    if (isMasterSetBlank(r, cat)) return categoryFilter.has(BLANKS_FILTER_ID);
+    const id = cat?.effective_category_id ?? "";
+    return id !== "" && categoryFilter.has(id);
+  };
   const passesViewFilter = (r: PricedRow) =>
     (!showOnlyUnpriced ||
       (isPriceableLine(r, columnDescriptors) && !isFullyPriced(r, columnDescriptors))) &&
@@ -2410,8 +2470,13 @@ const SheetPricingPage = () => {
     // filter shows EXACTLY what amber shows (owner ruling; it now surfaces never-classified eligible
     // rows the old isNeedsReviewCategory missed). VIEW-ONLY -- never touches counts / Summary / feed.
     (!showNeedsReview || isMasterSetBlank(r, categoriesByExcelRow.get(r.source_row_number))) &&
-    classificationVisible(r.effective_classification, rowTypeToggles);
-  const anyViewFilter = showOnlyUnpriced || showNeedsReview || !noRowTypeHidden;
+    classificationVisible(r.effective_classification, rowTypeToggles) &&
+    // U1 -- the FOURTH clause: the two header column filters. Same composition law as the three
+    // above: AND across axes, and an EMPTY selection is a PASS-THROUGH (never "hide everything").
+    passesColumnFilter(rowTypeFilter, r.effective_classification) &&
+    passesCategoryFilter(r);
+  const anyViewFilter =
+    showOnlyUnpriced || showNeedsReview || !noRowTypeHidden || rowTypeFilter.size > 0 || categoryFilter.size > 0;
   // displayRows: the view filter AND collapse, composed in ONE page-side pass (R4). VIEW-ONLY --
   // the count (computePricedCount over `rows`), the Summary (rows={rows}), and the review/flag
   // feed all read the UNFILTERED `rows`, so neither hiding a row-type NOR collapsing a subtree
@@ -2440,6 +2505,8 @@ const SheetPricingPage = () => {
       showSpacers,
       showNotes,
       showSubtotals,
+      rowTypeFilter,
+      categoryFilter,
       categoriesByExcelRow,
       columnDescriptors,
       collapsed,
@@ -4049,6 +4116,12 @@ const SheetPricingPage = () => {
             // BLANK cells clickable + drives the amber "needs a category" fill. Same size>0 truth
             // that gates the Check-Category filter button below.
             hasRun={categoriesByExcelRow.size > 0}
+            rowTypeFilterOptions={rowTypeFilterOptions}
+            rowTypeFilter={rowTypeFilter}
+            onRowTypeFilterChange={onRowTypeFilterChange}
+            categoryFilterOptions={categoryFilterOptions}
+            categoryFilter={categoryFilter}
+            onCategoryFilterChange={onCategoryFilterChange}
             categoryLabelById={categoryLabelById}
             onCategoryClick={locked ? undefined : onCategoryClick}
             // U1 rate-helper (DEV): the per-row suggestion badges + the page-owned open callback.

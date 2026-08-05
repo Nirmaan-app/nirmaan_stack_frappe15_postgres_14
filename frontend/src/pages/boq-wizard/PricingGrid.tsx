@@ -77,7 +77,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
+  GridColumnFilter,
+  type ColumnFilterOption,
+} from "./GridColumnFilter";
+import {
   ClassificationPill,
+  ROW_TYPE_LABEL,
   computeDepths,
   renderDescriptorCell,
   resolveDescriptorValue,
@@ -1665,6 +1670,23 @@ interface PricingGridProps {
    * (default, back-compat). A per-GRID prop -- it changes displayDescriptors' reference for the
    * row, so a hide re-renders all rows ONCE (like formulasComplete); it is NOT a per-row prop.
    */
+  /**
+   * U1 -- the two header column filters (Row Type + Category). PER-GRID props, deliberately NOT
+   * per-row: the SELECTION acts on the row SET upstream (SheetPricingPage.passesViewFilter), so the
+   * grid only needs enough to render the funnel + its ticks. None of these enter
+   * `pricingRowPropsAreEqual`; a keystroke in the popover's search box never reaches here at all
+   * (that state is LOCAL to GridColumnFilter -- see the note in that file).
+   *
+   * The option lists are page-side useMemos computed ONCE per sheet; the selections are page-owned
+   * Sets of stable IDS (never labels -- "filter on the label, match on the id"); the callbacks are
+   * page useCallbacks. All identity-stable, so the PricingGrid React.memo shield holds.
+   */
+  rowTypeFilterOptions?: readonly ColumnFilterOption[];
+  rowTypeFilter?: ReadonlySet<string>;
+  onRowTypeFilterChange?: (next: ReadonlySet<string>) => void;
+  categoryFilterOptions?: readonly ColumnFilterOption[];
+  categoryFilter?: ReadonlySet<string>;
+  onCategoryFilterChange?: (next: ReadonlySet<string>) => void;
   hiddenCols?: Set<string>;
   /**
    * Toolbar Part 1 -- description search. The Excel row number (source_row_number) of the
@@ -1772,6 +1794,10 @@ const EMPTY_CATEGORY_MAP: Map<number, SheetCategoryRow> = new Map();
 
 // CL-3: a stable empty id->label map for the default (no catalog fetched) case -- a shared
 // reference so the row memo is never defeated by a fresh Map per render.
+// U1: module-level EMPTY defaults -- a fresh `new Set()` / `[]` in the destructuring default
+// would mint a new identity on EVERY render and defeat the PricingGrid React.memo shield.
+const EMPTY_FILTER_SET: ReadonlySet<string> = new Set<string>();
+const EMPTY_FILTER_OPTIONS: readonly ColumnFilterOption[] = [];
 const EMPTY_CATEGORY_LABEL_MAP: Map<string, string> = new Map();
 // U1 rate-helper: stable empty default so an absent prop never churns the memo.
 const EMPTY_SUGGESTIONS_MAP: Map<number, RowSuggestions> = new Map();
@@ -2895,7 +2921,7 @@ PricingGridRow.displayName = "PricingGridRow";
 // grid props identity-stable (the 12 useMemo/useCallback wraps -- esp. `rows`/`displayRows`); a
 // future non-stable prop silently kills the shield (see frontend/CLAUDE.md).
 export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(function PricingGrid(
-  { rows, columnDescriptors, onSaveRate, onBatchWrite, onDirtyChange, onHistoryChange, override = false, formulasComplete = true, categoryGateOpen = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], categoriesByExcelRow = EMPTY_CATEGORY_MAP, hasRun = false, categoryLabelById = EMPTY_CATEGORY_LABEL_MAP, onCategoryClick, rowSuggestionsByExcelRow = EMPTY_SUGGESTIONS_MAP, onSuggestionBadgeClick, onSaveReconChoice, hiddenCols, currentHitExcelRow = null, collapsed, childrenByParent, onToggleCollapse, onRevealRow, frozen = false, virtualized = false },
+  { rows, columnDescriptors, onSaveRate, onBatchWrite, onDirtyChange, onHistoryChange, override = false, formulasComplete = true, categoryGateOpen = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], categoriesByExcelRow = EMPTY_CATEGORY_MAP, hasRun = false, rowTypeFilterOptions = EMPTY_FILTER_OPTIONS, rowTypeFilter = EMPTY_FILTER_SET, onRowTypeFilterChange, categoryFilterOptions = EMPTY_FILTER_OPTIONS, categoryFilter = EMPTY_FILTER_SET, onCategoryFilterChange, categoryLabelById = EMPTY_CATEGORY_LABEL_MAP, onCategoryClick, rowSuggestionsByExcelRow = EMPTY_SUGGESTIONS_MAP, onSuggestionBadgeClick, onSaveReconChoice, hiddenCols, currentHitExcelRow = null, collapsed, childrenByParent, onToggleCollapse, onRevealRow, frozen = false, virtualized = false },
   ref,
 ) {
   // Cluster B: per-cell reconciliation choice map (per-SHEET; reference-stable across a keystroke
@@ -4505,10 +4531,20 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
       </th>
       <th
         data-colkey="a3"
-        title="Classification"
+        title={ROW_TYPE_LABEL}
         className="px-2 py-2 text-left font-medium text-muted-foreground border-r border-border sticky top-0 z-20 bg-muted"
       >
-        <span className="block truncate">Classification</span>
+        {/* U3: the LABEL is "Row Type"; `data-colkey="a3"` is a stable selector used by the resize
+            machinery and is deliberately NOT renamed. U1: the funnel filters this column. */}
+        <div className="flex items-center gap-1">
+          <span className="block truncate">{ROW_TYPE_LABEL}</span>
+          <GridColumnFilter
+            label={ROW_TYPE_LABEL}
+            options={rowTypeFilterOptions}
+            selected={rowTypeFilter}
+            onChange={onRowTypeFilterChange ?? (() => {})}
+          />
+        </div>
         {resizeHandle("a3", false)}
       </th>
       {/* MC-5: Description header fan-out -- one <th> per mapped description column (fan-out),
@@ -4595,7 +4631,17 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
       title="Category"
       className="px-2 py-2 text-left font-medium text-muted-foreground border-l border-border sticky top-0 z-20 bg-muted"
     >
-      <span className="block truncate">Category</span>
+      {/* U1: the funnel lists DISPLAY LABELS (matching what the cell renders via labelFor) but the
+          selection it emits is a set of category IDS -- see GridColumnFilter's label/id note. */}
+      <div className="flex items-center gap-1">
+        <span className="block truncate">Category</span>
+        <GridColumnFilter
+          label="Category"
+          options={categoryFilterOptions}
+          selected={categoryFilter}
+          onChange={onCategoryFilterChange ?? (() => {})}
+        />
+      </div>
     </th>
   );
 

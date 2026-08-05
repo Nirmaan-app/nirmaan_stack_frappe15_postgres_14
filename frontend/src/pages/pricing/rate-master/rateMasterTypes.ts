@@ -20,7 +20,16 @@ export interface AttributeDefinition {
   // resolution in RateMasterDerivation). When present the config carries no static `values`.
   values_from?: { kind: string; attr: string; where?: Record<string, string | number> };
   // EA-4a: the extraction default for this attribute (used server-side to fill a value the row text does
-  // not positively identify; a result attribute so filled carries `defaulted: true`). Display-only here.
+  // not positively identify; a result attribute so filled carries `defaulted: true`).
+  //
+  // U3/U4 CORRECTION -- this was previously commented "Display-only here", which read as harmless and
+  // is NOT accurate. It IS read server-side: `extraction.build_attribute_defs` copies it into the
+  // per-attribute definitions sent to the model, so setting it CHANGES THE AI PROMPT (measured: exactly
+  // one added key). It also seeds the Derivation screen (RateMasterDerivation's second-tier fallback,
+  // ahead of goldens[0]). Treat adding one as a real behavioural change, not a cosmetic default.
+  //
+  // NOTE it is DISTINCT from the top-level `extraction_defaults` map, which is what raises the prompt's
+  // DEFAULTS section and the `defaulted: true` result flag. A category can carry either or both.
   default?: string | number;
   // EA-4a-r: this component may be POSITIVELY ABSENT (the "None" sentinel -- distinct from blank/unknown).
   // allow_none -> the select offers a "None" option; disables_when_none lists the dependent attr ids that

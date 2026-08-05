@@ -19,6 +19,7 @@ import {
   orderCommittedSheets,
   isGridOnlySheet,
   isPriceableType,
+  classificationVisible,
   isMasterSetBlank,
   countMasterSetBlankRows,
   isCategoryGateOpen,
@@ -1413,5 +1414,64 @@ describe("MC-5 description fan-out geometry", () => {
       expect(dcs).toBe(DESCRIPTOR_COL_START);
       expect(colIndexFromColKeyPure("a4", anchorKeys, ["d:E"], dcs, 7)).toBe(4);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// UI SLICE (U1) PINS -- the THREE existing view-filter clauses, asserted against the UNCHANGED
+// code and proven green BEFORE the header filters are added as a FOURTH clause.
+//
+// `passesViewFilter` (SheetPricingPage) is a per-render closure and is not exported, so the pins
+// bite on the EXPORTED predicates it composes plus a local reconstruction of the composition. The
+// invariant U1 must not break: each axis is INDEPENDENT, they compose with AND, and an axis that
+// is switched OFF is a pass-through (it must never mean "hide everything").
+// ---------------------------------------------------------------------------------------------
+describe("U1 pins -- the three existing view-filter clauses", () => {
+  const ALL_ON = { showSpacers: true, showNotes: true, showSubtotals: true };
+  const row = (nodeType: string, cls: string | null) =>
+    ({ node_type: nodeType, effective_classification: cls, source_row_number: 1 }) as never;
+
+  // Clause 3 -- row type.
+  it("row-type: each toggle hides ONLY its own classification, and nothing else", () => {
+    expect(classificationVisible("spacer", { ...ALL_ON, showSpacers: false })).toBe(false);
+    expect(classificationVisible("note", { ...ALL_ON, showSpacers: false })).toBe(true);
+    expect(classificationVisible("subtotal_marker", { ...ALL_ON, showSpacers: false })).toBe(true);
+    expect(classificationVisible("line_item", { ...ALL_ON, showSpacers: false })).toBe(true);
+  });
+
+  it("row-type: ALL toggles on is a pass-through -- never hides anything", () => {
+    for (const cls of ["spacer", "note", "subtotal_marker", "line_item", "preamble", null]) {
+      expect(classificationVisible(cls, ALL_ON)).toBe(true);
+    }
+  });
+
+  // Clause 2 -- check-category, via the ONE shared blank predicate.
+  it("check-category: keys on the SHARED isMasterSetBlank predicate (eligible AND empty)", () => {
+    expect(isMasterSetBlank(row("Line Item", null), undefined)).toBe(true);
+    expect(isMasterSetBlank(row("Other", null), undefined)).toBe(false); // not eligible
+    expect(
+      isMasterSetBlank(row("Line Item", null), { effective_category_id: "wiring_cabling" } as never),
+    ).toBe(false); // has a category
+  });
+
+  // The COMPOSITION itself: AND across axes, off = pass-through.
+  it("composition: the three clauses AND together, and every axis OFF keeps every row", () => {
+    const passes = (
+      r: { node_type: string; effective_classification: string | null },
+      opts: { showOnlyUnpriced: boolean; showNeedsReview: boolean; toggles: typeof ALL_ON },
+      unpriced: boolean,
+      cat: unknown,
+    ) =>
+      (!opts.showOnlyUnpriced || unpriced) &&
+      (!opts.showNeedsReview || isMasterSetBlank(r as never, cat as never)) &&
+      classificationVisible(r.effective_classification, opts.toggles);
+
+    const r = { node_type: "Line Item", effective_classification: "line_item" };
+    const allOff = { showOnlyUnpriced: false, showNeedsReview: false, toggles: ALL_ON };
+    expect(passes(r, allOff, false, { effective_category_id: "x" })).toBe(true);
+    // one axis on and failing -> excluded
+    expect(passes(r, { ...allOff, showNeedsReview: true }, false, { effective_category_id: "x" })).toBe(false);
+    // two axes on, both passing -> included
+    expect(passes(r, { ...allOff, showOnlyUnpriced: true, showNeedsReview: true }, true, undefined)).toBe(true);
   });
 });
