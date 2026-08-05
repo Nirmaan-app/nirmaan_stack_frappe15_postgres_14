@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -93,23 +93,17 @@ interface RequestTdsItemDialogProps {
     onAddItem: (item: any) => void;
 }
 
-// Debounce a value (used for the picker search query → API swrKey).
-function useDebouncedValue<T>(value: T, delay = 300): T {
-    const [debounced, setDebounced] = useState(value);
-    useEffect(() => {
-        const t = setTimeout(() => setDebounced(value), delay);
-        return () => clearTimeout(t);
-    }, [value, delay]);
-    return debounced;
-}
-
 export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open, onOpenChange, onAddItem }) => {
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [fileError, setFileError] = useState<string | null>(null);
 
-    // Group picker (existing-group mode) search query.
-    const [searchQuery, setSearchQuery] = useState("");
-    const debouncedQuery = useDebouncedValue(searchQuery, 300);
+    // Existing-group picker state. No typed-query state: the whole (optionally
+    // WP-scoped) set is loaded once and FuzzySearchSelect filters it client-side.
+    // `filterWP` is the EXISTING tab's scope only — deliberately separate from the
+    // form's `work_package` (which is the NEW tab's declared value + the snapshot
+    // `handleGroupChange` writes). The two draw from different option lists, so
+    // sharing one field would let a value valid in one tab be absent in the other.
+    const [filterWP, setFilterWP] = useState<string>("");
     const [selectedGroup, setSelectedGroup] = useState<GroupResult | null>(null);
 
     const form = useForm<z.infer<typeof formSchema>>({
@@ -132,22 +126,75 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
     const { data: makeList } = useFrappeGetDocList("Makelist", { fields: ["name", "make_name"], limit: 0 });
     const { data: wpList } = useFrappeGetDocList("Work Packages", { fields: ["name", "work_package_name"], limit: 0 });
 
+    // Makes the PICKED GROUP already has a Repository Entry (datasheet) for.
+    // `search_tds_items` returns these on every result; the dialog used to ignore
+    // them and offer all ~372 Makelist rows, so a user could file a "New" request
+    // for a datasheet that already exists. Approval then does NOTHING useful:
+    // `_ensure_entry` returns early on an existing entry and never applies the
+    // uploaded `tds_attachment`, so the PDF is silently discarded while the
+    // project row keeps it — master and project end up on different documents.
+    //
+    // Requesting is the EXCEPTION path (add what is missing); the normal
+    // "Select Items for TDS" picker is the path for makes that already have a
+    // sheet. Marking them here makes the two surfaces complements, not overlaps.
+    //
+    // Matching is case-insensitive + trimmed ON PURPOSE, unlike the server's
+    // exact `_find_entry`. A stored 'Matrix' vs a Makelist 'matrix' would NOT
+    // match server-side — so requesting it would mint a SECOND entry for the same
+    // real make. Blocking on the looser comparison is what prevents that.
+    const takenMakes = useMemo(() => {
+        const s = new Set<string>();
+        (selectedGroup?.makes ?? []).forEach(m => {
+            const k = (m.make || "").trim().toLowerCase();
+            if (k) s.add(k);
+        });
+        return s;
+    }, [selectedGroup]);
+
     const makeOptions = useMemo(
-        () => (makeList || []).map((m: any) => ({ label: m.make_name, value: m.name })),
-        [makeList]
+        () =>
+            (makeList || []).map((m: any) => ({
+                label: m.make_name,
+                value: m.name,
+                taken: takenMakes.has((m.make_name || "").trim().toLowerCase()),
+            })),
+        [makeList, takenMakes]
     );
     const wpOptions = useMemo(
         () => (wpList || []).map((w: any) => ({ label: w.work_package_name, value: w.name })),
         [wpList]
     );
 
-    // ── Existing-group search (BE-PICKER) ────────────────────────────────────────
-    // 3rd arg is the swrKey (NOT options); embed the debounced query so it refetches
-    // as the user types. Only fetch when this dialog is open AND in existing mode.
+    // ── Existing tab: Work Package scope ────────────────────────────────────────
+    // Sourced from `TDS Items` itself (NOT a work-package doctype), so every
+    // option is guaranteed to return groups and the ids are exactly what
+    // `search_tds_items(work_package=…)` filters on.
+    const { data: tdsWpData } = useFrappeGetCall<{
+        message: { work_package: string; group_count: number }[];
+    }>("nirmaan_stack.api.tds.picker.get_tds_work_packages", undefined, "tds_picker_work_packages");
+
+    // `label` stays the bare name — react-select filters on it, so baking the
+    // count in would make typing a digit match a package.
+    const tdsWpOptions = useMemo(
+        () =>
+            (tdsWpData?.message ?? []).map(w => ({
+                label: w.work_package,
+                value: w.work_package,
+                groupCount: w.group_count,
+            })),
+        [tdsWpData]
+    );
+
+    // ── Existing-group source (BE-PICKER) ───────────────────────────────────────
+    // LOAD-ONCE, FILTER-CLIENT-SIDE — same as TdsCreateForm. `limit: 0` is
+    // unlimited; no `query` is sent. The server matches ONE CONTIGUOUS substring
+    // while FuzzySearchSelect tokenizes, so running the server first made its
+    // strictness win ("hydrogen exhaust" found nothing for a group that exists).
+    // Only fetches while the dialog is open AND on the existing tab.
     const { data: searchData, isLoading: isSearching } = useFrappeGetCall<{ message: GroupResult[] }>(
         "nirmaan_stack.api.tds.picker.search_tds_items",
-        { query: debouncedQuery, limit: 50 },
-        open && mode === "existing" ? `tds_request_search_${debouncedQuery}` : null
+        { work_package: filterWP || undefined, limit: 0 },
+        open && mode === "existing" ? `tds_request_groups_${filterWP || "all"}` : null
     );
 
     // ADR-0004: group-name-only search, so no member hit to attribute — the old
@@ -157,6 +204,7 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
         return groups.map(g => ({
             label: g.tds_item_name,
             value: g.tds_item,
+            workPackage: g.work_package,
             group: g,
         }));
     }, [searchData]);
@@ -167,18 +215,60 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
         form.setValue("tds_item_id", g?.tds_item || "");
         form.setValue("tds_item_name", g?.tds_item_name || "");
         form.setValue("work_package", g?.work_package || "");
+        // Picking an item DERIVES the scope, so choosing the item first never
+        // requires setting the Work Package. Safe unconditionally: the group is
+        // by definition in its own WP, so the narrowed list still contains it.
+        if (g?.work_package) setFilterWP(g.work_package);
+
+        // A make chosen BEFORE the group may already have a datasheet under the
+        // group just picked. Read `g.makes` directly — `takenMakes` derives from
+        // `selectedGroup`, which this render has not seen updated yet.
+        const currentMake = form.getValues("make");
+        if (currentMake) {
+            const label =
+                (makeList || []).find((m: any) => m.name === currentMake)?.make_name || currentMake;
+            const nowTaken = (g?.makes ?? []).some(
+                mk => (mk.make || "").trim().toLowerCase() === String(label).trim().toLowerCase()
+            );
+            if (nowTaken) form.setValue("make", "");
+        }
+    };
+
+    // A HANDLER, not a useEffect on `filterWP` — `handleGroupChange` writes it
+    // too, and an effect could not tell that derived write from a user's; it
+    // would clear the very group that caused it.
+    const handleFilterWPChange = (opt: any) => {
+        const nextWP: string = opt?.value || "";
+        if (nextWP === filterWP) return; // no-op re-pick must not wipe the pick
+        setFilterWP(nextWP);
+        // A group belongs to exactly one WP, so any real change strands the pick.
+        setSelectedGroup(null);
+        form.setValue("tds_item_id", "");
+        form.setValue("tds_item_name", "");
+        form.setValue("work_package", "");
     };
 
     const handleModeChange = (next: "existing" | "new") => {
         if (next === mode) return;
         form.setValue("mode", next);
-        // Drop only the PICKED-GROUP identity (the frozen group id) + picker UI
-        // state — those are meaningful only in "existing" mode. Do NOT clear
-        // tds_item_name / work_package: in "new" mode they are the user's typed
-        // custom values and must survive a tab round-trip. (They reset on dialog
-        // close via handleCancel.)
+
+        // `tds_item_name` / `work_package` are SHARED between the two tabs, and
+        // who wrote them decides whether they may survive the switch:
+        //   • typed by the user in "new" mode  → keep, so a half-finished custom
+        //     label is not lost on a tab round-trip;
+        //   • snapshotted from a PICKED GROUP by `handleGroupChange` → drop, or
+        //     the New tab opens pre-filled with the existing item's name.
+        // `selectedGroup` is the discriminator: it is set only while a group is
+        // picked, which is exactly when those fields hold the group's values.
+        if (mode === "existing" && selectedGroup) {
+            form.setValue("tds_item_name", "");
+            form.setValue("work_package", "");
+        }
+
+        // The picked-group identity + picker UI state are meaningful only in
+        // "existing" mode. (Everything resets on dialog close via handleCancel.)
         setSelectedGroup(null);
-        setSearchQuery("");
+        setFilterWP("");
         form.setValue("tds_item_id", "");
     };
 
@@ -216,7 +306,7 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
             description: "",
         });
         setSelectedGroup(null);
-        setSearchQuery("");
+        setFilterWP("");
         setSelectedFile(null);
         setFileError(null);
     };
@@ -250,7 +340,37 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
                             </div>
 
                             {mode === "existing" ? (
-                                /* Existing group picker */
+                              <>
+                                {/* Work Package scope for the existing-group picker.
+                                    Narrows the list; picking an item DERIVES it. */}
+                                <FormItem className="space-y-1">
+                                    <FormLabel className="text-sm font-bold text-gray-700">
+                                        Work Package<span className="text-red-500 ml-0.5">*</span>
+                                    </FormLabel>
+                                    <FormControl>
+                                        <RSelect
+                                            options={tdsWpOptions}
+                                            value={tdsWpOptions.find(o => o.value === filterWP) || null}
+                                            onChange={handleFilterWPChange}
+                                            placeholder="All work packages"
+                                            isClearable
+                                            classNamePrefix="react-select"
+                                            // Inline, not portalled — see the Make select below for why a
+                                            // body-level portal cannot be wheel-scrolled inside a Radix Dialog.
+                                            menuPlacement="auto"
+                                            formatOptionLabel={(option: any) => (
+                                                <span>
+                                                    {option.label}{" "}
+                                                    <span className="text-xs text-blue-600">
+                                                        ({option.groupCount} TDS item{option.groupCount === 1 ? "" : "s"})
+                                                    </span>
+                                                </span>
+                                            )}
+                                        />
+                                    </FormControl>
+                                </FormItem>
+
+                                {/* Existing group picker */}
                                 <FormField
                                     control={form.control}
                                     name="tds_item_id"
@@ -270,18 +390,22 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
                                                     }}
                                                     value={selectedGroup ? { label: selectedGroup.tds_item_name, value: selectedGroup.tds_item } : null}
                                                     onChange={handleGroupChange as any}
-                                                    onSearchInputChange={(v) => setSearchQuery(v)}
                                                     placeholder="Search TDS item..."
                                                     classNamePrefix="react-select"
                                                     isClearable
                                                     isLoading={isSearching}
-                                                    noOptionsMessage={() => isSearching ? "Searching..." : "No matching TDS items"}
+                                                    noOptionsMessage={() => isSearching ? "Loading TDS items..." : "No matching TDS items"}
                                                     menuPortalTarget={document.body}
                                                     menuPosition="fixed"
                                                     styles={PORTAL_SELECT_STYLES}
                                                     formatOptionLabel={(option: any) => (
                                                         <div className="flex flex-col">
                                                             <span>{option.label}</span>
+                                                            {/* Unscoped, the list spans every package, so the
+                                                                name alone can't say which one a result is in. */}
+                                                            {!filterWP && option.workPackage && (
+                                                                <span className="text-xs text-muted-foreground">{option.workPackage}</span>
+                                                            )}
                                                         </div>
                                                     )}
                                                 />
@@ -290,6 +414,7 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
                                         </FormItem>
                                     )}
                                 />
+                              </>
                             ) : (
                                 /* New group: free-text label + Work Package */
                                 <>
@@ -319,9 +444,8 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
                                                         onChange={(opt: any) => field.onChange(opt?.value || "")}
                                                         placeholder="Select Work Package"
                                                         classNamePrefix="react-select"
-                                                        menuPortalTarget={document.body}
-                                                        menuPosition="fixed"
-                                                        styles={PORTAL_SELECT_STYLES}
+                                                        // Inline, not portalled — see the Make select for why.
+                                                        menuPlacement="auto"
                                                     />
                                                 </FormControl>
                                                 <FormMessage />
@@ -345,11 +469,41 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
                                                 onChange={(opt: any) => field.onChange(opt?.value || "")}
                                                 placeholder="Select Make"
                                                 classNamePrefix="react-select"
-                                                menuPortalTarget={document.body}
-                                                menuPosition="fixed"
-                                                styles={PORTAL_SELECT_STYLES}
+                                                // NOT portalled, unlike the other selects here — this menu is
+                                                // the long one (~378 makes) and must scroll on the wheel.
+                                                // Radix Dialog wraps its content in `react-remove-scroll`,
+                                                // which puts a non-passive `wheel` listener on `document` and
+                                                // preventDefault()s any event whose target is OUTSIDE the
+                                                // dialog content. A menu portalled to document.body is
+                                                // outside it, so the wheel does nothing and only dragging the
+                                                // scrollbar works. Rendering inline keeps the menu inside the
+                                                // lock container, which is why the identical select on the
+                                                // Select-Items-for-TDS page (no portal, no dialog) scrolls fine.
+                                                // `menuPlacement="auto"` flips it upward when the dialog body
+                                                // has no room below, since Make sits low in the form.
+                                                menuPlacement="auto"
+                                                // react-select blocks selection natively — stronger than an
+                                                // onChange guard, which a keyboard pick could still slip past.
+                                                isOptionDisabled={(opt: any) => !!opt.taken}
+                                                formatOptionLabel={(option: any) => (
+                                                    <span className={option.taken ? "text-gray-400" : ""}>
+                                                        {option.label}
+                                                        {option.taken && (
+                                                            <span className="ml-2 text-[10px] uppercase">
+                                                                (datasheet already exists — pick it in Select Items for TDS)
+                                                            </span>
+                                                        )}
+                                                    </span>
+                                                )}
                                             />
                                         </FormControl>
+                                        {selectedGroup && takenMakes.size > 0 && (
+                                            <p className="text-xs text-muted-foreground">
+                                                {takenMakes.size} make{takenMakes.size === 1 ? "" : "s"} already
+                                                {takenMakes.size === 1 ? " has" : " have"} a datasheet for this item and
+                                                {takenMakes.size === 1 ? " is" : " are"} greyed out — request only a make that is missing one.
+                                            </p>
+                                        )}
                                         <FormMessage />
                                     </FormItem>
                                 )}
