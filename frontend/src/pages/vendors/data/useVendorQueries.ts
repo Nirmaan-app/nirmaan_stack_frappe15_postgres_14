@@ -55,6 +55,8 @@ interface ApiTransaction {
   details: string;
   amount: number;
   payment: number;
+  /** True when this transaction belongs to a PO whose status is "Inactive". */
+  is_inactive?: boolean;
 }
 
 
