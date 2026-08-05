@@ -17581,3 +17581,130 @@ touched.
 
 Pins were written and proven GREEN against the UNCHANGED code first (196/196), then updated in the
 same slice so the diff shows what the contract carried before and after.
+
+## Build slice 1a -- switches_sockets rebuilt as a per-component composite
+
+**Asset `rate_master_electrical_all_v20.json` -> `rate_master_electrical_all_v21.json`**
+(sha256 `607b7b4504c9ac36f757be3888181755b98b5e57460b87b2147bed69697d7a81`, 795 items / 12 configs,
+batch `rmbulk-9fa039b13c51`).
+
+### The root cause was the QUESTION SHAPE, not the attributes
+
+`switches_sockets` returned **48 of 48 attribute cells blank** on a live run. Not missing attributes and
+not a broken pipeline: the config carried `matching_mode: "item_identity"`, which routes a category to
+`prompts/boq_rate_item_identity_prompt.md`, whose lines 18-21 instruct the model to *"return null for the
+identity attribute"* for any row describing *"MULTIPLE items or an assembled unit (e.g. sockets plus cover
+plate plus box)"*. **All 16 production rows are exactly that shape** -- the prompt's own example is almost
+verbatim the BoQ text. The model refused DELIBERATELY, returning `item: null` at **confidence 0.9** (a
+confident refusal, not an inability) while `family` sat at 0.3 because a composite spans four families at
+once. The config's own `notes` had said so all along: *"single-item pricing; the point-BOM composite
+(sockets+plate build) = EA-4"*.
+
+**The controlled experiment** (run `BRSR-26-00323`, `ai_status=ran`, same sheet / same model / same call):
+
+| category | rows | attribute cells filled |
+|---|---|---|
+| `point_wiring` | 23 | **310 / 368 (84%)** |
+| `switches_sockets` | 16 | **0 / 48 (0%)** |
+
+The ONLY structural difference is `matching_mode`. point_wiring declares none, so it gets the ordinary
+attribute prompt, which has no refusal clause -- and it reads the SAME catalog kind. The catalog was never
+the problem.
+
+### The new shape
+
+`matching_mode` and `identity_attribute_id` REMOVED TOGETHER (the latter is read only when the mode is
+`item_identity`; leaving it would be a dangling key). `item_kinds: ["switch_socket_item"]` KEPT --
+switches_sockets remains the sole OWNER of that kind, with point_wiring and switches_point kind-less
+borrowers. Twelve attributes replace the three flat ones, each slot a LIVE catalog choice
+(`values_from` + a `where` family filter, never a static list that goes stale), each `allow_none` with
+`disables_when_none` on its qty:
+
+`switch_item/qty` · `socket1_item/qty` · `socket2_item/qty` · `blank_item/qty` ·
+`plate_item/qty` (also disables `back_box` -- the box is keyed by plate size) · `colour` · `back_box`
+
+**TWO socket slots are required, not a nicety.** Row 243 reads *"2 Nos of 6A socket controlled by one
+switch + 6A sockets with 6A SP Switch"* -- two distinct socket TYPES on one row. A single slot cannot
+express it, and the cert shows both contributing independently (425 and 564).
+
+**The blanker binds `{"family": "Switch"}`** because the only blanker in the catalog, `1M Blanker`, is filed
+under the Switch family; there is no blanker family.
+
+### TENS rounding -- it proved value-preserving, not a judgement call
+
+Six `component_ref` lines (`mult 1.0`, `round null`, `none_skips`) -> `sum_components` -> `scale` ->
+`roundup digits: -1`. That is switches_sockets' PRE-EXISTING convention and switches_point's, and it is
+NOT point_wiring's per-component UNIT rounding, which point_wiring's notes record as *"INTENTIONAL, per the
+sheet"*. **The two categories are deliberately different.** This began as a judgement call and ended as an
+objective one: under sum-raw-then-multiply, the standing golden `s1` reproduces **110/30/80 exactly**, so
+tens is the only value-preserving choice -- units would have moved a live golden.
+
+### Both goldens, with their arithmetic
+
+Derived from CATALOG list prices x the rate stages, **not** from the new config.
+
+**`s1`** (re-stated as a lone socket; every other component the `"None"` sentinel) -- **UNMOVED**:
+raw **282** -> `282 x 0.3625 = 102.225` -> tens **110**; `110 x 0.2 = 22` -> tens **30**;
+`282 x 0.25 = 70.5` -> tens **80**.
+
+**`ss1`** (NEW composite, exercises all six lines incl. both socket slots):
+
+| line | item | colour | list | qty | value |
+|---|---|---|---|---|---|
+| switch | `16A 1 WAY SWITCH` | White | 258 | 1 | 258 |
+| socket1 | `6A/16A 3-Pin Socket` | White | 425 | 1 | 425 |
+| socket2 | `6A 3-Pin Socket` | White | 282 | 2 | 564 |
+| blank | `1M Blanker` | White | 61 | 2 | 122 |
+| plate | `6M` | White | 302 | 1 | 302 |
+| back_box | `6M` | NA | 247 | 1 | 247 |
+| | | | | **RAW** | **1918** |
+
+`1918 x 0.3625 = 695.275` -> tens **700**; `700 x 0.2 = 140` -> tens **140**;
+`1918 x 0.25 = 479.5` -> tens **480**. All three confirmed on screen in the Derivation trace.
+
+### THE GOLDENS RULE -- and it bit on the first apply of this very slice
+
+**Goldens live in the asset's TOP-LEVEL `goldens` dict, keyed by `category_id`, and nowhere else.**
+`loader.load_rate_master` reads `payload["goldens"]` and OVERWRITES each config's `goldens` key from it
+(`merged = goldens_by_cat.get(cat_id); if merged: cfg["goldens"] = merged`). A golden written into a
+`category_configs[*].goldens` entry is **silently ignored**. So any golden added in-system via RM-4b but
+never written back into that top-level dict is **dropped on the next `replace=True` import**.
+
+**This slice's first apply hit exactly that.** The recon had recorded "the live configs carry goldens, the
+asset does not" -- true of the PER-CONFIG key, wrong about the asset, which carries them at top level. The
+first mint therefore merged goldens per-config, the loader ignored it, and the **old flat-shape `s1` was
+re-installed against the NEW twelve-slot config** while `ss1` never landed. **The count read 1 -> 1, so a
+count-based check saw nothing wrong.** It was caught only by comparing **`stored == asset` KEY BY KEY**,
+which flagged `goldens DIFFERS`. Re-minted at the top level, re-applied, verified.
+**Compare contents, not counts.**
+
+### V3's criterion was reworded -- the spec was wrong, not the code
+
+The cert originally required a None'd component's trace line to VANISH. It does not: it renders an explicit
+`component: socket2  None -> 0`. That is the EA-4a-r **positive-absence contract** working as designed --
+`components[name] = 0` plus a labelled trace step, deliberately distinct from a no-compute and from a
+computed zero, and identical to the certified `switches_point` template. **Owner ruling: `None -> 0` IS the
+contract; the criterion was reworded and no code changed.**
+
+### Gates + cert
+
+| gate | before | after |
+|---|---|---|
+| backend `test_rate_master` | 38 | **41** (3 pins, before-green then after-green) |
+| vitest | 54 files / 1,269 | **54 files / 1,275** (+6 interpreter cases) |
+| `tsc --noEmit` | 3,236 | **3,236 -- zero new** |
+| `_validate_config` | -- | **ACCEPTED on all 12 configs in v21** |
+| golden counts | -- | **no drops anywhere**; switches_sockets 1 -> 2 |
+
+RM-4b preview gate, in EDIT MODE (it computes only when editing): **switches_sockets 6/6 green,
+point_wiring 7/7 green and unchanged, wiring_cabling 20/20, db_switchgear 8/8.** Every edit-mode
+excursion exited without saving (verified: 0 `Version` rows on the untouched configs).
+
+### Open findings (not acted on)
+
+- **F2 -- items that do not exist.** Row 253 names a `"5/15A socket"`; rows 243/249/251 a `"6A SP Switch"`.
+  Neither is in the catalog (switch ratings present: 10A, 16A, 20A, 32A). The new shape returns an honest
+  **no-compute** for that line -- NOT a zero, and NOT the `"None"` sentinel. Slice 2.
+- **Box material is CLOSED, not a finding:** the catalog prices back boxes by module count only, so the
+  BoQ's "MS box" / "PVC box" text is descriptive, not a pricing dimension.
+- **point_wiring's blanker is slice 1b** -- untouched here by design.

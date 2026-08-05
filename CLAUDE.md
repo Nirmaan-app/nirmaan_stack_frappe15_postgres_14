@@ -144,6 +144,27 @@ First worked proof: the `sidebar_counts` aggregate rewrite + the shared `service
   touched. `BUG_24_NOTE_PARENT_INDEX_ENABLED` is **RETIRED** (slice 1 made one `target` drive pointer,
   parent and notes-key, so setting it False would MANUFACTURE a divergence). **An item cannot be the
   parent of another item** -- the finalize gate refuses it ("Item not under a section heading").
+- **`matching_mode: "item_identity"` routes a category to the composite-REFUSAL prompt (owner-locked).**
+  `extraction.select_prompt_text` hands such a category `prompts/boq_rate_item_identity_prompt.md`, which
+  instructs the model to return null for any row describing "MULTIPLE items or an assembled unit". It must
+  NEVER be set on a category whose rows are ASSEMBLIES -- the model then refuses every row, deliberately and
+  at high confidence, and the blanks look like an extraction failure rather than the instruction they are.
+  Removing it means removing `identity_attribute_id` in the SAME edit (that key is read only when the mode
+  is `item_identity`, so leaving it is a dangling key); `item_kinds` is SEPARATE and must stay -- it is what
+  records which category OWNS a catalog kind.
+- **`switches_sockets` is a PER-COMPONENT COMPOSITE and rounds to TENS; `point_wiring` rounds to UNITS
+  (owner-locked, deliberately different).** Both are sheet-faithful: switches_sockets sums the RAW component
+  lines, multiplies once, then rounds to tens; point_wiring multiplies and rounds per component. Do NOT
+  "harmonise" them -- point_wiring's own notes record its unit rounding as "INTENTIONAL, per the sheet", and
+  the tens convention is what keeps switches_sockets' standing golden value-identical across the rebuild.
+- **The only blanker item in the catalog is `1M Blanker`, and it lives under `family: "Switch"`** -- there is
+  no blanker family. Any `blank_item` slot therefore binds `values_from.where = {"family": "Switch"}`.
+- **Goldens live in the asset's TOP-LEVEL `goldens` dict, keyed by category_id, and NOWHERE ELSE.**
+  `loader.load_rate_master` reads `payload["goldens"]` and OVERWRITES each config's `goldens` key from it, so
+  a golden written into a `category_configs[*].goldens` entry is SILENTLY IGNORED. A golden added in-system
+  via RM-4b but never written back into that top-level dict is DROPPED on the next `replace=True` import.
+  **Verify an apply by comparing `stored == asset` KEY BY KEY, never by golden COUNT** -- a swap can leave the
+  count identical while replacing the content.
 - **Estimator rules are read from the DB, not the asset:** `extraction._load_active_configs` reads `BoQ Rate Category Config`, so editing `services/boq_rate_master/data/rate_master_*.json` is **INERT at runtime** until re-imported or applied via the audited RM-4b `update_rate_config`. The asset is the record; the config row is what the model reads.
 - **Loss Justification (PR/SB):** a written reason is required for any approval item whose **Loss % > 10%** (strict). One field `loss_justification` (Small Text) on the SHARED child `Procurement Request Item Detail` covers both PR and SB. Terms in `CONTEXT.md`; scope/rationale in `docs/adr/0002-loss-justification-scope.md` (PR/SB approval surfaces ONLY — NOT on `Purchase Order Item`, no Loss% snapshot, no PO/print). Loss % = `(-savingLoss / benchmark) * 100`, **benchmark = Target Amount (target rate ×0.98) if available else Lowest Quoted L1 (Target-prioritized)**. Gate is server-authoritative: `send_vendor_quotes.handle_delayed_items` accepts `loss_justifications`, writes them onto `order_list`, and re-computes Loss % (`compute_item_loss_percent`) to `frappe.throw` on a blank >10% reason. **GOTCHA 1 — `rfq_data.details` is keyed by `item_id`, NOT the order_list child-row `name`** (verified against live data); the L1 lookup must use `item.item_id`. **GOTCHA 2 — dual benchmark on the approval screen:** the existing ₹ "Savings/Loss" column keeps its `min(Target, L1)` benchmark (unchanged), but the new Loss % uses the Target-prioritized benchmark to match capture and keep the >10% gate identical end-to-end — so the ₹ and the % on that one screen can come from different benchmarks; don't "fix" it.
 
@@ -575,8 +596,9 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   prior `rmbulk-` batch goes inactive, rows retained). NOTE: `loader.DEFAULT_DATA_FILE` is version-pinned
   to the asset filename (a known wart flagged for a future de-pinning slice), so a rename forces a loader
   edit in lockstep.
-- **29-Jul truth-file cycle (EA-DIFF, owner-locked, current E-ALL benchmark = `rate_master_electrical_all_v12.json`,
-  sha256 prefix `a0e5684cacd23269`, 768 items / 11 configs; asset lineage v9->v12, v10/v11 skipped):** four
+- **29-Jul truth-file cycle (EA-DIFF, owner-locked; the E-ALL benchmark of THAT cycle was
+  `rate_master_electrical_all_v12.json` — the CURRENT E-ALL asset is `rate_master_electrical_all_v21.json`,
+  sha256 prefix `607b7b4504c9ac36`; asset lineage v9->v12, v10/v11 skipped):** four
   data changes + two owner-ruled invariants. (1) **Synonyms** — a config may carry top-level `synonyms`
   `{attr_id:{variant:canonical}}` (conduit `{conduit_type:{GI:MS}}`); consumed TWICE (defence in depth) — the
   extraction prompt INJECTION (`extraction._extract_batch`, `.md` assets untouched) AND `_coerce_value`
