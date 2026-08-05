@@ -854,6 +854,40 @@ describe("EA-4a-r None mechanism -- positive absence (None) vs blank (unknown)",
     expect(runPipeline("pw_bcs", PW_PIPELINES.pw_bcs, PW_ITEMS, PW1).finals).toEqual({ bcs_supply: 1370 });
   });
 
+  // SLICE 1b: point_wiring gained a blanker. The line follows point_wiring's OWN per-component UNIT
+  // rounding (never switches_sockets' tens -- the two are deliberately different and both
+  // sheet-faithful). All three stored goldens set blank_item "None", so none of them may move.
+  const PW_BLANK_LINE = {
+    step: "component_ref" as const, name: "blank",
+    ref: { kind: "switch_socket_item", family: "Switch", item: "@blank_item", colour: "@colour" },
+    target: "list_price", rate_stages: [{ mult: 0.3625, round: "up0" as const }],
+    qty: { from_attr: "blank_qty" }, none_skips: true,
+  };
+  const PW_SUPPLY_WITH_BLANK: Pipeline = {
+    output: ["supply"],
+    steps: (() => {
+      const s = [...PW_PIPELINES.pw_boq_supply.steps];
+      s.splice(s.findIndex((x: any) => x.name === "plate"), 0, PW_BLANK_LINE);
+      return s;
+    })(),
+  };
+  // the blanker row the catalog actually has -- 1M Blanker is filed under the SWITCH family
+  const PW_ITEMS_WITH_BLANK = [...PW_ITEMS, ssItem("Switch", "1M Blanker", "Grey", 79)];
+
+  it("blank_item=None leaves pw1 EXACTLY unmoved -- the line is an explicit zero, not a cost", () => {
+    const sel = { ...PW1, blank_item: "None", blank_qty: 0 };
+    const r = runPipeline("pw_boq_supply", PW_SUPPLY_WITH_BLANK, PW_ITEMS_WITH_BLANK, sel);
+    expect(r.steps.find((x) => x.produced?.key === "blank")?.produced?.value).toBe(0);
+    expect(r.finals).toEqual({ supply: 1869 });
+  });
+
+  it("a REAL blanker contributes: Grey 1M Blanker 79 x 2 -> ceil(79*0.3625)=29 x 2 = 58", () => {
+    const sel = { ...PW1, blank_item: "1M Blanker", blank_qty: 2 };
+    const r = runPipeline("pw_boq_supply", PW_SUPPLY_WITH_BLANK, PW_ITEMS_WITH_BLANK, sel);
+    expect(r.steps.find((x) => x.produced?.key === "blank")?.produced?.value).toBe(58);
+    expect(r.finals).toEqual({ supply: 1869 + 58 });
+  });
+
   it("a single-wire point (wire2=None) fits on wire1 ALONE -> more circuits, wire2 line 0, supply 1362", () => {
     const r = runPipeline("pw_boq_supply", PW_PIPELINES.pw_boq_supply, PW_ITEMS, PW_SINGLE_WIRE);
     // circuit_fit drops wire2 from the dia: overall_dia ~1.784 (vs pw1's 3.166) -> 7 circuits, conduit qty 3

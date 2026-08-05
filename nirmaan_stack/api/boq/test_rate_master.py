@@ -1054,7 +1054,7 @@ class TestRateMaster(FrappeTestCase):
 
     # SLICE 1a: bump with the rebuild. `cls.eall` stays pinned to v12 on purpose (test_23 asserts that
     # asset's historical counts) -- the current asset is loaded by path, as test_31 does for v17.
-    _ASSET = "rate_master_electrical_all_v21.json"
+    _ASSET = "rate_master_electrical_all_v22.json"
 
     def _asset_payload(self, discipline):
         path = os.path.join(os.path.dirname(loader.__file__), "data", self._ASSET)
@@ -1125,8 +1125,10 @@ class TestRateMaster(FrappeTestCase):
             self.assertEqual(defs[qty]["type"], "number")
             # POSITIVE: each slot resolves a NON-EMPTY catalog from the live master rows
             self.assertTrue(extraction.values_from_catalog(disc, d["values_from"]))
-        # a None plate ALSO disables the back box -- the box is keyed by the plate size
-        self.assertIn("back_box", defs["plate_item"]["disables_when_none"])
+        # SLICE 1b corrected this: a None plate disables ONLY plate_qty. It must NOT grey out the back
+        # box -- a box can exist with no face plate, and greying it made such a row unpriceable.
+        # The one-way relationship is pinned in full by test_41.
+        self.assertEqual(defs["plate_item"]["disables_when_none"], ["plate_qty"])
 
         self.assertEqual(defs["back_box"]["values"], ["Yes", "No"])
         self.assertEqual(defs["colour"]["type"], "choice")
@@ -1179,3 +1181,118 @@ class TestRateMaster(FrappeTestCase):
         self.assertEqual(ss1["attrs"]["socket1_item"], "6A/16A 3-Pin Socket")
         self.assertEqual(ss1["attrs"]["socket2_item"], "6A 3-Pin Socket")
         self.assertEqual(ss1["attrs"]["socket2_qty"], 2.0)
+
+    # ---- SLICE 1b: point_wiring's blanker + the back_box dependency fix ----
+    #
+    # C1 BEFORE-pins: proven green against the UNCHANGED state, then updated in this same slice.
+
+    def test_40_point_wiring_has_a_blanker(self):
+        """point_wiring gains blank_item / blank_qty.
+
+        AFTER: blank_item / blank_qty exist, None-able, bound to the LIVE catalog.
+        The ONLY blanker item is `1M Blanker` and it is filed under family "Switch" -- there is no
+        blanker family -- so the values_from filter is {"family": "Switch"}.
+        Each of the THREE pipelines carries exactly one `none_skips` blank line, using point_wiring's
+        OWN per-component UNIT rounding (never switches_sockets' tens -- the two are deliberately
+        different and both sheet-faithful).
+        """
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._asset_payload(disc))
+        cfg = _obj(frappe.db.get_value(
+            "BoQ Rate Category Config",
+            {"discipline": disc, "category_id": "point_wiring", "active": 1}, "config",
+        ))
+        defs = {d["id"]: d for d in cfg["attribute_definitions"]}
+        b = defs["blank_item"]
+        self.assertEqual(b["type"], "choice")
+        self.assertTrue(b["allow_none"])
+        self.assertEqual(b["disables_when_none"], ["blank_qty"])
+        self.assertIsNone(b.get("values"))                      # NEGATIVE: never a static list
+        self.assertEqual(b["values_from"]["kind"], "switch_socket_item")
+        self.assertEqual(b["values_from"]["where"]["family"], "Switch")
+        self.assertEqual(defs["blank_qty"]["type"], "number")
+        self.assertEqual(cfg["extraction_defaults"]["blank_qty"], 1.0)
+        # POSITIVE: the live catalog behind the slot resolves, and contains the one blanker
+        cat = extraction.values_from_catalog(disc, b["values_from"])
+        self.assertIn("1M Blanker", cat)
+
+        # every pipeline carries exactly ONE none_skips blank line
+        self.assertEqual(sorted(cfg["pipelines"]), ["pw_bcs", "pw_boq_install", "pw_boq_supply"])
+        for pid, pipe in cfg["pipelines"].items():
+            blanks = [s for s in pipe["steps"]
+                      if s.get("step") == "component_ref" and s.get("name") == "blank"]
+            self.assertEqual(len(blanks), 1, f"{pid} must carry exactly one blank line")
+            self.assertTrue(blanks[0]["none_skips"])
+            self.assertEqual(blanks[0]["ref"]["family"], "Switch")
+            self.assertEqual(blanks[0]["ref"]["item"], "@blank_item")
+            self.assertEqual(blanks[0]["qty"], {"from_attr": "blank_qty"})
+            # NEGATIVE: point_wiring rounds to UNITS -- a tens roundup here would be the wrong category's
+            for stage in blanks[0]["rate_stages"]:
+                self.assertNotEqual(stage.get("round"), -1)
+                self.assertIn(stage.get("round"), ("up0", "up-1", None))
+
+    def test_41_back_box_is_not_disabled_by_a_none_plate(self):
+        """THE 1a DEFECT, pinned both ways.
+
+        A back box can exist with NO face plate, so the plate -> back_box relationship is ONE-WAY: a
+        plate present DEFAULTS the box to yes, but a None plate must leave the box SELECTABLE. As
+        shipped at 898dffe5, `plate_item.disables_when_none` listed back_box, which greys the control
+        out and makes such a row UNPRICEABLE -- a wrong answer, not merely a wrong UI.
+
+        AFTER: back_box is NOT in the list, on BOTH categories. `plate_qty` stays in it.
+
+        BOTH carried it. switches_sockets inherited it from the 1a spec; point_wiring has had it since
+        EA-4a-r, so it PREDATES 1a. The owner's ruling is physical, not category-specific -- a box can
+        exist without a plate -- so both are fixed.
+        """
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._asset_payload(disc))
+        for cid, pipeline_id in (("switches_sockets", "swsock_boq"), ("point_wiring", "pw_boq_supply")):
+            cfg = _obj(frappe.db.get_value(
+                "BoQ Rate Category Config",
+                {"discipline": disc, "category_id": cid, "active": 1}, "config",
+            ))
+            defs = {d["id"]: d for d in cfg["attribute_definitions"]}
+            disables = defs["plate_item"]["disables_when_none"]
+            self.assertNotIn("back_box", disables, f"{cid}: a None plate must NOT grey out the box")
+            self.assertIn("plate_qty", disables, f"{cid}: invariant either way")
+            # the back_box component binding is NOT part of this fix -- box module = the plate's module
+            # when a plate exists; the no-plate fallback needs the module computation and is slice 2.
+            step = next(s for s in cfg["pipelines"][pipeline_id]["steps"]
+                        if s.get("step") == "component_ref" and s.get("name") == "back_box")
+            self.assertEqual(step["ref"]["item"], "@plate_item")
+
+    def test_42_point_wiring_goldens_hold(self):
+        """The three point_wiring goldens must be UNMOVED by the blanker: with none_skips and
+        blank_item "None" the line contributes zero, so nothing may shift.
+        pw2's install is FRACTIONAL (722.2) by design -- it pins the per-stage rounding and must not
+        be rounded."""
+        cfg = _obj(frappe.db.get_value(
+            "BoQ Rate Category Config",
+            {"discipline": "Electrical", "category_id": "point_wiring", "active": 1}, "config",
+        ))
+        by_id = {g["id"]: g for g in (cfg.get("goldens") or [])}
+        self.assertEqual(sorted(by_id), ["pw1", "pw2", "pw3"])
+        self.assertEqual(by_id["pw1"]["expect"]["pw_boq_supply"]["supply"], 1869.0)
+        self.assertEqual(by_id["pw1"]["expect"]["pw_boq_install"]["install"], 735.0)
+        self.assertEqual(by_id["pw1"]["expect"]["pw_bcs"]["bcs_supply"], 1370.0)
+        self.assertEqual(by_id["pw2"]["expect"]["pw_boq_supply"]["supply"], 1823.0)
+        self.assertEqual(by_id["pw2"]["expect"]["pw_boq_install"]["install"], 722.2)
+        self.assertEqual(by_id["pw2"]["expect"]["pw_bcs"]["bcs_supply"], 1342.0)
+        self.assertEqual(by_id["pw3"]["expect"]["pw_boq_supply"]["supply"], 1682.0)
+        # AFTER: all three carry the blanker as a POSITIVE ABSENCE, so the line contributes zero and
+        # every total above is unmoved. A golden's attrs are an ATOMIC SET -- all three or none.
+        for gid in ("pw1", "pw2", "pw3"):
+            self.assertEqual(by_id[gid]["attrs"]["blank_item"], "None")
+            self.assertEqual(by_id[gid]["attrs"]["blank_qty"], 0.0)
+
+        # switches_sockets must be UNMOVED by the back_box dependency fix (it touches no pricing input)
+        ss = _obj(frappe.db.get_value(
+            "BoQ Rate Category Config",
+            {"discipline": "Electrical", "category_id": "switches_sockets", "active": 1}, "config",
+        ))
+        ssg = {g["id"]: g for g in ss["goldens"]}
+        self.assertEqual(ssg["s1"]["expect"]["swsock_boq"], {"supply": 110.0, "install": 30.0})
+        self.assertEqual(ssg["s1"]["expect"]["swsock_bcs"], {"bcs_supply": 80.0})
+        self.assertEqual(ssg["ss1"]["expect"]["swsock_boq"], {"supply": 700.0, "install": 140.0})
+        self.assertEqual(ssg["ss1"]["expect"]["swsock_bcs"], {"bcs_supply": 480.0})
