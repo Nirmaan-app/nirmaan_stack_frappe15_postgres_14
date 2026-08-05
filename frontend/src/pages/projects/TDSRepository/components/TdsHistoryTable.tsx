@@ -78,7 +78,21 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, ref
         return map;
     }, [nirmaanUsers]);
 
-    const canManageTDS = role === "Nirmaan Admin Profile" || role === "Administrator";
+    const isAdmin = role === "Nirmaan Admin Profile" || role === "Administrator";
+    const isPMO = role === "Nirmaan PMO Executive Profile";
+
+    // Statuses a PMO may delete: rows that have NOT been finalised. An Approved
+    // row is part of the signed submittal record, so it stays Admin-only.
+    const PMO_DELETABLE_STATUSES = ["Pending", "Rejected"];
+
+    const canDeleteRow = (item: ProjectTDSItem) =>
+        isAdmin ||
+        (isPMO && PMO_DELETABLE_STATUSES.includes((item.tds_status || "").trim()));
+
+    // Gates the COLUMN — whether this role can delete anything at all. The
+    // per-row check above decides which buttons actually render inside it, so a
+    // PMO sees the column but only an actionable button on eligible rows.
+    const canManageTDS = isAdmin || isPMO;
 
     // --- 2. Define Columns (with dependency on userMap) ---
     const columns = useMemo<ColumnDef<ProjectTDSItem>[]>(() => [
@@ -244,21 +258,22 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, ref
             {
                 id: "actions",
                 header: "Actions",
-                cell: ({ row }: { row: any }) => (
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-red-400 hover:text-red-600 hover:bg-red-50"
-                        onClick={() => handleDeleteClick(row.original.name)}
-                    >
-                        <Trash2 className="h-4 w-4" />
-                    </Button>
-                ),
+                cell: ({ row }: { row: any }) =>
+                    canDeleteRow(row.original) ? (
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-red-400 hover:text-red-600 hover:bg-red-50"
+                            onClick={() => handleDeleteClick(row.original.name)}
+                        >
+                            <Trash2 className="h-4 w-4" />
+                        </Button>
+                    ) : "--",
                 size: 80,
                 enableSorting: false,
             }
         ] : [])
-    ], [userMap, role, canManageTDS]);
+    ], [userMap, role, canManageTDS, isAdmin, isPMO]);
 
     const searchableFields: SearchFieldOption[] = [
         { label: "Item Name", value: "tds_item_name" },
