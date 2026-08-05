@@ -24,6 +24,7 @@ const PIPELINES: Record<string, Pipeline> = {
         explain: "supplier discount off list, then company markup",
       },
       { step: "roundup", target: "supply_per_mtr", params: { digits: -1 } },
+      { step: "scale", target: "supply_per_mtr", result: "supply_per_mtr", params: { runs_from_attr: "runs" }, formula: "base*runs" },
       {
         step: "scale",
         target: "install_base_per_mtr",
@@ -32,6 +33,7 @@ const PIPELINES: Record<string, Pipeline> = {
         formula: "base*(1+install_markup)",
       },
       { step: "roundup", target: "install_per_mtr", params: { digits: 0 } },
+      { step: "scale", target: "install_per_mtr", result: "install_per_mtr", params: { runs_from_attr: "runs" }, formula: "base*runs" },
     ],
   },
   termination_boq: {
@@ -52,6 +54,7 @@ const PIPELINES: Record<string, Pipeline> = {
       },
       { step: "sum_components", result: "supply_per_set" },
       { step: "roundup", target: "supply_per_set", params: { digits: -1 } },
+      { step: "scale", target: "supply_per_set", result: "supply_per_set", params: { runs_from_attr: "runs" }, formula: "base*runs" },
       { step: "install_as_ratio", params: { ratio: 0.25 }, result: "install_per_set" },
       { step: "roundup", target: "install_per_set", params: { digits: -1 } },
     ],
@@ -71,6 +74,7 @@ const PIPELINES: Record<string, Pipeline> = {
         formula: "(1-discount)*(1+wastage)",
       },
       { step: "roundup", target: "bcs_supply_per_mtr", params: { digits: 0 } },
+      { step: "scale", target: "bcs_supply_per_mtr", result: "bcs_supply_per_mtr", params: { runs_from_attr: "runs" }, formula: "base*runs" },
     ],
   },
 };
@@ -104,9 +108,12 @@ const ITEMS: RateMasterItem[] = [
   cable("ALUMINIUM", "ARMOURED", 4.0, 16.0, 606.0, 22.0),
   term("ALUMINIUM", "ARMOURED", 4.0, 16.0, 4.73, 164.39, 905.27),
   term("COPPER", "ARMOURED", 3.0, 50.0, 151.66, 203.75, 1091.65),
+  // ext-b: the g5 combo, previously unpinned here (real RM-1 rates, read from the live master)
+  cable("COPPER", "UNARMOURED", 3.0, 10.0, 1037.0, 20.0),
+  term("COPPER", "UNARMOURED", 3.0, 10.0, 12.85, 91.81, 388.97),
 ];
 
-const sel = (material: string, insulation: string, core: number, th: number) => ({ material, insulation, core, thickness_sqmm: th });
+const sel = (material: string, insulation: string, core: number, th: number, runs = 1) => ({ material, insulation, core, thickness_sqmm: th, runs });
 
 describe("evalFormula + roundUp (safe primitives)", () => {
   it("evaluates arithmetic with bound identifiers, no eval()", () => {
@@ -149,6 +156,49 @@ describe("RM-1 goldens via the stored-config interpreter", () => {
     expect(r.finals).toEqual({ supply_per_set: 940, install_per_set: 240 });
     const bandStep = r.steps.find((s) => s.step === "component_band");
     expect(bandStep?.bandChosen).toContain("gland_band2_list");
+  });
+  // ext-b PIN: g5 was the ONE stored golden this file never pinned. Added so the five-golden
+  // invariance proof has all five here, not four.
+  it("COPPER/UNARMOURED/3C/10.0 -> cable 630/40, BCS 469 (g5)", () => {
+    const a = sel("COPPER", "UNARMOURED", 3.0, 10.0);
+    expect(runPipeline("cable_boq", PIPELINES.cable_boq, ITEMS, a).finals).toEqual({ supply_per_mtr: 630, install_per_mtr: 40 });
+    expect(runPipeline("cable_bcs", PIPELINES.cable_bcs, ITEMS, a).finals).toEqual({ bcs_supply_per_mtr: 469 });
+  });
+});
+
+// ext-b: the cable-runs multiplier. These are MECHANISM tests, NOT stored goldens -- the guiding
+// sheet has no runs concept (recon D7 measured 0 hits against a working control), so a multi-run
+// value has no sheet basis and multi-run GOLDENS are owed from the owner.
+describe("ext-b runs multiplier", () => {
+  it("runs defaults to 1 and every golden is byte-identical (the C2 invariance proof)", () => {
+    // g1 with runs omitted entirely vs runs explicitly 1 -- and both equal to the stored golden
+    const omitted = { material: "COPPER", insulation: "UNARMOURED", core: 1.0, thickness_sqmm: 6.0, runs: 1 };
+    expect(runPipeline("cable_boq", PIPELINES.cable_boq, ITEMS, omitted).finals).toEqual({ supply_per_mtr: 120, install_per_mtr: 20 });
+    expect(runPipeline("termination_boq", PIPELINES.termination_boq, ITEMS, omitted).finals).toEqual({ supply_per_set: 80, install_per_set: 20 });
+    expect(runPipeline("cable_bcs", PIPELINES.cable_bcs, ITEMS, omitted).finals).toEqual({ bcs_supply_per_mtr: 87 });
+  });
+
+  it("runs=3 multiplies each cable output exactly 3x", () => {
+    const a = sel("COPPER", "UNARMOURED", 1.0, 6.0, 3);
+    // 120*3 and 20*3 -- the multiplier attaches AFTER each roundup, so it scales a rounded rate
+    expect(runPipeline("cable_boq", PIPELINES.cable_boq, ITEMS, a).finals).toEqual({ supply_per_mtr: 360, install_per_mtr: 60 });
+    expect(runPipeline("cable_bcs", PIPELINES.cable_bcs, ITEMS, a).finals).toEqual({ bcs_supply_per_mtr: 261 });
+  });
+
+  it("termination install INHERITS runs and is never squared (owner ruling 2026-08-05)", () => {
+    const a = sel("COPPER", "UNARMOURED", 1.0, 6.0, 3);
+    const r = runPipeline("termination_boq", PIPELINES.termination_boq, ITEMS, a);
+    // supply 80*3 = 240; install_as_ratio then takes 25% of the ALREADY-multiplied supply -> 60.
+    // There is deliberately NO second multiplier on install: 20*3*3 = 180 would be the R^2 bug.
+    expect(r.finals).toEqual({ supply_per_set: 240, install_per_set: 60 });
+    expect(r.finals.install_per_set).not.toBe(180);
+  });
+
+  it("a MISSING runs attribute is an HONEST no-compute, never a zero default", () => {
+    const noRuns = { material: "COPPER", insulation: "UNARMOURED", core: 1.0, thickness_sqmm: 6.0 };
+    const r = runPipeline("cable_boq", PIPELINES.cable_boq, ITEMS, noRuns);
+    expect(r.status).toBe("no_match");
+    expect(r.finals).toEqual({});
   });
 });
 

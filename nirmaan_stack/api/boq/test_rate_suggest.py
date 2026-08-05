@@ -1301,3 +1301,171 @@ class TestEA7PayloadShape(FrappeTestCase):
             out = extraction._extract_batch(_FakeClient(responder), "m", "P", [defn], rows,
                                             dump_ctx={"boq": "B"})
         self.assertEqual(out[5]["material"]["value"], "COPPER")
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════
+# ext-b -- the estimator-rule pins
+# ══════════════════════════════════════════════════════════════════════════════════════
+def _live_rules(category_id):
+    """The rules array stored on the LIVE active config -- the authority (an asset edit alone is
+    INERT at runtime; the EA-6a lesson)."""
+    rows = frappe.get_all(
+        "BoQ Rate Category Config",
+        filters={"discipline": "Electrical", "category_id": category_id, "active": 1},
+        fields=["config"], limit=1,
+    )
+    if not rows:
+        return None
+    cfg = rows[0]["config"]
+    cfg = cfg if isinstance(cfg, dict) else json.loads(cfg or "{}")
+    return cfg.get("rules")
+
+
+def _prompt_for(rules):
+    """The prompt _extract_batch actually builds for a given rules array."""
+    defn = {"id": "material", "type": "choice", "values": ["COPPER"]}
+    rows = [{"excel_row": 2, "description": "x", "ancestors": [], "sheet_name": "S"}]
+    sink = []
+
+    def responder(call, kwargs):
+        sink.append(kwargs["messages"][0]["content"])
+        return _Resp(json.dumps([{"id": 2, "attributes": {}}]))
+
+    extraction._extract_batch(_FakeClient(responder), "m", "P", [defn], rows,
+                              None, None, None, None, None, rules)
+    return sink[0]
+
+
+class TestExtBRules(FrappeTestCase):
+    """ext-b C1 -- the estimator-rule pins.
+
+    Written against the UNCHANGED live configs and proven GREEN first, then updated in the SAME
+    slice so the test diff shows exactly which rules were shipped before and after (the W4/P5
+    tripwire pattern). These read the LIVE `BoQ Rate Category Config` rows deliberately: the DB row
+    is what the extraction engine reads, and an asset edited alone is inert at runtime.
+    """
+
+    # ---- B1 / B2 / B4 pins: written in the BEFORE state, proven green, then UPDATED here ----
+    def test_e1_db_switchgear_rule_ids(self):
+        """The db_switchgear rule SET. ext-b REPLACED R3 in full and ADDED R8.
+        (BEFORE this slice the pin read ["R2", "R3", "R4"].)"""
+        ids = [r.get("id") for r in (_live_rules("db_switchgear") or [])]
+        self.assertEqual(ids, ["R2", "R3", "R4", "R8"])
+
+    def test_e2_r3_is_the_highest_available_ma_rule(self):
+        """B4 AFTER. R3 is now the HIGHEST-AVAILABLE rule; the 300-then-100 ladder and the
+        'Never leave it unmatched' clause are DELETED, and an unmatchable combo is left BLANK.
+        (BEFORE: label '...: 300mA', guidance carrying '300mA variant' / '100mA variant'.)"""
+        r3 = next(r for r in _live_rules("db_switchgear") if r["id"] == "R3")
+        self.assertEqual(r3["label"], "RCCB/RCBO with no stated current: highest available mA")
+        self.assertEqual(r3["applies_to"], "mcb_slots")
+        g = r3["guidance"]
+        self.assertIn("HIGHEST mA rating", g)
+        self.assertIn("leave it BLANK", g)
+        self.assertNotIn("300mA variant", g)
+        self.assertNotIn("100mA variant", g)
+        self.assertNotIn("Never leave it unmatched", g)
+
+    def test_e3_r8_per_phase_reaches_the_prompt_verbatim(self):
+        """B1 AFTER. The per-phase rule ships as CONFIG DATA and arrives VERBATIM. This proves the
+        rule ARRIVES; it does NOT prove the model obeys -- and R8 is the FIRST rule in this
+        programme to ask the model for arithmetic, so obedience needs a live AI pass."""
+        r8 = next(r for r in _live_rules("db_switchgear") if r["id"] == "R8")
+        self.assertEqual(r8["applies_to"], "mcb_slots")
+        self.assertIn("three for a TPN or VTPN DB, one for an SPN DB", r8["guidance"])
+        payload = _prompt_for(_live_rules("db_switchgear"))
+        self.assertIn("ESTIMATOR_RULES", payload)
+        self.assertIn(r8["guidance"], payload, "the guidance must arrive verbatim")
+
+    def test_e4_point_wiring_carries_r9_and_keeps_its_shipped_defaults(self):
+        """B2 AFTER. point_wiring gained R9 and NOTHING else -- the wire-core defaults of 1.0 were
+        already shipped and must not be duplicated or altered. (BEFORE: rules was falsy.)"""
+        ids = [r.get("id") for r in (_live_rules("point_wiring") or [])]
+        self.assertEqual(ids, ["R9"])
+        r9 = next(r for r in _live_rules("point_wiring") if r["id"] == "R9")
+        self.assertEqual(r9["applies_to"], "wire1_core")
+        self.assertIn("3 runs of 2-core is 6", r9["guidance"])
+        cfg = frappe.get_all("BoQ Rate Category Config",
+                             filters={"discipline": "Electrical", "category_id": "point_wiring",
+                                      "active": 1}, fields=["config"], limit=1)[0]["config"]
+        cfg = cfg if isinstance(cfg, dict) else json.loads(cfg or "{}")
+        self.assertEqual(cfg["extraction_defaults"]["wire1_core"], 1.0)
+        self.assertEqual(cfg["extraction_defaults"]["wire2_core"], 1.0)
+
+    def _wiring(self):
+        cfg = frappe.get_all("BoQ Rate Category Config",
+                             filters={"discipline": "Electrical", "category_id": "wiring_cabling",
+                                      "active": 1}, fields=["config"], limit=1)[0]["config"]
+        return cfg if isinstance(cfg, dict) else json.loads(cfg or "{}")
+
+    def test_e5_wiring_cabling_carries_runs_defaults_and_r10(self):
+        """B3 AFTER. wiring_cabling gained a `runs` attribute, an extraction_defaults block (it had
+        NONE at all) and R10. `core` is NOT redefined.
+        (BEFORE: no `runs`, no extraction_defaults, falsy rules -> no ESTIMATOR_RULES block.)"""
+        cfg = self._wiring()
+        by_id = {d["id"]: d for d in cfg["attribute_definitions"]}
+        self.assertIn("runs", by_id)
+        self.assertEqual(by_id["runs"]["type"], "number")
+        self.assertEqual(by_id["runs"]["label"], "Runs")
+        self.assertEqual(by_id["core"]["type"], "number")          # unchanged
+        self.assertEqual(cfg["extraction_defaults"]["runs"], 1.0)
+        self.assertEqual(cfg["extraction_defaults"]["core"], 1.0)
+        ids = [r.get("id") for r in (cfg.get("rules") or [])]
+        self.assertEqual(ids, ["R10"])
+        r10 = next(r for r in cfg["rules"] if r["id"] == "R10")
+        self.assertEqual(r10["applies_to"], "runs")
+        self.assertIn("must never be multiplied together", r10["guidance"])
+        self.assertIn("ESTIMATOR_RULES", _prompt_for(cfg["rules"]))
+
+    def test_e6_five_runs_multipliers_each_after_its_rounding(self):
+        """B3(c)(d) AFTER, with the OWNER RULING of 2026-08-05: FIVE attachment points, not six.
+        Each is a `scale` carrying `runs_from_attr` and each sits AFTER that output's roundup, so
+        runs multiplies a ROUNDED per-unit rate."""
+        cfg = self._wiring()
+        expected = {
+            "cable_boq": ["supply_per_mtr", "install_per_mtr"],
+            "termination_boq": ["supply_per_set"],      # install INHERITS -- see test_e7
+            "cable_bcs": ["bcs_supply_per_mtr"],
+            "termination_bcs": ["bcs_supply_per_set"],
+        }
+        total = 0
+        for pid, outs in expected.items():
+            steps = cfg["pipelines"][pid]["steps"]
+            got = [s.get("target") for s in steps
+                   if s.get("step") == "scale" and (s.get("params") or {}).get("runs_from_attr") == "runs"]
+            self.assertEqual(got, outs, f"{pid}: runs multipliers on the wrong outputs")
+            for out in outs:
+                i = next(i for i, s in enumerate(steps)
+                         if s.get("step") == "scale" and s.get("target") == out
+                         and (s.get("params") or {}).get("runs_from_attr") == "runs")
+                self.assertEqual(steps[i]["formula"], "base*runs")
+                self.assertEqual(steps[i]["result"], out)
+                rounds = [j for j, s in enumerate(steps)
+                          if s.get("step") == "roundup" and s.get("target") == out]
+                self.assertTrue(rounds and i > max(rounds),
+                                f"{pid}/{out}: runs must multiply a ROUNDED per-unit rate")
+                total += 1
+        self.assertEqual(total, 5, "five output points (owner ruling: termination install inherits)")
+
+    def test_e7_termination_install_inherits_runs_and_is_never_multiplied_twice(self):
+        """OWNER RULING 2026-08-05, the reason this is five points and not six. `install_as_ratio`
+        derives termination install FROM supply, and the supply multiplier fires BEFORE it -- so
+        install already carries runs. A second multiplier would make install runs-SQUARED."""
+        steps = self._wiring()["pipelines"]["termination_boq"]["steps"]
+        runs_idx = [i for i, s in enumerate(steps)
+                    if s.get("step") == "scale" and (s.get("params") or {}).get("runs_from_attr")]
+        self.assertEqual(len(runs_idx), 1, "termination_boq must carry EXACTLY ONE runs multiplier")
+        self.assertEqual(steps[runs_idx[0]]["target"], "supply_per_set")
+        ratio_idx = next(i for i, s in enumerate(steps) if s.get("step") == "install_as_ratio")
+        self.assertLess(runs_idx[0], ratio_idx,
+                        "the supply multiplier must PRECEDE install_as_ratio so install inherits runs")
+        # and nothing multiplies install directly
+        self.assertFalse([s for s in steps if s.get("step") == "scale"
+                          and s.get("target") == "install_per_set"
+                          and (s.get("params") or {}).get("runs_from_attr")])
+
+    def test_e7_rules_absent_is_still_byte_identical(self):
+        """NEGATIVE POLARITY / backwards-compat. ext-b adds rules to three categories; a category
+        with NO rules must still produce the pre-ext-a prompt exactly."""
+        self.assertEqual(_prompt_for(None), _prompt_for([]))
+        self.assertNotIn("ESTIMATOR_RULES", _prompt_for(None))
