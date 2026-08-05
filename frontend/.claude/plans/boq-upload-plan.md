@@ -14210,6 +14210,8 @@ Pipelines verified UNCHANGED; owner ruled the 28-Jul workbook is the BENCHMARK g
 - Data asset swapped: `rate_master_wiring_cabling_v2.json` -> `rate_master_wiring_cabling_v3.json`
   (byte-identical to the owner's Desktop `rm1_import_wiring_cabling_v3.json`, sha256
   `dcc9b2ea69f072bba400fdd0e87c388732b188ed86feba5415bc95f833ad239a`), v2 removed in the same commit.
+  **SUPERSEDED at ext-b (2026-08-05): the wiring asset gained `runs` + goldens, so the sha is now
+  `76e09bba0d7affa1cdaedc2c602414792192f59585ab74664b89ebf25b50f988`. Owner-accepted break.**
 - Pre-flight verified read-only: category_config / pipelines / attribute_definitions / normalization_rule
   are BYTE-IDENTICAL v2<->v3; same 588-item key set; ZERO non-rate item changes. **57 changed cable rates:
   55 UNARMOURED install fills (0 -> 12/20) + 2 ALUMINIUM/UNARMOURED corrections (2C/2.5 15->12, 2C/4.0
@@ -15626,7 +15628,7 @@ back_box} + optional_wire_when_none + golden **pw3** (switch-only, socket="None"
 **Wiring batch `rmbulk-f676a178e05a` UNCHANGED** (cable 292 + termination 296; all 5 wiring goldens GREEN).
 
 **WIRING SHA CORRECTION (owner-confirmed):** the wiring invariant going forward is the current on-disk sha
-`dcc9b2ea69f072bb`; the `c10509deb4af11dd` carried in prompts was STALE from before the EA-2 pipeline_labels
+`dcc9b2ea69f072bb` (SUPERSEDED at ext-b -> `76e09bba0d7affa1`); the `c10509deb4af11dd` carried in prompts was STALE from before the EA-2 pipeline_labels
 edit. Wiring is UNDISTURBED (batch id + counts + 5 goldens all hold).
 
 **GATES:** vitest ratePipelineInterpreter 47 -> **52** (pw3 1682, single-wire 1362, plate->back_box, non-none_skips
@@ -15683,7 +15685,7 @@ miss is in the golden, not the pipeline.**
 **Asset v14 -> v15c** (`rate_master_electrical_all_v15c.json`, sha256 `a21354a96a0f9e48`, 768 items / **12
 E-ALL configs**; v15/v15b skipped in the asset dir) loaded `replace=True` -> batch `rmbulk-6175415edaf1`;
 **total active Electrical configs 12 -> 13** (with wiring). **Wiring batch `rmbulk-f676a178e05a` UNCHANGED**
-(cable 292 / termination 296; the wiring-asset invariant sha `dcc9b2ea69f072bb` untouched).
+(cable 292 / termination 296; the wiring-asset invariant sha `dcc9b2ea69f072bb` untouched -- SUPERSEDED at ext-b -> `76e09bba0d7affa1`, item counts still 292/296).
 
 **GATES:** vitest ratePipelineInterpreter 52 -> **59** (sp1 2320/470/1600; socket2=None->660; plate->back_box;
 socket-only-via-None->2196/770; non-interlocked+MCB->2419; interlocked->0; absent->no_match); tsc **0-new**
@@ -15739,7 +15741,7 @@ build-up defs (`db_shell_item` [allow_none -- MCB-only is real] + `db_shell_qty`
 allow_none; enclosure item+qty) + 3 pipelines `db_buildup_supply` (buckets x0.495) / `db_buildup_install`
 (supply steps then the ONE `lookup_or_ratio`) / `db_buildup_bcs` (raw x0.3); the 4 single-item pipelines
 (`db_boq`/`db_install_nondb`/`db_install_db`/`db_bcs`) UNTOUCHED; (3) `item_kinds` gains `db_shell`; (4) goldens
-dbu1/dbu2/dbu3. **WIRING batch `rmbulk-f676a178e05a` UNCHANGED** (292/296; wiring-asset sha `dcc9b2ea69f072bb`
+dbu1/dbu2/dbu3. **WIRING batch `rmbulk-f676a178e05a` UNCHANGED** (292/296; wiring-asset sha `dcc9b2ea69f072bb` -- SUPERSEDED at ext-b -> `76e09bba0d7affa1`
 untouched). `loader.py` UNTOUCHED -- `DEFAULT_DATA_FILE` is the WIRING asset (the version-pin wart is on wiring,
 not E-ALL); the E-ALL asset loads by path, so the prompt's "loader.DEFAULT_DATA_FILE v15c->v16c" was a misread
 (editing it would wrongly point the wiring default at E-ALL).
@@ -17071,3 +17073,164 @@ Regression, unchanged green: `test_row_category` **29** · `test_classify` **77*
   the certified indented-string feed). Noted, not fixed: the voter's shape is a CERTIFIED surface.
 * The dump file from the M5 cert was left in place for the owner's live run; deleting it is safe and
   the flag ships OFF, so it cannot regrow.
+
+---
+
+## Build slice EA-4 ext-b -- three estimator rules + the cable-runs attribute
+
+**Date:** 2026-08-05 · **Branch:** `feature/boq-pricing-helper` · Config data + tests. **No interpreter
+change** (the existing `scale` + `<ident>_from_attr` shape expressed B3 exactly; precedent
+`popup_boxes.module_count_from_attr`). Session 2 of the EA-4 extension box.
+
+### The four items, as shipped
+
+| item | category | what shipped | interpreter change |
+|---|---|---|---|
+| **B1** | `db_switchgear` | NEW rule **R8** -- per-phase outgoings multiply by phase count | none |
+| **B2** | `point_wiring` | NEW rule **R9** -- runs resolve INTO the wire-core value | none |
+| **B4** | `db_switchgear` | **R3 REPLACED IN FULL** -- highest-available mA, no 300/100 ladder | none |
+| **B3** | `wiring_cabling` | NEW `runs` attribute + an `extraction_defaults` block + rule **R10** + FIVE runs multipliers | none |
+
+Rule texts are OWNER-AUTHORED and stored VERBATIM (they live in the live `BoQ Rate Category Config`
+rows and in the assets). `rules` remains an UNGATED pass-through, so adding them required no code.
+
+### B3 -- the multiplier attaches at FIVE points, not six (OWNER RULING 2026-08-05)
+
+The prompt specified six. Building it that way produced a **runs-squared defect**, caught before the
+cert and referred to the owner, who ruled:
+
+> for termination install dont multiply by R as it is already beign dervide from supply which has the
+> multiplication done
+
+| pipeline | output | multiplied? | why |
+|---|---|---|---|
+| `cable_boq` | `supply_per_mtr` | YES | |
+| `cable_boq` | `install_per_mtr` | YES | scales the RAW `install_base_per_mtr`, independent of supply |
+| `termination_boq` | `supply_per_set` | YES | must sit BEFORE `install_as_ratio` |
+| `termination_boq` | `install_per_set` | **NO** | `install_as_ratio` derives it from the ALREADY-multiplied supply -- a second multiplier gives **R-squared** |
+| `cable_bcs` | `bcs_supply_per_mtr` | YES | |
+| `termination_bcs` | `bcs_supply_per_set` | YES | |
+
+Each multiplier attaches AFTER that output's `roundup`, so runs scales a ROUNDED per-unit rate. Pinned
+by `test_e6` (five points + the after-rounding position) and `test_e7` (exactly one multiplier on
+`termination_boq`, on supply, before `install_as_ratio`), plus a vitest guard asserting termination
+install is 60 and **not** 180 at runs=3.
+
+### The pins -- before-green, then updated
+
+| phase | suite | result |
+|---|---|---|
+| baseline | `test_rate_suggest` | **46** OK |
+| baseline | `test_rate_master` | **32** OK |
+| baseline | vitest interpreter | **70** OK |
+| baseline | `tsc --noEmit` | **3236** errors (pre-existing) |
+| **pins vs UNCHANGED configs** | `test_rate_suggest` | **53** OK -- before-green |
+| **pins vs UNCHANGED configs** | vitest (g5 added) | **71** OK -- before-green |
+| final | `test_rate_suggest` | **54** OK |
+| final | `test_rate_master` | **32** OK |
+| final | vitest interpreter | **75** OK |
+| final | `tsc --noEmit` | **3236** -- **zero new**, none in the touched file |
+
+`g5` was the ONE stored wiring golden the vitest file had never pinned; it was added at the pin stage
+(real RM-1 rates read from the live master: cable list 1037 / install 20 -> 630/40, BCS 469) so the
+invariance proof covers all five, not four.
+
+### C2 -- the five goldens hold at runs = 1, and the trap that nearly hid it
+
+All five are byte-identical at runs=1 (`base*1` is the identity), proven in vitest.
+
+**But the stored goldens' `attrs` did not carry `runs`, and a golden's attrs are an ATOMIC SET** -- so
+against the real config every wiring golden fell to the interpreter's honest no-compute
+(`attribute 'runs' missing or non-numeric -- no value computed`), which the browser Derivation trace
+surfaced. vitest had passed only because its `sel()` helper injects `runs = 1`. Fixed the sanctioned
+way (C3): each stored golden's `attrs` gained `runs: 1`; **no expected VALUE was touched.**
+
+**MULTI-RUN GOLDENS ARE OWED FROM THE OWNER.** The guiding sheet carries no runs concept (the ext-b
+recon measured 0 hits for run/runs/parallel against a working control of MCB 382 / sqmm 42), so a
+golden at runs > 1 has no sheet basis. None was invented; the vitest runs=3 cases are labelled
+MECHANISM tests, not goldens.
+
+### A second trap: the assets do not carry `goldens`
+
+`update_rate_config` REPLACES the whole config. The asset `category_config` blocks carry neither
+`discipline` nor `goldens` (the loader stamps discipline from the payload top level and merges goldens
+from the payload's top-level map), so submitting a raw asset config would have **silently deleted all
+five wiring goldens**. Every application is therefore **stored config + this slice's deltas**, and each
+write asserts the goldens survived (4 / 3 / 5 preserved).
+
+### C4 / C5 -- validation and lockstep
+
+`_validate_config` was run directly on every changed config, in both the asset shape and the actual
+submitted shape: **PASS for db_switchgear, point_wiring, wiring_cabling.** Applied via the audited
+RM-4b `update_rate_config`; stored == asset verified per changed key.
+
+**Asset filenames (verified in-repo, not assumed):** E-ALL `rate_master_electrical_all_v18.json` ->
+**v19** minted; wiring `rate_master_wiring_cabling_v3.json` **edited IN PLACE**. The wiring asset was
+NOT minted as v4 because `loader.DEFAULT_DATA_FILE` is version-pinned to that exact filename and
+`loader.py` was out of scope -- a v4 would have left the loader (and `test_rate_master`'s fixture)
+reading a stale asset. This is the known de-pinning wart.
+
+**Wiring sha: `dcc9b2ea69f072bb` -> `76e09bba0d7affa1`** (full
+`76e09bba0d7affa1cdaedc2c602414792192f59585ab74664b89ebf25b50f988`). Owner-ACCEPTED break; all five
+documented locations updated (CLAUDE.md:542 + plan doc :14212, :15629, :15686, :15742). **The invariant
+that matters -- the DATA -- is unchanged: cable 292 / termination 296, batch `rmbulk-f676a178e05a`.**
+
+### AI verification (5 calls + 1 reachability probe; ceiling 40 per pass)
+
+Scoped to targeted rows through the real `_extract_batch` with the real live config.
+
+**A2 -- B1 per-phase: THE MULTIPLICATION HAPPENED on all five rows** (BOQ-26-00066 / ELECTRICAL BOQ):
+
+| row | phase | stated per phase | qty recorded |
+|---|---|---|---|
+| r392 | TPN | 8 | **24** |
+| r394 | TPN | 10 | **30** |
+| r396 | TPN | 12 | **36** |
+| r410 | TPN | 8 | **24** |
+| r412 | TPN | 12 | **36** |
+
+R8 is the FIRST rule in this programme to ask the model for arithmetic, and it obeyed on every row.
+
+**A1 -- B4 highest-available mA. Two of three cases fixed; the known misfire PERSISTS.**
+
+| case | catalog mA available | rule says | model returned | |
+|---|---|---|---|---|
+| 40A DP RCCB, no mA | 30 / 100 / **300** | 300 | **300mA** | correct |
+| unmatchable (500A 6-pole) | -- | leave BLANK | **BLANK** | correct |
+| 10A DP RCBO, no mA | 30 / **100** (no 300) | 100 | **30mA** | **WRONG** |
+
+The third reproduces the pre-ext-b defect exactly. **Per the standing instruction this is INFORMATION,
+not a failure of this slice: the rule text is correct and arrives verbatim; the defect is model
+behaviour.** The rule was NOT reworded to chase the answer. The model appears to fall to the LOWEST
+variant when 300mA is absent, rather than the highest available.
+
+Five real rows on BOQ-26-00019 all had mA STATED and were matched correctly (30 -> 30, 100 -> 100), so
+the stated-value branch is healthy.
+
+**A3 -- B2 point-wiring runs.** Real `3R x 2.5` rows recorded `wire1_core = 3`. A synthetic
+`3R x 2C x 2.5` recorded `wire1_core = 6` -- **the PRODUCT**, exactly as R9 requires.
+
+**A4 -- B3 cable runs (synthetic, in-memory rows only -- zero DB residual by construction, so no
+throwaway BoQ was created and none needed cleaning up).**
+
+| row | runs | core | verdict |
+|---|---|---|---|
+| `2R x 4C x 25 sqmm` | **2** | **4** | separate, never multiplied |
+| `3 runs of 3.5C x 120 sqmm` | **3** | **3.5** | word form read too |
+| `4C x 16 sqmm` (no runs) | **1** | 4 | default applied |
+
+### Browser cert (CDP, owner's logged-in Chrome)
+
+| | result |
+|---|---|
+| **V1** | **PASS.** Data Viewer shows a **Runs** column between Core and Thickness; batch `rmbulk-f676a178e05a`, 588 items unchanged. |
+| **V2** | **PASS.** Derivation renders the runs step and the R10 rule text; the trace surfaced the honest `attribute 'runs' missing or non-numeric` no-compute -- which is what exposed the atomic-attrs golden trap above. |
+| **V4** | **PASS.** Pipelines tab shows `scale / runs_from_attr runs` as step 5 and lists all five goldens with `runs=1` and their ORIGINAL expected values (120/20, 200/28, 210/.., 940/.., 630/..). |
+| **V3** | **NOT COMPLETED** -- runs=3 = 3x was proven in vitest (cable 360/60; termination 240/60, not 180) but not driven on screen. |
+| **V5** | **NOT COMPLETED** -- db_switchgear / point_wiring re-render unverified on screen. Both are rules-only edits; no structural change was made to either, their configs validate, and their goldens are preserved. |
+
+### Owed / not done
+
+- **Multi-run goldens (runs > 1)** -- owner-authored values required; no sheet basis exists.
+- **V3 and V5** of the browser cert.
+- **The B4 10A-RCBO misfire** stands as a model-behaviour defect on the rules-fix queue.

@@ -539,7 +539,7 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   **A functional config with a RED preview gate is exactly what the gate exists to surface -- even when the miss
   is in the golden, not the pipeline (two i1 golden defects caught + fixed by regenerated assets at EA-4b).**
   **The wiring + point_wiring + switches_point goldens are the standing regression pins; the wiring-asset
-  invariant sha is `dcc9b2ea69f072bb` (the earlier `c10509…` was a stale carry-error).** The Rate Master category selector is
+  invariant sha is `76e09bba0d7affa1` (ext-b 2026-08-05 -- was `dcc9b2ea69f072bb`; the owner ACCEPTED this break when `runs` landed. The earlier `c10509…` was a stale carry-error).** The Rate Master category selector is
   REGISTRY-driven (`rateMasterRegistry.ts`), not config-read. The pricing-sheet helper stays wiring-only
   and shows its category coming-soon note for other categories (honest no-compute). A `scale` step whose
   TARGET RATE is missing (`null`/`NaN`) SKIPS that output (renders absent, never invented as 0) while the
@@ -605,6 +605,31 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   it is passed through VERBATIM and nothing in the app rewords it. Rendered read-only on the Derivation
   tab, with an explicit "No rules configured for this category." empty state (that tab had no
   empty-state precedent). Live: `db_switchgear` R2/R3/R4, `cabletray_raceway` R7.
+- **Cable RUNS and CORES are SEPARATE and are NEVER multiplied together (owner-locked).**
+  `wiring_cabling` carries BOTH a `runs` and a `core` attribute, each defaulting to **1** via
+  `extraction_defaults`. **The core count IDENTIFIES the cable in the catalog; the run count
+  MULTIPLIES its price** — collapsing them would match the wrong cable. This is the OPPOSITE of
+  `point_wiring`, which records runs INTO its wire-core value (`wire1_core`/`wire2_core`, labelled
+  "Wire N - runs (Core)", both defaulting to 1): point wiring is single-core in the ordinary case, so
+  a stated run count IS the core value and a line stating both records the PRODUCT. **Two categories,
+  two deliberately opposite rules — do not "harmonise" them.**
+- **All four wiring pipelines multiply by runs, at FIVE points not six (owner-locked).** A `scale`
+  step carrying `runs_from_attr` (existing vocabulary; precedent `popup_boxes`
+  `module_count_from_attr`) attaches AFTER each output's `roundup`, so runs multiplies a ROUNDED
+  per-unit rate: `cable_boq` supply + install, `termination_boq` **supply ONLY**, `cable_bcs`,
+  `termination_bcs`. **⚠️ `termination_boq` install is NOT multiplied — `install_as_ratio` derives it
+  from the already-multiplied supply, so a second multiplier would make install runs-SQUARED.** The
+  supply multiplier MUST stay BEFORE `install_as_ratio` for that inheritance to hold. `cable_boq`
+  install IS multiplied because it scales the raw `install_base_per_mtr`, not supply.
+- **A golden's attrs are an ATOMIC SET — a new attribute must be added to every stored golden.**
+  Introducing `runs` made all five wiring goldens no-compute (`attribute 'runs' missing or
+  non-numeric` — the interpreter's honest no-compute) until each golden's `attrs` gained `runs: 1`;
+  the expected VALUES are untouched, since the goldens are invariant at runs=1 by construction.
+  ⚠️ **Multi-run goldens (runs > 1) are OWED from the owner and must NOT be computed from our own
+  code:** the guiding sheet carries no runs concept, so a multi-run value has no sheet basis.
+- **`rules` remains an UNGATED `_KNOWN_CONFIG_KEYS` pass-through** reaching every category regardless
+  of `matching_mode`; an absent/empty array yields a byte-identical prompt. Rule text is owner-authored
+  and passes through VERBATIM — nothing in the app rewords it.
 - **`_validate_config` must not be stricter than the interpreter (EA-4 ext-a).** Three shapes the
   interpreter explicitly executes are valid config and must stay accepted: a `component` with **no
   `params`** (a conditional component carries them per-condition), a `component` with **no `target`**
