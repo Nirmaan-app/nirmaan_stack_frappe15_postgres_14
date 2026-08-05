@@ -736,6 +736,104 @@ describe("EA-4a assembly engine -- point_wiring goldens", () => {
   });
 });
 
+// ---- point_wiring RUNS: the tripwire pins. Written against the UNCHANGED interpreter and proven
+// GREEN first, then updated in the same slice so the diff shows exactly what circuit_fit did before.
+describe("point_wiring runs -- circuit_fit wire_specs arity", () => {
+  const withRuns = (specs: unknown) => ({
+    ...PW_CIRCUIT_FIT,
+    params: { ...PW_CIRCUIT_FIT.params, wire_specs: specs as [string, string][] },
+  });
+  const pipeWith = (specs: unknown) => ({
+    output: ["supply"],
+    steps: [withRuns(specs), ...PW_PIPELINES.pw_boq_supply.steps.slice(1)],
+  }) as Pipeline;
+
+  const TRIPLE = [["wire1_core", "wire1_thickness_sqmm", "wire1_runs"], ["wire2_core", "wire2_thickness_sqmm", "wire2_runs"]];
+
+  it("AFTER: the THIRD wire_specs element drives the conduit geometry (runs x cores)", () => {
+    // BEFORE this slice the third element was SILENTLY DISCARDED and this fit was identical to runs=1.
+    const one = runPipeline("pw_boq_supply", pipeWith(TRIPLE), PW_ITEMS, { ...PW1, wire1_runs: 1, wire2_runs: 1 });
+    const three = runPipeline("pw_boq_supply", pipeWith(TRIPLE), PW_ITEMS, { ...PW1, wire1_runs: 3, wire2_runs: 1 });
+    expect(one.steps[0].matchedCondition).not.toBe(three.steps[0].matchedCondition);
+    // runs=1: dia = sqrt(2.5/PI)*2 + sqrt(1.5/PI)*2 = 3.166 -> 25mm (usable 13.75), 4 circuits, qty 4.
+    expect(one.steps[0].matchedCondition).toContain("25mm");
+    expect(one.steps[0].matchedCondition).toContain("4 circuits");
+    expect(one.steps[0].matchedCondition).toContain("conduit qty 4");
+    // wire1 at 3 runs TRIPLES its strand contribution: dia = 1.784*3 + 1.382 = 6.734. Still inside a
+    // 25mm conduit (13.75 usable), but only 2 circuits fit -> the conduit QUANTITY doubles to 8.
+    // The size does NOT have to change for runs to bite; circuits/qty are the load-bearing outputs.
+    expect(three.steps[0].matchedCondition).toContain("dia 6.734");
+    expect(three.steps[0].matchedCondition).toContain("2 circuits");
+    expect(three.steps[0].matchedCondition).toContain("conduit qty 8");
+  });
+
+  it("ABSENT MEANS 1 -- a 2-tuple is byte-identical to a 3-tuple whose runs attr is 1", () => {
+    // This is what keeps every shipped config (all 2-tuples) unchanged. Backward compatibility.
+    const pair = runPipeline("pw_boq_supply", PW_PIPELINES.pw_boq_supply, PW_ITEMS, PW1);
+    const triple = runPipeline("pw_boq_supply", pipeWith(TRIPLE), PW_ITEMS, { ...PW1, wire1_runs: 1, wire2_runs: 1 });
+    expect(triple.steps[0].matchedCondition).toBe(pair.steps[0].matchedCondition);
+    expect(triple.finals).toEqual(pair.finals);
+  });
+
+  it("ABSENT MEANS 1 -- a 3-tuple whose runs attr is MISSING entirely still computes pw1", () => {
+    // The runs attribute is simply not on the selection. It must resolve to 1, NOT no-compute.
+    const r = runPipeline("pw_boq_supply", pipeWith(TRIPLE), PW_ITEMS, PW1);
+    expect(r.status).not.toBe("no_match");
+    expect(r.finals).toEqual({ supply: 1869 });
+  });
+
+  it("a 2-tuple wire_specs computes pw1 (the shape every shipped config uses)", () => {
+    const r = runPipeline("pw_boq_supply", pipeWith(PW_CIRCUIT_FIT.params.wire_specs), PW_ITEMS, PW1);
+    expect(r.finals).toEqual({ supply: 1869 });
+  });
+});
+
+describe("point_wiring runs -- rate stage mult_from_attr", () => {
+  const stageWith = (extra: Record<string, unknown>) => ({
+    output: ["supply"],
+    steps: [
+      PW_CIRCUIT_FIT,
+      cref("wire1", wireRef("@wire1_core", "@wire1_thickness_sqmm"), "list_price_per_mtr",
+           [{ mult: 0.602, round: "up0", ...extra } as never], { from_attr: "circuit_length_m" }),
+      { step: "sum_components", result: "supply" },
+    ],
+  }) as Pipeline;
+
+  it("x runs happens BEFORE the stage rounding (owner ruling), on the EXISTING stage", () => {
+    // wire1 list 82.95: base*0.602 = 49.93 -> ceil 50 -> x15 = 750 at runs 1.
+    // At runs 3 the ruling is ceil(82.95*0.602*3) = ceil(149.81) = 150 -> x15 = 2250.
+    // Rounding FIRST would give 50*3 = 150 too here, so the case is deliberately checked at a
+    // fractional boundary below where the two orders DIVERGE.
+    const one = runPipeline("p", stageWith({ mult_from_attr: "wire1_runs" }), PW_ITEMS, { ...PW1, wire1_runs: 1 });
+    expect(one.steps.find((s) => s.produced?.key === "wire1")?.produced?.value).toBe(750);
+    const three = runPipeline("p", stageWith({ mult_from_attr: "wire1_runs" }), PW_ITEMS, { ...PW1, wire1_runs: 3 });
+    expect(three.steps.find((s) => s.produced?.key === "wire1")?.produced?.value).toBe(2250);
+  });
+
+  it("multiply-then-round DIFFERS from round-then-multiply, and we do multiply-then-round", () => {
+    // wire2 list 50.45 at 0.602 = 30.37. ceil = 31; x2 = 62.  Multiply first: ceil(30.37*2)=ceil(60.74)=61.
+    // 61 != 62, so this case actually discriminates the two orders.
+    const p = {
+      output: ["supply"],
+      steps: [
+        PW_CIRCUIT_FIT,
+        cref("wire2", wireRef("@wire2_core", "@wire2_thickness_sqmm"), "list_price_per_mtr",
+             [{ mult: 0.602, round: "up0", mult_from_attr: "wire2_runs" } as never], 1),
+        { step: "sum_components", result: "supply" },
+      ],
+    } as Pipeline;
+    const r = runPipeline("p", p, PW_ITEMS, { ...PW1, wire2_runs: 2 });
+    expect(r.steps.find((s) => s.produced?.key === "wire2")?.produced?.value).toBe(61); // NOT 62
+  });
+
+  it("ABSENT MEANS 1 -- a stage with no mult_from_attr, and one whose attr is missing, both unchanged", () => {
+    const plain = runPipeline("p", stageWith({}), PW_ITEMS, PW1);
+    const bound = runPipeline("p", stageWith({ mult_from_attr: "wire1_runs" }), PW_ITEMS, PW1); // attr absent
+    expect(bound.finals).toEqual(plain.finals);
+    expect(bound.status).not.toBe("no_match");
+  });
+});
+
 describe("EA-4a-r None mechanism -- positive absence (None) vs blank (unknown)", () => {
   it("pw3 switch-only light point (socket=None) -> supply 1682; the socket line is an explicit 'None -> 0'", () => {
     const r = runPipeline("pw_boq_supply", PW_PIPELINES.pw_boq_supply, PW_ITEMS, PW3);

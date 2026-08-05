@@ -103,6 +103,11 @@ export interface ComponentStep {
 // circuits; component_ref gains @attr / @fitted_size ref bindings + rate_stages + qty.
 export interface RateStage {
   mult: number;
+  /** point_wiring RUNS: an OPTIONAL attribute-bound factor folded in BEFORE this stage's rounding, so
+   * `x runs then round`. ABSENT (or missing / non-numeric on the selection) MEANS 1 -- so every shipped
+   * stage without this key is byte-identical. Distinct from `scale`'s `<ident>_from_attr`, which
+   * hard-fails to an honest no-compute; see absentMeansOne() for why the two deliberately differ. */
+  mult_from_attr?: string;
   round?: "up0" | "up-1";
 }
 /** The quantity multiplier for an assembly component_ref: a literal, a selected attribute, a circuit_fit
@@ -145,7 +150,10 @@ export interface CircuitFitStep {
   params: {
     sizes: number[];
     usable: Record<string, number[]>;
-    wire_specs: [string, string][];
+    /** [core_attr, thickness_attr] or, since the point_wiring RUNS slice, an OPTIONAL third element
+     * [core_attr, thickness_attr, runs_attr] naming a parallel-runs attribute. The dia sum becomes
+     * cores x runs; ABSENT (the shape every pre-existing config uses) MEANS 1. */
+    wire_specs: ([string, string] | [string, string, string])[];
     length_attr: string;
     conduit_type_attr: string;
     // EA-4a-r: the thickness attr of an OPTIONAL wire; when it resolves to the "None" sentinel that wire

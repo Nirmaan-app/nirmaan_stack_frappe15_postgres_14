@@ -937,3 +937,105 @@ class TestRateMaster(FrappeTestCase):
         non_composite = {"category_id": "x", "attribute_definitions": [], "pipelines": {}, "matching_mode": "attribute"}
         self.assertIsNone(extraction.build_slot_spec(non_composite, disc))
         self.assertNotIn("SLOT_SPEC", extraction.select_prompt_text(non_composite))
+
+    # ---- point_wiring RUNS: the circuit_fit wire_specs arity pins ----
+    # `_validate_config` is called DIRECTLY here (not through the wiring fixture): circuit_fit lives
+    # in point_wiring, which is in the E-ALL asset, not the wiring payload these tests load.
+    def _circuit_fit_config(self, wire_specs, extra_defs=()):
+        """A minimal config whose only step is a circuit_fit carrying `wire_specs`."""
+        defs = [
+            {"id": "wire1_core", "label": "Wire 1 - cores", "type": "number"},
+            {"id": "wire1_thickness_sqmm", "label": "Wire 1 - thickness", "type": "number"},
+            {"id": "circuit_length_m", "label": "Length", "type": "number"},
+            {"id": "conduit_type", "label": "Conduit", "type": "choice", "values": ["PVC"]},
+        ] + [dict(d) for d in extra_defs]
+        return {
+            "discipline": "Electrical",
+            "category_id": "pw_arity_probe",
+            "attribute_definitions": defs,
+            "pipelines": {
+                "p": {
+                    "output": ["supply"],
+                    "steps": [
+                        {
+                            "step": "circuit_fit",
+                            "params": {
+                                "sizes": [25.0],
+                                "usable": {"PVC": [0.55]},
+                                "wire_specs": wire_specs,
+                                "length_attr": "circuit_length_m",
+                                "conduit_type_attr": "conduit_type",
+                            },
+                            "binds": ["fitted_size", "circuits", "conduit_qty"],
+                        }
+                    ],
+                }
+            },
+        }
+
+    def test_33_circuit_fit_wire_specs_pair_is_accepted(self):
+        """The 2-tuple shape every shipped config uses must keep validating. BACKWARDS-COMPAT."""
+        cfg = self._circuit_fit_config([["wire1_core", "wire1_thickness_sqmm"]])
+        rate_master._validate_config(cfg)  # must not raise
+
+    def test_34_circuit_fit_wire_specs_triple_is_accepted(self):
+        """AFTER. A third wire_specs element naming a DEFINED runs attribute now validates.
+        (BEFORE this slice the validator enforced an exact pair and this raised.)"""
+        cfg = self._circuit_fit_config(
+            [["wire1_core", "wire1_thickness_sqmm", "wire1_runs"]],
+            extra_defs=[{"id": "wire1_runs", "label": "Wire 1 - runs", "type": "number"}],
+        )
+        rate_master._validate_config(cfg)  # must not raise
+
+    def test_34b_circuit_fit_wire_specs_triple_with_an_UNDEFINED_runs_attr_is_rejected(self):
+        """G7 / NEGATIVE. The third element is REFERENCE-GUARDED: naming an attribute that is not
+        defined must be REJECTED, never silently ignored. This matters more than the usual reference
+        guard because absent-means-1 at runtime -- an unguarded typo would read as 'no runs' and
+        silently under-price, rather than failing."""
+        cfg = self._circuit_fit_config(
+            [["wire1_core", "wire1_thickness_sqmm", "wire1_ruuns"]],  # typo, and NOT defined
+        )
+        with self.assertRaises(frappe.ValidationError) as cm:
+            rate_master._validate_config(cfg)
+        self.assertIn("wire1_ruuns", str(cm.exception))
+
+    def test_34c_rate_stage_mult_from_attr_is_validated_and_reference_guarded(self):
+        """The second interpreter change, at the validator. A rate stage may bind an attribute as a
+        multiplier; the id must be a non-empty string AND defined."""
+        def cfg_with(stage):
+            return {
+                "discipline": "Electrical", "category_id": "pw_stage_probe",
+                "attribute_definitions": [
+                    {"id": "wire1_runs", "label": "Wire 1 - runs", "type": "number"},
+                    {"id": "qty_attr", "label": "Qty", "type": "number"},
+                ],
+                "pipelines": {"p": {"output": ["supply"], "steps": [{
+                    "step": "component_ref", "name": "w", "ref": {"kind": "cable"},
+                    "target": "list_price_per_mtr", "rate_stages": [stage],
+                    "qty": {"from_attr": "qty_attr"},
+                }]}},
+            }
+        # POSITIVE: a defined attr id validates
+        rate_master._validate_config(cfg_with({"mult": 0.602, "mult_from_attr": "wire1_runs", "round": "up0"}))
+        # NEGATIVE: an UNDEFINED attr id is rejected by the reference guard
+        with self.assertRaises(frappe.ValidationError) as cm:
+            rate_master._validate_config(cfg_with({"mult": 0.602, "mult_from_attr": "nope_runs"}))
+        self.assertIn("nope_runs", str(cm.exception))
+        # NEGATIVE: a non-string / empty id is rejected outright
+        for bad in ("", 3, []):
+            with self.assertRaises(frappe.ValidationError):
+                rate_master._validate_config(cfg_with({"mult": 0.602, "mult_from_attr": bad}))
+
+    def test_35_circuit_fit_wire_specs_rejects_a_bad_arity(self):
+        """NEGATIVE, both directions: a 1-element entry and a non-list entry are always invalid."""
+        for bad in ([["wire1_core"]], ["wire1_core"], [[]]):
+            with self.assertRaises(frappe.ValidationError):
+                rate_master._validate_config(self._circuit_fit_config(bad))
+
+    def test_36_circuit_fit_wire_specs_reference_guard_catches_a_typo(self):
+        """G7. An attr id named in wire_specs that is NOT defined must be REJECTED, never silently
+        ignored -- otherwise a typo'd id would read as absent at runtime."""
+        cfg = self._circuit_fit_config([["wire1_core", "wire1_thicknes_sqmm"]])  # typo
+        with self.assertRaises(frappe.ValidationError) as cm:
+            rate_master._validate_config(cfg)
+        self.assertIn("wire1_thicknes_sqmm", str(cm.exception))

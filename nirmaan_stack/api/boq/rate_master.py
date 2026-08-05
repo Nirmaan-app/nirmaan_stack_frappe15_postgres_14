@@ -1151,6 +1151,14 @@ def _validate_config(cfg):
                                 _vthrow(f"{where}: rate_stages[{ri}] needs a finite 'mult'.")
                             if stage.get("round") is not None and stage.get("round") not in ("up0", "up-1"):
                                 _vthrow(f"{where}: rate_stages[{ri}].round must be 'up0' or 'up-1'.")
+                            # point_wiring RUNS: an OPTIONAL attribute-bound factor folded in before this
+                            # stage's rounding. REFERENCE-GUARDED so a typo'd id cannot pass silently
+                            # (absent means 1 at runtime, so an unguarded typo would read as "no runs").
+                            mfa = stage.get("mult_from_attr")
+                            if mfa is not None:
+                                if not isinstance(mfa, str) or not mfa:
+                                    _vthrow(f"{where}: rate_stages[{ri}].mult_from_attr must be an attribute id.")
+                                _ref(mfa, f"{where} (rate_stages[{ri}].mult_from_attr)")
                     q = s.get("qty")
                     if q is not None and not (
                         _is_finite_number(q)
@@ -1233,10 +1241,20 @@ def _validate_config(cfg):
                 if not isinstance(specs, list) or not specs:
                     _vthrow(f"{where}: circuit_fit needs a non-empty wire_specs list.")
                 for wi, pair in enumerate(specs):
-                    if not isinstance(pair, list) or len(pair) != 2 or not all(isinstance(x, str) and x for x in pair):
-                        _vthrow(f"{where}: circuit_fit wire_specs[{wi}] must be a [core_attr, thickness_attr] pair.")
-                    _ref(pair[0], f"{where} (wire_specs)")
-                    _ref(pair[1], f"{where} (wire_specs)")
+                    # point_wiring RUNS: an OPTIONAL third element names a parallel-runs attribute
+                    # (conduit sizing becomes cores x runs). 2 stays valid -- every pre-existing config
+                    # uses it and absence means 1 at runtime.
+                    if (
+                        not isinstance(pair, list)
+                        or len(pair) not in (2, 3)
+                        or not all(isinstance(x, str) and x for x in pair)
+                    ):
+                        _vthrow(
+                            f"{where}: circuit_fit wire_specs[{wi}] must be a "
+                            f"[core_attr, thickness_attr] pair, optionally with a third runs_attr."
+                        )
+                    for el in pair:
+                        _ref(el, f"{where} (wire_specs)")
                 for key in ("length_attr", "conduit_type_attr"):
                     if not isinstance(p.get(key), str) or not p.get(key):
                         _vthrow(f"{where}: circuit_fit needs a string '{key}'.")

@@ -147,10 +147,32 @@ function roundByMode(x: number, mode?: "up0" | "up-1"): number {
   return x;
 }
 
-/** Walk a component_ref's rate_stages: rate *= mult, then optional per-stage roundup (in order). */
-function stageRate(base: number, stages: import("./rateMasterTypes").RateStage[] | undefined): number {
+/** Resolve an ABSENT-MEANS-ONE numeric factor from the selection.
+ *
+ * OWNER RULING (point_wiring runs): a missing / non-numeric / non-positive runs factor resolves to 1,
+ * in BOTH circuit_fit and the rate stage. This DELIBERATELY DIVERGES from the cable-runs `_from_attr`
+ * precedent in `scale`, which hard-fails to an honest no-compute. Three reasons: (a) backward
+ * compatibility REQUIRES it in circuit_fit -- every shipped wire_specs is a 2-tuple with no runs attr
+ * at all, and absence must not change their behaviour; (b) differing absent-semantics between the two
+ * sites inside ONE category would be incoherent; (c) the cable hard-fail produced a configurator
+ * regression where every row reads no-compute until the user fills a box that is 1 in almost every case.
+ * A run count is a MULTIPLIER whose neutral element is 1, not a missing measurement. */
+function absentMeansOne(selected: Record<string, string | number>, attr: string | undefined): number {
+  if (!attr) return 1;
+  const v = Number(selected[attr]);
+  return Number.isFinite(v) && v > 0 ? v : 1;
+}
+
+/** Walk a component_ref's rate_stages: rate *= mult (x an optional attribute-bound factor), then the
+ * optional per-stage roundup, in order. `mult_from_attr` folds in BEFORE that stage's rounding, so
+ * `x runs then round` -- the owner's ruling. Absent `mult_from_attr` => factor 1 => byte-identical. */
+function stageRate(
+  base: number,
+  stages: import("./rateMasterTypes").RateStage[] | undefined,
+  selected: Record<string, string | number>,
+): number {
   let r = base;
-  for (const st of stages ?? []) r = roundByMode(r * st.mult, st.round);
+  for (const st of stages ?? []) r = roundByMode(r * st.mult * absentMeansOne(selected, st.mult_from_attr), st.round);
   return r;
 }
 
@@ -416,7 +438,7 @@ export function runPipeline(
       const p = s.params;
       let overallDia = 0;
       let miss: string | null = null;
-      for (const [coreAttr, thickAttr] of p.wire_specs) {
+      for (const [coreAttr, thickAttr, runsAttr] of p.wire_specs) {
         // EA-4a-r: an OPTIONAL wire set to the "None" sentinel is POSITIVELY ABSENT -- omit it from the dia
         // (a single-wire point fits on wire1 alone). Its disabled core attr is not read.
         if (p.optional_wire_when_none && thickAttr === p.optional_wire_when_none && selected[thickAttr] === NONE_SENTINEL) {
@@ -428,7 +450,11 @@ export function runPipeline(
           miss = `${coreAttr}/${thickAttr}`;
           break;
         }
-        overallDia += Math.sqrt(thick / Math.PI) * 2 * core;
+        // point_wiring RUNS: the OPTIONAL third wire_spec element names a parallel-runs attribute.
+        // Conduit sizing is runs x cores; the CATALOG MATCH stays cores-only (the ref.core binding is
+        // untouched) -- one attribute serving both is exactly what broke the previous rule. ABSENT
+        // MEANS 1, which is what keeps every shipped 2-tuple byte-identical.
+        overallDia += Math.sqrt(thick / Math.PI) * 2 * core * absentMeansOne(selected, runsAttr);
       }
       const ctype = selected[p.conduit_type_attr];
       const usable = ctype != null ? p.usable[String(ctype)] : undefined;
@@ -566,7 +592,7 @@ export function runPipeline(
           });
           return { pipelineId, outputs: pipeline.output, status: "no_match", steps, finals: {}, matchedItem, note: pipeline.note };
         }
-        const rate = stageRate(base, s.rate_stages);
+        const rate = stageRate(base, s.rate_stages, selected);
         const value = rate * qty;
         components[s.name] = value;
         steps.push({

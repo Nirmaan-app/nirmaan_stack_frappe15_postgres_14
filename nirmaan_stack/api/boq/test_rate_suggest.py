@@ -1377,14 +1377,24 @@ class TestExtBRules(FrappeTestCase):
         self.assertIn("ESTIMATOR_RULES", payload)
         self.assertIn(r8["guidance"], payload, "the guidance must arrive verbatim")
 
-    def test_e4_point_wiring_carries_r9_and_keeps_its_shipped_defaults(self):
-        """B2 AFTER. point_wiring gained R9 and NOTHING else -- the wire-core defaults of 1.0 were
-        already shipped and must not be duplicated or altered. (BEFORE: rules was falsy.)"""
+    def test_e4_point_wiring_r9_records_runs_and_cores_separately(self):
+        """point_wiring carries R9 and NOTHING else, and the wire-core defaults of 1.0 shipped at
+        ext-b must not be duplicated or altered.
+
+        R9 WAS REPLACED by the point_wiring RUNS slice. ext-b's R9 folded runs INTO the core value
+        (`applies_to: wire1_core`, "3 runs of 2-core is 6") and FAILED in the owner's hands: 6R x 1C
+        wrote core 6, no 6-core wire exists at that thickness, and the row did not compute. The
+        replacement keeps runs and cores SEPARATE. The old wording is asserted ABSENT so a revert
+        cannot pass this test silently."""
         ids = [r.get("id") for r in (_live_rules("point_wiring") or [])]
         self.assertEqual(ids, ["R9"])
         r9 = next(r for r in _live_rules("point_wiring") if r["id"] == "R9")
-        self.assertEqual(r9["applies_to"], "wire1_core")
-        self.assertIn("3 runs of 2-core is 6", r9["guidance"])
+        self.assertEqual(r9["applies_to"], "wire1_runs")
+        self.assertEqual(r9["label"], "Runs and cores are recorded separately")
+        self.assertIn("record 3 as runs and 2 as the core count", r9["guidance"])
+        self.assertIn("must NEVER be multiplied together", r9["guidance"])
+        # the RETIRED wording must be gone -- this is what makes a revert fail loudly
+        self.assertNotIn("3 runs of 2-core is 6", r9["guidance"])
         cfg = frappe.get_all("BoQ Rate Category Config",
                              filters={"discipline": "Electrical", "category_id": "point_wiring",
                                       "active": 1}, fields=["config"], limit=1)[0]["config"]
