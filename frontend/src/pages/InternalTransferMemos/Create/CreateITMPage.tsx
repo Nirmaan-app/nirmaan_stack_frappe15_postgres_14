@@ -50,10 +50,17 @@ export default function CreateITMPage() {
   const { items, isLoading, error } = useInventoryPickerData("");
   const { create, isLoading: isCreating } = useCreateITMs();
 
+  // Destination list is restricted to WON projects only — a tender-stage project
+  // has no site to receive material. `tendering_status` is populated on every
+  // project (Won | Tendering), so this is a clean split, not a fallback.
   const { data: projects, isLoading: projectsLoading } = useFrappeGetDocList<Projects>(
     "Projects",
-    { fields: ["name", "project_name"], limit: 0 },
-    "itm-all-projects-minimal"
+    {
+      fields: ["name", "project_name"],
+      filters: [["tendering_status", "=", "Won"]],
+      limit: 0,
+    },
+    "itm-won-projects-minimal"
   );
 
   const projectOptions = useMemo<ProjectOption[]>(() => {
