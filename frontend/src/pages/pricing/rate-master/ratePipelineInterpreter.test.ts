@@ -631,7 +631,7 @@ const PW_CIRCUIT_FIT = {
 type Stage = { mult: number; round?: "up0" | "up-1" };
 type Qty = number | { from_attr: string } | { from_fit: string } | { if_attr: Record<string, string | number>; then: number; else: number };
 // EA-4a-r: these components are None-able (their ref binds an allow_none attr) -- match the v14 config.
-const NONE_ABLE = new Set(["wire2", "switch", "socket", "plate", "back_box"]);
+const NONE_ABLE = new Set(["wire2", "switch", "socket", "blank", "plate", "back_box"]);
 function cref(name: string, ref: Record<string, string | number>, target: string, rate_stages: Stage[], qty: Qty) {
   return { step: "component_ref" as const, name, ref, target, rate_stages, qty, ...(NONE_ABLE.has(name) ? { none_skips: true } : {}) };
 }
@@ -743,6 +743,124 @@ describe("EA-4a assembly engine -- point_wiring goldens", () => {
     expect(fit(PW1)).toContain("conduit qty 4");
     expect(fit(PW2)).toContain("3 circuits");
     expect(fit(PW2)).toContain("conduit qty 5");
+  });
+});
+
+// ---- PW-FIX: THE ACCESSORY-FREE POINT (production row 198's shape) -------------------------------
+// A light point wired straight to an MCB carries no switch, no socket, no plate and no blanker. That
+// is a REAL and COMMON product, not a data error -- but the module_fit weighted sum is 0 for it, and
+// the `occupied <= 0` guard bailed the WHOLE pipeline, discarding a circuit_fit that had already
+// succeeded. Wire and conduit have nothing to do with module counts.
+//
+// These pins were written against the UNCHANGED interpreter and proven GREEN first, then updated in
+// the same slice, so the diff shows exactly what the interpreter did before and after.
+//
+// The fixtures above (EA-4a) predate module_fit and key the back box off the PLATE label. This is the
+// LIVE v23 shape: circuit_fit -> module_fit -> components, with the back box keyed on the module_fit
+// BOX ladder (@box_item) -- the shorter ladder, which is why the label can never simply be copied.
+const PW_MODULE_FIT = {
+  step: "module_fit" as const,
+  params: {
+    terms: [
+      { attr: "socket_qty", weight: 2, none_when: "socket_item" },
+      { attr: "switch_qty", weight: 1, none_when: "switch_item" },
+    ],
+    ladders: [
+      { kind: "switch_socket_item", where: { family: "Grid and Face Plates" }, bind: "plate_item", floor_from: "plate_item", on_none: "none" },
+      { kind: "switch_socket_item", where: { family: "Back Box" }, bind: "box_item", floor_from: "plate_item", on_none: "computed" },
+    ],
+    blanks: { bind: "blank_count", from_ladder: "plate_item" },
+  },
+};
+const PW_MF_SUPPLY: Pipeline = {
+  output: ["supply"],
+  steps: [
+    PW_CIRCUIT_FIT,
+    PW_MODULE_FIT,
+    cref("wire1", wireRef("@wire1_core", "@wire1_thickness_sqmm"), "list_price_per_mtr", [{ mult: 0.602, round: "up0" }], { from_attr: "circuit_length_m" }),
+    cref("wire2", wireRef("@wire2_core", "@wire2_thickness_sqmm"), "list_price_per_mtr", [{ mult: 0.602, round: "up0" }], { from_attr: "circuit_length_m" }),
+    cref("conduit", conduitRef, "list_price_per_mtr", [{ mult: 0.7, round: "up0" }], { from_fit: "conduit_qty" }),
+    cref("switch", ssRef("Switch", "@switch_item", "@colour"), "list_price", [{ mult: 0.3625, round: "up0" }], { from_attr: "switch_qty" }),
+    cref("socket", ssRef("Socket", "@socket_item", "@colour"), "list_price", [{ mult: 0.3625, round: "up0" }], { from_attr: "socket_qty" }),
+    cref("blank", ssRef("Switch", "@blank_item", "@colour"), "list_price", [{ mult: 0.3625, round: "up0" }], { from_fit: "blank_count" }),
+    cref("plate", ssRef("Grid and Face Plates", "@plate_item", "@colour"), "list_price", [{ mult: 0.3625, round: "up0" }], { from_attr: "plate_qty" }),
+    cref("back_box", ssRef("Back Box", "@box_item", "NA"), "list_price", [{ mult: 0.3625, round: "up0" }], { if_attr: { back_box: "Yes" }, then: 1, else: 0 }),
+    { step: "sum_components", result: "supply" },
+  ],
+};
+// The real catalog row for row 198's wire1 (COPPER/UNARMOURED 3C x 1.5): list 166, install base 12.
+const PW198_ITEMS: RateMasterItem[] = [...PW_ITEMS, cbl(3, 1.5, 166, 12)];
+// Production BOQ-26-00019 / '12 Internal Works ' row 198, VERBATIM as extracted -- every accessory
+// positively absent ("None"), every qty a default the extraction filled in.
+const PW_ROW198: Record<string, string | number> = {
+  wire1_core: 3, wire1_runs: 1, wire1_thickness_sqmm: 1.5,
+  wire2_core: 1, wire2_runs: 1, wire2_thickness_sqmm: 1.5,
+  circuit_length_m: 15, conduit_type: "PVC",
+  switch_item: "None", switch_qty: 1,
+  socket_item: "None", socket_qty: 1,
+  blank_item: "None", blank_qty: 1,
+  plate_item: "None", plate_qty: 1,
+  colour: "White", back_box: "Yes",
+};
+const mfTrace = (r: ReturnType<typeof runPipeline>) =>
+  r.steps.find((s) => s.step === "module_fit")?.matchedCondition ?? "";
+const lineOf = (r: ReturnType<typeof runPipeline>, name: string) =>
+  r.steps.find((s) => s.produced?.key === name)?.produced?.value;
+
+describe("PW-FIX: a ZERO module count yields no plate / no box / no blanks, and NEVER kills the pipeline", () => {
+  it("row 198 PRICES: circuit_fit's result survives, wire + conduit price normally", () => {
+    const r = runPipeline("pw_boq_supply", PW_MF_SUPPLY, PW198_ITEMS, PW_ROW198);
+    expect(r.status).toBe("ok");
+    // circuit_fit did its work and is NO LONGER discarded
+    expect(r.steps[0].matchedCondition).toContain("25mm");
+    expect(r.steps[0].matchedCondition).toContain("2 circuits");
+    expect(r.steps[0].matchedCondition).toContain("conduit qty 8");
+    // wire1 = ceil(166 x 0.602) = 100 x 15 = 1500; wire2 = ceil(50.45 x 0.602) = 31 x 15 = 465
+    expect(lineOf(r, "wire1")).toBe(1500);
+    expect(lineOf(r, "wire2")).toBe(465);
+    // conduit = ceil(60 x 0.7) = 42 x 8 = 336
+    expect(lineOf(r, "conduit")).toBe(336);
+    expect(r.finals).toEqual({ supply: 2301 });
+  });
+
+  it("NO plate, NO box, NO blanks -- each an EXPLICIT ZERO line, never a manufactured plate", () => {
+    const r = runPipeline("pw_boq_supply", PW_MF_SUPPLY, PW198_ITEMS, PW_ROW198);
+    expect(lineOf(r, "plate")).toBe(0);
+    expect(lineOf(r, "back_box")).toBe(0);
+    expect(lineOf(r, "blank")).toBe(0);
+    // the smallest plate/box in the catalog must NOT have been fitted
+    expect(mfTrace(r)).not.toContain("3M");
+    expect(mfTrace(r)).not.toContain("1M & 2M");
+  });
+
+  it("THE TRACE SAYS SO -- silence would be worse than the bail it replaced", () => {
+    const r = runPipeline("pw_boq_supply", PW_MF_SUPPLY, PW198_ITEMS, PW_ROW198);
+    expect(mfTrace(r)).toBe(
+      "2 x socket_qty(None) + 1 x switch_qty(None) = 0 modules -> " +
+        "no plate_item (nothing to fit), no box_item (nothing to fit); no plate -> 0 blanks",
+    );
+  });
+
+  it("blank_count binds ZERO (not unbound) -- a from_fit blank line can never abort the row", () => {
+    const r = runPipeline("m", { output: ["blank_count"], steps: [PW_MODULE_FIT] }, PW198_ITEMS, PW_ROW198);
+    expect(r.status).toBe("ok");
+    expect(r.finals).toEqual({ blank_count: 0 });
+  });
+
+  it("NEGATIVE is still refused -- a contradiction in the source data is not a product", () => {
+    const r = runPipeline("m", { output: [], steps: [PW_MODULE_FIT] }, PW198_ITEMS, {
+      ...PW_ROW198, socket_item: "6A 3-Pin Socket", socket_qty: -2,
+    });
+    expect(r.status).toBe("no_match");
+    expect(r.steps[r.steps.length - 1].label).toContain("not a valid count");
+  });
+
+  it("a POSITIVE count is byte-unchanged -- pw1 still fits a 3M plate and a 3M box", () => {
+    const r = runPipeline("pw_boq_supply", PW_MF_SUPPLY, PW198_ITEMS, { ...PW1, blank_item: "None" });
+    expect(r.status).toBe("ok");
+    expect(mfTrace(r)).toContain("= 3 modules");
+    expect(mfTrace(r)).toContain("plate_item 3M");
+    expect(mfTrace(r)).toContain("box_item 3M");
   });
 });
 
@@ -1618,11 +1736,15 @@ describe("SLICE 2 module_fit -- HONEST no-compute negatives (T8)", () => {
     expect(r.steps[r.steps.length - 1].label).toContain("no catalog rows");
   });
 
-  it("a count of ZERO (nothing on the plate) is an honest no-compute, NOT the smallest plate", () => {
+  it("a count of ZERO fits NO plate -- and, since PW-FIX, no longer refuses the row either", () => {
+    // UPDATED BY PW-FIX. This pin previously asserted `no_match` for the whole pipeline. The
+    // "NOT the smallest plate" half is the part that was always right and is unchanged; the refusal
+    // half was too wide and killed components that have nothing to do with module counts.
     const r = runPipeline("m", MF, LADDER_ITEMS, mfSel(0, 0, 0));
-    expect(r.status).toBe("no_match");
-    expect(r.finals).toEqual({});
-    expect(r.steps[r.steps.length - 1].label).toContain("not a positive count");
+    expect(r.status).toBe("ok");
+    expect(fitTrace(r)).toContain("no plate_size (nothing to fit)");
+    expect(fitTrace(r)).toContain("no box_size (nothing to fit)");
+    expect(fitTrace(r)).not.toContain("1M & 2M"); // the smallest rung was NOT manufactured
   });
 
   it("OPTION C: a MALFORMED module_fit (no params at all) NEVER throws -- honest degrade", () => {

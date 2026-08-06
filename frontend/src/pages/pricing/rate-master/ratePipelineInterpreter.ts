@@ -363,6 +363,12 @@ export function runPipeline(
   // stated one. Empty unless a module_fit ran, so every pre-slice-2 pipeline is byte-identical.
   const fitLabels: Record<string, string> = {};
 
+  /** Resolve a component_ref "@name" reference. THE ONE resolution order, shared by the two places
+   * that read one -- the none_skips positive-absence check and the ref binding itself -- so they can
+   * never disagree about what "@box_item" means. Byte-identical to the pre-PW-FIX inline form. */
+  const resolveAtRef = (src: string): string | number | undefined =>
+    src === "fitted_size" ? ctx["fitted_size"] : src in fitLabels ? fitLabels[src] : selected[src];
+
   const snapshot = () => ({ ...ctx });
 
   // Option C (owner-approved scope addition, EA-DIFF): enforce runPipeline's own "never throws on data
@@ -620,11 +626,27 @@ export function runPipeline(
       if (termMiss !== null) {
         return bail(`attribute '${termMiss}' missing or non-numeric -- no module count computed`);
       }
-      if (!Number.isFinite(occupied) || occupied <= 0) {
-        // A non-positive count is an ABSENCE of contents, not a size to fit. Applying the
-        // next-higher rule would manufacture a plate for a row carrying nothing.
-        return bail(`module count ${fmtNum(occupied)} is not a positive count -- no value computed`);
+      if (!(p?.terms?.length)) {
+        // OPTION C: a MALFORMED step (no params / no terms at all) declared nothing to count, which is
+        // NOT the same statement as a row that counted to zero. Without this the two collapse together
+        // and a broken config silently reports a priced row -- so the malformed case stays a refusal.
+        return bail("module_fit declares no terms -- no module count computed");
       }
+      if (!Number.isFinite(occupied) || occupied < 0) {
+        // A non-finite or NEGATIVE count is a CONTRADICTION in the source data -- there is no such
+        // product -- so it stays an honest no-compute.
+        return bail(`module count ${fmtNum(occupied)} is not a valid count -- no value computed`);
+      }
+      // PW-FIX -- ZERO IS A REAL PRODUCT, NOT A DATA ERROR.
+      // A light point wired straight to an MCB carries no switch, no socket and no plate, so the
+      // weighted sum is 0. The old guard was RIGHT that the next-higher rule must not manufacture a
+      // plate for a row carrying nothing -- but its ACTION was far too wide: it returned no_match for
+      // the WHOLE pipeline, discarding a circuit_fit that had already succeeded. Wire and conduit have
+      // nothing to do with module counts.
+      // So a zero count yields NO plate, NO box and NO blanks, while every other component prices
+      // normally. It is expressed with the mechanism a "None" plate ALREADY uses (`absentLadders`),
+      // one level up: EVERY ladder is positively absent rather than merely the one whose floor is None.
+      const noModules = occupied === 0;
 
       // (b) resolve each ladder ------------------------------------------------------------------
       // SLICE 2 part 2: a ladder may take a stated attribute as a FLOOR -- TAKE-THE-LARGER. The
@@ -635,6 +657,17 @@ export function runPipeline(
       const absentLadders = new Set<string>();
       const ladderParts: string[] = [];
       for (const L of p?.ladders ?? []) {
+        if (noModules) {
+          // Nothing to fit on ANY ladder. Bind the None sentinel so a `none_skips` component reading
+          // this ladder ("@box_item") resolves to positive absence and zeroes its line -- WITHOUT it
+          // the "@" reference is simply unbound, which aborts the whole pipeline on a missing bind
+          // and would reinstate the very refusal this fix removes. `bind_modules` binds a truthful 0.
+          absentLadders.add(L.bind);
+          fitLabels[L.bind] = NONE_SENTINEL;
+          if (L.bind_modules) ctx[L.bind_modules] = 0;
+          ladderParts.push(`no ${L.bind} (nothing to fit)`);
+          continue;
+        }
         let fitCount = occupied;
         let floorNote = "";
         if (L.floor_from) {
@@ -685,7 +718,14 @@ export function runPipeline(
 
       // (c) the blank (filler) count --------------------------------------------------------------
       let blankPart = "";
-      if (p?.blanks && absentLadders.has(p.blanks.from_ladder)) {
+      if (noModules && p?.blanks) {
+        // PW-FIX: with nothing on the plate there is no plate, and a filler fills a plate -- so there
+        // are ZERO blanks. It binds 0 rather than binding nothing, because the blank line reads its
+        // quantity via {from_fit} and an UNBOUND key is "quantity not provided", which aborts the row.
+        // Zero is the honest number here, and it is a number we actually know.
+        ctx[p.blanks.bind] = 0;
+        blankPart = "; no plate -> 0 blanks";
+      } else if (p?.blanks && absentLadders.has(p.blanks.from_ladder)) {
         // SLICE 2 part 2: the ladder the blanks are counted against is POSITIVELY ABSENT (a None
         // plate). Blanks fill a plate, so with no plate there are none -- that is an absence, not a
         // failure, and it must NOT refuse the row (a lone socket with no plate still prices).
@@ -754,7 +794,11 @@ export function runPipeline(
             ([k, rawVal]) =>
               k !== "kind" && k !== "attributes" &&
               typeof rawVal === "string" && rawVal.startsWith("@") &&
-              selected[rawVal.slice(1)] === NONE_SENTINEL,
+              // PW-FIX: resolved through the SHARED resolver, so a module_fit ladder bound to the None
+              // sentinel (a zero module count) zeroes this line exactly as a "None" ATTRIBUTE does.
+              // `fitLabels` only ever held real catalog labels before, so this is byte-identical for
+              // every pre-PW-FIX pipeline.
+              resolveAtRef(rawVal.slice(1)) === NONE_SENTINEL,
           )
         ) {
           components[s.name] = 0;
@@ -776,12 +820,7 @@ export function runPipeline(
             const src = rawVal.slice(1);
             // SLICE 2: a module_fit ladder LABEL binding resolves ahead of the selection (see
             // fitLabels above); absent one, this is byte-identical to the pre-slice-2 resolution.
-            const bound =
-              src === "fitted_size"
-                ? ctx["fitted_size"]
-                : src in fitLabels
-                  ? fitLabels[src]
-                  : selected[src];
+            const bound = resolveAtRef(src);
             if (bound === undefined || bound === null || (typeof bound === "number" && !Number.isFinite(bound))) {
               bindMiss = src;
               break;
