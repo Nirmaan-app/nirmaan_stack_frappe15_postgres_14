@@ -15,6 +15,21 @@ import type {
 import { NONE_SENTINEL, runPipeline } from "./ratePipelineInterpreter";
 
 /**
+ * CP2: the two axes of an attribute type, each with ONE definition.
+ *
+ * `number_choice` is the DROPDOWN affordance of `choice` with the NUMERIC coercion of `number`, so
+ * every consumer asks one of these two questions rather than testing the type string itself. An
+ * unknown / future type answers NO to both -- it renders as a plain input and coerces to String,
+ * exactly as before this type existed.
+ */
+export function isNumericAttributeType(type: AttributeDefinition["type"] | string | undefined): boolean {
+  return type === "number" || type === "number_choice";
+}
+export function isDropdownAttributeType(type: AttributeDefinition["type"] | string | undefined): boolean {
+  return type === "choice" || type === "number_choice";
+}
+
+/**
  * Coerce a stringy attribute value to what the interpreter matches on (number for number attrs).
  *
  * THE SINGLE POINT where an attribute value becomes a MATCH KEY. Item matching is strict identity
@@ -30,7 +45,7 @@ export function coerceForMatch(def: AttributeDefinition, raw: string | number | 
   // EA-4a-r: the "None" sentinel is POSITIVE ABSENCE -- preserve it verbatim for an allow_none def (even a
   // number one, where Number("None") would otherwise coerce it to null and lose the signal).
   if (def.allow_none && raw === NONE_SENTINEL) return NONE_SENTINEL;
-  if (def.type === "number") {
+  if (isNumericAttributeType(def.type)) {
     const n = typeof raw === "number" ? raw : Number(raw);
     return Number.isFinite(n) ? n : null;
   }

@@ -15,6 +15,23 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import type { AttributeDefinition, RateCategoryConfig, RateMasterItem, StepTrace } from "./rateMasterTypes";
 import { NONE_SENTINEL, runAllPipelines } from "./ratePipelineInterpreter";
 import { isEditableParam, matchedConditionIndex, parseFiniteInput } from "./rateMasterEdit";
+// CP2: the two type axes (dropdown affordance / numeric coercion) have ONE definition each.
+import { isDropdownAttributeType, isNumericAttributeType } from "./rateMasterStructure";
+
+/**
+ * CP2: the Derivation screen's own coercion of a picked/typed value into `selected`.
+ *
+ * Deliberately NOT `coerceForMatch`: this form clears to "" (an empty numeric input, or unchecking
+ * None) where the match coercion yields null -- "" means "the field is empty", and the interpreter
+ * reads `selected` directly. The TYPE decision is the shared one, so a `number_choice` dropdown
+ * writes a NUMBER here for exactly the same reason it does on the pricing-editor path.
+ */
+function coerceSelected(def: AttributeDefinition, raw: string): string | number {
+  // EA-4a-r: preserve the "None" sentinel verbatim for an allow_none def (never Number("None")=NaN).
+  if (def.allow_none && raw === NONE_SENTINEL) return NONE_SENTINEL;
+  if (isNumericAttributeType(def.type)) return raw === "" ? "" : Number(raw);
+  return raw;
+}
 
 // ---- BLANKER SLICE: DERIVED, READ-ONLY attribute displays ----
 //
@@ -293,9 +310,11 @@ export function RateMasterDerivation({ items, config, isAdmin, onSaveParam }: Pr
         init[d.id] = d.default;
       } else if (golden0[d.id] !== undefined) {
         init[d.id] = golden0[d.id];
-      } else if (d.type === "choice") {
+      } else if (isDropdownAttributeType(d.type)) {
+        // CP2: a number_choice seeds from its options exactly like a choice -- but the option is a
+        // STRING off the catalog, so it goes through the same numeric coercion the picker uses.
         const opts = optionsFor(d);
-        if (opts.length) init[d.id] = opts[0];
+        if (opts.length) init[d.id] = coerceSelected(d, opts[0]);
       } else if (d.type === "number" && numberValues[d.id]?.length) {
         init[d.id] = numberValues[d.id][0];
       }
@@ -307,12 +326,7 @@ export function RateMasterDerivation({ items, config, isAdmin, onSaveParam }: Pr
     setSelected((prev) => {
       // EA-4a-r: preserve the "None" sentinel verbatim for an allow_none def (never Number("None")=NaN);
       // an empty number (e.g. unchecking None) clears to "" (not 0); CLEAR its disables_when_none targets.
-      const val =
-        def.allow_none && raw === NONE_SENTINEL
-          ? NONE_SENTINEL
-          : def.type === "number"
-            ? raw === "" ? "" : Number(raw)
-            : raw;
+      const val = coerceSelected(def, raw);
       const next = { ...prev, [def.id]: val };
       if (def.allow_none) {
         for (const t of def.disables_when_none ?? []) {

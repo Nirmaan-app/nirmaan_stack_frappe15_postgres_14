@@ -8,6 +8,8 @@ import { NONE_SENTINEL } from "./ratePipelineInterpreter";
 import {
   STEP_VOCABULARY,
   coerceForMatch,
+  isDropdownAttributeType,
+  isNumericAttributeType,
   blankPipeline,
   blankStep,
   categoryItemKinds,
@@ -276,5 +278,50 @@ describe("coerceForMatch -- every attribute type (CP2 Phase A move pins)", () =>
   });
   it("an unknown/absent type falls through to String", () => {
     expect(coerceForMatch({ id: "x", label: "X", type: "zzz" } as unknown as AttributeDefinition, 6)).toBe("6");
+  });
+});
+
+// CP2 Phase B: the NUMERIC DROPDOWN type. A dropdown affordance with a NUMERIC match key -- the
+// coercion is the whole reason the type exists, so it is pinned directly here, at the definition.
+describe("coerceForMatch -- number_choice (CP2 Phase B)", () => {
+  const nc = (over: Partial<AttributeDefinition> = {}): AttributeDefinition =>
+    ({ id: "core", label: "Core", type: "number_choice", values_from: { kind: "cable", attr: "core" }, ...over }) as AttributeDefinition;
+
+  it("coerces a picked option to a NUMBER (the point of the type)", () => {
+    expect(coerceForMatch(nc(), "3")).toBe(3);
+    expect(coerceForMatch(nc(), "1.5")).toBe(1.5);
+    expect(coerceForMatch(nc(), 6)).toBe(6);
+  });
+  it("NEVER returns a string -- a plain choice would, and would then match nothing", () => {
+    expect(typeof coerceForMatch(nc(), "3")).toBe("number");
+    expect(coerceForMatch({ ...nc(), type: "choice" } as AttributeDefinition, "3")).toBe("3");
+  });
+  it("blank -> null and a non-numeric option -> null (honest, never NaN)", () => {
+    expect(coerceForMatch(nc(), "")).toBeNull();
+    expect(coerceForMatch(nc(), null)).toBeNull();
+    expect(coerceForMatch(nc(), "abc")).toBeNull();
+  });
+  it("allow_none: the None sentinel survives, exactly as on the other two types", () => {
+    expect(coerceForMatch(nc({ allow_none: true }), NONE_SENTINEL)).toBe(NONE_SENTINEL);
+    expect(coerceForMatch(nc(), NONE_SENTINEL)).toBeNull(); // no allow_none -> not a number, not the sentinel
+  });
+});
+
+// CP2 Phase B: the two type axes. `number_choice` is a dropdown (like choice) AND numeric (like
+// number); an unknown/future type answers NO to both, so it degrades to a plain String input.
+describe("isNumericAttributeType / isDropdownAttributeType (CP2 Phase B)", () => {
+  it("number_choice is BOTH numeric and a dropdown", () => {
+    expect(isNumericAttributeType("number_choice")).toBe(true);
+    expect(isDropdownAttributeType("number_choice")).toBe(true);
+  });
+  it("the two existing types are unchanged", () => {
+    expect(isNumericAttributeType("number")).toBe(true);
+    expect(isDropdownAttributeType("number")).toBe(false);
+    expect(isNumericAttributeType("choice")).toBe(false);
+    expect(isDropdownAttributeType("choice")).toBe(true);
+  });
+  it("an unknown or absent type is neither", () => {
+    expect(isNumericAttributeType("zzz")).toBe(false);
+    expect(isDropdownAttributeType(undefined)).toBe(false);
   });
 });

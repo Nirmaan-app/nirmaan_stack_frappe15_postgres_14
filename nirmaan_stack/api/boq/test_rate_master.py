@@ -1601,3 +1601,114 @@ class TestRateMaster(FrappeTestCase):
         self.assertGreater(grey, white)
         # it lives under family "Switch" -- there is NO blanker family (root CLAUDE.md invariant)
         self.assertEqual(families, {"Switch"})
+
+    # ---- CP2: the NUMERIC DROPDOWN attribute type (`number_choice`) ----
+    # A dropdown affordance with a NUMERIC match key. It exists because item matching is strict
+    # identity, so a dropdown over a numeric catalog column must not emit the string "3" against a
+    # stored 3. `_validate_config` is called DIRECTLY (the type lives in the E-ALL asset's
+    # point_wiring, not the wiring payload the fixture loads).
+    def _number_choice_config(self, core_def, extra_defs=(), wire_specs=None):
+        """A minimal config whose circuit_fit references the (possibly number_choice) core attr."""
+        defs = [
+            dict(core_def),
+            {"id": "wire1_thickness_sqmm", "label": "Wire 1 - thickness", "type": "number"},
+            {"id": "circuit_length_m", "label": "Length", "type": "number"},
+            {"id": "conduit_type", "label": "Conduit", "type": "choice", "values": ["PVC"]},
+        ] + [dict(d) for d in extra_defs]
+        return {
+            "discipline": "Electrical",
+            "category_id": "cp2_number_choice_probe",
+            "attribute_definitions": defs,
+            "pipelines": {
+                "p": {
+                    "output": ["supply"],
+                    "steps": [
+                        {
+                            "step": "circuit_fit",
+                            "params": {
+                                "sizes": [25.0],
+                                "usable": {"PVC": [0.55]},
+                                "wire_specs": wire_specs or [["wire1_core", "wire1_thickness_sqmm"]],
+                                "length_attr": "circuit_length_m",
+                                "conduit_type_attr": "conduit_type",
+                            },
+                            "binds": ["fitted_size", "circuits", "conduit_qty"],
+                        }
+                    ],
+                }
+            },
+        }
+
+    def test_59_number_choice_with_values_from_is_accepted(self):
+        """POSITIVE. The new type validates, resolving its options from the live catalog exactly as a
+        choice does (point_wiring's cores/thicknesses are keyed COPPER/UNARMOURED)."""
+        cfg = self._number_choice_config({
+            "id": "wire1_core",
+            "label": "Wire 1 - runs (Core)",
+            "type": "number_choice",
+            "values_from": {
+                "kind": "cable",
+                "attr": "core",
+                "where": {"material": "COPPER", "insulation": "UNARMOURED"},
+            },
+        })
+        rate_master._validate_config(cfg)  # must not raise
+
+    def test_59b_number_choice_with_a_static_values_list_is_accepted(self):
+        """POSITIVE. A static values list is equally valid -- values_from is an alternative, not a
+        requirement."""
+        cfg = self._number_choice_config({
+            "id": "wire1_core", "label": "Wire 1 - cores", "type": "number_choice",
+            "values": [1, 2, 3, 4, 5, 6],
+        })
+        rate_master._validate_config(cfg)  # must not raise
+
+    def test_60_number_choice_with_no_values_source_is_rejected(self):
+        """NEGATIVE. A dropdown with neither `values` nor `values_from` would render EMPTY and price
+        nothing -- the same requirement `choice` already carries, and the message names the type."""
+        cfg = self._number_choice_config({
+            "id": "wire1_core", "label": "Wire 1 - cores", "type": "number_choice",
+        })
+        with self.assertRaises(frappe.ValidationError) as cm:
+            rate_master._validate_config(cfg)
+        self.assertIn("number_choice", str(cm.exception))
+        self.assertIn("wire1_core", str(cm.exception))
+
+    def test_61_an_unknown_attribute_type_is_still_rejected(self):
+        """NEGATIVE / BACKWARDS-COMPAT. Widening to three types must not open the door to a fourth;
+        a typo'd type still fails, and the message names all three legal values."""
+        cfg = self._number_choice_config({
+            "id": "wire1_core", "label": "Wire 1 - cores", "type": "numeric_choice",
+            "values": [1, 2, 3],
+        })
+        with self.assertRaises(frappe.ValidationError) as cm:
+            rate_master._validate_config(cfg)
+        msg = str(cm.exception)
+        for legal in ("'choice'", "'number'", "'number_choice'"):
+            self.assertIn(legal, msg)
+
+    def test_62_a_number_choice_attr_is_reference_guarded_like_any_other(self):
+        """NEGATIVE. Converting an attribute to the new type does not exempt it from the reference
+        guard: a pipeline naming it while the DEFINITION is gone is still rejected, naming the
+        location. This is the guard that protects the four point_wiring conversions."""
+        cfg = self._number_choice_config({
+            "id": "wire1_core", "label": "Wire 1 - cores", "type": "number_choice",
+            "values": [1, 2, 3],
+        })
+        cfg["attribute_definitions"] = [
+            d for d in cfg["attribute_definitions"] if d["id"] != "wire1_core"
+        ]
+        with self.assertRaises(frappe.ValidationError) as cm:
+            rate_master._validate_config(cfg)
+        self.assertIn("wire1_core", str(cm.exception))
+
+    def test_63_choice_and_number_are_byte_unchanged_by_the_widening(self):
+        """BACKWARDS-COMPAT. The two pre-existing types keep their exact acceptance rules: a choice
+        still needs values (or values_from), a number still needs neither."""
+        ok = self._number_choice_config({"id": "wire1_core", "label": "C", "type": "number"})
+        rate_master._validate_config(ok)  # a number needs no values list
+
+        bad = self._number_choice_config({"id": "wire1_core", "label": "C", "type": "choice"})
+        with self.assertRaises(frappe.ValidationError) as cm:
+            rate_master._validate_config(bad)
+        self.assertIn("choice attribute 'wire1_core'", str(cm.exception))

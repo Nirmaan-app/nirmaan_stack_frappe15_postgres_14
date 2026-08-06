@@ -1043,16 +1043,25 @@ def _validate_config(cfg):
         def_ids.add(did)
         if not isinstance(d.get("label"), str) or not d.get("label"):
             _vthrow(f"attribute definition '{did}' needs a label.")
-        if d.get("type") not in ("choice", "number"):
-            _vthrow(f"attribute definition '{did}' type must be 'choice' or 'number'.")
+        # CP2: `number_choice` is the THIRD type -- a DROPDOWN that produces a NUMBER. It exists
+        # because item matching is strict identity, so a dropdown over a numeric catalog column
+        # (cable cores, thickness) must not emit the string "3" against a stored 3.
+        if d.get("type") not in ("choice", "number", "number_choice"):
+            _vthrow(
+                f"attribute definition '{did}' type must be 'choice', 'number' or 'number_choice'."
+            )
         # EA-4a: a choice may declare `values_from` (allowed values resolved from the live master at
         # extraction time) INSTEAD of a static `values` list -- point_wiring's switch/socket/plate selects.
+        # CP2: a number_choice is a dropdown too, so it carries the SAME requirement -- a picker with
+        # neither a values list nor a values_from source would render empty and price nothing.
         if (
-            d.get("type") == "choice"
+            d.get("type") in ("choice", "number_choice")
             and not d.get("values_from")
             and (not isinstance(d.get("values"), list) or not d.get("values"))
         ):
-            _vthrow(f"choice attribute '{did}' needs a non-empty values list (or values_from).")
+            _vthrow(
+                f"{d.get('type')} attribute '{did}' needs a non-empty values list (or values_from)."
+            )
         # EA-4a-r: allow_none (bool) marks a POSITIVELY-ABSENT-capable component; disables_when_none is the
         # list of dependent attr ids greyed/cleared when it is set to "None" (pass-through, shape-checked).
         if "allow_none" in d and not isinstance(d.get("allow_none"), bool):

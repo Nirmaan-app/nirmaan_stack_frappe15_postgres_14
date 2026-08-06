@@ -8,12 +8,13 @@ import {
   buildModuleLadder,
   evalFormula,
   fitModuleLadder,
+  matchMasterRow,
   moduleSizesFromLabel,
   roundUp,
   runAllPipelines,
   runPipeline,
 } from "./ratePipelineInterpreter";
-import { STEP_VOCABULARY, blankStep } from "./rateMasterStructure";
+import { STEP_VOCABULARY, blankStep, coerceForMatch } from "./rateMasterStructure";
 import { derivedQtyAttrs, derivedQtyValue } from "./RateMasterDerivation";
 
 // ---- the four stored pipelines (verbatim shape from RM-1 config) ----
@@ -2361,5 +2362,37 @@ describe("BLANKER SLICE -- derivedQtyValue: the computed value the display shows
     const blankLine = r.steps.find((s) => s.produced?.key === "blank")?.produced?.value;
     expect(shown).toBe(1);
     expect(blankLine).toBe(61 * shown!);      // White 1M Blanker list 61 x the SHOWN count
+  });
+});
+
+// CP2 Phase B: WHY the numeric dropdown type exists, proven at the matcher.
+//
+// `matchMasterRow` compares with `===` on the keys the row carries. A dropdown option is a STRING,
+// so a numeric catalog column reached through a plain `choice` produces "3" and matches nothing --
+// silently, with no error and no golden able to see it (the goldens hand `runPipeline` numbers
+// directly and never touch the coercion). `number_choice` is what makes the picked option a number.
+describe("CP2 -- strict identity matching is why number_choice exists", () => {
+  const items: RateMasterItem[] = [
+    {
+      discipline: "Electrical",
+      kind: "cable",
+      attributes: { material: "COPPER", insulation: "UNARMOURED", core: 3, thickness_sqmm: 1.5 },
+      rates: { list_rate: 100 },
+    },
+  ];
+  const base = { material: "COPPER", insulation: "UNARMOURED", thickness_sqmm: 1.5 };
+
+  it("a NUMBER core matches the catalog row", () => {
+    expect(matchMasterRow(items, "cable", { ...base, core: 3 })).toBeDefined();
+  });
+  it("the SAME core as a STRING matches nothing -- the CP2 defect, pinned", () => {
+    expect(matchMasterRow(items, "cable", { ...base, core: "3" })).toBeUndefined();
+  });
+  it("a coerced number_choice value goes in as a number, a choice value as a string", () => {
+    const def = { id: "core", label: "Core", type: "number_choice" as const, values_from: { kind: "cable", attr: "core" } };
+    const asNum = coerceForMatch(def, "3");
+    const asStr = coerceForMatch({ ...def, type: "choice" as const }, "3");
+    expect(matchMasterRow(items, "cable", { ...base, core: asNum as number })).toBeDefined();
+    expect(matchMasterRow(items, "cable", { ...base, core: asStr as string })).toBeUndefined();
   });
 });

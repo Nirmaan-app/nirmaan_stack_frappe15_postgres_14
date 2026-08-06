@@ -9,7 +9,21 @@
 export interface AttributeDefinition {
   id: string;
   label: string;
-  type: "choice" | "number";
+  /**
+   * The input affordance AND the match-key type, in one field:
+   *   "choice"        -> a DROPDOWN, coerced to a STRING.
+   *   "number"        -> a FREE numeric input, coerced to a NUMBER.
+   *   "number_choice" -> a DROPDOWN, coerced to a NUMBER (CP2).
+   *
+   * CP2, owner-locked: the third type exists because item matching is STRICT IDENTITY
+   * (`matchMasterRow`: `it.attributes[k] === selected[k]`), so a dropdown over a NUMERIC catalog
+   * column (cable cores, thickness in sqmm) must produce a number -- a plain `choice` yields the
+   * string "3", which never equals the stored 3 and silently matches nothing. The alternative,
+   * making the matcher numeric-aware, was REJECTED: it changes how every category matches every
+   * attribute, and its failure mode is a WRONG match -- a price that looks right and is not. This
+   * type is contained by construction; absence means unchanged.
+   */
+  type: "choice" | "number" | "number_choice";
   values?: (string | number)[];
   /** brand carries selector:false -- shown but not selectable. Absent => selectable. */
   selector?: boolean;

@@ -27,7 +27,7 @@
 import { NONE_SENTINEL, runPipeline } from "@/pages/pricing/rate-master/ratePipelineInterpreter";
 // CP2: `coerceForMatch` moved to the shared rate-master module (the single point where an attribute
 // value becomes a match key); this file imports it and no longer defines it.
-import { coerceForMatch } from "@/pages/pricing/rate-master/rateMasterStructure";
+import { coerceForMatch, isDropdownAttributeType } from "@/pages/pricing/rate-master/rateMasterStructure";
 import type {
   AttributeDefinition,
   Pipeline,
@@ -240,7 +240,9 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       workingsAttrs.push({
         id: d.id,
         label: d.label,
-        options: d.type === "choice" ? attributeOptions(d, items) : undefined,
+        // CP2: a `number_choice` renders the SAME dropdown as a `choice` (one predicate, shared with
+        // the Derivation screen) -- only the coercion above differs, and that is the whole point.
+        options: isDropdownAttributeType(d.type) ? attributeOptions(d, items) : undefined,
         value: coerced === null ? "" : String(coerced),
         confidence: disabled ? undefined : cell?.confidence,
         corroborated: disabled ? undefined : cell?.corroborated,
