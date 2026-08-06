@@ -569,6 +569,19 @@ export function NewSidebar() {
         },
       ]
       : []),
+    // Bulk Import Outflow (S3). Owner ruling: Accountant / Accountant Lead / Admin.
+    // The `user_id == "Administrator"` disjunct is NOT redundant -- this component skips the
+    // Nirmaan Users fetch for Administrator, so `role` is null there (unlike useUserData(),
+    // which fakes it to "Nirmaan Admin Profile"). Every entry in this file carries it.
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile"].includes(role as string)
+      ? [
+        {
+          key: '/bulk-import-outflow',
+          icon: Landmark,
+          label: 'Bulk Import Outflow',
+        },
+      ]
+      : []),
     ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Manager Profile", "Nirmaan Project Lead Profile"].includes(role as string)
       ? [
         {
@@ -751,6 +764,8 @@ export function NewSidebar() {
     ...PRICING_WORKBOOKS.map((w) => w.path.slice(1)),
     // Rate Master (RM-2).
     "rate-master",
+    // Bulk Import Outflow (S3).
+    "bulk-import-outflow",
     "upload-boq/templates",
   ]), [])
 
@@ -804,6 +819,9 @@ export function NewSidebar() {
     ),
     // Rate Master (RM-2): single-segment key drives the active-item highlight.
     "/rate-master": ["rate-master"],
+    // Bulk Import Outflow (S3): the child route /bulk-import-outflow/new falls back to the
+    // first segment, so the parent stays highlighted while creating an import.
+    "/bulk-import-outflow": ["bulk-import-outflow"],
   }), []);
 
   const openKey = useMemo(() => {
@@ -919,7 +937,10 @@ export function NewSidebar() {
                     // Pricing Module (PW-1): flat nav buttons, one per registry workbook.
                     ...PRICING_WORKBOOKS.map((w) => w.label),
                     // Rate Master (RM-2): flat nav button.
-                    "Rate Master"]).has(item?.label) ? (
+                    "Rate Master",
+                    // Bulk Import Outflow (S3): flat nav button. OMITTING THIS LABEL would drop
+                    // the item into the collapsible-group branch below and render it wrong.
+                    "Bulk Import Outflow"]).has(item?.label) ? (
                     <SidebarMenuButton
                       className={`${((!openKey && selectedKeys !== "notifications" && item?.label === "Dashboard") || item?.key === openKey)
                         ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]"

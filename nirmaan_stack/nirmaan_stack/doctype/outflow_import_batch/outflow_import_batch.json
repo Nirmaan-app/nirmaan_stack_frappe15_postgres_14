@@ -1,0 +1,257 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "OFI-.YY.-.#####",
+ "creation": "2026-08-06 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "source_section",
+  "source",
+  "source_file",
+  "original_filename",
+  "period_from",
+  "period_to",
+  "overlaps_batch",
+  "status_section",
+  "status",
+  "total_rows",
+  "reviewed_rows",
+  "reconciled_rows",
+  "settled_rows",
+  "skipped_rows",
+  "exception_rows",
+  "error_rows",
+  "amounts_section",
+  "gross_amount",
+  "charges_amount",
+  "charges_expense",
+  "provenance_section",
+  "uploaded_by",
+  "uploaded_at",
+  "closed_at",
+  "closed_by",
+  "close_reason"
+ ],
+ "fields": [
+  {
+   "fieldname": "source_section",
+   "fieldtype": "Section Break",
+   "label": "Source"
+  },
+  {
+   "default": "Cashfree",
+   "description": "Which outflow channel the uploaded statement came from. Each source has its own parser adapter; adding one is an adapter plus an option here.",
+   "fieldname": "source",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Source",
+   "options": "Cashfree\nCashbook",
+   "reqd": 1
+  },
+  {
+   "description": "The uploaded statement file. THE FILE LIVES HERE AND ONLY HERE (owner ruling R3, 2026-08-06). Settled records link back to this batch and their row -- they must NEVER carry a copy of this file_url, because a Frappe File can be attached_to exactly one doc and deleting that doc cascades remove_all, leaving every other reference pointing at a 404.",
+   "fieldname": "source_file",
+   "fieldtype": "Attach",
+   "label": "Source File"
+  },
+  {
+   "description": "The uploaded file's original name, kept for display because the stored File name is hashed.",
+   "fieldname": "original_filename",
+   "fieldtype": "Data",
+   "label": "Original Filename"
+  },
+  {
+   "description": "Earliest transaction date in the file (min of the raw Added On). Derived at parse time, never entered.",
+   "fieldname": "period_from",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Period From"
+  },
+  {
+   "description": "Latest transaction date in the file (max of the raw Added On). Derived at parse time, never entered.",
+   "fieldname": "period_to",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Period To"
+  },
+  {
+   "description": "An earlier batch whose period overlaps this one. WARNING ONLY -- an overlap never blocks an upload (owner ruling). Precise per-row duplicate detection keys on Outflow Import Row.transfer_id, not on this range.",
+   "fieldname": "overlaps_batch",
+   "fieldtype": "Link",
+   "label": "Overlaps Batch",
+   "options": "Outflow Import Batch"
+  },
+  {
+   "fieldname": "status_section",
+   "fieldtype": "Section Break",
+   "label": "Status"
+  },
+  {
+   "default": "Draft",
+   "description": "Batch lifecycle. Draft = uploaded, not yet parsed into rows. In Review = rows staged, decisions outstanding. Partially Settled = some rows terminal, some not. Completed = every row terminal. Completed with exceptions = closed deliberately while non-terminal rows remained. DERIVED ONLY by services/outflow_import/status.py -- nothing else may write it.",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Draft\nIn Review\nPartially Settled\nCompleted\nCompleted with exceptions"
+  },
+  {
+   "description": "Rows parsed from the file, including non-SUCCESS rows (which are staged and then auto-skipped, so the skip stays visible).",
+   "fieldname": "total_rows",
+   "fieldtype": "Int",
+   "label": "Total Rows"
+  },
+  {
+   "description": "Rows that have left Pending -- the decision-progress counter surfaced on the import list.",
+   "fieldname": "reviewed_rows",
+   "fieldtype": "Int",
+   "label": "Reviewed Rows"
+  },
+  {
+   "description": "Rows matched to an already-Paid Project Payment with amounts agreeing. READ-ONLY outcome: nothing was written.",
+   "fieldname": "reconciled_rows",
+   "fieldtype": "Int",
+   "label": "Reconciled Rows"
+  },
+  {
+   "description": "Rows that caused an expense write (an Approved expense marked Paid, or a fresh expense created at Paid). The ONLY outcome in this feature that mutates anything.",
+   "fieldname": "settled_rows",
+   "fieldtype": "Int",
+   "label": "Settled Rows"
+  },
+  {
+   "description": "Rows skipped -- duplicates, non-SUCCESS transfers, or a manual skip (which requires a reason).",
+   "fieldname": "skipped_rows",
+   "fieldtype": "Int",
+   "label": "Skipped Rows"
+  },
+  {
+   "description": "Rows reported as an exception: amount mismatch, reference mismatch, or a control exception (money left the bank against a payment that is not Paid). All READ-ONLY -- reported, never repaired (owner ruling 2026-08-06).",
+   "fieldname": "exception_rows",
+   "fieldtype": "Int",
+   "label": "Exception Rows"
+  },
+  {
+   "description": "Rows whose write failed and were rolled back to their own savepoint. The rest of the batch is unaffected.",
+   "fieldname": "error_rows",
+   "fieldtype": "Int",
+   "label": "Error Rows"
+  },
+  {
+   "fieldname": "amounts_section",
+   "fieldtype": "Section Break",
+   "label": "Amounts"
+  },
+  {
+   "description": "Sum of the beneficiary Amount column across SUCCESS rows. EXCLUDES service charge and tax -- this is what reached beneficiaries, not what left the bank.",
+   "fieldname": "gross_amount",
+   "fieldtype": "Currency",
+   "label": "Gross Amount"
+  },
+  {
+   "description": "Sum of Service Charge + Service Tax across SUCCESS rows. Real money that leaves the bank and belongs to no row, which is why the batch total never equals the sum of the rows.",
+   "fieldname": "charges_amount",
+   "fieldtype": "Currency",
+   "label": "Charges Amount"
+  },
+  {
+   "description": "The single aggregated Bank Fees & Charges non-project expense booked for this batch's charges, if the user opted in. OPT-IN: absent means the charges were surfaced and deliberately not booked.",
+   "fieldname": "charges_expense",
+   "fieldtype": "Link",
+   "label": "Charges Expense",
+   "options": "Non Project Expenses"
+  },
+  {
+   "fieldname": "provenance_section",
+   "fieldtype": "Section Break",
+   "label": "Provenance"
+  },
+  {
+   "description": "Who uploaded the file (frappe.session.user). Data, not Link -- mirrors the house convention for actor fields (see BoQ Rate Suggestion Run.run_by).",
+   "fieldname": "uploaded_by",
+   "fieldtype": "Data",
+   "label": "Uploaded By",
+   "read_only": 1
+  },
+  {
+   "description": "When the file was uploaded and parsed.",
+   "fieldname": "uploaded_at",
+   "fieldtype": "Datetime",
+   "label": "Uploaded At",
+   "read_only": 1
+  },
+  {
+   "description": "When someone deliberately closed this batch while rows still needed a decision. THIS FIELD IS THE FLAG -- its presence is what makes the derived status 'Completed with exceptions' rather than 'In Review'. Closing does NOT freeze the batch: an abandoned row can still be settled later, and the status re-derives when it is. Cleared by reopening.",
+   "fieldname": "closed_at",
+   "fieldtype": "Datetime",
+   "label": "Closed At",
+   "read_only": 1
+  },
+  {
+   "description": "Who closed the batch (frappe.session.user). Data, not Link, per the house convention for actor fields.",
+   "fieldname": "closed_by",
+   "fieldtype": "Data",
+   "label": "Closed By",
+   "read_only": 1
+  },
+  {
+   "description": "Why the remaining rows were left undecided. Optional -- unlike a per-row manual skip, which always requires one, because closing abandons rows in bulk without claiming a decision about any individual one.",
+   "fieldname": "close_reason",
+   "fieldtype": "Small Text",
+   "label": "Close Reason",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 0,
+ "links": [],
+ "modified": "2026-08-06 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Outflow Import Batch",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Accountant",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Accountant Lead",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

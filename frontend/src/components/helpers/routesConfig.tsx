@@ -56,7 +56,7 @@ import CreditsPage from "@/pages/credits/CreditsPage";
 //---New Vendors-AQ2 Page
 import VendorsAQ2 from "@/pages/vendors-wp-categories/vendors-aq2";
 import WorkPackages from "@/pages/work-packages";
-import { ProtectedRoute, UsersRoute, UserProfileRoute, InflowPaymentsRoute, NewProjectRoute, PricingRoute } from "@/utils/auth/ProtectedRoute";
+import { ProtectedRoute, UsersRoute, UserProfileRoute, InflowPaymentsRoute, NewProjectRoute, PricingRoute, OutflowImportRoute } from "@/utils/auth/ProtectedRoute";
 import { ProjectManager } from "../layout/dashboards/dashboard-pm";
 import InvoiceReconciliationContainer from "@/pages/tasks/invoices/InvoiceReconciliationContainer";
 import { NewProcurementRequestPage } from "@/pages/ProcurementRequests/NewPR/NewProcurementRequestPage";
@@ -812,6 +812,23 @@ export const appRoutes: RouteObject[] = [
             element: <PricingRoute />,
             children: [
               { index: true, lazy: () => import("@/pages/pricing/rate-master/RateMasterPage") },
+            ],
+          },
+
+          // Bulk Import Outflow (S3) -- upload a bank statement, reconcile transfers against
+          // payments (read-only) and settle expenses (the only write). Guarded to Accountant /
+          // Accountant Lead / Admin; the backend gate in api/outflow_import/permissions.py is the
+          // real boundary. Single top-level segment, which is what the sidebar's active-item
+          // matching keys on.
+          {
+            path: "bulk-import-outflow",
+            element: <OutflowImportRoute />,
+            children: [
+              { index: true, lazy: () => import("@/pages/outflow-import/OutflowImportListPage") },
+              { path: "new", lazy: () => import("@/pages/outflow-import/NewOutflowImportPage") },
+              // ":id" LAST -- a static sibling like "new" must be declared before the param
+              // route, or "/bulk-import-outflow/new" resolves as a batch named "new".
+              { path: ":id", lazy: () => import("@/pages/outflow-import/OutflowImportBatchPage") },
             ],
           },
 

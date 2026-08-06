@@ -199,3 +199,35 @@ export const PricingRoute = () => {
         </div>
     )
 }
+
+/**
+ * Guards Bulk Import Outflow (/bulk-import-outflow and its children).
+ *
+ * Owner ruling: Accountant, Accountant Lead, Admin. Mirrors the backend gate
+ * `api/outflow_import/permissions.require_outflow_access`, which reads the SAME source
+ * (`Nirmaan Users.role_profile`) and is the real enforcement layer -- this is the UI gate only.
+ *
+ * Modelled on PricingRoute, and deliberately NOT on AdminRoute: that guard returns `undefined`
+ * for an unauthorized user, which renders a blank screen instead of telling them why.
+ */
+export const OutflowImportRoute = () => {
+    const { role, user_id } = useUserData()
+
+    if (
+        user_id === "Administrator" ||
+        role === "Nirmaan Admin Profile" ||
+        role === "Nirmaan Accountant Profile" ||
+        role === "Nirmaan Accountant Lead Profile"
+    ) {
+        return <Outlet />
+    }
+
+    return (
+        <div className="flex items-center justify-center h-[50vh]">
+            <div className="text-center">
+                <h2 className="text-xl font-semibold text-gray-800">Access Denied</h2>
+                <p className="text-gray-600 mt-2">Bulk Import Outflow is limited to Accountants and Admins.</p>
+            </div>
+        </div>
+    )
+}

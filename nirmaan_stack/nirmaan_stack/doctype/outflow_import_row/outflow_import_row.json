@@ -1,0 +1,269 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "OFR-.YY.-.######",
+ "creation": "2026-08-06 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "identity_section",
+  "import_batch",
+  "transfer_id",
+  "reference_id",
+  "bank_section",
+  "added_on",
+  "amount",
+  "status_raw",
+  "beneficiary_name",
+  "beneficiary_id",
+  "bank_account",
+  "ifsc",
+  "remarks",
+  "bank_reference_no",
+  "service_charge",
+  "service_tax",
+  "added_by_raw",
+  "derived_section",
+  "normalized_account",
+  "normalized_reference",
+  "resolved_vendor",
+  "resolved_project",
+  "decision_section",
+  "row_status",
+  "skip_reason",
+  "outcome_note",
+  "decided_at",
+  "decided_by"
+ ],
+ "fields": [
+  {
+   "fieldname": "identity_section",
+   "fieldtype": "Section Break",
+   "label": "Identity"
+  },
+  {
+   "description": "The uploaded batch this row was parsed from.",
+   "fieldname": "import_batch",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Import Batch",
+   "options": "Outflow Import Batch",
+   "reqd": 1
+  },
+  {
+   "description": "The gateway's own transfer id, unique per transfer. THE IDEMPOTENCY KEY for duplicate detection across batches -- deliberately NOT the UTR, which on Project Payments is a free-text Data field with no unique constraint, no index, 226 whitespace-padded rows and a second non-stripping writer.",
+   "fieldname": "transfer_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Transfer Id",
+   "reqd": 1
+  },
+  {
+   "description": "The gateway's secondary numeric id, kept verbatim for support queries. Not used for matching.",
+   "fieldname": "reference_id",
+   "fieldtype": "Data",
+   "label": "Reference Id"
+  },
+  {
+   "fieldname": "bank_section",
+   "fieldtype": "Section Break",
+   "label": "Bank Row (verbatim)"
+  },
+  {
+   "description": "When the transfer was INITIATED (the statement's Added On), full precision. Note this is not the settlement stamp; the two can straddle a date boundary.",
+   "fieldname": "added_on",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Added On"
+  },
+  {
+   "description": "The amount credited to the beneficiary. EXCLUDES service charge and tax, so it is less than the bank debit.",
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Amount"
+  },
+  {
+   "description": "The gateway's transfer status, verbatim (SUCCESS / FAILED / PENDING / REVERSED). Non-SUCCESS rows are STAGED and then auto-skipped so the skip stays visible. A FAILED transfer still carries a bank reference and may have a successful retry elsewhere in the same file -- both would otherwise match the same payment.",
+   "fieldname": "status_raw",
+   "fieldtype": "Data",
+   "label": "Transfer Status"
+  },
+  {
+   "description": "The beneficiary name as the bank holds it. This is an ACCOUNT NAME, not a vendor name -- match it against Vendors.account_name as well as Vendors.vendor_name (174 of 1,077 vendors differ). It may also be a person where the vendor is a company.",
+   "fieldname": "beneficiary_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Beneficiary Name"
+  },
+  {
+   "description": "The gateway's beneficiary identifier, kept verbatim. NOT a matching signal -- it is stored nowhere else in this database, so it can never resolve to anything.",
+   "fieldname": "beneficiary_id",
+   "fieldtype": "Data",
+   "label": "Beneficiary Id"
+  },
+  {
+   "description": "Beneficiary bank account, verbatim. Compare only via the normalized form -- raw values differ by leading zeros and whitespace.",
+   "fieldname": "bank_account",
+   "fieldtype": "Data",
+   "label": "Bank Account"
+  },
+  {
+   "description": "Beneficiary IFSC, verbatim. Meaningful only as a pair with the account number.",
+   "fieldname": "ifsc",
+   "fieldtype": "Data",
+   "label": "IFSC"
+  },
+  {
+   "description": "The transfer remark, verbatim. Carries a project name and a purpose. MUST be Text: as Data this is PG varchar(140) and Frappe THROWS CharacterLengthExceededError rather than truncating (the same trap the expense description field hit on 2026-07-28).",
+   "fieldname": "remarks",
+   "fieldtype": "Text",
+   "label": "Remarks"
+  },
+  {
+   "description": "The bank reference number the gateway reports. This is what the accountant types into a payment's UTR field by hand, which is what makes it the strong match key.",
+   "fieldname": "bank_reference_no",
+   "fieldtype": "Data",
+   "label": "Bank Reference No"
+  },
+  {
+   "description": "Gateway service charge for this transfer. Aggregated at batch level; belongs to no settlement target.",
+   "fieldname": "service_charge",
+   "fieldtype": "Currency",
+   "label": "Service Charge"
+  },
+  {
+   "description": "Tax on the service charge. Aggregated at batch level with the charge.",
+   "fieldname": "service_tax",
+   "fieldtype": "Currency",
+   "label": "Service Tax"
+  },
+  {
+   "description": "The statement's Added by value, verbatim and TRUNCATED BY THE GATEWAY to 15 characters. Retained for provenance only -- it is NOT a matching signal and does NOT set payment_by (owner ruling: payment_by is the user who finalises the row in this import).",
+   "fieldname": "added_by_raw",
+   "fieldtype": "Data",
+   "label": "Added By (raw)"
+  },
+  {
+   "fieldname": "derived_section",
+   "fieldtype": "Section Break",
+   "label": "Derived"
+  },
+  {
+   "description": "bank_account with whitespace and leading zeros stripped. The comparable form -- raw string equality fails on real data (CSV 0869102000002783 vs stored 869102000002783).",
+   "fieldname": "normalized_account",
+   "fieldtype": "Data",
+   "label": "Normalized Account"
+  },
+  {
+   "description": "bank_reference_no with whitespace stripped. Compared against the equally-normalized Project Payments.utr -- 226 stored UTRs are whitespace-padded and would otherwise never match.",
+   "fieldname": "normalized_reference",
+   "fieldtype": "Data",
+   "label": "Normalized Reference"
+  },
+  {
+   "description": "The vendor this row resolved to, once a human confirmed it. A bank account is NOT a unique vendor key -- one account maps to three legally distinct D.S. Ductofab companies with different GSTs -- so resolution always proposes and a person always picks.",
+   "fieldname": "resolved_vendor",
+   "fieldtype": "Link",
+   "label": "Resolved Vendor",
+   "options": "Vendors"
+  },
+  {
+   "description": "The project this row resolved to, once a human confirmed it. Suggested from the remark, never taken as decided.",
+   "fieldname": "resolved_project",
+   "fieldtype": "Link",
+   "label": "Resolved Project",
+   "options": "Projects"
+  },
+  {
+   "fieldname": "decision_section",
+   "fieldtype": "Section Break",
+   "label": "Decision"
+  },
+  {
+   "default": "Pending",
+   "description": "The row's outcome. READ-ONLY outcomes (nothing was written): Reconciled = matched a Paid payment, amounts agree. Amount mismatch = matched, sums differ. Reference mismatch = matched by vendor+amount+date but the payment's stored UTR is not this bank reference. Control exception = matched a payment that is NOT Paid, i.e. money left before approval completed. Unmatched = no payment found, so the row is expense work. WRITE outcome: Settled = an expense was marked Paid or created. DERIVED ONLY by services/outflow_import/status.py.",
+   "fieldname": "row_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Row Status",
+   "options": "Pending\nReconciled\nAmount mismatch\nReference mismatch\nControl exception\nUnmatched\nSettled\nSkipped\nError"
+  },
+  {
+   "description": "Why this row was skipped. REQUIRED for a manual skip (owner ruling); an automatic skip -- duplicate transfer_id, or a non-SUCCESS transfer -- carries a system-generated reason instead, because making someone retype 'duplicate' forty times is theatre.",
+   "fieldname": "skip_reason",
+   "fieldtype": "Small Text",
+   "label": "Skip Reason"
+  },
+  {
+   "description": "Human-readable detail behind a non-terminal or exception outcome -- the amount delta and its implied rate, which payment the reference disagrees with, or the target's actual status. This is the reported finding; the feature never repairs what it reports.",
+   "fieldname": "outcome_note",
+   "fieldtype": "Text",
+   "label": "Outcome Note"
+  },
+  {
+   "description": "When the row left Pending.",
+   "fieldname": "decided_at",
+   "fieldtype": "Datetime",
+   "label": "Decided At",
+   "read_only": 1
+  },
+  {
+   "description": "Who decided this row (frappe.session.user). Data, not Link, per the house convention for actor fields.",
+   "fieldname": "decided_by",
+   "fieldtype": "Data",
+   "label": "Decided By",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 0,
+ "links": [],
+ "modified": "2026-08-06 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Outflow Import Row",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Accountant",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Accountant Lead",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
