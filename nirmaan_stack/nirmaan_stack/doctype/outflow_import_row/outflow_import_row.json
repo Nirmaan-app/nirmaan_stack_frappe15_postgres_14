@@ -181,14 +181,14 @@
    "label": "Decision"
   },
   {
-   "default": "Pending",
-   "description": "The row's outcome. READ-ONLY outcomes (nothing was written): Reconciled = matched a Paid payment, amounts agree. Amount mismatch = matched, sums differ. Reference mismatch = matched by vendor+amount+date but the payment's stored UTR is not this bank reference. Control exception = matched a payment that is NOT Paid, i.e. money left before approval completed. Unmatched = no payment found, so the row is expense work. WRITE outcome: Settled = an expense was marked Paid or created. DERIVED ONLY by services/outflow_import/status.py.",
+   "default": "Pending match run",
+   "description": "The row's outcome. Pending match run = staged, nothing looked up yet. Matched = at least one APPROVED record was found at this amount; confirm it to settle. Unmatched = the match ran and found nothing settleable, so this is new spend or a payment still awaiting approval. Mismatched = AMOUNTS ONLY: the bank amount disagrees with a record already recorded as Paid; resolvable in the same decision dialog. Settled = we wrote, the record is now Paid. Skipped = nothing to do, and skip_reason says which nothing. Error = the write was attempted and rolled back. DERIVED ONLY by services/outflow_import/status.py.",
    "fieldname": "row_status",
    "fieldtype": "Select",
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Row Status",
-   "options": "Pending\nReconciled\nAmount mismatch\nReference mismatch\nControl exception\nUnmatched\nSettled\nSkipped\nError"
+   "options": "Pending match run\nMatched\nUnmatched\nMismatched\nSettled\nSkipped\nError"
   },
   {
    "description": "Why this row was skipped. REQUIRED for a manual skip (owner ruling); an automatic skip -- duplicate transfer_id, or a non-SUCCESS transfer -- carries a system-generated reason instead, because making someone retype 'duplicate' forty times is theatre.",

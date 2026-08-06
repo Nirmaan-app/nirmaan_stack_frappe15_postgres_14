@@ -17,10 +17,11 @@ export const DEFAULT_OFI_FIELDS_TO_FETCH: (keyof OutflowImportBatch | "name" | "
     "status",
     "total_rows",
     "reviewed_rows",
-    "reconciled_rows",
+    // v3: `reconciled_rows` and `exception_rows` were removed with the statuses they counted.
+    // Fetching a field the doctype no longer has is not a runtime error in Frappe -- it simply
+    // returns nothing -- so the type is the only thing that catches it.
     "settled_rows",
     "skipped_rows",
-    "exception_rows",
     "error_rows",
     "gross_amount",
     "charges_amount",

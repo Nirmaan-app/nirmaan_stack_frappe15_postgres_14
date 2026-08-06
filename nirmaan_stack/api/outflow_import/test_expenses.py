@@ -199,13 +199,26 @@ class TestSettleExistingExpense(SettlementFixture):
         self.assertEqual(matches[0]["match_kind"], "Settled")
         self.assertEqual(matches[0]["target_name"], expense)
 
-    def test_settles_a_requested_non_project_expense(self):
-        # The non-project side has no separate approval step in practice, so Requested is
-        # settleable there and is NOT on the project side.
+    def test_a_requested_non_project_expense_is_now_refused_too(self):
+        """⚠️ THIS TEST WAS INVERTED AT V1, and the inversion is the owner's ruling Q3.
+
+        v2 settled a `Requested` non-project expense, reasoning that the doctype has no separate
+        approval step in practice so an Approved-only pool would be empty. The owner overruled it:
+        the import PAYS what someone has already approved, and "the queue is empty" is not a reason
+        to pay something nobody approved. An empty pool is the correct answer when nothing is
+        approved -- the 7 live `Requested` non-project expenses are approved in the expense screen
+        exactly as they always were.
+
+        The two expense doctypes now behave IDENTICALLY here; the asymmetry this test used to pin
+        is gone.
+        """
         row = self._next_settleable_row()
         expense = self._make_expense(NON_PROJECT_EXPENSE, row["amount"], status="Requested")
-        settle_expense(row["name"], NON_PROJECT_EXPENSE, expense)
-        self.assertEqual(frappe.db.get_value(NON_PROJECT_EXPENSE, expense, "status"), "Paid")
+        with self.assertRaises(WrongStatusError):
+            settle_expense(row["name"], NON_PROJECT_EXPENSE, expense)
+        self.assertEqual(
+            frappe.db.get_value(NON_PROJECT_EXPENSE, expense, "status"), "Requested"
+        )
 
 
 class TestRefusals(SettlementFixture):

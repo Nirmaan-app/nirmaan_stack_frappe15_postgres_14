@@ -26,7 +26,6 @@ const STATUS_TONE: Record<string, string> = {
     "In Review": "bg-blue-50 text-blue-700",
     "Partially Settled": "bg-indigo-50 text-indigo-700",
     Completed: "bg-emerald-50 text-emerald-700",
-    "Completed with exceptions": "bg-amber-50 text-amber-700",
 };
 
 export const getOutflowImportColumns = ({
@@ -120,24 +119,16 @@ export const getOutflowImportColumns = ({
     {
         id: "outcomes",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Outcomes" />,
+        // v3: `reconciled_rows` and `exception_rows` are gone with the statuses they counted.
+        // Settled and Skipped are the two terminal outcomes; `error_rows` earns a chip because an
+        // errored write is the one outcome that needs someone to come back to it.
         cell: ({ row }) => {
-            const { reconciled_rows = 0, settled_rows = 0, exception_rows = 0, skipped_rows = 0 } =
-                row.original;
+            const { settled_rows = 0, skipped_rows = 0, error_rows = 0 } = row.original;
             return (
                 <div className="flex flex-wrap items-center gap-1 text-xs">
-                    {reconciled_rows > 0 && (
-                        <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-emerald-700">
-                            {reconciled_rows} reconciled
-                        </span>
-                    )}
                     {settled_rows > 0 && (
-                        <span className="rounded bg-blue-50 px-1.5 py-0.5 text-blue-700">
+                        <span className="rounded bg-indigo-50 px-1.5 py-0.5 text-indigo-700">
                             {settled_rows} settled
-                        </span>
-                    )}
-                    {exception_rows > 0 && (
-                        <span className="rounded bg-amber-50 px-1.5 py-0.5 text-amber-700">
-                            {exception_rows} to review
                         </span>
                     )}
                     {skipped_rows > 0 && (
@@ -145,7 +136,12 @@ export const getOutflowImportColumns = ({
                             {skipped_rows} skipped
                         </span>
                     )}
-                    {!reconciled_rows && !settled_rows && !exception_rows && !skipped_rows && (
+                    {error_rows > 0 && (
+                        <span className="rounded bg-red-50 px-1.5 py-0.5 text-red-700">
+                            {error_rows} errored
+                        </span>
+                    )}
+                    {!settled_rows && !skipped_rows && !error_rows && (
                         <span className="text-muted-foreground">--</span>
                     )}
                 </div>
@@ -156,10 +152,9 @@ export const getOutflowImportColumns = ({
             exportHeaderName: "Outcomes",
             exportValue: (row: OutflowImportBatch) =>
                 [
-                    `${row.reconciled_rows ?? 0} reconciled`,
                     `${row.settled_rows ?? 0} settled`,
-                    `${row.exception_rows ?? 0} exceptions`,
                     `${row.skipped_rows ?? 0} skipped`,
+                    `${row.error_rows ?? 0} errored`,
                 ].join(", "),
         },
     },

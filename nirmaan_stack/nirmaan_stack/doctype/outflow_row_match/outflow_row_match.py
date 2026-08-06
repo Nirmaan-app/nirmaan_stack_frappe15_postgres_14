@@ -21,9 +21,15 @@ sum, and Nirmaan records a payment per PO -- measured: 40 such transfers coverin
 and 6 projects. The unique constraint is deliberately on the (transfer, TARGET) pair, not on the
 transfer alone, so fan-out is representable and only genuine double-settlement is refused.
 
-`match_kind` records whether this match WROTE anything. Reconciled = read-only payment match;
-Settled = an expense was marked Paid or created. Immutable once written (track_changes 0) -- a
-correction supersedes rather than edits.
+⚠️ v3: THIS TABLE RECORDS SETTLEMENTS ONLY, and `match_kind` has the single value `Settled`. v2 also
+minted a `Reconciled` row per matched target at match time, meaning "matched, nothing written". That
+never collided with a settlement only because v2's payment branch could not write, so the two paths
+always addressed DIFFERENT targets. Under the v3 spine they address the same one, and a suggestion
+would take the unique key before the settlement that needs it -- failing the confirm on exactly the
+happy path. Suggestions therefore live in `Outflow Import Row.outcome_note`, with full candidate
+detail loaded on demand by `get_row_candidates`. A row in THIS table means money was written.
+
+Immutable once written (track_changes 0) -- a correction supersedes rather than edits.
 """
 
 import frappe

@@ -17,10 +17,8 @@
   "status",
   "total_rows",
   "reviewed_rows",
-  "reconciled_rows",
   "settled_rows",
   "skipped_rows",
-  "exception_rows",
   "error_rows",
   "amounts_section",
   "gross_amount",
@@ -90,13 +88,13 @@
   },
   {
    "default": "Draft",
-   "description": "Batch lifecycle. Draft = uploaded, not yet parsed into rows. In Review = rows staged, decisions outstanding. Partially Settled = some rows terminal, some not. Completed = every row terminal. Completed with exceptions = closed deliberately while non-terminal rows remained. DERIVED ONLY by services/outflow_import/status.py -- nothing else may write it.",
+   "description": "Batch lifecycle. Draft = uploaded, not yet parsed into rows. In Review = rows staged, decisions outstanding. Partially Settled = some rows settled or skipped, some not. Completed = every row settled or skipped. DERIVED ONLY by services/outflow_import/status.py -- nothing else may write it. 'Completed with exceptions' was retired at the v3 reversal: closing a batch now records closed_at only and never changes what the status says, because the three tabs show outstanding work directly.",
    "fieldname": "status",
    "fieldtype": "Select",
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Status",
-   "options": "Draft\nIn Review\nPartially Settled\nCompleted\nCompleted with exceptions"
+   "options": "Draft\nIn Review\nPartially Settled\nCompleted"
   },
   {
    "description": "Rows parsed from the file, including non-SUCCESS rows (which are staged and then auto-skipped, so the skip stays visible).",
@@ -111,13 +109,7 @@
    "label": "Reviewed Rows"
   },
   {
-   "description": "Rows matched to an already-Paid Project Payment with amounts agreeing. READ-ONLY outcome: nothing was written.",
-   "fieldname": "reconciled_rows",
-   "fieldtype": "Int",
-   "label": "Reconciled Rows"
-  },
-  {
-   "description": "Rows that caused an expense write (an Approved expense marked Paid, or a fresh expense created at Paid). The ONLY outcome in this feature that mutates anything.",
+   "description": "Rows that settled a record -- an Approved payment or expense marked Paid, or a fresh expense created at Paid. Under the v3 spine this covers all three ledgers, not expenses alone.",
    "fieldname": "settled_rows",
    "fieldtype": "Int",
    "label": "Settled Rows"
@@ -127,12 +119,6 @@
    "fieldname": "skipped_rows",
    "fieldtype": "Int",
    "label": "Skipped Rows"
-  },
-  {
-   "description": "Rows reported as an exception: amount mismatch, reference mismatch, or a control exception (money left the bank against a payment that is not Paid). All READ-ONLY -- reported, never repaired (owner ruling 2026-08-06).",
-   "fieldname": "exception_rows",
-   "fieldtype": "Int",
-   "label": "Exception Rows"
   },
   {
    "description": "Rows whose write failed and were rolled back to their own savepoint. The rest of the batch is unaffected.",

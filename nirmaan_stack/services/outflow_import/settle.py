@@ -42,6 +42,17 @@ from decimal import Decimal
 
 import frappe
 
+from nirmaan_stack.services.outflow_import.ledgers import (
+    NON_PROJECT_EXPENSE_DOCTYPE as NON_PROJECT_EXPENSE,
+)
+from nirmaan_stack.services.outflow_import.ledgers import (
+    PROJECT_EXPENSE_DOCTYPE as PROJECT_EXPENSE,
+)
+from nirmaan_stack.services.outflow_import.ledgers import (
+    SETTLEABLE_STATUSES,
+    is_expense_doctype,
+    settleable_statuses,
+)
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
 
 __all__ = [
@@ -59,15 +70,18 @@ __all__ = [
     "format_amount_for",
 ]
 
-PROJECT_EXPENSE = "Project Expenses"
-NON_PROJECT_EXPENSE = "Non Project Expenses"
 
-# Mirrors `candidates.load_expense_targets`. The non-project side includes `Requested` because it
-# has no separate approval step in practice; a settleable pool of `Approved` only would be empty.
-SETTLEABLE_STATUSES = {
-    PROJECT_EXPENSE: ("Approved",),
-    NON_PROJECT_EXPENSE: ("Approved", "Requested"),
-}
+# ⚠️ THE SETTLEABLE-STATUS MAP MOVED TO `ledgers.py` AT V1, and the names above are re-exports so
+# existing callers are unaffected. It used to be defined here AND in `candidates.py`, with the two
+# copies disagreeing about `Non Project Expenses` -- this file accepted `Requested` there and so did
+# the read side, which is exactly the sort of agreement-by-coincidence that survives until one of
+# them is tightened. The owner then ruled Approved-only on all three ledgers (Q3), and one map is
+# what makes that ruling enforceable in one edit.
+#
+# ⚠️ THE MAP NOW INCLUDES `Project Payments`, WHICH THIS MODULE MUST NOT SETTLE YET. Membership of
+# `SETTLEABLE_STATUSES` is therefore NO LONGER a valid "is this an expense?" test -- use
+# `is_expense_doctype`. V2 adds the payment write path; until then a payment reaching either
+# function below is a bug, and it is refused by name.
 
 _PAID = "Paid"
 
@@ -165,7 +179,7 @@ def _lock_and_assert_settleable(doctype: str, name: str, bank_amount: Decimal) -
             AlreadyPaidError,
             title="Already settled",
         )
-    if status not in SETTLEABLE_STATUSES[doctype]:
+    if status not in settleable_statuses(doctype):
         frappe.throw(
             f"{name} is '{status}' and cannot be settled from a bank statement.",
             WrongStatusError,
@@ -189,8 +203,13 @@ def settle_existing_expense(
     target_name: str,
     actor: str,
 ) -> SettleResult:
-    """Mark an already-approved expense `Paid` from a bank row."""
-    if target_doctype not in SETTLEABLE_STATUSES:
+    """Mark an already-approved expense `Paid` from a bank row.
+
+    ⚠️ EXPENSES ONLY, still. `Project Payments` is in `SETTLEABLE_STATUSES` from V1 on, so this
+    guard tests `is_expense_doctype` rather than map membership -- the map answers "what status may
+    I settle this from", not "may THIS module settle it". V2 adds the payment path beside this one.
+    """
+    if not is_expense_doctype(target_doctype):
         frappe.throw(
             f"'{target_doctype}' is not an expense doctype.",
             WrongStatusError,
@@ -232,7 +251,9 @@ def create_expense_from_row(
     accommodation, utilities and sundries -- spend that never had a PO and so has no payment to
     reconcile against.
     """
-    if doctype not in SETTLEABLE_STATUSES:
+    # "Create a new entry" can only ever be an expense. A `Project Payment` is born from a PO or SR
+    # request and the import must NEVER mint one -- that is half the v3 spine.
+    if not is_expense_doctype(doctype):
         frappe.throw(f"'{doctype}' is not an expense doctype.", WrongStatusError, title="Not an expense")
     _assert_type_scope(doctype, expense_type)
 

@@ -193,8 +193,11 @@ export const OutflowImportBatchPage = () => {
                         label="Decisions"
                         value={`${batch.reviewed_rows ?? 0} / ${batch.total_rows ?? 0}`}
                     />
-                    <Stat label="Reconciled" value={String(batch.reconciled_rows ?? 0)} />
-                    <Stat label="To review" value={String(batch.exception_rows ?? 0)} />
+                    {/* v3: `reconciled_rows` and `exception_rows` were removed with the statuses
+                        they counted. Settled and Skipped are the two terminal outcomes, and they
+                        are what a reviewer actually wants totalled. */}
+                    <Stat label="Settled" value={String(batch.settled_rows ?? 0)} />
+                    <Stat label="Skipped" value={String(batch.skipped_rows ?? 0)} />
                     <Stat
                         label="Transferred"
                         value={formatToRoundedIndianRupee(batch.gross_amount ?? 0)}

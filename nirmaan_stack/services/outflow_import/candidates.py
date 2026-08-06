@@ -16,10 +16,24 @@ is therefore pushed into SQL as `upper(btrim(utr))`, which matches exactly what
 `normalize_reference` computes on the other side. Loading all 7,421 Paid payments to filter in
 Python would work but would scale with the ledger rather than with the batch.
 
-Pass A ALSO DELIBERATELY IGNORES STATUS. It must return a payment whatever state it is in, because
-finding a bank transfer against a payment that is NOT Paid is one of the outcomes this feature
-exists to report -- money that left the bank before its approval completed. Filtering to Paid here
-would silently convert that finding into "no record found", which is the opposite of the truth.
+⚠️ THE TWO REFERENCE QUERIES ARE SEPARATE ON PURPOSE, AND MUST STAY SEPARATE (owner, slice V1).
+They look almost identical and they mean opposite things:
+
+    load_payments_by_reference        -> APPROVED payments. These are SETTLE CANDIDATES. A row that
+                                         matches one is offered to a reviewer to confirm.
+    load_paid_payments_by_reference   -> PAID payments. These are a DUPLICATE GUARD. A row that
+                                         matches one is SKIPPED, never offered.
+
+Merging them into one status-agnostic query -- which is exactly what v2 did, deliberately, to
+report money that left before approval completed -- would make an already-Paid payment look like a
+settle candidate and let the same money be recorded twice. v3 removed the finding that justified
+the merge (`Control exception` is retired; a `Requested` or `CEO Pending` payment is now simply
+`Unmatched`, owner ruling), so nothing is lost by keeping them apart and a great deal is risked by
+joining them.
+
+WHAT ELSE CHANGED AT V1: every pool here is now `Approved` only, on all three ledgers, sourced from
+`ledgers.SETTLEABLE_STATUSES` rather than from a local copy. `settle.py` reads the same map, so the
+screen can never offer a record the write path would refuse, or the reverse.
 
 ⚠️ POSTGRES: table names are double-quoted, and Frappe converts a list parameter to a tuple, so an
 `IN` clause is built with explicit placeholders rather than `= ANY(%s)` (which fails with
@@ -34,12 +48,20 @@ from typing import Sequence
 
 import frappe
 
+from nirmaan_stack.services.outflow_import.ledgers import (
+    NON_PROJECT_EXPENSE_DOCTYPE,
+    PAID,
+    PAYMENT_DOCTYPE,
+    PROJECT_EXPENSE_DOCTYPE,
+    settleable_statuses,
+)
 from nirmaan_stack.services.outflow_import.matcher import TargetRef, VendorIndex, VendorRef, build_vendor_index
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount, normalize_reference
 
 __all__ = [
     "load_vendor_index",
     "load_payments_by_reference",
+    "load_paid_payments_by_reference",
     "load_payments_for_vendors",
     "load_expense_targets",
     "find_earlier_batches_for_transfers",
@@ -48,15 +70,12 @@ __all__ = [
     "NON_PROJECT_EXPENSE_DOCTYPE",
 ]
 
-PAYMENT_DOCTYPE = "Project Payments"
-PROJECT_EXPENSE_DOCTYPE = "Project Expenses"
-NON_PROJECT_EXPENSE_DOCTYPE = "Non Project Expenses"
-
-# Expenses that are still waiting for money. Non-project expenses are included at `Requested` too:
-# unlike the project side they have no separate approval step in practice, and a settleable pool of
-# `Approved` only would be empty.
-_SETTLEABLE_PROJECT_EXPENSE_STATUSES = ("Approved",)
-_SETTLEABLE_NON_PROJECT_EXPENSE_STATUSES = ("Approved", "Requested")
+# Re-exported so existing callers keep importing the doctype names from here; `ledgers.py` owns
+# them now. The settleable-status lists that used to sit beside them are GONE from this module --
+# there is one map, in `ledgers.SETTLEABLE_STATUSES`, and both this file and `settle.py` read it.
+_PAYMENT_STATUSES = settleable_statuses(PAYMENT_DOCTYPE)
+_PROJECT_EXPENSE_STATUSES = settleable_statuses(PROJECT_EXPENSE_DOCTYPE)
+_NON_PROJECT_EXPENSE_STATUSES = settleable_statuses(NON_PROJECT_EXPENSE_DOCTYPE)
 
 
 def load_vendor_index() -> VendorIndex:
@@ -83,23 +102,56 @@ def load_vendor_index() -> VendorIndex:
 
 
 def load_payments_by_reference(references: Sequence[str]) -> tuple[TargetRef, ...]:
-    """Pass A: payments whose normalised UTR equals one of these normalised bank references.
+    """Pass A, SETTLE CANDIDATES: APPROVED payments whose normalised UTR is one of these.
 
-    Returns payments in EVERY status on purpose -- see the module docstring.
+    ⚠️ v3 narrowed this to `Approved`. v2 returned every status on purpose, so that a transfer
+    against a payment nobody had approved could be reported as a `Control exception`. That status
+    is retired -- such a row is now simply `Unmatched`, and nothing that cannot be settled is
+    offered (owner ruling). Widening this back re-opens the door to settling an unapproved payment.
+
+    For the already-Paid duplicate guard, use `load_paid_payments_by_reference`. It is a separate
+    function for a reason; see the module docstring.
     """
+    return _payments_by_reference(references, _PAYMENT_STATUSES)
+
+
+def load_paid_payments_by_reference(references: Sequence[str]) -> tuple[TargetRef, ...]:
+    """DUPLICATE GUARD, not a candidate pool: PAID payments already carrying one of these
+    references.
+
+    A hit means the transfer was recorded by hand before this statement was uploaded, which under
+    owner ruling Q12 (mixed usage is normal) is the COMMON case, not an edge case. The row is
+    Skipped with the record named, or -- if the amounts disagree -- Mismatched. Neither is a settle.
+
+    ⚠️ Only PAID payments carry a reference at all: `utr` is written at fulfilment, so every
+    non-Paid payment in the database has a blank one (measured: 0 of 133 across Approved, CEO
+    Pending and Requested). The status filter is therefore belt-and-braces over a key that already
+    cannot match anything unpaid -- and it stays, because it is the line that says out loud what
+    this query is for.
+    """
+    return _payments_by_reference(references, (PAID,))
+
+
+def _payments_by_reference(
+    references: Sequence[str], statuses: Sequence[str]
+) -> tuple[TargetRef, ...]:
+    """Shared body for the two reference lookups. The STATUS FILTER is the whole difference, so it
+    is a parameter rather than a branch -- a branch invites a third caller to pass no filter."""
     wanted = sorted({normalize_reference(r) for r in references if normalize_reference(r)})
-    if not wanted:
+    if not wanted or not statuses:
         return ()
 
-    placeholders = ", ".join(["%s"] * len(wanted))
+    reference_ph = ", ".join(["%s"] * len(wanted))
+    status_ph = ", ".join(["%s"] * len(statuses))
     rows = frappe.db.sql(
         f"""
         SELECT name, amount, status, vendor, utr, payment_date, project, document_type, document_name
         FROM "tabProject Payments"
         WHERE utr IS NOT NULL AND utr <> ''
-          AND upper(btrim(utr)) IN ({placeholders})
+          AND upper(btrim(utr)) IN ({reference_ph})
+          AND status IN ({status_ph})
         """,
-        tuple(wanted),
+        (*wanted, *statuses),
         as_dict=True,
     )
     return tuple(_payment_target(r) for r in rows)
@@ -112,10 +164,13 @@ def load_payments_for_vendors(
     period_to: date | None,
     window_days: int = 3,
 ) -> tuple[TargetRef, ...]:
-    """Pass B: payments for these vendors, at these exact amounts, near this period.
+    """Pass B, SETTLE CANDIDATES: APPROVED payments for these vendors, at these exact amounts,
+    near this period.
 
-    Scoped by all three axes because the fallback pass has no strong key -- widening any one of them
-    turns a suggestion list into a haystack.
+    Scoped by all four axes because the fallback pass has no strong key -- widening any one of them
+    turns a suggestion list into a haystack. `Approved` is the fourth, added at v3: without it this
+    pass returns Paid payments, which are duplicates rather than candidates, and CEO Pending ones,
+    which cannot be settled at all.
     """
     vendors = sorted({v for v in vendor_names if v})
     values = sorted({normalize_amount(a) for a in amounts})
@@ -124,7 +179,8 @@ def load_payments_for_vendors(
 
     vendor_ph = ", ".join(["%s"] * len(vendors))
     amount_ph = ", ".join(["%s"] * len(values))
-    params: list = [*vendors, *[float(v) for v in values]]
+    status_ph = ", ".join(["%s"] * len(_PAYMENT_STATUSES))
+    params: list = [*vendors, *[float(v) for v in values], *_PAYMENT_STATUSES]
 
     date_clause = ""
     if period_from and period_to:
@@ -137,6 +193,7 @@ def load_payments_for_vendors(
         FROM "tabProject Payments"
         WHERE vendor IN ({vendor_ph})
           AND amount IN ({amount_ph})
+          AND status IN ({status_ph})
           {date_clause}
         """,
         tuple(params),
@@ -146,7 +203,12 @@ def load_payments_for_vendors(
 
 
 def load_expense_targets(amounts: Sequence[Decimal]) -> tuple[TargetRef, ...]:
-    """Expenses still awaiting payment, at these exact amounts, from BOTH expense doctypes.
+    """APPROVED expenses at these exact amounts, from BOTH expense doctypes.
+
+    ⚠️ v3 TIGHTENED THE NON-PROJECT SIDE. v2 also accepted `Requested` there, reasoning that the
+    doctype has no separate approval step in practice so an Approved-only pool would be empty. The
+    owner overruled it (Q3): the import pays what is already approved, and an empty pool is the
+    correct answer when nothing is approved. Both lists now come from `ledgers.SETTLEABLE_STATUSES`.
 
     ⚠️ The two doctypes disagree about storage and the query has to as well:
     `Project Expenses.amount` is a Data field -- PG `varchar(140)` holding bare numeric strings like
@@ -161,7 +223,7 @@ def load_expense_targets(amounts: Sequence[Decimal]) -> tuple[TargetRef, ...]:
 
     out: list[TargetRef] = []
 
-    project_ph = ", ".join(["%s"] * len(_SETTLEABLE_PROJECT_EXPENSE_STATUSES))
+    project_ph = ", ".join(["%s"] * len(_PROJECT_EXPENSE_STATUSES))
     project_rows = frappe.db.sql(
         f"""
         SELECT name, amount, status, projects, description, payment_ref, payment_date, type, vendor
@@ -170,7 +232,7 @@ def load_expense_targets(amounts: Sequence[Decimal]) -> tuple[TargetRef, ...]:
           AND amount IS NOT NULL AND btrim(amount) <> ''
           AND CAST(NULLIF(btrim(amount), '') AS numeric) IN ({amount_ph})
         """,
-        (*_SETTLEABLE_PROJECT_EXPENSE_STATUSES, *floats),
+        (*_PROJECT_EXPENSE_STATUSES, *floats),
         as_dict=True,
     )
     for r in project_rows:
@@ -188,7 +250,7 @@ def load_expense_targets(amounts: Sequence[Decimal]) -> tuple[TargetRef, ...]:
             )
         )
 
-    non_project_ph = ", ".join(["%s"] * len(_SETTLEABLE_NON_PROJECT_EXPENSE_STATUSES))
+    non_project_ph = ", ".join(["%s"] * len(_NON_PROJECT_EXPENSE_STATUSES))
     non_project_rows = frappe.db.sql(
         f"""
         SELECT name, amount, status, description, payment_ref, payment_date, type
@@ -196,7 +258,7 @@ def load_expense_targets(amounts: Sequence[Decimal]) -> tuple[TargetRef, ...]:
         WHERE status IN ({non_project_ph})
           AND amount IN ({amount_ph})
         """,
-        (*_SETTLEABLE_NON_PROJECT_EXPENSE_STATUSES, *floats),
+        (*_NON_PROJECT_EXPENSE_STATUSES, *floats),
         as_dict=True,
     )
     for r in non_project_rows:

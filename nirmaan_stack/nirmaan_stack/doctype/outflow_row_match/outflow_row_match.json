@@ -85,13 +85,14 @@
    "label": "Classification"
   },
   {
-   "description": "Whether this match WROTE anything. Reconciled = a read-only payment match; nothing was mutated. Settled = an expense was marked Paid or created at Paid. This distinction is the feature's spine and must never blur: the payment branch reads, the expense branch writes.",
+   "default": "Settled",
+   "description": "Always Settled. This table records SETTLEMENTS ONLY -- a row here means money was written: a payment or expense marked Paid, or an expense created at Paid. The v2 kind 'Reconciled' (matched, nothing written) was retired at the v3 reversal, because a suggestion and a settlement addressing the same record would contend for the (transfer_id, target_doctype, target_name) unique constraint -- which IS this feature's idempotency guarantee. The field is kept as a Select rather than dropped so the intent stays legible and a future write kind has somewhere to go.",
    "fieldname": "match_kind",
    "fieldtype": "Select",
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Match Kind",
-   "options": "Reconciled\nSettled",
+   "options": "Settled",
    "reqd": 1
   },
   {

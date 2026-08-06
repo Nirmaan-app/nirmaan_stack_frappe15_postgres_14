@@ -26,19 +26,12 @@ export interface OutflowImportBatch {
     /** An earlier batch whose period overlaps. A WARNING only -- it never blocks an upload. */
     overlaps_batch?: string;
 
-    status:
-        | "Draft"
-        | "In Review"
-        | "Partially Settled"
-        | "Completed"
-        | "Completed with exceptions";
+    status: "Draft" | "In Review" | "Partially Settled" | "Completed";
 
     total_rows?: number;
     reviewed_rows?: number;
-    reconciled_rows?: number;
     settled_rows?: number;
     skipped_rows?: number;
-    exception_rows?: number;
     error_rows?: number;
 
     /** Sum of the beneficiary amounts on SUCCESSFUL rows. Excludes gateway charges. */
@@ -52,22 +45,32 @@ export interface OutflowImportBatch {
     uploaded_at?: string;
 
     /**
-     * Set when someone closed the batch with rows still undecided. ITS PRESENCE IS THE FLAG --
-     * it is what makes the derived status "Completed with exceptions". Closing is not a freeze:
-     * abandoned rows keep their status and can still be settled.
+     * Set when someone closed the batch with rows still undecided.
+     *
+     * ⚠️ v3: this no longer changes the derived status. "Completed with exceptions" is retired, so
+     * a batch closed with work outstanding reads "Partially Settled" and the three tabs show which
+     * rows are outstanding. Closing is bookkeeping, not a freeze: abandoned rows keep their status
+     * and can still be settled.
      */
     closed_at?: string;
     closed_by?: string;
     close_reason?: string;
 }
 
-/** A match recorded between a bank row and a target. `Reconciled` means nothing was written. */
+/**
+ * A settlement recorded between a bank row and the record it paid.
+ *
+ * ⚠️ v3: this table records SETTLEMENTS ONLY. `Reconciled` -- the v2 kind meaning "matched, nothing
+ * written" -- is retired, and a match run no longer writes here at all. A row in this table means
+ * money was written. The suggestion a reviewer is looking at lives in `outcome_note`, and full
+ * candidate details are loaded on demand by `get_row_candidates`.
+ */
 export interface OutflowRowMatch {
     import_row: string;
     target_doctype: string;
     target_name: string;
     target_amount: number;
-    match_kind: "Reconciled" | "Settled";
+    match_kind: "Settled";
     match_basis: "Bank reference" | "Vendor+amount+date" | "Manual";
 }
 

@@ -36,8 +36,11 @@ interface Props {
  *
  * It SAYS what will be abandoned rather than implying it -- the count, the money, and the rows --
  * because closing is the one action here whose consequence is invisible afterwards: the rows keep
- * their statuses and nothing on them changes, so a reviewer who closes by accident sees no
- * difference until they notice the batch reads "Completed with exceptions".
+ * their statuses and nothing on them changes.
+ *
+ * ⚠️ v3 made that MORE true, not less. "Completed with exceptions" is retired, so closing no longer
+ * changes the batch's status at all -- it records `closed_at` and nothing else. Saying what is
+ * abandoned is now the ONLY feedback the action gives. V5 simplifies this to a single button.
  */
 export const CloseBatchDialog = ({ batch, open, onOpenChange, onConfirm }: Props) => {
     const [reason, setReason] = useState("");

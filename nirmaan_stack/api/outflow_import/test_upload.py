@@ -122,7 +122,7 @@ class TestStageBatch(unittest.TestCase):
 
         successes = [r for r in first_appearances if r["status_raw"] == "SUCCESS"]
         self.assertTrue(successes)
-        self.assertEqual({r["row_status"] for r in successes}, {"Pending"})
+        self.assertEqual({r["row_status"] for r in successes}, {"Pending match run"})
 
     def test_in_file_duplicate_is_skipped_on_its_second_appearance(self):
         # The same transfer listed twice in ONE statement. The cross-batch lookup cannot see it --
@@ -137,7 +137,7 @@ class TestStageBatch(unittest.TestCase):
         repeated = [group for group in counts.values() if len(group) > 1]
         self.assertTrue(repeated, "fixture should contain a repeated transfer id")
         for group in repeated:
-            self.assertEqual(group[0]["row_status"], "Pending")
+            self.assertEqual(group[0]["row_status"], "Pending match run")
             for later in group[1:]:
                 self.assertEqual(later["row_status"], "Skipped")
                 self.assertIn("earlier in the same statement", later["skip_reason"])
@@ -200,7 +200,7 @@ class TestDuplicateGuard(unittest.TestCase):
             fields=["row_status", "skip_reason"],
         )
 
-        self.assertTrue(any(r["row_status"] == "Pending" for r in first_rows))
+        self.assertTrue(any(r["row_status"] == "Pending match run" for r in first_rows))
         self.assertEqual({r["row_status"] for r in second_rows}, {"Skipped"})
         self.assertTrue(all(first.name in (r["skip_reason"] or "") for r in second_rows))
 
@@ -220,7 +220,7 @@ class TestDuplicateGuard(unittest.TestCase):
             rows = frappe.get_all(
                 ROW_DOCTYPE, filters={"import_batch": batch.name}, fields=["row_status"]
             )
-            self.assertTrue(any(r["row_status"] == "Pending" for r in rows))
+            self.assertTrue(any(r["row_status"] == "Pending match run" for r in rows))
 
     def test_a_second_batch_over_the_same_period_records_an_overlap(self):
         # Equality with the first batch is deliberately NOT asserted: the overlap probe returns the

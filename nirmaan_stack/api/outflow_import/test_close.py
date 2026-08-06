@@ -98,14 +98,21 @@ class TestClosePreview(CloseFixture):
 
 
 class TestCloseBatch(CloseFixture):
-    def test_closing_marks_the_batch_completed_with_exceptions(self):
+    def test_closing_does_not_change_what_the_status_says(self):
+        """v3: `Completed with exceptions` is retired (owner ruling).
+
+        Closing is now pure bookkeeping -- it records `closed_at` and nothing else. A batch closed
+        with rows outstanding still reads `Partially Settled`, which is the truth, and the three
+        tabs show exactly which rows are outstanding. This test inverts its v2 predecessor, which
+        asserted the opposite; it is here so a re-added force-close is caught rather than quietly
+        writing a status the doctype's Select no longer offers.
+        """
         batch = self._stage()
+        before = frappe.db.get_value(BATCH_DOCTYPE, batch.name, "status")
         result = close_batch(batch.name, reason="Rest of the statement is next month's work")
-        self.assertEqual(result["status"], "Completed with exceptions")
-        self.assertEqual(
-            frappe.db.get_value(BATCH_DOCTYPE, batch.name, "status"),
-            "Completed with exceptions",
-        )
+        self.assertNotEqual(result["status"], "Completed with exceptions")
+        self.assertEqual(result["status"], before)
+        self.assertEqual(frappe.db.get_value(BATCH_DOCTYPE, batch.name, "status"), before)
 
     def test_closing_records_who_when_and_why(self):
         batch = self._stage()
@@ -196,6 +203,8 @@ class TestReopenBatch(CloseFixture):
         self.assertIsNone(after.closed_at)
         self.assertIsNone(after.closed_by)
         self.assertIsNone(after.close_reason)
+        # v3: the status never carried the close in the first place, so reopening cannot un-carry
+        # it. Kept as a guard against a re-added force-close leaking through reopen.
         self.assertNotEqual(after.status, "Completed with exceptions")
 
     def test_reopening_a_batch_that_was_never_closed_is_harmless(self):

@@ -2,18 +2,15 @@ import { describe, expect, it } from "vitest";
 
 import {
     BATCH_COMPLETED,
-    BATCH_COMPLETED_WITH_EXCEPTIONS,
     BATCH_DRAFT,
     BATCH_IN_REVIEW,
     BATCH_PARTIALLY_SETTLED,
-    EXCEPTION_ROW_STATUSES,
+    BATCH_STATUSES,
     OPEN_ROW_STATUSES,
-    ROW_AMOUNT_MISMATCH,
-    ROW_CONTROL_EXCEPTION,
     ROW_ERROR,
-    ROW_PENDING,
-    ROW_RECONCILED,
-    ROW_REFERENCE_MISMATCH,
+    ROW_MATCHED,
+    ROW_MISMATCHED,
+    ROW_PENDING_MATCH,
     ROW_SETTLED,
     ROW_SKIPPED,
     ROW_STATUSES,
@@ -22,7 +19,6 @@ import {
     TERMINAL_ROW_STATUSES,
     deriveBatchCounters,
     deriveBatchStatus,
-    isException,
     isOpen,
     isTerminal,
     rowStatusTone,
@@ -31,26 +27,51 @@ import {
 /**
  * FE half of the FE<->BE parity pin (ADR-0010 F1).
  *
- * The Python half lives in `services/outflow_import/test_status.py::TestVocabularyParity` and
- * asserts the SAME literal list. Neither test can import the other's language, so the pin is that
- * both name the vocabulary explicitly: change one side alone and the other side's test fails.
+ * The Python half lives in `services/outflow_import/test_status.py::TestVocabulary` and asserts the
+ * SAME literal list. Neither test can import the other's language, so the pin is that both name the
+ * vocabulary explicitly: change one side alone and the other side's test fails.
  *
  * Why this is worth a test at all -- an unmirrored status does not crash. It arrives from the
  * server, misses `ROW_STATUS_TONE`, and renders as unstyled grey text that looks deliberate.
+ *
+ * ⚠️ REWRITTEN AT THE v3 REVERSAL (slice V0), alongside the Python half.
  */
 describe("row status vocabulary (parity with services/outflow_import/status.py)", () => {
-    it("is exactly these nine statuses", () => {
+    it("is exactly these seven statuses, in reviewer order", () => {
         expect(ROW_STATUSES).toEqual([
+            "Pending match run",
+            "Matched",
+            "Unmatched",
+            "Mismatched",
+            "Settled",
+            "Skipped",
+            "Error",
+        ]);
+    });
+
+    it("is exactly these four batch statuses", () => {
+        expect(BATCH_STATUSES).toEqual([
+            "Draft",
+            "In Review",
+            "Partially Settled",
+            "Completed",
+        ]);
+    });
+
+    it("no longer carries any retired v2 status", () => {
+        // Asserted as absence, not left to a code read: a re-added constant would pass every other
+        // test here while the server, whose Select no longer offers it, could never send it.
+        for (const retired of [
             "Pending",
             "Reconciled",
             "Amount mismatch",
             "Reference mismatch",
             "Control exception",
-            "Unmatched",
-            "Settled",
-            "Skipped",
-            "Error",
-        ]);
+        ]) {
+            expect(ROW_STATUSES).not.toContain(retired);
+            expect(ROW_STATUS_TONE[retired]).toBeUndefined();
+        }
+        expect(BATCH_STATUSES).not.toContain("Completed with exceptions");
     });
 
     it("partitions cleanly into terminal and open", () => {
@@ -61,124 +82,105 @@ describe("row status vocabulary (parity with services/outflow_import/status.py)"
         expect(TERMINAL_ROW_STATUSES.size + OPEN_ROW_STATUSES.size).toBe(ROW_STATUSES.length);
     });
 
-    it("treats every read-only finding as terminal", () => {
-        // Reporting them WAS the job -- they need nothing further from anyone.
-        for (const status of [
-            ROW_RECONCILED,
-            ROW_AMOUNT_MISMATCH,
-            ROW_REFERENCE_MISMATCH,
-            ROW_CONTROL_EXCEPTION,
-        ]) {
-            expect(isTerminal(status)).toBe(true);
-        }
+    it("treats ONLY Settled and Skipped as terminal", () => {
+        // Narrower than v2 on purpose: v2 findings were terminal because reporting them was the
+        // whole job. v3 settles, so a row that found something and was never confirmed is work.
+        expect([...TERMINAL_ROW_STATUSES].sort()).toEqual([ROW_SETTLED, ROW_SKIPPED].sort());
     });
 
-    it("treats Unmatched and Error as open", () => {
-        // Unmatched is expense work nobody has done; Error must be retried.
-        expect(isOpen(ROW_UNMATCHED)).toBe(true);
-        expect(isOpen(ROW_ERROR)).toBe(true);
+    it("keeps Matched and Mismatched open so both stay resolvable", () => {
+        // Owner ruling: reporting a mismatch with no way to act on it was the defect. Marking
+        // either terminal drops it out of every "needs a decision" surface.
+        expect(isOpen(ROW_MATCHED)).toBe(true);
+        expect(isOpen(ROW_MISMATCHED)).toBe(true);
     });
 
-    it("counts exactly the three exception states", () => {
-        expect([...EXCEPTION_ROW_STATUSES].sort()).toEqual(
-            ["Amount mismatch", "Control exception", "Reference mismatch"].sort()
-        );
-    });
-
-    it("gives every status a tone", () => {
+    it("gives every status a tone, so none renders as accidental grey", () => {
         for (const status of ROW_STATUSES) {
             expect(ROW_STATUS_TONE[status]).toBeTruthy();
+            expect(rowStatusTone(status)).toBe(ROW_STATUS_TONE[status]);
         }
     });
 
-    it("falls back to a neutral tone for an unknown status rather than rendering nothing", () => {
-        expect(rowStatusTone("Something New")).toBeTruthy();
+    it("falls back to a neutral tone for a status it has never seen", () => {
+        expect(rowStatusTone("Something the server invented")).toBe("bg-gray-100 text-gray-700");
     });
 
     it("reserves red for Error alone", () => {
-        // Error is the only status meaning the software failed rather than the data disagreed.
+        // Error is the only status meaning the SOFTWARE failed rather than the data disagreed.
         const red = ROW_STATUSES.filter((s) => ROW_STATUS_TONE[s].includes("red"));
         expect(red).toEqual([ROW_ERROR]);
     });
-
-    it("gives the three exception states one shared tone", () => {
-        // Different findings, same call to action. Separate colours would imply a severity
-        // ranking the design does not have.
-        const tones = new Set([...EXCEPTION_ROW_STATUSES].map((s) => ROW_STATUS_TONE[s]));
-        expect(tones.size).toBe(1);
-    });
 });
 
-describe("deriveBatchStatus", () => {
+describe("deriveBatchStatus (mirrors status.derive_batch_status)", () => {
     it("is Draft with no rows", () => {
         expect(deriveBatchStatus([])).toBe(BATCH_DRAFT);
     });
 
     it("is In Review while nothing is terminal", () => {
-        expect(deriveBatchStatus([ROW_PENDING, ROW_PENDING])).toBe(BATCH_IN_REVIEW);
-    });
-
-    it("is Partially Settled when some rows are terminal and some are not", () => {
-        expect(deriveBatchStatus([ROW_SETTLED, ROW_PENDING])).toBe(BATCH_PARTIALLY_SETTLED);
-    });
-
-    it("is Completed when every row is terminal", () => {
-        expect(deriveBatchStatus([ROW_RECONCILED, ROW_SETTLED, ROW_SKIPPED])).toBe(BATCH_COMPLETED);
-    });
-
-    it("is Completed on a batch of nothing but reported findings", () => {
-        // There is nothing to settle -- the findings ARE the output.
-        expect(deriveBatchStatus([ROW_CONTROL_EXCEPTION, ROW_AMOUNT_MISMATCH])).toBe(
-            BATCH_COMPLETED
+        expect(deriveBatchStatus([ROW_PENDING_MATCH, ROW_MATCHED, ROW_UNMATCHED])).toBe(
+            BATCH_IN_REVIEW
         );
     });
 
-    it("is Completed with exceptions only when force-closed over open rows", () => {
-        expect(deriveBatchStatus([ROW_SETTLED, ROW_UNMATCHED], true)).toBe(
-            BATCH_COMPLETED_WITH_EXCEPTIONS
-        );
-        expect(deriveBatchStatus([ROW_SETTLED], true)).toBe(BATCH_COMPLETED);
+    it("is Partially Settled with a mix", () => {
+        expect(deriveBatchStatus([ROW_SETTLED, ROW_UNMATCHED])).toBe(BATCH_PARTIALLY_SETTLED);
+    });
+
+    it("is Completed only when every row is settled or skipped", () => {
+        expect(deriveBatchStatus([ROW_SETTLED, ROW_SKIPPED])).toBe(BATCH_COMPLETED);
+    });
+
+    it("does not call a batch with an unconfirmed match Completed", () => {
+        // v2 would have: a found-but-unconfirmed row was terminal there.
+        expect(deriveBatchStatus([ROW_SETTLED, ROW_MATCHED])).toBe(BATCH_PARTIALLY_SETTLED);
+    });
+
+    it("does not call a batch with an errored row Completed", () => {
+        expect(deriveBatchStatus([ROW_SETTLED, ROW_ERROR])).toBe(BATCH_PARTIALLY_SETTLED);
     });
 });
 
-describe("deriveBatchCounters", () => {
-    it("partitions the rows the same way the backend does", () => {
+describe("deriveBatchCounters (mirrors status.derive_batch_counters)", () => {
+    it("reports exactly the keys that are live fields on the batch doctype", () => {
+        // An extra key writes nothing and reports nothing, silently -- which is precisely how
+        // `reconciled_rows` outlived the status it counted.
+        expect(Object.keys(deriveBatchCounters([ROW_SETTLED])).sort()).toEqual(
+            ["error_rows", "reviewed_rows", "settled_rows", "skipped_rows", "total_rows"].sort()
+        );
+    });
+
+    it("counts everything that has left Pending match run as reviewed", () => {
         const counters = deriveBatchCounters([
-            ROW_PENDING,
-            ROW_RECONCILED,
+            ROW_PENDING_MATCH,
+            ROW_PENDING_MATCH,
+            ROW_MATCHED,
+            ROW_SETTLED,
+        ]);
+        expect(counters.total_rows).toBe(4);
+        expect(counters.reviewed_rows).toBe(2);
+    });
+
+    it("counts each terminal bucket separately", () => {
+        const counters = deriveBatchCounters([
+            ROW_SETTLED,
             ROW_SETTLED,
             ROW_SKIPPED,
-            ROW_CONTROL_EXCEPTION,
-            ROW_AMOUNT_MISMATCH,
             ROW_ERROR,
+            ROW_MISMATCHED,
         ]);
-        expect(counters).toEqual({
-            total_rows: 7,
-            reviewed_rows: 6,
-            reconciled_rows: 1,
-            settled_rows: 1,
-            skipped_rows: 1,
-            exception_rows: 2,
-            error_rows: 1,
-        });
+        expect(counters.settled_rows).toBe(2);
+        expect(counters.skipped_rows).toBe(1);
+        expect(counters.error_rows).toBe(1);
     });
 
-    it("counts an empty batch as zero", () => {
-        expect(deriveBatchCounters([]).total_rows).toBe(0);
-    });
-
-    it("counts every non-Pending row as reviewed", () => {
-        const statuses = ROW_STATUSES.filter((s) => s !== ROW_PENDING);
-        expect(deriveBatchCounters(statuses).reviewed_rows).toBe(statuses.length);
-    });
-});
-
-describe("isException", () => {
-    it("is true for the three findings and false for everything else", () => {
-        expect(isException(ROW_AMOUNT_MISMATCH)).toBe(true);
-        expect(isException(ROW_REFERENCE_MISMATCH)).toBe(true);
-        expect(isException(ROW_CONTROL_EXCEPTION)).toBe(true);
-        expect(isException(ROW_RECONCILED)).toBe(false);
-        expect(isException(ROW_SKIPPED)).toBe(false);
+    it("agrees with deriveBatchStatus about what is finished", () => {
+        // The two are read side by side on the list page; a disagreement there reads as a bug in
+        // whichever one the reader trusts less.
+        const statuses = [ROW_SETTLED, ROW_SKIPPED];
+        const counters = deriveBatchCounters(statuses);
+        expect(counters.settled_rows + counters.skipped_rows).toBe(statuses.length);
+        expect(deriveBatchStatus(statuses)).toBe(BATCH_COMPLETED);
     });
 });

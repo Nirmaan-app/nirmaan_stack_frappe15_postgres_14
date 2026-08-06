@@ -28,10 +28,15 @@ import frappe
 
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
 from nirmaan_stack.services.outflow_import import candidates as C
-from nirmaan_stack.services.outflow_import.matcher import match_row, resolve_vendors
+from nirmaan_stack.services.outflow_import.matcher import (
+    match_payments,
+    match_row,
+    resolve_vendors,
+)
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
 from nirmaan_stack.services.outflow_import.status import (
     OPEN_ROW_STATUSES,
+    ROW_MISMATCHED,
     ROW_SETTLED,
     ROW_SKIPPED,
     derive_batch_counters,
@@ -102,7 +107,9 @@ def match_batch(batch: str):
         pools = _load_pools(matchable, batch)
         for row in matchable:
             result = match_row(row, pools["vendors"], pools["payments"], pools["expenses"])
-            outcome = derive_row_outcome(row, result)
+            outcome = derive_row_outcome(
+                row, result, paid_duplicate=_paid_duplicate_for(row, pools)
+            )
             _persist_row_outcome(row, outcome, result, batch)
 
     statuses = _refresh_batch_rollup(batch)
@@ -122,9 +129,17 @@ def _load_pools(rows, batch: str) -> dict:
     itself, and a batch is tens of rows, not thousands.
     """
     vendor_index = C.load_vendor_index()
+    references = [r.normalized_reference for r in rows]
 
-    # Pass A pool: anything whose stored reference matches one of ours.
-    by_reference = C.load_payments_by_reference([r.normalized_reference for r in rows])
+    # Pass A pool: APPROVED payments whose stored reference matches one of ours.
+    by_reference = C.load_payments_by_reference(references)
+
+    # ⚠️ A SEPARATE POOL, AND A SEPARATE QUERY, FOR A SEPARATE QUESTION (owner ruling Q14). These
+    # are PAID payments already carrying one of our references -- somebody ticked them by hand
+    # before this statement was uploaded. They are a duplicate guard, never a settle candidate, and
+    # merging them into `by_reference` would let the same money be recorded twice. Under Q12 that
+    # is the common case, not an edge case.
+    paid_duplicates = C.load_paid_payments_by_reference(references)
 
     # Pass B pool: needs vendors resolved first, so resolve now to collect the names.
     vendor_names: set[str] = set()
@@ -146,12 +161,46 @@ def _load_pools(rows, batch: str) -> dict:
     return {
         "vendors": vendor_index,
         "payments": tuple(payments.values()),
+        "paid_duplicates": paid_duplicates,
         "expenses": C.load_expense_targets([r.amount for r in rows]),
     }
 
 
+def _paid_duplicate_for(row, pools):
+    """The already-Paid group this row duplicates, or None.
+
+    Reuses `match_payments` rather than hand-rolling a reference compare, so a FAN-OUT that was
+    recorded by hand is recognised as ONE already-recorded transfer instead of a shortfall against
+    whichever payment happened to be found first. The matcher is untouched -- only the pool differs.
+
+    No vendor resolution is passed: this must match on the bank reference alone. `match_payments`
+    Pass B (vendor + amount + date) is a SUGGESTION heuristic, and a heuristic hit here would skip a
+    row on a guess, which is the one outcome a duplicate guard must never produce.
+    """
+    groups = match_payments(row, pools["paid_duplicates"])
+    return groups[0] if groups else None
+
+
 def _persist_row_outcome(row: _StagedRow, outcome, result, batch: str) -> None:
-    """Write the derived status/note and rebuild this row's match records."""
+    """Write the derived status and note. A match run records NO `Outflow Row Match` rows.
+
+    ⚠️ THIS STOPPED WRITING MATCH ROWS AT V1, AND THE REASON IS THE UNIQUE CONSTRAINT. v2 minted a
+    `Reconciled` match row per matched target here, and a `Settled` one at settlement -- which never
+    collided only because v2's payment branch could not write, so the two paths always addressed
+    DIFFERENT targets. Under the v3 spine they address the SAME one: a row matched to PAY-X would
+    take the `(transfer_id, target_doctype, target_name)` key at match time, and confirming it would
+    then fail the unique insert on exactly the happy path.
+
+    Resolving it the other way -- keeping suggestions in the table and letting the settle update
+    them -- would have cost the constraint its meaning, and that constraint IS this feature's
+    idempotency guarantee. So the table now records ONE thing: what a row SETTLED. `match_kind` has
+    a single value to match, and a Match row present means money was written.
+
+    Nothing is lost from the screen. `outcome.note` already names the suggested record(s) in the
+    reviewer's own words, and the decision dialog loads full details on demand through
+    `get_row_candidates` -- which is what the signed-off design specifies anyway ("a dropdown that
+    LOADS the chosen record's details").
+    """
     frappe.db.set_value(
         ROW_DOCTYPE,
         row.name,
@@ -163,31 +212,10 @@ def _persist_row_outcome(row: _StagedRow, outcome, result, batch: str) -> None:
         update_modified=False,
     )
 
-    # Rebuild rather than upsert: a re-run may match FEWER targets than before (a payment was
-    # deleted, an amount edited), and an upsert would leave the surplus behind as a phantom match.
+    # Still a delete, for a narrower reason: a batch staged under v2 carries legacy suggestion rows,
+    # and re-running the match is how they get cleared. It cannot touch a settlement -- `Settled` is
+    # in `_FROZEN_ROW_STATUSES`, so a settled row never reaches this function at all.
     frappe.db.delete(MATCH_DOCTYPE, {"import_row": row.name})
-
-    group = result.best_payment_group
-    if not group:
-        return
-    for target in group.targets:
-        doc = frappe.new_doc(MATCH_DOCTYPE)
-        doc.update(
-            {
-                "import_row": row.name,
-                "import_batch": batch,
-                "transfer_id": row.transfer_id,
-                "target_doctype": target.doctype,
-                "target_name": target.name,
-                "target_amount": float(target.amount),
-                # Read-only: nothing on the target was mutated. `Settled` is S5's kind.
-                "match_kind": "Reconciled",
-                "match_basis": group.basis,
-                "matched_at": frappe.utils.now_datetime(),
-                "matched_by": frappe.session.user,
-            }
-        )
-        doc.insert(ignore_permissions=True)
 
 
 def _sole_vendor(result):
@@ -421,8 +449,10 @@ def get_reconciliation_report(batch: str):
             "outcome_note": r.get("outcome_note"),
         }
         for r in rows
-        if r.get("row_status")
-        in ("Amount mismatch", "Reference mismatch", "Control exception")
+        # v3: the three v2 exception statuses collapsed to one. `Mismatched` is now about AMOUNTS
+        # ONLY -- `Reference mismatch` was deleted outright and `Control exception` became a plain
+        # `Unmatched`. This whole endpoint is retired at V5 in favour of the three tabs.
+        if r.get("row_status") == ROW_MISMATCHED
     ]
 
     return {
@@ -464,10 +494,10 @@ def _load_rows(batch: str) -> list:
 def _refresh_batch_rollup(batch: str) -> list:
     """Recompute the batch's counters and status from its rows. `status.py` is the only deriver.
 
-    `closed_at` is read on every refresh rather than only at close time, because the status has to
-    stay correct as the batch keeps changing: a closed batch whose last abandoned row is later
-    settled becomes plainly `Completed`, and one that is reopened drops back to `In Review`. Reading
-    the flag here is what makes both happen without either action knowing about the other.
+    ⚠️ v3: `closed_at` NO LONGER FEEDS THE STATUS. `Completed with exceptions` is retired, so
+    closing is pure bookkeeping -- a batch closed with rows outstanding reads `Partially Settled`,
+    which is the truth, and the three tabs show exactly which rows are outstanding. The flag is
+    still recorded and still read by the screen; it just no longer changes what the status says.
     """
     statuses = [
         r["row_status"] or ""
@@ -477,9 +507,8 @@ def _refresh_batch_rollup(batch: str) -> list:
             as_dict=True,
         )
     ]
-    closed_at = frappe.db.get_value(BATCH_DOCTYPE, batch, "closed_at")
     values = dict(derive_batch_counters(statuses))
-    values["status"] = derive_batch_status(statuses, force_closed=bool(closed_at))
+    values["status"] = derive_batch_status(statuses)
     frappe.db.set_value(BATCH_DOCTYPE, batch, values, update_modified=False)
     return statuses
 
@@ -493,11 +522,12 @@ def close_batch(batch: str, reason: str = None):
     a typed reason (owner ruling) -- and auto-skipping on close would manufacture decisions nobody
     made, replacing "never decided" with a fabricated "deliberately skipped" on every row.
 
-    Instead the abandonment is recorded ONCE, on the batch. `derive_batch_status` then reports
-    `Completed with exceptions`, which is the signal someone scanning the import list actually
-    needs: this batch was closed with work outstanding. Converting the rows would have made the
-    batch read as a plain `Completed`, indistinguishable from one where everything really was
-    resolved.
+    Instead the abandonment is recorded ONCE, on the batch, as `closed_at`.
+
+    ⚠️ v3: that flag NO LONGER CHANGES THE DERIVED STATUS. `Completed with exceptions` is retired
+    (owner ruling) -- a batch closed with work outstanding reads `Partially Settled`, and the three
+    tabs show which rows are outstanding directly, which is what the retired status was standing in
+    for. V5 simplifies this endpoint and its dialog to a single button.
 
     Closing is bookkeeping, NOT a freeze. An abandoned row can still be settled afterwards, and the
     status re-derives when it is.
@@ -519,7 +549,7 @@ def close_batch(batch: str, reason: str = None):
     frappe.db.commit()
     return {
         "batch": batch,
-        "status": derive_batch_status(statuses, force_closed=True),
+        "status": derive_batch_status(statuses),
         "counters": derive_batch_counters(statuses),
         "abandoned_rows": sum(1 for s in statuses if s in OPEN_ROW_STATUSES),
     }
