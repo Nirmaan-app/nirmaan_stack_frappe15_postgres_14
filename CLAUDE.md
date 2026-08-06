@@ -723,6 +723,33 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   `conduit_qty` derives from `circuits`, which derives from the runs-scaled diameter. Adding a
   multiplier to the conduit component would charge runs-squared. Switch, socket, plate and back box
   never multiply by runs at all.
+- **ITEM MATCHING IS STRICT IDENTITY, so a dropdown over a NUMERIC catalog column needs the
+  numeric choice type (`number_choice`), NEVER a plain `choice` (owner-locked).** `matchMasterRow`
+  compares with `===`, so a `choice` emits the string `"3"` against a stored `3` and matches
+  NOTHING -- silently, and with no error. Making the matcher numeric-aware was REJECTED: it changes
+  how every category matches every attribute and its failure mode is a WRONG match, a price that
+  looks right and is not. The type is contained by construction -- a config that does not carry it
+  is byte-unaffected. `coerceForMatch` (the ONE place an attribute value becomes a match key) lives
+  in `rateMasterStructure.ts`; the two type axes are `isNumericAttributeType` /
+  `isDropdownAttributeType`, one definition each, read by BOTH rendering surfaces.
+- **THE GOLDENS BYPASS `coerceForMatch` ENTIRELY, so a coercion change must be proven through the
+  PRICING-EDITOR path as well.** Goldens call `runPipeline` with values directly; a coercion that
+  matches nothing leaves every golden green while the editor prices nothing. Measured once already:
+  the naive flip took point_wiring from pricing most of its rows to pricing none, with all goldens
+  green throughout. The editor-path count is a GATE, not a formality.
+- **A category's dropdown domain is the family ITS OWN component refs pin, not the union across
+  families (owner-locked).** `values_from.where` on a `point_wiring` wire attribute pins
+  copper/unarmoured because that is what its component refs price; offering the cross-family union
+  would put values on screen with no catalog row behind them. **The resulting domain need not be
+  rectangular** -- core x thickness offers pairs the catalog does not carry, which is an honest
+  no-match; constraining one dropdown by another's selection is the dependent-`where` mechanism
+  cables are deferred for and is deliberately NOT built.
+- **POINT WIRING CARRIES THREE CONDUCTORS -- phase, neutral and earth -- so the run counts across
+  wire 1 and wire 2 sum to three unless the line explicitly states otherwise (owner-locked, R9).**
+  A closing sentence naming an earth wire describes a conductor already counted, not an extra one.
+  A number before a size is a RUN count, never a core count; wire 2 is recorded only where the line
+  describes two distinct wires, and is `"None"` otherwise -- which is why `wire2_thickness_sqmm`
+  must keep `allow_none` + its `disables_when_none` targets.
 - **`_validate_config` must not be stricter than the interpreter (EA-4 ext-a).** Three shapes the
   interpreter explicitly executes are valid config and must stay accepted: a `component` with **no
   `params`** (a conditional component carries them per-condition), a `component` with **no `target`**

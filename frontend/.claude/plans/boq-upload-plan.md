@@ -18510,3 +18510,186 @@ occurrences of the old `"is not a positive count"`.
   domain (material/insulation are user-selected) that `values_from`'s static `where` cannot express.
 - **The helper `missing`-gate fix** -- DROPPED, proven a no-op: no row on this sheet is blocked by a
   derived attribute (`blank_qty` always carries a value).
+
+
+## Build slice CP2 -- the coercion move, the NUMERIC DROPDOWN type, and point_wiring's dropdowns
+
+Three phases, each provable on its own: a **pure move** (no behaviour), a **new attribute type**
+(unused by any config until phase C), and the **config data** that first uses it. Asset
+`rate_master_electrical_all_v24.json`, batch `rmbulk-b39828f2edbb`. Commits `eab3e032` (Phase A) and
+the Phase B+C pair.
+
+### Phase A -- `coerceForMatch` moves to a shared module, and changes NOTHING
+
+`coerceForMatch` lived in `pricingSheetHelper.ts` as a private, untested function -- yet it is **the
+single point where an attribute value becomes a match key**, and `matchMasterRow` compares with
+`===`. It moved to **`rateMasterStructure.ts`**, chosen because that module already owns the
+attribute-definition helpers (`blankAttributeDefinition`, `referencedAttrIds`,
+`distinctNumberValues`), is pure, and has its own test file; the interpreter stays the executor of an
+already-coerced selection rather than also owning input normalisation. `pricingSheetHelper.ts`
+changed by exactly the import and the deletion.
+
+**The inertness proof, in the order it was done.** Six pins covering EVERY existing type -- `number`
+-> Number, `choice`/unknown -> String, blank/null/undefined -> null, and the `allow_none` "None"
+sentinel preserved on BOTH types -- were first written against a **verbatim copy of the pre-move
+implementation** (a transient file holding the HEAD function body) and **proven green there**. The
+function was then moved and the SAME six pins re-run, unchanged, against the shared export: green
+again. The pins now live permanently in `rateMasterStructure.test.ts`.
+
+**The measurement that actually matters** (see G7 below) was byte-identical across the move:
+point_wiring rows producing a value in the pricing editor **17/23 before, 17/23 after**, row for row,
+with row 198 at **2301 / 732 / 3033** both times.
+
+### Phase B -- `number_choice`: a dropdown that produces a NUMBER
+
+**The name.** `number_choice` -- the produced TYPE first, the affordance second, because the coercion
+is the load-bearing half and the dropdown is what you see. It is a third value of the existing
+`AttributeDefinition.type`, so absence means unchanged.
+
+**WHY THIS AND NOT A NUMERIC-AWARE MATCHER (owner ruling).** The alternative was to make
+`matchMasterRow` compare numerically. That changes how EVERY category matches EVERY attribute, and
+its failure mode is a **WRONG match** -- a price that looks right and is not. This type is contained
+by construction: no config carries it until phase C, and a config that never carries it is
+byte-unaffected. The blast radius is the difference between the two options, not their elegance.
+
+**The evidence that the goldens cannot see this.** At the previous slice's stop, flipping
+point_wiring's wire attributes to a plain `choice` took the editor from **17/23 to 0/23** and row 198
+back to "no match", while **all 26 goldens stayed green** -- because the goldens call `runPipeline`
+with numbers directly and never touch `coerceForMatch`. That is the whole reason the pricing-editor
+measurement is a separate gate (G7) and not a formality.
+
+Implementation, deliberately small:
+
+- `coerceForMatch` returns a NUMBER for the new type. Pinned directly, in the shared module's tests.
+- Two shared predicates, one definition each: `isNumericAttributeType` (number | number_choice) and
+  `isDropdownAttributeType` (choice | number_choice). An unknown/future type answers NO to both and
+  degrades to a plain String input, exactly as before.
+- Both rendering surfaces read those predicates: the pricing-editor panel (`options` -> a dropdown)
+  and the Rate Master Derivation screen (dropdown branch + a module-level `coerceSelected`, which is
+  deliberately NOT `coerceForMatch` -- that form clears to `""`, meaning "the field is empty", where
+  the match coercion yields null).
+- `values_from` works exactly as it does for `choice` (B3), in both surfaces.
+- Server `_validate_config` accepts the type and carries the SAME values-or-`values_from`
+  requirement a `choice` has -- a dropdown with no source would render empty and price nothing. The
+  reference guard is unchanged and still covers the converted attributes: they are named by
+  `circuit_fit.wire_specs` and by the `component_ref` bindings, so deleting a definition while a
+  pipeline names it is still rejected (pinned by `test_62`).
+
+A note on the type PICKER: `RateMasterPipelines.tsx` (the RM-4b structure editor) was out of scope,
+so its attribute-type `Select` still offers only choice/number. A `number_choice` def round-trips
+through a whole-config save untouched, but cannot yet be AUTHORED in-system -- config authoring for
+this type is an asset mint. **Adding the third option to that picker is the honest follow-up.**
+
+### Phase C -- point_wiring's four wire attributes become dropdowns, and R9's rewrite
+
+`wire1_core`, `wire2_core`, `wire1_thickness_sqmm`, `wire2_thickness_sqmm` are now `number_choice`
+resolved from the live catalog with `where: {material: "COPPER", insulation: "UNARMOURED"}`.
+
+**That `where` is load-bearing:** point_wiring pins copper/unarmoured in its own component refs, so
+its domain is the **SIX** cores it actually has rows for -- `1, 2, 3, 4, 5, 6` -- not the 15-value
+union across every cable family. Offering the union would put nine values on screen with no row
+behind them. Thicknesses resolve to the 20 catalog sizes (0.5 -> 400).
+
+**KNOWN AND OWNER-ACCEPTED: the domain is NOT rectangular.** Only core 1 reaches 400 sqmm; cores 2-5
+stop at 70 and core 6 at 6. A flat core dropdown crossed with a flat thickness dropdown therefore
+offers pairs the catalog does not carry (6C x 10 sqmm). Constraining thickness by the selected core
+is the same dependent-`where` mechanism cables were deferred for, and it is **NOT built**. Such a
+pair is an honest no-match, not a wrong price.
+
+`wire2_thickness_sqmm` keeps `allow_none: true` and `disables_when_none: ["wire2_core",
+"wire2_runs"]` -- R9's closing case depends on wire 2 being None-able, and the "None" sentinel still
+sits at the top of that one dropdown.
+
+**R9 was REPLACED by the owner's rewrite, passed through verbatim** (id `R9`, label *Wire runs and
+cores in point wiring*, `applies_to: wire1_runs`). It states the three-conductor rule -- the run
+counts across wire 1 and wire 2 add up to three unless the line says otherwise -- and then five
+reading cases: a stated run count (`3R x 1.5`) recorded as given with no second wire for the earth
+conductor; a plain multiplier (`3 x 1.5`) read as the run count; a bare size read as 3 runs of 1
+core; two stated run counts ordered higher-first across wire 1 and wire 2; and two sizes with no run
+counts read as larger/2 runs and smaller/1 run. A number before the size is a RUN count, never a
+core count, and wire 2 is None in every case but the two that describe two distinct wires. The text
+on screen (V5) is byte-identical to what the owner wrote.
+
+**Cables (`wiring_cabling`) remain DEFERRED, for both original reasons:** a separate asset with an
+owner-locked sha, and a runtime-dependent domain (material/insulation are user-selected) that a
+static `values_from.where` cannot express.
+
+### The mint and the apply
+
+v24 was minted from v23 by script: the four defs converted, R9 replaced in place, the slice note
+rewritten, everything else copied byte-for-byte (asserted in the mint: items, the top-level
+`goldens` dict, and every other category compare equal to v23). **Goldens were left in the asset's
+TOP-LEVEL `goldens` dict** -- the loader reads only there and OVERWRITES each config's own key, so a
+golden written into `category_configs[*].goldens` is silently ignored. Applied by explicit path with
+`replace=True` -> batch `rmbulk-b39828f2edbb`, 795 items + 12 configs, **wiring untouched** (588 rows
+still on `rmbulk-f676a178e05a`; 1,383 active Electrical items).
+
+**Verified stored == asset KEY BY KEY, not by count**, for all 12 configs; every golden id unchanged
+before and after (cabletray t1-t3, conduit c1, db dbu1/dbu2/dbu3/dbu4, earthing e1/e2, industrial i1,
+junction j1, misc m1/m2, point_wiring pw1/pw2/pw3, popup p1, switches_point sp1, switches_sockets
+s1/ss1, wiring g1-g5 = **26**). The single reported key difference was `lighting_mgmt_system.goldens`
+**stored null vs the comparison's invented `[]`** -- the asset carries no goldens entry for LMS at
+all, so this is a harness artifact, not a divergence. `_validate_config` passes on all 12 configs.
+
+### Gates
+
+| gate | result |
+|---|---|
+| G1 backend | `test_rate_master` **58 -> 64**, green; re-run AFTER the apply (the BLANKER slice's lesson) |
+| G1 vitest | **1,357 -> 1,373** / 54 files, green (6 Phase-A pins, 10 Phase-B pins) |
+| G2 tsc | **zero** errors in any touched file, before and after (the ~3.7k pre-existing errors elsewhere are unchanged) |
+| G3 validator | `_validate_config` OK on all 12 v24 configs |
+| G4 preview gate | point_wiring **9/9**, wiring_cabling **20/20**, switches_sockets **6/6** green |
+| G5 other categories | row/green counts identical before and after, per category (78 gate rows, 77 green) |
+| G6 goldens | all **26** unchanged, ids unchanged |
+| G7 pricing editor | **17/23 at all three checkpoints** (before A, after A, after C), row for row |
+| G8 | zero AI calls |
+
+The ONE non-green gate row is **pre-existing and unrelated**: `miscellaneous` golden `m1`
+`misc_bcs.bcs_supply` expects 187.2 and computes 187.20000000000002 -- a float-representation
+artifact, measured identical with this slice's changes stashed. It is not touched here.
+
+### Cert (V1-V5, CDP against the owner's Chrome)
+
+De-stale ran in full: bench restarted; the three LISTED vite PIDs killed (never a pattern kill),
+`node_modules/.vite` cleared, vite restarted detached, `:8080` = 200; cache + storage + service
+workers cleared on the origin with **cookies deliberately preserved** (sid present, HttpOnly,
+verified through the CDP cookie API); the stale tab CLOSED, a new one opened at the bare root and
+then the deep route. **CODE MARKER GREEN BOTH DIRECTIONS:** the served `rateMasterStructure.ts`
+carries `coerceForMatch` + `isNumericAttributeType` + `isDropdownAttributeType`, and the served
+`pricingSheetHelper.ts` carries the import + `isDropdownAttributeType(d.type)` with **zero**
+occurrences of its old local `function coerceForMatch` and zero of the old
+`d.type === "choice" ? attributeOptions`.
+
+- **V1 PASS** Row 198 in the pricing editor: **supply 2301, install 732, combined 3033**; lines
+  wire1 1500 / wire2 465 / conduit 336 (install 360 / 300 / 72). CP1's result survives.
+- **V2 PASS** `wire1_core`, `wire2_core` and BOTH thicknesses render as DROPDOWNS in the panel.
+  Cores offered, in order: **1, 2, 3, 4, 5, 6** (six, as predicted by the copper/unarmoured `where`).
+  Thicknesses: 0.5, 0.75, 1, 1.5, 2.5, 4, 6, 10, 16, 25, 35, 50, 70, 95, 120, 150, 185, 240, 300,
+  400 -- with **None** at the top of wire 2's only. The two `runs` attributes stay free numeric
+  inputs, correctly.
+- **V3 PASS -- the numeric-coercion proof.** Picking core **2** from the dropdown re-resolves the
+  wire to a REAL catalog row -- `wire1: COPPER UNARMOURED 2 1.5 = 1050` -- and re-prices supply
+  **1725** / install **705**; restoring 3 returns exactly **2301 / 732**. Under a plain `choice` the
+  picked value would be the string "2" and this is precisely where it would no-match, with no golden
+  able to notice. Nothing was saved ("Use this value" never clicked).
+- **V4 PASS** Preview gate in EDIT MODE, exited via **Cancel**, **fresh page load per category**:
+  point_wiring **9/9 green** (pw1 1869/735/1370, pw2 1823/722.2/1342, pw3 1740/709/1281),
+  wiring_cabling **20/20**, switches_sockets **6/6** (s1 110/30/80, ss1 740/150/510), db_switchgear
+  **8/8** (dbu1 24360/3660/14760, dbu2 1500, dbu3 23840/3580/14450, dbu4 1275).
+- **V5 PASS** point_wiring's Rules panel shows the NEW R9, verbatim as authored (reported in full in
+  the run report).
+
+Incidental, confirmed not a regression: the Derivation screen now SEEDS the wire cores/thicknesses
+from the catalog options (previously they seeded from `distinctNumberValues`, which is empty for
+these ids because the catalog stores `core`/`thickness_sqmm`, not `wire1_core`) -- so the screen
+opens computable where it used to open blank. The `wire1_runs` / `wire2_runs` inputs still open
+empty; their seeding path is byte-unchanged by this slice.
+
+### Owed / deferred
+
+- The RM-4b attribute-type picker cannot author a `number_choice` yet (above).
+- Cables stay deferred, both reasons unchanged.
+- `test_rate_master._ASSET` is still pinned to `rate_master_electrical_all_v22.json`. It backs the
+  switches_sockets ROUTING pins only and is unaffected by this slice, so it was left alone rather
+  than bumped as a side effect.

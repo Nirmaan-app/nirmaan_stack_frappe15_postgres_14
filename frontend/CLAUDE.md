@@ -700,6 +700,27 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   it also seeds the Rate Master Derivation screen ahead of the goldens fallback. It is DISTINCT from the
   top-level `extraction_defaults` map. Treat adding one as a behavioural change, and prove the
   whole-config RM-4b round-trip -- the loader does not validate, only `update_rate_config` does.
+- **`coerceForMatch` lives in `rateMasterStructure.ts` and is THE single point where an attribute
+  value becomes a match key.** It is not a page helper: `matchMasterRow` compares with `===`, so the
+  JS type produced here decides whether a catalog row is found at all. Two shared predicates, one
+  definition each, carry the two type axes -- `isNumericAttributeType` (`number` | `number_choice`)
+  and `isDropdownAttributeType` (`choice` | `number_choice`) -- and BOTH rendering surfaces (the
+  pricing-editor panel's `options`, the Rate Master Derivation configurator) read them rather than
+  testing the type string. An unknown / future type answers NO to both and degrades to a plain
+  String input. The Derivation screen keeps its OWN `coerceSelected` because that form clears to
+  `""` ("the field is empty") where the match coercion yields `null`; only the TYPE decision is
+  shared.
+- **A DROPDOWN over a numeric catalog column must be `number_choice`, never `choice` (owner-locked).**
+  A `choice` emits the string `"3"` against a stored `3` and silently matches nothing. Making the
+  matcher numeric-aware was rejected -- it changes every category's matching and fails as a WRONG
+  match rather than a visible one. **The goldens cannot catch this class of break**: they call
+  `runPipeline` directly and never touch `coerceForMatch`, so a coercion change has to be proven
+  through the pricing-editor path (the count of rows actually producing a value), not by a green
+  suite.
+- **A category's `values_from.where` pins the family ITS OWN component refs price, not the union
+  across families.** The resulting core x thickness grid is deliberately NOT rectangular -- a pair
+  the catalog does not carry is an honest no-match, and constraining one dropdown by another's
+  selection is the dependent-`where` mechanism cables are deferred for.
 
 ### Review screen (`ReviewTree.tsx`) -- load-bearing invariants
 
