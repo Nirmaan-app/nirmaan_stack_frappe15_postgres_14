@@ -293,12 +293,14 @@
             </tr>
             <tr><td colspan="3" class="form-section-title">Sample Description</td></tr>
             <tr><td colspan="3" class="description-box">
-                {%- if item.tds_description and item.tds_member_names -%}
-                    <strong>{{ item.tds_description }}:</strong> {{ item.tds_member_names }}
-                {%- elif item.tds_member_names -%}
-                    {{ item.tds_member_names }}
+                {%- set desc = (item.tds_description or '')|trim -%}
+                {%- set members = (item.tds_member_names or '')|trim -%}
+                {%- if members -%}
+                    <strong>{{ desc or 'Description' }}:</strong> {{ members }}
+                {%- elif desc -%}
+                    <strong>{{ desc }}</strong>
                 {%- else -%}
-                    <strong>{{ item.tds_description or '' }}</strong>
+                    --
                 {%- endif -%}
             </td></tr>
             {% if item.tds_boq_line_item %}

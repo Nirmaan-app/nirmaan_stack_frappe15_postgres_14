@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import ReactSelect from "react-select";
 import { FuzzySearchSelect } from "@/components/ui/fuzzy-search-select";
-import { Trash2, FileText, PlusCircle } from 'lucide-react';
+import { Trash2, FileText, PlusCircle, ExternalLink } from 'lucide-react';
 import { useTdsExistingProjectItems } from '../../data/tds/useTdsQueries';
 import { useDeleteTdsItem } from '../../data/tds/useTdsMutations';
 import { toast } from "@/components/ui/use-toast";
@@ -608,12 +608,28 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                         />
                         {/* Picked a member-less group: say what it costs BEFORE the row is
                             created, since the cart shows no category and the blank only
-                            surfaces in the submittal history and the exported PDF. */}
+                            surfaces in the submittal history and the exported PDF.
+
+                            "first" is load-bearing. The before_save hook fills tds_category
+                            only when the row `is_new()` or its `tds_item_id` changed, so
+                            linking SKUs AFTER the row exists does NOT backfill it. Linking
+                            now, then adding to the cart, is the whole difference. */}
                         {selectedGroup && (memberCounts[selectedGroup.tds_item] ?? 0) === 0 && (
                             <p className="text-xs text-amber-600">
-                                Custom item — no linked product SKUs, so this row's <b>Category will be blank</b>.
-                                Category is derived from the item's linked SKUs; link SKUs to it in the TDS
-                                Repository first if the report needs one.
+                                Custom item — no linked SKUs, so <b>Category will be blank</b>.
+                                Link SKUs first and Category fills in automatically:{" "}
+                                {/* A NEW TAB, not `navigate` — the fix is on another page and the
+                                    user is mid-cart. Routing away would unmount the form; the
+                                    draft would restore it, but only through the resume prompt. */}
+                                <a
+                                    href={`/tds-repository/item/${selectedGroup.tds_item}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 font-medium text-blue-600 underline underline-offset-2 hover:text-blue-700"
+                                >
+                                    {selectedGroup.tds_item}
+                                    <ExternalLink className="h-3 w-3" />
+                                </a>
                             </p>
                         )}
                         <p className="text-xs text-muted-foreground">

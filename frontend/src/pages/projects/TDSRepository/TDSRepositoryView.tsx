@@ -43,10 +43,25 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
 
 
     // Fetch TDS history data directly for export
-    const { data: historyData } = useTdsHistoryItems(projectId);
+    const { data: historyData, mutate: mutateHistoryItems } = useTdsHistoryItems(projectId);
 
     const { data: projectData } = useProjectDoc(projectId);
     const projectName = projectData?.project_name || projectId;
+
+    /* `useTdsHistoryItems` is mounted by THIS PAGE, not by the dialog, so opening
+       the dialog does not remount it and SWR has no reason to revalidate — the
+       list is served from cache. Anything that changed since the page loaded (a
+       row approved, a make swapped, a request rejected) would be exported from a
+       stale snapshot, and closing and reopening would not help.
+
+       So the refetch hangs off the OPEN ACTION, not an effect on the dialog's
+       `isOpen` — a user-action side effect belongs in the handler. Not awaited:
+       the dialog opens on the cached list immediately and re-renders when the
+       fresh one lands, which beats blocking the open on a round trip. */
+    const handleOpenExportDialog = () => {
+        mutateHistoryItems();
+        setIsExportDialogOpen(true);
+    };
 
     // Export History to CSV
     const handleExportHistory = () => {
@@ -357,7 +372,7 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
                                 {isExportingHistory ? 'Exporting...' : 'Download TDS CSV'}
                             </Button>
                             <Button 
-                                onClick={() => setIsExportDialogOpen(true)}
+                                onClick={handleOpenExportDialog}
                                 variant="outline"
                                 disabled={isExporting || !historyData || historyData.length === 0}
                                 className="bg-white border-red-500 text-red-700 hover:bg-red-50 font-medium px-4 shadow-sm"
