@@ -17982,3 +17982,217 @@ length check): a step the interpreter executes but the validator rejects is UNSA
 **C2 was proven, not asserted:** across all five in-scope source files the diff carries exactly four
 deleted lines (one `component_ref` binding line extended in place, a docstring, a local type widening,
 and the test import). Everything else is addition.
+
+
+## Build slice 2 part 2 -- `module_fit` WIRED into both categories + the four estimator rules
+
+**Asset:** `rate_master_electrical_all_v23.json`, sha256 prefix `595ab49124eb28a8`, applied as batch
+`rmbulk-00b94dd14be9`. Baselines re-measured at the start: backend `test_rate_master` **52**, vitest
+**54 files / 1,312**.
+
+### THE RULE CHANGED MID-SLICE: stated-wins -> TAKE-THE-LARGER
+
+The slice was first specified as **stated-wins** (a stated plate is priced; the computed size fills
+silence only). It was built that way, and then the cert exposed a contradiction between two of the
+slice's own requirements, so **the owner REPLACED the rule rather than patching the fixture**.
+
+- **C1** declared a 6M plate carrying 7 modules of content INCOHERENT and re-minted `ss1` to remove it.
+- **V3** asked for exactly that configuration and expected it to PRICE.
+
+Under stated-wins the row **refused outright** (`plate_item holds 6 modules but the contents occupy 7`),
+because the blank count went negative and part 1's guard refused. Both requirements could not hold.
+
+**THE RULE NOW: the plate priced is the LARGER of the stated and the computed count.**
+
+| case | result |
+|---|---|
+| computed > stated | the **COMPUTED** count. A stated plate too small for its contents is **UPGRADED**, not refused. |
+| computed <= stated | the **STATED** count. A bigger plate than needed was asked for, and that is what gets bought. |
+
+Equivalently: **a stated plate is a FLOOR, never a ceiling.**
+
+**Why this is better, and not a weakening:** under stated-wins a BoQ typo (6M written for a 7-module
+assembly) **killed the row entirely**. Under take-the-larger the row prices in both directions, and it
+can never price a plate that physically cannot hold its contents.
+
+**BLANKS derive from the plate ACTUALLY SELECTED**, not the stated one, and a negative count
+**CLAMPS TO ZERO**. Part 1's negative-blanks guard is RETAINED as a backstop but is structurally
+unreachable on the primary path (`max(stated, computed)` always holds the contents) -- both halves are
+pinned: an exhaustive sweep proves the primary path never goes negative, and a separate test proves the
+clamp fires and stays visible on a path that does reach the subtraction.
+
+### ⚠️ THE UPGRADE IS NEVER SILENT
+
+A stated 6M silently becoming 8M would mean the BoQ said one thing and we priced another. That is the
+right call, but it must be VISIBLE, so the trace names the stated size, its capacity, the contents, and
+the word UPGRADED. The wording chosen (live, from the Derivation screen):
+
+```
+2 x socket1_qty(2) + 2 x socket2_qty(None) + 1 x switch_qty(3) = 7 modules ->
+  plate_item 8M (stated 6M holds 6, contents occupy 7 -- UPGRADED) (next higher),
+  box_item 8M (stated 6M holds 6, contents occupy 7 -- UPGRADED) (next higher);
+  1 blank (plate_item 8 - 7)
+```
+
+The clamp is likewise never silent: `... -- over-full, clamped`.
+
+### `defer_to` -> `floor_from` (a behaviour change AND a rename)
+
+Part 1's key was added as `defer_to`. The ruling changed its SEMANTICS, so the key was **renamed to
+`floor_from`**: the old name asserts that the stated value wins outright, which is no longer true, and
+a config key that lies is a defect waiting to happen. The rename cost nothing because v23 had not been
+applied, so no stored config carried the old key. **`on_none` is unaffected.**
+
+### PART A -- the wiring
+
+`module_fit` is inserted into all **5** pipelines (`swsock_boq`, `swsock_bcs`, `pw_boq_supply`,
+`pw_boq_install`, `pw_bcs`), **after** any `circuit_fit` so `fitted_size` still binds first.
+
+**A1 -- terms name each category's OWN attributes.** This is why `terms` is parameterised:
+
+| category | terms |
+|---|---|
+| `switches_sockets` | `2 x socket1_qty` + `2 x socket2_qty` + `1 x switch_qty` |
+| `point_wiring` | `2 x socket_qty` + `1 x switch_qty` |
+
+**A2/A3/A4 -- two ladders per call, both flooring on `plate_item`:**
+
+| ladder | `bind` | `floor_from` | `on_none` | behaviour |
+|---|---|---|---|---|
+| plate | `plate_item` | `plate_item` | `none` | take-the-larger; None -> the plate line stays ZERO |
+| back box | `box_item` | `plate_item` | `computed` | the SELECTED plate's COUNT re-fit on the shorter ladder; None -> the computed count |
+
+**A4 -- the back box follows the plate's COUNT, never its LABEL.** The box component's ref moved from
+`@plate_item` to `@box_item`. A None plate keeps the plate line at zero and gives the box the computed
+count, which is why 1b removed `back_box` from `plate_item.disables_when_none` -- a box can exist with
+no face plate.
+
+**A5** -- the blank component's qty moved from `{from_attr: blank_qty}` to `{from_fit: blank_count}`.
+**A6** -- point_wiring's blanker install factor `0.0725` is UNTOUCHED.
+
+### ⚠️ A LIVE PRE-EXISTING DEFECT, FIXED AS A CONSEQUENCE
+
+Before this slice the back box bound `@plate_item` **verbatim**, so a stated **9M or 16M** plate asked
+the catalog for a 9M/16M back box. **Neither exists** (the box ladder is 1M&2M, 3M, 4M, 6M, 8M, 12M,
+18M), so the ref resolved to nothing and **the whole row could not price at all** -- not the box, the
+ROW. This was live, not introduced here; it was found while designing A4 and is fixed for free by
+re-fitting the COUNT instead of copying the label: 9 -> **12M**, 16 -> **18M**. Both are certified on
+screen (V8), and a negative test pins the old shape failing so the defect cannot silently return.
+
+### PART B -- the four estimator rules
+
+`switches_sockets` gains **S3, S1, S2** (its FIRST rules ever); `point_wiring` becomes **R9, S3, S1, S2**.
+Guidance is passed through VERBATIM -- nothing in the app rewords it.
+
+**⚠️ THE PRECEDENCE LIVES IN S3's TEXT, DELIBERATELY.** The `rules` array is a flat list injected as
+prompt guidance with **no precedence field**, so the ordering must live in the wording. It is stated
+ONCE, in S3 ("This overrides any other rule about switch amp rating, including the substitution of a
+stated 6A switch"), rather than duplicated into every rule it beats -- so a future switch rule needs no
+amendment. Row 243 (*"2 Nos of 6A socket controlled by one switch + 6A sockets with 6A SP Switch"*)
+triggers both S1 and S3; under S3 it prices at 16A.
+
+**S4 is NOT a rule:** `colour: "White"` was added to `extraction_defaults` on both categories (a
+`colour` choice attribute was verified present on each first).
+
+**RULING 4 -- `blank_qty` REMOVED from `extraction_defaults` on both.** A fabricated default and a
+computed count must not both be live: the computed count is derived from the actual assembly, a default
+is invented, and stated-wins protects what the BoQ states, not what the system made up. If `module_fit`
+does not run, blanks are ABSENT, not 1. ⚠️ **`blank_qty` remains as an attribute DEFINITION but is now
+INERT** -- no pipeline reads it (the qty comes from `blank_count`). Visible on screen: the V3 run shows
+`blank_qty=0` in the form while the blank line prices at qty 1. Retiring the attribute is a later call.
+
+### PART C -- the goldens
+
+**`ss1` RE-MINTED (C1).** It was incoherent: 7 modules of content on a 6M plate that holds 6, with a
+`blank_qty` of 2 that fits at no plate size. It priced in 1a only because nothing checked module
+coherence. Now **8M / 7 occupied / 1 blank** -- exactly what take-the-larger produces, so the rule
+change needed no rework. Arithmetic from CATALOG LIST PRICES x the rate stages (all stages `mult 1.0`,
+so the raw sum is list prices), NOT from the config:
+
+| line | item | list | qty | value |
+|---|---|---|---|---|
+| switch | 16A 1 WAY SWITCH, White | 258 | 1 | 258 |
+| socket1 | 6A/16A 3-Pin Socket, White | 425 | 1 | 425 |
+| socket2 | 6A 3-Pin Socket, White | 282 | 2 | 564 |
+| blank | 1M Blanker, White | 61 | **1 (computed, 8-7)** | 61 |
+| plate | 8M, White | 396 | 1 | 396 |
+| back box | 8M, NA | 320 | 1 | 320 |
+| | | | **raw** | **2024** |
+
+supply = ROUNDUP(2024 x 0.3625 = 733.70, tens) = **740** · install = ROUNDUP(740 x 0.2 = 148, tens) =
+**150** · bcs = ROUNDUP(2024 x 0.25 = 506, tens) = **510**.
+
+**`pw3` COMPLETED (C2).** A 3M plate with 1 module occupied leaves **2 blanks**; it carried
+`blank_item: "None"` so no blanker contributed. Now a real Grey `1M Blanker` (list 79) at the computed
+count of 2. Derived from pw1's banked oracle by the only two differing lines:
+
+| output | from pw1 | - socket line | + blanker line | **pw3** |
+|---|---|---|---|---|
+| supply | 1682 | -- | ceil(79 x 0.3625)=29 x2 = 58 | **1740** |
+| install | 735 | ceil(514 x 0.0725)=38 | ceil(79 x 0.0725)=6 x2 = 12 | **709** |
+| bcs | 1370 | ceil(514 x 0.25)=129 | ceil(79 x 0.25)=20 x2 = 40 | **1281** |
+
+Its totals MOVE, as C2 predicted, because two real blankers now cost money. **The install line is what
+PINS the 0.0725 factor at a non-zero blanker quantity (C6)** -- `ss1` also exercises a real blanker, but
+switches_sockets derives install at pipeline level (supply x 0.2), so only `pw3` pins 0.0725 itself.
+
+**`pw1` / `pw2` (C3) UNMOVED** -- 1869/735/1370 and 1823/722.2/1342, confirmed on the LIVE preview gate,
+not merely reasoned. **`s1` (C4) UNMOVED** at 110/30/80. **`sp1` (C5) untouched** -- `switches_point` is
+byte-identical in v23, and its 8-vs-6M disagreement goes with the category when it is deleted.
+
+### Gates
+
+| gate | result |
+|---|---|
+| G1 vitest | **54 files / 1,335** green (from 1,312) |
+| G1 backend | **56** green (from 52) |
+| G2 tsc | zero errors in the touched files |
+| G3 `_validate_config` on v23 | **12 valid, 0 rejected** |
+| G4 preview gate | **GREEN on both changed categories** (6/6 and 9/9, Save reads plain "Save") |
+| G5 other categories | wiring_cabling **20/20**, db_switchgear **8/8**, both unchanged; 10 of 12 configs byte-identical; `items` byte-identical |
+| G6 golden ids | unchanged everywhere -- none added, none lost |
+
+**D2/D3:** `stored == asset` verified **KEY BY KEY on all 12 categories**, never by count -- the check
+that caught the 1a defect. Goldens land from the asset's TOP-LEVEL `goldens` dict.
+
+### Cert (CDP, attached to the owner's logged-in Chrome)
+
+V1 ✅ switches_sockets Rules panel shows S3/S1/S2 verbatim -- its first rules ever. V3 ✅ the UPGRADE
+case (the fixture that REFUSED before the rule change) prices at 8M with 1 blank. V3b ✅ stated 12M
+prices at 12M, not the computed 8M, 5 blanks. V4 ✅ None plate -> plate 0, box priced from the computed
+count (8M/320). V5 ✅ point_wiring's own single-socket term. V6 ✅ 43 preview rows, 43 green, 0 deltas
+across four categories. V8 ✅ 9M -> 12M box and 16M -> 18M box, both rows pricing.
+
+**V2 is NOT EXPRESSIBLE in the Derivation configurator and was covered by test instead.** V2 asks for
+the plate "left EMPTY" -- true SILENCE, distinct from `"None"` (positive absence, which is V4). The
+plate select offers only `None` + the nine ladder sizes, with no empty option, so the configurator
+cannot reach the silence state; silence is the AI-extraction path (the attribute simply absent). It is
+pinned by unit test ("SILENCE IS FILLED: the same ss1 row with NO stated plate computes 8M and still
+prices 740"), and V3 demonstrates the same three facts on screen (plate resolves to 8M, the working is
+shown, blanks = 1) via the upgrade path.
+
+**V7 -- read precisely.** `extraction_defaults.colour = "White"` is stored on BOTH categories (verified
+in the stored config). It feeds the EXTRACTION PROMPT, not the Derivation seed: the configurator seeds
+from `goldens[0]`, so switches_sockets displays White (s1) and point_wiring displays Grey (pw1). That is
+the documented distinction between the top-level `extraction_defaults` map and a per-attribute
+`default`, and it is correct behaviour, not a miss.
+
+### ⚠️ TWO ENVIRONMENT NOTES WORTH KEEPING
+
+**The apply failed TWICE with `psycopg2.errors.SerializationFailure: could not serialize access due to
+concurrent update`** on the naming-series row, while a long-running bench stack held an
+`idle in transaction` connection. **Both attempts rolled back completely** -- verified: no new batch, 13
+active configs on the old batch, 1383 items, no `module_fit` anywhere. Stopping bench first (the
+de-stale ritual's own first step, reordered ahead of the apply) cleared it and the apply then succeeded.
+**If a rate-master apply serialization-fails, stop bench and retry; check for a partial apply first, but
+the transaction boundary has now been shown to hold.**
+
+**vitest must run INSIDE the container** -- the host `node_modules` carries linux-arm64 bindings and
+`npx vitest run` on the host dies with a rolldown `MODULE_NOT_FOUND`.
+
+### A REMAINING EDGE, FLAGGED NOT FIXED
+
+A row with a **None plate AND a real blanker** no-computes: blanks are absent (no plate to fill), so the
+blank component's `{from_fit}` has no quantity. Honest -- blanks with no plate are meaningless -- and no
+golden hits it (`s1` carries `blank_item: "None"` and prices). Confirmed live during V4. Whether such a
+row should instead drop the blanker line silently is an owner call.

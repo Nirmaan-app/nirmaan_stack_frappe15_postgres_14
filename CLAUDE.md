@@ -173,13 +173,24 @@ First worked proof: the `sidebar_counts` aggregate rewrite + the shared `service
   **NEXT HIGHER** one, **never a lower one** — a plate smaller than its contents cannot hold them, so
   rounding down is a wrong price, not merely a wrong size. **`"1M & 2M"` is ONE catalog item covering
   TWO sizes**: every integer in a rung's label is a covered size, so a computed 1 and a computed 2 both
-  match it on the ordinary exact-match path. **The BACK-BOX ladder is SHORTER than the plate ladder**
-  (it carries no 9M and no 16M) and takes the next higher size independently — a 9M plate pairs with a
-  12M box, a 16M plate with an 18M box. A count ABOVE the ladder's top is an HONEST NO-COMPUTE, never
-  clamped to the largest rung; this DELIBERATELY DIVERGES from `circuit_fit`, which does fall back to
-  its largest size but then re-checks with `circuits <= 0` — `module_fit` has no such second gate, so
-  it refuses at the ladder. Negative blanks (a stated plate smaller than its contents) are likewise an
-  honest no-compute, never a clamped zero: a negative quantity must never reach a price.
+  match it on the ordinary exact-match path. A count ABOVE the ladder's top is an HONEST NO-COMPUTE,
+  never clamped to the largest rung; this DELIBERATELY DIVERGES from `circuit_fit`, which does fall
+  back to its largest size but then re-checks with `circuits <= 0` — `module_fit` has no such second
+  gate, so it refuses at the ladder.
+- **TAKE-THE-LARGER: the plate priced is the LARGER of the STATED and the COMPUTED module count
+  (owner-locked; REPLACES the earlier stated-wins rule).** A ladder's `floor_from` names the attribute
+  whose stated count is a **FLOOR, never a ceiling**: a stated plate too small for its contents is
+  **UPGRADED** rather than refusing the row (a BoQ typo must not kill a line), and a stated plate
+  bigger than needed is what gets bought. **An UPGRADE MUST ALWAYS BE VISIBLE in the derivation trace**
+  — the BoQ said one size and we price another, which is the right call only while it cannot be missed.
+  **Blanks derive from the plate ACTUALLY SELECTED and CLAMP AT ZERO** (never negative, never a
+  refusal); the clamp is likewise named in the trace.
+- **The BACK BOX takes the SELECTED plate's module COUNT, re-fitted on its OWN ladder — never the
+  plate's LABEL (owner-locked).** The box ladder is SHORTER than the plate ladder (no 9M, no 16M), so a
+  9M plate pairs with a **12M** box and a 16M plate with an **18M** box. Copying the label asks the
+  catalog for a box that does not exist and makes the WHOLE ROW unpriceable — that was a live defect
+  before slice 2 part 2. When the plate is `"None"` the plate line stays ZERO and only the BOX takes
+  the computed count, which is why a box may exist with no face plate.
 - **The plate / back-box relationship is ONE-WAY (owner-locked).** A face plate present DEFAULTS the box to
   yes; a face plate set to `"None"` must leave `back_box` **STILL SELECTABLE**, because a back box can exist
   with no face plate. `plate_item.disables_when_none` therefore lists **`plate_qty` ONLY** -- never `back_box`.

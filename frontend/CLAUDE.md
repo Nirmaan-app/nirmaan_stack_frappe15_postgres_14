@@ -1280,14 +1280,22 @@ in the plan doc.
   list, so adding/retiring a plate size needs no config edit): EXACT if the catalog carries the size, else
   the **NEXT HIGHER**, never a lower one. **`"1M & 2M"` is ONE item covering TWO sizes** (every integer in a
   rung's label is a covered size), so a computed 1 and a computed 2 both match it on the ordinary exact
-  path. **The BACK-BOX ladder is SHORTER than the plate ladder** (no 9M, no 16M) and hops independently —
-  a 9M plate pairs with a 12M box. Above the ladder's top is an HONEST NO-COMPUTE, NEVER clamped to the
-  largest rung (a DELIBERATE divergence from `circuit_fit`, which falls back to its largest size but then
-  re-checks `circuits <= 0`; `module_fit` has no second gate). Negative blanks are likewise a no-compute,
-  never a clamped zero. A ladder's fitted LABEL binds for a later `component_ref` `"@<bind>"` exactly as
-  `circuit_fit` binds `fitted_size`; label bindings live in their OWN scope resolved ahead of the selection,
-  so a bind SHADOWS a same-named attribute (how a computed plate replaces a stated one) and every pipeline
-  without a `module_fit` stays byte-identical. **EA-2: the pricing-sheet helper (`pricingSheetHelper.ts`) is N-CATEGORY** — it resolves
+  path. Above the ladder's top is an HONEST NO-COMPUTE, NEVER clamped to the largest rung (a DELIBERATE
+  divergence from `circuit_fit`, which falls back to its largest size but then re-checks `circuits <= 0`;
+  `module_fit` has no second gate). A ladder's fitted LABEL binds for a later `component_ref` `"@<bind>"`
+  exactly as `circuit_fit` binds `fitted_size`; label bindings live in their OWN scope resolved ahead of
+  the selection, and every pipeline without a `module_fit` stays byte-identical.
+  **TAKE-THE-LARGER (owner-locked; REPLACES the earlier stated-wins rule):** a ladder's `floor_from` names
+  the attribute whose stated count is a **FLOOR, never a ceiling** — the plate priced is
+  `max(stated, computed)`, so a stated plate too small for its contents is **UPGRADED** rather than
+  refusing the row (a BoQ typo must not kill a line), and a stated plate bigger than needed is bought.
+  **An UPGRADE MUST ALWAYS BE VISIBLE in the trace.** **Blanks derive from the plate ACTUALLY SELECTED and
+  CLAMP AT ZERO**, never negative and never a refusal; the clamp is named in the trace too.
+  **The BACK BOX takes the SELECTED plate's module COUNT re-fitted on its OWN (shorter) ladder — NEVER the
+  plate's label:** no 9M/16M back box exists, so a 9M plate pairs with a **12M** box and 16M with **18M**,
+  and copying the label made the WHOLE ROW unpriceable (a live defect before slice 2 part 2). A `"None"`
+  plate keeps the plate line at ZERO while only the BOX takes the computed count — a box may exist with no
+  face plate. **EA-2: the pricing-sheet helper (`pricingSheetHelper.ts`) is N-CATEGORY** — it resolves
   the config PER row category (`configsByCategory`, fetched by a child `RateConfigFetcher` for all 11
   registry categories in `SheetPricingPage.tsx`); a category with no ELIGIBLE config (pipelines + defs, so
   an empty-pipelines LMS is excluded) returns the `{kind:"none", "…coming soon."}` guard. Groups render ONE
