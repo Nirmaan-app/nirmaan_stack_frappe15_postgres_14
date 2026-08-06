@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { useFrappeCreateDoc } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
 import RSelect from "react-select";
 import { Trash2, PackagePlus, Layers, ListChecks } from "lucide-react";
 
@@ -24,11 +24,22 @@ import {
     FormLabel,
     FormMessage,
 } from "@/components/ui/form";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { toast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
 import { WizardSteps } from "@/components/ui/wizard-steps";
 import { FuzzySearchSelect } from "@/components/ui/fuzzy-search-select";
 import { useTDSItemOptions } from "../hooks/useTDSItemOptions";
+import { getFrappeError } from "@/utils/frappeErrors";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Why this exists: the restructured TDS Repository groups several Items-master
@@ -50,6 +61,13 @@ interface MemberRow {
     category: string;
     /** human-readable category name for display. */
     categoryName: string;
+    /**
+     * Name of the TDS Item this SKU is CURRENTLY linked to, "" if unlinked.
+     * Membership is N:1 (`Items.linked_tds_item`), so adding an already-linked
+     * SKU MOVES it out of that group — never a copy. Surfaced so the move is
+     * never silent. Mirrors `MultiAddMembersDialog`'s StagedRow.
+     */
+    linkedGroupName?: string;
 }
 
 // Form schema — only label + WP are validated by zod. Members are managed in
@@ -91,6 +109,8 @@ export const AddTDSItemWizard: React.FC<AddTDSItemWizardProps> = ({
     const [mode, setMode] = useState<Mode>("Normal");
     const [step, setStep] = useState(0); // Normal mode only (0=details,1=members,2=review)
     const [members, setMembers] = useState<MemberRow[]>([]);
+    // Last-stop confirmation when the save would TAKE members from other groups.
+    const [showMoveConfirm, setShowMoveConfirm] = useState(false);
 
     const { createDoc, loading: creating } = useFrappeCreateDoc();
 
@@ -111,9 +131,40 @@ export const AddTDSItemWizard: React.FC<AddTDSItemWizardProps> = ({
     // we need here.
     const { wpOptions, itemOptionsForWP } = useTDSItemOptions({ selectedWP });
 
+    // ADR-0004: current linkage for every SKU in this Work Package, fetched ONCE
+    // (batched, not per option) so each picker row can show whether adding it
+    // would MOVE it out of another group. "No silent member theft" — this picker
+    // does NOT filter out already-linked items (a SKU legitimately moves between
+    // groups), so labelling is the only thing standing between the user and an
+    // invisible reassignment. Same fetch + same gate as MultiAddMembersDialog;
+    // `useTDSItemOptions` cannot supply this (it never selects `linked_tds_item`).
+    const { data: linkageData } = useFrappeGetCall<{
+        message: Record<string, { linked_tds_item: string; group_name: string }>;
+    }>(
+        "nirmaan_stack.api.tds.linking.get_items_linkage",
+        { work_package: selectedWP },
+        open && selectedWP ? `tds_linkage_for_wp_${selectedWP}` : null
+    );
+
+    const linkageByItem = linkageData?.message || {};
+
+    // The ONE membership write path (ADR-0004). Same endpoint TDSItemDetail uses:
+    // it enforces the work-package invariant that `frappe.db.set_value` bypasses,
+    // and reports partial outcomes — items REFUSED on a WP mismatch (`errors`) and
+    // items MOVED out of another group (`reassigned`, which the amber picker
+    // labels warn about up front). Both are surfaced on submit rather than
+    // swallowed behind a flat "created successfully".
+    const { call: setItemsTdsLink, loading: linkingMembers } = useFrappePostCall<{
+        message: {
+            updated: string[];
+            reassigned: { item: string; item_name: string; from_group_name: string }[];
+            errors: { item: string; reason: string }[];
+        };
+    }>("nirmaan_stack.api.tds.linking.set_items_tds_link");
+
     // Annotate options with showCategory (when the same item_name appears across
-    // multiple categories, surface the category to disambiguate) and exclude
-    // items already added as members.
+    // multiple categories, surface the category to disambiguate), tag the group
+    // each SKU currently belongs to, and exclude items already added as members.
     const memberOptions = useMemo(() => {
         const addedIds = new Set(members.map((m) => m.value));
         const nameCounts = new Map<string, number>();
@@ -128,8 +179,23 @@ export const AddTDSItemWizard: React.FC<AddTDSItemWizardProps> = ({
                 category: item.category,
                 categoryName: item.categoryName,
                 showCategory: (nameCounts.get(item.label) || 0) > 1,
+                linkedGroupName: linkageByItem[item.value]?.group_name || "",
             }));
-    }, [itemOptionsForWP, members]);
+    }, [itemOptionsForWP, members, linkageByItem]);
+
+    // Staged members that would be TAKEN from an existing group.
+    const movingMembers = useMemo(
+        () => members.filter((m) => m.linkedGroupName),
+        [members]
+    );
+    const movingCount = movingMembers.length;
+    // The destination group — the name being typed on step 1.
+    const destGroupName = form.watch("tds_item_name")?.trim() || "this new TDS Item";
+    // With exactly one mover there IS a single source to name, so name it. With
+    // several the sources differ, so the sentence stays general and the per-row
+    // from → to list below carries the detail. ("the TDS Item on the left" was
+    // the earlier wording and pointed at nothing on screen.)
+    const singleFromGroup = movingCount === 1 ? movingMembers[0].linkedGroupName : "";
 
     // Reset everything when the dialog closes.
     useEffect(() => {
@@ -138,6 +204,7 @@ export const AddTDSItemWizard: React.FC<AddTDSItemWizardProps> = ({
             setMembers([]);
             setStep(0);
             setMode("Normal");
+            setShowMoveConfirm(false);
         }
     }, [open, form]);
 
@@ -169,6 +236,7 @@ export const AddTDSItemWizard: React.FC<AddTDSItemWizardProps> = ({
                 label: opt.label,
                 category: opt.category || "",
                 categoryName: opt.categoryName || opt.category || "",
+                linkedGroupName: opt.linkedGroupName || "",
             },
         ]);
     };
@@ -202,6 +270,11 @@ export const AddTDSItemWizard: React.FC<AddTDSItemWizardProps> = ({
         if (step > 0) setStep((s) => s - 1);
     };
 
+    // Membership is N:1, so staging an already-linked SKU is a MOVE: the item is
+    // taken out of its current TDS Item, and that write leaves no audit trail
+    // (`set_items_tds_link` uses `update_modified=False`, so no Version row and
+    // no `modified` bump — afterwards there is no record of where it came from).
+    // The amber labels warn while staging; this is the last stop before it happens.
     const submit = async () => {
         const valid = await form.trigger();
         if (!valid) {
@@ -209,6 +282,19 @@ export const AddTDSItemWizard: React.FC<AddTDSItemWizardProps> = ({
             if (mode === "Custom") setStep(0);
             return;
         }
+        if (movingCount > 0) {
+            setShowMoveConfirm(true);
+            return;
+        }
+        await performCreate();
+    };
+
+    const confirmAndCreate = async () => {
+        setShowMoveConfirm(false);
+        await performCreate();
+    };
+
+    const performCreate = async () => {
         const values = form.getValues();
 
         try {
@@ -218,24 +304,82 @@ export const AddTDSItemWizard: React.FC<AddTDSItemWizardProps> = ({
                 description: values.description || "",
             };
 
-            if (mode === "Normal") {
-                // item_name / category are fetched server-side via fetch_from on
-                // the TDS Item Member child table — send only the `item` link.
-                payload.members = members.map((m) => ({ item: m.value }));
+            // NEVER send `members` here. ADR-0004 moved membership to
+            // `Items.linked_tds_item`; the `TDS Items.members` child table is
+            // retired as a writer and READ BY NOTHING, so a `members: [...]`
+            // payload creates rows that are invisible to the whole product —
+            // the group comes back showing 0 members, a blank category and a
+            // blank report Model No. Both modes therefore create the group the
+            // same way, and Normal mode links its members in the step below.
+            const created = await createDoc("TDS Items", payload);
+            const groupId = created?.name;
+
+            if (mode === "Normal" && members.length > 0) {
+                if (!groupId) {
+                    // The group itself IS saved, so do not report a clean success.
+                    toast({
+                        title: "TDS Item created, members not added",
+                        description:
+                            "Could not read the new TDS Item's id. Open the TDS Item and add its members there.",
+                        variant: "destructive",
+                    });
+                    onCreated?.();
+                    onOpenChange(false);
+                    return;
+                }
+
+                const res = await setItemsTdsLink({
+                    item_ids: JSON.stringify(members.map((m) => m.value)),
+                    tds_item: groupId,
+                });
+                const { updated = [], reassigned = [], errors = [] } = res?.message || {};
+
+                if (errors.length) {
+                    toast({
+                        title: updated.length
+                            ? "TDS Item created, some members refused"
+                            : "TDS Item created, no members added",
+                        description:
+                            `${updated.length} of ${members.length} added. ` +
+                            `${errors.length} refused: ` +
+                            errors.map((e) => `${e.item} (${e.reason})`).join("; "),
+                        variant: "destructive",
+                    });
+                } else if (reassigned.length) {
+                    // Membership is N:1, so these LEFT another group. The picker
+                    // warned in amber; confirm what actually moved.
+                    toast({
+                        title: `TDS Item created with ${updated.length} member(s)`,
+                        description:
+                            "Moved from another group: " +
+                            reassigned
+                                .map((r) => `${r.item_name || r.item} (was in ${r.from_group_name || "another group"})`)
+                                .join("; "),
+                    });
+                } else {
+                    toast({
+                        title: "Success",
+                        description: `TDS Item created with ${updated.length} member(s).`,
+                    });
+                }
+            } else {
+                // Custom mode (or Normal with none staged) → member-less group.
+                toast({ title: "Success", description: "TDS Item created successfully" });
             }
-            // Custom mode: omit members → member-less TDS Item (the backend
-            // treats zero members as a custom item; no category, no Items write).
 
-            await createDoc("TDS Items", payload);
-
-            toast({ title: "Success", description: "TDS Item created successfully" });
             onCreated?.();
             onOpenChange(false);
         } catch (e: any) {
             console.error("Error creating TDS Item:", e);
+            // `e.message` on a Frappe throw is the generic transport failure
+            // ("Document creation failed" / "Internal Server Error"); the REAL
+            // reason — e.g. the duplicate-name message from
+            // `TDSItems.validate_unique_group` — travels in `_server_messages`.
+            // `getFrappeError` unwraps that (then `exception`, then `message`),
+            // so the user is told what to fix instead of that it failed.
             toast({
-                title: "Error",
-                description: e?.message || "Failed to create TDS Item",
+                title: "Could not create TDS Item",
+                description: getFrappeError(e),
                 variant: "destructive",
             });
         }
@@ -403,6 +547,11 @@ export const AddTDSItemWizard: React.FC<AddTDSItemWizardProps> = ({
                                                             ({option.categoryName})
                                                         </span>
                                                     )}
+                                                    {option.linkedGroupName && (
+                                                        <span className="text-amber-600 ml-1 text-xs">
+                                                            · linked to {option.linkedGroupName}
+                                                        </span>
+                                                    )}
                                                 </span>
                                             )}
                                         />
@@ -428,6 +577,11 @@ export const AddTDSItemWizard: React.FC<AddTDSItemWizardProps> = ({
                                                     <div className="flex flex-col min-w-0">
                                                         <span className="font-medium truncate">{m.label}</span>
                                                         <span className="text-xs text-gray-400 truncate">{m.value}</span>
+                                                        {m.linkedGroupName && (
+                                                            <span className="text-xs text-amber-600 truncate">
+                                                                will move out of {m.linkedGroupName}
+                                                            </span>
+                                                        )}
                                                     </div>
                                                     <span className="text-gray-600 truncate">{m.categoryName}</span>
                                                     <Button
@@ -446,6 +600,15 @@ export const AddTDSItemWizard: React.FC<AddTDSItemWizardProps> = ({
                                     {members.length > 0 && (
                                         <p className="text-xs text-muted-foreground">
                                             {members.length} member{members.length === 1 ? "" : "s"} added.
+                                        </p>
+                                    )}
+                                    {/* Membership is N:1 — a move, never a copy. Say it once
+                                        in aggregate so it survives a long staged list. */}
+                                    {movingCount > 0 && (
+                                        <p className="text-xs text-amber-600">
+                                            {movingCount} of these {movingCount === 1 ? "is" : "are"} currently in
+                                            another TDS Item and will be MOVED here — an item can belong to only one
+                                            TDS Item.
                                         </p>
                                     )}
                                 </div>
@@ -481,6 +644,11 @@ export const AddTDSItemWizard: React.FC<AddTDSItemWizardProps> = ({
                                                     <div className="flex flex-col min-w-0">
                                                         <span className="font-medium truncate">{m.label}</span>
                                                         <span className="text-xs text-gray-400 truncate">{m.value}</span>
+                                                        {m.linkedGroupName && (
+                                                            <span className="text-xs text-amber-600 truncate">
+                                                                will move out of {m.linkedGroupName}
+                                                            </span>
+                                                        )}
                                                     </div>
                                                     <span className="text-gray-600 text-xs ml-2 shrink-0">
                                                         {m.categoryName}
@@ -525,15 +693,72 @@ export const AddTDSItemWizard: React.FC<AddTDSItemWizardProps> = ({
                             <Button
                                 type="button"
                                 onClick={submit}
-                                disabled={creating}
+                                disabled={creating || linkingMembers}
                                 className="bg-[#dc2626] hover:bg-[#b91c1c] text-white"
                             >
-                                {creating ? "Saving..." : "Create TDS Item"}
+                                {/* Save is TWO writes now (create the group, then
+                                    link its members) — both must hold the button. */}
+                                {creating || linkingMembers ? "Saving..." : "Create TDS Item"}
                             </Button>
                         )}
                     </div>
                 </div>
             </DialogContent>
+
+            {/* Move confirmation — the last stop before members are TAKEN from
+                other TDS Items. Rendered as a sibling of DialogContent (inside
+                Dialog) so it portals above the wizard rather than inside its
+                scroll container. */}
+            <AlertDialog open={showMoveConfirm} onOpenChange={setShowMoveConfirm}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>
+                            {movingCount} item{movingCount === 1 ? "" : "s"} will change TDS Item
+                        </AlertDialogTitle>
+                        {/* Say what CONTINUING does, naming BOTH ends. Red = what it
+                            leaves, green = where it lands, matching the rows below. */}
+                        <AlertDialogDescription>
+                            If you continue, {movingCount === 1 ? "this item is" : "these items are"}{" "}
+                            removed from{" "}
+                            <span className="font-semibold text-red-600">
+                                {singleFromGroup || "their current TDS Item"}
+                            </span>{" "}
+                            and added to{" "}
+                            <span className="font-semibold text-green-700">{destGroupName}</span>
+                            . An item can belong to only one TDS Item.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+
+                    <div className="max-h-[240px] overflow-y-auto rounded-lg border divide-y">
+                        {movingMembers.map((m) => (
+                            <div key={m.value} className="px-3 py-2 text-sm">
+                                <div className="font-medium truncate">{m.label}</div>
+                                {/* from → to, so the outcome is readable at a glance */}
+                                <div className="flex items-center gap-1.5 text-xs mt-0.5">
+                                    <span className="text-red-600 truncate">{m.linkedGroupName}</span>
+                                    <span className="text-gray-400 shrink-0">→</span>
+                                    <span className="font-medium text-green-700 truncate">
+                                        {destGroupName}
+                                    </span>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={(e) => {
+                                e.preventDefault();
+                                confirmAndCreate();
+                            }}
+                            className="bg-[#dc2626] hover:bg-[#b91c1c]"
+                        >
+                            Yes, move {movingCount === 1 ? "it" : "them"}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </Dialog>
     );
 };

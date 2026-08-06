@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -35,6 +35,7 @@ import {
     RepositoryEntriesPeekDialog,
 } from "./components/TDSItemPeekDialogs";
 import { ItemsSKUTab } from "./components/ItemsSKUTab";
+import { DerivedFacetFilter, useDerivedFacetParam } from "./components/DerivedFacetFilter";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TDS Repository master — two tabs after the 3-level grouping restructure:
@@ -58,6 +59,129 @@ const ENTRY_DOCTYPE = "TDS Repository";
 
 type TabKey = "items" | "entries" | "skus";
 
+// ── DERIVED column filters on the TDS Items tab ─────────────────────────────
+// Neither of these is a field on `TDS Items`, so neither can be a normal
+// `meta.facet` (that path aggregates a real field and round-trips the selection
+// as `[column.id, "in", [...]]`):
+//
+//   • Linked Item SKU    -> membership lives on `Items.linked_tds_item`
+//   • Repository Entries -> makes live on `TDS Repository.make`
+//
+// Both are driven by ./components/DerivedFacetFilter (see that file for why it
+// is a local control and not the shared `DataTableFacetedFilter`) and are
+// translated below into explicit `name in [...]` narrowings.
+//
+// `in` on every side is deliberate: it is the one form the data-table API pulls
+// out of the generated query (`split_name_in_constraints`), so no list is ever
+// inlined toward the sqlparse token cap. That is also why the members endpoint
+// returns the complement (`unlinked`) rather than us sending a `not in`.
+// A bonus of that same mechanism: several `name in` filters are INTERSECTED
+// server-side, so stacking the two below reads as AND for free.
+const LINK_FILTER_LINKED = "linked";
+const LINK_FILTER_CUSTOM = "custom";
+// Namespaced under the table's own urlSyncKey, like every other param it owns.
+const LINK_FILTER_PARAM = "tds_items_master_link";
+const MAKE_FILTER_PARAM = "tds_items_master_make";
+
+const MEMBER_COUNT_TITLE = "Linked Item SKU";
+const ENTRY_COUNT_TITLE = "Repository Entries";
+
+// Stable identity so the table hook's export callback does not churn every render.
+const NO_ADDITIONAL_FILTERS: any[] = [];
+
+// ── The two reads both the page and the facet headers share ─────────────────
+// ONE definition each, so every caller passes byte-identical args and therefore
+// shares a single SWR entry: same key + same fields = one request, not two.
+const useTdsEntryRows = () =>
+    useFrappeGetDocList<TDSRepository>(
+        ENTRY_DOCTYPE,
+        { fields: ["name", "tds_item", "make"], limit: 0 },
+        "tds_entries_for_item_counts"
+    );
+
+// Member counts come from a CUSTOM endpoint, NOT get_list on the child doctype:
+// `TDS Items Child Table` is an istable doctype with no DocPerm rows, so the
+// permission-aware get_list raises PermissionError for every non-superuser (only
+// Administrator sees rows) — which made every item show "Custom". The endpoint
+// reads via frappe.get_all (perm-ignoring).
+const useTdsMemberIndex = () =>
+    useFrappeGetCall<{
+        message: { counts: Record<string, number>; categories: string[]; unlinked: string[] };
+    }>("nirmaan_stack.api.tds.members.get_tds_member_index", undefined, "tds_member_index");
+
+// ── Column headers: MODULE-LEVEL components, and that is load-bearing ────────
+// `flexRender` hands a column's `header` to React as the ELEMENT TYPE. Defining
+// these inline inside the page's `columns` useMemo gives them a fresh identity
+// whenever `columns` rebuilds, which REMOUNTS the header and closes any open
+// popover mid-selection (the multi-select bug). Hoisted here they are stable for
+// the app's lifetime, so `columns` may rebuild freely and the facets survive.
+// Consequence: they take no props but `column` — the Make options are derived
+// from the shared fetch above rather than passed down.
+const MemberCountHeader: React.FC<{ column: any }> = ({ column }) => {
+    const { data: memberIndex } = useTdsMemberIndex();
+    // Counts are the two halves of the same partition: groups with at least one
+    // linked SKU, and the rest. They sum to the total number of TDS Items.
+    // Memoised on the two NUMBERS, not the response object, so a revalidation
+    // returning the same figures keeps the options identity stable.
+    const linkedCount = Object.keys(memberIndex?.message?.counts ?? {}).length;
+    const unlinkedCount = memberIndex?.message?.unlinked?.length ?? 0;
+    const options = useMemo(
+        () => [
+            { label: "Linked SKU", value: LINK_FILTER_LINKED, count: linkedCount },
+            // "Custom" is the word the count pill itself shows at zero — keep identical.
+            { label: "Not Linked (Custom)", value: LINK_FILTER_CUSTOM, count: unlinkedCount },
+        ],
+        [linkedCount, unlinkedCount]
+    );
+
+    return (
+        <div className="flex items-center gap-1">
+            {/* No search box: two fixed options. */}
+            <DerivedFacetFilter
+                paramKey={LINK_FILTER_PARAM}
+                options={options}
+                title={MEMBER_COUNT_TITLE}
+            />
+            <DataTableColumnHeader column={column} title={MEMBER_COUNT_TITLE} />
+        </div>
+    );
+};
+
+const EntryCountHeader: React.FC<{ column: any }> = ({ column }) => {
+    const { data: entryRows } = useTdsEntryRows();
+    // Every distinct make, with how many TDS ITEMS carry it — DISTINCT tds_item,
+    // not a row count: one group may hold several entries of the same make, and
+    // the number has to match the rows left after ticking it.
+    // Ordered count-desc then label-asc, mirroring the backend facet's ORDER BY,
+    // so the makes worth filtering by sit at the top of the 120.
+    const makeOptions = useMemo(() => {
+        const itemsByMake = new Map<string, Set<string>>();
+        (entryRows || []).forEach((e) => {
+            if (!e.make || !e.tds_item) return;
+            let set = itemsByMake.get(e.make);
+            if (!set) itemsByMake.set(e.make, (set = new Set()));
+            set.add(e.tds_item);
+        });
+        return Array.from(itemsByMake, ([make, items]) => ({
+            label: make,
+            value: make,
+            count: items.size,
+        })).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+    }, [entryRows]);
+
+    return (
+        <div className="flex items-center gap-1">
+            <DerivedFacetFilter
+                paramKey={MAKE_FILTER_PARAM}
+                options={makeOptions}
+                title="Make"
+                searchable
+            />
+            <DataTableColumnHeader column={column} title={ENTRY_COUNT_TITLE} />
+        </div>
+    );
+};
+
 // A TDS Item row enriched with derived counts. We extend the base TDSItem type
 // with the in-memory derived fields so TanStack accessors are typed.
 interface TDSItemRow extends TDSItem {
@@ -78,20 +202,11 @@ const TDSItemsTab: React.FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
     const [editItem, setEditItem] = useState<TDSItem | null>(null);
 
     // ── Derived-data sources ──
-    // Member counts come from a CUSTOM endpoint, NOT get_list on the child
-    // doctype: `TDS Items Child Table` is an istable doctype with no DocPerm
-    // rows, so the permission-aware get_list raises PermissionError for every
-    // non-superuser (only Administrator sees rows) — which made every item show
-    // "Custom". The endpoint reads via frappe.get_all (perm-ignoring).
-    const { data: memberIndex, mutate: mutateMembers } = useFrappeGetCall<{
-        message: { counts: Record<string, number>; categories: string[] };
-    }>("nirmaan_stack.api.tds.members.get_tds_member_index", undefined, "tds_member_index");
-    // One list call for all entries → bucket entry counts by tds_item.
-    const { data: entryRows, mutate: mutateEntries } = useFrappeGetDocList<TDSRepository>(
-        ENTRY_DOCTYPE,
-        { fields: ["name", "tds_item"], limit: 0 },
-        "tds_entries_for_item_counts"
-    );
+    // Both are shared with the facet headers (`useTdsMemberIndex` /
+    // `useTdsEntryRows`), so each hits the same SWR entry and only one request
+    // per source goes out however many callers there are.
+    const { data: memberIndex, mutate: mutateMembers } = useTdsMemberIndex();
+    const { data: entryRows, mutate: mutateEntries } = useTdsEntryRows();
 
     // parent → member count (from the perm-safe index endpoint).
     const memberCountByItem = useMemo(
@@ -108,6 +223,58 @@ const TDSItemsTab: React.FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
         });
         return map;
     }, [entryRows]);
+
+    // ── Derived-facet selections ──
+    // READ-ONLY here. Each control owns its own value (see DerivedFacetFilter for
+    // why — putting it in the `columns` deps remounts the header mid-click and
+    // makes multi-select impossible); these are second subscribers to the same
+    // url params, which is all the page needs to narrow the query.
+    const { raw: linkFilterParam, values: linkFilterValues } =
+        useDerivedFacetParam(LINK_FILTER_PARAM);
+    const { raw: makeFilterParam, values: makeFilter } =
+        useDerivedFacetParam(MAKE_FILTER_PARAM);
+    const linkFilter = useMemo(
+        () =>
+            linkFilterValues.filter(
+                (v) => v === LINK_FILTER_LINKED || v === LINK_FILTER_CUSTOM
+            ),
+        [linkFilterValues]
+    );
+
+    // Selecting BOTH options (or neither) is "no opinion" — no narrowing at all,
+    // which also keeps the two lists from having to be stitched together.
+    // While the member index is still in flight we deliberately do NOT narrow:
+    // a momentarily empty name list would render as "no results", which reads as
+    // an answer rather than as loading.
+    const linkNameFilter = useMemo(() => {
+        const index = memberIndex?.message;
+        if (!index || linkFilter.length !== 1) return NO_ADDITIONAL_FILTERS;
+        const names =
+            linkFilter[0] === LINK_FILTER_LINKED
+                ? Object.keys(index.counts ?? {})
+                : index.unlinked ?? [];
+        return [["name", "in", names]];
+    }, [memberIndex, linkFilter]);
+
+    // Make -> the TDS Items that have at least one entry of that make. UNION
+    // across the ticked makes (OR within one facet, matching every other facet
+    // in the app); the AND against the link filter happens server-side, where
+    // stacked `name in` filters are intersected.
+    // Same in-flight rule as above: no rows yet means no narrowing, not zero.
+    const makeNameFilter = useMemo(() => {
+        if (!makeFilter.length || !entryRows) return NO_ADDITIONAL_FILTERS;
+        const wanted = new Set(makeFilter);
+        const names = new Set<string>();
+        entryRows.forEach((e) => {
+            if (e.tds_item && e.make && wanted.has(e.make)) names.add(e.tds_item);
+        });
+        return [["name", "in", Array.from(names)]];
+    }, [entryRows, makeFilter]);
+
+    const additionalFilters = useMemo(() => {
+        if (!linkNameFilter.length && !makeNameFilter.length) return NO_ADDITIONAL_FILTERS;
+        return [...linkNameFilter, ...makeNameFilter];
+    }, [linkNameFilter, makeNameFilter]);
 
     const columns = useMemo<ColumnDef<TDSItemRow>[]>(() => [
         // 1 — TDS Item (name → detail page)
@@ -142,7 +309,7 @@ const TDSItemsTab: React.FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
         {
             id: "member_count",
             size: 130,
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Linked Item SKU" />,
+            header: MemberCountHeader,
             cell: ({ row }) => {
                 const count = memberCountByItem[row.original.name] ?? 0;
                 const name = row.original.tds_item_name || row.original.name;
@@ -163,11 +330,12 @@ const TDSItemsTab: React.FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
                 exportValue: (row: TDSItemRow) => memberCountByItem[row.name] ?? 0,
             },
         },
-        // 4 — Repository Entries (clickable count pill → RepositoryEntriesPeekDialog)
+        // 4 — Repository Entries (clickable count pill → RepositoryEntriesPeekDialog).
+        //     Its facet filters by the entries' MAKE — see EntryCountHeader.
         {
             id: "entry_count",
             size: 130,
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Repository Entries" />,
+            header: EntryCountHeader,
             cell: ({ row }) => {
                 const count = entryCountByItem.get(row.original.name) ?? 0;
                 const name = row.original.tds_item_name || row.original.name;
@@ -209,6 +377,9 @@ const TDSItemsTab: React.FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
                 ),
             } as ColumnDef<TDSItemRow>,
         ] : []),
+        // ⚠️ The derived-facet selections are DELIBERATELY absent from these deps —
+        // the header components own them. Listing them here rebuilds `columns` on
+        // every click, remounting the header and closing its popover mid-selection.
     ], [navigate, memberCountByItem, entryCountByItem, isAdmin]);
 
     const searchableFields = useMemo(() => [
@@ -229,6 +400,7 @@ const TDSItemsTab: React.FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
         refetch,
         exportAllRows,
         isExporting,
+        setPagination,
     } = useServerDataTable<TDSItemRow>({
         doctype: ITEM_DOCTYPE,
         columns,
@@ -236,7 +408,20 @@ const TDSItemsTab: React.FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
         defaultSort: "creation desc",
         searchableFields,
         urlSyncKey: "tds_items_master",
+        additionalFilters,
     });
+
+    // A narrowing that shrinks the result set can strand the user on a page that
+    // no longer exists (page 4 of an unfiltered 352 → 39 custom groups). Reset on
+    // CHANGE only, so a deep link carrying both a filter and a page still lands
+    // where it was shared from.
+    const facetSignature = `${linkFilterParam}|${makeFilterParam}`;
+    const prevFacetSignature = useRef(facetSignature);
+    useEffect(() => {
+        if (prevFacetSignature.current === facetSignature) return;
+        prevFacetSignature.current = facetSignature;
+        setPagination((p) => ({ ...p, pageIndex: 0 }));
+    }, [facetSignature, setPagination]);
 
     const handleCreated = () => {
         refetch();
@@ -387,6 +572,13 @@ const TDSEntriesTab: React.FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
             enableColumnFilter: true,
             filterFn: "arrIncludesSome" as any,
             meta: {
+                // Facet by NAME, not id. The text search beside it can only LIKE the
+                // raw `TDS-ITEM-#####` column (an app-wide Link-search limitation —
+                // hence the "TDS Item ID" label below), so this picker is the only
+                // way to narrow by the name the column actually displays. The labels
+                // come from the `tds_item` LINK_FIELD_MAP entry server-side; without
+                // it this facet would list raw ids.
+                facet: { field: "tds_item", title: "TDS Item" } satisfies FacetDeclaration,
                 exportHeaderName: "TDS Item",
                 exportValue: (row: TDSRepository) => tdsItemLabelMap.get(row.tds_item) || row.tds_item,
             },
@@ -467,9 +659,19 @@ const TDSEntriesTab: React.FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
         ] : []),
     ], [isAdmin, tdsItemLabelMap, navigate]);
 
+    // `tds_item` is a Link column holding `TDS-ITEM-#####`, and the server search
+    // is a plain LIKE on that stored column — so this searches the ID, never the
+    // group name the cell displays. Labelled "TDS Item ID" like every other Link
+    // search in the app (Project ID / Vendor ID) rather than left reading as a
+    // name search that silently returns nothing.
+    //
+    // To narrow by NAME, use the column's facet — that is what the `tds_item`
+    // LINK_FIELD_MAP entry exists for. Searching a Link by its label from this
+    // box would need the backend to resolve label -> ids, which it does not do
+    // for any table.
     const searchableFields = useMemo(() => [
         { label: "Make", value: "make", default: true },
-        { label: "TDS Item", value: "tds_item" },
+        { label: "TDS Item ID", value: "tds_item", placeholder: "Search by TDS Item ID (e.g. TDS-ITEM-00301)..." },
         { label: "Description", value: "description" },
     ], []);
 

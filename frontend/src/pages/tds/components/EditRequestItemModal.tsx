@@ -322,29 +322,41 @@ export const EditRequestItemModal: React.FC<EditRequestItemModalProps> = ({
                         <div className="space-y-4">
                             {/* Group mode toggle */}
                             <div className="space-y-1">
-                                <Label className="text-sm font-bold text-gray-700">TDS Item</Label>
-                                <div className="inline-flex rounded-lg border border-gray-200 p-0.5 bg-gray-50">
-                                    <button
-                                        type="button"
-                                        onClick={() => handleModeChange("existing")}
-                                        className={cn(
-                                            "px-3 py-1.5 text-xs font-bold rounded-md transition-colors",
-                                            groupMode === "existing" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
-                                        )}
-                                    >
-                                        Existing Item
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => handleModeChange("new")}
-                                        className={cn(
-                                            "px-3 py-1.5 text-xs font-bold rounded-md transition-colors",
-                                            groupMode === "new" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
-                                        )}
-                                    >
-                                        New Item
-                                    </button>
+                                {/* Label left, control RIGHT — the toggle sits on the
+                                    label's own row, against the dialog's right edge.
+                                    The active side is FILLED red: a white-on-gray-50
+                                    active state reads as disabled, leaving the browser
+                                    focus ring as the only cue for which mode is on. */}
+                                <div className="flex items-center justify-between gap-3">
+                                    <Label className="text-sm font-bold text-gray-700">TDS Item :</Label>
+                                    <div className="inline-flex rounded-lg border border-gray-200 p-0.5 bg-gray-50">
+                                        <button
+                                            type="button"
+                                            onClick={() => handleModeChange("existing")}
+                                            className={cn(
+                                                "px-5 py-1.5 text-sm font-medium rounded-md transition-colors",
+                                                groupMode === "existing" ? "bg-[#dc2626] text-white shadow-sm" : "text-gray-600 hover:text-gray-900"
+                                            )}
+                                        >
+                                            Existing Item
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleModeChange("new")}
+                                            className={cn(
+                                                "px-5 py-1.5 text-sm font-medium rounded-md transition-colors",
+                                                groupMode === "new" ? "bg-[#dc2626] text-white shadow-sm" : "text-gray-600 hover:text-gray-900"
+                                            )}
+                                        >
+                                            New Item
+                                        </button>
+                                    </div>
                                 </div>
+                                <p className="mt-1.5 text-xs text-muted-foreground">
+                                    {groupMode === "existing"
+                                        ? "Pick a TDS Item already in the repository."
+                                        : "Create a new TDS Item — needs a name, Work Package and datasheet."}
+                                </p>
                             </div>
 
                             {groupMode === "existing" ? (

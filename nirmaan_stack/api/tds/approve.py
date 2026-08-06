@@ -123,6 +123,69 @@ def _create_member_less_group(tds_item_name, work_package, description=None):
 	return group.name
 
 
+def _reparent_datasheet_to_entry(tds_attachment, entry_name):
+	"""Give the new Repository entry OWNERSHIP of the datasheet it now points at.
+
+	THE PROBLEM THIS CLOSES
+	  Approval copies the project row's `tds_attachment` URL onto the new
+	  `TDS Repository` entry — but only the URL. The underlying `File` doc keeps
+	  `attached_to_name = <Project TDS Item List row>`, so the master entry USES
+	  a file the project row OWNS.
+
+	  Frappe cascade-deletes attachments (`delete_doc` -> `remove_all`), so
+	  deleting that project row later destroys the file the master entry depends
+	  on, leaving a **Verified** entry whose datasheet link is dead.
+
+	  Deleting a project row is routine, not hypothetical: Admin cleanup from TDS
+	  History, PMO deleting a Pending/Rejected row, and `handleLogSubmit` removing
+	  the previous Rejected row on EVERY resubmit.
+
+	  Re-parenting puts the master in the same shape the picked-entry path
+	  already has — the file is uploaded to the Repository entry and project rows
+	  borrow the URL. One master datasheet, many projects referencing it.
+
+	NARROW BY DESIGN
+	  Only a File currently owned by a `Project TDS Item List` row is moved. A
+	  file already owned by a Repository entry (the picked path) is left
+	  untouched — re-pointing that would be wrong.
+
+	NOTHING IS COPIED OR DELETED
+	  Two DB fields change on the File doc. The stored bytes, the `file_url` and
+	  every document referencing it are untouched, so no attachment can be lost
+	  by this. `frappe.db.set_value` also bypasses the File doc lifecycle, so no
+	  File hook (incl. the GCS attachment app's) re-runs.
+
+	Never raises — a failed ownership fix must not break an approval batch.
+	"""
+	if not tds_attachment or not entry_name:
+		return
+	try:
+		files = frappe.get_all(
+			"File",
+			filters={
+				"file_url": tds_attachment,
+				"attached_to_doctype": PROJECT_ROW_DOCTYPE,
+			},
+			pluck="name",
+			limit_page_length=0,
+		)
+		for file_name in files:
+			frappe.db.set_value(
+				"File",
+				file_name,
+				{
+					"attached_to_doctype": ENTRY_DOCTYPE,
+					"attached_to_name": entry_name,
+				},
+				update_modified=False,
+			)
+	except Exception:
+		frappe.log_error(
+			title="TDS approve: datasheet re-parent failed",
+			message=f"entry={entry_name} url={tds_attachment}\n{frappe.get_traceback()}",
+		)
+
+
 def _ensure_entry(tds_item, make, tds_attachment=None, description=None):
 	"""Find-or-create the `(tds_item, make)` Repository Entry, born "Verified".
 
@@ -153,6 +216,12 @@ def _ensure_entry(tds_item, make, tds_attachment=None, description=None):
 	# every already-approved row in the same call.
 	try:
 		entry.insert(ignore_permissions=True)
+		# This entry now points at the project row's datasheet, so it must OWN it —
+		# otherwise deleting that row would delete the file underneath it. CREATE
+		# path only: the two branches that return an EXISTING entry keep their own
+		# attachment, which this must not re-point.
+		if tds_attachment:
+			_reparent_datasheet_to_entry(tds_attachment, entry.name)
 		return entry.name
 	except (frappe.DuplicateEntryError, frappe.UniqueValidationError, frappe.ValidationError):
 		# Lost the create-race (or the entry's `validate` rejected the duplicate).

@@ -1,9 +1,9 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import ReactSelect from "react-select";
 import { FuzzySearchSelect } from "@/components/ui/fuzzy-search-select";
-import { Trash2, FileText, PlusCircle } from 'lucide-react';
+import { Trash2, FileText, PlusCircle, ExternalLink } from 'lucide-react';
 import { useTdsExistingProjectItems } from '../../data/tds/useTdsQueries';
 import { useDeleteTdsItem } from '../../data/tds/useTdsMutations';
 import { toast } from "@/components/ui/use-toast";
@@ -34,6 +34,11 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useUserData } from "@/hooks/useUserData";
+import { TdsDraftResumeDialog } from "./TdsDraftResumeDialog";
+// DraftIndicator is shared but consumed UNMODIFIED — its copy ("Saved 5 minutes
+// ago") carries no flow-specific wording, so PR is unaffected by rendering it here.
+import { DraftIndicator } from "@/components/ui/draft-indicator";
+import { useTdsRequestDraftManager } from "../hooks/useTdsRequestDraftManager";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -55,6 +60,13 @@ import { Textarea } from "@/components/ui/textarea";
 interface TdsCreateFormProps {
     projectId: string;
     onSuccess?: () => void;
+    /**
+     * Called when a saved draft is resumed. Both tabs are always MOUNTED (the
+     * parent toggles them with `hidden`), so this form — and its resume dialog —
+     * loads even while the user is on TDS History. Resuming has to bring the tab
+     * with it, or the restored cart lands on a screen nobody is looking at.
+     */
+    onDraftResumed?: () => void;
 }
 
 // One make-with-datasheet for a group (mirrors BE-PICKER `makes[]` shape).
@@ -90,23 +102,25 @@ interface CartItem {
     previousDocName?: string;  // a Rejected row being replaced
 }
 
-// Debounce a value (used for the picker search query → API swrKey).
-function useDebouncedValue<T>(value: T, delay = 300): T {
-    const [debounced, setDebounced] = useState(value);
-    useEffect(() => {
-        const t = setTimeout(() => setDebounced(value), delay);
-        return () => clearTimeout(t);
-    }, [value, delay]);
-    return debounced;
-}
-
-export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSuccess }) => {
+export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSuccess, onDraftResumed }) => {
     const { role } = useUserData();
     const [cartItems, setCartItems] = useState<CartItem[]>([]);
 
-    // Picker state: the typed query, the picked group, and the picked make.
-    const [searchQuery, setSearchQuery] = useState("");
-    const debouncedQuery = useDebouncedValue(searchQuery, 300);
+    // Persists the staged cart per project, so navigating away no longer loses
+    // it. Everything draft-related lives in the hook; this component only reads
+    // its flags. A restored "New" request row cannot carry its uploaded PDF
+    // (a File does not survive JSON storage), so it comes back flagged and the
+    // submit stays blocked until it is removed and re-requested.
+    const draft = useTdsRequestDraftManager<CartItem>({
+        projectId,
+        cartItems,
+        setCartItems,
+    });
+
+    // Picker state. There is no typed-query state any more: the whole (optionally
+    // WP-scoped) group set is fetched ONCE and `FuzzySearchSelect` filters it
+    // client-side — see the fetch below for why.
+    const [selectedWP, setSelectedWP] = useState<string>("");
     const [selectedGroup, setSelectedGroup] = useState<GroupResult | null>(null);
     const [selectedMake, setSelectedMake] = useState<string | null>(null);
     const [selectedBoqLineItem, setSelectedBoqLineItem] = useState("");
@@ -136,14 +150,46 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
     // Existing project rows (dedup against (tds_item_id, tds_make), allow re-entry of Rejected).
     const { data: existingProjectItems } = useTdsExistingProjectItems(projectId);
 
-    // ── Group+make picker search (BE-PICKER) ───────────────────────────────────
-    // The swrKey embeds the debounced query so the search refetches as the user
-    // types. 3rd arg is the swrKey (NOT options) — gate-free here since we always
-    // want results (empty query → first N groups). Data lives under data.message.
+    // ── Work Package options (OPTIONAL filter above the picker) ────────────────
+    // Sourced from `TDS Items` itself, NOT a work-package doctype, so every
+    // option is guaranteed to return groups and the ids are exactly what
+    // `search_tds_items(work_package=…)` filters on. `group_count` labels each
+    // option so the user can see how big the list will be before picking.
+    const { data: wpData } = useFrappeGetCall<{
+        message: { work_package: string; group_count: number }[];
+    }>("nirmaan_stack.api.tds.picker.get_tds_work_packages", undefined, "tds_picker_work_packages");
+
+    // `label` stays the BARE work package name: react-select filters on it, so
+    // baking the count in would make typing "21" match a package. The count
+    // rides alongside and is rendered by `formatOptionLabel`.
+    const wpOptions = useMemo(
+        () =>
+            (wpData?.message ?? []).map(w => ({
+                label: w.work_package,
+                value: w.work_package,
+                groupCount: w.group_count,
+            })),
+        [wpData]
+    );
+
+    // ── Group+make picker source (BE-PICKER) ───────────────────────────────────
+    // LOAD-ONCE, FILTER-CLIENT-SIDE. `limit: 0` means unlimited (the endpoint
+    // treats <= 0 that way); no `query` is sent at all.
+    //
+    // Why not a per-keystroke server search: the server matches ONE CONTIGUOUS
+    // substring over the whole typed string, while `FuzzySearchSelect` tokenizes
+    // and needs only one token to hit. With the server running first, its
+    // strictness won — "hydrogen exhaust" returned nothing for a group that
+    // exists, because "Gas " sits between the two words. Handing the component
+    // the full set lets it do the matching it was built for, and removes a
+    // 300 ms debounce + round-trip from every keystroke.
+    //
+    // Cost is bounded and small: 352 groups uncapped ≈ 222 KB, and a WP scope
+    // cuts it further (largest package is 131). One fetch per WP, SWR-cached.
     const { data: searchData, isLoading: isSearching } = useFrappeGetCall<{ message: GroupResult[] }>(
         "nirmaan_stack.api.tds.picker.search_tds_items",
-        { query: debouncedQuery, limit: 50 },
-        `tds_picker_search_${debouncedQuery}`
+        { work_package: selectedWP || undefined, limit: 0 },
+        `tds_picker_groups_${selectedWP || "all"}`
     );
 
     // Sets used to exclude already-consumed (group, make) pairs from selection.
@@ -167,6 +213,23 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
         [cartItems]
     );
 
+    // Member count per group — ONE batched pass over `Items` (the same endpoint
+    // the TDS master page uses). A group ABSENT from `counts` has ZERO members:
+    // a "custom item" in the domain's vocabulary (Work Package + label only).
+    //
+    // Why the picker has to say so: a TDS Item has no category of its own, so
+    // `Project TDS Item List.tds_category` is DERIVED from its members'
+    // `Items.category` (`get_group_category`, run in the before_save hook). A
+    // member-less group therefore freezes an EMPTY category — and the cart has
+    // no Category column, so nothing reveals that until the submittal history or
+    // the exported PDF. These groups are fully pickable (all of them carry
+    // datasheets), which is exactly why the blank is easy to walk into.
+    const { data: memberIndexData } = useFrappeGetCall<{
+        message: { counts: Record<string, number>; categories: string[] };
+    }>("nirmaan_stack.api.tds.members.get_tds_member_index", undefined, "tds_member_index");
+
+    const memberCounts = memberIndexData?.message?.counts ?? {};
+
     // Picker options: one per group result. ADR-0004 — the picker searches GROUP
     // NAMES only (stakeholder ruling), so there is no member hit to attribute and
     // the old "contains <member>" subtitle is gone. `search_tds_items` still
@@ -175,12 +238,13 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
     const groupOptions = useMemo(() => {
         const groups = searchData?.message ?? [];
         return groups.map(g => ({
+            memberCount: memberCounts[g.tds_item] ?? 0,
             label: g.tds_item_name,
             value: g.tds_item,
             workPackage: g.work_package,
             group: g,
         }));
-    }, [searchData]);
+    }, [searchData, memberIndexData]);
 
     // Make options for the picked group — only makes-with-datasheet, minus any
     // (group, make) pair already consumed by the project or staged in the cart.
@@ -205,12 +269,38 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
         return selectedGroup.makes.find(m => m.make === selectedMake) || null;
     }, [selectedGroup, selectedMake]);
 
-    const canAdd = !!selectedGroup && !!selectedMake && !!selectedEntry;
+    // Work Package is required, but never a step the user has to take first:
+    // picking a group auto-fills it (`handleGroupChange`), so item-first entry
+    // satisfies this on its own. It can only be empty when nothing is picked —
+    // and then the group/make checks already block the add.
+    const canAdd = !!selectedWP && !!selectedGroup && !!selectedMake && !!selectedEntry;
 
     // ── Handlers ────────────────────────────────────────────────────────────────
     const handleGroupChange = (opt: any) => {
-        setSelectedGroup(opt?.group || null);
+        const g: GroupResult | null = opt?.group || null;
+        setSelectedGroup(g);
         setSelectedMake(null);
+        // Picking an item DERIVES the work package (the field is only a filter,
+        // so a user who goes straight to the item never has to set it). Safe to
+        // set unconditionally: the group is by definition in its own WP, so the
+        // narrowed list still contains it.
+        if (g?.work_package) setSelectedWP(g.work_package);
+    };
+
+    // Deliberately a HANDLER, not a useEffect on `selectedWP`. `handleGroupChange`
+    // writes selectedWP too, and an effect could not tell that derived write apart
+    // from a user's — it would clear the very group that caused it.
+    const handleWPChange = (opt: any) => {
+        const nextWP: string = opt?.value || "";
+        // Re-picking the value already showing (typically the one auto-filled by
+        // the group) is a no-op — it must NOT wipe the selection.
+        if (nextWP === selectedWP) return;
+        setSelectedWP(nextWP);
+        // Drop the picks that hang off the old scope — a group belongs to exactly
+        // one work package, so any change strands it, and the BOQ ref describes an
+        // item that no longer exists. `clearPicks`, NOT `resetSelection`: the
+        // latter blanks the work package too and would undo the line above.
+        clearPicks();
     };
 
     const handleAddItem = () => {
@@ -282,11 +372,23 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
         setCartItems(prev => prev.filter((_, i) => i !== index));
     };
 
-    const resetSelection = () => {
+    // Clears the WHOLE selection — scope included. Every entry starts from a
+    // blank form: after an item lands in the cart, after a rejected-row
+    // resubmit, and on the explicit Reset button.
+    // Clears everything that hangs off a work package — but NOT the scope itself.
+    // Used when the scope CHANGES (the new one must survive).
+    const clearPicks = () => {
         setSelectedGroup(null);
         setSelectedMake(null);
         setSelectedBoqLineItem("");
-        setSearchQuery("");
+    };
+
+    // Full reset, scope included: after an item lands in the cart, after a
+    // rejected-row resubmit, and on the Reset button. Never call this from the
+    // work-package handler — it would blank the value the user just chose.
+    const resetSelection = () => {
+        setSelectedWP("");
+        clearPicks();
     };
 
     const handleReset = () => {
@@ -402,6 +504,8 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                 className: "bg-green-50 border-green-200 text-green-800",
             });
 
+            // Only on SUCCESS — a failed submit must keep the draft.
+            draft.clearDraftAfterSubmit();
             setCartItems([]);
             handleReset();
             if (onSuccess) onSuccess();
@@ -424,15 +528,45 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                 <div className="flex justify-between items-start mb-6">
                     <div>
                         <h3 className="text-lg font-semibold text-gray-900">Select Items for TDS</h3>
-                        <p className="text-sm text-gray-500">Search a TDS item (by group name or member item) and choose a make.</p>
+                        <p className="text-sm text-gray-500">Optionally narrow by work package, then search a TDS item and choose a make.</p>
                     </div>
                     <Button variant="outline" size="sm" onClick={handleReset} className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200">
                         Reset
                     </Button>
                 </div>
 
-                {/* Selection Row: TDS Item (group) & Make (Required) */}
+                {/* Selection grid, TWO columns so the four fields auto-flow as:
+                    row 1 = Work Package | TDS Item,  row 2 = Make | BOQ Line Item. */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                    {/* Work Package scope. Narrows the TDS Item list; picking an
+                        item without setting this DERIVES it (see handleGroupChange). */}
+                    <div className="space-y-2">
+                        <Label className="text-sm font-semibold text-gray-700">
+                            Work Package <span className="text-red-500">*</span>
+                        </Label>
+                        <ReactSelect
+                            options={wpOptions}
+                            value={wpOptions.find(o => o.value === selectedWP) || null}
+                            onChange={handleWPChange}
+                            placeholder="All work packages"
+                            isClearable
+                            classNamePrefix="react-select"
+                            formatOptionLabel={(option: any) => (
+                                <span>
+                                    {option.label}{" "}
+                                    <span className="text-xs text-blue-600">
+                                        ({option.groupCount} TDS item{option.groupCount === 1 ? "" : "s"})
+                                    </span>
+                                </span>
+                            )}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                            {selectedWP
+                                ? "Showing TDS items in this work package only. Clearing it resets the selection."
+                                : "Showing every TDS item. Pick a work package to shorten the list, or choose an item and this fills itself."}
+                        </p>
+                    </div>
+
                     {/* TDS Item group picker */}
                     <div className="space-y-2 scroll-mt-4" ref={itemNameWrapperRef}>
                         <Label className="text-sm font-semibold text-gray-700">TDS Item <span className="text-red-500">*</span></Label>
@@ -448,18 +582,56 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                             }}
                             value={selectedGroup ? { label: selectedGroup.tds_item_name, value: selectedGroup.tds_item } : null}
                             onChange={handleGroupChange as any}
-                            onSearchInputChange={(v) => setSearchQuery(v)}
                             formatOptionLabel={(option: any) => (
                                 <div className="flex flex-col">
-                                    <span>{option.label}</span>
+                                    <span>
+                                        {option.label}
+                                        {/* No members ⇒ the frozen category will be blank. */}
+                                        {option.memberCount === 0 && (
+                                            <span className="ml-2 text-[10px] uppercase text-amber-600">
+                                                custom · no SKUs
+                                            </span>
+                                        )}
+                                    </span>
+                                    {/* Unscoped, the list spans every package, so the group
+                                        name alone can't say which one a result belongs to. */}
+                                    {!selectedWP && option.workPackage && (
+                                        <span className="text-xs text-muted-foreground">{option.workPackage}</span>
+                                    )}
                                 </div>
                             )}
                             placeholder="Search TDS item..."
                             isClearable
                             isLoading={isSearching}
-                            noOptionsMessage={() => isSearching ? "Searching..." : "No matching TDS items"}
+                            noOptionsMessage={() => isSearching ? "Loading TDS items..." : "No matching TDS items"}
                             onMenuOpen={handleItemMenuOpen}
                         />
+                        {/* Picked a member-less group: say what it costs BEFORE the row is
+                            created, since the cart shows no category and the blank only
+                            surfaces in the submittal history and the exported PDF.
+
+                            "first" is load-bearing. The before_save hook fills tds_category
+                            only when the row `is_new()` or its `tds_item_id` changed, so
+                            linking SKUs AFTER the row exists does NOT backfill it. Linking
+                            now, then adding to the cart, is the whole difference. */}
+                        {selectedGroup && (memberCounts[selectedGroup.tds_item] ?? 0) === 0 && (
+                            <p className="text-xs text-amber-600">
+                                Custom item — no linked SKUs, so <b>Category will be blank</b>.
+                                Link SKUs first and Category fills in automatically:{" "}
+                                {/* A NEW TAB, not `navigate` — the fix is on another page and the
+                                    user is mid-cart. Routing away would unmount the form; the
+                                    draft would restore it, but only through the resume prompt. */}
+                                <a
+                                    href={`/tds-repository/item/${selectedGroup.tds_item}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 font-medium text-blue-600 underline underline-offset-2 hover:text-blue-700"
+                                >
+                                    {selectedGroup.tds_item}
+                                    <ExternalLink className="h-3 w-3" />
+                                </a>
+                            </p>
+                        )}
                         <p className="text-xs text-muted-foreground">
                             Can't find it?{" "}
                             {canRequestNew ? (
@@ -516,20 +688,20 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                             </p>
                         )}
                     </div>
-                </div>
 
-                {/* BOQ Line Item Field (Optional) */}
-                <div className="space-y-2 mb-6">
-                    <Label className="text-sm font-semibold text-gray-700">BOQ Line Item <span className="text-gray-400 font-normal">(Optional)</span></Label>
-                    <Textarea
-                        value={selectedBoqLineItem}
-                        onChange={(e) => setSelectedBoqLineItem(e.target.value)}
-                        placeholder="Enter BOQ Line Item Ref"
-                        rows={3}
-                        maxLength={500}
-                    />
-                    <div className="text-xs text-right text-gray-500 mt-1">
-                        {selectedBoqLineItem.length}/500
+                    {/* BOQ Line Item (Optional) — sits beside Make on row 2. */}
+                    <div className="space-y-2">
+                        <Label className="text-sm font-semibold text-gray-700">BOQ Line Item <span className="text-gray-400 font-normal">(Optional)</span></Label>
+                        <Textarea
+                            value={selectedBoqLineItem}
+                            onChange={(e) => setSelectedBoqLineItem(e.target.value)}
+                            placeholder="Enter BOQ Line Item Ref"
+                            rows={3}
+                            maxLength={500}
+                        />
+                        <div className="text-xs text-right text-gray-500 mt-1">
+                            {selectedBoqLineItem.length}/500
+                        </div>
                     </div>
                 </div>
 
@@ -545,10 +717,29 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
             {/* Cart Table Section */}
             {cartItems.length > 0 && (
                 <div>
-                    <div className="mb-4">
-                        <h3 className="text-lg font-semibold text-gray-900">Selected Items for TDS</h3>
-                        <p className="text-sm text-gray-500">Review selected items before sending for approval.</p>
+                    <div className="mb-4 flex items-start justify-between gap-4">
+                        <div>
+                            <h3 className="text-lg font-semibold text-gray-900">Selected Items for TDS</h3>
+                            <p className="text-sm text-gray-500">Review selected items before sending for approval.</p>
+                        </div>
+                        {(draft.hasDraft || draft.isSaving || draft.lastSavedText) && (
+                            <DraftIndicator
+                                lastSavedText={draft.lastSavedText}
+                                isSaving={draft.isSaving}
+                            />
+                        )}
                     </div>
+
+                    {/* A restored request row lost its uploaded PDF — the cart is not
+                        editable, so the only remedy is remove-and-re-request. */}
+                    {draft.needsReattachCount > 0 && (
+                        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                            {draft.needsReattachCount} restored request{draft.needsReattachCount === 1 ? "" : "s"}{" "}
+                            {draft.needsReattachCount === 1 ? "has" : "have"} lost the attached datasheet — a saved draft
+                            cannot keep an uploaded file. Remove {draft.needsReattachCount === 1 ? "it" : "them"} below
+                            and file the request again before sending for approval.
+                        </div>
+                    )}
 
                     <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
                         <Table>
@@ -642,13 +833,36 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                             size="lg"
                             className="w-full md:w-auto bg-[#dc2626] hover:bg-[#b91c1c] text-white font-semibold text-base py-6 px-8 shadow-md shadow-red-100 hover:shadow-red-200 transition-all"
                             onClick={handleLogSubmit}
-                            disabled={isSubmitting}
+                            disabled={isSubmitting || draft.needsReattachCount > 0}
+                            title={
+                                draft.needsReattachCount > 0
+                                    ? "Remove the restored request rows that lost their datasheet first."
+                                    : undefined
+                            }
                         >
                             {isSubmitting ? "Sending..." : "Send For Approval"}
                         </Button>
                     </div>
                 </div>
             )}
+
+            {/* Continue with the saved draft, or clear it and start fresh.
+                TDS-local by owner ruling — the shared `draft-resume-dialog` is
+                left untouched so the Approve New PR flow cannot be affected. */}
+            <TdsDraftResumeDialog
+                open={draft.showResumeDialog}
+                onOpenChange={draft.setShowResumeDialog}
+                onResume={() => {
+                    draft.resumeDraft();
+                    // Bring the tab along — the restored cart lives on this tab,
+                    // and the dialog can be answered from TDS History.
+                    onDraftResumed?.();
+                }}
+                onStartFresh={draft.startFresh}
+                draftDate={draft.draftDate}
+                itemCount={draft.pendingItemCount}
+                needsReattachCount={draft.pendingNeedsReattachCount}
+            />
 
             {/* Resubmit-rejected Confirmation Dialog */}
             <AlertDialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>

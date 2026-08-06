@@ -73,4 +73,12 @@ LINK_FIELD_MAP = {
     # fixes EVERY surface at once (Items page + the TDS master's Items SKU tab)
     # instead of each one re-mapping ids to names client-side.
     "linked_tds_item": {"doctype": "TDS Items", "label_field": "tds_item_name"},
+    # Same doctype, same reason, the OTHER field pointing at it: `TDS Repository.
+    # tds_item`. Without this the TDS master's Repository Entries facet renders raw
+    # `TDS-ITEM-#####` ids while the column beside it shows the group NAME (resolved
+    # client-side), so the two disagree about the same row. `tds_item` exists on
+    # exactly ONE doctype and is a Link to `TDS Items`, so this mapping is
+    # unambiguous. It also injects `tds_item_name` into the fetched row via
+    # search.py's link-label injection.
+    "tds_item": {"doctype": "TDS Items", "label_field": "tds_item_name"},
 }
