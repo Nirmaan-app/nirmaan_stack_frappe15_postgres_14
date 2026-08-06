@@ -34,6 +34,11 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useUserData } from "@/hooks/useUserData";
+import { TdsDraftResumeDialog } from "./TdsDraftResumeDialog";
+// DraftIndicator is shared but consumed UNMODIFIED — its copy ("Saved 5 minutes
+// ago") carries no flow-specific wording, so PR is unaffected by rendering it here.
+import { DraftIndicator } from "@/components/ui/draft-indicator";
+import { useTdsRequestDraftManager } from "../hooks/useTdsRequestDraftManager";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -55,6 +60,13 @@ import { Textarea } from "@/components/ui/textarea";
 interface TdsCreateFormProps {
     projectId: string;
     onSuccess?: () => void;
+    /**
+     * Called when a saved draft is resumed. Both tabs are always MOUNTED (the
+     * parent toggles them with `hidden`), so this form — and its resume dialog —
+     * loads even while the user is on TDS History. Resuming has to bring the tab
+     * with it, or the restored cart lands on a screen nobody is looking at.
+     */
+    onDraftResumed?: () => void;
 }
 
 // One make-with-datasheet for a group (mirrors BE-PICKER `makes[]` shape).
@@ -90,9 +102,20 @@ interface CartItem {
     previousDocName?: string;  // a Rejected row being replaced
 }
 
-export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSuccess }) => {
+export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSuccess, onDraftResumed }) => {
     const { role } = useUserData();
     const [cartItems, setCartItems] = useState<CartItem[]>([]);
+
+    // Persists the staged cart per project, so navigating away no longer loses
+    // it. Everything draft-related lives in the hook; this component only reads
+    // its flags. A restored "New" request row cannot carry its uploaded PDF
+    // (a File does not survive JSON storage), so it comes back flagged and the
+    // submit stays blocked until it is removed and re-requested.
+    const draft = useTdsRequestDraftManager<CartItem>({
+        projectId,
+        cartItems,
+        setCartItems,
+    });
 
     // Picker state. There is no typed-query state any more: the whole (optionally
     // WP-scoped) group set is fetched ONCE and `FuzzySearchSelect` filters it
@@ -481,6 +504,8 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                 className: "bg-green-50 border-green-200 text-green-800",
             });
 
+            // Only on SUCCESS — a failed submit must keep the draft.
+            draft.clearDraftAfterSubmit();
             setCartItems([]);
             handleReset();
             if (onSuccess) onSuccess();
@@ -676,10 +701,29 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
             {/* Cart Table Section */}
             {cartItems.length > 0 && (
                 <div>
-                    <div className="mb-4">
-                        <h3 className="text-lg font-semibold text-gray-900">Selected Items for TDS</h3>
-                        <p className="text-sm text-gray-500">Review selected items before sending for approval.</p>
+                    <div className="mb-4 flex items-start justify-between gap-4">
+                        <div>
+                            <h3 className="text-lg font-semibold text-gray-900">Selected Items for TDS</h3>
+                            <p className="text-sm text-gray-500">Review selected items before sending for approval.</p>
+                        </div>
+                        {(draft.hasDraft || draft.isSaving || draft.lastSavedText) && (
+                            <DraftIndicator
+                                lastSavedText={draft.lastSavedText}
+                                isSaving={draft.isSaving}
+                            />
+                        )}
                     </div>
+
+                    {/* A restored request row lost its uploaded PDF — the cart is not
+                        editable, so the only remedy is remove-and-re-request. */}
+                    {draft.needsReattachCount > 0 && (
+                        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                            {draft.needsReattachCount} restored request{draft.needsReattachCount === 1 ? "" : "s"}{" "}
+                            {draft.needsReattachCount === 1 ? "has" : "have"} lost the attached datasheet — a saved draft
+                            cannot keep an uploaded file. Remove {draft.needsReattachCount === 1 ? "it" : "them"} below
+                            and file the request again before sending for approval.
+                        </div>
+                    )}
 
                     <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
                         <Table>
@@ -773,13 +817,36 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                             size="lg"
                             className="w-full md:w-auto bg-[#dc2626] hover:bg-[#b91c1c] text-white font-semibold text-base py-6 px-8 shadow-md shadow-red-100 hover:shadow-red-200 transition-all"
                             onClick={handleLogSubmit}
-                            disabled={isSubmitting}
+                            disabled={isSubmitting || draft.needsReattachCount > 0}
+                            title={
+                                draft.needsReattachCount > 0
+                                    ? "Remove the restored request rows that lost their datasheet first."
+                                    : undefined
+                            }
                         >
                             {isSubmitting ? "Sending..." : "Send For Approval"}
                         </Button>
                     </div>
                 </div>
             )}
+
+            {/* Continue with the saved draft, or clear it and start fresh.
+                TDS-local by owner ruling — the shared `draft-resume-dialog` is
+                left untouched so the Approve New PR flow cannot be affected. */}
+            <TdsDraftResumeDialog
+                open={draft.showResumeDialog}
+                onOpenChange={draft.setShowResumeDialog}
+                onResume={() => {
+                    draft.resumeDraft();
+                    // Bring the tab along — the restored cart lives on this tab,
+                    // and the dialog can be answered from TDS History.
+                    onDraftResumed?.();
+                }}
+                onStartFresh={draft.startFresh}
+                draftDate={draft.draftDate}
+                itemCount={draft.pendingItemCount}
+                needsReattachCount={draft.pendingNeedsReattachCount}
+            />
 
             {/* Resubmit-rejected Confirmation Dialog */}
             <AlertDialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>

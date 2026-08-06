@@ -413,13 +413,16 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
 
                     <div className="mt-6">
                         <div className={activeTab === 'new' ? 'block' : 'hidden'}>
-                            <TdsCreateForm 
+                            <TdsCreateForm
                                 key={refreshKey}
-                                projectId={projectId} 
+                                projectId={projectId}
                                 onSuccess={() => {
                                     setActiveTab('history');
                                     setRefreshKey(prev => prev + 1);
-                                }} 
+                                }}
+                                // Both tabs stay mounted, so the draft prompt can be
+                                // answered from TDS History — resuming must switch here.
+                                onDraftResumed={() => setActiveTab('new')}
                             />
                         </div>
                         <div className={activeTab === 'history' ? 'block' : 'hidden'}>
