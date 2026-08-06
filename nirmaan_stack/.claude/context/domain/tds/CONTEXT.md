@@ -85,6 +85,14 @@
 
 ## Roles
 
-- **Admin (`Nirmaan Admin Profile`)** — Full control over the Master Repository (TDS Items & Entries). The sole approver of Project TDS requests. The only role capable of deleting Project TDS history records.
-- **PMO (`Nirmaan PMO Executive Profile`)** — Elevated project-level access. Responsible for exception handling (using the "Request New" flow to propose new Groups or Makes) and managing Project TDS setup details.
+- **Admin (`Nirmaan Admin Profile`)** — Full control over the Master Repository (TDS Items & Entries). The sole approver of Project TDS requests. Deletes any Project TDS history record, at any status.
+- **PMO (`Nirmaan PMO Executive Profile`)** — Elevated project-level access. Responsible for exception handling (using the "Request New" flow to propose new Groups or Makes) and managing Project TDS setup details. Deletes Project TDS history rows that are **Pending or Rejected** only — an Approved row is part of the signed submittal record and stays Admin-only.
+
+> ⚠️ **Both delete rules are UI gates, not enforcement.** Delete goes straight
+> through `deleteDoc("Project TDS Item List", …)` — no whitelisted endpoint, no
+> permission check — and the doctype grants delete to **all 18 role profiles**.
+> Every role can already delete any row, Approved included, via the REST API.
+> The same gap covers approval: the approver rule lives only in the API layer
+> while every profile holds write. Closing either needs a whitelisted endpoint
+> or a `before_delete` / `before_save` hook.
 - **Project User (Leads, Managers, etc.)** — Consumers of the TDS system. Restricted to requesting existing, approved Master TDS items for their projects. Stripped of edit, delete, and "Request New" capabilities.

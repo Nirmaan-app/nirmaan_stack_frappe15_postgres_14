@@ -313,6 +313,8 @@ Roles that don't require `has_project === "true"`:
 
 **PMO Executive exceptions:** PMO Executive can view TDS Approval and Payment Approval tabs (read-only) but cannot approve/reject or edit fulfilled payments. PMO also **cannot approve/reject PRs** (no "Approve PR" tab; approvers = Admin + Project Lead) and **cannot create master Items from the PR flow** (request-only in restricted categories, like a Project Manager) — *2026-07-04 access review*. In all other areas, PMO mirrors Admin.
 
+**TDS History deletion** *(2026-08-05)*: the Actions column in `TdsHistoryTable` is gated by TWO predicates, because they answer different questions — `canManageTDS` (Admin **or** PMO) decides who sees the COLUMN, `canDeleteRow(item)` decides which rows get a button. PMO deletes rows whose `tds_status` is **Pending or Rejected**; an Approved row is part of the signed submittal record and stays Admin-only. So a PMO sees the column with buttons on eligible rows and `--` on the rest, rather than icons that fail on click. `New` is NOT PMO-deletable (the status list is taken literally; no rows currently carry it). ⚠️ **UI gate only** — delete goes straight through `deleteDoc("Project TDS Item List", …)` with no whitelisted endpoint and no permission check, and the doctype grants delete to all 18 role profiles.
+
 ---
 
 ## Read-Only Approval Tabs

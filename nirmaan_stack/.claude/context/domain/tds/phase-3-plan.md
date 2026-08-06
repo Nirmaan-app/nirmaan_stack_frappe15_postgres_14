@@ -299,3 +299,203 @@ the retired child table keep being written.
   backfill** — that evidence now exists only in ADR-0004 Amendment B and here.
 - ~8 other TDS dialogs still surface `e?.message` rather than `getFrappeError`.
 - `Items.item_name`'s declared index still does not exist (name collision).
+
+---
+
+## AS BUILT — `tds/phase3-fixs`, 2026-08-05 → 2026-08-06
+
+Eleven commits on top of the 2026-08-04 as-built. Consumption-surface work: the
+two pickers, the request cart, the master-page facets, and the printed report.
+No decision-level change, so nothing here amends an ADR.
+
+| Commit | What |
+|---|---|
+| `4767c22b` | Scope both TDS Item pickers by work package; lift the 50-row cap |
+| `76976b59` | Warn before a member-less TDS Item freezes a blank category |
+| `d806f33d` | Search item names in the TDS export dialog |
+| `91646003` | Let PMO delete un-finalised rows in TDS History |
+| `2944fdfa` | Work package selection was cleared the instant it was set |
+| `0bfaf7f3` | Keep the TDS request cart as a per-project draft |
+| `351dc867` | Filter TDS Items by linked / not-linked Item SKUs |
+| `28e9e103` | Show group members in the print format Sample Description |
+| `e3737df5` | Widen `Project TDS Item List.tds_category` Data → Small Text |
+| `edb2cd69` | Generalise the derived facet; add a Make filter to Repository Entries |
+| `f9a9bbba` | Unify the Existing/New TDS Item toggle across both dialogs |
+
+### The 50-row cap hid most of the catalogue
+
+`search_tds_items` returned 50 rows with no query, so the picker opened showing
+50 of 352 groups and everything else was reachable only by typing the right
+substring. Worse, matching was **contiguous-substring**, so a user who knew a
+group as "Hydrogen Gas" found nothing until they typed it in the stored word
+order. Both pickers now load the (optionally WP-scoped) set ONCE and filter
+client-side through `FuzzySearchSelect`, which is tokenised.
+
+`limit <= 0` is the new unlimited sentinel on `search_tds_items`; a new
+`get_tds_work_packages()` aggregates the distinct WPs off `TDS Items` itself —
+**not a work-package doctype**, so the scope list can only ever offer packages
+that actually have groups.
+
+⚠️ The Request New dialog's **New** tab still reads `Work Packages` (11 rows)
+while `TDS Items.work_package` links `Procurement Packages` (14). Services,
+Tool & Equipments and Additional Charges are unreachable when proposing a new
+group. Not fixed.
+
+### The work package cleared itself the instant it was set
+
+`handleWPChange` called `resetSelection()`, and `resetSelection` had been
+widened to also blank `selectedWP` — so choosing a package set it and then
+immediately wiped it, and the field could not be used at all. Split into
+`clearPicks()` (group/make/BOQ) and `resetSelection()` (`clearPicks` + the WP);
+the change handler calls the former.
+
+A one-line regression with a two-function cause: the widening was correct on its
+own terms (adding a cart row should start from a blank form), it just had a
+caller that already owned the WP.
+
+### A member-less group freezes a blank category
+
+`Project TDS Item List.tds_category` is DERIVED from members' `Items.category`
+by the `before_save` hook, so a group with no SKUs freezes an EMPTY category —
+and the cart has no Category column, so the blank first surfaced in the
+submittal history and the exported PDF. **39 of 352 groups are member-less and
+every one carries datasheets**, which is why it was easy to walk into.
+
+Both surfaces now warn twice: an amber `custom · no SKUs` tag while browsing,
+and a note under the picker once one is chosen. Counts come from the existing
+`get_tds_member_index` and share its swrKey, so SWR dedupes both screens to one
+fetch — no backend change.
+
+### The request cart survives navigation, and never half-saves a datasheet
+
+Ten staged items were lost on any navigation away. The cart is now a per-project
+draft (`useTdsRequestDraftStore`, 30-day TTL, own key
+`nirmaan-tds-request-drafts`), keyed by `projectId` — a single global draft would
+let a second project clobber the first.
+
+**The hazard is the File.** `persist` serialises through `JSON.stringify`, and
+`JSON.stringify(File)` yields `{}` — **which is truthy**. Left in, the submit
+path's `if (item.attachmentFile) uploadFile(...)` would fire on an empty object,
+throw, be swallowed by its catch, and produce a submittal whose datasheet is
+silently missing. So the strip happens at the serialisation boundary in
+`partialize`, via the extracted, unit-testable `sanitizeCartItemsForStorage`;
+rows that lose their only copy come back flagged `_needsReattach`, which blocks
+submit.
+
+`TdsDraftResumeDialog` is a **deliberate ADR-0010 F3 exception** — the shared
+`components/ui/draft-resume-dialog` is parametric but its non-PR copy is
+hardcoded to project creation, and the owner ruled the PR draft flow must not be
+touched at all. The merge direction, if it ever converges, is to add the optional
+prop THERE and delete this file.
+
+Also in this commit: `approve.py` re-parents the datasheet `File` from the
+project row to the master entry on the create path. Record hygiene only —
+`delete_file_from_cloud = 0` in this setup, so `delete_from_s3()` returns early
+and the GCS blob is never removed; `generate_file(key)` signs the key straight
+off the querystring with no `File` lookup, so a deleted `File` record does not
+cost the bytes.
+
+### Two derived facets, and why neither is a `meta.facet`
+
+Neither column is a field on `TDS Items` — membership lives on
+`Items.linked_tds_item`, makes on `TDS Repository.make` — so the normal facet
+path would filter on a column that does not exist. Both translate their selection
+into an explicit `name in [...]` narrowing passed as `additionalFilters` instead.
+`get_tds_member_index` gained `unlinked` (the complement) because `name in` is
+the only form the data-table API extracts, so BOTH sides need an id list.
+
+`LinkedSKUFilter` → `DerivedFacetFilter` once the Make filter made it twins.
+They are twins of **each other**, not of the column-bound
+`DataTableFacetedFilter`, which stays untouched; a third derived facet appearing
+outside this page is the signal to extract shared presentation, not to widen
+either into a two-mode component.
+
+**The non-obvious part — the control must own its own state.** `flexRender`
+hands a column `header` to React as the ELEMENT TYPE. A header defined inline in
+the page's `columns` useMemo gets a fresh identity whenever `columns` rebuilds,
+so React unmounts and remounts it, taking the open Popover with it — multi-select
+becomes impossible. Both headers are now MODULE-LEVEL components, which is why
+they take no props but `column` and derive their options internally. The page
+reads the same value by subscribing to the same url param through
+`urlStateManager` — **not** `useStateSyncedWithParams`, because the table writes
+its own params with `history.replaceState`, which react-router never observes,
+so writing through it would rebuild the query string from a stale snapshot and
+drop the live search / WP facet / sort on every click.
+
+AND between facets was free: several `name in` filters are INTERSECTED by
+`split_name_in_constraints`. Within one facet, ticked values UNION.
+
+⚠️ Facet counts are **UNSCOPED** — computed from the whole dataset, so they do
+not shrink when the WP facet or search box is also active, unlike a real backend
+facet. Cross-filtering needs the server to understand the dimension, which is
+exactly what it cannot do.
+
+### Sample Description prints the members
+
+The cell printed `tds_item_name: tds_description`, repeating the group name
+already shown on the row above and never revealing what the group contains. It
+now prints `description: member names`, falling back to the plain description
+when a group has no members — **783 of 800 live rows**, so the common case is
+unchanged.
+
+`_enrich_model_no` → `_enrich_derived_cells` (it derives two cells now). The
+member query already ran for `category` and just gained `item_name`, so there is
+no extra round trip; the parent/category guard had to split, or a member with a
+name but no category would have been dropped from the names list too. Names are
+**not deduped** — two members can legitimately share a name.
+
+A byte-identical working copy of the format lives at
+`frontend/src/pages/tds/project_tds_report.html` so it is diffable in the repo
+instead of only inside a JSON string. **The fixture remains the source of
+truth**; re-sync the copy whenever the Print Format is edited in Desk.
+
+### `tds_category` outgrew `Data`
+
+Same derivation, opposite failure: the hook joins the DISTINCT categories of
+every member, so a wide enough group produces a string longer than
+`varchar(140)` and gets cut mid-value at write time. `Data` → `Small Text`
+(`text` on PostgreSQL, unbounded).
+
+Lossless, measured on the live table AFTER the ALTER: 800 rows / 789 with a
+category / longest **51** chars / **0** rows at or over 140 / all 789 values
+round-tripped with 0 mismatches. `varchar(n)` → `text` is binary-coercible in
+PostgreSQL — widening in place, no rewrite, no truncation path. The migration
+that would lose data is the reverse.
+
+### Verification actually run
+
+- **`tds_category` widening** — column type, row census, truncation check and a
+  789-value round-trip compare, all read post-`bench migrate` from the live DB.
+- **Derived facets on live data** — `make=Bluestar` → 42 items, every row
+  genuinely holding a Bluestar entry; `Bluestar+Legrand` → 73 = 42+31 (union);
+  stacked with Linked → 42, Not Linked → 0, splitting back to 42 (AND). Counts:
+  Linked 313 + Not Linked 39 = 352 = every TDS Item.
+- **Print format** — fixture and repo copy compared by sha1 (`1551f5109dfc` both
+  sides); 25 formats before and after, only `Project TDS Report`'s html changed.
+- **Toggle unification** — both dialogs parse (esbuild); `tsc --noEmit` clean.
+
+### NOT done — deliberately
+
+- **Neither migrate has run in production.** The stored Print Format is still on
+  the previous html, and `tds_category` is still `varchar(140)` there. Both need
+  `bench --site <site> migrate`.
+- **Zero test coverage on any of it.** 21 draft-store tests were written and
+  passed, then deleted before the commit. `vitest` here is `environment: "node"`
+  with no DOM, so the draft manager, the resume dialog and the facet header
+  identity rule are all structurally untestable — only
+  `sanitizeCartItemsForStorage` is a pure function that could be pinned.
+- **The per-row `_needsReattach` flag was never added to the cart table.** The
+  resume-dialog warning and the submit block ship; the per-row marker does not.
+- **PDF export fails on projects with private logos.** `ValidationError: PDF
+  generation failed because of broken image links` — each logo needs
+  `/api/method/generate_file` → 302 → a signed GCS URL, but `get_cookie_options()`
+  only supplies a session cookie when `frappe.local.request` exists, and a
+  background job has none. Frappe's own `'load-error-handling': 'ignore'` is
+  commented out. Recommended fix is inlining the logos as base64 data URIs.
+  Diagnosed, not fixed.
+- **The approval gate is API-only.** All 18 role profiles hold write on
+  `Project TDS Item List`, and the PMO delete rule (`91646003`) is a UI gate over
+  a raw `deleteDoc` — enforcing either needs a whitelisted endpoint or a
+  `before_delete` hook.
+- The Request New **New** tab's `Work Packages` / `Procurement Packages` mismatch
+  (above) is still open.
