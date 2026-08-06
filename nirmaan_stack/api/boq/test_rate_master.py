@@ -1169,14 +1169,24 @@ class TestRateMaster(FrappeTestCase):
         self.assertNotIn("item", s1["attrs"])
 
         # POSITIVE: the composite golden exists -- s1 is single-item and cannot prove a composite.
-        # Its values are derived from CATALOG list prices x the rate stages, not from the config:
-        #   258x1 + 425x1 + 282x2 + 61x2 + 302x1 + 247x1 = raw 1918
-        #   1918 x0.3625 = 695.275 -> tens 700 ; 700 x0.2 = 140 ; 1918 x0.25 = 479.5 -> tens 480
+        #
+        # SLICE 2 part 2 RE-MINTED ss1. The 1a golden was INCOHERENT: 7 modules of content on a 6M
+        # plate that holds 6, with a blank_qty of 2 that fits at no plate size. It priced only
+        # because nothing checked module coherence. It is now an 8M plate, 7 modules occupied, and
+        # ONE blank -- and the blank count is COMPUTED by module_fit, not stated.
+        # Values derived from CATALOG list prices x the rate stages, NOT from the config:
+        #   switch 258x1 + socket1 425x1 + socket2 282x2 + blank 61x1 + plate(8M) 396x1
+        #     + back box(8M) 320x1 = raw 2024
+        #   2024 x0.3625 = 733.70 -> tens 740 ; 740 x0.2 = 148 -> tens 150 ;
+        #   2024 x0.25   = 506.00 -> tens 510
         self.assertIn("ss1", by_id)
         ss1 = by_id["ss1"]
-        self.assertEqual(ss1["expect"]["swsock_boq"]["supply"], 700.0)
-        self.assertEqual(ss1["expect"]["swsock_boq"]["install"], 140.0)
-        self.assertEqual(ss1["expect"]["swsock_bcs"]["bcs_supply"], 480.0)
+        self.assertEqual(ss1["expect"]["swsock_boq"]["supply"], 740.0)
+        self.assertEqual(ss1["expect"]["swsock_boq"]["install"], 150.0)
+        self.assertEqual(ss1["expect"]["swsock_bcs"]["bcs_supply"], 510.0)
+        # the re-mint is COHERENT: an 8M plate holding the 7 modules its contents occupy, leaving 1
+        self.assertEqual(ss1["attrs"]["plate_item"], "8M")
+        self.assertEqual(ss1["attrs"]["blank_item"], "1M Blanker")
         # it exercises BOTH socket slots -- the shape a single-socket category cannot express
         self.assertEqual(ss1["attrs"]["socket1_item"], "6A/16A 3-Pin Socket")
         self.assertEqual(ss1["attrs"]["socket2_item"], "6A 3-Pin Socket")
@@ -1263,10 +1273,15 @@ class TestRateMaster(FrappeTestCase):
             self.assertEqual(step["ref"]["item"], "@plate_item")
 
     def test_42_point_wiring_goldens_hold(self):
-        """The three point_wiring goldens must be UNMOVED by the blanker: with none_skips and
-        blank_item "None" the line contributes zero, so nothing may shift.
+        """pw1 and pw2 must be UNMOVED: both state a 3M plate with 3 modules occupied, so their blank
+        count is 0 AND they carry blank_item "None", which none_skips zeroes before the quantity is
+        ever read -- nothing may shift them.
         pw2's install is FRACTIONAL (722.2) by design -- it pins the per-stage rounding and must not
-        be rounded."""
+        be rounded.
+        pw3 is DIFFERENT and deliberately so: slice 2 part 2 COMPLETED it. A 3M plate with 1 module
+        occupied leaves 2 empty, so it now carries a REAL Grey 1M Blanker at the COMPUTED count of 2
+        and its totals MOVED -- two real blankers cost money. Its install line is what pins the
+        0.0725 blanker factor at a non-zero quantity."""
         cfg = _obj(frappe.db.get_value(
             "BoQ Rate Category Config",
             {"discipline": "Electrical", "category_id": "point_wiring", "active": 1}, "config",
@@ -1279,12 +1294,21 @@ class TestRateMaster(FrappeTestCase):
         self.assertEqual(by_id["pw2"]["expect"]["pw_boq_supply"]["supply"], 1823.0)
         self.assertEqual(by_id["pw2"]["expect"]["pw_boq_install"]["install"], 722.2)
         self.assertEqual(by_id["pw2"]["expect"]["pw_bcs"]["bcs_supply"], 1342.0)
-        self.assertEqual(by_id["pw3"]["expect"]["pw_boq_supply"]["supply"], 1682.0)
-        # AFTER: all three carry the blanker as a POSITIVE ABSENCE, so the line contributes zero and
-        # every total above is unmoved. A golden's attrs are an ATOMIC SET -- all three or none.
-        for gid in ("pw1", "pw2", "pw3"):
+        # pw3 (slice 2 part 2): 1682 + the blanker line. Grey 1M Blanker list 79, computed count 2:
+        #   supply : ceil(79 x 0.3625) = 29 x2 = 58 -> 1682 + 58 = 1740
+        #   install: 735 - ceil(514 x 0.0725)=38 + ceil(79 x 0.0725)=6 x2 = 12 -> 709
+        #   bcs    : 1370 - ceil(514 x 0.25)=129 + ceil(79 x 0.25)=20 x2 = 40 -> 1281
+        self.assertEqual(by_id["pw3"]["expect"]["pw_boq_supply"]["supply"], 1740.0)
+        self.assertEqual(by_id["pw3"]["expect"]["pw_boq_install"]["install"], 709.0)
+        self.assertEqual(by_id["pw3"]["expect"]["pw_bcs"]["bcs_supply"], 1281.0)
+        # pw1/pw2 carry the blanker as a POSITIVE ABSENCE, so their line contributes zero and their
+        # totals above are unmoved. A golden's attrs are an ATOMIC SET.
+        for gid in ("pw1", "pw2"):
             self.assertEqual(by_id[gid]["attrs"]["blank_item"], "None")
             self.assertEqual(by_id[gid]["attrs"]["blank_qty"], 0.0)
+        # pw3 carries a REAL blanker -- the one golden that proves a non-zero blank line prices
+        self.assertEqual(by_id["pw3"]["attrs"]["blank_item"], "1M Blanker")
+        self.assertEqual(by_id["pw3"]["attrs"]["blank_qty"], 2.0)
 
         # switches_sockets must be UNMOVED by the back_box dependency fix (it touches no pricing input)
         ss = _obj(frappe.db.get_value(
@@ -1294,8 +1318,9 @@ class TestRateMaster(FrappeTestCase):
         ssg = {g["id"]: g for g in ss["goldens"]}
         self.assertEqual(ssg["s1"]["expect"]["swsock_boq"], {"supply": 110.0, "install": 30.0})
         self.assertEqual(ssg["s1"]["expect"]["swsock_bcs"], {"bcs_supply": 80.0})
-        self.assertEqual(ssg["ss1"]["expect"]["swsock_boq"], {"supply": 700.0, "install": 140.0})
-        self.assertEqual(ssg["ss1"]["expect"]["swsock_bcs"], {"bcs_supply": 480.0})
+        # ss1 was RE-MINTED coherent by slice 2 part 2 (8M plate, 7 occupied, 1 computed blank)
+        self.assertEqual(ssg["ss1"]["expect"]["swsock_boq"], {"supply": 740.0, "install": 150.0})
+        self.assertEqual(ssg["ss1"]["expect"]["swsock_bcs"], {"bcs_supply": 510.0})
 
     # ---- SLICE 2 part 1: the STEP-VOCABULARY PIN (C5) ----
     #
@@ -1509,3 +1534,70 @@ class TestRateMaster(FrappeTestCase):
         for lad in cfg["pipelines"]["p"]["steps"][0]["params"]["ladders"]:
             self.assertNotIn("floor_from", lad)
             self.assertNotIn("on_none", lad)
+
+    # ---- BLANKER SLICE / item 2: the blanker COLOUR + UNIQUENESS pins (P3, P4) ----
+    #
+    # The blank component already binds `colour: "@colour"`, so the blanker follows the assembly and
+    # a Grey assembly is priced at the Grey blanker (79) rather than the White one (61). That worked
+    # before this slice but NOTHING pinned it. P1/P2 pin the PRICE PATH in the interpreter suite;
+    # these two pin the SHIPPED CONFIG and the CATALOG, read from the LIVE production rows -- the
+    # same live-config pattern test_39 / test_42 use.
+
+    _BLANKER_CATEGORIES = ("switches_sockets", "point_wiring")
+
+    def _live_config(self, category_id):
+        return _obj(frappe.db.get_value(
+            "BoQ Rate Category Config",
+            {"discipline": "Electrical", "category_id": category_id, "active": 1}, "config",
+        ))
+
+    def test_57_blank_ref_binds_colour_and_never_hardcodes_it(self):
+        """P3, THE GUARD THAT MATTERS. On BOTH categories and EVERY pipeline, the blank ref must bind
+        the colour to the ATTRIBUTE (@colour), never to a literal. A hardcoded colour does NOT fail at
+        runtime -- it silently prices a Grey assembly at the White blanker (proven by the matching
+        negative test in ratePipelineInterpreter.test.ts), so only a pin catches it."""
+        seen = 0
+        for cid in self._BLANKER_CATEGORIES:
+            cfg = self._live_config(cid)
+            for pid, pl in (cfg.get("pipelines") or {}).items():
+                for step in pl.get("steps") or []:
+                    if step.get("name") != "blank":
+                        continue
+                    seen += 1
+                    where = "%s/%s" % (cid, pid)
+                    ref = step.get("ref") or {}
+                    self.assertEqual(ref.get("colour"), "@colour", where)
+                    self.assertEqual(ref.get("item"), "@blank_item", where)
+                    self.assertEqual(ref.get("family"), "Switch", where)
+                    self.assertEqual(ref.get("kind"), "switch_socket_item", where)
+                    # the COMPUTED count always wins -- the line never reads a stated quantity
+                    self.assertEqual(step.get("qty"), {"from_fit": "blank_count"}, where)
+        # 2 switches_sockets pipelines + 3 point_wiring pipelines; a DROPPED blank line fails here too
+        self.assertEqual(seen, 5)
+
+    def test_58_the_blanker_is_the_only_blanker_in_the_catalog(self):
+        """P4. `1M Blanker` is the ONLY blanker in the active master, so blank_item never needs
+        choosing -- which is what makes the COLOUR the only free variable on that line. Pinned
+        structurally over the LIVE catalog, never asserted as a hardcoded constant."""
+        rows = frappe.db.sql(
+            """SELECT attributes, rates FROM "tabBoQ Rate Master Item"
+               WHERE active = 1 AND discipline = %s AND kind = %s""",
+            ("Electrical", "switch_socket_item"),
+        )
+        blankers = {}
+        families = set()
+        for attrs, rates in rows:
+            a = _obj(attrs) or {}
+            if "blank" in str(a.get("item", "")).lower():
+                blankers[(a.get("item"), a.get("colour"))] = (_obj(rates) or {}).get("list_price")
+                families.add(a.get("family"))
+        # exactly ONE distinct blanker item...
+        self.assertEqual({item for item, _ in blankers}, {"1M Blanker"})
+        # ...in exactly the two assembly colours, at DIFFERENT prices (so the colour is load-bearing)
+        self.assertEqual({colour for _, colour in blankers}, {"White", "Grey"})
+        white = blankers[("1M Blanker", "White")]
+        grey = blankers[("1M Blanker", "Grey")]
+        self.assertNotEqual(white, grey)
+        self.assertGreater(grey, white)
+        # it lives under family "Switch" -- there is NO blanker family (root CLAUDE.md invariant)
+        self.assertEqual(families, {"Switch"})

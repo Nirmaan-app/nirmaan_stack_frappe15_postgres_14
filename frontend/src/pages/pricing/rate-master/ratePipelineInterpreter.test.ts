@@ -14,6 +14,7 @@ import {
   runPipeline,
 } from "./ratePipelineInterpreter";
 import { STEP_VOCABULARY, blankStep } from "./rateMasterStructure";
+import { derivedQtyAttrs, derivedQtyValue } from "./RateMasterDerivation";
 
 // ---- the four stored pipelines (verbatim shape from RM-1 config) ----
 const PIPELINES: Record<string, Pipeline> = {
@@ -2007,5 +2008,236 @@ describe("SLICE 2 part 2 -- take-the-larger: the blanks invariant, pinned BOTH w
       expect(r.status, `stated ${plate}`).toBe("ok");
       expect(r.finals.blank_count).toBeGreaterThanOrEqual(0);
     }
+  });
+});
+
+// ---- BLANKER SLICE / item 2: THE BLANKER'S COLOUR FOLLOWS THE ASSEMBLY (a GUARD, not a build) ----
+//
+// This behaviour ALREADY WORKED before this slice -- the blank component binds `colour: "@colour"`
+// exactly like every other component -- but NOTHING pinned it. It was proven only indirectly, off
+// pw3's green preview gate: pw3 is a GREY assembly carrying 2 blankers whose supply of 1740 is
+// reachable only at the Grey list price of 79 (White, 61, would give 1728). These pins make that
+// structural, so a future edit that hardcodes a colour on the blank ref fails loudly.
+//
+// ⚠️ THE ASSERTION IS THE PRICE PATH, NOT THE COLOUR STRING. Asserting `colour === "Grey"` would
+// pass even if the ref resolved the wrong catalog ROW; asserting the resolved LINE VALUE is what
+// proves the right row was priced. Real catalog list prices, live master 2026-08-06.
+const BLANKER_WHITE = 61;
+const BLANKER_GREY = 79;
+const blankerItems: RateMasterItem[] = [
+  // both blanker colours -- the pair the ref must choose between
+  ssItem("Switch", "1M Blanker", "White", BLANKER_WHITE),
+  ssItem("Switch", "1M Blanker", "Grey", BLANKER_GREY),
+  // a switch + socket in BOTH colours, so the assembly itself can be either
+  ssItem("Switch", "16A 1 WAY SWITCH", "White", 258), ssItem("Switch", "16A 1 WAY SWITCH", "Grey", 317),
+  ssItem("Socket", "6A 3-Pin Socket", "White", 282), ssItem("Socket", "6A 3-Pin Socket", "Grey", 347),
+  // the ladders (plate in both colours, box is colour NA)
+  ...([["1M & 2M", 162, 200], ["3M", 204, 235], ["4M", 236, 292], ["6M", 302, 383], ["8M", 396, 480],
+       ["9M", 443, 604], ["12M", 579, 679], ["16M", 689, 823], ["18M", 849, 1018]] as [string, number, number][])
+    .flatMap(([it, w, g]) => [ssItem("Grid and Face Plates", it, "White", w), ssItem("Grid and Face Plates", it, "Grey", g)]),
+  ...([["1M & 2M", 119], ["3M", 158], ["4M", 182], ["6M", 247], ["8M", 320], ["12M", 412], ["18M", 488]] as [string, number][])
+    .map(([it, pr]) => ssItem("Back Box", it, "NA", pr)),
+];
+// 2 sockets + 3 switches = 7 modules -> an 8M plate -> 1 blank. One blank keeps the arithmetic
+// readable: the blank LINE value IS the blanker's list price.
+const blankerSel = (colour: string) => ({
+  switch_item: "16A 1 WAY SWITCH", switch_qty: 3,
+  socket1_item: "6A 3-Pin Socket", socket1_qty: 2,
+  socket2_item: "None", socket2_qty: 0,
+  blank_item: "1M Blanker",
+  plate_item: "8M", plate_qty: 1,
+  colour, back_box: "Yes",
+});
+const blankLineOf = (r: ReturnType<typeof runPipeline>) =>
+  r.steps.find((s) => s.produced?.key === "blank")?.produced?.value;
+
+describe("BLANKER SLICE -- the blanker's COLOUR follows the assembly (regression guard)", () => {
+  it("P1: a GREY assembly resolves the GREY blanker row -- the LINE prices at 79, not 61", () => {
+    const r = runPipeline("swsock_boq", SS2_BOQ, blankerItems, blankerSel("Grey"));
+    expect(r.status).toBe("ok");
+    expect(fitTrace(r)).toContain("1 blank");
+    expect(blankLineOf(r)).toBe(BLANKER_GREY);          // 79 x 1 -- the PRICE PATH, not the string
+    expect(blankLineOf(r)).not.toBe(BLANKER_WHITE);
+    // and the trace names the row that was actually priced
+    expect(r.steps.find((s) => s.produced?.key === "blank")?.refItem).toContain("Grey");
+  });
+
+  it("P2: a WHITE assembly resolves the WHITE blanker row -- the LINE prices at 61, not 79", () => {
+    const r = runPipeline("swsock_boq", SS2_BOQ, blankerItems, blankerSel("White"));
+    expect(r.status).toBe("ok");
+    expect(fitTrace(r)).toContain("1 blank");
+    expect(blankLineOf(r)).toBe(BLANKER_WHITE);          // 61 x 1
+    expect(blankLineOf(r)).not.toBe(BLANKER_GREY);
+    expect(r.steps.find((s) => s.produced?.key === "blank")?.refItem).toContain("White");
+  });
+
+  it("the colour is the ONLY thing that moves the blank line -- same row, two colours, two prices", () => {
+    // the sharpest form of the guard: one selection, one attribute changed, the line must follow
+    const grey = blankLineOf(runPipeline("swsock_boq", SS2_BOQ, blankerItems, blankerSel("Grey")));
+    const white = blankLineOf(runPipeline("swsock_boq", SS2_BOQ, blankerItems, blankerSel("White")));
+    expect(grey).not.toBe(white);
+    expect(grey! - white!).toBe(BLANKER_GREY - BLANKER_WHITE);   // 18, the real catalog gap
+  });
+
+  it("NEGATIVE: a hardcoded colour on the blank ref would break the assembly link -- proven", () => {
+    // This is what the P3 config pin (backend) prevents. Here we PROVE the harm: a blank ref that
+    // hardcodes "White" prices a GREY assembly at the White blanker -- silently, with no error.
+    const hardcoded: Pipeline = {
+      ...SS2_BOQ,
+      steps: SS2_BOQ.steps.map((s) =>
+        (s as { name?: string }).name === "blank"
+          ? { ...(s as object), ref: { kind: "switch_socket_item", family: "Switch", item: "@blank_item", colour: "White" } }
+          : s
+      ) as Pipeline["steps"],
+    };
+    const r = runPipeline("swsock_boq", hardcoded, blankerItems, blankerSel("Grey"));
+    expect(r.status).toBe("ok");                      // it does NOT fail -- that is the danger
+    expect(blankLineOf(r)).toBe(BLANKER_WHITE);       // the WRONG row, on a Grey assembly
+    // the shipped config must never look like this; the backend pin asserts the ref binds @colour
+  });
+
+  it("pw3's shape is the production proof: a Grey assembly with TWO blankers costs 2 x 79", () => {
+    // pw3 (point_wiring) is Grey with a computed blank count of 2. Its 1740 is only reachable at the
+    // Grey price -- this reproduces that arithmetic on the switches_sockets pipeline shape.
+    const twoBlanks = { ...blankerSel("Grey"), switch_qty: 3, socket1_qty: 2, plate_item: "9M" };
+    const r = runPipeline("swsock_boq", SS2_BOQ, blankerItems, twoBlanks);   // 7 occupied on a 9M plate
+    expect(fitTrace(r)).toContain("2 blanks");
+    expect(blankLineOf(r)).toBe(BLANKER_GREY * 2);    // 158
+  });
+});
+
+// ---- BLANKER SLICE / item 3: `blank_qty` is DERIVED and READ-ONLY ----
+//
+// ⚠️ WHY THESE PIN THE RULE AND NOT THE RENDER: this repo has NO DOM test environment (a deliberate
+// choice recorded in frontend/CLAUDE.md), so a React render is STRUCTURALLY untestable here. The
+// decision that can be WRONG -- which attributes are derived, and what value they show -- is
+// extracted as two pure functions and pinned below; the render itself is verified in the browser
+// cert. Following the repo's own rule: pages stay thin over pure logic (ADR-0010 F4).
+//
+// The derived-ness is READ FROM THE EXISTING CONFIG, not from a new key and not from a hardcoded
+// attribute id: a component taking `qty: {from_fit: ...}` has SUPERSEDED its `<name>_qty`
+// attribute, while one taking `qty: {from_attr: ...}` still reads it as a genuine input.
+const cfgWith = (pipelines: Record<string, Pipeline>, defIds: string[]): RateCategoryConfig =>
+  ({
+    discipline: "Electrical",
+    category_id: "probe",
+    attribute_definitions: defIds.map((id) => ({ id, label: id, type: "number" as const })),
+    pipelines,
+  }) as RateCategoryConfig;
+const qtyStep = (name: string, qty: unknown) => ({
+  step: "component_ref" as const, name,
+  ref: { kind: "switch_socket_item", family: "Switch", item: `@${name}_item`, colour: "@colour" },
+  target: "list_price", rate_stages: [{ mult: 1 }], qty, none_skips: true,
+});
+
+describe("BLANKER SLICE -- derivedQtyAttrs: which attributes the config COMPUTES rather than accepts", () => {
+  it("a component taking {from_fit} SUPERSEDES its <name>_qty attribute -> derived", () => {
+    const cfg = cfgWith(
+      { p: { output: ["supply"], steps: [qtyStep("blank", { from_fit: "blank_count" })] } },
+      ["blank_qty", "switch_qty"],
+    );
+    const d = derivedQtyAttrs(cfg);
+    expect([...d.keys()]).toEqual(["blank_qty"]);
+    expect(d.get("blank_qty")).toEqual({ attrId: "blank_qty", ctxKey: "blank_count" });
+  });
+
+  it("BEFORE-STATE PIN: a component taking {from_attr} keeps its attribute an INPUT -> NOT derived", () => {
+    // This is switches_point's live shape, and this pin is what keeps this slice from freezing a
+    // field that is still genuinely editable there. It asserts the behaviour as it is TODAY.
+    const cfg = cfgWith(
+      { p: { output: ["supply"], steps: [qtyStep("blank", { from_attr: "blank_qty" })] } },
+      ["blank_qty"],
+    );
+    expect(derivedQtyAttrs(cfg).size).toBe(0);
+  });
+
+  it("an attribute read as an input ANYWHERE is never derived, even if another step computes it", () => {
+    const cfg = cfgWith(
+      { a: { output: ["x"], steps: [qtyStep("blank", { from_fit: "blank_count" })] },
+        b: { output: ["y"], steps: [qtyStep("blank", { from_attr: "blank_qty" })] } },
+      ["blank_qty"],
+    );
+    expect(derivedQtyAttrs(cfg).size).toBe(0);   // the user stays in control
+  });
+
+  it("a {from_fit} with NO matching attribute definition marks nothing (point_wiring's conduit)", () => {
+    // point_wiring's conduit line is qty {from_fit: "conduit_qty"} but there is no conduit_qty
+    // ATTRIBUTE -- the rule must simply find nothing rather than inventing a field.
+    const cfg = cfgWith(
+      { p: { output: ["supply"], steps: [qtyStep("conduit", { from_fit: "conduit_qty" })] } },
+      ["blank_qty"],
+    );
+    expect(derivedQtyAttrs(cfg).size).toBe(0);
+  });
+
+  it("BACKWARD COMPAT: a config with no qty objects at all derives nothing", () => {
+    const cfg = cfgWith({ p: { output: ["supply"], steps: [qtyStep("blank", 1)] } }, ["blank_qty"]);
+    expect(derivedQtyAttrs(cfg).size).toBe(0);
+    expect(derivedQtyAttrs(cfgWith({}, ["blank_qty"])).size).toBe(0);
+  });
+
+  it("THE REAL SHAPES: both live categories derive blank_qty; the switches_point shape does not", () => {
+    // switches_sockets / point_wiring (post slice 2p2) vs switches_point (still on from_attr)
+    const migrated = cfgWith(
+      { boq: { output: ["supply"], steps: [
+        qtyStep("switch", { from_attr: "switch_qty" }),
+        qtyStep("socket1", { from_attr: "socket1_qty" }),
+        qtyStep("blank", { from_fit: "blank_count" }),
+        qtyStep("plate", { from_attr: "plate_qty" }),
+      ] } },
+      ["switch_qty", "socket1_qty", "blank_qty", "plate_qty"],
+    );
+    expect([...derivedQtyAttrs(migrated).keys()]).toEqual(["blank_qty"]);  // ONLY blank_qty
+    const legacy = cfgWith(
+      { boq: { output: ["supply"], steps: [
+        qtyStep("switch", { from_attr: "switch_qty" }),
+        qtyStep("blank", { from_attr: "blank_qty" }),
+      ] } },
+      ["switch_qty", "blank_qty"],
+    );
+    expect(derivedQtyAttrs(legacy).size).toBe(0);
+  });
+});
+
+describe("BLANKER SLICE -- derivedQtyValue: the computed value the display shows", () => {
+  const run = (sel: Record<string, string | number>) =>
+    [runPipeline("swsock_boq", SS2_BOQ, SS2_ITEMS, sel)];
+
+  it("reads the computed blank count out of the pipeline trace", () => {
+    // 2 sockets + 3 switches = 7 modules -> 8M plate -> 1 blank
+    const results = run({ ...SS1_V23, switch_qty: 3, socket1_qty: 2, socket2_item: "None", socket2_qty: 0 });
+    expect(derivedQtyValue(results, "blank_count")).toBe(1);
+  });
+
+  it("follows the assembly LIVE -- more sockets, a bigger plate, a different blank count", () => {
+    // this is what makes the on-screen display update without a reload: the same pure read over a
+    // freshly recomputed result set (the screen recomputes on every attribute change).
+    const one = run({ ...SS1_V23, switch_qty: 3, socket1_qty: 2, socket2_item: "None", socket2_qty: 0 });
+    const other = run({ ...SS1_V23, switch_qty: 1, socket1_qty: 1, socket2_item: "None", socket2_qty: 0, plate_item: "8M" });
+    expect(derivedQtyValue(one, "blank_count")).toBe(1);      // 8M holds 8, 7 occupied
+    expect(derivedQtyValue(other, "blank_count")).toBe(5);    // 8M holds 8, 3 occupied
+  });
+
+  it("a NONE plate computes NO blank count -> undefined, so the display stays EMPTY not 0", () => {
+    // blanks fill a plate; with no plate there are none. A 0 would read as "zero needed", which is a
+    // different claim from "not applicable". The known edge, rendered honestly.
+    const results = run({ ...SS1_V23, plate_item: "None", plate_qty: 0, blank_item: "None" });
+    expect(derivedQtyValue(results, "blank_count")).toBeUndefined();
+  });
+
+  it("an unknown ctx key is undefined, never a fabricated 0", () => {
+    expect(derivedQtyValue(run(SS1_V23), "no_such_key")).toBeUndefined();
+    expect(derivedQtyValue([], "blank_count")).toBeUndefined();
+  });
+
+  it("THE DEFECT THIS FIXES: the computed count and the priced line agree", () => {
+    // Before this slice the form showed blank_qty 0 while the blank line priced at 1. The displayed
+    // value and the priced quantity are now the SAME number, by construction.
+    const sel = { ...SS1_V23, switch_qty: 3, socket1_qty: 2, socket2_item: "None", socket2_qty: 0 };
+    const r = runPipeline("swsock_boq", SS2_BOQ, SS2_ITEMS, sel);
+    const shown = derivedQtyValue([r], "blank_count");
+    const blankLine = r.steps.find((s) => s.produced?.key === "blank")?.produced?.value;
+    expect(shown).toBe(1);
+    expect(blankLine).toBe(61 * shown!);      // White 1M Blanker list 61 x the SHOWN count
   });
 });

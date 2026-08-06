@@ -16,6 +16,82 @@ import type { AttributeDefinition, RateCategoryConfig, RateMasterItem, StepTrace
 import { NONE_SENTINEL, runAllPipelines } from "./ratePipelineInterpreter";
 import { isEditableParam, matchedConditionIndex, parseFiniteInput } from "./rateMasterEdit";
 
+// ---- BLANKER SLICE: DERIVED, READ-ONLY attribute displays ----
+//
+// THE DEFECT: `blank_qty` sat inert at 0 in the form while the blank line priced at 1, because slice
+// 2 part 2 moved that line onto the COMPUTED count (`qty: {from_fit: "blank_count"}`) and stopped
+// reading the attribute. The form said one thing and the price said another.
+//
+// ⚠️ THE DERIVED-NESS IS READ FROM THE CONFIG THAT ALREADY EXISTS -- no new config key, and nothing
+// hardcoded by attribute id. An attribute is DERIVED exactly when a component takes its quantity
+// from a computed binding INSTEAD of from that attribute, which the stored `qty` already declares:
+//   {from_fit: "blank_count"}  -> the attribute is superseded  -> derived, read-only
+//   {from_attr: "blank_qty"}   -> the attribute IS the input   -> stays editable
+// That distinction is exactly right on live data and needs no asset mint: switches_sockets and
+// point_wiring carry the from_fit form, while switches_point still reads `blank_qty` as a genuine
+// input and therefore OPTS OUT AUTOMATICALLY. Hardcoding `d.id === "blank_qty"` would have frozen a
+// field that is still live there -- the trap the recon flagged.
+//
+// The `_qty` suffix ties a component to its attribute (`blank` -> `blank_qty`), the SAME convention
+// every shipped config already uses (switch/switch_qty, socket1/socket1_qty, plate/plate_qty). The
+// second guard makes it airtight: an attribute ANY step still reads via from_attr is never derived,
+// so a config that both computes and reads a value keeps the user in control.
+
+/** One derived attribute: the def it covers, and the pipeline ctx key holding its computed value. */
+export interface DerivedQtyBinding {
+  attrId: string;
+  ctxKey: string;
+}
+
+/**
+ * PURE. The attributes this config DERIVES rather than accepts as input, keyed by attribute id.
+ * Empty for every config whose components read their quantities from attributes (the pre-slice
+ * shape), so a category that was never migrated is byte-unaffected.
+ */
+export function derivedQtyAttrs(config: RateCategoryConfig): Map<string, DerivedQtyBinding> {
+  const defIds = new Set((config.attribute_definitions ?? []).map((d) => d.id));
+  const readAsInput = new Set<string>();
+  const candidates = new Map<string, string>();
+  for (const pl of Object.values(config.pipelines ?? {})) {
+    for (const raw of pl.steps ?? []) {
+      const s = raw as { name?: string; qty?: unknown };
+      const qty = s.qty as { from_attr?: string; from_fit?: string } | undefined;
+      if (!qty || typeof qty !== "object") continue;
+      if (typeof qty.from_attr === "string") readAsInput.add(qty.from_attr);
+      if (typeof qty.from_fit === "string" && typeof s.name === "string" && s.name) {
+        const attrId = `${s.name}_qty`;
+        if (defIds.has(attrId)) candidates.set(attrId, qty.from_fit);
+      }
+    }
+  }
+  const out = new Map<string, DerivedQtyBinding>();
+  for (const [attrId, ctxKey] of candidates) {
+    // an attribute ANY step still reads as an input stays the user's to set
+    if (readAsInput.has(attrId)) continue;
+    out.set(attrId, { attrId, ctxKey });
+  }
+  return out;
+}
+
+/**
+ * PURE. The computed value a derived attribute displays, read out of the pipeline traces (the ctx
+ * snapshot each step carries). Returns undefined when NOTHING computed it -- e.g. a "None" plate,
+ * where blanks are positively absent -- so the caller can render an honest blank rather than a 0
+ * that would claim "zero blanks" when the truth is "no plate to fill".
+ */
+export function derivedQtyValue(
+  results: { steps: StepTrace[] }[],
+  ctxKey: string,
+): number | undefined {
+  for (const r of results) {
+    for (const st of r.steps) {
+      const v = st.runningValues?.[ctxKey];
+      if (typeof v === "number" && Number.isFinite(v)) return v;
+    }
+  }
+  return undefined;
+}
+
 interface Props {
   items: RateMasterItem[];
   config: RateCategoryConfig;
@@ -263,6 +339,13 @@ export function RateMasterDerivation({ items, config, isAdmin, onSaveParam }: Pr
     [config, items, selected]
   );
 
+  // BLANKER SLICE: the attributes this config computes rather than accepts (see derivedQtyAttrs).
+  // ⚠️ DISPLAY ONLY -- the computed value is NEVER written back into `selected`. `selected` means
+  // "what the user or extraction supplied"; writing a derived value into it would make the two
+  // indistinguishable, and every later reader would treat a computed number as a stated one.
+  // Because `results` is recomputed on every `selected` change, the display updates live for free.
+  const derivedAttrs = useMemo(() => derivedQtyAttrs(config), [config]);
+
   const brandValue = brandDef?.values?.[0] ?? items[0]?.brand ?? "-";
 
   return (
@@ -282,13 +365,19 @@ export function RateMasterDerivation({ items, config, isAdmin, onSaveParam }: Pr
                 const listId = `rmnum-${d.id}`;
                 const suggestions = numberValues[d.id] ?? [];
                 const isNone = selected[d.id] === NONE_SENTINEL;
+                // BLANKER SLICE: a DERIVED attribute shows the COMPUTED value and is never editable.
+                // An undefined computed value renders EMPTY, not 0 -- with a "None" plate there are
+                // no blanks at all, and a 0 would claim "zero needed" instead of "not applicable".
+                const derived = derivedAttrs.get(d.id);
+                const derivedValue = derived ? derivedQtyValue(results, derived.ctxKey) : undefined;
                 return (
                   <div key={d.id} className="flex flex-col gap-1">
                     <label className="flex items-center gap-2 text-xs text-muted-foreground">
                       {d.label}
+                      {derived && <span className="text-[10px] italic">(computed)</span>}
                       {/* EA-4a-r: a NUMBER allow_none def offers "None" (positive absence) as a checkbox --
                           the input-appropriate analogue of a choice def's top-of-list "None". */}
-                      {d.allow_none && (
+                      {d.allow_none && !derived && (
                         <label className="flex items-center gap-0.5 text-[10px]">
                           <input
                             type="checkbox"
@@ -301,11 +390,17 @@ export function RateMasterDerivation({ items, config, isAdmin, onSaveParam }: Pr
                     </label>
                     <input
                       type="number"
-                      list={listId}
-                      value={isNone ? "" : String(selected[d.id] ?? "")}
+                      list={derived ? undefined : listId}
+                      value={
+                        derived
+                          ? (derivedValue === undefined ? "" : String(derivedValue))
+                          : isNone ? "" : String(selected[d.id] ?? "")
+                      }
                       onChange={(e) => setAttr(d, e.target.value)}
-                      disabled={disabledByNone.has(d.id) || isNone}
-                      placeholder={isNone ? "None" : `Enter ${d.label}`}
+                      readOnly={!!derived}
+                      disabled={!!derived || disabledByNone.has(d.id) || isNone}
+                      title={derived ? `Computed from the assembly (${derived.ctxKey}) -- not editable` : undefined}
+                      placeholder={derived ? "-" : isNone ? "None" : `Enter ${d.label}`}
                       className="h-8 w-44 rounded border bg-background px-3 text-sm disabled:opacity-50"
                     />
                     <datalist id={listId}>
