@@ -217,7 +217,8 @@ def get_tds_member_index():
 	Returns:
 	    {
 	        "counts": { "TDS-ITEM-00001": 2, ... },   # group -> member count
-	        "categories": ["Cables", "Switches", ...]  # distinct member categories
+	        "categories": ["Cables", "Switches", ...], # distinct member categories
+	        "unlinked": ["TDS-ITEM-00007", ...]        # groups with ZERO members
 	    }
 
 	The master "TDS Items" tab uses `counts` for the Linked Item SKU pill; the
@@ -225,6 +226,17 @@ def get_tds_member_index():
 
 	ONE query over `Items` — the count is an aggregate over the whole catalog, so
 	it must not become a per-group fan-out.
+
+	WHY `unlinked` IS RETURNED rather than derived client-side. The master tab's
+	"Linked Item SKU" facet (Linked / Not Linked) has no field to filter on —
+	membership lives on `Items`, not on `TDS Items` — so each side is expressed
+	to the data-table API as an explicit `["name", "in", [...]]` narrowing.
+	`in` is the ONLY form that API pulls out of the generated query
+	(`split_name_in_constraints`); a `not in` would be inlined and walk toward
+	the sqlparse token cap. So the COMPLEMENT has to be enumerated too, and the
+	client holds only the current page of groups — it cannot compute it. One
+	extra name-only scan of `TDS Items` here, in the same aggregate that already
+	knows which groups have members.
 	"""
 	rows = frappe.get_all(
 		ITEMS_DOCTYPE,
@@ -243,7 +255,16 @@ def get_tds_member_index():
 		if r.category:
 			categories.add(r.category)
 
-	return {"counts": counts, "categories": sorted(categories)}
+	# Keyed off `counts`, so a stale linkage pointing at a deleted group can
+	# never make a live group read as linked — the membership set is whatever
+	# `Items` actually points at, and everything else in `TDS Items` is custom.
+	unlinked = [
+		d.name
+		for d in frappe.get_all(PARENT_DOCTYPE, fields=["name"], limit_page_length=0)
+		if d.name not in counts
+	]
+
+	return {"counts": counts, "categories": sorted(categories), "unlinked": unlinked}
 
 
 @frappe.whitelist()

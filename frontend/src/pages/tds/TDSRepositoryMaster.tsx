@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -35,6 +35,7 @@ import {
     RepositoryEntriesPeekDialog,
 } from "./components/TDSItemPeekDialogs";
 import { ItemsSKUTab } from "./components/ItemsSKUTab";
+import { LinkedSKUFilter, useLinkedSkuFilterParam } from "./components/LinkedSKUFilter";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TDS Repository master — two tabs after the 3-level grouping restructure:
@@ -57,6 +58,33 @@ const ITEM_DOCTYPE = "TDS Items";
 const ENTRY_DOCTYPE = "TDS Repository";
 
 type TabKey = "items" | "entries" | "skus";
+
+// ── "Linked Item SKU" filter (DERIVED, not a field) ─────────────────────────
+// Membership lives on `Items.linked_tds_item`, so "has linked SKUs" is not a
+// column on `TDS Items` and cannot be a normal `meta.facet` (that path
+// aggregates a real field and round-trips the selection as
+// `[column.id, "in", [...]]`). It is driven instead by page state — see
+// ./components/LinkedSKUFilter for why that is a local control and not the
+// shared `DataTableFacetedFilter` — and translated below into an explicit
+// `name in [...]` narrowing over the group ids the member index already knows.
+//
+// Both sides are `in` on purpose: it is the one form the data-table API pulls
+// out of the generated query (`split_name_in_constraints`), so neither list is
+// ever inlined toward the sqlparse token cap. That is why the endpoint returns
+// the complement (`unlinked`) rather than us sending a `not in`.
+const LINK_FILTER_LINKED = "linked";
+const LINK_FILTER_CUSTOM = "custom";
+// Namespaced under the table's own urlSyncKey, like every other param it owns.
+const LINK_FILTER_PARAM = "tds_items_master_link";
+
+const LINK_FACET_OPTIONS = [
+    { label: "Linked SKU", value: LINK_FILTER_LINKED },
+    // "Custom" is the word the count pill itself shows at zero — keep them identical.
+    { label: "Not Linked (Custom)", value: LINK_FILTER_CUSTOM },
+];
+
+// Stable identity so the table hook's export callback does not churn every render.
+const NO_ADDITIONAL_FILTERS: any[] = [];
 
 // A TDS Item row enriched with derived counts. We extend the base TDSItem type
 // with the in-memory derived fields so TanStack accessors are typed.
@@ -84,7 +112,7 @@ const TDSItemsTab: React.FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
     // non-superuser (only Administrator sees rows) — which made every item show
     // "Custom". The endpoint reads via frappe.get_all (perm-ignoring).
     const { data: memberIndex, mutate: mutateMembers } = useFrappeGetCall<{
-        message: { counts: Record<string, number>; categories: string[] };
+        message: { counts: Record<string, number>; categories: string[]; unlinked: string[] };
     }>("nirmaan_stack.api.tds.members.get_tds_member_index", undefined, "tds_member_index");
     // One list call for all entries → bucket entry counts by tds_item.
     const { data: entryRows, mutate: mutateEntries } = useFrappeGetDocList<TDSRepository>(
@@ -108,6 +136,36 @@ const TDSItemsTab: React.FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
         });
         return map;
     }, [entryRows]);
+
+    // ── Linked / Not-Linked selection ──
+    // READ-ONLY here. The control itself owns the value (see LinkedSKUFilter for
+    // why — putting it in the `columns` deps remounts the header mid-click and
+    // makes multi-select impossible); this is a second subscriber to the same
+    // url param, which is all the page needs to narrow the query.
+    const { raw: linkFilterParam, values: linkFilterValues } =
+        useLinkedSkuFilterParam(LINK_FILTER_PARAM);
+    const linkFilter = useMemo(
+        () =>
+            linkFilterValues.filter(
+                (v) => v === LINK_FILTER_LINKED || v === LINK_FILTER_CUSTOM
+            ),
+        [linkFilterValues]
+    );
+
+    // Selecting BOTH options (or neither) is "no opinion" — no narrowing at all,
+    // which also keeps the two lists from having to be stitched together.
+    // While the member index is still in flight we deliberately do NOT narrow:
+    // a momentarily empty name list would render as "no results", which reads as
+    // an answer rather than as loading.
+    const linkNameFilter = useMemo(() => {
+        const index = memberIndex?.message;
+        if (!index || linkFilter.length !== 1) return NO_ADDITIONAL_FILTERS;
+        const names =
+            linkFilter[0] === LINK_FILTER_LINKED
+                ? Object.keys(index.counts ?? {})
+                : index.unlinked ?? [];
+        return [["name", "in", names]];
+    }, [memberIndex, linkFilter]);
 
     const columns = useMemo<ColumnDef<TDSItemRow>[]>(() => [
         // 1 — TDS Item (name → detail page)
@@ -142,7 +200,15 @@ const TDSItemsTab: React.FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
         {
             id: "member_count",
             size: 130,
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Linked Item SKU" />,
+            header: ({ column }) => (
+                <div className="flex items-center gap-1">
+                    <LinkedSKUFilter
+                        options={LINK_FACET_OPTIONS}
+                        paramKey={LINK_FILTER_PARAM}
+                    />
+                    <DataTableColumnHeader column={column} title="Linked Item SKU" />
+                </div>
+            ),
             cell: ({ row }) => {
                 const count = memberCountByItem[row.original.name] ?? 0;
                 const name = row.original.tds_item_name || row.original.name;
@@ -209,6 +275,9 @@ const TDSItemsTab: React.FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
                 ),
             } as ColumnDef<TDSItemRow>,
         ] : []),
+        // ⚠️ The link-filter selection is DELIBERATELY absent from these deps —
+        // `LinkedSKUFilter` owns it. Listing it here rebuilds `columns` on every
+        // click, which remounts the header and closes its popover mid-selection.
     ], [navigate, memberCountByItem, entryCountByItem, isAdmin]);
 
     const searchableFields = useMemo(() => [
@@ -229,6 +298,7 @@ const TDSItemsTab: React.FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
         refetch,
         exportAllRows,
         isExporting,
+        setPagination,
     } = useServerDataTable<TDSItemRow>({
         doctype: ITEM_DOCTYPE,
         columns,
@@ -236,7 +306,19 @@ const TDSItemsTab: React.FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
         defaultSort: "creation desc",
         searchableFields,
         urlSyncKey: "tds_items_master",
+        additionalFilters: linkNameFilter,
     });
+
+    // A narrowing that shrinks the result set can strand the user on a page that
+    // no longer exists (page 4 of an unfiltered 352 → 39 custom groups). Reset on
+    // CHANGE only, so a deep link carrying both a filter and a page still lands
+    // where it was shared from.
+    const prevLinkFilterParam = useRef(linkFilterParam);
+    useEffect(() => {
+        if (prevLinkFilterParam.current === linkFilterParam) return;
+        prevLinkFilterParam.current = linkFilterParam;
+        setPagination((p) => ({ ...p, pageIndex: 0 }));
+    }, [linkFilterParam, setPagination]);
 
     const handleCreated = () => {
         refetch();
