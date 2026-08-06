@@ -1,17 +1,22 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""Settle a bank row as an expense (Bulk Import Outflow, slice S5).
+"""Settle a bank row (Bulk Import Outflow, slices S5 + V2).
 
 Thin orchestrator (ADR-0010 B4): authorize -> load -> call the service -> record -> commit. The
 settlement RULES live in `services/outflow_import/settle.py`; this module owns the import-side
 bookkeeping around them.
 
-THE ONLY ENDPOINTS IN THIS FEATURE THAT MUTATE ANYTHING OUTSIDE THE IMPORT'S OWN DOCTYPES. Both
-write an expense and nothing else. Neither can reach a payment: `settle.py` has no code path to
-one.
+THE ONLY ENDPOINTS IN THIS FEATURE THAT MUTATE ANYTHING OUTSIDE THE IMPORT'S OWN DOCTYPES.
 
-ONE TRANSACTION, ONE SAVEPOINT, ONE COMMIT. A settlement is: write the expense, record the
+⚠️ v3: `settle_row` DISPATCHES ACROSS ALL THREE LEDGERS. The line that stood here said neither
+endpoint could reach a payment, "because `settle.py` has no code path to one" -- true under v2's
+spine and reversed by the owner on 2026-08-06. `settle.py` now has exactly that path. What still
+holds is narrower and is where the safety lives: this import writes the LAST rung of a ladder
+somebody else already climbed. It never approves, it never creates a payment, and nothing settles
+without a per-row human confirmation.
+
+ONE TRANSACTION, ONE SAVEPOINT, ONE COMMIT. A settlement is: write the record, record the
 `Outflow Row Match` (which is also the idempotency constraint), flip the import row to `Settled`,
 refresh the batch rollup. Those four are one fact and must not half-happen -- a match record
 without its expense would claim a settlement that never occurred, and an expense without its match
@@ -24,6 +29,14 @@ write hundreds of rows and recompute once at the end. Settlement is one expense 
 action, and the cashflow gap SHOULD move when a Paid expense appears -- suppressing it would leave
 a project's CEO-Hold state stale for no gain. If a settle-everything action ever ships, that is
 when the flag becomes right: suppress per row, recompute once.
+
+WHY THE PAYMENT HOOKS *ARE* SUPPRESSED, which reads like the opposite decision and is not. Read
+side by side: the CEO-Hold recompute above holds NO commit, so leaving it on costs nothing. The two
+payment hooks -- `update_parent_amount_paid` and the Approved->Paid notification cascade -- each
+call `frappe.db.commit()` mid-save, and a commit inside the savepoint below makes the rollback a
+silent no-op. The test is not "is this side effect wanted" but "does it commit"; where the answer
+is yes, it has to move outside the savepoint or be suppressed. `amount_paid` is still recomputed,
+inside the same transaction, exactly once. Only the commit and the notifications go.
 """
 
 import frappe
@@ -36,20 +49,33 @@ from nirmaan_stack.api.outflow_import.review import (
     _StagedRow,
     _refresh_batch_rollup,
 )
+from nirmaan_stack.services.outflow_import.ledgers import PAYMENT_DOCTYPE
 from nirmaan_stack.services.outflow_import.settle import (
     NON_PROJECT_EXPENSE,
     PROJECT_EXPENSE,
     create_expense_from_row,
     settle_existing_expense,
+    settle_payment,
 )
 from nirmaan_stack.services.outflow_import.status import ROW_SETTLED, ROW_SKIPPED
 
 
 @frappe.whitelist(methods=["POST"])
-def settle_expense(row: str, target_doctype: str, target_name: str):
-    """Mark an existing approved expense Paid from this bank row.
+def settle_row(row: str, target_doctype: str, target_name: str):
+    """Settle a bank row against an approved record in ANY of the three ledgers (slice V2).
 
-    URL: /api/method/nirmaan_stack.api.outflow_import.expenses.settle_expense
+    URL: /api/method/nirmaan_stack.api.outflow_import.expenses.settle_row
+
+    ⚠️ ONE ENDPOINT FOR ALL THREE LEDGERS, ON PURPOSE. The access gate, the savepoint, the match
+    record and the row flip are identical whatever was settled, and only the ledger-specific write
+    differs. Three endpoints would mean three places to keep those four things in step, and the one
+    that drifts is the one nobody re-reads.
+
+    ⚠️ ONE ROW PER CALL, AND THE ISOLATION IS WHAT MAKES BULK SAFE. "Confirm 8" is eight calls, each
+    its own savepoint and its own commit. A failure on the third leaves the first two written, the
+    third untouched, and the rest still attemptable -- which is the honest shape for a screen whose
+    rows were each decided separately. It is NOT all-or-nothing, and it must not become so: one
+    unsettleable row would then discard seven good decisions.
     """
     actor = require_outflow_access()
     staged, doc = _load_settleable_row(row)
@@ -57,11 +83,20 @@ def settle_expense(row: str, target_doctype: str, target_name: str):
     savepoint = f"ofi_settle_{frappe.generate_hash(length=10)}"
     frappe.db.savepoint(savepoint)
     try:
-        result = settle_existing_expense(staged, target_doctype, target_name, actor)
+        if target_doctype == PAYMENT_DOCTYPE:
+            result = settle_payment(staged, target_name, actor)
+        else:
+            result = settle_existing_expense(staged, target_doctype, target_name, actor)
         _record_settlement(staged, doc, result, actor)
     except Exception:
         # Roll back to the savepoint rather than the whole request: the caller gets the real error
         # and the database is exactly as it was before this row was attempted.
+        #
+        # ⚠️ THIS ONLY WORKS BECAUSE NOTHING INSIDE COMMITS. A payment save fires two hooks that
+        # each committed mid-save until V2 -- `update_parent_amount_paid` and the notification
+        # cascade -- and a commit here would make the rollback silently a no-op, leaving a
+        # half-written settlement behind. Both are suppressed via `doc.flags.from_outflow_import`;
+        # see the comments at the two hook sites.
         frappe.db.rollback(save_point=savepoint)
         raise
     frappe.db.release_savepoint(savepoint)
@@ -69,6 +104,23 @@ def settle_expense(row: str, target_doctype: str, target_name: str):
     statuses = _refresh_batch_rollup(doc["import_batch"])
     frappe.db.commit()
     return _summary(row, result, doc["import_batch"], statuses)
+
+
+@frappe.whitelist(methods=["POST"])
+def settle_expense(row: str, target_doctype: str, target_name: str):
+    """Deprecated alias for `settle_row`, kept so an in-flight client keeps working.
+
+    Removed at V5 once the new screen ships. It cannot settle a payment -- a caller reaching this
+    name predates the payment path existing, and silently widening what it can write is exactly the
+    surprise this feature must not produce.
+    """
+    if target_doctype == PAYMENT_DOCTYPE:
+        frappe.throw(
+            "Use settle_row to settle a payment.",
+            frappe.ValidationError,
+            title="Wrong endpoint",
+        )
+    return settle_row(row, target_doctype, target_name)
 
 
 @frappe.whitelist(methods=["POST"])

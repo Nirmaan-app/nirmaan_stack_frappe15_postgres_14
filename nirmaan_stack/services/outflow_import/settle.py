@@ -1,13 +1,22 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""Expense settlement -- THE ONLY WRITE IN THIS FEATURE (Bulk Import Outflow, slice S5).
+"""Settlement -- THE ONLY WRITE IN THIS FEATURE (Bulk Import Outflow, slices S5 + V2).
 
 Everything else in Bulk Import Outflow reads and reports. This module is where a bank row actually
-changes something outside the import's own staging: an approved expense becomes `Paid`, or a new
-expense is created already `Paid`. Nothing here may ever touch `Project Payments`, `PO Payment
-Terms`, or a Procurement Order's `amount_paid` -- that is the payment branch's contract (owner
-decision R1), and it holds by this module simply not knowing how.
+changes something outside the import's own staging: an approved record becomes `Paid`, or a new
+expense is created already `Paid`.
+
+⚠️ THE PARAGRAPH THAT STOOD HERE SAID THE OPPOSITE, AND IT WAS RIGHT AT THE TIME. Under v2 this
+module could not touch `Project Payments`, `PO Payment Terms` or a Procurement Order's
+`amount_paid`, and that held "by this module simply not knowing how". The owner reversed that spine
+on 2026-08-06. It now settles all three ledgers, and `settle_payment` is the reversal.
+
+WHAT DID NOT CHANGE, and it is where the safety now lives: this module only ever writes the LAST
+RUNG of a ladder somebody else already climbed. It cannot approve. It cannot create a payment --
+"create a new entry" is expenses-only, because a `Project Payment` is born from a PO or SR request.
+And nothing settles without a per-row human confirmation. If a future change lets this import
+approve something, that is the invariant breaking, not a feature.
 
 NO REQUEST CONTEXT. The actor is passed IN rather than read from `frappe.session`, so this stays a
 service the api layer drives (ADR-0010: api -> service is the one legal direction). DB writes here
@@ -38,6 +47,7 @@ and it is recorded here so a later reader does not "fix" it.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 
 import frappe
@@ -48,6 +58,7 @@ from nirmaan_stack.services.outflow_import.ledgers import (
 from nirmaan_stack.services.outflow_import.ledgers import (
     PROJECT_EXPENSE_DOCTYPE as PROJECT_EXPENSE,
 )
+from nirmaan_stack.services.outflow_import.ledgers import PAYMENT_DOCTYPE
 from nirmaan_stack.services.outflow_import.ledgers import (
     SETTLEABLE_STATUSES,
     is_expense_doctype,
@@ -64,8 +75,10 @@ __all__ = [
     "WrongStatusError",
     "AmountMismatchError",
     "ExpenseTypeScopeError",
+    "DuplicateReferenceError",
     "SettleResult",
     "settle_existing_expense",
+    "settle_payment",
     "create_expense_from_row",
     "format_amount_for",
 ]
@@ -78,10 +91,10 @@ __all__ = [
 # them is tightened. The owner then ruled Approved-only on all three ledgers (Q3), and one map is
 # what makes that ruling enforceable in one edit.
 #
-# ⚠️ THE MAP NOW INCLUDES `Project Payments`, WHICH THIS MODULE MUST NOT SETTLE YET. Membership of
-# `SETTLEABLE_STATUSES` is therefore NO LONGER a valid "is this an expense?" test -- use
-# `is_expense_doctype`. V2 adds the payment write path; until then a payment reaching either
-# function below is a bug, and it is refused by name.
+# ⚠️ THE MAP INCLUDES `Project Payments` FROM V1 ON, so membership of `SETTLEABLE_STATUSES` is NOT
+# a valid "is this an expense?" test -- use `is_expense_doctype`. The distinction is live, not
+# pedantic: a payment may be SETTLED (`settle_payment`) and may never be CREATED, so the two
+# expense functions still refuse one by name.
 
 _PAID = "Paid"
 
@@ -110,6 +123,17 @@ class AmountMismatchError(ExpenseSettlementError):
 
 class ExpenseTypeScopeError(ExpenseSettlementError):
     """A project-only type on a non-project expense, or the reverse."""
+
+
+class DuplicateReferenceError(ExpenseSettlementError):
+    """This bank reference is already recorded on a different payment.
+
+    Two genuinely different situations reach this, and the message distinguishes them:
+      * a FAN-OUT -- one transfer covering several payments. Owner ruling Q4 makes those
+        report-only, settled by hand in the payments screen, which is precisely why the existing
+        UTR guard is never challenged and stays exactly as it is.
+      * a real double-settle attempt from a re-uploaded or overlapping statement.
+    """
 
 
 @dataclass(frozen=True)
@@ -233,6 +257,159 @@ def settle_existing_expense(
     return SettleResult(
         doctype=target_doctype, name=target_name, amount=amount, created=False
     )
+
+
+def settle_payment(row, target_name: str, actor: str) -> SettleResult:
+    """Mark an already-APPROVED `Project Payments` record `Paid` from a bank row (slice V2).
+
+    ⚠️ THIS IS THE HALF v2 DELETED. v2's spine was "the payment branch never writes"; the owner
+    reversed it, and this function is the reversal. It still cannot approve anything and it still
+    cannot create a payment -- it writes the LAST rung of a ladder somebody else already climbed.
+
+    IT MIRRORS THE CANONICAL FULFIL (`api/payments/project_payments._fulfil_payment`) rather than
+    inventing a second way to pay a payment, and diverges in four places, each deliberate:
+
+      1. THE STATUS RE-ASSERTION HAPPENS UNDER A ROW LOCK. The canonical path does
+         `get_doc -> check -> save`, which is a read-check-write race: two accountants working
+         overlapping statements both read `Approved` and both write. `for_update=True`, WITHOUT
+         `cache=True`, is the only thing that closes it -- Frappe skips the lock entirely when the
+         value comes from cache, which would make this guard decorative.
+      2. DISTINCT ERRORS. The canonical path throws one sentence for CEO Pending, Requested,
+         Rejected and already-Paid alike, leaving the caller no way to react differently. A bulk
+         confirm needs to tell "somebody beat me to it" from "this was never settleable".
+      3. THE AMOUNT MUST MATCH EXACTLY, as it must for an expense. A TDS payment therefore cannot
+         be settled here at all -- the bank sends `amount - tds` -- which is the accepted cost of
+         deferring the tolerance pass (Q11). Those rows stay `Unmatched` and go through the
+         existing screen, which is unchanged and always available (Q12).
+      4. NO TDS IS EVER WRITTEN. `tds` is recorded at fulfilment by a human who knows the
+         deduction; this import does not know it and must not invent one. The field is left alone.
+
+    THE UTR GUARD IS KEPT AS-IS (owner ruling Q4). It refuses a reference already sitting on
+    another payment, which would throw on the second payment of a fan-out group -- and fan-out is
+    report-only, settled by hand, so the guard is never legitimately challenged.
+
+    THE CALLER OWNS THE TRANSACTION. `doc.save()` here fires the payment's own `on_update` and the
+    controller's, and the `from_outflow_import` flag stops both from committing mid-save. Nothing
+    in this function commits.
+    """
+    bank_amount = normalize_amount(getattr(row, "amount", 0))
+    reference = (getattr(row, "bank_reference_no", "") or "").strip()
+    current = _lock_and_assert_payment_settleable(target_name, bank_amount)
+    if reference:
+        _assert_reference_is_free(reference, target_name)
+
+    doc = frappe.get_doc(PAYMENT_DOCTYPE, target_name)
+    doc.status = _PAID
+    # Q5b: the reference is only ever WRITTEN INTO A BLANK, never compared. Every non-Paid payment
+    # in the database has an empty `utr` -- it is written at fulfilment -- so this always lands in
+    # an empty field. Guarded anyway rather than trusting that to stay true.
+    if reference and not (doc.utr or "").strip():
+        doc.utr = reference
+    payment_date = getattr(row, "added_on_date", None)
+    if payment_date:
+        doc.payment_date = payment_date
+
+    # ⚠️ SET BEFORE SAVE -- the hooks read it during the save, not after. This is what keeps the
+    # per-row savepoint intact; see the comments at both hook sites.
+    doc.flags.from_outflow_import = True
+    doc.save(ignore_permissions=True)
+
+    _advance_po_latest_payment_date(doc, payment_date)
+
+    return SettleResult(
+        doctype=PAYMENT_DOCTYPE, name=target_name, amount=current, created=False
+    )
+
+
+def _lock_and_assert_payment_settleable(name: str, bank_amount: Decimal) -> Decimal:
+    """Re-read the payment UNDER A ROW LOCK and re-assert everything the reviewer saw.
+
+    ⚠️ `for_update=True` WITHOUT `cache=True`, for the reason in the module docstring: a cached
+    read takes no lock and this whole guard becomes decorative.
+    """
+    current = frappe.db.get_value(
+        PAYMENT_DOCTYPE, name, ["status", "amount"], as_dict=True, for_update=True
+    )
+    if not current:
+        frappe.throw(f"Payment '{name}' not found.", WrongStatusError, title="Not found")
+
+    status = (current.get("status") or "").strip()
+    if status == _PAID:
+        frappe.throw(
+            f"{name} was already marked Paid. Refresh to see who settled it.",
+            AlreadyPaidError,
+            title="Already settled",
+        )
+    if status not in settleable_statuses(PAYMENT_DOCTYPE):
+        # Requested and CEO Pending land here. There is deliberately NO approval link and no nudge
+        # -- nothing that cannot be settled is offered (owner ruling), and such a row should have
+        # arrived as `Unmatched` rather than reaching this function at all.
+        frappe.throw(
+            f"{name} is '{status}', not Approved, and cannot be settled from a bank statement.",
+            WrongStatusError,
+            title="Not approved",
+        )
+
+    amount = normalize_amount(current.get("amount"))
+    if amount != bank_amount:
+        frappe.throw(
+            f"{name} is for {amount} but {bank_amount} left the bank. "
+            f"A deduction such as TDS looks like this; settle it in the payments screen.",
+            AmountMismatchError,
+            title="Amounts differ",
+        )
+    return amount
+
+
+def _assert_reference_is_free(reference: str, target_name: str) -> None:
+    """Refuse a bank reference already recorded on a DIFFERENT payment (owner ruling Q4).
+
+    Mirrors the canonical fulfil's guard. The comparison is on the stored value as-is, exactly as
+    that path does it -- this is not the normalised matcher key, and widening it here would change
+    the behaviour of a guard the owner explicitly chose to leave alone.
+    """
+    existing = frappe.db.get_value(PAYMENT_DOCTYPE, {"utr": reference}, "name")
+    if existing and existing != target_name:
+        frappe.throw(
+            f"Bank reference {reference} is already recorded on payment {existing}. "
+            f"One transfer covering several payments is settled by hand in the payments screen.",
+            DuplicateReferenceError,
+            title="Reference already used",
+        )
+
+
+def _advance_po_latest_payment_date(doc, payment_date) -> None:
+    """Keep the parent's `latest_payment_date` in step, the way the canonical fulfil does.
+
+    ⚠️ ADVANCE-ONLY, which the canonical path is not -- it overwrites unconditionally. That is
+    harmless when a human is fulfilling today's payment and wrong here, because a statement can be
+    uploaded weeks late and would drag the parent's latest payment date BACKWARDS.
+
+    Written with `set_value` rather than `po_doc.save()` to avoid firing the whole Procurement
+    Order lifecycle once per settled row.
+    """
+    if not payment_date or not doc.document_type or not doc.document_name:
+        return
+    if not frappe.db.has_column(doc.document_type, "latest_payment_date"):
+        return
+    current = frappe.db.get_value(doc.document_type, doc.document_name, "latest_payment_date")
+    # ⚠️ THE STORED VALUE IS A DATETIME AND THE BANK ROW'S IS A DATE, and comparing the two raises
+    # rather than returning False -- so an unguarded `>=` here does not silently mis-order dates,
+    # it aborts the settlement. Found by the V2 suite, which is the only reason it is not a
+    # production 500 on the first payment settled against a PO that already had a payment date.
+    if current is not None and _as_date(current) >= payment_date:
+        return
+    frappe.db.set_value(
+        doc.document_type, doc.document_name, "latest_payment_date", payment_date
+    )
+
+
+def _as_date(value):
+    """A `date` from either a `date` or a `datetime`. `datetime` subclasses `date`, so the
+    isinstance order matters: check the subclass first."""
+    if isinstance(value, datetime):
+        return value.date()
+    return value
 
 
 def create_expense_from_row(

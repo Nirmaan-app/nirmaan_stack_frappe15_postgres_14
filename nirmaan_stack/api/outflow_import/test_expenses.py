@@ -245,9 +245,23 @@ class TestRefusals(SettlementFixture):
             settle_expense(row["name"], PROJECT_EXPENSE, expense)
 
     def test_a_payment_can_never_be_settled_through_this_path(self):
+        """⚠️ STILL TRUE AT V2, FOR A DIFFERENT REASON, AND THE REASON IS THE POINT.
+
+        Under v2 this refusal meant "no code path to a payment exists". V3 built that path -- but
+        it lives on `settle_row`, and a caller still on the older `settle_expense` name has not
+        opted into paying payments. Silently widening what an existing endpoint writes is precisely
+        the surprise this feature must not produce.
+
+        The exception class changed with the meaning: `WrongStatusError` says "the target is in a
+        status that was never settleable", which is not what happened here -- the target may be
+        perfectly settleable and the ENDPOINT is wrong. It is a plain ValidationError naming the
+        one to use instead.
+        """
         row = self._next_settleable_row()
-        with self.assertRaises(WrongStatusError):
+        with self.assertRaises(frappe.ValidationError) as caught:
             settle_expense(row["name"], "Project Payments", "PAY-does-not-matter")
+        self.assertNotIsInstance(caught.exception, WrongStatusError)
+        self.assertIn("settle_row", str(caught.exception))
 
     def test_a_row_cannot_be_settled_twice(self):
         row = self._next_settleable_row()
