@@ -336,22 +336,36 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
                 <div className="p-6 py-4 overflow-y-auto flex-1 custom-scrollbar">
                     <Form {...form}>
                         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                            {/* Mode toggle: existing group vs new group */}
-                            <div className="flex rounded-lg border border-gray-200 overflow-hidden">
-                                <button
-                                    type="button"
-                                    onClick={() => handleModeChange("existing")}
-                                    className={`flex-1 px-3 py-2 text-sm font-medium transition-colors ${mode === "existing" ? "bg-red-600 text-white" : "bg-white text-gray-600 hover:bg-gray-50"}`}
-                                >
-                                    Existing TDS Item
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => handleModeChange("new")}
-                                    className={`flex-1 px-3 py-2 text-sm font-medium transition-colors border-l border-gray-200 ${mode === "new" ? "bg-red-600 text-white" : "bg-white text-gray-600 hover:bg-gray-50"}`}
-                                >
-                                    New TDS Item Group
-                                </button>
+                            {/* Mode toggle: existing group vs new group.
+                                The house segmented control — same shape, same red
+                                active fill, and the same two labels as the Edit
+                                dialog, which offers this identical choice. Label
+                                left, toggle right on one row. */}
+                            <div className="space-y-1">
+                                <div className="flex items-center justify-between gap-3">
+                                    <FormLabel className="text-sm font-bold text-gray-700">TDS Item :</FormLabel>
+                                    <div className="inline-flex rounded-lg border border-gray-200 p-0.5 bg-gray-50">
+                                        <button
+                                            type="button"
+                                            onClick={() => handleModeChange("existing")}
+                                            className={`px-5 py-1.5 text-sm font-medium rounded-md transition-colors ${mode === "existing" ? "bg-[#dc2626] text-white shadow-sm" : "text-gray-600 hover:text-gray-900"}`}
+                                        >
+                                            Existing Item
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleModeChange("new")}
+                                            className={`px-5 py-1.5 text-sm font-medium rounded-md transition-colors ${mode === "new" ? "bg-[#dc2626] text-white shadow-sm" : "text-gray-600 hover:text-gray-900"}`}
+                                        >
+                                            New Item
+                                        </button>
+                                    </div>
+                                </div>
+                                <p className="mt-1.5 text-xs text-muted-foreground">
+                                    {mode === "existing"
+                                        ? "Pick a TDS Item already in the repository."
+                                        : "Create a new TDS Item — needs a name, Work Package and datasheet."}
+                                </p>
                             </div>
 
                             {mode === "existing" ? (
