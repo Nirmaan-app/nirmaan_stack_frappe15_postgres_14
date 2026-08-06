@@ -3,9 +3,11 @@
 // evaluateGoldens (same pure compute the tab uses).
 
 import { describe, it, expect } from "vitest";
-import type { RateCategoryConfig, RateMasterItem } from "./rateMasterTypes";
+import type { AttributeDefinition, RateCategoryConfig, RateMasterItem } from "./rateMasterTypes";
+import { NONE_SENTINEL } from "./ratePipelineInterpreter";
 import {
   STEP_VOCABULARY,
+  coerceForMatch,
   blankPipeline,
   blankStep,
   categoryItemKinds,
@@ -232,5 +234,47 @@ describe("distinctNumberValues (EA-2 number-input suggestions)", () => {
   });
   it("is empty for an attribute with no numeric data (the module_count-with-no-data case)", () => {
     expect(distinctNumberValues(items, "kva")).toEqual([]);
+  });
+});
+
+// CP2 Phase A: `coerceForMatch` moved here from `pricingSheetHelper.ts` (the single point where an
+// attribute value becomes a match key). These pins were written against the PRE-MOVE implementation
+// and proven green there FIRST, then re-run against this shared export -- the move must change
+// nothing. Item matching is strict identity, so the JS type produced here decides whether a catalog
+// row is found at all.
+describe("coerceForMatch -- every attribute type (CP2 Phase A move pins)", () => {
+  const num = (over: Partial<AttributeDefinition> = {}): AttributeDefinition =>
+    ({ id: "n", label: "N", type: "number", ...over }) as AttributeDefinition;
+  const cho = (over: Partial<AttributeDefinition> = {}): AttributeDefinition =>
+    ({ id: "c", label: "C", type: "choice", ...over }) as AttributeDefinition;
+
+  it("number: a numeric string coerces to a NUMBER", () => {
+    expect(coerceForMatch(num(), "1.5")).toBe(1.5);
+    expect(coerceForMatch(num(), "3")).toBe(3);
+    expect(coerceForMatch(num(), 3)).toBe(3);
+    expect(coerceForMatch(num(), "0")).toBe(0);
+  });
+  it("number: a non-numeric value is an honest null, never NaN", () => {
+    expect(coerceForMatch(num(), "abc")).toBeNull();
+    expect(coerceForMatch(num(), "None")).toBeNull(); // no allow_none -> not the sentinel
+  });
+  it("choice: every value coerces to a STRING", () => {
+    expect(coerceForMatch(cho(), "COPPER")).toBe("COPPER");
+    expect(coerceForMatch(cho(), 3)).toBe("3");
+    expect(coerceForMatch(cho(), 1.5)).toBe("1.5");
+  });
+  it("blank / null / undefined -> null on every type", () => {
+    expect(coerceForMatch(num(), "")).toBeNull();
+    expect(coerceForMatch(cho(), "")).toBeNull();
+    expect(coerceForMatch(num(), null)).toBeNull();
+    expect(coerceForMatch(cho(), null)).toBeNull();
+    expect(coerceForMatch(num(), undefined as unknown as null)).toBeNull();
+  });
+  it("allow_none: the None sentinel is preserved VERBATIM on both types", () => {
+    expect(coerceForMatch(num({ allow_none: true }), NONE_SENTINEL)).toBe(NONE_SENTINEL);
+    expect(coerceForMatch(cho({ allow_none: true }), NONE_SENTINEL)).toBe(NONE_SENTINEL);
+  });
+  it("an unknown/absent type falls through to String", () => {
+    expect(coerceForMatch({ id: "x", label: "X", type: "zzz" } as unknown as AttributeDefinition, 6)).toBe("6");
   });
 });

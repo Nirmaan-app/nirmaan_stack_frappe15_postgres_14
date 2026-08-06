@@ -12,7 +12,30 @@ import type {
   RateCategoryConfig,
   RateMasterItem,
 } from "./rateMasterTypes";
-import { runPipeline } from "./ratePipelineInterpreter";
+import { NONE_SENTINEL, runPipeline } from "./ratePipelineInterpreter";
+
+/**
+ * Coerce a stringy attribute value to what the interpreter matches on (number for number attrs).
+ *
+ * THE SINGLE POINT where an attribute value becomes a MATCH KEY. Item matching is strict identity
+ * (`matchMasterRow`: `it.attributes[k] === selected[k]`), so a value coerced to the wrong JS type
+ * silently fails to match a catalog row that carries it -- a no-match, never a wrong price, but
+ * equally never a price. It lived buried in `pricingSheetHelper.ts` until CP2 moved it here beside
+ * the other attribute-definition helpers (`blankAttributeDefinition`, `referencedAttrIds`,
+ * `distinctNumberValues`), so both the pricing-editor helper and any future consumer share ONE
+ * definition. PURE.
+ */
+export function coerceForMatch(def: AttributeDefinition, raw: string | number | null): string | number | null {
+  if (raw === null || raw === undefined || raw === "") return null;
+  // EA-4a-r: the "None" sentinel is POSITIVE ABSENCE -- preserve it verbatim for an allow_none def (even a
+  // number one, where Number("None") would otherwise coerce it to null and lose the signal).
+  if (def.allow_none && raw === NONE_SENTINEL) return NONE_SENTINEL;
+  if (def.type === "number") {
+    const n = typeof raw === "number" ? raw : Number(raw);
+    return Number.isFinite(n) ? n : null;
+  }
+  return String(raw);
+}
 
 /** One standing golden stored in the config: attributes + expected finals per pipeline. */
 export interface Golden {

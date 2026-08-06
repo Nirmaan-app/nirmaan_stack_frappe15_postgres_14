@@ -25,6 +25,9 @@
  * special-cased, not the strings. Every OTHER category goes through the generic path.
  */
 import { NONE_SENTINEL, runPipeline } from "@/pages/pricing/rate-master/ratePipelineInterpreter";
+// CP2: `coerceForMatch` moved to the shared rate-master module (the single point where an attribute
+// value becomes a match key); this file imports it and no longer defines it.
+import { coerceForMatch } from "@/pages/pricing/rate-master/rateMasterStructure";
 import type {
   AttributeDefinition,
   Pipeline,
@@ -153,19 +156,6 @@ export function attributeOptions(def: AttributeDefinition, items: RateMasterItem
   }
   // EA-4a-r: an allow_none def offers the "None" sentinel (positive absence) at the TOP of the list.
   return def.allow_none ? [NONE_SENTINEL, ...base] : base;
-}
-
-/** Coerce a stringy attribute value to what the interpreter matches on (number for number attrs). */
-function coerceForMatch(def: AttributeDefinition, raw: string | number | null): string | number | null {
-  if (raw === null || raw === undefined || raw === "") return null;
-  // EA-4a-r: the "None" sentinel is POSITIVE ABSENCE -- preserve it verbatim for an allow_none def (even a
-  // number one, where Number("None") would otherwise coerce it to null and lose the signal).
-  if (def.allow_none && raw === NONE_SENTINEL) return NONE_SENTINEL;
-  if (def.type === "number") {
-    const n = typeof raw === "number" ? raw : Number(raw);
-    return Number.isFinite(n) ? n : null;
-  }
-  return String(raw);
 }
 
 /** Map a pipeline output key -> the sheet rate-kind it fills. EA-4a: the assembly categories name their
