@@ -28,6 +28,17 @@ to `float` happens once, at the persistence boundary.
 
 Adding a source (e.g. Cashbook) is a new entry in `_ADAPTERS` -- a column map plus its required
 set. No other code in this module is source-aware.
+
+FORMAT IS SNIFFED FROM THE BYTES, NOT DECLARED (Q10, slice V3). `.csv` and `.xlsx` both arrive here
+as bytes and are told apart by the ZIP magic number that starts every xlsx -- a CSV cannot begin
+with it. The caller does not say which it has, and neither does the accountant: "the sheet format
+stops being something they have to think about" was the point of the ruling. A file whose extension
+disagrees with its contents therefore still parses correctly, which is the common shape when
+someone renames an export.
+
+⚠️ SOURCE AND FORMAT ARE DIFFERENT AXES. `source` is WHOSE statement this is (Cashfree, one day
+Cashbook) and selects the column map; format is how the bytes are encoded. A Cashfree export is the
+same statement whether saved as .csv or .xlsx, so adding a format must never mean adding a source.
 """
 
 from __future__ import annotations
@@ -176,12 +187,8 @@ def parse_statement(content: bytes, source: str = "Cashfree") -> ParseResult:
         )
     column_map, required = _ADAPTERS[source]
 
-    text = _decode(content)
-    if not text.strip():
-        raise StatementFormatError("The uploaded statement is empty.")
-
-    reader = csv.DictReader(io.StringIO(text))
-    headers = [h.strip() for h in (reader.fieldnames or [])]
+    fieldnames, records = _read_records(content)
+    headers = [h.strip() for h in fieldnames]
     if not headers:
         raise StatementFormatError("The uploaded statement has no header row.")
 
@@ -191,11 +198,11 @@ def parse_statement(content: bytes, source: str = "Cashfree") -> ParseResult:
             f"This does not look like a {source} statement. Missing column(s): {', '.join(missing)}."
         )
 
-    header_lookup = {h.strip(): h for h in (reader.fieldnames or [])}
+    header_lookup = {h.strip(): h for h in fieldnames}
     rows: list[RawRow] = []
     warnings: list[str] = []
 
-    for position, record in enumerate(reader, start=1):
+    for position, record in enumerate(records, start=1):
         row = _build_row(position, record, column_map, header_lookup, warnings)
         if row is None:
             continue
@@ -277,6 +284,97 @@ def _build_row(
         normalized_account=normalize_account(bank_account),
         normalized_reference=normalize_reference(bank_reference_no),
     )
+
+
+def _read_records(content: bytes) -> tuple[list[str], list[dict]]:
+    """Turn statement bytes into (header names, records) whichever format they are in.
+
+    ONE seam for both formats, so everything downstream -- the required-column check, the column
+    map, `_build_row` -- is format-blind and stays that way. A format is a way of encoding a table;
+    it must not become a second parser.
+    """
+    if _is_xlsx(content):
+        return _read_xlsx(content)
+    return _read_csv(content)
+
+
+def _is_xlsx(content: bytes) -> bool:
+    """An .xlsx is a ZIP archive, so it starts with the ZIP local-file-header magic.
+
+    Sniffing beats trusting the extension: a renamed export is common, and the failure mode of
+    guessing wrong is a baffling "missing column" error rather than an honest one.
+    """
+    return isinstance(content, (bytes, bytearray)) and bytes(content[:4]) == b"PK\x03\x04"
+
+
+def _read_csv(content: bytes) -> tuple[list[str], list[dict]]:
+    text = _decode(content)
+    if not text.strip():
+        raise StatementFormatError("The uploaded statement is empty.")
+    reader = csv.DictReader(io.StringIO(text))
+    return list(reader.fieldnames or []), list(reader)
+
+
+def _read_xlsx(content: bytes) -> tuple[list[str], list[dict]]:
+    """Read the FIRST worksheet of an .xlsx as a header row plus records.
+
+    ⚠️ `data_only=True` returns a formula cell's CACHED VALUE. A workbook saved by a tool that never
+    calculated would hand us `None` there -- which surfaces as an empty field and a row-level
+    warning, not a wrong number. Reading the formula TEXT instead would be far worse: it would
+    parse as a garbage amount.
+
+    ⚠️ Values arrive TYPED here and as text from a CSV -- a date cell is a `datetime`, an amount a
+    `float`. Everything is stringified so `_build_row` sees exactly what it sees from a CSV and
+    there is one set of coercion rules, not two. `str(datetime)` yields "YYYY-MM-DD HH:MM:SS",
+    which `_parse_datetime` already accepts; that is why the format list carries it.
+    """
+    try:
+        from openpyxl import load_workbook
+    except ImportError as exc:  # pragma: no cover -- openpyxl ships with Frappe
+        raise StatementFormatError(
+            "This server cannot read .xlsx statements. Save the sheet as .csv and upload that."
+        ) from exc
+
+    try:
+        workbook = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+    except Exception as exc:
+        raise StatementFormatError(
+            "The uploaded file looks like a spreadsheet but could not be opened."
+        ) from exc
+
+    try:
+        if not workbook.sheetnames:
+            raise StatementFormatError("The uploaded workbook has no sheets.")
+        sheet = workbook[workbook.sheetnames[0]]
+
+        row_iter = sheet.iter_rows(values_only=True)
+        header_cells = next(row_iter, None)
+        if header_cells is None:
+            raise StatementFormatError("The uploaded statement has no header row.")
+        # Trailing empty header cells are what Excel leaves behind after a column is cleared.
+        fieldnames = [("" if cell is None else str(cell)).strip() for cell in header_cells]
+        while fieldnames and not fieldnames[-1]:
+            fieldnames.pop()
+        if not any(fieldnames):
+            raise StatementFormatError("The uploaded statement has no header row.")
+
+        records: list[dict] = []
+        for cells in row_iter:
+            # Excel reports a used range that routinely outruns the data; a wholly empty tuple is
+            # padding, not a transfer, and staging it would manufacture a row nobody exported.
+            if cells is None or all(cell is None or str(cell).strip() == "" for cell in cells):
+                continue
+            record = {}
+            for index, name in enumerate(fieldnames):
+                if not name:
+                    continue
+                value = cells[index] if index < len(cells) else None
+                record[name] = "" if value is None else str(value)
+            records.append(record)
+    finally:
+        workbook.close()
+
+    return fieldnames, records
 
 
 def _duplicate_transfer_ids(rows: list[RawRow]) -> tuple[str, ...]:

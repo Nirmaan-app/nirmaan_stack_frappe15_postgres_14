@@ -35,6 +35,7 @@ from frappe.utils.file_manager import save_file
 
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
 from nirmaan_stack.services.outflow_import.candidates import find_earlier_batches_for_transfers
+from nirmaan_stack.services.outflow_import.duplicates import assess_duplicates
 from nirmaan_stack.services.outflow_import.parser import (
     SUPPORTED_SOURCES,
     StatementFormatError,
@@ -49,7 +50,10 @@ from nirmaan_stack.services.outflow_import.status import (
 BATCH_DOCTYPE = "Outflow Import Batch"
 ROW_DOCTYPE = "Outflow Import Row"
 
-_ALLOWED_EXTENSIONS = frozenset({".csv"})
+# Q10: .xlsx alongside .csv, so the sheet format stops being something the accountant thinks about.
+# The parser sniffs the actual format from the bytes -- this set only decides what we accept by
+# name, and a renamed export still parses correctly.
+_ALLOWED_EXTENSIONS = frozenset({".csv", ".xlsx"})
 
 # Well under `save_file`'s own 10 MB cap. A statement is kilobytes; anything approaching this is a
 # wrong file, and refusing it here gives a better message than the framework's.
@@ -57,49 +61,66 @@ _MAX_FILE_BYTES = 5 * 1024 * 1024
 
 
 @frappe.whitelist(methods=["POST"])
+def preview_outflow_statement():
+    """Parse a statement and report what importing it WOULD do. WRITES NOTHING (slice V3).
+
+    Multipart form: `file` (.csv or .xlsx) plus a text field `source`.
+    URL: /api/method/nirmaan_stack.api.outflow_import.upload.preview_outflow_statement
+
+    ⚠️ THE BROWSER RE-POSTS THE SAME FILE ON CONFIRM, and that is the design, not a shortcoming.
+    The server holding a parse between two requests would mean session state, an expiry, and a way
+    for confirm to act on a file that is no longer the one on screen. A statement is a few
+    kilobytes; sending it twice is cheaper than any of that.
+
+    The period was ALWAYS captured -- `period_from`/`period_to` are derived from the sheet's own
+    earliest and latest Added On -- it just happened silently, after the commit, where nobody could
+    see it. This endpoint is where it becomes visible BEFORE anything is written.
+    """
+    _, source, filename, _, parsed = _read_and_parse()
+    verdict, overlaps = _assess_statement(parsed, filename)
+
+    return {
+        "preview": True,
+        "source": source,
+        "original_filename": filename,
+        "period_from": str(parsed.period_from) if parsed.period_from else None,
+        "period_to": str(parsed.period_to) if parsed.period_to else None,
+        "total_rows": len(parsed.rows),
+        "successful_rows": parsed.success_count,
+        "failed_rows": len(parsed.rows) - parsed.success_count,
+        "gross_amount": float(parsed.gross_amount),
+        "charges_amount": float(parsed.charges_amount),
+        "duplicate_rows": verdict.duplicates,
+        "new_rows": verdict.new,
+        "duplicate_message": verdict.message,
+        # Two DIFFERENT outcomes, never collapsed into one flag: `refused` means the confirm button
+        # must not be offered at all, `warn` means it must be offered anyway (owner ruling Q2 --
+        # a warning never blocks).
+        "refused": verdict.refuse,
+        "warn": verdict.warn,
+        "duplicate_of_batch": verdict.earliest_batch,
+        "overlaps_batch": overlaps,
+        "warnings": list(parsed.warnings),
+        "duplicate_transfer_ids": list(parsed.duplicate_transfer_ids),
+    }
+
+
+@frappe.whitelist(methods=["POST"])
 def upload_outflow_statement():
     """Upload a statement, parse it, and stage its rows. Returns the batch summary.
 
-    Multipart form: `file` (the CSV) plus a text field `source`.
+    Multipart form: `file` (.csv or .xlsx) plus a text field `source`.
     URL: /api/method/nirmaan_stack.api.outflow_import.upload.upload_outflow_statement
     """
-    user = require_outflow_access()
+    user, source, filename, file_content, parsed = _read_and_parse()
 
-    source = (frappe.form_dict.get("source") or "Cashfree").strip()
-    if source not in SUPPORTED_SOURCES:
-        frappe.throw(
-            f"Unknown source '{source}'. Supported: {', '.join(SUPPORTED_SOURCES)}.",
-            title="Unsupported source",
-        )
-
-    files = frappe.request.files
-    if "file" not in files:
-        frappe.throw("No file uploaded.", title="Missing file")
-
-    uploaded = files["file"]
-    filename = uploaded.filename or ""
-    _, ext = os.path.splitext(filename)
-    if ext.lower() not in _ALLOWED_EXTENSIONS:
-        frappe.throw(
-            f"We support .csv statements only. You uploaded a '{ext or 'file with no extension'}'.",
-            title="Unsupported file type",
-        )
-
-    # Read the werkzeug stream exactly once -- it is consumed on read.
-    file_content = uploaded.read()
-    if len(file_content) > _MAX_FILE_BYTES:
-        mb = len(file_content) / (1024 * 1024)
-        frappe.throw(
-            f"This file is {mb:.1f} MB. Maximum is "
-            f"{_MAX_FILE_BYTES // (1024 * 1024)} MB.",
-            title="File too large",
-        )
-
-    # PARSE BEFORE ANY WRITE. A bad statement leaves no trace.
-    try:
-        parsed = parse_statement(file_content, source=source)
-    except StatementFormatError as exc:
-        frappe.throw(str(exc), title="Could not read this statement")
+    # ⚠️ THE REFUSAL HAPPENS BEFORE `save_file`, WHICH IS THE ONLY PLACE IT CAN. `save_file` is not
+    # rollback-able -- the cloud attachment hook commits inside this request -- so a refusal after
+    # it would leave an orphan File behind for a statement we declined. Owner ruling Q2: a wholly
+    # duplicated sheet writes NOTHING AT ALL.
+    verdict, _ = _assess_statement(parsed, filename)
+    if verdict.refuse:
+        frappe.throw(verdict.message, title="Already imported")
 
     ret = save_file(fname=filename, content=file_content, dt=None, dn=None, is_private=1)
     # Read file_url OFF THE RETURNED DOC: the cloud hook rewrites it on this same object during
@@ -125,12 +146,103 @@ def upload_outflow_statement():
     return _summarize(batch, parsed)
 
 
+def _read_and_parse():
+    """authorize -> validate -> read the stream -> parse. WRITES NOTHING.
+
+    Shared verbatim by the preview and the upload, so the two can never disagree about what they
+    accept. That matters more than the saved lines: a preview that accepts a file the upload then
+    rejects is worse than having no preview, because it moves the failure to after the reader
+    committed to it.
+    """
+    user = require_outflow_access()
+
+    source = (frappe.form_dict.get("source") or "Cashfree").strip()
+    if source not in SUPPORTED_SOURCES:
+        frappe.throw(
+            f"Unknown source '{source}'. Supported: {', '.join(SUPPORTED_SOURCES)}.",
+            title="Unsupported source",
+        )
+
+    files = frappe.request.files
+    if "file" not in files:
+        frappe.throw("No file uploaded.", title="Missing file")
+
+    uploaded = files["file"]
+    filename = uploaded.filename or ""
+    _, ext = os.path.splitext(filename)
+    if ext.lower() not in _ALLOWED_EXTENSIONS:
+        frappe.throw(
+            f"We support .csv and .xlsx statements. "
+            f"You uploaded a '{ext or 'file with no extension'}'.",
+            title="Unsupported file type",
+        )
+
+    # Read the werkzeug stream exactly once -- it is consumed on read.
+    file_content = uploaded.read()
+    if len(file_content) > _MAX_FILE_BYTES:
+        mb = len(file_content) / (1024 * 1024)
+        frappe.throw(
+            f"This file is {mb:.1f} MB. Maximum is "
+            f"{_MAX_FILE_BYTES // (1024 * 1024)} MB.",
+            title="File too large",
+        )
+
+    # PARSE BEFORE ANY WRITE. A bad statement leaves no trace.
+    try:
+        parsed = parse_statement(file_content, source=source)
+    except StatementFormatError as exc:
+        frappe.throw(str(exc), title="Could not read this statement")
+
+    return user, source, filename, file_content, parsed
+
+
+def _assess_statement(parsed, filename: str):
+    """How much of this statement is already imported, and the overlap warning. READ-ONLY.
+
+    Returns `(DuplicateVerdict, overlapping_batch_name)`. Called by BOTH the preview and the
+    upload, so what the preview promised is what the upload enforces.
+    """
+    already_imported = _already_imported(parsed)
+
+    # ⚠️ COUNT ROWS, NOT KEYS. `already_imported` is keyed by transfer_id, and a statement may
+    # carry the same transfer TWICE -- the fixture does, deliberately. Using `len()` of the map
+    # against a row count compares two different populations, and the arithmetic is off by exactly
+    # the number of in-file repeats: a fully duplicated 11-row sheet with one repeat reported 10 of
+    # 11 and warned instead of refusing. Both numbers must count the same thing.
+    duplicates = sum(1 for row in parsed.rows if row.transfer_id in already_imported)
+    earliest = next(
+        (already_imported[row.transfer_id] for row in parsed.rows
+         if row.transfer_id in already_imported),
+        None,
+    )
+    verdict = assess_duplicates(
+        total=len(parsed.rows),
+        duplicates=duplicates,
+        earliest_batch=earliest,
+        filename=filename,
+    )
+    return verdict, _find_overlapping_batch(parsed.period_from, parsed.period_to)
+
+
+def _already_imported(parsed, exclude_batch: str | None = None) -> dict:
+    """The duplicate lookup, NARROWED BY PERIOD FIRST (owner-directed, slice V3).
+
+    One call site's worth of policy, kept in one place so the preview, the staging pass and any
+    later caller all narrow identically -- a preview that searched wider than the import would
+    report duplicates the import then staged anyway.
+    """
+    return find_earlier_batches_for_transfers(
+        [row.transfer_id for row in parsed.rows],
+        exclude_batch=exclude_batch,
+        period_from=parsed.period_from,
+        period_to=parsed.period_to,
+    )
+
+
 def _stage_batch(parsed, file_url: str, filename: str, user: str):
     """Create the batch and one row per parsed transfer. No matching happens here -- that is S4."""
     overlaps = _find_overlapping_batch(parsed.period_from, parsed.period_to)
-    already_imported = find_earlier_batches_for_transfers(
-        [row.transfer_id for row in parsed.rows]
-    )
+    already_imported = _already_imported(parsed)
 
     batch = frappe.new_doc(BATCH_DOCTYPE)
     batch.update(

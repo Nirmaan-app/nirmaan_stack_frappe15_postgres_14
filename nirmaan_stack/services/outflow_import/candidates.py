@@ -282,12 +282,28 @@ def load_expense_targets(amounts: Sequence[Decimal]) -> tuple[TargetRef, ...]:
 def find_earlier_batches_for_transfers(
     transfer_ids: Sequence[str],
     exclude_batch: str | None = None,
+    period_from: date | None = None,
+    period_to: date | None = None,
 ) -> dict[str, str]:
     """Map transfer_id -> the earliest OTHER batch that already staged it.
 
     This is the precise duplicate guard. The batch-level Added-On overlap only warns; two exports
     can carry the same transfer without their periods overlapping at all, and can carry different
     transfers with periods that do.
+
+    ⚠️ PERIOD NARROWING IS OPT-IN AND IS ERGONOMICS, NOT SAFETY (owner-directed, slice V3). Supply
+    both dates and the search is restricted to batches whose recorded period overlaps this sheet's,
+    instead of every import row ever recorded. Omit them and it behaves exactly as before.
+
+    It CAN in principle miss a duplicate living in a batch with an odd recorded period, and that is
+    accepted, because it cannot cause double payment: the real backstop is the DB unique constraint
+    on `Outflow Row Match (transfer_id, target_doctype, target_name)`. The same transfer physically
+    cannot settle the same record twice whatever this pre-filter does. What a miss costs is a
+    clearer message, which is what this lookup is for.
+
+    ⚠️ A BATCH WITH NO RECORDED PERIOD IS ALWAYS SEARCHED. It cannot be excluded on evidence we do
+    not have, and dropping it would turn "we could not date this batch" into "this batch contains
+    nothing" -- the same reasoning the matcher's date window uses for an undated row.
     """
     wanted = sorted({t for t in transfer_ids if t})
     if not wanted:
@@ -300,12 +316,24 @@ def find_earlier_batches_for_transfers(
         exclude_clause = " AND import_batch <> %s"
         params.append(exclude_batch)
 
+    period_clause = ""
+    if period_from and period_to:
+        period_clause = """
+          AND import_batch IN (
+                SELECT name FROM "tabOutflow Import Batch"
+                 WHERE period_from IS NULL OR period_to IS NULL
+                    OR (period_from <= %s AND period_to >= %s)
+              )
+        """
+        params.extend([period_to, period_from])
+
     rows = frappe.db.sql(
         f"""
         SELECT transfer_id, import_batch, creation
         FROM "tabOutflow Import Row"
         WHERE transfer_id IN ({placeholders})
           {exclude_clause}
+          {period_clause}
         ORDER BY creation ASC
         """,
         tuple(params),

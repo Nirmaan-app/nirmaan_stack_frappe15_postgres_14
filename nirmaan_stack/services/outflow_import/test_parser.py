@@ -215,5 +215,86 @@ class TestWholeFileFailures(unittest.TestCase):
         self.assertTrue(result.rows)
 
 
+class TestXlsx(unittest.TestCase):
+    """.xlsx alongside .csv (owner ruling Q10, slice V3).
+
+    `cashfree_sample.xlsx` is the same statement as `cashfree_sample.csv`, saved the way a real
+    export saves it: dates as DATETIME cells and amounts as FLOATS, but identity fields left as
+    TEXT. That mix is the whole point of the fixture -- see the leading-zero test below.
+    """
+
+    def test_it_parses_to_exactly_the_same_rows_as_its_csv_twin(self):
+        """THE GATE FOR THIS SLICE. Format is an encoding, not a dialect: the same statement must
+        produce the same rows whichever way it was saved, or every downstream rule silently has two
+        behaviours."""
+        from_csv = parse_statement(_load("cashfree_sample.csv"), source="Cashfree")
+        from_xlsx = parse_statement(_load("cashfree_sample.xlsx"), source="Cashfree")
+        self.assertEqual(from_csv.rows, from_xlsx.rows)
+
+    def test_the_batch_level_figures_agree_too(self):
+        from_csv = parse_statement(_load("cashfree_sample.csv"), source="Cashfree")
+        from_xlsx = parse_statement(_load("cashfree_sample.xlsx"), source="Cashfree")
+        # Compared as Decimals, not as text: 57727.50 and 57727.5 are the same money and different
+        # strings, and a repr comparison here would fail for no reason that matters.
+        self.assertEqual(from_csv.gross_amount, from_xlsx.gross_amount)
+        self.assertEqual(from_csv.charges_amount, from_xlsx.charges_amount)
+        self.assertEqual(from_csv.period_from, from_xlsx.period_from)
+        self.assertEqual(from_csv.period_to, from_xlsx.period_to)
+        self.assertEqual(from_csv.duplicate_transfer_ids, from_xlsx.duplicate_transfer_ids)
+
+    def test_the_format_is_sniffed_from_the_bytes_not_the_name(self):
+        """No filename reaches the parser at all, so a renamed export still works. The failure mode
+        of trusting an extension is a 'missing column' error on a perfectly good file."""
+        result = parse_statement(_load("cashfree_sample.xlsx"), source="Cashfree")
+        self.assertEqual(len(result.rows), 11)
+
+    def test_a_leading_zero_bank_account_survives(self):
+        """⚠️ THE ONE THAT BREAKS SILENTLY. Account `0042345678904` written to a NUMBER cell comes
+        back as 42345678904 -- a valid-looking account that belongs to nobody. The fixture keeps
+        identity fields as text for exactly this reason, and this test is what would catch a future
+        change that started coercing them."""
+        result = parse_statement(_load("cashfree_sample.xlsx"), source="Cashfree")
+        accounts = {row.bank_account for row in result.rows}
+        self.assertIn("0042345678904", accounts)
+
+    def test_a_typed_datetime_cell_reads_as_the_same_instant_as_its_text_twin(self):
+        from_csv = parse_statement(_load("cashfree_sample.csv"), source="Cashfree")
+        from_xlsx = parse_statement(_load("cashfree_sample.xlsx"), source="Cashfree")
+        self.assertEqual(from_csv.rows[0].added_on, datetime(2026, 7, 28, 17, 5, 18))
+        self.assertEqual(from_csv.rows[0].added_on, from_xlsx.rows[0].added_on)
+
+    def test_an_unreadable_date_stays_unreadable_rather_than_becoming_today(self):
+        """The fixture carries a deliberate 'not-a-date'. It must warn, not silently substitute --
+        a fabricated date would place the transfer in the wrong period."""
+        result = parse_statement(_load("cashfree_sample.xlsx"), source="Cashfree")
+        undated = [row for row in result.rows if row.added_on is None]
+        self.assertTrue(undated)
+
+    def test_a_file_that_is_not_a_workbook_but_starts_like_one_is_refused_clearly(self):
+        """A truncated or corrupt upload still carries the ZIP magic. The message has to say the
+        file could not be opened, not report a missing column."""
+        with self.assertRaises(StatementFormatError) as caught:
+            parse_statement(b"PK\x03\x04 and then nothing useful", source="Cashfree")
+        self.assertIn("could not be opened", str(caught.exception))
+
+    def test_an_xlsx_missing_a_required_column_fails_the_same_way_a_csv_does(self):
+        """The required-column check is downstream of the format seam, so it must be reached
+        identically by both. If .xlsx skipped it, a wrong workbook would stage garbage rows."""
+        from openpyxl import Workbook
+
+        import io as _io
+
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.append(["Transfer Id", "Amount"])
+        sheet.append(["T1", 100])
+        buffer = _io.BytesIO()
+        workbook.save(buffer)
+
+        with self.assertRaises(StatementFormatError) as caught:
+            parse_statement(buffer.getvalue(), source="Cashfree")
+        self.assertIn("Missing column", str(caught.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -165,6 +165,36 @@ export interface OutflowReconciliationReport {
 }
 
 /** The payload `upload_outflow_statement` returns. */
+/**
+ * What importing this statement WOULD do, from `preview_outflow_statement`. Nothing is written to
+ * produce it, and the browser re-posts the same file to confirm (slice V3).
+ *
+ * ⚠️ `refused` and `warn` are DIFFERENT OUTCOMES, never one flag. `refused` means the confirm
+ * button must not be offered at all -- every transfer was already imported, so there is nothing to
+ * create. `warn` means it MUST still be offered: a warning never blocks (owner ruling Q2).
+ */
+export interface OutflowPreviewResult {
+    preview: true;
+    source: string;
+    original_filename: string;
+    period_from: string | null;
+    period_to: string | null;
+    total_rows: number;
+    successful_rows: number;
+    failed_rows: number;
+    gross_amount: number;
+    charges_amount: number;
+    duplicate_rows: number;
+    new_rows: number;
+    duplicate_message: string;
+    refused: boolean;
+    warn: boolean;
+    duplicate_of_batch: string | null;
+    overlaps_batch: string | null;
+    warnings: string[];
+    duplicate_transfer_ids: string[];
+}
+
 export interface OutflowUploadResult {
     batch: string;
     source: string;
