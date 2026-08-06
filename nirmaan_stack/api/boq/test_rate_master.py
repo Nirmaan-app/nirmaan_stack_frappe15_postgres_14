@@ -1296,3 +1296,160 @@ class TestRateMaster(FrappeTestCase):
         self.assertEqual(ssg["s1"]["expect"]["swsock_bcs"], {"bcs_supply": 80.0})
         self.assertEqual(ssg["ss1"]["expect"]["swsock_boq"], {"supply": 700.0, "install": 140.0})
         self.assertEqual(ssg["ss1"]["expect"]["swsock_bcs"], {"bcs_supply": 480.0})
+
+    # ---- SLICE 2 part 1: the STEP-VOCABULARY PIN (C5) ----
+    #
+    # The pure interpreter (frontend ratePipelineInterpreter.ts) and THIS validator must agree on
+    # exactly one step vocabulary. A step the interpreter executes but the validator rejects is
+    # UNSAVABLE through RM-4b; a step the validator accepts but the interpreter cannot execute is a
+    # silent `unsupported` at runtime. That pairing has already bitten twice (the circuit_fit triple,
+    # the wire_specs length check), so BOTH sides are pinned and are only ever changed together.
+    # The mirror pin lives in ratePipelineInterpreter.test.ts ("step vocabulary pin").
+
+    def test_43_known_step_types_are_exactly_the_declared_vocabulary(self):
+        """The server half of the vocabulary pin."""
+        self.assertEqual(
+            rate_master._KNOWN_STEP_TYPES,
+            {
+                "match_master_row",
+                "apply_effective_multiplier",
+                "scale",
+                "roundup",
+                "component",
+                "component_ref",
+                "component_band",
+                "sum_components",
+                "install_as_ratio",
+                "circuit_fit",
+                "lookup_or_ratio",
+                # SLICE 2 (this slice). This pin was proven green at 11 types against the unchanged
+                # validator, THEN both sides were extended together in one commit.
+                "module_fit",
+            },
+        )
+
+    def test_44_a_type_outside_the_vocabulary_is_rejected(self):
+        """NEGATIVE. An undeclared step type must be refused by name, with NO write."""
+        cfg = {
+            "discipline": "Electrical", "category_id": "vocab_probe",
+            "attribute_definitions": [{"id": "q", "label": "Q", "type": "number"}],
+            "pipelines": {"p": {"output": ["supply"], "steps": [{"step": "quantum_flux"}]}},
+        }
+        with self.assertRaises(frappe.ValidationError) as cm:
+            rate_master._validate_config(cfg)
+        self.assertIn("quantum_flux", str(cm.exception))
+
+    # ---- SLICE 2 part 1: module_fit VALIDATION ----
+    #
+    # C3: a step the interpreter understands but the validator rejects is UNSAVABLE, so module_fit is
+    # fully validated here and every attribute id it names is REFERENCE-GUARDED. That guard matters
+    # more than usual: a typo'd id no-computes SILENTLY at runtime (the step refuses the whole row
+    # rather than erroring), so without the guard a one-character mistake would blank a category's
+    # prices with nothing to point at.
+
+    def _module_fit_config(self, step_params, extra_defs=None):
+        defs = [
+            {"id": "socket1_qty", "label": "Socket 1 qty", "type": "number"},
+            {"id": "socket2_qty", "label": "Socket 2 qty", "type": "number"},
+            {"id": "switch_qty", "label": "Switch qty", "type": "number"},
+            {"id": "socket1_item", "label": "Socket 1", "type": "choice", "values": ["6A 3-Pin Socket"]},
+            {"id": "plate_item", "label": "Plate", "type": "choice", "values": ["6M", "8M"]},
+        ]
+        return {
+            "discipline": "Electrical", "category_id": "module_fit_probe",
+            "attribute_definitions": defs + (extra_defs or []),
+            "pipelines": {"p": {"output": ["supply"], "steps": [
+                {"step": "module_fit", "params": step_params},
+            ]}},
+        }
+
+    _MF_LADDERS = [
+        {"kind": "switch_socket_item", "where": {"family": "Grid and Face Plates"},
+         "bind": "plate_size", "bind_modules": "plate_modules"},
+        {"kind": "switch_socket_item", "where": {"family": "Back Box"}, "bind": "box_size"},
+    ]
+    _MF_TERMS = [
+        {"attr": "socket1_qty", "weight": 2, "none_when": "socket1_item"},
+        {"attr": "socket2_qty", "weight": 2},
+        {"attr": "switch_qty", "weight": 1},
+    ]
+
+    def test_45_module_fit_valid_shape_is_accepted(self):
+        """POSITIVE. The real shape -- a parameterised weighted sum + TWO catalog ladders + blanks."""
+        cfg = self._module_fit_config({
+            "terms": self._MF_TERMS,
+            "ladders": self._MF_LADDERS,
+            "blanks": {"bind": "blank_count", "from_ladder": "plate_size", "stated_attr": "plate_item"},
+        })
+        rate_master._validate_config(cfg)  # must not raise
+
+    def test_46_module_fit_term_attrs_are_reference_guarded(self):
+        """NEGATIVE, both attribute channels. A term's `attr` and its `none_when` must be DEFINED --
+        an undefined id would silently no-compute every row instead of failing at save."""
+        for bad_terms, needle in (
+            ([{"attr": "socket1_qtyy", "weight": 2}], "socket1_qtyy"),                      # typo'd attr
+            ([{"attr": "switch_qty", "weight": 1, "none_when": "switch_itemm"}], "switch_itemm"),  # typo'd none_when
+        ):
+            cfg = self._module_fit_config({"terms": bad_terms, "ladders": self._MF_LADDERS})
+            with self.assertRaises(frappe.ValidationError) as cm:
+                rate_master._validate_config(cfg)
+            self.assertIn(needle, str(cm.exception))
+
+    def test_47_module_fit_blanks_stated_attr_is_reference_guarded(self):
+        """NEGATIVE. blanks.stated_attr names an attribute too, so it is guarded identically."""
+        cfg = self._module_fit_config({
+            "terms": self._MF_TERMS, "ladders": self._MF_LADDERS,
+            "blanks": {"bind": "blank_count", "from_ladder": "plate_size", "stated_attr": "plate_itemm"},
+        })
+        with self.assertRaises(frappe.ValidationError) as cm:
+            rate_master._validate_config(cfg)
+        self.assertIn("plate_itemm", str(cm.exception))
+
+    def test_48_module_fit_blanks_from_ladder_must_name_a_declared_ladder(self):
+        """NEGATIVE. A blank count keyed to a ladder that does not exist computes nothing; catch it at
+        save rather than as a silent runtime no-compute."""
+        cfg = self._module_fit_config({
+            "terms": self._MF_TERMS, "ladders": self._MF_LADDERS,
+            "blanks": {"bind": "blank_count", "from_ladder": "nope_size"},
+        })
+        with self.assertRaises(frappe.ValidationError) as cm:
+            rate_master._validate_config(cfg)
+        self.assertIn("nope_size", str(cm.exception))
+
+    def test_49_module_fit_structural_negatives(self):
+        """NEGATIVE, the shape itself: empty/absent terms or ladders, a non-finite weight, a ladder
+        missing kind/bind, a duplicate bind, and a range-predicate `where`."""
+        L = self._MF_LADDERS
+        T = self._MF_TERMS
+        for params in (
+            {"ladders": L},                                                   # no terms at all
+            {"terms": [], "ladders": L},                                      # empty terms
+            {"terms": T},                                                     # no ladders at all
+            {"terms": T, "ladders": []},                                      # empty ladders
+            {"terms": [{"attr": "switch_qty"}], "ladders": L},                # weight missing
+            {"terms": [{"attr": "switch_qty", "weight": "two"}], "ladders": L},   # weight not a number
+            {"terms": [{"attr": "switch_qty", "weight": float("inf")}], "ladders": L},  # non-finite
+            {"terms": [{"weight": 1}], "ladders": L},                         # attr missing
+            {"terms": T, "ladders": [{"kind": "switch_socket_item"}]},        # bind missing
+            {"terms": T, "ladders": [{"bind": "plate_size"}]},                # kind missing
+            {"terms": T, "ladders": [                                          # duplicate bind
+                {"kind": "switch_socket_item", "bind": "plate_size"},
+                {"kind": "switch_socket_item", "bind": "plate_size"},
+            ]},
+            {"terms": T, "ladders": [                                          # range predicate in where
+                {"kind": "switch_socket_item", "bind": "plate_size", "where": {"family": {"in": ["a"]}}},
+            ]},
+            {"terms": T, "ladders": L, "blanks": {"bind": "b"}},              # blanks without from_ladder
+        ):
+            with self.assertRaises(frappe.ValidationError):
+                rate_master._validate_config(self._module_fit_config(params))
+
+    def test_50_module_fit_ladder_carries_no_size_list_to_drift(self):
+        """THE LADDER COMES FROM THE CATALOG, NOT PARAMS. A ladder spec declares a kind + a `where`
+        family and NOTHING resembling a size array -- there is deliberately no such key to validate,
+        which is what makes a retired or added plate size flow through with no config edit."""
+        cfg = self._module_fit_config({"terms": self._MF_TERMS, "ladders": self._MF_LADDERS})
+        rate_master._validate_config(cfg)
+        for lad in cfg["pipelines"]["p"]["steps"][0]["params"]["ladders"]:
+            self.assertNotIn("sizes", lad)
+            self.assertEqual(set(lad) - {"kind", "where", "bind", "bind_modules", "label_attr"}, set())

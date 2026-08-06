@@ -214,6 +214,70 @@ export interface LookupOrRatioStep {
   explain?: string;
 }
 
+// SLICE 2: one ladder a computed module count is resolved against. The rungs are derived FROM THE
+// CATALOG (the active master rows of `kind` matching every `where`), NEVER from a params array -- a
+// literal size list in config would drift silently the moment a plate size is added or retired.
+export interface ModuleLadderSpec {
+  /** The master-item kind holding the ladder rows (e.g. "switch_socket_item"). */
+  kind: string;
+  /** Exact-match attribute filters selecting the ladder's family, e.g. {family: "Back Box"}. */
+  where?: Record<string, string | number>;
+  /** The attribute carrying each rung's size LABEL. Default "item" (the catalog's own column). */
+  label_attr?: string;
+  /** The key the fitted rung's LABEL ("12M") binds to, readable by a later component_ref as
+   * "@<bind>" -- exactly how circuit_fit binds fitted_size for "@fitted_size". */
+  bind: string;
+  /** Optional: the key the fitted rung's MODULE NUMBER (a number) binds to, readable by a
+   * component_ref qty {from_fit}. */
+  bind_modules?: string;
+}
+
+// SLICE 2: compute a module count, then resolve it against catalog ladders.
+//
+// WHY THIS IS A PIPELINE STEP AND NOT A RULE: a model-selected plate leaves NO trace. The module
+// count is arithmetic over stated quantities, and this system's ethos is that a price shows its
+// working -- so the count is computed HERE and the trace carries both the arithmetic and the ladder
+// hop. See the trace's matchedCondition.
+//
+// The weighted sum is PARAMETERISED, never hardcoded: switches_sockets has TWO socket slots
+// (socket1_qty + socket2_qty) and point_wiring has one, so a fixed two-attribute formula would not be
+// portable between them. Weights AND attribute ids are config.
+export interface ModuleFitStep {
+  step: "module_fit";
+  params: {
+    /** modules = SUM(weight x selected[attr]) over these terms. The owner's rule is
+     * 2 x (sockets) + 1 x (switches), expressed as one term per slot. */
+    terms: {
+      attr: string;
+      weight: number;
+      /** OPTIONAL: the controlling item attribute. When IT is the "None" sentinel this term
+       * contributes 0 regardless of the quantity -- positive absence, mirroring component_ref's
+       * none_skips (which zeroes back_box off @plate_item). Absent => the strict rule below. */
+      none_when?: string;
+    }[];
+    /** One entry per ladder resolved from the SAME computed count. The plate ladder and the back-box
+     * ladder are DIFFERENT LENGTHS (the box has no 9M and no 16M), so each derives from its own
+     * catalog family and each takes the next higher size independently. */
+    ladders: ModuleLadderSpec[];
+    /** OPTIONAL filler ("blanker") count, bound as a NUMBER: the modules the plate carries minus the
+     * modules its contents occupy. The only blanker in the catalog is `1M Blanker` at one module, so
+     * the blank count IS a module count. */
+    blanks?: {
+      /** The key the blank count binds to (a component_ref qty {from_fit} reads it). */
+      bind: string;
+      /** The ladder (by its `bind` key) whose fitted module number is the base -- so the blanks and
+       * the plate can never use different numbers and contradict each other. */
+      from_ladder: string;
+      /** OPTIONAL: the attribute holding the plate the ROW STATES. When it is present and carries a
+       * real size, the blanks are computed against IT -- because that is the plate that gets priced.
+       * A stated plate SMALLER than its contents is a contradiction in the source data and yields an
+       * HONEST NO-COMPUTE, never a clamped zero and never a negative quantity. */
+      stated_attr?: string;
+    };
+  };
+  explain?: string;
+}
+
 export type PipelineStep =
   | MatchMasterRowStep
   | ApplyEffectiveMultiplierStep
@@ -226,6 +290,7 @@ export type PipelineStep =
   | InstallAsRatioStep
   | LookupOrRatioStep
   | CircuitFitStep
+  | ModuleFitStep
   // forward-compat: an unknown future step type still parses as an object with a `step` string.
   | { step: string; [k: string]: unknown };
 

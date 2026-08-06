@@ -52,6 +52,9 @@ export const STEP_VOCABULARY = [
   // EA-4c: the DB build-up install -- the sheet's exact IFERROR three-way (shell absent -> ratio; shell
   // in the install table -> table x mult; else fallback ratio).
   "lookup_or_ratio",
+  // SLICE 2: computes a module count from a PARAMETERISED weighted sum over stated quantities and
+  // resolves it against ladders derived FROM THE CATALOG (exact, else the next higher size).
+  "module_fit",
 ] as const;
 
 export type StepType = (typeof STEP_VOCABULARY)[number];
@@ -141,25 +144,48 @@ export function blankStep(type: StepType): PipelineStep {
         params: { sizes: [], usable: {}, wire_specs: [], length_attr: "", conduit_type_attr: "" },
         binds: ["fitted_size", "circuits", "conduit_qty"],
       };
+    case "module_fit":
+      return {
+        step: "module_fit",
+        params: { terms: [], ladders: [] },
+      };
     default:
       return { step: type };
   }
 }
 
 /** Client mirror of the server reference guard: the attribute ids a pipeline references (every
- * apply_effective_multiplier condition `when` key + every component_band `band_on`). Removing a
- * definition still in this set is rejected server-side; the editor uses it to warn pre-save. */
+ * apply_effective_multiplier condition `when` key, every component_band `band_on`, and every
+ * attribute a module_fit names). Removing a definition still in this set is rejected server-side;
+ * the editor uses it to warn pre-save. */
 export function referencedAttrIds(config: RateCategoryConfig): Set<string> {
   const out = new Set<string>();
   for (const pl of Object.values(config.pipelines ?? {})) {
     for (const raw of pl.steps ?? []) {
-      const s = raw as { step: string; conditions?: { when?: Record<string, unknown> }[]; band_on?: string };
+      const s = raw as {
+        step: string;
+        conditions?: { when?: Record<string, unknown> }[];
+        band_on?: string;
+        params?: {
+          terms?: { attr?: string; none_when?: string }[];
+          blanks?: { stated_attr?: string };
+        };
+      };
       if (s.step === "apply_effective_multiplier") {
         for (const c of s.conditions ?? []) {
           for (const k of Object.keys(c.when ?? {})) out.add(k);
         }
       } else if (s.step === "component_band" && typeof s.band_on === "string" && s.band_on) {
         out.add(s.band_on);
+      } else if (s.step === "module_fit") {
+        // SLICE 2: every attribute id a module_fit names must be guarded, so a typo fails LOUDLY at
+        // save instead of silently no-computing every row of the category at runtime.
+        for (const t of s.params?.terms ?? []) {
+          if (typeof t?.attr === "string" && t.attr) out.add(t.attr);
+          if (typeof t?.none_when === "string" && t.none_when) out.add(t.none_when);
+        }
+        const sa = s.params?.blanks?.stated_attr;
+        if (typeof sa === "string" && sa) out.add(sa);
       }
     }
   }

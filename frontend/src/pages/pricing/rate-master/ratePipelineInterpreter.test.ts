@@ -4,7 +4,16 @@
 
 import { describe, it, expect } from "vitest";
 import type { Pipeline, RateCategoryConfig, RateMasterItem } from "./rateMasterTypes";
-import { evalFormula, roundUp, runPipeline, runAllPipelines } from "./ratePipelineInterpreter";
+import {
+  buildModuleLadder,
+  evalFormula,
+  fitModuleLadder,
+  moduleSizesFromLabel,
+  roundUp,
+  runAllPipelines,
+  runPipeline,
+} from "./ratePipelineInterpreter";
+import { STEP_VOCABULARY, blankStep } from "./rateMasterStructure";
 
 // ---- the four stored pipelines (verbatim shape from RM-1 config) ----
 const PIPELINES: Record<string, Pipeline> = {
@@ -1236,5 +1245,412 @@ describe("EA-4d lookup_or_ratio round split (table-hit UNROUNDED, ratio branches
   it("BACKWARDS-COMPAT: the legacy single round: -1 STILL rounds the table-hit (1275 -> 1280, the old drift)", () => {
     // DBC_INSTALL uses the legacy LOR (round: -1); it over-rounds the table-hit, proving the old path is intact.
     expect(runPipeline("i", DBC_INSTALL, DBC_ITEMS, DBU4_C).finals).toEqual({ install: 1280 });
+  });
+});
+
+// ---- SLICE 2 part 1: the STEP-VOCABULARY PIN (C5 -- written and proven green BEFORE the new step) ----
+//
+// The interpreter and the server validator (_KNOWN_STEP_TYPES in api/boq/rate_master.py) must agree on
+// EXACTLY the same set of step types. A step the interpreter understands but the validator rejects is
+// UNSAVABLE -- that pairing has bitten twice (the circuit_fit triple, the wire_specs length check), so
+// the vocabulary is pinned on BOTH sides and the two lists are updated together, in one slice.
+//
+// The interpreter has no exported list (its vocabulary is the if/else chain), so it is pinned
+// BEHAVIOURALLY: for every declared type the chain must RECOGNISE the step -- i.e. never emit the
+// unknown-step trace -- and an undeclared type must still fall through to it.
+describe("step vocabulary pin (interpreter <-> STEP_VOCABULARY <-> server _KNOWN_STEP_TYPES)", () => {
+  const unknownTrace = (r: ReturnType<typeof runPipeline>, t: string) =>
+    r.steps.some((s) => s.label === `unsupported step '${t}'`);
+
+  it("STEP_VOCABULARY is exactly the declared list", () => {
+    expect([...STEP_VOCABULARY]).toEqual([
+      "match_master_row",
+      "apply_effective_multiplier",
+      "scale",
+      "roundup",
+      "component",
+      "component_ref",
+      "component_band",
+      "sum_components",
+      "install_as_ratio",
+      "circuit_fit",
+      "lookup_or_ratio",
+      // SLICE 2 (this slice). The pin above was proven green at 11 types against the unchanged
+      // interpreter + validator, THEN both sides were extended together -- so this diff shows
+      // exactly what the vocabulary was before and after.
+      "module_fit",
+    ]);
+  });
+
+  it("the interpreter RECOGNISES every vocabulary member (none falls through to the unknown branch)", () => {
+    for (const t of STEP_VOCABULARY) {
+      const pl: Pipeline = { output: ["x"], steps: [blankStep(t)] };
+      const r = runPipeline("probe", pl, [], {});
+      expect(unknownTrace(r, t), `interpreter does not handle '${t}'`).toBe(false);
+    }
+  });
+
+  it("NEGATIVE: a type OUTSIDE the vocabulary still yields the honest unsupported state", () => {
+    const pl: Pipeline = { output: ["x"], steps: [{ step: "quantum_flux" }] };
+    const r = runPipeline("probe", pl, [], {});
+    expect(r.status).toBe("unsupported");
+    expect(unknownTrace(r, "quantum_flux")).toBe(true);
+    expect(r.finals).toEqual({});
+  });
+});
+
+// ---- SLICE 2 part 1: module_fit -- the module-count step + catalog ladder resolution ----
+//
+// THE LADDERS ARE REAL, read from the live master 2026-08-06 (switch_socket_item, Electrical):
+//   PLATE    (family "Grid and Face Plates"): 1M & 2M, 3M, 4M, 6M, 8M, 9M, 12M, 16M, 18M
+//            -> covers 1,2,3,4,6,8,9,12,16,18; MISSING 5,7,10,11,13,14,15,17
+//   BACK BOX (family "Back Box"):             1M & 2M, 3M, 4M, 6M, 8M, 12M, 18M
+//            -> covers 1,2,3,4,6,8,12,18;      NO 9M, NO 16M -- the box ladder is SHORTER
+// Both take the next higher size when the exact one is absent, INDEPENDENTLY of each other, which is
+// why a 9M plate pairs with a 12M box and a 16M plate with an 18M box.
+const plateRow = (item: string) => ssItem("Grid and Face Plates", item, "White", 1);
+const boxRow = (item: string) => ssItem("Back Box", item, "NA", 1);
+const LADDER_ITEMS: RateMasterItem[] = [
+  ...["1M & 2M", "3M", "4M", "6M", "8M", "9M", "12M", "16M", "18M"].map(plateRow),
+  ...["1M & 2M", "3M", "4M", "6M", "8M", "12M", "18M"].map(boxRow),
+];
+// The owner's formula: 2 x (sockets) + 1 x (switches). PARAMETERISED -- switches_sockets has TWO
+// socket slots, point_wiring has one, so a hardcoded two-attribute formula would not be portable.
+const SS_TERMS = [
+  { attr: "socket1_qty", weight: 2, none_when: "socket1_item" },
+  { attr: "socket2_qty", weight: 2, none_when: "socket2_item" },
+  { attr: "switch_qty", weight: 1, none_when: "switch_item" },
+];
+const modFit = (over: Record<string, unknown> = {}) => ({
+  step: "module_fit" as const,
+  params: {
+    terms: SS_TERMS,
+    ladders: [
+      { kind: "switch_socket_item", where: { family: "Grid and Face Plates" }, bind: "plate_size", bind_modules: "plate_modules" },
+      { kind: "switch_socket_item", where: { family: "Back Box" }, bind: "box_size" },
+    ],
+    blanks: { bind: "blank_count", from_ladder: "plate_size" },
+    ...over,
+  },
+});
+const MF: Pipeline = { output: [], steps: [modFit()] };
+// sockets/switches as the real configs express them (a slot with no item carries the None sentinel)
+const mfSel = (socket1 = 0, socket2 = 0, switches = 0, over: Record<string, string | number> = {}) => ({
+  socket1_item: socket1 ? "6A 3-Pin Socket" : "None", socket1_qty: socket1,
+  socket2_item: socket2 ? "6A/16A 3-Pin Socket" : "None", socket2_qty: socket2,
+  switch_item: switches ? "16A 1 WAY SWITCH" : "None", switch_qty: switches,
+  colour: "White",
+  ...over,
+});
+const fitTrace = (r: ReturnType<typeof runPipeline>) =>
+  r.steps.find((s) => s.step === "module_fit")?.matchedCondition ?? "";
+
+describe("SLICE 2 module_fit -- catalog ladders (the real plate + back-box rungs)", () => {
+  it("the PLATE ladder read from the catalog is 1,2,3,4,6,8,9,12,16,18 (5/7/10/11/13/14/15/17 absent)", () => {
+    const rungs = buildModuleLadder(LADDER_ITEMS, { kind: "switch_socket_item", where: { family: "Grid and Face Plates" } });
+    expect(rungs.map((r) => r.size)).toEqual([1, 2, 3, 4, 6, 8, 9, 12, 16, 18]);
+  });
+
+  it("the BACK BOX ladder is SHORTER -- 1,2,3,4,6,8,12,18 (no 9, no 16)", () => {
+    const rungs = buildModuleLadder(LADDER_ITEMS, { kind: "switch_socket_item", where: { family: "Back Box" } });
+    expect(rungs.map((r) => r.size)).toEqual([1, 2, 3, 4, 6, 8, 12, 18]);
+  });
+
+  it("'1M & 2M' is ONE item covering TWO sizes -- represented by EXPANSION, both carrying that label", () => {
+    expect(moduleSizesFromLabel("1M & 2M")).toEqual([1, 2]);
+    expect(moduleSizesFromLabel("3M")).toEqual([3]);
+    expect(moduleSizesFromLabel("18M")).toEqual([18]);
+    expect(moduleSizesFromLabel("Back Box")).toEqual([]); // no integer -> not a rung
+    const rungs = buildModuleLadder(LADDER_ITEMS, { kind: "switch_socket_item", where: { family: "Back Box" } });
+    expect(rungs.slice(0, 2)).toEqual([{ size: 1, label: "1M & 2M" }, { size: 2, label: "1M & 2M" }]);
+  });
+
+  it("fitModuleLadder: EXACT when the catalog carries the size, else the NEXT HIGHER, never lower", () => {
+    const plateRungs = buildModuleLadder(LADDER_ITEMS, { kind: "switch_socket_item", where: { family: "Grid and Face Plates" } });
+    const boxRungs = buildModuleLadder(LADDER_ITEMS, { kind: "switch_socket_item", where: { family: "Back Box" } });
+    // [count, plate, box] across every gap in both ladders
+    const cases: [number, string, string][] = [
+      [1, "1M & 2M", "1M & 2M"], [2, "1M & 2M", "1M & 2M"], [3, "3M", "3M"], [4, "4M", "4M"],
+      [5, "6M", "6M"], [6, "6M", "6M"], [7, "8M", "8M"], [8, "8M", "8M"],
+      [9, "9M", "12M"], [10, "12M", "12M"], [11, "12M", "12M"], [12, "12M", "12M"],
+      [13, "16M", "18M"], [16, "16M", "18M"], [17, "18M", "18M"], [18, "18M", "18M"],
+    ];
+    for (const [count, wantPlate, wantBox] of cases) {
+      expect(fitModuleLadder(plateRungs, count)?.label, `plate @ ${count}`).toBe(wantPlate);
+      expect(fitModuleLadder(boxRungs, count)?.label, `box @ ${count}`).toBe(wantBox);
+      // NEVER a lower size: the fitted module number always covers the count
+      expect(fitModuleLadder(plateRungs, count)!.modules).toBeGreaterThanOrEqual(count);
+      expect(fitModuleLadder(boxRungs, count)!.modules).toBeGreaterThanOrEqual(count);
+    }
+    expect(fitModuleLadder(plateRungs, 19)).toBeNull(); // above the top -> no fit, never a clamp
+    expect(fitModuleLadder([], 3)).toBeNull();          // empty ladder -> no fit
+  });
+
+  it("the ladder comes from the CATALOG, not a params array -- dropping 9M moves a 9 on to 12M", () => {
+    const r1 = runPipeline("m", MF, LADDER_ITEMS, mfSel(3, 0, 3)); // 2x3 + 1x3 = 9
+    expect(fitTrace(r1)).toContain("plate_size 9M");
+    const without9 = LADDER_ITEMS.filter(
+      (i) => !(i.attributes.family === "Grid and Face Plates" && i.attributes.item === "9M"),
+    );
+    const r2 = runPipeline("m", MF, without9, mfSel(3, 0, 3));
+    expect(fitTrace(r2)).toContain("plate_size 12M (next higher)");
+  });
+});
+
+describe("SLICE 2 module_fit -- the owner's worked cases (T1-T7)", () => {
+  it("T1: 1 socket + 1 switch -> 3 modules -> EXACT '3M' (pw1/pw2's real shape and stored plate)", () => {
+    const r = runPipeline("m", MF, LADDER_ITEMS, mfSel(1, 0, 1));
+    expect(r.status).toBe("ok");
+    expect(fitTrace(r)).toContain("= 3 modules");
+    expect(fitTrace(r)).toContain("plate_size 3M");
+    expect(fitTrace(r)).not.toContain("plate_size 3M (next higher)"); // exact, not a hop
+    expect(fitTrace(r)).toContain("box_size 3M");
+  });
+
+  it("T2: 2 sockets + 3 switches -> 7 -> NO 7M exists -> 8M (the owner's worked example)", () => {
+    const r = runPipeline("m", MF, LADDER_ITEMS, mfSel(2, 0, 3));
+    expect(r.status).toBe("ok");
+    expect(fitTrace(r)).toContain("= 7 modules");
+    expect(fitTrace(r)).toContain("plate_size 8M (next higher)");
+    expect(fitTrace(r)).toContain("box_size 8M (next higher)");
+  });
+
+  it("T3: 0 sockets + 1 switch -> 1 -> matches the combined rung '1M & 2M' (pw3's shape)", () => {
+    const r = runPipeline("m", MF, LADDER_ITEMS, mfSel(0, 0, 1));
+    expect(r.status).toBe("ok");
+    expect(fitTrace(r)).toContain("= 1 modules");
+    expect(fitTrace(r)).toContain("plate_size 1M & 2M");
+    expect(fitTrace(r)).not.toContain("next higher"); // 1 is COVERED by the combined rung
+  });
+
+  it("T4: 1 socket + 0 switches -> 2 -> ALSO matches '1M & 2M' (the combined rung from the other side)", () => {
+    const r = runPipeline("m", MF, LADDER_ITEMS, mfSel(1, 0, 0));
+    expect(r.status).toBe("ok");
+    expect(fitTrace(r)).toContain("= 2 modules");
+    expect(fitTrace(r)).toContain("plate_size 1M & 2M");
+    expect(fitTrace(r)).not.toContain("next higher");
+  });
+
+  it("T5: a count of 9 -> plate 9M EXISTS, but the box has no 9M -> box resolves to 12M (two ladders)", () => {
+    const r = runPipeline("m", MF, LADDER_ITEMS, mfSel(3, 0, 3)); // 2x3 + 1x3 = 9
+    expect(r.status).toBe("ok");
+    expect(fitTrace(r)).toContain("= 9 modules");
+    expect(fitTrace(r)).toContain("plate_size 9M");
+    expect(fitTrace(r)).not.toContain("plate_size 9M (next higher)"); // exact on the plate ladder
+    expect(fitTrace(r)).toContain("box_size 12M (next higher)");      // hop on the shorter box ladder
+  });
+
+  it("T6: a count of 16 -> plate 16M (exact), box 18M (next higher)", () => {
+    const r = runPipeline("m", MF, LADDER_ITEMS, mfSel(8, 0, 0)); // 2x8 = 16
+    expect(r.status).toBe("ok");
+    expect(fitTrace(r)).toContain("= 16 modules");
+    expect(fitTrace(r)).toContain("plate_size 16M");
+    expect(fitTrace(r)).not.toContain("plate_size 16M (next higher)");
+    expect(fitTrace(r)).toContain("box_size 18M (next higher)");
+  });
+
+  it("T7: a count ABOVE the ladder top (>18) is an HONEST NO-COMPUTE -- never clamped to 18M", () => {
+    // 2x10 = 20 modules. The catalog carries no such plate; clamping to 18M would under-price by two
+    // modules AND show a plate that cannot hold the contents.
+    const r = runPipeline("m", MF, LADDER_ITEMS, mfSel(10, 0, 0));
+    expect(r.status).toBe("no_match");
+    expect(r.finals).toEqual({});
+    const label = r.steps[r.steps.length - 1].label;
+    expect(label).toContain("20 modules exceeds the largest");
+    expect(label).toContain("18M");
+  });
+});
+
+describe("SLICE 2 module_fit -- bindings, the trace, and the parameterised sum", () => {
+  it("binds the fitted LABEL for a later component_ref '@plate_size' -- the circuit_fit precedent", () => {
+    const priced: Pipeline = {
+      output: ["supply"],
+      steps: [
+        modFit(),
+        { step: "component_ref", name: "plate", ref: { kind: "switch_socket_item", family: "Grid and Face Plates", item: "@plate_size", colour: "@colour" }, target: "list_price", rate_stages: [{ mult: 1 }], qty: 1 },
+        { step: "component_ref", name: "back_box", ref: { kind: "switch_socket_item", family: "Back Box", item: "@box_size", colour: "NA" }, target: "list_price", rate_stages: [{ mult: 1 }], qty: 1 },
+        { step: "sum_components", result: "supply" },
+      ],
+    };
+    // real catalog list prices: plate 9M White 443, back box 12M 412
+    const items = [
+      ...LADDER_ITEMS.filter(
+        (i) => !(i.attributes.family === "Grid and Face Plates" && i.attributes.item === "9M")
+            && !(i.attributes.family === "Back Box" && i.attributes.item === "12M"),
+      ),
+      ssItem("Grid and Face Plates", "9M", "White", 443), ssItem("Back Box", "12M", "NA", 412),
+    ];
+    const r = runPipeline("p", priced, items, mfSel(3, 0, 3)); // 9 modules -> plate 9M, box 12M
+    expect(r.status).toBe("ok");
+    expect(r.steps.find((s) => s.produced?.key === "plate")?.produced?.value).toBe(443);
+    expect(r.steps.find((s) => s.produced?.key === "back_box")?.produced?.value).toBe(412);
+    expect(r.finals).toEqual({ supply: 855 });
+  });
+
+  it("binds the module NUMBER + blank count as NUMBERS, readable by a component_ref qty {from_fit}", () => {
+    const r = runPipeline("m", { output: ["plate_modules", "blank_count"], steps: [modFit()] }, LADDER_ITEMS, mfSel(2, 0, 3));
+    expect(r.finals).toEqual({ plate_modules: 8, blank_count: 1 });
+  });
+
+  it("THE TRACE SHOWS ITS WORKING: the arithmetic AND the ladder hop, on one line", () => {
+    const r = runPipeline("m", MF, LADDER_ITEMS, mfSel(2, 0, 3));
+    expect(fitTrace(r)).toBe(
+      "2 x socket1_qty(2) + 2 x socket2_qty(None) + 1 x switch_qty(3) = 7 modules -> " +
+        "plate_size 8M (next higher), box_size 8M (next higher); 1 blank (plate_size 8 - 7)",
+    );
+  });
+
+  it("THE SUM IS PARAMETERISED: point_wiring's ONE socket slot uses the SAME step, different terms", () => {
+    // point_wiring has socket_qty (one slot), switches_sockets has socket1_qty + socket2_qty. A
+    // hardcoded two-attribute formula could not serve both -- weights AND ids come from config.
+    const pw: Pipeline = { output: [], steps: [{
+      step: "module_fit",
+      params: {
+        terms: [{ attr: "socket_qty", weight: 2, none_when: "socket_item" }, { attr: "switch_qty", weight: 1, none_when: "switch_item" }],
+        ladders: [{ kind: "switch_socket_item", where: { family: "Grid and Face Plates" }, bind: "plate_size" }],
+      },
+    }] };
+    const r = runPipeline("m", pw, LADDER_ITEMS, { socket_item: "6A 3-Pin Socket", socket_qty: 1, switch_item: "16A 1 WAY SWITCH", switch_qty: 1 });
+    expect(fitTrace(r)).toContain("= 3 modules");
+    expect(fitTrace(r)).toContain("plate_size 3M");
+  });
+
+  it("BOTH socket slots feed ONE count -- socket1 1 + socket2 2 = 3 sockets, not two separate fits", () => {
+    const r = runPipeline("m", MF, LADDER_ITEMS, mfSel(1, 2, 2)); // 2x1 + 2x2 + 1x2 = 8
+    expect(fitTrace(r)).toContain("= 8 modules");
+    expect(fitTrace(r)).toContain("plate_size 8M");
+  });
+});
+
+describe("SLICE 2 module_fit -- the blanker count (T10) and its negative guard (T9)", () => {
+  it("T10a: T1's shape (3 modules, 1 socket + 1 switch = 3 occupied) -> 0 blanks", () => {
+    const r = runPipeline("m", { output: ["blank_count"], steps: [modFit()] }, LADDER_ITEMS, mfSel(1, 0, 1));
+    expect(r.finals).toEqual({ blank_count: 0 });
+    expect(fitTrace(r)).toContain("0 blanks");
+  });
+
+  it("T10b: T2's shape (8 modules, 2 sockets + 3 switches = 7 occupied) -> 1 blank", () => {
+    const r = runPipeline("m", { output: ["blank_count"], steps: [modFit()] }, LADDER_ITEMS, mfSel(2, 0, 3));
+    expect(r.finals).toEqual({ blank_count: 1 });
+    expect(fitTrace(r)).toContain("1 blank (plate_size 8 - 7)");
+  });
+
+  it("the blank count uses the SAME module number the plate RESOLVED to, not the raw count", () => {
+    // 2x2 + 1x1 = 5 -> no 5M -> plate 6M -> blanks 6 - 5 = 1 (NOT 5 - 5 = 0)
+    const r = runPipeline("m", { output: ["blank_count"], steps: [modFit()] }, LADDER_ITEMS, mfSel(2, 0, 1));
+    expect(fitTrace(r)).toContain("= 5 modules");
+    expect(fitTrace(r)).toContain("plate_size 6M (next higher)");
+    expect(r.finals).toEqual({ blank_count: 1 });
+  });
+
+  it("on the RESOLVED path the blank count can never go negative (fit >= occupied by construction)", () => {
+    for (let sockets = 0; sockets <= 8; sockets++) {
+      for (let switches = 0; switches <= 2; switches++) {
+        if (sockets === 0 && switches === 0) continue; // 0 modules -> no-compute, covered below
+        const r = runPipeline("m", { output: ["blank_count"], steps: [modFit()] }, LADDER_ITEMS, mfSel(sockets, 0, switches));
+        if (r.status === "ok") expect(r.finals.blank_count).toBeGreaterThanOrEqual(0);
+      }
+    }
+  });
+
+  it("T9 NEGATIVE: a STATED plate smaller than its contents -> HONEST NO-COMPUTE, not a clamped zero", () => {
+    // ss1's REAL shape: it states plate 6M but carries 3 sockets + 1 switch = 7 modules. A 6M plate
+    // cannot hold 7 modules -- a contradiction in the source data. Clamping the blanks to zero would
+    // price a physically impossible row and hide it; a negative quantity never reaches a price.
+    const withStated: Pipeline = { output: ["blank_count"], steps: [modFit({ blanks: { bind: "blank_count", from_ladder: "plate_size", stated_attr: "plate_item" } })] };
+    const r = runPipeline("m", withStated, LADDER_ITEMS, mfSel(1, 2, 1, { plate_item: "6M" }));
+    expect(r.status).toBe("no_match");
+    expect(r.finals).toEqual({});
+    expect(r.steps[r.steps.length - 1].label).toBe(
+      "stated 6M holds 6 modules but the contents occupy 7 -- no value computed",
+    );
+  });
+
+  it("T9 POSITIVE control: the SAME row with a stated 8M computes 1 blank", () => {
+    const withStated: Pipeline = { output: ["blank_count"], steps: [modFit({ blanks: { bind: "blank_count", from_ladder: "plate_size", stated_attr: "plate_item" } })] };
+    const r = runPipeline("m", withStated, LADDER_ITEMS, mfSel(1, 2, 1, { plate_item: "8M" }));
+    expect(r.status).toBe("ok");
+    expect(r.finals).toEqual({ blank_count: 1 });
+  });
+
+  it("a stated plate that is blank or None falls back to the RESOLVED ladder (absent = not stated)", () => {
+    const withStated: Pipeline = { output: ["blank_count"], steps: [modFit({ blanks: { bind: "blank_count", from_ladder: "plate_size", stated_attr: "plate_item" } })] };
+    for (const stated of ["", "None"]) {
+      const r = runPipeline("m", withStated, LADDER_ITEMS, mfSel(1, 2, 1, { plate_item: stated }));
+      expect(r.status).toBe("ok");
+      expect(r.finals).toEqual({ blank_count: 1 }); // resolved 8M - 7
+    }
+  });
+});
+
+describe("SLICE 2 module_fit -- HONEST no-compute negatives (T8)", () => {
+  it("T8: a MISSING quantity is UNKNOWN -> no-compute naming the attribute, never a zero", () => {
+    const r = runPipeline("m", MF, LADDER_ITEMS, { ...mfSel(1, 0, 1), switch_qty: undefined as unknown as number });
+    expect(r.status).toBe("no_match");
+    expect(r.finals).toEqual({});
+    expect(r.steps[r.steps.length - 1].label).toBe("attribute 'switch_qty' missing or non-numeric -- no module count computed");
+  });
+
+  it("T8: a NON-NUMERIC quantity is likewise an honest no-compute", () => {
+    for (const bad of ["", "two", NaN]) {
+      const r = runPipeline("m", MF, LADDER_ITEMS, { ...mfSel(1, 0, 1), socket1_qty: bad as unknown as number });
+      expect(r.status).toBe("no_match");
+      expect(r.finals).toEqual({});
+    }
+  });
+
+  it("a 'None' quantity/slot is POSITIVE ABSENCE -> contributes 0, and the row still computes", () => {
+    // both directions: the qty itself None, and the controlling ITEM None with a blank qty
+    const a = runPipeline("m", MF, LADDER_ITEMS, { ...mfSel(1, 0, 1), socket2_qty: "None" });
+    expect(a.status).toBe("ok");
+    expect(fitTrace(a)).toContain("= 3 modules");
+    const b = runPipeline("m", MF, LADDER_ITEMS, { ...mfSel(1, 0, 1), socket2_item: "None", socket2_qty: "" });
+    expect(b.status).toBe("ok");
+    expect(fitTrace(b)).toContain("= 3 modules");
+  });
+
+  it("an EMPTY ladder (no catalog rows for that family) -> honest no-compute naming the ladder", () => {
+    const r = runPipeline("m", MF, LADDER_ITEMS.filter((i) => i.attributes.family !== "Back Box"), mfSel(1, 0, 1));
+    expect(r.status).toBe("no_match");
+    expect(r.steps[r.steps.length - 1].label).toContain("ladder 'box_size'");
+    expect(r.steps[r.steps.length - 1].label).toContain("no catalog rows");
+  });
+
+  it("a count of ZERO (nothing on the plate) is an honest no-compute, NOT the smallest plate", () => {
+    const r = runPipeline("m", MF, LADDER_ITEMS, mfSel(0, 0, 0));
+    expect(r.status).toBe("no_match");
+    expect(r.finals).toEqual({});
+    expect(r.steps[r.steps.length - 1].label).toContain("not a positive count");
+  });
+
+  it("OPTION C: a MALFORMED module_fit (no params at all) NEVER throws -- honest degrade", () => {
+    const broken: Pipeline = { output: ["x"], steps: [{ step: "module_fit" }] };
+    expect(() => runPipeline("m", broken, LADDER_ITEMS, mfSel(1, 0, 1))).not.toThrow();
+    expect(runPipeline("m", broken, LADDER_ITEMS, mfSel(1, 0, 1)).status).toBe("no_match");
+  });
+});
+
+// T11: the sp1 DISAGREEMENT. Recorded, NOT acted on -- switches_point is out of bounds this slice.
+describe("SLICE 2 module_fit -- T11: the sp1 disagreement (recorded, not acted on)", () => {
+  it("sp1's real shape (2 switches + 3 sockets) gives EIGHT modules by the formula", () => {
+    // sp1 attrs: switch_qty 2, socket1_qty 1, socket2_qty 2 -> sockets 3, switches 2
+    //            2 x 3 + 1 x 2 = 8
+    const r = runPipeline("m", MF, LADDER_ITEMS, mfSel(1, 2, 2));
+    expect(r.status).toBe("ok");
+    expect(fitTrace(r)).toContain("= 8 modules");
+    expect(fitTrace(r)).toContain("plate_size 8M");
+  });
+
+  it("sp1 STORES 6M -- the formula and the stored golden DISAGREE; the owner ruled the formula wins", () => {
+    // The stored sp1 golden (switches_point, sourced from the guiding sheet) carries plate_item "6M".
+    // This test pins the FORMULA's answer (8 -> 8M) and records the disagreement in code. sp1 itself
+    // is NOT changed here: switches_point is out of bounds for this slice, and the golden is reworked
+    // when the owner reworks it. SP1 above is the live fixture -- its plate_item is asserted here so
+    // this record cannot silently rot if the fixture ever moves.
+    expect(SP1.plate_item).toBe("6M");
+    const formulaModules = 2 * (SP1.socket1_qty + SP1.socket2_qty) + 1 * SP1.switch_qty;
+    expect(formulaModules).toBe(8);
+    expect(moduleSizesFromLabel(SP1.plate_item)).toEqual([6]);
+    expect(moduleSizesFromLabel(SP1.plate_item)).not.toContain(formulaModules); // the disagreement
   });
 });

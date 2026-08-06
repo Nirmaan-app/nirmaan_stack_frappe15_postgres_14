@@ -256,6 +256,82 @@ function chooseBand(bands: { when: string; target: string }[], rawVal: unknown):
   return undefined;
 }
 
+// ---- SLICE 2: module-count ladder helpers (used only by module_fit) ----
+
+/** One resolvable rung of a catalog ladder: a module SIZE and the catalog LABEL that serves it. */
+export interface ModuleRung {
+  /** The module count this rung covers. */
+  size: number;
+  /** The catalog item label, exactly as stored (e.g. "8M", "1M & 2M"). */
+  label: string;
+}
+
+/**
+ * Parse a catalog rung's label into the module sizes it covers.
+ *
+ * THE `"1M & 2M"` RULING (owner-locked): that is ONE catalog item covering TWO sizes, so BOTH a
+ * computed 1 and a computed 2 must match it. It is represented by EXPANSION -- every integer in the
+ * label is a covered size, and the rung is entered into the ladder once per covered size, all
+ * carrying the same label. A naive integer ladder cannot parse it; expansion means the exact-match
+ * path handles the combined rung with no special case anywhere downstream.
+ *
+ * "3M" -> [3]; "1M & 2M" -> [1, 2]; "12M" -> [12]; a label carrying no integer -> [] (skipped).
+ * PURE.
+ */
+export function moduleSizesFromLabel(label: string): number[] {
+  const found = String(label ?? "").match(/\d+/g);
+  if (!found) return [];
+  const out: number[] = [];
+  for (const raw of found) {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n > 0 && !out.includes(n)) out.push(n);
+  }
+  return out.sort((a, b) => a - b);
+}
+
+/**
+ * Build a ladder from the CATALOG: every active master row of `kind` whose stored attributes match
+ * every `where` entry EXACTLY, expanded by `moduleSizesFromLabel` and sorted ascending by size.
+ * A size served by more than one label keeps the first after a deterministic (size, label) sort, so
+ * row order in the master can never change the answer. PURE.
+ */
+export function buildModuleLadder(
+  items: RateMasterItem[],
+  spec: { kind: string; where?: Record<string, string | number>; label_attr?: string }
+): ModuleRung[] {
+  const labelAttr = spec.label_attr || "item";
+  const where = spec.where ?? {};
+  const rungs: ModuleRung[] = [];
+  for (const it of items) {
+    if (it.kind !== spec.kind) continue;
+    if (!Object.entries(where).every(([k, v]) => it.attributes?.[k] === v)) continue;
+    const label = it.attributes?.[labelAttr];
+    if (typeof label !== "string" && typeof label !== "number") continue;
+    for (const size of moduleSizesFromLabel(String(label))) rungs.push({ size, label: String(label) });
+  }
+  rungs.sort((a, b) => (a.size - b.size) || (a.label < b.label ? -1 : a.label > b.label ? 1 : 0));
+  return rungs.filter((r, i) => i === 0 || rungs[i - 1].size !== r.size);
+}
+
+/**
+ * Fit a module count onto a ladder: the EXACT size when the catalog carries it, otherwise the NEXT
+ * HIGHER one. NEVER a lower one -- a plate smaller than its contents cannot hold them, so rounding
+ * down would be a wrong price, not merely a wrong size.
+ *
+ * Returns null when the count is ABOVE the ladder's top rung. That is deliberately an honest
+ * no-compute rather than a clamp to the largest size: the catalog simply has no such plate, and
+ * clamping would silently under-price by the missing modules AND show a plate that cannot fit. (This
+ * is where the step DIVERGES from circuit_fit, which does fall back to its largest size -- circuit_fit
+ * then re-checks with `circuits <= 0`, so an unusable fit is still caught downstream; here there is no
+ * such second gate.) PURE.
+ */
+export function fitModuleLadder(rungs: ModuleRung[], count: number): { label: string; modules: number; exact: boolean } | null {
+  const exact = rungs.find((r) => r.size === count);
+  if (exact) return { label: exact.label, modules: exact.size, exact: true };
+  const next = rungs.find((r) => r.size > count);
+  return next ? { label: next.label, modules: next.size, exact: false } : null;
+}
+
 function readableCondition(when: Record<string, string | number>, params: Record<string, number>): string {
   const lhs = Object.entries(when)
     .map(([k, v]) => `${k} = ${v}`)
@@ -280,6 +356,12 @@ export function runPipeline(
   const steps: StepTrace[] = [];
   let matchedItem: RateMasterItem | undefined;
   const components: Record<string, number> = {};
+  // SLICE 2: STRING-valued bindings produced by module_fit (a ladder's fitted LABEL, e.g. "12M").
+  // `ctx` is numbers-only, and a plate/box size is a catalog label, so it needs its own scope. A
+  // component_ref's "@<name>" resolves here BEFORE falling back to the selection -- so a bind whose
+  // name matches a selected attribute SHADOWS it, which is exactly how a COMPUTED plate replaces a
+  // stated one. Empty unless a module_fit ran, so every pre-slice-2 pipeline is byte-identical.
+  const fitLabels: Record<string, string> = {};
 
   const snapshot = () => ({ ...ctx });
 
@@ -496,6 +578,120 @@ export function runPipeline(
         matchedCondition: `dia ${overallDia.toFixed(3)} -> ${fittedSize}mm, ${circuits} circuits, conduit qty ${conduitQty}`,
         runningValues: snapshot(),
       });
+    } else if (stepType === "module_fit") {
+      // SLICE 2: compute the module count, then resolve it against catalog ladders.
+      //   modules  = SUM(weight x selected[attr]) -- weights + attr ids from CONFIG, never hardcoded
+      //   each ladder -> exact size if the catalog carries it, else the NEXT HIGHER one, never lower
+      //   blanks   = the plate's modules - the modules its contents occupy
+      // Every failure is an HONEST no-compute naming its cause -- never a silent zero, never a guess.
+      const s = raw as import("./rateMasterTypes").ModuleFitStep;
+      const p = s.params;
+      const bail = (label: string) => {
+        steps.push({ step: stepType, label, runningValues: snapshot() });
+        return { pipelineId, outputs: pipeline.output, status: "no_match" as const, steps, finals: {}, matchedItem, note: pipeline.note };
+      };
+
+      // (a) the parameterised weighted sum -------------------------------------------------------
+      let occupied = 0;
+      let termMiss: string | null = null;
+      const termParts: string[] = [];
+      for (const t of p?.terms ?? []) {
+        // POSITIVE ABSENCE: the term's own value, or its controlling item, set to the "None"
+        // sentinel means this slot is deliberately empty -> contributes 0. Distinct from blank.
+        if (
+          (t.none_when && selected[t.none_when] === NONE_SENTINEL) ||
+          selected[t.attr] === NONE_SENTINEL
+        ) {
+          termParts.push(`${fmtNum(t.weight)} x ${t.attr}(None)`);
+          continue;
+        }
+        const rawVal = selected[t.attr];
+        const v = Number(rawVal);
+        // BLANK / absent / non-numeric is UNKNOWN, not zero -- an honest no-compute (the same
+        // hard-fail `scale`'s _from_attr takes). A count's neutral element is 0, but ABSENCE of a
+        // count is not a statement that there are none; "None" is how a row says none.
+        if (rawVal === undefined || rawVal === null || rawVal === "" || !Number.isFinite(v)) {
+          termMiss = t.attr;
+          break;
+        }
+        occupied += t.weight * v;
+        termParts.push(`${fmtNum(t.weight)} x ${t.attr}(${fmtNum(v)})`);
+      }
+      if (termMiss !== null) {
+        return bail(`attribute '${termMiss}' missing or non-numeric -- no module count computed`);
+      }
+      if (!Number.isFinite(occupied) || occupied <= 0) {
+        // A non-positive count is an ABSENCE of contents, not a size to fit. Applying the
+        // next-higher rule would manufacture a plate for a row carrying nothing.
+        return bail(`module count ${fmtNum(occupied)} is not a positive count -- no value computed`);
+      }
+
+      // (b) resolve each ladder from the SAME count ----------------------------------------------
+      const fittedByBind: Record<string, number> = {};
+      const ladderParts: string[] = [];
+      for (const L of p?.ladders ?? []) {
+        const rungs = buildModuleLadder(items, L);
+        if (!rungs.length) {
+          return bail(`ladder '${L.bind}' (${L.kind}) has no catalog rows -- no value computed`);
+        }
+        const fit = fitModuleLadder(rungs, occupied);
+        if (!fit) {
+          const top = rungs[rungs.length - 1];
+          return bail(
+            `${fmtNum(occupied)} modules exceeds the largest '${L.bind}' the catalog carries (${top.label}) -- no value computed`
+          );
+        }
+        fitLabels[L.bind] = fit.label;
+        fittedByBind[L.bind] = fit.modules;
+        if (L.bind_modules) ctx[L.bind_modules] = fit.modules;
+        ladderParts.push(`${L.bind} ${fit.label}${fit.exact ? "" : " (next higher)"}`);
+      }
+
+      // (c) the blank (filler) count --------------------------------------------------------------
+      let blankPart = "";
+      if (p?.blanks) {
+        const b = p.blanks;
+        let base = fittedByBind[b.from_ladder];
+        let baseWhat = b.from_ladder;
+        const statedRaw = b.stated_attr ? selected[b.stated_attr] : undefined;
+        if (
+          b.stated_attr &&
+          statedRaw !== undefined && statedRaw !== null && statedRaw !== "" && statedRaw !== NONE_SENTINEL
+        ) {
+          // The row STATES a plate, so that is the plate that gets priced -- the blanks must be
+          // counted against IT, or the two would use different numbers and contradict each other.
+          const statedSizes = moduleSizesFromLabel(String(statedRaw));
+          if (!statedSizes.length) {
+            return bail(`stated '${b.stated_attr}' ("${String(statedRaw)}") carries no module size -- no blank count computed`);
+          }
+          // A combined rung ("1M & 2M") states a RANGE; the size actually used is the smallest one
+          // that can hold the contents, and its absence is caught by the negative guard below.
+          base = statedSizes.find((n) => n >= occupied) ?? statedSizes[statedSizes.length - 1];
+          baseWhat = `stated ${String(statedRaw)}`;
+        }
+        if (typeof base !== "number" || !Number.isFinite(base)) {
+          return bail(`blank count needs ladder '${b.from_ladder}', which did not resolve -- no value computed`);
+        }
+        const blanks = base - occupied;
+        if (blanks < 0) {
+          // A plate SMALLER than its contents is a contradiction in the source data. Clamping to
+          // zero would price a physically impossible row and hide the contradiction; a negative
+          // quantity must never reach a price. Refuse, and say why.
+          return bail(
+            `${baseWhat} holds ${fmtNum(base)} modules but the contents occupy ${fmtNum(occupied)} -- no value computed`
+          );
+        }
+        ctx[b.bind] = blanks;
+        blankPart = `; ${fmtNum(blanks)} blank${blanks === 1 ? "" : "s"} (${baseWhat} ${fmtNum(base)} - ${fmtNum(occupied)})`;
+      }
+
+      steps.push({
+        step: stepType,
+        label: s.explain || "module fit",
+        // (d) THE WORKING: the arithmetic AND the ladder hop, in one line.
+        matchedCondition: `${termParts.join(" + ")} = ${fmtNum(occupied)} modules -> ${ladderParts.join(", ")}${blankPart}`,
+        runningValues: snapshot(),
+      });
     } else if (stepType === "component_ref") {
       const s = raw as import("./rateMasterTypes").ComponentRefStep;
       // EA-4a ASSEMBLY SHAPE (referenced item x quantity): detected by the presence of rate_stages / qty.
@@ -534,7 +730,14 @@ export function runPipeline(
           let val: string | number;
           if (typeof rawVal === "string" && rawVal.startsWith("@")) {
             const src = rawVal.slice(1);
-            const bound = src === "fitted_size" ? ctx["fitted_size"] : selected[src];
+            // SLICE 2: a module_fit ladder LABEL binding resolves ahead of the selection (see
+            // fitLabels above); absent one, this is byte-identical to the pre-slice-2 resolution.
+            const bound =
+              src === "fitted_size"
+                ? ctx["fitted_size"]
+                : src in fitLabels
+                  ? fitLabels[src]
+                  : selected[src];
             if (bound === undefined || bound === null || (typeof bound === "number" && !Number.isFinite(bound))) {
               bindMiss = src;
               break;

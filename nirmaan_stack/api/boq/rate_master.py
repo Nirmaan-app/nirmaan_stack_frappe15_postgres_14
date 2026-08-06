@@ -931,6 +931,11 @@ _KNOWN_STEP_TYPES = {
     # honest `unsupported`); its @attr (db_shell_item) is already reference-guarded via the component_ref
     # supply steps that bind it.
     "lookup_or_ratio",
+    # SLICE 2: computes a module count from a PARAMETERISED weighted sum over stated quantities and
+    # resolves it against ladders derived FROM THE CATALOG (exact size, else the next higher one).
+    # FULLY validated below -- every attribute id it names is reference-guarded, because an unguarded
+    # typo would silently no-compute every row of the category rather than failing at save.
+    "module_fit",
 }
 _KNOWN_CONFIG_KEYS = {
     "discipline", "category_id", "category_display", "pairing_rule",
@@ -1268,6 +1273,74 @@ def _validate_config(cfg):
                     if not isinstance(own, str) or not own:
                         _vthrow(f"{where}: circuit_fit optional_wire_when_none must be an attribute id.")
                     _ref(own, f"{where} (optional_wire_when_none)")
+            elif st == "module_fit":
+                # SLICE 2. params.terms is the PARAMETERISED weighted sum (one term per quantity slot;
+                # weights AND attribute ids are config, so the same step serves switches_sockets' TWO
+                # socket slots and point_wiring's one). params.ladders each name a CATALOG family --
+                # there is deliberately no size list to validate, because the ladder is derived from
+                # the master rows, never from params. Every attribute id is _ref-guarded.
+                p = s.get("params")
+                if not isinstance(p, dict):
+                    _vthrow(f"{where}: module_fit needs a params object.")
+                terms = p.get("terms")
+                if not isinstance(terms, list) or not terms:
+                    _vthrow(f"{where}: module_fit needs a non-empty params.terms list.")
+                for ti, t in enumerate(terms):
+                    if not isinstance(t, dict):
+                        _vthrow(f"{where}: module_fit terms[{ti}] must be an object.")
+                    tattr = t.get("attr")
+                    if not isinstance(tattr, str) or not tattr:
+                        _vthrow(f"{where}: module_fit terms[{ti}] needs an 'attr' (an attribute id).")
+                    _ref(tattr, f"{where} (terms[{ti}].attr)")
+                    if not _is_finite_number(t.get("weight")):
+                        _vthrow(f"{where}: module_fit terms[{ti}] needs a finite 'weight'.")
+                    nw = t.get("none_when")
+                    if nw is not None:
+                        if not isinstance(nw, str) or not nw:
+                            _vthrow(f"{where}: module_fit terms[{ti}].none_when must be an attribute id.")
+                        _ref(nw, f"{where} (terms[{ti}].none_when)")
+                ladders = p.get("ladders")
+                if not isinstance(ladders, list) or not ladders:
+                    _vthrow(f"{where}: module_fit needs a non-empty params.ladders list.")
+                binds = set()
+                for li, lad in enumerate(ladders):
+                    if not isinstance(lad, dict):
+                        _vthrow(f"{where}: module_fit ladders[{li}] must be an object.")
+                    for key in ("kind", "bind"):
+                        if not isinstance(lad.get(key), str) or not lad.get(key):
+                            _vthrow(f"{where}: module_fit ladders[{li}] needs a string '{key}'.")
+                    if lad["bind"] in binds:
+                        _vthrow(f"{where}: module_fit ladders[{li}] repeats the bind '{lad['bind']}'.")
+                    binds.add(lad["bind"])
+                    lw = lad.get("where")
+                    if lw is not None:
+                        if not isinstance(lw, dict):
+                            _vthrow(f"{where}: module_fit ladders[{li}].where must be an object of attribute = value.")
+                        for wk, wv in lw.items():
+                            if isinstance(wv, (dict, list)):
+                                _vthrow(f"{where}: module_fit ladders[{li}].where['{wk}'] must be an exact value.")
+                    for key in ("label_attr", "bind_modules"):
+                        if lad.get(key) is not None and (not isinstance(lad.get(key), str) or not lad.get(key)):
+                            _vthrow(f"{where}: module_fit ladders[{li}].{key}, when present, must be a non-empty string.")
+                blanks = p.get("blanks")
+                if blanks is not None:
+                    if not isinstance(blanks, dict):
+                        _vthrow(f"{where}: module_fit blanks must be an object.")
+                    for key in ("bind", "from_ladder"):
+                        if not isinstance(blanks.get(key), str) or not blanks.get(key):
+                            _vthrow(f"{where}: module_fit blanks needs a string '{key}'.")
+                    if blanks["from_ladder"] not in binds:
+                        # A blank count keyed to a ladder that does not exist would compute nothing --
+                        # catch it here rather than as a silent runtime no-compute.
+                        _vthrow(
+                            f"{where}: module_fit blanks.from_ladder '{blanks['from_ladder']}' "
+                            f"names no ladder (declared: {', '.join(sorted(binds))})."
+                        )
+                    sa = blanks.get("stated_attr")
+                    if sa is not None:
+                        if not isinstance(sa, str) or not sa:
+                            _vthrow(f"{where}: module_fit blanks.stated_attr must be an attribute id.")
+                        _ref(sa, f"{where} (blanks.stated_attr)")
 
     # REFERENCE GUARD: every attr a pipeline references must be defined (names where each is used) ----
     missing = {a: locs for a, locs in referenced.items() if a not in def_ids}
