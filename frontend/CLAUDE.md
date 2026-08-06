@@ -1271,7 +1271,23 @@ in the plan doc.
   install `850 x 1.5` = 1275 UNROUNDED** (was over-rounded to 1280); goldens are now dbu1 (fallback 24360/3660/
   14760) / dbu2 (TPN-8WAY table-hit 1500) / **dbu4 (TPN-6WAY 1275)**, d1/d2/dbu3-single-item removed. **The wiring + point_wiring + switches_point + DB-build-up goldens are the standing regression pins for every addition.** The Rate Master
   category selector is REGISTRY-driven (`rateMasterRegistry.ts` lists all eleven Electrical categories),
-  NOT config-read. **EA-2: the pricing-sheet helper (`pricingSheetHelper.ts`) is N-CATEGORY** — it resolves
+  NOT config-read. **`module_fit` (owner-locked) computes a row's MODULE COUNT in the PIPELINE, never by
+  the model** — a model-selected plate leaves NO trace, and the trace is the point: the step emits the
+  arithmetic AND the ladder hop on one line, because a price must show its working. **Its weighted sum is
+  CONFIG (weights AND attribute ids), never hardcoded** — `switches_sockets` has TWO socket slots and
+  `point_wiring` has one, so a fixed two-attribute formula is not portable. **Its ladders derive from the
+  CATALOG, never from a params array** (a ladder spec names a `kind` + a `where` family and carries no size
+  list, so adding/retiring a plate size needs no config edit): EXACT if the catalog carries the size, else
+  the **NEXT HIGHER**, never a lower one. **`"1M & 2M"` is ONE item covering TWO sizes** (every integer in a
+  rung's label is a covered size), so a computed 1 and a computed 2 both match it on the ordinary exact
+  path. **The BACK-BOX ladder is SHORTER than the plate ladder** (no 9M, no 16M) and hops independently —
+  a 9M plate pairs with a 12M box. Above the ladder's top is an HONEST NO-COMPUTE, NEVER clamped to the
+  largest rung (a DELIBERATE divergence from `circuit_fit`, which falls back to its largest size but then
+  re-checks `circuits <= 0`; `module_fit` has no second gate). Negative blanks are likewise a no-compute,
+  never a clamped zero. A ladder's fitted LABEL binds for a later `component_ref` `"@<bind>"` exactly as
+  `circuit_fit` binds `fitted_size`; label bindings live in their OWN scope resolved ahead of the selection,
+  so a bind SHADOWS a same-named attribute (how a computed plate replaces a stated one) and every pipeline
+  without a `module_fit` stays byte-identical. **EA-2: the pricing-sheet helper (`pricingSheetHelper.ts`) is N-CATEGORY** — it resolves
   the config PER row category (`configsByCategory`, fetched by a child `RateConfigFetcher` for all 11
   registry categories in `SheetPricingPage.tsx`); a category with no ELIGIBLE config (pipelines + defs, so
   an empty-pipelines LMS is excluded) returns the `{kind:"none", "…coming soon."}` guard. Groups render ONE

@@ -17790,3 +17790,195 @@ accepts Yes** -- the defect fix, confirmed on screen.
 **Two stale pins updated in the same slice:** `_ASSET` v21 -> v22, and 1a's `test_38`, which asserted
 `back_box` was IN the disables list -- exactly the behaviour 1b corrects. Both surfaced as honest test
 failures rather than being anticipated, which is the pins working.
+
+
+## Build slice 2 part 1 -- the `module_fit` interpreter step (CODE AND TESTS ONLY, nothing live)
+
+**Scope:** the CODE half only. NO config changed, NO asset minted, NO DB write, NO AI call. The step
+is unreachable from any live pipeline until part 2 wires it, which is why there is no browser cert
+here -- there is no rendered surface to certify.
+
+**Baselines confirmed at the start of the slice (never from memory):** backend `test_rate_master`
+**44** green; vitest **54 files / 1,277** green. ⚠️ **vitest must run INSIDE the container** --
+the host `node_modules` carries linux-arm64 native bindings, so `npx vitest run` on the host dies with
+a rolldown `MODULE_NOT_FOUND`. Use
+`docker exec frappe_docker_devcontainer-frappe-1 bash -c 'cd /workspace/development/frappe-bench/apps/nirmaan_stack/frontend && npx vitest run'`.
+
+### Why a new step and not existing vocabulary
+
+Verified against the code before relying on the recon's F5/F6: no existing step can express the rule.
+`circuit_fit` does compute-then-walk-a-ladder, but its ladder is a literal `params.sizes` array and
+its arithmetic is hardcoded conduit geometry; `component_ref` / `match_master_row` are EXACT-match
+only (zero or multiple hits -> honest no-compute, never "nearest above"); `lookup_or_ratio` falls back
+to a RATIO on a miss and has no ordering; `scale`'s `*_from_attr` multiplies ONE bound attribute and
+nothing composes two.
+
+### The step: `module_fit`
+
+Named on the `circuit_fit` precedent -- the same family (compute a number, fit it to a ladder, bind the
+results for a later step), so the vocabulary reads consistently.
+
+```
+{ step: "module_fit", params: {
+    terms:   [{ attr, weight, none_when? }, ...],          // the weighted sum
+    ladders: [{ kind, where?, label_attr?, bind, bind_modules? }, ...],
+    blanks?: { bind, from_ladder, stated_attr? },
+} }
+```
+
+**(a) THE WEIGHTED SUM IS PARAMETERISED, NEVER HARDCODED.** The owner's rule is
+`2 x (sockets) + 1 x (switches)`, but `switches_sockets` has TWO socket slots (`socket1_qty` +
+`socket2_qty`) and `point_wiring` has ONE (`socket_qty`). A fixed two-attribute formula could not
+serve both, so weights AND attribute ids come from config -- one term per quantity slot. Both shapes
+are pinned by test against the SAME step.
+
+**(b) THE LADDER IS DERIVED FROM THE CATALOG, NEVER FROM A PARAMS ARRAY.** A ladder spec names a
+`kind` + a `where` family and carries NOTHING resembling a size list -- there is deliberately no such
+key, and a backend test asserts the spec's key set to keep it that way. A literal list in config would
+drift silently the moment a plate size is added or retired; as it stands, retiring 9M moves a computed
+9 straight on to 12M with zero config edits (pinned).
+
+**The two REAL ladders, read from the live master 2026-08-06** (`switch_socket_item`, Electrical) --
+they match the owner's stated ladders exactly:
+
+| ladder | family | rungs | covers | absent |
+|---|---|---|---|---|
+| plate | `Grid and Face Plates` | 1M & 2M, 3M, 4M, 6M, 8M, 9M, 12M, 16M, 18M | 1,2,3,4,6,8,9,12,16,18 | **5, 7, 10, 11, 13, 14, 15, 17** |
+| back box | `Back Box` | 1M & 2M, 3M, 4M, 6M, 8M, 12M, 18M | 1,2,3,4,6,8,12,18 | **9, 16** (plus the plate's gaps) |
+
+**THE BACK-BOX LADDER IS SHORTER THAN THE PLATE LADDER**, and each takes the next higher size
+INDEPENDENTLY -- which is why a 9M plate pairs with a **12M** box and a 16M plate with an **18M** box.
+One step serves both: `ladders` is a list, resolved from the SAME computed count.
+
+**`"1M & 2M"` IS ONE CATALOG ITEM COVERING TWO SIZES, represented by EXPANSION.** `moduleSizesFromLabel`
+pulls EVERY integer out of a rung's label, and the rung is entered into the ladder once per covered
+size, all carrying that one label. So a computed 1 AND a computed 2 both hit it on the ordinary
+exact-match path -- there is no special case anywhere downstream. `"3M"` -> [3]; `"1M & 2M"` -> [1,2];
+a label with no integer is not a rung.
+
+**Resolution:** EXACT when the catalog carries the size, otherwise the NEXT HIGHER one, **never a
+lower one** -- a plate smaller than its contents cannot hold them, so rounding down would be a wrong
+price, not merely a wrong size.
+
+**(c) BINDING.** A ladder's fitted LABEL ("12M") binds by `bind`, readable by a later `component_ref`
+as `"@<bind>"` -- exactly how `circuit_fit` binds `fitted_size` for `@fitted_size`. Because `ctx` is
+numbers-only and a plate size is a catalog label, labels live in their own `fitLabels` scope inside
+`runPipeline`; the `@` resolver checks it BEFORE the selection, so a bind whose name matches a selected
+attribute SHADOWS it -- which is how a COMPUTED plate replaces a stated one. `fitLabels` is empty
+unless a `module_fit` ran, so every pre-slice-2 pipeline is byte-identical. Numbers (`bind_modules`,
+`blanks.bind`) go into `ctx` and are readable by a `component_ref` `qty: {from_fit}` with no change to
+`resolveQty`.
+
+**(d) THE TRACE SHOWS ITS WORKING** -- the whole reason this belongs in the pipeline rather than in a
+rule, since a model-selected plate leaves no trace at all. One line carries the arithmetic AND the
+ladder hop (pinned verbatim by test):
+
+```
+2 x socket1_qty(2) + 2 x socket2_qty(None) + 1 x switch_qty(3) = 7 modules ->
+  plate_size 8M (next higher), box_size 8M (next higher); 1 blank (plate_size 8 - 7)
+```
+
+**(e) HONEST NO-COMPUTE, never a silent zero, never a guess.** Six refusal cases, each naming its
+cause: a term attribute missing / blank / non-numeric; a computed count of zero or less; an empty
+ladder; a count above the ladder's top; a blank count keyed to an unresolved ladder; and negative
+blanks. A `"None"` value -- on the quantity itself or on the term's optional `none_when` controlling
+item -- is POSITIVE ABSENCE and contributes 0, mirroring `component_ref`'s `none_skips`; **blank is
+UNKNOWN and refuses, "None" is a decision and computes.** That distinction is the codebase's existing
+EA-4a-r rule, not a new one.
+
+### The blanker count
+
+`blanks = the modules the plate carries - the modules its contents occupy`, keyed to a ladder by
+`from_ladder` so the blanks and the plate can never use different numbers and contradict each other.
+The only blanker in the catalog is `1M Blanker` at ONE module, so the blank count IS a module count.
+T10 both ways: 3 modules with 3 occupied -> **0 blanks**; 8 modules with 7 occupied -> **1 blank**.
+
+**TWO DECISIONS THE OWNER DELEGATED, both made toward REFUSING rather than guessing, because a visible
+no-compute is correctable and a silently wrong price is not:**
+
+1. **A count ABOVE the ladder's top (>18) is an HONEST NO-COMPUTE, NOT clamped to 18M.** The catalog
+   simply has no such plate; clamping would under-price by the missing modules AND show a plate that
+   cannot hold the contents. ⚠️ This DELIBERATELY DIVERGES from `circuit_fit`, which does fall back to
+   its largest size -- `circuit_fit` then re-checks with `circuits <= 0`, so an unusable fit is still
+   caught downstream. `module_fit` has no such second gate, so it refuses at the ladder.
+2. **NEGATIVE blanks are an HONEST NO-COMPUTE, NOT a clamped zero.** Clamping would price a physically
+   impossible row and hide the contradiction; a negative quantity must never reach a price.
+
+**⚠️ A TENSION IN THE SPEC, resolved and recorded rather than guessed at.** The blanks are specified to
+use "the SAME module number the plate resolved to" -- and on that path a negative result is
+STRUCTURALLY UNREACHABLE, because the fit is exact-or-next-higher and so is always >= the count (pinned
+by an exhaustive sweep). The negative case the owner names -- *"a stated plate smaller than its
+contents"* -- can only arise when the base is the plate the ROW STATES, not the resolved one. So
+`blanks.stated_attr` (OPTIONAL) names the stated-plate attribute: when it carries a real size the
+blanks are counted against IT, **because that is the plate that gets priced**; blank or `"None"` falls
+back to the resolved ladder. That makes the negative guard a REAL test of a REAL shape instead of dead
+code. **The behaviour when negative was specified by the owner (refuse or clamp -- report which); only
+its reachability was unclear.**
+
+**The negative case is REAL in live data:** `ss1` (switches_sockets) states plate `6M` but carries
+3 sockets + 1 switch = **7 modules**. That is the T9 fixture, verbatim.
+
+### T1-T11 (all green on the first run, no fixes needed)
+
+| # | case | result |
+|---|---|---|
+| T1 | 1 socket + 1 switch -> 3 | exact `3M` (pw1/pw2's real shape AND their stored plate -- they agree) |
+| T2 | 2 sockets + 3 switches -> 7 | no 7M -> **8M** (the owner's worked example) |
+| T3 | 0 sockets + 1 switch -> 1 | `1M & 2M` (covered, not a hop) |
+| T4 | 1 socket + 0 switches -> 2 | `1M & 2M` (the combined rung from the other side) |
+| T5 | -> 9 | plate `9M` exact, box **`12M`** (the two-ladder case) |
+| T6 | -> 16 | plate `16M` exact, box **`18M`** |
+| T7 | -> 20 (above the top) | honest no-compute, NOT clamped to 18M |
+| T8 | missing / non-numeric qty | no-compute naming the attribute, never zero |
+| T9 | stated 6M with 7 occupied | honest no-compute (+ a positive control at 8M) |
+| T10 | blanks for T1 / T2 | **0** / **1** |
+| T11 | `sp1`'s shape (2 switches + 3 sockets) | the formula gives **8** |
+
+### ⚠️ THREE FORMULA-vs-STORED-GOLDEN DISAGREEMENTS -- RECORDED, NOT ACTED ON
+
+The owner flagged one; reading the live configs found **three**. All are the same class (a stored
+plate SMALLER than the formula's answer), and none is touched this slice.
+
+| golden | category | contents | formula | STORED plate | gap |
+|---|---|---|---|---|---|
+| `sp1` | switches_point | 2 switches + 3 sockets | **8** | `6M` | −2 (the owner's flagged case) |
+| `ss1` | switches_sockets | 1 switch + 3 sockets | **7** | `6M` | −1 (also stores `blank_qty` 2, which the formula cannot reach) |
+| `pw3` | point_wiring | 1 switch + 0 sockets | **1** | `3M` | +2 (the only one where the stored plate is BIGGER) |
+
+The owner ruled THE FORMULA WINS and the golden gets reworked; T11 pins the formula's answer for `sp1`
+and asserts the disagreement in code so it cannot silently rot. **`switches_point`, `switches_sockets`
+and `point_wiring` are all config, and config is part 2 -- nothing here changes any of them.** `pw1`
+and `pw2` AGREE with the formula (1 socket + 1 switch = 3 -> their stored `3M`).
+
+### The validator half (C3) -- and the vocabulary pin (C5)
+
+`module_fit` is added to `_KNOWN_STEP_TYPES` and FULLY validated (not a pass-through like
+`lookup_or_ratio`): terms/ladders non-empty, finite weights, ladder `kind`+`bind` required, duplicate
+binds rejected, `where` range-predicates rejected, and `blanks.from_ladder` must name a DECLARED
+ladder. **Every attribute id it names is `_ref`-guarded** (`terms[].attr`, `terms[].none_when`,
+`blanks.stated_attr`), plus the client mirror in `referencedAttrIds`. That guard matters more than
+usual here: a typo'd id no-computes SILENTLY at runtime -- the step refuses the row rather than
+erroring -- so without it a one-character mistake would blank a whole category's prices with nothing
+to point at.
+
+**C5, done in the stated order:** the 11-type vocabulary was pinned on BOTH sides FIRST -- a behavioural
+pin in `ratePipelineInterpreter.test.ts` (every declared type is recognised by the interpreter's chain;
+an undeclared one still falls through to the honest `unsupported`) and `test_43`/`test_44` on the
+server -- and **proven green against the unchanged code** (frontend 93, backend 46). Only then was the
+step added and both pins moved to 12, in the same slice, so the diff shows exactly what the vocabulary
+was before and after. This pairing has bitten twice already (the `circuit_fit` triple, the `wire_specs`
+length check): a step the interpreter executes but the validator rejects is UNSAVABLE through RM-4b.
+
+### Gates
+
+| gate | result |
+|---|---|
+| G1 vitest | **54 files / 1,312** green (baseline 1,277 -> +35) |
+| G2 backend `test_rate_master` | **52** green (baseline 44 -> +8) |
+| G3 `tsc --noEmit` | **ZERO new errors** in the touched files (the repo's large pre-existing baseline is untouched) |
+| G4 backward compat | **The ONLY deleted line in the whole interpreter test file is the `import` statement** -- every wiring / point_wiring / switches_sockets golden test is byte-unchanged and green |
+| G5 | zero AI calls, zero config writes, zero DB writes -- verified by re-reading all 13 active Electrical configs: every `modified` timestamp predates the session |
+
+**C2 was proven, not asserted:** across all five in-scope source files the diff carries exactly four
+deleted lines (one `component_ref` binding line extended in place, a docstring, a local type widening,
+and the test import). Everything else is addition.

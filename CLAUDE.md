@@ -160,6 +160,26 @@ First worked proof: the `sidebar_counts` aggregate rewrite + the shared `service
 - **The only blanker item in the catalog is `1M Blanker`, and it lives under `family: "Switch"`** -- there is
   no blanker family. Any `blank_item` slot therefore binds `values_from.where = {"family": "Switch"}`.
   **BOTH `switches_sockets` and `point_wiring` carry a blanker slot.**
+- **The module count is computed in the PIPELINE, never by the model (owner-locked).** The
+  `module_fit` interpreter step derives a row's module count from a weighted sum over its stated
+  quantities and resolves it against the catalog. It belongs in the pipeline precisely BECAUSE a
+  model-selected plate leaves no trace: the step's trace carries the arithmetic AND the ladder hop,
+  and this system's design ethos is that a price shows its working. **The weighted sum is CONFIG —
+  weights AND attribute ids — never hardcoded**, because `switches_sockets` has TWO socket slots and
+  `point_wiring` has one, so a fixed two-attribute formula is not portable between them.
+- **`module_fit` ladders derive from the CATALOG, never from a params array (owner-locked).** A ladder
+  spec names an item `kind` + a `where` family and carries NO size list, so adding or retiring a plate
+  size flows through with no config edit. Resolution is EXACT if the catalog carries the size, else the
+  **NEXT HIGHER** one, **never a lower one** — a plate smaller than its contents cannot hold them, so
+  rounding down is a wrong price, not merely a wrong size. **`"1M & 2M"` is ONE catalog item covering
+  TWO sizes**: every integer in a rung's label is a covered size, so a computed 1 and a computed 2 both
+  match it on the ordinary exact-match path. **The BACK-BOX ladder is SHORTER than the plate ladder**
+  (it carries no 9M and no 16M) and takes the next higher size independently — a 9M plate pairs with a
+  12M box, a 16M plate with an 18M box. A count ABOVE the ladder's top is an HONEST NO-COMPUTE, never
+  clamped to the largest rung; this DELIBERATELY DIVERGES from `circuit_fit`, which does fall back to
+  its largest size but then re-checks with `circuits <= 0` — `module_fit` has no such second gate, so
+  it refuses at the ladder. Negative blanks (a stated plate smaller than its contents) are likewise an
+  honest no-compute, never a clamped zero: a negative quantity must never reach a price.
 - **The plate / back-box relationship is ONE-WAY (owner-locked).** A face plate present DEFAULTS the box to
   yes; a face plate set to `"None"` must leave `back_box` **STILL SELECTABLE**, because a back box can exist
   with no face plate. `plate_item.disables_when_none` therefore lists **`plate_qty` ONLY** -- never `back_box`.
