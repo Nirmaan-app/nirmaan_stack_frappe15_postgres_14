@@ -18196,3 +18196,177 @@ A row with a **None plate AND a real blanker** no-computes: blanks are absent (n
 blank component's `{from_fit}` has no quantity. Honest -- blanks with no plate are meaningless -- and no
 golden hits it (`s1` carries `blank_item: "None"` and prices). Confirmed live during V4. Whether such a
 row should instead drop the blanker line silently is an owner call.
+
+
+## Build slice BLANKER -- stale pins, a blanker-colour guard, and a DERIVED read-only `blank_qty`
+
+**No config change, no asset mint, no apply, no DB write.** The live asset stays
+`rate_master_electrical_all_v23.json` (sha `595ab49124eb28a8`, batch `rmbulk-00b94dd14be9`) --
+verified unchanged at the end of the slice. Three items, done in order, each provable on its own.
+
+### Item 1 -- the two stale pins (the backend suite was RED)
+
+**Starting state: 56 ran, 2 failures.** `test_39_switches_sockets_goldens_live` and
+`test_42_point_wiring_goldens_hold` read the LIVE production config and still asserted PRE-v23 golden
+values, so they could only turn red once slice 2 part 2's asset was applied.
+
+**This was chat's miss in the slice 2 part 2 prompt.** That prompt reworked the goldens, minted the
+asset and applied it, but never had the BACKEND suite re-run after the apply -- the backend runs both
+happened at CP0 and after the rename, i.e. BEFORE CP3. The vitest side was covered. The slice 2 part
+2 report therefore presented "backend 56 green" as a final gate when the measurement predated the
+apply. **Correcting the record here.**
+
+**Every figure was verified against the live stored goldens BEFORE editing** (the prompt's table was
+not taken on trust); all six matched, and `s1`, `pw1`, `pw2` were confirmed unmoved.
+
+| test | asserted | live | now |
+|---|---|---|---|
+| test_39 | ss1 supply 700.0 | 740.0 | **740.0** |
+| test_39 | ss1 install 140.0 | 150.0 | **150.0** |
+| test_39 | ss1 bcs 480.0 | 510.0 | **510.0** |
+| test_39 | comment: the 6M arithmetic (raw 1918, 61x2, plate 302, box 247) | 8M / raw 2024 | **rewritten** |
+| test_42 | pw3 supply 1682.0 | 1740.0 | **1740.0** (+ install 709, bcs 1281 now pinned too) |
+| test_42 | loop: ALL THREE pw goldens blank_item "None" / blank_qty 0.0 | pw3 is `1M Blanker` / 2.0 | **loop narrowed to pw1/pw2; pw3 pinned explicitly** |
+| test_42 | ss1 boq {700,140}, bcs {480} | {740,150}, {510} | **{740,150}, {510}** |
+
+**The stale COMMENT prose was rewritten, not just the numbers** -- a comment describing 6M arithmetic
+beside an 8M assertion is worse than no comment, because it actively misleads the next reader. Both
+docstrings now say why pw3 MOVED and why pw1/pw2 did not.
+
+**Result: 56 ran, OK.** Proven green before anything else was touched.
+
+### Item 2 -- the blanker colour: a GUARD, not a build
+
+**It already worked.** The blank component binds `colour: "@colour"` on every pipeline of both
+categories, so the blanker follows the assembly. What it lacked was a pin: nothing would have caught
+a future edit that hardcoded a colour.
+
+The recon proved it ARITHMETICALLY rather than by inspection, which is the stronger form: `pw3` is a
+**Grey** assembly carrying 2 blankers, and its green golden of 1740 is reachable ONLY at the Grey list
+price of 79 (`ceil(79 x 0.3625) = 29`, x2 = 58, 1682 + 58 = 1740). At the White price of 61 it would
+be 1728. **A green gate was the proof.**
+
+Four pins, split by what they guard:
+
+- **P1 / P2 (interpreter suite) -- the PRICE PATH, not the colour string.** A Grey assembly's blank
+  line prices at 79 and a White one at 61. ⚠️ Asserting `colour === "Grey"` would pass even if the ref
+  resolved the wrong catalog ROW; asserting the resolved LINE VALUE is what proves the right row was
+  priced. A third test changes ONLY the colour and asserts the line moves by exactly the real catalog
+  gap (18).
+- **P3 (backend, live config) -- the guard that matters.** On BOTH categories and EVERY pipeline the
+  blank ref must bind `@colour`, `@blank_item`, family `Switch`, and `qty: {from_fit: "blank_count"}`;
+  the count of blank lines is pinned at 5, so a DROPPED line fails too.
+- **P4 (backend, live catalog) -- uniqueness, structurally.** `1M Blanker` is the only blanker, in
+  exactly White and Grey, at DIFFERENT prices (so the colour is load-bearing), under family `Switch`
+  -- read from the live master, never asserted as a hardcoded constant.
+- **A NEGATIVE test proves the harm** a hardcode would do: a blank ref pinned to `"White"` prices a
+  GREY assembly at the White blanker, `status: "ok"`, no error. Silent. That is why P3 exists.
+
+Confirmed live on screen too: switching only the colour moved the line from
+`1M Blanker White (rate 23 x qty 5)` to `1M Blanker Grey (rate 29 x qty 5)`.
+
+### Item 3 -- `blank_qty` becomes a DERIVED, read-only display
+
+**The defect:** slice 2 part 2 moved the blank line onto the computed count
+(`qty: {from_fit: "blank_count"}`) and stopped reading the attribute, so the form showed `blank_qty`
+0 while the line priced at 1. The form said one thing and the price said another.
+
+#### THE DESIGN DECISION -- neither of the two options offered
+
+The prompt offered a binary: declare the derived-ness in CONFIG (a def flag) or hardcode it by
+attribute id. **Both are wrong here, and a third option dominates:**
+
+- A **config flag** would need an asset mint + apply -- the one irreversible middle this slice's shape
+  was built to avoid.
+- **Hardcoding `d.id === "blank_qty"`** would hit the trap the recon flagged: `switches_point` still
+  reads `blank_qty` as a GENUINE input (`qty: {from_attr: "blank_qty"}`), so it would freeze a field
+  that is legitimately editable there.
+
+**The derived-ness is already declared in the config that exists.** An attribute is derived exactly
+when a component takes its quantity from a computed binding INSTEAD of from that attribute:
+
+| stored `qty` | meaning | result |
+|---|---|---|
+| `{from_fit: "blank_count"}` | the attribute is SUPERSEDED | derived, read-only |
+| `{from_attr: "blank_qty"}` | the attribute IS the input | stays editable |
+
+That is exactly right on live data, needs **no new key and no asset**: switches_sockets and
+point_wiring carry the from_fit form, and **`switches_point` opts out automatically and correctly**.
+It also generalises -- any future attribute superseded by a computed binding follows, in any category.
+
+Two pure functions in `RateMasterDerivation.tsx`:
+- `derivedQtyAttrs(config)` -> `Map<attrId, {attrId, ctxKey}>`. The `_qty` suffix ties a component to
+  its attribute (`blank` -> `blank_qty`), the SAME convention every shipped config already uses.
+  **Two guards make it airtight:** the candidate must be a DECLARED attribute (so point_wiring's
+  `conduit` line, whose `{from_fit: "conduit_qty"}` has no matching attribute, marks nothing), and an
+  attribute read as an input ANYWHERE is never derived (so a config that both computes and reads a
+  value leaves the user in control).
+- `derivedQtyValue(results, ctxKey)` -> the computed value out of the pipeline traces, or
+  **undefined** when nothing computed it.
+
+#### ⚠️ NO WRITE-BACK -- and why
+
+The computed value is **never** written into `selected`. `selected` means *"what the user or
+extraction supplied"*; writing a derived value into it would make the two indistinguishable, and
+every later reader would treat a computed number as a stated one. The display reads from `results`
+and leaves the form state alone. This also removes any risk of a `selected -> results -> selected`
+render loop.
+
+**(c) "updates live" was FREE:** `results` is a `useMemo` on `[config, items, selected]`, so every
+attribute change already recomputes every pipeline. The derived display follows with no effect, no
+subscription, no polling.
+
+**Is `disables_when_none` reusable for (b)? The PROP yes, the PREDICATE no.** `disabled` is the right
+prop and is already wired, but `disabledByNone` membership is CONDITIONAL on a controller sitting at
+"None", whereas a derived field is unconditionally non-editable. Reusing `disables_when_none` would
+also be a lie in the config -- claiming a None-dependency that is not the reason. The derived field
+therefore carries `readOnly` + `disabled` from its own predicate, plus a `(computed)` label and a
+title explaining why.
+
+**An undefined computed value renders EMPTY, not 0.** With a "None" plate there are no blanks at all;
+a 0 would claim "zero needed" when the truth is "not applicable".
+
+#### ⚠️ On C5 (pin the current display, then change)
+
+Pinning a React RENDER is structurally impossible in this repo -- there is NO DOM test environment, a
+deliberate choice recorded in `frontend/CLAUDE.md`. So the RULE was pinned instead (the part that can
+be wrong), and the render was verified in the browser cert. **The before-state pin is explicit and is
+the one that matters:** a `{from_attr}` component keeps its attribute an input and derives nothing --
+switches_point's live shape, asserted as it is TODAY.
+
+### Gates
+
+| gate | result |
+|---|---|
+| G1 backend | **RED 56/2 failures -> GREEN 58 OK** (+2 colour/uniqueness pins) |
+| G2 vitest | 1,335 -> **54 files / 1,351** green (+16) |
+| G3 tsc | zero errors in the touched files |
+| G4 the four colour pins | green (P1, P2 interpreter; P3, P4 backend live) |
+| G5 | zero config writes, zero DB writes, zero AI calls -- all 13 configs still on `rmbulk-00b94dd14be9` with their 2p2 timestamps, 1383 active items |
+| G6 preview gate | switches_sockets **6/6**, point_wiring **9/9**, 0 deltas -- identical to slice 2p2, no golden moved |
+
+### Marker + cert
+
+**MARKER (a CODE marker, not a data one):** the changed component was fetched AS SERVED from vite and
+checked for symbols that exist only in the new code -- `derivedQtyAttrs` (x2), `derivedQtyValue` (x2),
+`(computed)`, `not editable` -- plus `disabledByNone` to confirm it was the real file. (A data marker
+cannot detect a stale bundle; `DerivedQtyBinding` reads 0 because a TS interface is stripped at
+transform, which is correct.)
+
+V1 ✅ `blank_qty` shows **1**, `readOnly`, `disabled`, labelled `(computed)`, while the blank line
+prices at **qty 1** -- the same number, side by side; the defect is gone. V2 ✅ one socket-qty change
+moved it **1 -> 5** with the priced qty following (61 -> 305) and `navigation entries: 1` proving no
+reload. V3 ✅ a None plate shows **empty, not 0** (`no plate_item -> no blanks`). V4 ✅ point_wiring,
+same three checks on its own single-socket shape, **5 -> 1**. V5 ✅ both preview gates unmoved.
+
+### ⚠️ Carried forward, not fixed
+
+- **A None plate with a REAL blanker still no-computes** (blanks are absent, so `{from_fit}` has no
+  quantity). Honest -- blanks with no plate are meaningless -- and no golden hits it. Flagged since
+  the 2p2 report; still an owner call.
+- **`blank_qty` is still SENT TO THE AI.** `extraction.build_attribute_defs` excludes only
+  `selector: false`, so the model is still asked for a quantity the pipeline ignores. Making it
+  `selector: false` would also remove the DISPLAY, which is the opposite of what this slice wants --
+  so the two mechanisms collide, and that is a config decision for a later slice.
+- The pre-existing `miscellaneous` float artifact (`187.20000000000002` vs `187.2`) is untouched and
+  unrelated; it did not surface here because `miscellaneous` is not one of the certified categories.

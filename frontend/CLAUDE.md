@@ -1295,7 +1295,26 @@ in the plan doc.
   plate's label:** no 9M/16M back box exists, so a 9M plate pairs with a **12M** box and 16M with **18M**,
   and copying the label made the WHOLE ROW unpriceable (a live defect before slice 2 part 2). A `"None"`
   plate keeps the plate line at ZERO while only the BOX takes the computed count — a box may exist with no
-  face plate. **EA-2: the pricing-sheet helper (`pricingSheetHelper.ts`) is N-CATEGORY** — it resolves
+  face plate.
+  **THE BLANKER'S COLOUR FOLLOWS THE ASSEMBLY and is NEVER hardcoded (owner-locked).** The blank
+  component's ref binds `colour: "@colour"` like every other component, so a Grey assembly prices the
+  Grey blanker and a White one the White blanker — a REAL price difference, not cosmetic. A hardcoded
+  colour does NOT fail at runtime; it silently prices the wrong catalog row, which is why the guard is
+  a PIN (the price path, never the colour string) rather than a code check. `1M Blanker` is the only
+  blanker in the catalog, so the colour is the sole free variable on that line.
+- **`blank_qty` is DERIVED and READ-ONLY — the COMPUTED count always wins and a stated one is ignored
+  (owner-locked).** The blank line takes `qty: {from_fit: "blank_count"}`, so the attribute is no
+  longer an input and must not render as one. **The derived-ness is READ FROM THE EXISTING CONFIG, not
+  a new key and never hardcoded by attribute id:** a component taking `{from_fit}` has SUPERSEDED its
+  `<name>_qty` attribute, while one taking `{from_attr}` still reads it — which is what makes
+  `switches_point` (still on `from_attr`) opt out automatically, and hardcoding by id would have
+  frozen a field that is genuinely editable there. An attribute read as an input ANYWHERE is never
+  derived. **⚠️ A DERIVED DISPLAY MUST NEVER BE WRITTEN BACK INTO THE FORM'S STATE** — `selected`
+  means "what the user or extraction supplied", and writing a computed value into it makes the two
+  indistinguishable to every later reader. Display it from the pipeline results and leave the state
+  alone; because the screen already recomputes every pipeline on every attribute change, live updating
+  needs no extra machinery. An uncomputed value renders EMPTY, never 0 — with a None plate there are
+  no blanks at all, and 0 would claim "zero needed" instead of "not applicable". **EA-2: the pricing-sheet helper (`pricingSheetHelper.ts`) is N-CATEGORY** — it resolves
   the config PER row category (`configsByCategory`, fetched by a child `RateConfigFetcher` for all 11
   registry categories in `SheetPricingPage.tsx`); a category with no ELIGIBLE config (pipelines + defs, so
   an empty-pipelines LMS is excluded) returns the `{kind:"none", "…coming soon."}` guard. Groups render ONE
