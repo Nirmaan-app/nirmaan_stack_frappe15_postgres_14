@@ -177,6 +177,20 @@ First worked proof: the `sidebar_counts` aggregate rewrite + the shared `service
   never clamped to the largest rung; this DELIBERATELY DIVERGES from `circuit_fit`, which does fall
   back to its largest size but then re-checks with `circuits <= 0` — `module_fit` has no such second
   gate, so it refuses at the ladder.
+- **A ZERO module count yields NO plate, NO box and NO blanks — but must NEVER kill the pipeline
+  (owner-locked).** A light point wired straight to an MCB carries no switch, socket or plate, so
+  the weighted sum is 0; that is a REAL and COMMON product, not a data error. **Wire and conduit are
+  unrelated to module counts**, so refusing the whole pipeline discards a `circuit_fit` that already
+  succeeded. A zero count marks EVERY ladder positively absent — the same `absentLadders` mechanism
+  a `"None"` plate already uses — and the trace must SAY that nothing was fitted; silence would be
+  worse than the refusal it replaced. A NEGATIVE or non-finite count, and a MALFORMED step declaring
+  no terms at all, both stay honest no-computes: "declared nothing to count" is not the same
+  statement as "counted to zero", and collapsing them lets a broken config report a priced row.
+- **A ladder marked absent must still BIND the None sentinel (owner-locked).** A ladder bind may
+  have no backing attribute (`@box_item`), so binding nothing leaves that `@` reference UNBOUND —
+  and an unbound `@` reference aborts the whole row. Binding the sentinel is what lets a `none_skips`
+  component zero its line instead. For the same reason a blank count binds an explicit 0 rather than
+  nothing: a `{from_fit}` quantity that is absent is "not provided", which also aborts the row.
 - **TAKE-THE-LARGER: the plate priced is the LARGER of the STATED and the COMPUTED module count
   (owner-locked; REPLACES the earlier stated-wins rule).** A ladder's `floor_from` names the attribute
   whose stated count is a **FLOOR, never a ceiling**: a stated plate too small for its contents is

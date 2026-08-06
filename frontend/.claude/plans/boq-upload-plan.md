@@ -18370,3 +18370,143 @@ same three checks on its own single-socket shape, **5 -> 1**. V5 ✅ both previe
   so the two mechanisms collide, and that is a config decision for a later slice.
 - The pre-existing `miscellaneous` float artifact (`187.20000000000002` vs `187.2`) is untouched and
   unrelated; it did not surface here because `miscellaneous` is not one of the certified categories.
+
+---
+
+## Build slice PW-FIX -- the `module_fit` zero-count bail (row 198 prices)
+
+**Scope:** the bail fix ALONE. The numeric-dropdown attribute type and R9's rewrite were carved out
+of this slice and deferred (see "Carved out" below). Two files: `ratePipelineInterpreter.ts` +
+its test file. No config, no asset, no mint, no DB write.
+
+### The defect
+
+Production `BOQ-26-00019` / `12 Internal Works ` row 198 -- *"Set of seven (7) light points
+controlled by MCB"* -- read **"no match for these attributes"** in the pricing editor.
+
+A light point wired straight to an MCB carries no switch, no socket, no plate and no blanker. Every
+`module_fit` term is therefore positively absent (`none_when` fires on each), so the weighted sum is
+**0**, and the `occupied <= 0` guard returned `no_match` for the **whole pipeline** -- discarding a
+`circuit_fit` that had ALREADY SUCCEEDED (`dia 5.528 -> 25mm, 2 circuits, conduit qty 8`). Wire and
+conduit have nothing to do with module counts.
+
+The guard's REASONING was right and is preserved -- its own comment says applying the next-higher
+rule would manufacture a plate for a row carrying nothing. Its ACTION was too wide.
+
+### The shape chosen: a zero count marks EVERY ladder positively absent
+
+Not a new concept -- the SAME mechanism a `"None"` plate already uses (`absentLadders`), one level
+up: every ladder is absent rather than only the one whose `floor_from` is None. That path was already
+proven in production, and it is why the fix adds no vocabulary.
+
+```
+if (!(p?.terms?.length))                  -> bail  (malformed: declares nothing to count)
+if (!isFinite(occupied) || occupied < 0)  -> bail  (a contradiction: no such product)
+const noModules = occupied === 0                  (a REAL and COMMON product)
+```
+
+Per ladder, when `noModules`: `absentLadders.add(bind)`, `fitLabels[bind] = NONE_SENTINEL`,
+`bind_modules -> 0`, and a trace part `no <bind> (nothing to fit)`. The blanks branch binds **0** and
+says `; no plate -> 0 blanks`.
+
+### THREE LOAD-BEARING DETAILS -- each found by a FAILING TEST, not by reading
+
+1. **Binding the None sentinel into `fitLabels` is REQUIRED, not decorative.** The back box
+   references `@box_item`, which is a *ladder bind with no backing attribute*. Marking the ladder
+   absent without binding anything leaves that reference **unbound**, and an unbound `@` reference
+   aborts the whole pipeline at `bindMiss` -- reinstating the exact refusal this fix removes.
+2. **`blank_count` binds 0 rather than binding nothing.** The blank line reads its quantity via
+   `{from_fit}`; an unbound key is "quantity not provided", which also aborts the row. Zero is
+   honest AND is a number we actually know. (This DIVERGES from the None-plate path, which binds
+   nothing and leans on `none_skips`; that path is byte-untouched.)
+3. **A MALFORMED step must NOT read as zero modules.** The first version conflated "declared no
+   terms" (a broken config) with "counted to zero" (a real product), turning the Option-C
+   malformed-`module_fit` test from `no_match` to `ok`. **The existing test caught it.** A config
+   with no terms now bails explicitly -- a broken config must never report a priced row.
+
+### The `resolveAtRef` refactor, and why it is byte-identical for pre-fix pipelines
+
+The `none_skips` positive-absence check read `selected[...]` while the ref binding read `fitLabels`
+first. For a ladder bound to the sentinel those two disagree, so both now call one shared
+`resolveAtRef(src)` = `fitted_size ? ctx : src in fitLabels ? fitLabels[src] : selected[src]` --
+the binding's own pre-existing order, extracted verbatim.
+
+It is byte-identical BEFORE this slice because **`fitLabels` only ever held real catalog labels**
+(`"3M"`, `"12M"`): the sentinel could not appear there, so `fitLabels[src] === NONE_SENTINEL` was
+unreachable and every lookup fell through to `selected` exactly as before. Proven, not argued -- all
+26 goldens byte-identical and the full suite green.
+
+### Row 198, before and after (production data, live configs + live items)
+
+| | before | after |
+|---|---|---|
+| supply | `no_match` | **2301** |
+| install | `no_match` | **732** |
+| lines | none | wire1 1500, wire2 465, conduit 336 |
+
+The certified trace, verbatim from the Derivation screen:
+
+```
+2 x socket_qty(None) + 1 x switch_qty(None) = 0 modules ->
+  no plate_item (nothing to fit), no box_item (nothing to fit); no plate -> 0 blanks
+```
+
+with `switch = 0`, `socket = 0`, `blank = 0`, `plate = 0`, `back_box = 0` each an EXPLICIT
+`None -> 0`, while wire and conduit price normally.
+
+**Sheet-wide before/after over all 23 point_wiring rows** (the pre-fix interpreter restored from
+HEAD, then the fix re-applied -- same harness, same data):
+
+- **8 rows fixed**: 196, 198, 200, 202, 204, 206, 208, 210 -- `no_match` -> **2301 / 732**
+- **10 rows byte-UNCHANGED**: 217-235 (1880/736.4, 1914/743.2, 2012/763.4)
+- **5 rows still honestly refusing**: 295, 297, 301, 303, 305 -- blocked by genuinely unextracted
+  attributes, which this slice does not touch
+
+### Tests -- pin before, change after
+
+The BEFORE pin was written against the UNCHANGED interpreter and **proven green first** (row 198
+`no_match`, `finals {}`, circuit_fit's `25mm / conduit qty 8` present and discarded, no wire or
+conduit line), then deleted and replaced by six AFTER pins, so the diff shows both states. New
+fixtures `PW_MODULE_FIT` / `PW_MF_SUPPLY` / `PW198_ITEMS` / `PW_ROW198` mirror the LIVE v23 shape
+(the EA-4a fixtures predate `module_fit` and key the back box off the plate label).
+
+Pins: row 198 prices (2301, with the three component values); no plate/box/blanks as explicit zeros
+and no `3M`/`1M & 2M` fitted; the exact trace string; `blank_count` binds 0; **negative still
+refused** (`not a valid count`); a positive count byte-unchanged. One pre-existing pin was updated
+deliberately -- *"a count of ZERO is an honest no-compute"* now asserts `ok` + `no plate_size
+(nothing to fit)`; its "NOT the smallest plate" half was always right and is unchanged.
+
+vitest **1,351 -> 1,357** / 54 files. Backend **58** unchanged (no backend change). `tsc --noEmit`:
+**0 errors** in the touched file. **All 26 goldens across all 13 categories byte-identical**,
+including pw1/pw2/pw3, s1/ss1 and g1-g5 -- verified against live configs + live items, not only
+fixtures.
+
+### Cert (V1-V3, CDP against the owner's Chrome)
+
+De-stale ran in full (bench restart; the three LISTED vite PIDs killed; `.vite` cleared; :8080=200;
+cache + service workers + storage cleared -- **cookies deliberately preserved**, since dropping the
+session could not be recovered unattended). **CODE MARKER GREEN:** the served
+`ratePipelineInterpreter.ts` carries `resolveAtRef` (x3) plus all four new strings and **zero**
+occurrences of the old `"is not a positive count"`.
+
+- **V1 PASS** Row 198 in the pricing editor, values UNCORRECTED: **supply 2301**, **install 732**
+  (combined 3033), lines wire1 1500 / wire2 465 / conduit 336. The screen agrees with the code-path
+  measurement exactly.
+- **V2 PASS** No plate, no box, no blanks -- the trace SAYS so (verbatim above); wire and conduit
+  price normally.
+- **V3 PASS** Row 221 (switch + plate, positive count) unchanged at **1880**, and the whole-sheet
+  before/after above shows all ten previously-pricing rows byte-identical.
+
+### Carved out of this slice (deferred, with reasons)
+
+- **The numeric-dropdown attribute type.** Blocked: `coerceForMatch` -- which the new type must
+  change -- lives ONLY in `pricingSheetHelper.ts`, excluded from that slice's scope. **Measured:**
+  with the new type and that file untouched, point_wiring rows producing a value go **17/23 -> 0/23**
+  and row 198 returns to "no match". The break is INVISIBLE to every gate, because the goldens run
+  through `runPipeline` directly and never touch `coerceForMatch` -- all 26 stay green. Owner has
+  re-scoped it separately.
+- **R9's rewrite** -- config data needing the v24 mint; no code dependency.
+- **Cables (`wiring_cabling`)** -- a separate asset with an owner-locked sha, and a runtime-dependent
+  domain (material/insulation are user-selected) that `values_from`'s static `where` cannot express.
+- **The helper `missing`-gate fix** -- DROPPED, proven a no-op: no row on this sheet is blocked by a
+  derived attribute (`blank_qty` always carries a value).
