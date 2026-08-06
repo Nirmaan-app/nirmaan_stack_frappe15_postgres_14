@@ -1,0 +1,2377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bulk Import Outflow — Workflow Walkthrough</title>
+<style>
+  :root {
+    --accent:       #2a6f97;
+    --accent-soft:  #e7f1f7;
+    --accent-line:  #b9d6e7;
+    --read:         #2f7a5a;
+    --read-soft:    #e6f4ec;
+    --write:        #b4443f;
+    --write-soft:   #fbeceb;
+    --warn:         #96690f;
+    --warn-soft:    #fdf4e0;
+    --settled:      #4f46a3;
+    --settled-soft: #eeecfa;
+    --muted-chip:   #eceef1;
+    --bg:           #ffffff;
+    --bg-soft:      #f6f8fa;
+    --bg-sink:      #eef1f4;
+    --fg:           #1a2027;
+    --fg-muted:     #5a6673;
+    --fg-faint:     #838d99;
+    --border:       #dde3ea;
+    --border-soft:  #e9edf2;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --shadow: 0 1px 2px rgba(16,24,40,.04), 0 6px 20px rgba(16,24,40,.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --accent:       #74b3d8;
+      --accent-soft:  #16303e;
+      --accent-line:  #2b5570;
+      --read:         #6ec49b;
+      --read-soft:    #14301f;
+      --write:        #e8918c;
+      --write-soft:   #3a1c1b;
+      --warn:         #e0b35c;
+      --warn-soft:    #34290f;
+      --settled:      #a5a0ea;
+      --settled-soft: #23213f;
+      --muted-chip:   #262b33;
+      --bg:           #14171c;
+      --bg-soft:      #1a1e24;
+      --bg-sink:      #101317;
+      --fg:           #e6eaef;
+      --fg-muted:     #a3adb9;
+      --fg-faint:     #77828f;
+      --border:       #2b323b;
+      --border-soft:  #232931;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 6px 20px rgba(0,0,0,.25);
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 80px; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- masthead ---------- */
+  .masthead {
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, var(--bg-soft), var(--bg));
+    padding: 40px 24px 30px;
+  }
+  .masthead-inner { max-width: 1260px; margin: 0 auto; }
+  .eyebrow {
+    font-size: 12px; letter-spacing: .13em; text-transform: uppercase;
+    color: var(--accent); font-weight: 700; margin: 0 0 10px;
+  }
+  h1 { margin: 0 0 12px; font-size: clamp(26px, 4vw, 38px); line-height: 1.15; letter-spacing: -.02em; }
+  .standfirst { margin: 0; max-width: 74ch; color: var(--fg-muted); font-size: 17px; }
+  .meta-strip {
+    display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px;
+  }
+  .meta-pill {
+    font-size: 12px; padding: 4px 11px; border-radius: 999px;
+    background: var(--bg); border: 1px solid var(--border); color: var(--fg-muted);
+  }
+  .meta-pill b { color: var(--fg); font-weight: 600; }
+
+  /* ---------- layout ---------- */
+  .shell { max-width: 1260px; margin: 0 auto; padding: 0 24px 100px; display: block; }
+  @media (min-width: 1120px) {
+    .shell { display: grid; grid-template-columns: 236px minmax(0,1fr); gap: 48px; }
+  }
+  nav.toc {
+    padding: 28px 0 0;
+  }
+  @media (min-width: 1120px) {
+    nav.toc { position: sticky; top: 0; align-self: start; max-height: 100vh; overflow-y: auto; padding: 32px 0 40px; }
+  }
+  nav.toc h2 {
+    font-size: 11px; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--fg-faint); margin: 0 0 10px; font-weight: 700;
+  }
+  nav.toc ol { list-style: none; margin: 0 0 20px; padding: 0; counter-reset: toc; }
+  nav.toc li { counter-increment: toc; }
+  nav.toc a {
+    display: block; padding: 5px 10px 5px 30px; position: relative;
+    color: var(--fg-muted); text-decoration: none; font-size: 13.5px;
+    border-left: 2px solid var(--border-soft); border-radius: 0 4px 4px 0;
+  }
+  nav.toc a::before {
+    content: counter(toc); position: absolute; left: 10px;
+    color: var(--fg-faint); font-variant-numeric: tabular-nums; font-size: 11.5px;
+  }
+  nav.toc a:hover { color: var(--accent); background: var(--accent-soft); border-left-color: var(--accent); }
+
+  main { padding-top: 28px; min-width: 0; }
+
+  /* ---------- sections ---------- */
+  section { margin: 0 0 60px; scroll-margin-top: 24px; }
+  h2.sec {
+    font-size: 24px; letter-spacing: -.01em; margin: 0 0 6px;
+    padding-bottom: 10px; border-bottom: 2px solid var(--border);
+  }
+  h2.sec .num {
+    display: inline-block; min-width: 1.7em;
+    color: var(--accent); font-variant-numeric: tabular-nums;
+  }
+  .sec-sub { margin: 0 0 24px; color: var(--fg-muted); font-size: 15px; max-width: 78ch; }
+  h3 { font-size: 17.5px; margin: 32px 0 10px; letter-spacing: -.005em; }
+  h4 { font-size: 14.5px; margin: 22px 0 8px; text-transform: uppercase; letter-spacing: .07em; color: var(--fg-faint); }
+  p { margin: 0 0 14px; max-width: 82ch; }
+  ul, ol { max-width: 82ch; }
+  li { margin-bottom: 6px; }
+
+  code, .id {
+    font-family: var(--mono); font-size: .875em;
+    background: var(--muted-chip); padding: 1.5px 6px; border-radius: 4px;
+    word-break: break-word;
+  }
+  a { color: var(--accent); }
+
+  /* ---------- chips ---------- */
+  .chip {
+    display: inline-block; font-size: 11.5px; font-weight: 600; line-height: 1.5;
+    padding: 2px 9px; border-radius: 999px; white-space: nowrap; vertical-align: 1px;
+  }
+  .chip.read    { background: var(--read-soft);    color: var(--read); }
+  .chip.warn    { background: var(--warn-soft);    color: var(--warn); }
+  .chip.write   { background: var(--write-soft);   color: var(--write); }
+  .chip.settled { background: var(--settled-soft); color: var(--settled); }
+  .chip.open    { background: var(--accent-soft);  color: var(--accent); }
+  .chip.grey    { background: var(--muted-chip);   color: var(--fg-muted); }
+
+  /* ---------- callouts ---------- */
+  .call {
+    border-left: 3px solid var(--accent); background: var(--bg-soft);
+    padding: 14px 18px; margin: 18px 0; border-radius: 0 8px 8px 0;
+    font-size: 15px;
+  }
+  .call p:last-child { margin-bottom: 0; }
+  .call .lead {
+    display: block; font-size: 11.5px; letter-spacing: .1em; text-transform: uppercase;
+    font-weight: 700; margin-bottom: 6px; color: var(--accent);
+  }
+  .call.stop  { border-left-color: var(--write); background: var(--write-soft); }
+  .call.stop .lead { color: var(--write); }
+  .call.hold  { border-left-color: var(--warn); background: var(--warn-soft); }
+  .call.hold .lead { color: var(--warn); }
+  .call.good  { border-left-color: var(--read); background: var(--read-soft); }
+  .call.good .lead { color: var(--read); }
+
+  /* ---------- pipeline ---------- */
+  .pipeline { display: grid; gap: 10px; margin: 24px 0 8px; }
+  @media (min-width: 780px) { .pipeline { grid-template-columns: repeat(5, 1fr); gap: 6px; } }
+  .stage {
+    background: var(--bg-soft); border: 1px solid var(--border);
+    border-radius: 9px; padding: 13px 14px; position: relative;
+  }
+  .stage .st-n {
+    font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--fg-faint); font-weight: 700;
+  }
+  .stage .st-t { font-weight: 650; font-size: 14.5px; margin: 3px 0 4px; }
+  .stage .st-d { font-size: 12.5px; color: var(--fg-muted); line-height: 1.45; }
+  .stage.reads  { border-top: 3px solid var(--read); }
+  .stage.writes { border-top: 3px solid var(--write); }
+  @media (min-width: 780px) {
+    .stage:not(:last-child)::after {
+      content: "›"; position: absolute; right: -11px; top: 50%; transform: translateY(-50%);
+      color: var(--fg-faint); font-size: 20px; z-index: 2; line-height: 1;
+    }
+  }
+
+  /* ---------- steps ---------- */
+  ol.steps { list-style: none; counter-reset: s; padding: 0; margin: 18px 0; max-width: 86ch; }
+  ol.steps > li {
+    counter-increment: s; position: relative; padding: 0 0 18px 46px; margin: 0;
+    border-left: 1px solid var(--border); margin-left: 13px;
+  }
+  ol.steps > li:last-child { border-left-color: transparent; padding-bottom: 0; }
+  ol.steps > li::before {
+    content: counter(s); position: absolute; left: -13px; top: -2px;
+    width: 26px; height: 26px; border-radius: 50%;
+    background: var(--bg); border: 1px solid var(--border); color: var(--accent);
+    font-size: 12px; font-weight: 700; display: grid; place-items: center;
+  }
+  ol.steps > li > .sh { font-weight: 650; display: block; margin-bottom: 3px; }
+  ol.steps > li > p { margin: 0 0 8px; font-size: 15px; }
+
+  /* ---------- ladder ---------- */
+  .ladder { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin: 20px 0; }
+  .rung {
+    display: grid; grid-template-columns: 40px minmax(0,1fr) auto;
+    gap: 14px; align-items: start;
+    padding: 13px 16px; border-bottom: 1px solid var(--border-soft);
+    background: var(--bg);
+  }
+  .rung:last-child { border-bottom: 0; }
+  .rung:nth-child(odd) { background: var(--bg-soft); }
+  .rung .r-n {
+    font-family: var(--mono); font-size: 12px; font-weight: 700;
+    color: var(--fg-faint); padding-top: 2px;
+  }
+  .rung .r-t { font-size: 14.5px; }
+  .rung .r-t b { font-weight: 650; }
+  .rung .r-t .why { display: block; color: var(--fg-muted); font-size: 13px; margin-top: 3px; }
+  .rung .r-o { text-align: right; padding-top: 1px; }
+  @media (max-width: 640px) {
+    .rung { grid-template-columns: 32px minmax(0,1fr); }
+    .rung .r-o { grid-column: 2; text-align: left; }
+  }
+
+  /* ---------- case cards ---------- */
+  .case {
+    border: 1px solid var(--border); border-left: 4px solid var(--fg-faint);
+    border-radius: 10px; padding: 18px 20px; margin: 18px 0;
+    background: var(--bg); box-shadow: var(--shadow);
+  }
+  .case.c-read    { border-left-color: var(--read); }
+  .case.c-warn    { border-left-color: var(--warn); }
+  .case.c-open    { border-left-color: var(--accent); }
+  .case.c-settled { border-left-color: var(--settled); }
+  .case.c-grey    { border-left-color: var(--fg-faint); }
+  .case.c-write   { border-left-color: var(--write); }
+  .case > h3 { margin: 0 0 4px; font-size: 18px; display: flex; flex-wrap: wrap; align-items: center; gap: 9px; }
+  .case .oneline { color: var(--fg-muted); font-size: 14.5px; margin: 0 0 14px; }
+  .case dl { display: grid; grid-template-columns: 150px minmax(0,1fr); gap: 2px 16px; margin: 0; font-size: 14.5px; }
+  .case dt {
+    font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--fg-faint); font-weight: 700; padding-top: 5px;
+  }
+  .case dd { margin: 0 0 10px; }
+  .case dd :last-child { margin-bottom: 0; }
+  .case dd ul { margin: 0; padding-left: 18px; }
+  @media (max-width: 640px) {
+    .case dl { grid-template-columns: 1fr; }
+    .case dd { margin-bottom: 12px; }
+  }
+
+  /* ---------- tables ---------- */
+  .tw { overflow-x: auto; margin: 18px 0; border: 1px solid var(--border); border-radius: 9px; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { text-align: left; padding: 9px 13px; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+  thead th {
+    background: var(--bg-soft); font-size: 11px; letter-spacing: .07em;
+    text-transform: uppercase; color: var(--fg-faint); white-space: nowrap;
+  }
+  tbody tr:last-child td { border-bottom: 0; }
+  td.mono, th.mono { font-family: var(--mono); font-size: 12.5px; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+  /* ---------- findings ---------- */
+  .finding {
+    border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px;
+    margin: 16px 0; background: var(--bg-soft);
+  }
+  .finding > h3 { margin: 0 0 6px; font-size: 17px; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .finding .fnum {
+    font-family: var(--mono); font-size: 12px; color: var(--bg); background: var(--warn);
+    padding: 2px 8px; border-radius: 5px; font-weight: 700;
+  }
+  .finding.sev-low .fnum { background: var(--fg-faint); }
+  .finding.sev-hi  .fnum { background: var(--write); }
+  .ask {
+    margin-top: 12px; padding: 11px 14px; border-radius: 7px;
+    background: var(--accent-soft); border: 1px dashed var(--accent-line);
+    font-size: 14.5px;
+  }
+  .ask b { color: var(--accent); }
+
+  .kv { display: grid; grid-template-columns: max-content minmax(0,1fr); gap: 4px 18px; font-size: 14.5px; margin: 14px 0; }
+  .kv dt { font-weight: 650; }
+  .kv dd { margin: 0; color: var(--fg-muted); }
+
+  .footnote { color: var(--fg-faint); font-size: 13px; }
+  hr.soft { border: 0; border-top: 1px solid var(--border-soft); margin: 34px 0; }
+
+  /* ── tabbed section (added for revision v3) ───────────────────────────── */
+  .tabs { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin: 22px 0 0; background: var(--bg); }
+  .tabnav { display: flex; flex-wrap: wrap; background: var(--bg-sink); border-bottom: 1px solid var(--border); }
+  .tabnav .tab-btn { appearance: none; border: 0; background: transparent; font: inherit; font-size: 13.5px; font-weight: 650; color: var(--fg-muted); padding: 11px 16px; cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; }
+  .tabnav .tab-btn:hover { color: var(--fg); background: var(--bg-soft); }
+  .tabnav .tab-btn.is-on { color: var(--accent); border-bottom-color: var(--accent); background: var(--bg); }
+  .tabpane { display: none; padding: 24px 26px 8px; }
+  .tabpane.is-on { display: block; }
+  .tabpane > h3:first-child { margin-top: 0; }
+  .qbox { border: 1px solid var(--accent-line); border-radius: 9px; padding: 15px 18px; margin: 14px 0; background: var(--accent-soft); }
+  .qbox > h4 { margin: 0 0 6px; font-size: 15px; color: var(--accent); }
+  .qbox p { margin: 6px 0; font-size: 14.5px; }
+  .qbox .mylean { display: block; margin-top: 8px; font-size: 13.5px; color: var(--fg-muted); }
+  .qbox .mylean b { color: var(--fg); }
+  kbd { font-family: var(--mono); font-size: 11.5px; background: var(--bg-sink); border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; padding: 1px 5px; }
+  .mock { border: 1px solid var(--border); border-radius: 9px; background: var(--bg-soft); padding: 16px 18px; margin: 16px 0; font-family: var(--mono); font-size: 12.5px; line-height: 1.75; white-space: pre; overflow-x: auto; color: var(--fg-muted); }
+
+  @media print {
+    .tabpane { display: block !important; }
+    .tabnav { display: none; }
+    nav.toc { display: none; }
+    .shell { display: block; }
+    .case, .finding { break-inside: avoid; }
+    body { font-size: 11pt; }
+  }
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <div class="masthead-inner">
+    <p class="eyebrow">Nirmaan Stack · Finance</p>
+    <h1>Bulk Import Outflow — the workflow, case by case</h1>
+    <p class="standfirst">
+      An accountant exports completed bank transfers from Cashfree and uploads the CSV. This document
+      walks every path a transfer can take from that file to a final decision — the reconciliations,
+      the findings, the two writes, and the dead ends — as the code actually behaves today.
+    </p>
+    <div class="meta-strip">
+      <span class="meta-pill"><b>Revision</b> v3 — start at section 0</span>
+      <span class="meta-pill"><b>Read from</b> as-built source, not the plan</span>
+      <span class="meta-pill"><b>Slices</b> S0–S6 complete · S7–S8 open</span>
+      <span class="meta-pill"><b>Branch</b> develop, uncommitted</span>
+      <span class="meta-pill"><b>Certified in a browser</b> no</span>
+      <span class="meta-pill"><b>Compiled</b> 2026-08-06</span>
+    </div>
+  </div>
+</header>
+
+<div class="shell">
+
+<nav class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#v3"><b>Revision v3 — updated understanding</b></a></li>
+    <li><a href="#shape">The shape of it</a></li>
+    <li><a href="#access">Who gets in, and where</a></li>
+    <li><a href="#upload">Stage A — Upload &amp; stage</a></li>
+    <li><a href="#match">Stage B — Match</a></li>
+    <li><a href="#ladder">The outcome ladder</a></li>
+    <li><a href="#casebook">Case book — all nine</a></li>
+    <li><a href="#settle">Stage C — The two writes</a></li>
+    <li><a href="#report">Stage D — Reconciliation report</a></li>
+    <li><a href="#close">Stage E — Close &amp; reopen</a></li>
+    <li><a href="#examples">Worked examples, real data</a></li>
+    <li><a href="#invariants">Invariants that break silently</a></li>
+    <li><a href="#findings">Findings &amp; your decisions</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<!-- ══════════════════════════════ 0 ══════════════════════════════ -->
+<section id="v3">
+  <h2 class="sec"><span class="num">0</span>Revision v3 — updated understanding</h2>
+  <p class="sec-sub">
+    Written 2026-08-06 after your review of the v2 build, then revised twice the same day as you
+    answered. <b>All thirteen questions are now decided.</b> One consequence needs your informed
+    consent before I build — it is the single item in tab F.
+  </p>
+
+  <div class="call stop">
+    <span class="lead">Sections 1–12 are now the record, not the plan</span>
+    <p>Everything after this section describes the <b>v2</b> feature as it sits in the repo today. Its
+      spine — <em>“the payment branch never writes”</em> — is the thing you reversed. I have left it in
+      place unedited, because it is an accurate account of what the code currently does and I will need
+      it when I rewrite. Read it as history.</p>
+  </div>
+
+  <div class="tabs" id="v3tabs">
+    <div class="tabnav" role="tablist">
+      <button class="tab-btn is-on" data-pane="v3a" role="tab" aria-selected="true">A · The correction</button>
+      <button class="tab-btn" data-pane="v3b" role="tab" aria-selected="false">B · Statuses &amp; the mismatch case book</button>
+      <button class="tab-btn" data-pane="v3c" role="tab" aria-selected="false">C · Upload &amp; duplicates</button>
+      <button class="tab-btn" data-pane="v3d" role="tab" aria-selected="false">D · The decision screen</button>
+      <button class="tab-btn" data-pane="v3e" role="tab" aria-selected="false">E · What the reversal costs</button>
+      <button class="tab-btn" data-pane="v3f" role="tab" aria-selected="false">F · Decision log</button>
+      <button class="tab-btn" data-pane="v3g" role="tab" aria-selected="false">G · Scope</button>
+    </div>
+
+    <!-- ─────────── A ─────────── -->
+    <div class="tabpane is-on" id="v3a" role="tabpanel">
+      <h3>Your ask, restated</h3>
+      <p>Upload a sheet of transfers that have <b>already gone out of the bank</b>, and map each one to
+        the record it settles. Money is recorded in three places — <code>Project Payments</code>,
+        <code>Project Expenses</code>, <code>Non Project Expenses</code> — and the mapper is for
+        <b>approved</b> records in all three.</p>
+
+      <p>v2 got one thing badly wrong. It decided the <code>Project Payments</code> half should only
+        <em>look</em>, never <em>write</em>, on the reasoning that accountants already tick payments
+        Paid by hand. That is the half you actually care about, and excluding it hollowed out the
+        feature. It comes back.</p>
+
+      <div class="call good">
+        <span class="lead">The new spine, in one sentence</span>
+        <p><b>The import pays what someone has already approved. It never approves anything, and it
+          never creates a Project Payment.</b></p>
+      </div>
+
+      <p>Four consequences fall straight out of that sentence:</p>
+      <ol>
+        <li>A bank row can settle a <b>Project Payment</b>, a <b>Project Expense</b> or a
+          <b>Non Project Expense</b> — always the same final step, <code>Approved → Paid</code>.</li>
+        <li>A bank row that matches a record still sitting at <code>Requested</code> or
+          <code>CEO Pending</code> is <em>not</em> a fraud finding and <em>not</em> a failure. It is a
+          <b>queue problem</b>: the money went out ahead of the paperwork. Say that plainly, point at
+          the right approval screen, and offer to run the match again.</li>
+        <li>“Create a new entry” is one of the four choices, and it can <b>only ever be an expense</b>.
+          A Project Payment is born from a PO or SR request; the import must not mint one.</li>
+        <li>Every settle is a <b>per-row human confirmation</b>. Nothing settles itself, ever.</li>
+      </ol>
+
+      <h3>The three ledgers, side by side</h3>
+      <div class="tw">
+        <table>
+          <thead>
+            <tr><th>Ledger</th><th>Approval ladder it climbs</th><th>Import may settle from</th><th>Import may create</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><b>Project Payments</b><br><span class="chip write">now WRITES</span></td>
+              <td><code>Requested</code> → <code>CEO Pending</code> → <code>Approved</code> → <code>Paid</code><br>
+                <span class="chip grey">small amounts auto-approve straight to Approved</span></td>
+              <td><code>Approved</code> only</td>
+              <td><b>No</b> — never</td>
+            </tr>
+            <tr>
+              <td><b>Project Expenses</b><br><span class="chip write">WRITES</span></td>
+              <td><code>Requested</code> → <code>Approved</code> → <code>Paid</code></td>
+              <td><code>Approved</code> only</td>
+              <td>Yes</td>
+            </tr>
+            <tr>
+              <td><b>Non Project Expenses</b><br><span class="chip write">WRITES</span></td>
+              <td><code>Requested</code> → <code>Approved</code> → <code>Paid</code></td>
+              <td><code>Approved</code> only <span class="chip grey">Q3 — was Requested too</span></td>
+              <td>Yes</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <hr class="soft">
+
+      <h3>What this tool <em>is</em> — Q12, and it settles a lot</h3>
+      <div class="call good">
+        <span class="lead">Your ruling</span>
+        <p><b>Nothing about how the accounts team works today changes.</b> Ticking a payment Paid by
+          hand stays exactly as it is. This import is an <b>alternative</b>: a way to update a batch of
+          approved payments all in one go, chosen per batch, by whoever finds it faster.</p>
+      </div>
+
+      <p>That framing answers a question the data had raised. I checked how many records sit at
+        <code>Approved</code>, waiting for money — the pool this feature settles from:</p>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>Ledger</th><th>Paid</th><th>Waiting for approval</th><th class="num">Approved &amp; unpaid</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><b>Project Payments</b></td>
+              <td>7,421 · ₹39.72 cr</td>
+              <td>111 CEO&nbsp;Pending · ₹88.8 L<br>22 Requested · ₹33.9 L</td>
+              <td class="num"><b style="font-size:22px">2</b><br>₹40,603</td>
+            </tr>
+            <tr><td><b>Project Expenses</b></td><td>2,572</td><td>—</td><td class="num"><b style="font-size:22px">2</b></td></tr>
+            <tr><td><b>Non Project Expenses</b></td><td>702</td><td>7 Requested</td><td class="num"><b style="font-size:22px">0</b></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="footnote">Dev database, data through 2026-07-28.</p>
+
+      <p>Near zero — because today everyone ticks Paid the instant they send the money, so
+        <code>Approved</code> lasts minutes. Under your ruling that is <b>not a problem to fix</b>. It
+        is simply what the ledger looks like when nobody has used this tool yet. An accountant who
+        <em>chooses</em> the bulk route holds a set of approved payments, sends them, uploads the
+        statement, and ticks them all at once. The pool exists because they chose to create it.</p>
+
+      <p>Two things follow, and both are already in the design:</p>
+      <ul>
+        <li><b>Mixed usage is the normal case, not an edge case.</b> Half a statement hand-ticked, half
+          not, is expected. The hand-ticked ones come back <b>Skipped — already recorded</b>, quietly,
+          in their own tab.</li>
+        <li><b>The tool has to earn its use.</b> Nobody is required to adopt it, so the screen has to be
+          faster than the existing one or it will not be used. That is the whole argument for tab D.</li>
+      </ul>
+
+      <div class="call good">
+        <span class="lead">And there is real work here on day one</span>
+        <p><b>111 payments sit at CEO Pending, worth ₹88.8 lakh.</b> Money routinely leaves the bank
+          while records are stuck in that queue — exactly the case you asked me to surface and nudge.
+          That status will not be rare; on real statements it is likely the second-largest group on the
+          screen, and it needs no behaviour change from anyone to start paying off.</p>
+      </div>
+
+      <div class="call hold">
+        <span class="lead">Where the safety now lives</span>
+        <p>v2 was safe because it never wrote. v3 cannot lean on that. It is safe instead because it
+          only ever writes the <b>last rung of a ladder somebody else already climbed</b>. It cannot
+          approve, it cannot create a payment, and it cannot move a single rupee without a
+          confirmation on that specific row. If a future change lets the import approve something,
+          that is the invariant breaking — not a feature.</p>
+      </div>
+    </div>
+
+    <!-- ─────────── B ─────────── -->
+    <div class="tabpane" id="v3b" role="tabpanel">
+      <h3>The status vocabulary — final</h3>
+      <div class="tw">
+        <table>
+          <thead>
+            <tr><th>Status</th><th>What it means, in the reviewer's words</th><th>How a row leaves it</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="chip open">Pending match run</span></td>
+              <td>Staged from the sheet. Nothing has been looked up yet.</td>
+              <td>Press <em>Run match</em>.</td>
+            </tr>
+            <tr>
+              <td><span class="chip read">Matched</span></td>
+              <td>Found exactly one <b>approved</b> record at the same amount.</td>
+              <td>You confirm it → <b>Settled</b>.</td>
+            </tr>
+            <tr>
+              <td><span class="chip open">Unmatched</span> <span class="chip settled">Q1 — added</span></td>
+              <td>The match ran and found <b>nothing</b>. This row is new spend, or a payment whose
+                amount does not line up (see the TDS note below).</td>
+              <td>Create a new expense, or link one by hand.</td>
+            </tr>
+            <tr>
+              <td><span class="chip warn">Mismatched</span></td>
+              <td><b>Amount only.</b> The money that left the bank does not equal what the matched
+                record(s) say. Never about a reference field — see below.</td>
+              <td>Read the finding. Handle it in the payments screen.</td>
+            </tr>
+            <tr>
+              <td><span class="chip warn">Payment matched but not approved</span></td>
+              <td>Found the record. It is still <code>Requested</code> or <code>CEO Pending</code>.
+                The money left before the approval landed. <b>111 live candidates today.</b></td>
+              <td>Get it approved (link provided), then re-run the match.</td>
+            </tr>
+            <tr>
+              <td><span class="chip settled">Settled</span></td>
+              <td>We wrote. The record is now <code>Paid</code> and linked back to this bank row.</td>
+              <td>Terminal.</td>
+            </tr>
+            <tr>
+              <td><span class="chip grey">Skipped</span></td>
+              <td>Nothing to do — and the reason says which nothing: already Paid, already imported in
+                an earlier sheet, failed at the bank, or skipped by you.</td>
+              <td>Terminal.</td>
+            </tr>
+            <tr>
+              <td><span class="chip write">Error</span></td>
+              <td>The write was attempted and failed. It was rolled back; nothing is half-done.</td>
+              <td>Retry.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Old vocabulary → new</h3>
+      <div class="tw">
+        <table>
+          <thead><tr><th>v2 status</th><th>becomes</th><th>Why</th></tr></thead>
+          <tbody>
+            <tr><td><code>Pending</code></td><td><b>Pending match run</b></td><td>Same thing, said properly. It was never “pending your decision”.</td></tr>
+            <tr><td><code>Reconciled</code></td><td><b>Skipped</b></td><td>It meant “matched a payment that is <em>already</em> Paid and the amounts agree” — a row with no work in it. Reads <code>Skipped — already recorded as Paid on PAY-00066-003</code>.</td></tr>
+            <tr><td><code>Amount mismatch</code></td><td><b>Mismatched</b></td><td>Kept. It is a statement about money.</td></tr>
+            <tr><td><code>Reference mismatch</code></td><td><b>DELETED</b> <span class="chip settled">your call</span></td><td>See the callout below. Not folded in — removed.</td></tr>
+            <tr><td><code>Control exception</code></td><td><b>Payment matched but not approved</b></td><td>“Control exception” is audit language. It reads like an accusation; it is a queue problem with a known fix.</td></tr>
+            <tr><td><code>Unmatched</code></td><td><b>Unmatched</b></td><td>Kept as its own status per Q1.</td></tr>
+            <tr><td><code>Settled</code> / <code>Skipped</code> / <code>Error</code></td><td>unchanged</td><td>Settled is now reachable from all three ledgers rather than expenses only.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <hr class="soft">
+
+      <h3>The mismatch case book — two cases, not three</h3>
+
+      <div class="case c-warn">
+        <h3><span class="chip warn">M1</span> The bank paid <b>less</b> than the record says</h3>
+        <div class="mock">bank row      ₹ 2,32,650   ref 620919871893
+matched       PAY-00066-003   ₹ 2,35,000   Paid
+
+note → “The bank paid ₹2,350 less than the payment total of ₹2,35,000
+        (1.00% of it). A deduction such as TDS would look like this.”</div>
+        <p><b>What really causes it:</b> TDS withheld at source (the note computes the implied rate for
+          exactly this reason), a bank charge taken out of the transfer, or a short payment.</p>
+      </div>
+
+      <div class="case c-warn">
+        <h3><span class="chip warn">M2</span> The bank paid <b>more</b></h3>
+        <div class="mock">bank row      ₹ 3,10,000   ref 742905000271
+matched       PAY-00074-011   ₹ 2,80,000   Paid
+
+note → “The bank paid ₹30,000 MORE than the payment total of ₹2,80,000.
+        More money left the account than any matched payment claims.”</div>
+        <p><b>What really causes it:</b> one transfer covering several payments where only some exist in
+          Nirmaan — the fan-out shape, 40 real transfers, ₹10.0M, the largest one transfer across seven
+          payments — or a genuinely wrong match.</p>
+      </div>
+
+      <div class="call stop">
+        <span class="lead">M3 “Reference mismatch” is deleted — you were right to question it</span>
+        <p>You asked: <em>why would the system check a payment's stored reference at all, for one that is
+          already paid?</em> There is no good answer under v3, and that is the tell.</p>
+        <p>It made sense in <b>v2</b>, where the payment side was a reconciliation report and “your
+          ledger's UTR field contains a PO number” was a legitimate finding to publish. In <b>v3</b> the
+          job is to settle approved payments. An already-Paid payment is simply <b>Skipped</b> — there
+          is nothing to learn from its reference field and nothing anyone would do about it here.</p>
+        <p>Combined with your <b>Q5b</b> ruling, the reference field is now only ever <b>written</b>
+          (into a blank, when settling), never <b>compared</b>. The whole comparison branch goes.
+          <b>Mismatched is about amounts, full stop.</b></p>
+      </div>
+
+      <p><b>What that also retires:</b> finding B1 from the previous revision — “a blank stored reference
+        counts as a mismatch” — is moot. The fix is no longer a condition to correct; the check it lived
+        in does not survive. It disappears as part of the status rewrite rather than as a patch.</p>
+
+      <div class="call good">
+        <span class="lead">Where Mismatched can still fire, precisely</span>
+        <p>Follow the two keys through. The bank-reference key only finds payments that <em>have</em> a
+          reference, which means Paid ones. The vendor + amount + date key requires an <b>exact</b>
+          amount, so it can never produce an amount disagreement. Therefore:</p>
+        <p><b>Mismatched only ever attaches to already-Paid records whose amounts do not add up</b> —
+          which is the fan-out finding you kept in Q4. A settleable <code>Approved</code> payment always
+          comes out as a clean <b>Matched</b>. That is a narrow category, and an honest one.</p>
+      </div>
+
+      <hr class="soft">
+
+      <div class="finding sev-hi">
+        <h3><span class="fnum">B3</span> TDS payments will not match — and that is the cost of deferring Q11</h3>
+        <p>An accountant approves ₹1,00,000, withholds ₹2,000 TDS, and sends <b>₹98,000</b>. The bank row
+          says ₹98,000. The approved payment says ₹1,00,000. Exact-amount matching finds nothing, so the
+          row comes out <b>Unmatched</b> and has to be handled by hand.</p>
+        <p>I measured how often this happens:</p>
+        <div class="mock">709 of 7,421 Paid payments carry TDS   (9.6%,  ₹6.29 cr)
+
+by month:   2025-08  14.8%      2026-02  16.7%
+            2025-11   7.5%      2026-04  15.3%
+            2025-12  11.2%      2026-06   3.2%
+            2026-01  14.2%      2026-07   2.7%
+
+real examples:
+  PAY-00066-272   amount 1,00,000   tds 2,000   -> bank sent   98,000
+  PAY-00089-088   amount 7,15,757   tds 14,315  -> bank sent 7,01,442
+  PAY-00102-163   amount   41,400   tds   414   -> bank sent   40,986</div>
+        <p><b>There is no cheap workaround.</b> The obvious one — match on
+          <code>amount − tds</code> — does not work, because <code>tds</code> is only recorded at the
+          moment of fulfilment. An <em>approved, unpaid</em> payment has a blank TDS field, so the
+          arithmetic has nothing to subtract. Catching these genuinely requires the tolerance pass you
+          deferred in <b>Q11</b>.</p>
+        <p><b>Consequence:</b> roughly <b>1 in 30 payments recently, 1 in 8 over the past year</b>, cannot
+          be bulk-settled in this version. They fall out as Unmatched and go through the existing
+          screen — which, per Q12, is unchanged and still there. <b>This is the one item in tab F.</b></p>
+      </div>
+
+      <div class="finding sev-low">
+        <h3><span class="fnum">B4</span> The TDS box from Q6 has nothing to attach to yet</h3>
+        <p>You approved an optional TDS box on the settle card. It was designed to rescue case
+          <b>M1</b> — but M1 only fires on already-Paid records, which are not settleable, and the
+          approved-payment case never reaches the card at all (B3). The box would never appear.</p>
+        <p>It travels with Q11 to the next version, where the tolerance pass gives it something to do.
+          Building it now would be a control nobody can ever see.</p>
+      </div>
+    </div>
+
+    <!-- ─────────── C ─────────── -->
+    <div class="tabpane" id="v3c" role="tabpanel">
+      <h3>1 · The period is already captured — you just never see it</h3>
+      <p><code>period_from</code> and <code>period_to</code> already exist on
+        <code>Outflow Import Batch</code>, and upload already fills them from the earliest and latest
+        <em>Added On</em> in the sheet. So half of what you asked for is built. What is missing is that
+        it happens <b>after</b> the sheet is committed, silently, with nothing shown to you.</p>
+
+      <h3>2 · Upload becomes two steps, and accepts .xlsx</h3>
+      <p>Parse → <b>preview</b> → confirm. The preview is where the detected period appears, in the
+        form, before anything is written. <span class="chip settled">Q10</span> the reader takes
+        <b>.xlsx</b> as well as .csv, so the sheet format stops being something the accountant has to
+        think about.</p>
+      <div class="mock">┌─ Statement preview ───────────────────────────────────────────┐
+│  cashfree_payouts_05aug.xlsx · Cashfree                       │
+│                                                               │
+│  Period detected     30-Jul-2026  →  05-Aug-2026              │
+│  Transfers             43   (41 successful · 2 failed)        │
+│  Gross out            ₹ 48,21,900                             │
+│  Bank charges         ₹      2,124                            │
+│                                                               │
+│  ⚠  3 transfers were already imported in OFI-26-00007         │
+│     They will be staged and skipped, not re-matched.          │
+│  ⚠  This period overlaps OFI-26-00007 (28-Jul → 02-Aug)       │
+│                                                               │
+│                        [ Cancel ]    [ Import 43 transfers ]  │
+└───────────────────────────────────────────────────────────────┘</div>
+      <p>Small change, not a rebuild: the parse <em>already</em> happens before any write, on purpose,
+        so a malformed sheet leaves no trace. The preview simply stops at that point and asks. The one
+        mechanical detail is that the browser re-posts the same file on confirm — a few kilobytes —
+        rather than the server holding a parse in memory between two requests.</p>
+
+      <h3>3 · The duplicate check narrows by period first</h3>
+      <p>Today it is one indexed lookup of every transfer id in the sheet against every import row ever
+        recorded. You asked it to first pick the <b>eligible</b> uploads. New order: select the batches
+        whose period overlaps this sheet's period, then check transfer ids inside those only.</p>
+      <div class="call good">
+        <span class="lead">This narrowing is safe, and here is why</span>
+        <p>A period pre-filter <em>could</em> in principle miss a duplicate living in a batch with an odd
+          recorded period. It cannot cause double-payment, because the real backstop is a database
+          <b>unique constraint</b> on <code>(transfer&nbsp;id, target&nbsp;doctype, target&nbsp;name)</code>.
+          The same transfer physically cannot be recorded against the same payment or expense twice,
+          whatever the pre-filter does. The duplicate check gives you a clear message and saves work —
+          it is not the safety net. So narrowing it costs nothing that matters.</p>
+      </div>
+
+      <h3>4 · Duplicate-heavy sheets — refuse at 100%, warn from 90%</h3>
+      <p><span class="chip settled">Q2 — Option B.</span> Two behaviours, one threshold:</p>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Situation</th><th>What happens</th></tr></thead>
+          <tbody>
+            <tr><td><b>All rows are duplicates</b></td><td><b>Refused outright.</b> No file stored, no batch, no rows — nothing written at all, and the message says exactly why.</td></tr>
+            <tr><td><b>90% or more are duplicates</b></td><td><b>Warned, not blocked.</b> The preview says how few rows are actually new and asks you to confirm. You can always proceed.</td></tr>
+            <tr><td><b>Below 90%</b></td><td>Imports normally. Duplicates are staged and auto-skipped with their reason visible.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="mock">— at 100% —
+Not imported.
+All 43 transfers in cashfree_payouts_05aug.xlsx were already imported
+on 05-Aug-2026 in batch OFI-26-00007 (period 30-Jul → 05-Aug).
+Nothing in this file is new. No records were created.
+
+— at 90%+ —
+⚠  Only 3 of 43 transfers in this file are new.
+   The other 40 were already imported in OFI-26-00007.
+                              [ Cancel ]   [ Import the 3 new ones ]</div>
+      <p class="footnote">90% is a single constant. Say a different number and it moves.</p>
+    </div>
+
+    <!-- ─────────── D ─────────── -->
+    <div class="tabpane" id="v3d" role="tabpanel">
+      <div class="call good">
+        <span class="lead">There is a working prototype — open it</span>
+        <p><b><a href="screen-prototype.html">screen-prototype.html</a></b> (same folder). It is
+          clickable: the tabs work, the cards take a decision, <kbd>J</kbd>/<kbd>K</kbd> move,
+          <kbd>↵</kbd> confirms, <kbd>S</kbd> skips, and the counters and the statement strip update as
+          you go. Everything below describes what you are looking at. All names and figures in it are
+          synthetic — the repository is public.</p>
+      </div>
+
+      <h3>What is on screen now, and why it fails you</h3>
+      <p>A nine-column HTML table, one <code>&lt;tr&gt;</code> per transfer, that expands into an
+        accordion when clicked. There is a <code>cursor-pointer</code> and a hover tint and
+        <em>nothing else</em> — no chevron, no affordance, no label. You are right: it does not read as
+        clickable, because in a dense financial table a row that highlights on hover reads as a
+        highlight, not a button. And the decision controls are all <b>inside</b> the collapsed part, so
+        the work is invisible until you have already guessed correctly.</p>
+
+      <div class="call hold">
+        <span class="lead">The bar this screen has to clear</span>
+        <p>Per Q12 nobody is required to use this tool. It competes with a screen the team already knows.
+          If it is not visibly faster than ticking payments one at a time, it will not get used — so
+          “fewer clicks per transfer than the existing flow” is the design constraint, not a nicety.</p>
+      </div>
+
+      <h3>The shape, as you specified it</h3>
+      <p>The batch screen is <b>three tabs</b> — <span class="chip open">Pending</span>
+        <span class="chip settled">Settled</span> <span class="chip grey">Skipped</span> — and that
+        replaces the reconciliation report entirely.</p>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>Tab</th><th>Holds</th><th>What you do there</th></tr></thead>
+          <tbody>
+            <tr><td><span class="chip open">Pending</span></td><td>Pending match run · Matched · Unmatched · Mismatched · Payment matched but not approved · Error</td><td><b>All the work.</b> Grouped inside, see below.</td></tr>
+            <tr><td><span class="chip settled">Settled</span></td><td>Rows we wrote — the record and what it became.</td><td>Read, and click through to the payment or expense.</td></tr>
+            <tr><td><span class="chip grey">Skipped</span></td><td>Already Paid · already imported · failed at the bank · skipped by you.</td><td>Read the reason. Nothing else.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Inside Pending, work is grouped — not listed</h3>
+      <p>Four groups, in this order, each with a count. Sorting the work <em>is</em> the feature; a flat
+        table makes you do that sort in your head 43 times.</p>
+      <ol>
+        <li><b>Ready to confirm</b> — a clean match to an approved record. Bulk-confirmable. This is the
+          group that has to be one click for the tool to be worth choosing.</li>
+        <li><b>Needs approval first</b> — the record exists but is stuck at Requested / CEO Pending.</li>
+        <li><b>Needs your decision</b> — nothing found, or something found that disagrees on amount.</li>
+        <li><b>Not matched yet</b> — the match has not been run on these.</li>
+      </ol>
+
+      <h3>One card per transfer, decision on the face</h3>
+      <p>Left is what the bank says. Right is the decision. No expand-to-discover. The decision is
+        always the same four choices, so the shape is learnable, and the suggested one is pre-selected
+        with its evidence shown.</p>
+
+      <div class="mock">╭──────────────────────────────────────────────────────────────────╮
+│  Pending  (24)     Settled  (12)     Skipped  (7)                │
+╰──────────────────────────────────────────────────────────────────╯
+
+  READY TO CONFIRM · 8                    [ Confirm all 8 suggested ]
+┌─ 05-Aug-2026 · ₹ 2,35,000 ──────────────────────────────────────┐
+│  SRI SAI ENTERPRISES            a/c ••••2783   IFSC HDFC0001234 │
+│  ref 620919871893    “PO/2026/0451 second milestone”            │
+│ ─────────────────────────────────────────────────────────────── │
+│  ● Project Payment   PAY-00066-003   Approved   ₹2,35,000   ✓   │
+│      vendor and amount agree · settling records 620919871893    │
+│  ○ Project Expense    ○ Non Project Expense                     │
+│  ○ Create new expense                                           │
+│                                    [ Skip ]  [ Confirm → Paid ] │
+└─────────────────────────────────────────────────────────────────┘
+
+  NEEDS APPROVAL FIRST · 5
+┌─ 04-Aug-2026 · ₹ 88,000 ────────────────────────────────────────┐
+│  ABSOLUTE AIR SOLUTIONS         a/c ••••4430                    │
+│  ref 620911224466                                               │
+│ ─────────────────────────────────────────────────────────────── │
+│  Found PAY-00071-002 — still CEO Pending.                       │
+│  The money left the bank before the approval landed.            │
+│  Only the CEO can promote this one.                             │
+│                       [ Open CEO Pending queue ] [ Re-run match ]│
+└─────────────────────────────────────────────────────────────────┘
+
+  NEEDS YOUR DECISION · 11
+┌─ 03-Aug-2026 · ₹ 5,000 ─────────────────────────────────────────┐
+│  R. K.                          a/c ••••2277                    │
+│  ref 620908771234    “July PG rent”                             │
+│ ─────────────────────────────────────────────────────────────── │
+│  Nothing found in any ledger.                                   │
+│  ○ Project Payment  ○ Project Expense  ○ Non Project Expense    │
+│  ● Create new expense →  Project Expenses                       │
+│      project [ BENGALURU-PROJ-00066 ▾ ]                         │
+│      type    [ Staff Accommodation Rent ▾ ]                     │
+│                                    [ Skip ]  [ Create → Paid ]  │
+└─────────────────────────────────────────────────────────────────┘</div>
+      <p class="footnote">Sketch only — the real pass runs through <code>/frontend-design</code> once
+        you have signed off on this section, so the design work is done against settled requirements
+        rather than against my guess at them. Note there is no TDS box: per B4 it has nothing to attach
+        to until Q11 ships.</p>
+
+      <div class="call stop">
+        <span class="lead">Round 3 — the screen went back to a table</span>
+        <p>The card worklist below is <b>superseded</b>. The screen is now a dense <b>table</b> with
+          sort and filter on every column, one global search, row checkboxes for bulk confirm/skip,
+          and a clickable <b>Outcome</b> cell that opens the decision dialog. The
+          <a href="screen-prototype.html">prototype</a> is the table version.</p>
+        <p><b>And matching narrowed:</b> only <code>Approved</code> records are ever matched. A
+          transfer against a <code>Requested</code> or <code>CEO Pending</code> payment is now simply
+          <b>Unmatched</b> — the “Payment matched but not approved” status, the approval deep links
+          and the CEO-only wrinkle are all gone. ⚠️ That reverses the earlier goal of surfacing the
+          111 CEO-Pending payments; recorded so nobody re-adds it by accident. The already-Paid
+          <em>duplicate</em> check survives as a <b>skip</b> — see the open question in tab F.</p>
+      </div>
+
+      <h3>Round 2 — your feedback, applied</h3>
+      <div class="tw">
+        <table>
+          <thead><tr><th>You said</th><th>What changed</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Everything a new expense needs must live <b>inside the option</b>, with proper labels</td>
+              <td>Choosing <em>Create a new expense</em> opens the whole form in place: a
+                project/non-project switch, then labelled fields. Nothing floats outside the option, so
+                it is never ambiguous which control belongs to which choice. Amount, payment date and
+                payment reference come from the bank row and are read-only — the statement is the
+                source of truth for all three.</td>
+            </tr>
+            <tr>
+              <td>The Project selector should show <b>Won tendering status</b> projects</td>
+              <td>Filtered to <code>tendering_status = "Won"</code> (100 live projects) — note this is a
+                <em>different field</em> from <code>status</code>. ⚠️ <b>A CEO-Hold project is shown but
+                not selectable</b>, with the reason on the option: CEO Hold blocks every expense
+                operation, and silently hiding those projects would make their absence inexplicable.</td>
+            </tr>
+            <tr>
+              <td>Changing off the matched option should <b>expand to let you pick the record</b>, with
+                its details</td>
+              <td>Every link option opens a picker of <b>approved</b> records showing payment id,
+                vendor, PO/SR number, project, approval date and amount. The record at the exact bank
+                amount is marked ✓ and sorted first, and is pre-selected <em>only when there is exactly
+                one</em> — two exact matches is ambiguity, and the screen never guesses between two real
+                records. A filter box narrows by vendor, PO number or project. This applies to the
+                matched option too, so you can always see <em>which</em> record you are about to settle.</td>
+            </tr>
+            <tr>
+              <td><b>Re-run match</b> on not-matched cards individually</td>
+              <td>Added to every unmatched card and every not-yet-run card, alongside the ones already on
+                the approval-blocked cards.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>The approval redirects, concretely</h3>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Blocked at</th><th>Goes to</th><th>Who can actually act</th></tr></thead>
+          <tbody>
+            <tr><td>Payment · <code>Requested</code> <span class="chip grey">22 live</span></td><td><code>/project-payments?tab=Approve Payments</code></td><td>Admin, Project Lead</td></tr>
+            <tr><td>Payment · <code>CEO Pending</code> <span class="chip warn">111 live</span></td><td><code>/project-payments?tab=CEO Pending</code></td><td><b>CEO only</b> — see below</td></tr>
+            <tr><td>Project Expense · <code>Requested</code></td><td><code>/expense/project</code></td><td>Admin</td></tr>
+            <tr><td>Non Project Expense · <code>Requested</code> <span class="chip grey">7 live</span></td><td><code>/expense/non-project</code></td><td>Admin</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="call hold">
+        <span class="lead">One wrinkle worth knowing before you approve the redirect</span>
+        <p>Promoting a payment from <code>CEO Pending</code> to <code>Approved</code> is restricted to
+          <b>one named user</b> (<code>nitesh@nirmaan.app</code>) — not to admins as a role. So an admin
+          who follows that link will arrive at a queue they cannot clear. The card must say who can,
+          rather than implying the reader can. With 111 payments in that queue, this will be pressed a
+          lot.</p>
+      </div>
+    </div>
+
+    <!-- ─────────── E ─────────── -->
+    <div class="tabpane" id="v3e" role="tabpanel">
+      <h3>Straight with you: this is the expensive half</h3>
+      <p>Marking an <em>expense</em> Paid is a field write. Marking a <em>payment</em> Paid sets off a
+        chain. v2 deleted the machinery for that chain deliberately. Your answers have retired three of
+        the five items below; two remain and both are small.</p>
+
+      <div class="finding sev-hi">
+        <h3><span class="fnum">E1</span> A payment save commits mid-flight <span class="chip warn">live</span></h3>
+        <p>Setting a payment to Paid fires <code>update_parent_amount_paid</code>, which recomputes the
+          PO's <code>amount_paid</code> <b>and calls <code>frappe.db.commit()</code> inside the save</b>.
+          The expense path relies on a savepoint per row so that row 17 failing leaves rows 1–16 intact
+          — a commit in the middle of that loop destroys the isolation. Payments therefore have to be
+          settled one at a time with a deliberate commit, or the hook suppressed for this path.</p>
+        <p>This one matters more now that <em>bulk</em> is the selling point: “confirm all 8” must not be
+          able to leave four written and four not, with no record of which.</p>
+      </div>
+
+      <div class="finding sev-low">
+        <h3><span class="fnum">E2</span> The UTR guard and one-transfer-many-payments <span class="chip read">retired by Q4</span></h3>
+        <p>The existing settle helper refuses a UTR that already sits on another payment, which would
+          have thrown on the second payment of a fan-out group. <b>You chose report-only for those
+          rows</b>, so the guard is never challenged and stays exactly as it is.</p>
+      </div>
+
+      <div class="finding sev-low">
+        <h3><span class="fnum">E3</span> Overwriting a stored reference <span class="chip read">retired by Q5b</span></h3>
+        <p>The data had already made this nearly impossible: <code>utr</code> is only written at
+          fulfilment, so <b>every non-Paid payment in the database has a blank one</b> — 0 of 2 Approved,
+          0 of 111 CEO Pending, 0 of 22 Requested. Settling writes into an empty field. You ruled the
+          remaining edge case cannot happen and the check should go, which also removed the M3 branch in
+          tab B. Nothing left here.</p>
+      </div>
+
+      <div class="finding sev-low">
+        <h3><span class="fnum">E4</span> TDS <span class="chip read">deferred with Q11</span></h3>
+        <p>Approved in principle (Q6), but unreachable until the tolerance pass exists — see B3 and B4 in
+          tab B. Travels to the next version.</p>
+      </div>
+
+      <div class="finding sev-low">
+        <h3><span class="fnum">E5</span> Side effects fire per row <span class="chip warn">live</span></h3>
+        <p>Each payment status change also triggers the CEO-Hold cashflow recompute, the PO payment-term
+          sync and notification dispatch. Fine for one row; a bulk confirm of forty is a different
+          animal. The expense path already suppresses the equivalent recompute with a flag; the payment
+          path needs the same treatment, decided deliberately rather than inherited.</p>
+      </div>
+
+      <div class="call good">
+        <span class="lead">Where that leaves the bill</span>
+        <p>Only <b>E1</b> and <b>E5</b> survive, and both are about doing a bulk write safely rather than
+          about whether to write at all. Known, located, small. Nothing here should change your mind.</p>
+      </div>
+    </div>
+
+    <!-- ─────────── F ─────────── -->
+    <div class="tabpane" id="v3f" role="tabpanel">
+      <h3>Decision log — all thirteen</h3>
+      <div class="tw">
+        <table>
+          <thead><tr><th>#</th><th>Question</th><th>Decision</th></tr></thead>
+          <tbody>
+            <tr><td>Q1</td><td>Does “Mismatched” also cover “found nothing”?</td><td><b>No</b> — <code>Unmatched</code> is its own status. Eight in total.</td></tr>
+            <tr><td>Q2</td><td>Nearly-all-duplicate sheet</td><td><b>Option B</b> — refuse at 100%, warn from 90%</td></tr>
+            <tr><td>Q3</td><td>Settle a <code>Requested</code> non-project expense?</td><td><b>No</b> — Approved only, all three ledgers, no exception</td></tr>
+            <tr><td>Q4</td><td>One transfer settling several payments</td><td><b>Report only</b> — settled by hand in the existing screen</td></tr>
+            <tr><td>Q5</td><td>Correct a wrong reference on settle?</td><td rowspan="2"><b>Drop the check entirely.</b> The reference is written into a blank, never compared. Removes the M3 branch.</td></tr>
+            <tr><td>Q5b</td><td>…and when the field is already filled?</td></tr>
+            <tr><td>—</td><td>M3 “Reference mismatch”</td><td><b>Deleted</b> — your question exposed it as a v2 leftover</td></tr>
+            <tr><td>Q6</td><td>TDS box on the settle card</td><td><b>Yes in principle</b>, but deferred with Q11 — it has nothing to attach to (B4)</td></tr>
+            <tr><td>Q7</td><td>Partial payment</td><td><b>Mismatched</b> in principle; in practice these arrive as <code>Unmatched</code> until Q11 ships</td></tr>
+            <tr><td>Q8</td><td>Who may settle</td><td><b>Same set</b> — Accountant, Accountant Lead, Admin, Administrator</td></tr>
+            <tr><td>Q9</td><td>Undo a settle from inside the import</td><td><b>No</b> — not this version</td></tr>
+            <tr><td>Q10</td><td>File format</td><td><b>Add .xlsx</b> alongside .csv</td></tr>
+            <tr><td>Q11</td><td>Tolerance / weak third matching pass</td><td><b>Next version</b></td></tr>
+            <tr><td>Q12</td><td>Working-habit change</td><td><b>No change.</b> The import is an <em>alternative</em> bulk route, chosen per batch</td></tr>
+            <tr><td>Q13</td><td>Screen shape</td><td><b>Table</b>, not cards — sort + filter on every column, global search, row checkboxes, clickable Outcome cell opening a decision dialog</td></tr>
+            <tr><td>Q14</td><td>Already-Paid duplicate check</td><td><b>Kept as a SKIP</b> — see below. Only <code>Approved</code> is ever <em>matched</em>; Paid is a duplicate guard</td></tr>
+            <tr><td>—</td><td>Non-approved matching</td><td><b>Removed.</b> Requested / CEO Pending → <code>Unmatched</code>. No status, no nudge, no approval links</td></tr>
+            <tr><td>—</td><td>Reconciliation report</td><td><b>Replaced</b> by three tabs: Pending · Settled · Skipped</td></tr>
+            <tr><td>—</td><td>Finding B1 (blank reference read as mismatch)</td><td><b>Moot</b> — the check it lived in is deleted; folded into the status rewrite</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="call good">
+        <span class="lead">Nothing is open — the spec is closed</span>
+        <p>Every question raised across three rounds has an answer. The decision table above is the
+          complete record; the build plan is <code>frontend/.claude/plans/outflow-import-plan.md</code>
+          and the fresh-session brief is <code>docs/outflow-import/HANDOFF.md</code>.</p>
+      </div>
+
+      <h3>The last one, decided</h3>
+      <div class="qbox">
+        <h4>Q14 · Does “only match Approved” also switch off the already-Paid duplicate check?
+          <span class="chip settled">Option A</span></h4>
+        <p>Taken literally, “only Approved” would exclude records already marked <b>Paid</b> — and
+          those are the ones somebody ticked by hand before uploading, which under Q12 is
+          <b>normal, not rare</b>.</p>
+        <p><b>Decided: keep the already-Paid check, as a SKIP.</b> The row reads
+          <code>Skipped — already recorded as Paid on PAY-…</code>. It is a <em>duplicate check</em>,
+          not a settle candidate, so nothing un-approved is ever <em>offered</em> — rule 1 holds.</p>
+        <p>Why it matters: under the literal reading a payment already recorded as Paid looks like
+          brand-new spend, and the obvious next click is “create a new expense” — booking the same
+          money twice. It is also the only thing that keeps <b>Mismatched</b> reachable, and
+          mismatched rows are required to be resolvable.</p>
+      </div>
+
+      <h3>Carried from round 2</h3>
+      <div class="qbox">
+        <h4>Informed consent on TDS — not a new question, a consequence</h4>
+        <p>Deferring Q11 has a price I did not know when you decided it, and you should re-confirm now
+          that it is measured. <b>A payment with TDS will not match</b>, because the bank sends
+          <code>amount − tds</code> and the matcher compares on exact amount. It comes out
+          <b>Unmatched</b> and goes through the existing screen by hand.</p>
+        <p>Measured: <b>709 of 7,421 Paid payments (9.6%)</b> carry TDS — but the trend matters:
+          <b>~15% for most of the past year, ~3% in June and July 2026</b>. Full numbers and worked
+          examples are in tab B, finding B3.</p>
+        <p><b>Option A — accept it, ship without.</b> At recent rates roughly 1 in 30 payments falls out.
+          The existing screen still handles them; per Q12 it is unchanged and always available.<br>
+          <b>Option B — add a narrow TDS-only pass now.</b> Same vendor, same date window, bank amount
+          between 80% and 100% of the payment amount. It could only ever produce a <em>suggestion</em>
+          requiring the TDS box to confirm — never an automatic settle — so a weak key can never cause a
+          wrong write.</p>
+        <span class="mylean"><b>My lean: A, ship without.</b> Your Q11 call stands up against these
+          numbers. 3% is a small tail, the fallback is a screen people already use every day, and Option
+          B drags the deferred TDS box back in with it. If the recent 3% turns out to be a blip and it
+          climbs back to 15%, Option B is a contained addition — it does not require rework of anything
+          decided above.</span>
+      </div>
+    </div>
+
+    <!-- ─────────── G ─────────── -->
+    <div class="tabpane" id="v3g" role="tabpanel">
+      <h3>What “extra, not urgent” covers</h3>
+      <p>You said everything past your original ask was an extra feature. <b>None of it is deleted</b> —
+        it is built, tested and sitting in the repo. This is what stays on screen and what does not.</p>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Thing</th><th>What it does</th><th>Decision</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Reconciliation report</td>
+              <td>Lists payments marked Paid inside the period that have no bank row in the sheet.</td>
+              <td><b>Replaced.</b> <span class="chip settled">your call</span> Three tabs instead —
+                <b>Pending · Settled · Skipped</b> — the same information organised around what you have
+                to do rather than around what the reconciler noticed.</td>
+            </tr>
+            <tr><td>Close / reopen a batch</td><td>Freezes a batch, with a required reason if rows are still open.</td><td><b>Keep, simplify.</b> With three tabs, “everything decided” is visible at a glance, so the ceremony shrinks to one button.</td></tr>
+            <tr><td>Close-with-exceptions</td><td>A distinct closed state when open rows remain.</td><td><b>Drop.</b> It preserves a signal the tabs now show directly.</td></tr>
+            <tr><td>Bank charges booking</td><td>One opt-in non-project expense for the gateway's fees across the sheet.</td><td><b>Park.</b> Never built — it was the next slice. The total is already displayed.</td></tr>
+            <tr><td>Cashbook as a second source</td><td>A second statement format.</td><td><b>Park.</b> Listed as “coming soon”, rejected by the server. One adapter whenever a real export exists.</td></tr>
+            <tr><td>Ledger defect findings</td><td>Surfaces the 226 padded references and the 939 junk ones.</td><td><b>Keep as a footnote, not a screen.</b> Real and worth knowing; not this feature's job to fix, and not competing with your daily work for space.</td></tr>
+            <tr><td>One-transfer-many-payments grouping</td><td>Recognises that one transfer can cover several payments.</td><td><b>Keep — not extra.</b> Without it, 99 real payments produce 40 matches and 59 false alarms on your largest transfers. Per Q4 those rows are reported, not settled.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="call">
+        <span class="lead">Where this leaves the build</span>
+        <p>The pure layers — reading the sheet, normalising names and accounts, finding candidates,
+          grouping — survive the reversal essentially untouched, and they are the part with 195 passing
+          tests behind them. What changes is the <b>outcome vocabulary</b> (rewritten, one branch
+          deleted), the <b>write path</b> (grows a third target), the <b>upload flow</b> (preview step,
+          .xlsx), and the <b>review screen</b> (replaced by three tabs). Nothing is thrown away.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="soft">
+
+<!-- ══════════════════════════════ 1 ══════════════════════════════ -->
+<section id="shape">
+  <h2 class="sec"><span class="num">1</span>The shape of it</h2>
+  <p class="sec-sub">
+    One idea explains almost every design decision in this feature: the two kinds of record a bank
+    transfer can belong to behave <em>oppositely</em>.
+  </p>
+
+  <div class="tw">
+    <table>
+      <thead>
+        <tr><th>Branch</th><th>Behaviour</th><th>Why it is that way</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><b>Payments</b><br><span class="chip read">READ-ONLY</span></td>
+          <td>Match, classify, report. Never writes to <code>Project Payments</code>,
+              <code>PO Payment Terms</code>, or a PO's <code>amount_paid</code>.</td>
+          <td>Accountants already mark payments Paid by hand at transfer time. By the time the
+              statement is uploaded the payment is <em>already</em> Paid with a UTR — there is
+              nothing left to settle, only something to check.</td>
+        </tr>
+        <tr>
+          <td><b>Expenses</b><br><span class="chip write">WRITES</span></td>
+          <td>Marks an approved expense Paid, or records a brand-new expense already at Paid.</td>
+          <td>Expenses genuinely sit at <em>Approved</em> waiting for money. Site rent,
+              accommodation, utilities, sundries — spend with no PO behind it. This is the
+              productive half of the feature.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="call good">
+    <span class="lead">The one-sentence version</span>
+    <p>Of the five stages below, only <b>one</b> mutates anything outside the import's own staging
+      tables, and it can only ever touch an expense. The payment branch is a reporting instrument.</p>
+  </div>
+
+  <h3>The five stages</h3>
+  <div class="pipeline">
+    <div class="stage reads">
+      <div class="st-n">Stage A</div>
+      <div class="st-t">Upload &amp; stage</div>
+      <div class="st-d">Parse the CSV in memory, then write a batch and one row per transfer. Auto-skips
+        the obvious.</div>
+    </div>
+    <div class="stage reads">
+      <div class="st-n">Stage B</div>
+      <div class="st-t">Match</div>
+      <div class="st-d">Three passes over payments and expenses. Proposes; never decides. Re-runnable
+        all day.</div>
+    </div>
+    <div class="stage writes">
+      <div class="st-n">Stage C</div>
+      <div class="st-t">Settle</div>
+      <div class="st-d">The only write. Reviewer settles an approved expense, or records a new one
+        already Paid.</div>
+    </div>
+    <div class="stage reads">
+      <div class="st-n">Stage D</div>
+      <div class="st-t">Report</div>
+      <div class="st-d">Findings, plus the reverse view — payments with no transfer behind them.</div>
+    </div>
+    <div class="stage reads">
+      <div class="st-n">Stage E</div>
+      <div class="st-t">Close</div>
+      <div class="st-d">Bookkeeping, not a freeze. Records that a batch was abandoned with work
+        outstanding.</div>
+    </div>
+  </div>
+  <p class="footnote">Green top edge = reads only. Red = the write path.</p>
+
+  <h3>The three staging doctypes</h3>
+  <div class="tw">
+    <table>
+      <thead><tr><th>Doctype</th><th>Naming</th><th>Holds</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="mono">Outflow Import Batch</td>
+          <td class="mono">OFI-.YY.-.#####</td>
+          <td>One upload. The CSV attachment, the period, gross &amp; charge totals, seven derived
+            counters, the close record.</td>
+        </tr>
+        <tr>
+          <td class="mono">Outflow Import Row</td>
+          <td class="mono">OFR-.YY.-.######</td>
+          <td>One transfer, <b>verbatim</b> — every raw column preserved — plus derived identity forms
+            and the decision (<code>row_status</code>, <code>skip_reason</code>,
+            <code>outcome_note</code>, <code>decided_by</code>/<code>decided_at</code>).</td>
+        </tr>
+        <tr>
+          <td class="mono">Outflow Row Match</td>
+          <td class="mono">OFM-.YY.-.######</td>
+          <td>One (row → target) link. Carries a DB <b>unique constraint</b> on
+            <code>(transfer_id, target_doctype, target_name)</code> — this, and not the UTR, is the
+            idempotency guarantee.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <p>
+    A row is a separate linked doctype rather than a child table for a decisive reason: its matches
+    would then be <em>grandchildren</em>, and Frappe never hydrates those.
+  </p>
+</section>
+
+<!-- ══════════════════════════════ 2 ══════════════════════════════ -->
+<section id="access">
+  <h2 class="sec"><span class="num">2</span>Who gets in, and where</h2>
+  <p class="sec-sub">Two gates that read the same source, so they cannot disagree by accident.</p>
+
+  <dl class="kv">
+    <dt>Allowed</dt>
+    <dd><code>Administrator</code> · <code>Nirmaan Admin Profile</code> ·
+        <code>Nirmaan Accountant Profile</code> · <code>Nirmaan Accountant Lead Profile</code></dd>
+    <dt>Backend gate</dt>
+    <dd><code>api/outflow_import/permissions.require_outflow_access</code> — reads
+        <code>Nirmaan Users.role_profile</code>. <b>This is the boundary.</b></dd>
+    <dt>Frontend gate</dt>
+    <dd><code>OutflowImportRoute</code> — same four strings, UX only. Shows an explicit
+        <em>Access Denied</em> panel, never a blank screen.</dd>
+    <dt>Sidebar</dt>
+    <dd><b>Bulk Import Outflow</b>, landmark icon, in the accountant cluster.</dd>
+  </dl>
+
+  <div class="tw">
+    <table>
+      <thead><tr><th>Route</th><th>Screen</th><th>What it does</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">/bulk-import-outflow</td><td>List</td><td>Every batch, newest first, with its counters and status.</td></tr>
+        <tr><td class="mono">/bulk-import-outflow/new</td><td>New Import</td><td>Source picker, drop zone, upload summary.</td></tr>
+        <tr><td class="mono">/bulk-import-outflow/:id</td><td>Batch</td><td>Two tabs: <em>Transfers</em> (review) and <em>Reconciliation report</em>.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="call">
+    <span class="lead">Why the backend gate matters more than usual</span>
+    <p>These endpoints do their own <code>save_file</code> and <code>insert(ignore_permissions=True)</code>,
+      so Frappe's own permission machinery never runs. Without <code>require_outflow_access</code> every
+      endpoint would be reachable by any logged-in user. Hiding the sidebar entry protects nothing.</p>
+  </div>
+</section>
+
+<!-- ══════════════════════════════ 3 ══════════════════════════════ -->
+<section id="upload">
+  <h2 class="sec"><span class="num">3</span>Stage A — Upload &amp; stage</h2>
+  <p class="sec-sub">
+    Endpoint <code>upload.upload_outflow_statement</code>. Synchronous — one request, one transaction.
+    No worker, no Redis marker, no socket: a statement is a few kilobytes and ~50 rows.
+  </p>
+
+  <ol class="steps">
+    <li>
+      <span class="sh">Authorize</span>
+      <p><code>require_outflow_access()</code>. Returns the acting user, who becomes
+        <code>uploaded_by</code>.</p>
+    </li>
+    <li>
+      <span class="sh">Validate the source</span>
+      <p>Must be a source the parser has an adapter for. Today that is <b>Cashfree only</b>.
+        The UI offers <em>Cashbook (coming soon)</em> as a disabled option; the server rejects it
+        outright.</p>
+    </li>
+    <li>
+      <span class="sh">Validate the file, and read the stream exactly once</span>
+      <p>Extension must be <code>.csv</code>; size must be under <b>5 MB</b>. The werkzeug stream is
+        consumed on read — reading it twice yields nothing, so the bytes are captured once and reused.</p>
+    </li>
+    <li>
+      <span class="sh">Parse — <b>before any write whatsoever</b></span>
+      <p>This ordering is the design. A malformed statement leaves <em>no</em> File, <em>no</em> batch,
+        <em>no</em> rows. It matters here specifically because <code>save_file</code> is not
+        rollback-able: the cloud-attachment hook uploads, rewrites <code>file_url</code>, deletes the
+        local copy and calls <code>frappe.db.commit()</code> <em>inside</em> this request. Anything
+        written before that point is committed mid-flight.</p>
+    </li>
+    <li>
+      <span class="sh">Save the file, create the batch, create one row per transfer</span>
+      <p>The CSV is stored <b>once</b>, private, attached to the batch. Each row is written verbatim —
+        every original column preserved — plus two derived identity forms
+        (<code>normalized_account</code>, <code>normalized_reference</code>).</p>
+    </li>
+    <li>
+      <span class="sh">Decide each row's <em>staged</em> outcome</span>
+      <p>Before any matching has happened. Only facts knowable without a match are decided here —
+        see the ladder just below.</p>
+    </li>
+    <li>
+      <span class="sh">Roll up and commit</span>
+      <p>Counters and batch status are derived by <code>status.py</code> and written to the batch;
+        one commit ends the request.</p>
+    </li>
+  </ol>
+
+  <h3>Whole-file rejections — nothing is written</h3>
+  <div class="tw">
+    <table>
+      <thead><tr><th>Condition</th><th>What the accountant sees</th></tr></thead>
+      <tbody>
+        <tr><td>Source not <code>Cashfree</code></td><td>“Unknown source '…'. Supported: Cashfree.”</td></tr>
+        <tr><td>Not a <code>.csv</code></td><td>“We support .csv statements only. You uploaded a '…'.”</td></tr>
+        <tr><td>Over 5 MB</td><td>“This file is 7.2 MB. Maximum is 5 MB.”</td></tr>
+        <tr><td>Bytes undecodable</td><td>“The uploaded statement could not be decoded as text.” <span class="footnote">(tries utf-8-sig → utf-8 → cp1252 → latin-1; BOM first, because a spreadsheet export routinely carries one and it would otherwise corrupt the first header name)</span></td></tr>
+        <tr><td>Empty file / no header row</td><td>“The uploaded statement is empty.” / “…has no header row.”</td></tr>
+        <tr><td>A required column missing</td><td>“This does not look like a Cashfree statement. Missing column(s): …”</td></tr>
+        <tr><td>Header fine, zero data rows</td><td>“The uploaded statement contains no transaction rows.”</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>
+    Required columns are only those without which a row cannot be identified, matched or reported:
+    <code>Transfer Id</code>, <code>Added On</code>, <code>Amount</code>, <code>Status</code>,
+    <code>Beneficiary Name</code>, <code>Bank Reference No</code>. Unknown extra columns are ignored
+    happily, and column order does not matter. <code>Beneficiary Id</code> is deliberately
+    <em>not</em> required — it is stored nowhere in this database, so it can never resolve to
+    anything; it is kept on the row for provenance only.
+  </p>
+
+  <h3>Row-level oddities — staged anyway, reported as warnings</h3>
+  <div class="tw">
+    <table>
+      <thead><tr><th>Condition</th><th>Result</th></tr></thead>
+      <tbody>
+        <tr><td>Blank <code>Transfer Id</code></td><td><b>Not staged at all.</b> Warning: “Row 7 has no Transfer Id and was not staged.” It has no identity, so it could never be de-duplicated or re-found.</td></tr>
+        <tr><td>Unreadable <code>Added On</code></td><td>Staged with a null date. Warning names the transfer id. Consequence downstream: the ±3-day window cannot exclude it, so it stays eligible rather than silently vanishing.</td></tr>
+        <tr><td>Unparseable <code>Amount</code></td><td>Becomes <code>0</code>. Tolerates thousands separators, a currency symbol, and parenthesised negatives.</td></tr>
+        <tr><td>Same transfer id twice in one file</td><td>Both staged; the <b>second</b> is auto-skipped. Warning lists up to five offending ids.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>The staged-outcome ladder (upload time)</h3>
+  <div class="ladder">
+    <div class="rung">
+      <div class="r-n">1</div>
+      <div class="r-t"><b>This transfer id exists in an earlier batch</b>
+        <span class="why">Cross-batch duplicate. The precise guard — not the period overlap.</span></div>
+      <div class="r-o"><span class="chip grey">Skipped</span></div>
+    </div>
+    <div class="rung">
+      <div class="r-n">2</div>
+      <div class="r-t"><b>This transfer id already appeared earlier in <em>this</em> file</b>
+        <span class="why">The cross-batch lookup cannot see the file it is currently reading, so this is a separate check. Leaving it uncaught is not cosmetic: both copies would match the same payment and the second match insert would violate the unique constraint, aborting the whole match pass with a database error.</span></div>
+      <div class="r-o"><span class="chip grey">Skipped</span></div>
+    </div>
+    <div class="rung">
+      <div class="r-n">3</div>
+      <div class="r-t"><b>Bank status is not <code>SUCCESS</code></b>
+        <span class="why">FAILED, PENDING, REVERSED. The money never left. Skip reason names the actual status.</span></div>
+      <div class="r-o"><span class="chip grey">Skipped</span></div>
+    </div>
+    <div class="rung">
+      <div class="r-n">4</div>
+      <div class="r-t"><b>Everything else</b>
+        <span class="why">Staged and awaiting a match. Deliberately <em>not</em> “Unmatched” — that is a finding, and it would be a lie about work that has not happened yet.</span></div>
+      <div class="r-o"><span class="chip open">Pending</span></div>
+    </div>
+  </div>
+
+  <div class="call">
+    <span class="lead">The parser never filters</span>
+    <p>A FAILED transfer is parsed and staged like any other, carrying its real status, and
+      <em>then</em> visibly skipped. The reason is concrete: a failed transfer still carries a bank
+      reference, and its successful retry appears as a separate row in the same file. Silently
+      dropping the failure would leave nobody able to see why the numbers moved.</p>
+  </div>
+
+  <h3>The two batch totals, and why they differ</h3>
+  <dl class="kv">
+    <dt><code>gross_amount</code></dt>
+    <dd>Sums <b>successful rows only</b>. A failed transfer's beneficiary amount never left the account.</dd>
+    <dt><code>charges_amount</code></dt>
+    <dd>Sums gateway charge + tax across <b>every</b> row, failed ones included. A charge is money the
+        bank took whatever the outcome, so excluding failures would understate the debit.</dd>
+  </dl>
+  <p>
+    This asymmetry is also why the batch total can never equal the sum of its settled targets: the
+    charges belong to no settlement target at all. Booking them is <b>S7, not yet built</b> — see §12.
+  </p>
+
+  <h3>Period overlap — a warning, never a block</h3>
+  <p>
+    If an earlier batch's period overlaps this one, the summary says so and links to it. That is all
+    it does. Two exports can carry the same transfer with periods that do not overlap at all, and
+    carry entirely different transfers with periods that do — so overlap is a hint, and the
+    per-transfer-id check above is the actual guard.
+  </p>
+
+  <div class="call good">
+    <span class="lead">Re-uploading the same statement is safe and legible</span>
+    <p>Every transfer is caught by rung 1, every row lands <span class="chip grey">Skipped</span>,
+      no open rows remain, and the batch immediately reads <b>Completed</b>. Nothing is double-counted,
+      and the duplicate batch is obvious rather than hidden.</p>
+  </div>
+</section>
+
+<!-- ══════════════════════════════ 4 ══════════════════════════════ -->
+<section id="match">
+  <h2 class="sec"><span class="num">4</span>Stage B — Match</h2>
+  <p class="sec-sub">
+    Endpoint <code>review.match_batch</code>, driven by the <b>Run match</b> button. Reads payments
+    and expenses; writes only to the import's own staging rows.
+  </p>
+
+  <div class="call good">
+    <span class="lead">Re-running is expected, not exceptional</span>
+    <p>Payments get marked Paid by hand throughout the day, so a batch matched at 10:00 finds more at
+      16:00. Each run rebuilds a row's matches from scratch — it deletes the row's existing match
+      records before writing fresh ones, which is also what keeps the unique constraint from tripping
+      on the second run. A re-run that finds <em>fewer</em> targets leaves no phantoms behind.</p>
+  </div>
+
+  <h4>Two states are never re-matched</h4>
+  <ul>
+    <li><span class="chip grey">Skipped</span> — a duplicate, a failed transfer, or a person's
+      deliberate decision. Re-matching would silently overturn all three.</li>
+    <li><span class="chip settled">Settled</span> — an expense was written against this row.
+      Re-matching would strand that audit trail.</li>
+  </ul>
+
+  <h3>Step 1 — Resolve the vendor (proposes, never decides)</h3>
+  <p>Two signals, scored, and an account hit deliberately does <em>not</em> short-circuit the name pass —
+     when an account is shared, the name is the only thing that can order the tied candidates.</p>
+  <div class="tw">
+    <table>
+      <thead><tr><th>Signal</th><th class="num">Score</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td>Normalised bank account matches</td><td class="num">0.80</td><td>Whitespace and separators stripped, then <b>leading zeros</b>. A live statement carries <code>0869102000002783</code> where the master stores <code>869102000002783</code>.</td></tr>
+        <tr><td>…and the IFSC agrees too</td><td class="num">0.95</td><td>Separates a genuine match from a coincidental digit collision.</td></tr>
+        <tr><td>Normalised name matches exactly</td><td class="num">0.75</td><td>Checked against <b>both</b> <code>vendor_name</code> and <code>account_name</code> — 174 of 1,077 vendors have an <code>account_name</code> that differs, and the CSV's “Beneficiary Name” <em>is</em> an account name.</td></tr>
+        <tr><td>Partial name overlap</td><td class="num">0.60 × containment</td><td>Containment, not Jaccard — the statement name is routinely a <em>subset</em> of the vendor name, and Jaccard punishes exactly that. Dropped below <b>0.35</b>; needs ≥2 significant tokens.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="call stop">
+    <span class="lead">More than one candidate is always a human choice</span>
+    <p>Shared accounts are legally distinct entities. Account <code>50200051045430</code> maps to
+      <b>three</b> D.S. Ductofab companies with three different GSTs; <code>0000786000</code> to two
+      Siemens entities. Nothing in a bank statement separates them. So an ambiguous resolution is left
+      <b>blank</b> on the row — storing the top-ranked guess would turn a suggestion nobody chose into
+      a recorded fact. <code>resolved_vendor</code> is written only when exactly one candidate survives.</p>
+  </div>
+
+  <h3>Step 2 — Pass A: the bank reference</h3>
+  <dl class="kv">
+    <dt>Key</dt><dd><code>normalize_reference(bank_reference_no) == normalize_reference(utr)</code>, both whitespace-stripped and upper-cased, on <b>both</b> sides.</dd>
+    <dt>Grouping</dt><dd>Every payment sharing the reference forms <b>one group</b>. This is the only pass that can discover fan-out.</dd>
+    <dt>Status filter</dt><dd><b>None, deliberately.</b> A payment is returned whatever state it is in — finding a transfer against a <em>not-Paid</em> payment is one of the outcomes this feature exists to report. Filtering to Paid here would convert that finding into “no record found”, the opposite of the truth.</dd>
+    <dt>Short-circuit</dt><dd>If Pass A finds anything, Pass B does not run.</dd>
+  </dl>
+  <p>
+    Why both sides must be normalised: <b>226</b> live <code>Project Payments.utr</code> values are
+    whitespace-padded (e.g. <code>' 504918114686'</code>). The existing duplicate guard elsewhere in
+    the app strips the <em>incoming</em> value but compares it against unstripped storage, so those
+    rows are invisible to it. The comparison is pushed into SQL as <code>upper(btrim(utr))</code> so
+    it matches exactly what the pure normaliser computes.
+  </p>
+
+  <h3>Step 3 — Pass B: vendor + exact amount + date window</h3>
+  <p>
+    Needed because <b>932 of 7,420</b> Paid payments (12.6%) carry a <code>utr</code> that is not a
+    bank reference at all — PO numbers, short numbers, the literal string <code>refund</code>. Pass A
+    cannot see those, and without Pass B they would read as unrecorded money.
+  </p>
+  <ul>
+    <li>Requires a resolved vendor. With no vendor it would degrade to “amount + date”, which on a
+      7,000-payment ledger matches far too much to put in front of a reviewer.</li>
+    <li>Amount must match <b>exactly</b>; date within <b>±3 days</b> (an undated row or target cannot
+      be excluded on evidence we do not have, so it passes).</li>
+    <li>A target with no vendor of its own is rejected — “matches because it has no vendor to
+      disagree with” is the wrong reason to offer anything.</li>
+    <li><b>Single target only.</b> A fan-out group's members each hold a <em>fraction</em> of the bank
+      amount, so an exact-amount pass can never reassemble one. Rather than guess at a partition —
+      which would mean inventing an allocation nobody authorised — an unreferenced fan-out stays
+      Unmatched and says so.</li>
+  </ul>
+
+  <h3>Step 4 — Pass C: approved expenses</h3>
+  <p>
+    Exact amount, corroborated by the free-text description. Vendor cannot filter here and that is a
+    property of the data, not an omission: <code>Project Expenses.vendor</code> is populated on
+    <b>0.58%</b> of rows and <code>Non Project Expenses</code> has no vendor column at all.
+  </p>
+  <div class="tw">
+    <table>
+      <thead><tr><th>Signal</th><th class="num">Adds</th></tr></thead>
+      <tbody>
+        <tr><td>Amount matches exactly (the base — never stands alone as a match, only as a candidate)</td><td class="num">0.40</td></tr>
+        <tr><td>Account number appears in the description <span class="footnote">(matched over the description's digits, so separators and leading zeros still hit)</span></td><td class="num">+0.40</td></tr>
+        <tr><td>Payee name words appear in the description</td><td class="num">+0.20</td></tr>
+        <tr><td>IFSC appears in the description</td><td class="num">+0.10</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>
+    The pool is <code>Project Expenses</code> at <b>Approved</b>, and <code>Non Project Expenses</code>
+    at <b>Approved or Requested</b> — the non-project side has no separate approval step in practice,
+    so an Approved-only pool would be empty. Expense candidates are always a <em>suggestion</em>,
+    never applied.
+  </p>
+
+  <h3>Step 5 — Persist</h3>
+  <p>
+    Per row: the derived status and note, the unambiguous vendor if there is one, then a fresh
+    <code>Outflow Row Match</code> per matched target with <code>match_kind = "Reconciled"</code>
+    (nothing on the target was mutated) and the basis that found it. Then the batch rollup, then one
+    commit.
+  </p>
+</section>
+
+<!-- ══════════════════════════════ 5 ══════════════════════════════ -->
+<section id="ladder">
+  <h2 class="sec"><span class="num">5</span>The outcome ladder</h2>
+  <p class="sec-sub">
+    <code>status.derive_row_outcome</code> is the <b>single deriver</b> — no endpoint, no controller,
+    no frontend computes a status. It is checked strictly top to bottom, and the order is a series of
+    deliberate judgements, not alphabetical accident.
+  </p>
+
+  <div class="ladder">
+    <div class="rung">
+      <div class="r-n">1</div>
+      <div class="r-t"><b>Already handled in an earlier batch</b>
+        <span class="why">Not re-decided, whatever it would otherwise match. Offering it again is how the same money gets recorded twice.</span></div>
+      <div class="r-o"><span class="chip grey">Skipped</span></div>
+    </div>
+    <div class="rung">
+      <div class="r-n">2</div>
+      <div class="r-t"><b>The transfer did not succeed</b>
+        <span class="why">Must come before any matching is considered: a FAILED transfer carries a real bank reference and would match a payment perfectly well.</span></div>
+      <div class="r-o"><span class="chip grey">Skipped</span></div>
+    </div>
+    <div class="rung">
+      <div class="r-n">3</div>
+      <div class="r-t"><b>No payment group found</b>
+        <span class="why">The note distinguishes “no payment, but N approved expenses match this amount” from “nothing found at all”.</span></div>
+      <div class="r-o"><span class="chip open">Unmatched</span></div>
+    </div>
+    <div class="rung">
+      <div class="r-n">4</div>
+      <div class="r-t"><b>Any matched payment is <em>not</em> Paid</b>
+        <span class="why">Outranks every other matched outcome. “Money left the bank against a payment nobody had approved yet” is a finding about the organisation, not about this file, and it must not be masked by an amount delta that happens to sit on the same row.</span></div>
+      <div class="r-o"><span class="chip warn">Control exception</span></div>
+    </div>
+    <div class="rung">
+      <div class="r-n">5</div>
+      <div class="r-t"><b>Group total ≠ bank amount</b>
+        <span class="why">Only reachable from Pass A, where the match was on the reference, so a delta is real. The note states the difference and its implied rate, and names TDS as the shape it would take — while stating plainly that nothing is written.</span></div>
+      <div class="r-o"><span class="chip warn">Amount mismatch</span></div>
+    </div>
+    <div class="rung">
+      <div class="r-n">6</div>
+      <div class="r-t"><b>Matched on vendor+amount+date, but the payment's stored reference is a different one</b>
+        <span class="why">Only reachable from Pass B. The note names both the stored value and the real bank reference.</span></div>
+      <div class="r-o"><span class="chip warn">Reference mismatch</span></div>
+    </div>
+    <div class="rung">
+      <div class="r-n">7</div>
+      <div class="r-t"><b>Several payments, amounts agree</b>
+        <span class="why">Fan-out. The note lists every payment in the group.</span></div>
+      <div class="r-o"><span class="chip read">Reconciled</span></div>
+    </div>
+    <div class="rung">
+      <div class="r-n">8</div>
+      <div class="r-t"><b>One payment, amount agrees</b>
+        <span class="why">The ordinary happy path.</span></div>
+      <div class="r-o"><span class="chip read">Reconciled</span></div>
+    </div>
+  </div>
+
+  <div class="call">
+    <span class="lead">Rungs 5 and 6 are mutually exclusive by construction, not by precedence</span>
+    <p>Pass A matched on the <em>reference</em>, so it can produce an amount delta but never a
+      reference disagreement. Pass B matched on an <em>exact amount</em>, so it can produce a
+      reference disagreement but an amount delta there is arithmetically impossible. Their order in
+      the ladder never actually arbitrates anything — which is worth knowing before anyone “fixes”
+      it.</p>
+  </div>
+</section>
+
+<!-- ══════════════════════════════ 6 ══════════════════════════════ -->
+<section id="casebook">
+  <h2 class="sec"><span class="num">6</span>Case book — all nine row states</h2>
+  <p class="sec-sub">
+    What each state means, how a transfer arrives at it, what the reviewer sees, what they can do,
+    and what — if anything — gets written.
+  </p>
+
+  <!-- Pending -->
+  <div class="case c-open">
+    <h3>Pending <span class="chip open">open</span></h3>
+    <p class="oneline">Staged, and the match has not been run yet.</p>
+    <dl>
+      <dt>How you get here</dt>
+      <dd>Successful transfer, not a duplicate, upload finished. This is the normal resting state
+        between <em>Upload</em> and the first press of <b>Run match</b>.</dd>
+      <dt>On screen</dt>
+      <dd>Grey chip. Counts toward <em>Decisions</em> as <b>not</b> reviewed — the counter is
+        “anything except Pending”.</dd>
+      <dt>Reviewer can</dt>
+      <dd>Run the match; skip it with a typed reason; or settle it as an expense directly (the settle
+        panel appears on any open row, so you can record an expense without matching at all).</dd>
+      <dt>Writes</dt>
+      <dd>None.</dd>
+    </dl>
+  </div>
+
+  <!-- Reconciled -->
+  <div class="case c-read">
+    <h3>Reconciled <span class="chip read">terminal · read-only</span></h3>
+    <p class="oneline">The transfer matched one or more Paid payments and the amounts agree.</p>
+    <dl>
+      <dt>How you get here</dt>
+      <dd>Ladder rung 7 or 8. Either a single payment, or a fan-out group whose members sum exactly to
+        the bank amount.</dd>
+      <dt>On screen</dt>
+      <dd>Emerald chip. Expanding the row lists each matched payment as a link, its amount, and the
+        basis that found it (<em>Bank reference</em> or <em>Vendor+amount+date</em>).</dd>
+      <dt>Reviewer can</dt>
+      <dd>Nothing, and that is correct — the money is already recorded. <b>The settle panel is
+        deliberately withheld:</b> offering to book an expense for a transfer that already corresponds
+        to a recorded payment is an invitation to double-count the same money. Skip remains available
+        as an escape hatch.</dd>
+      <dt>Writes</dt>
+      <dd>None. One <code>Outflow Row Match</code> per payment, <code>match_kind = "Reconciled"</code>.
+        The payment itself is untouched.</dd>
+    </dl>
+  </div>
+
+  <!-- Amount mismatch -->
+  <div class="case c-warn">
+    <h3>Amount mismatch <span class="chip warn">terminal · reported</span></h3>
+    <p class="oneline">Matched on the bank reference, but the payment total is not the bank amount.</p>
+    <dl>
+      <dt>How you get here</dt>
+      <dd>Ladder rung 5 — Pass A only.</dd>
+      <dt>Two shapes</dt>
+      <dd>
+        <ul>
+          <li><b>Bank paid less than the payments claim.</b> The note gives the shortfall and its
+            implied percentage of the total, and says a deduction such as TDS would look like this —
+            while stating that nothing was written.</li>
+          <li><b>Bank paid more.</b> “More money left the account than any matched payment claims.”
+            No excuse is offered for this one, because there isn't an innocent one.</li>
+        </ul>
+      </dd>
+      <dt>On screen</dt>
+      <dd>Amber chip, and a row in the <em>Reported findings</em> table with the full note.</dd>
+      <dt>Reviewer can</dt>
+      <dd>Read it and act outside this feature. It is terminal because <b>reporting it was the whole
+        job</b> — the feature never derives a TDS figure and never edits a payment.</dd>
+      <dt>Writes</dt>
+      <dd>None.</dd>
+    </dl>
+  </div>
+
+  <!-- Reference mismatch -->
+  <div class="case c-warn">
+    <h3>Reference mismatch <span class="chip warn">terminal · reported</span></h3>
+    <p class="oneline">The right payment, almost certainly — but its recorded UTR is not this bank reference.</p>
+    <dl>
+      <dt>How you get here</dt>
+      <dd>Ladder rung 6 — Pass B only. Vendor, exact amount and date all agree; the stored reference
+        does not.</dd>
+      <dt>Why it exists at all</dt>
+      <dd>12.6% of the live Paid ledger stores something in <code>utr</code> that is not a bank
+        reference. This state is how that becomes visible for the first time.</dd>
+      <dt>On screen</dt>
+      <dd>Amber chip; the note names the payment, what it has stored, and what the bank actually
+        used.</dd>
+      <dt>Reviewer can</dt>
+      <dd>Read it. <b>Owner ruling, 2026-08-06: reported, never repaired.</b> Nothing in this feature
+        proposes or applies a correction to a payment's UTR.</dd>
+      <dt>Writes</dt>
+      <dd>None.</dd>
+    </dl>
+  </div>
+
+  <!-- Control exception -->
+  <div class="case c-warn">
+    <h3>Control exception <span class="chip warn">terminal · reported</span></h3>
+    <p class="oneline">Money left the bank against a payment that is not Paid.</p>
+    <dl>
+      <dt>How you get here</dt>
+      <dd>Ladder rung 4 — any target in the matched group is in a status other than <code>Paid</code>.
+        Reachable because Pass A deliberately does not filter on status.</dd>
+      <dt>What it actually means</dt>
+      <dd>The transfer went out before the approval completed. It is a finding about the
+        organisation's controls, not about this file — which is exactly why it outranks an amount
+        delta on the same row.</dd>
+      <dt>On screen</dt>
+      <dd>Amber chip; the note names up to three offending payments with their actual statuses, and
+        counts the rest.</dd>
+      <dt>Reviewer can</dt>
+      <dd>Read it and escalate. Terminal.</dd>
+      <dt>Writes</dt>
+      <dd>None — including no attempt to “fix” the payment's status.</dd>
+    </dl>
+  </div>
+
+  <!-- Unmatched -->
+  <div class="case c-open">
+    <h3>Unmatched <span class="chip open">open · the productive case</span></h3>
+    <p class="oneline">No payment found. This transfer is expense work.</p>
+    <dl>
+      <dt>How you get here</dt>
+      <dd>Ladder rung 3. All three passes came back with no payment group.</dd>
+      <dt>Two notes, and the difference matters</dt>
+      <dd>
+        <ul>
+          <li>“No payment found. <b>N approved expense(s)</b> match this amount — settle one, or record
+            a new expense.”</li>
+          <li>“No payment or approved expense found for this transfer.”</li>
+        </ul>
+      </dd>
+      <dt>On screen</dt>
+      <dd>Blue chip. Expanding shows vendor candidates (with an amber ambiguity warning when there is
+        more than one), approved expenses at this amount with the reasons each was surfaced, and the
+        <b>Record this transfer</b> panel.</dd>
+      <dt>Reviewer can</dt>
+      <dd>
+        <ul>
+          <li><b>Settle</b> a listed approved expense → Stage C, path 1.</li>
+          <li><b>Record a new expense</b> → Stage C, path 2. The typical real-statement volume is
+            around 13 of 43 rows: site rent, accommodation, utilities, sundries.</li>
+          <li><b>Skip</b> with a typed reason.</li>
+          <li>Do nothing — it stays open and the batch cannot read <em>Completed</em>.</li>
+        </ul>
+      </dd>
+      <dt>Writes</dt>
+      <dd>None until the reviewer acts.</dd>
+    </dl>
+  </div>
+
+  <!-- Settled -->
+  <div class="case c-settled">
+    <h3>Settled <span class="chip settled">terminal · the only written state</span></h3>
+    <p class="oneline">An expense was marked Paid, or created already Paid, against this transfer.</p>
+    <dl>
+      <dt>How you get here</dt>
+      <dd>Only via <code>expenses.settle_expense</code> or <code>expenses.create_expense</code>.
+        Never derived by the matcher.</dd>
+      <dt>On screen</dt>
+      <dd>Indigo chip; the note reads “Settled Project Expenses PE-…” or “Recorded …”. The
+        <b>Skip</b> button disappears.</dd>
+      <dt>Reviewer can</dt>
+      <dd>Nothing further. The row is frozen against both re-matching and skipping — re-matching would
+        strand the audit trail, and skipping a row that already moved money would be a lie.</dd>
+      <dt>Writes</dt>
+      <dd>The expense; one <code>Outflow Row Match</code> with <code>match_kind = "Settled"</code>,
+        <code>match_basis = "Manual"</code>; the row's status, <code>decided_by</code> and
+        <code>decided_at</code>.</dd>
+    </dl>
+  </div>
+
+  <!-- Skipped -->
+  <div class="case c-grey">
+    <h3>Skipped <span class="chip grey">terminal</span></h3>
+    <p class="oneline">Deliberately out of scope — automatically or by a person.</p>
+    <dl>
+      <dt>Three automatic routes</dt>
+      <dd>
+        <ul>
+          <li>“Already imported in batch OFI-…”</li>
+          <li>“This transfer appears earlier in the same statement.”</li>
+          <li>“Transfer did not succeed at the bank (FAILED).”</li>
+        </ul>
+      </dd>
+      <dt>One manual route</dt>
+      <dd>The <b>Skip</b> button, which <b>requires a typed reason</b> (owner ruling). Automatic skips
+        carry a system-generated reason instead — making someone type “duplicate” forty times is
+        theatre, not a control.</dd>
+      <dt>On screen</dt>
+      <dd>Muted chip; the reason is shown when the row is expanded. Candidates are not even fetched
+        for a skipped row — there is no decision left to make, so the round trip is skipped too.</dd>
+      <dt>Reviewer can</dt>
+      <dd><b>Nothing. This is a one-way door</b> — see Finding 2 in §12.</dd>
+      <dt>Writes</dt>
+      <dd>The row's status, reason, <code>decided_by</code>/<code>decided_at</code>; any existing match
+        records for the row are deleted.</dd>
+    </dl>
+  </div>
+
+  <!-- Error -->
+  <div class="case c-write">
+    <h3>Error <span class="chip write">defined · currently unreachable</span></h3>
+    <p class="oneline">Meant for “a write failed and was rolled back”. Nothing in the shipped code ever assigns it.</p>
+    <dl>
+      <dt>Design intent</dt>
+      <dd>A per-row savepoint failure during a bulk settlement would mark that row Error and leave its
+        neighbours intact.</dd>
+      <dt>As built</dt>
+      <dd>Settlement is one row per reviewer click. A failure rolls back to its savepoint, re-raises,
+        and the named error is shown inline in the panel; the row keeps the status it had. So the
+        status is declared, counted (<code>error_rows</code>), filtered, toned red — and never
+        produced.</dd>
+      <dt>Consequence</dt>
+      <dd>Harmless today. It becomes load-bearing the moment a settle-everything action ships. Flagged
+        as Finding 1 in §12.</dd>
+    </dl>
+  </div>
+</section>
+
+<!-- ══════════════════════════════ 7 ══════════════════════════════ -->
+<section id="settle">
+  <h2 class="sec"><span class="num">7</span>Stage C — The two writes</h2>
+  <p class="sec-sub">
+    The only place in the feature where anything outside the import's own doctypes changes. Both paths
+    write an expense and nothing else. Neither <em>can</em> reach a payment —
+    <code>settle.py</code> has no code path to one.
+  </p>
+
+  <div class="call stop">
+    <span class="lead">Why these endpoints exist at all</span>
+    <p>There is no whitelisted expense endpoint anywhere else in this app. Every expense write today is
+      a raw SDK <code>updateDoc</code>, which re-reads the doc server-side — so
+      <code>check_if_latest</code> can <b>never</b> fire and there is zero optimistic-concurrency
+      protection. Two accountants working overlapping statements would both succeed, and the second
+      would silently overwrite the first's payment reference with no Version row to show it (both
+      expense doctypes had <code>track_changes</code> unset until this feature turned it on). The
+      row-locked status re-assertion below is the whole reason settlement is routed through here.</p>
+  </div>
+
+  <h3>Path 1 — Settle an existing approved expense</h3>
+  <p><code>expenses.settle_expense(row, target_doctype, target_name)</code></p>
+  <ol class="steps">
+    <li><span class="sh">Authorize</span><p>The acting user becomes <code>payment_by</code> on the project side.</p></li>
+    <li><span class="sh">Load the import row, and refuse the frozen ones</span>
+      <p>Already <em>Settled</em> → “This row has already settled an expense.”
+         <em>Skipped</em> → refused (see Finding 2).</p></li>
+    <li><span class="sh">Open a savepoint</span>
+      <p>So a failure rolls back this row only and leaves the database exactly as it was.</p></li>
+    <li><span class="sh">Re-read the target <b>under a row lock</b> and re-assert everything the reviewer saw</span>
+      <p>The reviewer's screen is a snapshot; between it and this call another accountant may have
+        settled the same expense. Four named refusals, so the caller can tell the cases apart without
+        matching on message text:</p>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Condition</th><th>Error</th><th>Message</th></tr></thead>
+          <tbody>
+            <tr><td>Target not found</td><td class="mono">WrongStatusError</td><td>“… not found.”</td></tr>
+            <tr><td>Already <code>Paid</code></td><td class="mono">AlreadyPaidError</td><td>“… was already marked Paid. Refresh to see who settled it.”</td></tr>
+            <tr><td>Not a settleable status</td><td class="mono">WrongStatusError</td><td>“… is 'Rejected' and cannot be settled from a bank statement.”</td></tr>
+            <tr><td>Amount ≠ bank amount</td><td class="mono">AmountMismatchError</td><td>“… is for 5000 but 5500 left the bank. Settle it against the transfer that matches, or record a new expense.”</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </li>
+    <li><span class="sh">Write the expense</span>
+      <p><code>status → Paid</code>, <code>payment_date →</code> the transfer date,
+        <code>payment_ref →</code> the bank reference, and on the project side
+        <code>payment_by →</code> the finalising user. Deliberately <b>not</b> the statement's
+        “Added by”, which the gateway truncates to 15 characters.</p></li>
+    <li><span class="sh">Record the import side</span>
+      <p>The match record is written <b>before</b> the row flips, so a unique-constraint violation
+        aborts the settlement rather than leaving a Settled row with nothing behind it.</p></li>
+    <li><span class="sh">Release, roll up, commit</span>
+      <p>One transaction, one commit. The four facts — expense written, match recorded, row flipped,
+        batch rolled up — must not half-happen.</p></li>
+  </ol>
+
+  <div class="call">
+    <span class="lead">The lock has one fragile detail</span>
+    <p>The re-read uses <code>for_update=True</code> and <b>must never</b> carry
+      <code>cache=True</code>. Frappe silently skips the row lock when the value comes from cache, so a
+      cached read would take no lock at all and this entire guard would be decorative.</p>
+  </div>
+
+  <h3>Path 2 — Record a new expense, already Paid</h3>
+  <p><code>expenses.create_expense(row, doctype, expense_type, project?, description?, vendor?, comment?)</code></p>
+  <div class="tw">
+    <table>
+      <thead><tr><th>Check</th><th>Behaviour</th></tr></thead>
+      <tbody>
+        <tr><td>Expense type scope</td><td>A <code>Project Expenses</code> needs a type with <code>project = 1</code>; a non-project one needs <code>non_project = 1</code>. <b>Nothing else in the app enforces this</b> — the two create dialogs simply query different lists — so an endpoint that accepts a type name has to check it itself. The form is fed by <code>get_expense_types(doctype)</code> so it cannot offer a wrong one, and switching the <em>Kind</em> selector clears any stale type.</td></tr>
+        <tr><td>Amount</td><td>Must be &gt; 0. “A transfer of zero or less cannot be recorded as an expense.”</td></tr>
+        <tr><td>Project</td><td>Required for a project expense; a <code>FuzzySearchSelect</code> over ~180 projects (repo convention above 50 options).</td></tr>
+        <tr><td>Description</td><td>Defaults to <em>beneficiary — remarks</em>, or “Imported from bank statement”. The beneficiary is included deliberately: <code>Non Project Expenses</code> has <b>no vendor column</b>, so without it the record loses who was actually paid.</td></tr>
+        <tr><td>Provenance</td><td><code>comment</code> defaults to “Imported from OFI-…”. The match record is the durable link, but nobody opening an expense form sees that — this line is what tells them.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="call hold">
+    <span class="lead">Creating at Paid deliberately bypasses auto-approval</span>
+    <p>Both expense doctypes' <code>validate()</code> returns early via
+      <code>if self.status and self.status != 'Requested': return</code>, so the “under ₹5,000
+      auto-approve” rule never evaluates. That is <b>intended</b> — approving a spend that has already
+      left the bank is theatre. Recorded here so a later reader does not read it as a bug.</p>
+  </div>
+
+  <h3>The three asymmetries between the two expense doctypes</h3>
+  <p>They are not twins, and assuming they are will break things quietly.</p>
+  <div class="tw">
+    <table>
+      <thead><tr><th></th><th>Project Expenses</th><th>Non Project Expenses</th></tr></thead>
+      <tbody>
+        <tr><td><code>amount</code></td><td><b>Data</b> — <code>varchar(140)</code> holding bare numeric strings (<code>'2935'</code>, <code>'351.72'</code>). Written as a string, integral values without a decimal, so the column stays self-consistent with its 2,574 existing rows.</td><td>Real <b>Currency</b> — <code>numeric(21,9)</code>. Written as a number.</td></tr>
+        <tr><td><code>payment_by</code></td><td>Exists, and is a <b>Data</b> field, not a Link.</td><td><b>Does not exist.</b> Copying the project payload here would throw or silently drop.</td></tr>
+        <tr><td><code>vendor</code></td><td>Optional, populated on 0.58% of live rows.</td><td><b>No vendor column at all</b> — hence the description convention.</td></tr>
+        <tr><td>Settleable from</td><td><code>Approved</code></td><td><code>Approved</code> or <code>Requested</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="call">
+    <span class="lead">The CEO-Hold hook is deliberately <em>not</em> suppressed</span>
+    <p>A Project Expense insert/update fires the cashflow-hold recompute, and
+      <code>frappe.flags.in_import</code> would switch it off. Bulk loaders set that flag because they
+      write hundreds of rows and recompute once at the end. Settlement is <b>one expense per reviewer
+      action</b>, and the cashflow gap <em>should</em> move when a Paid expense appears — suppressing
+      it would leave a project's CEO-Hold state stale for no gain. If a settle-everything action ever
+      ships, that is when the flag becomes right.</p>
+  </div>
+</section>
+
+<!-- ══════════════════════════════ 8 ══════════════════════════════ -->
+<section id="report">
+  <h2 class="sec"><span class="num">8</span>Stage D — The reconciliation report</h2>
+  <p class="sec-sub">
+    Second tab on the batch screen. Two lists that answer different questions; neither substitutes for
+    the other.
+  </p>
+
+  <h3>List 1 — Reported findings</h3>
+  <p>
+    Every row in one of the three exception states, with its full note. Headed by a plain statement
+    that this import never edits a payment, so each line is <b>a description of something to look at,
+    not a change that was made</b>. When empty: “Nothing flagged. Every matched transfer agreed with
+    the payment behind it.”
+  </p>
+
+  <h3>List 2 — Payments in this period with no transfer in the statement</h3>
+  <p>
+    The reverse view, and the reason the report exists. Matching a bank row to a payment answers
+    <em>“is this transfer recorded?”</em>. It cannot answer <em>“is every payment we recorded backed
+    by a real transfer?”</em> — and that second question is the one nobody asks until an audit does.
+  </p>
+  <dl class="kv">
+    <dt>Population</dt><dd>Every <code>Project Payments</code> at <b>Paid</b> whose <code>payment_date</code> falls inside the batch period, minus those this batch matched.</dd>
+    <dt>Shown</dt><dd>Payment (linked), vendor name, amount, paid-on date, and the <b>recorded reference</b> — which is where a junk or padded UTR becomes visible.</dd>
+    <dt>Framing</dt><dd>Explicitly “informational, not an alarm — a payment may legitimately have gone out through another channel.”</dd>
+  </dl>
+
+  <div class="call hold">
+    <span class="lead">Expect this list to be long on a first run</span>
+    <p>It includes every payment made through any other channel in the period, plus every payment whose
+      stored reference is not a bank reference at all. That is the pre-existing data condition this
+      report surfaces for the first time — <b>226</b> padded UTRs and <b>932</b> non-reference UTRs
+      live in the ledger today. The owner has ruled this feature <b>reports, never fixes</b>.</p>
+  </div>
+</section>
+
+<!-- ══════════════════════════════ 9 ══════════════════════════════ -->
+<section id="close">
+  <h2 class="sec"><span class="num">9</span>Stage E — Close &amp; reopen</h2>
+
+  <h3>The batch status ladder</h3>
+  <div class="ladder">
+    <div class="rung"><div class="r-n">1</div><div class="r-t"><b>No rows at all</b><span class="why">Unreachable in practice — the parser refuses a file with zero data rows, and the batch is rolled up before the request ends. See Finding 4.</span></div><div class="r-o"><span class="chip grey">Draft</span></div></div>
+    <div class="rung"><div class="r-n">2</div><div class="r-t"><b>No open rows remain</b><span class="why">Every row is Reconciled, an exception, Settled or Skipped. Checked first, so it beats the close flag: a closed batch whose last abandoned row is later settled becomes plainly Completed.</span></div><div class="r-o"><span class="chip read">Completed</span></div></div>
+    <div class="rung"><div class="r-n">3</div><div class="r-t"><b>Open rows remain, and the batch was closed</b><span class="why">The signal someone scanning the import list actually needs: this batch was closed with work outstanding.</span></div><div class="r-o"><span class="chip warn">Completed with exceptions</span></div></div>
+    <div class="rung"><div class="r-n">4</div><div class="r-t"><b>Open rows remain, some rows are decided</b><span class="why">Work in progress.</span></div><div class="r-o"><span class="chip open">Partially Settled</span></div></div>
+    <div class="rung"><div class="r-n">5</div><div class="r-t"><b>Everything still open</b><span class="why">Where a freshly uploaded batch lands, unless every row was auto-skipped.</span></div><div class="r-o"><span class="chip open">In Review</span></div></div>
+  </div>
+
+  <h3>Closing</h3>
+  <p>
+    <b>Close import</b> opens a confirmation that first calls <code>get_close_preview</code>, so it can
+    <em>say</em> what would be abandoned — how many rows, how much money, and which ones — rather than
+    imply it. Confirming stamps <code>closed_at</code>, <code>closed_by</code> and an optional reason
+    on the batch, then re-derives the status.
+  </p>
+
+  <div class="call stop">
+    <span class="lead">Closing does NOT convert open rows to Skipped — and this reverses the earlier design</span>
+    <p>A skip is a <b>decision</b> — which is exactly why a manual one requires a typed reason.
+      Auto-skipping on close would manufacture decisions nobody made, replacing “never decided” with a
+      fabricated “deliberately skipped” on every row. Worse, it would make the batch read as a plain
+      <em>Completed</em>, indistinguishable from one where everything really was resolved. Instead the
+      abandonment is recorded <b>once</b>, on the batch.</p>
+  </div>
+
+  <p>
+    Closing is bookkeeping, <b>not a freeze</b>. An abandoned row can still be settled afterwards, and
+    the status re-derives when it is. A banner on the batch says so in as many words: “Rows left
+    undecided keep their status and can still be settled.” <b>Reopen</b> clears the three close fields
+    — a mis-click must not be permanent.
+  </p>
+</section>
+
+<!-- ══════════════════════════════ 10 ══════════════════════════════ -->
+<section id="examples">
+  <h2 class="sec"><span class="num">10</span>Worked examples, from real data</h2>
+  <p class="sec-sub">
+    Every rule in the matcher was derived from an observed failure. These are the ones that shaped it.
+  </p>
+
+  <div class="case c-grey">
+    <h3>The failed transfer and its retry</h3>
+    <p class="oneline">Sri Sai Roadlines · ₹22,000 · 28-Jul, in one 19-row statement.</p>
+    <p>
+      FAILED at 18:17:59 with bank reference <code>620918791146</code>; succeeded at 19:23 with
+      <code>620919871893</code>. <b>Both would otherwise match the same payment.</b> The parser stages
+      both, the failed one is skipped at rung 3 with its real status named, and the retry reconciles.
+      A parser that filtered failures out would have left nobody able to see why the numbers moved.
+    </p>
+  </div>
+
+  <div class="case c-read">
+    <h3>One transfer, seven payments, six projects</h3>
+    <p class="oneline">Reference <code>742905000271</code> · ₹7,289,432.</p>
+    <p>
+      Fan-out is real: <b>40</b> such transfers cover <b>99</b> payments — 0.55% of bank rows, but
+      <b>2.53% of settled value (₹10.0M)</b>. Shape: 31 pairs, then 3(×5), 4, 5, 6, and this 7. Pass A
+      groups them by shared reference and compares the <em>sum</em> against the bank amount. No
+      allocation, no split, no write. Drop the grouping and these 99 payments produce 40 matches and
+      <b>59 spurious exceptions</b>, concentrated on the largest transfers.
+    </p>
+  </div>
+
+  <div class="case c-warn">
+    <h3>One bank account, three companies</h3>
+    <p class="oneline">Account <code>50200051045430</code> → three D.S. Ductofab entities, three GSTs.</p>
+    <p>
+      The account narrows the candidate set to three; nothing in the statement separates them. The row
+      shows all three with their reasons and an amber “More than one vendor matches” note,
+      <code>resolved_vendor</code> stays <b>blank</b>, and a human picks. <code>0000786000</code> does
+      the same for two Siemens entities.
+    </p>
+  </div>
+
+  <div class="case c-open">
+    <h3>The expense found only by its description</h3>
+    <p class="oneline">28-Jul · Ravindra reddy kuppagiri · ₹5,000 · a/c 39088842277.</p>
+    <p>
+      No payment. One Approved <em>Staff Accommodation Rent</em> expense at exactly ₹5,000, whose
+      description reads “Wasim Alam (July PG rent) / <b>Account Number: 39088842277</b> / …”. Amount
+      match scores 0.40, the account number in the description adds 0.40. The beneficiary name and the
+      expense's own text share nothing — this match exists <em>only</em> because someone typed the
+      account number into a free-text field. Real signal, fragile signal: it corroborates, it never
+      stands alone, and it is always a suggestion.
+    </p>
+  </div>
+
+  <div class="case c-grey">
+    <h3>The normalisation rules, and the row each one rescues</h3>
+    <div class="tw">
+      <table>
+        <thead><tr><th>Statement</th><th>Master</th><th>Rule</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">0869102000002783</td><td class="mono">869102000002783</td><td>Strip leading zeros — accounts only, never references</td></tr>
+          <tr><td class="mono">' 504918114686'</td><td class="mono">504918114686</td><td>Strip whitespace on <b>both</b> sides of the comparison</td></tr>
+          <tr><td>Sri Sai Enterprises</td><td class="mono">'Sri Sai Enterprises '</td><td>Trailing space</td></tr>
+          <tr><td>RIDDHI SIDDHI … NEEDS</td><td>RIDDHI SIDDHI … <b>&amp;</b> … NEEDS</td><td><code>&amp;</code> → “and”, and “and” is a noise token</td></tr>
+          <tr><td>RAJ MARKETING eHub</td><td>RAJ MARKETING e-Hub</td><td>Hyphen collapse, resolved at token level</td></tr>
+          <tr><td>Absolute Air Solution<b>s</b></td><td>Absolute Air Solution</td><td>Crude singularisation — scoring only, never identity</td></tr>
+          <tr><td>Dhatri Networks <b>Pvt Ltd</b></td><td>Dhatri Networks <b>Private Limited</b></td><td>Abbreviation expansion</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      Note what is deliberately <em>absent</em> from the noise list: trade words like “enterprise”,
+      “roadlines”, “hardware”. Those are exactly what separates <b>Sri Sai Enterprises</b> from
+      <b>Sri Sai Roadlines</b> — two different live vendors.
+    </p>
+  </div>
+</section>
+
+<!-- ══════════════════════════════ 11 ══════════════════════════════ -->
+<section id="invariants">
+  <h2 class="sec"><span class="num">11</span>Invariants that break silently</h2>
+  <p class="sec-sub">
+    Everything else can be re-derived by reading the code. These cannot — each one fails without an
+    error, and four of the five were discovered the hard way.
+  </p>
+
+  <ol>
+    <li>
+      <p><b>The payment branch must never write.</b> No code reachable from this feature may touch
+        <code>Project Payments</code>, <code>PO Payment Terms</code>, or a PO's
+        <code>amount_paid</code>. Pinned by a test. <code>settle.py</code> has no code path to a
+        payment at all — that is not an accident, and it is what makes the guarantee structural rather
+        than a rule someone has to remember.</p>
+    </li>
+    <li>
+      <p><b>Indexes need explicit names.</b> PostgreSQL index names are unique per <em>schema</em>,
+        Frappe generates them with no table prefix, and <code>CREATE INDEX IF NOT EXISTS</code> matches
+        by name only — so a generic name colliding with another table makes the call a <b>silent
+        no-op</b>. Every index here passes an explicit <code>ofi_</code>/<code>ofr_</code>/<code>ofm_</code>
+        name. (Also: never name a field <code>user</code> or <code>order</code> — both are PG reserved
+        words.)</p>
+    </li>
+    <li>
+      <p><b><code>for_update=True</code> must never carry <code>cache=True</code>.</b> Frappe skips the
+        row lock when the value comes from cache, which would make the entire concurrency guard
+        decorative.</p>
+    </li>
+    <li>
+      <p><b>The two expense doctypes are not twins.</b> See the table in §7 — a Data amount column, a
+        <code>payment_by</code> that exists on one side only, and no vendor column at all on the
+        other.</p>
+    </li>
+    <li>
+      <p><b><code>Outflow Import Row.remarks</code> must stay <code>Text</code>.</b> As <code>Data</code>
+        it is <code>varchar(140)</code> and Frappe <em>throws</em>
+        <code>CharacterLengthExceededError</code> rather than truncating — the same trap the expense
+        <code>description</code> field hit on 2026-07-28. A real statement carries a 201-character
+        remark.</p>
+    </li>
+  </ol>
+
+  <h4>Two more worth knowing</h4>
+  <ul>
+    <li><b>The identity / scoring split.</b> <code>normalize_account</code> and
+      <code>normalize_reference</code> produce <em>identity</em> forms — two values that normalise
+      equal are treated as the same thing. <code>normalize_name</code> and <code>name_tokens</code>
+      produce <em>scoring</em> forms and are lossy on purpose (singularisation is a heuristic and would
+      be indefensible as an identity rule). A normalised name must never become a key.</li>
+    <li><b>Money is <code>Decimal</code> end to end</b>, converted to <code>float</code> only at the
+      persistence boundary. These figures are compared for exact equality and then differenced; binary
+      floating point makes both unreliable at the paisa level.</li>
+  </ul>
+</section>
+
+<!-- ══════════════════════════════ 12 ══════════════════════════════ -->
+<section id="findings">
+  <h2 class="sec"><span class="num">12</span>Findings &amp; your decisions</h2>
+  <p class="sec-sub">
+    Four gaps found while tracing the code against the design, then the decision points the build
+    deliberately left open, then what remains to build.
+  </p>
+
+  <div class="finding sev-hi">
+    <h3><span class="fnum">F2</span>A skipped row is a one-way door</h3>
+    <p>
+      There is no un-skip. <code>match_batch</code> treats <span class="chip grey">Skipped</span> as
+      frozen and never re-matches it, and no endpoint clears the status. But when a reviewer tries to
+      settle one, the refusal reads:
+      <em>“This row was skipped. <b>Re-run the match to reconsider it.</b>”</em> — an instruction that
+      cannot work, because re-running the match is precisely what skips over it.
+    </p>
+    <p>
+      Consequence: an accountant who skips the wrong row has permanently removed that transfer from the
+      feature. The money can still be recorded by hand elsewhere in the app, but not through this
+      import, and the batch will carry a decision nobody can revise.
+    </p>
+    <div class="ask">
+      <b>Your call:</b> (a) add an <em>Undo skip</em> that returns a manually-skipped row to Pending —
+      automatic skips staying frozen; (b) leave the behaviour and just fix the misleading message; or
+      (c) leave both as-is because a skip is meant to be final.
+    </div>
+  </div>
+
+  <div class="finding">
+    <h3><span class="fnum">F1</span>The <code>Error</code> status can never occur</h3>
+    <p>
+      It is declared in both the Python and TypeScript vocabularies, counted as
+      <code>error_rows</code> on every batch, offered in the status filter, and toned red — and no code
+      path assigns it. Settlement is one row per click; a failure rolls back to its savepoint,
+      re-raises, and shows a named message in the panel while the row keeps its previous status.
+    </p>
+    <p>
+      That is arguably the <em>right</em> behaviour for an interactive per-row write. But the design
+      described a bulk settlement where row 17 fails, is marked Error, and rows 1–16 survive — so the
+      vocabulary is sized for a feature that was not built.
+    </p>
+    <div class="ask">
+      <b>Your call:</b> keep <code>Error</code> reserved for a future bulk action (costs nothing, but a
+      counter that is always zero is noise), or drop it from the vocabulary and the batch counters now.
+    </div>
+  </div>
+
+  <div class="finding sev-low">
+    <h3><span class="fnum">F3</span><code>resolved_project</code> is read but never written</h3>
+    <p>
+      The field exists on <code>Outflow Import Row</code>, is selected by the review query, and is
+      declared in the TypeScript type — nothing ever populates it. Harmless, but it reads as a feature
+      that exists. (<code>resolved_vendor</code> beside it <em>is</em> populated, which makes the
+      omission look deliberate when it is probably just unfinished.)
+    </p>
+    <div class="ask"><b>Your call:</b> populate it from a matched payment's project, or remove it.</div>
+  </div>
+
+  <div class="finding sev-low">
+    <h3><span class="fnum">F4</span><code>Draft</code> never persists</h3>
+    <p>
+      The batch is created as <code>Draft</code>, then rolled up in the same request — and since the
+      parser refuses a file with zero rows, the rollup always finds at least one status. So no batch
+      ever comes to rest in <code>Draft</code>. Cosmetic; noted so nobody hunts for it.
+    </p>
+  </div>
+
+  <hr class="soft">
+
+  <h3>Decision points the build left open, on purpose</h3>
+
+  <div class="finding">
+    <h3><span class="fnum">D1</span>Vendor scoring weights</h3>
+    <p>
+      The code marks these an <b>owner decision point</b> in as many words. The current values (account
+      0.80, account+IFSC 0.95, exact name 0.75, token weight 0.60, floor 0.35) encode two judgements
+      only someone who works with this vendor master can make:
+    </p>
+    <ul>
+      <li><b>How much more does an account hit count than a name hit?</b> Weight the account too hard
+        and you bury the live case where a vendor was paid from an account the master does not hold at
+        all, so the name was the only route. Too little, and the account-only matches stop standing
+        out.</li>
+      <li><b>Where is the line between “pre-highlight” and “one of several”?</b> Set the floor high and
+        a genuine trailing-space / ampersand / plural variant drops out of the list entirely. Set it
+        low and every “Sri Sai *” vendor appears on every Sri Sai row — and the reviewer stops reading
+        the list.</li>
+    </ul>
+    <div class="ask">
+      Nothing auto-commits either way — these weights only change the <b>order and length</b> of a list
+      a person confirms, which is what makes them safe to tune later against real reviewer feedback.
+      <b>Recommendation: leave them, and revisit after the first real statement is reviewed end to
+      end.</b>
+    </div>
+  </div>
+
+  <div class="finding">
+    <h3><span class="fnum">D2</span>N targets per bank row (R2) — taken as yes without explicit confirmation</h3>
+    <p>
+      Fan-out grouping was built on a recommendation, flagged in the plan as never explicitly confirmed.
+      Reversing it is cheap — drop the grouping, take the single best candidate — and costs <b>59
+      spurious exceptions</b> on the largest transfers.
+    </p>
+    <div class="ask"><b>Your call:</b> confirm R2 stands, or reverse it.</div>
+  </div>
+
+  <div class="finding">
+    <h3><span class="fnum">D3</span>Non-project expenses are settleable at <code>Requested</code></h3>
+    <p>
+      The project side settles only from <code>Approved</code>. The non-project side also accepts
+      <code>Requested</code>, on the reasoning that it has no separate approval step in practice and an
+      Approved-only pool would be empty. It does mean this feature can mark something Paid that was
+      never approved by anyone.
+    </p>
+    <div class="ask"><b>Your call:</b> accept, or restrict the non-project side to Approved and accept a smaller candidate pool.</div>
+  </div>
+
+  <div class="finding">
+    <h3><span class="fnum">D4</span>The ±3-day window</h3>
+    <p>
+      A payment is recorded the same day 98.9% of the time; three days covers a Friday transfer recorded
+      on Monday without reaching into the next week's run. Widening it grows the Pass B suggestion list.
+    </p>
+    <div class="ask"><b>Your call:</b> confirm 3 days, or name another number.</div>
+  </div>
+
+  <hr class="soft">
+
+  <h3>What remains to build</h3>
+
+  <div class="finding">
+    <h3><span class="fnum">S7</span>Bank charges — opt-in booking</h3>
+    <p>
+      Every batch already carries <code>charges_amount</code> (gateway charge + tax across every row,
+      failed ones included) and displays it. <b>It is not booked.</b> S7 makes booking it one click:
+      create <em>one</em> <code>Non Project Expenses</code> of type <b>Bank Fees &amp; Charges</b> at
+      Paid, dated <code>period_to</code>, and store it in the <code>charges_expense</code> link that
+      already exists on the batch. Guarded against double-booking and against a zero charge.
+    </p>
+    <div class="ask">
+      Owner ruling already on record: <b>opt-in, never automatic — a batch that never books its charges
+      is a valid batch.</b> Confirm that still holds and this is worth building now.
+    </div>
+  </div>
+
+  <div class="finding">
+    <h3><span class="fnum">S8</span>Documentation</h3>
+    <p>
+      A domain doc with a residence manifest, a row in the root reference table, the load-bearing
+      invariants added to the always-loaded conventions, and the as-built record appended to the plan.
+    </p>
+  </div>
+
+  <div class="finding">
+    <h3><span class="fnum">—</span>Not scheduled, worth knowing</h3>
+    <ul>
+      <li><b>Cashbook</b> is listed-but-unavailable. Adding it is one adapter entry (a column map plus
+        its required set) and enabling it in the source picker. No other module is source-aware.</li>
+      <li>The <b><code>Miscellaneous Expenses</code></b> expense type (<code>non_project = 1</code>) you
+        ruled for Diesel/Garbage bills <b>has not been created</b> — it is master data, to be added in
+        Desk.</li>
+      <li>There is <b>no manual match override</b>. A reviewer cannot point a row at a specific payment,
+        nor overturn a Reconciled verdict. The <code>Manual</code> match basis exists in the vocabulary
+        but is used only for settlement.</li>
+    </ul>
+  </div>
+
+  <hr class="soft">
+
+  <h3>Obligations and risks before this goes anywhere</h3>
+  <ol>
+    <li><b>Migrate obligation.</b> 3 new doctypes, 2 modified (<code>track_changes</code>), 3 close
+      fields — <em>on top of</em> what teammates already owe (4 new + 7 modified doctypes, 2
+      <code>[MIGRATE]</code> commits). Production is several migrates behind. One combined heads-up is
+      owed.</li>
+    <li><b>No browser certification.</b> Every surface is typecheck- and test-verified; none has been
+      driven in a real browser. 195 backend tests + 19 vitest, all green.</li>
+    <li><b>The dev DB is ~9 days stale</b> (data ends 2026-07-28) and a refresh was deferred until after
+      implementation. That point is now — until then the happy path has only been exercised against
+      fixtures and a small real pool.</li>
+    <li><b>Fixtures are synthetic on purpose — the repo is public.</b> Real statements carry live
+      beneficiary names, bank accounts and IFSC codes. The sample reproduces the <em>structure</em>
+      (failed transfer + retry, in-file duplicate, leading-zero account, padded reference, 201-char
+      remark, blank transfer id, unreadable date). <b>Do not commit a real export.</b></li>
+    <li><b>Never run the bench suite and a browser session against localhost together</b> — they collide
+      on the <code>tabSeries</code> naming lock.</li>
+    <li><b>Nothing is committed.</b> All of this is uncommitted on <code>develop</code>.</li>
+  </ol>
+
+  <h3>Pre-existing defects surfaced, not repaired</h3>
+  <p>Owner ruling: <b>report, never repair</b>. These live in the payment ledger and are outside this feature's scope.</p>
+  <ul>
+    <li><b>226</b> Paid payments carry a whitespace-padded <code>utr</code>.</li>
+    <li><b>932 of 7,420 (12.6%)</b> carry a <code>utr</code> that is not a bank reference at all — PO/SR
+      numbers, short numbers, the literal string <code>refund</code>.</li>
+    <li><code>_delete_payment</code> has <b>no status guard</b> and will delete a <code>Paid</code>
+      payment through the live endpoint. The legacy commented-out version had one.</li>
+    <li><code>EditFulfilledPaymentDialog</code> writes <code>utr</code> via a raw
+      <code>updateDoc</code> with no strip and no dedup.</li>
+    <li><code>utr</code> has no index and no unique constraint; 65 genuine bank references are shared
+      across 99 payments (legitimate fan-out), and the existing duplicate guard returns one arbitrary
+      match — so it can neither detect nor report them.</li>
+  </ul>
+</section>
+
+<p class="footnote" style="margin-top:56px;border-top:1px solid var(--border);padding-top:18px">
+  Compiled 2026-08-06 by reading the as-built source under
+  <code>nirmaan_stack/services/outflow_import/</code>, <code>nirmaan_stack/api/outflow_import/</code> and
+  <code>frontend/src/pages/outflow-import/</code>, cross-checked against
+  <code>docs/outflow-import/HANDOFF.md</code> and
+  <code>frontend/.claude/plans/outflow-import-plan.md</code>. Where the plan and the code disagreed, the
+  code is what is described here, and the divergence is called out.
+</p>
+
+</main>
+</div>
+
+<script>
+(function () {
+  var root = document.getElementById('v3tabs');
+  if (!root) return;
+  root.addEventListener('click', function (e) {
+    var btn = e.target.closest('.tab-btn');
+    if (!btn || !root.contains(btn)) return;
+    root.querySelectorAll('.tab-btn').forEach(function (b) {
+      var on = b === btn;
+      b.classList.toggle('is-on', on);
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    root.querySelectorAll('.tabpane').forEach(function (p) {
+      p.classList.toggle('is-on', p.id === btn.dataset.pane);
+    });
+  });
+})();
+</script>
+
+</body>
+</html>
