@@ -626,30 +626,72 @@ export function runPipeline(
         return bail(`module count ${fmtNum(occupied)} is not a positive count -- no value computed`);
       }
 
-      // (b) resolve each ladder from the SAME count ----------------------------------------------
+      // (b) resolve each ladder ------------------------------------------------------------------
+      // SLICE 2 part 2: a ladder may take a stated attribute as a FLOOR -- TAKE-THE-LARGER. The
+      // count fitted is max(stated, computed): a stated plate too small for its contents is
+      // UPGRADED (never refused), and a stated plate bigger than needed is what gets bought. The
+      // resolved count is RE-FIT on THIS ladder; it is never copied across as a label.
       const fittedByBind: Record<string, number> = {};
+      const absentLadders = new Set<string>();
       const ladderParts: string[] = [];
       for (const L of p?.ladders ?? []) {
+        let fitCount = occupied;
+        let floorNote = "";
+        if (L.floor_from) {
+          const statedRaw = selected[L.floor_from];
+          if (statedRaw === NONE_SENTINEL) {
+            if ((L.on_none ?? "none") !== "computed") {
+              // POSITIVELY ABSENT: bind nothing. The component's own none_skips zeroes its line,
+              // and a `blanks` block keyed here is absent too -- positive absence propagates.
+              absentLadders.add(L.bind);
+              ladderParts.push(`${L.bind} None`);
+              continue;
+            }
+            // on_none "computed": a back box can exist with no face plate -> the computed count.
+          } else if (statedRaw !== undefined && statedRaw !== null && statedRaw !== "") {
+            const statedSizes = moduleSizesFromLabel(String(statedRaw));
+            if (!statedSizes.length) {
+              return bail(`stated '${L.floor_from}' ("${String(statedRaw)}") carries no module size -- no value computed`);
+            }
+            // A stated rung's CAPACITY is the largest size it offers ("1M & 2M" holds 2).
+            const statedCap = statedSizes[statedSizes.length - 1];
+            if (statedCap < occupied) {
+              // THE UPGRADE. It must never be silent: the BoQ said one size and we price another.
+              fitCount = occupied;
+              floorNote = ` (stated ${String(statedRaw)} holds ${fmtNum(statedCap)}, contents occupy ${fmtNum(occupied)} -- UPGRADED)`;
+            } else {
+              // The stated plate is a FLOOR, never a ceiling: a bigger plate than needed is bought.
+              fitCount = statedSizes.find((n) => n >= occupied) ?? statedCap;
+              floorNote = ` (stated ${String(statedRaw)})`;
+            }
+          }
+        }
         const rungs = buildModuleLadder(items, L);
         if (!rungs.length) {
           return bail(`ladder '${L.bind}' (${L.kind}) has no catalog rows -- no value computed`);
         }
-        const fit = fitModuleLadder(rungs, occupied);
+        const fit = fitModuleLadder(rungs, fitCount);
         if (!fit) {
           const top = rungs[rungs.length - 1];
           return bail(
-            `${fmtNum(occupied)} modules exceeds the largest '${L.bind}' the catalog carries (${top.label}) -- no value computed`
+            `${fmtNum(fitCount)} modules exceeds the largest '${L.bind}' the catalog carries (${top.label}) -- no value computed`
           );
         }
         fitLabels[L.bind] = fit.label;
         fittedByBind[L.bind] = fit.modules;
         if (L.bind_modules) ctx[L.bind_modules] = fit.modules;
-        ladderParts.push(`${L.bind} ${fit.label}${fit.exact ? "" : " (next higher)"}`);
+        ladderParts.push(`${L.bind} ${fit.label}${floorNote}${fit.exact ? "" : " (next higher)"}`);
       }
 
       // (c) the blank (filler) count --------------------------------------------------------------
       let blankPart = "";
-      if (p?.blanks) {
+      if (p?.blanks && absentLadders.has(p.blanks.from_ladder)) {
+        // SLICE 2 part 2: the ladder the blanks are counted against is POSITIVELY ABSENT (a None
+        // plate). Blanks fill a plate, so with no plate there are none -- that is an absence, not a
+        // failure, and it must NOT refuse the row (a lone socket with no plate still prices).
+        // Nothing binds, so a blank component reading {from_fit} relies on its own none_skips.
+        blankPart = `; no ${p.blanks.from_ladder} -> no blanks`;
+      } else if (p?.blanks) {
         const b = p.blanks;
         let base = fittedByBind[b.from_ladder];
         let baseWhat = b.from_ladder;
@@ -672,17 +714,19 @@ export function runPipeline(
         if (typeof base !== "number" || !Number.isFinite(base)) {
           return bail(`blank count needs ladder '${b.from_ladder}', which did not resolve -- no value computed`);
         }
-        const blanks = base - occupied;
-        if (blanks < 0) {
-          // A plate SMALLER than its contents is a contradiction in the source data. Clamping to
-          // zero would price a physically impossible row and hide the contradiction; a negative
-          // quantity must never reach a price. Refuse, and say why.
-          return bail(
-            `${baseWhat} holds ${fmtNum(base)} modules but the contents occupy ${fmtNum(occupied)} -- no value computed`
-          );
-        }
+        // Blanks derive from the plate ACTUALLY SELECTED, which under take-the-larger always holds
+        // the contents -- so on the primary path this can never go negative (pinned by an
+        // exhaustive sweep). The check REMAINS as a backstop for any path that reaches it with a
+        // smaller base (e.g. a `blanks.stated_attr` config, which does not floor its ladder), and
+        // its action is the owner's CLAMP TO ZERO, never a refusal: a BoQ typo must not kill a row.
+        // The clamp is NOT silent -- the trace says the plate was over-full.
+        const rawBlanks = base - occupied;
+        const blanks = rawBlanks < 0 ? 0 : rawBlanks;
         ctx[b.bind] = blanks;
-        blankPart = `; ${fmtNum(blanks)} blank${blanks === 1 ? "" : "s"} (${baseWhat} ${fmtNum(base)} - ${fmtNum(occupied)})`;
+        blankPart =
+          rawBlanks < 0
+            ? `; 0 blanks (${baseWhat} holds ${fmtNum(base)}, contents occupy ${fmtNum(occupied)} -- over-full, clamped)`
+            : `; ${fmtNum(blanks)} blank${blanks === 1 ? "" : "s"} (${baseWhat} ${fmtNum(base)} - ${fmtNum(occupied)})`;
       }
 
       steps.push({

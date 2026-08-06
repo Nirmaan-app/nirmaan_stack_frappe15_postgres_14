@@ -1322,6 +1322,20 @@ def _validate_config(cfg):
                     for key in ("label_attr", "bind_modules"):
                         if lad.get(key) is not None and (not isinstance(lad.get(key), str) or not lad.get(key)):
                             _vthrow(f"{where}: module_fit ladders[{li}].{key}, when present, must be a non-empty string.")
+                    # SLICE 2 part 2: floor_from names an ATTRIBUTE (the stated value this ladder
+                    # fills the silence around), so it is REFERENCE-GUARDED like every other
+                    # attribute id -- a typo would silently read as "nothing stated" and let the
+                    # computed size override a stated plate, which is the one thing the rule forbids.
+                    ff = lad.get("floor_from")
+                    if ff is not None:
+                        if not isinstance(ff, str) or not ff:
+                            _vthrow(f"{where}: module_fit ladders[{li}].floor_from must be an attribute id.")
+                        _ref(ff, f"{where} (ladders[{li}].floor_from)")
+                    on_none = lad.get("on_none")
+                    if on_none is not None and on_none not in ("computed", "none"):
+                        _vthrow(
+                            f"{where}: module_fit ladders[{li}].on_none must be 'computed' or 'none'."
+                        )
                 blanks = p.get("blanks")
                 if blanks is not None:
                     if not isinstance(blanks, dict):

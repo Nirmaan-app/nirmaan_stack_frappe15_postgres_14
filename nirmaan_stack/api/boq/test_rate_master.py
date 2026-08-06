@@ -1453,3 +1453,59 @@ class TestRateMaster(FrappeTestCase):
         for lad in cfg["pipelines"]["p"]["steps"][0]["params"]["ladders"]:
             self.assertNotIn("sizes", lad)
             self.assertEqual(set(lad) - {"kind", "where", "bind", "bind_modules", "label_attr"}, set())
+
+    # ---- SLICE 2 part 2 / CP0: floor_from + on_none validation ----
+    #
+    # `floor_from` names an ATTRIBUTE, so it is reference-guarded like every other attribute id. That
+    # guard is load-bearing here beyond the usual reason: a typo'd floor_from reads as "nothing
+    # stated", which lets the COMPUTED size override a STATED plate -- the one thing the owner's
+    # rule forbids. A silent typo would invert the rule rather than merely blank a row.
+
+    def test_51_module_fit_floor_from_and_on_none_are_accepted(self):
+        """POSITIVE. The real slice-2-part-2 shape: a plate ladder that defers to the stated plate
+        and stays absent on None, plus a box ladder that defers to the same attribute but falls back
+        to the computed count (a back box can exist with no face plate)."""
+        cfg = self._module_fit_config({
+            "terms": self._MF_TERMS,
+            "ladders": [
+                {"kind": "switch_socket_item", "where": {"family": "Grid and Face Plates"},
+                 "bind": "plate_item", "floor_from": "plate_item", "on_none": "none"},
+                {"kind": "switch_socket_item", "where": {"family": "Back Box"},
+                 "bind": "box_item", "floor_from": "plate_item", "on_none": "computed"},
+            ],
+            "blanks": {"bind": "blank_count", "from_ladder": "plate_item"},
+        })
+        rate_master._validate_config(cfg)  # must not raise
+
+    def test_52_module_fit_floor_from_is_reference_guarded(self):
+        """NEGATIVE. An UNDEFINED floor_from attribute must be rejected -- unguarded, a typo would
+        silently read as 'nothing stated' and let a computed size override a stated plate."""
+        cfg = self._module_fit_config({
+            "terms": self._MF_TERMS,
+            "ladders": [{"kind": "switch_socket_item", "bind": "plate_item", "floor_from": "plate_itemm"}],
+        })
+        with self.assertRaises(frappe.ValidationError) as cm:
+            rate_master._validate_config(cfg)
+        self.assertIn("plate_itemm", str(cm.exception))
+
+    def test_53_module_fit_floor_from_and_on_none_negatives(self):
+        """NEGATIVE, both keys: a blank/non-string floor_from, and an on_none outside its two values."""
+        for lad in (
+            {"kind": "switch_socket_item", "bind": "b", "floor_from": ""},
+            {"kind": "switch_socket_item", "bind": "b", "floor_from": 7},
+            {"kind": "switch_socket_item", "bind": "b", "floor_from": "plate_item", "on_none": "maybe"},
+            {"kind": "switch_socket_item", "bind": "b", "floor_from": "plate_item", "on_none": True},
+        ):
+            with self.assertRaises(frappe.ValidationError):
+                rate_master._validate_config(
+                    self._module_fit_config({"terms": self._MF_TERMS, "ladders": [lad]})
+                )
+
+    def test_54_module_fit_floor_from_and_on_none_are_optional(self):
+        """BACKWARDS-COMPAT. The slice-2-part-1 shape, carrying NEITHER key, must keep validating --
+        absent means the computed count always, byte-identical to part 1."""
+        cfg = self._module_fit_config({"terms": self._MF_TERMS, "ladders": self._MF_LADDERS})
+        rate_master._validate_config(cfg)  # must not raise
+        for lad in cfg["pipelines"]["p"]["steps"][0]["params"]["ladders"]:
+            self.assertNotIn("floor_from", lad)
+            self.assertNotIn("on_none", lad)

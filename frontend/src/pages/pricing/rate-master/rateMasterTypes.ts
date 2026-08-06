@@ -230,6 +230,32 @@ export interface ModuleLadderSpec {
   /** Optional: the key the fitted rung's MODULE NUMBER (a number) binds to, readable by a
    * component_ref qty {from_fit}. */
   bind_modules?: string;
+  // SLICE 2 part 2 -- TAKE-THE-LARGER (owner-locked). Names the attribute whose stated module count
+  // acts as a FLOOR on this ladder's fit. The count fitted is `max(stated, computed)`:
+  //   computed >  stated -> the COMPUTED count. A stated plate too small for its contents is
+  //     UPGRADED, never refused -- and the trace says so explicitly (see below).
+  //   computed <= stated -> the STATED count. A bigger plate than needed was asked for, and that is
+  //     what gets bought. THE STATED PLATE IS A FLOOR, NEVER A CEILING.
+  //   blank / absent     -> the COMPUTED count alone.
+  //   the "None" sentinel -> per `on_none`.
+  // The resolved count is then RE-FIT on THIS ladder. On the plate ladder that is usually the
+  // identity; on the SHORTER back-box ladder it is the hop (a selected 9M plate -> count 9 -> a 12M
+  // box). **NEVER copy the label across ladders** -- the box carries no 9M and no 16M, so copying
+  // makes such a row unpriceable, which was a LIVE defect before this slice.
+  //
+  // ⚠️ AN UPGRADE IS ALWAYS VISIBLE. A stated 6M silently becoming 8M would mean the BoQ said one
+  // thing and we priced another; that is the right call but it must never be silent, so the step's
+  // trace names the stated size, its capacity, the contents, and the word UPGRADED.
+  //
+  // ABSENT => the computed count always, byte-identical to slice 2 part 1.
+  // (Named `floor_from` and not `defer_to`: the stated value is a floor, not a veto.)
+  floor_from?: string;
+  /** What a `floor_from` of "None" means for THIS ladder. "none" (the default, and part 1's
+   * behaviour) = this ladder is POSITIVELY ABSENT: it binds nothing, and a `blanks` block keyed to
+   * it is absent too rather than failing (positive absence propagates). "computed" = fall back to
+   * the computed count -- the back box's rule, since a back box can exist with no face plate.
+   * UNAFFECTED by the take-the-larger ruling. */
+  on_none?: "computed" | "none";
 }
 
 // SLICE 2: compute a module count, then resolve it against catalog ladders.

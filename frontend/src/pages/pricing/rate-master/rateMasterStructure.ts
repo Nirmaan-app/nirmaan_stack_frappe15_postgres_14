@@ -168,6 +168,7 @@ export function referencedAttrIds(config: RateCategoryConfig): Set<string> {
         band_on?: string;
         params?: {
           terms?: { attr?: string; none_when?: string }[];
+          ladders?: { floor_from?: string }[];
           blanks?: { stated_attr?: string };
         };
       };
@@ -186,6 +187,10 @@ export function referencedAttrIds(config: RateCategoryConfig): Set<string> {
         }
         const sa = s.params?.blanks?.stated_attr;
         if (typeof sa === "string" && sa) out.add(sa);
+        // SLICE 2 part 2: a ladder's floor_from names an attribute too.
+        for (const L of s.params?.ladders ?? []) {
+          if (typeof L?.floor_from === "string" && L.floor_from) out.add(L.floor_from);
+        }
       }
     }
   }

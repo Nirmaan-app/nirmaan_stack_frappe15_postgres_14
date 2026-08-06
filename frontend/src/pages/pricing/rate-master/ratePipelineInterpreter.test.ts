@@ -1553,17 +1553,18 @@ describe("SLICE 2 module_fit -- the blanker count (T10) and its negative guard (
     }
   });
 
-  it("T9 NEGATIVE: a STATED plate smaller than its contents -> HONEST NO-COMPUTE, not a clamped zero", () => {
-    // ss1's REAL shape: it states plate 6M but carries 3 sockets + 1 switch = 7 modules. A 6M plate
-    // cannot hold 7 modules -- a contradiction in the source data. Clamping the blanks to zero would
-    // price a physically impossible row and hide it; a negative quantity never reaches a price.
+  it("T9 (REVISED by the take-the-larger ruling): a negative blank count CLAMPS TO ZERO, never refuses", () => {
+    // ⚠️ PIN UPDATED IN THIS SLICE. Part 1 refused here, which was correct under stated-wins: a 6M
+    // plate carrying 7 modules was a contradiction. Take-the-larger UPGRADES such a plate instead,
+    // so on the PRIMARY path (a ladder with floor_from) this is structurally unreachable -- see the
+    // sweep above and the dedicated pin below. This path has NO floor_from, so it still reaches the
+    // subtraction, and the owner's ruling is CLAMP TO ZERO: a BoQ typo must not kill a row.
     const withStated: Pipeline = { output: ["blank_count"], steps: [modFit({ blanks: { bind: "blank_count", from_ladder: "plate_size", stated_attr: "plate_item" } })] };
     const r = runPipeline("m", withStated, LADDER_ITEMS, mfSel(1, 2, 1, { plate_item: "6M" }));
-    expect(r.status).toBe("no_match");
-    expect(r.finals).toEqual({});
-    expect(r.steps[r.steps.length - 1].label).toBe(
-      "stated 6M holds 6 modules but the contents occupy 7 -- no value computed",
-    );
+    expect(r.status).toBe("ok");
+    expect(r.finals).toEqual({ blank_count: 0 });
+    // THE CLAMP IS NOT SILENT -- the trace says the plate was over-full
+    expect(fitTrace(r)).toContain("over-full, clamped");
   });
 
   it("T9 POSITIVE control: the SAME row with a stated 8M computes 1 blank", () => {
@@ -1652,5 +1653,359 @@ describe("SLICE 2 module_fit -- T11: the sp1 disagreement (recorded, not acted o
     expect(formulaModules).toBe(8);
     expect(moduleSizesFromLabel(SP1.plate_item)).toEqual([6]);
     expect(moduleSizesFromLabel(SP1.plate_item)).not.toContain(formulaModules); // the disagreement
+  });
+});
+
+// ---- SLICE 2 part 2 / CP0: floor_from + on_none -- TAKE-THE-LARGER (stated is a FLOOR) ----
+//
+// Part 1 shipped the binding resolution as `fitLabels` BEFORE the selection, so a stated plate was
+// simply ignored. `floor_from` is what makes the stated value count, per ladder. BOTH keys are
+// OPTIONAL: absent means the computed count always, byte-identical to part 1 (pinned below).
+//
+// THE RULE IS TAKE-THE-LARGER: the count fitted is max(stated, computed). A stated plate too small
+// for its contents is UPGRADED, never refused (and the upgrade is VISIBLE in the trace); a stated
+// plate bigger than needed is what gets bought. The stated plate is a FLOOR, never a ceiling.
+//
+// The resolved COUNT is RE-FIT on each ladder -- it is NEVER copied across as a label. On the plate
+// ladder that is usually the identity; on the SHORTER back-box ladder it is the hop. Copying the
+// label is what made a stated 9M or 16M plate unpriceable, a LIVE defect before this slice.
+const floorFit = (over: Record<string, unknown> = {}) => ({
+  step: "module_fit" as const,
+  params: {
+    terms: SS_TERMS,
+    ladders: [
+      { kind: "switch_socket_item", where: { family: "Grid and Face Plates" }, bind: "plate_item", floor_from: "plate_item", on_none: "none" },
+      { kind: "switch_socket_item", where: { family: "Back Box" }, bind: "box_item", floor_from: "plate_item", on_none: "computed" },
+    ],
+    blanks: { bind: "blank_count", from_ladder: "plate_item" },
+    ...over,
+  },
+});
+const FLOOR: Pipeline = { output: [], steps: [floorFit()] };
+
+describe("SLICE 2 part 2 -- floor_from: TAKE-THE-LARGER (the stated plate is a FLOOR, never a ceiling)", () => {
+  it("SILENCE: no stated plate -> the COMPUTED size fills it (7 -> 8M plate, 8M box)", () => {
+    const r = runPipeline("m", FLOOR, LADDER_ITEMS, mfSel(2, 0, 3));
+    expect(r.status).toBe("ok");
+    expect(fitTrace(r)).toContain("= 7 modules");
+    expect(fitTrace(r)).toContain("plate_item 8M (next higher)");
+    expect(fitTrace(r)).toContain("box_item 8M (next higher)");
+  });
+
+  it("STATED LARGER (the V3b shape): a stated 12M on the SAME selection prices 12M, NOT the computed 8M", () => {
+    const r = runPipeline("m", { output: ["blank_count"], steps: [floorFit()] }, LADDER_ITEMS, mfSel(2, 0, 3, { plate_item: "12M" }));
+    expect(r.status).toBe("ok");
+    expect(fitTrace(r)).toContain("= 7 modules");          // the count is still computed + shown
+    expect(fitTrace(r)).toContain("plate_item 12M (stated 12M)");
+    expect(fitTrace(r)).not.toContain("plate_item 8M");    // the computed size does NOT override
+    expect(r.finals).toEqual({ blank_count: 5 });          // 12 - 7, from the plate ACTUALLY selected
+  });
+
+  it("UPGRADE (the V3 shape): a stated 6M too small for 7 modules is UPGRADED to 8M, never refused", () => {
+    // Under the superseded stated-wins rule this row REFUSED outright -- a BoQ typo killed it.
+    const r = runPipeline("m", { output: ["blank_count"], steps: [floorFit()] }, LADDER_ITEMS, mfSel(2, 0, 3, { plate_item: "6M" }));
+    expect(r.status).toBe("ok");
+    expect(fitTrace(r)).toContain("plate_item 8M");
+    expect(fitTrace(r)).not.toContain("plate_item 6M");
+    expect(r.finals).toEqual({ blank_count: 1 });          // 8 - 7, from the SELECTED plate
+  });
+
+  it("THE UPGRADE IS NEVER SILENT: the trace names the stated size, its capacity and the contents", () => {
+    // The BoQ said 6M and we price 8M. That is the right call, and it must be impossible to miss.
+    const r = runPipeline("m", FLOOR, LADDER_ITEMS, mfSel(2, 0, 3, { plate_item: "6M" }));
+    expect(fitTrace(r)).toContain("plate_item 8M (stated 6M holds 6, contents occupy 7 -- UPGRADED)");
+    // the BOX follows the plate ACTUALLY selected, and says so too
+    expect(fitTrace(r)).toContain("box_item 8M (stated 6M holds 6, contents occupy 7 -- UPGRADED)");
+  });
+
+  it("a stated plate EQUAL to the contents is NOT an upgrade (the boundary, max(n,n) = n)", () => {
+    const r = runPipeline("m", { output: ["blank_count"], steps: [floorFit()] }, LADDER_ITEMS, mfSel(3, 0, 2, { plate_item: "8M" }));
+    expect(fitTrace(r)).toContain("= 8 modules");
+    expect(fitTrace(r)).toContain("plate_item 8M (stated 8M)");
+    expect(fitTrace(r)).not.toContain("UPGRADED");
+    expect(r.finals).toEqual({ blank_count: 0 });
+  });
+
+  it("THE 9M/16M FIX: a stated plate hands the BOX its module COUNT, re-fit on the SHORTER box ladder", () => {
+    // Copying the label asks for a 9M/16M back box, and neither exists -> the row could not price
+    // at all. Re-fitting the COUNT gives 9 -> 12M and 16 -> 18M.
+    const r9 = runPipeline("m", FLOOR, LADDER_ITEMS, mfSel(3, 0, 3, { plate_item: "9M" }));
+    expect(r9.status).toBe("ok");
+    expect(fitTrace(r9)).toContain("plate_item 9M (stated 9M)");
+    expect(fitTrace(r9)).toContain("box_item 12M (stated 9M) (next higher)");
+
+    const r16 = runPipeline("m", FLOOR, LADDER_ITEMS, mfSel(8, 0, 0, { plate_item: "16M" }));
+    expect(r16.status).toBe("ok");
+    expect(fitTrace(r16)).toContain("plate_item 16M (stated 16M)");
+    expect(fitTrace(r16)).toContain("box_item 18M (stated 16M) (next higher)");
+  });
+
+  it("THE 9M/16M FIX prices end-to-end: a 9M plate + a 12M box both resolve to REAL catalog rows", () => {
+    const priced: Pipeline = {
+      output: ["supply"],
+      steps: [
+        floorFit(),
+        { step: "component_ref", name: "plate", ref: { kind: "switch_socket_item", family: "Grid and Face Plates", item: "@plate_item", colour: "@colour" }, target: "list_price", rate_stages: [{ mult: 1 }], qty: 1, none_skips: true },
+        { step: "component_ref", name: "back_box", ref: { kind: "switch_socket_item", family: "Back Box", item: "@box_item", colour: "NA" }, target: "list_price", rate_stages: [{ mult: 1 }], qty: 1, none_skips: true },
+        { step: "sum_components", result: "supply" },
+      ],
+    };
+    // real catalog list prices: plate 9M White 443, back box 12M 412
+    const items = [
+      ...LADDER_ITEMS.filter(
+        (i) => !(i.attributes.family === "Grid and Face Plates" && i.attributes.item === "9M")
+            && !(i.attributes.family === "Back Box" && i.attributes.item === "12M"),
+      ),
+      ssItem("Grid and Face Plates", "9M", "White", 443), ssItem("Back Box", "12M", "NA", 412),
+    ];
+    const r = runPipeline("p", priced, items, mfSel(3, 0, 3, { plate_item: "9M" }));
+    expect(r.status).toBe("ok");
+    expect(r.finals).toEqual({ supply: 855 }); // 443 + 412
+  });
+
+  it("NEGATIVE (the bug being fixed): binding the box to the PLATE'S LABEL cannot price a 9M row", () => {
+    // This is the shape that is live TODAY -- the back box ref binds @plate_item verbatim.
+    const legacy: Pipeline = {
+      output: ["supply"],
+      steps: [
+        { step: "component_ref", name: "back_box", ref: { kind: "switch_socket_item", family: "Back Box", item: "@plate_item", colour: "NA" }, target: "list_price", rate_stages: [{ mult: 1 }], qty: 1, none_skips: true },
+        { step: "sum_components", result: "supply" },
+      ],
+    };
+    for (const plate of ["9M", "16M"]) {
+      const r = runPipeline("p", legacy, LADDER_ITEMS, mfSel(3, 0, 3, { plate_item: plate }));
+      expect(r.status, `${plate} should not resolve a back box`).toBe("no_match");
+    }
+  });
+});
+
+describe("SLICE 2 part 2 -- on_none: a None plate keeps the PLATE absent, the BOX computed", () => {
+  it("plate None -> the plate ladder is POSITIVELY ABSENT; the box takes the COMPUTED count", () => {
+    const r = runPipeline("m", FLOOR, LADDER_ITEMS, mfSel(2, 0, 3, { plate_item: "None" }));
+    expect(r.status).toBe("ok");
+    expect(fitTrace(r)).toContain("plate_item None");
+    expect(fitTrace(r)).toContain("box_item 8M (next higher)"); // computed, no defer note
+  });
+
+  it("a None plate does NOT refuse the row -- blanks are absent, not a failure (the s1 shape)", () => {
+    // s1 is a lone socket with plate None. Blanks fill a plate; with no plate there are none. That
+    // is an ABSENCE, not a contradiction, so the row must still price.
+    const r = runPipeline("m", { output: [], steps: [floorFit()] }, LADDER_ITEMS, mfSel(1, 0, 0, { plate_item: "None" }));
+    expect(r.status).toBe("ok");
+    expect(fitTrace(r)).toContain("no plate_item -> no blanks");
+  });
+
+  it("on_none defaults to 'none' -- an omitted on_none keeps the ladder positively absent", () => {
+    const noKey: Pipeline = { output: [], steps: [{
+      step: "module_fit",
+      params: {
+        terms: SS_TERMS,
+        ladders: [{ kind: "switch_socket_item", where: { family: "Grid and Face Plates" }, bind: "plate_item", floor_from: "plate_item" }],
+      },
+    }] };
+    const r = runPipeline("m", noKey, LADDER_ITEMS, mfSel(1, 0, 1, { plate_item: "None" }));
+    expect(r.status).toBe("ok");
+    expect(fitTrace(r)).toContain("plate_item None");
+  });
+
+  it("the box's on_none 'computed' is what lets a back box exist with NO face plate", () => {
+    const priced: Pipeline = {
+      output: ["supply"],
+      steps: [
+        floorFit(),
+        { step: "component_ref", name: "plate", ref: { kind: "switch_socket_item", family: "Grid and Face Plates", item: "@plate_item", colour: "@colour" }, target: "list_price", rate_stages: [{ mult: 1 }], qty: 1, none_skips: true },
+        { step: "component_ref", name: "back_box", ref: { kind: "switch_socket_item", family: "Back Box", item: "@box_item", colour: "NA" }, target: "list_price", rate_stages: [{ mult: 1 }], qty: 1, none_skips: true },
+        { step: "sum_components", result: "supply" },
+      ],
+    };
+    const items = [
+      ...LADDER_ITEMS.filter((i) => !(i.attributes.family === "Back Box" && i.attributes.item === "3M")),
+      ssItem("Back Box", "3M", "NA", 158), // real catalog list price
+    ];
+    const r = runPipeline("p", priced, items, mfSel(1, 0, 1, { plate_item: "None" }));
+    expect(r.status).toBe("ok");
+    // the plate line is a positive ZERO (None), the box prices at the computed 3M
+    expect(r.steps.find((s) => s.produced?.key === "plate")?.produced?.value).toBe(0);
+    expect(r.steps.find((s) => s.produced?.key === "back_box")?.produced?.value).toBe(158);
+    expect(r.finals).toEqual({ supply: 158 });
+  });
+});
+
+describe("SLICE 2 part 2 -- floor_from / on_none are OPTIONAL (absent == part 1, byte-identical)", () => {
+  it("a ladder with NO floor_from still uses the computed count even when a plate IS stated", () => {
+    // MF is the part-1 fixture: same ladders, no floor_from. A stated 12M must be IGNORED by it.
+    const r = runPipeline("m", MF, LADDER_ITEMS, mfSel(2, 0, 3, { plate_item: "12M" }));
+    expect(fitTrace(r)).toContain("plate_size 8M (next higher)");
+    expect(fitTrace(r)).not.toContain("stated");
+  });
+
+  it("the part-1 trace is byte-identical when neither key is present", () => {
+    const r = runPipeline("m", MF, LADDER_ITEMS, mfSel(2, 0, 3));
+    expect(fitTrace(r)).toBe(
+      "2 x socket1_qty(2) + 2 x socket2_qty(None) + 1 x switch_qty(3) = 7 modules -> " +
+        "plate_size 8M (next higher), box_size 8M (next higher); 1 blank (plate_size 8 - 7)",
+    );
+  });
+
+  it("NEGATIVE: a stated value carrying no module size is an honest no-compute", () => {
+    const r = runPipeline("m", FLOOR, LADDER_ITEMS, mfSel(1, 0, 1, { plate_item: "Frame Plate" }));
+    expect(r.status).toBe("no_match");
+    expect(r.steps[r.steps.length - 1].label).toContain("carries no module size");
+  });
+});
+
+
+// ---- SLICE 2 part 2 / CP2: the WIRED switches_sockets pipeline + the re-minted ss1 golden ----
+//
+// Mirrors the v23 config shape: module_fit first, then the six component lines, with the blank
+// component's qty taken from the COMPUTED blank count and the back box binding @box_item.
+const SS_MODULE_FIT = {
+  step: "module_fit" as const,
+  params: {
+    terms: [
+      { attr: "socket1_qty", weight: 2, none_when: "socket1_item" },
+      { attr: "socket2_qty", weight: 2, none_when: "socket2_item" },
+      { attr: "switch_qty", weight: 1, none_when: "switch_item" },
+    ],
+    ladders: [
+      { kind: "switch_socket_item", where: { family: "Grid and Face Plates" }, bind: "plate_item", floor_from: "plate_item", on_none: "none" },
+      { kind: "switch_socket_item", where: { family: "Back Box" }, bind: "box_item", floor_from: "plate_item", on_none: "computed" },
+    ],
+    blanks: { bind: "blank_count", from_ladder: "plate_item" },
+  },
+};
+const ss2Ref = (name: string, family: string, itemAttr: string, colour: string, qty: unknown) => ({
+  step: "component_ref" as const, name,
+  ref: { kind: "switch_socket_item", family, item: itemAttr, colour },
+  target: "list_price", rate_stages: [{ mult: 1 }], qty, none_skips: true,
+});
+const SS2_LINES = [
+  SS_MODULE_FIT,
+  ss2Ref("switch", "Switch", "@switch_item", "@colour", { from_attr: "switch_qty" }),
+  ss2Ref("socket1", "Socket", "@socket1_item", "@colour", { from_attr: "socket1_qty" }),
+  ss2Ref("socket2", "Socket", "@socket2_item", "@colour", { from_attr: "socket2_qty" }),
+  ss2Ref("blank", "Switch", "@blank_item", "@colour", { from_fit: "blank_count" }),
+  ss2Ref("plate", "Grid and Face Plates", "@plate_item", "@colour", { from_attr: "plate_qty" }),
+  ss2Ref("back_box", "Back Box", "@box_item", "NA", { if_attr: { back_box: "Yes" }, then: 1, else: 0 }),
+];
+const SS2_BOQ: Pipeline = { output: ["supply", "install"], steps: [...SS2_LINES,
+  { step: "sum_components", result: "supply" },
+  { step: "scale", target: "supply", result: "supply", params: { m: 0.3625 }, formula: "base*m" },
+  { step: "roundup", target: "supply", params: { digits: -1 } },
+  { step: "scale", target: "supply", result: "install", params: { m: 0.2 }, formula: "base*m" },
+  { step: "roundup", target: "install", params: { digits: -1 } },
+] };
+const SS2_BCS: Pipeline = { output: ["bcs_supply"], steps: [...SS2_LINES,
+  { step: "sum_components", result: "bcs_supply" },
+  { step: "scale", target: "bcs_supply", result: "bcs_supply", params: { m: 0.25 }, formula: "base*m" },
+  { step: "roundup", target: "bcs_supply", params: { digits: -1 } },
+] };
+// REAL catalog list prices (live master, 2026-08-06) + the full ladders so module_fit can resolve
+const SS2_ITEMS: RateMasterItem[] = [
+  ssItem("Switch", "16A 1 WAY SWITCH", "White", 258), ssItem("Socket", "6A/16A 3-Pin Socket", "White", 425),
+  ssItem("Socket", "6A 3-Pin Socket", "White", 282), ssItem("Switch", "1M Blanker", "White", 61),
+  ...([["1M & 2M", 162], ["3M", 204], ["4M", 236], ["6M", 302], ["8M", 396], ["9M", 443], ["12M", 579], ["16M", 689], ["18M", 849]] as [string, number][])
+    .map(([it, pr]) => ssItem("Grid and Face Plates", it, "White", pr)),
+  ...([["1M & 2M", 119], ["3M", 158], ["4M", 182], ["6M", 247], ["8M", 320], ["12M", 412], ["18M", 488]] as [string, number][])
+    .map(([it, pr]) => ssItem("Back Box", it, "NA", pr)),
+];
+// the RE-MINTED ss1: an 8M plate, 7 modules occupied, 1 blank -- COHERENT
+const SS1_V23 = { switch_item: "16A 1 WAY SWITCH", switch_qty: 1, socket1_item: "6A/16A 3-Pin Socket", socket1_qty: 1,
+  socket2_item: "6A 3-Pin Socket", socket2_qty: 2, blank_item: "1M Blanker",
+  plate_item: "8M", plate_qty: 1, colour: "White", back_box: "Yes" };
+const S1_V23 = { switch_item: "None", switch_qty: 0, socket1_item: "6A 3-Pin Socket", socket1_qty: 1,
+  socket2_item: "None", socket2_qty: 0, blank_item: "None",
+  plate_item: "None", plate_qty: 0, colour: "White", back_box: "No" };
+
+describe("SLICE 2 part 2 / CP2 -- the re-minted ss1 golden (was INCOHERENT)", () => {
+  it("ss1 RE-MINTED -> supply 740 / install 150 / BCS 510, derived from catalog list prices", () => {
+    // The 1a golden stated 7 modules of content on a 6M plate (holds 6) with blank_qty 2 that fits
+    // at no plate size. It priced only because nothing checked module coherence.
+    // 258x1 + 425x1 + 282x2 + 61x1(computed blank) + 396(8M plate) + 320(8M box) = 2024 raw
+    // 2024 x0.3625 = 733.70 -> tens 740 ; 740 x0.2 = 148 -> tens 150 ; 2024 x0.25 = 506 -> tens 510
+    expect(runPipeline("swsock_boq", SS2_BOQ, SS2_ITEMS, SS1_V23).finals).toEqual({ supply: 740, install: 150 });
+    expect(runPipeline("swsock_bcs", SS2_BCS, SS2_ITEMS, SS1_V23).finals).toEqual({ bcs_supply: 510 });
+  });
+
+  it("ss1 is COHERENT: 7 occupied on an 8M plate leaves exactly 1 blank, and the blank COSTS 61", () => {
+    const r = runPipeline("swsock_boq", SS2_BOQ, SS2_ITEMS, SS1_V23);
+    expect(fitTrace(r)).toContain("= 7 modules");
+    expect(fitTrace(r)).toContain("plate_item 8M (stated 8M)");
+    expect(fitTrace(r)).toContain("box_item 8M (stated 8M)");
+    expect(fitTrace(r)).toContain("1 blank");
+    // C6: a REAL blanker at a NON-ZERO computed quantity, so the blank line is pinned, not merely correct
+    expect(r.steps.find((s) => s.produced?.key === "blank")?.produced?.value).toBe(61);
+  });
+
+  it("s1 is UNMOVED -> 110 / 30 / 80 (a lone socket, plate None, prices exactly as before)", () => {
+    // the None plate keeps the PLATE line at zero and leaves the blanks ABSENT -- not a refusal
+    expect(runPipeline("swsock_boq", SS2_BOQ, SS2_ITEMS, S1_V23).finals).toEqual({ supply: 110, install: 30 });
+    expect(runPipeline("swsock_bcs", SS2_BCS, SS2_ITEMS, S1_V23).finals).toEqual({ bcs_supply: 80 });
+    const r = runPipeline("swsock_boq", SS2_BOQ, SS2_ITEMS, S1_V23);
+    expect(fitTrace(r)).toContain("plate_item None");
+    expect(fitTrace(r)).toContain("no plate_item -> no blanks");
+  });
+
+  it("SILENCE IS FILLED: the same ss1 row with NO stated plate computes 8M and still prices 740", () => {
+    const silent = { ...SS1_V23, plate_item: "" };
+    const r = runPipeline("swsock_boq", SS2_BOQ, SS2_ITEMS, silent);
+    expect(r.status).toBe("ok");
+    expect(fitTrace(r)).toContain("plate_item 8M (next higher)");
+    expect(r.finals).toEqual({ supply: 740, install: 150 });   // 7 -> 8M is the same plate ss1 states
+  });
+
+  it("THE 9M/16M FIX end-to-end on the REAL pipeline: a stated 9M plate prices with a 12M box", () => {
+    // Before this slice the box bound @plate_item verbatim, so this row could not price AT ALL.
+    // 258 + 425 + 564 + 61x2(blanks 9-7) + 443(9M plate) + 412(12M box) = 2224 raw
+    // 2224 x0.3625 = 806.20 -> tens 810 ; 810 x0.2 = 162 -> tens 170
+    const r = runPipeline("swsock_boq", SS2_BOQ, SS2_ITEMS, { ...SS1_V23, plate_item: "9M" });
+    expect(r.status).toBe("ok");
+    expect(fitTrace(r)).toContain("box_item 12M (stated 9M) (next higher)");
+    expect(r.steps.find((s) => s.produced?.key === "back_box")?.produced?.value).toBe(412);
+    expect(r.finals).toEqual({ supply: 810, install: 170 });
+  });
+});
+
+describe("SLICE 2 part 2 -- take-the-larger: the blanks invariant, pinned BOTH ways", () => {
+  // The owner's instruction: pin that the PRIMARY path never goes negative, AND that the clamp
+  // works if something ever does reach the subtraction with a smaller base.
+  it("PRIMARY PATH: with floor_from set, blanks can NEVER go negative -- exhaustive over the ladder", () => {
+    const pl: Pipeline = { output: ["blank_count"], steps: [floorFit()] };
+    const plates = ["", "1M & 2M", "3M", "4M", "6M", "8M", "9M", "12M", "16M", "18M"];
+    let sawUpgrade = false;
+    for (const plate of plates) {
+      for (let sockets = 0; sockets <= 8; sockets++) {
+        for (let switches = 0; switches <= 2; switches++) {
+          if (sockets === 0 && switches === 0) continue; // 0 modules -> honest no-compute
+          const r = runPipeline("m", pl, LADDER_ITEMS, mfSel(sockets, 0, switches, { plate_item: plate }));
+          if (r.status !== "ok") continue;               // above the ladder top -> honest no-compute
+          expect(r.finals.blank_count, `plate=${plate} s=${sockets} w=${switches}`).toBeGreaterThanOrEqual(0);
+          const trace = fitTrace(r);
+          expect(trace).not.toContain("over-full, clamped");  // the clamp is never REACHED here
+          if (trace.includes("UPGRADED")) sawUpgrade = true;
+        }
+      }
+    }
+    expect(sawUpgrade).toBe(true);                       // the sweep really did exercise upgrades
+  });
+
+  it("THE CLAMP: a base smaller than the contents yields 0 blanks, visibly, and still prices", () => {
+    // reached only off the primary path (a blanks.stated_attr config, which floors no ladder)
+    const pl: Pipeline = { output: ["blank_count"], steps: [modFit({ blanks: { bind: "blank_count", from_ladder: "plate_size", stated_attr: "plate_item" } })] };
+    const r = runPipeline("m", pl, LADDER_ITEMS, mfSel(3, 0, 3, { plate_item: "3M" })); // 9 occupied, 3M base
+    expect(r.status).toBe("ok");
+    expect(r.finals).toEqual({ blank_count: 0 });
+    expect(fitTrace(r)).toContain("holds 3, contents occupy 9 -- over-full, clamped");
+  });
+
+  it("A BoQ TYPO NO LONGER KILLS THE ROW: every stated plate from 1M to 18M prices at 7 modules", () => {
+    // the whole point of replacing stated-wins: under the old rule, any stated plate below 8M
+    // refused outright. Now each one either upgrades to 8M or is bought as stated.
+    const pl: Pipeline = { output: ["blank_count"], steps: [floorFit()] };
+    for (const plate of ["1M & 2M", "3M", "4M", "6M", "8M", "9M", "12M", "16M", "18M"]) {
+      const r = runPipeline("m", pl, LADDER_ITEMS, mfSel(2, 0, 3, { plate_item: plate }));
+      expect(r.status, `stated ${plate}`).toBe("ok");
+      expect(r.finals.blank_count).toBeGreaterThanOrEqual(0);
+    }
   });
 });
