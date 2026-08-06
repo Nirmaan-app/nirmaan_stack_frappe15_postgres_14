@@ -239,10 +239,24 @@ class TestRefusals(SettlementFixture):
     def test_a_differing_amount_is_refused(self):
         # Settling a Rs 5,000 expense from a Rs 50,000 transfer would record the wrong thing
         # twice over: the expense as paid, and the transfer as accounted for.
+        #
+        # ⚠️ THE MARGIN WAS +1 UNTIL 2026-08-06 AND IS NOW +100. Re 1 is INSIDE the rounding
+        # tolerance the owner introduced that day, so the old fixture stopped testing a refusal and
+        # started testing an acceptance -- while still being named "is_refused". Pinning a refusal
+        # now needs an amount the window cannot reach.
         row = self._next_settleable_row()
-        expense = self._make_expense(PROJECT_EXPENSE, float(row["amount"]) + 1)
+        expense = self._make_expense(PROJECT_EXPENSE, float(row["amount"]) + 100)
         with self.assertRaises(AmountMismatchError):
             settle_expense(row["name"], PROJECT_EXPENSE, expense)
+
+    def test_an_amount_within_the_rounding_tolerance_is_accepted(self):
+        """The other half of the ruling: the bank rounds a paise amount to the whole rupee, and
+        that difference must settle. Without this, 31.4% of the ledger could never be bulk-settled.
+        """
+        row = self._next_settleable_row()
+        expense = self._make_expense(PROJECT_EXPENSE, float(row["amount"]) - 0.31)
+        settle_expense(row["name"], PROJECT_EXPENSE, expense)
+        self.assertEqual(frappe.db.get_value(PROJECT_EXPENSE, expense, "status"), "Paid")
 
     def test_a_payment_can_never_be_settled_through_this_path(self):
         """⚠️ STILL TRUE AT V2, FOR A DIFFERENT REASON, AND THE REASON IS THE POINT.

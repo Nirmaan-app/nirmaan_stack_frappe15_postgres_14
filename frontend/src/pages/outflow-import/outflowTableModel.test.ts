@@ -12,10 +12,10 @@ import {
     highlightSegments,
     isConfirmable,
     matchesQuery,
-    orderCandidates,
+    orderBySuggestion,
     passesFilters,
     rowsForTab,
-    soleExactMatch,
+    solePreselection,
     tabCounts,
     tabForStatus,
     visibleRows,
@@ -376,36 +376,57 @@ describe("the bulk bar counts DECIDED rows, not selected ones", () => {
     });
 });
 
-describe("candidate ordering", () => {
+describe("candidate ordering and pre-selection", () => {
+    /**
+     * ⚠️ `suggested` COMES FROM THE SERVER and encodes the Re 1 rounding tolerance. The client
+     * deliberately holds no copy of that number: a duplicated constant would drift the moment the
+     * owner changed it, and the symptom would be a screen offering a record the confirm refuses.
+     */
     const candidates = [
-        { name: "PAY-3", amount: 999 },
-        { name: "PAY-1", amount: 235000 },
-        { name: "PAY-2", amount: 235000 },
+        { name: "PAY-3", amount: 999, suggested: false },
+        { name: "PAY-1", amount: 235000, suggested: true },
+        { name: "PAY-2", amount: 235000, suggested: true },
     ];
 
-    it("sorts exact-amount records first", () => {
-        expect(orderCandidates(candidates, 235000).map((c) => c.name)).toEqual([
+    it("sorts suggested records first, then by closeness", () => {
+        expect(orderBySuggestion(candidates, 235000).map((c) => c.name)).toEqual([
             "PAY-1",
             "PAY-2",
             "PAY-3",
         ]);
     });
 
-    it("pre-selects ONLY when exactly one record is exact", () => {
-        // Owner ruling: two exact matches is ambiguity, and the screen never guesses between two
-        // real records. Pre-selecting either turns a suggestion into a decision the software made
-        // and the reviewer rubber-stamped.
-        expect(soleExactMatch(candidates, 235000)).toBeNull();
-        expect(soleExactMatch(candidates, 999)?.name).toBe("PAY-3");
+    it("floats a near-miss above a far one among unsuggested records", () => {
+        const spread = [
+            { name: "FAR", amount: 1000, suggested: false },
+            { name: "NEAR", amount: 234000, suggested: false },
+        ];
+        expect(orderBySuggestion(spread, 235000).map((c) => c.name)).toEqual(["NEAR", "FAR"]);
     });
 
-    it("pre-selects nothing when no record is exact", () => {
-        expect(soleExactMatch(candidates, 12345)).toBeNull();
+    it("pre-selects ONLY when exactly one record is suggested", () => {
+        // Owner ruling: two suggestions is ambiguity, and the screen never guesses between two
+        // real records. Pre-selecting either turns a suggestion into a decision the software made
+        // and the reviewer rubber-stamped.
+        expect(solePreselection(candidates)).toBeNull();
+        expect(solePreselection([candidates[0], candidates[1]])?.name).toBe("PAY-1");
+    });
+
+    it("pre-selects nothing when the server suggests nothing", () => {
+        expect(solePreselection([{ name: "X", amount: 1, suggested: false }])).toBeNull();
+        expect(solePreselection([{ name: "X", amount: 1 }])).toBeNull();
+    });
+
+    it("pre-selects a record the bank ROUNDED, which exact equality would have refused", () => {
+        // The real case: bank 18,679.00 against payment 18,678.69. An exact test finds nothing,
+        // which is precisely the bug this replaced.
+        const rounded = [{ name: "PAY-00105-038", amount: 18678.69, suggested: true }];
+        expect(solePreselection(rounded)?.name).toBe("PAY-00105-038");
     });
 
     it("does not mutate the candidate list", () => {
         const original = [...candidates];
-        orderCandidates(candidates, 235000);
+        orderBySuggestion(candidates, 235000);
         expect(candidates).toEqual(original);
     });
 
@@ -413,5 +434,13 @@ describe("candidate ordering", () => {
         expect(amountVerdict(235000, 235000)).toEqual({ same: true, difference: 0 });
         expect(amountVerdict(235000, 232650)).toEqual({ same: false, difference: 2350 });
         expect(amountVerdict(280000, 310000)).toEqual({ same: false, difference: -30000 });
+    });
+
+    it("reports a sub-rupee difference honestly rather than rounding it to zero", () => {
+        // The screen renders this as "differs by X, within the accepted tolerance". Rounding it
+        // away would tell the reviewer the amounts are identical when they are not.
+        const verdict = amountVerdict(18678.69, 18679);
+        expect(verdict.same).toBe(false);
+        expect(verdict.difference).toBeCloseTo(-0.31, 2);
     });
 });

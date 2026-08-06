@@ -324,33 +324,50 @@ export const decidedRows = (
 export interface CandidateLike {
     name: string;
     amount: number;
+    /**
+     * Whether the SERVER considers this amount close enough to settle.
+     *
+     * ⚠️ THE CLIENT MUST NOT HOLD A SECOND COPY OF THE TOLERANCE. The window is Rs 5 and lives in
+     * `services/outflow_import/amounts.py`, shared by the pool query, the matcher and the write
+     * guard. A number duplicated here would drift the moment the owner changed it, and the
+     * symptom would be a screen offering a record the confirm then refuses. So the server says
+     * suggested-or-not and the screen only renders it.
+     */
+    suggested?: boolean;
 }
 
 /**
- * Exact-amount records first, and a pre-selection ONLY when exactly one is exact.
+ * The one record to pre-select, or null.
  *
- * ⚠️ TWO EXACT MATCHES IS AMBIGUITY, AND THE SCREEN NEVER GUESSES BETWEEN TWO REAL RECORDS (owner
- * ruling). Pre-selecting either would turn a suggestion the reviewer is supposed to make into a
- * decision the software made and they rubber-stamped.
+ * ⚠️ THIS REPLACED AN EXACT-EQUALITY VERSION, AND THE OLD ONE WAS DELETED RATHER THAN KEPT. Exact
+ * equality stopped being the rule when the Re 1 rounding tolerance landed: a payment 31 paise off
+ * the bank amount is a match the matcher makes and the write path accepts, so an exact test would
+ * refuse to pre-select nearly every real settlement. Leaving the old function exported and tested
+ * would have left two plausible-looking answers to "which record do we choose", which is the exact
+ * confusion this whole area has already produced once.
+ *
+ * It keys on the SERVER's `suggested` flag, so the client never holds a copy of the tolerance.
+ *
+ * ⚠️ STILL ONLY WHEN THERE IS EXACTLY ONE (owner ruling). Two suggestions is ambiguity, and the
+ * screen never guesses between two real records.
  */
-export const orderCandidates = <T extends CandidateLike>(
+export const solePreselection = <T extends CandidateLike>(candidates: T[]): T | null => {
+    const suggested = candidates.filter((c) => c.suggested);
+    return suggested.length === 1 ? suggested[0] : null;
+};
+
+/** Suggested records first, then closest by amount. */
+export const orderBySuggestion = <T extends CandidateLike>(
     candidates: T[],
     bankAmount: number
 ): T[] =>
     [...candidates].sort((a, b) => {
-        const aExact = Number(a.amount) === Number(bankAmount) ? 0 : 1;
-        const bExact = Number(b.amount) === Number(bankAmount) ? 0 : 1;
-        if (aExact !== bExact) return aExact - bExact;
-        return String(a.name).localeCompare(String(b.name));
+        if (Boolean(a.suggested) !== Boolean(b.suggested)) return a.suggested ? -1 : 1;
+        return (
+            Math.abs(Number(a.amount) - Number(bankAmount)) -
+            Math.abs(Number(b.amount) - Number(bankAmount))
+        );
     });
-
-export const soleExactMatch = <T extends CandidateLike>(
-    candidates: T[],
-    bankAmount: number
-): T | null => {
-    const exact = candidates.filter((c) => Number(c.amount) === Number(bankAmount));
-    return exact.length === 1 ? exact[0] : null;
-};
 
 /** `same amount ✓` / `differs by ₹X ⚠`, as data. */
 export const amountVerdict = (

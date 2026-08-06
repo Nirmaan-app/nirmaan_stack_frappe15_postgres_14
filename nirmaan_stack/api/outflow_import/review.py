@@ -33,6 +33,8 @@ from nirmaan_stack.services.outflow_import.matcher import (
     match_row,
     resolve_vendors,
 )
+from nirmaan_stack.services.outflow_import.amounts import amounts_match
+from nirmaan_stack.services.outflow_import.ledgers import settleable_statuses
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
 from nirmaan_stack.services.outflow_import.status import (
     OPEN_ROW_STATUSES,
@@ -380,6 +382,145 @@ def get_row_candidates(row: str):
             for c in result.expense_candidates
         ],
     }
+
+
+@frappe.whitelist()
+def search_settleable_records(
+    row: str, target_doctype: str, search: str = "", limit: int = 50
+):
+    """Approved records of one ledger that a reviewer may link to this row BY HAND (slice V4a).
+
+    URL: /api/method/nirmaan_stack.api.outflow_import.review.search_settleable_records
+
+    ⚠️ THIS EXISTS BECAUSE `get_row_candidates` IS THE MATCHER'S OUTPUT, NOT A BROWSABLE LIST, and
+    the decision dialog was built on it. When the matcher found nothing the dropdowns were EMPTY --
+    so "link one by hand", which is the entire escape hatch for everything the matcher cannot see,
+    could not be done at all. Found on the owner's first real import.
+
+    That is not a case the tolerance fixes either. A TDS payment differs by THOUSANDS and will never
+    match; a beneficiary whose name resolves to no vendor cannot reach Pass B at all. Those rows are
+    exactly the ones a person has to resolve by hand, and this is what lets them.
+
+    ⚠️ IT IS STILL `Approved` ONLY. Browsing is not a way around the ladder -- the same
+    `ledgers.SETTLEABLE_STATUSES` governs here as everywhere, so nothing offered can be refused by
+    the write path for its status. What CAN still be refused is the amount, which is why every row
+    carries its own difference rather than being silently filtered out: a reviewer looking for a
+    TDS payment needs to SEE the one that differs by 2,000 in order to learn that it cannot be
+    settled here.
+
+    `suggested` marks the records within the matching tolerance, so the screen can float them to the
+    top without hiding anything else.
+    """
+    require_outflow_access()
+    doc = frappe.db.get_value(ROW_DOCTYPE, row, ["amount", "beneficiary_name"], as_dict=True)
+    if not doc:
+        frappe.throw(f"Import row '{row}' not found.", title="Not found")
+
+    bank_amount = normalize_amount(doc.get("amount"))
+    statuses = settleable_statuses(target_doctype)
+    if not statuses:
+        frappe.throw(
+            f"'{target_doctype}' is not a ledger this import can settle.",
+            title="Not settleable",
+        )
+
+    needle = f"%{(search or '').strip().lower()}%"
+    has_search = bool((search or "").strip())
+    limit = max(1, min(int(limit or 50), 200))
+    status_ph = ", ".join(["%s"] * len(statuses))
+
+    if target_doctype == C.PAYMENT_DOCTYPE:
+        # ⚠️ LEFT JOIN, not an inner one: a payment whose vendor link is broken must still be
+        # findable. Dropping it would hide a settleable record for a reason the reviewer cannot see.
+        # ⚠️ TWO LEFT JOINS, not inner ones. A payment whose vendor or project link is broken must
+        # still be findable -- dropping it would hide a settleable record for a reason invisible on
+        # the screen. Both names are resolved server-side so the dropdown does not have to make N
+        # more round trips to render N options.
+        sql = f"""
+            SELECT p.name, p.amount, p.status, p.project, p.document_name,
+                   v.vendor_name, pr.project_name,
+                   COALESCE(p.ceo_approval_date, p.approval_date) AS approved_on
+            FROM "tabProject Payments" p
+            LEFT JOIN "tabVendors" v ON v.name = p.vendor
+            LEFT JOIN "tabProjects" pr ON pr.name = p.project
+            WHERE p.status IN ({status_ph})
+              {"AND (lower(p.name) LIKE %s OR lower(coalesce(v.vendor_name,'')) LIKE %s"
+                " OR lower(coalesce(p.document_name,'')) LIKE %s"
+                " OR lower(coalesce(pr.project_name,'')) LIKE %s"
+                " OR lower(coalesce(p.project,'')) LIKE %s)" if has_search else ""}
+            ORDER BY abs(p.amount - %s) ASC, p.modified DESC
+            LIMIT %s
+        """
+        params = [*statuses]
+        if has_search:
+            params.extend([needle] * 5)
+        params.extend([float(bank_amount), limit])
+        rows = frappe.db.sql(sql, tuple(params), as_dict=True)
+        return [
+            {
+                "name": r["name"],
+                "amount": float(normalize_amount(r.get("amount"))),
+                # The four facts a reviewer picks a payment BY (owner ruling 2026-08-06), each its
+                # own field so the dropdown can lay them out rather than parse a joined string.
+                "vendor_name": r.get("vendor_name") or "",
+                "project_name": r.get("project_name") or r.get("project") or "",
+                "document_name": r.get("document_name") or "",
+                "approved_on": str(r["approved_on"]) if r.get("approved_on") else "",
+                "detail": " · ".join(
+                    [p for p in (r.get("vendor_name"), r.get("document_name"),
+                                 r.get("project_name") or r.get("project")) if p]
+                ),
+                "suggested": amounts_match(normalize_amount(r.get("amount")), bank_amount),
+            }
+            for r in rows
+        ]
+
+    # Expenses. ⚠️ `Project Expenses.amount` is a Data column of numeric STRINGS and the
+    # non-project one is real Currency, so the ordering expression differs -- the same asymmetry
+    # the candidate queries carry.
+    if target_doctype == C.PROJECT_EXPENSE_DOCTYPE:
+        amount_expr = "CAST(NULLIF(btrim(amount), '') AS numeric)"
+        extra_cols = "projects AS project, vendor"
+        search_cols = ["name", "description", "type", "projects"]
+    else:
+        amount_expr = "amount"
+        extra_cols = "NULL AS project, NULL AS vendor"
+        search_cols = ["name", "description", "type"]
+
+    where_search = (
+        " AND (" + " OR ".join(f"lower(coalesce({c}::text,'')) LIKE %s" for c in search_cols) + ")"
+        if has_search
+        else ""
+    )
+    sql = f"""
+        SELECT name, amount, status, description, type, {extra_cols}
+        FROM "tab{target_doctype}"
+        WHERE status IN ({status_ph})
+          AND amount IS NOT NULL AND btrim(amount::text) <> ''
+          {where_search}
+        ORDER BY abs({amount_expr} - %s) ASC, modified DESC
+        LIMIT %s
+    """
+    params = [*statuses]
+    if has_search:
+        params.extend([needle] * len(search_cols))
+    params.extend([float(bank_amount), limit])
+    rows = frappe.db.sql(sql, tuple(params), as_dict=True)
+    return [
+        {
+            "name": r["name"],
+            "amount": float(normalize_amount(r.get("amount"))),
+            "vendor_name": r.get("vendor") or "",
+            "project_name": r.get("project") or "",
+            "document_name": r.get("type") or "",
+            "approved_on": "",
+            "detail": " · ".join(
+                [p for p in (r.get("type"), r.get("project"), r.get("description")) if p]
+            )[:120],
+            "suggested": amounts_match(normalize_amount(r.get("amount")), bank_amount),
+        }
+        for r in rows
+    ]
 
 
 @frappe.whitelist()

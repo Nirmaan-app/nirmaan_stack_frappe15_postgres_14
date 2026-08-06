@@ -48,6 +48,7 @@ from typing import Sequence
 
 import frappe
 
+from nirmaan_stack.services.outflow_import.amounts import tolerance_bounds
 from nirmaan_stack.services.outflow_import.ledgers import (
     NON_PROJECT_EXPENSE_DOCTYPE,
     PAID,
@@ -65,6 +66,7 @@ __all__ = [
     "load_payments_for_vendors",
     "load_expense_targets",
     "find_earlier_batches_for_transfers",
+    "amount_window_sql",
     "PAYMENT_DOCTYPE",
     "PROJECT_EXPENSE_DOCTYPE",
     "NON_PROJECT_EXPENSE_DOCTYPE",
@@ -76,6 +78,29 @@ __all__ = [
 _PAYMENT_STATUSES = settleable_statuses(PAYMENT_DOCTYPE)
 _PROJECT_EXPENSE_STATUSES = settleable_statuses(PROJECT_EXPENSE_DOCTYPE)
 _NON_PROJECT_EXPENSE_STATUSES = settleable_statuses(NON_PROJECT_EXPENSE_DOCTYPE)
+
+
+def amount_window_sql(column: str, amounts: Sequence[Decimal]) -> tuple[str, list]:
+    """A SQL predicate matching `column` against any of `amounts` WITHIN THE TOLERANCE.
+
+    Replaces `column IN (...)`, which was exact and therefore matched almost nothing: 31.4% of
+    payments carry paise while the bank sends whole rupees. The bounds come from
+    `amounts.tolerance_bounds`, so the number lives in one place even though the comparison happens
+    in the database and cannot call `amounts_match`.
+
+    Returns `("(col BETWEEN %s AND %s OR col BETWEEN %s AND %s ...)", params)`. OR-ed BETWEENs
+    rather than one wide `MIN(lows) .. MAX(highs)` span: a batch spanning Rs 5,000 to Rs 5,00,000
+    would otherwise sweep the entire ledger into the pool and let the in-memory pass do the real
+    work, which is the shape that scales with the ledger instead of the batch.
+    """
+    if not amounts:
+        return "1=0", []
+    clauses, params = [], []
+    for amount in amounts:
+        low, high = tolerance_bounds(amount)
+        clauses.append(f"{column} BETWEEN %s AND %s")
+        params.extend([float(low), float(high)])
+    return "(" + " OR ".join(clauses) + ")", params
 
 
 def load_vendor_index() -> VendorIndex:
@@ -178,9 +203,9 @@ def load_payments_for_vendors(
         return ()
 
     vendor_ph = ", ".join(["%s"] * len(vendors))
-    amount_ph = ", ".join(["%s"] * len(values))
     status_ph = ", ".join(["%s"] * len(_PAYMENT_STATUSES))
-    params: list = [*vendors, *[float(v) for v in values], *_PAYMENT_STATUSES]
+    amount_clause, amount_params = amount_window_sql("amount", values)
+    params: list = [*vendors, *amount_params, *_PAYMENT_STATUSES]
 
     date_clause = ""
     if period_from and period_to:
@@ -192,7 +217,7 @@ def load_payments_for_vendors(
         SELECT name, amount, status, vendor, utr, payment_date, project, document_type, document_name
         FROM "tabProject Payments"
         WHERE vendor IN ({vendor_ph})
-          AND amount IN ({amount_ph})
+          AND {amount_clause}
           AND status IN ({status_ph})
           {date_clause}
         """,
@@ -218,8 +243,14 @@ def load_expense_targets(amounts: Sequence[Decimal]) -> tuple[TargetRef, ...]:
     values = sorted({normalize_amount(a) for a in amounts})
     if not values:
         return ()
-    amount_ph = ", ".join(["%s"] * len(values))
-    floats = [float(v) for v in values]
+
+    # ⚠️ The project side is a Data column holding numeric STRINGS, so it is CAST before the
+    # window is applied; the non-project side is a real Currency column. Same tolerance, two
+    # expressions, because the two doctypes disagree about storage.
+    project_amount_clause, project_amount_params = amount_window_sql(
+        "CAST(NULLIF(btrim(amount), '') AS numeric)", values
+    )
+    non_project_amount_clause, non_project_amount_params = amount_window_sql("amount", values)
 
     out: list[TargetRef] = []
 
@@ -230,9 +261,9 @@ def load_expense_targets(amounts: Sequence[Decimal]) -> tuple[TargetRef, ...]:
         FROM "tabProject Expenses"
         WHERE status IN ({project_ph})
           AND amount IS NOT NULL AND btrim(amount) <> ''
-          AND CAST(NULLIF(btrim(amount), '') AS numeric) IN ({amount_ph})
+          AND {project_amount_clause}
         """,
-        (*_PROJECT_EXPENSE_STATUSES, *floats),
+        (*_PROJECT_EXPENSE_STATUSES, *project_amount_params),
         as_dict=True,
     )
     for r in project_rows:
@@ -256,9 +287,9 @@ def load_expense_targets(amounts: Sequence[Decimal]) -> tuple[TargetRef, ...]:
         SELECT name, amount, status, description, payment_ref, payment_date, type
         FROM "tabNon Project Expenses"
         WHERE status IN ({non_project_ph})
-          AND amount IN ({amount_ph})
+          AND {non_project_amount_clause}
         """,
-        (*_NON_PROJECT_EXPENSE_STATUSES, *floats),
+        (*_NON_PROJECT_EXPENSE_STATUSES, *non_project_amount_params),
         as_dict=True,
     )
     for r in non_project_rows:

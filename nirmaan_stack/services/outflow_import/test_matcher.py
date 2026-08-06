@@ -249,9 +249,29 @@ class TestPaymentPassB(unittest.TestCase):
         row = _Row(amount="5000", added_on_date=date(2026, 7, 28))
         self.assertEqual(match_payments(row, targets, self._vendor()), ())
 
-    def test_pass_b_requires_an_exact_amount(self):
+    def test_pass_b_matches_within_the_rounding_tolerance(self):
+        """⚠️ THIS TEST WAS INVERTED ON 2026-08-06, and the inversion is the owner's ruling.
+
+        It used to require an EXACT amount. Measured on live data, 31.4% of payments carry paise
+        while the bank sends whole rupees, so exact matching found almost nothing: three approved
+        payments in the first real import were 0.31, 0.68 and 0.90 away from the transfers that
+        paid them, and all three came out `Unmatched`.
+
+        The window is Re 1 -- exactly the width of the phenomenon, since rounding a paise amount to
+        the rupee can never move it by a whole one.
+        """
         targets = [
-            TargetRef("Project Payments", "PAY-1", Decimal("4999"), "Paid", "VEN-0001", "junk", date(2026, 7, 28))
+            TargetRef("Project Payments", "PAY-1", Decimal("4999.31"), "Approved", "VEN-0001", "junk", date(2026, 7, 28))
+        ]
+        row = _Row(amount="5000", added_on_date=date(2026, 7, 28))
+        groups = match_payments(row, targets, self._vendor())
+        self.assertEqual([t.name for g in groups for t in g.targets], ["PAY-1"])
+
+    def test_pass_b_still_refuses_an_amount_outside_the_tolerance(self):
+        """The window absorbs bank rounding and NOTHING ELSE. A TDS deduction is thousands; if it
+        ever matched here, the import would settle a payment for less than it was approved for."""
+        targets = [
+            TargetRef("Project Payments", "PAY-1", Decimal("4900"), "Approved", "VEN-0001", "junk", date(2026, 7, 28))
         ]
         row = _Row(amount="5000", added_on_date=date(2026, 7, 28))
         self.assertEqual(match_payments(row, targets, self._vendor()), ())
@@ -298,8 +318,14 @@ class TestExpenseMatching(unittest.TestCase):
         self.assertEqual(len(candidates), 1)
         self.assertLess(candidates[0].score, 0.5)
 
-    def test_wrong_amount_is_not_offered(self):
-        target = TargetRef("Project Expenses", "EXP-1", Decimal("4999"), "Approved", None, "", None, "PROJ-1", "")
+    def test_an_amount_within_the_rounding_tolerance_is_offered(self):
+        # Same Re 1 window as the payment pass -- see `amounts.py`. One rule, both ledgers.
+        target = TargetRef("Project Expenses", "EXP-1", Decimal("4999.40"), "Approved", None, "", None, "PROJ-1", "")
+        offered = match_expenses(_Row(amount="5000"), [target])
+        self.assertEqual([c.target.name for c in offered], ["EXP-1"])
+
+    def test_an_amount_outside_the_tolerance_is_not_offered(self):
+        target = TargetRef("Project Expenses", "EXP-1", Decimal("4900"), "Approved", None, "", None, "PROJ-1", "")
         self.assertEqual(match_expenses(_Row(amount="5000"), [target]), ())
 
     def test_better_corroborated_candidate_ranks_first(self):

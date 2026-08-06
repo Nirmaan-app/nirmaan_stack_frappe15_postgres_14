@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useFrappeGetCall, useFrappeGetDocList } from "frappe-react-sdk";
-import { AlertTriangle, Check, Loader2 } from "lucide-react";
+import { AlertTriangle, Check, Loader2, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -24,8 +24,8 @@ import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 import {
     amountVerdict,
-    orderCandidates,
-    soleExactMatch,
+    orderBySuggestion,
+    solePreselection,
     type DecisionTarget,
     type RowDecision,
 } from "../outflowTableModel";
@@ -79,16 +79,54 @@ export const DecisionDialog = ({
     const [skipReason, setSkipReason] = useState("");
     const [skipping, setSkipping] = useState(false);
 
-    const { data, isLoading } = useFrappeGetCall<{ message: OutflowRowCandidates }>(
+    /**
+     * ⚠️ TWO DIFFERENT QUESTIONS, TWO DIFFERENT ENDPOINTS, and conflating them was the bug.
+     *
+     *   `get_row_candidates`        -> what the MATCHER suggests. Used ONLY to seed the decision,
+     *                                  which is what makes a Matched row open with its record
+     *                                  already chosen.
+     *   `search_settleable_records` -> what you may BROWSE, per ledger, inside `RecordPicker`.
+     *
+     * The dialog originally built its dropdowns from the first. That is why they were empty
+     * whenever the matcher found nothing -- exactly when hand-linking is most needed.
+     */
+    const { data: suggestion } = useFrappeGetCall<{ message: OutflowRowCandidates }>(
         "nirmaan_stack.api.outflow_import.review.get_row_candidates",
         { row: row?.name },
         row?.name ? undefined : null
     );
-    const candidates = data?.message;
 
     useEffect(() => {
         setSkipReason("");
     }, [row?.name]);
+
+    /**
+     * Open a matched row with its record ALREADY SELECTED.
+     *
+     * ⚠️ WITHOUT THIS, NOTHING IS EVER PRE-SELECTED, because `RecordPicker` only mounts once the
+     * reviewer has clicked a target -- so its own pre-selection could never fire on open. A row the
+     * matcher resolved confidently should take one click to confirm, not three.
+     *
+     * ⚠️ ONLY WHEN THERE IS EXACTLY ONE candidate across every ledger (owner ruling: the screen
+     * never guesses between two real records). Two suggestions, or a group covering several
+     * payments, seeds nothing and the reviewer chooses.
+     */
+    useEffect(() => {
+        if (!row || decision || !suggestion?.message) return;
+        const groups = suggestion.message.payment_groups ?? [];
+        const expenses = suggestion.message.expense_candidates ?? [];
+        const soleGroup =
+            groups.length === 1 && groups[0].targets.length === 1 ? groups[0].targets[0] : null;
+        if (soleGroup && !expenses.length) {
+            onChange({ target: PAYMENT, linkTo: soleGroup.name });
+            return;
+        }
+        if (!groups.length && expenses.length === 1) {
+            const only = expenses[0];
+            onChange({ target: only.doctype as DecisionTarget, linkTo: only.name });
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [row?.name, suggestion]);
 
     if (!row) return null;
 
@@ -118,23 +156,15 @@ export const DecisionDialog = ({
                 <div className="min-h-0 space-y-4 overflow-y-auto px-6 py-4">
                     <WhyThisSuggestion row={row} />
 
-                    {isLoading ? (
-                        <p className="flex items-center gap-2 text-sm text-muted-foreground">
-                            <Loader2 className="h-4 w-4 animate-spin" /> Looking for approved
-                            records…
-                        </p>
-                    ) : (
-                        TARGETS.map((target) => (
-                            <TargetOption
-                                key={target.id}
-                                target={target}
-                                row={row}
-                                candidates={candidates}
-                                decision={decision}
-                                onChange={onChange}
-                            />
-                        ))
-                    )}
+                    {TARGETS.map((target) => (
+                        <TargetOption
+                            key={target.id}
+                            target={target}
+                            row={row}
+                            decision={decision}
+                            onChange={onChange}
+                        />
+                    ))}
                 </div>
 
                 <footer className="flex flex-wrap items-center gap-2 border-t bg-muted/30 px-6 py-3">
@@ -218,13 +248,11 @@ const WhyThisSuggestion = ({ row }: { row: OutflowImportRow }) => {
 const TargetOption = ({
     target,
     row,
-    candidates,
     decision,
     onChange,
 }: {
     target: { id: DecisionTarget; label: string; hint: string };
     row: OutflowImportRow;
-    candidates: OutflowRowCandidates | undefined;
     decision: RowDecision | undefined;
     onChange: (decision: RowDecision) => void;
 }) => {
@@ -272,7 +300,6 @@ const TargetOption = ({
                         <RecordPicker
                             row={row}
                             doctype={target.id}
-                            candidates={candidates}
                             decision={decision!}
                             onChange={onChange}
                         />
@@ -286,107 +313,181 @@ const TargetOption = ({
 /**
  * A DROPDOWN, not radios (owner ruling), that loads the chosen record's details beneath it.
  *
- * ⚠️ PRE-SELECTED ONLY WHEN EXACTLY ONE RECORD IS EXACT. Two exact matches is ambiguity, and the
- * screen never guesses between two real records -- `soleExactMatch` is the one place that rule
- * lives and it is unit-tested.
+ * ⚠️ PRE-SELECTED ONLY WHEN EXACTLY ONE RECORD IS SUGGESTED by the server. Two suggestions is
+ * ambiguity, and the screen never guesses between two real records -- `solePreselection` is the one
+ * place that rule lives and it is unit-tested. It keys on the server's flag, not on exact equality,
+ * so the Re 1 rounding tolerance is applied in one place only.
+ */
+interface SettleableRecord {
+    name: string;
+    amount: number;
+    detail: string;
+    suggested: boolean;
+    /** The four facts a reviewer picks a payment BY (owner ruling 2026-08-06). */
+    vendor_name: string;
+    project_name: string;
+    document_name: string;
+    approved_on: string;
+}
+
+/**
+ * ⚠️ THIS BROWSES APPROVED RECORDS. IT DOES NOT SHOW THE MATCHER'S OUTPUT, and the difference is
+ * the whole point of this component.
+ *
+ * It used to read `get_row_candidates`, which is the MATCHER's result. When the matcher found
+ * nothing the dropdown was EMPTY -- so "link one by hand", the escape hatch for everything the
+ * matcher cannot see, could not be used at all. Found on the owner's first real import.
+ *
+ * The tolerance does not fix that case either: a TDS payment differs by thousands and will never
+ * match, and a beneficiary that resolves to no vendor never reaches Pass B. Those are exactly the
+ * rows a person has to resolve by hand.
+ *
+ * ⚠️ RECORDS OUTSIDE THE TOLERANCE ARE SHOWN, NOT HIDDEN, and marked. Someone hunting a TDS payment
+ * needs to SEE the one that differs by 2,000 to learn it cannot be settled here -- silently
+ * filtering it out looks like the record does not exist.
  */
 const RecordPicker = ({
     row,
     doctype,
-    candidates,
     decision,
     onChange,
 }: {
     row: OutflowImportRow;
     doctype: DecisionTarget;
-    candidates: OutflowRowCandidates | undefined;
     decision: RowDecision;
     onChange: (decision: RowDecision) => void;
 }) => {
-    const options = useMemo(() => {
-        if (!candidates) return [];
-        const list =
-            doctype === PAYMENT
-                ? candidates.payment_groups.flatMap((group) =>
-                      group.targets.map((t) => ({
-                          name: t.name,
-                          amount: t.amount,
-                          detail: [t.project, t.status].filter(Boolean).join(" · "),
-                      }))
-                  )
-                : candidates.expense_candidates
-                      .filter((c) => c.doctype === doctype)
-                      .map((c) => ({
-                          name: c.name,
-                          amount: c.amount,
-                          detail: [c.project, c.description].filter(Boolean).join(" · "),
-                      }));
-        return orderCandidates(list, row.amount);
-    }, [candidates, doctype, row.amount]);
+    const [search, setSearch] = useState("");
 
-    // Pre-select the sole exact match once, when the option is opened and nothing is chosen yet.
+    const { data, isLoading } = useFrappeGetCall<{ message: SettleableRecord[] }>(
+        "nirmaan_stack.api.outflow_import.review.search_settleable_records",
+        { row: row.name, target_doctype: doctype, search },
+        `settleable-${row.name}-${doctype}-${search}`
+    );
+
+    const options = useMemo(
+        () => orderBySuggestion(data?.message ?? [], row.amount),
+        [data, row.amount]
+    );
+
+    // Pre-select the SOLE suggestion, once, when nothing is chosen yet. Keyed on the server's
+    // flag, not on exact equality -- see `solePreselection`.
     useEffect(() => {
-        if (decision.linkTo || !options.length) return;
-        const sole = soleExactMatch(options, row.amount);
+        if (decision.linkTo || !options.length || search) return;
+        const sole = solePreselection(options);
         if (sole) onChange({ ...decision, linkTo: sole.name });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [options]);
 
     const selected = options.find((o) => o.name === decision.linkTo);
 
-    if (!candidates) {
-        return <p className="text-sm text-muted-foreground">Loading records…</p>;
-    }
-    if (!options.length) {
-        return (
-            <p className="text-sm text-muted-foreground">
-                No approved record of this kind matches this transfer.
-            </p>
-        );
-    }
-
     return (
         <div className="space-y-3">
             <div className="space-y-1.5">
-                <Label className="text-xs">Record</Label>
+                <Label className="text-xs">Find an approved record</Label>
+                <Input
+                    className="h-8"
+                    placeholder="Search by id, vendor, PO number or project…"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                />
+            </div>
+
+            {isLoading ? (
+                <p className="text-sm text-muted-foreground">Loading records…</p>
+            ) : !options.length ? (
+                <p className="text-sm text-muted-foreground">
+                    {search
+                        ? "No approved record matches that search."
+                        : "There are no approved records in this ledger to link to."}
+                </p>
+            ) : (
                 <Select
                     value={decision.linkTo ?? ""}
                     onValueChange={(value) => onChange({ ...decision, linkTo: value })}
                 >
-                    <SelectTrigger className="h-9">
+                    <SelectTrigger className="h-auto min-h-9 py-1.5">
                         <SelectValue placeholder="Choose a record…" />
                     </SelectTrigger>
-                    <SelectContent>
-                        {options.map((option) => {
-                            const verdict = amountVerdict(option.amount, row.amount);
-                            return (
-                                <SelectItem key={option.name} value={option.name}>
-                                    <span className="font-mono text-xs">{option.name}</span>
-                                    <span className="ml-2 text-xs text-muted-foreground">
-                                        {formatToRoundedIndianRupee(option.amount)}
-                                        {verdict.same ? " ✓" : " ⚠"}
-                                    </span>
-                                </SelectItem>
-                            );
-                        })}
+                    <SelectContent className="max-w-[min(90vw,640px)]">
+                        {options.map((option) => (
+                            <SelectItem key={option.name} value={option.name}>
+                                <OptionLine option={option} />
+                            </SelectItem>
+                        ))}
                     </SelectContent>
                 </Select>
-            </div>
+            )}
 
             {selected && <RecordDetail record={selected} bankAmount={row.amount} />}
+
+            {/* ⚠️ CLEARING IS A SEPARATE ACT FROM CHOOSING. A Radix Select cannot return to "no
+                value" through the dropdown -- every item sets one -- so without this a reviewer who
+                picked the wrong record could never get back to undecided, only to a different
+                wrong record. It clears the LINK and keeps the ledger, which is the common case
+                (right ledger, wrong row). */}
+            {decision.linkTo && (
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    onClick={() => onChange({ ...decision, linkTo: null })}
+                >
+                    <X className="mr-1 h-3 w-3" />
+                    Clear selection
+                </Button>
+            )}
         </div>
     );
 };
 
-/** The chosen record's details plus an explicit same-amount / differs-by verdict. */
+/**
+ * One dropdown line: project, vendor, amount and approval date (owner ruling 2026-08-06).
+ *
+ * ⚠️ THE ID ALONE IS NOT ENOUGH TO CHOOSE BY. `PAY-00105-034` says nothing about whose money it is
+ * -- a reviewer with three approved payments in front of them picks by vendor and project, and
+ * scanning them meant opening each one to find out. The four facts go on the line itself.
+ */
+const OptionLine = ({ option }: { option: SettleableRecord }) => (
+    <span className="flex w-full min-w-0 flex-col gap-0.5 py-0.5">
+        <span className="flex min-w-0 items-baseline gap-2">
+            <span className="truncate font-medium">{option.vendor_name || option.name}</span>
+            <span className="ml-auto shrink-0 tabular-nums">
+                {formatToRoundedIndianRupee(option.amount)}
+            </span>
+            <span className="shrink-0">{option.suggested ? "✓" : "⚠"}</span>
+        </span>
+        <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 text-[11px] text-muted-foreground">
+            <span className="font-mono">{option.name}</span>
+            {option.project_name && <span className="truncate">{option.project_name}</span>}
+            {option.document_name && (
+                <span className="truncate font-mono">{option.document_name}</span>
+            )}
+            {option.approved_on && <span>approved {formatDate(option.approved_on)}</span>}
+        </span>
+    </span>
+);
+
+/**
+ * The chosen record's details plus an explicit amount verdict.
+ *
+ * ⚠️ THREE STATES, NOT TWO. Exact / within the tolerance / outside it. Two states would have to
+ * call a 31-paise difference either "same" (untrue) or a warning (misleading, since the system
+ * settles it happily) -- and the bank rounds to the rupee on about a third of all payments, so
+ * that middle case is the common one, not the rare one.
+ *
+ * The tolerance's VALUE is deliberately not named here: it lives on the server, and a number
+ * repeated in the client would drift the moment the owner changed it.
+ */
 const RecordDetail = ({
     record,
     bankAmount,
 }: {
-    record: { name: string; amount: number; detail: string };
+    record: SettleableRecord;
     bankAmount: number;
 }) => {
     const verdict = amountVerdict(record.amount, bankAmount);
+    const settleable = record.suggested;
     return (
         <div className="rounded-md border bg-background p-3 text-sm">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -400,18 +501,25 @@ const RecordDetail = ({
             )}
             <p
                 className={`mt-2 flex items-center gap-1.5 text-xs ${
-                    verdict.same ? "text-emerald-700" : "text-amber-700"
+                    settleable ? "text-emerald-700" : "text-amber-700"
                 }`}
             >
                 {verdict.same ? (
                     <>
                         <Check className="h-3.5 w-3.5" /> Same amount as the bank row
                     </>
+                ) : settleable ? (
+                    <>
+                        <Check className="h-3.5 w-3.5" />
+                        Differs by {formatToRoundedIndianRupee(Math.abs(verdict.difference))} —
+                        within the accepted rounding tolerance, so this can be settled
+                    </>
                 ) : (
                     <>
                         <AlertTriangle className="h-3.5 w-3.5" />
-                        Differs by {formatToRoundedIndianRupee(Math.abs(verdict.difference))} — the
-                        server will refuse a settlement whose amounts disagree
+                        Differs by {formatToRoundedIndianRupee(Math.abs(verdict.difference))} — too
+                        far apart to settle here. A deduction such as TDS looks like this; settle it
+                        in the payments screen
                     </>
                 )}
             </p>

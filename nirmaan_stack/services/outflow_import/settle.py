@@ -58,6 +58,7 @@ from nirmaan_stack.services.outflow_import.ledgers import (
 from nirmaan_stack.services.outflow_import.ledgers import (
     PROJECT_EXPENSE_DOCTYPE as PROJECT_EXPENSE,
 )
+from nirmaan_stack.services.outflow_import.amounts import amounts_match
 from nirmaan_stack.services.outflow_import.ledgers import PAYMENT_DOCTYPE
 from nirmaan_stack.services.outflow_import.ledgers import (
     SETTLEABLE_STATUSES,
@@ -211,9 +212,13 @@ def _lock_and_assert_settleable(doctype: str, name: str, bank_amount: Decimal) -
         )
 
     amount = normalize_amount(current.get("amount"))
-    if amount != bank_amount:
+    # ⚠️ THE SAME WINDOW THE MATCHER USES, and it must stay the same: a pool wider than this guard
+    # offers a record the confirm then refuses, and a guard wider than the pool permits a
+    # settlement the screen never proposed. See `amounts.py`.
+    if not amounts_match(amount, bank_amount):
         frappe.throw(
-            f"{name} is for {amount} but {bank_amount} left the bank. "
+            f"{name} is for {amount} but {bank_amount} left the bank, a difference of "
+            f"{abs(amount - bank_amount)}. "
             f"Settle it against the transfer that matches, or record a new expense.",
             AmountMismatchError,
             title="Amounts differ",
@@ -351,9 +356,12 @@ def _lock_and_assert_payment_settleable(name: str, bank_amount: Decimal) -> Deci
         )
 
     amount = normalize_amount(current.get("amount"))
-    if amount != bank_amount:
+    # ⚠️ THE SAME WINDOW THE MATCHER USES -- see `amounts.py`. It absorbs bank rounding and small
+    # charges; it CANNOT reach a TDS deduction, which is thousands, and must not be widened to.
+    if not amounts_match(amount, bank_amount):
         frappe.throw(
-            f"{name} is for {amount} but {bank_amount} left the bank. "
+            f"{name} is for {amount} but {bank_amount} left the bank, a difference of "
+            f"{abs(amount - bank_amount)}. "
             f"A deduction such as TDS looks like this; settle it in the payments screen.",
             AmountMismatchError,
             title="Amounts differ",

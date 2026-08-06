@@ -40,6 +40,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Mapping, Sequence
 
+from nirmaan_stack.services.outflow_import.amounts import amounts_match
 from nirmaan_stack.services.outflow_import.normalize import (
     NAME_NOISE_TOKENS,
     name_tokens,
@@ -427,7 +428,11 @@ def match_payments(
         return ()
 
     for target in targets:
-        if target.amount != amount:
+        # ⚠️ TOLERANT, NOT EXACT (owner ruling 2026-08-06). 31.4% of payments carry paise while the
+        # bank sends whole rupees, so an exact test matched almost nothing on real data. The window
+        # lives in `amounts.AMOUNT_TOLERANCE` and is shared with the SQL pool query and the settle
+        # guard -- a pool wider than the guard offers a record the confirm then refuses.
+        if not amounts_match(target.amount, amount):
             continue
         # A target with NO vendor of its own can never satisfy a vendor correspondence either.
         # (Payments are born from PO terms and always carry one, so this is a guard rather than a
@@ -465,11 +470,13 @@ def match_expenses(
 
     out: list[ExpenseCandidate] = []
     for target in targets:
-        if target.amount != amount:
+        # Same tolerance as the payment pass -- see `amounts.py`.
+        if not amounts_match(target.amount, amount):
             continue
 
         score = 0.4
-        reasons = ["amount matches exactly"]
+        exact = target.amount == amount
+        reasons = ["amount matches exactly" if exact else "amount matches within the tolerance"]
         description = target.description or ""
         description_tokens = frozenset(
             t for t in name_tokens(description) if t not in NAME_NOISE_TOKENS
