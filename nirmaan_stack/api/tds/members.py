@@ -299,7 +299,7 @@ def get_group_category(tds_item: str) -> str:
 	The single source of the "category of a group" rule. Reused by:
 	  * the `Project TDS Item List` before_save hook — snapshots `tds_category`
 	    onto a project submittal row (origin: `Items.category` → member items).
-	  * `api/tds/tds_report._enrich_model_no` — the PDF "Model No." cell.
+	  * `api/tds/tds_report._enrich_derived_cells` — the PDF "Model No." cell.
 
 	Returns "" for a falsy id or a member-less (custom) group. Permission-ignoring
 	read. Defensive: never raises — on any read error it returns "" so a (possibly

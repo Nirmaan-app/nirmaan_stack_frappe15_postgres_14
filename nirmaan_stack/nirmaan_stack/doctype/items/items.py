@@ -174,7 +174,7 @@ class Items(Document):
 def on_doctype_update():
 	# ADR-0004 made `Items.linked_tds_item` the SOLE membership store, so it is
 	# filtered by every membership read in the app -- members.get_tds_item_members
-	# / get_tds_member_index / get_group_category, tds_report._enrich_model_no,
+	# / get_tds_member_index / get_group_category, tds_report._enrich_derived_cells,
 	# picker.search_tds_items, and the `members` display-mirror rebuild. Measured
 	# without this index: Seq Scan discarding 3,528 of 3,536 rows per lookup, and
 	# it degrades as the catalog grows.
