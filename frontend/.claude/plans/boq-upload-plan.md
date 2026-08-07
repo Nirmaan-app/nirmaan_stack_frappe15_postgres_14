@@ -19047,3 +19047,151 @@ Two qualifications a dependent slice should know:
 - The type picker + `values_from` authoring UI (owner's call on shape (A) vs (B)).
 - A re-extraction of point_wiring to carry the NC-recovered values into the product -- still a
   separate owner-approved run.
+
+
+## Build slice DERIVED-GATE -- a ladder bind is not missing input (26 dead rows)
+
+**One predicate, one guard clause, no interpreter change, no config change.** The pipelines were
+always right; the helper refused to run them.
+
+### The defect
+
+`module_fit`'s ladders **BIND** `plate_item` (and `box_item`): the fitted rung IS the attribute's
+value. The pipeline therefore DERIVES `plate_item` and reads a stated one only as a **FLOOR** (the
+take-the-larger rule). But the pricing helper's missing-attribute gate counted every blank
+selectable attribute as required user input, including that one -- so a row with a blank
+`plate_item` was refused with *"Complete the missing attributes to price"* while the pipeline could
+price it perfectly.
+
+Measured live (SWSK_DIAG_2026-08-07): the pipeline returns `ok` on exactly those rows --
+239 -> 380/80, 243 -> 500/100, 249 -> 290/60, point_wiring 221 -> 1238/667.4 with `plate_item`
+omitted. **Extraction was fine, the config was fine, the interpreter was fine. Only the display
+gate was wrong.**
+
+### ⚠️ CHAT DROPPED THIS FIX AT PWFIX2, AND THE MEASUREMENT THAT JUSTIFIED DROPPING IT WAS CORRECT
+
+At PWFIX2 the helper's `missing`-gate fix was dropped as a proven no-op: *"no row on this sheet is
+blocked by a derived attribute (`blank_qty` always carries a value)"*. That was TRUE when measured.
+`blank_qty` was then the ONLY derived attribute, and it was never blank, so the gate genuinely
+blocked nothing.
+
+Slice 2p2 then wired `module_fit` into `switches_sockets` and `point_wiring`, which made
+`plate_item` derived too -- and `plate_item` IS frequently blank. The dropped fix stopped being a
+no-op the moment that dependency landed, and nothing re-measured it.
+
+**A NO-OP MEASURED BEFORE A DEPENDENCY LANDS IS NOT A NO-OP AFTERWARDS.** The lesson is not "the
+measurement was wrong" -- it was right. It is that a decision resting on a measurement inherits that
+measurement's expiry date, and wiring a new mechanism into a category is exactly the event that
+expires one.
+
+### This ALSO explains the point_wiring rows blamed on model variance -- correcting that record
+
+The 2026-08-07 re-run reported ten point_wiring rows (217-235) lost to *"`plate_item` model
+variance"*, and floated a hypothesis that R9's longer prompt text was pulling the model's attention
+away from plate identification. **That framing was wrong in its consequence.** The model returning a
+blank `plate_item` is harmless -- arguably correct, since the plate is derived. What turned a blank
+into a refusal was THIS gate. The variance is real; the price loss was not caused by it.
+
+### The predicate
+
+`derivedAttrIds(config)` in **`pricingSheetHelper.ts`** -- returns the set of attribute ids this
+config COMPUTES rather than accepts:
+
+```
+derivedAttrIds(config) = derivedQtyAttrs(config).keys()          // REUSED, not re-implemented
+                       ∪ { every module_fit ladders[].bind }     // new, defined here only
+```
+
+- **ONE definition per mechanism.** The `<name>_qty` + `qty:{from_fit}` half stays in
+  `derivedQtyAttrs` (the blanker slice) and is IMPORTED; only the ladder-bind half is new. #179 --
+  three coercion sites that agreed until they didn't -- is the reason this composes instead of
+  copying.
+- **READ FROM CONFIG, never hardcoded.** `plate_item` / `box_item` are today's binds; a ladder
+  binding anything else is picked up with no code change, and a category with no `module_fit` is
+  byte-unaffected.
+- **⚠️ `bind` IS NOT `floor_from`, and one attribute is BOTH.** `plate_item` is its own ladder's
+  `floor_from` (a stated plate is a floor) AND its `bind` (the fitted rung). **Being a bind WINS**:
+  the pipeline can always compute the value, so blank means "no floor stated". A `floor_from` that
+  is NOT a bind stays a genuine input and still blocks. Pinned BOTH ways.
+
+The gate itself changes by one clause:
+`if (coerced === null) { if (!disabled && !derived.has(d.id)) missing = true; }`
+
+A STATED derived value is still written into `selected`, where the ladder reads it as the floor --
+so the take-the-larger rule is untouched.
+
+**Placement note (owner's call may differ):** the predicate lives in `pricingSheetHelper.ts` and
+imports `derivedQtyAttrs` from `RateMasterDerivation.tsx`. The architecturally cleaner home is a
+shared pure module (`rateMasterStructure.ts`, where `coerceForMatch` went at CP2), with both the
+helper and the Derivation screen importing one `derivedAttrs`. That needs two files this slice did
+not have in scope. **Deliberately NOT extending `derivedQtyAttrs` itself**, because the Derivation
+screen must keep `plate_item` EDITABLE -- there it is the stated floor the user may set, which is a
+different question from "is it required input".
+
+### Tests -- `pricingSheetHelper.test.ts` 34 -> 44 (+10)
+
+| test | direction | says |
+|---|---|---|
+| a ladder BIND is derived | positive | `plate_item` and `box_item` both |
+| the `<name>_qty` half still reported | positive | the two mechanisms compose |
+| a genuine INPUT is not derived | negative | `switch_item`, `switch_qty` |
+| **bind vs floor_from, both ways** | negative | a `floor_from` that is NOT a bind stays an input |
+| bind WINS when one attribute is both | positive | the shape v24 actually ships |
+| no `module_fit` -> byte-unaffected | negative | the qty half still applies |
+| an arbitrary bind id is derived | positive | config-read, never hardcoded |
+| a blank DERIVED attribute no longer blocks | positive | the fix, at the gate |
+| **a blank GENUINE input still blocks** | negative | narrowing, not removing |
+| a STATED derived value passes through | positive | the ladder still gets its floor |
+
+### Gates
+
+| gate | result |
+|---|---|
+| G1 vitest | **1,382 -> 1,392 / 55 files**, green |
+| G1 backend | `test_rate_master` **64**, `test_rate_suggest` **54**, `test_extraction_coercion` **26** -- all unchanged, green. (A frontend display gate cannot touch them; run anyway.) |
+| G2 tsc | **zero** errors in `rate-master` / `rate-helper`, before and after |
+| G3 goldens | **26 goldens / 78 rows / 77 green -- byte-identical**, same pre-existing `miscellaneous` m1 float artifact. Nothing moved. |
+| **G4 pricing editor** | **switches_sockets 0/16 -> 16/16** · **point_wiring 17/26 -> 18/26** |
+| G5 | zero AI calls, zero config writes, zero DB writes; asset v24 / `rmbulk-b39828f2edbb` untouched |
+
+**⚠️ Two G4 numbers differ from the brief's expectation, and the RUN WINS.** The brief expected
+`point_wiring 8/23 -> 18/23`. The live baseline is **17/26**, not 8/23, because the 8/23 figure came
+from the 2026-08-07 re-run which was deliberately **never persisted** -- the stored active run
+(`BRSR-26-00326`) still carries the older extraction in which `plate_item` was `1M & 2M`. The AFTER
+figure agrees exactly (18 rows priced); only the baseline and the denominator differ. Row **235** is
+the single point_wiring row this slice unblocks (0 -> 2012/763.4); 295-305 still refuse on genuinely
+missing thickness/conduit, and 190/192/213 are qty-less Preambles outside the run.
+
+**No row that priced before now refuses**, and every previously-priced row keeps its exact value
+(2301/732, 1880/736.4, 1914/743.2) -- the stopping condition that mattered most.
+
+### Marker + cert
+
+De-stale ran in full (bench + the three LISTED vite PIDs killed individually, `.vite` cleared, both
+restarted, `:8080` and `:8000` = 200, storage + service workers cleared with cookies preserved, tab
+closed and reopened). **CODE MARKER, BOTH DIRECTIONS, on the served module:** `derivedAttrIds` (x2),
+the `derivedQtyAttrs` import (x2) and the `derived.has(d.id)` guard (x1) PRESENT; the old bare gate
+`if (!disabled) missing = true` **ABSENT (0)**.
+
+- **V1 PASS** Row 239: **supply 380 / install 80** (combined 460). Lines: switch `16A 1 WAY SWITCH`
+  258 · socket1 `6A/16A 3-Pin Socket` 425 · blank `1M Blanker` 0 · **plate `3M` 204** · back_box
+  `3M` 158. The plate the ladder DERIVED is priced -- with `plate_item` blank in the extraction.
+- **V2 PASS** Row 243: **500 / 100** (plate `6M` 302, back_box `6M` 247). Row 249: **290 / 60**
+  (plate `3M` 204).
+- **V3 PASS, with a correction.** Row 221 prices at **1880 / 736.4**, NOT the predicted 1238/667.4 --
+  because its STORED extraction carries `plate_item = 1M & 2M`, so the ladder uses it as the floor.
+  1238/667.4 was the unpersisted re-run's value. The row was never blocked in live data and is
+  **unchanged** by this slice, which is the correct outcome.
+- **V4 PASS** The switches_sockets **Rules panel renders S3, S1 and S2 in full** on a bundle we know
+  is fresh. This settles the owner's empty-panel report: it was not reproducible then and is not
+  reproducible now -- a stale page remains the only explanation consistent with the evidence.
+- **V5 PASS** Row 295 still reads **"Complete the missing attributes to price — "**. The gate
+  narrowed; it did not open.
+- **V6 PASS** Preview gate in EDIT MODE, exited via Cancel, fresh page load per category:
+  switches_sockets **6/6**, point_wiring **9/9**, wiring_cabling **20/20**, db_switchgear **8/8**.
+
+### Owed
+
+- Move `derivedAttrIds` + `derivedQtyAttrs` into one shared pure module (placement note above).
+- The 16 switches_sockets rows now price from an extraction that predates R9's rewrite; a
+  re-extraction remains a separate owner-approved run.

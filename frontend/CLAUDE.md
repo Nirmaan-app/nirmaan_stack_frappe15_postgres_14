@@ -710,6 +710,25 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   String input. The Derivation screen keeps its OWN `coerceSelected` because that form clears to
   `""` ("the field is empty") where the match coercion yields `null`; only the TYPE decision is
   shared.
+- **AN ATTRIBUTE THE PIPELINE DERIVES IS NEVER MISSING USER INPUT (owner-locked).** The helper's
+  missing-attribute gate must exempt every attribute the config COMPUTES: a blank one means "not
+  stated", not "row incomplete". Two mechanisms make an attribute derived — a component taking
+  `qty: {from_fit}` supersedes its `<name>_qty`, and a `module_fit` **ladder BIND** names the
+  attribute the fitted rung binds to — and `derivedAttrIds` is the ONE predicate over both (it
+  reuses `derivedQtyAttrs` rather than repeating it; #179 is why). **⚠️ `bind` IS NOT `floor_from`,
+  and one attribute can be BOTH:** `plate_item` is its own ladder's floor (a stated plate is a
+  FLOOR, the take-the-larger rule) AND its bind. **Being a bind WINS** — the pipeline can always
+  compute it — while a `floor_from` that is not a bind stays a genuine input and must still block.
+  A stated derived value is still passed to the pipeline, where the ladder reads it as the floor.
+  **Read the derived set FROM CONFIG, never by hardcoded attribute id.**
+- **A NO-OP MEASURED BEFORE A DEPENDENCY LANDS IS NOT A NO-OP AFTERWARDS.** This gate fix was
+  dropped once as a measured no-op, correctly: the only derived attribute then was never blank.
+  Wiring `module_fit` into a category later made another attribute derived, and the dropped fix
+  became a live defect. A decision resting on a measurement inherits that measurement's expiry date.
+- **THE PRICING-EDITOR ROW COUNT IS THE GATE FOR ANYTHING THE GOLDENS BYPASS.** Goldens call
+  `runPipeline` directly and never touch the helper's gate or `coerceForMatch`, so a change there
+  can leave all 26 green while the editor prices nothing. Measure rows-producing-a-value per
+  category, before and after.
 - **AN ATTRIBUTE VALUE IS COERCED IN SEVERAL PLACES, AND A NEW TYPE MUST BE TAUGHT TO EVERY ONE.**
   Three of them decide whether a value can ever match: the frontend MATCH path
   (`rateMasterStructure.coerceForMatch`, value -> catalog match key), the SERVER EXTRACTION path
