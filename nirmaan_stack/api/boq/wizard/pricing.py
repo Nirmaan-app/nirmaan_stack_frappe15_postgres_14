@@ -87,6 +87,99 @@ _AMOUNT_VALUE_FIELDS = frozenset(
     {"amount_by_area", "amount_total", "amount_supply", "amount_install"}
 )
 
+# ── BCS-S9: the BCS Total Amount column as a formula TARGET ──────────────────────
+# BCS Total Amount is a SCREEN-ONLY column of the internal cost block -- it has no committed
+# column and no col_letter, exactly like the BCS cost boxes. It is nonetheless a legitimate
+# formula target: until S9 its rule (quantity x the summed cost boxes) was hardcoded in two
+# separate frontend call sites, so nobody could see it and nobody could change it per sheet.
+_BCS_TOTAL_TARGET = "bcs_total"
+
+# The operand vocabulary a BCS formula may reference. These do NOT resolve through
+# column_role_map -- `bcs_supply`/`bcs_install`/`bcs_combined` come from the row's stored
+# `BoQ Row BCS Rate`, and `bcs_qty` is the sheet's CONFIRMED BCS quantity source. That is
+# precisely why they can never be turned into a spreadsheet cell reference.
+# The sheet's own QUANTITY columns. Admitted into the BCS targets at BCS-S12: with the BCS
+# dialog's Quantity picker gone, "Total Quantity" is no longer a confirmed abstraction -- the
+# formula names the sheet's real qty column, exactly as the amount side names real amount
+# columns. `bcs_qty` is RETAINED for formulas stored before S12, which still resolve through the
+# old confirmation.
+_QTY_VALUE_FIELDS = frozenset({"qty_total", "qty_by_area"})
+
+# ⚠️ TWO SETS, AND CONFLATING THEM IS A PRODUCTION-BREAKING BUG -- it shipped once, at S12, and
+# only the backend suite caught it.
+#
+# `_BCS_ONLY_OPERAND_FIELDS` is what an AMOUNT target may never name: the internal cost figures.
+# `_BCS_OPERAND_FIELDS` is what a BCS target MAY name, which is those PLUS the sheet's ordinary
+# quantity columns.
+#
+# S12 folded the qty fields into the single set that both rules read. The leak rule then refused
+# `qty_total` on an amount target as though it were internal cost -- so the CANONICAL amount
+# formula, `Total Quantity x Rate`, became unsaveable on every sheet, with a message about BCS
+# cost that had nothing to do with what the user had built. The two rules point in opposite
+# directions and must therefore read different sets.
+_BCS_ONLY_OPERAND_FIELDS = frozenset({"bcs_supply", "bcs_install", "bcs_combined", "bcs_qty"})
+_BCS_OPERAND_FIELDS = frozenset(_BCS_ONLY_OPERAND_FIELDS | _QTY_VALUE_FIELDS)
+
+# ⚠️ THE EXPORT-LEAK BOUNDARY, AND WHAT S9 CHANGED ABOUT IT (read before touching either set).
+#
+# The owner-locked rule is that BCS cost, every BCS-derived total, and the margin must NEVER
+# reach a client-facing workbook. Before S9 that held BY CONSTRUCTION: BCS lived in its own
+# doctype, so the formula layer had no way to name a cost. S9 gives the shared formula
+# vocabulary BCS operands, so construction no longer does the work on its own and TWO
+# DIRECTIONAL RULES do it instead (_validate_formula_operands):
+#
+#   a bcs_total target may use ONLY _BCS_OPERAND_FIELDS  -- it cannot reach into sheet data;
+#   an amount  target may use NONE of them               -- cost cannot reach a client column.
+#
+# The SECOND is the one that matters for the leak, and it is not theoretical: an amount
+# column's computed VALUE is what export_priced_workbook writes, so a cost operand inside a
+# client amount formula would leak the cost as a NUMBER -- invisible to any audit of the
+# export's field list, which is the audit the old by-construction argument relied on.
+# Both directions are pinned by their own tests. Do not relax either "for symmetry".
+#
+# BCS-S10 adds a THIRD rule for the new `boq_total` target below.
+#
+# ── BCS-S10: the % Margin DENOMINATOR as a formula target ────────────────────────
+# "BOQ Total" in the owner's vocabulary -- the amount charged to the client on a row, summed
+# from the sheet's Amount columns. Screen-only like bcs_total (no committed column of its own).
+#
+# ⚠️ ONLY THE DENOMINATOR IS EDITABLE. THE MARGIN'S SHAPE IS NOT, AND MUST NOT BECOME SO.
+# `% Margin = (1 - cost/amount) x 100` stays in code (frontend `bcsMarginPercent`), because that
+# function carries three guards a hand-written formula would walk straight past: a ZERO
+# denominator, a NON-FINITE result, and above all a NEGATIVE denominator -- which flips the
+# inequality, so an amount of -100 against a cost of 50 computes as +150%. That is a loss
+# displayed as a profit: confidently wrong, which the frontend docs call the one failure mode
+# worse than a blank. Making the shape editable hands that failure back to the user with nothing
+# guarding it. DO NOT add a `bcs_margin` target.
+_BOQ_TOTAL_TARGET = "boq_total"
+
+# BCS-S11: the % Margin NUMERATOR -- the cost side of the ratio. Defaults to the BCS Total
+# Amount column, but a sheet may instead measure against the raw cost boxes.
+_MARGIN_COST_TARGET = "bcs_margin_cost"
+
+# The numerator may also name `bcs_total` -- the COMPUTED BCS Total column, which is itself a
+# formula target. That is deliberate and is why it is an operand as well as a target: choosing
+# "BCS Total" must mean "whatever that column currently computes", not a frozen copy of the rule
+# it had when the margin was configured.
+_MARGIN_COST_OPERAND_FIELDS = frozenset(_BCS_OPERAND_FIELDS | {_BCS_TOTAL_TARGET})
+
+# What a boq_total formula may name: the sheet's AMOUNT columns, and NOTHING from BCS. It is a
+# CLIENT-FACING figure (what we charge), so admitting a cost operand here would put cost inside
+# the margin's denominator -- silently wrong, and on the wrong side of the internal/client line.
+_BOQ_OPERAND_FIELDS = frozenset(_AMOUNT_VALUE_FIELDS)
+
+# The SCREEN-ONLY targets: no committed column, no col_letter, never written to a workbook.
+# ONE answer to that question, so the operand rules and the save-path branch cannot disagree.
+_BCS_TARGET_FIELDS = frozenset({_BCS_TOTAL_TARGET, _BOQ_TOTAL_TARGET, _MARGIN_COST_TARGET})
+
+# Per-target operand whitelist. A target listed here may use ONLY its own set; every other
+# (amount) target may use none of the BCS ones. See _validate_formula_operands.
+_TARGET_OPERAND_WHITELIST = {
+    _BCS_TOTAL_TARGET: _BCS_OPERAND_FIELDS,
+    _BOQ_TOTAL_TARGET: _BOQ_OPERAND_FIELDS,
+    _MARGIN_COST_TARGET: _MARGIN_COST_OPERAND_FIELDS,
+}
+
 # The fields read back for a current formula record (the read + the merge share this).
 _FORMULA_READ_FIELDS = [
     "name", "boq", "sheet_name", "committed_version",
@@ -98,6 +191,12 @@ _FORMULA_READ_FIELDS = [
 # Structural-validation guard: the token tree must not nest pathologically deep (F1 does a
 # STRUCTURAL check only -- F2 owns evaluation + the cycle guard).
 _FORMULA_MAX_DEPTH = 50
+
+# The operator vocabulary a stored token tree may use. "-" and "/" joined at F5; the frontend
+# builder (formulaTokens.OpToken) and the evaluator (amountFormula) carry the same four. This
+# is a STRUCTURAL whitelist only -- see _validate_formula_structure for why a zero divisor is
+# not this module's business, and for what the two new operators cost in operand ordering.
+_FORMULA_OPS = frozenset({"+", "-", "*", "/"})
 
 # A rate cell is the ONLY cell a price overlays onto. A column_descriptor identifies a
 # rate cell by its value_field: per-area rates nest under "rate_by_area"; scalar rates use
@@ -1786,11 +1885,21 @@ def _validate_formula_structure(node, depth: int = 0) -> None:
     F1 does NOT evaluate and does NOT cycle-check, those are F2). Throws on malformed.
 
     A node is EXACTLY ONE of:
-      operator -> {"op": "+"|"*", "operands": [<node>, <node>, ...]}  (operands non-empty)
+      operator -> {"op": "+"|"-"|"*"|"/", "operands": [<node>, <node>, ...]}  (non-empty)
       leaf ref -> {"ref": {"value_field": <non-empty str>,
                            "value_key": <str|null>, "rate_subkey": <str|null>}}
     NO literal node (numeric literals are barred). A node carrying both "op" and "ref",
     neither, a "literal" key, a bad op, empty operands, or a wrong-typed ref -> throw.
+
+    "-" and "/" joined the vocabulary at F5. This validator is STRUCTURAL only, and stays so:
+    it does not fold the operands, so it has no opinion on a zero divisor -- that is the
+    EVALUATOR's call (frontend amountFormula.evalNode refuses the division and reports the
+    cell "broken"), exactly as cycle detection has always been F2's rather than F1's.
+
+    ⚠️ OPERAND ORDER BECAME LOAD-BEARING WITH THOSE TWO. `+` / `*` are commutative, so nothing
+    downstream ever had a reason not to reorder an "operands" list; for `-` / `/` the list
+    order IS the arithmetic (`{"op": "-", "operands": [a, b, c]}` means `((a - b) - c)`). Any
+    future pass over a stored tree must preserve operand order.
     """
     if depth > _FORMULA_MAX_DEPTH:
         frappe.throw("Formula is nested too deeply.", title="Invalid formula")
@@ -1811,9 +1920,10 @@ def _validate_formula_structure(node, depth: int = 0) -> None:
             title="Invalid formula",
         )
     if has_op:
-        if node["op"] not in {"+", "*"}:
+        if node["op"] not in _FORMULA_OPS:
             frappe.throw(
-                f"Unsupported operator {node['op']!r} (only + and * are allowed).",
+                f"Unsupported operator {node['op']!r} "
+                f"(only {', '.join(sorted(_FORMULA_OPS))} are allowed).",
                 title="Invalid formula",
             )
         operands = node.get("operands")
@@ -1835,6 +1945,56 @@ def _validate_formula_structure(node, depth: int = 0) -> None:
     for k in ("value_key", "rate_subkey"):
         if k in ref and ref[k] is not None and not isinstance(ref[k], str):
             frappe.throw(f"A formula ref's {k} must be a string or null.", title="Invalid formula")
+
+
+def _formula_leaf_fields(node, out: set) -> None:
+    """Collect every leaf ref's value_field in a token tree. Shape-tolerant on purpose --
+    _validate_formula_structure has already rejected a malformed tree, and this must never be
+    the thing that throws."""
+    if not isinstance(node, dict):
+        return
+    if "ref" in node:
+        vf = (node.get("ref") or {}).get("value_field")
+        if vf:
+            out.add(vf)
+        return
+    for child in node.get("operands") or []:
+        _formula_leaf_fields(child, out)
+
+
+def _validate_formula_operands(node, target_value_field: str) -> None:
+    """★ THE TWO DIRECTIONAL RULES that replaced the by-construction export boundary at S9.
+    See the _BCS_OPERAND_FIELDS block for why this exists and what it is standing in for.
+
+    A BCS target may name ONLY BCS operands; an AMOUNT target may name NONE of them. Both are
+    checked before any write, so a refusal mutates nothing."""
+    fields: set = set()
+    _formula_leaf_fields(node, fields)
+
+    allowed = _TARGET_OPERAND_WHITELIST.get(target_value_field)
+    if allowed is not None:
+        stray = sorted(f for f in fields if f not in allowed)
+        if stray:
+            what = {
+                _BCS_TOTAL_TARGET: "BCS cost and BCS quantity operands",
+                _MARGIN_COST_TARGET: "BCS Total or the BCS cost boxes",
+                _BOQ_TOTAL_TARGET: "the sheet's Amount columns",
+            }.get(target_value_field, "operands valid for this target")
+            frappe.throw(
+                f"This formula may only use {what}. Remove: {', '.join(stray)}.",
+                title="Operand not allowed here",
+            )
+        return
+
+    # The BCS-ONLY set, never `_BCS_OPERAND_FIELDS` -- see the note on those two constants.
+    leaked = sorted(f for f in fields if f in _BCS_ONLY_OPERAND_FIELDS)
+    if leaked:
+        frappe.throw(
+            f"A client-facing amount column may not be computed from internal BCS cost "
+            f"({', '.join(leaked)}). BCS cost is what the work costs us and must never reach "
+            f"a workbook handed to the client.",
+            title="BCS cost in a client column",
+        )
 
 
 def _coerce_formula_obj(formula):
@@ -2067,37 +2227,62 @@ def save_amount_formula(
     target_col = _normalize_optional(target_col)
     description = _normalize_optional(description)
 
+    # BCS-S9: a BCS target takes its OWN gate and skips the committed-column match entirely --
+    # BCS Total Amount is screen-only, so there is no column to match and no area/kind axis.
+    #
+    # ⚠️ `target_col` IS FORCED TO NULL, and that is not tidiness. export_template_workbook's
+    # `resolve_target_col` falls back to this stored guard when it cannot resolve a role, so a
+    # non-null value here is the one thing that could give a BCS formula an Excel column to be
+    # written into. (That module also refuses BCS targets outright -- two independent stops,
+    # deliberately, because this is the boundary S9 downgraded from construction to enforcement.)
+    is_bcs_target = target_value_field in _BCS_TARGET_FIELDS
+    if is_bcs_target:
+        if target_value_key is not None or target_rate_subkey is not None:
+            frappe.throw(
+                "The BCS Total Amount column has no area or kind dimension; "
+                "target_value_key and target_rate_subkey must both be empty.",
+                title="Invalid BCS target",
+            )
+        target_col = None
     # AMOUNT-TARGET GATE -- reject a non-amount target BEFORE any lock/write.
-    if target_value_field not in _AMOUNT_VALUE_FIELDS:
+    elif target_value_field not in _AMOUNT_VALUE_FIELDS:
         frappe.throw(
             f"Target value_field '{target_value_field}' is not an amount column. "
-            f"A formula may only target an amount column.",
+            f"A formula may only target an amount column, or the BCS Total Amount column.",
             title="Not an amount target",
         )
-    amount_descs = _committed_amount_descriptors(boq_name, sheet_name, committed_version)
-    # The override-or-wildcard match is the SHARED _formula_target_matches_column primitive
-    # (the same rule the completeness gate uses) -- a wildcard DEFAULT (target_value_key None)
-    # matches >=1 area's column of this value_field+rate_subkey; a per-area OVERRIDE matches the
-    # concrete (area, kind); a scalar target (value_key + rate_subkey None) matches the scalar col.
-    matched = any(
-        _formula_target_matches_column(
-            target_value_field, target_value_key, target_rate_subkey, d
+
+    # The committed-column match applies to AMOUNT targets only -- a BCS target has no committed
+    # column by design, so requiring one would reject every BCS formula ever saved.
+    if not is_bcs_target:
+        amount_descs = _committed_amount_descriptors(boq_name, sheet_name, committed_version)
+        # The override-or-wildcard match is the SHARED _formula_target_matches_column primitive
+        # (the same rule the completeness gate uses) -- a wildcard DEFAULT (target_value_key
+        # None) matches >=1 area's column of this value_field+rate_subkey; a per-area OVERRIDE
+        # matches the concrete (area, kind); a scalar target matches the scalar col.
+        matched = any(
+            _formula_target_matches_column(
+                target_value_field, target_value_key, target_rate_subkey, d
+            )
+            for d in amount_descs
         )
-        for d in amount_descs
-    )
-    if not matched:
-        frappe.throw(
-            "No matching committed amount column for the requested formula target "
-            f"(value_field={target_value_field!r}, area={target_value_key!r}, "
-            f"kind={target_rate_subkey!r}).",
-            title="No matching amount column",
-        )
+        if not matched:
+            frappe.throw(
+                "No matching committed amount column for the requested formula target "
+                f"(value_field={target_value_field!r}, area={target_value_key!r}, "
+                f"kind={target_rate_subkey!r}).",
+                title="No matching amount column",
+            )
 
     # STRUCTURAL validation of the formula (or detect the CLEAR signal). Done BEFORE the
     # lock so a malformed formula mutates nothing.
     formula_obj, is_clear = _coerce_formula_obj(formula)
     if not is_clear:
         _validate_formula_structure(formula_obj)
+        # BCS-S9: the two DIRECTIONAL operand rules. Runs on EVERY save, both directions, so
+        # the amount side is guarded even though nothing on that side changed -- that is the
+        # half standing in for the export boundary. See _BCS_OPERAND_FIELDS.
+        _validate_formula_operands(formula_obj, target_value_field)
 
     # DELIBERATE LOCK GUARD -- after the target-resolve + validation, before the lock acquire /
     # freeze+insert (reject-mutates-nothing). A locked sheet rejects amount-formula writes too.

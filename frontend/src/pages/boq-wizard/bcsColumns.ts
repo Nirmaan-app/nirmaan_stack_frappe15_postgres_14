@@ -30,7 +30,7 @@
  *
  * ADAPT AND DISCLOSE, NEVER REFUSE. A sheet carrying only ONE half is ACCEPTED, and the software
  * STATES the formula it is actually using (`bcsSummaryForMode`). THE SENTENCE IS THE SAFETY: a
- * sheet whose % Profit is measured against supply alone looks identical to one measured against
+ * sheet whose % Margin is measured against supply alone looks identical to one measured against
  * the whole amount, so without the disclosure, acceptance IS the failure mode. Do not reinstate
  * the refusal, and do not let the sentence become decoration.
  *
@@ -59,6 +59,9 @@
  * false and then discarded WHOLE, taking the true rule under it along.
  */
 import type {
+  AmountFormulaNode,
+  AmountFormulaRef,
+  ColumnFormula,
   BcsColumnEntry,
   BcsRateField,
   BcsRowRates,
@@ -66,6 +69,10 @@ import type {
   ColumnDescriptor,
 } from "./boqTypes";
 import { ROLE_LABELS } from "./boqTypes";
+// BCS-S9: the ONE operator fold, shared with the column-formula evaluator. `amountFormula` is
+// itself a pure leaf (type-only imports), so this stays acyclic -- and sharing the fold is what
+// stops `+ - x /` meaning two different things on one screen. See foldOperands.
+import { foldOperands, type EvalResult } from "./amountFormula";
 
 /** The two sides of the confirmation. */
 export type BcsSide = "qty" | "amount";
@@ -287,7 +294,7 @@ function columnPhrase(cols: string[]): string {
  *
  * This is the owner's safety mechanism, not decoration. The ruling is "adapt and disclose, never
  * refuse": a one-sided sheet is accepted, and in exchange the software says out loud what it is
- * measuring % Profit against. Without the sentence, acceptance is the failure mode -- a sheet
+ * measuring % Margin against. Without the sentence, acceptance is the failure mode -- a sheet
  * costed against the supply half alone renders identically to one costed against the whole
  * amount, and nobody finds out until the margin is wrong.
  *
@@ -336,37 +343,37 @@ export function bcsSummaryForMode(mode: string, cols: string[]): string {
 
     // -- amount: the eight, in the same order as sources._AMOUNT_MODES --
     case "amount_total":
-      return `% Profit is measured against the combined Amount in ${where}.`;
+      return `% Margin is measured against the combined Amount in ${where}.`;
     case "amount_supply_plus_install":
       return (
-        `% Profit is measured against the Supply amount plus the Installation amount ` +
+        `% Margin is measured against the Supply amount plus the Installation amount ` +
         `(${where}), added together.`
       );
     case "amount_supply_only":
       return (
-        `% Profit is measured against the Supply amount alone (${where}). Installation is ` +
+        `% Margin is measured against the Supply amount alone (${where}). Installation is ` +
         `not included.`
       );
     case "amount_install_only":
       return (
-        `% Profit is measured against the Installation amount alone (${where}). Supply is ` +
+        `% Margin is measured against the Installation amount alone (${where}). Supply is ` +
         `not included.`
       );
     case "amount_by_area":
-      return `% Profit is measured against the combined Amount in ${where}, added together.`;
+      return `% Margin is measured against the combined Amount in ${where}, added together.`;
     case "amount_by_area_supply_plus_install":
       return (
-        `% Profit is measured against the Supply and Installation amounts in ${where}, all ` +
+        `% Margin is measured against the Supply and Installation amounts in ${where}, all ` +
         `added together.`
       );
     case "amount_by_area_supply_only":
       return (
-        `% Profit is measured against the Supply amounts in ${where}, added together. ` +
+        `% Margin is measured against the Supply amounts in ${where}, added together. ` +
         `Installation is not included.`
       );
     case "amount_by_area_install_only":
       return (
-        `% Profit is measured against the Installation amounts in ${where}, added together. ` +
+        `% Margin is measured against the Installation amounts in ${where}, added together. ` +
         `Supply is not included.`
       );
 
@@ -377,7 +384,7 @@ export function bcsSummaryForMode(mode: string, cols: string[]): string {
     default:
       return (
         `This sheet's Amount setup uses a mode this screen does not recognise ("${mode}"), so ` +
-        `the formula in force cannot be stated here. Ask the team before relying on % Profit.`
+        `the formula in force cannot be stated here. Ask the team before relying on % Margin.`
       );
   }
 }
@@ -1028,11 +1035,39 @@ export function bcsUnitCost(
  * A per-area column that does not apply to this row contributes 0; a row where NOTHING resolves
  * is genuinely quantity-less and returns `null` (blank Total), not 0.
  */
+/**
+ * ★ WHICH COLUMNS HOLD THIS SHEET'S QUANTITY -- one answer, used by the seed, the built-in
+ * fallback and the legacy `bcs_qty` operand alike.
+ *
+ * A stored CONFIRMATION wins where one exists, so every sheet configured before BCS-S12 keeps
+ * resolving exactly as it did. Otherwise the sheet's OWN quantity columns are used directly.
+ *
+ * ⚠️ THE FALLBACK IS WHY THIS EXISTS, AND ITS ABSENCE WAS A LIVE REGRESSION. S12 removed the
+ * Quantity picker, so nothing writes `bcs_qty_source` any more -- and quantity still resolved
+ * ONLY through it. On every sheet enabled since, quantity came back null, so BCS Total rendered
+ * blank with reason `no_quantity` and % Margin blank behind it, even with both cost boxes
+ * filled. Measured on the live bench: 3 of 8 BCS-enabled sheets were in that state, and it was
+ * ONGOING -- a brand-new sheet landed broken. The cost values were always stored correctly; only
+ * the multiplicand was missing.
+ */
+export function bcsQuantityColumns(
+  source: BcsSource | null | undefined,
+  descriptors?: readonly ColumnDescriptor[],
+): readonly BcsColumnEntry[] {
+  const confirmed = source?.columns ?? [];
+  if (confirmed.length > 0) return confirmed;
+  const ds = descriptors ?? [];
+  const scalar = ds.filter((d) => d.value_field === "qty_total");
+  if (scalar.length > 0) return scalar as unknown as BcsColumnEntry[];
+  return ds.filter((d) => d.value_field === "qty_by_area") as unknown as BcsColumnEntry[];
+}
+
 export function bcsRowQuantity(
   source: BcsSource | null | undefined,
   resolve: (entry: BcsColumnEntry) => unknown,
+  descriptors?: readonly ColumnDescriptor[],
 ): number | null {
-  const cols = source?.columns ?? [];
+  const cols = bcsQuantityColumns(source, descriptors);
   if (cols.length === 0) return null;
   let any = false;
   let total = 0;
@@ -1056,7 +1091,7 @@ export function bcsRowQuantity(
  * committed value, not the raw formula result -- the number ON SCREEN, which means the caller
  * resolves the formula AND the document-vs-formula reconciliation choice before handing it here.
  * The Tendered column exists precisely to put the denominator in front of the user; if it showed
- * one number while % Profit divided by another, the column would be worse than useless. The
+ * one number while % Margin divided by another, the column would be worse than useless. The
  * callback is what keeps that rule at the caller (where `reconChoiceMap` and the row's live rate
  * drafts are) while this module stays a pure leaf with type-only imports.
  *
@@ -1064,11 +1099,45 @@ export function bcsRowQuantity(
  * amount-less and returns `null`, not 0. A 0 denominator is a claim ("we charge nothing"); an
  * absent one is the absence of a claim, and only the first of those can be a real margin.
  */
+/**
+ * ★ WHICH COLUMNS HOLD THIS SHEET'S AMOUNT -- the exact mirror of `bcsQuantityColumns`, and it
+ * exists for the exact same reason.
+ *
+ * A stored CONFIRMATION wins where one exists (pre-S12 sheets are unchanged); otherwise the
+ * sheet's OWN amount columns are used: a scalar `amount_total` ALONE, else the supply/install
+ * halves summed, else the per-area amounts summed.
+ *
+ * ⚠️ A SCALAR TOTAL IS NEVER SUMMED WITH THE HALVES -- the rule `sources.py` enforced for the
+ * confirmation this replaces ("a TOTAL already CONTAINS its halves"). Summing all three counts
+ * every amount twice and HALVES every margin, which still renders a plausible percentage.
+ *
+ * ⚠️ THIS WAS THE SECOND HALF OF A BUG WHOSE FIRST HALF SHIPPED ALONE. S12 removed both column
+ * pickers, and quantity got a descriptor fallback while amount did not -- so on a sheet with no
+ * confirmation BCS Total computed correctly and % Margin stayed blank, because its DENOMINATOR
+ * resolved to null. The two sides are symmetric and must stay symmetric.
+ */
+export function bcsAmountColumns(
+  source: BcsSource | null | undefined,
+  descriptors?: readonly ColumnDescriptor[],
+): readonly BcsColumnEntry[] {
+  const confirmed = source?.columns ?? [];
+  if (confirmed.length > 0) return confirmed;
+  const ds = descriptors ?? [];
+  const total = ds.filter((d) => d.value_field === "amount_total");
+  if (total.length > 0) return total as unknown as BcsColumnEntry[];
+  const halves = ds.filter(
+    (d) => d.value_field === "amount_supply" || d.value_field === "amount_install",
+  );
+  if (halves.length > 0) return halves as unknown as BcsColumnEntry[];
+  return ds.filter((d) => d.value_field === "amount_by_area") as unknown as BcsColumnEntry[];
+}
+
 export function bcsRowAmount(
   source: BcsSource | null | undefined,
   evaluate: (entry: BcsColumnEntry) => number | null,
+  descriptors?: readonly ColumnDescriptor[],
 ): number | null {
-  const cols = source?.columns ?? [];
+  const cols = bcsAmountColumns(source, descriptors);
   if (cols.length === 0) return null;
   let any = false;
   let total = 0;
@@ -1082,10 +1151,455 @@ export function bcsRowAmount(
 }
 
 /** Total Amount = quantity x the per-unit cost. Blank if either side is blank -- never a
- *  half-computed figure, which on a cost screen is worse than an empty cell. */
+ *  half-computed figure, which on a cost screen is worse than an empty cell.
+ *
+ *  This is the BUILT-IN rule, and since BCS-S9 it is also the SEED of the editable formula
+ *  (`defaultBcsTotalFormula`) rather than the only way the column can be computed. It stays
+ *  the answer for every sheet that has not declared one. */
 export function bcsTotalAmount(qty: number | null, unitCost: number | null): number | null {
   if (qty === null || unitCost === null) return null;
   return qty * unitCost;
+}
+
+// ── BCS-S9: BCS Total Amount as an editable formula ──────────────────────────────
+//
+// The rule above was hardcoded at TWO call sites (PricingGrid.computeBcsRowCells and
+// pricingRollup), so it could be neither seen nor varied per sheet. S9 makes it a formula with
+// a green f badge on the column header, exactly like an amount column's.
+//
+// ⚠️ THE OPERAND VOCABULARY IS DISJOINT FROM THE SHEET'S, AND THAT IS THE SAFETY. None of these
+// value_fields is a committed column -- they resolve to the row's stored BCS cost inputs and to
+// the sheet's CONFIRMED BCS quantity. The server enforces the two directions (a bcs_total target
+// may use only these; an amount target may use none of them), which is what stands in for the
+// export boundary BCS used to get by construction. See pricing._BCS_OPERAND_FIELDS.
+
+/** The formula TARGET token for this column. Mirrors pricing._BCS_TOTAL_TARGET. */
+export const BCS_TOTAL_TARGET = "bcs_total";
+
+/** The cost operand a rate kind resolves to. Mirrors pricing._BCS_OPERAND_FIELDS. */
+export const BCS_OPERAND_FIELD: Record<BcsRateKind, string> = {
+  supply: "bcs_supply",
+  install: "bcs_install",
+  combined: "bcs_combined",
+};
+/** The sheet's confirmed BCS quantity, as an operand. */
+export const BCS_QTY_OPERAND_FIELD = "bcs_qty";
+
+/** Display labels for the builder's palette chips. The cost chips reuse BCS_RATE_LABEL so the
+ *  chip and the column header it refers to can never read differently. */
+export function bcsOperandLabel(valueField: string): string {
+  if (valueField === BCS_QTY_OPERAND_FIELD) return "Total Quantity";
+  for (const k of BCS_KIND_ORDER) {
+    if (BCS_OPERAND_FIELD[k] === valueField) return BCS_RATE_LABEL[k];
+  }
+  return valueField;
+}
+
+/** One BCS operand ref (no area, no rate_subkey -- BCS has neither dimension). */
+function bcsRef(valueField: string): AmountFormulaRef {
+  return { value_field: valueField, value_key: null, rate_subkey: null };
+}
+
+/** The operand chips a sheet's builder offers: its LIVE cost kinds, then the quantity. Derived
+ *  from `bcsLiveRateKinds`, so the palette can never offer a cost box the sheet does not have. */
+export function bcsOperandRefs(kinds: readonly BcsRateKind[]): AmountFormulaRef[] {
+  return [...kinds.map((k) => bcsRef(BCS_OPERAND_FIELD[k])), bcsRef(BCS_QTY_OPERAND_FIELD)];
+}
+
+/**
+ * ★ THE SEED -- `(cost boxes summed) x Total Quantity`, the exact rule `bcsTotalAmount` applied
+ * before S9. A sheet that never opens the builder must compute the number it always computed,
+ * so this is what an absent stored formula falls back to AND what the builder opens showing.
+ *
+ * On a two-box sheet it is `(Supply + Install) x Total Quantity`; on a combined-rate sheet the
+ * sum collapses to the single box, since `bcsLiveRateKinds` returns one kind. Returns null when
+ * the sheet has no cost box at all -- there is nothing to total.
+ */
+export function defaultBcsTotalFormula(
+  kinds: readonly BcsRateKind[],
+  descriptors?: readonly ColumnDescriptor[],
+): AmountFormulaNode | null {
+  if (kinds.length === 0) return null;
+  const costs = kinds.map((k) => ({ ref: bcsRef(BCS_OPERAND_FIELD[k]) }));
+  const costNode: AmountFormulaNode =
+    costs.length === 1 ? costs[0] : { op: "+", operands: costs };
+
+  // ⚠️ THE QUANTITY LEAF IS THE SHEET'S REAL COLUMN, NOT `bcs_qty`. Emitting the abstraction
+  // here is what stranded three live sheets: a user who opened the ƒ and pressed Save got a
+  // formula whose quantity resolved through a confirmation nothing writes any more, so BCS
+  // Total came out blank. `bcs_qty` remains READABLE (see bcsQuantityColumns' fallback) but is
+  // no longer PRODUCED.
+  const qtyCols = bcsQuantityColumns(null, descriptors);
+  const qtyRef: AmountFormulaRef =
+    qtyCols.length > 0
+      ? {
+          value_field: qtyCols[0].value_field,
+          value_key: qtyCols[0].value_key ?? null,
+          rate_subkey: qtyCols[0].rate_subkey ?? null,
+        }
+      : bcsRef(BCS_QTY_OPERAND_FIELD); // no qty column mapped -> the legacy leaf, as before
+  const qtyNode: AmountFormulaNode =
+    qtyCols.length > 1
+      ? {
+          op: "+",
+          operands: qtyCols.map((c) => ({
+            ref: {
+              value_field: c.value_field,
+              value_key: c.value_key ?? null,
+              rate_subkey: c.rate_subkey ?? null,
+            } as AmountFormulaRef,
+          })),
+        }
+      : { ref: qtyRef };
+
+  return { op: "*", operands: [costNode, qtyNode] };
+}
+
+/**
+ * Evaluate a BCS Total formula for ONE row. Arithmetic goes through `foldOperands` -- the SAME
+ * fold a column formula uses -- so `+ - x /` (and the zero-divisor refusal) can never mean two
+ * different things on one screen.
+ *
+ * ⚠️ THE BLANK STILL KNOWS WHY. A missing operand does not merely blank the cell; the reason is
+ * chosen from WHICH operand was missing -- an unentered cost reads `no_cost`, a row with no
+ * quantity reads `no_quantity`. Losing that on the formula path would have quietly downgraded
+ * every uncosted row to an unexplained empty cell, which is the one thing this block's cells
+ * are not allowed to be.
+ */
+export function evaluateBcsTotalFormula(
+  tree: AmountFormulaNode,
+  operands: {
+    qty: number | null;
+    cost: (kind: BcsRateKind) => number | null;
+    /** BCS-S12: resolve a ref naming one of the SHEET's own columns (a real qty column now that
+     *  the BCS dialog's picker is gone). Absent -> such a ref is unresolvable, which is the
+     *  pre-S12 behaviour for a formula that could not contain one. */
+    column?: (ref: AmountFormulaRef) => number | null;
+  },
+): BcsComputedCell {
+  let sawMissingQty = false;
+  let sawMissingCost = false;
+
+  const resolve = (ref: AmountFormulaRef): EvalResult => {
+    const vf = ref.value_field;
+    if (vf === BCS_QTY_OPERAND_FIELD) {
+      if (operands.qty === null) {
+        sawMissingQty = true;
+        return { ok: false, reason: "not_yet" };
+      }
+      return { ok: true, value: operands.qty };
+    }
+    for (const k of BCS_KIND_ORDER) {
+      if (BCS_OPERAND_FIELD[k] === vf) {
+        const v = operands.cost(k);
+        if (v === null) {
+          sawMissingCost = true;
+          return { ok: false, reason: "not_yet" };
+        }
+        return { ok: true, value: v };
+      }
+    }
+    // BCS-S12: a ref naming one of the sheet's own columns (a real quantity column).
+    if (operands.column) {
+      const v = operands.column(ref);
+      if (v === null) {
+        sawMissingQty = true;
+        return { ok: false, reason: "not_yet" };
+      }
+      return { ok: true, value: v };
+    }
+    // Otherwise a ref outside the vocabulary. The server refuses these, so reaching here means
+    // a record predating the guard or a hand-edited one -- structural, hence "broken".
+    return { ok: false, reason: "broken", detail: "not-a-bcs-operand" };
+  };
+
+  const walk = (n: AmountFormulaNode): EvalResult =>
+    "ref" in n ? resolve(n.ref) : foldOperands(n.op, n.operands.map(walk));
+
+  const r = walk(tree);
+  if (r.ok) {
+    return Number.isFinite(r.value)
+      ? { kind: "value", value: r.value }
+      : { kind: "blank", reason: "not_finite" };
+  }
+  if (r.reason === "broken") return { kind: "blank", reason: "not_finite" };
+  // Cost first: on a fresh sheet nothing is costed, and typing a cost is the fix.
+  if (sawMissingCost) return { kind: "blank", reason: "no_cost" };
+  if (sawMissingQty) return { kind: "blank", reason: "no_quantity" };
+  return { kind: "blank", reason: "no_cost" };
+}
+
+// ── BCS-S11: the % Margin NUMERATOR ("cost side") as an editable formula ────────
+//
+// The owner asked to choose the cost side directly: `BCS Total`, or the raw cost boxes. Both
+// slots of the ratio are now selectable; ONLY the `(1 - c/a) x 100` wrapper stays in code.
+//
+// ⚠️ AND THE WRAPPER CANNOT MOVE INTO A FORMULA, AS A MATTER OF STRUCTURE, NOT PREFERENCE.
+// The builder has NO numeric literal token and the server rejects a `literal` node outright
+// ("Numeric literals are not allowed in a formula") -- a rule that exists so nobody hardcodes
+// `Total Quantity x 450` in place of a rate reference. So the `1` and the `100` are simply
+// inexpressible here, and `bcsMarginPercent` is where they live along with the three guards.
+
+/** The formula TARGET token for the numerator. Mirrors pricing._MARGIN_COST_TARGET. */
+export const MARGIN_COST_TARGET = "bcs_margin_cost";
+
+/** `BCS Total` as an OPERAND -- the computed column, resolved live. Choosing it must mean
+ *  "whatever BCS Total currently computes", never a frozen copy of its rule. */
+export const BCS_TOTAL_OPERAND_FIELD = BCS_TOTAL_TARGET;
+
+/**
+ * The numerator's palette: BCS Total first (the default), then the sheet's live cost boxes,
+ * then Total Quantity.
+ *
+ * ⚠️ TOTAL QUANTITY IS NOT OPTIONAL HERE, AND LEAVING IT OUT WAS A REAL DEFECT.
+ * BCS Total Amount is a ROW TOTAL -- `(cost boxes) x Total Quantity` -- while the cost boxes
+ * are PER-UNIT rates. Offering the boxes without the quantity meant the only formula reachable
+ * from them divided a per-unit rate by BOQ Total, which is a whole-row amount: dimensionally
+ * wrong, and wrong in a way that still renders a plausible-looking percentage. With the
+ * quantity present the user can rebuild `(Supply + Install) x Total Quantity` -- or vary it --
+ * and stay comparable to the denominator.
+ */
+export function marginCostOperandRefs(kinds: readonly BcsRateKind[]): AmountFormulaRef[] {
+  return [
+    bcsRef(BCS_TOTAL_OPERAND_FIELD),
+    ...kinds.map((k) => bcsRef(BCS_OPERAND_FIELD[k])),
+    bcsRef(BCS_QTY_OPERAND_FIELD),
+  ];
+}
+
+/**
+ * Labels for the numerator palette.
+ *
+ * ⚠️ EACH CHIP READS EXACTLY AS ITS COLUMN HEADER DOES, and that is the whole rule. This
+ * returned "BCS Total" while the grid header says "BCS Total Amount" -- the same defect the
+ * Amount side had, where a chip named by ROLE ("Amount (Total)") could not be found in a grid
+ * that names the column something else. A chip nobody can locate in the grid is worse than no
+ * chip: it reads as a figure that does not exist. The cost boxes already share
+ * `BCS_RATE_LABEL` with their headers, so they were correct; only the Total was not.
+ */
+export function marginCostOperandLabel(valueField: string): string {
+  return valueField === BCS_TOTAL_OPERAND_FIELD ? "BCS Total Amount" : bcsOperandLabel(valueField);
+}
+
+/** The seed: BCS Total on its own -- exactly what the margin has always measured. */
+export function defaultMarginCostFormula(): AmountFormulaNode {
+  return { ref: bcsRef(BCS_TOTAL_OPERAND_FIELD) };
+}
+
+/** The sheet's declared margin-cost formula, or null for the built-in "use BCS Total". */
+export function pickMarginCostFormula(
+  columnFormulas: readonly ColumnFormula[] | null | undefined,
+): AmountFormulaNode | null {
+  const rec = (columnFormulas ?? []).find((f) => f.target_value_field === MARGIN_COST_TARGET);
+  return rec?.formula ?? null;
+}
+
+/**
+ * ★ ONE ROW'S MARGIN NUMERATOR. `tree` null = the BCS Total cell itself, byte-identical to
+ * pre-S11 (so no sheet's margin moves). A blank propagates its REASON, because the margin cell
+ * shows that reason and "we could not compute the cost" is a different fact from "there is no
+ * amount".
+ */
+export function marginCostCell(
+  tree: AmountFormulaNode | null | undefined,
+  bcsTotal: BcsComputedCell,
+  merged: Record<BcsRateField, string | null>,
+  qty: number | null = null,
+  column?: (ref: AmountFormulaRef) => number | null,
+): BcsComputedCell {
+  if (!tree) return bcsTotal;
+  let sawMissing = false;
+  let sawMissingQty = false;
+  const resolve = (ref: AmountFormulaRef): EvalResult => {
+    if (ref.value_field === BCS_QTY_OPERAND_FIELD) {
+      if (qty === null) {
+        sawMissingQty = true;
+        return { ok: false, reason: "not_yet" };
+      }
+      return { ok: true, value: qty };
+    }
+    if (ref.value_field === BCS_TOTAL_OPERAND_FIELD) {
+      if (bcsTotal.kind === "blank") {
+        sawMissing = true;
+        return { ok: false, reason: "not_yet" };
+      }
+      return { ok: true, value: bcsTotal.value };
+    }
+    for (const k of BCS_KIND_ORDER) {
+      if (BCS_OPERAND_FIELD[k] === ref.value_field) {
+        const v = merged[BCS_RATE_FIELD[k]];
+        if (v === null) {
+          sawMissing = true;
+          return { ok: false, reason: "not_yet" };
+        }
+        const n = parseFloat(v);
+        return { ok: true, value: Number.isFinite(n) ? n : 0 };
+      }
+    }
+    // BCS-S12: a ref naming one of the sheet's own columns (a real quantity column).
+    if (column) {
+      const v = column(ref);
+      if (v === null) {
+        sawMissingQty = true;
+        return { ok: false, reason: "not_yet" };
+      }
+      return { ok: true, value: v };
+    }
+    return { ok: false, reason: "broken", detail: "not-a-margin-cost-operand" };
+  };
+  const walk = (n: AmountFormulaNode): EvalResult =>
+    "ref" in n ? resolve(n.ref) : foldOperands(n.op, n.operands.map(walk));
+  const r = walk(tree);
+  if (r.ok) {
+    return Number.isFinite(r.value)
+      ? { kind: "value", value: r.value }
+      : { kind: "blank", reason: "not_finite" };
+  }
+  if (r.reason === "broken") return { kind: "blank", reason: "not_finite" };
+  // Cost first: on a fresh sheet nothing is costed, and typing a cost is the fix.
+  if (sawMissing) return { kind: "blank", reason: "no_cost" };
+  if (sawMissingQty) return { kind: "blank", reason: "no_quantity" };
+  return { kind: "blank", reason: "no_cost" };
+}
+
+// ── BCS-S10: the % Margin DENOMINATOR ("BOQ Total") as an editable formula ───────
+//
+// ⚠️ ONLY THE DENOMINATOR IS EDITABLE. THE MARGIN'S SHAPE IS NOT.
+// `% Margin = (1 - cost/amount) x 100` stays in `bcsMarginPercent`, which carries three guards a
+// hand-written formula would walk straight past: a ZERO denominator, a NON-FINITE result, and
+// above all a NEGATIVE denominator -- that flips the inequality, so an amount of -100 against a
+// cost of 50 computes as +150%, a loss displayed as a profit. That is the one failure mode this
+// block treats as worse than a blank, because it is confidently wrong rather than visibly
+// absent. Giving the user the shape hands that back with nothing guarding it.
+
+/** The formula TARGET token for the denominator. Mirrors pricing._BOQ_TOTAL_TARGET. */
+export const BOQ_TOTAL_TARGET = "boq_total";
+
+/** The sheet's declared BOQ Total formula, or null for the built-in "sum the confirmed Amount
+ *  columns". Same payload + same reader shape as `pickBcsTotalFormula`. */
+export function pickBoqTotalFormula(
+  columnFormulas: readonly ColumnFormula[] | null | undefined,
+): AmountFormulaNode | null {
+  const rec = (columnFormulas ?? []).find((f) => f.target_value_field === BOQ_TOTAL_TARGET);
+  return rec?.formula ?? null;
+}
+
+/**
+ * ★ THE SEED -- the confirmed Amount columns SUMMED, which is exactly what `bcsRowAmount` has
+ * always done. A sheet that never opens the builder must divide by the number it always divided
+ * by, so this is both the fallback and what the builder opens showing.
+ *
+ * Built from the CONFIRMED `bcs_amount_source` (the BCS dialog's Amount picker), so the ƒ and
+ * that picker start in agreement rather than as two independent decisions.
+ */
+export function defaultBoqTotalFormula(
+  source: BcsSource | null | undefined,
+  descriptors?: readonly ColumnDescriptor[],
+): AmountFormulaNode | null {
+  const sum = (
+    entries: ReadonlyArray<{ value_field: string; value_key?: string | null; rate_subkey?: string | null }>,
+  ): AmountFormulaNode | null => {
+    if (entries.length === 0) return null;
+    const leaves = entries.map((c) => ({
+      ref: {
+        value_field: c.value_field,
+        value_key: c.value_key ?? null,
+        rate_subkey: c.rate_subkey ?? null,
+      } as AmountFormulaRef,
+    }));
+    return leaves.length === 1 ? leaves[0] : { op: "+", operands: leaves };
+  };
+
+  // ONE rule, shared with the built-in denominator: `bcsAmountColumns`. The seed and the
+  // fallback must choose the same columns, or a sheet's margin changes the moment someone
+  // opens the ƒ and presses Save without editing anything.
+  return sum(bcsAmountColumns(source, descriptors));
+}
+
+/**
+ * ★ ONE ROW'S BOQ TOTAL -- the ONLY function that answers this, mirroring `bcsTotalCell`.
+ *
+ * `tree` null = no formula declared -> the built-in confirmed-columns sum, byte-identical to
+ * pre-S10, so no sheet's margin moves. `evaluate` is the caller's resolver and MUST still return
+ * THE FIGURE THAT WOULD BE ON SCREEN (formula + reconciliation choice resolved) -- that owner
+ * ruling is unchanged and is why the callback stays at the caller.
+ */
+export function boqTotalAmount(
+  tree: AmountFormulaNode | null | undefined,
+  source: BcsSource | null | undefined,
+  evaluate: (entry: BcsColumnEntry) => number | null,
+  descriptors?: readonly ColumnDescriptor[],
+): number | null {
+  if (!tree) return bcsRowAmount(source, evaluate, descriptors);
+  const resolve = (ref: AmountFormulaRef): EvalResult => {
+    const v = evaluate({
+      col: "",
+      role: "",
+      area: ref.value_key,
+      value_field: ref.value_field,
+      value_key: ref.value_key,
+      rate_subkey: ref.rate_subkey,
+    } as BcsColumnEntry);
+    return v === null || !Number.isFinite(v)
+      ? { ok: false, reason: "not_yet" }
+      : { ok: true, value: v };
+  };
+  const walk = (n: AmountFormulaNode): EvalResult =>
+    "ref" in n ? resolve(n.ref) : foldOperands(n.op, n.operands.map(walk));
+  const r = walk(tree);
+  return r.ok && Number.isFinite(r.value) ? r.value : null;
+}
+
+/**
+ * The sheet's declared BCS Total formula, out of the SAME `column_formulas` payload the amount
+ * columns read. Null = none declared -> the built-in rule.
+ *
+ * It rides that existing payload deliberately: no new fetch, no new endpoint, and -- because
+ * both the grid and the rollup are already handed `columnFormulas` -- no new prop to thread
+ * through the row memo. A BCS target carries no area or kind, so the match is on the target
+ * token alone.
+ */
+export function pickBcsTotalFormula(
+  columnFormulas: readonly ColumnFormula[] | null | undefined,
+): AmountFormulaNode | null {
+  const rec = (columnFormulas ?? []).find(
+    (f) => f.target_value_field === BCS_TOTAL_TARGET,
+  );
+  return rec?.formula ?? null;
+}
+
+/**
+ * ★ ONE ROW'S BCS TOTAL -- THE ONLY FUNCTION THAT ANSWERS THIS, and the reason S9 is safe.
+ *
+ * ⚠️ THE RULE LIVED IN TWO PLACES BEFORE THIS. `PricingGrid.computeBcsRowCells` computed the
+ * grid's cell and `pricingRollup` computed the Summary panel's section costs, each calling
+ * `bcsTotalAmount(qty, bcsUnitCost(...))` on its own. That was survivable only while the rule
+ * was a constant; the moment it became per-sheet DATA, two copies meant a sheet whose formula
+ * had been edited would show one number in the grid and a different one in the summary above
+ * it. Both call sites now come through here. Do not add a third.
+ *
+ * `tree` null = no formula declared for this sheet -> the built-in `(cost boxes) x quantity`,
+ * byte-identical to pre-S9. That is what keeps every existing sheet's totals exactly where
+ * they were.
+ */
+export function bcsTotalCell(
+  tree: AmountFormulaNode | null | undefined,
+  qty: number | null,
+  merged: Record<BcsRateField, string | null>,
+  kinds: readonly BcsRateKind[],
+  column?: (ref: AmountFormulaRef) => number | null,
+): BcsComputedCell {
+  if (!tree) return bcsTotalAmountCell(qty, bcsUnitCost(merged, kinds));
+  return evaluateBcsTotalFormula(tree, {
+    qty,
+    column,
+    cost: (kind) => {
+      const v = merged[BCS_RATE_FIELD[kind]];
+      if (v === null) return null;
+      const n = parseFloat(v);
+      return Number.isFinite(n) ? n : 0;
+    },
+  });
 }
 
 // ── BCS-S3b: the computed columns speak ONE language ─────────────────────────────
@@ -1212,7 +1726,7 @@ export function bcsBlankReasonText(reason: string): string {
       return "No cost entered yet.";
     case "no_amount":
       return (
-        "No amount on this row yet — % Profit is measured against the amount charged, and this " +
+        "No amount on this row yet — % Margin is measured against the amount charged, and this " +
         "row has none to read."
       );
     case "zero_amount":
@@ -1236,7 +1750,7 @@ export function bcsBlankReasonText(reason: string): string {
 }
 
 /**
- * % Profit as it reads in the cell. It needs its OWN formatter -- `renderDescriptorCell` is the
+ * % Margin as it reads in the cell. It needs its OWN formatter -- `renderDescriptorCell` is the
  * sheet's money/quantity formatter and has no percent unit, so a margin rendered through it
  * would sit in the row looking like another amount.
  *
@@ -1310,20 +1824,31 @@ export function bcsCostEntryReason(state: {
  * whole nature is that it is derived. `isBcsInputColumn` replaced all seven, and it answers by
  * MEMBERSHIP in this list rather than by a comparison, so a column added here is excluded from
  * every write path by construction rather than by seven remembered edits.
+ *
+ * ⚠️ "tendered" LEFT THIS LIST AT BCS-S8 (owner ruling 2026-08-07) -- THE COLUMN WAS DROPPED, THE
+ * NUMBER WAS NOT. `bcsTenderedAmountCell` / `bcsRowAmount` are untouched and still compute the
+ * amount charged on every row, because that figure is % Margin's DENOMINATOR; only its `<td>`
+ * is gone. Do NOT "finish the removal" by deleting those functions -- the margin would lose its
+ * divisor and every % Margin on every sheet would blank.
+ *
+ * ⚠️ AND KNOW WHAT THE REMOVAL COST, because it is not nothing. The Tendered column existed to
+ * put the denominator ON SCREEN beside the margin: BCS-S3b's rule is that % Margin divides by
+ * THE FIGURE SHOWN, and the column was how a reader could see that it did. With it gone the
+ * denominator is computed but invisible, so a margin measured against the wrong amount now looks
+ * exactly like one measured against the right amount. The rule still holds in code (one
+ * `shownAmountValue`, reconciliation and all) -- it is simply no longer verifiable by eye.
  */
-export type BcsComputedKind = "total" | "tendered" | "margin";
-export const BCS_COMPUTED_KINDS: readonly BcsComputedKind[] = ["total", "tendered", "margin"];
+export type BcsComputedKind = "total" | "margin";
+export const BCS_COMPUTED_KINDS: readonly BcsComputedKind[] = ["total", "margin"];
 const BCS_COMPUTED_SET: ReadonlySet<string> = new Set<string>(BCS_COMPUTED_KINDS);
 
 /** The Total Amount column's width/render key -- not a cost box, so it has its own token. */
 export const BCS_TOTAL_COL_KEY = "bcs:total";
-/** BCS-S3b: the client-facing amount, and the margin between it and the cost. */
-export const BCS_TENDERED_COL_KEY = "bcs:tendered";
+/** BCS-S3b: the margin between the cost and the amount charged. */
 export const BCS_MARGIN_COL_KEY = "bcs:margin";
 /** Every computed column's width/render key, so the key list is derived, never re-listed. */
 export const BCS_COMPUTED_COL_KEY: Record<BcsComputedKind, string> = {
   total: BCS_TOTAL_COL_KEY,
-  tendered: BCS_TENDERED_COL_KEY,
   margin: BCS_MARGIN_COL_KEY,
 };
 /** One cost box's width/render key. Kind-keyed (survives a change to the sheet's rate mapping). */
@@ -1349,11 +1874,11 @@ export function isBcsInputColumn(
 
 /**
  * The BCS block's columns, left to right: one per live cost box, then the computed tail
- * (Total Amount · Tendered Total Amount · % Profit).
+ * (Total Amount · Tendered Total Amount · % Margin).
  *
  * EMPTY IN, EMPTY OUT -- a sheet with no cost box gets no computed columns either. This is what
  * keeps every colIndex on a non-BCS sheet byte-identical to pre-S3a, and it is also just true:
- * % Profit has no numerator without a cost, and a Total above rows nobody can cost can only ever
+ * % Margin has no numerator without a cost, and a Total above rows nobody can cost can only ever
  * be blank.
  */
 export function bcsColumnKeys(kinds: readonly BcsRateKind[]): string[] {

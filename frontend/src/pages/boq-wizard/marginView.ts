@@ -3,7 +3,7 @@
  * loses (slice BCS-S4).
  *
  * WHAT THE VIEW IS. A separate FLAT, line-items-only presentation of a committed sheet, ordered by
- * % Profit, with an ascending/descending toggle, each row showing its section as context.
+ * % Margin, with an ascending/descending toggle, each row showing its section as context.
  *
  * WHY FLAT RATHER THAN SORTING THE GRID (owner ruling 2026-08-02). The grid is an N-deep hierarchy
  * with collapse/expand. Re-ordering it by margin keeps the tree's affordances over a set that is no
@@ -55,10 +55,10 @@ export interface MarginViewRowLike {
   node_type?: string | null;
 }
 
-/** One row's sort key: its row_index and the % Profit it showed when the snapshot was taken. */
+/** One row's sort key: its row_index and the % Margin it showed when the snapshot was taken. */
 export interface MarginEntry {
   rowIndex: number;
-  /** The row's % Profit, or null when it has none (uncosted, no quantity, no amount, ...). */
+  /** The row's % Margin, or null when it has none (uncosted, no quantity, no amount, ...). */
   margin: number | null;
 }
 

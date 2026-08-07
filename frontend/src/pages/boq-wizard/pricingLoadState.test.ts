@@ -273,7 +273,7 @@ describe("carryPlanLoadState -- survivor 2, the carry button", () => {
 // `get_sheet_bcs_rates` was the fourth fetch on this page and the only one still degrading via
 // `?? []`. An empty rate map is not "no answer yet" to the cost block -- it renders as the
 // ANSWER "nothing on this sheet has been costed": every cost box blank, every Total Amount and
-// % Profit blank, and (until this slice) every box still editable. A fully costed sheet and a
+// % Margin blank, and (until this slice) every box still editable. A fully costed sheet and a
 // sheet nobody has touched were pixel-identical behind a failed read.
 //
 // That is worse than the permanent spinner PE-SPIN-1 closed. A spinner is visibly unfinished; this

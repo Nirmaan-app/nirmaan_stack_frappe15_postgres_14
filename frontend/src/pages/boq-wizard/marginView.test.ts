@@ -2,7 +2,7 @@
  * marginView.test.ts -- the margin view's row set, order and section context (slice BCS-S4).
  *
  * WHAT THIS VIEW IS. A separate FLAT, line-items-only presentation of the pricing sheet, ordered
- * by % Profit, with an ascending/descending toggle, each row carrying its section as context.
+ * by % Margin, with an ascending/descending toggle, each row carrying its section as context.
  * The owner chose it over sorting the grid in place (2026-08-02): the grid is an N-deep hierarchy
  * with collapse/expand, so a flat re-order makes collapsing a section hide rows from scattered
  * places on screen, while the indentation implies nesting under a parent that is nowhere near.
