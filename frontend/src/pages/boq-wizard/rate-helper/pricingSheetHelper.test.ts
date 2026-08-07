@@ -1152,3 +1152,154 @@ describe("the leak's consequence, at the helper (cross-row and CROSS-CATEGORY)",
     expect(supplyOf(helper.compute(ctxFor(241, "cat_b"), forOther.pricing_sheet))).toBe(100);
   });
 });
+
+// ---- CIRCUIT LENGTH part 2: the THIRD derivation mechanism (`derive_attribute`) -----------------
+//
+// point_wiring's `circuit_length_m` used to arrive pre-filled by an `extraction_defaults` entry of 15.
+// That default had to go -- an injected value is a STATED value, and under stated-wins it would have
+// won on every row forever, leaving the whole derivation inert. Removing it leaves the field BLANK on
+// every future row, so unless `derivedAttrIds` knows the third mechanism the missing-attribute gate
+// fires and the row prices NOTHING while the pipeline can compute the length perfectly well.
+//
+// The gate must NARROW, NOT OPEN: a computed target stops blocking, a genuinely absent input still
+// blocks -- including `points` itself, which is EXTRACTED, not derived.
+const daConfig = (): RateCategoryConfig => ({
+  discipline: "Electrical",
+  category_id: "da_probe",
+  attribute_definitions: [
+    { id: "points", label: "Points covered", type: "number" },
+    { id: "circuit_length_m", label: "Circuit length (m)", type: "number" },
+    { id: "item", label: "Item", type: "choice", values: ["WIRE"] },
+  ],
+  pipelines: {
+    da_supply: {
+      output: ["supply"],
+      steps: [
+        {
+          step: "derive_attribute",
+          params: {
+            result_attr: "circuit_length_m",
+            terms: [{ ident: "points", attr: "points" }],
+            constants: { base: 15, per_extra: 5 },
+            formula: "base + (points - 1) * per_extra",
+            unit: "m",
+          },
+        },
+        {
+          step: "component_ref",
+          name: "wire",
+          ref: { kind: "cable", item: "@item" },
+          target: "list_price_per_mtr",
+          rate_stages: [{ mult: 1 }],
+          qty: { from_attr: "circuit_length_m" },
+        },
+        { step: "sum_components", result: "supply" },
+      ],
+    },
+  },
+}) as unknown as RateCategoryConfig;
+
+const DA_ITEMS: RateMasterItem[] = [
+  { discipline: "Electrical", kind: "cable", attributes: { item: "WIRE" }, rates: { list_price_per_mtr: 10 } },
+];
+
+describe("derive_attribute -- the gate NARROWS for a computed target, and still blocks a real gap", () => {
+  const ctxDa = (excelRow: number): RateHelperRowContext => ({
+    excelRow, description: "probe row", nodeType: "Line Item",
+    category: "da_probe", discipline: "Electrical",
+    rateKinds: ["supply_rate", "install_rate", "combined_rate"] as unknown as never,
+  });
+  const helperWith = (attrs: Record<string, { value: string | number | null; confidence: number }>) =>
+    makePricingSheetHelper({
+      configsByCategory: new Map([["da_probe", daConfig()]]),
+      items: DA_ITEMS,
+      extractionByRow: buildExtractionByRow([{ excel_row: 1, attributes: attrs }]),
+    });
+
+  it("derivedAttrIds collects a derive_attribute's result_attr (READ FROM CONFIG, never by id)", () => {
+    const d = derivedAttrIds(daConfig());
+    expect(d.has("circuit_length_m")).toBe(true);
+    // NEGATIVE: the SOURCE attribute is EXTRACTED, not derived -- it is a genuine input.
+    expect(d.has("points")).toBe(false);
+    expect(d.has("item")).toBe(false);
+  });
+
+  it("POSITIVE: a blank COMPUTED length no longer blocks -- the row prices from the point count", () => {
+    const r = helperWith({
+      points: { value: 7, confidence: 0.9 },
+      circuit_length_m: { value: null, confidence: 0.3 },   // DERIVED -- blank means "not stated"
+      item: { value: "WIRE", confidence: 0.9 },
+    }).compute(ctxDa(1));
+    expect(isSuggestion(r)).toBe(true);
+    if (!isSuggestion(r)) return;
+    // BEFORE this fix: "Complete the missing attributes to price", and NO value at all.
+    expect(r.basis).not.toMatch(/Complete the missing attributes/);
+    expect(r.values.supply_rate).toBe(450); // 10/mtr x (15 + 6x5) = 10 x 45
+  });
+
+  it("NEGATIVE: a blank GENUINE input still blocks -- narrowing, not removing", () => {
+    const r = helperWith({
+      points: { value: 7, confidence: 0.9 },
+      circuit_length_m: { value: null, confidence: 0.3 },
+      item: { value: null, confidence: 0.2 },              // a REAL missing input
+    }).compute(ctxDa(1));
+    expect(isSuggestion(r)).toBe(true);
+    if (!isSuggestion(r)) return;
+    expect(r.basis).toMatch(/Complete the missing attributes/);
+    expect(r.values).toEqual({});
+  });
+
+  it("NEGATIVE: the SOURCE attribute still blocks -- `points` is extracted, not computed", () => {
+    // The gate must not exempt the whole chain. Without a point count there is nothing to derive
+    // FROM, and inventing one would be exactly the silent guess the no-compute rule forbids.
+    const r = helperWith({
+      points: { value: null, confidence: 0.2 },
+      circuit_length_m: { value: null, confidence: 0.3 },
+      item: { value: "WIRE", confidence: 0.9 },
+    }).compute(ctxDa(1));
+    expect(isSuggestion(r)).toBe(true);
+    if (!isSuggestion(r)) return;
+    expect(r.basis).toMatch(/Complete the missing attributes/);
+  });
+
+  it("DISPLAY: the computed length is SHOWN, and the field stays EDITABLE", () => {
+    const r = helperWith({
+      points: { value: 7, confidence: 0.9 },
+      circuit_length_m: { value: null, confidence: 0.3 },
+      item: { value: "WIRE", confidence: 0.9 },
+    }).compute(ctxDa(1));
+    if (!isSuggestion(r)) throw new Error("expected a suggestion");
+    const len = r.workings.attributes.find((a) => a.id === "circuit_length_m")!;
+    expect(len.derived).toBe(true);
+    expect(len.derivedValue).toBe("45");
+    expect(attrDisplayValue(len)).toBe("45");
+    expect(isShowingDerived(len)).toBe(true);
+    // ⚠️ EDITABLE. A stated value wins outright here, so a read-only field would promise the pricer
+    // an effect their edit cannot have -- when in fact their edit is the one thing that always wins.
+    // This is the LADDER-BIND case, not the read-only blanker quantity.
+    expect(len.readOnly).toBeUndefined();
+    expect(isAttrBlank(len)).toBe(false);
+  });
+
+  it("DISPLAY: a STATED length keeps the screen and publishes no computed value", () => {
+    const r = helperWith({
+      points: { value: 7, confidence: 0.9 },
+      circuit_length_m: { value: 60, confidence: 0.9 },     // the pricer knows the run is long
+      item: { value: "WIRE", confidence: 0.9 },
+    }).compute(ctxDa(1));
+    if (!isSuggestion(r)) throw new Error("expected a suggestion");
+    const len = r.workings.attributes.find((a) => a.id === "circuit_length_m")!;
+    expect(len.value).toBe("60");
+    expect(len.derivedValue).toBeUndefined();      // nothing was computed -- saying otherwise is a lie
+    expect(attrDisplayValue(len)).toBe("60");
+    expect(isShowingDerived(len)).toBe(false);     // the pricer's own entry is not "computed"
+    expect(r.values.supply_rate).toBe(600);        // 10 x 60, NOT 10 x 45 -- stated wins
+  });
+
+  it("BACKWARD COMPAT: a config with no derive_attribute is unaffected", () => {
+    const d = derivedAttrIds(moduleFitConfig());
+    expect(d.has("circuit_length_m")).toBe(false);
+    expect(d.has("plate_item")).toBe(true);   // the ladder-bind mechanism is untouched
+    expect(d.has("blank_qty")).toBe(true);    // the superseded-qty mechanism is untouched
+  });
+});

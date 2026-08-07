@@ -24,7 +24,7 @@
  * Its group LABELS come from `pipeline_labels` (config data), so only the pairing BEHAVIOUR is
  * special-cased, not the strings. Every OTHER category goes through the generic path.
  */
-import { moduleFitOutcome, NONE_SENTINEL, runPipeline } from "@/pages/pricing/rate-master/ratePipelineInterpreter";
+import { derivedAttrOutcomes, moduleFitOutcome, NONE_SENTINEL, runPipeline } from "@/pages/pricing/rate-master/ratePipelineInterpreter";
 // CP2: `coerceForMatch` moved to the shared rate-master module (the single point where an attribute
 // value becomes a match key); this file imports it and no longer defines it.
 import { coerceForMatch, isDropdownAttributeType } from "@/pages/pricing/rate-master/rateMasterStructure";
@@ -192,10 +192,29 @@ export function derivedAttrIds(config: RateCategoryConfig): Set<string> {
   const out = new Set<string>(derivedQtyAttrs(config).keys());
   for (const pl of Object.values(config.pipelines ?? {})) {
     for (const raw of pl.steps ?? []) {
-      const s = raw as { step?: string; params?: { ladders?: Array<{ bind?: unknown }> } };
-      if (s.step !== "module_fit") continue;
-      for (const ladder of s.params?.ladders ?? []) {
-        if (typeof ladder.bind === "string" && ladder.bind) out.add(ladder.bind);
+      const s = raw as {
+        step?: string;
+        params?: { ladders?: Array<{ bind?: unknown }>; result_attr?: unknown };
+      };
+      if (s.step === "module_fit") {
+        for (const ladder of s.params?.ladders ?? []) {
+          if (typeof ladder.bind === "string" && ladder.bind) out.add(ladder.bind);
+        }
+      } else if (s.step === "derive_attribute") {
+        // THE THIRD MECHANISM. A `derive_attribute` COMPUTES its target attribute from other
+        // attributes, so a blank one means "the row did not state it", never "the row is incomplete".
+        //
+        // ⚠️ This is NOT cosmetic. point_wiring's `circuit_length_m` used to arrive pre-filled by an
+        // `extraction_defaults` entry of 15; removing that default (which is what makes the derivation
+        // reachable at all -- an injected value is a STATED value and would win forever) leaves the
+        // field blank on every future row. Without this branch the missing-attribute gate below fires
+        // and the row prices NOTHING while the pipeline can compute the length perfectly well.
+        //
+        // Same shape as the two mechanisms above, and the same lesson for the THIRD time: a no-op
+        // measured before a dependency lands is not a no-op afterwards.
+        if (typeof s.params?.result_attr === "string" && s.params.result_attr) {
+          out.add(s.params.result_attr);
+        }
       }
     }
   }
@@ -238,6 +257,9 @@ export function applyDerivedDisplay(
   const supersededQty = derivedQtyAttrs(config);
   const fit = moduleFitOutcome(results);
   const byBind = new Map((fit?.ladders ?? []).map((l) => [l.bind, l]));
+  // The THIRD mechanism's values, read through the interpreter's ONE reader -- never by parsing the
+  // trace prose and never by re-deriving the arithmetic (#179).
+  const computedAttrs = derivedAttrOutcomes(results);
 
   return attrs.map((a) => {
     if (!derivedIds.has(a.id)) return a;
@@ -256,7 +278,24 @@ export function applyDerivedDisplay(
     }
 
     const ladder = byBind.get(a.id);
-    if (!ladder) return { ...a, derived: true }; // derived by config, but nothing fitted this run
+    if (!ladder) {
+      // 3. A `derive_attribute` TARGET (the circuit length). Like the ladder bind and UNLIKE the
+      //    blanker quantity, a stated value IS read -- it wins outright, with no floor and no warning
+      //    -- so the field stays EDITABLE and only fills in when the row states nothing. `readOnly`
+      //    must never be set here: that would promise the pricer an effect their edit cannot have,
+      //    when in fact their edit is the one thing that always wins.
+      const computed = computedAttrs.get(a.id);
+      if (computed) {
+        return {
+          ...a,
+          derived: true,
+          // A STATED value publishes no display value -- `attrDisplayValue` shows the row's own entry,
+          // which is what actually prices. Nothing was computed, and claiming otherwise would be a lie.
+          ...(computed.value === null ? {} : { derivedValue: String(computed.value) }),
+        };
+      }
+      return { ...a, derived: true }; // derived by config, but nothing fitted/computed this run
+    }
     return {
       ...a,
       derived: true,
