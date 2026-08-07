@@ -7,6 +7,7 @@ import { isAttrBlank, isAttrDefaulted, isSuggestion } from "./rateHelperTypes";
 import {
   attributeOptions,
   buildExtractionByRow,
+  derivedAttrIds,
   isRunForVersion,
   makePricingSheetHelper,
   nonBcsPipelines,
@@ -660,5 +661,165 @@ describe("U2 -- isAttrBlank / isAttrDefaulted (the three-way state)", () => {
     // disabled attrs carry value "" -- without the disabled guard they would read as blank
     expect(isAttrBlank({ value: "", disabled: true })).toBe(false);
     expect(isAttrDefaulted({ defaulted: true, disabled: true })).toBe(false);
+  });
+});
+
+// ── DERIVED-ATTRIBUTE GATE ──────────────────────────────────────────────────────────
+// An attribute the pipeline DERIVES is never "missing user input". `module_fit`'s ladders BIND
+// `plate_item`, and the helper's gate counted it as required -- refusing 26 rows across
+// switches_sockets and point_wiring that the pipeline prices perfectly well.
+//
+// ⚠️ `bind` IS NOT `floor_from`, and `plate_item` is BOTH on its own ladder. Being a bind WINS: the
+// pipeline can always compute the value, so blank means "no floor stated". A `floor_from` that is
+// NOT a bind stays a genuine input. Both directions are pinned below.
+
+/** A module_fit config in the shape the live switches_sockets / point_wiring configs carry. */
+function moduleFitConfig(): RateCategoryConfig {
+  return {
+    discipline: "Electrical",
+    category_id: "mf_probe",
+    attribute_definitions: [
+      { id: "switch_item", label: "Switch", type: "choice", values: ["10A 1 WAY SWITCH"] },
+      { id: "switch_qty", label: "Switch qty", type: "number" },
+      { id: "plate_item", label: "Plate", type: "choice", values: ["3M", "6M"] },
+      { id: "plate_qty", label: "Plate qty", type: "number" },
+      { id: "blank_qty", label: "Blank qty", type: "number" },
+    ],
+    pipelines: {
+      probe_boq: {
+        output: ["supply"],
+        steps: [
+          {
+            step: "module_fit",
+            params: {
+              terms: [{ attr: "switch_qty", weight: 1 }],
+              ladders: [
+                { kind: "switch_socket_item", bind: "plate_item", floor_from: "plate_item" },
+                { kind: "switch_socket_item", bind: "box_item", floor_from: "plate_item" },
+              ],
+              blanks: { bind: "blank_count", from_ladder: "plate_item" },
+            },
+          },
+          {
+            step: "component_ref", name: "blank", ref: { kind: "switch_socket_item" },
+            target: "list_price", qty: { from_fit: "blank_count" },
+          },
+          { step: "sum_components", result: "supply" },
+        ],
+      },
+    },
+  } as unknown as RateCategoryConfig;
+}
+
+describe("derivedAttrIds -- ladder binds are derived (the 26-dead-rows fix)", () => {
+  it("POSITIVE: a module_fit ladder BIND is derived", () => {
+    const d = derivedAttrIds(moduleFitConfig());
+    expect(d.has("plate_item")).toBe(true);
+    expect(d.has("box_item")).toBe(true);
+  });
+
+  it("POSITIVE: it still reports the `<name>_qty` half -- the two mechanisms compose", () => {
+    // blank_qty is superseded by the component taking qty:{from_fit} -- derivedQtyAttrs' job,
+    // REUSED here rather than re-implemented (one definition per half).
+    expect(derivedAttrIds(moduleFitConfig()).has("blank_qty")).toBe(true);
+  });
+
+  it("NEGATIVE: a genuine INPUT is not derived", () => {
+    const d = derivedAttrIds(moduleFitConfig());
+    expect(d.has("switch_item")).toBe(false);
+    expect(d.has("switch_qty")).toBe(false);
+  });
+
+  it("bind vs floor_from, BOTH WAYS: a floor_from that is NOT a bind stays an input", () => {
+    const cfg = moduleFitConfig();
+    const mf = (cfg.pipelines.probe_boq.steps as unknown as Array<Record<string, any>>)[0];
+    mf.params.ladders = [{ kind: "switch_socket_item", bind: "box_item", floor_from: "plate_item" }];
+    const d = derivedAttrIds(cfg);
+    expect(d.has("box_item")).toBe(true);      // the bind IS derived
+    expect(d.has("plate_item")).toBe(false);   // a floor_from alone is NOT
+  });
+
+  it("bind WINS when one attribute is both -- the shape v24 actually ships", () => {
+    expect(derivedAttrIds(moduleFitConfig()).has("plate_item")).toBe(true);
+  });
+
+  it("NEGATIVE: a config with no module_fit is byte-unaffected", () => {
+    const cfg = moduleFitConfig();
+    (cfg.pipelines.probe_boq.steps as unknown as Array<unknown>).shift();
+    const d = derivedAttrIds(cfg);
+    expect(d.has("plate_item")).toBe(false);
+    expect(d.has("box_item")).toBe(false);
+    expect(d.has("blank_qty")).toBe(true);     // the qty half still applies
+  });
+
+  it("READ FROM CONFIG, never hardcoded: a ladder binding an arbitrary id is derived too", () => {
+    const cfg = moduleFitConfig();
+    const mf = (cfg.pipelines.probe_boq.steps as unknown as Array<Record<string, any>>)[0];
+    mf.params.ladders = [{ kind: "k", bind: "some_future_attr" }];
+    const d = derivedAttrIds(cfg);
+    expect(d.has("some_future_attr")).toBe(true);
+    expect(d.has("plate_item")).toBe(false);
+  });
+});
+
+describe("the missing-attribute gate NARROWS, but still blocks", () => {
+  const ITEMS_MF: RateMasterItem[] = [
+    {
+      discipline: "Electrical", kind: "switch_socket_item",
+      attributes: { item: "3M", family: "Grid and Face Plates" }, rates: { list_price: 100 },
+    },
+  ];
+  const ctxFor = (excelRow: number): RateHelperRowContext => ({
+    excelRow, description: "probe row", nodeType: "Line Item",
+    category: "mf_probe", discipline: "Electrical",
+    rateKinds: ["supply_rate", "install_rate", "combined_rate"] as unknown as never,
+  });
+  const helperWith = (attrs: Record<string, { value: string | number | null; confidence: number }>) =>
+    makePricingSheetHelper({
+      configsByCategory: new Map([["mf_probe", moduleFitConfig()]]),
+      items: ITEMS_MF,
+      extractionByRow: buildExtractionByRow([{ excel_row: 1, attributes: attrs }]),
+    });
+
+  it("POSITIVE: a blank DERIVED attribute no longer blocks the row", () => {
+    const r = helperWith({
+      switch_item: { value: "10A 1 WAY SWITCH", confidence: 0.9 },
+      switch_qty: { value: 1, confidence: 0.9 },
+      plate_item: { value: null, confidence: 0.3 },   // DERIVED -- blank means "no floor stated"
+      plate_qty: { value: 1, confidence: 0.9 },
+      blank_qty: { value: null, confidence: 0.5 },    // DERIVED (from_fit)
+    }).compute(ctxFor(1));
+    expect(isSuggestion(r)).toBe(true);
+    if (!isSuggestion(r)) return;
+    // BEFORE the fix this read "Complete the missing attributes to price"
+    expect(r.basis).not.toMatch(/Complete the missing attributes/);
+  });
+
+  it("NEGATIVE: a blank GENUINE input still blocks -- narrowing, not removing", () => {
+    const r = helperWith({
+      switch_item: { value: null, confidence: 0.2 },  // a REAL missing input
+      switch_qty: { value: 1, confidence: 0.9 },
+      plate_item: { value: null, confidence: 0.3 },
+      plate_qty: { value: 1, confidence: 0.9 },
+      blank_qty: { value: null, confidence: 0.5 },
+    }).compute(ctxFor(1));
+    expect(isSuggestion(r)).toBe(true);
+    if (!isSuggestion(r)) return;
+    expect(r.basis).toMatch(/Complete the missing attributes/);
+    expect(Object.keys(r.values)).toHaveLength(0);
+  });
+
+  it("a STATED derived value is still passed through -- the ladder reads it as its FLOOR", () => {
+    const r = helperWith({
+      switch_item: { value: "10A 1 WAY SWITCH", confidence: 0.9 },
+      switch_qty: { value: 1, confidence: 0.9 },
+      plate_item: { value: "6M", confidence: 0.9 },   // stated -> the floor
+      plate_qty: { value: 1, confidence: 0.9 },
+      blank_qty: { value: null, confidence: 0.5 },
+    }).compute(ctxFor(1));
+    expect(isSuggestion(r)).toBe(true);
+    if (!isSuggestion(r)) return;
+    const plate = r.workings?.attributes?.find((a) => a.id === "plate_item");
+    expect(plate?.value).toBe("6M");
   });
 });

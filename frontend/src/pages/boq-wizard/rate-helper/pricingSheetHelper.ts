@@ -28,6 +28,9 @@ import { NONE_SENTINEL, runPipeline } from "@/pages/pricing/rate-master/ratePipe
 // CP2: `coerceForMatch` moved to the shared rate-master module (the single point where an attribute
 // value becomes a match key); this file imports it and no longer defines it.
 import { coerceForMatch, isDropdownAttributeType } from "@/pages/pricing/rate-master/rateMasterStructure";
+// DERIVED-ATTRIBUTE GATE: the `<name>_qty` half of derivation has ONE definition and this reuses
+// it rather than repeating it (see derivedAttrIds below).
+import { derivedQtyAttrs } from "@/pages/pricing/rate-master/RateMasterDerivation";
 import type {
   AttributeDefinition,
   Pipeline,
@@ -158,6 +161,46 @@ export function attributeOptions(def: AttributeDefinition, items: RateMasterItem
   return def.allow_none ? [NONE_SENTINEL, ...base] : base;
 }
 
+/**
+ * The attribute ids this config COMPUTES rather than accepts as user input.
+ *
+ * ⚠️ A DERIVED ATTRIBUTE IS NEVER "MISSING INPUT". Leaving one blank means the pricer did not state
+ * it, not that the row is incomplete -- the pipeline derives it. Counting one as missing refuses a
+ * row the pipeline can price perfectly well, which is exactly what happened: `module_fit`'s ladders
+ * BIND `plate_item`, the helper counted it as required, and 26 rows across switches_sockets and
+ * point_wiring showed "Complete the missing attributes to price" while the pipeline computed
+ * 380/80, 500/100, 290/60 and 1238/667.4 for them.
+ *
+ * TWO derivation mechanisms, ONE definition of each -- this composes, it does NOT re-implement:
+ *   1. `derivedQtyAttrs` (the blanker slice) -- a component taking `qty: {from_fit}` supersedes its
+ *      `<name>_qty` attribute. REUSED verbatim; the risk of two copies drifting (#179, three
+ *      coercion sites that agreed until they did not) is why this imports rather than repeats it.
+ *   2. `module_fit` LADDER BINDS -- `ladders[].bind` names the attribute the fitted rung binds to.
+ *      This half is new and lives here only.
+ *
+ * ⚠️ `bind` IS NOT `floor_from`, and one attribute is BOTH. `plate_item` is its own ladder's
+ * `floor_from` (a STATED plate is a floor -- the take-the-larger rule) AND its `bind` (the fitted
+ * rung). **Being a bind WINS**: the pipeline can always compute the value, so a blank one is "no
+ * floor stated", never "input missing". A `floor_from` attribute that is NOT also a bind stays a
+ * genuine input and still blocks when blank.
+ *
+ * ⚠️ READ FROM CONFIG, never hardcoded by id. `plate_item` / `box_item` are today's binds; a future
+ * ladder may bind anything, and a category with no `module_fit` is byte-unaffected. PURE.
+ */
+export function derivedAttrIds(config: RateCategoryConfig): Set<string> {
+  const out = new Set<string>(derivedQtyAttrs(config).keys());
+  for (const pl of Object.values(config.pipelines ?? {})) {
+    for (const raw of pl.steps ?? []) {
+      const s = raw as { step?: string; params?: { ladders?: Array<{ bind?: unknown }> } };
+      if (s.step !== "module_fit") continue;
+      for (const ladder of s.params?.ladders ?? []) {
+        if (typeof ladder.bind === "string" && ladder.bind) out.add(ladder.bind);
+      }
+    }
+  }
+  return out;
+}
+
 /** Map a pipeline output key -> the sheet rate-kind it fills. EA-4a: the assembly categories name their
  * outputs `supply` / `install` (no per-unit suffix), so match those EXACTLY as well as the legacy
  * `supply_*` / `install_*` (conduit/wiring per-mtr, switches per-set). */
@@ -216,6 +259,8 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
     const workingsAttrs: WorkingsAttribute[] = [];
     const selected: Record<string, string | number> = {};
     const defaulted: string[] = []; // EA-4a: attrs the extraction filled from a config default
+    // The attributes THIS config computes rather than accepts -- a blank one is not missing input.
+    const derived = derivedAttrIds(category);
     let missing = false;
     for (const d of defs) {
       const cell = ext?.attributes[d.id];
@@ -224,7 +269,10 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       const rawValue = disabled ? null : overridden !== undefined ? overridden : cell?.value ?? null;
       const coerced = coerceForMatch(d, rawValue as string | number | null);
       // A disabled target is POSITIVELY absent (its controller is None) -- clear it, do NOT flag missing.
-      if (coerced === null) { if (!disabled) missing = true; }
+      // A DERIVED attribute (a module_fit ladder bind, or a superseded `<name>_qty`) is likewise not
+      // missing input: blank means "not stated", and the pipeline computes it. A stated value is
+      // still passed through in `selected`, where the ladder reads it as its FLOOR.
+      if (coerced === null) { if (!disabled && !derived.has(d.id)) missing = true; }
       else selected[d.id] = coerced;
       // A defaulted attribute is one the model filled from the config default (no positive text
       // identification); the pricer should see WHICH values came from a default, not read (EA-4a). An
