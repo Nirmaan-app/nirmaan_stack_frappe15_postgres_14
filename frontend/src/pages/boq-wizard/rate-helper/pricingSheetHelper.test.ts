@@ -3,9 +3,18 @@
 import { describe, it, expect } from "vitest";
 import type { Pipeline, RateCategoryConfig, RateMasterItem } from "@/pages/pricing/rate-master/rateMasterTypes";
 import type { ExtractionRow, RateHelperRowContext } from "./rateHelperTypes";
-import { isAttrBlank, isAttrDefaulted, isSuggestion } from "./rateHelperTypes";
+import {
+  attrDisplayValue,
+  isAttrBlank,
+  isAttrDefaulted,
+  isShowingDerived,
+  isSuggestion,
+  upgradeWarningText,
+} from "./rateHelperTypes";
+import { derivedQtyAttrs } from "@/pages/pricing/rate-master/RateMasterDerivation";
 import { overridesForRow } from "./RateHelperPanel";
 import {
+  applyDerivedDisplay,
   attributeOptions,
   buildExtractionByRow,
   derivedAttrIds,
@@ -822,6 +831,203 @@ describe("the missing-attribute gate NARROWS, but still blocks", () => {
     if (!isSuggestion(r)) return;
     const plate = r.workings?.attributes?.find((a) => a.id === "plate_item");
     expect(plate?.value).toBe("6M");
+  });
+});
+
+// ── DERIVED DISPLAY ─────────────────────────────────────────────────────────────────
+// The gate above stopped derived attributes REFUSING a row. It did not make them show anything --
+// so on the owner's row 239 `Frame/Face plate` still read "— select —" in a RED BORDER while the
+// pipeline priced a 3M plate, and `Blank plate qty` still read the extraction's stated 1 where the
+// bill charges 0. THE SCREEN IS THE AUTHORITY: "the arithmetic underneath is correct" is not a
+// defence of either field. These pin the display half.
+//
+// Three owner rulings are pinned here, and they are NOT the same rule:
+//   R1 the face plate DISPLAYS its computed value and STAYS EDITABLE (a stated value is the floor)
+//   R2 a TOO-SMALL entry WARNS, naming both numbers -- it must never look like the field ignored you
+//   R3 the blanker quantity is the NAMED EXCEPTION: computed always wins, and it is READ-ONLY
+
+/** The plate ladder, as real rungs -- the smallest is the COMBINED "1M & 2M" rung (capacity 2). */
+const PLATE_ITEMS: RateMasterItem[] = ["1M & 2M", "3M", "6M", "12M"].map((item) => ({
+  discipline: "Electrical",
+  kind: "switch_socket_item",
+  attributes: { item, family: "Grid and Face Plates" },
+  rates: { list_price: 100 },
+})) as unknown as RateMasterItem[];
+
+const mfCtx = (excelRow: number): RateHelperRowContext => ({
+  excelRow, description: "probe row", nodeType: "Line Item",
+  category: "mf_probe", discipline: "Electrical",
+  rateKinds: ["supply_rate", "install_rate", "combined_rate"] as unknown as never,
+});
+
+/** Compute one row of the module_fit fixture. `switch_qty` drives the module count 1:1. */
+function mfAttrs(over: Record<string, string | number | null> = {}) {
+  const base: Record<string, string | number | null> = {
+    switch_item: "10A 1 WAY SWITCH", switch_qty: 3,
+    plate_item: null, plate_qty: 1, blank_qty: 1,
+  };
+  const merged = { ...base, ...over };
+  return Object.fromEntries(
+    Object.entries(merged).map(([k, v]) => [k, { value: v, confidence: 0.9 }]),
+  );
+}
+function mfCompute(over: Record<string, string | number | null> = {}) {
+  const r = makePricingSheetHelper({
+    configsByCategory: new Map([["mf_probe", moduleFitConfig()]]),
+    items: PLATE_ITEMS,
+    extractionByRow: buildExtractionByRow([{ excel_row: 1, attributes: mfAttrs(over) as never }]),
+  }).compute(mfCtx(1));
+  if (!isSuggestion(r)) throw new Error("expected a suggestion");
+  return (id: string) => r.workings.attributes.find((a) => a.id === id);
+}
+
+describe("DERIVED DISPLAY -- R1: the computed face plate is SHOWN and is not flagged missing", () => {
+  it("POSITIVE (the owner's row 239): a blank plate displays the COMPUTED rung", () => {
+    const plate = mfCompute()("plate_item");           // 3 modules -> the 3M rung
+    expect(plate?.derived).toBe(true);
+    expect(plate?.derivedValue).toBe("3M");
+    expect(attrDisplayValue(plate!)).toBe("3M");
+  });
+
+  it("POSITIVE: and it is NOT blank -- no red border on a field the pipeline computed", () => {
+    // This is the exact field that read "— select —" in red on the owner's screenshot.
+    expect(isAttrBlank(mfCompute()("plate_item")!)).toBe(false);
+  });
+
+  it("⚠️ `value` is NOT overwritten -- a computed value must stay distinguishable from a stated one", () => {
+    // The display comes from `derivedValue`; `value` still means "what the row SUPPLIED". Collapsing
+    // the two is what makes every later reader treat a computed number as a stated one.
+    const plate = mfCompute()("plate_item");
+    expect(plate?.value).toBe("");
+    expect(plate?.derivedValue).toBe("3M");
+  });
+
+  it("POSITIVE (R1, editable): a STATED plate keeps the screen and feeds the pipeline as the floor", () => {
+    const plate = mfCompute({ plate_item: "12M" })("plate_item");
+    expect(plate?.value).toBe("12M");
+    expect(attrDisplayValue(plate!)).toBe("12M");       // the entry is never overwritten on screen
+    expect(plate?.readOnly).toBeUndefined();            // and it stays editable
+    expect(plate?.upgrade).toBeUndefined();             // 12M holds the contents -> no warning
+  });
+
+  it("POSITIVE: a None plate renders EMPTY, never a fabricated size", () => {
+    const plate = mfCompute({ plate_item: "None" })("plate_item");
+    expect(plate?.derivedValue).toBeUndefined();
+    expect(attrDisplayValue(plate!)).toBe("None");      // the row's own positive absence still shows
+  });
+});
+
+describe("DERIVED DISPLAY -- R2: a too-small entry WARNS, it is never silently lost", () => {
+  it("POSITIVE: the warning names BOTH numbers and the size actually priced", () => {
+    // "1M & 2M" holds 2; the contents occupy 3. Take-the-larger prices 3M.
+    const plate = mfCompute({ plate_item: "1M & 2M" })("plate_item");
+    expect(plate?.upgrade).toEqual({ stated: "1M & 2M", statedHolds: 2, occupied: 3, using: "3M" });
+    expect(upgradeWarningText(plate!.upgrade!)).toBe(
+      "1M & 2M holds 2 modules; contents occupy 3 — using 3M.",
+    );
+  });
+
+  it("POSITIVE: the field still shows the pricer's entry -- warned, not overwritten", () => {
+    const plate = mfCompute({ plate_item: "1M & 2M" })("plate_item");
+    expect(attrDisplayValue(plate!)).toBe("1M & 2M");
+  });
+
+  it("the singular reads correctly (a one-module rung)", () => {
+    expect(upgradeWarningText({ stated: "1M", statedHolds: 1, occupied: 3, using: "3M" })).toBe(
+      "1M holds 1 module; contents occupy 3 — using 3M.",
+    );
+  });
+
+  it("NEGATIVE: an entry that FITS raises no warning", () => {
+    expect(mfCompute({ plate_item: "6M" })("plate_item")?.upgrade).toBeUndefined();
+  });
+});
+
+describe("DERIVED DISPLAY -- R3: the blanker quantity is computed-only and READ-ONLY", () => {
+  it("POSITIVE: it shows the COMPUTED count, not the extraction's stated one", () => {
+    // The row states 1; a 3M plate holding 3 modules of contents needs 0 blanks. The bill charges 0.
+    const blank = mfCompute()("blank_qty");
+    expect(blank?.value).toBe("1");                    // what the row supplied
+    expect(blank?.derivedValue).toBe("0");             // what the pipeline computed
+    expect(attrDisplayValue(blank!)).toBe("0");        // and the computed one is what is SHOWN
+  });
+
+  it("POSITIVE: it is read-only -- the pipeline never reads it, so an edit could not reach the price", () => {
+    expect(mfCompute()("blank_qty")?.readOnly).toBe(true);
+  });
+
+  it("POSITIVE: a plate with room shows the real count (6M over 3 modules -> 3 blanks)", () => {
+    expect(attrDisplayValue(mfCompute({ plate_item: "6M" })("blank_qty")!)).toBe("3");
+  });
+
+  it("NEGATIVE: with NO plate there are no blanks to count -- EMPTY, never 0", () => {
+    // 0 would claim "zero needed"; the truth is "no plate to fill".
+    const blank = mfCompute({ plate_item: "None" })("blank_qty");
+    expect(blank?.derivedValue).toBeUndefined();
+    expect(attrDisplayValue(blank!)).toBe("");
+  });
+});
+
+describe("DERIVED DISPLAY -- what it must NOT touch", () => {
+  it("NEGATIVE: a genuine INPUT gets no derived marks at all", () => {
+    const sw = mfCompute()("switch_item");
+    expect(sw?.derived).toBeUndefined();
+    expect(sw?.derivedValue).toBeUndefined();
+    expect(sw?.readOnly).toBeUndefined();
+  });
+
+  it("NEGATIVE: a genuine missing input still blocks AND still shows red -- narrowing, not removing", () => {
+    const at = mfCompute({ switch_item: null })("switch_item");
+    expect(isAttrBlank(at!)).toBe(true);
+  });
+
+  it("NEGATIVE: a config with NO module_fit is byte-unaffected", () => {
+    const cfg = moduleFitConfig();
+    (cfg.pipelines.probe_boq.steps as unknown as Array<unknown>).shift();
+    const out = applyDerivedDisplay(
+      [{ id: "plate_item", label: "Plate", value: "" }],
+      cfg,
+      [],
+    );
+    expect(out[0]).toEqual({ id: "plate_item", label: "Plate", value: "" });
+  });
+
+  it("⚠️ TWO SCREENS, ONE FIELD: the Rate Master Derivation screen reads a DIFFERENT predicate", () => {
+    // There `plate_item` is the stated FLOOR a user sets -- a different question from this panel's
+    // "what did the assembly come to?" -- so it must stay editable there. The screens are kept apart
+    // by construction: Derivation reads `derivedQtyAttrs` (the superseded-qty half ONLY), the panel
+    // reads `derivedAttrIds` (both halves). Collapsing them would freeze the Derivation field.
+    const cfg = moduleFitConfig();
+    expect(derivedQtyAttrs(cfg).has("plate_item")).toBe(false);  // Derivation: still an input
+    expect(derivedAttrIds(cfg).has("plate_item")).toBe(true);    // panel: derived
+    expect(derivedQtyAttrs(cfg).has("blank_qty")).toBe(true);    // the ONE field both compute
+  });
+});
+
+describe("DERIVED DISPLAY -- the pure display rules (what the panel renders)", () => {
+  it("readOnly shows the computed value ALWAYS, even over a stated one", () => {
+    expect(attrDisplayValue({ value: "1", derived: true, derivedValue: "0", readOnly: true })).toBe("0");
+  });
+  it("a stated value on an EDITABLE derived attribute wins the screen", () => {
+    expect(attrDisplayValue({ value: "12M", derived: true, derivedValue: "3M" })).toBe("12M");
+  });
+  it("a blank derived attribute shows the computed value", () => {
+    expect(attrDisplayValue({ value: "", derived: true, derivedValue: "3M" })).toBe("3M");
+  });
+  it("NEGATIVE: a NON-derived blank stays blank -- nothing is invented for a genuine input", () => {
+    expect(attrDisplayValue({ value: "", derivedValue: "3M" })).toBe("");
+  });
+  it("the (computed) marker appears only when the PIPELINE's value is on screen", () => {
+    expect(isShowingDerived({ value: "", derived: true, derivedValue: "3M" })).toBe(true);
+    expect(isShowingDerived({ value: "1", derived: true, derivedValue: "0", readOnly: true })).toBe(true);
+    // a derived attribute the row STATES is showing the pricer's own entry -- not computed
+    expect(isShowingDerived({ value: "12M", derived: true, derivedValue: "3M" })).toBe(false);
+    expect(isShowingDerived({ value: "", derived: true })).toBe(false);
+    expect(isShowingDerived({ value: "" })).toBe(false);
+  });
+  it("isAttrBlank exempts a derived attribute, BOTH ways", () => {
+    expect(isAttrBlank({ value: "", disabled: undefined, derived: true })).toBe(false);
+    expect(isAttrBlank({ value: "", disabled: undefined, derived: undefined })).toBe(true);
   });
 });
 

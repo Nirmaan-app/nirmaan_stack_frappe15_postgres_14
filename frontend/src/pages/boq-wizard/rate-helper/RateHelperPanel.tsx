@@ -12,9 +12,12 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { resolveRateHelpers } from "./rateHelperRegistry";
 import {
+  attrDisplayValue,
   isAttrBlank,
   isAttrDefaulted,
+  isShowingDerived,
   isSuggestion,
+  upgradeWarningText,
   type RateHelper,
   type RateHelperRowContext,
 } from "./rateHelperTypes";
@@ -341,10 +344,29 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                           : defaulted
                             ? "bg-amber-50 dark:bg-amber-950/30"
                             : undefined;
+                        // DERIVED DISPLAY: what the field SHOWS may be the PIPELINE's value rather
+                        // than the row's -- a computed face plate where the row stated none, or the
+                        // blanker count that always wins. One pure helper decides, so this render
+                        // and the tests read the identical rule.
+                        const shown = attrDisplayValue(a);
+                        const showingDerived = isShowingDerived(a);
                         return (
-                        <label key={a.id} className="flex items-center justify-between gap-2 text-xs">
+                        <div key={a.id} className="space-y-0.5">
+                        <label className="flex items-center justify-between gap-2 text-xs">
                           <span className="flex items-center gap-1 text-muted-foreground">
                             {a.label}
+                            {showingDerived && (
+                              <span
+                                className="text-[10px] italic"
+                                title={
+                                  a.readOnly
+                                    ? "Computed from the assembly -- the pipeline does not read a stated value here, so this field is not editable"
+                                    : "Computed from the assembly -- state a value to set a floor"
+                                }
+                              >
+                                (computed)
+                              </span>
+                            )}
                             {defaulted && (
                               <span
                                 className="rounded bg-amber-100 px-1 text-[9px] font-medium leading-none text-amber-800 dark:bg-amber-900 dark:text-amber-200"
@@ -372,8 +394,10 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                                 "h-7 rounded border bg-background px-1 text-xs disabled:opacity-50",
                                 fieldTone,
                               )}
-                              value={a.value}
-                              disabled={a.disabled}
+                              value={shown}
+                              // A fully-superseded attribute is READ-ONLY: the pipeline never reads
+                              // it, so an editable control would promise an effect it cannot have.
+                              disabled={a.disabled || a.readOnly}
                               onChange={(e) => setAttr(helper.id, a.id, e.target.value)}
                             >
                               {/* An EMPTY value (the AI could not read it, or a manual row) must not
@@ -393,7 +417,7 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                               {/* EA-4a-r: a NUMBER allow_none def offers "None" (positive absence) as a
                                   checkbox -- the input-appropriate analogue of a choice def's top-of-list
                                   "None". Checked -> the sentinel + the numeric field greys/clears. */}
-                              {a.allowNone && (
+                              {a.allowNone && !a.readOnly && (
                                 <label className="flex items-center gap-0.5 text-[10px] text-muted-foreground">
                                   <input
                                     type="checkbox"
@@ -405,13 +429,27 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                               )}
                               <Input
                                 className={cn("h-7 w-28 text-xs disabled:opacity-50", fieldTone)}
-                                value={a.value === "None" ? "" : a.value}
-                                disabled={a.disabled || a.value === "None"}
+                                value={shown === "None" ? "" : shown}
+                                // READ-ONLY, not disabled: the value is real and worth reading (and
+                                // copying) -- greying it out would read as "positively absent", which
+                                // is a DIFFERENT state this panel already renders that way.
+                                readOnly={a.readOnly}
+                                disabled={a.disabled || shown === "None"}
                                 onChange={(e) => setAttr(helper.id, a.id, e.target.value)}
                               />
                             </span>
                           )}
                         </label>
+                        {/* TAKE-THE-LARGER made this row's price use a bigger rung than the field
+                            shows. Saying so IS the fix: without it the field simply appears to
+                            ignore the pricer, which is what a silent override looks like from the
+                            outside. The trace prints UPGRADED too -- but a pricer may never open it. */}
+                        {a.upgrade && (
+                          <p className="pl-1 text-[10px] leading-tight text-amber-700 dark:text-amber-400">
+                            {upgradeWarningText(a.upgrade)}
+                          </p>
+                        )}
+                        </div>
                         );
                       })}
                     </div>

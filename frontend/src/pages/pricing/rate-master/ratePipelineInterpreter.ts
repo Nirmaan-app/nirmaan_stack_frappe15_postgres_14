@@ -16,6 +16,7 @@
 //  - ROUNDUP is Excel ROUNDUP (away from zero) at `digits`: digits -1 => tens.
 
 import type {
+  ModuleFitOutcome,
   Pipeline,
   PipelineResult,
   RateCategoryConfig,
@@ -330,6 +331,26 @@ export function fitModuleLadder(rungs: ModuleRung[], count: number): { label: st
   if (exact) return { label: exact.label, modules: exact.size, exact: true };
   const next = rungs.find((r) => r.size > count);
   return next ? { label: next.label, modules: next.size, exact: false } : null;
+}
+
+/**
+ * The `module_fit` OUTCOME carried by a set of pipeline results -- the FIRST one that fitted.
+ *
+ * This is the ONE reader of the structured carrier, so no consumer ever parses the trace prose and
+ * no consumer ever re-derives the fit. Scanning several results mirrors `derivedQtyValue`: a
+ * category may split supply and install across separate pipelines and each runs the SAME module_fit
+ * over the same selection, so the first that published an outcome answers for all of them.
+ *
+ * Returns undefined when no pipeline ran a module_fit, or when every module_fit BAILED (an honest
+ * no-compute -- nothing was fitted, so there is nothing to display). PURE.
+ */
+export function moduleFitOutcome(results: Array<{ steps: StepTrace[] }>): ModuleFitOutcome | undefined {
+  for (const r of results) {
+    for (const st of r.steps ?? []) {
+      if (st.moduleFit) return st.moduleFit;
+    }
+  }
+  return undefined;
 }
 
 function readableCondition(when: Record<string, string | number>, params: Record<string, number>): string {
@@ -656,6 +677,11 @@ export function runPipeline(
       const fittedByBind: Record<string, number> = {};
       const absentLadders = new Set<string>();
       const ladderParts: string[] = [];
+      // DERIVED DISPLAY: the same decisions the prose line below narrates, published as STRUCTURED
+      // data on the trace. Written ALONGSIDE `ladderParts` -- one push per ladder, at the identical
+      // points -- so the two can never disagree about what was fitted. It reads nothing and decides
+      // nothing; every branch below is byte-unchanged.
+      const ladderOutcomes: import("./rateMasterTypes").ModuleFitLadderOutcome[] = [];
       for (const L of p?.ladders ?? []) {
         if (noModules) {
           // Nothing to fit on ANY ladder. Bind the None sentinel so a `none_skips` component reading
@@ -666,10 +692,12 @@ export function runPipeline(
           fitLabels[L.bind] = NONE_SENTINEL;
           if (L.bind_modules) ctx[L.bind_modules] = 0;
           ladderParts.push(`no ${L.bind} (nothing to fit)`);
+          ladderOutcomes.push({ bind: L.bind, floorFrom: L.floor_from, label: null, modules: null, absent: true });
           continue;
         }
         let fitCount = occupied;
         let floorNote = "";
+        let upgraded: { stated: string; statedHolds: number; occupied: number } | undefined;
         if (L.floor_from) {
           const statedRaw = selected[L.floor_from];
           if (statedRaw === NONE_SENTINEL) {
@@ -678,6 +706,7 @@ export function runPipeline(
               // and a `blanks` block keyed here is absent too -- positive absence propagates.
               absentLadders.add(L.bind);
               ladderParts.push(`${L.bind} None`);
+              ladderOutcomes.push({ bind: L.bind, floorFrom: L.floor_from, label: null, modules: null, absent: true });
               continue;
             }
             // on_none "computed": a back box can exist with no face plate -> the computed count.
@@ -692,6 +721,7 @@ export function runPipeline(
               // THE UPGRADE. It must never be silent: the BoQ said one size and we price another.
               fitCount = occupied;
               floorNote = ` (stated ${String(statedRaw)} holds ${fmtNum(statedCap)}, contents occupy ${fmtNum(occupied)} -- UPGRADED)`;
+              upgraded = { stated: String(statedRaw), statedHolds: statedCap, occupied };
             } else {
               // The stated plate is a FLOOR, never a ceiling: a bigger plate than needed is bought.
               fitCount = statedSizes.find((n) => n >= occupied) ?? statedCap;
@@ -714,6 +744,14 @@ export function runPipeline(
         fittedByBind[L.bind] = fit.modules;
         if (L.bind_modules) ctx[L.bind_modules] = fit.modules;
         ladderParts.push(`${L.bind} ${fit.label}${floorNote}${fit.exact ? "" : " (next higher)"}`);
+        ladderOutcomes.push({
+          bind: L.bind,
+          floorFrom: L.floor_from,
+          label: fit.label,
+          modules: fit.modules,
+          absent: false,
+          ...(upgraded ? { upgraded } : {}),
+        });
       }
 
       // (c) the blank (filler) count --------------------------------------------------------------
@@ -774,6 +812,9 @@ export function runPipeline(
         label: s.explain || "module fit",
         // (d) THE WORKING: the arithmetic AND the ladder hop, in one line.
         matchedCondition: `${termParts.join(" + ")} = ${fmtNum(occupied)} modules -> ${ladderParts.join(", ")}${blankPart}`,
+        // (e) THE SAME WORKING AS DATA -- so a surface that must RENDER the fitted plate reads it
+        // here instead of parsing (d). (d) stays the human sentence; this stays the contract.
+        moduleFit: { occupied, ladders: ladderOutcomes },
         runningValues: snapshot(),
       });
     } else if (stepType === "component_ref") {

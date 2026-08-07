@@ -9,6 +9,7 @@ import {
   evalFormula,
   fitModuleLadder,
   matchMasterRow,
+  moduleFitOutcome,
   moduleSizesFromLabel,
   roundUp,
   runAllPipelines,
@@ -1900,6 +1901,84 @@ describe("SLICE 2 part 2 -- floor_from: TAKE-THE-LARGER (the stated plate is a F
       const r = runPipeline("p", legacy, LADDER_ITEMS, mfSel(3, 0, 3, { plate_item: plate }));
       expect(r.status, `${plate} should not resolve a back box`).toBe("no_match");
     }
+  });
+});
+
+// ── DERIVED DISPLAY: the fitted label as STRUCTURED DATA ────────────────────────────
+// module_fit knew the fitted plate all along, but published it only inside its prose
+// `matchedCondition`, and `runningValues` is numbers-only so a LABEL could not live there. A panel
+// that must RENDER the plate therefore had two bad options -- regex the prose (a reword silently
+// breaks the panel) or re-derive the fit (a fifth copy of the module rule). Neither is acceptable,
+// so the step publishes what it decided. These pin the carrier; the arithmetic is untouched, which
+// the goldens above continue to enforce.
+describe("DERIVED DISPLAY -- module_fit publishes its outcome as data (no prose parsing)", () => {
+  it("POSITIVE: the fitted LABEL and module count travel per ladder, with the occupied count", () => {
+    const r = runPipeline("m", FLOOR, LADDER_ITEMS, mfSel(2, 0, 3));
+    const mf = moduleFitOutcome([r]);
+    expect(mf?.occupied).toBe(7);
+    expect(mf?.ladders).toEqual([
+      { bind: "plate_item", floorFrom: "plate_item", label: "8M", modules: 8, absent: false },
+      { bind: "box_item", floorFrom: "plate_item", label: "8M", modules: 8, absent: false },
+    ]);
+  });
+
+  it("the DATA and the PROSE can never disagree -- both are written at the same point", () => {
+    const r = runPipeline("m", FLOOR, LADDER_ITEMS, mfSel(2, 0, 3));
+    const plate = moduleFitOutcome([r])?.ladders.find((l) => l.bind === "plate_item");
+    expect(fitTrace(r)).toContain(`plate_item ${plate?.label}`);
+  });
+
+  it("POSITIVE: an UPGRADE carries BOTH numbers, so a surface can name them without re-deriving", () => {
+    const r = runPipeline("m", FLOOR, LADDER_ITEMS, mfSel(2, 0, 3, { plate_item: "6M" }));
+    const plate = moduleFitOutcome([r])?.ladders.find((l) => l.bind === "plate_item");
+    expect(plate?.label).toBe("8M");
+    expect(plate?.upgraded).toEqual({ stated: "6M", statedHolds: 6, occupied: 7 });
+  });
+
+  it("NEGATIVE: a stated plate that FITS is not an upgrade -- the key is absent, not false", () => {
+    const r = runPipeline("m", FLOOR, LADDER_ITEMS, mfSel(2, 0, 3, { plate_item: "12M" }));
+    const plate = moduleFitOutcome([r])?.ladders.find((l) => l.bind === "plate_item");
+    expect(plate?.label).toBe("12M");
+    expect(plate?.upgraded).toBeUndefined();
+  });
+
+  it("POSITIVE: a None plate is ABSENT with a null label -- never a fabricated size", () => {
+    const r = runPipeline("m", FLOOR, LADDER_ITEMS, mfSel(2, 0, 3, { plate_item: "None" }));
+    const mf = moduleFitOutcome([r]);
+    expect(mf?.ladders.find((l) => l.bind === "plate_item")).toMatchObject({ absent: true, label: null });
+    // the box still fits (on_none "computed") -- a back box can exist with no face plate
+    expect(mf?.ladders.find((l) => l.bind === "box_item")).toMatchObject({ absent: false, label: "8M" });
+  });
+
+  it("POSITIVE: a ZERO module count marks EVERY ladder absent (nothing to fit)", () => {
+    const r = runPipeline("m", FLOOR, LADDER_ITEMS, mfSel(0, 0, 0, { socket1_item: "None", switch_item: "None" }));
+    const mf = moduleFitOutcome([r]);
+    expect(mf?.occupied).toBe(0);
+    expect(mf?.ladders.every((l) => l.absent && l.label === null)).toBe(true);
+  });
+
+  it("NEGATIVE: a pipeline with NO module_fit publishes nothing (every legacy pipeline)", () => {
+    const r = runPipeline("cable_boq", PIPELINES.cable_boq, ITEMS, {
+      material: "COPPER", insulation: "UNARMOURED", core: 1, thickness_sqmm: 6.0, runs: 1,
+    });
+    expect(r.status).toBe("ok");
+    expect(moduleFitOutcome([r])).toBeUndefined();
+    expect(r.steps.every((s) => s.moduleFit === undefined)).toBe(true);
+  });
+
+  it("NEGATIVE: a BAILED module_fit publishes nothing -- nothing was fitted, so nothing is claimed", () => {
+    // a blank quantity is UNKNOWN, not zero -> the step bails before any ladder resolves
+    const r = runPipeline("m", FLOOR, LADDER_ITEMS, mfSel(2, 0, 3, { switch_qty: "" }));
+    expect(r.status).toBe("no_match");
+    expect(moduleFitOutcome([r])).toBeUndefined();
+  });
+
+  it("scans SEVERAL results -- a category may split supply/install across pipelines", () => {
+    const noFit = runPipeline("cable_boq", PIPELINES.cable_boq, ITEMS, {
+      material: "COPPER", insulation: "UNARMOURED", core: 1, thickness_sqmm: 6.0, runs: 1,
+    });
+    const withFit = runPipeline("m", FLOOR, LADDER_ITEMS, mfSel(2, 0, 3));
+    expect(moduleFitOutcome([noFit, withFit])?.occupied).toBe(7);
   });
 });
 

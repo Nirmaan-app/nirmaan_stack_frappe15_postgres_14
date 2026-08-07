@@ -37,6 +37,78 @@ export interface WorkingsAttribute {
    * before using the rate. A human override CLEARS this (the helper drops the mark on recompute), so the
    * highlight can never outlive the correction. */
   defaulted?: boolean;
+  /** DERIVED DISPLAY: the PIPELINE computes this attribute (a `module_fit` ladder bind, or a
+   * `{from_fit}` quantity that superseded its `<name>_qty`). Read from CONFIG via `derivedAttrIds` --
+   * never a hardcoded id. A derived attribute is NEVER missing user input: blank means "the row did
+   * not state it", not "the row is incomplete", which is why `isAttrBlank` exempts it. */
+  derived?: boolean;
+  /** DERIVED DISPLAY: the value the PIPELINE computed for this attribute, as a display string
+   * ("3M", "0"). ⚠️ It is deliberately NOT written into `value` -- `value` means "what the user or
+   * extraction SUPPLIED", and collapsing the two makes a computed number indistinguishable from a
+   * stated one to every later reader (the same rule the Rate Master Derivation screen follows).
+   * Absent => nothing computed (a "None" plate, a bailed fit), which renders EMPTY, never 0. */
+  derivedValue?: string;
+  /** DERIVED DISPLAY: the computed value ALWAYS wins for this attribute and the field does not accept
+   * an edit. TRUE only for a FULLY SUPERSEDED attribute (the blanker quantity: its component reads
+   * `{from_fit}`, so the pipeline never reads the attribute at all and an editable field would be a
+   * lie). A ladder bind with a `floor_from` is the OPPOSITE case -- a stated value IS read, as the
+   * floor -- so it stays editable. */
+  readOnly?: boolean;
+  /** DERIVED DISPLAY: TAKE-THE-LARGER upgraded a stated value too small for the row's contents. The
+   * panel MUST say so: the pipeline is using a different size than the field shows, and a silent
+   * override reads as the field ignoring the user. */
+  upgrade?: AttrUpgradeNote;
+}
+
+/** The numbers behind a take-the-larger UPGRADE, carried as DATA so each surface words it itself. */
+export interface AttrUpgradeNote {
+  /** The rung the row STATED (a catalog label, e.g. "1M & 2M"). */
+  stated: string;
+  /** How many modules that stated rung can hold. */
+  statedHolds: number;
+  /** How many modules the row's contents occupy. */
+  occupied: number;
+  /** The rung actually priced. */
+  using: string;
+}
+
+/**
+ * PURE. The panel's warning for a too-small stated entry. It NAMES BOTH NUMBERS and what is being
+ * priced, because "the arithmetic underneath is correct" is not a defence of a field that appears to
+ * ignore the user. The derivation trace already prints UPGRADED -- but the trace is a separate
+ * surface a pricer may never open, so the sentence has to live on the form.
+ */
+export function upgradeWarningText(u: AttrUpgradeNote): string {
+  return `${u.stated} holds ${u.statedHolds} module${u.statedHolds === 1 ? "" : "s"}; contents occupy ${u.occupied} — using ${u.using}.`;
+}
+
+/**
+ * PURE. What the field SHOWS. Three cases, and the difference between the first two is the whole
+ * point of the derived contract:
+ *
+ *   readOnly (fully superseded)  -> the COMPUTED value, always. A stated blanker count is ignored by
+ *                                   the pipeline, so showing it would be a lie.
+ *   a stated value               -> the STATED value. It is the user's entry AND it feeds the
+ *                                   pipeline as the floor, so it must never be overwritten on screen.
+ *   blank + derived              -> the COMPUTED value. This is the field that read "— select —" in
+ *                                   red while the pipeline was pricing a 3M plate.
+ */
+export function attrDisplayValue(
+  a: Pick<WorkingsAttribute, "value" | "derived" | "derivedValue" | "readOnly">,
+): string {
+  if (a.readOnly) return a.derivedValue ?? "";
+  if (a.value !== "") return a.value;
+  return a.derived ? a.derivedValue ?? "" : "";
+}
+
+/** PURE. Is the value on screen the PIPELINE's rather than the row's? Drives the "(computed)" marker
+ * -- which must NOT appear on a derived attribute the row actually states, or it would claim the
+ * pricer's own entry was computed. */
+export function isShowingDerived(
+  a: Pick<WorkingsAttribute, "value" | "derived" | "derivedValue" | "readOnly">,
+): boolean {
+  if (a.readOnly) return a.derivedValue !== undefined;
+  return !!a.derived && a.value === "" && a.derivedValue !== undefined;
 }
 
 /**
@@ -48,9 +120,14 @@ export interface WorkingsAttribute {
  *   POSITIVELY ABSENT  value === "None" (NONE_SENTINEL) or `disabled` (its controller is None)
  *                                       -> NEITHER highlight. This is a DECISION, not a gap; flagging it
  *                                          as missing would be wrong.
+ *
+ * DERIVED DISPLAY adds a FOURTH state, and it exempts the red border for the same reason the helper's
+ * missing-attribute gate already exempts it (owner-locked): AN ATTRIBUTE THE PIPELINE DERIVES IS NEVER
+ * MISSING USER INPUT. The gate stopped REFUSING these rows, but the field kept rendering red -- so the
+ * form still said "incomplete" about a row that priced. One predicate, so the two can no longer differ.
  */
-export function isAttrBlank(a: Pick<WorkingsAttribute, "value" | "disabled">): boolean {
-  return !a.disabled && a.value === "";
+export function isAttrBlank(a: Pick<WorkingsAttribute, "value" | "disabled" | "derived">): boolean {
+  return !a.disabled && !a.derived && a.value === "";
 }
 export function isAttrDefaulted(a: Pick<WorkingsAttribute, "disabled" | "defaulted">): boolean {
   return !a.disabled && a.defaulted === true;

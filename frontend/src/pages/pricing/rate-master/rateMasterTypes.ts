@@ -396,6 +396,47 @@ export interface GetConfigResponse {
 
 export type PipelineStatus = "ok" | "no_match" | "unsupported";
 
+/**
+ * DERIVED DISPLAY -- one ladder's OUTCOME from a `module_fit` step, as STRUCTURED DATA.
+ *
+ * ⚠️ WHY THIS EXISTS AT ALL. `module_fit` already recorded every one of these facts, but ONLY inside
+ * its prose `matchedCondition` line, and `StepTrace.runningValues` is `Record<string, number>` so a
+ * fitted catalog LABEL ("3M") could not live there. A consumer wanting the fitted plate therefore had
+ * exactly two bad options: REGEX THE PROSE (which turns a human-readable trace line into a parsing
+ * contract -- reword the trace and the panel silently stops finding the plate), or RE-DERIVE the fit
+ * (a FIFTH copy of the module rule, which is precisely the drift #179 is about -- the module rule is
+ * catalog-resolved, take-the-larger, per-ladder, and a second copy would agree until it did not).
+ * So the step publishes what it decided, and the prose line stays prose.
+ *
+ * ADDITIVE AND OPTIONAL: absent on every step that is not a `module_fit`, and absent even on a
+ * `module_fit` that BAILED (nothing was fitted, so there is nothing to publish). No existing consumer
+ * reads it, so every pre-existing pipeline, trace and golden is byte-unaffected.
+ */
+export interface ModuleFitLadderOutcome {
+  /** The ladder's `bind` key -- which IS the attribute id the fitted rung binds to. */
+  bind: string;
+  /** The attribute whose STATED value acted as this ladder's floor (config `floor_from`), if any. */
+  floorFrom?: string;
+  /** The fitted catalog label ("3M", "1M & 2M"). null when the ladder is POSITIVELY ABSENT. */
+  label: string | null;
+  /** The module count the fitted rung holds. null when positively absent. */
+  modules: number | null;
+  /** POSITIVELY ABSENT: a "None" floor, or a zero module count (nothing to fit on any ladder). */
+  absent: boolean;
+  /** Set ONLY when TAKE-THE-LARGER upgraded a stated rung too small for the row's contents. The
+   * upgrade is the one outcome that must never be silent -- the BoQ said one size and we price
+   * another -- so the numbers travel as data and any surface can say so in its own words. */
+  upgraded?: { stated: string; statedHolds: number; occupied: number };
+}
+
+/** DERIVED DISPLAY -- the whole outcome of one `module_fit` step. */
+export interface ModuleFitOutcome {
+  /** The weighted module count the row's contents occupy (the step's own arithmetic). */
+  occupied: number;
+  /** One entry per configured ladder, in config order. */
+  ladders: ModuleFitLadderOutcome[];
+}
+
 export interface StepTrace {
   /** The step type token from config. */
   step: string;
@@ -415,6 +456,10 @@ export interface StepTrace {
   refItem?: string;
   /** The named value produced/changed by this step (key -> value). */
   produced?: { key: string; value: number };
+  /** For module_fit: the STRUCTURED outcome (see ModuleFitOutcome). Present only on a module_fit
+   * step that actually fitted -- so a consumer never has to read the prose line to learn the
+   * fitted plate, and never has to re-derive it. */
+  moduleFit?: ModuleFitOutcome;
   /** Snapshot of every named value after this step (for the running-value column). */
   runningValues: Record<string, number>;
   /** Set when the step type is not recognized (forward-compat honesty). */

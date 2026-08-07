@@ -24,16 +24,17 @@
  * Its group LABELS come from `pipeline_labels` (config data), so only the pairing BEHAVIOUR is
  * special-cased, not the strings. Every OTHER category goes through the generic path.
  */
-import { NONE_SENTINEL, runPipeline } from "@/pages/pricing/rate-master/ratePipelineInterpreter";
+import { moduleFitOutcome, NONE_SENTINEL, runPipeline } from "@/pages/pricing/rate-master/ratePipelineInterpreter";
 // CP2: `coerceForMatch` moved to the shared rate-master module (the single point where an attribute
 // value becomes a match key); this file imports it and no longer defines it.
 import { coerceForMatch, isDropdownAttributeType } from "@/pages/pricing/rate-master/rateMasterStructure";
 // DERIVED-ATTRIBUTE GATE: the `<name>_qty` half of derivation has ONE definition and this reuses
 // it rather than repeating it (see derivedAttrIds below).
-import { derivedQtyAttrs } from "@/pages/pricing/rate-master/RateMasterDerivation";
+import { derivedQtyAttrs, derivedQtyValue } from "@/pages/pricing/rate-master/RateMasterDerivation";
 import type {
   AttributeDefinition,
   Pipeline,
+  PipelineResult,
   RateCategoryConfig,
   RateMasterItem,
 } from "@/pages/pricing/rate-master/rateMasterTypes";
@@ -201,6 +202,81 @@ export function derivedAttrIds(config: RateCategoryConfig): Set<string> {
   return out;
 }
 
+/**
+ * DERIVED DISPLAY -- give every DERIVED attribute the value the pipeline actually computed.
+ *
+ * ⚠️ THE SCREEN IS THE AUTHORITY. The derived-attribute GATE (above) stopped these attributes
+ * refusing a row, but the FIELD went on rendering a blank in a red border while the pipeline priced
+ * a 3M plate behind it -- so the form still told the pricer the row was incomplete, and the blanker
+ * quantity still showed the extraction's stated 1 where the bill charges 0. This function is the
+ * other half: it does not change one number, it says which one was used.
+ *
+ * TWO derivation mechanisms, and they behave DIFFERENTLY on purpose -- both read from CONFIG:
+ *
+ *   1. FULLY SUPERSEDED (`derivedQtyAttrs`, the blanker quantity). The component takes
+ *      `qty: {from_fit}`, so the pipeline NEVER reads the attribute. The computed value therefore
+ *      ALWAYS wins and the field is READ-ONLY -- making it editable would be a new lie, since an
+ *      edit could not reach the price. Its value is read with `derivedQtyValue`, the SAME reader the
+ *      Rate Master Derivation screen uses, so the two screens can never show different blank counts.
+ *
+ *   2. A `module_fit` LADDER BIND (the face plate). A stated value IS read -- as the FLOOR of
+ *      take-the-larger -- so the field stays EDITABLE and a stated value keeps the screen. The
+ *      computed label fills it only when the row states nothing. When take-the-larger UPGRADED a
+ *      too-small entry, the numbers ride along so the panel can warn instead of appearing to
+ *      swallow the edit.
+ *
+ * ⚠️ NOTHING is written back into `selected` (it is not even in scope here) -- these fields are
+ * DISPLAY, and `value` still means "what the row supplied". PURE: returns a new array.
+ */
+export function applyDerivedDisplay(
+  attrs: WorkingsAttribute[],
+  config: RateCategoryConfig,
+  results: PipelineResult[],
+): WorkingsAttribute[] {
+  // The ONE derived predicate (both mechanisms) -- reused, never re-implemented (#179).
+  const derivedIds = derivedAttrIds(config);
+  const supersededQty = derivedQtyAttrs(config);
+  const fit = moduleFitOutcome(results);
+  const byBind = new Map((fit?.ladders ?? []).map((l) => [l.bind, l]));
+
+  return attrs.map((a) => {
+    if (!derivedIds.has(a.id)) return a;
+
+    const superseded = supersededQty.get(a.id);
+    if (superseded) {
+      // An UNCOMPUTED value renders EMPTY, never 0: with a "None" plate there are no blanks at all,
+      // and a 0 would claim "zero needed" instead of "not applicable" (owner-locked).
+      const v = derivedQtyValue(results, superseded.ctxKey);
+      return {
+        ...a,
+        derived: true,
+        readOnly: true,
+        ...(v === undefined ? {} : { derivedValue: String(v) }),
+      };
+    }
+
+    const ladder = byBind.get(a.id);
+    if (!ladder) return { ...a, derived: true }; // derived by config, but nothing fitted this run
+    return {
+      ...a,
+      derived: true,
+      // POSITIVELY ABSENT (a "None" plate, or nothing to fit at all) publishes NO display value --
+      // the field renders empty rather than inventing a size for a plate that does not exist.
+      ...(ladder.absent || ladder.label === null ? {} : { derivedValue: ladder.label }),
+      ...(ladder.upgraded && ladder.label
+        ? {
+            upgrade: {
+              stated: ladder.upgraded.stated,
+              statedHolds: ladder.upgraded.statedHolds,
+              occupied: ladder.upgraded.occupied,
+              using: ladder.label,
+            },
+          }
+        : {}),
+    };
+  });
+}
+
 /** Map a pipeline output key -> the sheet rate-kind it fills. EA-4a: the assembly categories name their
  * outputs `supply` / `install` (no per-unit suffix), so match those EXACTLY as well as the legacy
  * `supply_*` / `install_*` (conduit/wiring per-mtr, switches per-set). */
@@ -313,7 +389,11 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
           ? "Complete the missing attributes to price"
           : "Fill the attributes to price this row",
         workings: {
-          attributes: workingsAttrs,
+          // DERIVED DISPLAY: no pipeline runs on this path, so there is no computed value to show --
+          // but the derived attributes must still not be flagged as the thing that is missing. The
+          // red borders that remain are the GENUINE missing inputs, which is exactly the narrowing
+          // this slice is: fewer fields flagged, and every one that still is, really is.
+          attributes: applyDerivedDisplay(workingsAttrs, category, []),
           matchedRows: [],
           derivation: [
             inRun
@@ -347,8 +427,12 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
     const sections: WorkingsGroup[] = [];
     const flatDerivation: string[] = [];
     const flatMatched: string[] = [];
+    // DERIVED DISPLAY: keep every result so the derived attributes can be filled from what the
+    // pipelines actually computed (a category may split supply/install across pipelines).
+    const pipelineResults: PipelineResult[] = [];
     surfaced.forEach(([pid, pl], idx) => {
       const res = runPipeline(pid, pl as Pipeline, items, selected);
+      pipelineResults.push(res);
       const finals: Record<string, number> = {};
       const derivation: string[] = [];
       const matchedRows: string[] = [];
@@ -399,7 +483,7 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
         ? `Rate master: ${category.category_id} @ ${attrLine}`
         : "no match for these attributes",
       workings: {
-        attributes: workingsAttrs,
+        attributes: applyDerivedDisplay(workingsAttrs, category, pipelineResults),
         matchedRows: flatMatched,
         derivation: flatDerivation,
         finalValues: { ...values },
@@ -430,6 +514,11 @@ function computeWiring(
     return { kind: "none", reason: `No ${primaryId} pipeline in the config` };
   }
   const result = runPipeline(primaryId, primary, items, selected);
+  // DERIVED DISPLAY: wiring declares no derived attribute today (no module_fit, no {from_fit} qty),
+  // so this is a no-op here -- but it is applied on BOTH paths so the rule lives in the contract and
+  // not in which branch happened to be edited. `applyDerivedDisplay` reads the config, so a wiring
+  // config that ever gained one would be covered with no further change.
+  const pipelineResults: PipelineResult[] = [result];
   const values: Record<string, number> = {};
   const derivation: string[] = [];
   const matchedRows: string[] = [];
@@ -474,6 +563,7 @@ function computeWiring(
     const term = pipelines["termination_boq"] as Pipeline | undefined;
     if (term) {
       const tr = runPipeline("termination_boq", term, items, selected);
+      pipelineResults.push(tr);
       if (tr.status === "ok") {
         for (const o of tr.outputs) {
           termGroup.finals[o] = tr.finals[o];
@@ -497,7 +587,7 @@ function computeWiring(
         ? `Rate master: ${config.category_id} @ ${attrLine}`
         : "no match for these attributes",
     workings: {
-      attributes: workingsAttrs,
+      attributes: applyDerivedDisplay(workingsAttrs, config, pipelineResults),
       matchedRows,
       derivation,
       finalValues: { ...values },
