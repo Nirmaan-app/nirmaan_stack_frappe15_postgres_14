@@ -16,6 +16,7 @@
 
 import {
     OPEN_ROW_STATUSES,
+    ROW_PENDING_MATCH,
     ROW_SETTLED,
     ROW_SKIPPED,
 } from "./outflowImportStatus";
@@ -30,8 +31,17 @@ export type DecisionTarget =
 
 /** The reviewer's in-progress decision for one row. Client state until they confirm. */
 export interface RowDecision {
-    target: DecisionTarget;
-    /** The record to settle. Required for every target except `new`. */
+    /**
+     * Which ledger this settles against, or `new`.
+     *
+     * ⚠️ OPTIONAL SINCE THE THREE "link to a ..." CARDS BECAME ONE (slice R2). The reviewer used to
+     * pick a LEDGER first and a record second, so the target was known before the record was. Now
+     * one list spans all three ledgers and the target arrives WITH the record that was chosen --
+     * which is the right way round, because a reviewer recognises a record, they do not classify a
+     * transfer. An entry with no target is a row someone has opened, or deliberately cleared.
+     */
+    target?: DecisionTarget;
+    /** The record to settle. Required, with `target`, for everything except `new`. */
     linkTo?: string | null;
     /** Only for `target: "new"`. */
     newExpense?: {
@@ -294,7 +304,10 @@ export const isConfirmable = (
         if (form.doctype === "Project Expenses" && !form.project) return false;
         return true;
     }
-    return Boolean(decision.linkTo);
+    // ⚠️ BOTH, not just the link. The ledger now arrives with the chosen record rather than from a
+    // card clicked beforehand, so a link with no target is a half-written decision -- and
+    // `settle_row` would be called with an undefined doctype.
+    return Boolean(decision.target && decision.linkTo);
 };
 
 /**
@@ -319,6 +332,92 @@ export const decidedRows = (
 ): OutflowImportRow[] =>
     rows.filter((row) => selected.has(row.name) && isConfirmable(row, decisions.get(row.name)));
 
+// --- what the match run already picked -----------------------------------------------------------
+
+/** The three ledgers a stored suggestion may address. Anything else is not a target we can settle. */
+const SETTLEABLE_TARGETS: readonly string[] = [
+    "Project Payments",
+    "Project Expenses",
+    "Non Project Expenses",
+];
+
+/**
+ * The match run's own pick for this row, as a decision, or `null`.
+ *
+ * ⚠️ THE SERVER DECIDES WHETHER THERE IS ONE; THIS ONLY READS IT. `sole_suggestion` in
+ * `services/outflow_import/status.py` owns the "exactly one approved candidate, or nothing" rule --
+ * two candidates, a fan-out, a skipped duplicate and an unmatched row all arrive here blank. A
+ * second copy of that rule in the browser is precisely what this replaced: the dialog used to
+ * re-derive its own pre-selection from a DIFFERENT candidate list than the row's note counted, so a
+ * row could read "One approved record at this amount" and still refuse to tick it.
+ *
+ * The status guards are belt-and-braces over a server that already blanks those rows -- but a
+ * suggestion rendered as ready-to-confirm on a row nobody may settle is bad enough to check twice.
+ */
+export const suggestedDecision = (row: OutflowImportRow): RowDecision | null => {
+    const target = (row.suggested_doctype ?? "").trim();
+    const linkTo = (row.suggested_name ?? "").trim();
+    if (!target || !linkTo) return null;
+    if (!SETTLEABLE_TARGETS.includes(target)) return null;
+    if (!OPEN_ROW_STATUSES.has(row.row_status)) return null;
+    if (row.row_status === ROW_PENDING_MATCH) return null;
+    return { target: target as DecisionTarget, linkTo };
+};
+
+/**
+ * Fold every row's stored suggestion into the decisions the reviewer is holding.
+ *
+ * ⚠️ IT NEVER OVERWRITES AN EXISTING ENTRY, and that is the whole contract. A row the reviewer has
+ * touched -- including one they deliberately CLEARED, which leaves an entry with a null link -- is
+ * theirs. Re-seeding it on the next refetch would silently undo the clear and put the machine's
+ * pick back under a person who had just rejected it.
+ *
+ * ⚠️ IT RETURNS THE SAME MAP WHEN NOTHING WAS ADDED. The page holds this in state and re-runs it on
+ * every fetch; handing back a fresh Map each time would change the reference, re-render the table
+ * and re-run every memo for no change at all.
+ */
+export const seedDecisions = (
+    rows: OutflowImportRow[],
+    existing: ReadonlyMap<string, RowDecision>
+): ReadonlyMap<string, RowDecision> => {
+    const additions: [string, RowDecision][] = [];
+    for (const row of rows) {
+        if (existing.has(row.name)) continue;
+        const decision = suggestedDecision(row);
+        if (decision) additions.push([row.name, decision]);
+    }
+    if (!additions.length) return existing;
+    const next = new Map(existing);
+    for (const [name, decision] of additions) next.set(name, decision);
+    return next;
+};
+
+/**
+ * Where a row's current decision came from, so the table can say so.
+ *
+ * `suggested` means it still matches what the match run proposed -- whether it was seeded or a
+ * person happened to pick the same record, which mean the same thing to a reader. `chosen` means a
+ * person put something else there. The distinction is DERIVED rather than tracked, so it cannot
+ * drift out of step with the decision it describes.
+ */
+export type DecisionOrigin = "none" | "suggested" | "chosen";
+
+export const decisionOrigin = (
+    row: OutflowImportRow,
+    decision: RowDecision | undefined
+): DecisionOrigin => {
+    if (!decision) return "none";
+    const suggestion = suggestedDecision(row);
+    if (
+        suggestion &&
+        suggestion.target === decision.target &&
+        suggestion.linkTo === decision.linkTo
+    ) {
+        return "suggested";
+    }
+    return "chosen";
+};
+
 // --- candidate ordering ------------------------------------------------------------------------
 
 export interface CandidateLike {
@@ -335,26 +434,6 @@ export interface CandidateLike {
      */
     suggested?: boolean;
 }
-
-/**
- * The one record to pre-select, or null.
- *
- * ⚠️ THIS REPLACED AN EXACT-EQUALITY VERSION, AND THE OLD ONE WAS DELETED RATHER THAN KEPT. Exact
- * equality stopped being the rule when the Re 1 rounding tolerance landed: a payment 31 paise off
- * the bank amount is a match the matcher makes and the write path accepts, so an exact test would
- * refuse to pre-select nearly every real settlement. Leaving the old function exported and tested
- * would have left two plausible-looking answers to "which record do we choose", which is the exact
- * confusion this whole area has already produced once.
- *
- * It keys on the SERVER's `suggested` flag, so the client never holds a copy of the tolerance.
- *
- * ⚠️ STILL ONLY WHEN THERE IS EXACTLY ONE (owner ruling). Two suggestions is ambiguity, and the
- * screen never guesses between two real records.
- */
-export const solePreselection = <T extends CandidateLike>(candidates: T[]): T | null => {
-    const suggested = candidates.filter((c) => c.suggested);
-    return suggested.length === 1 ? suggested[0] : null;
-};
 
 /** Suggested records first, then closest by amount. */
 export const orderBySuggestion = <T extends CandidateLike>(

@@ -8,6 +8,7 @@ import {
     amountVerdict,
     countDecided,
     decidedRows,
+    decisionOrigin,
     facetValues,
     highlightSegments,
     isConfirmable,
@@ -15,7 +16,8 @@ import {
     orderBySuggestion,
     passesFilters,
     rowsForTab,
-    solePreselection,
+    seedDecisions,
+    suggestedDecision,
     tabCounts,
     tabForStatus,
     visibleRows,
@@ -309,6 +311,14 @@ describe("isConfirmable", () => {
         expect(isConfirmable(row({ row_status: "Unmatched" }), undefined)).toBe(false);
     });
 
+    it("refuses a linked record with no ledger behind it", () => {
+        // ⚠️ The ledger now arrives WITH the chosen record instead of from a card clicked first
+        // (slice R2), so a decision can hold one half and not the other. Without both,
+        // `settle_row` would be posted with an undefined doctype.
+        expect(isConfirmable(row(), { linkTo: "PAY-1" })).toBe(false);
+        expect(isConfirmable(row(), {})).toBe(false);
+    });
+
     it("refuses a link decision with nothing linked", () => {
         expect(
             isConfirmable(row(), { target: "Project Payments", linkTo: null })
@@ -376,6 +386,118 @@ describe("the bulk bar counts DECIDED rows, not selected ones", () => {
     });
 });
 
+describe("the match run's suggestion becomes a decision", () => {
+    /**
+     * ⚠️ THE "EXACTLY ONE" RULE IS NOT TESTED HERE, ON PURPOSE. It lives on the server, in
+     * `services/outflow_import/status.sole_suggestion`, and is pinned by its own unit tests. Two
+     * candidates, a fan-out, a skipped duplicate and an unmatched row all arrive with the fields
+     * BLANK. A second copy of that rule in the browser is exactly what this replaced.
+     */
+    const suggested = (over: Partial<OutflowImportRow> = {}) =>
+        row({
+            row_status: "Matched",
+            suggested_doctype: "Project Payments",
+            suggested_name: "PAY-00105-038",
+            ...over,
+        });
+
+    it("reads the stored pair as a ready decision", () => {
+        expect(suggestedDecision(suggested())).toEqual({
+            target: "Project Payments",
+            linkTo: "PAY-00105-038",
+        });
+    });
+
+    it("carries the suggestion's OWN ledger, not an assumed one", () => {
+        // A hardcoded "Project Payments" would settle an expense against the wrong table.
+        expect(
+            suggestedDecision(
+                suggested({ suggested_doctype: "Non Project Expenses", suggested_name: "NPE-4" })
+            )
+        ).toEqual({ target: "Non Project Expenses", linkTo: "NPE-4" });
+    });
+
+    it("reads a blank or half-written pair as nothing", () => {
+        expect(suggestedDecision(suggested({ suggested_name: "" }))).toBeNull();
+        expect(suggestedDecision(suggested({ suggested_doctype: undefined }))).toBeNull();
+        expect(suggestedDecision(row())).toBeNull();
+    });
+
+    it("refuses a ledger this screen cannot settle", () => {
+        expect(suggestedDecision(suggested({ suggested_doctype: "Procurement Orders" }))).toBeNull();
+    });
+
+    it("refuses a row nobody may decide, however the pair got there", () => {
+        // The server blanks these already. Checked twice because the failure -- a green
+        // "ready to confirm" on a settled or skipped row -- is worth more than the two lines.
+        expect(suggestedDecision(suggested({ row_status: "Settled" }))).toBeNull();
+        expect(suggestedDecision(suggested({ row_status: "Skipped" }))).toBeNull();
+        expect(suggestedDecision(suggested({ row_status: "Pending match run" }))).toBeNull();
+    });
+
+    it("seeds every suggested row that nobody has touched", () => {
+        const rows = [
+            suggested({ name: "A" }),
+            suggested({ name: "B", suggested_name: "PAY-2" }),
+            row({ name: "C", row_status: "Unmatched" }),
+        ];
+        const seeded = seedDecisions(rows, new Map());
+        expect(seeded.size).toBe(2);
+        expect(seeded.get("A")?.linkTo).toBe("PAY-00105-038");
+        expect(seeded.get("B")?.linkTo).toBe("PAY-2");
+        expect(seeded.has("C")).toBe(false);
+    });
+
+    it("never overwrites a decision the reviewer already made", () => {
+        const existing = new Map<string, RowDecision>([
+            ["A", { target: "Project Expenses", linkTo: "PE-9" }],
+        ]);
+        const seeded = seedDecisions([suggested({ name: "A" })], existing);
+        expect(seeded.get("A")).toEqual({ target: "Project Expenses", linkTo: "PE-9" });
+    });
+
+    it("never re-seeds a selection the reviewer deliberately CLEARED", () => {
+        // Clearing leaves an entry with a null link, not an absent entry -- which is what makes it
+        // distinguishable from "never touched". Re-seeding here would put the machine's pick back
+        // under someone who had just rejected it, on the next refetch, silently.
+        const cleared = new Map<string, RowDecision>([
+            ["A", { target: "Project Payments", linkTo: null }],
+        ]);
+        const seeded = seedDecisions([suggested({ name: "A" })], cleared);
+        expect(seeded.get("A")?.linkTo).toBeNull();
+    });
+
+    it("returns the SAME map when there is nothing to add", () => {
+        // The page re-runs this on every fetch. A fresh Map each time would change the reference,
+        // re-render the table and re-run every memo for no change at all.
+        const existing = new Map<string, RowDecision>();
+        expect(seedDecisions([row({ row_status: "Unmatched" })], existing)).toBe(existing);
+    });
+
+    it("a seeded row is immediately confirmable, which is the whole point", () => {
+        const seeded = seedDecisions([suggested({ name: "A" })], new Map());
+        expect(isConfirmable(suggested({ name: "A" }), seeded.get("A"))).toBe(true);
+    });
+
+    it("tells the table whether the machine or a person put the decision there", () => {
+        const r = suggested();
+        expect(decisionOrigin(r, undefined)).toBe("none");
+        expect(decisionOrigin(r, { target: "Project Payments", linkTo: "PAY-00105-038" })).toBe(
+            "suggested"
+        );
+        expect(decisionOrigin(r, { target: "Project Payments", linkTo: "PAY-OTHER" })).toBe(
+            "chosen"
+        );
+        expect(decisionOrigin(r, { target: "Project Expenses", linkTo: "PAY-00105-038" })).toBe(
+            "chosen"
+        );
+        // A row with no suggestion at all: anything on it was chosen by a person.
+        expect(decisionOrigin(row(), { target: "Project Payments", linkTo: "PAY-1" })).toBe(
+            "chosen"
+        );
+    });
+});
+
 describe("candidate ordering and pre-selection", () => {
     /**
      * ⚠️ `suggested` COMES FROM THE SERVER and encodes the Re 1 rounding tolerance. The client
@@ -402,26 +524,6 @@ describe("candidate ordering and pre-selection", () => {
             { name: "NEAR", amount: 234000, suggested: false },
         ];
         expect(orderBySuggestion(spread, 235000).map((c) => c.name)).toEqual(["NEAR", "FAR"]);
-    });
-
-    it("pre-selects ONLY when exactly one record is suggested", () => {
-        // Owner ruling: two suggestions is ambiguity, and the screen never guesses between two
-        // real records. Pre-selecting either turns a suggestion into a decision the software made
-        // and the reviewer rubber-stamped.
-        expect(solePreselection(candidates)).toBeNull();
-        expect(solePreselection([candidates[0], candidates[1]])?.name).toBe("PAY-1");
-    });
-
-    it("pre-selects nothing when the server suggests nothing", () => {
-        expect(solePreselection([{ name: "X", amount: 1, suggested: false }])).toBeNull();
-        expect(solePreselection([{ name: "X", amount: 1 }])).toBeNull();
-    });
-
-    it("pre-selects a record the bank ROUNDED, which exact equality would have refused", () => {
-        // The real case: bank 18,679.00 against payment 18,678.69. An exact test finds nothing,
-        // which is precisely the bug this replaced.
-        const rounded = [{ name: "PAY-00105-038", amount: 18678.69, suggested: true }];
-        expect(solePreselection(rounded)?.name).toBe("PAY-00105-038");
     });
 
     it("does not mutate the candidate list", () => {

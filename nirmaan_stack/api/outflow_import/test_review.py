@@ -36,6 +36,7 @@ from nirmaan_stack.api.outflow_import.review import (
     get_reconciliation_report,
     get_row_candidates,
     match_batch,
+    search_settleable_records,
     skip_row,
 )
 from nirmaan_stack.api.outflow_import.upload import BATCH_DOCTYPE, ROW_DOCTYPE, _stage_batch
@@ -67,6 +68,7 @@ class OutflowReviewFixture(unittest.TestCase):
 
     batches: list = []
     payments: list = []
+    expenses: list = []
     project: str | None = None
 
     @classmethod
@@ -77,6 +79,7 @@ class OutflowReviewFixture(unittest.TestCase):
         # rows the later classes still need -- and their assertions would read None.
         cls.batches = []
         cls.payments = []
+        cls.expenses = []
         cls.parsed = _fresh_parse()
         cls.batch = _stage_batch(
             cls.parsed,
@@ -121,6 +124,32 @@ class OutflowReviewFixture(unittest.TestCase):
              float(amount), status, utr, payment_date),
         )
         cls.payments.append(name)
+        return name
+
+    @classmethod
+    def _insert_project_expense(cls, *, amount, status="Approved", vendor=None, project=None):
+        """A `Project Expenses` ROW, inserted raw for the same reasons as a payment.
+
+        Going through the document lifecycle would fire `project_cashflow_hold_update`, which
+        recomputes a real project's cashflow gap and can move its CEO-Hold state. This suite runs
+        against the LIVE development database and only ever reads this row back out with raw SQL.
+
+        ⚠️ `amount` is a Data column of numeric STRINGS on this doctype, and real Currency on the
+        non-project one. Inserting a float here would work today and read back as an unpredictable
+        string tomorrow -- the asymmetry is stored, not incidental.
+        """
+        name = f"TEST-OFE-{frappe.generate_hash(length=12)}"
+        frappe.db.sql(
+            """
+            INSERT INTO "tabProject Expenses"
+                (name, creation, modified, modified_by, owner, docstatus, idx,
+                 projects, vendor, status, amount, description)
+            VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s, %s, %s)
+            """,
+            (name, "Administrator", "Administrator", project, vendor, status,
+             str(amount), "Outflow import test expense"),
+        )
+        cls.expenses.append(name)
         return name
 
     @classmethod
@@ -174,6 +203,8 @@ class OutflowReviewFixture(unittest.TestCase):
             frappe.db.delete(BATCH_DOCTYPE, {"name": name})
         for name in cls.payments:
             frappe.db.delete("Project Payments", {"name": name})
+        for name in cls.expenses:
+            frappe.db.delete("Project Expenses", {"name": name})
         frappe.db.commit()
         super().tearDownClass()
 
@@ -181,7 +212,10 @@ class OutflowReviewFixture(unittest.TestCase):
         rows = frappe.get_all(
             ROW_DOCTYPE,
             filters={"import_batch": self.batch.name},
-            fields=["name", "transfer_id", "row_status", "outcome_note", "resolved_vendor"],
+            fields=[
+                "name", "transfer_id", "row_status", "outcome_note", "resolved_vendor",
+                "suggested_doctype", "suggested_name",
+            ],
         )
         return {r["transfer_id"][-4:]: r for r in rows}
 
@@ -341,6 +375,242 @@ class TestMatchBatch(OutflowReviewFixture):
             )
             self.assertIsNone(doc.tds)
             self.assertEqual(doc.status, expected, f"{name} moved to {doc.status}")
+
+
+class TestSuggestionIsPersisted(OutflowReviewFixture):
+    """The match run writes down WHICH record it picked (slice R1).
+
+    Before this, the run stored only a status and a sentence, so the screen had to re-run the
+    matcher for one row at a time when a reviewer opened it -- which is why a matched row could not
+    show as ready in the table, and why every row had to be opened individually to be confirmed.
+
+    ⚠️ THE POSITIVE CASE CANNOT USE ROW 0001, AND THE REASON IS WORTH KNOWING BEFORE YOU "FIX" IT.
+    This suite runs against the LIVE development database, and `match_expenses` matches on AMOUNT
+    ALONE -- the description text only raises the score, it never gates. Row 0001 is a round
+    Rs 5,000, and a real approved Project Expense sits at exactly Rs 5,000, so that row honestly has
+    TWO approved candidates and correctly suggests nothing. Row 0009's Rs 1,234.50 is the one
+    non-round amount in the fixture, which is what makes it a stable single-candidate row. The
+    precondition is asserted rather than assumed, so a future collision reports itself as data drift
+    instead of looking like a broken deriver.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # 0009 has no planted target in the base fixture -- it is the "nothing to match" row -- so
+        # planting here gives this class a row whose entire candidate set is one payment.
+        cls.solo_row = cls._row("0009")
+        cls.pay_solo = cls._make_payment(cls.solo_row, status="Approved")
+        frappe.db.commit()
+        match_batch(cls.batch.name)
+
+    @staticmethod
+    def _approved_expenses_at(amount: float) -> int:
+        """How many live approved expenses share this amount, on either expense ledger.
+
+        `Project Expenses.amount` is a Data column of numeric strings and the non-project one is
+        real Currency -- the same asymmetry the candidate queries carry.
+        """
+        project = frappe.db.sql(
+            """SELECT count(*) FROM "tabProject Expenses"
+               WHERE status = 'Approved' AND amount IS NOT NULL AND btrim(amount) <> ''
+                 AND abs(CAST(btrim(amount) AS numeric) - %s) <= 1""",
+            (amount,),
+        )[0][0]
+        non_project = frappe.db.sql(
+            """SELECT count(*) FROM "tabNon Project Expenses"
+               WHERE status = 'Approved' AND abs(amount - %s) <= 1""",
+            (amount,),
+        )[0][0]
+        return int(project) + int(non_project)
+
+    def test_a_single_approved_payment_is_recorded_as_the_suggestion(self):
+        self.assertEqual(
+            self._approved_expenses_at(1234.50),
+            0,
+            "A live approved expense has appeared at Rs 1,234.50, so this row now has two "
+            "candidates and correctly suggests nothing. That is the deriver working -- pick another "
+            "amount for this test rather than relaxing the rule.",
+        )
+        row = self._rows_by_transfer_suffix()["0009"]
+        self.assertEqual(row["row_status"], "Matched")
+        self.assertEqual(row["suggested_doctype"], "Project Payments")
+        self.assertEqual(row["suggested_name"], self.pay_solo)
+
+    def test_no_unmatched_row_anywhere_carries_a_suggestion(self):
+        """Asserted across every row rather than one named one: which fixture rows end up Unmatched
+        depends on the live ledger, and the rule does not."""
+        unmatched = [
+            r for r in self._rows_by_transfer_suffix().values() if r["row_status"] == "Unmatched"
+        ]
+        self.assertTrue(unmatched)
+        for row in unmatched:
+            self.assertIsNone(row["suggested_name"], row["transfer_id"])
+            self.assertIsNone(row["suggested_doctype"], row["transfer_id"])
+
+    def test_a_fan_out_records_no_suggestion(self):
+        """Matched, but there is no single record to name. A `(doctype, name)` pair cannot hold a
+        group, so the shape of the fields enforces the rule rather than a caller remembering it."""
+        row = self._rows_by_transfer_suffix()["0004"]
+        self.assertEqual(row["row_status"], "Matched")
+        self.assertIsNone(row["suggested_doctype"])
+        self.assertIsNone(row["suggested_name"])
+
+    def test_a_skipped_duplicate_records_no_suggestion(self):
+        """THE GATE. This row HAS a real approved candidate behind it -- it is skipped because the
+        payment was already ticked Paid by hand. Pre-selecting that candidate would put a
+        ready-to-confirm record on a row whose whole purpose is to stop the money being booked
+        twice."""
+        row = self._rows_by_transfer_suffix()["0003"]
+        self.assertEqual(row["row_status"], "Skipped")
+        self.assertIsNone(row["suggested_name"])
+
+    def test_a_mismatched_row_records_no_suggestion(self):
+        row = self._rows_by_transfer_suffix()["0007"]
+        self.assertEqual(row["row_status"], "Mismatched")
+        self.assertIsNone(row["suggested_name"])
+
+    def test_a_re_run_clears_a_suggestion_that_no_longer_holds(self):
+        """⚠️ THE CLEARING HALF, WHICH IS THE ONE THAT BREAKS SILENTLY.
+
+        Re-running the match is normal and expected -- payments get ticked Paid by hand all day, so
+        a batch matched at 10:00 finds different things at 16:00. If the run only WROTE the pair
+        when it found one, a row whose candidate has since been paid by somebody else would keep
+        this morning's pick, and the screen would open it already ticked against a record the
+        matcher has since rejected. Nothing on the screen would show that.
+
+        The stale value is planted on whichever row is Unmatched rather than a named one -- which
+        rows end up Unmatched depends on the live ledger, and the clearing rule does not.
+        """
+        target = next(
+            r for r in self._rows_by_transfer_suffix().values() if r["row_status"] == "Unmatched"
+        )
+        self.assertIsNone(target["suggested_name"])
+        frappe.db.set_value(
+            ROW_DOCTYPE,
+            target["name"],
+            {"suggested_doctype": "Project Payments", "suggested_name": "PAY-STALE-001"},
+            update_modified=False,
+        )
+        match_batch(self.batch.name)
+        after = frappe.db.get_value(
+            ROW_DOCTYPE, target["name"], ["suggested_doctype", "suggested_name"], as_dict=True
+        )
+        self.assertIsNone(after.suggested_doctype)
+        self.assertIsNone(after.suggested_name)
+
+    def test_the_suggestion_is_not_a_match_record(self):
+        """⚠️ Two read-only fields on the import row, NOT a row in `Outflow Row Match`.
+
+        That table's `(transfer_id, target_doctype, target_name)` unique key IS this feature's
+        idempotency guarantee. A suggestion written there would take the key before the settlement
+        that needs it and fail the confirm on exactly the happy path -- which is why the match run
+        writes no match records at all. Anyone "restoring consistency" by moving the suggestion into
+        that table brings the collision back.
+        """
+        row = self._rows_by_transfer_suffix()["0009"]
+        self.assertEqual(row["suggested_name"], self.pay_solo)
+        self.assertEqual(frappe.db.count(MATCH_DOCTYPE, {"import_row": row["name"]}), 0)
+
+
+class TestSearchSettleableRecords(OutflowReviewFixture):
+    """Browsing approved records to link one BY HAND -- now across all three ledgers (slice R2).
+
+    ⚠️ THIS IS NOT THE MATCHER'S OUTPUT, and the distinction is the whole reason the endpoint
+    exists. `get_row_candidates` returns what the matcher FOUND; when it found nothing the old
+    dropdowns were empty -- exactly when hand-linking is most needed. This browses the ledgers.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        vendor = frappe.db.get_value("Vendors", {}, ["name", "vendor_name"], as_dict=True)
+        cls.vendor = vendor
+        # An approved project expense with REAL links, at row 0009's Rs 1,234.50 -- close enough to
+        # that row's amount to be offered, and linked so the id-vs-name assertion has something to
+        # bite on.
+        cls.expense_linked = cls._insert_project_expense(
+            amount="1234.50", vendor=vendor.name if vendor else None, project=cls.project
+        )
+        frappe.db.commit()
+
+    def _row_name(self, suffix="0009"):
+        return self._rows_by_transfer_suffix()[suffix]["name"]
+
+    def test_a_blank_doctype_searches_every_ledger(self):
+        """The reviewer no longer has to classify the transfer before they can find the record."""
+        records = search_settleable_records(self._row_name(), "")
+        self.assertTrue(records)
+        self.assertTrue(all(r["target_doctype"] for r in records))
+        found = {r["target_doctype"] for r in records}
+        self.assertTrue(found <= {"Project Payments", "Project Expenses", "Non Project Expenses"})
+
+    def test_every_record_names_its_own_ledger(self):
+        """⚠️ The record CARRIES its doctype because the dialog no longer asks for one up front.
+        Without it the screen would have to guess which table a chosen record lives in, and settle
+        it against the wrong one."""
+        records = search_settleable_records(self._row_name(), "")
+        expense = next(r for r in records if r["name"] == self.expense_linked)
+        self.assertEqual(expense["target_doctype"], "Project Expenses")
+
+    def test_an_expense_reports_vendor_and_project_by_NAME_not_by_link_id(self):
+        """⚠️ THE DEFECT THIS FIXES. `vendor` and `projects` are LINK fields, so the raw values are
+        `VEN-0001` / `PROJ-0007`. Payments always joined for real names; expenses did not -- and now
+        that both appear in ONE list, picked BY vendor and project, an id in that column is a record
+        the reviewer cannot recognise."""
+        if not self.vendor or not self.project:
+            self.skipTest("no vendor or project in this database to link an expense to")
+        records = search_settleable_records(self._row_name(), "")
+        expense = next(r for r in records if r["name"] == self.expense_linked)
+        self.assertEqual(expense["vendor_name"], self.vendor.vendor_name)
+        self.assertNotEqual(expense["vendor_name"], self.vendor.name)
+        self.assertEqual(
+            expense["project_name"],
+            frappe.db.get_value("Projects", self.project, "project_name"),
+        )
+
+    def test_an_expense_carries_a_last_updated_date_and_never_an_approval_one(self):
+        """⚠️ NEITHER EXPENSE DOCTYPE HAS AN APPROVAL DATE -- no field, no approver. Only
+        `Project Payments` records one. The modification date goes under its own key so the screen
+        can label it "updated" rather than pass it off as "approved" (owner ruling 2026-08-06)."""
+        records = search_settleable_records(self._row_name(), "")
+        expense = next(r for r in records if r["name"] == self.expense_linked)
+        self.assertEqual(expense["approved_on"], "")
+        self.assertTrue(expense["updated_on"])
+
+    def test_a_payment_carries_an_approval_date_under_its_own_key(self):
+        records = search_settleable_records(self._row_name(), "Project Payments")
+        self.assertTrue(records)
+        self.assertTrue(all(r["updated_on"] == "" for r in records))
+
+    def test_suggested_records_come_first_then_the_closest(self):
+        """The merged list is cut to `limit` AFTER sorting, so the order decides what survives the
+        cut. It is the same order the screen renders in."""
+        records = search_settleable_records(self._row_name(), "")
+        flags = [r["suggested"] for r in records]
+        self.assertEqual(flags, sorted(flags, reverse=True))
+
+    def test_naming_one_ledger_still_returns_only_that_ledger(self):
+        for ledger in ("Project Payments", "Project Expenses", "Non Project Expenses"):
+            records = search_settleable_records(self._row_name(), ledger)
+            self.assertTrue(all(r["target_doctype"] == ledger for r in records), ledger)
+
+    def test_a_ledger_this_import_cannot_settle_is_still_refused(self):
+        """Blank means ALL, but a NAMED doctype is still validated -- widening the default must not
+        turn a typo into a silently empty list."""
+        with self.assertRaises(frappe.ValidationError):
+            search_settleable_records(self._row_name(), "Procurement Orders")
+
+    def test_nothing_below_approved_is_ever_offered(self):
+        """Browsing is not a way around the ladder (owner ruling Q3). `pay_requested` and
+        `pay_unapproved` are planted precisely to be absent from this list."""
+        names = {r["name"] for r in search_settleable_records(self._row_name(), "", limit=200)}
+        self.assertNotIn(self.pay_requested, names)
+        self.assertNotIn(self.pay_unapproved, names)
+
+    def test_the_merged_list_respects_the_limit(self):
+        records = search_settleable_records(self._row_name(), "", limit=2)
+        self.assertLessEqual(len(records), 2)
 
 
 class TestAmbiguityIsNotResolved(OutflowReviewFixture):

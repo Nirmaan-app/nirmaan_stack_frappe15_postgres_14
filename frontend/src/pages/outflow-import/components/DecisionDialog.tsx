@@ -15,17 +15,14 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import type {
-    OutflowImportRow,
-    OutflowRowCandidates,
-} from "@/types/NirmaanStack/OutflowImportBatch";
+import type { OutflowImportRow } from "@/types/NirmaanStack/OutflowImportBatch";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 import {
     amountVerdict,
+    isConfirmable,
     orderBySuggestion,
-    solePreselection,
     type DecisionTarget,
     type RowDecision,
 } from "../outflowTableModel";
@@ -34,13 +31,30 @@ const PAYMENT = "Project Payments";
 const PROJECT_EXPENSE = "Project Expenses";
 const NON_PROJECT_EXPENSE = "Non Project Expenses";
 
-/** The four choices, always in this order, so the shape is learnable across rows. */
-const TARGETS: { id: DecisionTarget; label: string; hint: string }[] = [
-    { id: PAYMENT, label: "Link to an approved Project Payment", hint: "money against a PO or SR that is already approved" },
-    { id: PROJECT_EXPENSE, label: "Link to an approved Project Expense", hint: "project spend with no PO behind it" },
-    { id: NON_PROJECT_EXPENSE, label: "Link to an approved Non Project Expense", hint: "office and company overheads" },
-    { id: "new", label: "Create a new expense", hint: "nothing to link to — record it here, already Paid" },
-];
+/**
+ * ⚠️ HIDDEN, NOT DELETED (owner, slice R2). "Create a new expense" is off this dialog for now, so
+ * linking an approved record and skipping are the only two ways to resolve a row. Everything behind
+ * it is intact -- the form below, `RowDecision.newExpense`, the `new` branch of `isConfirmable`, and
+ * the `create_expense` endpoint -- so bringing it back is this one line. Deleting any of that is
+ * what would make it expensive to reverse.
+ */
+const SHOW_CREATE_NEW_EXPENSE = false;
+
+const CREATE_NEW_TARGET: { id: DecisionTarget; label: string; hint: string } = {
+    id: "new",
+    label: "Create a new expense",
+    hint: "nothing to link to — record it here, already Paid",
+};
+
+/**
+ * How each ledger is named ON A RECORD LINE (owner wording, slice R2). Singular, because it labels
+ * one record rather than a table.
+ */
+const LEDGER_LABEL: Record<string, string> = {
+    [PAYMENT]: "Project Payment",
+    [PROJECT_EXPENSE]: "Project Expense",
+    [NON_PROJECT_EXPENSE]: "Non Project Expense",
+};
 
 interface Props {
     row: OutflowImportRow | null;
@@ -65,6 +79,14 @@ interface Props {
  *
  * ⚠️ EVERY OPTION OPENS IN PLACE, with everything it needs inside it. Nothing floats outside the
  * option it belongs to, so it is never ambiguous which control belongs to which choice.
+ *
+ * ⚠️ THIS DIALOG NO LONGER PRE-SELECTS ANYTHING, AND MUST NOT START AGAIN (slice R1). The match
+ * run now writes its single pick onto the row itself, and the PAGE seeds every row's decision from
+ * that when the batch loads. Pre-selecting here could only ever work once a reviewer had already
+ * opened the row -- which is exactly why a matched transfer could not read as ready in the table,
+ * and why confirming twenty of them meant opening twenty dialogs. It also re-derived the
+ * "exactly one candidate" rule from a DIFFERENT candidate list than the row's own note counted, so
+ * the two could disagree about the same row. One rule, on the server, in `sole_suggestion`.
  */
 export const DecisionDialog = ({
     row,
@@ -79,54 +101,9 @@ export const DecisionDialog = ({
     const [skipReason, setSkipReason] = useState("");
     const [skipping, setSkipping] = useState(false);
 
-    /**
-     * ⚠️ TWO DIFFERENT QUESTIONS, TWO DIFFERENT ENDPOINTS, and conflating them was the bug.
-     *
-     *   `get_row_candidates`        -> what the MATCHER suggests. Used ONLY to seed the decision,
-     *                                  which is what makes a Matched row open with its record
-     *                                  already chosen.
-     *   `search_settleable_records` -> what you may BROWSE, per ledger, inside `RecordPicker`.
-     *
-     * The dialog originally built its dropdowns from the first. That is why they were empty
-     * whenever the matcher found nothing -- exactly when hand-linking is most needed.
-     */
-    const { data: suggestion } = useFrappeGetCall<{ message: OutflowRowCandidates }>(
-        "nirmaan_stack.api.outflow_import.review.get_row_candidates",
-        { row: row?.name },
-        row?.name ? undefined : null
-    );
-
     useEffect(() => {
         setSkipReason("");
     }, [row?.name]);
-
-    /**
-     * Open a matched row with its record ALREADY SELECTED.
-     *
-     * ⚠️ WITHOUT THIS, NOTHING IS EVER PRE-SELECTED, because `RecordPicker` only mounts once the
-     * reviewer has clicked a target -- so its own pre-selection could never fire on open. A row the
-     * matcher resolved confidently should take one click to confirm, not three.
-     *
-     * ⚠️ ONLY WHEN THERE IS EXACTLY ONE candidate across every ledger (owner ruling: the screen
-     * never guesses between two real records). Two suggestions, or a group covering several
-     * payments, seeds nothing and the reviewer chooses.
-     */
-    useEffect(() => {
-        if (!row || decision || !suggestion?.message) return;
-        const groups = suggestion.message.payment_groups ?? [];
-        const expenses = suggestion.message.expense_candidates ?? [];
-        const soleGroup =
-            groups.length === 1 && groups[0].targets.length === 1 ? groups[0].targets[0] : null;
-        if (soleGroup && !expenses.length) {
-            onChange({ target: PAYMENT, linkTo: soleGroup.name });
-            return;
-        }
-        if (!groups.length && expenses.length === 1) {
-            const only = expenses[0];
-            onChange({ target: only.doctype as DecisionTarget, linkTo: only.name });
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [row?.name, suggestion]);
 
     if (!row) return null;
 
@@ -156,15 +133,27 @@ export const DecisionDialog = ({
                 <div className="min-h-0 space-y-4 overflow-y-auto px-6 py-4">
                     <WhyThisSuggestion row={row} />
 
-                    {TARGETS.map((target) => (
+                    {/* ⚠️ ONE SECTION, ALWAYS OPEN. It replaced three cards -- one per ledger --
+                        that made the reviewer say WHICH KIND of record this was before they were
+                        shown any. That is a question the bank statement does not answer: a transfer
+                        to a vendor may have been raised as a Project Payment or booked as a Project
+                        Expense, and the only way to find out was to open each card in turn. With
+                        one list there is nothing to choose first, so there is no card to click. */}
+                    <LinkPaymentSection
+                        row={row}
+                        decision={decision}
+                        onChange={onChange}
+                        dimmed={decision?.target === "new"}
+                    />
+
+                    {SHOW_CREATE_NEW_EXPENSE && (
                         <TargetOption
-                            key={target.id}
-                            target={target}
+                            target={CREATE_NEW_TARGET}
                             row={row}
                             decision={decision}
                             onChange={onChange}
                         />
-                    ))}
+                    )}
                 </div>
 
                 <footer className="flex flex-wrap items-center gap-2 border-t bg-muted/30 px-6 py-3">
@@ -199,7 +188,17 @@ export const DecisionDialog = ({
                             <Button size="sm" variant="outline" onClick={() => setSkipping(true)}>
                                 Skip this row
                             </Button>
-                            <Button size="sm" onClick={() => onConfirm()} disabled={busy}>
+                            {/* ⚠️ GATED ON THE SAME `isConfirmable` THE BULK BAR COUNTS WITH, so
+                                the two surfaces can never disagree about whether a row is ready.
+                                It also closes a real hole: the ledger now arrives with the chosen
+                                record rather than from a card clicked first, so a cleared selection
+                                leaves no target at all -- and this button would have posted a
+                                settle with an undefined doctype. */}
+                            <Button
+                                size="sm"
+                                onClick={() => onConfirm()}
+                                disabled={busy || !isConfirmable(row, decision)}
+                            >
                                 {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                                 Confirm → Paid
                             </Button>
@@ -245,6 +244,37 @@ const WhyThisSuggestion = ({ row }: { row: OutflowImportRow }) => {
     );
 };
 
+/**
+ * The one way to resolve a row: find the approved record this transfer paid, in any ledger.
+ *
+ * ⚠️ IT IS A SECTION, NOT A SELECTABLE CARD, because it is the only option. A radio with nothing
+ * to choose against is a control that cannot be wrong, and asking for a click before showing the
+ * list would put a step in front of the only thing this dialog does.
+ */
+const LinkPaymentSection = ({
+    row,
+    decision,
+    onChange,
+    dimmed,
+}: {
+    row: OutflowImportRow;
+    decision: RowDecision | undefined;
+    onChange: (decision: RowDecision) => void;
+    dimmed: boolean;
+}) => (
+    <div className={`rounded-md border border-muted-foreground/20 ${dimmed ? "opacity-40" : ""}`}>
+        <div className="px-3 py-2.5">
+            <p className="text-sm font-medium">Link payment</p>
+            <p className="text-xs text-muted-foreground">
+                the approved record this transfer paid — payment or expense
+            </p>
+        </div>
+        <div className="border-t px-3 py-3">
+            <RecordPicker row={row} decision={decision ?? {}} onChange={onChange} />
+        </div>
+    </div>
+);
+
 const TargetOption = ({
     target,
     row,
@@ -268,17 +298,13 @@ const TargetOption = ({
                 type="button"
                 className="flex w-full items-start gap-3 px-3 py-2.5 text-left"
                 onClick={() =>
-                    onChange(
-                        target.id === "new"
-                            ? {
-                                  target: "new",
-                                  newExpense: decision?.newExpense ?? {
-                                      doctype: PROJECT_EXPENSE,
-                                      description: row.remarks || "",
-                                  },
-                              }
-                            : { target: target.id, linkTo: null }
-                    )
+                    onChange({
+                        target: "new",
+                        newExpense: decision?.newExpense ?? {
+                            doctype: PROJECT_EXPENSE,
+                            description: row.remarks || "",
+                        },
+                    })
                 }
             >
                 <span
@@ -294,16 +320,7 @@ const TargetOption = ({
 
             {chosen && (
                 <div className="border-t px-3 py-3">
-                    {target.id === "new" ? (
-                        <NewExpenseForm row={row} decision={decision!} onChange={onChange} />
-                    ) : (
-                        <RecordPicker
-                            row={row}
-                            doctype={target.id}
-                            decision={decision!}
-                            onChange={onChange}
-                        />
-                    )}
+                    <NewExpenseForm row={row} decision={decision!} onChange={onChange} />
                 </div>
             )}
         </div>
@@ -313,22 +330,38 @@ const TargetOption = ({
 /**
  * A DROPDOWN, not radios (owner ruling), that loads the chosen record's details beneath it.
  *
- * ⚠️ PRE-SELECTED ONLY WHEN EXACTLY ONE RECORD IS SUGGESTED by the server. Two suggestions is
- * ambiguity, and the screen never guesses between two real records -- `solePreselection` is the one
- * place that rule lives and it is unit-tested. It keys on the server's flag, not on exact equality,
- * so the Re 1 rounding tolerance is applied in one place only.
+ * ⚠️ IT PRE-SELECTS NOTHING, AND THAT IS DELIBERATE (slice R1). It used to tick the sole record
+ * whose amount matched. The only rows that still reach this picker with nothing chosen are rows the
+ * MATCHER DECLINED -- unmatched, mismatched, or one of several candidates -- so an auto-tick here
+ * would be the screen overruling the matcher on the weakest signal it has: amount alone, no vendor,
+ * no date, and once this list spans all three ledgers, not even the right kind of record. The one
+ * pre-selection in this feature comes from `sole_suggestion` on the server, via the page.
  */
 interface SettleableRecord {
+    /** Which ledger this record lives in. It arrives WITH the record; the reviewer never picks it. */
+    target_doctype: DecisionTarget;
     name: string;
     amount: number;
     detail: string;
     suggested: boolean;
-    /** The four facts a reviewer picks a payment BY (owner ruling 2026-08-06). */
+    /** The facts a reviewer picks a record BY (owner ruling 2026-08-06). */
     vendor_name: string;
     project_name: string;
     document_name: string;
+    /**
+     * ⚠️ TWO DATE KEYS, NEVER ONE. Only `Project Payments` records an approval date -- neither
+     * expense doctype has the field at all. The expense's last-changed timestamp is real and useful
+     * for judging how stale a record is, but it is NOT an approval date, so it travels under its own
+     * name and is labelled differently on screen (owner ruling 2026-08-06). Merging them into one
+     * key would make a modification look like an approval on two thirds of the list.
+     */
     approved_on: string;
+    updated_on: string;
 }
+
+/** `<doctype>|<name>` -- unique across ledgers, which a bare record name is not guaranteed to be. */
+const optionValue = (record: { target_doctype: string; name: string }) =>
+    `${record.target_doctype}|${record.name}`;
 
 /**
  * ⚠️ THIS BROWSES APPROVED RECORDS. IT DOES NOT SHOW THE MATCHER'S OUTPUT, and the difference is
@@ -348,21 +381,22 @@ interface SettleableRecord {
  */
 const RecordPicker = ({
     row,
-    doctype,
     decision,
     onChange,
 }: {
     row: OutflowImportRow;
-    doctype: DecisionTarget;
     decision: RowDecision;
     onChange: (decision: RowDecision) => void;
 }) => {
     const [search, setSearch] = useState("");
 
+    // ⚠️ NO `target_doctype`, WHICH IS WHAT MAKES THIS ONE LIST. A blank one means all three
+    // ledgers, merged and ordered server-side by how close the amount is -- so the reviewer
+    // recognises a record instead of first classifying the transfer.
     const { data, isLoading } = useFrappeGetCall<{ message: SettleableRecord[] }>(
         "nirmaan_stack.api.outflow_import.review.search_settleable_records",
-        { row: row.name, target_doctype: doctype, search },
-        `settleable-${row.name}-${doctype}-${search}`
+        { row: row.name, search },
+        `settleable-${row.name}-${search}`
     );
 
     const options = useMemo(
@@ -370,16 +404,10 @@ const RecordPicker = ({
         [data, row.amount]
     );
 
-    // Pre-select the SOLE suggestion, once, when nothing is chosen yet. Keyed on the server's
-    // flag, not on exact equality -- see `solePreselection`.
-    useEffect(() => {
-        if (decision.linkTo || !options.length || search) return;
-        const sole = solePreselection(options);
-        if (sole) onChange({ ...decision, linkTo: sole.name });
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [options]);
-
-    const selected = options.find((o) => o.name === decision.linkTo);
+    // Matched on BOTH halves: a bare name is not unique across three ledgers.
+    const selected = options.find(
+        (o) => o.name === decision.linkTo && o.target_doctype === decision.target
+    );
 
     return (
         <div className="space-y-3">
@@ -399,19 +427,36 @@ const RecordPicker = ({
                 <p className="text-sm text-muted-foreground">
                     {search
                         ? "No approved record matches that search."
-                        : "There are no approved records in this ledger to link to."}
+                        : "There are no approved payments or expenses to link to."}
                 </p>
             ) : (
                 <Select
-                    value={decision.linkTo ?? ""}
-                    onValueChange={(value) => onChange({ ...decision, linkTo: value })}
+                    value={
+                        decision.target && decision.linkTo
+                            ? optionValue({
+                                  target_doctype: decision.target,
+                                  name: decision.linkTo,
+                              })
+                            : ""
+                    }
+                    // ⚠️ THE LEDGER COMES FROM THE RECORD. It used to come from the card clicked
+                    // beforehand; with one list there is no such card, so picking a record is what
+                    // decides which table gets written.
+                    onValueChange={(value) => {
+                        const [target, ...rest] = value.split("|");
+                        onChange({
+                            ...decision,
+                            target: target as DecisionTarget,
+                            linkTo: rest.join("|"),
+                        });
+                    }}
                 >
                     <SelectTrigger className="h-auto min-h-9 py-1.5">
                         <SelectValue placeholder="Choose a record…" />
                     </SelectTrigger>
                     <SelectContent className="max-w-[min(90vw,640px)]">
                         {options.map((option) => (
-                            <SelectItem key={option.name} value={option.name}>
+                            <SelectItem key={optionValue(option)} value={optionValue(option)}>
                                 <OptionLine option={option} />
                             </SelectItem>
                         ))}
@@ -424,14 +469,16 @@ const RecordPicker = ({
             {/* ⚠️ CLEARING IS A SEPARATE ACT FROM CHOOSING. A Radix Select cannot return to "no
                 value" through the dropdown -- every item sets one -- so without this a reviewer who
                 picked the wrong record could never get back to undecided, only to a different
-                wrong record. It clears the LINK and keeps the ledger, which is the common case
-                (right ledger, wrong row). */}
+                wrong record.
+                ⚠️ IT NOW CLEARS THE LEDGER TOO. It used to keep it, because the ledger was a
+                separate earlier choice worth preserving; with one list the ledger is part of the
+                record, and leaving it behind would strand a target with no record under it. */}
             {decision.linkTo && (
                 <Button
                     variant="ghost"
                     size="sm"
                     className="h-7 px-2 text-xs"
-                    onClick={() => onChange({ ...decision, linkTo: null })}
+                    onClick={() => onChange({ ...decision, target: undefined, linkTo: null })}
                 >
                     <X className="mr-1 h-3 w-3" />
                     Clear selection
@@ -442,11 +489,15 @@ const RecordPicker = ({
 };
 
 /**
- * One dropdown line: project, vendor, amount and approval date (owner ruling 2026-08-06).
+ * One record line: payment type, vendor, project, amount and a date (owner ruling, slice R2).
  *
  * ⚠️ THE ID ALONE IS NOT ENOUGH TO CHOOSE BY. `PAY-00105-034` says nothing about whose money it is
- * -- a reviewer with three approved payments in front of them picks by vendor and project, and
- * scanning them meant opening each one to find out. The four facts go on the line itself.
+ * -- a reviewer with three approved records in front of them picks by vendor and project, and
+ * scanning them meant opening each one to find out. The facts go on the line itself.
+ *
+ * ⚠️ THE TYPE BADGE IS NOT DECORATION. One list now holds all three ledgers, so it is the only
+ * thing on the line saying whether this is a payment against a PO or an expense somebody booked --
+ * which is what the three separate cards used to say by existing.
  */
 const OptionLine = ({ option }: { option: SettleableRecord }) => (
     <span className="flex w-full min-w-0 flex-col gap-0.5 py-0.5">
@@ -458,15 +509,33 @@ const OptionLine = ({ option }: { option: SettleableRecord }) => (
             <span className="shrink-0">{option.suggested ? "✓" : "⚠"}</span>
         </span>
         <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 text-[11px] text-muted-foreground">
+            <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-medium text-foreground/70">
+                {LEDGER_LABEL[option.target_doctype] ?? option.target_doctype}
+            </span>
             <span className="font-mono">{option.name}</span>
             {option.project_name && <span className="truncate">{option.project_name}</span>}
             {option.document_name && (
                 <span className="truncate font-mono">{option.document_name}</span>
             )}
-            {option.approved_on && <span>approved {formatDate(option.approved_on)}</span>}
+            <RecordDate option={option} />
         </span>
     </span>
 );
+
+/**
+ * The record's date, saying WHICH date it is.
+ *
+ * ⚠️ AN EXPENSE HAS NO APPROVAL DATE -- neither expense doctype carries the field, and only
+ * `Project Payments` records one. So a payment reads "approved 12-Jul-2026" and an expense reads
+ * "updated 12-Jul-2026" (owner ruling 2026-08-06). The two words are the guard: presenting a
+ * modification timestamp under the word "approved" would be a confident lie on two thirds of the
+ * list, and a reviewer settling by approval date would have no way to see it.
+ */
+const RecordDate = ({ option }: { option: SettleableRecord }) => {
+    if (option.approved_on) return <span>approved {formatDate(option.approved_on)}</span>;
+    if (option.updated_on) return <span>updated {formatDate(option.updated_on)}</span>;
+    return null;
+};
 
 /**
  * The chosen record's details plus an explicit amount verdict.
@@ -491,7 +560,15 @@ const RecordDetail = ({
     return (
         <div className="rounded-md border bg-background p-3 text-sm">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <span className="font-mono text-xs">{record.name}</span>
+                <span className="flex min-w-0 items-baseline gap-2">
+                    {/* Repeated from the dropdown line because this panel is what stays on screen
+                        after the list closes -- and "which ledger am I about to write to" is the
+                        one fact the reviewer no longer chose explicitly. */}
+                    <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium">
+                        {LEDGER_LABEL[record.target_doctype] ?? record.target_doctype}
+                    </span>
+                    <span className="truncate font-mono text-xs">{record.name}</span>
+                </span>
                 <span className="tabular-nums">
                     {formatToRoundedIndianRupee(record.amount)}
                 </span>
@@ -499,6 +576,9 @@ const RecordDetail = ({
             {record.detail && (
                 <p className="mt-1 text-xs text-muted-foreground">{record.detail}</p>
             )}
+            <p className="mt-1 text-[11px] text-muted-foreground">
+                <RecordDate option={record} />
+            </p>
             <p
                 className={`mt-2 flex items-center gap-1.5 text-xs ${
                     settleable ? "text-emerald-700" : "text-amber-700"

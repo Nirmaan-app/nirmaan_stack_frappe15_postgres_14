@@ -87,8 +87,10 @@ __all__ = [
     "BATCH_COMPLETED",
     "BATCH_STATUSES",
     "RowOutcome",
+    "Suggestion",
     "derive_staged_row_outcome",
     "derive_row_outcome",
+    "sole_suggestion",
     "derive_batch_status",
     "derive_batch_counters",
     "SKIP_REASON_NOT_SUCCESSFUL",
@@ -162,6 +164,18 @@ class RowOutcome:
     @property
     def is_terminal(self) -> bool:
         return self.status in TERMINAL_ROW_STATUSES
+
+
+@dataclass(frozen=True)
+class Suggestion:
+    """The ONE record a matched row should open with already chosen.
+
+    A pair rather than a whole target, because that is all the screen needs and all the import row
+    stores: `(target_doctype, target_name)` addresses any of the three ledgers.
+    """
+
+    doctype: str
+    name: str
 
 
 def derive_staged_row_outcome(
@@ -274,6 +288,47 @@ def _settleable_candidates(match) -> tuple:
         out.append(group)
     out.extend(getattr(match, "expense_candidates", ()) or ())
     return tuple(out)
+
+
+def sole_suggestion(outcome: RowOutcome, match=None) -> Suggestion | None:
+    """The one record to pre-select for this row, or `None` to pre-select nothing.
+
+    ⚠️ IT TAKES THE OUTCOME, NOT JUST THE MATCH, AND THE GATE IS THE POINT. `derive_row_outcome`
+    short-circuits on a duplicate, a failed transfer and an already-Paid record BEFORE it ever looks
+    at candidates -- so a match result can hold perfectly good candidates for a row that was
+    correctly Skipped. Deciding from the match alone would pre-select a record on a row nobody may
+    settle. Only `Matched` yields a suggestion, and the caller cannot forget the gate because it is
+    not the caller's to apply.
+
+    ⚠️ IT READS THE SAME CANDIDATE LIST `_matched_note` COUNTS, on purpose. Before this existed the
+    screen re-derived its own pre-selection from `payment_groups` -- ALL of them -- while the note
+    counted `best_payment_group` plus expenses, so a row could read "One approved record at this
+    amount" and still refuse to pre-select it. One list, one answer.
+
+    ⚠️ EXACTLY ONE, OR NOTHING (owner ruling, re-affirmed 2026-08-06). Two approved records is an
+    ambiguity and the screen never guesses between two real records. A FAN-OUT -- one transfer
+    settling several payments -- returns `None` for the same reason from the other direction: there
+    is no single record to name, and the shape of a `(doctype, name)` pair enforces that rather than
+    trusting a caller to notice.
+    """
+    if outcome.status != ROW_MATCHED:
+        return None
+
+    candidates = _settleable_candidates(match)
+    if len(candidates) != 1:
+        return None
+
+    only = candidates[0]
+    targets = getattr(only, "targets", None)
+    if targets is not None:
+        if len(targets) != 1:
+            return None
+        return Suggestion(targets[0].doctype, targets[0].name)
+
+    target = getattr(only, "target", None)
+    if target is None:
+        return None
+    return Suggestion(target.doctype, target.name)
 
 
 def _matched_note(candidates: Sequence) -> str:

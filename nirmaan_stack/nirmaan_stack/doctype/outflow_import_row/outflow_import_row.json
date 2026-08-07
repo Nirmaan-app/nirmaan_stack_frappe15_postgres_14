@@ -28,6 +28,8 @@
   "normalized_reference",
   "resolved_vendor",
   "resolved_project",
+  "suggested_doctype",
+  "suggested_name",
   "decision_section",
   "row_status",
   "skip_reason",
@@ -174,6 +176,20 @@
    "fieldtype": "Link",
    "label": "Resolved Project",
    "options": "Projects"
+  },
+  {
+   "description": "Which ledger the match run's single suggestion lives in -- one of Project Payments, Project Expenses, Non Project Expenses. Written ONLY alongside suggested_name, and only when the row is Matched with EXACTLY ONE approved candidate; blanked on every re-run that no longer finds one, so a stale pick can never survive. Derived by services/outflow_import/status.sole_suggestion. NOT a decision -- it is what the screen opens with already ticked, and a person still confirms it.",
+   "fieldname": "suggested_doctype",
+   "fieldtype": "Data",
+   "label": "Suggested Doctype",
+   "read_only": 1
+  },
+  {
+   "description": "The single record the match run suggests this transfer settled, addressed together with suggested_doctype. Blank means the screen pre-selects nothing: no candidate, several candidates (the screen never guesses between two real records), or a fan-out, which has no single name to hold. A plain Data field rather than a Dynamic Link on purpose -- a suggestion must survive its target being deleted without blocking the row.",
+   "fieldname": "suggested_name",
+   "fieldtype": "Data",
+   "label": "Suggested Record",
+   "read_only": 1
   },
   {
    "fieldname": "decision_section",

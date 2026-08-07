@@ -1,6 +1,6 @@
 // src/pages/outflow-import/OutflowImportBatchPage.tsx
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, Columns3, Lock, RefreshCw, Search, Unlock, X } from "lucide-react";
 import { useFrappeGetCall, useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
@@ -30,11 +30,14 @@ import {
     OUTFLOW_TABS,
     activeFilterCount,
     decidedRows,
+    decisionOrigin,
     isConfirmable,
     rowsForTab,
+    seedDecisions,
     tabCounts,
     visibleRows,
     type ColumnFilters,
+    type DecisionOrigin,
     type OutflowTab,
     type RowDecision,
     type SortState,
@@ -61,7 +64,7 @@ export const OutflowImportBatchPage = () => {
     const [sort, setSort] = useState<SortState>({ columnId: null, direction: "asc" });
     const [hidden, setHidden] = useState<Set<string>>(new Set(DEFAULT_HIDDEN_COLUMNS));
     const [selected, setSelected] = useState<Set<string>>(new Set());
-    const [decisions, setDecisions] = useState<Map<string, RowDecision>>(new Map());
+    const [decisions, setDecisions] = useState<ReadonlyMap<string, RowDecision>>(new Map());
     const [openRow, setOpenRow] = useState<OutflowImportRow | null>(null);
     const [busy, setBusy] = useState(false);
 
@@ -101,7 +104,29 @@ export const OutflowImportBatchPage = () => {
         "nirmaan_stack.api.outflow_import.review.reopen_batch"
     );
 
-    const allRows = rowsData?.message?.rows ?? [];
+    // Memoised so the seeding effect below has a dep that changes once per FETCH. `?? []` builds a
+    // fresh array on every render, which as an effect dep is an infinite loop.
+    const allRows = useMemo(() => rowsData?.message?.rows ?? [], [rowsData]);
+
+    /**
+     * Adopt the match run's own picks as decisions, as soon as the rows land.
+     *
+     * ⚠️ THIS IS WHY A MATCHED ROW READS AS READY IN THE TABLE. It used to happen inside the
+     * decision dialog, which only mounts once a reviewer has clicked a row -- so the table could
+     * never know, and confirming twenty matched transfers meant opening twenty dialogs to tick
+     * twenty records the matcher had already chosen.
+     *
+     * ⚠️ SEEDING IS NOT SETTLING. It fills in the same choice a person would have clicked; the row
+     * still has to be ticked and confirmed, and that confirmation is still the only thing that
+     * writes. Nothing settles itself.
+     *
+     * `seedDecisions` returns the SAME map when it adds nothing, so this re-runs on every refetch
+     * and re-renders on none of them.
+     */
+    useEffect(() => {
+        setDecisions((prev) => seedDecisions(allRows, prev));
+    }, [allRows]);
+
     const counts = useMemo(() => tabCounts(allRows), [allRows]);
     const tabRows = useMemo(() => rowsForTab(allRows, tab), [allRows, tab]);
     const shown = useMemo(
@@ -120,6 +145,12 @@ export const OutflowImportBatchPage = () => {
         () => decidedRows(tabRows, selected, decisions),
         [tabRows, selected, decisions]
     );
+    /** Where each row's decision came from, so the table can say "the matcher picked this". */
+    const originByRow = useMemo(() => {
+        const out = new Map<string, DecisionOrigin>();
+        for (const row of tabRows) out.set(row.name, decisionOrigin(row, decisions.get(row.name)));
+        return out;
+    }, [tabRows, decisions]);
 
     const refreshAll = useCallback(async () => {
         await Promise.all([mutateBatch(), mutateRows()]);
@@ -185,7 +216,10 @@ export const OutflowImportBatchPage = () => {
     const handleConfirmOne = useCallback(async () => {
         if (!openRow) return;
         const decision = decisions.get(openRow.name);
-        if (!decision) return;
+        // Backstop to the dialog's disabled Confirm button: never post a settle for a row that is
+        // not actually decided. The ledger arrives with the chosen record now, so a half-cleared
+        // decision has no target to write against.
+        if (!decision || !isConfirmable(openRow, decision)) return;
         setBusy(true);
         try {
             await settleOne(openRow, decision);
@@ -414,6 +448,7 @@ export const OutflowImportBatchPage = () => {
                     hiddenColumns={hidden}
                     selected={selected}
                     decidedRowNames={decidedNames}
+                    originByRow={originByRow}
                     selectable={tab === "pending"}
                     onSort={handleSort}
                     onFilter={handleFilter}

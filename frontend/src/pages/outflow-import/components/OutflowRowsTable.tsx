@@ -18,6 +18,7 @@ import {
     facetValues,
     highlightSegments,
     type ColumnFilters,
+    type DecisionOrigin,
     type OutflowColumn,
     type RangeFilter,
     type SortState,
@@ -33,6 +34,8 @@ interface Props {
     hiddenColumns: ReadonlySet<string>;
     selected: ReadonlySet<string>;
     decidedRowNames: ReadonlySet<string>;
+    /** Whether each row's decision came from the match run or from a person. */
+    originByRow: ReadonlyMap<string, DecisionOrigin>;
     selectable: boolean;
     onSort: (columnId: string) => void;
     onFilter: (columnId: string, value: ColumnFilters[string]) => void;
@@ -61,6 +64,7 @@ export const OutflowRowsTable = ({
     hiddenColumns,
     selected,
     decidedRowNames,
+    originByRow,
     selectable,
     onSort,
     onFilter,
@@ -120,6 +124,7 @@ export const OutflowRowsTable = ({
                             selectable={selectable}
                             selected={selected.has(row.name)}
                             decided={decidedRowNames.has(row.name)}
+                            origin={originByRow.get(row.name) ?? "none"}
                             onToggleRow={onToggleRow}
                             onOpenDecision={onOpenDecision}
                         />
@@ -310,6 +315,8 @@ interface RowProps {
     /** ⚠️ The row's OWN boolean, never the shared Set -- see the component docstring. */
     selected: boolean;
     decided: boolean;
+    /** ⚠️ The row's OWN string, for the same reason. A plain value, so `memo` compares it properly. */
+    origin: DecisionOrigin;
     onToggleRow: (name: string) => void;
     onOpenDecision: (row: OutflowImportRow) => void;
 }
@@ -321,6 +328,7 @@ const Row = memo(function Row({
     selectable,
     selected,
     decided,
+    origin,
     onToggleRow,
     onOpenDecision,
 }: RowProps) {
@@ -347,6 +355,7 @@ const Row = memo(function Row({
                         column={column}
                         query={query}
                         decided={decided}
+                        origin={origin}
                         onOpenDecision={onOpenDecision}
                     />
                 </td>
@@ -360,12 +369,14 @@ const Cell = ({
     column,
     query,
     decided,
+    origin,
     onOpenDecision,
 }: {
     row: OutflowImportRow;
     column: OutflowColumn;
     query: string;
     decided: boolean;
+    origin: DecisionOrigin;
     onOpenDecision: (row: OutflowImportRow) => void;
 }) => {
     switch (column.id) {
@@ -407,7 +418,14 @@ const Cell = ({
             );
 
         case "outcome":
-            return <OutcomeButton row={row} decided={decided} onOpenDecision={onOpenDecision} />;
+            return (
+                <OutcomeButton
+                    row={row}
+                    decided={decided}
+                    origin={origin}
+                    onOpenDecision={onOpenDecision}
+                />
+            );
 
         case "time":
             return <>{String(row.added_on ?? "").split(/[ T]/)[1]?.slice(0, 5) || "—"}</>;
@@ -427,10 +445,12 @@ const Cell = ({
 const OutcomeButton = ({
     row,
     decided,
+    origin,
     onOpenDecision,
 }: {
     row: OutflowImportRow;
     decided: boolean;
+    origin: DecisionOrigin;
     onOpenDecision: (row: OutflowImportRow) => void;
 }) => {
     const terminal = row.row_status === "Settled" || row.row_status === "Skipped";
@@ -450,8 +470,21 @@ const OutcomeButton = ({
                     : "border-muted-foreground/30 bg-background"
             }`}
         >
+            {/* ⚠️ THE SUGGESTED CASE NAMES THE RECORD, and that is the difference between a claim
+                and a fact a reviewer can check. "Ready to confirm" on its own asks someone to
+                trust the software; naming PAY-00105-038 lets them tick the box without opening
+                anything, which is the entire point of pre-selecting. */}
             <span className="min-w-0 flex-1 truncate">
-                {decided ? "Decided — ready to confirm" : note || "Choose what this settled"}
+                {origin === "suggested" ? (
+                    <>
+                        Matched <span className="font-mono">{row.suggested_name}</span> — tick to
+                        confirm
+                    </>
+                ) : decided ? (
+                    "Decided — ready to confirm"
+                ) : (
+                    note || "Choose what this settled"
+                )}
             </span>
             <ChevronRight className="h-3.5 w-3.5 shrink-0 opacity-60" />
         </button>

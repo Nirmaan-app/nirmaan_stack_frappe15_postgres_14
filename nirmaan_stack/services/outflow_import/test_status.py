@@ -44,10 +44,13 @@ from nirmaan_stack.services.outflow_import.status import (
     ROW_STATUSES,
     ROW_UNMATCHED,
     TERMINAL_ROW_STATUSES,
+    RowOutcome,
+    Suggestion,
     derive_batch_counters,
     derive_batch_status,
     derive_row_outcome,
     derive_staged_row_outcome,
+    sole_suggestion,
 )
 
 
@@ -282,6 +285,73 @@ class TestMatched(unittest.TestCase):
         self.assertEqual(outcome.status, ROW_MATCHED)
         self.assertIn("2 approved records", outcome.note)
         self.assertIn("Choose", outcome.note)
+
+
+class TestSoleSuggestion(unittest.TestCase):
+    """What the screen may pre-select (slice R1).
+
+    The rule is the owner's, re-affirmed 2026-08-06: exactly one approved record, or nothing. These
+    tests exist because the pre-selection used to be re-derived in the browser from a DIFFERENT
+    candidate list than the note counted, so the two could disagree on the same row.
+    """
+
+    def test_one_approved_payment_is_suggested(self):
+        match = _match([_payment("PAY-1")])
+        outcome = derive_row_outcome(_Row(), match)
+        self.assertEqual(sole_suggestion(outcome, match), Suggestion("Project Payments", "PAY-1"))
+
+    def test_one_approved_expense_is_suggested_with_its_own_doctype(self):
+        """The pair must address ANY of the three ledgers -- a hardcoded 'Project Payments' would
+        settle an expense against the wrong table."""
+        match = _match(expenses=[_expense("NPE-4", doctype="Non Project Expenses")])
+        outcome = derive_row_outcome(_Row(), match)
+        self.assertEqual(
+            sole_suggestion(outcome, match), Suggestion("Non Project Expenses", "NPE-4")
+        )
+
+    def test_two_candidates_suggest_nothing(self):
+        match = _match([_payment("PAY-1")], expenses=[_expense("PE-1")])
+        outcome = derive_row_outcome(_Row(), match)
+        self.assertEqual(outcome.status, ROW_MATCHED)
+        self.assertIsNone(sole_suggestion(outcome, match))
+
+    def test_a_fan_out_suggests_nothing_even_though_it_is_one_candidate(self):
+        """One group, but several records -- there is no single name to pre-select, and a
+        `(doctype, name)` pair cannot express the group. The shape enforces the rule."""
+        match = _match([_payment("PAY-A", amount="5000"), _payment("PAY-B", amount="4000")])
+        outcome = derive_row_outcome(_Row(amount="9000"), match)
+        self.assertEqual(outcome.status, ROW_MATCHED)
+        self.assertIsNone(sole_suggestion(outcome, match))
+
+    def test_no_candidates_suggest_nothing(self):
+        match = _match()
+        self.assertIsNone(sole_suggestion(derive_row_outcome(_Row(), match), match))
+
+    def test_a_skipped_row_suggests_nothing_even_with_a_perfect_candidate(self):
+        """THE GATE THIS FUNCTION EXISTS FOR. An already-Paid duplicate is Skipped by rule 2, but
+        the match result behind it still holds a real approved candidate. Reading the match alone
+        would pre-select a record on a row nobody may settle -- and the obvious next click would
+        book the same money a second time, which is exactly what the duplicate guard prevents."""
+        match = _match([_payment("PAY-1")])
+        outcome = derive_row_outcome(
+            _Row(), match, paid_duplicate=_group([_payment("PAY-9", status="Paid")])
+        )
+        self.assertEqual(outcome.status, ROW_SKIPPED)
+        self.assertIsNone(sole_suggestion(outcome, match))
+
+    def test_a_mismatched_row_suggests_nothing(self):
+        match = _match([_payment("PAY-1")])
+        outcome = derive_row_outcome(
+            _Row(amount="5000"),
+            match,
+            paid_duplicate=_group([_payment("PAY-9", amount="7000", status="Paid")]),
+        )
+        self.assertEqual(outcome.status, ROW_MISMATCHED)
+        self.assertIsNone(sole_suggestion(outcome, match))
+
+    def test_a_missing_match_suggests_nothing(self):
+        """`match` defaults to None so a caller that has no result cannot crash the match run."""
+        self.assertIsNone(sole_suggestion(RowOutcome(ROW_MATCHED, "")))
 
 
 class TestUnmatched(unittest.TestCase):

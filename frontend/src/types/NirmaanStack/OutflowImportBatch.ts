@@ -95,6 +95,16 @@ export interface OutflowImportRow {
     normalized_reference?: string;
     resolved_vendor?: string;
     resolved_project?: string;
+    /**
+     * The ONE record the match run suggests this transfer settled, or blank.
+     *
+     * ⚠️ Written by the match run, never by the screen, and blanked on every re-run that no longer
+     * finds a single candidate. Blank is the normal case: no candidate, SEVERAL candidates (the
+     * screen never guesses between two real records), or a fan-out, which has no single name.
+     * It is a SUGGESTION, not a decision -- a person still confirms it.
+     */
+    suggested_doctype?: string;
+    suggested_name?: string;
     row_status: string;
     skip_reason?: string;
     outcome_note?: string;
