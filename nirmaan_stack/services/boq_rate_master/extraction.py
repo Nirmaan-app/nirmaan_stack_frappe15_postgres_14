@@ -696,7 +696,15 @@ _ROW_CONTEXT_SHAPE_GUIDANCE = (
 def _coerce_value(defn, raw, synonyms_for_attr=None):
     """Coerce/validate one extracted value against its definition. choice -> must be an allowed
     value (else None; for an identity attribute the allowed values ARE the catalog); number -> a
-    float/int (else None); null stays None.
+    float/int (else None); number_choice -> a float/int that must also be a member of its NUMERIC
+    domain (else None); null stays None.
+
+    ⚠️ THIS IS ONE OF TWO PLACES AN ATTRIBUTE VALUE IS COERCED. The other is the frontend match
+    coercion (`rateMasterStructure.coerceForMatch`), which turns a value into a catalog match key. A
+    NEW ATTRIBUTE TYPE MUST BE TAUGHT TO BOTH: CP2 added `number_choice`, taught the frontend and the
+    config validator, and missed this function -- so every core and thickness the model returned was
+    nulled here and no point_wiring row could price. Both sites compare numerically for
+    `number_choice`; neither may compare it by string.
 
     EA-DIFF: `synonyms_for_attr` ({variant: canonical}) maps a returned variant to its canonical BEFORE
     the choice check -- defence in depth, so a model that echoes the row's variant (e.g. GI) still
@@ -708,12 +716,32 @@ def _coerce_value(defn, raw, synonyms_for_attr=None):
     # number one included, where float("None") would raise and drop the signal). Distinct from null/blank.
     if defn.get("allow_none") and str(raw) == "None":
         return "None"
-    if defn["type"] == "number":
+    # NUMERIC types: `number` (a free numeric input) and `number_choice` (a DROPDOWN that produces a
+    # NUMBER -- CP2). Both store a number; only number_choice carries a domain to check.
+    if defn["type"] in ("number", "number_choice"):
         try:
             v = float(raw)
         except (TypeError, ValueError):
             return None
-        return int(v) if v == int(v) else v
+        v = int(v) if v == int(v) else v
+        if defn["type"] == "number_choice":
+            # ⚠️ MEMBERSHIP MUST COMPARE LIKE WITH LIKE. The domain is resolved from the catalog, so
+            # its members are FLOATS, while the model may answer 1, "1", 1.0 or "1.0" -- all the same
+            # value. Comparing `str(raw)` against floats (the pre-fix choice-branch path) NEVER
+            # matched, so every correct answer was discarded and no point_wiring row could price.
+            # Compare numerically on BOTH sides; a value genuinely outside the domain is still
+            # REJECTED -- this is like-for-like comparison, not abandoning the check.
+            allowed = defn.get("values")
+            if allowed:
+                domain = []
+                for a in allowed:
+                    try:
+                        domain.append(float(a))
+                    except (TypeError, ValueError):
+                        continue  # a non-numeric member (e.g. a "None" entry) never matches a number
+                if domain and float(v) not in domain:
+                    return None
+        return v
     # choice (incl. the identity catalog)
     sval = str(raw)
     if synonyms_for_attr and sval in synonyms_for_attr:
