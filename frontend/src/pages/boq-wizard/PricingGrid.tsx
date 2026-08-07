@@ -62,7 +62,7 @@ import {
   type SetStateAction,
 } from "react";
 import { debounce, type DebouncedFunc } from "lodash";
-import { Palette, MessageSquare, AlertTriangle, Flag, Scale, ChevronRight, Check, CornerDownRight, Sparkles } from "lucide-react";
+import { Palette, MessageSquare, AlertTriangle, Flag, Scale, ChevronRight, Check, CornerDownRight, Sparkles, ArrowUpDown, ArrowUpNarrowWide, ArrowDownWideNarrow, Filter, Inbox } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -122,6 +122,13 @@ function paneNaturalHeight(tr: Element | null | undefined): number {
   return Math.ceil((tr as HTMLElement).getBoundingClientRect().height);
 }
 import { AmountFormulaBuilder } from "./AmountFormulaBuilder";
+import { MarginFormulaBuilder } from "./MarginFormulaBuilder";
+// BCS-S13: the % Margin range filter's header control. The RULES it filters by live in the pure
+// `marginView.ts`; this grid only renders the control and is handed rows already filtered.
+import { MarginRangeFilter } from "./MarginRangeFilter";
+// BCS-S14: the grid imports only the DIRECTION type. It renders the order and suppresses the tree
+// claims a re-ordered row set can no longer support; it never computes an order.
+import { describeMarginRange, type MarginSortDir } from "./marginView";
 import { bindRef, evaluateAmountColumn, pickFormula, type OperandLookup } from "./amountFormula";
 import {
   buildReconChoiceMap,
@@ -164,16 +171,30 @@ import {
   BCS_RATE_FIELD,
   BCS_RATE_FIELDS,
   BCS_RATE_LABEL,
-  BCS_TENDERED_COL_KEY,
+  BCS_QTY_OPERAND_FIELD,
   BCS_TOTAL_COL_KEY,
+  BCS_TOTAL_TARGET,
   bcsBlankReasonText,
   bcsColumnAt,
   bcsColumnKeys,
+  bcsOperandLabel,
+  pickBcsTotalFormula,
+  pickBoqTotalFormula,
+  pickMarginCostFormula,
+  marginCostCell,
+  marginCostOperandRefs,
+  marginCostOperandLabel,
+  defaultMarginCostFormula,
+  MARGIN_COST_TARGET,
+  defaultBoqTotalFormula,
+  BOQ_TOTAL_TARGET,
+  bcsOperandRefs,
+  defaultBcsTotalFormula,
   bcsMarginPercent,
-  bcsRowAmount,
+  boqTotalAmount,
   bcsRowQuantity,
   bcsTenderedAmountCell,
-  bcsTotalAmountCell,
+  bcsTotalCell,
   bcsUnitCost,
   bcsWidthKey,
   formatBcsMargin,
@@ -184,9 +205,6 @@ import {
   type BcsComputedKind,
   type BcsRateKind,
 } from "./bcsColumns";
-// BCS-S4: the margin view's ORDER and section context are decided page-side by this pure leaf;
-// the grid imports only the direction type (it renders the order, it never computes one).
-import { type MarginSortDir } from "./marginView";
 import type {
   AmountFormulaNode,
   AmountFormulaRef,
@@ -379,10 +397,11 @@ export function seedForWidthKey(key: string): number {
   if (key === "a3") return seedWidthPx("w-36");
   if (key === "a4") return seedWidthPx("description");
   if (key === REMARKS_WIDTH_KEY) return seedWidthPx("w-48");
-  // BCS-S3b: the two client-facing computed columns carry longer headers than the 112px default
-  // ("Tendered Total Amount"), and their figures are whole-row amounts rather than unit rates.
-  // The cost boxes + Total keep the default; all five stay user-resizable like any descriptor.
-  if (key === BCS_TENDERED_COL_KEY || key === BCS_MARGIN_COL_KEY) return seedWidthPx("w-36");
+  // BCS-S3b seeded the two client-facing computed columns wider than the 112px default because
+  // "Tendered Total Amount" is a long header. BCS-S8 removed that column; % Margin keeps the
+  // wider seed on its own account (its figures are percentages, not unit rates). The cost boxes
+  // + BCS Total keep the default; all stay user-resizable like any descriptor.
+  if (key === BCS_MARGIN_COL_KEY) return seedWidthPx("w-36");
   return seedWidthPx("w-28");
 }
 
@@ -884,7 +903,7 @@ export function evaluateAmountCell(
 /**
  * ★ BCS-S3b -- THE NUMBER AN AMOUNT CELL SHOWS. One decision, two readers.
  *
- * ⚠️ OWNER RULING: % Profit divides by THE FIGURE ON SCREEN. The BCS Tendered Total Amount
+ * ⚠️ OWNER RULING: % Margin divides by THE FIGURE ON SCREEN. The BCS Tendered Total Amount
  * column sums this across the confirmed Amount columns and the margin divides by that sum, so
  * this and the amount `<td>` beside it MUST come from one place -- a denominator that differed
  * from the number printed next to it would be worse than no column at all.
@@ -1813,10 +1832,10 @@ interface PricingGridProps {
   bcsQtySource?: BcsSource | null;
   /**
    * BCS-S3b -- the CONFIRMED Amount columns (`bcs_amount_source`): what the client is charged
-   * for the row. It fills the Tendered Total Amount column and is therefore % Profit's
+   * for the row. It fills the Tendered Total Amount column and is therefore % Margin's
    * DENOMINATOR. Read through `bcsRowAmount`, which sums the stored entries whatever the mode,
    * over the figure each amount cell is SHOWING (owner ruling -- reconciliation choice and all).
-   * ABSENT => no amount => a blank Tendered column and a blank % Profit, never a 0.
+   * ABSENT => no amount => a blank Tendered column and a blank % Margin, never a 0.
    */
   bcsAmountSource?: BcsSource | null;
   /**
@@ -1835,46 +1854,70 @@ interface PricingGridProps {
    */
   bcsReadOnlyReason?: string | null;
   /**
-   * ── BCS-S4: MARGIN VIEW ──────────────────────────────────────────────────────
-   * TRUE => this grid is rendering the margin view: a FLAT, line-items-only list the PAGE has
-   * already ordered by % Profit. The grid does not sort and does not filter -- it is handed the
-   * rows in the order it should show them, exactly as it is for the view filters and collapse.
-   * What it changes here is what the tree affordances would otherwise CLAIM:
+   * ── BCS-S13: the % Margin RANGE FILTER, opened from the % Margin column header ──────────────
+   * The applied bounds AS TYPED (`""` = open on that side) and the matched row count, both
+   * DISPLAY ONLY -- the grid renders them into the header control and never filters on them.
+   * The page owns the bounds, owns the matched set, and has ALREADY applied it to the `rows` it
+   * hands down, exactly as it does for the view filters and collapse.
    *
-   *   - DEPTH IS FORCED FLAT. Indentation in a margin-ordered list implies nesting under a parent
-   *     that is nowhere near it on screen. (`computeDepths` would not even produce today's depths:
-   *     with the parents absent from the row set the chain-walk terminates early and yields 1 for
-   *     a row that reads as a root.)
-   *   - The section each row belongs to is shown instead (`sectionByRowIndex`), which is the
-   *     context the flattening actually destroyed.
-   *   - The % Profit header becomes the sort control.
+   * SCALARS on purpose. The V0 memo shield is React's DEFAULT shallow compare, so a
+   * `{from, to}` object here would mint a fresh reference every render and kill it outright;
+   * two strings and a number compare by value and cost nothing.
+   */
+  marginFrom?: string;
+  marginTo?: string;
+  marginRangeCount?: number | null;
+  /**
+   * ── BCS-S14: the % Margin IN-PLACE SORT ────────────────────────────────────────────────────
+   * Which way the sheet is currently ordered by % Margin, or null for the sheet's own document
+   * order (the default). DISPLAY + TREE-CLAIMS ONLY -- the grid NEVER sorts; `rows` arrives
+   * already ordered by the page, exactly as it arrives already filtered and collapsed.
    *
-   * A per-SHEET boolean -- it flips identically for every row, like `formulasComplete`.
+   * What this scalar changes here is what the TREE affordances would otherwise CLAIM about a
+   * margin-ordered row set, and it is the same pair the deleted margin view had to suppress:
+   *   - DEPTH IS FORCED FLAT. Indentation asserts nesting under the row above it; after a sort
+   *     that parent is hundreds of rows away, and `computeDepths` would not even reproduce the
+   *     tree's own numbers, since a chain-walk over re-ordered rows is meaningless.
+   *   - CHEVRONS GO (the page withholds `childrenByParent`), because a collapse would fold rows
+   *     that are no longer underneath the parent offering to fold them.
+   * It also drives the header arrow's glyph and the `aria-sort` announcement.
    */
-  marginView?: boolean;
+  marginSortDir?: MarginSortDir | null;
   /**
-   * BCS-S4 -- each row's section label (`marginView.buildSectionLabels`), keyed by row_index.
-   * GRID-LEVEL and reference-stable per fetch; the row receives only its OWN label, a string
-   * compared BY VALUE, so this Map never enters the row memo (the P1 per-row-collection rule).
-   * Absent/empty => no section line, which is also what a row with no described ancestor gets.
+   * ── The empty-result ESCAPE HATCH ──────────────────────────────────────────────────────────
+   * TRUE when ANY view filter is narrowing the rows. Read ONLY by the `rows.length === 0` early
+   * return, to tell "this sheet has nothing in it" apart from "your filters hid everything" --
+   * two states that look identical on screen and call for opposite reactions.
+   *
+   * ⚠️ IT EXISTS BECAUSE A CONTROL CAN HIDE ITSELF. The % Margin funnel and sort arrow live in
+   * the column header, so a filter that empties the grid removes the header AND the only way to
+   * undo it. `onClearViewFilters` is that way back, and the page must reset EVERY view filter
+   * from it -- clearing only the margin range would strand someone whose empty result came from
+   * Show-unpriced instead.
    */
-  sectionByRowIndex?: Map<number, string>;
+  viewFiltersActive?: boolean;
+  /** Reset every view filter. Withheld => the empty state is a message only. */
+  onClearViewFilters?: () => void;
   /**
-   * BCS-S4 -- which way the margin view is currently ordered, for the header's arrow + `aria-sort`.
-   * DISPLAY ONLY: the grid never sorts, so this cannot desynchronise the rows from the indicator
-   * unless the page desynchronises them itself.
-   */
-  marginSortDir?: MarginSortDir;
-  /**
-   * BCS-S4 -- flip the margin sort. Fired by a click on the % Profit header, which (with opening
-   * the view) is one of the only TWO moments a sort is allowed to happen.
+   * BCS-S14 -- advance the sort (off -> asc -> desc -> off). Fired ONLY by the header arrow.
    *
    * ⚠️ NEVER CALL THIS FROM A RENDER, AN EFFECT OR A KEYSTROKE. `activeCell` is ARRAY-INDEX
-   * addressed and clipboard selection is a contiguous array RANGE over the same indices, so a sort
-   * performed while a cell is focused slides a different row under the cursor and the next
-   * character lands on it. Absent => the header is not a control (the ordinary tree render).
+   * addressed and clipboard selection is a contiguous array RANGE over the same indices, so a
+   * re-order while a cell is focused slides a different row under the cursor and the next
+   * character lands on it. Absent => no arrow renders.
    */
-  onToggleMarginSort?: () => void;
+  onCycleMarginSort?: () => void;
+  /**
+   * BCS-S13 -- apply the range (two blanks = clear). Must be a `useCallback` on the page side
+   * for the same memo-shield reason.
+   *
+   * ⚠️ ITS ABSENCE IS NOT A READ-ONLY SIGNAL, unlike every other callback on this interface.
+   * The "gating = presence of the save callback" rule covers WRITES; filtering writes nothing,
+   * and a locked or taken-over sheet is precisely when someone is reading rather than editing.
+   * The page supplies it unconditionally; it is optional only so the grid's other callers (and
+   * the tests) need not know about it.
+   */
+  onApplyMarginRange?: (from: string, to: string) => void;
 }
 
 /** Slice 3c: imperative handle the page holds (via a ref) to force-flush pending saves. */
@@ -1882,20 +1925,23 @@ export interface PricingGridHandle {
   /** Fire all pending debounced saves now + retry any remaining uncommitted draft. */
   flush: () => void;
   /**
-   * BCS-S4 -- every given row's % Profit RIGHT NOW, keyed by row_index (null where the row has
-   * none). The margin view's sort key.
+   * BCS-S4 -- every given row's % Margin RIGHT NOW, keyed by row_index (null where the row has
+   * none). BCS-S4 introduced it as the margin VIEW's sort key; with that view gone it is the
+   * % Margin RANGE FILTER's membership test, and the reasons below transfer unchanged -- both
+   * needed the same number the same way, which is why the handle survived the view it was built
+   * for.
    *
    * ⚠️ IT LIVES ON THE HANDLE, NOT IN THE PAGE, BECAUSE THE DRAFTS DO. A margin depends on cost
    * and rate values typed but not yet saved, which exist only inside this component; a page-side
-   * re-implementation would sort on the last SAVED figures and disagree with the % Profit column
-   * a user is reading. Same number, one composition (`computeBcsRowCells`).
+   * re-implementation would filter on the last SAVED figures and disagree with the % Margin
+   * column a user is reading. Same number, one composition (`computeBcsRowCells`).
    *
-   * ⚠️ IT TAKES THE ROWS TO MEASURE. The grid's own `rows` prop is the DISPLAYED set -- filtered,
-   * collapsed, or (in the margin view) already flattened -- and the order must be decided over the
-   * whole sheet, not over whatever is currently on screen.
+   * ⚠️ IT TAKES THE ROWS TO MEASURE. The grid's own `rows` prop is the DISPLAYED set -- already
+   * filtered and collapsed -- and the range must be decided over the WHOLE sheet, or the filter
+   * would narrow itself every time it was re-applied.
    *
-   * Imperative BY DESIGN: it is called at the two moments a sort is allowed (open, header click),
-   * never subscribed to. A reactive margin feed would re-sort while someone types.
+   * Imperative BY DESIGN: called on an explicit Apply and nowhere else, never subscribed to. A
+   * reactive margin feed would make rows leave the grid while someone types into a cost box.
    */
   computeMargins: (rowsToMeasure: PricedRow[]) => Map<number, number | null>;
   /** Slice 4a: scroll a row into view by its Excel row number (the review-list jump). */
@@ -1962,11 +2008,40 @@ const EMPTY_CATEGORY_LABEL_MAP: Map<string, string> = new Map();
 const EMPTY_SUGGESTIONS_MAP: Map<number, RowSuggestions> = new Map();
 // BCS-S3a: stable empty defaults -- an absent cost block must not mint a fresh [] / Map per
 // render, which would defeat the row memo AND the V0 grid-level memo shield.
+// BCS-S9: the formula TARGET for the BCS Total Amount column, shaped as a ColumnDescriptor so
+// AmountFormulaBuilder can address it exactly as it addresses an amount column.
+//
+// ⚠️ `col` IS DELIBERATELY EMPTY, and it must stay that way. A BCS formula has no Excel column
+// -- that absence is what stops it being written into an exported workbook. The builder sends
+// this straight through to save_amount_formula's target_col, and the server forces it null for
+// a BCS target anyway; agreeing with the server here means the two can never argue about it.
+const BCS_TOTAL_TARGET_DESCRIPTOR: ColumnDescriptor = {
+  col: "",
+  role: "bcs_total",
+  area: null,
+  value_field: BCS_TOTAL_TARGET,
+  value_key: null,
+  rate_subkey: null,
+};
+
+// BCS-S12b: `bcs_qty` was RETIRED from the palettes at S12 (the formula now names the sheet's
+// real quantity column). Formulas stored before that still contain it, and a retired operand
+// still needs a NAME -- without this entry such a formula hydrated showing a chip reading
+// "bcs_qty". `hidden` keeps it out of the chip list while leaving it resolvable.
+const LEGACY_QTY_LABEL_ENTRY = [
+  {
+    ref: { value_field: BCS_QTY_OPERAND_FIELD, value_key: null, rate_subkey: null } as AmountFormulaRef,
+    label: "Total Quantity",
+    group: "Quantity",
+    hidden: true,
+  },
+];
+
 const EMPTY_BCS_KINDS: BcsRateKind[] = [];
 const EMPTY_BCS_RATES_MAP: Map<number, BcsRowRate> = new Map();
-// BCS-S4: the same stable-default discipline for the margin view's section labels + its flat
-// depths. Module-level so an absent prop never mints a fresh Map per render (the V0 memo shield).
-const EMPTY_SECTIONS: Map<number, string> = new Map();
+// BCS-S14: the flat depths a margin-SORTED sheet renders with. Module-level so the sorted branch
+// hands the same Map reference on every render -- a fresh `new Map()` inside the memo would make
+// `depths` churn and re-render every row on any unrelated re-render.
 const FLAT_DEPTHS: Map<number, number> = new Map();
 // The BCS draft key: `${row_index}:${field}`. A SEPARATE key space from cellKey's
 // `${row_index}:${col}` because it lives in its OWN state map -- BCS values must never be
@@ -2020,9 +2095,10 @@ export function bcsDraftsForRow(
  * ★ THE BCS COST BLOCK'S ARITHMETIC FOR ONE ROW. ONE COMPOSITION, TWO READERS (slice BCS-S4).
  *
  * Every number in the cost block -- the box values, Total Amount, Tendered Total Amount and
- * % Profit -- comes from here. It was inline in `PricingGridRow`'s render until BCS-S4 needed the
- * SAME margin outside a render, to order the margin view: the sort key and the cell a user reads
- * must be the same number, and two compositions is how they stop being.
+ * % Margin -- comes from here. It was inline in `PricingGridRow`'s render until BCS-S4 needed the
+ * SAME margin outside a render: first to order the margin view, now (BCS-S13) to decide which
+ * rows a % Margin range matches. The number the filter tests and the cell a user reads must be
+ * the same number, and two compositions is how they stop being.
  *
  * ⚠️ IT IS THE COMPOSITION THAT LIVES HERE, NOT THE ARITHMETIC. Every operation is a `bcsColumns`
  * export (`mergeBcsRowValues` / `bcsUnitCost` / `bcsTotalAmountCell` / `bcsRowAmount` /
@@ -2030,8 +2106,8 @@ export function bcsDraftsForRow(
  * a margin IS, including the sign guard and the blank-with-a-reason discipline. This function only
  * says in what order they are applied and where the operands come from.
  *
- * ⚠️ IT READS THE ROW'S LIVE DRAFTS, and that is why the margin view can sort on a cost typed one
- * second ago with nothing saved. `rowBcsDrafts` is FULL-KEY (`${row_index}:${field}`) and
+ * ⚠️ IT READS THE ROW'S LIVE DRAFTS, and that is why the range filter can match on a cost typed
+ * one second ago with nothing saved. `rowBcsDrafts` is FULL-KEY (`${row_index}:${field}`) and
  * `mergeBcsRowValues` reads BARE keys -- it goes through `bcsDraftsForRow`, NEVER a cast; that cast
  * is the BCS-S3a defect the type system now refuses.
  *
@@ -2047,6 +2123,8 @@ export function computeBcsRowCells(input: {
   bcsKinds: readonly BcsRateKind[];
   bcsQty: number | null;
   bcsAmountSource: BcsSource | null | undefined;
+  /** BCS-S9: this sheet's declared BCS Total formula, or null for the built-in rule. */
+  bcsTotalFormula?: AmountFormulaNode | null;
   columnDescriptors: ColumnDescriptor[];
   columnFormulas: ColumnFormula[];
   rowDraftRates: Record<string, string>;
@@ -2064,9 +2142,27 @@ export function computeBcsRowCells(input: {
   // shown from differing from the number written.
   const merged = mergeBcsRowValues(input.bcsRow, bcsDraftsForRow(row.row_index, input.rowBcsDrafts));
   const unit = bcsUnitCost(merged, bcsKinds);
-  const totalCell = bcsTotalAmountCell(input.bcsQty, unit);
+  // BCS-S9: through the SHARED `bcsTotalCell`, which pricingRollup also calls -- see its
+  // docblock for why two copies of this rule stopped being survivable once it became data.
+  // BCS-S12: a BCS formula may now name one of the SHEET's own columns (its real quantity
+  // column). `resolveDescriptorValue` is the same reader the grid uses for that cell, so the
+  // number the formula multiplies by is the number printed in that column.
+  const resolveSheetColumn = (ref: AmountFormulaRef): number | null => {
+    const raw = resolveDescriptorValue(row, ref as unknown as ColumnDescriptor);
+    return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
+  };
+  const totalCell = bcsTotalCell(
+    input.bcsTotalFormula ?? pickBcsTotalFormula(columnFormulas),
+    input.bcsQty,
+    merged,
+    bcsKinds,
+    resolveSheetColumn,
+  );
+  // BCS-S10: the denominator through the SHARED `boqTotalAmount`, so an edited BOQ Total formula
+  // moves the margin. The `evaluate` callback is UNCHANGED and still returns the figure that
+  // would be on screen (formula + reconciliation resolved) -- that owner ruling did not move.
   const amountCell = bcsTenderedAmountCell(
-    bcsRowAmount(input.bcsAmountSource, (entry) => {
+    boqTotalAmount(pickBoqTotalFormula(columnFormulas), input.bcsAmountSource, (entry) => {
       const cell = evaluateAmountCell(entry, row, columnDescriptors, columnFormulas, rowDraftRates);
       const raw = resolveDescriptorValue(row, entry);
       return shownAmountValue(
@@ -2074,9 +2170,23 @@ export function computeBcsRowCells(input: {
         typeof raw === "number" ? raw : null,
         reconChoiceMap.get(reconChoiceKey(row.source_row_number, entry.col)),
       );
-    }),
+    },
+      // The S12e fallback: with no confirmed amount source the sheet's OWN amount columns are
+      // the denominator. Without this the margin stayed blank while BCS Total computed fine.
+      columnDescriptors,
+    ),
   );
-  return { merged, unit, totalCell, amountCell, marginCell: bcsMarginPercent(totalCell, amountCell) };
+  // BCS-S11: the numerator may be re-pointed (BCS Total by default, or the raw cost boxes).
+  // The RATIO's shape stays here, in code, so bcsMarginPercent's three guards -- zero, negative
+  // and non-finite denominator -- run whatever either slot was configured to.
+  const costCell = marginCostCell(
+    pickMarginCostFormula(columnFormulas),
+    totalCell,
+    merged,
+    input.bcsQty,
+    resolveSheetColumn,
+  );
+  return { merged, unit, totalCell, amountCell, marginCell: bcsMarginPercent(costCell, amountCell) };
 }
 
 /**
@@ -2219,16 +2329,10 @@ function RowChevron({ rowIndex }: { rowIndex: number }) {
 // stays byte-identical (one source, no drifting copy -- the A10 compat mechanism). The extra
 // fan-out columns render a simpler span (no indent, no chevron, no fallback) inline.
 function DescriptionAnchorInner({
-  text, depth, rowHeight, clipDescription = true, rowIndex, isPreamble, isLineItem, section,
+  text, depth, rowHeight, clipDescription = true, rowIndex, isPreamble, isLineItem,
 }: {
   text: string | null;
   depth: number;
-  /**
-   * BCS-S4 -- the row's section, shown ABOVE the description in the margin view only. Absent
-   * everywhere else, so the ordinary tree render is byte-identical (the tree shows the section by
-   * POSITION; a flat list has no position left to show it with).
-   */
-  section?: string;
   rowHeight: number | null | undefined;
   // V1-FIX: clip the Description to rowHeight ONLY in classic + manual-drag rows. AUTO virtualized
   // rows pass false -> render NATURAL so the row measures true content and the max-of-both-panes
@@ -2266,26 +2370,12 @@ function DescriptionAnchorInner({
       className="flex items-start gap-1 min-w-0"
     >
       <RowChevron rowIndex={rowIndex} />
-      {/* BCS-S4: the section line, MARGIN VIEW ONLY. Rendered above and quieter than the
-          description -- it is context, not content, and must not be mistaken for the line itself
-          when someone is scanning a column of them.
-
-          ⚠️ THE NO-SECTION BRANCH IS THE BARE SPAN, exactly as before. Wrapping unconditionally
-          would insert a block element into the flex row on EVERY sheet in the product for the sake
-          of a view most of them never open; the legacy render stays structurally byte-identical. */}
-      {section ? (
-        <div className="min-w-0">
-          <span
-            title={section}
-            className="block truncate text-[10px] uppercase tracking-wide text-muted-foreground"
-          >
-            {section}
-          </span>
-          {description}
-        </div>
-      ) : (
-        description
-      )}
+      {/* BCS-S4 rendered an optional SECTION line above the description here, for the flat margin
+          view's benefit -- a flat list has no position left to show a row's section with. The view
+          is gone (owner ruling 2026-08-07, replaced by filtering in place), and with it the only
+          caller that ever passed a section, so this is the bare description again -- which is what
+          every sheet in the product was already getting. */}
+      {description}
     </div>
   );
 }
@@ -2316,13 +2406,6 @@ interface PricingGridRowProps {
    *  max-of-both-panes alignment (not a clip) keeps the panes level. Stable per row -> memo-safe. */
   clipDescription?: boolean;
   depth: number;
-  /**
-   * BCS-S4 -- THIS row's section label in the margin view (`sectionByRowIndex.get(row_index)`).
-   * A per-row STRING scalar compared BY VALUE, exactly like `skipColsCsv` -- the page's whole
-   * section Map never reaches a memoized row (the P1 per-row-collection rule). undefined outside
-   * the margin view, and also for a row whose ancestors carry no description.
-   */
-  section?: string;
   parentExcelRow: number | null;
   flags: RowReviewFlags | undefined;
   /** This row's draft slice (FULL `${row_index}:${col}` keys) -- NEVER the shared draftRates. */
@@ -2416,7 +2499,7 @@ interface PricingGridRowProps {
    *  SCALAR (number | null), like `depth` -- so the row never gets the qty source itself. */
   bcsQty?: number | null;
   /** BCS-S3b: the CONFIRMED Amount columns (`bcs_amount_source`) -- the Tendered column's
-   *  operands, and so % Profit's denominator. Grid-level and reference-stable (it changes only
+   *  operands, and so % Margin's denominator. Grid-level and reference-stable (it changes only
    *  when `get_bcs_state` refetches), compared by IDENTITY exactly like `reconChoiceMap`.
    *
    *  ⚠️ It arrives as the SOURCE, not as a resolved scalar the way `bcsQty` does, and that is
@@ -2473,9 +2556,6 @@ export function pricingRowPropsAreEqual(
     prev.measureRef === next.measureRef && // stable per virtualizer instance -> never flips per render
     prev.clipDescription === next.clipDescription && // stable per row (classic true / auto-virt false)
     prev.depth === next.depth &&
-    // BCS-S4: a per-row STRING, compared by value. It changes only when the margin view opens or
-    // closes (or the sheet refetches), never on a keystroke.
-    prev.section === next.section &&
     prev.parentExcelRow === next.parentExcelRow &&
     prev.flags === next.flags &&
     prev.rowDraftRates === next.rowDraftRates &&
@@ -2558,7 +2638,6 @@ const PricingGridRow = memo(function PricingGridRow({
   measureRef,
   clipDescription = true,
   depth,
-  section,
   parentExcelRow,
   flags,
   rowDraftRates,
@@ -2839,7 +2918,6 @@ const PricingGridRow = memo(function PricingGridRow({
                     rowIndex={row.row_index}
                     isPreamble={isPreamble}
                     isLineItem={isLineItem}
-                    section={section}
                   />
                 ) : (
                   <div
@@ -2883,7 +2961,6 @@ const PricingGridRow = memo(function PricingGridRow({
               rowIndex={row.row_index}
               isPreamble={isPreamble}
               isLineItem={isLineItem}
-              section={section}
             />
           </td>
         )}
@@ -3281,7 +3358,7 @@ const PricingGridRow = memo(function PricingGridRow({
         );
       })}
       {/* ── BCS-S3a/S3b: the cost block -- one editable box per live kind, then the three
-             COMPUTED columns (Total Amount · Tendered Total Amount · % Profit). Placed AFTER the
+             COMPUTED columns (Total Amount · Tendered Total Amount · % Margin). Placed AFTER the
              descriptors and BEFORE Remarks, which disturbs strictly less colIndex algebra than a
              Category-style placement would: descriptorColStart and every descriptor's own
              colIndex are untouched, and only the tail moves right.
@@ -3293,13 +3370,16 @@ const PricingGridRow = memo(function PricingGridRow({
         (() => {
           // ── BCS-S4: the composition moved to the module-level `computeBcsRowCells`, UNCHANGED.
           //    It has a SECOND reader now -- the imperative handle's `computeMargins`, which the
-          //    margin view sorts on -- and the sort key must be the same number this cell shows.
+          //    % Margin range filter tests -- and that test must be the same number this cell shows.
           //
           //    It still runs HERE, per row, behind the row memo: it reads `rowDraftRates` (a rate
-          //    typed but not yet saved must move % Profit in the same keystroke it moves the
+          //    typed but not yet saved must move % Margin in the same keystroke it moves the
           //    amount cell) and `rowBcsDrafts`, and keeping it behind the memo is what stops a
           //    cursor move elsewhere in the grid re-evaluating every row's formulas.
-          const { merged, totalCell, amountCell, marginCell } = computeBcsRowCells({
+          // BCS-S8: `amountCell` is deliberately NOT destructured any more. It is still computed
+          // inside `computeBcsRowCells` -- `marginCell` is derived from it there -- but with the
+          // Tendered column gone there is nothing here left to render it into.
+          const { merged, totalCell, marginCell } = computeBcsRowCells({
             row,
             bcsRow,
             rowBcsDrafts,
@@ -3397,11 +3477,14 @@ const PricingGridRow = memo(function PricingGridRow({
                   </td>
                 );
               })}
-              {/* The three COMPUTED columns -- never stored (bcs.py's property 1: a stored copy
-                  could disagree with the live sheet), never typeable, never a paste target.
-                  Read left to right they are the whole question BCS was built to answer: what
-                  this row costs us, what we charge for it, and the margin between the two.
-                  Each is blank WITH A REASON rather than 0 -- a 0 is a claim, not an absence. */}
+              {/* The COMPUTED columns -- never stored (bcs.py's property 1: a stored copy could
+                  disagree with the live sheet), never typeable, never a paste target. Each is
+                  blank WITH A REASON rather than 0 -- a 0 is a claim, not an absence.
+
+                  BCS-S8 (owner ruling 2026-08-07): Tendered Total Amount was REMOVED from the
+                  block, which is why the margin now sits at `+ 1`. `amountCell` is still
+                  computed above and still feeds `marginCell` -- the denominator did not go
+                  away, only its column did. See BCS_COMPUTED_KINDS for what that costs. */}
               {computedCell(
                 BCS_TOTAL_COL_KEY,
                 bcsColStart + bcsKinds.length,
@@ -3409,22 +3492,15 @@ const PricingGridRow = memo(function PricingGridRow({
                 (v) => renderDescriptorCell(v),
                 "BCS Total Amount — quantity x the cost entered",
               )}
-              {computedCell(
-                BCS_TENDERED_COL_KEY,
-                bcsColStart + bcsKinds.length + 1,
-                amountCell,
-                (v) => renderDescriptorCell(v),
-                "Tendered Total Amount — the amount charged to the client on this row",
-              )}
-              {/* % Profit needs its OWN formatter: renderDescriptorCell is the sheet's
+              {/* % Margin needs its OWN formatter: renderDescriptorCell is the sheet's
                   money/quantity formatter and has no percent unit, so a margin rendered through
                   it would sit in the row looking like another amount. */}
               {computedCell(
                 BCS_MARGIN_COL_KEY,
-                bcsColStart + bcsKinds.length + 2,
+                bcsColStart + bcsKinds.length + 1,
                 marginCell,
                 formatBcsMargin,
-                "% Profit — (amount charged − cost) / amount charged",
+                "% Margin — (amount charged − cost) / amount charged",
               )}
             </>
           );
@@ -3483,7 +3559,7 @@ PricingGridRow.displayName = "PricingGridRow";
 // grid props identity-stable (the 12 useMemo/useCallback wraps -- esp. `rows`/`displayRows`); a
 // future non-stable prop silently kills the shield (see frontend/CLAUDE.md).
 export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(function PricingGrid(
-  { rows, columnDescriptors, onSaveRate, onBatchWrite, onDirtyChange, onHistoryChange, override = false, formulasComplete = true, categoryGateOpen = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], categoriesByExcelRow = EMPTY_CATEGORY_MAP, hasRun = false, categoryLabelById = EMPTY_CATEGORY_LABEL_MAP, onCategoryClick, rowSuggestionsByExcelRow = EMPTY_SUGGESTIONS_MAP, onSuggestionBadgeClick, onSaveReconChoice, hiddenCols, currentHitExcelRow = null, collapsed, childrenByParent, onToggleCollapse, onRevealRow, frozen = false, virtualized = false, bcsKinds = EMPTY_BCS_KINDS, bcsRatesByExcelRow = EMPTY_BCS_RATES_MAP, bcsQtySource = null, bcsAmountSource = null, onSaveBcsRates, bcsReadOnlyReason = null, marginView = false, sectionByRowIndex = EMPTY_SECTIONS, marginSortDir = "desc", onToggleMarginSort },
+  { rows, columnDescriptors, onSaveRate, onBatchWrite, onDirtyChange, onHistoryChange, override = false, formulasComplete = true, categoryGateOpen = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], categoriesByExcelRow = EMPTY_CATEGORY_MAP, hasRun = false, categoryLabelById = EMPTY_CATEGORY_LABEL_MAP, onCategoryClick, rowSuggestionsByExcelRow = EMPTY_SUGGESTIONS_MAP, onSuggestionBadgeClick, onSaveReconChoice, hiddenCols, currentHitExcelRow = null, collapsed, childrenByParent, onToggleCollapse, onRevealRow, frozen = false, virtualized = false, bcsKinds = EMPTY_BCS_KINDS, bcsRatesByExcelRow = EMPTY_BCS_RATES_MAP, bcsQtySource = null, bcsAmountSource = null, onSaveBcsRates, bcsReadOnlyReason = null, marginFrom = "", marginTo = "", marginRangeCount = null, onApplyMarginRange, marginSortDir = null, onCycleMarginSort, viewFiltersActive = false, onClearViewFilters },
   ref,
 ) {
   // Cluster B: per-cell reconciliation choice map (per-SHEET; reference-stable across a keystroke
@@ -3655,15 +3731,17 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
   // row_index -> row, for resolving a parent's Excel row number.
   const byIdx = useMemo(() => new Map<number, PricedRow>(rows.map((r) => [r.row_index, r])), [rows]);
   // Effective depth per row (reused helper -- single source of truth with the review tree).
-  // BCS-S4: the margin view is FLAT -- an empty depth map makes every `depths.get(...) ?? 0`
-  // return 0, so no row is indented. This is not cosmetic. Indentation asserts nesting under a
-  // parent, and in a margin-ordered list that parent is somewhere else entirely -- and
-  // `computeDepths` would not even reproduce the tree's own numbers here, because the ancestors
-  // are absent from the row set, so its chain-walk terminates on a missing parent and hands a
-  // top-level line a depth of 1. The section label carries the real context instead.
+  // BCS-S14: a MARGIN-SORTED sheet is FLAT -- an empty depth map makes every `depths.get(...) ?? 0`
+  // return 0, so no row is indented. This is not cosmetic. Indentation asserts nesting under the
+  // parent above it, and after a margin sort that parent is somewhere else entirely; worse,
+  // `computeDepths` would not even reproduce the tree's own numbers, because its chain-walk reads
+  // a row set whose order no longer follows the parent chain.
+  //
+  // The RANGE FILTER alone does NOT flatten (`marginSortDir === null` while filtering): it only
+  // drops rows, and a surviving row's ancestry claim is still true. Only re-ordering breaks it.
   const depths = useMemo(
-    () => (marginView ? FLAT_DEPTHS : computeDepths(rows)),
-    [rows, marginView],
+    () => (marginSortDir ? FLAT_DEPTHS : computeDepths(rows)),
+    [rows, marginSortDir],
   );
 
   // Collapse/expand context value: stable across a keystroke (only `collapsed` / the page-built
@@ -3859,10 +3937,10 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
   );
   const applyRateRef = useRef(applyRate);
   applyRateRef.current = applyRate;
-  // BCS-S4: the margin view's sort key. Same ref pattern as undo/redo/applyRate -- the handle
-  // delegates to the LATEST closure, so it need not rebuild when rows/descriptors/drafts change,
-  // and a sort taken at any moment sees the values on screen at that moment. Assigned below,
-  // after `bcsQtyFor` exists (it is declared beside renderRow).
+  // BCS-S4: the % Margin reading the range filter tests. Same ref pattern as undo/redo/applyRate --
+  // the handle delegates to the LATEST closure, so it need not rebuild when rows/descriptors/drafts
+  // change, and a reading taken at any moment sees the values on screen at that moment. Assigned
+  // below, after `bcsQtyFor` exists (it is declared beside renderRow).
   const computeMarginsRef = useRef<(rowsToMeasure: PricedRow[]) => Map<number, number | null>>(
     () => new Map(),
   );
@@ -5115,8 +5193,8 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
       // U1 rate-helper: delegate to the latest applyRate via a ref (like undo/redo) so the handle
       // need not rebuild when rows/descriptors change.
       applyRate: (excelRow, col, value) => applyRateRef.current(excelRow, col, value),
-      // BCS-S4: the margin view's sort key, taken at the moment it is asked for. Delegates via a
-      // ref for the same reason undo/redo/applyRate do.
+      // BCS-S4: every row's % Margin, taken at the moment it is asked for (BCS-S13: on an explicit
+      // filter Apply). Delegates via a ref for the same reason undo/redo/applyRate do.
       computeMargins: (rowsToMeasure) => computeMarginsRef.current(rowsToMeasure),
     }),
     [jumpToRow],
@@ -5501,11 +5579,81 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
     rowResizeRef.current = null;
   }, []);
 
+  /**
+   * ⚠️ THIS EARLY RETURN IS A TRAP DOOR, AND IT SHUT ON THE % MARGIN CONTROLS (owner report
+   * 2026-08-07). It fires on the DISPLAYED rows, so any filter matching nothing lands here -- and
+   * it returns BEFORE the header, which is where BCS-S13/S14 put the funnel and the sort arrow.
+   * A range that matched no rows therefore removed the only control that could clear it: the grid
+   * emptied, the header vanished, and the filter could not be reached again without switching
+   * sheets. The other view filters escaped this because their toggles live in the toolbar, which
+   * keeps rendering.
+   *
+   * Two things were wrong and both are fixed here:
+   *   1. THE MESSAGE WAS FALSE. "This committed sheet has no rows to price" is a statement about
+   *      the SHEET; the sheet was fine, the filter was hiding it. Reading it, the honest
+   *      conclusion is that the data is missing -- the one thing that had not happened.
+   *   2. THERE WAS NO WAY OUT. An empty result must carry its own undo.
+   *
+   * ⚠️ IT MUST STAY AN EARLY RETURN INSIDE THIS COMPONENT -- never lifted into the page as a
+   * "render the panel instead of the grid" branch. That would UNMOUNT PricingGrid, and the
+   * unsaved rate/cost drafts live in its state: type a cost, have the filter stop matching that
+   * row, lose the keystrokes. Returning early keeps the component mounted and the drafts intact.
+   */
   if (rows.length === 0) {
+    // The two states are resolved ONCE, into plain data, rather than re-asking `viewFiltersActive`
+    // at each of the four places it decides something. A per-branch ternary chain reads as four
+    // independent choices that merely happen to agree; this reads as what it is -- one question,
+    // asked once, with one answer.
+    // ⚠️ NAME THE % MARGIN RANGE WHEN ONE IS SET, BUT DO NOT BLAME IT. Someone who filtered to
+    // 10-25% and got nothing needs to see the range they are actually filtering by -- the funnel
+    // that holds it is gone with the header, so the numbers exist nowhere else on screen.
+    //
+    // What this must NOT say is "nothing has a % Margin between 10% and 25%". Filters compose:
+    // rows in that band may well exist and be hidden by Show-unpriced instead, and a confident
+    // claim about the DATA that is really a claim about ONE OF SEVERAL filters is the exact class
+    // of wrong this screen is careful about. It states what is applied, and lets the reader draw
+    // the conclusion.
+    //
+    // An earlier cut appended "Rows with no % Margin yet are never included." -- dropped (owner
+    // 2026-08-07). The rule is still stated where it is actually needed: in the filter dialog,
+    // next to the boxes being filled in, BEFORE the range is applied. Repeating it here made the
+    // one screen with nothing on it the wordiest, and taught the rule too late to act on.
+    const rangePhrase = describeMarginRange(marginFrom, marginTo);
+    const empty = viewFiltersActive
+      ? {
+          Icon: Filter,
+          title: "No rows match your filters",
+          body: rangePhrase
+            ? `% Margin is filtered ${rangePhrase}.`
+            : "Every row on this sheet is hidden. Clear the filters to bring it back.",
+        }
+      : {
+          Icon: Inbox,
+          title: "No rows to price",
+          body: "This committed sheet has no priceable rows.",
+        };
     return (
-      <p className="text-sm text-muted-foreground py-8 text-center">
-        This committed sheet has no rows to price.
-      </p>
+      // `role="status"` because this replaces the grid in response to an action the user just
+      // took, and a screen-reader user gets no other signal that the rows went away.
+      <div role="status" className="flex flex-col items-center gap-3 px-6 py-16 text-center">
+        <span
+          aria-hidden
+          className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-muted-foreground"
+        >
+          <empty.Icon className="h-5 w-5" />
+        </span>
+        <div className="space-y-1">
+          <p className="text-sm font-medium text-foreground">{empty.title}</p>
+          <p className="mx-auto max-w-xs text-xs leading-relaxed text-muted-foreground">
+            {empty.body}
+          </p>
+        </div>
+        {viewFiltersActive && onClearViewFilters && (
+          <Button size="sm" variant="outline" onClick={onClearViewFilters}>
+            Clear filters
+          </Button>
+        )}
+      </div>
     );
   }
 
@@ -5657,7 +5805,7 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
   // ⚠️ WHAT THE SKY TINT MARKS, CORRECTED AT BCS-S2e. It said the tint made "the INTERNAL cost
   // columns visually distinct from the client-facing ones beside them: this is what we pay, not
   // what we charge". That was true when S3a wrote it and the whole block was internal. BCS-S3b
-  // then added Tendered Total Amount and % Profit -- both CLIENT-FACING, both sky-tinted -- so
+  // then added Tendered Total Amount and % Margin -- both CLIENT-FACING, both sky-tinted -- so
   // the tint no longer separates what we pay from what we charge, and reading it as though it
   // still did would put the Tendered column on the wrong side of the very distinction the
   // sentence names.
@@ -5667,6 +5815,70 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
   // (`bcs.py` property 3). That is still worth a tint, and it is the boundary a reader needs;
   // the internal-vs-client distinction lives in the per-column `title` text instead, which is
   // where it can be stated per column rather than per block.
+  // BCS-S9: the builder's operand chips for THIS sheet -- its live cost boxes, then the
+  // confirmed quantity. Derived from `bcsKinds`, so the palette can never offer a cost box the
+  // sheet does not have (the same narrowing `bcsLiveRateKinds` enforces for the input boxes).
+  // BCS-S11: the numerator's palette -- BCS Total (the default) plus the sheet's live cost
+  // boxes, so the cost side can be re-pointed without touching the ratio.
+  // BCS-S12: the sheet's REAL quantity columns, named like the amount ones (letter + role).
+  // Before S12 this was a single abstract "Total Quantity" chip resolving through the BCS
+  // dialog's Quantity confirmation; with that picker gone the formula names the column itself.
+  const qtyOperandPalette = columnDescriptors
+    .filter((d) => d.value_field === "qty_total" || d.value_field === "qty_by_area")
+    .map((d) => ({
+      ref: {
+        value_field: d.value_field,
+        value_key: d.value_key,
+        rate_subkey: d.rate_subkey,
+      } as AmountFormulaRef,
+      label: `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}${d.area ? ` · ${d.area}` : ""}`,
+      group: "Quantity columns on this sheet",
+    }));
+
+  const marginCostPalette = [
+    ...marginCostOperandRefs(bcsKinds)
+      .filter((ref) => ref.value_field !== BCS_QTY_OPERAND_FIELD)
+      .map((ref) => ({
+        ref,
+        label: marginCostOperandLabel(ref.value_field),
+        // No column letter: these are screen-only figures with no Excel column, and that
+        // absence is meaningful rather than missing information.
+        group: "BCS columns (internal cost)",
+      })),
+    ...qtyOperandPalette,
+    ...LEGACY_QTY_LABEL_ENTRY,
+  ];
+
+  // BCS-S10: the denominator's palette -- the sheet's own AMOUNT columns, and nothing from BCS
+  // (cost inside the margin's denominator would be silently wrong, and the server refuses it).
+  const boqOperandPalette = columnDescriptors
+    .filter((d) => isAmountDescriptor(d))
+    .map((d) => ({
+      ref: {
+        value_field: d.value_field,
+        value_key: d.value_key,
+        rate_subkey: d.rate_subkey,
+      } as AmountFormulaRef,
+      // ⚠️ THE COLUMN LETTER IS ON THE CHIP ON PURPOSE. Without it a chip reads as a ROLE
+      // name ("Amount (Total)") while the grid header shows the sheet's own Excel header --
+      // two names for one column, which read as a column that does not exist. The letter is
+      // the vocabulary both surfaces already share, so it is what makes a chip findable.
+      label: `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}${d.area ? ` · ${d.area}` : ""}`,
+      group: "Amount columns on this sheet",
+    }));
+
+  const bcsOperandPalette = [
+    ...bcsOperandRefs(bcsKinds)
+      .filter((ref) => ref.value_field !== BCS_QTY_OPERAND_FIELD)
+      .map((ref) => ({
+        ref,
+        label: bcsOperandLabel(ref.value_field),
+        group: "BCS columns (internal cost)",
+      })),
+    ...qtyOperandPalette,
+    ...LEGACY_QTY_LABEL_ENTRY,
+  ];
+
   const bcsHeaderCells = bcsKinds.length > 0 && (
     <>
       {bcsKinds.map((kind) => (
@@ -5688,50 +5900,149 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
           claimed they matched. */}
       <th
         data-colkey={BCS_TOTAL_COL_KEY}
-        title="BCS Total Amount — quantity x the cost entered (computed, never stored)"
+        title="BCS Total Amount — the cost of this row (computed, never stored)"
         className="px-2 py-2 text-right font-medium text-sky-800 dark:text-sky-200 border-l border-border sticky top-0 z-20 align-top bg-sky-50 dark:bg-sky-950/40"
       >
-        <span className="block truncate">BCS Total Amount</span>
+        {/* BCS-S9: the same green f badge an amount column carries, so the rule that computes
+            this column is visible from the header and editable per sheet. The palette is
+            EXPLICIT (BCS operands are not sheet columns) and the builder opens seeded with the
+            built-in rule, so "no stored formula" never reads as "no rule". */}
+        <span className="flex min-w-0 items-center justify-end gap-1">
+          {bcsKinds.length > 0 && (
+            <AmountFormulaBuilder
+              target={BCS_TOTAL_TARGET_DESCRIPTOR}
+              columnLabel="BCS Total Amount"
+              descriptors={columnDescriptors}
+              columnFormulas={columnFormulas}
+              onSave={onSaveFormula}
+              operands={bcsOperandPalette}
+              seedTokensFrom={defaultBcsTotalFormula(bcsKinds, columnDescriptors)}
+            />
+          )}
+          <span className="truncate">BCS Total Amount</span>
+        </span>
         {resizeHandle(BCS_TOTAL_COL_KEY, false)}
       </th>
-      {/* BCS-S3b: the client-facing pair. ALWAYS SHOWN (owner ruling) -- even where an existing
-          amount column already displays the same number, because it answers a different
-          question, and a section that changes shape between sheets is harder to trust. */}
-      <th
-        data-colkey={BCS_TENDERED_COL_KEY}
-        title="Tendered Total Amount — the amount charged to the client, from the columns confirmed for BCS (computed, never stored)"
-        className="px-2 py-2 text-right font-medium text-sky-800 dark:text-sky-200 border-l border-border sticky top-0 z-20 align-top bg-sky-50 dark:bg-sky-950/40"
-      >
-        <span className="block truncate">Tendered Total Amount</span>
-        {resizeHandle(BCS_TENDERED_COL_KEY, false)}
-      </th>
-      {/* BCS-S4: in the MARGIN VIEW this header is the sort control -- one of the only two moments
-          a sort may happen (the other is opening the view). Outside it the header is inert and
-          renders exactly as it always did: no button, no arrow, no aria-sort, because a sort
-          indicator on a tree-ordered grid would be a claim about an order that is not there. */}
+      {/* BCS-S3b shipped a client-facing PAIR here -- Tendered Total Amount, then % Margin --
+          described as "ALWAYS SHOWN (owner ruling)". BCS-S8 (owner ruling 2026-08-07) REVERSES
+          the Tendered half of that: the block is now the cost boxes, BCS Total Amount and
+          % Margin. The amount charged is still computed for every row (it is the margin's
+          divisor); it simply no longer has a column of its own. */}
+      {/* BCS-S13: this header carries TWO controls, and they are different kinds of thing --
+          the ƒ badge configures how % Margin is COMPUTED (a stored, per-sheet formula everyone
+          sees), the funnel filters which rows are SHOWN (a per-session view state only this
+          reader has). They share a header because they are about the same number; they must
+          never share an icon or a colour, or a filter would read as a saved setting.
+
+          BCS-S4 put a SORT control here too, but as the header TEXT ITSELF, for the margin VIEW
+          it belonged to. That view is gone (owner ruling 2026-08-07); the sort came back at
+          BCS-S14 as an ARROW BESIDE the label rather than the label, so the column still reads
+          as a column and the three controls line up as three controls. */}
       <th
         data-colkey={BCS_MARGIN_COL_KEY}
-        title={
-          marginView && onToggleMarginSort
-            ? `% Profit — sorted ${marginSortDir === "asc" ? "lowest first" : "highest first"}. Click to reverse. (Rows with no % Profit stay at the end either way.)`
-            : "% Profit — (amount charged − cost) / amount charged (computed, never stored)"
-        }
+        data-has-formula-badge="1"
+        title="% Margin — (amount charged − cost) / amount charged (computed, never stored)"
+        // BCS-S14: announce the order to a screen reader. Absent (not "none") when unsorted, so
+        // the column is not announced as sortable-but-unsorted while the sheet is in its own
+        // document order -- which is a structure, not an unsorted state.
         aria-sort={
-          marginView ? (marginSortDir === "asc" ? "ascending" : "descending") : undefined
+          marginSortDir === "asc" ? "ascending" : marginSortDir === "desc" ? "descending" : undefined
         }
         className="px-2 py-2 text-right font-medium text-sky-800 dark:text-sky-200 border-l border-border sticky top-0 z-20 align-top bg-sky-50 dark:bg-sky-950/40"
       >
-        {marginView && onToggleMarginSort ? (
-          <button
-            type="button"
-            onClick={onToggleMarginSort}
-            className="block w-full truncate text-right hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
-          >
-            % Profit {marginSortDir === "asc" ? "▲" : "▼"}
-          </button>
-        ) : (
-          <span className="block truncate">% Profit</span>
-        )}
+        {/* BCS-S10: the f badge edits the DENOMINATOR ("BOQ Total"), never the margin's shape.
+            `(1 - cost/amount) x 100` stays in bcsMarginPercent so its three guards -- zero
+            denominator, non-finite, and above all NEGATIVE denominator (which would render a
+            loss as a positive margin) -- cannot be written around. */}
+        <span className="flex min-w-0 items-center justify-end gap-1">
+          {bcsKinds.length > 0 && (
+            /* ONE dialog, TWO slots. They are not two formulas -- they are the two halves of
+               one ratio, and BCS-S11's first cut (a badge per half) made the rule itself
+               invisible: you could edit a denominator without seeing what it was the
+               denominator OF. The `(1 - c/a) x 100` wrapper is rendered but not editable; it
+               needs numeric literals, which this builder structurally cannot express, and it
+               carries the sign guard. */
+            <MarginFormulaBuilder
+              onSave={onSaveFormula}
+              cost={{
+                targetValueField: MARGIN_COST_TARGET,
+                label: "Cost",
+                operands: marginCostPalette,
+                seed: defaultMarginCostFormula(),
+                stored: pickMarginCostFormula(columnFormulas),
+              }}
+              amount={{
+                targetValueField: BOQ_TOTAL_TARGET,
+                label: "Amount (BOQ Total)",
+                operands: boqOperandPalette,
+                seed: defaultBoqTotalFormula(bcsAmountSource, columnDescriptors),
+                stored: pickBoqTotalFormula(columnFormulas),
+              }}
+            />
+          )}
+          {/* ⭐ ORDER IS THE OWNER'S (2026-08-07): [ƒ]  % Margin  [arrow] [funnel].
+              The ƒ leads because it configures what the number IS -- a stored, per-sheet formula
+              everyone sees. The label then reads as the column's name rather than as a control.
+              The two VIEW controls (mine only, this session only) group together after it, so a
+              reader can tell at a glance which side of the header changes the data and which
+              side changes only what they are looking at.
+
+              The arrow sits BEFORE the funnel: it is the lighter action of the two (one click,
+              instantly reversible, hides nothing), while the funnel opens a dialog and can empty
+              the grid. Cheapest-first also puts the arrow nearer the label it orders. */}
+          <span className="truncate">% Margin</span>
+          {/* BCS-S14: the sort arrow. Gated on its callback alone, for the same reason as the
+              funnel -- ordering is not a write, so a locked sheet still sorts. */}
+          {onCycleMarginSort && (
+            <button
+              type="button"
+              onClick={onCycleMarginSort}
+              className={cn(
+                "shrink-0 rounded border px-1 py-0.5 leading-none",
+                marginSortDir
+                  ? "border-sky-500 bg-sky-600 text-white dark:border-sky-400 dark:bg-sky-500"
+                  : "border-sky-300 bg-white/70 text-sky-700 hover:bg-white dark:border-sky-700 dark:bg-sky-900/40 dark:text-sky-200",
+              )}
+              aria-label={
+                marginSortDir === "asc"
+                  ? "Sorted by % Margin, lowest first. Click for highest first."
+                  : marginSortDir === "desc"
+                    ? "Sorted by % Margin, highest first. Click to return to sheet order."
+                    : "Sort by % Margin"
+              }
+              title={
+                marginSortDir === "asc"
+                  ? "Lowest % Margin first. Click for highest first. (Rows with no % Margin stay at the end either way.)"
+                  : marginSortDir === "desc"
+                    ? "Highest % Margin first. Click to return to the sheet's own order."
+                    : "Sort by % Margin — lowest first, then highest, then back to sheet order."
+              }
+            >
+              {/* THREE GLYPHS FOR THREE STATES. `ArrowUpDown` (the neutral both-ways arrow) is
+                  what an UNSORTED sortable column looks like everywhere; the two directional
+                  arrows carry the narrow-to-wide shape so the direction is readable without
+                  reference to a legend. */}
+              {marginSortDir === "asc" ? (
+                <ArrowUpNarrowWide className="h-3 w-3" />
+              ) : marginSortDir === "desc" ? (
+                <ArrowDownWideNarrow className="h-3 w-3" />
+              ) : (
+                <ArrowUpDown className="h-3 w-3" />
+              )}
+            </button>
+          )}
+          {/* BCS-S13: the range filter. Gated on `onApplyMarginRange` ALONE -- never on the
+              lock, never on `onSaveFormula` (see the prop's docblock: filtering is not a write,
+              so the read-only rule does not reach it). */}
+          {onApplyMarginRange && (
+            <MarginRangeFilter
+              from={marginFrom}
+              to={marginTo}
+              matchedCount={marginRangeCount}
+              onApply={onApplyMarginRange}
+            />
+          )}
+        </span>
         {resizeHandle(BCS_MARGIN_COL_KEY, false)}
       </th>
     </>
@@ -5780,25 +6091,28 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
   const bcsQtyFor = (row: PricedRow): number | null =>
     bcsKinds.length === 0
       ? null
-      : bcsRowQuantity(bcsQtySource, (e) => resolveDescriptorValue(row, e));
+      // `columnDescriptors` is the S12b fallback: with no stored confirmation the sheet's OWN
+      // quantity column is used. Without it every post-S12 sheet resolved quantity to null and
+      // rendered a blank BCS Total. See bcsQuantityColumns.
+      : bcsRowQuantity(bcsQtySource, (e) => resolveDescriptorValue(row, e), columnDescriptors);
 
-  // ── BCS-S4: the margin view's sort key ────────────────────────────────────────
-  // Every given row's % Profit RIGHT NOW, through the SAME `computeBcsRowCells` the cost cells
-  // render from -- so the order and the column can never disagree about a row's margin.
+  // ── BCS-S4: every row's % Margin, for the BCS-S13 range filter ────────────────
+  // Every given row's % Margin RIGHT NOW, through the SAME `computeBcsRowCells` the cost cells
+  // render from -- so the filter and the column can never disagree about a row's margin.
   //
   // It reads the drafts through their REFS, so a cost or rate typed a second ago and not yet saved
-  // is in the sort. `lookupOperandValue` and `bcsDraftsForRow` both key on the FULL
+  // is in the reading. `lookupOperandValue` and `bcsDraftsForRow` both key on the FULL
   // `${row_index}:...` form, which is why the whole draft maps can be passed where the row render
   // passes one row's slice -- the slices exist for the memo, not for the lookup.
   //
-  // ⚠️ IT TAKES THE ROWS. `rows` here is the DISPLAYED set -- filtered, collapsed, or already
-  // flattened by the margin view itself -- and an order decided over that would shuffle whenever
-  // a filter moved. The page passes the whole sheet.
+  // ⚠️ IT TAKES THE ROWS. `rows` here is the DISPLAYED set -- already filtered and collapsed -- and
+  // a range decided over that would narrow itself every time it was re-applied. The page passes
+  // the whole sheet.
   //
-  // ⚠️ THIS RUNS O(rows x amount columns) AND IS THEREFORE CALLED AT EXACTLY TWO MOMENTS: opening
-  // the view, and a % Profit header click. Never from a render, an effect or a keystroke -- both
-  // for the cost and because a re-sort under a focused cell slides a different row beneath the
-  // cursor (`activeCell` is array-index addressed).
+  // ⚠️ THIS RUNS O(rows x amount columns) AND IS THEREFORE CALLED ON AN EXPLICIT FILTER APPLY AND
+  // NOWHERE ELSE. Never from a render, an effect or a keystroke -- both for the cost and because
+  // rows leaving the grid under a focused cell slides a different row beneath the cursor
+  // (`activeCell` is array-index addressed).
   computeMarginsRef.current = (rowsToMeasure: PricedRow[]) => {
     const out = new Map<number, number | null>();
     if (bcsKinds.length === 0) return out; // no cost block on this sheet -> no margins at all
@@ -5852,8 +6166,6 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
       clipDescription={clipDescriptionForRow}
       measureRef={measureRefForRow}
       depth={depths.get(row.row_index) ?? 0}
-      // BCS-S4: this row's OWN label, never the Map (the P1 per-row-collection rule).
-      section={sectionByRowIndex.get(row.row_index)}
       parentExcelRow={parentExcelRowOf(row, byIdx)}
       flags={rowFlags?.get(row.row_index)}
       rowDraftRates={draftSlicesByRow.get(row.row_index) ?? EMPTY_SLICE}

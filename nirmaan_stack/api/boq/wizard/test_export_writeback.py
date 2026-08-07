@@ -122,10 +122,41 @@ class TestTemplateExportPureHelpers(FrappeTestCase):
         self.assertIsNone(etw.ast_to_excel(ast, 5, self._RM))
 
     def test_ast_to_excel_unsupported_op_and_bad_shape(self):
-        self.assertIsNone(etw.ast_to_excel({"op": "/", "operands": []}, 5, self._RM))
+        # "^" stands in for the unsupported op. It used to be "/", which F5 promoted into the
+        # vocabulary -- and note the empty operands list, which meant this line would have kept
+        # passing for the WRONG reason after that promotion, covering the bad-shape arm twice
+        # and the unsupported-op arm not at all.
+        self.assertIsNone(etw.ast_to_excel({"op": "^", "operands": []}, 5, self._RM))
+        self.assertIsNone(etw.ast_to_excel(
+            {"op": "^", "operands": [{"ref": {"value_field": "qty_total", "value_key": None}}]},
+            5, self._RM))
         self.assertIsNone(etw.ast_to_excel({"op": "*", "operands": []}, 5, self._RM))
+        self.assertIsNone(etw.ast_to_excel({"op": "/", "operands": []}, 5, self._RM))
         self.assertIsNone(etw.ast_to_excel("not a dict", 5, self._RM))
         self.assertIsNone(etw.ast_to_excel({}, 5, self._RM))
+
+    def test_ast_to_excel_subtract_and_divide(self):
+        """F5: the two new operators reach the exported workbook instead of blanking it."""
+        def two(op):
+            return {"op": op, "operands": [
+                {"ref": {"value_field": "qty_total", "value_key": None}},
+                {"ref": {"value_field": "rate_combined", "value_key": None}},
+            ]}
+        self.assertEqual(etw.ast_to_excel(two("-"), 5, self._RM), "(D5-E5)")
+        self.assertEqual(etw.ast_to_excel(two("/"), 5, self._RM), "(D5/E5)")
+
+    def test_ast_to_excel_brackets_every_nested_operator(self):
+        """Why left-associativity needs no special handling in the export: a nested operator
+        node arrives already parenthesised, so `a - (b + c)` can never flatten into the
+        `a - b + c` that Excel would read as a different number."""
+        ast = {"op": "-", "operands": [
+            {"ref": {"value_field": "qty_total", "value_key": None}},
+            {"op": "+", "operands": [
+                {"ref": {"value_field": "rate_combined", "value_key": None}},
+                {"ref": {"value_field": "rate_combined", "value_key": None}},
+            ]},
+        ]}
+        self.assertEqual(etw.ast_to_excel(ast, 5, self._RM), "(D5-(E5+E5))")
 
     def test_ast_to_excel_nested_add_inside_multiply(self):
         ast = {

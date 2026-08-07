@@ -1,6 +1,6 @@
-// Unit tests for bcsRollup (BCS-S5 -- BCS cost / Tendered / % Profit per BoQ section).
+// Unit tests for bcsRollup (BCS-S5 -- BCS cost / Tendered / % Margin per BoQ section).
 //
-// ★ THE HEADLINE TEST IS T1, THE RATIO RULE. % Profit for a section is RECOMPUTED from the
+// ★ THE HEADLINE TEST IS T1, THE RATIO RULE. % Margin for a section is RECOMPUTED from the
 // section's summed cost and summed tendered amount -- never the average of its lines' percentages,
 // never their sum. T1 is built so that an average (46%) and a sum (92%) are BOTH far away from the
 // weighted answer (~2.0%), so a future "simplification" to either one fails loudly instead of
@@ -68,7 +68,7 @@ describe("sectionMarginPercent -- the ratio rule, in one function", () => {
 
 describe("rollBcsSections", () => {
   // ── ★ T1: THE RATIO RULE ──────────────────────────────────────────────────────
-  it("★ T1 recomputes % Profit from SUMMED cost / SUMMED tendered -- never an average of the lines", () => {
+  it("★ T1 recomputes % Margin from SUMMED cost / SUMMED tendered -- never an average of the lines", () => {
     // One tiny line at 90% margin beside one huge line at 2%. An average weights them equally.
     //   A: cost 1        tendered 10          -> 90%
     //   B: cost 980,000  tendered 1,000,000   -> 2%

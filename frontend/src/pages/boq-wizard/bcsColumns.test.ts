@@ -24,8 +24,19 @@ import { describe, expect, it } from "vitest";
 // for why this is an import rather than an inline parse, and the JSON's own `_readme` for why
 // the table exists at all.
 import PARITY_RAW from "../../../../nirmaan_stack/services/boq_bcs/parity_cases.json";
-import type { ColumnDescriptor } from "./boqTypes";
+import type { AmountFormulaNode, BcsRateField, BcsSource, ColumnDescriptor } from "./boqTypes";
+import type { BcsComputedCell, BcsRateKind } from "./bcsColumns";
 import {
+  bcsTotalCell,
+  bcsAmountColumns,
+  bcsQuantityColumns,
+  marginCostOperandRefs,
+  marginCostCell,
+  defaultMarginCostFormula,
+  boqTotalAmount,
+  defaultBoqTotalFormula,
+  defaultBcsTotalFormula,
+  pickBcsTotalFormula,
   BCS_COMPUTED_KINDS,
   BCS_REFUSAL_CODES,
   BCS_REFUSAL_ORDER,
@@ -551,7 +562,7 @@ describe("amount refusals -- kind before shape, as the server orders them", () =
 // ===========================================================================
 // "Adapt and disclose, never refuse." A one-sided sheet is ACCEPTED, and the software states
 // the formula it is actually using. THE SENTENCE IS THE SAFETY: without it, acceptance is the
-// failure mode, because a sheet silently measuring % Profit against supply alone looks
+// failure mode, because a sheet silently measuring % Margin against supply alone looks
 // exactly like one measuring it against the whole amount.
 describe("the disclosure sentence", () => {
   const EIGHT: Array<[BcsMode, string[]]> = [
@@ -597,10 +608,10 @@ describe("the disclosure sentence", () => {
     expect(v.ok && v.summary).not.toMatch(/not included/i);
   });
 
-  it("names % Profit, because that is what the choice actually changes", () => {
+  it("names % Margin, because that is what the choice actually changes", () => {
     for (const [, cols] of EIGHT) {
       const v = validateBcsPicks("amount", cols, INDEX);
-      expect(v.ok && v.summary).toMatch(/% Profit/);
+      expect(v.ok && v.summary).toMatch(/% Margin/);
     }
   });
 
@@ -617,33 +628,33 @@ describe("the disclosure sentence", () => {
     };
 
     expect(say(["F"])).toBe(
-      "% Profit is measured against the combined Amount in column F.",
+      "% Margin is measured against the combined Amount in column F.",
     );
     expect(say(["J", "P"])).toBe(
-      "% Profit is measured against the Supply amount plus the Installation amount " +
+      "% Margin is measured against the Supply amount plus the Installation amount " +
         "(columns J and P), added together.",
     );
     expect(say(["J"])).toBe(
-      "% Profit is measured against the Supply amount alone (column J). Installation is " +
+      "% Margin is measured against the Supply amount alone (column J). Installation is " +
         "not included.",
     );
     expect(say(["P"])).toBe(
-      "% Profit is measured against the Installation amount alone (column P). Supply is " +
+      "% Margin is measured against the Installation amount alone (column P). Supply is " +
         "not included.",
     );
     expect(say(["G", "H"])).toBe(
-      "% Profit is measured against the combined Amount in columns G and H, added together.",
+      "% Margin is measured against the combined Amount in columns G and H, added together.",
     );
     expect(say(["I", "S", "R", "T"])).toBe(
-      "% Profit is measured against the Supply and Installation amounts in columns I, S, R " +
+      "% Margin is measured against the Supply and Installation amounts in columns I, S, R " +
         "and T, all added together.",
     );
     expect(say(["I", "S"])).toBe(
-      "% Profit is measured against the Supply amounts in columns I and S, added together. " +
+      "% Margin is measured against the Supply amounts in columns I and S, added together. " +
         "Installation is not included.",
     );
     expect(say(["R", "T"])).toBe(
-      "% Profit is measured against the Installation amounts in columns R and T, added " +
+      "% Margin is measured against the Installation amounts in columns R and T, added " +
         "together. Supply is not included.",
     );
   });
@@ -668,7 +679,7 @@ describe("the disclosure sentence", () => {
     for (const [mode, cols] of EIGHT) {
       const v = validateBcsPicks("amount", cols, INDEX);
       const s = v.ok ? v.summary : "";
-      // The sentence describes the FORMULA, so it never has a subject other than % Profit.
+      // The sentence describes the FORMULA, so it never has a subject other than % Margin.
       expect(s, `${mode} narrates the sheet`).not.toMatch(/This sheet/i);
       // "no combined Amount column" is the specific falsehood; it is unknowable from picks.
       expect(s, `${mode} claims a column is absent`).not.toMatch(/no combined Amount/i);
@@ -1221,20 +1232,19 @@ describe("bcsCostEntryReason -- the parallel gate, in save_row_bcs_rates' OWN or
 
 describe("the BCS column block -- keys and geometry", () => {
   it("adds the computed tail after the cost boxes", () => {
-    // SUPERSEDED AT BCS-S3b. This asserted ONE trailing computed column ("bcs:total"); the
-    // slice that closed the owner's ask added the two the section was built for -- the amount
-    // charged, and the margin between it and the cost. The tail is now THREE.
+    // SUPERSEDED TWICE. BCS-S3a asserted ONE trailing computed column ("bcs:total"); BCS-S3b
+    // made it THREE by adding the amount charged and the margin. BCS-S8 (owner ruling
+    // 2026-08-07) removed "bcs:tendered" again, so the tail is Total then % Margin. The amount
+    // charged is still COMPUTED -- it is the margin's divisor -- it just has no column.
     expect(bcsColumnKeys(["supply", "install"])).toEqual([
       "bcs:supply",
       "bcs:install",
       "bcs:total",
-      "bcs:tendered",
       "bcs:margin",
     ]);
     expect(bcsColumnKeys(["combined"])).toEqual([
       "bcs:combined",
       "bcs:total",
-      "bcs:tendered",
       "bcs:margin",
     ]);
   });
@@ -1273,12 +1283,23 @@ describe("the BCS column block -- keys and geometry", () => {
   // exists so a re-wording has to be a DECISION, taken against a named ruling, rather than a
   // tidy-up nobody notices.
   //
-  // `combined` is DELIBERATELY not pinned here: the owner named two of the three boxes, and a
-  // sheet mapping only a combined rate still shows the un-prefixed "Cost". That gap is REPORTED,
-  // not guessed at -- pinning a string he never said would launder a guess into an assertion.
-  it("carries the owner's BCS-prefixed box names verbatim (BCS-S7)", () => {
+  // `combined` WAS deliberately unpinned here -- the owner had named only two of the three
+  // boxes, so pinning a third string he never said would have laundered a guess into an
+  // assertion. He ruled on it on 2026-08-07 ("BCS Cost"), so it joins the other two: all three
+  // are now pinned against a named ruling rather than against the module's current contents.
+  it("carries the owner's BCS-prefixed box names verbatim (BCS-S7, completed 2026-08-07)", () => {
     expect(BCS_RATE_LABEL.supply).toBe("BCS Cost (Supply)");
     expect(BCS_RATE_LABEL.install).toBe("BCS Cost (Installation)");
+    expect(BCS_RATE_LABEL.combined).toBe("BCS Cost");
+  });
+
+  it("every cost box carries the BCS prefix -- that is what the prefix is FOR", () => {
+    // The prefix marks which side of the sheet a figure belongs to, which matters because on a
+    // wide sheet the internal and client-facing blocks scroll apart. One unprefixed box defeated
+    // that on every combined-rate sheet.
+    for (const label of Object.values(BCS_RATE_LABEL)) {
+      expect(label.startsWith("BCS ")).toBe(true);
+    }
   });
 });
 
@@ -1352,8 +1373,18 @@ describe("isBcsInputColumn -- the ONE 'may this column be typed in?' decision", 
     // construction; a new kind added ONLY at a render site would fail this test.
     for (const k of BCS_COMPUTED_KINDS) expect(isBcsInputColumn(k)).toBe(false);
     expect(BCS_COMPUTED_KINDS).toContain("total");
-    expect(BCS_COMPUTED_KINDS).toContain("tendered");
     expect(BCS_COMPUTED_KINDS).toContain("margin");
+    // BCS-S8: "tendered" is no longer a COLUMN, so it is no longer a computed kind. Kept as a
+    // negative rather than deleted -- re-adding it here would put the column back in the block,
+    // which is exactly what the owner ruling removed.
+    expect(BCS_COMPUTED_KINDS).not.toContain("tendered");
+    // ⚠️ NOTE THE DIRECTION OF THE HAZARD, because REMOVING a kind is the dangerous way round.
+    // `isBcsInputColumn` answers "not one of the computed kinds", so a token dropped from this
+    // list becomes TYPEABLE rather than inert. "tendered" is safe only because it also left the
+    // `BcsComputedKind` union in the same edit, so no caller can produce it and `bcsColumnAt`
+    // can never return it -- the TYPE, not this function, is what closes the hole. Anything
+    // removed from BCS_COMPUTED_KINDS in future must leave the union too. (The block's offsets
+    // are pinned in "the BCS block's geometry with the computed columns".)
   });
 
   it("says no outside the block entirely (bcsColumnAt's null)", () => {
@@ -1374,38 +1405,43 @@ describe("isBcsInputColumn -- the ONE 'may this column be typed in?' decision", 
 });
 
 describe("the BCS block's geometry with the computed columns", () => {
-  it("appends the THREE computed columns after the cost boxes, in render order", () => {
+  it("appends the computed columns after the cost boxes, in render order", () => {
+    // BCS-S8: two, not three -- "bcs:tendered" was removed by owner ruling 2026-08-07.
     expect(bcsColumnKeys(["supply", "install"])).toEqual([
       "bcs:supply",
       "bcs:install",
       "bcs:total",
-      "bcs:tendered",
       "bcs:margin",
     ]);
   });
 
   it("KEEPS the empty-block property -- no cost box, no computed columns either", () => {
     // Load-bearing: this is what makes every colIndex on a non-BCS sheet byte-identical to
-    // pre-S3a. A % Profit column on a sheet with no cost box would have no numerator anyway.
+    // pre-S3a. A % Margin column on a sheet with no cost box would have no numerator anyway.
     expect(bcsColumnKeys([])).toEqual([]);
     expect(bcsColumnAt(10, 10, [])).toBeNull();
   });
 
-  it("places Total, Tendered and % Profit at the three offsets after the boxes", () => {
+  it("places Total and % Margin at the two offsets after the boxes", () => {
+    // BCS-S8: Tendered used to sit between them, at offset 13. The margin MOVED LEFT by one,
+    // which is the half of this removal that could silently mis-target a keystroke -- the grid
+    // renders the margin at `bcsColStart + kinds.length + 1` and this is what pins the two in
+    // step. Offset 14 is now outside the block entirely.
     const kinds = ["supply", "install"] as const;
     expect(bcsColumnAt(10, 10, kinds)).toBe("supply");
     expect(bcsColumnAt(11, 10, kinds)).toBe("install");
     expect(bcsColumnAt(12, 10, kinds)).toBe("total");
-    expect(bcsColumnAt(13, 10, kinds)).toBe("tendered");
-    expect(bcsColumnAt(14, 10, kinds)).toBe("margin");
+    expect(bcsColumnAt(13, 10, kinds)).toBe("margin");
+    expect(bcsColumnAt(14, 10, kinds)).toBeNull();
   });
 
-  it("stops at the end of the widened block, and before its start", () => {
+  it("stops at the end of the block, and before its start", () => {
     const kinds = ["combined"] as const;
     expect(bcsColumnAt(9, 10, kinds)).toBeNull();
     expect(bcsColumnAt(10, 10, kinds)).toBe("combined");
-    expect(bcsColumnAt(13, 10, kinds)).toBe("margin");
-    expect(bcsColumnAt(14, 10, kinds)).toBeNull(); // the old bound stopped one column too early
+    expect(bcsColumnAt(11, 10, kinds)).toBe("total");
+    expect(bcsColumnAt(12, 10, kinds)).toBe("margin");
+    expect(bcsColumnAt(13, 10, kinds)).toBeNull();
   });
 
   it("keeps the key list and the placement in step -- one length, never two", () => {
@@ -1452,7 +1488,7 @@ describe("bcsRowAmount -- THE DENOMINATOR, summed across the confirmed Amount co
 
   it("keeps a genuine 0 on one column distinct from an unresolved one", () => {
     // A column that really reads 0 CONTRIBUTES 0 and makes the row non-blank; an unresolved one
-    // contributes 0 and does NOT. The difference decides whether % Profit renders at all.
+    // contributes 0 and does NOT. The difference decides whether % Margin renders at all.
     expect(bcsRowAmount(AMOUNT_SOURCE, () => 0)).toBe(0);
     expect(bcsRowAmount(AMOUNT_SOURCE, () => null)).toBeNull();
   });
@@ -1607,7 +1643,7 @@ describe("bcsMarginPercent -- (amount - cost) / amount, and the direction is SET
     // which is exactly why a +150% on a loss-making row survived it and shipped. Finiteness is
     // not the property; the SIGN is.
     //
-    // THE INVARIANT: % Profit is positive if and only if the amount exceeds the cost.
+    // THE INVARIANT: % Margin is positive if and only if the amount exceeds the cost.
     const nums = [0, -0, 1e-320, -1e-320, 1e308, -1e308, 0.1, -7.5, 50, -100, 100, 1234.5];
     let valuesProduced = 0;
     for (const c of nums) {
@@ -1632,7 +1668,7 @@ describe("bcsBlankReasonText -- why a computed cell is empty, in plain English",
     expect(bcsBlankReasonText("no_quantity")).toBe("No quantity on this row.");
     expect(bcsBlankReasonText("no_cost")).toBe("No cost entered yet.");
     expect(bcsBlankReasonText("no_amount")).toBe(
-      "No amount on this row yet — % Profit is measured against the amount charged, and this row has none to read.",
+      "No amount on this row yet — % Margin is measured against the amount charged, and this row has none to read.",
     );
     expect(bcsBlankReasonText("zero_amount")).toBe(
       "The amount charged on this row is zero, so there is no margin to measure against it.",
@@ -1975,5 +2011,581 @@ describe("rule parity -- the shared case table, this side", () => {
       expect(BCS_REFUSAL_ORDER.qty).not.toContain(code);
       expect(BCS_REFUSAL_ORDER.amount).not.toContain(code);
     }
+  });
+});
+
+// ── BCS-S9: BCS Total Amount as an editable formula ───────────────────────────
+//
+// The load-bearing property is the FIRST describe: the seed must reproduce, exactly, the
+// number the hardcoded rule produced. Everything else in this slice is reversible; a seed
+// that computes something else silently moves money on sheets nobody touched.
+describe("BCS-S9 -- the seed reproduces the built-in rule exactly", () => {
+  const merged = (supply: string | null, install: string | null, combined: string | null = null) =>
+    ({ supply_rate: supply, install_rate: install, combined_rate: combined }) as Record<
+      BcsRateField,
+      string | null
+    >;
+
+  const CASES: Array<[string, BcsRateKind[], Record<BcsRateField, string | null>]> = [
+    ["two boxes", ["supply", "install"], merged("30", "20")],
+    ["combined only", ["combined"], merged(null, null, "45")],
+    ["supply only", ["supply"], merged("12", null)],
+    ["zero cost is a real 0", ["supply", "install"], merged("0", "0")],
+  ];
+
+  it.each(CASES)("%s: formula result === built-in result", (_n, kinds, m) => {
+    const qty = 10;
+    const builtIn = bcsTotalCell(null, qty, m, kinds);
+    const seeded = bcsTotalCell(defaultBcsTotalFormula(kinds), qty, m, kinds);
+    expect(seeded).toEqual(builtIn);
+  });
+
+  it("(Supply + Install) x Quantity is the arithmetic, not something that merely agrees once", () => {
+    const cell = bcsTotalCell(
+      defaultBcsTotalFormula(["supply", "install"]),
+      10,
+      merged("30", "20"),
+      ["supply", "install"],
+    );
+    expect(cell).toEqual({ kind: "value", value: 500 }); // (30 + 20) * 10
+  });
+
+  it("a combined-rate sheet's seed is ONE box x quantity, never a sum with the halves", () => {
+    const tree = defaultBcsTotalFormula(["combined"]);
+    // bcs.py forbids summing combined_rate with the halves; bcsLiveRateKinds never returns
+    // both, so the seed structurally cannot express it -- one leaf, not a "+" node.
+    expect(tree).toEqual({
+      op: "*",
+      operands: [
+        { ref: { value_field: "bcs_combined", value_key: null, rate_subkey: null } },
+        { ref: { value_field: "bcs_qty", value_key: null, rate_subkey: null } },
+      ],
+    });
+  });
+
+  it("no cost box -> no seed (nothing to total)", () => {
+    expect(defaultBcsTotalFormula([])).toBeNull();
+  });
+});
+
+describe("BCS-S9 -- a blank still knows why on the formula path", () => {
+  const m = (s: string | null, i: string | null) =>
+    ({ supply_rate: s, install_rate: i, combined_rate: null }) as Record<
+      BcsRateField,
+      string | null
+    >;
+  const kinds: BcsRateKind[] = ["supply", "install"];
+  const tree = defaultBcsTotalFormula(kinds)!;
+
+  it("an uncosted row reads no_cost, NOT 0", () => {
+    expect(bcsTotalCell(tree, 10, m(null, null), kinds)).toEqual({
+      kind: "blank",
+      reason: "no_cost",
+    });
+  });
+
+  it("a row with no quantity reads no_quantity, NOT 0", () => {
+    expect(bcsTotalCell(tree, null, m("30", "20"), kinds)).toEqual({
+      kind: "blank",
+      reason: "no_quantity",
+    });
+  });
+
+  it("a divide-by-zero blanks rather than rendering Infinity", () => {
+    const div: AmountFormulaNode = {
+      op: "/",
+      operands: [
+        { ref: { value_field: "bcs_supply", value_key: null, rate_subkey: null } },
+        { ref: { value_field: "bcs_install", value_key: null, rate_subkey: null } },
+      ],
+    };
+    const cell = bcsTotalCell(div, 10, m("100", "0"), kinds);
+    expect(cell.kind).toBe("blank");
+  });
+
+  it("an operand outside the BCS vocabulary blanks -- never silently resolves", () => {
+    const stray: AmountFormulaNode = {
+      ref: { value_field: "rate_supply", value_key: null, rate_subkey: null },
+    };
+    expect(bcsTotalCell(stray, 10, m("30", "20"), kinds).kind).toBe("blank");
+  });
+});
+
+describe("BCS-S9 -- pickBcsTotalFormula", () => {
+  const tree: AmountFormulaNode = {
+    ref: { value_field: "bcs_qty", value_key: null, rate_subkey: null },
+  };
+  const rec = (tvf: string, f: AmountFormulaNode | null) => ({
+    target_value_field: tvf,
+    target_value_key: null,
+    target_rate_subkey: null,
+    target_col: null,
+    formula: f,
+  });
+
+  it("finds the bcs_total record and ignores amount ones", () => {
+    expect(pickBcsTotalFormula([rec("amount_total", null), rec("bcs_total", tree)])).toEqual(tree);
+  });
+
+  it("returns null when the sheet has declared none -- the built-in rule then applies", () => {
+    expect(pickBcsTotalFormula([rec("amount_total", tree)])).toBeNull();
+    expect(pickBcsTotalFormula([])).toBeNull();
+    expect(pickBcsTotalFormula(undefined)).toBeNull();
+  });
+});
+
+// ── The % Margin identity (owner formula, 2026-08-07) ─────────────────────────
+//
+// The owner specified `% Margin = (1 - BCS/BOQ) x 100`. The implementation computes
+// `((amount - cost) / amount) x 100`, which is the SAME expression rearranged:
+//
+//     (1 - c/a) x 100  =  (a/a - c/a) x 100  =  ((a - c)/a) x 100
+//
+// So `% Profit -> % Margin` was a RENAME, with no arithmetic change. This pins the identity
+// rather than leaving it as a claim in a commit message -- and it is the guard that would fire
+// if anyone later "implements the owner's formula" and accidentally writes `1 - (c/a) x 100`,
+// which reads identically in prose and returns -49 where the right answer is 50.
+describe("% Margin -- the owner's formula and the implementation are the same expression", () => {
+  const cell = (value: number): BcsComputedCell => ({ kind: "value", value });
+  /** The owner's form, written literally, with the intended grouping. */
+  const ownerForm = (cost: number, boq: number) => (1 - cost / boq) * 100;
+
+  const PAIRS: Array<[number, number]> = [
+    [600, 1000],
+    [800, 1000],
+    [0, 1000],
+    [1000, 1000],
+    [1200, 1000], // a loss: cost above the amount charged -> negative margin
+    [1, 3], // non-terminating decimal
+    [12345.67, 98765.43],
+  ];
+
+  it.each(PAIRS)("cost %d against BOQ %d agrees to floating-point exactness", (cost, boq) => {
+    const impl = bcsMarginPercent(cell(cost), cell(boq));
+    expect(impl.kind).toBe("value");
+    expect((impl as { kind: "value"; value: number }).value).toBeCloseTo(ownerForm(cost, boq), 10);
+  });
+
+  it("the worked example from the spec: 600 cost, 1000 charged -> 40%", () => {
+    expect(bcsMarginPercent(cell(600), cell(1000))).toEqual({ kind: "value", value: 40 });
+  });
+
+  it("⚠️ the MISREAD grouping is NOT what we compute -- it returns a nonsense negative", () => {
+    // Written without the outer bracket, normal precedence makes it 1 - ((c/a) x 100):
+    // 1 - 0.6*100 = -59, where the right answer is +40. Not a rounding difference -- a
+    // different sign and a different magnitude, which is why the grouping had to be settled
+    // before this was implemented rather than after.
+    const misread = 1 - (600 / 1000) * 100;
+    expect(misread).toBeCloseTo(-59, 10);
+    expect(bcsMarginPercent(cell(600), cell(1000))).not.toEqual({ kind: "value", value: misread });
+  });
+});
+
+// ── BCS-S10: BOQ Total (the % Margin denominator) as an editable formula ──────
+describe("BCS-S10 -- the denominator's seed reproduces the confirmed-columns sum", () => {
+  const src = (...cols: string[]): BcsSource => ({
+    mode: "amount_supply_plus_install",
+    columns: cols.map((col) => ({
+      col,
+      role: "amount",
+      area: null,
+      value_field: `amount_${col}`,
+      value_key: null,
+      rate_subkey: null,
+    })),
+  }) as unknown as BcsSource;
+
+  // Resolve each confirmed entry to a number, standing in for the caller's on-screen resolver.
+  const values: Record<string, number> = { amount_G: 600, amount_H: 400 };
+  const evaluate = (e: { value_field: string }) => values[e.value_field] ?? null;
+
+  it("no formula -> the built-in confirmed-columns sum", () => {
+    expect(boqTotalAmount(null, src("G", "H"), evaluate as never)).toBe(1000);
+  });
+
+  it("the SEED computes the identical number", () => {
+    const s = src("G", "H");
+    expect(boqTotalAmount(defaultBoqTotalFormula(s), s, evaluate as never)).toBe(1000);
+  });
+
+  it("a single confirmed column seeds to a bare leaf, not a one-operand sum", () => {
+    expect(defaultBoqTotalFormula(src("G"))).toEqual({
+      ref: { value_field: "amount_G", value_key: null, rate_subkey: null },
+    });
+  });
+
+  it("no confirmed columns -> no seed", () => {
+    expect(defaultBoqTotalFormula(null)).toBeNull();
+    expect(defaultBoqTotalFormula(src())).toBeNull();
+  });
+
+  it("an EDITED formula changes the denominator -- the whole point", () => {
+    const s = src("G", "H");
+    const supplyOnly: AmountFormulaNode = {
+      ref: { value_field: "amount_G", value_key: null, rate_subkey: null },
+    };
+    expect(boqTotalAmount(supplyOnly, s, evaluate as never)).toBe(600);
+  });
+
+  it("an unresolvable operand blanks the denominator rather than part-summing it", () => {
+    const s = src("G", "H");
+    const missing: AmountFormulaNode = {
+      op: "+",
+      operands: [
+        { ref: { value_field: "amount_G", value_key: null, rate_subkey: null } },
+        { ref: { value_field: "amount_NOPE", value_key: null, rate_subkey: null } },
+      ],
+    };
+    expect(boqTotalAmount(missing, s, evaluate as never)).toBeNull();
+  });
+});
+
+// ⚠️ The guards are the reason the margin's SHAPE stays in code while only its denominator is
+// editable. These assert they still bite whatever the denominator came from.
+describe("BCS-S10 -- bcsMarginPercent's guards survive an editable denominator", () => {
+  const cell = (value: number): BcsComputedCell => ({ kind: "value", value });
+
+  it("a zero denominator is refused, not divided by", () => {
+    expect(bcsMarginPercent(cell(50), cell(0))).toEqual({
+      kind: "blank",
+      reason: "zero_amount",
+    });
+  });
+
+  it("★ a NEGATIVE denominator is refused -- a loss must never read as a positive margin", () => {
+    // -100 charged against 50 cost computes +150% through the raw formula. That is the failure
+    // a user-editable margin SHAPE would have reintroduced, which is why only the denominator
+    // is editable.
+    expect((1 - 50 / -100) * 100).toBeCloseTo(150, 10);
+    expect(bcsMarginPercent(cell(50), cell(-100))).toEqual({
+      kind: "blank",
+      reason: "negative_amount",
+    });
+  });
+
+  it("a blank denominator propagates its reason", () => {
+    expect(bcsMarginPercent(cell(50), { kind: "blank", reason: "no_amount" })).toEqual({
+      kind: "blank",
+      reason: "no_amount",
+    });
+  });
+});
+
+// ── BCS-S11: the % Margin NUMERATOR (cost side) as an editable formula ────────
+describe("BCS-S11 -- the cost side is choosable, the ratio is not", () => {
+  const merged = (s: string | null, i: string | null) =>
+    ({ supply_rate: s, install_rate: i, combined_rate: null }) as Record<
+      BcsRateField,
+      string | null
+    >;
+  const total = (v: number): BcsComputedCell => ({ kind: "value", value: v });
+
+  it("no formula -> the BCS Total cell itself, unchanged", () => {
+    expect(marginCostCell(null, total(500), merged("30", "20"))).toEqual(total(500));
+  });
+
+  it("the SEED is BCS Total, so it reproduces the built-in exactly", () => {
+    expect(marginCostCell(defaultMarginCostFormula(), total(500), merged("30", "20"))).toEqual(
+      total(500),
+    );
+  });
+
+  it("★ the cost side can be re-pointed at the raw boxes -- the owner's ask", () => {
+    const supplyPlusInstall: AmountFormulaNode = {
+      op: "+",
+      operands: [
+        { ref: { value_field: "bcs_supply", value_key: null, rate_subkey: null } },
+        { ref: { value_field: "bcs_install", value_key: null, rate_subkey: null } },
+      ],
+    };
+    expect(marginCostCell(supplyPlusInstall, total(500), merged("30", "20"))).toEqual(total(50));
+  });
+
+  it("choosing BCS Total resolves it LIVE, not as a frozen copy of its rule", () => {
+    const tree = defaultMarginCostFormula();
+    // Same formula, two different BCS Total values -> two different numerators.
+    expect(marginCostCell(tree, total(500), merged("30", "20"))).toEqual(total(500));
+    expect(marginCostCell(tree, total(900), merged("30", "20"))).toEqual(total(900));
+  });
+
+  it("a blank BCS Total propagates as a blank cost, never as 0", () => {
+    const cell = marginCostCell(
+      defaultMarginCostFormula(),
+      { kind: "blank", reason: "no_cost" },
+      merged("30", "20"),
+    );
+    expect(cell.kind).toBe("blank");
+  });
+
+  it("an uncosted box blanks the numerator rather than treating it as 0", () => {
+    const supplyOnly: AmountFormulaNode = {
+      ref: { value_field: "bcs_supply", value_key: null, rate_subkey: null },
+    };
+    expect(marginCostCell(supplyOnly, total(500), merged(null, null)).kind).toBe("blank");
+  });
+
+  it("an operand outside the numerator's vocabulary blanks", () => {
+    const stray: AmountFormulaNode = {
+      ref: { value_field: "amount_total", value_key: null, rate_subkey: null },
+    };
+    expect(marginCostCell(stray, total(500), merged("30", "20")).kind).toBe("blank");
+  });
+
+  it("⚠️ the ratio's guards still bite whatever the cost side was set to", () => {
+    // A re-pointed numerator cannot reach past the denominator guards -- that separation is
+    // exactly why only the two SLOTS are editable and never the `(1 - c/a) x 100` wrapper.
+    const cost = marginCostCell(defaultMarginCostFormula(), total(50), merged("30", "20"));
+    expect(bcsMarginPercent(cost, { kind: "value", value: -100 })).toEqual({
+      kind: "blank",
+      reason: "negative_amount",
+    });
+    expect(bcsMarginPercent(cost, { kind: "value", value: 0 })).toEqual({
+      kind: "blank",
+      reason: "zero_amount",
+    });
+  });
+});
+
+// ── BCS-S11b: the margin cost side can be rebuilt to a ROW TOTAL ──────────────
+//
+// BCS Total Amount is `(cost boxes) x Total Quantity` -- a ROW total. The cost boxes on their
+// own are PER-UNIT rates. Offering the boxes without Total Quantity made the only reachable
+// formula divide a per-unit rate by BOQ Total (a row amount): dimensionally wrong, and wrong in
+// a way that still renders a plausible percentage.
+describe("BCS-S11b -- Total Quantity is reachable from the margin's cost side", () => {
+  const merged = (s: string | null, i: string | null) =>
+    ({ supply_rate: s, install_rate: i, combined_rate: null }) as Record<
+      BcsRateField,
+      string | null
+    >;
+  const total = (v: number): BcsComputedCell => ({ kind: "value", value: v });
+
+  it("the palette offers the quantity, not just the cost boxes", () => {
+    const fields = marginCostOperandRefs(["supply", "install"]).map((r) => r.value_field);
+    expect(fields).toContain("bcs_qty");
+    expect(fields).toContain("bcs_total");
+    expect(fields).toContain("bcs_supply");
+  });
+
+  it("★ a hand-built (Supply + Install) x Quantity equals BCS Total Amount", () => {
+    const handBuilt: AmountFormulaNode = {
+      op: "*",
+      operands: [
+        {
+          op: "+",
+          operands: [
+            { ref: { value_field: "bcs_supply", value_key: null, rate_subkey: null } },
+            { ref: { value_field: "bcs_install", value_key: null, rate_subkey: null } },
+          ],
+        },
+        { ref: { value_field: "bcs_qty", value_key: null, rate_subkey: null } },
+      ],
+    };
+    // (30 + 20) x 10 = 500, which is what BCS Total Amount computes for the same row.
+    expect(marginCostCell(handBuilt, total(500), merged("30", "20"), 10)).toEqual(total(500));
+  });
+
+  it("a missing quantity blanks with its OWN reason, not a generic one", () => {
+    const withQty: AmountFormulaNode = {
+      op: "*",
+      operands: [
+        { ref: { value_field: "bcs_supply", value_key: null, rate_subkey: null } },
+        { ref: { value_field: "bcs_qty", value_key: null, rate_subkey: null } },
+      ],
+    };
+    expect(marginCostCell(withQty, total(500), merged("30", "20"), null)).toEqual({
+      kind: "blank",
+      reason: "no_quantity",
+    });
+  });
+});
+
+// ── BCS-S12b: the seed with no confirmation, and the total-vs-halves rule ─────
+describe("BCS-S12b -- defaultBoqTotalFormula derives from the sheet when nothing is confirmed", () => {
+  const desc = (value_field: string, col = "X"): ColumnDescriptor =>
+    ({ col, role: value_field, area: null, value_field, value_key: null, rate_subkey: null }) as ColumnDescriptor;
+
+  it("★ a scalar Amount (Total) is used DIRECTLY, never summed with the halves", () => {
+    // Summing all three would count every amount twice and HALVE every margin -- wrong in a way
+    // that still renders a plausible percentage. Mirrors sources.py's "a total already contains
+    // its halves" refusal, which this seed replaces.
+    const tree = defaultBoqTotalFormula(null, [
+      desc("amount_supply", "G"),
+      desc("amount_install", "H"),
+      desc("amount_total", "I"),
+    ]);
+    expect(tree).toEqual({ ref: { value_field: "amount_total", value_key: null, rate_subkey: null } });
+  });
+
+  it("with no Total column, the two halves are summed", () => {
+    const tree = defaultBoqTotalFormula(null, [desc("amount_supply", "G"), desc("amount_install", "H")]);
+    expect(tree).toEqual({
+      op: "+",
+      operands: [
+        { ref: { value_field: "amount_supply", value_key: null, rate_subkey: null } },
+        { ref: { value_field: "amount_install", value_key: null, rate_subkey: null } },
+      ],
+    });
+  });
+
+  it("a single half on its own is a bare leaf", () => {
+    expect(defaultBoqTotalFormula(null, [desc("amount_supply", "G")])).toEqual({
+      ref: { value_field: "amount_supply", value_key: null, rate_subkey: null },
+    });
+  });
+
+  it("a PRE-S12 confirmation still wins -- that sheet's margin must not move", () => {
+    const confirmed = {
+      mode: "amount_supply_plus_install",
+      columns: [{ col: "G", value_field: "amount_supply", value_key: null, rate_subkey: null }],
+    } as unknown as BcsSource;
+    // Even though the sheet also has an amount_total column, the stored confirmation governs.
+    const tree = defaultBoqTotalFormula(confirmed, [desc("amount_total", "I")]);
+    expect(tree).toEqual({ ref: { value_field: "amount_supply", value_key: null, rate_subkey: null } });
+  });
+
+  it("no confirmation and no amount columns -> no seed", () => {
+    expect(defaultBoqTotalFormula(null, [])).toBeNull();
+    expect(defaultBoqTotalFormula(null)).toBeNull();
+  });
+});
+
+// ── BCS-S12c: quantity resolves to the sheet's REAL column ───────────────────
+//
+// THE LIVE REGRESSION THIS CLOSES. S12 removed the Quantity picker but left quantity resolving
+// ONLY through the confirmation it wrote, so every sheet enabled afterwards produced qty=null ->
+// BCS Total blank (`no_quantity`) -> % Margin blank, with both cost boxes filled. Measured on
+// the bench: 3 of 8 BCS-enabled sheets, and ONGOING -- a brand-new sheet landed broken.
+describe("BCS-S12c -- bcsQuantityColumns", () => {
+  const desc = (value_field: string, col = "D"): ColumnDescriptor =>
+    ({ col, role: value_field, area: null, value_field, value_key: null, rate_subkey: null }) as ColumnDescriptor;
+  const src = (col: string): BcsSource =>
+    ({ mode: "qty_total", columns: [{ col, value_field: "qty_total", value_key: null, rate_subkey: null }] }) as unknown as BcsSource;
+
+  it("a stored confirmation WINS -- pre-S12 sheets resolve exactly as before", () => {
+    const cols = bcsQuantityColumns(src("Z"), [desc("qty_total", "D")]);
+    expect(cols).toHaveLength(1);
+    expect(cols[0].col).toBe("Z");
+  });
+
+  it("★ with NO confirmation it falls back to the sheet's own qty_total column", () => {
+    const cols = bcsQuantityColumns(null, [desc("qty_total", "D"), desc("amount_total", "I")]);
+    expect(cols.map((c) => c.col)).toEqual(["D"]);
+  });
+
+  it("a per-area sheet falls back to every qty_by_area column", () => {
+    const cols = bcsQuantityColumns(null, [desc("qty_by_area", "E"), desc("qty_by_area", "F")]);
+    expect(cols.map((c) => c.col)).toEqual(["E", "F"]);
+  });
+
+  it("a scalar total is preferred over per-area columns, never summed with them", () => {
+    const cols = bcsQuantityColumns(null, [desc("qty_by_area", "E"), desc("qty_total", "D")]);
+    expect(cols.map((c) => c.col)).toEqual(["D"]);
+  });
+
+  it("no confirmation and no qty column -> nothing (an honestly quantity-less sheet)", () => {
+    expect(bcsQuantityColumns(null, [desc("amount_total", "I")])).toHaveLength(0);
+    expect(bcsQuantityColumns(null, [])).toHaveLength(0);
+  });
+});
+
+describe("BCS-S12c -- the seed emits the real column, never the abstraction", () => {
+  const desc = (value_field: string, col = "D"): ColumnDescriptor =>
+    ({ col, role: value_field, area: null, value_field, value_key: null, rate_subkey: null }) as ColumnDescriptor;
+
+  it("★ the quantity leaf is qty_total, not bcs_qty", () => {
+    const tree = defaultBcsTotalFormula(["supply", "install"], [desc("qty_total", "D")]);
+    const fields: string[] = [];
+    const walk = (n: AmountFormulaNode) =>
+      "ref" in n ? fields.push(n.ref.value_field) : n.operands.forEach(walk);
+    walk(tree!);
+    expect(fields).toContain("qty_total");
+    expect(fields).not.toContain("bcs_qty");
+  });
+
+  it("with no qty column mapped it still yields the legacy leaf rather than nothing", () => {
+    const tree = defaultBcsTotalFormula(["combined"], []);
+    const fields: string[] = [];
+    const walk = (n: AmountFormulaNode) =>
+      "ref" in n ? fields.push(n.ref.value_field) : n.operands.forEach(walk);
+    walk(tree!);
+    expect(fields).toContain("bcs_qty");
+  });
+
+  it("the seed still computes (Supply + Install) x Quantity", () => {
+    const tree = defaultBcsTotalFormula(["supply", "install"], [desc("qty_total", "D")])!;
+    const merged = { supply_rate: "30", install_rate: "20", combined_rate: null } as Record<
+      BcsRateField,
+      string | null
+    >;
+    // qty arrives through the sheet-column resolver, as it does in the grid.
+    const cell = bcsTotalCell(tree, null, merged, ["supply", "install"], (ref) =>
+      ref.value_field === "qty_total" ? 10 : null,
+    );
+    expect(cell).toEqual({ kind: "value", value: 500 });
+  });
+});
+
+// ── BCS-S12e: the AMOUNT side needed the same fallback the quantity side got ──
+//
+// THE SECOND HALF OF A BUG WHOSE FIRST HALF SHIPPED ALONE. S12 removed both column pickers;
+// quantity got a descriptor fallback and amount did not. On a sheet with no confirmation BCS
+// Total therefore computed correctly while % Margin stayed blank -- its DENOMINATOR resolved to
+// null. Symmetric problem, symmetric fix; these tests exist so the two sides stay symmetric.
+describe("BCS-S12e -- bcsAmountColumns mirrors bcsQuantityColumns", () => {
+  const desc = (value_field: string, col: string): ColumnDescriptor =>
+    ({ col, role: value_field, area: null, value_field, value_key: null, rate_subkey: null }) as ColumnDescriptor;
+  const src = (col: string): BcsSource =>
+    ({ mode: "amount_total", columns: [{ col, value_field: "amount_total", value_key: null, rate_subkey: null }] }) as unknown as BcsSource;
+
+  it("a stored confirmation WINS -- pre-S12 sheets are unchanged", () => {
+    expect(bcsAmountColumns(src("Z"), [desc("amount_total", "R")]).map((c) => c.col)).toEqual(["Z"]);
+  });
+
+  it("★ with NO confirmation it falls back to the sheet's own amount column", () => {
+    expect(bcsAmountColumns(null, [desc("amount_total", "R")]).map((c) => c.col)).toEqual(["R"]);
+  });
+
+  it("a scalar total is used ALONE, never summed with the halves", () => {
+    const cols = bcsAmountColumns(null, [
+      desc("amount_supply", "G"), desc("amount_install", "H"), desc("amount_total", "R"),
+    ]);
+    expect(cols.map((c) => c.col)).toEqual(["R"]);
+  });
+
+  it("no total -> the halves summed", () => {
+    const cols = bcsAmountColumns(null, [desc("amount_supply", "G"), desc("amount_install", "H")]);
+    expect(cols.map((c) => c.col)).toEqual(["G", "H"]);
+  });
+
+  it("★ the denominator RESOLVES with no confirmation -- the blank-margin regression", () => {
+    const amount = bcsRowAmount(
+      null,
+      (e) => (e.value_field === "amount_total" ? 28500 : null),
+      [desc("amount_total", "R")],
+    );
+    expect(amount).toBe(28500);
+  });
+
+  it("and the margin therefore computes end to end (the reported case)", () => {
+    // Cost 900 x qty 95 = 85500 against an amount of 28500 -> a real LOSS of -200%.
+    const cost: BcsComputedCell = { kind: "value", value: 85500 };
+    const amount = bcsRowAmount(
+      null,
+      (e) => (e.value_field === "amount_total" ? 28500 : null),
+      [desc("amount_total", "R")],
+    );
+    expect(bcsMarginPercent(cost, bcsTenderedAmountCell(amount))).toEqual({
+      kind: "value",
+      value: -200,
+    });
+  });
+
+  it("the SEED and the fallback pick the same columns -- opening the ƒ must not move a margin", () => {
+    const ds = [desc("amount_supply", "G"), desc("amount_install", "H")];
+    const seeded = defaultBoqTotalFormula(null, ds);
+    const viaSeed = boqTotalAmount(seeded, null, (e) => (e.value_field === "amount_supply" ? 100 : 40), ds);
+    const viaFallback = boqTotalAmount(null, null, (e) => (e.value_field === "amount_supply" ? 100 : 40), ds);
+    expect(viaSeed).toBe(viaFallback);
   });
 });

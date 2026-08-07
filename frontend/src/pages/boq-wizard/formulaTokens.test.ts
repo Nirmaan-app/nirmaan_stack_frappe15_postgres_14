@@ -231,3 +231,155 @@ describe("wouldCreateCycle (reuses F2)", () => {
     expect(refKey(ref("amount_total", null, null))).toBe("amount_total|null|null");
   });
 });
+
+// ── F5: the two non-commutative operators ─────────────────────────────────────
+//
+// These are NOT just two more entries in the operator set. `+` and `*` are associative, so a
+// whole tier folded into ONE n-ary node and no information was lost; `-` and `/` are not, so
+// operand ORDER and same-tier GROUPING both become load-bearing. The suite below is written
+// around exactly those two facts, plus the preservation promise that made the change safe to
+// ship: a formula containing only `+` / `*` must parse to the byte-identical tree it did
+// before F5, so nothing already stored on a committed sheet moves.
+const MINUS: FormulaToken = { kind: "op", op: "-" };
+const DIV: FormulaToken = { kind: "op", op: "/" };
+
+describe("parseTokens -- F5 subtraction + division", () => {
+  it("a - b -> a difference node, operands IN SOURCE ORDER", () => {
+    expect(parseTokens([col(SUP), MINUS, col(INS)])).toEqual({
+      ok: true,
+      tree: { op: "-", operands: [leaf(SUP), leaf(INS)] },
+    });
+  });
+
+  it("a / b -> a quotient node, operands IN SOURCE ORDER", () => {
+    expect(parseTokens([col(QTY), DIV, col(CMB)])).toEqual({
+      ok: true,
+      tree: { op: "/", operands: [leaf(QTY), leaf(CMB)] },
+    });
+  });
+
+  it("a run of ONE operator stays n-ary: a - b - c (folded left to right by F2)", () => {
+    expect(parseTokens([col(QTY), MINUS, col(SUP), MINUS, col(INS)])).toEqual({
+      ok: true,
+      tree: { op: "-", operands: [leaf(QTY), leaf(SUP), leaf(INS)] },
+    });
+  });
+
+  it("a MIXED tier is LEFT-ASSOCIATIVE: a - b + c is (a-b)+c, never a-(b+c)", () => {
+    expect(parseTokens([col(QTY), MINUS, col(SUP), PLUS, col(INS)])).toEqual({
+      ok: true,
+      tree: { op: "+", operands: [{ op: "-", operands: [leaf(QTY), leaf(SUP)] }, leaf(INS)] },
+    });
+  });
+
+  it("and the other way round: a + b - c is (a+b)-c", () => {
+    expect(parseTokens([col(QTY), PLUS, col(SUP), MINUS, col(INS)])).toEqual({
+      ok: true,
+      tree: { op: "-", operands: [{ op: "+", operands: [leaf(QTY), leaf(SUP)] }, leaf(INS)] },
+    });
+  });
+
+  it("/ binds tighter than -: a - b / c -> a - (b/c)", () => {
+    expect(parseTokens([col(QTY), MINUS, col(SUP), DIV, col(INS)])).toEqual({
+      ok: true,
+      tree: { op: "-", operands: [leaf(QTY), { op: "/", operands: [leaf(SUP), leaf(INS)] }] },
+    });
+  });
+
+  it("x and / share a tier, left-associatively: a x b / c is (a*b)/c", () => {
+    expect(parseTokens([col(QTY), TIMES, col(SUP), DIV, col(INS)])).toEqual({
+      ok: true,
+      tree: { op: "/", operands: [{ op: "*", operands: [leaf(QTY), leaf(SUP)] }, leaf(INS)] },
+    });
+  });
+
+  it("brackets still override: a / (b + c)", () => {
+    expect(parseTokens([col(QTY), DIV, LP, col(SUP), PLUS, col(INS), RP])).toEqual({
+      ok: true,
+      tree: { op: "/", operands: [leaf(QTY), { op: "+", operands: [leaf(SUP), leaf(INS)] }] },
+    });
+  });
+
+  it("a dangling - / is still refused", () => {
+    expect(parseTokens([col(QTY), MINUS])).toEqual({ ok: false, error: ERR_DANGLING });
+    expect(parseTokens([DIV, col(QTY)])).toEqual({ ok: false, error: ERR_DANGLING });
+  });
+});
+
+// THE PRESERVATION PIN. This is the test the whole F5 parser rewrite was built around: if a
+// pure +/x chain ever stops producing ONE n-ary node, every formula stored before F5 changes
+// shape on its next hydrate-and-save, and committed sheets' amounts move underneath people.
+describe("parseTokens -- F5 leaves pre-F5 formulas byte-identical", () => {
+  it("a pure + run is still ONE n-ary node", () => {
+    expect(parseTokens([col(QTY), PLUS, col(SUP), PLUS, col(INS), PLUS, col(CMB)])).toEqual({
+      ok: true,
+      tree: { op: "+", operands: [leaf(QTY), leaf(SUP), leaf(INS), leaf(CMB)] },
+    });
+  });
+
+  it("a pure x run is still ONE n-ary node", () => {
+    expect(parseTokens([col(QTY), TIMES, col(SUP), TIMES, col(INS)])).toEqual({
+      ok: true,
+      tree: { op: "*", operands: [leaf(QTY), leaf(SUP), leaf(INS)] },
+    });
+  });
+
+  it("the canonical qty x rate formula is unchanged", () => {
+    expect(parseTokens([col(QTY), TIMES, col(SUP)])).toEqual({
+      ok: true,
+      tree: { op: "*", operands: [leaf(QTY), leaf(SUP)] },
+    });
+  });
+
+  it("mixed +/x precedence is unchanged: (a + b) x c", () => {
+    expect(parseTokens([LP, col(SUP), PLUS, col(INS), RP, TIMES, col(QTY)])).toEqual({
+      ok: true,
+      tree: { op: "*", operands: [{ op: "+", operands: [leaf(SUP), leaf(INS)] }, leaf(QTY)] },
+    });
+  });
+});
+
+// ── F5: treeToTokens round-trips EXACTLY, not merely semantically ─────────────
+//
+// Bracketing a non-commutative operator wrong is silent: the formula still renders, still
+// parses, and computes a different number. So the assertion here is structural equality of
+// parse(treeToTokens(t)) with t -- node for node -- rather than "close enough".
+describe("treeToTokens -- F5 bracketing round-trips exactly", () => {
+  const label = () => "c";
+  const roundTrip = (t: AmountFormulaNode) => parseTokens(treeToTokens(t, label));
+
+  const CASES: Array<[string, AmountFormulaNode]> = [
+    ["a - b", { op: "-", operands: [leaf(QTY), leaf(SUP)] }],
+    ["a - b - c (n-ary)", { op: "-", operands: [leaf(QTY), leaf(SUP), leaf(INS)] }],
+    ["(a - b) + c", { op: "+", operands: [{ op: "-", operands: [leaf(QTY), leaf(SUP)] }, leaf(INS)] }],
+    ["a + (b - c)", { op: "+", operands: [leaf(QTY), { op: "-", operands: [leaf(SUP), leaf(INS)] }] }],
+    ["a - (b + c)", { op: "-", operands: [leaf(QTY), { op: "+", operands: [leaf(SUP), leaf(INS)] }] }],
+    ["a - (b - c)", { op: "-", operands: [leaf(QTY), { op: "-", operands: [leaf(SUP), leaf(INS)] }] }],
+    ["(a x b) / c", { op: "/", operands: [{ op: "*", operands: [leaf(QTY), leaf(SUP)] }, leaf(INS)] }],
+    ["a x (b / c)", { op: "*", operands: [leaf(QTY), { op: "/", operands: [leaf(SUP), leaf(INS)] }] }],
+    ["a / (b / c)", { op: "/", operands: [leaf(QTY), { op: "/", operands: [leaf(SUP), leaf(INS)] }] }],
+    ["a / (b + c)", { op: "/", operands: [leaf(QTY), { op: "+", operands: [leaf(SUP), leaf(INS)] }] }],
+    ["(a + b) / c", { op: "/", operands: [{ op: "+", operands: [leaf(QTY), leaf(SUP)] }, leaf(INS)] }],
+    ["a - b x c", { op: "-", operands: [leaf(QTY), { op: "*", operands: [leaf(SUP), leaf(INS)] }] }],
+  ];
+
+  it.each(CASES)("%s survives tree -> tokens -> tree unchanged", (_name, tree) => {
+    expect(roundTrip(tree)).toEqual({ ok: true, tree });
+  });
+
+  it("a - (b + c) really does emit the brackets (the whole hazard)", () => {
+    const t: AmountFormulaNode = {
+      op: "-",
+      operands: [leaf(QTY), { op: "+", operands: [leaf(SUP), leaf(INS)] }],
+    };
+    expect(treeToTokens(t, label).filter((x) => x.kind === "lparen")).toHaveLength(1);
+  });
+
+  it("(a - b) + c emits NO brackets -- left-associativity already says it", () => {
+    const t: AmountFormulaNode = {
+      op: "+",
+      operands: [{ op: "-", operands: [leaf(QTY), leaf(SUP)] }, leaf(INS)],
+    };
+    expect(treeToTokens(t, label).some((x) => x.kind === "lparen")).toBe(false);
+  });
+});

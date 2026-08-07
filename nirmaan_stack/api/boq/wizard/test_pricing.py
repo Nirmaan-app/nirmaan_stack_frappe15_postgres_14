@@ -2172,15 +2172,77 @@ class TestAmountFormula(FrappeTestCase):
         self.assertEqual(self._count(self.sheet), 0, "a literal node wrote nothing")
 
     def test_reject_bad_operator(self):
+        # NOTE: this used to use "-" as its example of an unsupported operator. F5 made "-"
+        # (and "/") part of the vocabulary, so the example had to move to an operator that is
+        # genuinely outside it -- otherwise this test would have gone green against the exact
+        # widening it is meant to fence. See test_accepts_subtraction / _division below.
         with self.assertRaises(frappe.ValidationError):
             save_amount_formula(
                 boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
                 target_value_field="amount_by_area", target_value_key=None,
                 target_rate_subkey="total",
-                formula={"op": "-", "operands": [
+                formula={"op": "^", "operands": [
                     {"ref": {"value_field": "qty_by_area", "value_key": None, "rate_subkey": None}}]},
             )
         self.assertEqual(self._count(self.sheet), 0)
+
+    # -- POSITIVE: the F5 operator widening --------------------------------
+
+    def _two_operand(self, op: str) -> dict:
+        """A well-formed two-operand tree over the operator under test."""
+        return {"op": op, "operands": [
+            {"ref": {"value_field": "qty_by_area", "value_key": None, "rate_subkey": None}},
+            {"ref": {"value_field": "rate_by_area", "value_key": None,
+                     "rate_subkey": "combined_rate"}},
+        ]}
+
+    def test_accepts_subtraction(self):
+        save_amount_formula(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
+            target_value_field="amount_by_area", target_value_key=None,
+            target_rate_subkey="total", formula=self._two_operand("-"),
+        )
+        cur = self._current(self.sheet, "amount_by_area", None, "total")
+        self.assertEqual(json.loads(cur[0]["formula"]), self._two_operand("-"))
+
+    def test_accepts_division(self):
+        save_amount_formula(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
+            target_value_field="amount_by_area", target_value_key=None,
+            target_rate_subkey="total", formula=self._two_operand("/"),
+        )
+        cur = self._current(self.sheet, "amount_by_area", None, "total")
+        self.assertEqual(json.loads(cur[0]["formula"]), self._two_operand("/"))
+
+    def test_operand_order_is_stored_verbatim(self):
+        """`-` and `/` are NOT commutative, so the stored operand ORDER is the arithmetic.
+        A round-trip that reordered operands would silently change every such formula's
+        answer -- this pins that the stored list comes back in the order it went in."""
+        tree = self._two_operand("/")
+        save_amount_formula(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
+            target_value_field="amount_by_area", target_value_key=None,
+            target_rate_subkey="total", formula=tree,
+        )
+        cur = self._current(self.sheet, "amount_by_area", None, "total")
+        stored = json.loads(cur[0]["formula"])["operands"]
+        self.assertEqual(
+            [o["ref"]["value_field"] for o in stored],
+            ["qty_by_area", "rate_by_area"],
+            "operand order must survive the round-trip verbatim",
+        )
+
+    def test_zero_divisor_is_not_this_layers_business(self):
+        """F1 is STRUCTURAL only. A divide-by-zero is a runtime fact about one ROW's data, not
+        a property of the tree, so it is the evaluator's refusal (frontend amountFormula ->
+        the cell reads 'check formula'), exactly as cycle detection is F2's and not F1's.
+        Storing such a formula must therefore SUCCEED here."""
+        save_amount_formula(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
+            target_value_field="amount_by_area", target_value_key=None,
+            target_rate_subkey="total", formula=self._two_operand("/"),
+        )
+        self.assertEqual(len(self._current(self.sheet, "amount_by_area", None, "total")), 1)
 
     def test_reject_empty_operands(self):
         with self.assertRaises(frappe.ValidationError):

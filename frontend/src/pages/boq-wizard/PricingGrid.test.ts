@@ -1504,7 +1504,7 @@ describe("BCS draft key space -- where PricingGrid's drafts cross into bcsColumn
 
 // ── BCS-S3b: THE FIGURE ON SCREEN ───────────────────────────────────────────────
 //
-// ⚠️ OWNER RULING, load-bearing. % Profit divides by the number the user can SEE. The Tendered
+// ⚠️ OWNER RULING, load-bearing. % Margin divides by the number the user can SEE. The Tendered
 // Total Amount column exists to put that denominator on screen beside the margin, so the two
 // must come from one decision -- and that decision was, until this slice, inline in the amount
 // <td>'s render. `shownAmountValue` is that decision extracted whole: the amount cell and the

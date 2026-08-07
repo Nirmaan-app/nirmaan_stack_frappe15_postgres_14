@@ -761,9 +761,18 @@ export interface AmountFormulaRef {
   rate_subkey: string | null;
 }
 
-/** An operator node: a product (`*`) or sum (`+`) of its (non-empty) operands. */
+/**
+ * An operator node folded over its (non-empty) operands, LEFT TO RIGHT.
+ *
+ * `+` and `*` are commutative and associative, so their operand ORDER carries no meaning.
+ * `-` and `/` (added F5) are NEITHER, so for them the list order IS the semantics:
+ * `{op:"-", operands:[a,b,c]}` means `((a - b) - c)`, never any other pairing. A pass that
+ * reorders or re-groups operands is therefore safe on the first two operators and WRONG on
+ * the last two -- see amountFormula.evalNode, which seeds the fold from `operands[0]` for
+ * exactly this reason.
+ */
 export interface AmountFormulaOperatorNode {
-  op: "+" | "*";
+  op: "+" | "*" | "-" | "/";
   operands: AmountFormulaNode[];
 }
 
@@ -1853,7 +1862,7 @@ export interface BcsRowRate {
 
 /**
  * Response shape of `bcs.get_sheet_bcs_rates` -- every CURRENT cost row for one committed
- * sheet+version. The stored INPUTS only: Total Amount and % Profit are computed by the reader
+ * sheet+version. The stored INPUTS only: Total Amount and % Margin are computed by the reader
  * and never stored, so a stored copy can never disagree with the live sheet.
  */
 export interface GetSheetBcsRatesResponse {

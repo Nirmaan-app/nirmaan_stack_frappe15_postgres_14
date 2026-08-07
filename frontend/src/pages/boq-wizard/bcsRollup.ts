@@ -1,5 +1,5 @@
 /**
- * bcsRollup.ts -- BCS cost, Tendered amount and % Profit PER BoQ SECTION (slice BCS-S5).
+ * bcsRollup.ts -- BCS cost, Tendered amount and % Margin PER BoQ SECTION (slice BCS-S5).
  *
  * WHAT THIS IS. The summary panel already rolls each amount column up the parent tree. This adds
  * the cost side of the same tree and the margin between them, so a pricer can see which SECTION is
@@ -8,7 +8,7 @@
  *
  * ★ THE RATIO RULE -- THE SINGLE MOST IMPORTANT THING IN THIS MODULE.
  *
- * A section's % Profit is RECOMPUTED from its SUMMED cost and its SUMMED tendered amount. It is
+ * A section's % Margin is RECOMPUTED from its SUMMED cost and its SUMMED tendered amount. It is
  * never the average of its lines' percentages, and never their sum.
  *
  * An average weights a Rs.10 line at 90% exactly as heavily as a Rs.10 lakh line at 2%. On a real
@@ -72,7 +72,7 @@ export interface BcsRollupNodeLike {
 export interface BcsSectionTotals {
   cost: number | null;
   tendered: number | null;
-  /** % Profit, or a blank that KNOWS WHY -- the same discriminated cell the grid's column uses. */
+  /** % Margin, or a blank that KNOWS WHY -- the same discriminated cell the grid's column uses. */
   margin: BcsComputedCell;
 }
 
@@ -91,7 +91,7 @@ export interface BcsRollupResult {
  * ★ The ratio, in one place. Takes the two SUMS and hands them to the shared `bcsMarginPercent`,
  * so a section is measured exactly as a line is.
  *
- * The null -> blank-reason mapping is what lets a section explain an empty % Profit: `no_cost`
+ * The null -> blank-reason mapping is what lets a section explain an empty % Margin: `no_cost`
  * when nothing on the branch has been costed (the ordinary state of a fresh sheet, and the reason
  * checked FIRST because typing a cost is the fix), `no_amount` when nothing on it charges anything.
  */
@@ -117,6 +117,8 @@ interface SubtreeAgg {
   costSum: number;
   costPresent: boolean;
   amountPresent: boolean;
+  /** BCS-S10: the rolled per-row tendered, meaningful only when `ownTendered` is supplied. */
+  tenderedSum: number;
 }
 
 /**
@@ -140,6 +142,19 @@ export function rollBcsSections(
   ownCost: (rowIndex: number) => number | null,
   tenderedCols: readonly string[],
   grandTotals: Record<string, number>,
+  /**
+   * BCS-S10: a PER-ROW tendered override, used only when the sheet declares a BOQ Total formula.
+   *
+   * ⚠️ THIS EXISTS BECAUSE THE COLUMN PATH CANNOT EXPRESS A FORMULA. The default below sums each
+   * node's ROLLED per-column totals, which is right when the denominator IS those columns added
+   * up -- but a formula like `Amount (Supply) x 1.05` is a per-ROW computation, and applying it
+   * to rolled column totals is not the same number. Without this the grid's margin would follow
+   * the formula while the Summary panel's section margin quietly kept the plain column sum: the
+   * two-surfaces-disagree failure `bcsTotalCell` exists to prevent, arriving on the other axis.
+   *
+   * ABSENT = the column path, byte-identical to pre-S10.
+   */
+  ownTendered?: ((rowIndex: number) => number | null) | null,
 ): BcsRollupResult {
   const cols = [...new Set(tenderedCols)];
   const byRowIndex = new Map<number, BcsSectionTotals>();
@@ -160,12 +175,17 @@ export function rollBcsSections(
     const own = finiteOrNull(ownCost(n.rowIndex));
     let costSum = own ?? 0;
     let costPresent = own !== null;
-    let amountPresent = ownAmountPresent(n);
+    const ownTend = ownTendered ? finiteOrNull(ownTendered(n.rowIndex)) : null;
+    let tenderedSum = ownTend ?? 0;
+    // With a per-row override, PRESENCE is the override's own presence -- `ownAmounts` describes
+    // the confirmed COLUMNS, which a formula may not even reference.
+    let amountPresent = ownTendered ? ownTend !== null : ownAmountPresent(n);
 
     for (const child of n.children ?? []) {
       if (path.has(child.rowIndex)) continue; // cycle guard
       const agg = walk(child, path);
       costSum += agg.costSum;
+      tenderedSum += agg.tenderedSum;
       costPresent = costPresent || agg.costPresent;
       amountPresent = amountPresent || agg.amountPresent;
     }
@@ -173,18 +193,20 @@ export function rollBcsSections(
     path.delete(n.rowIndex);
 
     const cost = costPresent ? costSum : null;
-    const tendered = amountPresent ? rolledTendered(n) : null;
+    const tendered = amountPresent ? (ownTendered ? tenderedSum : rolledTendered(n)) : null;
     byRowIndex.set(n.rowIndex, { cost, tendered, margin: sectionMarginPercent(cost, tendered) });
 
-    return { costSum, costPresent, amountPresent };
+    return { costSum, costPresent, amountPresent, tenderedSum };
   };
 
   let grandCostSum = 0;
   let grandCostPresent = false;
   let grandAmountPresent = false;
+  let grandTenderedSum = 0;
   for (const r of roots) {
     const agg = walk(r, new Set<number>());
     grandCostSum += agg.costSum;
+    grandTenderedSum += agg.tenderedSum;
     grandCostPresent = grandCostPresent || agg.costPresent;
     grandAmountPresent = grandAmountPresent || agg.amountPresent;
   }
@@ -193,9 +215,13 @@ export function rollBcsSections(
   // The project's tendered comes from `grandTotals`, not from re-adding the roots. They are equal
   // by construction (grandTotals IS the sum of the top-level rolled totals) -- taking it from the
   // published number is what guarantees the grand row and the panel's amount columns agree.
-  const grandTendered = grandAmountPresent
-    ? cols.reduce((s, c) => s + (finiteOrNull(grandTotals?.[c]) ?? 0), 0)
-    : null;
+  // With a per-row override the published grandTotals are the wrong basis (they are per-column),
+  // so the grand row sums the same per-row figures every section above it summed.
+  const grandTendered = !grandAmountPresent
+    ? null
+    : ownTendered
+      ? grandTenderedSum
+      : cols.reduce((s, c) => s + (finiteOrNull(grandTotals?.[c]) ?? 0), 0);
 
   return {
     byRowIndex,
