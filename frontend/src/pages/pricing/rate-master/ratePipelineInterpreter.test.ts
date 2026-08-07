@@ -5,7 +5,9 @@
 import { describe, it, expect } from "vitest";
 import type { Pipeline, RateCategoryConfig, RateMasterItem } from "./rateMasterTypes";
 import {
+  NONE_SENTINEL,
   buildModuleLadder,
+  derivedAttrOutcomes,
   evalFormula,
   fitModuleLadder,
   matchMasterRow,
@@ -1396,10 +1398,13 @@ describe("step vocabulary pin (interpreter <-> STEP_VOCABULARY <-> server _KNOWN
       "install_as_ratio",
       "circuit_fit",
       "lookup_or_ratio",
-      // SLICE 2 (this slice). The pin above was proven green at 11 types against the unchanged
+      // SLICE 2. The pin above was proven green at 11 types against the unchanged
       // interpreter + validator, THEN both sides were extended together -- so this diff shows
       // exactly what the vocabulary was before and after.
       "module_fit",
+      // CIRCUIT LENGTH part 1 (this slice). Same discipline: pinned green at 12 types against the
+      // unchanged interpreter + validator, then BOTH sides extended together in one commit.
+      "derive_attribute",
     ]);
   });
 
@@ -2473,5 +2478,254 @@ describe("CP2 -- strict identity matching is why number_choice exists", () => {
     const asStr = coerceForMatch({ ...def, type: "choice" as const }, "3");
     expect(matchMasterRow(items, "cable", { ...base, core: asNum as number })).toBeDefined();
     expect(matchMasterRow(items, "cable", { ...base, core: asStr as string })).toBeUndefined();
+  });
+});
+
+// ---- CIRCUIT LENGTH part 1: THE WALL, pinned BEFORE the capability existed ------------------------
+// Every value a step computes lands in `ctx`. But the two readers a derived attribute must reach read
+// the SELECTION and never consult `ctx`:
+//     circuit_fit   -> Number(selected[p.length_attr])
+//     resolveQty    -> Number(selected[qty.from_attr])
+// and nothing anywhere writes into the selection. These pins state that wall as an executable fact, so
+// the capability that crosses it cannot be built by quietly widening a reader instead: a `ctx` entry of
+// the SAME NAME must remain invisible to both, before AND after. They are written to be green on the
+// pre-capability code and to STAY green after it -- a red here means a reader's semantics moved.
+const LEN_CTX_ITEMS: RateMasterItem[] = [
+  ...PW_ITEMS,
+  // A matched row whose RATES carry the very key the readers want. match_master_row copies every rate
+  // into ctx, so after this step ctx.circuit_length_m === 45 -- and both readers must still see nothing.
+  { discipline: "Electrical", kind: "lenrow", attributes: { tag: "L" }, rates: { circuit_length_m: 45, list_price: 100 } },
+];
+// The selection DELIBERATELY omits circuit_length_m. Only ctx will carry it.
+const { circuit_length_m: _pw1Len, ...PW1_NO_LENGTH } = PW1;
+
+describe("the wall -- a computed value in ctx is invisible to the selection readers", () => {
+  it("circuit_fit reads the SELECTION: a ctx entry named circuit_length_m does NOT satisfy length_attr", () => {
+    const pl: Pipeline = {
+      output: ["supply"],
+      steps: [
+        { step: "match_master_row", params: { kind: "lenrow" } },
+        PW_CIRCUIT_FIT,
+        { step: "sum_components", result: "supply" },
+      ],
+    };
+    const r = runPipeline("wall_fit", pl, LEN_CTX_ITEMS, PW1_NO_LENGTH);
+    // ctx really does carry it -- so this is a pin on the READER, not on an empty ctx.
+    expect(r.steps[0].runningValues.circuit_length_m).toBe(45);
+    expect(r.status).toBe("no_match");
+    expect(r.finals).toEqual({});
+    expect(r.steps[1].label).toContain("circuit_length_m");
+  });
+
+  it("resolveQty's from_attr reads the SELECTION: a ctx entry of the same name does NOT supply the qty", () => {
+    const pl: Pipeline = {
+      output: ["supply"],
+      steps: [
+        { step: "match_master_row", params: { kind: "lenrow" } },
+        cref("wire1", wireRef("@wire1_core", "@wire1_thickness_sqmm"), "list_price_per_mtr", [{ mult: 1 }], {
+          from_attr: "circuit_length_m",
+        }),
+        { step: "sum_components", result: "supply" },
+      ],
+    };
+    const r = runPipeline("wall_qty", pl, LEN_CTX_ITEMS, PW1_NO_LENGTH);
+    expect(r.steps[0].runningValues.circuit_length_m).toBe(45);
+    expect(r.status).toBe("no_match");
+    expect(r.steps[1].matchedCondition).toContain("quantity not provided");
+  });
+
+  it("runPipeline NEVER mutates the caller's selection object", () => {
+    // The form's state means "what the user or extraction supplied". Whatever mechanism lets a computed
+    // value reach the readers, it must not write back into the caller's object -- a computed value would
+    // then be indistinguishable from a stated one to every later reader.
+    const before = { ...PW1 };
+    runPipeline("pw_boq_supply", PW_PIPELINES.pw_boq_supply, PW_ITEMS, PW1);
+    expect(PW1).toEqual(before);
+  });
+});
+
+// ---- CIRCUIT LENGTH part 1: THE CAPABILITY (code only -- NO config, nothing live) ----------------
+//
+// The rule this exists for: circuit length = 15 + (N - 1) x 5, N = the number of points. 15 is right
+// only for N=1, so every multi-point row was under-priced at the flat default. The arithmetic was
+// expressible already; what was missing was any way for a COMPUTED value to reach the readers, which
+// look in the selection and not in `ctx` (see "the wall" above). NOTHING here is config -- the
+// formula, the source attribute and the target attribute are all supplied by the test exactly as a
+// category config would supply them, which is the point of the step being parameterised.
+const POINTS_ATTR = "point_count";
+const LEN_ATTR = "circuit_length_m";
+/** The owner's rule, expressed the way config expresses it: identifiers bound from attributes plus
+ * named constants, with the arithmetic itself read from the `formula` string. */
+const DERIVE_LEN = {
+  step: "derive_attribute" as const,
+  params: {
+    result_attr: LEN_ATTR,
+    terms: [{ ident: "n", attr: POINTS_ATTR }],
+    constants: { base: 15, per_extra: 5 },
+    formula: "base + (n - 1) * per_extra",
+    unit: "m",
+  },
+  explain: "circuit length grows with the number of points",
+};
+/** pw1's attributes with the length REMOVED and a point count stated instead. */
+const derivedLenAttrs = (points: number | string | undefined) => {
+  const a: Record<string, string | number> = { ...PW1_NO_LENGTH };
+  if (points !== undefined) a[POINTS_ATTR] = points;
+  return a;
+};
+/** pw_boq_supply with the derivation prepended -- the shape a wired category would carry. */
+const withDerivedLen = (pl: Pipeline): Pipeline => ({ ...pl, steps: [DERIVE_LEN, ...pl.steps] });
+
+describe("derive_attribute -- a computed value REACHES the selection readers", () => {
+  it("circuit_fit's length_attr sees the computed value: 7 points -> 45 m", () => {
+    const pl = withDerivedLen(PW_PIPELINES.pw_boq_supply);
+    const r = runPipeline("pw_boq_supply", pl, PW_ITEMS, derivedLenAttrs(7));
+    expect(r.status).toBe("ok");
+    // The SAME row priced with a hand-stated 45 must give the SAME number -- the derivation is a way
+    // of supplying the input, not a second pricing rule.
+    const stated45 = runPipeline("pw_boq_supply", PW_PIPELINES.pw_boq_supply, PW_ITEMS, { ...PW1, [LEN_ATTR]: 45 });
+    expect(r.finals).toEqual(stated45.finals);
+    // ...and it must NOT equal the flat-15 price, or the capability would be doing nothing.
+    expect(r.finals.supply).not.toBe(1869);
+  });
+
+  it("a component's {from_attr} quantity sees it too -- BOTH readers, not just circuit_fit", () => {
+    // wire1/wire2 take qty {from_attr: circuit_length_m}; conduit takes {from_fit}. If only
+    // circuit_fit could see the derived value the wire lines would refuse and the row would not price.
+    const r = runPipeline("pw_boq_supply", withDerivedLen(PW_PIPELINES.pw_boq_supply), PW_ITEMS, derivedLenAttrs(7));
+    const line = (name: string) => r.steps.find((s) => s.produced?.key === name)?.produced?.value;
+    expect(line("wire1")).toBe(50 * 45); // ceil(82.95*0.602)=50, x 45 m
+    expect(line("wire2")).toBe(31 * 45); // ceil(50.45*0.602)=31, x 45 m
+  });
+
+  it("N=1 reproduces the flat 15 -- the old default was right for a single point", () => {
+    const r = runPipeline("pw_boq_supply", withDerivedLen(PW_PIPELINES.pw_boq_supply), PW_ITEMS, derivedLenAttrs(1));
+    expect(r.finals).toEqual({ supply: 1869 }); // the banked pw1 oracle
+  });
+
+  it("the trace SHOWS THE WORKING, formula substituted with its own numbers", () => {
+    const r = runPipeline("pw_boq_supply", withDerivedLen(PW_PIPELINES.pw_boq_supply), PW_ITEMS, derivedLenAttrs(7));
+    expect(r.steps[0].matchedCondition).toBe(
+      "point_count 7 -> circuit_length_m = 15 + (7 - 1) * 5 = 45 m",
+    );
+  });
+
+  it("publishes the outcome as STRUCTURED DATA, read by the ONE reader (never by parsing the prose)", () => {
+    const r = runPipeline("pw_boq_supply", withDerivedLen(PW_PIPELINES.pw_boq_supply), PW_ITEMS, derivedLenAttrs(7));
+    expect(r.steps[0].derivedAttr).toEqual({ attr: LEN_ATTR, value: 45, stated: false, unit: "m" });
+    const found = derivedAttrOutcomes([r]);
+    expect(found.get(LEN_ATTR)).toEqual({ attr: LEN_ATTR, value: 45, stated: false, unit: "m" });
+  });
+
+  it("the caller's selection is STILL never mutated -- the computed value lives in the overlay", () => {
+    const attrs = derivedLenAttrs(7);
+    const before = { ...attrs };
+    runPipeline("pw_boq_supply", withDerivedLen(PW_PIPELINES.pw_boq_supply), PW_ITEMS, attrs);
+    expect(attrs).toEqual(before);
+    expect(LEN_ATTR in attrs).toBe(false);
+  });
+});
+
+describe("derive_attribute -- A STATED VALUE WINS (no floor, no warning)", () => {
+  it("a stated length is kept VERBATIM and the computation does not run", () => {
+    // 7 points would derive 45. The row says 60 -- a pricer who knows the run is long -- and 60 is
+    // simply right. Unlike the plate there is no floor: the larger of the two does NOT win, the
+    // STATED one does, and nothing warns.
+    const attrs = { ...derivedLenAttrs(7), [LEN_ATTR]: 60 };
+    const r = runPipeline("pw_boq_supply", withDerivedLen(PW_PIPELINES.pw_boq_supply), PW_ITEMS, attrs);
+    const stated60 = runPipeline("pw_boq_supply", PW_PIPELINES.pw_boq_supply, PW_ITEMS, { ...PW1, [LEN_ATTR]: 60 });
+    expect(r.finals).toEqual(stated60.finals);
+    expect(r.steps[0].derivedAttr).toEqual({ attr: LEN_ATTR, value: null, stated: true, statedValue: 60, unit: "m" });
+    expect(r.steps[0].matchedCondition).toContain("kept (a stated value wins)");
+  });
+
+  it("THE OTHER DIRECTION: a stated value SMALLER than the computed one is kept too (no floor)", () => {
+    // The take-the-larger rule would upgrade 20 to 45 here and say so. This attribute must NOT: a
+    // short run is a real answer. Pinning both directions is what stops the plate rule leaking over.
+    const attrs = { ...derivedLenAttrs(7), [LEN_ATTR]: 20 };
+    const r = runPipeline("pw_boq_supply", withDerivedLen(PW_PIPELINES.pw_boq_supply), PW_ITEMS, attrs);
+    const stated20 = runPipeline("pw_boq_supply", PW_PIPELINES.pw_boq_supply, PW_ITEMS, { ...PW1, [LEN_ATTR]: 20 });
+    expect(r.finals).toEqual(stated20.finals);
+    expect(r.steps[0].derivedAttr?.stated).toBe(true);
+    // NEGATIVE: no upgrade note anywhere -- that vocabulary belongs to the plate, not here.
+    expect(JSON.stringify(r.steps[0])).not.toContain("UPGRADED");
+  });
+
+  it("a stated value prices even when the SOURCE attribute is unreadable", () => {
+    // Stated-wins is checked BEFORE the terms are read, so a row that states its length is immune to
+    // an unreadable point count. A stated value that only worked when the derivation could also have
+    // run would not really be authoritative.
+    const attrs = { ...PW1_NO_LENGTH, [POINTS_ATTR]: "seven", [LEN_ATTR]: 45 };
+    const r = runPipeline("pw_boq_supply", withDerivedLen(PW_PIPELINES.pw_boq_supply), PW_ITEMS, attrs);
+    expect(r.status).toBe("ok");
+    expect(r.steps[0].derivedAttr?.stated).toBe(true);
+  });
+});
+
+describe("derive_attribute -- HONEST NO-COMPUTE (never a silent zero, never a guess)", () => {
+  const refuses = (attrs: Record<string, string | number>, needle: string) => {
+    const r = runPipeline("pw_boq_supply", withDerivedLen(PW_PIPELINES.pw_boq_supply), PW_ITEMS, attrs);
+    expect(r.status).toBe("no_match");
+    expect(r.finals).toEqual({});
+    expect(r.steps[0].label).toContain(needle);
+    // NEGATIVE: nothing was published as an outcome, so no surface can show an invented value.
+    expect(r.steps[0].derivedAttr).toBeUndefined();
+    expect(derivedAttrOutcomes([r]).size).toBe(0);
+  };
+
+  it("MISSING source attribute -> refuses, naming it (not 15, not 0)", () => {
+    refuses(derivedLenAttrs(undefined), POINTS_ATTR);
+  });
+  it("NON-NUMERIC source attribute -> refuses", () => {
+    refuses(derivedLenAttrs("seven"), POINTS_ATTR);
+  });
+  it("BLANK source attribute -> refuses", () => {
+    refuses(derivedLenAttrs(""), POINTS_ATTR);
+  });
+  it("the 'None' sentinel is not a number here -> refuses", () => {
+    refuses(derivedLenAttrs(NONE_SENTINEL), POINTS_ATTR);
+  });
+
+  it("a MALFORMED step declares nothing -- its own refusal, distinct from an unreadable input", () => {
+    // "declared no target" is not the same statement as "the input could not be read", so collapsing
+    // them would let a broken config look like a data gap (the module_fit precedent).
+    const pl: Pipeline = { output: ["supply"], steps: [blankStep("derive_attribute"), ...PW_PIPELINES.pw_boq_supply.steps] };
+    const r = runPipeline("pw_boq_supply", pl, PW_ITEMS, derivedLenAttrs(7));
+    expect(r.status).toBe("no_match");
+    expect(r.steps[0].label).toContain("declares no result_attr");
+  });
+
+  it("OPTION C: an unbound identifier in the formula degrades to `unsupported`, never throws", () => {
+    const pl: Pipeline = {
+      output: ["supply"],
+      steps: [
+        { ...DERIVE_LEN, params: { ...DERIVE_LEN.params, formula: "base + mystery" } },
+        ...PW_PIPELINES.pw_boq_supply.steps,
+      ],
+    };
+    expect(() => runPipeline("pw_boq_supply", pl, PW_ITEMS, derivedLenAttrs(7))).not.toThrow();
+    expect(runPipeline("pw_boq_supply", pl, PW_ITEMS, derivedLenAttrs(7)).status).toBe("unsupported");
+  });
+});
+
+describe("derive_attribute -- BACKWARD COMPATIBILITY (the shared readers are untouched)", () => {
+  it("a pipeline with NO derive_attribute step is unaffected, traces included", () => {
+    // The selection overlay is the only change on that path, and a copy of a primitive-valued map is
+    // the map. Every category shares this interpreter, so this is the invariant that matters most.
+    for (const [pid, pl] of Object.entries(PW_PIPELINES)) {
+      for (const attrs of [PW1, PW2, PW3, PW_SINGLE_WIRE]) {
+        const r = runPipeline(pid, pl, PW_ITEMS, attrs);
+        expect(r.steps.every((s) => s.derivedAttr === undefined)).toBe(true);
+      }
+    }
+    expect(runPipeline("pw_boq_supply", PW_PIPELINES.pw_boq_supply, PW_ITEMS, PW1).finals).toEqual({ supply: 1869 });
+  });
+
+  it("the derived value is scoped to ONE run -- it never leaks into the next pipeline's inputs", () => {
+    const attrs = derivedLenAttrs(7);
+    runPipeline("pw_boq_supply", withDerivedLen(PW_PIPELINES.pw_boq_supply), PW_ITEMS, attrs);
+    // A second pipeline WITHOUT the derivation must still see no length and refuse honestly.
+    const plain = runPipeline("pw_boq_install", PW_PIPELINES.pw_boq_install, PW_ITEMS, attrs);
+    expect(plain.status).toBe("no_match");
   });
 });

@@ -318,10 +318,47 @@ export interface ModuleFitStep {
   explain?: string;
 }
 
+// CIRCUIT LENGTH part 1 -- COMPUTE AN ATTRIBUTE VALUE INTO THE SELECTION.
+//
+// THE WALL this crosses: every other step writes its result into `ctx`, but the two readers that
+// consume a quantity read the SELECTION and never consult `ctx` --
+//     circuit_fit  -> Number(selected[params.length_attr])
+//     resolveQty   -> Number(selected[qty.from_attr])
+// -- and nothing writes into the selection. So a value computed by `scale` (a RATE scaler: it needs an
+// existing finite ctx rate as its target and writes ctx[result]) can never reach either one. This step
+// is the crossing: its result lands on an ATTRIBUTE, in a selection overlay LOCAL to the pipeline run,
+// where both readers already look. The shared readers are UNTOUCHED -- widening them to fall back to
+// `ctx` would change how every category resolves every quantity, and a ctx key colliding with an
+// attribute id would silently re-price a shipped row.
+//
+// PARAMETERISED FROM CONFIG, never hardcoded (the `module_fit` terms precedent): the formula, the
+// source attributes AND the target attribute are all config. `15 + (n - 1) * 5` is one category's rule.
+//
+// STATED WINS, with NO FLOOR and NO WARNING (owner-locked, and DELIBERATELY unlike the plate's
+// take-the-larger): the computation runs ONLY when the row states nothing. A pricer typing 60 for a
+// long run is simply right, so a stated value is adopted verbatim and is never second-guessed.
+export interface DeriveAttributeStep {
+  step: "derive_attribute";
+  params: {
+    /** The ATTRIBUTE ID the computed value lands on -- in the selection overlay, NOT in ctx. */
+    result_attr: string;
+    /** Formula identifier -> the attribute id supplying its value. One entry per input the rule reads. */
+    terms: { ident: string; attr: string }[];
+    /** Named numeric constants bound into the same formula env (the rule's fixed numbers). */
+    constants?: Record<string, number>;
+    /** The arithmetic, READ FROM CONFIG. Identifiers are the terms' idents + the constants' keys. */
+    formula: string;
+    /** Display-only unit for the trace line ("m"). */
+    unit?: string;
+  };
+  explain?: string;
+}
+
 export type PipelineStep =
   | MatchMasterRowStep
   | ApplyEffectiveMultiplierStep
   | ScaleStep
+  | DeriveAttributeStep
   | RoundupStep
   | ComponentStep
   | ComponentRefStep
@@ -429,6 +466,28 @@ export interface ModuleFitLadderOutcome {
   upgraded?: { stated: string; statedHolds: number; occupied: number };
 }
 
+/**
+ * DERIVED DISPLAY -- the outcome of one `derive_attribute` step, published as STRUCTURED DATA on the
+ * trace exactly as `module_fit` publishes `moduleFit`. A consumer READS THIS; it must never parse the
+ * prose line (a human sentence that gets reworded, so parsing it fails silently) and must never
+ * re-derive the arithmetic (that is the drift #179 exists to prevent).
+ *
+ * ADDITIVE AND OPTIONAL: absent on every step that is not a `derive_attribute`. No pre-existing
+ * consumer reads it, so every existing pipeline, trace and golden is byte-unaffected.
+ */
+export interface DerivedAttrOutcome {
+  /** The attribute id the value applies to. */
+  attr: string;
+  /** The computed value. NULL when the row STATED one -- nothing was computed, by design. */
+  value: number | null;
+  /** The row stated a value, so the computation did not run and the stated value is what prices. */
+  stated: boolean;
+  /** The value the row stated, when `stated` -- carried verbatim (it may be the "None" sentinel). */
+  statedValue?: string | number;
+  /** Display-only unit from config. */
+  unit?: string;
+}
+
 /** DERIVED DISPLAY -- the whole outcome of one `module_fit` step. */
 export interface ModuleFitOutcome {
   /** The weighted module count the row's contents occupy (the step's own arithmetic). */
@@ -460,6 +519,10 @@ export interface StepTrace {
    * step that actually fitted -- so a consumer never has to read the prose line to learn the
    * fitted plate, and never has to re-derive it. */
   moduleFit?: ModuleFitOutcome;
+  /** For derive_attribute: the STRUCTURED outcome (see DerivedAttrOutcome). Present on every
+   * derive_attribute step that reached a verdict -- computed OR stated-wins -- so a surface can show
+   * the value, and say whose it is, without reading the prose. */
+  derivedAttr?: DerivedAttrOutcome;
   /** Snapshot of every named value after this step (for the running-value column). */
   runningValues: Record<string, number>;
   /** Set when the step type is not recognized (forward-compat honesty). */

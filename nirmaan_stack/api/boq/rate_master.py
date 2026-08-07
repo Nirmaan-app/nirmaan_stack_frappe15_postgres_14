@@ -936,6 +936,13 @@ _KNOWN_STEP_TYPES = {
     # FULLY validated below -- every attribute id it names is reference-guarded, because an unguarded
     # typo would silently no-compute every row of the category rather than failing at save.
     "module_fit",
+    # CIRCUIT LENGTH part 1: computes an ATTRIBUTE value (formula + source attrs + target attr all from
+    # CONFIG) into the SELECTION, which is where circuit_fit's length_attr and a component's
+    # {from_attr} quantity read -- ctx, where every other step writes, is invisible to both. FULLY
+    # validated below, and BOTH its source attrs AND its result_attr are reference-guarded: a typo in
+    # the target would silently never find a stated value to defer to, which is the quietest possible
+    # way to get a wrong price.
+    "derive_attribute",
 }
 _KNOWN_CONFIG_KEYS = {
     "discipline", "category_id", "category_display", "pairing_rule",
@@ -1364,6 +1371,52 @@ def _validate_config(cfg):
                         if not isinstance(sa, str) or not sa:
                             _vthrow(f"{where}: module_fit blanks.stated_attr must be an attribute id.")
                         _ref(sa, f"{where} (blanks.stated_attr)")
+            elif st == "derive_attribute":
+                # CIRCUIT LENGTH part 1. params.terms binds formula identifiers to ATTRIBUTE ids and
+                # params.constants holds the rule's fixed numbers -- so the formula, its inputs AND its
+                # target are all config, never hardcoded (the module_fit terms precedent). EVERY
+                # attribute id here is _ref-guarded, result_attr included: an unguarded typo in the
+                # target would silently stop the step ever finding a stated value to defer to.
+                p = s.get("params")
+                if not isinstance(p, dict):
+                    _vthrow(f"{where}: derive_attribute needs a params object.")
+                ra = p.get("result_attr")
+                if not isinstance(ra, str) or not ra:
+                    _vthrow(f"{where}: derive_attribute needs a string 'result_attr' (an attribute id).")
+                _ref(ra, f"{where} (result_attr)")
+                if not isinstance(p.get("formula"), str) or not p.get("formula"):
+                    _vthrow(f"{where}: derive_attribute needs a non-empty string 'formula'.")
+                terms = p.get("terms")
+                if not isinstance(terms, list) or not terms:
+                    _vthrow(f"{where}: derive_attribute needs a non-empty params.terms list.")
+                idents = set()
+                for ti, t in enumerate(terms):
+                    if not isinstance(t, dict):
+                        _vthrow(f"{where}: derive_attribute terms[{ti}] must be an object.")
+                    for key in ("ident", "attr"):
+                        if not isinstance(t.get(key), str) or not t.get(key):
+                            _vthrow(f"{where}: derive_attribute terms[{ti}] needs a string '{key}'.")
+                    if t["ident"] in idents:
+                        # Two terms binding the SAME identifier means one silently wins -- so the
+                        # formula would read an input the author did not choose.
+                        _vthrow(f"{where}: derive_attribute terms[{ti}] repeats the ident '{t['ident']}'.")
+                    idents.add(t["ident"])
+                    _ref(t["attr"], f"{where} (terms[{ti}].attr)")
+                consts = p.get("constants")
+                if consts is not None:
+                    if not isinstance(consts, dict):
+                        _vthrow(f"{where}: derive_attribute constants must be an object.")
+                    for ck, cv in consts.items():
+                        if ck in idents:
+                            # A constant sharing a term's identifier makes the formula ambiguous.
+                            _vthrow(
+                                f"{where}: derive_attribute constant '{ck}' collides with a term ident."
+                            )
+                        if not _is_finite_number(cv):
+                            _vthrow(f"{where}: derive_attribute constant '{ck}' must be a finite number.")
+                unit = p.get("unit")
+                if unit is not None and (not isinstance(unit, str) or not unit):
+                    _vthrow(f"{where}: derive_attribute unit, when present, must be a non-empty string.")
 
     # REFERENCE GUARD: every attr a pipeline references must be defined (names where each is used) ----
     missing = {a: locs for a, locs in referenced.items() if a not in def_ids}

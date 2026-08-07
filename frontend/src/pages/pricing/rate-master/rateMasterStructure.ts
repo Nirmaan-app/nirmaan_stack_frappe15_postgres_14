@@ -93,6 +93,10 @@ export const STEP_VOCABULARY = [
   // SLICE 2: computes a module count from a PARAMETERISED weighted sum over stated quantities and
   // resolves it against ladders derived FROM THE CATALOG (exact, else the next higher size).
   "module_fit",
+  // CIRCUIT LENGTH part 1: computes an ATTRIBUTE value (formula + source attrs + target attr all from
+  // config) into the SELECTION, where circuit_fit's length and a component's {from_attr} qty read --
+  // ctx, where every other step writes, is invisible to both. A stated value always wins.
+  "derive_attribute",
 ] as const;
 
 export type StepType = (typeof STEP_VOCABULARY)[number];
@@ -187,6 +191,11 @@ export function blankStep(type: StepType): PipelineStep {
         step: "module_fit",
         params: { terms: [], ladders: [] },
       };
+    case "derive_attribute":
+      return {
+        step: "derive_attribute",
+        params: { result_attr: "", terms: [], constants: {}, formula: "" },
+      };
     default:
       return { step: type };
   }
@@ -205,9 +214,10 @@ export function referencedAttrIds(config: RateCategoryConfig): Set<string> {
         conditions?: { when?: Record<string, unknown> }[];
         band_on?: string;
         params?: {
-          terms?: { attr?: string; none_when?: string }[];
+          terms?: { attr?: string; none_when?: string; ident?: string }[];
           ladders?: { floor_from?: string }[];
           blanks?: { stated_attr?: string };
+          result_attr?: string;
         };
       };
       if (s.step === "apply_effective_multiplier") {
@@ -229,6 +239,15 @@ export function referencedAttrIds(config: RateCategoryConfig): Set<string> {
         for (const L of s.params?.ladders ?? []) {
           if (typeof L?.floor_from === "string" && L.floor_from) out.add(L.floor_from);
         }
+      } else if (s.step === "derive_attribute") {
+        // CIRCUIT LENGTH part 1: the step names its SOURCE attributes AND its TARGET attribute, and
+        // all of them are guarded -- a typo in either would silently no-compute (or silently never
+        // find a stated value to defer to) rather than failing at save.
+        for (const t of s.params?.terms ?? []) {
+          if (typeof t?.attr === "string" && t.attr) out.add(t.attr);
+        }
+        const ra = s.params?.result_attr;
+        if (typeof ra === "string" && ra) out.add(ra);
       }
     }
   }

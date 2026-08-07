@@ -16,6 +16,7 @@
 //  - ROUNDUP is Excel ROUNDUP (away from zero) at `digits`: digits -1 => tens.
 
 import type {
+  DerivedAttrOutcome,
   ModuleFitOutcome,
   Pipeline,
   PipelineResult,
@@ -139,6 +140,26 @@ export const NONE_SENTINEL = "None";
 /** Compact number for trace strings: integer as-is, else 2 decimals (drops trailing zeros). */
 function fmtNum(v: number): string {
   return Number.isInteger(v) ? String(v) : String(Number(v.toFixed(2)));
+}
+
+/**
+ * Render a formula with every bound identifier replaced by its value -- "base + (n - 1) * per_extra"
+ * with n=7 becomes "15 + (7 - 1) * 5". This is how a `derive_attribute` trace SHOWS ITS WORKING
+ * instead of merely asserting a result.
+ *
+ * It reuses the ONE tokenizer rather than adding a second parser, and it is called only AFTER
+ * `evalFormula` has already succeeded on the same expression and env -- so every identifier is bound
+ * and `tokenize` cannot throw here. PURE; display only, never a parsing contract.
+ */
+function substituteFormula(expr: string, env: Record<string, number>): string {
+  let out = "";
+  for (const tk of tokenize(expr)) {
+    const text = tk.t === "id" && tk.v in env ? fmtNum(env[tk.v]) : tk.v;
+    // Readable spacing: nothing after "(", nothing before ")", single spaces elsewhere.
+    if (out === "" || out.endsWith("(") || tk.t === "rp") out += text;
+    else out += ` ${text}`;
+  }
+  return out;
 }
 
 /** Apply one rate stage's optional roundup. `up0` = ROUNDUP to units, `up-1` = to tens; absent => unrounded. */
@@ -353,6 +374,30 @@ export function moduleFitOutcome(results: Array<{ steps: StepTrace[] }>): Module
   return undefined;
 }
 
+/**
+ * The `derive_attribute` OUTCOMES carried by a set of pipeline results, keyed by attribute id -- the
+ * FIRST result that published each one.
+ *
+ * The `moduleFitOutcome` twin, for the same reason: it is the ONE reader of the structured carrier, so
+ * no consumer parses the trace prose and no consumer re-derives the arithmetic. Scanning several
+ * results matches how a category splits supply and install across separate pipelines -- each runs the
+ * SAME derive_attribute over the same selection, so the first to publish answers for all of them.
+ *
+ * A STATED-WINS outcome is included (with `stated: true` and a null `value`): "the row said so" is
+ * exactly what a display surface needs in order to show the value and say whose it is. PURE.
+ */
+export function derivedAttrOutcomes(
+  results: Array<{ steps: StepTrace[] }>
+): Map<string, DerivedAttrOutcome> {
+  const out = new Map<string, DerivedAttrOutcome>();
+  for (const r of results) {
+    for (const st of r.steps ?? []) {
+      if (st.derivedAttr && !out.has(st.derivedAttr.attr)) out.set(st.derivedAttr.attr, st.derivedAttr);
+    }
+  }
+  return out;
+}
+
 function readableCondition(when: Record<string, string | number>, params: Record<string, number>): string {
   const lhs = Object.entries(when)
     .map(([k, v]) => `${k} = ${v}`)
@@ -371,8 +416,21 @@ export function runPipeline(
   pipelineId: string,
   pipeline: Pipeline,
   items: RateMasterItem[],
-  selected: Record<string, string | number>
+  selectedInput: Record<string, string | number>
 ): PipelineResult {
+  // THE SELECTION OVERLAY (circuit length part 1). `circuit_fit` and `resolveQty` read the SELECTION,
+  // never `ctx`, and nothing used to write into the selection -- so a computed value could not reach
+  // either of them. This ONE line is the crossing: a private, run-local copy that a `derive_attribute`
+  // step may write into, and that every existing read site already sees because it is what `selected`
+  // now names. Two properties make it safe:
+  //   (1) The CALLER'S OBJECT IS NEVER MUTATED. `selected` means "what the user or extraction
+  //       supplied"; writing a computed value back into it would make the two indistinguishable to
+  //       every later reader -- the rule the derived-display contract already turns on.
+  //   (2) With no `derive_attribute` step the copy is value-identical to the input and NOT ONE READ
+  //       SITE CHANGES, so all 13 categories stay byte-identical. Every value is a primitive, so a
+  //       shallow copy is a complete one.
+  // The shared readers are deliberately UNTOUCHED -- see the DeriveAttributeStep note in the types.
+  const selected: Record<string, string | number> = { ...selectedInput };
   const ctx: Record<string, number> = {};
   const steps: StepTrace[] = [];
   let matchedItem: RateMasterItem | undefined;
@@ -491,6 +549,91 @@ export function runPipeline(
         label: s.explain || "scale",
         params: s.params,
         produced: { key: s.result, value },
+        runningValues: snapshot(),
+      });
+    } else if (stepType === "derive_attribute") {
+      // CIRCUIT LENGTH part 1 -- compute an ATTRIBUTE value and put it where the readers look.
+      //   value = evalFormula(config formula, {each term's attribute value} + {config constants})
+      // and it lands in the SELECTION OVERLAY, not ctx -- which is the whole point of the step, since
+      // `circuit_fit`'s length and a component's `{from_attr}` quantity both read the selection.
+      const s = raw as import("./rateMasterTypes").DeriveAttributeStep;
+      const p = s.params;
+      const bail = (label: string) => {
+        steps.push({ step: stepType, label, runningValues: snapshot() });
+        return { pipelineId, outputs: pipeline.output, status: "no_match" as const, steps, finals: {}, matchedItem, note: pipeline.note };
+      };
+      if (!p || typeof p.result_attr !== "string" || !p.result_attr || typeof p.formula !== "string" || !p.formula) {
+        // OPTION C: a malformed step declared no target or no arithmetic. That is not the same
+        // statement as "the inputs could not be read", so it stays its own honest refusal.
+        return bail("derive_attribute declares no result_attr / formula -- no value computed");
+      }
+
+      // (a) STATED WINS -- no floor, no warning (owner-locked). The pricer's own number is
+      // authoritative and is adopted VERBATIM; the terms are not even read, so a row that states a
+      // length still prices when the input the rule would have used is unreadable. This DELIBERATELY
+      // DIVERGES from the plate's take-the-larger, where a stated value is only a floor and a
+      // too-small one is upgraded loudly: there is no "too small" circuit length to detect.
+      const statedRaw = selected[p.result_attr];
+      if (statedRaw !== undefined && statedRaw !== null && statedRaw !== "") {
+        steps.push({
+          step: stepType,
+          label: s.explain || `derive ${p.result_attr}`,
+          matchedCondition: `${p.result_attr} stated as ${String(statedRaw)}${p.unit ? ` ${p.unit}` : ""} -- kept (a stated value wins)`,
+          derivedAttr: { attr: p.result_attr, value: null, stated: true, statedValue: statedRaw, ...(p.unit ? { unit: p.unit } : {}) },
+          runningValues: snapshot(),
+        });
+        continue;
+      }
+
+      // (b) bind the formula env from CONFIG -- term idents from attributes, constants by name.
+      const env: Record<string, number> = {};
+      const termParts: string[] = [];
+      let termMiss: string | null = null;
+      for (const t of p.terms ?? []) {
+        if (!t || typeof t.ident !== "string" || !t.ident || typeof t.attr !== "string" || !t.attr) {
+          return bail("derive_attribute has a malformed term (needs 'ident' + 'attr') -- no value computed");
+        }
+        const rawVal = selected[t.attr];
+        const v = Number(rawVal);
+        // HONEST NO-COMPUTE. Blank / absent / non-numeric (including the "None" sentinel) is UNKNOWN,
+        // never zero and never a guess -- the same hard-fail `scale`'s `_from_attr` and `module_fit`'s
+        // terms take. A row whose input genuinely cannot be read must refuse, not invent a length.
+        if (rawVal === undefined || rawVal === null || rawVal === "" || !Number.isFinite(v)) {
+          termMiss = t.attr;
+          break;
+        }
+        env[t.ident] = v;
+        termParts.push(`${t.attr} ${fmtNum(v)}`);
+      }
+      if (termMiss !== null) {
+        return bail(`attribute '${termMiss}' missing or non-numeric -- no ${p.result_attr} computed`);
+      }
+      for (const [k, cv] of Object.entries(p.constants ?? {})) {
+        if (typeof cv !== "number" || !Number.isFinite(cv)) {
+          return bail(`derive_attribute constant '${k}' is not a finite number -- no value computed`);
+        }
+        env[k] = cv;
+      }
+
+      // (c) compute. An unbound identifier throws out to the Option-C wrapper (honest `unsupported`).
+      const derived = evalFormula(p.formula, env);
+      if (!Number.isFinite(derived)) {
+        return bail(`${p.result_attr} computed to ${String(derived)} -- no value computed`);
+      }
+      // THE CROSSING. Into the overlay, so `circuit_fit` / `resolveQty` see it; NOT into ctx, where
+      // neither looks. Domain limits stay with the reader that owns them -- `circuit_fit` already
+      // refuses a non-positive length -- so this step invents no rule of its own.
+      selected[p.result_attr] = derived;
+      steps.push({
+        step: stepType,
+        label: s.explain || `derive ${p.result_attr}`,
+        // THE WORKING: the rule with its numbers substituted in, e.g. "15 + (7 - 1) * 5 = 45 m". The
+        // derivation view exists so a pricer can watch a number get built, and this one multiplies
+        // into both the wire and the conduit. Substitution reuses the ONE tokenizer -- and runs only
+        // AFTER evalFormula succeeded, so it can never be the thing that throws.
+        matchedCondition: `${termParts.join(", ")} -> ${p.result_attr} = ${substituteFormula(p.formula, env)} = ${fmtNum(derived)}${p.unit ? ` ${p.unit}` : ""}`,
+        derivedAttr: { attr: p.result_attr, value: derived, stated: false, ...(p.unit ? { unit: p.unit } : {}) },
+        produced: { key: p.result_attr, value: derived },
         runningValues: snapshot(),
       });
     } else if (stepType === "roundup") {

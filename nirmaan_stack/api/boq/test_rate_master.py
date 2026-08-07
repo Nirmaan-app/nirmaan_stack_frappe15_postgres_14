@@ -1347,9 +1347,12 @@ class TestRateMaster(FrappeTestCase):
                 "install_as_ratio",
                 "circuit_fit",
                 "lookup_or_ratio",
-                # SLICE 2 (this slice). This pin was proven green at 11 types against the unchanged
+                # SLICE 2. This pin was proven green at 11 types against the unchanged
                 # validator, THEN both sides were extended together in one commit.
                 "module_fit",
+                # CIRCUIT LENGTH part 1 (this slice). Same discipline: green at 12 types against the
+                # unchanged validator, then interpreter + validator extended together in one commit.
+                "derive_attribute",
             },
         )
 
@@ -1712,3 +1715,104 @@ class TestRateMaster(FrappeTestCase):
         with self.assertRaises(frappe.ValidationError) as cm:
             rate_master._validate_config(bad)
         self.assertIn("choice attribute 'wire1_core'", str(cm.exception))
+
+    # ---- CIRCUIT LENGTH part 1: derive_attribute VALIDATION ----
+    #
+    # C3 again: a step the interpreter understands but the validator rejects is UNSAVABLE, and that
+    # pairing has bitten twice. This step names attribute ids in TWO places and BOTH are
+    # reference-guarded -- its SOURCE attrs and, unusually, its TARGET. The target guard is the one
+    # worth spelling out: a typo there means the step never finds the stated value it is supposed to
+    # defer to, so a stated length would be silently ignored and the computed one would price. That is
+    # quieter than a no-compute and worse, which is why the typo has to fail at save.
+
+    def _derive_attr_config(self, step_params, extra_defs=None):
+        defs = [
+            {"id": "point_count", "label": "Points", "type": "number"},
+            {"id": "circuit_length_m", "label": "Circuit length (m)", "type": "number"},
+        ]
+        return {
+            "discipline": "Electrical", "category_id": "derive_attr_probe",
+            "attribute_definitions": defs + (extra_defs or []),
+            "pipelines": {"p": {"output": ["supply"], "steps": [
+                {"step": "derive_attribute", "params": step_params},
+            ]}},
+        }
+
+    _DA_PARAMS = {
+        "result_attr": "circuit_length_m",
+        "terms": [{"ident": "n", "attr": "point_count"}],
+        "constants": {"base": 15, "per_extra": 5},
+        "formula": "base + (n - 1) * per_extra",
+        "unit": "m",
+    }
+
+    def test_64_derive_attribute_valid_shape_is_accepted(self):
+        """POSITIVE. The owner's circuit-length rule as config: the formula, its input attribute and
+        its target attribute are ALL data -- nothing about `15 + (N-1)*5` is hardcoded anywhere."""
+        rate_master._validate_config(self._derive_attr_config(self._DA_PARAMS))  # must not raise
+
+    def test_65_derive_attribute_source_attr_is_reference_guarded(self):
+        """NEGATIVE. A term's `attr` must be DEFINED -- a typo would silently no-compute every row."""
+        params = dict(self._DA_PARAMS, terms=[{"ident": "n", "attr": "point_cont"}])
+        with self.assertRaises(frappe.ValidationError) as cm:
+            rate_master._validate_config(self._derive_attr_config(params))
+        self.assertIn("point_cont", str(cm.exception))
+
+    def test_66_derive_attribute_result_attr_is_reference_guarded(self):
+        """NEGATIVE, and the load-bearing one. A typo in the TARGET fails at save rather than quietly
+        overriding a stated value the step can no longer see."""
+        params = dict(self._DA_PARAMS, result_attr="circuit_lenght_m")
+        with self.assertRaises(frappe.ValidationError) as cm:
+            rate_master._validate_config(self._derive_attr_config(params))
+        self.assertIn("circuit_lenght_m", str(cm.exception))
+
+    def test_67_derive_attribute_structural_negatives(self):
+        """NEGATIVE sweep -- every malformed shape is refused with a NAMED error, never written."""
+        cases = [
+            ({"terms": self._DA_PARAMS["terms"], "formula": "n"}, "result_attr"),          # no target
+            (dict(self._DA_PARAMS, result_attr=""), "result_attr"),                        # blank target
+            (dict(self._DA_PARAMS, formula=""), "formula"),                                # blank formula
+            ({k: v for k, v in self._DA_PARAMS.items() if k != "formula"}, "formula"),     # no formula
+            (dict(self._DA_PARAMS, terms=[]), "terms"),                                    # no terms
+            (dict(self._DA_PARAMS, terms=[{"attr": "point_count"}]), "ident"),             # term without ident
+            (dict(self._DA_PARAMS, terms=[{"ident": "n"}]), "attr"),                       # term without attr
+            (dict(self._DA_PARAMS, constants={"base": "fifteen"}), "finite number"),       # non-numeric constant
+            (dict(self._DA_PARAMS, unit=""), "unit"),                                      # blank unit
+        ]
+        for params, needle in cases:
+            with self.subTest(needle=needle):
+                with self.assertRaises(frappe.ValidationError) as cm:
+                    rate_master._validate_config(self._derive_attr_config(params))
+                self.assertIn(needle, str(cm.exception))
+
+    def test_68_derive_attribute_rejects_an_ambiguous_formula_env(self):
+        """NEGATIVE. Two terms binding one identifier, or a constant shadowing a term, would make the
+        formula read an input the author did not choose -- silently, and with the wrong price."""
+        dup = dict(self._DA_PARAMS, terms=[
+            {"ident": "n", "attr": "point_count"},
+            {"ident": "n", "attr": "circuit_length_m"},
+        ])
+        with self.assertRaises(frappe.ValidationError) as cm:
+            rate_master._validate_config(self._derive_attr_config(dup))
+        self.assertIn("repeats the ident", str(cm.exception))
+
+        clash = dict(self._DA_PARAMS, constants={"n": 3, "base": 15, "per_extra": 5})
+        with self.assertRaises(frappe.ValidationError) as cm:
+            rate_master._validate_config(self._derive_attr_config(clash))
+        self.assertIn("collides with a term ident", str(cm.exception))
+
+    def test_69_derive_attribute_constants_and_unit_are_optional(self):
+        """POSITIVE. A rule whose formula needs no fixed numbers is valid config -- the validator must
+        not be stricter than the interpreter, which treats both keys as optional."""
+        params = {
+            "result_attr": "circuit_length_m",
+            "terms": [{"ident": "n", "attr": "point_count"}],
+            "formula": "n",
+        }
+        rate_master._validate_config(self._derive_attr_config(params))  # must not raise
+
+    def test_70_derive_attribute_is_in_the_known_step_vocabulary(self):
+        """The vocabulary pin's server half. The frontend STEP_VOCABULARY carries the same 13 members
+        (pinned in ratePipelineInterpreter.test.ts); a step known to only one side is unusable."""
+        self.assertIn("derive_attribute", rate_master._KNOWN_STEP_TYPES)
+        self.assertEqual(len(rate_master._KNOWN_STEP_TYPES), 13)
