@@ -819,6 +819,27 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   keeps its own distinct refusal. It publishes `StepTrace.derivedAttr` as STRUCTURED DATA with ONE
   reader, `derivedAttrOutcomes` -- the `moduleFit` precedent: never parse the trace prose, never
   re-derive the arithmetic.
+- **THE CIRCUIT LENGTH IS COMPUTED FROM THE POINT COUNT, AND A STATED LENGTH ALWAYS WINS -- NO FLOOR,
+  NO WARNING (owner-locked).** `circuit_length_m = 15 + (points - 1) x 5`, as a `derive_attribute` step
+  that must sit **FIRST in every pipeline** (both `circuit_fit` and the wire components read the length
+  off the selection). **⚠️ `circuit_length_m` must NEVER carry an `extraction_defaults` entry** -- an
+  injected value is a STATED value, so it would win on every row forever and make the derivation inert
+  while every test stayed green.
+- **`points` is the number of points a LINE COVERS, never the number of such lines in the bill
+  (owner-locked).** The sheet's `qty` is INVERSELY shaped, so reading it as the point count inverts the
+  correction on exactly the rows that matter most. EXTRACTED, not derived; a plain `number` (a point
+  count has no catalog domain, so `number_choice` would be wrong).
+- **`derivedAttrIds` collects THREE mechanisms, and a `derive_attribute`'s `result_attr` is the third**
+  (beside a `{from_fit}` superseded qty and a `module_fit` ladder bind) -- read FROM CONFIG, never by
+  id. It is the LADDER-BIND case, not the read-only blanker quantity: a stated value IS read and wins
+  outright, so the field stays **EDITABLE** and `readOnly` is never set. **The gate NARROWS, it does not
+  open** -- a genuinely absent input, including the SOURCE attribute the formula reads, still blocks.
+- **⚠️ ADDING A REQUIRED EXTRACTED ATTRIBUTE INVALIDATES EVERY PRE-EXISTING EXTRACTION OF THAT
+  CATEGORY, so the ASSET APPLY and the RE-EXTRACTION ARE ONE ATOMIC OPERATION (owner-locked).** A run
+  that predates the attribute carries it on no row, the missing-attribute gate blocks, and the category
+  prices NOTHING in between. `extraction_defaults` does not help -- defaults are baked in at EXTRACTION
+  time, not applied when reading an older run. **Every test surface stays green while the category
+  prices 0**, so the editor-path row count over live data is the only gate that can see it.
 - **A category's `values_from.where` pins the family ITS OWN component refs price, not the union
   across families.** The resulting core x thickness grid is deliberately NOT rectangular -- a pair
   the catalog does not carry is an honest no-match, and constraining one dropdown by another's

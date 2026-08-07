@@ -19660,3 +19660,131 @@ shadowing a term ident), because either makes the formula read an input the auth
 The config wiring, the `points` attribute, the R9 wording, multi-point goldens, the three
 `derivedAttrIds` / `applyDerivedDisplay` additions, and the browser cert. Nothing in this slice is
 reachable until then.
+
+## Build slice CIRCUIT-LENGTH part 2 -- the formula WIRED, R9 rewritten, applied + re-extracted in ONE window
+
+**Commits:** `feat(boq-rate-master): compute circuit length from the point count` +
+`docs(boq-rate-master): record the circuit-length formula and R9's rewrite`.
+**Asset:** `rate_master_electrical_all_v25.json` (sha256 `e7c0c39dad8017fe`), applied as batch
+`rmbulk-94711c0ac197`. **Run:** `BRSR-26-00425` (9 AI calls, `ai_status: ran`).
+
+### What shipped
+
+- **`points`** -- a NEW attribute on `point_wiring`: the number of points a LINE COVERS. Plain
+  `number` (a point count has no catalog domain, so `number_choice` -- which resolves its values from
+  the catalog -- would be wrong and is rejected by the validator without a `values_from`). It is
+  **EXTRACTED, not derived**: the model reads it from the description. `extraction_defaults: 1`.
+- **The formula**, as a `derive_attribute` step FIRST in all three pipelines:
+  `circuit_length_m = base + (points - 1) * per_extra` with `base 15`, `per_extra 5`. **Ordering is
+  load-bearing and pinned**: it must precede `circuit_fit` (which reads `selected[length_attr]`) AND
+  the `wire1`/`wire2` component refs (which read the length through `resolveQty`'s `{from_attr}`).
+  One first-position step serves both; any later position and `circuit_fit` refuses the row.
+- **R9 rewritten** (owner-authored, passed through verbatim), now covering the point count and with
+  the earth-wire clause corrected.
+
+### ⚠️ THE FINDING THAT MADE THE DIFFERENCE -- the fix would have been INERT
+
+`point_wiring` carried **`extraction_defaults.circuit_length_m = 15.0`**, and all 23 stored rows
+carried that 15 with `defaulted: true`. **Under stated-wins an INJECTED value is a STATED value**, so
+the derive step would have kept 15 on every row, forever. The whole feature would have passed every
+test and changed nothing in production.
+
+**This was not named in the brief.** It was found by reading the config before applying anything, and
+removing that default is what makes the derivation reachable at all.
+
+### ⚠️ AND `derivedAttrIds` NEEDED A THIRD MECHANISM
+
+Removing the default leaves the length BLANK on every future row. `derivedAttrIds` knew only two
+derivation mechanisms (a `{from_fit}` superseded `<name>_qty`, and a `module_fit` ladder bind), so the
+missing-attribute gate would have fired and **every point_wiring row would render "Complete the
+missing attributes to price" and price nothing** -- a regression, not an incomplete display. A
+`derive_attribute`'s `result_attr` is now the third, read FROM CONFIG and never by id.
+
+It behaves like the **ladder bind**, not the read-only blanker quantity: a stated value IS read (it
+wins outright), so the field stays **EDITABLE** and `readOnly` is never set. **The gate NARROWS, it
+does not open** -- pinned both ways, including that `points` ITSELF still blocks when absent, since it
+is extracted, not computed.
+
+This is the same shape recorded twice before: **a no-op measured before a dependency lands is not a
+no-op afterwards.** Now recorded three times.
+
+### ⚠️⚠️ THE NEW STANDING LESSON -- apply and re-extract are ATOMIC
+
+The first attempt at CP3 applied v25 WITHOUT re-extracting, because the brief deliberately deferred
+the re-extraction to a separate run. **point_wiring went 18/23 -> 0/23.**
+
+**Adding a required EXTRACTED attribute invalidates every pre-existing extraction of that category.**
+The stored run predated `points`, so 0 of 23 rows carried it; it is a genuine input, so the gate
+correctly blocked. `extraction_defaults` does NOT rescue this -- defaults are injected **at extraction
+time** by the server and baked into the stored result; they are not applied when reading an older run.
+
+This is the "atomic set" rule (already recorded for GOLDENS -- introducing `runs` made all five wiring
+goldens no-compute until each gained `runs: 1`) landing on the **stored run** instead.
+
+**⚠️ EVERY TEST SURFACE WAS GREEN WHILE point_wiring PRICED 0/23** -- vitest 1,460, backend 71, and all
+26 goldens green through the preview gate. The goldens carry `points: 1` explicitly and the unit tests
+inject their own attributes, so none of them can see a stored run that predates the attribute. **G5,
+the editor-path row count over live data, was the only gate that could see it** -- #179 for the third
+time. The config was rolled back to v24 (proven byte-identical) and the slice re-run with the apply
+and the re-extraction in ONE window.
+
+**Owner ruling:** teaching the helper to seed an absent attribute from `extraction_defaults` is the
+correct GENERAL fix and is accepted -- logged as its own measured slice, deliberately NOT built here.
+
+### The goldens -- they did NOT move
+
+All three describe a SINGLE point, so `15 + (1-1)*5 = 15` and every expected value stands:
+**pw1 1869 / 735 / 1370**, **pw2 1823 / 722.2 / 1342**, **pw3 1740 / 709 / 1281**. Each was re-derived
+INDEPENDENTLY from catalog list prices x the rate stages (never from the new config) and reproduced
+the stored expectations exactly.
+
+The change is STRUCTURAL only: each golden DROPS its stated `circuit_length_m` and gains `points: 1`,
+so it now **exercises** the formula instead of short-circuiting it via stated-wins. **No multi-point
+golden was minted** -- the guiding sheet carries no points concept, exactly like the multi-run case,
+so such a value would have no sheet basis and must come from the owner. The N=7 case is pinned in
+vitest instead.
+
+### Gates
+
+- **G1** vitest 1,460 / 55 unchanged; backend `test_rate_master` 71 unchanged. Both green.
+- **G2** tsc 3,236 pre-existing, **0 new**.
+- **G3** `_validate_config` VALID on all 13 stored configs; both reference-guard negatives (a typo in
+  `result_attr`, a typo in `terms[].attr`) correctly rejected.
+- **G4** 26 goldens / 78 checks, **77 green, byte-identical**; the known `miscellaneous` m1 float
+  artifact (187.2 vs 187.20000000000002) present and unchanged.
+- **G5** rows pricing, CP2.5 capture -> after: point_wiring **18/23 -> 18/23** (the SAME five
+  unpriced rows, 295/297/301/303/305), db_switchgear 11/14 -> **13/14**, switches_sockets 15/16 ->
+  **16/16**, everything else identical. **Total 60/94 -> 63/94. No row that priced before stopped.**
+- **G6** every point count matches its description, **0 disagreements**. Row 198: `points 7 ->
+  circuit_length_m = 15 + (7 - 1) * 5 = 45 m`, conduit qty 5 -> **15**, supply 1590 -> **4770**,
+  install 945 -> **2835**, bcs 1185 -> **3555**.
+- **G7** variance vs the CP2.5 capture, separated: 46 changes from THIS SLICE (`points` +
+  `circuit_length_m` on 23 rows each); 57 from the model re-rolling. **`plate_item` unchanged
+  everywhere** -- the ten-switch-rows regression did NOT recur.
+- **G8** zero unauthorised DB writes.
+
+### The sheet-wide correction
+
+Row 198 alone moves conduit 5 -> 15 m. The brief's sheet-wide figure (+1,840 m of wire, +419 m of
+conduit) is **TEST DATA, owner-accepted** -- this BoQ is a test sheet, and the correction is the point
+of the slice.
+
+### CP2.5 -- the capture
+
+`CLEN_P2_CP25_capture_2026-08-08.json` (sha256 `478aeb7ec8ff80b0`): 94 rows, **997 attribute cells**,
+13 configs, 1,383 items -- value / confidence / defaulted / corroborated for every attribute of every
+row, taken BEFORE anything was applied. **The re-extraction re-rolls every attribute, not just the new
+one**, so this is the only record of the pre-change state and the only way to tell a genuine
+regression from model variance. It is what G7 is measured against.
+
+### Cert
+
+Live, on the owner's Chrome via CDP, after the full de-stale ritual. **The code marker was proven in
+BOTH directions, and the FULL RECIPE WAS REQUIRED EACH TIME** -- a fresh tab alone left the old module
+serving in both the add and the remove direction. V1 `points` renders (row 198 = 7); V2 row 198 prices
+supply 4770 / install 2835 with component lines `wire1 = 4140` (92 x 45) and `conduit = 630` (42 x 15);
+V3 the Derivation trace reads `points 7 -> circuit_length_m = 15 + (7 - 1) * 5 = 45 m`, and a stated 60
+is `kept (a stated value wins)` -> 5976, no floor and no warning; V4 row 295 still blocks; V5 the
+preview gate shows plain "Save" with 0 changed goldens for all four categories, each on a fresh load
+and each exited via Cancel; V6 R9 renders verbatim. Nothing was applied and "Use this value" was never
+pressed.

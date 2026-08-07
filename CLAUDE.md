@@ -236,6 +236,35 @@ First worked proof: the `sidebar_counts` aggregate rewrite + the shared `service
   and never re-derive the arithmetic. **Both its source attrs AND its `result_attr` are validator
   `_ref`-guarded**: a typo in the TARGET would silently stop it ever finding a stated value to defer
   to, which is quieter than a no-compute and worse.
+- **`point_wiring`'s CIRCUIT LENGTH is COMPUTED from the point count, and a STATED length always wins
+  with NO floor and NO warning (owner-locked).** `circuit_length_m = 15 + (points - 1) x 5` — 15 m is
+  correct only for a single point. It is a `derive_attribute` step that must sit **FIRST in every
+  pipeline**: `circuit_fit` reads `selected[length_attr]` and the wire components read the length
+  through `resolveQty`'s `{from_attr}`, so one first-position step serves both and any later position
+  makes `circuit_fit` refuse the row. **⚠️ `circuit_length_m` must NEVER carry an `extraction_defaults`
+  entry** — an INJECTED value is a STATED value, so a default would win on every row forever and make
+  the whole derivation inert while every test stayed green.
+- **`points` is the number of points a LINE COVERS, never the number of such lines in the bill
+  (owner-locked).** The sheet's own `qty` is INVERSELY shaped — one line covering seven points has
+  `qty 1`, and twenty-nine single-point lines have `qty 29` — so reading `qty` as the point count
+  inverts the correction on exactly the rows that matter most. It is EXTRACTED (the model reads it from
+  the description under R9), never derived, and it is a plain `number`: a point count has no catalog
+  domain, so `number_choice` would be wrong.
+- **⚠️ ADDING A REQUIRED EXTRACTED ATTRIBUTE INVALIDATES EVERY PRE-EXISTING EXTRACTION OF THAT
+  CATEGORY, so the ASSET APPLY and the RE-EXTRACTION ARE ONE ATOMIC OPERATION (owner-locked).** A
+  stored run that predates the attribute carries it on NO row; it is a genuine input, so the
+  missing-attribute gate blocks and the category prices NOTHING in the window between the two.
+  **`extraction_defaults` does NOT rescue this** — defaults are injected at EXTRACTION time and baked
+  into the stored result, never applied when reading an older run. This is the "atomic set" rule
+  (already recorded for goldens) landing on the stored run. **Every test surface stays GREEN while the
+  category prices 0** — goldens and unit tests supply their own attributes — so the editor-path row
+  count over live data is the only gate that can see it.
+- **A `derive_attribute`'s `result_attr` is the THIRD derivation mechanism `derivedAttrIds` must
+  collect** (beside a `{from_fit}` superseded qty and a `module_fit` ladder bind), read FROM CONFIG and
+  never by id. It behaves like the LADDER BIND, not the read-only blanker quantity: a stated value IS
+  read and wins outright, so the field stays **EDITABLE** and `readOnly` is never set. **The gate
+  NARROWS, it does not open** — a genuinely absent input, including the SOURCE attribute the formula
+  reads, must still block.
 - **Goldens live in the asset's TOP-LEVEL `goldens` dict, keyed by category_id, and NOWHERE ELSE.**
   `loader.load_rate_master` reads `payload["goldens"]` and OVERWRITES each config's `goldens` key from it, so
   a golden written into a `category_configs[*].goldens` entry is SILENTLY IGNORED. A golden added in-system
