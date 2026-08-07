@@ -1,7 +1,8 @@
 // src/pages/outflow-import/components/OutflowRowsTable.tsx
 
 import { memo, useMemo } from "react";
-import { ArrowDown, ArrowUp, ChevronRight, Filter, X } from "lucide-react";
+import { Link } from "react-router-dom";
+import { ArrowDown, ArrowUp, ChevronRight, ExternalLink, Filter, List, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,10 +18,12 @@ import {
     OUTFLOW_COLUMNS,
     facetValues,
     highlightSegments,
+    rowSettlementLinks,
     type ColumnFilters,
     type DecisionOrigin,
     type OutflowColumn,
     type RangeFilter,
+    type SettlementLink,
     type SortState,
 } from "../outflowTableModel";
 
@@ -455,41 +458,84 @@ const OutcomeButton = ({
 }) => {
     const terminal = row.row_status === "Settled" || row.row_status === "Skipped";
     const note = row.outcome_note || row.skip_reason || "";
+    const links = rowSettlementLinks(row);
 
     if (terminal) {
-        return <span className="block text-xs text-muted-foreground">{note || "—"}</span>;
+        return (
+            <div className="space-y-1">
+                <span className="block text-xs text-muted-foreground">{note || "—"}</span>
+                {links.map((link) => (
+                    <RecordLink key={`${link.href}-${link.label}`} link={link} />
+                ))}
+            </div>
+        );
     }
 
     return (
-        <button
-            type="button"
-            onClick={() => onOpenDecision(row)}
-            className={`flex w-full items-center justify-between gap-2 rounded-md border px-2.5 py-1.5 text-left text-xs shadow-sm transition-all hover:-translate-y-px hover:shadow ${
-                decided
-                    ? "border-emerald-300 bg-emerald-50 text-emerald-900"
-                    : "border-muted-foreground/30 bg-background"
-            }`}
-        >
-            {/* ⚠️ THE SUGGESTED CASE NAMES THE RECORD, and that is the difference between a claim
-                and a fact a reviewer can check. "Ready to confirm" on its own asks someone to
-                trust the software; naming PAY-00105-038 lets them tick the box without opening
-                anything, which is the entire point of pre-selecting. */}
-            <span className="min-w-0 flex-1 truncate">
-                {origin === "suggested" ? (
-                    <>
-                        Matched <span className="font-mono">{row.suggested_name}</span> — tick to
-                        confirm
-                    </>
-                ) : decided ? (
-                    "Decided — ready to confirm"
-                ) : (
-                    note || "Choose what this settled"
-                )}
-            </span>
-            <ChevronRight className="h-3.5 w-3.5 shrink-0 opacity-60" />
-        </button>
+        <div className="flex items-start gap-1.5">
+            <button
+                type="button"
+                onClick={() => onOpenDecision(row)}
+                className={`flex min-w-0 flex-1 items-center justify-between gap-2 rounded-md border px-2.5 py-1.5 text-left text-xs shadow-sm transition-all hover:-translate-y-px hover:shadow ${
+                    decided
+                        ? "border-emerald-300 bg-emerald-50 text-emerald-900"
+                        : "border-muted-foreground/30 bg-background"
+                }`}
+            >
+                {/* ⚠️ THE SUGGESTED CASE NAMES THE RECORD, and that is the difference between a claim
+                    and a fact a reviewer can check. "Ready to confirm" on its own asks someone to
+                    trust the software; naming PAY-00105-038 lets them tick the box without opening
+                    anything, which is the entire point of pre-selecting. */}
+                <span className="min-w-0 flex-1 truncate">
+                    {origin === "suggested" ? (
+                        <>
+                            Matched <span className="font-mono">{row.suggested_name}</span> — tick to
+                            confirm
+                        </>
+                    ) : decided ? (
+                        "Decided — ready to confirm"
+                    ) : (
+                        note || "Choose what this settled"
+                    )}
+                </span>
+                <ChevronRight className="h-3.5 w-3.5 shrink-0 opacity-60" />
+            </button>
+
+            {/* ⚠️ BESIDE THE BUTTON, NEVER INSIDE IT. An <a> nested in a <button> is invalid HTML,
+                and the click target would be ambiguous: the button opens the decision dialog, the
+                link navigates away from the batch. Two actions, two elements. */}
+            {origin === "suggested" &&
+                links.map((link) => (
+                    <RecordLink key={`${link.href}-${link.label}`} link={link} iconOnly />
+                ))}
+        </div>
     );
 };
+
+/**
+ * A link to the record an import row points at.
+ *
+ * ⚠️ AN INEXACT LINK SAYS SO. A payment link lands on the record itself; an expense link can only
+ * reach the list it lives in, because neither expense table can be searched by record id. Rendering
+ * both identically would promise a precision one of them does not have, and the reader would only
+ * discover the difference by clicking and hunting.
+ */
+const RecordLink = ({ link, iconOnly = false }: { link: SettlementLink; iconOnly?: boolean }) => (
+    <Link
+        to={link.href}
+        title={link.title}
+        className={`inline-flex shrink-0 items-center gap-1 rounded px-1 py-0.5 text-[11px] text-primary hover:underline ${
+            iconOnly ? "mt-1.5" : ""
+        }`}
+    >
+        {!iconOnly && <span className="truncate font-mono">{link.label}</span>}
+        {link.exact ? (
+            <ExternalLink className="h-3 w-3 shrink-0" />
+        ) : (
+            <List className="h-3 w-3 shrink-0 opacity-70" />
+        )}
+    </Link>
+);
 
 /** Search hits marked in the cell. Segments come from the pure, unit-tested model. */
 const Highlight = ({ text, query }: { text: string | null | undefined; query: string }) => {

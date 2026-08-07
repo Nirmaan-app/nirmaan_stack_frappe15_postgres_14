@@ -20,6 +20,7 @@ import {
     ROW_SETTLED,
     ROW_SKIPPED,
 } from "./outflowImportStatus";
+import { paymentHref } from "@/pages/ProjectPayments/config/projectPaymentsTable.config";
 import type { OutflowImportRow } from "@/types/NirmaanStack/OutflowImportBatch";
 
 /** Which ledger a row is being settled against, or a brand-new expense. */
@@ -331,6 +332,98 @@ export const decidedRows = (
     decisions: ReadonlyMap<string, RowDecision>
 ): OutflowImportRow[] =>
     rows.filter((row) => selected.has(row.name) && isConfirmable(row, decisions.get(row.name)));
+
+// --- where a settled or suggested record lives ---------------------------------------------------
+
+/**
+ * A link from an import row to the record it settles.
+ *
+ * `exact` is the honest half. A payment link lands ON the record; an expense link can only reach the
+ * list it lives in, because neither expense table has the record id among its searchable fields. The
+ * screen renders the two differently rather than implying a precision it does not have.
+ */
+export interface SettlementLink {
+    href: string;
+    label: string;
+    exact: boolean;
+    /**
+     * The tooltip.
+     *
+     * ⚠️ BUILT BESIDE THE `href`, ON PURPOSE. Written in the component it immediately went stale --
+     * it named "Payments Done" on a link that had been redirected to "All Payments", which is the
+     * one kind of wrong a tooltip can be: confidently specific. Same value, same function, one place.
+     */
+    title: string;
+}
+
+/**
+ * Where to send someone who wants to see the record behind a matched or settled row.
+ *
+ * ⚠️ THE PAYMENT URL IS NOT BUILT HERE. It comes from `paymentHref`, which the Project Payments
+ * module owns along with the table's URL-sync key format -- the deep link works by pre-seeding that
+ * table's own search params, so the two have to agree. A copy of the format in this file would keep
+ * working until the payments module changed, then fail SILENTLY by landing on an unfiltered table.
+ *
+ * ⚠️ EXPENSES CANNOT BE DEEP-LINKED TO A ROW, and that is a property of their tables, not an
+ * omission here: `PE_SEARCHABLE_FIELDS` and `NPE_SEARCHABLE_FIELDS` cover description, type, vendor
+ * and amount -- never the record id. Adding the id to either list is what would make `exact` true.
+ */
+export const settlementLink = (
+    targetDoctype: string | undefined | null,
+    targetName: string | undefined | null,
+    /**
+     * Whether this row has already been SETTLED, which is what makes the payment `Paid`.
+     *
+     * ⚠️ NOT COSMETIC. "Payments Done" filters `status = Paid`, so a merely SUGGESTED payment --
+     * still `Approved` until someone confirms -- lands there on an empty table, with nothing on
+     * screen explaining why. Verified live. An unsettled record goes to "All Payments" instead.
+     */
+    settled = false
+): SettlementLink | null => {
+    const doctype = (targetDoctype ?? "").trim();
+    const name = (targetName ?? "").trim();
+    if (!doctype || !name) return null;
+
+    if (doctype === "Project Payments") {
+        const tab = settled ? "Payments Done" : "All Payments";
+        return {
+            href: paymentHref(name, settled),
+            label: name,
+            exact: true,
+            title: `Open ${name} in Project Payments → ${tab}`,
+        };
+    }
+    if (doctype === "Project Expenses" || doctype === "Non Project Expenses") {
+        const isProject = doctype === "Project Expenses";
+        return {
+            href: isProject ? "/expense/project" : "/expense/non-project",
+            label: name,
+            exact: false,
+            title: `Open ${isProject ? "Project" : "Non Project"} Expenses — ${name} cannot be linked to directly`,
+        };
+    }
+    return null;
+};
+
+/**
+ * Every record an import row points at, as links.
+ *
+ * ⚠️ A SETTLED ROW READS ITS `matches`, NOT ITS NOTE. `Outflow Row Match` records what a row
+ * actually settled; the note is a sentence written for a person and parsing it back out would be
+ * guessing at the very fact the table already stores exactly. A MATCHED row has no match record yet
+ * -- nothing has been written -- so it falls back to the match run's stored suggestion.
+ */
+export const rowSettlementLinks = (row: OutflowImportRow): SettlementLink[] => {
+    // A match record means money was written, so its payment is Paid -> "Payments Done".
+    const settled = (row.matches ?? [])
+        .map((m) => settlementLink(m.target_doctype, m.target_name, true))
+        .filter((link): link is SettlementLink => link !== null);
+    if (settled.length) return settled;
+
+    // A suggestion has settled nothing, so its payment is still Approved -> "All Payments".
+    const suggested = settlementLink(row.suggested_doctype, row.suggested_name, false);
+    return suggested ? [suggested] : [];
+};
 
 // --- what the match run already picked -----------------------------------------------------------
 

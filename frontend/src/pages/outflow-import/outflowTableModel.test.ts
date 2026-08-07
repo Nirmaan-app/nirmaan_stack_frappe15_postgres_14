@@ -15,8 +15,10 @@ import {
     matchesQuery,
     orderBySuggestion,
     passesFilters,
+    rowSettlementLinks,
     rowsForTab,
     seedDecisions,
+    settlementLink,
     suggestedDecision,
     tabCounts,
     tabForStatus,
@@ -383,6 +385,124 @@ describe("the bulk bar counts DECIDED rows, not selected ones", () => {
 
     it("ignores a decision for a row that is not selected", () => {
         expect(countDecided(rows, new Set(["c"]), decisions)).toBe(0);
+    });
+});
+
+describe("links to the record a row settles", () => {
+    it("sends a SETTLED payment to Payments Done", () => {
+        const link = settlementLink("Project Payments", "PAY-00105-038", true)!;
+        expect(link.exact).toBe(true);
+        expect(link.label).toBe("PAY-00105-038");
+        expect(link.href).toContain("/project-payments");
+        // The tab filters status = Paid, and `name` is a searchable field, so pre-seeding the
+        // table's own search params is what lands on the row.
+        expect(link.href).toContain("tab=Payments+Done");
+        expect(link.href).toContain("searchBy=name");
+        expect(link.href).toContain("PAY-00105-038");
+    });
+
+    it("sends an UNSETTLED payment to All Payments, because it is not Paid yet", () => {
+        // ⚠️ Verified live before this branch existed: "Payments Done" filters status = Paid, so a
+        // merely SUGGESTED payment -- still Approved -- landed on an empty table with nothing on
+        // screen explaining why. "All Payments" carries no status filter.
+        const link = settlementLink("Project Payments", "PAY-00107-044", false)!;
+        expect(link.href).toContain("tab=All+Payments");
+        expect(link.href).not.toContain("Payments+Done");
+        expect(link.href).toContain("PAY-00107-044");
+    });
+
+    it("names the SAME tab in the tooltip that the href goes to", () => {
+        // The tooltip was written in the component and immediately went stale -- it said "Payments
+        // Done" on a link redirected to "All Payments". Built beside the href, it cannot.
+        const settled = settlementLink("Project Payments", "PAY-1", true)!;
+        expect(settled.title).toContain("Payments Done");
+        const open = settlementLink("Project Payments", "PAY-1", false)!;
+        expect(open.title).toContain("All Payments");
+        expect(open.title).not.toContain("Payments Done");
+    });
+
+    it("says out loud that an expense link is not the record itself", () => {
+        expect(settlementLink("Project Expenses", "i87sop52n3")!.title).toContain(
+            "cannot be linked to directly"
+        );
+    });
+
+    it("defaults to the unsettled destination, which is the safe one", () => {
+        // If a caller forgets, the link still finds the record; the reverse default would hide it.
+        expect(settlementLink("Project Payments", "PAY-1")!.href).toContain("tab=All+Payments");
+    });
+
+    it("marks an expense link INEXACT, because its table cannot be searched by record id", () => {
+        // Not a shortcoming of this helper: PE_SEARCHABLE_FIELDS / NPE_SEARCHABLE_FIELDS cover
+        // description, type, vendor and amount -- never `name`. Rendering it like a payment link
+        // would promise a precision it does not have.
+        const pe = settlementLink("Project Expenses", "i87sop52n3")!;
+        expect(pe.exact).toBe(false);
+        expect(pe.href).toBe("/expense/project");
+
+        const npe = settlementLink("Non Project Expenses", "abc123")!;
+        expect(npe.exact).toBe(false);
+        expect(npe.href).toBe("/expense/non-project");
+    });
+
+    it("refuses a half-written or unknown target", () => {
+        expect(settlementLink("Project Payments", "")).toBeNull();
+        expect(settlementLink("", "PAY-1")).toBeNull();
+        expect(settlementLink(undefined, undefined)).toBeNull();
+        expect(settlementLink("Procurement Orders", "PO-1")).toBeNull();
+    });
+
+    it("a SETTLED row reads its match records, not its note", () => {
+        // The note is a sentence written for a person. `Outflow Row Match` stores the fact exactly,
+        // so parsing the prose back out would be guessing at something already known.
+        const settled = row({
+            row_status: "Settled",
+            outcome_note: "One approved record at this amount: PAY-DECOY.",
+            suggested_doctype: "Project Payments",
+            suggested_name: "PAY-DECOY",
+            matches: [
+                {
+                    import_row: "OFR-1",
+                    target_doctype: "Project Payments",
+                    target_name: "PAY-REAL",
+                    target_amount: 100,
+                    match_kind: "Settled",
+                    match_basis: "Bank reference",
+                },
+            ],
+        });
+        const [link] = rowSettlementLinks(settled);
+        expect(link.label).toBe("PAY-REAL");
+        // A match record means money was written, so the payment IS Paid.
+        expect(link.href).toContain("tab=Payments+Done");
+    });
+
+    it("a fan-out settlement yields one link per record", () => {
+        const settled = row({
+            row_status: "Settled",
+            matches: [
+                { target_doctype: "Project Payments", target_name: "PAY-A" },
+                { target_doctype: "Project Payments", target_name: "PAY-B" },
+            ] as OutflowImportRow["matches"],
+        });
+        expect(rowSettlementLinks(settled).map((l) => l.label)).toEqual(["PAY-A", "PAY-B"]);
+    });
+
+    it("a MATCHED row falls back to the stored suggestion, because nothing is written yet", () => {
+        const matched = row({
+            row_status: "Matched",
+            suggested_doctype: "Project Payments",
+            suggested_name: "PAY-00105-038",
+            matches: [],
+        });
+        const [link] = rowSettlementLinks(matched);
+        expect(link.label).toBe("PAY-00105-038");
+        // Nothing has been written, so the payment is still Approved -> All Payments.
+        expect(link.href).toContain("tab=All+Payments");
+    });
+
+    it("gives an unmatched row nothing to link to", () => {
+        expect(rowSettlementLinks(row({ row_status: "Unmatched" }))).toEqual([]);
     });
 });
 

@@ -1,8 +1,9 @@
 // src/pages/outflow-import/components/DecisionDialog.tsx
 
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { useFrappeGetCall, useFrappeGetDocList } from "frappe-react-sdk";
-import { AlertTriangle, Check, Loader2, X } from "lucide-react";
+import { AlertTriangle, Check, ExternalLink, Loader2, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -23,6 +24,7 @@ import {
     amountVerdict,
     isConfirmable,
     orderBySuggestion,
+    settlementLink,
     type DecisionTarget,
     type RowDecision,
 } from "../outflowTableModel";
@@ -557,6 +559,7 @@ const RecordDetail = ({
 }) => {
     const verdict = amountVerdict(record.amount, bankAmount);
     const settleable = record.suggested;
+    const link = settlementLink(record.target_doctype, record.name);
     return (
         <div className="rounded-md border bg-background p-3 text-sm">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -568,6 +571,18 @@ const RecordDetail = ({
                         {LEDGER_LABEL[record.target_doctype] ?? record.target_doctype}
                     </span>
                     <span className="truncate font-mono text-xs">{record.name}</span>
+                    {/* Opening the record is a READ, and it navigates away from a dialog holding an
+                        unconfirmed decision -- so it is a quiet link beside the id, never a button
+                        competing with Confirm. */}
+                    {link && (
+                        <Link
+                            to={link.href}
+                            title={link.title}
+                            className="shrink-0 text-primary hover:underline"
+                        >
+                            <ExternalLink className="h-3.5 w-3.5" />
+                        </Link>
+                    )}
                 </span>
                 <span className="tabular-nums">
                     {formatToRoundedIndianRupee(record.amount)}
