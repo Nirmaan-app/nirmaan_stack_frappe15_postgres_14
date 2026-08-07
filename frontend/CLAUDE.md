@@ -797,6 +797,28 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   `runPipeline` directly and never touch `coerceForMatch`, so a coercion change has to be proven
   through the pricing-editor path (the count of rows actually producing a value), not by a green
   suite.
+- **A COMPUTED ATTRIBUTE VALUE MUST REACH THE SELECTION -- `circuit_fit` and `resolveQty` read
+  there and never consult `ctx` (owner-locked).** `circuit_fit` takes its length from
+  `selected[length_attr]` and a component's `{from_attr}` quantity from `selected[qty.from_attr]`,
+  while every other step writes into `ctx`, and `scale` cannot bridge it (it is a RATE scaler needing
+  an existing finite `ctx` rate as its target). The `derive_attribute` step crosses the gap by writing
+  into a **run-local overlay copy of the selection** inside `runPipeline`, so every existing read site
+  sees it and **the caller's object is never mutated** -- `value` must keep meaning "what the user or
+  extraction supplied". **Do NOT instead widen the readers to fall back to `ctx`**: they are shared by
+  all 13 categories, and a `ctx` key colliding with an attribute id would silently re-price a shipped
+  row. A pipeline with no `derive_attribute` step is byte-identical.
+- **A STATED value ALWAYS WINS over a computed one for this attribute -- NO floor, NO warning
+  (owner-locked).** DELIBERATELY unlike the plate's take-the-larger: the STATED value is kept whether
+  it is larger or smaller than the computation, and nothing warns. It is checked BEFORE the source
+  attributes are read, so a stated length prices even when the input the rule would have used is
+  unreadable. The field therefore behaves like a LADDER BIND, not like the blanker quantity -- it must
+  stay **EDITABLE** (`readOnly` false) on every surface.
+- **A `derive_attribute`'s FORMULA, SOURCE attributes and TARGET attribute are all CONFIG, never
+  hardcoded** (the `module_fit` `terms` precedent). A missing / blank / non-numeric / `"None"` source
+  is an HONEST NO-COMPUTE naming the attribute -- never a zero, never a guess -- and a MALFORMED step
+  keeps its own distinct refusal. It publishes `StepTrace.derivedAttr` as STRUCTURED DATA with ONE
+  reader, `derivedAttrOutcomes` -- the `moduleFit` precedent: never parse the trace prose, never
+  re-derive the arithmetic.
 - **A category's `values_from.where` pins the family ITS OWN component refs price, not the union
   across families.** The resulting core x thickness grid is deliberately NOT rectangular -- a pair
   the catalog does not carry is an honest no-match, and constraining one dropdown by another's

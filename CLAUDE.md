@@ -211,6 +211,31 @@ First worked proof: the `sidebar_counts` aggregate rewrite + the shared `service
   Greying the box out makes such a row UNPRICEABLE, which is a wrong answer and not merely a wrong UI.
   The back_box component's `@plate_item` binding is SEPARATE and stays: **box module = the PLATE's module
   when a plate exists**; the no-plate fallback needs the module computation and is a later slice.
+- **A COMPUTED ATTRIBUTE VALUE MUST REACH THE SELECTION, because `circuit_fit` and `resolveQty` read
+  there and never consult `ctx` (owner-locked).** `circuit_fit` takes its length from
+  `selected[length_attr]` and a component's `{from_attr}` quantity from `selected[qty.from_attr]`,
+  while every other step writes into `ctx` — so a value computed the ordinary way cannot reach either
+  one. `scale` cannot bridge it: it is a RATE scaler, needing an existing finite `ctx` rate as its
+  target. The `derive_attribute` step crosses the gap by writing into a **run-local overlay copy of
+  the selection**, so every existing read site sees it and **the caller's object is never mutated** —
+  `value` must keep meaning "what the user or extraction supplied". **Do NOT instead teach the readers
+  to fall back to `ctx`**: they are shared by all 13 categories, and a `ctx` key colliding with an
+  attribute id would silently re-price a shipped row. A pipeline carrying no `derive_attribute` step
+  is byte-identical.
+- **A STATED circuit length ALWAYS WINS over a computed one — NO floor and NO warning (owner-locked).**
+  This DELIBERATELY DIVERGES from the plate's take-the-larger: the larger does not win, the STATED one
+  does, whether it is bigger or smaller than the computation, and nothing warns. A pricer typing 60 for
+  a long run is simply right. Stated-wins is checked BEFORE the source attributes are read, so a row
+  that states its length prices even when the input the rule would have used is unreadable.
+- **A `derive_attribute`'s FORMULA, its SOURCE attributes and its TARGET attribute are all named in
+  CONFIG, never hardcoded** (the `module_fit` `terms` precedent) — `15 + (N-1) x 5` is one category's
+  rule. A missing / blank / non-numeric / `"None"` source is an HONEST NO-COMPUTE naming the attribute,
+  never a zero and never a guess; domain limits stay with the reader that owns them (`circuit_fit`
+  already refuses a non-positive length). The step publishes `StepTrace.derivedAttr` as STRUCTURED
+  DATA with ONE reader (`derivedAttrOutcomes`) — the `moduleFit` precedent; never parse the trace prose
+  and never re-derive the arithmetic. **Both its source attrs AND its `result_attr` are validator
+  `_ref`-guarded**: a typo in the TARGET would silently stop it ever finding a stated value to defer
+  to, which is quieter than a no-compute and worse.
 - **Goldens live in the asset's TOP-LEVEL `goldens` dict, keyed by category_id, and NOWHERE ELSE.**
   `loader.load_rate_master` reads `payload["goldens"]` and OVERWRITES each config's `goldens` key from it, so
   a golden written into a `category_configs[*].goldens` entry is SILENTLY IGNORED. A golden added in-system

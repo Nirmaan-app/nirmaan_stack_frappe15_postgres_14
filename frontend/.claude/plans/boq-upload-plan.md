@@ -19495,3 +19495,168 @@ engineering call, owner-accepted.)
   screen after it was gone from disk, and survived a cache-bypassing hard reload. The recorded
   recipe cleared it -- kill the LISTED vite PIDs, clear `node_modules/.vite`, restart, then CLOSE
   the tab and open a new one. Worth remembering that a hard reload alone is NOT sufficient.
+
+## Build slice CIRCUIT-LENGTH part 1 -- computing an attribute value INTO THE SELECTION (CODE ONLY, nothing live)
+
+**Commit:** `be9ecd6c` feat(boq-rate-master): compute an attribute value into the selection.
+**Branch:** `feature/boq-pricing-helper`, from `45b6b529`. NO config, NO asset, NO apply, NO DB write,
+zero AI calls. The capability is unreachable from any live pipeline; the wiring, R9 and the goldens
+are part 2.
+
+### Why
+
+Every `point_wiring` row is UNDER-PRICED. `circuit_length_m` defaults to a flat 15 m on every row
+regardless of how many points it serves. The owner's rule is `circuit length = 15 + (N - 1) x 5`,
+so 15 is correct only for N=1; row 198 is SEVEN points and should be 45 m. Sheet-wide the correction
+is +1,840 m of wire and +419 m of conduit.
+
+### THE WALL (verified, not assumed)
+
+The arithmetic itself was already expressible -- `evalFormula` handles `+`/`-`/`*`/`/` and parens, and
+`scale` can bind an attribute via a `*_from_attr` param. The blocker was **where a computed value can
+land**:
+
+- `scale` writes `ctx[s.result]` and requires `ctx[s.target]` to be an existing finite rate. It is a
+  RATE SCALER, not an attribute deriver.
+- **BOTH consumers read the SELECTION, and neither consults `ctx`:**
+  `circuit_fit` -> `const length = Number(selected[p.length_attr]);`
+  `resolveQty`'s `from_attr` -> `const v = Number(selected[qty.from_attr]);`
+- **No step wrote into `selected`.**
+
+So a computed value could only land in `ctx`, where neither reader looks -- the same wall `module_fit`
+hit. This was CONFIRMED by reading the code, and then pinned as an executable fact (below) rather than
+left as a claim.
+
+### The shape chosen, and the two rejected
+
+**CHOSEN: a new `derive_attribute` step writing into a run-local SELECTION OVERLAY.** One line at the
+top of `runPipeline` renames the parameter to `selectedInput` and binds
+`const selected = { ...selectedInput }`. **Not one read site changes textually** -- every existing
+`selected[...]` read, and every helper that takes `selected`, now sees the overlay. With no
+`derive_attribute` step the overlay is value-identical to the input (all values are primitives, so a
+shallow copy is a complete one), so all 13 categories are byte-identical. The caller's object is never
+mutated, which keeps `value` meaning "what the user or extraction supplied".
+
+**REJECTED -- teaching the readers to fall back to `ctx`.** This is the widest blast radius available
+and the hardest to prove safe: the two readers are shared by every category and every `{from_attr}`
+component, so it changes how all 13 categories resolve every quantity. Its failure mode is the bad
+one -- a `ctx` key that happens to share an attribute id would silently re-price a shipped row, with
+no error and no trace. The prompt names this as a STOP-and-report shape; it was not built, and the
+chosen shape does not require it (the readers' logic is textually and semantically untouched).
+
+**REJECTED -- a pre-pass computing derived values before the pipeline runs.** `runPipeline` receives a
+`Pipeline`, not the whole config, so the pre-pass would have to live at `runAllPipelines` or take a new
+parameter -- a wider signature change than the overlay. It is also less composable (it could not read a
+value an earlier step produced) and has nowhere natural to put its trace, since the trace unit IS the
+step. Requirement (e) -- emit a trace line showing the working -- effectively selects the step form.
+
+### The step (all of it config, none of it hardcoded)
+
+Following the `module_fit` `terms` precedent -- weights AND attribute ids are config -- the formula,
+the source attributes and the target attribute are ALL named in config:
+
+```json
+{ "step": "derive_attribute",
+  "explain": "circuit length grows with the number of points",
+  "params": {
+    "result_attr": "circuit_length_m",
+    "terms": [{ "ident": "n", "attr": "point_count" }],
+    "constants": { "base": 15, "per_extra": 5 },
+    "formula": "base + (n - 1) * per_extra",
+    "unit": "m" } }
+```
+
+`15 + (N-1) x 5` is today's rule; another category can express a different one with no code change.
+
+- **STATED WINS, with NO FLOOR and NO WARNING** (owner ruling, and DELIBERATELY unlike the plate's
+  take-the-larger): the computation runs only when the row states nothing. A pricer typing 60 for a
+  long run is simply right, so a stated value is adopted VERBATIM -- the larger does not win, and
+  nothing warns. Checked BEFORE the terms are read, so a row that states its length prices even when
+  the point count is unreadable. **Pinned in BOTH directions** (a stated 60 > computed 45 is kept; a
+  stated 20 < computed 45 is kept, and no `UPGRADED` vocabulary appears anywhere).
+- **HONEST NO-COMPUTE.** A source attribute that is missing, blank, non-numeric, or the `"None"`
+  sentinel refuses the row NAMING the attribute -- never 15, never 0, never a guess. A MALFORMED step
+  (no `result_attr` / no `formula`) keeps its OWN distinct refusal: "declared nothing" is not the same
+  statement as "the input could not be read", and collapsing them lets a broken config look like a
+  data gap (the `module_fit` precedent). A non-finite result refuses. **Domain limits stay with the
+  reader that owns them** -- `circuit_fit` already refuses a non-positive length -- so the step invents
+  no rule of its own.
+- **The trace shows the working**, formula substituted with its own numbers:
+  `point_count 7 -> circuit_length_m = 15 + (7 - 1) * 5 = 45 m`. Substitution reuses the ONE tokenizer
+  (no second parser) and runs only AFTER `evalFormula` succeeded, so it can never be the thing that
+  throws.
+- **Option C holds:** an unbound identifier degrades to the honest `unsupported`, never an exception.
+
+### The derived-display machinery -- it SLOTS IN half way
+
+`StepTrace.derivedAttr` carries a `DerivedAttrOutcome` (`attr` / `value` / `stated` / `statedValue` /
+`unit`), written exactly as `module_fit` writes `moduleFit`, with ONE reader `derivedAttrOutcomes()` --
+so no consumer parses the trace prose (a human sentence that gets reworded, which fails silently) and
+no consumer re-derives the arithmetic (#179). A stated-wins outcome IS published, with `stated: true`
+and a null value, because "the row said so" is exactly what a display surface needs.
+
+**What part 2 still owes** (out of scope here -- `pricingSheetHelper.ts` is not in this slice's file
+list): `derivedAttrIds` and `applyDerivedDisplay` know TWO derivation mechanisms (a `{from_fit}`
+superseded qty, and a `module_fit` ladder bind). `derive_attribute` is a THIRD and must be added to
+both. It behaves like the LADDER BIND, not like the blanker quantity: a stated value IS read, so the
+field stays **EDITABLE** and `readOnly` must stay false. `rateHelperTypes.ts` needed no change --
+`derived` / `derivedValue` / `readOnly` already express it.
+
+### Backward compatibility -- the whole point, and re-proven not assumed
+
+The interpreter is shared by all 13 categories, so an interpreter change means all 26 goldens need
+re-proving. Every gate was measured BEFORE the change and again after:
+
+- **G1 vitest** 1,433 / 55 files -> **1,453 / 55 files**, green both ends (+3 wall pins, +17
+  capability tests). Backend `test_rate_master` 63 -> **71**, green. No other backend suite is
+  reachable from a frontend interpreter change; the one backend file touched is the validator, and its
+  own suite covers it.
+- **G2 tsc --noEmit** 3,236 pre-existing errors before and after -- **0 new**, and 0 in any in-scope
+  file at either end.
+- **G3 the 26 stored goldens, through the RM-4b PREVIEW GATE** (`evaluateGoldens` against the STORED
+  configs + LIVE active master items, not a unit harness injecting its own inputs -- #179). 13 configs,
+  26 goldens, **78 per-key checks, 77 green, BYTE-IDENTICAL before and after**, per category:
+  cabletray_raceway 9/9, conduit_piping 3/3, db_switchgear 8/8, earthing 6/6, industrial_sockets 2/2,
+  junction_box_raceway 2/2, lighting_mgmt_system 0/0, miscellaneous 8/**7**, point_wiring 9/9,
+  popup_boxes 2/2, switches_point 3/3, switches_sockets 6/6, wiring_cabling 20/20. The single red is
+  the KNOWN PRE-EXISTING `miscellaneous` m1 float artifact (`187.2` vs `187.20000000000002`, from
+  `234 x 0.8`) -- present identically in both runs, not this slice's.
+- **G4 rows producing a value in the pricing editor**, sheet-wide per category, through the REAL
+  helper on the live run BRSR-26-00424 (94 rows, 7 categories): **identical before and after** --
+  cabletray_raceway 0/8, conduit_piping 10/10, db_switchgear 11/14, point_wiring 18/23, popup_boxes
+  1/1, switches_sockets 15/16, wiring_cabling 5/22, **total 60/94**. Nothing uses the capability yet,
+  so no movement is the correct result.
+- **G5** zero AI calls, zero config writes, zero DB writes. The only DB access was read-only dumps.
+
+### Pins first (C4)
+
+The wall was pinned GREEN against the UNCHANGED interpreter before anything moved, so the diff shows
+what the readers did before and after:
+
+1. `circuit_fit` reads the SELECTION -- a `ctx` entry literally named `circuit_length_m` (planted via a
+   matched row whose `rates` carry that key, so `ctx` demonstrably holds 45) does NOT satisfy
+   `length_attr`; the row still refuses.
+2. `resolveQty`'s `from_attr` likewise -- the same planted `ctx` entry does not supply the quantity.
+3. `runPipeline` never mutates the caller's selection object.
+
+All three were green before the change and are STILL green after -- which is the real statement that
+the shared readers were not widened. The step-vocabulary pins on BOTH sides (frontend
+`STEP_VOCABULARY`, server `_KNOWN_STEP_TYPES`) were green at 12 types against the unchanged code, then
+extended together in the one commit -- 13 types now.
+
+### Validator (C3)
+
+`derive_attribute` joins `_KNOWN_STEP_TYPES` and is FULLY validated -- a step the interpreter
+understands but the validator rejects is unsavable, and that pairing has bitten twice. Both attribute
+channels are `_ref`-guarded: every `terms[].attr` AND the `result_attr`. **The target guard is the
+load-bearing one:** a typo there means the step never finds the stated value it is supposed to defer
+to, so a stated length would be silently ignored and the computed one would price -- quieter than a
+no-compute, and worse. An ambiguous formula env is refused too (a repeated `ident`, or a constant
+shadowing a term ident), because either makes the formula read an input the author did not choose.
+`constants` and `unit` are OPTIONAL, so the validator is not stricter than the interpreter.
+
+### Owed (part 2)
+
+The config wiring, the `points` attribute, the R9 wording, multi-point goldens, the three
+`derivedAttrIds` / `applyDerivedDisplay` additions, and the browser cert. Nothing in this slice is
+reachable until then.
