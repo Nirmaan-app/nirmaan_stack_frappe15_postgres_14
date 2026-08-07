@@ -41,7 +41,6 @@ from nirmaan_stack.services.outflow_import.ledgers import (
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
 from nirmaan_stack.services.outflow_import.status import (
     OPEN_ROW_STATUSES,
-    ROW_MISMATCHED,
     ROW_SETTLED,
     ROW_SKIPPED,
     derive_batch_counters,
@@ -619,91 +618,6 @@ def _search_one_ledger(target_doctype: str, bank_amount, search: str, limit: int
         }
         for r in frappe.db.sql(sql, tuple(params), as_dict=True)
     ]
-
-
-@frappe.whitelist()
-def get_reconciliation_report(batch: str):
-    """The batch's read-only findings, plus the payments this statement does NOT account for.
-
-    THE REVERSE VIEW IS THE POINT. Matching a bank row to a payment answers "is this transfer
-    recorded?"; it cannot answer "is every payment we recorded backed by a real transfer?". The
-    second list is informational, not an alarm -- a payment may legitimately have gone out through
-    another channel entirely.
-    """
-    require_outflow_access()
-    _assert_batch(batch)
-
-    period_from, period_to = frappe.db.get_value(
-        BATCH_DOCTYPE, batch, ["period_from", "period_to"]
-    )
-    rows = _load_rows(batch)
-    statuses = [r.get("row_status") or "" for r in rows]
-
-    matched_payments = {
-        r["target_name"]
-        for r in frappe.db.sql(
-            """
-            SELECT target_name FROM "tabOutflow Row Match"
-            WHERE import_batch = %s AND target_doctype = 'Project Payments'
-            """,
-            (batch,),
-            as_dict=True,
-        )
-    }
-
-    unmatched_payments = []
-    if period_from and period_to:
-        candidates = frappe.db.sql(
-            """
-            SELECT p.name, p.amount, p.utr, p.payment_date, p.project, v.vendor_name
-            FROM "tabProject Payments" p
-            LEFT JOIN "tabVendors" v ON v.name = p.vendor
-            WHERE p.status = 'Paid'
-              AND p.payment_date BETWEEN %s AND %s
-            ORDER BY p.payment_date ASC, p.name ASC
-            """,
-            (period_from, period_to),
-            as_dict=True,
-        )
-        unmatched_payments = [
-            {
-                "name": c["name"],
-                "amount": float(c["amount"] or 0),
-                "utr": c["utr"],
-                "payment_date": str(c["payment_date"]) if c["payment_date"] else None,
-                "project": c["project"],
-                "vendor_name": c["vendor_name"],
-            }
-            for c in candidates
-            if c["name"] not in matched_payments
-        ]
-
-    exceptions = [
-        {
-            "name": r["name"],
-            "transfer_id": r.get("transfer_id"),
-            "amount": float(r.get("amount") or 0),
-            "beneficiary_name": r.get("beneficiary_name"),
-            "row_status": r.get("row_status"),
-            "outcome_note": r.get("outcome_note"),
-        }
-        for r in rows
-        # v3: the three v2 exception statuses collapsed to one. `Mismatched` is now about AMOUNTS
-        # ONLY -- `Reference mismatch` was deleted outright and `Control exception` became a plain
-        # `Unmatched`. This whole endpoint is retired at V5 in favour of the three tabs.
-        if r.get("row_status") == ROW_MISMATCHED
-    ]
-
-    return {
-        "batch": batch,
-        "period_from": str(period_from) if period_from else None,
-        "period_to": str(period_to) if period_to else None,
-        "counters": derive_batch_counters(statuses),
-        "status": derive_batch_status(statuses),
-        "exceptions": exceptions,
-        "unmatched_payments": unmatched_payments,
-        "unmatched_payment_total": sum(p["amount"] for p in unmatched_payments),
-    }
 
 
 # --- helpers -----------------------------------------------------------------------------------

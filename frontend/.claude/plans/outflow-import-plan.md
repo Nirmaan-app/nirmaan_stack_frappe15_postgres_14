@@ -190,7 +190,14 @@ row to the root `CLAUDE.md` Reference Docs table, and record the as-built here.
 4. This is **on top of** debt already owed to teammates (4 new + 7 modified doctypes, 2 `[MIGRATE]`
    commits per the handover). Production is several migrates behind; one combined heads-up is owed.
 
-No new doctype and no new field: `Outflow Row Match` already records which record a row settled.
+No new doctype.
+
+5. ⚠️ **CORRECTED at R1.** This section used to read *"no new field: `Outflow Row Match` already
+   records which record a row settled."* That was true of the SETTLEMENT and wrong about the
+   SUGGESTION — the two are different facts, and the suggestion cannot live in that table without
+   taking its unique key before the settlement needs it. **`Outflow Import Row` gains
+   `suggested_doctype` + `suggested_name`**, so the migrate obligation is now six doctype JSONs on
+   this branch, not four.
 
 ---
 
@@ -223,6 +230,90 @@ No new doctype and no new field: `Outflow Row Match` already records which recor
 3. **Dev DB is ~9 days stale** (data ends 2026-07-28).
 4. **Fixtures stay synthetic — the repo is public.** Real statements carry live beneficiary names,
    accounts and IFSC codes. Do not commit a real export.
+
+---
+
+## §G — v3 as-built record
+
+### R1 + R2 — pre-selection and the one Link payment list (2026-08-07, commit `f0330514`)
+
+Two owner changes, one commit: they share four files and neither half is green alone.
+
+**R1 — the match run writes down WHICH record it picked.**
+Previously the run stored only a status, a note and the resolved vendor, so the screen had to re-run
+the matcher one row at a time when a reviewer opened it. Two consequences, both owner-reported: a
+matched row could not read as ready in the TABLE, and confirming twenty matched transfers meant
+opening twenty dialogs to tick twenty records the matcher had already chosen.
+
+- `services/outflow_import/status.py` — new pure `sole_suggestion(outcome, match) -> Suggestion|None`.
+  Takes the **outcome**, not just the match: `derive_row_outcome` short-circuits on a duplicate, a
+  failed transfer and an already-Paid record *before* it looks at candidates, so a match result can
+  hold perfectly good candidates for a row that was correctly Skipped. It reads the same
+  `_settleable_candidates` list `_matched_note` counts — the browser used to re-derive from
+  `payment_groups` (all of them) while the note counted `best_payment_group` plus expenses, so a row
+  could read "One approved record at this amount" and still refuse to pre-select it.
+- `Outflow Import Row` — `suggested_doctype` + `suggested_name`, read-only. **MIGRATE.**
+- `review._persist_row_outcome` — writes the pair **and blanks it** on every re-run that no longer
+  finds one. The clearing half is the one that breaks silently: payments get ticked Paid by hand all
+  day, so a batch matched at 10:00 finds different things at 16:00.
+- `outflowTableModel.ts` — `suggestedDecision` / `seedDecisions` / `decisionOrigin`.
+  `seedDecisions` never overwrites a decision a reviewer made **or deliberately cleared** (a clear
+  leaves an entry with a null link, which is what makes it distinguishable from "never touched"), and
+  returns the SAME Map when it adds nothing so refetches do not re-render the table.
+- `solePreselection` **deleted** (owner: never guess). The only rows still reaching the picker
+  un-ticked are rows the matcher DECLINED, so an auto-tick there was the screen overruling the
+  matcher on amount alone.
+- `OutflowRowsTable` — the outcome button NAMES the suggested record, so ticking without opening is
+  an informed act rather than trust in the software.
+
+**R2 — three ledger cards become one "Link payment" list.**
+
+- `review.search_settleable_records` — `target_doctype` now OPTIONAL; blank = all three ledgers.
+  Per-ledger queries split into `_search_one_ledger`, merged, sorted (suggested first, then closest)
+  and **capped after the merge**, so the cut keeps the globally closest records rather than a third
+  from each. Every record carries its own `target_doctype`.
+- **Fixed an ID leaking into a name column:** `Project Expenses.vendor` / `.projects` are Link
+  fields, so the raw values were `VEN-0001` / a project id. Two `LEFT JOIN`s now resolve real names,
+  and expenses are searchable by vendor and project name (payments already were).
+- **`updated_on` added for expenses.** Neither expense doctype has an approval date — no field, no
+  approver; only `Project Payments` records one. The modification timestamp travels under its own
+  key and the screen labels it "updated" vs "approved" (owner ruling).
+- `RowDecision.target` is now OPTIONAL — the ledger arrives WITH the chosen record instead of from a
+  card clicked first. `isConfirmable` requires **both** halves.
+- **Closed a hole this opened:** a cleared selection leaves no target, and the dialog's Confirm would
+  have posted a settle with an undefined doctype. Confirm is now gated on the same `isConfirmable`
+  the bulk bar counts with, with a backstop in the page handler.
+- "Create a new expense" **HIDDEN behind one `const`**, not deleted — form, `newExpense`, the `new`
+  branch of `isConfirmable` and the `create_expense` endpoint are intact.
+
+**Measured finding, worth keeping:** `match_expenses` matches on **amount alone** (description text
+only raises the score). A round-number transfer with an approved payment *and* an unrelated approved
+expense at the same amount honestly has two candidates and pre-selects nothing. Found because a test
+asserting on the ₹5,000 fixture row failed against a live ₹5,000 approved expense. The test now
+asserts its precondition so a future collision reports itself as data drift rather than a broken
+deriver.
+
+**Tests:** 192 pure · api `test_review` 21 → 38 · `test_status` 41 → 49 · 1627 vitest ·
+`tsc` clean across `src/pages/outflow-import` · `vite build` succeeds.
+
+### V5 — cleanup + docs (2026-08-07)
+
+- Deleted `components/ReconciliationReport.tsx`, `review.get_reconciliation_report` and the
+  `OutflowReconciliationReport` type — all three verified orphaned first (nothing imported the
+  component; the endpoint had only its own two tests).
+  ⚠️ **A capability went with it that the three tabs do NOT replace:** the REVERSE VIEW — payments
+  recorded as Paid inside the period with no bank row behind them. The tabs answer "is this transfer
+  recorded?"; nothing now answers "is every payment we recorded backed by a real transfer?".
+  Deliberate scope decision; if wanted back it is a revert, not a rewrite. `test_review` 38 → 36.
+- **"Simplify close/reopen to one button" needed no work** — it is already one toggling button
+  (`Close import` / `Reopen`). That checkbox predates the v3 rework that collapsed it. The
+  `CloseBatchDialog` confirm was deliberately KEPT: closing is the one action whose consequence is
+  invisible afterwards, so naming what gets abandoned is its only feedback.
+- Wrote `.claude/context/domain/outflow-import.md` with a `## Residence — concept → owner` manifest;
+  registered it in `.claude/context/_index.md` and the root `CLAUDE.md` Reference Docs table.
+
+**Still owed:** the live browser walk (the real gate — no DOM test environment exists here), the
+production migrate (now **six** doctype JSONs on this branch), and the push. Nothing is pushed.
 
 ---
 

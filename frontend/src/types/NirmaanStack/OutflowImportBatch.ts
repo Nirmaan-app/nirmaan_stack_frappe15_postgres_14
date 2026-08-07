@@ -148,32 +148,6 @@ export interface OutflowRowCandidates {
     }[];
 }
 
-/** The batch's read-only findings plus the payments this statement does not account for. */
-export interface OutflowReconciliationReport {
-    batch: string;
-    period_from: string | null;
-    period_to: string | null;
-    counters: Record<string, number>;
-    status: string;
-    exceptions: {
-        name: string;
-        transfer_id: string;
-        amount: number;
-        beneficiary_name: string;
-        row_status: string;
-        outcome_note: string;
-    }[];
-    unmatched_payments: {
-        name: string;
-        amount: number;
-        utr: string | null;
-        payment_date: string | null;
-        project: string | null;
-        vendor_name: string | null;
-    }[];
-    unmatched_payment_total: number;
-}
-
 /** The payload `upload_outflow_statement` returns. */
 /**
  * What importing this statement WOULD do, from `preview_outflow_statement`. Nothing is written to

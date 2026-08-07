@@ -33,7 +33,6 @@ import frappe
 from nirmaan_stack.api.outflow_import.review import (
     MATCH_DOCTYPE,
     get_batch_rows,
-    get_reconciliation_report,
     get_row_candidates,
     match_batch,
     search_settleable_records,
@@ -666,34 +665,13 @@ class TestReadEndpoints(OutflowReviewFixture):
         self.assertTrue(payload["payment_groups"])
         self.assertEqual(payload["payment_groups"][0]["targets"][0]["name"], self.pay_clean)
 
-    def test_report_lists_the_mismatches_it_found(self):
-        """v3 collapsed three exception statuses into one. `Reference mismatch` was deleted
-        outright and `Control exception` became a plain `Unmatched`, so `Mismatched` is all that
-        is left to report. This endpoint is retired entirely at V5 in favour of the three tabs.
-        """
-        report = get_reconciliation_report(self.batch.name)
-        statuses = {e["row_status"] for e in report["exceptions"]}
-        # Subset, not equality -- the matcher also sees the live ledger, so an extra finding is
-        # possible and is not this test's business. What must be present is what we planted.
-        self.assertIn("Mismatched", statuses)
-        self.assertNotIn("Control exception", statuses)
-        self.assertNotIn("Reference mismatch", statuses)
-        self.assertTrue(all(e["outcome_note"] for e in report["exceptions"]))
 
-    def test_report_lists_payments_the_statement_does_not_account_for(self):
-        # The reverse view: a payment recorded inside the period with no bank row behind it.
-        # Informational -- another channel may legitimately have paid it.
-        orphan = self._insert_payment_row(
-            amount=4321.0,
-            status="Paid",
-            utr=f"NOBANKROW{frappe.generate_hash(length=6)}",
-            payment_date=self.parsed.period_from,
-        )
-        frappe.db.commit()
-
-        report = get_reconciliation_report(self.batch.name)
-        self.assertIn(orphan, [p["name"] for p in report["unmatched_payments"]])
-        self.assertNotIn(self.pay_clean, [p["name"] for p in report["unmatched_payments"]])
+# ⚠️ `get_reconciliation_report` AND ITS TWO TESTS WERE DELETED AT V5, and one capability went with
+# them that the three tabs do NOT replace: the REVERSE VIEW -- payments we recorded as Paid inside
+# the statement's period with no bank row behind them. The tabs answer "is this transfer recorded?";
+# nothing now answers "is every payment we recorded backed by a real transfer?". That is a
+# deliberate scope decision, not an oversight; if it is wanted back it is a revert of this commit,
+# not a rewrite.
 
 
 if __name__ == "__main__":
