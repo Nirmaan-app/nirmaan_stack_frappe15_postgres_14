@@ -19,9 +19,44 @@ import {
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import type { RateCategoryConfig, RateMasterItem } from "./rateMasterTypes";
+import type { AttributeDefinition, RateCategoryConfig, RateMasterItem } from "./rateMasterTypes";
 import { parseFiniteInput } from "./rateMasterEdit";
-import { categoryItemKinds, isCategoryDataScopeEmpty } from "./rateMasterStructure";
+import {
+  categoryItemKinds,
+  isCategoryDataScopeEmpty,
+  isDropdownAttributeType,
+  isNumericAttributeType,
+} from "./rateMasterStructure";
+
+/**
+ * THE THIRD COERCION SITE. What an edited / newly-entered attribute value is STORED as on a master
+ * item row.
+ *
+ * An attribute value is coerced in SEVERAL places -- the frontend match path
+ * (`rateMasterStructure.coerceForMatch`), the server extraction path
+ * (`extraction._coerce_value`), and HERE, where a human types a value into the item master. All of
+ * them must agree, because matching is strict identity: a row written with the string "1" where
+ * every other row carries the number 1 can never be matched by anything.
+ *
+ * This branched on `"number"` alone, so a `number_choice` value was stored as a STRING -- the same
+ * defect that had already been missed twice (the frontend twin, then the server). It was LATENT
+ * rather than live only because the only `number_choice` attributes today belong to point_wiring,
+ * which is kind-less and therefore owns no master rows to edit. `isNumericAttributeType` is the ONE
+ * shared predicate all three sites now key on.
+ *
+ * A blank stays blank (the caller decides whether to skip it); a non-numeric entry against a numeric
+ * def is left VERBATIM rather than becoming NaN -- the server canonicalises and the row round-trips
+ * visibly wrong instead of silently nulled. PURE.
+ */
+export function coerceAttributeForStorage(
+  def: Pick<AttributeDefinition, "type">,
+  raw: string,
+): string | number {
+  if (!isNumericAttributeType(def.type)) return raw;
+  if (raw.trim() === "") return raw;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : raw;
+}
 
 interface Props {
   items: RateMasterItem[];
@@ -282,8 +317,9 @@ export function RateMasterDataViewer({
       const raw = draftAttrs[d.id] ?? "";
       const orig = cellText(it.attributes?.[d.id]);
       if (raw === orig) continue;
-      // number-typed attributes are stored numeric; keep choice/text as-is (server canonicalises).
-      attributes_patch[d.id] = d.type === "number" && raw.trim() !== "" ? Number(raw) : raw;
+      // NUMERIC-typed attributes (number AND number_choice) are stored numeric; choice/text stay
+      // as-is (the server canonicalises). See coerceAttributeForStorage -- the third coercion site.
+      attributes_patch[d.id] = coerceAttributeForStorage(d, raw);
     }
     if (Object.keys(rates_patch).length === 0 && Object.keys(attributes_patch).length === 0) {
       cancelEdit();
@@ -572,7 +608,7 @@ function AddItemDialog({
     for (const d of attrDefs) {
       const raw = attrs[d.id];
       if (raw === undefined || raw === "") continue;
-      attributes[d.id] = d.type === "number" ? Number(raw) : raw;
+      attributes[d.id] = coerceAttributeForStorage(d, raw);
     }
     const rateOut: Record<string, number | null> = {};
     for (const k of rateCols) {
@@ -633,7 +669,10 @@ function AddItemDialog({
           {attrDefs.map((d) => (
             <label key={d.id} className="flex flex-col gap-1">
               <span className="text-xs text-muted-foreground">{d.label}</span>
-              {d.type === "choice" && d.values?.length ? (
+              {/* a DROPDOWN type with a static list gets a Select; a number_choice whose domain is
+                  values_from carries no static list here (the Data tab does not resolve it) and so
+                  falls through to the numeric input below -- byte-identical for choice/number. */}
+              {isDropdownAttributeType(d.type) && d.values?.length ? (
                 <Select value={attrs[d.id] ?? ""} onValueChange={(v) => setAttrs((p) => ({ ...p, [d.id]: v }))}>
                   <SelectTrigger className="h-8"><SelectValue placeholder={`Select ${d.label}`} /></SelectTrigger>
                   <SelectContent>
@@ -645,7 +684,7 @@ function AddItemDialog({
               ) : (
                 <Input
                   className="h-8"
-                  inputMode={d.type === "number" ? "decimal" : "text"}
+                  inputMode={isNumericAttributeType(d.type) ? "decimal" : "text"}
                   value={attrs[d.id] ?? ""}
                   onChange={(e) => setAttrs((p) => ({ ...p, [d.id]: e.target.value }))}
                 />

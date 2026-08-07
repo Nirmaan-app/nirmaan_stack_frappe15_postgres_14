@@ -300,8 +300,23 @@ class TestRateSuggest(FrappeTestCase):
             with self.assertRaises(frappe.ValidationError):
                 rate_master.start_suggest(boq=self.boq, sheet_name=self.sheet_name)
 
-    # ---- EA-2: N-category population + item-identity mode (uses the live v6 Electrical configs) ----
+    # ---- EA-2: N-category population + item-identity mode (uses the LIVE Electrical configs) ----
     def test_11_ea2_multicategory_and_identity(self):
+        """CORRECTED (closeout slice). This test drove the item-identity half through
+        `switches_sockets`, which is NO LONGER an identity category: slice 1a REMOVED its
+        `matching_mode` and `identity_attribute_id` TOGETHER (pinned by test_rate_master's
+        test_37), which routes it to the ordinary attribute prompt -- the one with no
+        refuse-composites clause -- because every switches_sockets row IS an assembly.
+
+        So the empty catalog is a deliberate CHANGE, not a defect: the master data is intact (the
+        switch_socket_item rows and their `item` values are still there), and switches_sockets no
+        longer declares an identity attribute to build a catalog FROM. Confirmed against the live
+        config before this edit.
+
+        The identity assertions are therefore re-pointed at `miscellaneous`, which IS still
+        item-identity (identity attribute `description`), so the MECHANISM stays under test rather
+        than being weakened to "the catalog is empty". switches_sockets keeps its place in the
+        population half and gains a POSITIVE assertion that it is now attribute-mode."""
         sheet = "MultiCat"
         sd = _new_sheet(self.boq, sheet, commit_version=1)
         hdr = _node(self.boq, sd, "Preamble", 20, None, "SWITCHES AND SOCKETS", 20)
@@ -309,53 +324,85 @@ class TestRateSuggest(FrappeTestCase):
         _node(self.boq, sd, "Line Item", 22, None, "25mm dia FRLS PVC conduit", 22, qty=1)  # conduit (attribute)
         _node(self.boq, sd, "Line Item", 23, None, "Wireless occupancy sensor ceiling mount", 23, qty=1)  # LMS
         _node(self.boq, sd, "Line Item", 24, None, "Totally uncategorised widget", 24, qty=1)  # blank
+        _node(self.boq, sd, "Line Item", 25, None, "Floor cutting and chipping works", 25, qty=1)  # misc (identity)
         frappe.db.commit()
         _insert_cat(self.boq, sheet, 1, 21, "switches_sockets")
         _insert_cat(self.boq, sheet, 1, 22, "conduit_piping")
         _insert_cat(self.boq, sheet, 1, 23, "lighting_mgmt_system")  # empty pipelines -> NOT eligible
         # row 24: no BoQ Row Category -> blank -> excluded
+        _insert_cat(self.boq, sheet, 1, 25, "miscellaneous")
         frappe.db.commit()
 
-        # (a) population spans switches + conduit ONLY; LMS (empty pipelines) + blank excluded
+        # (a) population spans switches + conduit + misc; LMS (empty pipelines) + blank excluded
         cv, rows = extraction.assemble_population(self.boq, sheet)
         self.assertEqual(cv, 1)
         cats = {r["excel_row"]: r["category_id"] for r in rows}
-        self.assertEqual(cats, {21: "switches_sockets", 22: "conduit_piping"})
+        self.assertEqual(cats, {21: "switches_sockets", 22: "conduit_piping", 25: "miscellaneous"})
 
-        # (b) the switches config is item-identity: identity flag + LIVE catalog injected (not hardcoded)
         configs = extraction._load_active_configs({"Electrical"})
-        sw_cfg = configs[("Electrical", "switches_sockets")]
-        catalog = extraction.catalog_values("Electrical", sw_cfg)
-        self.assertIn("10A 1 WAY SWITCH", catalog)  # sourced from the active master items
-        sw_defs = extraction.build_attribute_defs(sw_cfg, catalog)
-        iden = [d for d in sw_defs if d.get("identity")]
+
+        # (b) the identity mechanism, on a category that STILL uses it: identity flag + LIVE catalog
+        misc_cfg = configs[("Electrical", "miscellaneous")]
+        self.assertEqual(misc_cfg.get("matching_mode"), "item_identity")
+        catalog = extraction.catalog_values("Electrical", misc_cfg)
+        self.assertTrue(catalog, "the identity catalog must not be empty")
+        # sourced from the ACTIVE master items, never hardcoded. Assert the SOURCE rather than a
+        # literal value, so adding or retiring a rate item cannot rot this test.
+        master_values = set()
+        for r in frappe.get_all(
+            "BoQ Rate Master Item",
+            filters={"active": 1, "discipline": "Electrical",
+                     "kind": ["in", misc_cfg["item_kinds"]]},
+            fields=["attributes"], limit=0,
+        ):
+            master_values.add((_j(r["attributes"]) or {}).get(misc_cfg["identity_attribute_id"]))
+        self.assertTrue(set(catalog).issubset(master_values))
+        misc_defs = extraction.build_attribute_defs(misc_cfg, catalog)
+        iden = [d for d in misc_defs if d.get("identity")]
         self.assertEqual(len(iden), 1)
-        self.assertEqual(iden[0]["id"], "item")
+        self.assertEqual(iden[0]["id"], "description")
         self.assertEqual(iden[0]["values"], catalog)
 
-        # (c) the MODE SWITCH: identity prompt for switches, attribute prompt for conduit
-        self.assertIn("rate-item catalog", extraction.select_prompt_text(sw_cfg))
+        # (b2) POSITIVE: switches_sockets is NOT identity any more (slice 1a, deliberate), and the
+        # master rows it used to draw on are still present -- so the empty catalog is a config
+        # decision, not missing data.
+        sw_cfg = configs[("Electrical", "switches_sockets")]
+        self.assertIsNone(sw_cfg.get("matching_mode"))
+        self.assertIsNone(sw_cfg.get("identity_attribute_id"))
+        self.assertEqual(extraction.catalog_values("Electrical", sw_cfg), [])
+        self.assertFalse([d for d in extraction.build_attribute_defs(sw_cfg) if d.get("identity")])
+        self.assertTrue(
+            frappe.db.count("BoQ Rate Master Item",
+                            {"active": 1, "discipline": "Electrical", "kind": "switch_socket_item"}),
+            "the switch master rows must still exist -- an empty catalog here is a config change",
+        )
+
+        # (c) the MODE SWITCH: identity prompt for misc; attribute prompt for conduit AND switches
+        self.assertIn("rate-item catalog", extraction.select_prompt_text(misc_cfg))
         conduit_cfg = configs[("Electrical", "conduit_piping")]
         self.assertNotIn("rate-item catalog", extraction.select_prompt_text(conduit_cfg))
+        self.assertNotIn("rate-item catalog", extraction.select_prompt_text(sw_cfg))
 
         # (d) a full run (mock client): an identity value IN the catalog is kept; results carry category_id
+        in_catalog = catalog[0]
         client = _fake_extract({
-            21: {"item": ("10A 1 WAY SWITCH", 0.9)},
+            25: {"description": (in_catalog, 0.9)},
             22: {"size_mm": (25, 0.9)},
         })
         env = extraction.run_extraction(self.boq, sheet, client=client)
         self.assertEqual(env["ai_status"], "ran")
-        r21 = next(r for r in env["results"] if r["excel_row"] == 21)
-        self.assertEqual(r21["category_id"], "switches_sockets")
-        self.assertEqual(r21["attributes"]["item"]["value"], "10A 1 WAY SWITCH")
+        r25 = next(r for r in env["results"] if r["excel_row"] == 25)
+        self.assertEqual(r25["category_id"], "miscellaneous")
+        self.assertEqual(r25["attributes"]["description"]["value"], in_catalog)
         r22 = next(r for r in env["results"] if r["excel_row"] == 22)
         self.assertEqual(r22["category_id"], "conduit_piping")
 
         # (e) NEGATIVE: an identity value NOT in the catalog coerces to None (unknown / refuse-composite)
-        client2 = _fake_extract({21: {"item": ("NONEXISTENT WIDGET", 0.9)}, 22: {"size_mm": (25, 0.9)}})
+        client2 = _fake_extract({25: {"description": ("NONEXISTENT WIDGET", 0.9)},
+                                 22: {"size_mm": (25, 0.9)}})
         env2 = extraction.run_extraction(self.boq, sheet, client=client2)
-        r21b = next(r for r in env2["results"] if r["excel_row"] == 21)
-        self.assertIsNone(r21b["attributes"]["item"]["value"])
+        r25b = next(r for r in env2["results"] if r["excel_row"] == 25)
+        self.assertIsNone(r25b["attributes"]["description"]["value"])
 
     # ---- EA-DIFF: synonyms injection + coercion (GI -> MS for conduit_type) ----
     def test_12_ea_diff_synonyms(self):
@@ -1378,23 +1425,44 @@ class TestExtBRules(FrappeTestCase):
         self.assertIn(r8["guidance"], payload, "the guidance must arrive verbatim")
 
     def test_e4_point_wiring_r9_records_runs_and_cores_separately(self):
-        """point_wiring carries R9 and NOTHING else, and the wire-core defaults of 1.0 shipped at
-        ext-b must not be duplicated or altered.
+        """point_wiring's rule set, and the wire-core defaults of 1.0 shipped at ext-b.
 
-        R9 WAS REPLACED by the point_wiring RUNS slice. ext-b's R9 folded runs INTO the core value
-        (`applies_to: wire1_core`, "3 runs of 2-core is 6") and FAILED in the owner's hands: 6R x 1C
-        wrote core 6, no 6-core wire exists at that thickness, and the row did not compute. The
-        replacement keeps runs and cores SEPARATE. The old wording is asserted ABSENT so a revert
-        cannot pass this test silently."""
+        R9 has been replaced TWICE and each wording is asserted ABSENT so a revert to either cannot
+        pass silently. (1) ext-b's R9 folded runs INTO the core value (`applies_to: wire1_core`,
+        "3 runs of 2-core is 6") and FAILED in the owner's hands: 6R x 1C wrote core 6, no 6-core
+        wire exists at that thickness, and the row did not compute. (2) the RUNS slice replaced it
+        with "Runs and cores are recorded separately", which kept them separate but said nothing
+        about how many conductors a point carries. The CURRENT R9 is the owner's CP2 rewrite: point
+        wiring carries three conductors, so the run counts sum to three unless the line says
+        otherwise, and it enumerates five reading cases.
+
+        CORRECTED (closeout slice): this asserted `ids == ["R9"]` and pinned the RUNS-slice label and
+        guidance. Both moved for reasons that are recorded and intended -- slice 2p2 added the three
+        switch rules S1/S2/S3, and CP2 replaced R9's text wholesale -- so the assertions are updated
+        to the live truth rather than the test being weakened. The SHAPE is preserved: the id list is
+        still exact (a new rule appearing must fail here), the label is still exact, and the guidance
+        is still pinned on load-bearing PHRASES, so a further reword still fails."""
         ids = [r.get("id") for r in (_live_rules("point_wiring") or [])]
-        self.assertEqual(ids, ["R9"])
+        # EXACT, and in declaration order -- the order the prompt injection sees them.
+        self.assertEqual(ids, ["R9", "S3", "S1", "S2"])
         r9 = next(r for r in _live_rules("point_wiring") if r["id"] == "R9")
         self.assertEqual(r9["applies_to"], "wire1_runs")
-        self.assertEqual(r9["label"], "Runs and cores are recorded separately")
-        self.assertIn("record 3 as runs and 2 as the core count", r9["guidance"])
-        self.assertIn("must NEVER be multiplied together", r9["guidance"])
-        # the RETIRED wording must be gone -- this is what makes a revert fail loudly
+        self.assertEqual(r9["label"], "Wire runs and cores in point wiring")
+        # the load-bearing claims of the CURRENT rule, phrase by phrase
+        self.assertIn("three conductors", r9["guidance"])
+        self.assertIn("phase, neutral and earth", r9["guidance"])
+        self.assertIn("add up to three", r9["guidance"])
+        self.assertIn("3R x 1.5 sqmm", r9["guidance"])       # the stated-run-count case
+        self.assertIn("wire 2 is None", r9["guidance"])      # the closing case
+        # BOTH retired wordings must be gone -- this is what makes a revert fail loudly
         self.assertNotIn("3 runs of 2-core is 6", r9["guidance"])
+        self.assertNotIn("record 3 as runs and 2 as the core count", r9["guidance"])
+        # the three switch rules that slice 2p2 added, asserted by identity so a silent drop fails
+        others = {r["id"]: r for r in _live_rules("point_wiring") if r["id"] != "R9"}
+        self.assertEqual(
+            {i: r["applies_to"] for i, r in others.items()},
+            {"S1": "switch_item", "S2": "switch_item", "S3": "switch_item"},
+        )
         cfg = frappe.get_all("BoQ Rate Category Config",
                              filters={"discipline": "Electrical", "category_id": "point_wiring",
                                       "active": 1}, fields=["config"], limit=1)[0]["config"]
