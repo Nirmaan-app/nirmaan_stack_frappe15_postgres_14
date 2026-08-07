@@ -79,14 +79,57 @@ interface RateHelperPanelProps {
   variant?: "embedded" | "push";
 }
 
+/**
+ * PURE. Panel edits are ROW-SCOPED: the state carries the row it was typed on, and a read from any
+ * other row (or with no row selected) yields the empty map. This is what makes the cross-row leak
+ * structurally impossible rather than merely cleaned up afterwards -- there is no render in which a
+ * previous row's edits are visible, so no click can bank them.
+ *
+ * Returning the caller's EMPTY constant (not a fresh {}) keeps the reference stable, so the
+ * `evaluations` memo does not recompute on every render.
+ */
+export interface RowScoped<T> {
+  /** The excelRow these edits were typed on; null = nothing typed yet. */
+  row: number | null;
+  byHelper: T;
+}
+
+export function overridesForRow<T>(state: RowScoped<T>, excelRow: number | undefined, empty: T): T {
+  if (excelRow == null || state.row !== excelRow) return empty;
+  return state.byHelper;
+}
+
+const EMPTY_ATTR_MAP: Record<string, Record<string, string>> = {};
+const EMPTY_FINAL_MAP: Record<string, string> = {};
+const EMPTY_ATTR_STATE: RowScoped<Record<string, Record<string, string>>> = { row: null, byHelper: EMPTY_ATTR_MAP };
+const EMPTY_FINAL_STATE: RowScoped<Record<string, string>> = { row: null, byHelper: EMPTY_FINAL_MAP };
+
 export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onClose, variant = "embedded" }: RateHelperPanelProps) {
   // RM-3b: a row is loaded iff we have its context. Absent => the empty-state placeholder.
   const hasSelection = ctx != null && excelRow != null && col != null && kind != null;
   // Panel-session state ONLY (never persisted): per-helper attribute edits, which card is expanded,
   // and a per-helper final-value override (undefined => track the computed value).
-  const [attrOverrides, setAttrOverrides] = useState<Record<string, Record<string, string>>>({});
+  // ⚠️ ROW-SCOPED, and structurally so. These edits belong to ONE ROW and must never ride along to
+  // the next: the panel is a single mounted component that swaps `excelRow`, and before this fix the
+  // maps were keyed by HELPER ID alone. With one helper (`pricing_sheet`) serving EVERY category,
+  // an override typed on one row was re-applied to whatever row was opened next -- and to any
+  // category declaring an attribute of the same id, which is why it crossed categories
+  // (plate_item typed on point_wiring reached switches_sockets).
+  //
+  // THE HAZARD THAT MAKES IT URGENT: "Use this value" writes a rate PERMANENTLY via applyRate, and a
+  // stale override changes the number shown -- so the value banked could be computed from another
+  // row's attributes.
+  //
+  // The row is carried INSIDE the state and checked on read (see `attrOverrides` / `finalOverride`
+  // below) rather than cleared by an effect. An effect would leave a window: the render after
+  // `excelRow` changes but before the effect runs would still compute with the old row's edits, and
+  // a click in that window would bank it. Carrying the row makes a mismatch impossible to observe.
+  const [attrOverrideState, setAttrOverrideState] = useState<RowScoped<Record<string, Record<string, string>>>>(EMPTY_ATTR_STATE);
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [finalOverride, setFinalOverride] = useState<Record<string, string>>({});
+  const [finalOverrideState, setFinalOverrideState] = useState<RowScoped<Record<string, string>>>(EMPTY_FINAL_STATE);
+  // What the CURRENT row may see. A different row (or none) sees nothing -- never the previous row's.
+  const attrOverrides = overridesForRow(attrOverrideState, excelRow, EMPTY_ATTR_MAP);
+  const finalOverride = overridesForRow(finalOverrideState, excelRow, EMPTY_FINAL_MAP);
 
   // Defect 1c: scroll-into-view GUARD on open / when the target cell changes -- but ONLY when the
   // panel is genuinely off-screen. A sticky embedded panel deep in a scrolled sheet is already pinned
@@ -152,16 +195,21 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
   };
 
   const setAttr = (helperId: string, attrId: string, value: string) => {
-    setAttrOverrides((prev) => ({
-      ...prev,
-      [helperId]: { ...(prev[helperId] ?? {}), [attrId]: value },
-    }));
+    if (excelRow == null) return; // nothing selected -> nothing to scope the edit to
+    setAttrOverrideState((prev) => {
+      // A different row's edits are DISCARDED here, not merged -- same rule as the read.
+      const base = prev.row === excelRow ? prev.byHelper : EMPTY_ATTR_MAP;
+      return {
+        row: excelRow,
+        byHelper: { ...base, [helperId]: { ...(base[helperId] ?? {}), [attrId]: value } },
+      };
+    });
     // An attribute change invalidates a stale final-value override -> re-prefill from the recompute.
-    setFinalOverride((prev) => {
-      if (prev[helperId] === undefined) return prev;
-      const next = { ...prev };
+    setFinalOverrideState((prev) => {
+      if (prev.row !== excelRow || prev.byHelper[helperId] === undefined) return prev;
+      const next = { ...prev.byHelper };
       delete next[helperId];
-      return next;
+      return { row: excelRow, byHelper: next };
     });
   };
 
@@ -431,7 +479,13 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                       inputMode="decimal"
                       value={finalStr}
                       onChange={(e) =>
-                        setFinalOverride((prev) => ({ ...prev, [helper.id]: e.target.value }))
+                        setFinalOverrideState((prev) => ({
+                          row: excelRow!,
+                          byHelper: {
+                            ...(prev.row === excelRow ? prev.byHelper : EMPTY_FINAL_MAP),
+                            [helper.id]: e.target.value,
+                          },
+                        }))
                       }
                       aria-label="Final value"
                     />

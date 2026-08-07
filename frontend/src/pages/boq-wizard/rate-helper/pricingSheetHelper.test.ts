@@ -4,6 +4,7 @@ import { describe, it, expect } from "vitest";
 import type { Pipeline, RateCategoryConfig, RateMasterItem } from "@/pages/pricing/rate-master/rateMasterTypes";
 import type { ExtractionRow, RateHelperRowContext } from "./rateHelperTypes";
 import { isAttrBlank, isAttrDefaulted, isSuggestion } from "./rateHelperTypes";
+import { overridesForRow } from "./RateHelperPanel";
 import {
   attributeOptions,
   buildExtractionByRow,
@@ -821,5 +822,127 @@ describe("the missing-attribute gate NARROWS, but still blocks", () => {
     if (!isSuggestion(r)) return;
     const plate = r.workings?.attributes?.find((a) => a.id === "plate_item");
     expect(plate?.value).toBe("6M");
+  });
+});
+
+// ── PANEL OVERRIDES ARE ROW-SCOPED (the cross-row leak) ─────────────────────────────
+// The panel is ONE mounted component that swaps `excelRow`. Its edit maps were keyed by HELPER ID
+// alone, and one helper (`pricing_sheet`) serves EVERY category -- so an override typed on one row
+// was re-applied to whatever row was opened next, and to any category declaring an attribute of the
+// same id. Typing plate_item="18M" on point_wiring 221 moved point_wiring 235 AND switches_sockets
+// 241 and 269. It dates to bf3690b7 (the first panel slice); the derived-gate slice made it
+// REACHABLE by making 42 rows price, it did not introduce it.
+//
+// THE HAZARD: "Use this value" writes a rate permanently via applyRate, so a stale override could
+// bank a number computed from another row's attributes.
+//
+// There is no DOM test environment here (vitest runs `environment: "node"` by deliberate choice), so
+// the component itself cannot be mounted. The row-scoping DECISION is therefore a pure exported
+// function, pinned directly, and the leak's consequence is pinned at the helper.
+
+describe("overridesForRow -- panel edits belong to ONE ROW", () => {
+  const EMPTY: Record<string, Record<string, string>> = {};
+  const typed = { row: 221, byHelper: { pricing_sheet: { plate_item: "18M" } } };
+
+  it("POSITIVE: the row it was typed on sees its own edits", () => {
+    expect(overridesForRow(typed, 221, EMPTY)).toEqual({ pricing_sheet: { plate_item: "18M" } });
+  });
+
+  it("NEGATIVE: ANOTHER row sees nothing -- the leak, pinned shut", () => {
+    expect(overridesForRow(typed, 235, EMPTY)).toBe(EMPTY);
+    expect(overridesForRow(typed, 241, EMPTY)).toBe(EMPTY);
+  });
+
+  it("NEGATIVE: no row selected sees nothing", () => {
+    expect(overridesForRow(typed, undefined, EMPTY)).toBe(EMPTY);
+  });
+
+  it("a state with no edits yet yields the empty map for any row", () => {
+    expect(overridesForRow({ row: null, byHelper: EMPTY }, 221, EMPTY)).toBe(EMPTY);
+  });
+
+  it("returns the caller's EMPTY reference, so the evaluations memo does not churn", () => {
+    // a fresh {} each call would recompute every helper on every render
+    expect(overridesForRow(typed, 999, EMPTY)).toBe(overridesForRow(typed, 998, EMPTY));
+  });
+});
+
+describe("the leak's consequence, at the helper (cross-row and CROSS-CATEGORY)", () => {
+  const PLATE_ITEMS: RateMasterItem[] = [
+    { discipline: "Electrical", kind: "switch_socket_item",
+      attributes: { item: "3M", family: "Grid and Face Plates", colour: "White" }, rates: { list_price: 100 } },
+    { discipline: "Electrical", kind: "switch_socket_item",
+      attributes: { item: "18M", family: "Grid and Face Plates", colour: "White" }, rates: { list_price: 900 } },
+    { discipline: "Electrical", kind: "switch_socket_item",
+      attributes: { item: "10A 1 WAY SWITCH", family: "Switch", colour: "White" }, rates: { list_price: 100 } },
+  ];
+  const cfg = (categoryId: string): RateCategoryConfig => ({
+    discipline: "Electrical",
+    category_id: categoryId,
+    attribute_definitions: [
+      { id: "switch_item", label: "Switch", type: "choice", values: ["10A 1 WAY SWITCH"] },
+      { id: "switch_qty", label: "Switch qty", type: "number" },
+      { id: "plate_item", label: "Plate", type: "choice", values: ["3M", "18M"] },
+      { id: "colour", label: "Colour", type: "choice", values: ["White"] },
+    ],
+    pipelines: {
+      p_boq: {
+        output: ["supply"],
+        steps: [
+          { step: "component_ref", name: "plate",
+            ref: { kind: "switch_socket_item", item: "@plate_item", family: "Grid and Face Plates", colour: "@colour" },
+            target: "list_price", rate_stages: [{ mult: 1 }], qty: 1 },
+          { step: "sum_components", result: "supply" },
+        ],
+      },
+    },
+  } as unknown as RateCategoryConfig);
+
+  const ATTRS = {
+    switch_item: { value: "10A 1 WAY SWITCH", confidence: 0.9 },
+    switch_qty: { value: 1, confidence: 0.9 },
+    plate_item: { value: "3M", confidence: 0.9 },
+    colour: { value: "White", confidence: 0.9 },
+  };
+  const helper = makePricingSheetHelper({
+    configsByCategory: new Map([["cat_a", cfg("cat_a")], ["cat_b", cfg("cat_b")]]),
+    items: PLATE_ITEMS,
+    extractionByRow: buildExtractionByRow([
+      { excel_row: 221, attributes: ATTRS },
+      { excel_row: 235, attributes: ATTRS },
+      { excel_row: 241, attributes: ATTRS },
+    ]),
+  });
+  const ctxFor = (excelRow: number, category: string): RateHelperRowContext => ({
+    excelRow, description: "", nodeType: "Line Item", category, discipline: "Electrical",
+    rateKinds: ["supply_rate", "install_rate"] as unknown as never,
+  });
+  const supplyOf = (r: ReturnType<typeof helper.compute>) =>
+    (isSuggestion(r) ? r.values.supply_rate : undefined);
+
+  it("baseline: every row prices from its OWN stated plate", () => {
+    expect(supplyOf(helper.compute(ctxFor(221, "cat_a")))).toBe(100);
+    expect(supplyOf(helper.compute(ctxFor(235, "cat_a")))).toBe(100);
+    expect(supplyOf(helper.compute(ctxFor(241, "cat_b")))).toBe(100);
+  });
+
+  it("an override alters ONLY the row it is passed with", () => {
+    const edited = helper.compute(ctxFor(221, "cat_a"), { plate_item: "18M" });
+    expect(supplyOf(edited)).toBe(900);                                   // the edited row moves
+    expect(supplyOf(helper.compute(ctxFor(235, "cat_a")))).toBe(100);     // a sibling does NOT
+  });
+
+  it("CROSS-CATEGORY: an override from one category must not reach another", () => {
+    // The sharpest symptom, and the one a per-category fix would miss: both configs declare
+    // `plate_item`, so a helper-keyed map reached across. Row-scoping is what stops it.
+    helper.compute(ctxFor(221, "cat_a"), { plate_item: "18M" });
+    expect(supplyOf(helper.compute(ctxFor(241, "cat_b")))).toBe(100);
+  });
+
+  it("the panel's read is what enforces it end to end", () => {
+    // What the panel now passes for a DIFFERENT row is the empty map -> the untouched value.
+    const state = { row: 221, byHelper: { pricing_sheet: { plate_item: "18M" } } };
+    const forOther = overridesForRow(state, 241, {} as Record<string, Record<string, string>>);
+    expect(supplyOf(helper.compute(ctxFor(241, "cat_b"), forOther.pricing_sheet))).toBe(100);
   });
 });
