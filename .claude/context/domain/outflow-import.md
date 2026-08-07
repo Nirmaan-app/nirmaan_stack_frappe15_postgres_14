@@ -28,7 +28,7 @@ pick one ad-hoc; ask.
 |---|---|---|
 | Row + batch status derivation | `services/outflow_import/status.py` (`derive_row_outcome`, `derive_staged_row_outcome`, `derive_batch_status`, `derive_batch_counters`) — B3 | compute a `row_status` or a batch `status`. The frontend mirror `outflowImportStatus.ts` is a CONVENIENCE pinned by a parity test; this file is the authority |
 | Which record the screen pre-selects | `services/outflow_import/status.py` (`sole_suggestion`) | re-derive "exactly one candidate" anywhere else — the browser did, from a different candidate list than the note counted, and the two disagreed |
-| The amount tolerance (±₹1) | `services/outflow_import/amounts.py` (`amounts_match`) | hold a second copy. Four call sites: both SQL pool queries, the matcher, the settle guard. A pool wider than the guard offers a record the confirm then refuses |
+| The amount tolerance (±₹1) | `services/outflow_import/amounts.py` (`amounts_match`) | hold a second copy, **or add a comparison that is not on the list**. FIVE call sites: both SQL pool queries, the matcher, the settle guard, and the already-paid duplicate check. A pool wider than the guard offers a record the confirm then refuses; the fifth was *missing* until 2026-08-07 and flagged 8 of 26 rows in a live statement as discrepancies over sub-rupee rounding |
 | What may be settled, and from which status | `services/outflow_import/ledgers.py` (`SETTLEABLE_STATUSES`, `settleable_statuses`) | carry its own Approved-only list. Read by `candidates.py` (what may be OFFERED) and `settle.py` (what may be WRITTEN) so the two can never disagree about one record |
 | Bank row → target matching | `services/outflow_import/matcher.py` (`match_row`, `match_payments`, `match_expenses`, `resolve_vendors`) | decide anything. It PROPOSES ranked candidates; `status.py` derives the outcome and a person makes the choice |
 | The settlement write | `services/outflow_import/settle.py` + the one orchestrator `api/outflow_import/expenses.settle_row` | write to a ledger from anywhere else in this feature |
@@ -102,8 +102,12 @@ the same amount honestly has **two** candidates and correctly pre-selects nothin
 2. **The already-Paid check is a SKIP, not a match** (Q14) — and it is the **only** route to
    `Mismatched`. Delete it and a hand-ticked payment reads `Unmatched`, and the obvious next click
    books the same money twice.
-3. **`Mismatched` is AMOUNTS ONLY.** The v2 `Reference mismatch` branch is deleted, not folded in. A
-   reference is only ever *written into a blank*, never compared.
+3. **`Mismatched` is AMOUNTS ONLY, and only beyond the ±₹1 window.** The v2 `Reference mismatch`
+   branch is deleted, not folded in. A reference is only ever *written into a blank*, never compared.
+   ⚠️ This branch used **exact** equality until 2026-08-07, which made every hand-ticked payment
+   carrying paise a "discrepancy" — 8 of 26 rows on a live statement, over gaps of 14 to 86 paise,
+   each announced with a note suggesting TDS. `status.py` now imports `amounts.amounts_match`; that
+   is its **one** permitted package import and the purity test was narrowed to say so.
 4. **`for_update=True` must never carry `cache=True`.** Frappe skips the row lock on a cached read,
    which makes the concurrency guard decorative.
 5. **Two payment hooks commit mid-save** — `update_parent_amount_paid` and the Approved→Paid

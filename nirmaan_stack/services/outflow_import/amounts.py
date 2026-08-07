@@ -27,16 +27,25 @@ It is NOT the deferred Q11 tolerance pass: TDS is a deduction of THOUSANDS (2% o
 which this window cannot reach and must not be stretched to reach. A TDS payment still arrives
 `Unmatched` and is settled by hand.
 
-⚠️ ONE OWNER, FOUR CALL SITES, AND THAT IS THE WHOLE POINT. The rule is applied by:
+⚠️ ONE OWNER, FIVE CALL SITES, AND THAT IS THE WHOLE POINT. The rule is applied by:
   * `candidates.load_payments_for_vendors`  -- the SQL pool query
   * `candidates.load_expense_targets`       -- the SQL pool query
   * `matcher.match_payments` / `match_expenses` -- the in-memory comparison
   * `settle.settle_payment` / `_lock_and_assert_settleable` -- the WRITE guard
-The first two and the last three are easy to fix independently and catastrophic to fix
-inconsistently: a pool wider than the guard offers a record the confirm then refuses; a guard wider
-than the pool silently permits a settlement the screen never proposed. The SQL half cannot import
-this module's function, so it takes the BOUNDS from here instead -- `tolerance_bounds` exists so the
-number still lives in exactly one place.
+  * `status.derive_row_outcome`             -- the ALREADY-PAID duplicate check
+These are easy to fix independently and catastrophic to fix inconsistently: a pool wider than the
+guard offers a record the confirm then refuses; a guard wider than the pool silently permits a
+settlement the screen never proposed. The SQL half cannot import this module's function, so it takes
+the BOUNDS from here instead -- `tolerance_bounds` exists so the number still lives in exactly one
+place.
+
+⚠️ THE FIFTH SITE WAS MISSING UNTIL 2026-08-07, AND ITS ABSENCE IS THE CAUTIONARY TALE FOR THIS
+WHOLE FILE. `status.derive_row_outcome` compared an already-Paid duplicate against the bank amount
+with `!=` -- exact -- because the list above had four entries and nobody checked the branch that was
+not on it. Since the bank rounds to the whole rupee, EVERY hand-ticked payment carrying paise came
+back `Mismatched`, announced with a note suggesting TDS. On one real 26-row statement that was 8
+rows and Rs 3.12 of "discrepancy". If you add an amount comparison anywhere in this feature, add it
+to this list.
 
 ⚠️ THE DIFFERENCE IS NOT RECORDED ANYWHERE. Settling a Rs 18,678.69 payment from a Rs 18,679.00
 transfer leaves the payment at 18,678.69 and marks it Paid. The 31 paise is absorbed, not booked.

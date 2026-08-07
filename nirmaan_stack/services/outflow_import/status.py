@@ -3,8 +3,10 @@
 
 """Row and batch status derivation (Bulk Import Outflow, slice V0).
 
-PURE MODULE -- no `frappe`, no database, no request context, and as of v3 no imports from this
-package at all.
+PURE MODULE -- no `frappe`, no database, no request context. It imports exactly ONE thing from its
+own package, `amounts.amounts_match`, which is itself a pure leaf; see the import for why. The
+property being protected is that this deriver stays callable from a plain unittest with no bench,
+no site and no fixtures -- not import-count purity for its own sake.
 
 THE SINGLE DERIVER (ADR-0010 B3). Every `row_status` and every `Outflow Import Batch.status` in this
 feature comes from here. Nothing else -- no endpoint, no controller, no frontend -- may compute one.
@@ -48,11 +50,16 @@ FOUR RULES THAT LOOK LIKE DETAILS AND ARE NOT:
    next click records the same money a second time. Mixed usage -- half a statement hand-ticked --
    is the NORMAL case under owner ruling Q12, not an edge case.
 
-3. `Mismatched` IS ABOUT AMOUNTS, FULL STOP. The v2 `Reference mismatch` branch is DELETED, not
-   folded in: the owner asked why the system would compare a stored reference on a payment that is
-   already Paid, and there was no answer. A reference is now only ever WRITTEN into a blank, never
-   compared. That deletion is also why this module no longer imports `matcher` -- the basis string
-   was needed by the reference branch and by nothing else.
+3. `Mismatched` IS ABOUT AMOUNTS, FULL STOP -- and about amounts that differ by MORE THAN THE
+   ROUNDING WINDOW. The v2 `Reference mismatch` branch is DELETED, not folded in: the owner asked
+   why the system would compare a stored reference on a payment that is already Paid, and there was
+   no answer. A reference is now only ever WRITTEN into a blank, never compared. That deletion is
+   also why this module no longer imports `matcher` -- the basis string was needed by the reference
+   branch and by nothing else.
+
+   The window matters as much as the axis: a sub-rupee gap is the bank rounding a paise amount, not
+   a discrepancy, and reporting it as one buried 8 of 26 rows in a real statement under a note that
+   suggested TDS.
 
 4. `Mismatched` MUST STAY RESOLVABLE. It is an OPEN status, and the screen gives it the same full
    decision dialog as any other open row. Reporting a disagreement with no way to act on it was the
@@ -69,6 +76,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Iterable, Sequence
+
+# ⚠️ THE ONE IMPORT THIS MODULE MAY MAKE FROM ITS OWN PACKAGE, and it was added to fix a live defect.
+# The already-Paid branch below used EXACT equality while every other amount comparison in the
+# feature used the +-Re 1 window, so a payment somebody ticked Paid by hand at Rs 18,903.60 against
+# an Rs 18,904.00 transfer came back `Mismatched` -- reported as a possible TDS deduction, for
+# 40 paise. On one real import that was 8 of 26 rows, totalling Rs 3.12 of "discrepancy".
+#
+# `amounts` is itself a PURE leaf -- `from decimal import ...` and nothing else -- so this costs
+# nothing that matters: the deriver stays callable from a plain unittest with no bench, no site and
+# no fixtures, which is the property the purity test actually exists to protect.
+from nirmaan_stack.services.outflow_import.amounts import amounts_match
 
 __all__ = [
     "ROW_PENDING_MATCH",
@@ -249,11 +267,16 @@ def derive_row_outcome(
     #    an already-Paid record is not IN the candidate pool (rule 1) -- the two cannot contend.
     if paid_duplicate is not None and getattr(paid_duplicate, "targets", ()):
         total = _total_of(paid_duplicate)
-        if total != bank_amount:
+        if not amounts_match(total, bank_amount):
             # The ONLY route to `Mismatched`, and it is a narrow, honest one: the bank amount
-            # disagrees with what the already-Paid record(s) claim. The candidate passes cannot
-            # produce this -- they match on an EXACT amount, so a disagreement is arithmetically
-            # impossible there.
+            # disagrees with what the already-Paid record(s) claim by MORE THAN THE ROUNDING WINDOW.
+            #
+            # ⚠️ THIS USED TO BE `total != bank_amount`, AND THE EXACTNESS WAS A DEFECT. The bank
+            # rounds to the whole rupee and 31.4% of payments carry paise, so every hand-ticked
+            # payment with paise on it arrived here as a "discrepancy" -- announced with a note
+            # suggesting TDS, for gaps of 14 to 86 paise. The candidate passes had used the window
+            # since the tolerance landed; this branch was the one call site that never got it.
+            # Restoring the exact test re-breaks 8 rows in every real statement measured so far.
             return RowOutcome(ROW_MISMATCHED, _delta_note(bank_amount, total, paid_duplicate))
         return RowOutcome(
             ROW_SKIPPED,

@@ -195,9 +195,47 @@ class TestAlreadyPaidDuplicate(unittest.TestCase):
         self.assertIn("Already recorded as Paid", outcome.note)
         self.assertIn("PAY-00066-003", outcome.note)
 
+    def test_a_sub_rupee_gap_is_the_bank_rounding_and_still_skips(self):
+        """⚠️ THE REGRESSION THIS PINS COST 8 OF 26 ROWS IN A LIVE STATEMENT.
+
+        This branch used an EXACT comparison while every other amount check in the feature used the
+        +-Re 1 window. The bank rounds to the whole rupee and 31.4% of payments carry paise, so a
+        payment hand-ticked at 18,903.60 against an 18,904.00 transfer was reported as a
+        discrepancy -- under a note suggesting TDS, for 40 paise.
+
+        Measured gaps from the statement that surfaced it: 0.14, 0.15, 0.18, 0.40, 0.57, 0.68, 0.86.
+        """
+        for recorded in ("18903.60", "18903.86", "18903.14", "18904.86"):
+            outcome = derive_row_outcome(
+                _Row(amount="18904"),
+                _match(),
+                paid_duplicate=_group([_payment(amount=recorded, status="Paid")]),
+            )
+            self.assertEqual(outcome.status, ROW_SKIPPED, f"recorded {recorded}")
+            self.assertIn("Already recorded as Paid", outcome.note)
+
+    def test_the_rounding_window_is_inclusive_at_exactly_one_rupee(self):
+        """Stated to an accountant as "within a rupee" -- so exactly a rupee is within it."""
+        outcome = derive_row_outcome(
+            _Row(amount="18904"),
+            _match(),
+            paid_duplicate=_group([_payment(amount="18903", status="Paid")]),
+        )
+        self.assertEqual(outcome.status, ROW_SKIPPED)
+
+    def test_a_gap_just_over_the_window_is_still_reported(self):
+        """The other half: widening the window must not swallow a real shortfall. A rupee and one
+        paisa is not rounding."""
+        outcome = derive_row_outcome(
+            _Row(amount="18904"),
+            _match(),
+            paid_duplicate=_group([_payment(amount="18902.99", status="Paid")]),
+        )
+        self.assertEqual(outcome.status, ROW_MISMATCHED)
+
     def test_amounts_differ_is_mismatched_not_skipped(self):
-        """The ONLY route to Mismatched. Both candidate passes match on an EXACT amount, so a
-        disagreement is arithmetically impossible there."""
+        """The ONLY route to Mismatched: a gap wider than the rounding window. Both candidate passes
+        match WITHIN that same window, so a disagreement is arithmetically impossible there."""
         outcome = derive_row_outcome(
             _Row(amount="232650"),
             _match(),
@@ -482,20 +520,56 @@ class TestBatchCounters(unittest.TestCase):
 
 
 class TestPurity(unittest.TestCase):
-    def test_the_module_imports_neither_frappe_nor_its_own_package(self):
-        """v3 deleted the reference-mismatch branch, which was the only reason this module imported
-        `matcher`. It is now standalone, and a new import here is a design regression: the deriver
-        must stay callable from a plain unittest with no bench and no fixtures."""
+    """What this module may depend on.
+
+    ⚠️ NARROWED, DELIBERATELY. This test used to forbid EVERY `nirmaan_stack` import, which read as
+    a purity rule but was broader than its own stated reason -- "the deriver must stay callable from
+    a plain unittest with no bench and no fixtures". A pure sibling costs that property nothing, and
+    the over-broad version had a real price: the already-Paid branch kept its own EXACT amount
+    comparison rather than importing the shared +-Re 1 window, and flagged 8 of 26 rows in a live
+    statement as discrepancies over gaps of 14 to 86 paise.
+
+    So the rule is now the property, stated directly: no `frappe`, and nothing outside this pure
+    package. `services/outflow_import/` may not grow a dependency on `api/` or on a doctype.
+    """
+
+    def test_the_module_never_imports_frappe(self):
+        """The load-bearing half. A `frappe` import here means the deriver needs a bench."""
+        for line in self._import_lines():
+            self.assertNotIn("frappe", line)
+
+    def test_any_package_import_is_a_pure_sibling(self):
+        for line in self._import_lines():
+            if "nirmaan_stack" not in line:
+                continue
+            self.assertIn(
+                "nirmaan_stack.services.outflow_import",
+                line,
+                "status.py may only import from its own pure service package",
+            )
+
+    def test_every_sibling_it_imports_is_itself_bench_free(self):
+        """Transitive, because a pure-looking import of an impure module buys nothing."""
+        import inspect
+
+        from nirmaan_stack.services.outflow_import import amounts
+
+        for line in inspect.getsource(amounts).splitlines():
+            stripped = line.strip()
+            if stripped.startswith(("import ", "from ")):
+                self.assertNotIn("frappe", stripped)
+
+    @staticmethod
+    def _import_lines():
         import inspect
 
         from nirmaan_stack.services.outflow_import import status
 
-        source = inspect.getsource(status)
-        for line in source.splitlines():
-            stripped = line.strip()
-            if stripped.startswith(("import ", "from ")):
-                self.assertNotIn("frappe", stripped)
-                self.assertNotIn("nirmaan_stack", stripped)
+        return [
+            line.strip()
+            for line in inspect.getsource(status).splitlines()
+            if line.strip().startswith(("import ", "from "))
+        ]
 
 
 if __name__ == "__main__":
