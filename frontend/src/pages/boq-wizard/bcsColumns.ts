@@ -844,16 +844,18 @@ export const BCS_RATE_FIELDS: readonly BcsRateField[] = [
  * reads; the role vocabulary is the parser's and is not his to re-word. Do NOT "restore
  * consistency" by shortening this one -- it would silently overturn a ruling.
  *
- * ⚠️ `combined` IS UNPREFIXED, AND IT IS AN OPEN QUESTION, NOT A DECISION. The owner named the
- * two split boxes and the Total; a combined-rate sheet gets ONE box (`bcsLiveRateKinds` returns
- * `["combined"]`) and it still reads "Cost". Prefixing it was NOT ruled on, so it was left alone
- * and reported at BCS-S7 rather than guessed at. If a ruling arrives, change it here and add it
- * to the pin beside the other two.
+ * ⚠️ `combined` WAS THE ONE OPEN QUESTION HERE, AND IT IS NOW RULED (owner 2026-08-07): it
+ * reads `BCS Cost`, prefixed like the other two. BCS-S7 left it as the bare "Cost" because the
+ * owner had named only the two split boxes and the Total, and guessing the third would have been
+ * inventing a ruling; it was reported instead and carried unprefixed until now. All three cost
+ * boxes therefore carry the `BCS ` prefix, which is what the prefix is FOR -- marking which side
+ * of the sheet a figure belongs to on a wide sheet where the blocks scroll apart. Pinned by test
+ * alongside the other two.
  */
 export const BCS_RATE_LABEL: Record<BcsRateKind, string> = {
   supply: "BCS Cost (Supply)",
   install: "BCS Cost (Installation)",
-  combined: "Cost",
+  combined: "BCS Cost",
 };
 
 // The RATE vocabulary this reads, mirroring PricingGrid's SCALAR_RATE_FIELDS /

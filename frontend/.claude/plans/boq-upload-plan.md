@@ -20672,3 +20672,169 @@ untracked"; the true figure is 53, matching BCS-S6's record.)
   strings the owner asked for, which a unit test pins directly.
 - **The plan doc was never read whole.** It is larger than one context window; the append followed the
   `wc -l` → partial `Read` → single anchored `Edit` protocol.
+
+---
+
+## BCS-S13/S14 — the margin view removed; % Margin filtered and sorted from its own column header
+
+**Owner ruling 2026-08-07.** BCS-S4's margin VIEW is **deleted**. The two things people actually came to
+it for — *"show me the lines between 10% and 25%"* and *"worst margin first"* — now live as two controls
+on the **% Margin column header**, so the sheet answers margin questions **in place** and every other
+control (the tree, collapse, search, the row-type toggles) keeps meaning what it meant a moment ago.
+
+Final header layout (owner-specified, iterated twice):
+
+```
+[ƒ]  % Margin  [↑↓]  [▼funnel]
+```
+
+`ƒ` configures what the number **is** (a stored, per-sheet formula everyone sees). The label then reads
+as the column's name. The two **view** controls (mine only, this session only) group after it — arrow
+before funnel, cheapest action first: one click, instantly reversible, hides nothing, whereas the funnel
+opens a dialog and can empty the grid.
+
+### 1. What was deleted, and what came back
+
+| Deleted with the view | Fate |
+|---|---|
+| `buildSectionLabels` | **gone for good.** It existed because flattening destroyed the section context a tree shows by POSITION; an in-place sort that keeps every row can simply be switched off to get that context back. |
+| `marginViewRows` | replaced by `marginSortRows` — see the membership change below. |
+| `isMarginViewRow` | **gone from both halves** (see §2). |
+| `flipMarginSortDir` | replaced by the three-state `nextMarginSort`. |
+| `marginView` / `sectionByRowIndex` / `onToggleMarginSort` grid props, the row `section` prop, the ribbon toggle + direction button, `EMPTY_SECTIONS` | deleted. |
+| `compareByMargin`, `buildMarginOrder`, the decide-once/apply-later split, flat depths, chevron suppression | **came back, verbatim in substance** — relocated behind the header arrow. Their properties are unchanged by where the control lives. |
+
+**Working-tree state at pickup:** the slice began half-finished and **not compiling** — `PricingGrid.tsx`
+and `marginView.ts` had already had the view's machinery deleted while `SheetPricingPage.tsx` still
+imported it (5 TS2305/TS2724 errors). The pre-existing range filter was a row of inline `from`/`to` boxes
+in the toolbar, applied through a **separate filtering pass** parallel to the real filter system.
+
+### 2. ★ The membership change, twice, and why it is the load-bearing part
+
+`isMarginViewRow` (LINE ITEMS ONLY) was a **curation** rule for a list — *"a heading means nothing among
+the lines it introduces"*. Neither half could keep it:
+
+- **The filter.** The grid renders % Margin on **every** row that has one, and a qty-bearing Preamble
+  genuinely has a cost and a margin (the priceability gate's Preamble asymmetry). A Preamble displaying
+  15% would have **vanished from a 10–25% filter, on screen, beside line items that stayed** — a filter
+  whose result contradicts the column it filters. Membership is now the **margin alone**; nothing was
+  lost, because an absent margin is already excluded by `marginInRange`.
+- **The sort.** `marginSortRows`' output **IS the grid's row set**, so an unranked row is a row that
+  **silently disappears from the sheet** — and a sorted sheet is not a place anyone counts rows.
+  `buildMarginOrder` ranks every row; `marginSortRows` appends anything the snapshot does not name.
+
+### 3. Composition — one predicate, one stage
+
+The range is **a term of `passesViewFilter`**, not a stage after it: it ANDs with Show-unpriced /
+Check-Category / the row-type toggles for free, rides the same single `treeDisplayRows` pass, composes
+with collapse, and search inherits it through `searchUniverse`. `anyViewFilter` includes it. The **sort**
+is the one genuine stage (ordering cannot be a predicate), applied to the already-filtered set.
+
+Both are **snapshots held in state**, recomputed only on an explicit Apply / arrow click, both measured
+over **`rowsRef.current` — the whole sheet, never `displayRows`**:
+
+- a range measured over the filtered set would let each Apply narrow the last one irreversibly;
+- a rank built over the filtered set would leave every later re-admitted row **unranked**, pooling in
+  `marginSortRows`' appended tail in document order instead of margin order.
+
+Margins come from `gridRef.computeMargins` — where the **unsaved drafts** live — so a cost typed a second
+ago is in both, and the column can never disagree with them.
+
+### 4. Tree claims suppressed by the SORT only
+
+`marginSortDir !== null` (never the filter) drives: flat depths (`FLAT_DEPTHS`), withheld
+`childrenByParent`, suspended `collapseActive`, and a disabled Collapse-all with a tooltip saying why.
+**A filter only drops rows, so a surviving row's ancestry and its chevron are still true.** The
+`collapsed` set is preserved, so turning the sort off restores the tree exactly as it was.
+
+Three-state arrow `off → asc → desc → off`. **Off is reachable and that is not a convenience:** a BoQ's
+document order IS its structure, and since sorting suppresses the indent and the chevrons, a two-state
+arrow would make the hierarchy unavailable with no way back.
+
+### 5. ★ The trap the owner found, and the general fix
+
+A range matching **zero rows** emptied the grid — and `PricingGrid`'s `rows.length === 0` early return
+fires **before the header renders**, so it removed **the only control that could clear the filter**. The
+older filters escaped this because their toggles live in the toolbar, which keeps rendering. The message
+was also false: *"This committed sheet has no rows to price"* is a claim about the **sheet**, which was
+fine — the filter was hiding it.
+
+Fixed at the early return, which now distinguishes the two states and carries its own undo:
+
+- filters active → *"No rows match your filters"* + the applied range named + **Clear filters**
+- genuinely empty → the original message
+
+**`clearAllViewFilters` resets EVERY view filter**, not just the margin ones: whoever presses it is
+looking at an empty grid and cannot see *which* filter emptied it. **Collapse is deliberately excluded** —
+not a filter, and structurally unable to cause this (collapsing hides descendants, never roots).
+
+⚠️ **The early return must stay INSIDE `PricingGrid`** — never lifted into the page as a
+"render a panel instead of the grid" branch. That would **unmount** the grid, and the unsaved rate/cost
+drafts live in its state.
+
+⚠️ **The empty state names the range but does NOT blame it.** It must never say *"nothing has a % Margin
+between 10% and 25%"*: filters compose, rows in that band may exist and be hidden by Show-unpriced, and a
+confident claim about the DATA that is really a claim about ONE OF SEVERAL filters is the exact class of
+wrong this screen is careful about.
+
+`describeMarginRange` lives in `marginView.ts` so the funnel tooltip and the empty state cannot drift —
+two hand-written phrasings of the same numbers eventually disagree, and the empty state is precisely where
+someone reads carefully. Shaped to continue *"a % Margin …"* (`between 10% and 25%` / `of 10% or more` /
+`of 25% or less`), reversed bounds normalised to match `marginInRange`.
+
+### 6. Reset axes — both halves, every axis
+
+`clearMarginRange` (bounds **and** matched set — one without the other leaves a lit funnel filtering
+nothing, or rows hidden with no control admitting it) and `clearMarginSort` fire on **sheet switch**,
+**version switch**, and the **FALSE edge of `bcsColumnsVisible`**. That last one is more load-bearing than
+it ever was for the view: when % Margin stops rendering, the funnel and arrow go with it while the matched
+set keeps hiding rows and the held order keeps shuffling them.
+
+### 7. Dialog sizing (owner reports)
+
+- **`MarginFormulaBuilder`** overflowed the viewport and **took Save with it** — a dialog you can fill in
+  but cannot submit. Now `flex` column capped at `min(75vh, 28rem)` with header + footer **pinned** and
+  only the slots scrolling; the rule line `( 1 − COST ÷ AMOUNT ) × 100` stays pinned, because a slot whose
+  sentence has scrolled away is the exact confusion BCS-S11b's one-dialog ruling prevents. `min-h-0` on the
+  scroll child is load-bearing (flex children default to `min-height:auto` and refuse to shrink).
+  ⚠️ The cap is an **inline style**, not `max-h-[min(75vh,28rem)]`: a Tailwind arbitrary value exists only
+  if the JIT scanner finds that literal, so a class built that way is one refactor from silently producing
+  **no** max-height — failing invisibly, and looking exactly like the bug it fixes.
+- **`MarginRangeFilter`** was 320×220 for two inputs and three buttons. Three rows removed (redundant
+  subtitle; the FROM/TO label row → placeholders, with `aria-label` retained and *more* specific than the
+  visible label was; spinner arrows hidden). ~272×130.
+- **Compacted, not cut** in both: every control retained at its original hit target; only the space around
+  them shrank.
+
+### 8. Verification
+
+| Gate | Result |
+|---|---|
+| `tsc --noEmit` (boq-wizard) | clean |
+| `vitest run` (full suite) | **58 files / 1658 tests passed** |
+| `vite build` | ✓ built |
+
+`marginView.test.ts` re-pointed at the two places in-place behaviour differs from the view's, plus the
+recovered sort suites: blanks-last **in both directions** (the sentinel idiom gets descending backwards,
+and descending is the worse one — an uncosted sheet would open on a screenful of nothing where the best
+margins belong); `Infinity - Infinity → NaN` in `marginSortRows`' comparator (two unranked rows make a
+subtracting comparator engine-dependent — stable on one input, not on another); append-never-drop;
+membership-is-the-margin-not-the-node_type; `describeMarginRange` shapes, reversal, negatives/fractions.
+
+### 9. Deliberately NOT done
+
+- **No DOM/E2E test.** Structurally unavailable (no DOM environment, deliberate repo choice). Everything
+  rendered here — the header order, the empty state, the dialog caps — is a React/CSS semantic a unit test
+  **cannot** see. The pure rules are covered; **the rendered behaviour is owner-verified live only.**
+- **The sort glyphs are the boxed lucide arrows, not ▲ / ▼.** The owner asked for the margin view's plain
+  triangles and that edit was made, then **reverted outside the session**; left as found rather than
+  silently re-applied. Open.
+- **The funnel "shake when active" cue** was started (`tailwind.config.js` keyframes) and reverted by the
+  owner mid-change. Not in this commit.
+- **Headers-with-a-no-data-row** (the owner's alternative to replacing the grid) was not built: three
+  render paths, and the two-pane case leaves a `colSpan` row in the scrolling pane with a blank frozen
+  pane beside it — real risk for a state you only see when something has already gone wrong. Its benefit
+  (keeping the funnel reachable) is already covered by **Clear filters**.
+- **`marginView.ts` was not renamed** despite the view being gone: it would touch every import for no
+  behavioural gain, and the module docblock is what a reader lands on.
+- **The plan doc was never read whole.** `wc -l` → partial `Read` → single anchored `Edit`.

@@ -2251,7 +2251,8 @@ is never expanded anywhere in the codebase and should not be given an invented e
 |---|---|
 | `bcsColumns.ts` | **the pure leaf** — eligibility, the confirmation rules' client mirror, refusal codes + ordering, labels, the draft/stored merge, and every computed cell |
 | `bcsRollup.ts` | pure — the per-SECTION cost/tendered/margin rollup |
-| `marginView.ts` | pure — the flat margin-ordered view |
+| `marginView.ts` | pure — the % Margin RANGE FILTER + IN-PLACE SORT (BCS-S13/S14). ⚠️ Named for the flat margin VIEW it used to serve, which the owner deleted 2026-08-07; the name was kept to avoid touching every import. |
+| `MarginRangeFilter.tsx` | the funnel in the % Margin header — the range dialog |
 | `BcsColumnsDialog.tsx` | the enable + two-column confirmation card |
 | `PricingGrid.tsx` | the cost block itself (input boxes + three computed columns) |
 | `SummaryPanel.tsx` | the section cost axis |
@@ -2382,10 +2383,22 @@ know this will trust it.
   rate column shows three blank cost columns in the panel and none in the grid. Aligned in practice
   only because such a sheet is not one anyone prices. Not "fixed", deliberately: it is a render-gate
   change in a repo with **no DOM test environment**, so it would ship verified by nothing.
-- **The margin view must not outlive the costs it is built on** — it closes on the FALSE edge of
-  `bcsColumnsVisible` (BCS switched off, confirmation cleared, version changed, costs read failed).
-  Otherwise it keeps rendering, ordered by a number no longer on screen, while the direction button
-  still claims a sort it can no longer perform.
+- **The % Margin filter and sort must not outlive the costs they are built on** — both clear on the
+  FALSE edge of `bcsColumnsVisible` (BCS switched off, confirmation cleared, version changed, costs
+  read failed), and on a sheet or version switch. ⚠️ **This is MORE load-bearing than it was for the
+  BCS-S4 margin view it replaced** (owner ruling 2026-08-07): the view kept a lit toolbar button and
+  a direction label, whereas the funnel and the arrow live IN the % Margin header — so when that
+  column stops rendering they vanish while the matched set keeps hiding rows and the held order keeps
+  shuffling them, leaving a sheet quietly missing most of its lines, in an order nobody chose, with
+  every visible control saying nothing is applied.
+- ⚠️ **A CONTROL THAT CAN HIDE ITSELF NEEDS AN ESCAPE HATCH.** `PricingGrid`'s `rows.length === 0`
+  early return fires **before the header renders**, so a range matching nothing removed the only
+  control that could clear it (owner-found). The empty state therefore distinguishes "this sheet is
+  empty" from "your filters emptied it", names the applied range, and offers **Clear filters** →
+  `clearAllViewFilters`, which resets EVERY view filter (whoever presses it cannot see *which* filter
+  emptied the grid). **Collapse is excluded** — not a filter, and structurally unable to cause this.
+  The early return must stay INSIDE the grid: lifting it into the page would unmount `PricingGrid`
+  and discard the unsaved rate/cost drafts held in its state.
 - ⚠️ **THE `ReadonlyMap` IN `mergeBcsRowValues` IS THE POINT — do not "simplify" it to an object.**
   The grid's cost drafts live in a `Record<string,string>` keyed `` `${row_index}:${field}` `` while
   the merge reads **bare** field keys. As a plain object parameter the two are structurally

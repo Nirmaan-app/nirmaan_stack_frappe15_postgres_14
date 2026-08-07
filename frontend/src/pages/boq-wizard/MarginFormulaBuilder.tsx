@@ -88,11 +88,16 @@ function Slot({
   const chips = spec.operands.filter((o) => !o.hidden); // hidden = label-only (retired operands)
   const groups = [...new Set(chips.map((o) => o.group))];
   return (
-    <div className="rounded-md border border-border p-2">
-      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+    // ⚠️ COMPACTED, NOT CUT (owner report 2026-08-07). Every element the slot had is still here:
+    // the label, the token strip, all six operator buttons, Backspace, and the full palette. Only
+    // the padding, the strip's minimum height and the palette's scroll cap moved -- so the dialog
+    // needs less scrolling without any control becoming harder to find or to hit. The buttons
+    // keep their h-6 target; it is the SPACE AROUND them that shrank.
+    <div className="rounded-md border border-border p-1.5">
+      <p className="mb-1 text-[10px] font-semibold uppercase leading-none tracking-wide text-muted-foreground">
         {spec.label}
       </p>
-      <div className="mb-1 min-h-[2rem] rounded-md border border-border bg-muted/30 p-1.5 flex flex-wrap items-center gap-1">
+      <div className="mb-1 min-h-[1.75rem] rounded-md border border-border bg-muted/30 p-1 flex flex-wrap items-center gap-1">
         {tokens.length === 0 ? (
           <span className="text-[11px] italic text-muted-foreground">empty</span>
         ) : (
@@ -115,13 +120,13 @@ function Slot({
       {/* Only speaks when something is WRONG. A per-slot "Well-formed." on both slots was two
           lines of reassurance in a dialog whose problem was already that it said too much. */}
       {!parsed.ok && (
-        <p className="mb-1.5 text-[11px] text-destructive">
+        <p className="mb-1 text-[11px] leading-tight text-destructive">
           {tokens.length === 0 ? "Pick at least one." : parsed.error}
         </p>
       )}
       {!disabled && (
         <>
-          <div className="mb-1.5 flex items-center gap-1">
+          <div className="mb-1 flex items-center gap-1">
             {OP_BUTTONS.map((op) => (
               <Button
                 key={op}
@@ -140,10 +145,14 @@ function Slot({
             <Button size="sm" variant="ghost" className="ml-auto h-6 px-1.5 text-[11px]"
               onClick={() => setTokens((prev) => prev.slice(0, -1))}>Backspace</Button>
           </div>
-          <div className="max-h-24 overflow-auto">
+          {/* The palette keeps its OWN scroll cap. Two nested scrollers sounds wrong but is the
+              point: without it a slot with many columns would push the other slot entirely out of
+              the dialog's scroll region, and the two halves of one ratio would never be on screen
+              together. `overscroll-contain` keeps a palette flick from scrolling the dialog body. */}
+          <div className="max-h-20 overflow-auto overscroll-contain">
             {groups.map((g) => (
               <div key={g} className="mb-1 last:mb-0">
-                <p className="mb-1 text-[9px] font-medium uppercase tracking-wide text-muted-foreground">{g}</p>
+                <p className="mb-0.5 text-[9px] font-medium uppercase leading-none tracking-wide text-muted-foreground">{g}</p>
                 <div className="flex flex-wrap gap-1">
                   {chips.filter((o) => o.group === g).map((o) => (
                     <button
@@ -305,64 +314,102 @@ export function MarginFormulaBuilder({ cost, amount, onSave }: MarginFormulaBuil
           {badge}
         </button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-[24rem] p-3">
-        <div className="mb-2 flex items-start justify-between gap-2">
-          <div>
-            <p className="text-sm font-semibold">Formula for % Margin</p>
-            <p className="text-[11px] text-muted-foreground">
-              Choose each side. The rest of the rule is fixed.
-            </p>
+      {/* ── HEIGHT IS CAPPED AND THE BODY SCROLLS (owner report 2026-08-07) ────────────────────
+          Two slots, each with a token strip, an operator row and a palette, stack to roughly a
+          thousand pixels; unbounded, the popover ran off the bottom of the viewport and took
+          SAVE WITH IT -- a dialog you can fill in but cannot submit.
+
+          ⚠️ THE SCROLL IS ON THE MIDDLE SECTION, NOT ON THE POPOVER. Scrolling the whole popover
+          would work and would still hide Save, just later; pinning the header and the footer and
+          scrolling only the slots keeps the rule statement and the actions visible at every
+          scroll position, which is what makes the two slots legible as halves of ONE expression
+          rather than two unrelated boxes.
+
+          `min(75vh, 28rem)` bounds it against the SMALLER of the viewport and a comfortable
+          reading height, so it never fills a tall screen edge to edge and never overflows a
+          short one. Compaction alone got the content to ~460px, which cleared most viewports and
+          would have left this cap never engaging -- 28rem is deliberately BELOW that, so the
+          dialog is genuinely short and the body genuinely scrolls. `overscroll-contain` stops the
+          grid behind it scrolling once the slots hit their end -- the popover is anchored to a
+          sticky column header, and scrolling the grid out from under it would drag the popover
+          away mid-edit.
+
+          ⚠️ THE CAP IS AN INLINE STYLE, NOT `max-h-[min(75vh,28rem)]`. A Tailwind arbitrary value
+          only exists if the JIT scanner finds that exact literal, so a class built this way is
+          one refactor (or one dynamic string) away from silently producing NO max-height at all
+          -- and the failure is invisible in dev and looks exactly like the bug this fixes. */}
+      <PopoverContent align="end" className="w-[24rem] p-0">
+        <div className="flex flex-col" style={{ maxHeight: "min(75vh, 28rem)" }}>
+          {/* Pinned: identity + the rule each slot is a slot OF. */}
+          <div className="shrink-0 px-3 pb-1.5 pt-3">
+            <div className="mb-1.5 flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold leading-tight">Formula for % Margin</p>
+                <p className="text-[11px] leading-tight text-muted-foreground">
+                  Choose each side. The rest of the rule is fixed.
+                </p>
+              </div>
+              <button type="button" onClick={() => setOpen(false)} aria-label="Close">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* The whole rule, so a reader can see what each slot is a slot OF. The literals are
+                shown as plain text because they cannot be tokens -- see the module docblock.
+                PINNED rather than scrolled: it is the sentence the slots complete, and a slot
+                whose sentence has scrolled away is the exact confusion BCS-S11b's one-dialog
+                ruling was made to prevent. */}
+            <div className="rounded-md border border-border bg-muted/40 px-2 py-1 text-center text-[12px]">
+              ( 1 − <span className="font-semibold text-blue-700 dark:text-blue-300">COST</span> ÷{" "}
+              <span className="font-semibold text-blue-700 dark:text-blue-300">AMOUNT</span> ) × 100
+            </div>
           </div>
-          <button type="button" onClick={() => setOpen(false)} aria-label="Close">
-            <X className="h-4 w-4" />
-          </button>
-        </div>
 
-        {/* The whole rule, so a reader can see what each slot is a slot OF. The literals are
-            shown as plain text because they cannot be tokens -- see the module docblock. */}
-        <div className="mb-2 rounded-md border border-border bg-muted/40 px-2 py-1.5 text-center text-[12px]">
-          ( 1 − <span className="font-semibold text-blue-700 dark:text-blue-300">COST</span> ÷{" "}
-          <span className="font-semibold text-blue-700 dark:text-blue-300">AMOUNT</span> ) × 100
-        </div>
+          {/* The only scrolling region. `min-h-0` is load-bearing: a flex child defaults to
+              min-height:auto, which refuses to shrink below its content, so without it the
+              max-height is ignored and the popover grows exactly as before. */}
+          <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto overscroll-contain px-3 py-1.5">
+            <Slot spec={cost} tokens={costTokens} setTokens={setCostTokens} disabled={false} />
+            <Slot spec={amount} tokens={amountTokens} setTokens={setAmountTokens} disabled={false} />
+          </div>
 
-        <div className="space-y-2">
-          <Slot spec={cost} tokens={costTokens} setTokens={setCostTokens} disabled={false} />
-          <Slot spec={amount} tokens={amountTokens} setTokens={setAmountTokens} disabled={false} />
-        </div>
-
-        {error && <p className="mt-2 text-[11px] text-destructive">{error}</p>}
-
-        <div className="mt-3 flex items-center justify-between">
-          <div className="flex items-center gap-1">
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 text-xs"
-              disabled={saving}
-              onClick={() => {
-                setCostTokens(cost.seed ? treeToTokens(cost.seed, labelFor(cost)) : []);
-                setAmountTokens(amount.seed ? treeToTokens(amount.seed, labelFor(amount)) : []);
-              }}
-              title="Put the built-in rule back in the boxes. Nothing is saved until you press Save."
-            >
-              Reset
-            </Button>
-            {anyStored && (
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-7 text-xs text-destructive"
-                disabled={saving}
-                onClick={handleRemove}
-                title="Delete the saved formula. % Margin goes back to the built-in rule."
-              >
-                Remove
+          {/* Pinned: the error and the actions. An error that scrolled out of view while its
+              cause stayed on screen would be worse than no error. */}
+          <div className="shrink-0 border-t border-border px-3 pb-2.5 pt-2">
+            {error && <p className="mb-1.5 text-[11px] text-destructive">{error}</p>}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 px-2 text-xs"
+                  disabled={saving}
+                  onClick={() => {
+                    setCostTokens(cost.seed ? treeToTokens(cost.seed, labelFor(cost)) : []);
+                    setAmountTokens(amount.seed ? treeToTokens(amount.seed, labelFor(amount)) : []);
+                  }}
+                  title="Put the built-in rule back in the boxes. Nothing is saved until you press Save."
+                >
+                  Reset
+                </Button>
+                {anyStored && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 px-2 text-xs text-destructive"
+                    disabled={saving}
+                    onClick={handleRemove}
+                    title="Delete the saved formula. % Margin goes back to the built-in rule."
+                  >
+                    Remove
+                  </Button>
+                )}
+              </div>
+              <Button size="sm" className="h-7 text-xs" disabled={!bothWellFormed || saving} onClick={handleSave}>
+                {saving ? "Saving…" : "Save"}
               </Button>
-            )}
+            </div>
           </div>
-          <Button size="sm" className="h-7 text-xs" disabled={!bothWellFormed || saving} onClick={handleSave}>
-            {saving ? "Saving…" : "Save"}
-          </Button>
         </div>
       </PopoverContent>
     </Popover>

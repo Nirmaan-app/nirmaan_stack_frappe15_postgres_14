@@ -1283,12 +1283,23 @@ describe("the BCS column block -- keys and geometry", () => {
   // exists so a re-wording has to be a DECISION, taken against a named ruling, rather than a
   // tidy-up nobody notices.
   //
-  // `combined` is DELIBERATELY not pinned here: the owner named two of the three boxes, and a
-  // sheet mapping only a combined rate still shows the un-prefixed "Cost". That gap is REPORTED,
-  // not guessed at -- pinning a string he never said would launder a guess into an assertion.
-  it("carries the owner's BCS-prefixed box names verbatim (BCS-S7)", () => {
+  // `combined` WAS deliberately unpinned here -- the owner had named only two of the three
+  // boxes, so pinning a third string he never said would have laundered a guess into an
+  // assertion. He ruled on it on 2026-08-07 ("BCS Cost"), so it joins the other two: all three
+  // are now pinned against a named ruling rather than against the module's current contents.
+  it("carries the owner's BCS-prefixed box names verbatim (BCS-S7, completed 2026-08-07)", () => {
     expect(BCS_RATE_LABEL.supply).toBe("BCS Cost (Supply)");
     expect(BCS_RATE_LABEL.install).toBe("BCS Cost (Installation)");
+    expect(BCS_RATE_LABEL.combined).toBe("BCS Cost");
+  });
+
+  it("every cost box carries the BCS prefix -- that is what the prefix is FOR", () => {
+    // The prefix marks which side of the sheet a figure belongs to, which matters because on a
+    // wide sheet the internal and client-facing blocks scroll apart. One unprefixed box defeated
+    // that on every combined-rate sheet.
+    for (const label of Object.values(BCS_RATE_LABEL)) {
+      expect(label.startsWith("BCS ")).toBe(true);
+    }
   });
 });
 

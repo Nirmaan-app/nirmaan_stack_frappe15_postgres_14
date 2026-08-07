@@ -1,278 +1,223 @@
-/**
- * marginView.test.ts -- the margin view's row set, order and section context (slice BCS-S4).
- *
- * WHAT THIS VIEW IS. A separate FLAT, line-items-only presentation of the pricing sheet, ordered
- * by % Margin, with an ascending/descending toggle, each row carrying its section as context.
- * The owner chose it over sorting the grid in place (2026-08-02): the grid is an N-deep hierarchy
- * with collapse/expand, so a flat re-order makes collapsing a section hide rows from scattered
- * places on screen, while the indentation implies nesting under a parent that is nowhere near.
- * A distinct view, rather than an incoherent tree.
- *
- * ⚠️ THE TEST THAT MATTERS MOST IS THE DESCENDING-BLANKS ONE. Most rows on a real sheet have no
- * margin until someone costs them. The obvious implementation -- substitute a low sentinel for a
- * blank, then flip the comparator for descending -- puts every uncosted row at the TOP of the
- * descending order, which is precisely the wrong end: the whole point of the descending view is
- * to read the best margins first, and it would open on a screenful of nothing. Blanks sort LAST
- * in BOTH directions, which the sentinel idiom does not give you for free.
- *
- * ⚠️ WHY THE SORT LIVES HERE AND NOT IN THE COMPONENT. There is NO DOM test environment in this
- * repo (deliberate, recorded in vitest.config.ts), so anything living in JSX is structurally
- * untestable -- which is how two defects survived the day this slice opened. These tests pin the
- * ORDER, the row SET and the section LABELS; they cannot observe that the page hands the grid the
- * result or that the cursor stays put. That half is live-check only -- see the slice record.
- */
-import { describe, expect, it } from "vitest";
+// Unit tests for the pure % Margin RANGE FILTER (BCS-S13) and IN-PLACE SORT (BCS-S14).
+//
+// ⚠️ THIS FILE USED TO COVER THE MARGIN VIEW. The owner removed that view on 2026-08-07 in favour
+// of two controls on the % Margin column header. The section-label suite went with the code it
+// covered; the ORDERING suites came back with the sort, re-pointed at the two places in-place
+// sorting differs from the view's (every row is ranked, and every row comes back).
+import { describe, it, expect } from "vitest";
 import {
   buildMarginOrder,
-  buildSectionLabels,
   compareByMargin,
-  flipMarginSortDir,
-  isMarginViewRow,
-  marginViewRows,
-  type MarginEntry,
-  type MarginViewRowLike,
+  describeMarginRange,
+  marginInRange,
+  marginRangeActive,
+  marginRangeRowSet,
+  marginSortRows,
+  nextMarginSort,
+  parseMarginBound,
 } from "./marginView";
 
-/** A row shaped like PricedRow's margin-view-relevant fields. */
-const row = (
-  row_index: number,
-  node_type: string | null,
-  effective_parent_index: number | null = null,
-  description: string | null = null,
-): MarginViewRowLike => ({ row_index, node_type, effective_parent_index, description });
-
-const line = (row_index: number, parent: number | null = null, description = "a line") =>
-  row(row_index, "Line Item", parent, description);
-
-/** Sort a bare list of margins and read back the order, for the comparator tests. */
-const orderOf = (margins: Array<number | null>, dir: "asc" | "desc"): Array<number | null> =>
-  margins
-    .map((margin, i): MarginEntry => ({ rowIndex: i, margin }))
-    .slice()
-    .sort((a, b) => compareByMargin(a.margin, b.margin, dir))
-    .map((e) => e.margin);
-
-describe("compareByMargin -- blanks sort LAST in BOTH directions", () => {
-  it("puts blanks last when ASCENDING", () => {
-    expect(orderOf([null, 12, null, -4, 30], "asc")).toEqual([-4, 12, 30, null, null]);
+// ── BCS-S13: the % Margin range filter ───────────────────────────────────────
+describe("margin range filter", () => {
+  it("parses a bound, treating blank and partial input as OPEN", () => {
+    expect(parseMarginBound("10")).toBe(10);
+    expect(parseMarginBound(" -12.5 ")).toBe(-12.5);
+    expect(parseMarginBound("")).toBeNull();
+    expect(parseMarginBound("-")).toBeNull();   // mid-typing a negative
+    expect(parseMarginBound("abc")).toBeNull();
+    expect(parseMarginBound(null)).toBeNull();
   });
 
-  it("puts blanks last when DESCENDING -- the case the obvious implementation gets wrong", () => {
-    // THE DEFECT THIS TEST EXISTS FOR. Substitute a low sentinel for a blank (InventoryReport's
-    // `?? -2` idiom) and flip the comparator, and every uncosted row lands at the TOP here.
-    // On a fresh sheet that is a screenful of empty rows where the best margins should be.
-    expect(orderOf([null, 12, null, -4, 30], "desc")).toEqual([30, 12, -4, null, null]);
+  it("is inactive when both bounds are open -- never an empty grid by default", () => {
+    expect(marginRangeActive(null, null)).toBe(false);
+    expect(marginRangeActive(0, null)).toBe(true);
+    expect(marginRangeActive(null, 0)).toBe(true);
   });
 
-  it("keeps blanks last with a leading blank in both directions", () => {
-    expect(orderOf([null, 5], "asc")).toEqual([5, null]);
-    expect(orderOf([null, 5], "desc")).toEqual([5, null]);
+  it("is INCLUSIVE at both ends", () => {
+    expect(marginInRange(0, 0, 10)).toBe(true);
+    expect(marginInRange(10, 0, 10)).toBe(true);
+    expect(marginInRange(-0.1, 0, 10)).toBe(false);
+    expect(marginInRange(10.1, 0, 10)).toBe(false);
   });
 
-  it("sorts an all-blank list without crashing or reordering", () => {
-    expect(orderOf([null, null, null], "desc")).toEqual([null, null, null]);
+  it("one open side means unbounded on that side", () => {
+    expect(marginInRange(-200, null, 0)).toBe(true);   // everything at or below 0
+    expect(marginInRange(5, null, 0)).toBe(false);
+    expect(marginInRange(500, 10, null)).toBe(true);   // everything at or above 10
   });
 
-  it("treats a 0% margin as a REAL value, never as a blank", () => {
-    // A zero margin is a finding -- this row makes nothing. Folding it in with "not costed yet"
-    // would hide exactly the rows the view is for.
-    expect(orderOf([null, 0, 5], "asc")).toEqual([0, 5, null]);
-    expect(orderOf([null, 0, 5], "desc")).toEqual([5, 0, null]);
+  it("handles NEGATIVE margins, which is the point of the filter", () => {
+    expect(marginInRange(-200, -300, -100)).toBe(true);
+    expect(marginInRange(-50, -300, -100)).toBe(false);
   });
 
-  it("sorts a NEGATIVE margin below every profit, and never treats it as a blank", () => {
-    // A loss-making row is the single most important thing this view can surface. It must sit at
-    // the bottom of the descending order and the TOP of the ascending one -- not with the blanks.
-    expect(orderOf([10, -50, 2], "asc")).toEqual([-50, 2, 10]);
-    expect(orderOf([10, -50, 2], "desc")).toEqual([10, 2, -50]);
+  it("★ a row with NO margin is excluded while the filter is active", () => {
+    // Not "outside the range" -- UNKNOWN. Keeping unknowns visible would let a range matching
+    // nothing still render a full grid, which reads as a broken filter.
+    expect(marginInRange(null, 0, 10)).toBe(false);
+    expect(marginInRange(undefined, 0, 10)).toBe(false);
+    expect(marginInRange(NaN, 0, 10)).toBe(false);
   });
 
-  it("treats NaN and Infinity as blanks (defensive -- a percentage neither is)", () => {
-    // bcsMarginPercent already refuses both, but this comparator is the last line: a NaN compared
-    // with < / > is false either way, which would make the sort order depend on input order.
-    expect(orderOf([NaN, 7, Number.POSITIVE_INFINITY], "asc")).toEqual([7, NaN, Infinity]);
-    expect(orderOf([NaN, 7, Number.POSITIVE_INFINITY], "desc")).toEqual([7, NaN, Infinity]);
+  it("REVERSED bounds describe the same interval rather than matching nothing", () => {
+    expect(marginInRange(5, 15, -10)).toBe(true);
+    expect(marginInRange(-20, 15, -10)).toBe(false);
   });
 
-  it("reports equal margins as a tie, so the caller's stable sort keeps document order", () => {
-    expect(compareByMargin(5, 5, "asc")).toBe(0);
-    expect(compareByMargin(5, 5, "desc")).toBe(0);
-    expect(compareByMargin(null, null, "asc")).toBe(0);
+  it("builds the row set from the SAME margins the screen shows", () => {
+    const rows = [{ row_index: 1 }, { row_index: 2 }, { row_index: 3 }];
+    const margins = new Map<number, number | null>([[1, 40], [2, -200], [3, null]]);
+    const set = marginRangeRowSet(rows, (r) => margins.get(r.row_index) ?? null, 0, 100);
+    expect([...set]).toEqual([1]);
+  });
+
+  it("★ membership is the MARGIN, never the row's node_type", () => {
+    // The flat margin view this filter replaced was line-items-only, a presentational choice.
+    // As a filter that would contradict the column: the grid renders % Margin on every row that
+    // has one, so a qty-bearing PREAMBLE showing 15% must survive a 10-25% range rather than
+    // vanish next to line items that stayed.
+    const rows = [{ row_index: 1 }, { row_index: 2 }];
+    const margins = new Map<number, number | null>([
+      [1, 15], // the preamble, in band
+      [2, 15], // a line item with the identical margin
+    ]);
+    const set = marginRangeRowSet(rows, (r) => margins.get(r.row_index) ?? null, 10, 25);
+    expect([...set]).toEqual([1, 2]);
+  });
+
+  it("rows with no margin (spacers, notes, uncosted preambles) drop out on the margin alone", () => {
+    // Which is why dropping the node_type test lost nothing: an absent margin is already excluded.
+    const rows = [{ row_index: 1 }, { row_index: 2 }];
+    const margins = new Map<number, number | null>([[1, null], [2, 12]]);
+    const set = marginRangeRowSet(rows, (r) => margins.get(r.row_index) ?? null, 10, 25);
+    expect([...set]).toEqual([2]);
+  });
+});
+
+describe("describeMarginRange", () => {
+  it("reads as a continuation of 'a % Margin ...' in every shape", () => {
+    // One phrasing serves both the funnel tooltip and the grid's empty state, so it must embed
+    // in a sentence without either caller re-shaping the grammar.
+    expect(describeMarginRange("10", "25")).toBe("between 10% and 25%");
+    expect(describeMarginRange("10", "")).toBe("of 10% or more");
+    expect(describeMarginRange("", "25")).toBe("of 25% or less");
+  });
+
+  it("normalises reversed bounds, matching marginInRange", () => {
+    // The phrase must state the interval actually APPLIED, not the order it was typed in.
+    expect(describeMarginRange("25", "10")).toBe("between 10% and 25%");
+  });
+
+  it("is empty when no range is set, so a caller can branch on it", () => {
+    expect(describeMarginRange("", "")).toBe("");
+    expect(describeMarginRange(null, undefined)).toBe("");
+    expect(describeMarginRange("abc", "-")).toBe(""); // unparseable == open, per parseMarginBound
+  });
+
+  it("handles negative and fractional bounds", () => {
+    expect(describeMarginRange("-10", "5.5")).toBe("between -10% and 5.5%");
+    expect(describeMarginRange("", "-2")).toBe("of -2% or less");
+  });
+});
+
+// ── BCS-S14: the % Margin in-place sort ──────────────────────────────────────
+describe("nextMarginSort", () => {
+  it("cycles off -> asc -> desc -> off, so document order is always reachable", () => {
+    expect(nextMarginSort(null)).toBe("asc"); // worst margin first -- the first question asked
+    expect(nextMarginSort("asc")).toBe("desc");
+    expect(nextMarginSort("desc")).toBeNull();
+  });
+});
+
+describe("compareByMargin", () => {
+  it("orders ascending (worst first) and descending (best first)", () => {
+    expect(compareByMargin(10, 20, "asc")).toBeLessThan(0);
+    expect(compareByMargin(10, 20, "desc")).toBeGreaterThan(0);
+  });
+
+  it("★ BLANKS SORT LAST IN BOTH DIRECTIONS", () => {
+    // The sentinel idiom gets this right in one direction and backwards in the other. Descending
+    // is the one that breaks, and it is the worse one: an uncosted sheet would open on a
+    // screenful of nothing exactly where the best margins belong.
+    expect(compareByMargin(null, 10, "asc")).toBeGreaterThan(0);
+    expect(compareByMargin(null, 10, "desc")).toBeGreaterThan(0);
+    expect(compareByMargin(10, null, "asc")).toBeLessThan(0);
+    expect(compareByMargin(10, null, "desc")).toBeLessThan(0);
+  });
+
+  it("treats NaN / Infinity as blanks, never as numbers", () => {
+    // A NaN reaching a comparator makes every comparison false, so the order would depend on
+    // input order -- a silent, unreproducible sort.
+    expect(compareByMargin(NaN, 10, "asc")).toBeGreaterThan(0);
+    expect(compareByMargin(Infinity, 10, "desc")).toBeGreaterThan(0);
+  });
+
+  it("0 and NEGATIVE margins are REAL values, not blanks", () => {
+    // "makes nothing" and "loses money" are the findings the sort exists to surface.
+    expect(compareByMargin(-50, 0, "asc")).toBeLessThan(0);
+    expect(compareByMargin(0, 10, "asc")).toBeLessThan(0);
+    expect(compareByMargin(-50, null, "desc")).toBeLessThan(0);
+  });
+
+  it("ties return 0, so a stable sort keeps document order", () => {
+    expect(compareByMargin(10, 10, "asc")).toBe(0);
     expect(compareByMargin(null, null, "desc")).toBe(0);
   });
 });
 
-describe("flipMarginSortDir", () => {
-  it("flips both ways", () => {
-    expect(flipMarginSortDir("asc")).toBe("desc");
-    expect(flipMarginSortDir("desc")).toBe("asc");
+describe("buildMarginOrder", () => {
+  it("ranks by margin, blanks last", () => {
+    const rows = [{ row_index: 1 }, { row_index: 2 }, { row_index: 3 }, { row_index: 4 }];
+    const margins = new Map<number, number | null>([[1, 40], [2, null], [3, -10], [4, 5]]);
+    const of = (r: { row_index: number }) => margins.get(r.row_index) ?? null;
+    expect(buildMarginOrder(rows, of, "asc")).toEqual([3, 4, 1, 2]);
+    expect(buildMarginOrder(rows, of, "desc")).toEqual([1, 4, 3, 2]);
+  });
+
+  it("★ ranks EVERY row, not just line items", () => {
+    // The deleted view ranked line items only. In place, an unranked row is a row that vanishes
+    // from the grid -- so membership is no longer a curation decision.
+    const rows = [{ row_index: 1 }, { row_index: 2 }, { row_index: 3 }];
+    const margins = new Map<number, number | null>([[1, null], [2, null], [3, 7]]);
+    const order = buildMarginOrder(rows, (r) => margins.get(r.row_index) ?? null, "asc");
+    expect(order).toHaveLength(3);
+    expect([...order].sort()).toEqual([1, 2, 3]);
   });
 });
 
-describe("isMarginViewRow -- LINE ITEMS ONLY", () => {
-  it("accepts a Line Item", () => {
-    expect(isMarginViewRow(row(1, "Line Item"))).toBe(true);
+describe("marginSortRows", () => {
+  it("reorders by the held ranking and returns rows BY REFERENCE", () => {
+    const a = { row_index: 1 };
+    const b = { row_index: 2 };
+    const c = { row_index: 3 };
+    const out = marginSortRows([a, b, c], [3, 1, 2]);
+    expect(out.map((r) => r.row_index)).toEqual([3, 1, 2]);
+    expect(out[0]).toBe(c); // identity preserved -- the row memo compares by reference
   });
 
-  it("rejects a Preamble, an Other, and an absent node_type", () => {
-    // A Preamble can be qty-bearing and therefore costable, but it is a HEADING -- in a flat list
-    // sorted by margin it would sit among the lines it introduces, meaning nothing.
-    expect(isMarginViewRow(row(1, "Preamble"))).toBe(false);
-    expect(isMarginViewRow(row(1, "Other"))).toBe(false);
-    expect(isMarginViewRow(row(1, null))).toBe(false);
-    expect(isMarginViewRow({ row_index: 1, effective_parent_index: null, description: null })).toBe(
-      false,
-    );
+  it("★ a row the ranking does not name is APPENDED, never dropped", () => {
+    // This output IS the grid's row set. Dropping an unranked row silently deletes it from the
+    // sheet, and a sorted sheet is not a place anyone counts rows.
+    const rows = [{ row_index: 1 }, { row_index: 2 }, { row_index: 3 }];
+    const out = marginSortRows(rows, [3]); // a stale snapshot naming only one row
+    expect(out.map((r) => r.row_index)).toEqual([3, 1, 2]);
   });
 
-  it("TRIMS node_type, matching the server's stripped comparison", () => {
-    expect(isMarginViewRow(row(1, " Line Item "))).toBe(true);
-  });
-});
-
-describe("buildMarginOrder -- the SNAPSHOT taken on open and on header click", () => {
-  const rows: MarginViewRowLike[] = [
-    row(10, "Preamble", null, "Section A"),
-    line(11, 10),
-    line(12, 10),
-    row(13, "Other", 10, "a note"),
-    line(14, 10),
-  ];
-  const margins = new Map<number, number | null>([
-    [10, 99], // a Preamble's margin must not enter the order at all
-    [11, 40],
-    [12, null], // never costed
-    [13, 88],
-    [14, 5],
-  ]);
-  const marginOf = (r: MarginViewRowLike) => margins.get(r.row_index) ?? null;
-
-  it("returns row_index values, line items only, worst first when ascending", () => {
-    expect(buildMarginOrder(rows, marginOf, "asc")).toEqual([14, 11, 12]);
+  it("★ unranked rows keep DOCUMENT ORDER among themselves (the Infinity-NaN trap)", () => {
+    // Both score Infinity; a subtracting comparator returns NaN for that pair and the result
+    // becomes engine-dependent.
+    const rows = [{ row_index: 5 }, { row_index: 6 }, { row_index: 7 }];
+    expect(marginSortRows(rows, []).map((r) => r.row_index)).toEqual([5, 6, 7]);
   });
 
-  it("returns best first when descending, with the uncosted row still last", () => {
-    expect(buildMarginOrder(rows, marginOf, "desc")).toEqual([11, 14, 12]);
+  it("drops a stale entry and honours a duplicate once, at its first appearance", () => {
+    const rows = [{ row_index: 1 }, { row_index: 2 }];
+    const out = marginSortRows(rows, [2, 99, 2, 1]); // 99 is gone; 2 is named twice
+    expect(out.map((r) => r.row_index)).toEqual([2, 1]);
   });
 
-  it("returns an empty order for a sheet with no line items", () => {
-    expect(buildMarginOrder([row(1, "Preamble")], marginOf, "asc")).toEqual([]);
-  });
-});
-
-describe("marginViewRows -- applying a snapshot order to the CURRENT rows", () => {
-  // The order is STATE, captured at open / header click, and deliberately not recomputed while
-  // typing: `activeCell` is ARRAY-INDEX addressed inside the grid, so a live re-sort would slide a
-  // different row under the cursor mid-keystroke (clipboard multi-row selection is a contiguous
-  // array RANGE, with the same exposure). Applying a snapshot to freshly-fetched rows is how the
-  // view stays current in its VALUES without ever moving under the user's hands.
-  const rows: MarginViewRowLike[] = [line(11), line(12), row(13, "Preamble"), line(14)];
-
-  it("returns the rows in the snapshot's order", () => {
-    expect(marginViewRows(rows, [14, 11, 12]).map((r) => r.row_index)).toEqual([14, 11, 12]);
-  });
-
-  it("returns the SAME row objects, so downstream by-reference memo compares still hold", () => {
-    const out = marginViewRows(rows, [12, 11, 14]);
-    expect(out[0]).toBe(rows[1]);
-    expect(out[1]).toBe(rows[0]);
-  });
-
-  // NOTE on the three expectations below: the un-named line items are APPENDED, not dropped (the
-  // rule asserted two tests down). Each of these therefore reads "the named row is placed, the
-  // stale/duplicate entry contributes nothing, and the rest follow in document order".
-  it("drops non-line-items even if a stale snapshot names one", () => {
-    // 13 is a Preamble: it contributes no position. 11 is placed; 12 and 14 follow unsorted.
-    expect(marginViewRows(rows, [13, 11]).map((r) => r.row_index)).toEqual([11, 12, 14]);
-  });
-
-  it("drops a snapshot entry whose row is gone", () => {
-    // 99 no longer exists -- it must not leave a hole or throw.
-    expect(marginViewRows(rows, [99, 11]).map((r) => r.row_index)).toEqual([11, 12, 14]);
-  });
-
-  it("APPENDS line items missing from the snapshot, in document order -- nothing vanishes", () => {
-    // A refetch can introduce a row the snapshot predates. Silently omitting it would be the same
-    // class of lie this slice's other half closes: a row that exists, rendered as absent.
-    expect(marginViewRows(rows, [14]).map((r) => r.row_index)).toEqual([14, 11, 12]);
-  });
-
-  it("ignores a duplicated snapshot entry rather than rendering the row twice", () => {
-    // 11 appears once despite being named twice; 14 is the unnamed tail.
-    expect(marginViewRows(rows, [11, 11, 12]).map((r) => r.row_index)).toEqual([11, 12, 14]);
-  });
-
-  it("falls back to document order for an empty snapshot", () => {
-    expect(marginViewRows(rows, []).map((r) => r.row_index)).toEqual([11, 12, 14]);
-  });
-});
-
-describe("buildSectionLabels -- the context a row loses when the tree is flattened", () => {
-  it("labels a line with its NEAREST ancestor that has a description", () => {
-    const rows: MarginViewRowLike[] = [
-      row(1, "Preamble", null, "ELECTRICAL WORKS"),
-      row(2, "Preamble", 1, "Cabling"),
-      line(3, 2),
-    ];
-
-    expect(buildSectionLabels(rows).get(3)).toBe("Cabling");
-  });
-
-  it("skips an ancestor whose description is blank or whitespace", () => {
-    const rows: MarginViewRowLike[] = [
-      row(1, "Preamble", null, "ELECTRICAL WORKS"),
-      row(2, "Preamble", 1, "   "),
-      line(3, 2),
-    ];
-
-    expect(buildSectionLabels(rows).get(3)).toBe("ELECTRICAL WORKS");
-  });
-
-  it("trims the label", () => {
-    const rows: MarginViewRowLike[] = [row(1, "Preamble", null, "  Cabling  "), line(2, 1)];
-
-    expect(buildSectionLabels(rows).get(2)).toBe("Cabling");
-  });
-
-  it("gives a root row no section rather than inventing one", () => {
-    expect(buildSectionLabels([line(1, null)]).get(1)).toBeUndefined();
-  });
-
-  it("gives a row no section when no ancestor has a description", () => {
-    const rows: MarginViewRowLike[] = [row(1, "Preamble", null, ""), line(2, 1)];
-
-    expect(buildSectionLabels(rows).get(2)).toBeUndefined();
-  });
-
-  it("survives a parent that is not in the row set", () => {
-    expect(buildSectionLabels([line(2, 999)]).get(2)).toBeUndefined();
-  });
-
-  it("survives a PARENT CYCLE without hanging", () => {
-    // The same hazard computeDepths guards. A cycle cannot arise from the parser, but human
-    // re-parenting writes effective_parent_index and an infinite walk here would freeze the tab.
-    const rows: MarginViewRowLike[] = [
-      row(1, "Preamble", 2, "A"),
-      row(2, "Preamble", 1, "B"),
-      line(3, 1),
-    ];
-
-    expect(buildSectionLabels(rows).get(3)).toBe("A"); // the first hit still wins
-    expect(buildSectionLabels(rows).get(1)).toBe("B"); // ...and the cycle terminates
-  });
-
-  it("labels every line item on a sheet in one pass", () => {
-    const rows: MarginViewRowLike[] = [
-      row(1, "Preamble", null, "Section A"),
-      line(2, 1),
-      line(3, 1),
-      row(4, "Preamble", null, "Section B"),
-      line(5, 4),
-    ];
-    const labels = buildSectionLabels(rows);
-
-    expect(labels.get(2)).toBe("Section A");
-    expect(labels.get(3)).toBe("Section A");
-    expect(labels.get(5)).toBe("Section B");
+  it("an empty sheet stays empty", () => {
+    expect(marginSortRows([], [1, 2])).toEqual([]);
   });
 });

@@ -671,7 +671,8 @@ All BoQ wizard / pricing frontend code lives in `src/pages/boq-wizard/`. This se
   grid-level `shouldCloseOverlay` mounted-set effect stays only as the remark BACKSTOP. Closing discards any unsaved draft
   (owner-accepted). EXEMPT: a popover in the STICKY `<th>` header (AmountFormulaBuilder) never scrolls off -> no observer.
 - **BCS -- the INTERNAL cost block inside the pricing editor** (`bcsColumns.ts` pure leaf + `bcsRollup.ts` +
-  `marginView.ts` + `BcsColumnsDialog.tsx`; the block itself renders inside `PricingGrid`/`SummaryPanel`, no new
+  `marginView.ts` + `BcsColumnsDialog.tsx` + `MarginRangeFilter.tsx`; the block itself renders inside
+  `PricingGrid`/`SummaryPanel`, no new
   route). Full frontend as-built in `frontend/.claude/context/domain/boq-frontend.md`; storage, endpoints and the
   carry layer in `.claude/context/domain/boq-backend.md`. ⚠️ **NAME COLLISION: "BCS" in the Rate Master section
   below is a derivation pipeline -- an unrelated concept sharing three letters.** The acronym is never expanded
@@ -718,6 +719,35 @@ All BoQ wizard / pricing frontend code lives in `src/pages/boq-wizard/`. This se
     (`G — Amount (Supply)`) -- the one label both surfaces share; BCS chips carry none, because
     they have no Excel column and that absence is meaningful. **A chip nobody can locate in the
     grid reads as a figure that does not exist.**
+  - **The % Margin column header OWNS the margin view controls (BCS-S13/S14, owner 2026-08-07).**
+    Layout is `[ƒ] % Margin [↑↓] [▼funnel]`. ⚠️ **BCS-S4's separate flat "margin VIEW" is DELETED** --
+    with its toolbar toggle, its header-as-sort-control, and `buildSectionLabels` (which existed only
+    because flattening destroyed the section context a tree shows by POSITION). Do not rebuild it;
+    a ranked overview is a rebuild, not an un-deletion.
+    - **The RANGE is a TERM of `passesViewFilter`, never a separate pass** -- so it ANDs with
+      Show-unpriced / Check-Category / the row-type toggles for free and search inherits it. The
+      **SORT** is the one genuine stage after it (ordering cannot be a predicate).
+    - **Both are SNAPSHOTS measured over the WHOLE sheet (`rowsRef.current`), never `displayRows`.**
+      A range measured over the filtered set narrows irreversibly on each Apply; a rank built over it
+      leaves later re-admitted rows unranked in the appended tail. Recomputed on an explicit
+      Apply/arrow click ONLY -- `activeCell` is array-index addressed, so a live re-derivation would
+      slide a different row under the cursor mid-keystroke.
+    - ⚠️ **MEMBERSHIP IS THE MARGIN, NEVER `node_type`.** `isMarginViewRow` (line-items-only) was the
+      VIEW's curation rule and could not survive either half: the grid renders % Margin on every row
+      that has one, so a qty-bearing Preamble showing 15% would vanish from a 10-25% filter beside
+      line items that stayed; and `marginSortRows`' output IS the grid's row set, so an unranked row
+      silently disappears from the sheet. Rows with no margin are already excluded by `marginInRange`.
+    - **Only the SORT suppresses tree claims** (flat depths, withheld `childrenByParent`, suspended
+      collapse) -- a filter merely drops rows, so a survivor's ancestry and chevron stay true. The
+      arrow is THREE-state (`off → asc → desc → off`); **off must stay reachable**, or the suppressed
+      hierarchy has no way back.
+    - ⚠️ **A CONTROL THAT CAN HIDE ITSELF NEEDS AN ESCAPE HATCH.** `PricingGrid`'s `rows.length === 0`
+      early return fires BEFORE the header, so a range matching nothing removed the only control that
+      could clear it. The empty state must therefore tell "empty sheet" from "your filters emptied it",
+      name the applied range **without blaming it** (filters compose -- claiming "nothing has a margin
+      in that band" may be false), and offer **Clear filters** resetting EVERY view filter. It must
+      stay an early return INSIDE the grid: lifting it into the page unmounts `PricingGrid` and
+      discards the unsaved drafts held in its state.
   - **The BCS dialog is ONLY a switch (S12):** on/off + Cancel; both column pickers gone.
     ⚠️ **Readiness dropped to `bcs_enabled` in the SAME change and the two are inseparable** --
     re-adding the confirmation requirement without the pickers makes BCS switch on and stay
