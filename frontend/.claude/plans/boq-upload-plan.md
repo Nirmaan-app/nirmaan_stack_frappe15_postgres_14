@@ -18880,3 +18880,170 @@ point_wiring **9/9 green** (every row expected == draft), wiring_cabling **20**,
 - A re-extraction of point_wiring to carry the recovered values into the product -- a separate
   owner-approved run; **this slice deliberately re-ran nothing.**
 - The two stale `test_rate_suggest` pins.
+
+
+## Build slice CLOSEOUT -- the THIRD coercion site, and the two stale pins
+
+Two independent closeouts: the last unfixed coercion site from the NC sweep, and the two
+`test_rate_suggest` failures that had been red since before either slice.
+
+### The third coercion site -- and it was the SWEEP that found it, not a failure
+
+`RateMasterDataViewer.tsx` writes a master item's `attributes` JSON in two places -- the inline row
+editor and the Add-row dialog -- and both branched on `"number"` alone:
+
+```
+attributes_patch[d.id] = d.type === "number" && raw.trim() !== "" ? Number(raw) : raw;   // row edit
+attributes[d.id]       = d.type === "number" ? Number(raw) : raw;                        // add row
+```
+
+A `number_choice` value typed here was therefore stored as a **STRING**, and under strict-identity
+matching such a row could never be matched by anything -- the same defect, in the data this time
+rather than in the model's reply.
+
+**This is the THIRD twin of one defect.** CP2 fixed the frontend twin (a private `coerceForMatch`
+with a near-copy in the Derivation screen); NC fixed the server twin (`extraction._coerce_value`);
+this is the third. **None of the three was found by a failing test** -- the first by an owner's
+report, the second by a live production run, the third by the sweep the second slice made standing.
+That is the argument for the sweep: it is the only one of the three that found a defect BEFORE it
+cost anything, and it found this one while it was still latent.
+
+**Why it was latent, precisely:** the only `number_choice` attributes today belong to
+`point_wiring`, which is kind-less (`item_kinds: []`), so its Data tab is empty-scope and owns no
+rows to add or edit. It becomes live the moment a ROW-OWNING category gains a `number_choice`
+attribute.
+
+**The fix** extracts the branch into an exported pure helper, `coerceAttributeForStorage(def, raw)`,
+keyed on the SAME shared predicate the other sites use (`isNumericAttributeType`), so the third site
+can no longer drift from the first two. Behaviour: numeric types store a number; a blank stays blank
+(the caller decides whether to skip it); **a non-numeric entry against a numeric def is left
+VERBATIM rather than becoming NaN** -- the server canonicalises, and a row that round-trips visibly
+wrong is better than one silently nulled. The display half of the same file was corrected in the
+same way (`isDropdownAttributeType` decides which control renders; `isNumericAttributeType` decides
+`inputMode`) -- **both are no-ops for `choice` and `number`**, which is what V1 certifies.
+
+**Pins:** a NEW `rateMasterDataViewer.test.ts` (9 tests) -- positive (a `number_choice` stores as a
+NUMBER, keeps fractions, normalises `"1.0"` to 1), the defect pinned explicitly (it must NOT come
+back as the string `"1"`), blank-stays-blank, NEGATIVE non-numeric left verbatim and never NaN, and
+**the existing types asserted UNCHANGED**: a `choice` still stores a string (including a
+numeric-LOOKING one), a `number` still stores numeric, an unknown type still falls through to
+string.
+
+### The final site inventory -- every site accounted for
+
+| # | site | state |
+|---|---|---|
+| 1 | `extraction._coerce_value` (server extraction) | fixed at NC |
+| 2 | `rateMasterStructure.coerceForMatch` (match key) | correct since CP2 |
+| 3 | `RateMasterDerivation.coerceSelected` (form state) | correct since CP2 |
+| 4 | `rate_master._validate_config` (config validator) | correct since CP2 |
+| 5 | `RateMasterDataViewer` storage x2 (row edit, add row) | **FIXED THIS SLICE** |
+| 6 | `RateMasterDataViewer` display x2 (control choice, inputMode) | **FIXED THIS SLICE** |
+| 7 | `pricingSheetHelper.attributeOptions` | type-agnostic -- reads `values`/`values_from`, no branch |
+| 8 | `RateMasterPipelines` type picker | DEFERRED by owner ruling (no `values_from` UI, so it could only author a differently-shaped def) |
+| 9 | `RateMasterDerivation` lines 286 / 318 / 375 (`d.type === "number"`) | CORRECT AS-IS -- these are the free-numeric-input + datalist-suggestion branches; a `number_choice` is a DROPDOWN and is handled earlier by `isDropdownAttributeType`. Deliberately excluded, not missed. |
+| 10 | `extraction.build_attribute_defs:356` | passes `type` through verbatim; no branch |
+
+**A re-run of the sweep after the fix finds NO remaining bare `number`-only branch on an attribute
+definition anywhere in the repo, frontend or backend.** No fourth site.
+
+### The two stale pins -- verified against the live config BEFORE editing
+
+Both were proven pre-existing at NC by stashing that slice's fix and re-running to the identical two
+failures. **Neither was taken on trust here:** the live config was read first, and in one case the
+brief's description proved INCOMPLETE.
+
+**`test_e4_point_wiring_r9_records_runs_and_cores_separately`.** The brief attributed the staleness
+to the S-rules alone. The live config shows it is stale in FOUR ways, and the larger cause is CP2:
+
+| assertion | asserted | live | why |
+|---|---|---|---|
+| rule ids | `["R9"]` | `["R9","S3","S1","S2"]` | slice 2p2 added the three switch rules |
+| R9 label | "Runs and cores are recorded separately" | **"Wire runs and cores in point wiring"** | CP2 replaced R9 with the owner's rewrite |
+| guidance phrase | "record 3 as runs and 2 as the core count" | ABSENT | same |
+| guidance phrase | "must NEVER be multiplied together" | ABSENT | same |
+
+Both movements are intended and documented, so this is a stale pin rather than a surprise -- but the
+record is corrected here: **R9 has now been replaced TWICE**, and the test's docstring says so.
+**The SHAPE is preserved and slightly strengthened:** the id list is still asserted EXACTLY (a new
+rule appearing still fails), the label is still exact, the guidance is pinned on five load-bearing
+PHRASES of the current rule (three conductors / phase, neutral and earth / add up to three /
+3R x 1.5 sqmm / wire 2 is None) so a reword still fails, **BOTH retired wordings are asserted
+ABSENT** so a revert to either fails loudly, and the three switch rules are asserted by identity so
+a silent drop fails.
+
+**`test_11_ea2_multicategory_and_identity`.** The catalog is empty because `switches_sockets` is
+**no longer an identity category**: slice 1a removed its `matching_mode` AND `identity_attribute_id`
+together (pinned by `test_rate_master`'s `test_37`), routing it to the ordinary attribute prompt
+because every switches_sockets row IS an assembly. **The emptiness is a CHANGE, not a defect** --
+verified explicitly: the `switch_socket_item` master rows are all still active and still carry their
+`item` values (`10A 1 WAY SWITCH` among them). The catalog is empty because the CONFIG no longer
+declares an identity attribute to build one FROM, not because data vanished.
+
+That made the test worse than stale: parts (d) and (e) asserted on an `item` attribute that
+`switches_sockets` no longer defines at all. **Rather than weaken it to "the catalog is empty", the
+identity half is RE-POINTED at `miscellaneous`**, which IS still `item_identity` (identity attribute
+`description`, a live 13-value catalog), so the mechanism stays genuinely under test. The catalog is
+now asserted by its SOURCE -- every value must be present in the active master rows of the config's
+own kinds -- rather than by a hardcoded literal, so adding or retiring a rate item cannot rot it
+again. A new **(b2)** asserts POSITIVELY that switches_sockets is attribute-mode now
+(`matching_mode` None, `identity_attribute_id` None, empty catalog, no identity-flagged def) **and
+that its master rows still exist**, so if the data ever DOES vanish this test fails rather than
+shrugging.
+
+### Gates
+
+| gate | result |
+|---|---|
+| **G1** | `test_rate_suggest` **RED (54 tests, 2 failures) -> GREEN (54/54)**. |
+| **G2** | `test_rate_master` **64** unchanged green; `test_extraction_coercion` **26** unchanged green; vitest **1,373 -> 1,382 / 55 files** (the 9 new Data-Viewer pins), all green. |
+| **G3** | tsc: **zero** errors in `rate-master` / `rate-helper`, before and after. |
+| **G4** | **26 goldens / 78 rows / 77 green -- byte-identical** to CP2 and NC, including the same PRE-EXISTING `miscellaneous` m1 float artifact (187.2 vs 187.20000000000002). Nothing moved. |
+| **G5** | the sweep re-run: every site accounted for (table above); no fourth site. |
+| **G6** | **zero AI calls, zero config writes, zero DB writes** -- no asset touched (v24 / `rmbulk-b39828f2edbb` unchanged), no extraction re-run, no suggestion applied, sheet Finalized state untouched. |
+
+### Marker + cert
+
+**Code marker, both directions, on the SERVED module** (after a full de-stale: bench + the three
+LISTED vite PIDs killed individually, `node_modules/.vite` cleared, both restarted, `:8080` and
+`:8000` = 200, storage + service workers cleared with cookies preserved, tab closed and reopened):
+`coerceAttributeForStorage` (x3), `isNumericAttributeType` (x3) and `isDropdownAttributeType` (x2)
+PRESENT; all four old branch conditions -- `d.type === "number" && raw.trim()`,
+`d.type === "number" ? Number(raw)`, `d.type === "choice" && d.values`, and the inputMode ternary --
+**ABSENT (0 occurrences each)**.
+
+- **V1 PASS** Data Viewer on `wiring_cabling` (588 rows, unchanged read view): in the Add-row dialog
+  the `choice` attributes (Material, Insulation) render as **SELECT** and the `number` attributes
+  (Core, Runs, Thickness) as **INPUT with `inputMode="decimal"`** -- byte-identical to before, which
+  is the point: this slice changes nothing visible for existing types. Closed via Cancel, nothing saved.
+- **V2 PASS** point_wiring's four wire attributes still render as dropdowns, cores **1,2,3,4,5,6**
+  and the 20 catalog thicknesses. CP2's work undisturbed.
+- **V3 PASS** Preview gate in EDIT MODE, exited via Cancel, fresh page load per category:
+  point_wiring **9/9**, wiring_cabling **20/20**, switches_sockets **6/6**, db_switchgear **8/8**
+  green, zero non-green rows.
+
+### The admin gate on the Rate Master edit path (asked for, read-only -- nothing changed)
+
+**The owner's belief is CORRECT: it is enforced SERVER-SIDE, not merely hidden in the UI.** All five
+whitelisted write endpoints in `api/boq/rate_master.py` -- `update_rate_config_param`,
+`update_rate_master_item`, `create_rate_master_item`, `deactivate_rate_master_item` and
+`update_rate_config` -- call `_require_rate_admin()` as their **FIRST statement**, before any target
+resolution or write, raising `frappe.PermissionError`. It delegates to the IMPORTED
+`pricing._is_nirmaan_admin` (never a re-minted copy), so there is ONE definition of "admin" across
+the wizard and the rate master. The frontend `isRateMasterAdmin` only hides affordances.
+
+Two qualifications a dependent slice should know:
+
+1. **"Admin" here means `Administrator` OR `Nirmaan Users.role_profile == "Nirmaan Admin Profile"`.**
+   It is PROFILE-based, not Frappe-Role-based -- a user holding an admin ROLE but a different
+   role_profile is NOT an admin on this path.
+2. **The READ endpoints are login-only, not admin-gated** (`get_rate_master_items`,
+   `get_rate_category_config` call `_require_login()`). Reading the rate master is open to any
+   logged-in user by design. If a later slice assumes "the rate master is admin-only", that holds
+   for WRITES only.
+
+### Owed
+
+- The type picker + `values_from` authoring UI (owner's call on shape (A) vs (B)).
+- A re-extraction of point_wiring to carry the NC-recovered values into the product -- still a
+  separate owner-approved run.

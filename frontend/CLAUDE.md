@@ -710,6 +710,17 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   String input. The Derivation screen keeps its OWN `coerceSelected` because that form clears to
   `""` ("the field is empty") where the match coercion yields `null`; only the TYPE decision is
   shared.
+- **AN ATTRIBUTE VALUE IS COERCED IN SEVERAL PLACES, AND A NEW TYPE MUST BE TAUGHT TO EVERY ONE.**
+  Three of them decide whether a value can ever match: the frontend MATCH path
+  (`rateMasterStructure.coerceForMatch`, value -> catalog match key), the SERVER EXTRACTION path
+  (`extraction._coerce_value`, model reply -> stored value), and the MASTER-ITEM EDITOR
+  (`RateMasterDataViewer.coerceAttributeForStorage`, typed value -> the item's stored `attributes`).
+  A fourth, the config validator, decides what may be authored at all. **`number_choice` is NUMERIC
+  at every site, never a string** — an item row written with `"1"` where every other row carries `1`
+  can never be matched, and nothing errors. All sites key on the ONE shared predicate
+  `isNumericAttributeType` / `isDropdownAttributeType` so they cannot drift apart. **This defect was
+  missed THREE times — the frontend twin, the server twin, then the editor — so a coercion change
+  means sweeping the whole stack, both halves, before believing the list is complete.**
 - **`coerceForMatch` IS NOT THE ONLY COERCION — the server has its own, and a new attribute type
   must be taught to BOTH.** The frontend turns a value into a catalog match key; the backend
   (`services/boq_rate_master/extraction.py::_coerce_value`) turns the model's reply into the stored
