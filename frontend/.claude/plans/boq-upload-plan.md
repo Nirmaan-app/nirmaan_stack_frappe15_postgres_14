@@ -18693,3 +18693,190 @@ empty; their seeding path is byte-unchanged by this slice.
 - `test_rate_master._ASSET` is still pinned to `rate_master_electrical_all_v22.json`. It backs the
   switches_sockets ROUTING pins only and is unaffected by this slice, so it was left alone rather
   than bumped as a side effect.
+
+
+## Build slice NC -- the server-side `number_choice` coercion gap (a LIVE break), and the picker STOP
+
+**This slice repairs CHAT'S OWN DEFECT from CP2.** CP2 introduced the `number_choice` attribute
+type, taught it to the FRONTEND match coercion (`rateMasterStructure.coerceForMatch`) and to the
+config validator, and pinned both -- and never taught it to the SERVER-SIDE extraction coercion,
+where nothing covered the path at all. It shipped, and it broke production.
+
+**It is the SECOND time a coercion twin was missed in this arc.** CP2 itself existed because
+`coerceForMatch` was buried in a page helper with a near-twin inline in the Derivation screen; the
+answer was to move it to a shared module. That fix was frontend-shaped, and the sweep stopped at the
+frontend boundary. The server had its own coercion the whole time. **When a coercion changes, sweep
+BOTH halves of the stack before believing the list is complete** -- which is why C1 (below) is now a
+standing step, and why it found a third site.
+
+### The defect, verified against the code before relying on the brief
+
+`services/boq_rate_master/extraction.py::_coerce_value` branched `if defn["type"] == "number"`.
+`number_choice` is not `"number"`, so it fell through to the CHOICE branch, which does
+`sval = str(raw)` and tests membership against `defn["values"]` -- and for these attributes the
+values are resolved from the catalog, so they are **FLOATS** `[6.0, 5.0, 4.0, 3.0, 2.0, 1.0]`.
+`"1" in [1.0, ...]` is never true, so **every core and every thickness the model returned was
+NULLED on the way in**. Only the `"None"` sentinel (handled earlier, before the type branch) and the
+untouched `number` attributes survived.
+
+**Measured on the live run (`PW_LIVE_RUN_2026-08-07`, run `BRSR-26-00326`): point_wiring rows
+producing a value went 17/23 -> 0/23.** R9's rewrite had worked perfectly -- 18 of 18 rows read the
+multiplier as RUNS and the phantom wire 2 was gone -- and none of it could reach the product.
+
+### The fix
+
+One branch, in `_coerce_value`:
+
+```
+if defn["type"] in ("number", "number_choice"):
+    v = float(raw) -> int if integral
+    if defn["type"] == "number_choice" and defn.get("values"):
+        domain = [float(a) for a in values if numeric]
+        if domain and float(v) not in domain: return None
+    return v
+```
+
+**Membership compares LIKE WITH LIKE, on both sides.** The four representations the model may return
+-- `1`, `"1"`, `1.0`, `"1.0"` -- are the same value and all four now store as the number `1`; a
+string-valued domain (a hand-authored config) is floated too, so it matches numerically as well. The
+check is NOT abandoned: `12` and `1.5` against a core domain, and any non-numeric string, are still
+REJECTED. The `allow_none` `"None"` sentinel path is untouched (it returns before the type branch)
+and is pinned both ways. `number` and `choice` are byte-unchanged, including `choice`'s synonym
+mapping and its string-domain rejection of a numeric answer.
+
+### The real deliverable: `services/boq_rate_master/test_extraction_coercion.py` (NEW, 26 tests)
+
+The one-line fix is trivial. **The missing coverage is what let it ship**, so the test file is the
+deliverable and it covers the WHOLE server path, not just the new type:
+
+| class | covers |
+|---|---|
+| `TestCoerceValueNumber` (5) | numeric forms, fractions, NEGATIVE non-numeric, null, and that a `number` def ignores a values list |
+| `TestCoerceValueChoice` (5) | allowed value, NEGATIVE out-of-domain, synonym->canonical, no-domain passthrough, NEGATIVE numeric answer against a string domain |
+| `TestCoerceValueNumberChoice` (10) | **all four representations**, fractional members, NEGATIVE genuinely-absent value, NEGATIVE non-numeric, null, the `"None"` sentinel WITH `allow_none`, NEGATIVE `"None"` without it, no-domain still numeric, int/float normalisation, and a STRING-valued domain still matching numerically |
+| `TestCoerceValueUnknownType` (3) | a future type degrades to the string/choice semantics, still honours a domain, stringifies without one |
+| `TestCoerceValueAgainstTheLiveConfig` (3) | the REAL point_wiring defs: they are `number_choice` over a numeric domain; the exact values run BRSR-26-00326 returned now store; a non-member is still rejected |
+
+**BEFORE-pin first, then the fix, then the after-pins -- in that order.** The file's first version
+asserted the CURRENT, BROKEN behaviour (every valid answer nulled, including against the live
+config) and was **proven green against the unfixed function** (5/5). The fix then landed and the
+file was rewritten to the 26 after-pins (26/26). The record therefore shows both states rather than
+only the repaired one.
+
+Run: `bench --site localhost run-tests --app nirmaan_stack --module nirmaan_stack.services.boq_rate_master.test_extraction_coercion`.
+
+### C1 -- the coercion-site sweep, and A THIRD SITE
+
+Every place an attribute value is normalised, validated against `values`, or type-branched:
+
+| # | site | knows `number_choice`? |
+|---|---|---|
+| 1 | `services/boq_rate_master/extraction.py::_coerce_value` (server extraction) | **NO -> FIXED HERE** |
+| 2 | `rate-master/rateMasterStructure.ts::coerceForMatch` (frontend match key) | yes (CP2) |
+| 3 | `rate-master/RateMasterDerivation.tsx::coerceSelected` (Derivation form state) | yes (CP2, via `isNumericAttributeType`) |
+| 4 | `api/boq/rate_master.py::_validate_config` (config validator) | yes (CP2) |
+| 5 | **`rate-master/RateMasterDataViewer.tsx` lines 286 + 575 (master-item editor)** | **NO -- REPORTED, NOT FIXED** |
+| 6 | `RateMasterDataViewer.tsx` 636 / 648 (which control renders, `inputMode`) | NO -- same site, display half |
+| 7 | `pricingSheetHelper.ts::attributeOptions` (dropdown options) | type-agnostic; reads `values`/`values_from`, no branch |
+| 8 | `RateMasterPipelines.tsx` (the type picker) | NO -- deliverable (3), STOPPED, see below |
+
+**THE THIRD SITE (#5), reported BEFORE fixing per the stopping condition.** The Data tab's row
+editor and Add-row dialog both do `d.type === "number" ? Number(raw) : raw`, so a `number_choice`
+attribute would be written into a master item's `attributes` JSON **as a STRING**. Under strict
+identity matching, such a row could never be matched by anything. **It is LATENT, not live**: the
+only `number_choice` defs today are point_wiring's four, and point_wiring is kind-less
+(`item_kinds: []`), so its Data tab is empty-scope and cannot add or edit rows. The moment a
+ROW-OWNING category gains a `number_choice` attribute, this becomes the same defect again, one layer
+down. It is OUT OF SCOPE here and left untouched.
+
+### Deliverable (3) -- the type picker: STOPPED, and why
+
+The brief asked for the `number_choice` option in `RateMasterPipelines.tsx`, with the check that a
+newly-authored definition must be **IDENTICAL IN SHAPE to the ones v24 installed**, and a stopping
+condition if it is not. Field by field:
+
+| | v24's four `number_choice` defs | what the picker could author today |
+|---|---|---|
+| `id` / `label` / `type` | present; type `number_choice` | present; identical |
+| **domain** | **`values_from: {kind, attr, where}`** -- resolved from the live catalog | **`values: [...]`** -- a static comma-separated list |
+| `values` | **ABSENT on all four** | present |
+| `allow_none` / `disables_when_none` | on `wire2_thickness_sqmm` | not authorable here either |
+
+**Every live `number_choice` def is `values_from`-based and carries no `values` key, and the editor
+has NO `values_from` authoring UI** -- only the comma-separated `values` input, gated on
+`d.type === "choice"`. So the option cannot be added without choosing one of:
+
+- **(A) a `values`-based def.** Validator-legal (pinned by CP2's `test_59b`), works end-to-end, and
+  precedented for `choice` (v24's `conduit_type` is `values`-based while `switch_item` is
+  `values_from`-based). But it is NOT the shape any live `number_choice` uses, and a static list
+  drifts from the catalog -- exactly the property `values_from` was chosen to avoid.
+- **(B) a `values_from`-based def**, matching v24 -- which needs three new inputs (kind, attr,
+  where). That is new UI, not "one picker option". Emitting an empty `values_from: {kind:"",attr:""}`
+  would validate (the key is truthy) yet resolve to an EMPTY domain: a definition that looks
+  authored and silently offers nothing, i.e. precisely the "worse than one that cannot create it at
+  all" case the brief warns about.
+
+**Per the stopping conditions (`spec ambiguous -> STOP`, and `the picker produces a definition
+differing in shape from v24's -> STOP`), `RateMasterPipelines.tsx` was NOT touched.** The owner's
+call is needed on (A) vs (B). Nothing about the shipped picker changed: a `number_choice` def still
+round-trips a whole-config save untouched; it just cannot be created in-system yet.
+
+### Gates
+
+| gate | result |
+|---|---|
+| G1 backend | `test_rate_master` **64**, unchanged, green. NEW `test_extraction_coercion` **26**, green. |
+| G1 vitest | **1,373 / 54 files**, unchanged and green (no frontend change ships in this slice). |
+| G2 tsc | **zero** errors in `rate-master` / `rate-helper` (unchanged -- no frontend edit). |
+| G3 goldens | **26 goldens / 78 rows / 77 green** -- byte-identical to CP2, including the one PRE-EXISTING `miscellaneous` m1 float artifact (187.2 vs 187.20000000000002), which this slice does not touch. |
+| G4 offline proof | see below |
+| G5 sweep | 8 sites listed above; 1 fixed, 1 new one reported, 4 already correct, 2 type-agnostic/out-of-scope. |
+| G6 AI calls | **ZERO.** No extraction re-run, no classify; the G4 proof replays values already on record. |
+
+**Two PRE-EXISTING failures in `test_rate_suggest` (54 tests, 2 failures) were found and are NOT
+caused by this slice** -- proven by stashing the fix and re-running to the identical two failures.
+They are stale pins from earlier slices, reported and NOT auto-fixed (that file is out of scope):
+`test_e4_point_wiring_r9_records_runs_and_cores_separately` expects point_wiring's rules to be
+`['R9']` where the live config carries `['R9','S3','S1','S2']`; `test_11_ea2_multicategory_and_identity`
+expects `'10A 1 WAY SWITCH'` in an identity catalog that now reads empty.
+
+**G4 -- THE OFFLINE PROOF (no AI call).** The values run BRSR-26-00326 actually returned, replayed
+through the LIVE defs and the fixed function: **48 cells now store where the shipped pipeline stored
+null**; 90 cells unchanged. Rows 196-210 resolve to `core 1 / runs 3 / 1.5 sqmm` and rows 217-235 to
+`core 1 / runs 2 / 1.5 sqmm` -- the readings R9 produced and the coercion discarded. Against the
+live `wire1_core` def: `1`, `"1"`, `1.0`, `"1.0"` all store as `1`; `12` and `"one"` are rejected;
+`"None"` on `wire2_thickness_sqmm` still returns the sentinel. **Caveat on method:** the
+"model said" column comes from the diagnostic pass and the "shipped stored" column from the live
+pass -- two separate replies -- so a few wire-2 cells may differ by model variance rather than by
+coercion. The decisive evidence is the direct one: the same live def with the same input returned
+`None` before the fix (pinned) and returns `1` after.
+
+### Marker + cert
+
+The change is BACKEND-only, so there is no new frontend symbol to bind a bundle marker to. The
+marker was taken where the change actually is, in a FRESH process after the bench restart:
+`number_choice` present in the numeric branch (7 occurrences) and the like-with-like comparison
+present; the old single-type branch `if defn["type"] == "number":` ABSENT; and behaviourally
+`_coerce_value(live wire1_core, 1)` returns `1` where it returned `None` before, while `12` is still
+rejected. The served frontend was confirmed UNCHANGED (0 `number_choice` options in the served
+picker -- the STOP -- and CP2's symbols still served). **The bench restart is operationally
+load-bearing: a long-lived RQ worker holds the old module (§9 #171), so an enqueued run keeps the
+broken coercion until bench restarts.**
+
+Cert (CDP against the owner's Chrome, full de-stale, cookies preserved, sid HttpOnly verified):
+**V1 N/A** -- the picker was not built (STOP above), and the served bundle confirms it.
+**V2 PASS** -- point_wiring's four wire attributes still render as dropdowns, cores **1,2,3,4,5,6**
+and the 20 catalog thicknesses, `None` at the top of wire 2's only; CP2's work is undisturbed.
+(Row 198 still displays its OLD stored values -- this slice does not re-extract, as expected.)
+**V3 PASS** -- preview gate in EDIT MODE, exited via Cancel, fresh page load per category:
+point_wiring **9/9 green** (every row expected == draft), wiring_cabling **20**, switches_sockets
+**6**, db_switchgear **8** gate rows, matching CP2 exactly.
+
+### Owed
+
+- The owner's call on picker shape (A) vs (B), then the picker itself.
+- The THIRD coercion site (`RateMasterDataViewer.tsx`) before any row-owning category gains a
+  `number_choice` attribute.
+- A re-extraction of point_wiring to carry the recovered values into the product -- a separate
+  owner-approved run; **this slice deliberately re-ran nothing.**
+- The two stale `test_rate_suggest` pins.

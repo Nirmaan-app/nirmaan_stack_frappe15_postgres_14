@@ -710,6 +710,13 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   String input. The Derivation screen keeps its OWN `coerceSelected` because that form clears to
   `""` ("the field is empty") where the match coercion yields `null`; only the TYPE decision is
   shared.
+- **`coerceForMatch` IS NOT THE ONLY COERCION — the server has its own, and a new attribute type
+  must be taught to BOTH.** The frontend turns a value into a catalog match key; the backend
+  (`services/boq_rate_master/extraction.py::_coerce_value`) turns the model's reply into the stored
+  value, and a type it does not know falls through to STRING semantics and is nulled against a
+  numeric domain. `number_choice` compares NUMERICALLY at both sites — never by string — while still
+  enforcing domain membership. Teaching only this side is what broke production once; **sweep both
+  halves of the stack whenever a coercion changes.**
 - **A DROPDOWN over a numeric catalog column must be `number_choice`, never `choice` (owner-locked).**
   A `choice` emits the string `"3"` against a stored `3` and silently matches nothing. Making the
   matcher numeric-aware was rejected -- it changes every category's matching and fails as a WRONG

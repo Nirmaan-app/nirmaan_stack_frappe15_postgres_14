@@ -732,6 +732,16 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   is byte-unaffected. `coerceForMatch` (the ONE place an attribute value becomes a match key) lives
   in `rateMasterStructure.ts`; the two type axes are `isNumericAttributeType` /
   `isDropdownAttributeType`, one definition each, read by BOTH rendering surfaces.
+- **AN ATTRIBUTE VALUE IS COERCED IN MORE THAN ONE PLACE, AND A NEW TYPE MUST BE TAUGHT TO EVERY
+  ONE (owner-locked).** The two that decide whether a value survives are the FRONTEND match path
+  (`rateMasterStructure.coerceForMatch`, value -> catalog match key) and the SERVER EXTRACTION path
+  (`extraction._coerce_value`, model reply -> stored value); the config validator and the Derivation
+  form carry the same type knowledge. **`number_choice` compares NUMERICALLY at every site, never by
+  string** — its domain is resolved from the catalog and is therefore FLOATS, so a string comparison
+  can never match and silently discards every correct answer. Membership is still ENFORCED: like
+  with like, not no check at all. This has now been missed TWICE (the frontend twin, then the
+  server); **when you touch a coercion, sweep the whole stack — both halves — before believing the
+  list is complete.**
 - **THE GOLDENS BYPASS `coerceForMatch` ENTIRELY, so a coercion change must be proven through the
   PRICING-EDITOR path as well.** Goldens call `runPipeline` with values directly; a coercion that
   matches nothing leaves every golden green while the editor prices nothing. Measured once already:
