@@ -109,6 +109,16 @@ export interface OutflowImportRow {
     skip_reason?: string;
     outcome_note?: string;
     matches: OutflowRowMatch[];
+    /**
+     * Already-Paid payments this row's bank reference points at — the records behind a
+     * "Already recorded as Paid on …" skip, and behind a `Mismatched` row.
+     *
+     * ⚠️ NOT a settlement and NOT a suggestion. The row settled nothing, so it has no
+     * `Outflow Row Match` record, and it carries no stored suggestion either. Derived server-side in
+     * `get_batch_rows` from the same loader the duplicate guard uses, so the screen can link the
+     * payment its note only names in prose.
+     */
+    related_payments?: { target_doctype: string; target_name: string }[];
 }
 
 /** Ranked candidates for one row, fetched on demand when a reviewer opens it. */

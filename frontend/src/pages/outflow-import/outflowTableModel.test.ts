@@ -501,8 +501,57 @@ describe("links to the record a row settles", () => {
         expect(link.href).toContain("tab=All+Payments");
     });
 
+    it("links a SKIPPED duplicate to the payment somebody already ticked Paid", () => {
+        // The gap this closed: a skip settles nothing and DELETES its match records, and it carries
+        // no suggestion either (`sole_suggestion` is gated on Matched, so a skipped row can never
+        // render as ready to confirm). The payment existed only inside the note's prose.
+        const skipped = row({
+            row_status: "Skipped",
+            outcome_note: "Already recorded as Paid on PAY-00102-211.",
+            matches: [],
+            related_payments: [
+                { target_doctype: "Project Payments", target_name: "PAY-00102-211" },
+            ],
+        });
+        const [link] = rowSettlementLinks(skipped);
+        expect(link.label).toBe("PAY-00102-211");
+        // Somebody else paid it, but it IS Paid -- so Payments Done is the right table.
+        expect(link.href).toContain("tab=Payments+Done");
+    });
+
+    it("links a MISMATCHED row too, since it comes from the same duplicate check", () => {
+        const mismatched = row({
+            row_status: "Mismatched",
+            matches: [],
+            related_payments: [
+                { target_doctype: "Project Payments", target_name: "PAY-00187-018" },
+            ],
+        });
+        expect(rowSettlementLinks(mismatched).map((l) => l.label)).toEqual(["PAY-00187-018"]);
+    });
+
+    it("prefers what WE settled over what was already paid", () => {
+        const both = row({
+            row_status: "Settled",
+            matches: [
+                { target_doctype: "Project Payments", target_name: "PAY-SETTLED" },
+            ] as OutflowImportRow["matches"],
+            related_payments: [
+                { target_doctype: "Project Payments", target_name: "PAY-DUPLICATE" },
+            ],
+        });
+        expect(rowSettlementLinks(both).map((l) => l.label)).toEqual(["PAY-SETTLED"]);
+    });
+
     it("gives an unmatched row nothing to link to", () => {
         expect(rowSettlementLinks(row({ row_status: "Unmatched" }))).toEqual([]);
+    });
+
+    it("gives a skip with no payment behind it nothing to link to", () => {
+        // "Transfer did not succeed at the bank", or a manual skip -- no record is involved.
+        expect(
+            rowSettlementLinks(row({ row_status: "Skipped", matches: [], related_payments: [] }))
+        ).toEqual([]);
     });
 });
 

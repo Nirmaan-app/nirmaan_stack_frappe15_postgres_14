@@ -414,11 +414,20 @@ export const settlementLink = (
  * -- nothing has been written -- so it falls back to the match run's stored suggestion.
  */
 export const rowSettlementLinks = (row: OutflowImportRow): SettlementLink[] => {
-    // A match record means money was written, so its payment is Paid -> "Payments Done".
+    // A match record means WE wrote the money, so its payment is Paid -> "Payments Done".
     const settled = (row.matches ?? [])
         .map((m) => settlementLink(m.target_doctype, m.target_name, true))
         .filter((link): link is SettlementLink => link !== null);
     if (settled.length) return settled;
+
+    // An already-recorded duplicate: SOMEBODY ELSE ticked it Paid before this statement was
+    // uploaded. We settled nothing, but the payment is Paid all the same -> "Payments Done".
+    // This is the only route to a link on a Skipped or Mismatched row, whose note names the
+    // payment in prose and which carries neither a match record nor a suggestion.
+    const alreadyPaid = (row.related_payments ?? [])
+        .map((p) => settlementLink(p.target_doctype, p.target_name, true))
+        .filter((link): link is SettlementLink => link !== null);
+    if (alreadyPaid.length) return alreadyPaid;
 
     // A suggestion has settled nothing, so its payment is still Approved -> "All Payments".
     const suggested = settlementLink(row.suggested_doctype, row.suggested_name, false);

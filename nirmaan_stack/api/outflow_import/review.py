@@ -307,6 +307,8 @@ def get_batch_rows(batch: str):
     for match in matches:
         by_row.setdefault(match["import_row"], []).append(match)
 
+    related = _related_paid_payments(rows)
+
     return {
         "batch": batch,
         "rows": [
@@ -316,10 +318,43 @@ def get_batch_rows(batch: str):
                 "service_charge": float(row.get("service_charge") or 0),
                 "service_tax": float(row.get("service_tax") or 0),
                 "matches": by_row.get(row["name"], []),
+                "related_payments": related.get(row.get("normalized_reference") or "", []),
             }
             for row in rows
         ],
     }
+
+
+def _related_paid_payments(rows: list) -> dict[str, list]:
+    """Already-Paid payments each row's bank reference points at, keyed by that reference.
+
+    ⚠️ THIS IS WHAT MAKES A SKIPPED ROW CLICKABLE. A row skipped as an already-recorded duplicate --
+    and a `Mismatched` row, which comes from the same check -- names its payment ONLY inside
+    `outcome_note`, a sentence written for a person. It has no `Outflow Row Match` record (a skip
+    settles nothing and deletes them) and no stored suggestion (`sole_suggestion` is gated on
+    `Matched`, deliberately, so a skipped row can never render as ready to confirm). So the screen
+    had the payment's NAME in prose and no way to link it.
+
+    ⚠️ DERIVED HERE RATHER THAN PARSED FROM THE NOTE, and rather than persisted. Parsing the sentence
+    back out would be guessing at a fact the database already holds exactly. Persisting it would mean
+    another field and another migrate on a branch that already owes six. This reuses the SAME loader
+    the matcher's duplicate guard uses, so the two can never disagree about which payment a row
+    refers to -- one query for the whole batch, which is tens of rows, not thousands.
+
+    Keyed by REFERENCE, not by row: several bank rows can share one reference (that is what a
+    fan-out is), and they should all point at the same payments.
+
+    Computing it for every row is safe. A `Matched` row cannot have a paid payment at its reference:
+    the duplicate check runs FIRST and would have skipped it, so the lookup comes back empty on its
+    own rather than by being excluded here.
+    """
+    references = [r.get("normalized_reference") or "" for r in rows]
+    by_reference: dict[str, list] = {}
+    for target in C.load_paid_payments_by_reference(references):
+        by_reference.setdefault(target.normalized_reference, []).append(
+            {"target_doctype": target.doctype, "target_name": target.name}
+        )
+    return by_reference
 
 
 @frappe.whitelist()
