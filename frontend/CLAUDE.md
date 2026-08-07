@@ -734,6 +734,40 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   dropped once as a measured no-op, correctly: the only derived attribute then was never blank.
   Wiring `module_fit` into a category later made another attribute derived, and the dropped fix
   became a live defect. A decision resting on a measurement inherits that measurement's expiry date.
+- **A DERIVED ATTRIBUTE DISPLAYS ITS COMPUTED VALUE AND IS NEVER FLAGGED AS MISSING
+  (owner-locked).** Exempting it from the helper's missing-attribute gate stopped it REFUSING a
+  row; it did not make the field show anything, so the form still rendered a blank in a red border
+  while the pipeline priced a plate behind it. **The screen is the authority** -- "the arithmetic
+  underneath is correct" describes that defect rather than defending it. `isAttrBlank` is the ONE
+  predicate carrying the exemption, so the gate and the red border cannot disagree about the same
+  field. **The computed value is carried in `derivedValue`, NEVER written into `value`**: `value`
+  means "what the row supplied", and collapsing the two makes a computed number indistinguishable
+  from a stated one to every later reader.
+- **THE FACE PLATE STAYS EDITABLE, AND A TOO-SMALL ENTRY WARNS RATHER THAN BEING SILENTLY
+  OVERRIDDEN (owner-locked).** A stated value keeps the screen and still feeds the pipeline as the
+  take-the-larger FLOOR. When the computation overrides it, the panel must SAY so, naming the
+  stated capacity, the contents and the size actually priced -- a silent override is
+  indistinguishable from a field that ignores the user. **The warning belongs IN THE PANEL, not
+  only in the derivation trace**: the trace is a separate surface a pricer may never open.
+- **THE BLANKER QUANTITY IS COMPUTED-ONLY AND READ-ONLY -- the NAMED EXCEPTION (owner-locked).**
+  Its component takes `qty: {from_fit}`, so the pipeline never reads the attribute; an editable
+  field would promise an effect it cannot have. **A ladder BIND is the opposite case and must stay
+  editable** -- its stated value IS read, as the floor. The two are told apart FROM CONFIG
+  (`derivedQtyAttrs` = fully superseded, a `module_fit` ladder bind = still an input), never by
+  attribute id.
+- **THE PRICING PANEL AND THE RATE MASTER DERIVATION SCREEN ASK DIFFERENT QUESTIONS ABOUT THE SAME
+  FIELD, and are kept apart BY CONSTRUCTION (owner-locked).** On Derivation, `plate_item` is the
+  stated FLOOR a user sets; in the panel it is "what did the assembly come to?". Derivation reads
+  `derivedQtyAttrs` (the superseded-qty half only) and the panel reads `derivedAttrIds` (both
+  halves), so collapsing the two predicates would freeze a field that is genuinely editable there.
+  Pinned by test -- do not "unify" them.
+- **A `module_fit` STEP PUBLISHES ITS OUTCOME AS STRUCTURED DATA (`StepTrace.moduleFit`), and a
+  consumer must READ IT rather than parse the trace prose or re-derive the fit.** The prose
+  `matchedCondition` is a human sentence that gets reworded; making it a parsing contract fails
+  SILENTLY. Re-deriving the fit would be another copy of the catalog-resolved, take-the-larger
+  module rule -- the drift #179 exists to prevent. The field is ADDITIVE AND OPTIONAL (absent on
+  every other step, and on a `module_fit` that bailed -- nothing fitted, nothing claimed), and it
+  is written ALONGSIDE the prose at the identical points so the two can never disagree.
 - **THE PRICING-EDITOR ROW COUNT IS THE GATE FOR ANYTHING THE GOLDENS BYPASS.** Goldens call
   `runPipeline` directly and never touch the helper's gate or `coerceForMatch`, so a change there
   can leave all 26 green while the editor prices nothing. Measure rows-producing-a-value per

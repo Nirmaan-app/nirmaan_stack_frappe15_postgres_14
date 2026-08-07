@@ -19363,3 +19363,135 @@ type-only and is stripped by the transform -- expected.)
   must be re-observed on a clean session before it is touched (C4).
 - The blanker-item inconsistency (row 243 needs a blank and gets none because the model returned
   `"None"`) -- reported at THREE_DEFECTS, deferred (C5).
+
+## Build slice DERIVED-DISPLAY -- the computed plate is SHOWN, and a too-small entry WARNS
+
+Closes Defect 2, which the PANEL-LEAK slice stopped at the scope boundary. **The stop was correct
+and the wall was chat's scope list -- for the SECOND time.** `ratePipelineInterpreter.ts` and
+`rateHelperTypes.ts` were excluded without checking what lived in them, exactly as
+`pricingSheetHelper.ts` had been excluded while holding the only `coerceForMatch` (CLOSEOUT). Both
+were put IN scope for this slice and the fix took one pass. **A scope list is a claim about where
+code lives, and it should be checked against the code before it is used to refuse work.**
+
+What the owner saw on row 239, unchanged since his screenshot: `Frame/Face plate` -> **"- select -",
+RED BORDER** while the bill priced 3M at 204; `Blank plate qty` -> **`1`** where the bill charges 0.
+The GATE (DERIVED-GATE) had stopped these attributes refusing the row; it never made them show
+anything. **The screen is the authority** -- "the arithmetic underneath is correct" is a description
+of the defect, not a defence of it.
+
+### The carrier -- and why the two obvious readings were both refused
+
+`module_fit` already knew the fitted plate. It published it ONLY inside its prose `matchedCondition`
+line, and `StepTrace.runningValues` is `Record<string, number>`, so a fitted catalog LABEL ("3M")
+had nowhere structural to live. The two ways of getting it anyway were both refused:
+
+- **Regex the prose.** That turns a human-readable trace sentence into a parsing contract. Reword
+  the trace -- which is a display string, edited freely -- and the panel silently stops finding the
+  plate. Silently is the operative word.
+- **Re-derive the fit.** That is a FIFTH copy of the module rule (catalog-resolved ladder,
+  take-the-larger, per-ladder, next-higher-never-lower). #179 is the standing lesson about exactly
+  this: copies agree until they do not.
+
+So the step PUBLISHES WHAT IT DECIDED. `StepTrace.moduleFit?: ModuleFitOutcome` =
+`{occupied, ladders: [{bind, floorFrom?, label|null, modules|null, absent, upgraded?}]}`, written
+ALONGSIDE `ladderParts` at the identical points in the identical branches -- so the data and the
+prose cannot disagree about what was fitted. One reader, `moduleFitOutcome(results)`, scans results
+for the first outcome (mirroring `derivedQtyValue`, since a category may split supply/install across
+pipelines). **ADDITIVE AND OPTIONAL**: absent on every non-`module_fit` step and absent on a
+`module_fit` that BAILED -- nothing was fitted, so nothing is claimed.
+
+**Proven byte-neutral BEFORE the panel read it**, as prescribed: the full suite ran green at
+**1,401/1,401 with no test needing a change**, and all 26 goldens were untouched.
+
+### The three rulings, which are NOT the same rule
+
+| | field | rule |
+|---|---|---|
+| **R1** | `Frame/Face plate` | DISPLAYS its computed rung and STAYS EDITABLE. A stated value keeps the screen and feeds the pipeline as the FLOOR (take-the-larger). |
+| **R2** | `Frame/Face plate` | A TOO-SMALL entry **WARNS**, naming both numbers and the size actually priced. |
+| **R3** | `Blank plate qty` | The NAMED EXCEPTION: computed ALWAYS wins, field is **READ-ONLY**. |
+
+R3 is not an inconsistency: its component takes `qty: {from_fit}`, so the pipeline never reads the
+attribute at all. An editable field there would promise an effect it cannot have -- a new lie in
+place of the old one. R1's attribute IS read (as the floor), so it must stay editable. The two are
+told apart FROM CONFIG (`derivedQtyAttrs` = fully superseded; a `module_fit` ladder bind = still an
+input), never by attribute id.
+
+R2 exists because take-the-larger, done silently, is indistinguishable from a field that ignores
+you. The trace already printed `UPGRADED` -- but **the trace is a separate surface a pricer may
+never open**, and the whole point of the slice is that the FORM stops misleading. (Chat's
+engineering call, owner-accepted.)
+
+### Shape
+
+- `WorkingsAttribute` gains `derived` / `derivedValue` / `readOnly` / `upgrade`. **`derivedValue` is
+  deliberately NOT written into `value`** -- `value` means "what the row supplied", and collapsing
+  the two makes a computed number indistinguishable from a stated one to every later reader (the
+  rule the Rate Master Derivation screen already follows).
+- `derived` REUSES `derivedAttrIds` (both mechanisms) rather than adding a fourth predicate.
+- `isAttrBlank` now exempts a derived attribute -- ONE definition, so the missing-attribute gate and
+  the red border can no longer disagree about the same field.
+- Pure display rules live in `rateHelperTypes.ts` (`attrDisplayValue`, `isShowingDerived`,
+  `upgradeWarningText`), so the panel renders a decision it does not make and the tests read the
+  identical rule. The panel is a node-env blind spot (no DOM test environment), which is why the
+  decisions are pure functions and the rendering was certified live.
+- `applyDerivedDisplay` runs on BOTH helper paths (generic + the wiring special case) and on the
+  missing-gate early return, so the rule lives in the contract rather than in whichever branch was
+  edited. Wiring declares no derived attribute today, so it is a no-op there by construction.
+
+### Cert (CDP, attached to the owner's logged-in Chrome; code marker verified BOTH directions)
+
+- **V1 -- row 239, field by field.** `Frame/Face plate` = **`3M`**, marked `(computed)`, **NO red
+  border**. `Blank plate qty` = **`0`**, `(computed)`, **read-only**. Supply **380 unchanged**;
+  derivation `plate: Grid and Face Plates 3M White = 204`, `blank: ... = 0`. Switch `16A 1 WAY
+  SWITCH`, Switch qty `1`, Socket 1 `6A/16A 3-Pin Socket`, Socket 1 qty `1`, Socket 2 `None`,
+  Socket 2 qty `""` (disabled), Blank plate `1M Blanker`, Plate qty `1`, Colour `White`, Back box
+  `Yes`. **This is the owner's screenshot, now reading differently.**
+- **V2 PASS** Plate -> `12M`: supply **380 -> 810**, trace uses 12M throughout (plate 579, box 412,
+  9 blanks 549). The field is editable and the edit reaches the price.
+- **V3 PASS** Plate -> `1M & 2M` (the catalog's smallest rung; **there is no bare `1M`** -- the
+  spec's "1M" was illustrative). Warning renders VERBATIM: **"1M & 2M holds 2 modules; contents
+  occupy 3 (em dash) using 3M."** (em dash U+2014 confirmed in the DOM). Computation wins at 3M,
+  supply back to **380**. The field still shows the pricer's entry -- warned, not overwritten.
+- **V4 PASS** `Blank plate qty` refuses the edit (`readOnly`), stays `0`, supply unchanged.
+- **V5 PASS** Row 295 still blocks ("Complete the missing attributes to price", headline blank) with
+  RED on the four GENUINELY missing inputs (wire1 cores / runs / thickness, conduit type); the
+  derived fields no longer flag. **Narrowed, not removed.**
+- **V6 PASS** Rate Master UNCHANGED. Preview gate in EDIT MODE, exited via CANCEL, fresh load per
+  category: switches_sockets **6/6**, point_wiring **9/9**, wiring_cabling **20/20**,
+  db_switchgear **8/8**. `Frame/Face plate` still an EDITABLE select on the Derivation tab.
+- **V7 PASS** The leak stays fixed: plate `18M` typed on point_wiring 221 moved **only 221**
+  (1745 -> 2127); 235 (3M, 1877) and switches_sockets 241 (3M, 380) byte-unchanged.
+- **Nothing applied.** "Use this value" never pressed; `BoQ Cell Pricing` has **0 rows** for
+  BOQ-26-00019; **0** `BoQ Rate Suggestion Event` rows created; run BRSR-26-00424 has
+  `creation == modified` exactly (never updated); configs/master items last modified 00:56 IST,
+  hours before the session. Zero AI calls.
+
+### Gates
+
+- **G1** vitest **1,401 -> 1,433** (+32), 55 files, green. Baseline re-confirmed at 1,401 first.
+- **G2** `tsc --noEmit`: **zero** errors in all five touched files and in every downstream consumer
+  (`RateMasterDerivation`, `RateMasterPipelines`, `rateMasterStructure`, `SheetPricingPage`,
+  `PricingGrid`, `rateHelperRegistry`). The repo's ~3,236-error legacy baseline is untouched.
+- **G3** All **26** goldens, swept category by category through the live preview gate. 25 carry zero
+  deltas. **Miscellaneous carries 1, and it is PRE-EXISTING, not this slice**: `m1
+  misc_bcs.bcs_supply` expected `187.2` vs draft `187.20000000000002` -- an IEEE-754 artifact of
+  `234 x 0.8`. **Proven by re-measuring on HEAD with the change reverted** (marker absent): the
+  identical single delta, identical values. Byte-identical before and after, so no golden moved.
+- **G4** Rows producing a value, per category, sheet-wide, measured through the REAL helper on live
+  data, **before and after** (source files reverted for the before run): **identical across all 7
+  categories** -- cabletray_raceway 0/8, conduit_piping 10/10, db_switchgear 11/14, point_wiring
+  18/23, popup_boxes 1/1, switches_sockets 15/16, wiring_cabling 5/22. (The prompt's 18/26 for
+  point_wiring counts a different denominator; the PRICED count 18 matches exactly, as does
+  switches_sockets 15/16.)
+- **G5** Zero AI calls, zero config writes, zero DB writes -- all verified against the DB.
+
+### Owed / unchanged
+
+- R9's wording and the blanker-item inconsistency (row 243 needs a blank and gets none because the
+  model returned `"None"`) remain deferred, untouched (C4).
+- The per-row panel memory question from PANEL-LEAK is still the owner's call.
+- **A vite stale-module episode recurred** while removing the code marker: the marker stayed on
+  screen after it was gone from disk, and survived a cache-bypassing hard reload. The recorded
+  recipe cleared it -- kill the LISTED vite PIDs, clear `node_modules/.vite`, restart, then CLOSE
+  the tab and open a new one. Worth remembering that a hard reload alone is NOT sufficient.
