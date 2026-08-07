@@ -710,6 +710,15 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   String input. The Derivation screen keeps its OWN `coerceSelected` because that form clears to
   `""` ("the field is empty") where the match coercion yields `null`; only the TYPE decision is
   shared.
+- **A PANEL OVERRIDE BELONGS TO ONE ROW AND NEVER SURVIVES A ROW CHANGE (owner-locked).**
+  `RateHelperPanel` is ONE mounted component that swaps `excelRow`, and its edit maps were keyed by
+  HELPER ID alone — with a single helper (`pricing_sheet`) serving EVERY category, an override typed
+  on one row rode along to the next and reached any category declaring an attribute of the same id.
+  **The row is carried INSIDE the state and checked on READ (`overridesForRow`), never cleared by an
+  effect:** an effect leaves a window — the render after the row changes but before it runs still
+  computes with the old row's edits — and **"Use this value" writes a rate PERMANENTLY**, so a click
+  in that window banks a number computed from another row. Any new panel-session state (a final-value
+  override, a future per-attribute note) must be row-scoped the same way.
 - **AN ATTRIBUTE THE PIPELINE DERIVES IS NEVER MISSING USER INPUT (owner-locked).** The helper's
   missing-attribute gate must exempt every attribute the config COMPUTES: a blank one means "not
   stated", not "row incomplete". Two mechanisms make an attribute derived — a component taking

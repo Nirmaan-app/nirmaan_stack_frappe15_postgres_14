@@ -19195,3 +19195,171 @@ the `derivedQtyAttrs` import (x2) and the `derived.has(d.id)` guard (x1) PRESENT
 - Move `derivedAttrIds` + `derivedQtyAttrs` into one shared pure module (placement note above).
 - The 16 switches_sockets rows now price from an extraction that predates R9's rewrite; a
   re-extraction remains a separate owner-approved run.
+
+
+## Build slice PANEL-LEAK -- panel overrides are row-scoped (Defect 1); the derived DISPLAY is STOPPED (Defect 2)
+
+**Two defects were briefed. ONE shipped.** Defect 1 (the cross-row leak) is fixed in full. Defect 2
+(derived fields not displaying) is **STOPPED at the scope boundary** -- it cannot be delivered
+honestly from the four files this slice was given. Detail and the exact minimal change below.
+
+### Defect 1 -- the cross-row, cross-category override leak
+
+`RateHelperPanel` is ONE mounted component that swaps `excelRow`. Its two edit maps --
+`attrOverrides` and `finalOverride` -- were keyed by **HELPER ID alone**, with no reset when the row
+changed. One helper (`pricing_sheet`) serves EVERY category, so an override typed on one row was
+re-applied to whatever row was opened next, and reached any category declaring an attribute of the
+same id. That is why it crossed categories: `plate_item` is declared by point_wiring,
+switches_sockets AND switches_point.
+
+**The hazard that made it urgent:** "Use this value" calls `applyRate(excelRow, col, value)` and
+writes a rate **permanently**. With a stale override active the number banked is computed from
+another row's attributes. Nothing in the database was corrupted (the THREE_DEFECTS diagnostic
+established that), but the exposure was live and the owner had rightly stopped editing.
+
+**Provenance:** `git log -L 87,87` puts the declaration at **`bf3690b7`, the first panel slice**. The
+derived-gate slice (`1475ec4e`) made it REACHABLE -- by making 42 rows price, it gave people a reason
+to open these panels and edit -- but did not introduce it.
+
+**The shape chosen: row-scoped state, checked on READ.** The state carries the row it was typed on:
+
+```ts
+interface RowScoped<T> { row: number | null; byHelper: T }
+export function overridesForRow<T>(state: RowScoped<T>, excelRow: number | undefined, empty: T): T {
+  if (excelRow == null || state.row !== excelRow) return empty;
+  return state.byHelper;
+}
+```
+
+**Why carried-and-checked rather than cleared by an effect.** A reset `useEffect` keyed on `excelRow`
+leaves a WINDOW: the render after the row changes but before the effect runs still computes with the
+previous row's edits, and a click in that window banks it. Carrying the row makes a mismatch
+impossible to observe -- there is no render in which another row's edits are visible. `setAttr`
+applies the same rule on write (a different row's edits are discarded, not merged), so the map cannot
+accumulate rows either.
+
+**⚠️ The memory question, flagged for the owner rather than decided silently.** With this shape,
+**edits do NOT survive a row switch** -- leaving row 221 and coming back gives you the extraction's
+values again, not what you typed earlier. My reading is that this is the safer default: the panel
+already documents itself as session-only state, and a remembered edit re-applied minutes later
+(possibly after a re-extraction changed the row underneath) is the same class of surprise this slice
+exists to remove. **If you would rather edits persisted per row, that is a one-line change** -- keep a
+`Record<excelRow, ...>` instead of a single scoped slot -- and it stays leak-free either way, because
+the read is keyed by row. Say which you want.
+
+`rateHelperRegistry.ts` was **not** touched: `resolveRateHelpers(ctx, attrOverridesByHelper)` already
+takes the map as a parameter, so scoping it at the source needed no plumbing change.
+
+### Defect 2 -- STOPPED, and why
+
+Required: `Frame/Face plate` shows the derived `3M` and loses its red border; `Blank plate qty` shows
+the derived `0` instead of the stale stored `1`; both read-only; reusing the existing predicate.
+
+**It needs three files, and two of them are out of bounds for this slice:**
+
+| need | file | in scope? |
+|---|---|---|
+| render the field read-only / not-flagged, and show the derived value | `RateHelperPanel.tsx`, `pricingSheetHelper.ts` | **yes** |
+| a `derived?: boolean` on `WorkingsAttribute`, so "computed for you" is distinguishable from "positively absent" | `rateHelperTypes.ts` | **NO -- not in the scope list** |
+| expose the fitted ladder LABEL structurally | `ratePipelineInterpreter.ts` | **NO -- C6 lists it OUT OF BOUNDS** |
+
+**The blocking fact, verified in the code:** `module_fit` records the fitted label ONLY inside its
+human trace string --
+
+```ts
+ladderParts.push(`${L.bind} ${fit.label}${floorNote}${fit.exact ? "" : " (next higher)"}`);
+steps.push({ step, label, matchedCondition: `... -> ${ladderParts.join(", ")}${blankPart}`, runningValues: snapshot() });
+```
+
+`StepTrace` carries `step / label / params / matchedCondition / bandChosen / refItem / produced /
+runningValues`, and `runningValues` is `Record<string, number>` -- so the string `"3M"` **cannot** be
+in it. The only in-scope ways to obtain it are (a) regex the prose `matchedCondition`, or (b)
+re-derive the fit in the helper with the exported `buildModuleLadder` / `fitModuleLadder`, which means
+re-implementing the weighted module-count arithmetic -- a FIFTH copy of a rule, exactly the shape
+#179 warns against and the brief itself forbids ("Do NOT write a fourth predicate"). Binding a
+pricer-facing form field to a human trace string is the kind of coupling that fails silently the day
+the wording changes, and that wording HAS changed before (slice 2 part 2 reworded it).
+
+**Note the half that IS reachable and was still not shipped:** `blank_count` genuinely is in
+`runningValues`, so `Blank plate qty` could have been made to display `0` from `pricingSheetHelper`
+alone. It was left alone deliberately -- displaying a computed number in a still-EDITABLE box is a new
+small lie, and making it read-only needs the `derived` flag above. Half a fix here would look done and
+would not be.
+
+**The minimal change, for approval:** one additive field on the module_fit StepTrace (e.g.
+`fitted?: Record<string, string>`, populated from the `fitLabels` map that already exists), one
+additive `derived?: boolean` on `WorkingsAttribute` with `isAttrBlank` returning false for it, and the
+panel reading both. Roughly ten lines across three files, plus pins.
+
+**And the distinction that must NOT be collapsed when it is done:** on the **Rate Master Derivation**
+screen `plate_item` stays **EDITABLE**, because there it is the stated FLOOR a user may set; on the
+**pricing panel** it is a DERIVED display. Two screens, two different questions about one field --
+`derivedAttrIds` answers "is this required input?", not "may a user set it?".
+
+### Gates
+
+| gate | result |
+|---|---|
+| G1 vitest | **1,392 -> 1,401 / 55 files**, green (+9 pins) |
+| G1 backend | **none run -- a frontend-only change touches no backend suite** |
+| G2 tsc | **zero** errors in `rate-helper` / `rate-master`, before and after |
+| G3 goldens | **26 / 78 rows / 77 green -- byte-identical** (same pre-existing `miscellaneous` m1 float artifact) |
+| G4 rows pricing | **switches_sockets 15/16 and point_wiring 18/26, BEFORE and AFTER -- unchanged**, as this slice requires (it fixes state and display, not pricing) |
+| G5 | zero AI calls, zero config writes, zero DB writes -- confirmed after the cert |
+
+### Tests -- `pricingSheetHelper.test.ts` 44 -> 53 (+9)
+
+There is no DOM test environment (`environment: "node"`, a deliberate choice), so the component
+cannot be mounted. The row-scoping DECISION is therefore a pure exported function pinned directly,
+and the leak's CONSEQUENCE is pinned at the helper:
+
+| test | direction | says |
+|---|---|---|
+| the row it was typed on sees its edits | positive | `overridesForRow` returns the map for its own row |
+| **another row sees nothing** | **negative** | the leak, pinned shut (two sibling rows) |
+| no row selected sees nothing | negative | `undefined` excelRow yields empty |
+| no edits yet yields empty | positive | initial state |
+| returns the caller's EMPTY reference | positive | the `evaluations` memo does not churn |
+| every row prices from its OWN plate | positive | baseline |
+| an override alters only its own row | **negative** | edited row moves, sibling does not |
+| **CROSS-CATEGORY** | **negative** | a plate from category A does not reach category B |
+| the panel's read enforces it end to end | negative | what the panel now passes for another row is empty |
+
+### Marker + cert
+
+De-stale in full (bench + the three LISTED vite PIDs killed individually, `.vite` cleared, both
+restarted, `:8080`/`:8000` = 200, storage + service workers cleared, cookies preserved, tab closed and
+reopened). **MARKER both directions on the served module:** `overridesForRow` (x3),
+`attrOverrideState` (x2) PRESENT; `setAttrOverrides(` and the old
+`useState<Record<string, Record<string, string>>>({})` **ABSENT (0 each)**. (`RowScoped` is
+type-only and is stripped by the transform -- expected.)
+
+- **V1** Row 239: supply **380** (unchanged). Form fields as rendered: Switch `16A 1 WAY SWITCH`,
+  Socket 1 `6A/16A 3-Pin Socket`, Socket 2 `None`, Blank plate `1M Blanker`, **Frame/Face plate `""`
+  with a RED border**, Colour `White`, Back box `Yes`, Blank plate qty `1`. **Defect 2 is NOT fixed
+  and this is the evidence** -- the derivation beneath still reads `plate: Grid and Face Plates 3M
+  White = 204`.
+- **V2 PASS** Setting 221's plate to `18M` moved **only 221** (`plate ... 18M White = 308`);
+  point_wiring **235 stayed 3M @ 74** and switches_sockets **241 stayed 3M @ 204, supply 380**.
+- **V3 PASS** (the owner's own case) Setting `wire2_thickness_sqmm = None` on 217 changed **217 only**
+  (supply 1745 -> 1238); **221 and 229 kept `1.5` and 1745**.
+- **V4** No row on this sheet carries a stated plate from extraction (every `plate_item` is null or
+  `"None"`), so V4 has no natural subject; it is covered by V2's stated-floor case -- 221 with a
+  stated `18M` priced the 18M plate, take-the-larger honoured over the computed 1 module.
+- **V5 PASS** Row 295 still reads "Complete the missing attributes to price — ". The fix narrowed the
+  gate; it did not open it.
+- **V6 PASS** Preview gate, EDIT MODE, exited via Cancel, fresh load per category: switches_sockets
+  **6/6**, point_wiring **9/9**, wiring_cabling **20/20**, db_switchgear **8/8**.
+- **Nothing applied:** "Use this value" never pressed; `BoQ Cell Pricing` has no row for 217, 221,
+  229, 235, 239, 241 or 295; zero `BoQ Rate Suggestion Event` rows ever recorded; active run still
+  `BRSR-26-00424`; `wizard_status` still `Finalized`.
+
+### Owed
+
+- **Defect 2 in full** (the minimal change above, needing `rateHelperTypes.ts` and
+  `ratePipelineInterpreter.ts` in scope).
+- The per-row memory question (above) -- one line either way, owner's call.
+- R9's wording: the owner has confirmed the wire-2 symptom he saw was the LEAK, so R9's real effect
+  must be re-observed on a clean session before it is touched (C4).
+- The blanker-item inconsistency (row 243 needs a blank and gets none because the model returned
+  `"None"`) -- reported at THREE_DEFECTS, deferred (C5).
