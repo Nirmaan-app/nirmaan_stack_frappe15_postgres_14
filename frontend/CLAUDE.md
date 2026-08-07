@@ -353,6 +353,19 @@ All BoQ wizard / pricing frontend code lives in `src/pages/boq-wizard/`. This se
   `formulaTokens.ts` (author; click-to-insert, NO literals) + `PricingGrid.evaluateAmountCell` (compute;
   formula-wins-else-pairing, draft-aware, fail-safe BLANK on any missing operand — never a stale number).
   `pricingRollup.ts` / `SummaryPanel.tsx` are formula-aware too.
+- **The operator vocabulary is `+ − × ÷` (F5), and the last two are NOT like the first two.** `+`/`*` are
+  commutative and associative, so an n-ary node's operand ORDER carries no meaning; `-`/`/` fold LEFT TO
+  RIGHT from `operands[0]`, so **the list order IS the arithmetic** (`{op:"-",operands:[a,b,c]}` means
+  `((a−b)−c)`). Any pass over a stored tree must preserve operand order. A MIXED tier parses
+  left-associatively into a binary chain, while a run of ONE operator stays n-ary — that split is what
+  keeps every pre-F5 formula's tree **byte-identical** (pinned by test; a re-shaped tree would move
+  committed sheets' amounts). ⚠️ **A ZERO DIVISOR IS REFUSED BEFORE THE DIVISION** and reported `broken`
+  ("check formula") — never `Infinity` on a tender document; `not_yet` would be wrong, since that reason
+  means a value is ABSENT and a real 0 is present. **`amountFormula.foldOperands` is the ONE
+  implementation** of all four operators (the BCS Total formula folds through it too) — do not write a
+  second. ⚠️ Adding an operator means extending `AmountFormulaBuilder.OP_GLYPH` (a total map, deliberately
+  not a ternary) **and** `pricing._FORMULA_OPS` **and** `export_template_workbook._OP_INFIX` — an operator
+  missing from that last one exports as a BLANK cell, silently dropping the formula.
 - **`reconcile.ts` is a PURE LEAF** (imports only types): the SHARED `amountsEqual` epsilon + `resolveDivergence`
   (D1 = DOCUMENT default). It exists so PricingGrid / priceability / pricingRollup share one comparison with NO cycle
   (PricingGrid must NOT import pricingRollup). Divergence fires only on `cell.kind === "value"`.
@@ -674,9 +687,58 @@ All BoQ wizard / pricing frontend code lives in `src/pages/boq-wizard/`. This se
     everything else = what we charge the CLIENT), which matters because the two blocks scroll apart on a wide
     sheet. The mirror to the parser's `Rate (Install)` role label is deliberately NOT word-for-word -- do not
     shorten `Installation` back to match it.
+  - **THE BLOCK IS FOUR COLUMNS (BCS-S8, owner 2026-08-07):** the two cost boxes · `BCS Total Amount` ·
+    `% Margin`. ⚠️ **`Tendered Total Amount` was REMOVED, reversing S3b's "ALWAYS SHOWN (owner ruling)" --
+    but ONLY the column. `bcsRowAmount` / `bcsTenderedAmountCell` / `BcsSectionTotals.tendered` still
+    compute it, because it is the margin's DIVISOR; deleting them blanks every % Margin on every sheet.**
+    Cost: the denominator is no longer verifiable by eye (the rule that % Margin divides by the figure SHOWN
+    still holds in code, but nothing on screen proves it). ⚠️ `isBcsInputColumn` answers "is this NOT a
+    computed kind?", so REMOVING a token from `BCS_COMPUTED_KINDS` makes it **typeable**, not inert --
+    anything dropped from that list must leave the `BcsComputedKind` union in the SAME edit.
+  - **`% Profit` is now `% Margin` (owner 2026-08-07) -- A RENAME, NOT A MATHS CHANGE.** The owner's
+    `(1 − BCS/BOQ) × 100` and the implemented `((amount − cost) / amount) × 100` are the same expression
+    rearranged; the identity is pinned by test. ⚠️ That test ALSO pins the misread grouping as WRONG:
+    `1 − (c/a) × 100` returns **−59** where the answer is **+40**. Do not "implement the owner's formula
+    literally". `bcsMarginPercent`'s guards (zero denominator, NEGATIVE denominator, non-finite) are
+    load-bearing -- rewriting it into the `1 − c/a` shape would compute the same thing while risking them.
+  - **`% Margin` HAS ITS OWN ƒ TOO (S10/S11), and it is ONE dialog with TWO slots** --
+    `MarginFormulaBuilder`, rendering `( 1 − COST ÷ AMOUNT ) × 100` with both operands live inside
+    it. ⚠️ S11 first shipped this as TWO badges and the owner rejected it: they are two halves of
+    one rule, and splitting them made the rule invisible. **The wrapper is rendered, NOT editable,
+    and that is STRUCTURAL** -- `1` and `100` are numeric literals, which this system has no token
+    for and the server rejects; keeping it in code is also what keeps `bcsMarginPercent`'s guards
+    (zero / non-finite / NEGATIVE denominator, the last of which would show a loss as +150%)
+    unbypassable. Targets `bcs_margin_cost` + `boq_total`; `rollBcsSections` takes a per-row
+    `ownTendered` override so the Summary panel follows a formula too. ⚠️ **Total Quantity must
+    stay reachable from the COST side** -- BCS Total is a ROW total while the cost boxes are
+    PER-UNIT rates, so without it the only reachable formula was dimensionally wrong.
+  - ⭐ **THE CHIP-NAMING RULE: a palette chip must read EXACTLY as its column reads in the grid.**
+    Broken twice in one session, both times found by the owner (`Amount (Total)` was a ROLE label;
+    `BCS Total` vs the header's `BCS Total Amount`). Sheet-column chips carry the **Excel letter**
+    (`G — Amount (Supply)`) -- the one label both surfaces share; BCS chips carry none, because
+    they have no Excel column and that absence is meaningful. **A chip nobody can locate in the
+    grid reads as a figure that does not exist.**
+  - **The BCS dialog is ONLY a switch (S12):** on/off + Cancel; both column pickers gone.
+    ⚠️ **Readiness dropped to `bcs_enabled` in the SAME change and the two are inseparable** --
+    re-adding the confirmation requirement without the pickers makes BCS switch on and stay
+    permanently read-only. The ribbon chip and the "BCS needs columns" banner were removed with
+    them (a banner that cannot fire is worse than none). ⚠️ **Enabling no longer opens the card**
+    -- that line was correct only while the card held the pickers.
+  - **`BCS Total Amount` is an EDITABLE FORMULA (BCS-S9, green ƒ on its header).** Stored in the EXISTING
+    `BoQ Cell Amount Formula` as `target_value_field = "bcs_total"` -- **no schema change, no migrate**, and
+    it rides the `column_formulas` payload + `onSaveFormula` that already existed. **`bcsColumns.bcsTotalCell`
+    is the ONE function that answers "this row's BCS total"** -- `PricingGrid` and `pricingRollup` computed it
+    separately before S9, which was survivable only while the rule was a constant; as per-sheet DATA two
+    copies would show different numbers in the grid and the Summary panel. Absent formula ⇒ the built-in
+    `(cost boxes) × quantity`, byte-identical to pre-S9. The operand vocabulary (`bcs_supply` / `bcs_install`
+    / `bcs_combined` / `bcs_qty`) is DISJOINT from the sheet's columns; the palette derives from
+    `bcsLiveRateKinds`, so it can never offer a box the sheet lacks. ⚠️ **The builder's palette group
+    headings must stay DERIVED (`paletteGroupOrder`), never a fixed list** -- a hardcoded
+    `["Quantity","Rate","Amount"]` silently dropped the BCS cost chips at render with no error and no empty
+    state, and only the owner caught it.
   - **A BLANK IS NEVER A 0, and every blank knows WHY** (`BcsComputedCell` = value | blank+reason, surfaced as the
     cell `title`). A `0` is a claim ("this costs nothing"); an absence is not. An unrecognised reason renders as an
-    explicit UNSUPPORTED state, never a silent blank. ⭐ **% Profit is never NaN, never Infinity, and NEVER A
+    explicit UNSUPPORTED state, never a silent blank. ⭐ **% Margin is never NaN, never Infinity, and NEVER A
     PROFIT ON A LOSS** -- a NEGATIVE denominator flips the inequality (amount -100 vs cost 50 computes +150%), so
     a loss-making row would display positive profit: confidently wrong, which is worse than visibly absent. It is
     a **blank with a reason, not a blocked keystroke** (do not convert it into a validation); the COST side is
