@@ -839,6 +839,34 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   un-validatable config imports cleanly and only fails later, at the editor** — a whole-config RM-4b
   save. This asymmetry has now bitten TWICE in one slice (an unregistered top-level key, and step
   shapes). **Closing it is BANKED as its own future slice — do not attempt it inside a feature slice.**
+- **⚠️ A `replace=True` IS WHOLESALE, so the losable set is a config's ENTIRE KEY SPACE — not a short
+  list (owner-locked).** `_load_multi` flips the prior row `active = 0` and INSERTS a new document
+  from the payload alone; nothing is merged, nothing is diffed, and the prior config is never read.
+  **Any key absent from the asset is gone from the active config — intended or not, and with no signal
+  of any kind.** `pipelines` is the sharpest case: an EMPTY `{}` is LEGAL, so a mint that empties one
+  imports cleanly and that category silently stops pricing. `rules`, `extraction_defaults`,
+  `synonyms`, `matching_mode` and an `attribute_definitions[].default` all reach the AI prompt, so
+  losing any of them is a BEHAVIOURAL regression no test can see. **Comparing COUNTS cannot detect
+  this** — the original instance left the count unchanged while replacing the content, which is why
+  any verification must compare KEY BY KEY.
+- **⚠️ AN IN-SYSTEM EDIT NOT WRITTEN BACK TO ITS ASSET IS DROPPED BY THE NEXT IMPORT (owner-locked).**
+  An audited config write lands on the config ROW; the asset is a separate artefact that no write
+  updates. The `Version` audit is FORENSIC, not preventive — nothing consults it before a replace, and
+  the new row starts a fresh history, so the edit's own trail stays attached to a now-inactive row.
+  **Any in-system edit must be mirrored into its asset in the same change**, or the next `replace=True`
+  erases it silently. This is what makes deferred in-system authoring (e.g. `lighting_mgmt_system`)
+  fragile until its result is written back.
+- **⚠️ A MINT COMPARISON MUST READ COMMITS, NEVER WORKING-COPY FILES (owner-locked).** An asset edited
+  IN PLACE hides the very loss a later commit repaired: comparing the two files as they sit on disk
+  shows the repaired item merely CHANGED, while comparing the asset AS ORIGINALLY COMMITTED shows it
+  LOST. A file-based comparison would have missed the one loss on record. The wiring asset has no
+  version chain at all — one filename across several commits — so for it, git history is the ONLY
+  record. `scripts/mint_completeness_check.py` is the invoked gate: it reports every disappeared atom
+  down to an `expect` key inside a golden, warns when an operand is a working-copy file carrying more
+  than one commit, and names the asset versions absent from disk and therefore uninspectable.
+  **Intent is machine-readable ONLY at category/kind granularity (`retired_category_ids` /
+  `retired_kinds`); `slice_note` and `excluded_categories` have ZERO code consumers, and a note nobody
+  verifies is not a declaration.**
 - **The extraction payload is TIERED, LABELLED and NEVER DEDUPED (EA-7, owner-locked; SUPERSEDES the
   banked EA-6 note, whose boundary sat one level higher).** The rate-extraction payload
   (`extraction._ai_item`) keeps its four top-level keys (`id` / `description` / `notes` /

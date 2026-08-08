@@ -20150,3 +20150,209 @@ Nos. / qty 12 / rates 1 + 1 / amounts **3960** and **840**, 2 suggestion badges.
 
 **Nothing was saved by the cert:** `Version` rows for the config doctype stayed at **27**, and every
 config's `modified` stamp is the apply time, not later.
+
+---
+
+## Build slice MINT-GATE -- the mint-completeness gate + two carry-forward repairs (2026-08-09)
+
+Branch `feature/boq-pricing-helper`, from `76d4cdcf`. Two live repairs, one new invoked gate script,
+two test pins. **Zero AI calls. Zero re-extraction. The only DB write was a reversible cert marker.**
+
+### Why -- a `replace=True` is WHOLESALE, and the loss has already happened
+
+`loader._load_multi` deactivates the prior config row and INSERTS a new one from the payload alone
+(`loader.py:151-179` then `:361-371`). Nothing is merged or diffed, so **anything the asset does not
+carry is gone from the active config -- intended or not, with no signal.** The losable set is a
+config's ENTIRE key space. `pipelines` is the sharpest: an empty `{}` is LEGAL
+(`_validate_one_config:82-85`), so a mint that empties it imports clean and the category silently
+stops pricing.
+
+### FINDING 1 -- `dbu3` was genuinely lost at the EA-4d mint, and the FILE chain is blind to it
+
+Every E-ALL asset has exactly ONE commit touching it -- **except `v17`, which has two**
+(`b2be0011` 2026-07-31 EA-4d, then `99b8ee28` 2026-08-03 EA-4 ext-a). Diffing v16c against **v17 as
+ORIGINALLY COMMITTED** shows 19 atoms lost, four of which are `golden:db_switchgear:dbu3` plus its
+three `expect` keys. Diffing v16c against **v17 as it sits on disk** shows only 15 -- dbu3 reads as
+merely CHANGED, because the repair edited v17 IN PLACE.
+
+The loss is self-recorded twice: the restored golden's own `oracle` text ("its EA-4c removal was
+collateral -- the recorded rationale covered d1/d2 only") and this doc at the EA-4 ext-a section.
+It was found by hand three days later, while investigating something else.
+
+**This is why the gate reads COMMITS, not working-copy files. A gate that compared files would have
+missed the one loss we know about.** `rate_master_wiring_cabling_v3.json` has the same shape (2
+commits, `943ace2f` then `58bb80b2`) -- wiring has no version chain at all, so for wiring a
+file-to-file comparison is not merely blind, it is impossible.
+
+### FINDING 3 (CP1a) -- the wiring in-system edits, written back
+
+Two values lived ONLY in the DB on `wiring_cabling` (`BRCC-26-00584`), both audited RM-4b edits made
+after the asset's last write; **a `replace=True` re-import discarded both**:
+
+| value | why it is not cosmetic |
+|---|---|
+| `pipeline_labels = {"cable_boq": "Cable -- per Mtr", "termination_boq": "Termination -- per Set"}` | the pricing-editor helper's group headings |
+| `attribute_definitions[runs].default = 1` | **reaches the AI** -- `extraction.build_attribute_defs` copies a `default` into the per-attribute definitions sent to the model, so losing it is a behavioural extraction regression invisible to every test |
+
+**Versioning: the filename was KEPT (a third commit on `rate_master_wiring_cabling_v3.json`), not
+minted to v4.** `loader.DEFAULT_DATA_FILE` is version-pinned to that filename AND
+`test_rate_master.setUpClass` reads `loader.DEFAULT_DATA_FILE`, so minting v4 would have required a
+`loader.py` edit -- outside this slice's exclusive file list. The consequence is stated plainly:
+**git history is now the only record of the wiring asset's evolution, which is exactly what the
+gate's commit-reading and `--history` mode exist to cover.** De-pinning `DEFAULT_DATA_FILE` remains
+the separately-banked wart.
+
+**No re-apply was needed** -- the DB already held both values; the asset was the stale side.
+
+### FINDING 2 (CP1b) -- the stale config-level goldens, removed
+
+`switches_sockets` carried TWO disagreeing copies of `ss1`: the config's own `goldens` held the
+**known-incoherent slice-1a golden** (plate `6M`, `blank_qty 2` -- 7 modules on a plate holding 6 --
+expect 700/140/480), while the top-level dict held the slice-2 re-mint (plate `8M`, `blank_qty 1`,
+expect **740/150/510**). Harmless ONLY because `_load_multi:358-360` overwrites config-level from
+top-level. **Drop that top-level entry -- exactly what a retirement does -- and the stale copy loads
+silently.** The stale copy (56 lines) is deleted; the top-level dict is untouched.
+
+**Checked ALL categories before fixing (a stopping condition):** exactly ONE divergence existed.
+Nine categories carry an IDENTICAL duplicate (harmless, but the same drift mechanism -- reported,
+not changed, being outside this slice's ruling); `lighting_mgmt_system` carries neither; and **no
+category has a config-level `goldens` with no top-level entry**, so nothing currently survives the
+merge on that path.
+
+### The gate -- `scripts/mint_completeness_check.py`
+
+Follows the `scripts/residence_check.py` precedent: pure Python, stdlib only, ASCII output, no bench
+context / DB / network, run from anywhere. **INVOKED, never automatic** (CI is `workflow_dispatch`
+only and there is no pre-commit hook -- see "Where it could hang" below). **No baseline file:** this
+is a pairwise diff reporter, not a ratchet, so there is nothing to ratchet against.
+
+    python3 scripts/mint_completeness_check.py OLD NEW      # each: "<rev>:<repo-path>" or a path
+    python3 scripts/mint_completeness_check.py --history <repo-path>
+    python3 scripts/mint_completeness_check.py --self-test
+
+**ATOMS reported (13 kinds, sub-config granularity -- every one has moved in a past mint):**
+`top:<key>`, `cat:<cid>`, `cfgkey:<cid>:<key>`, `attr:<cid>:<id>`, `pipe:<cid>:<id>`,
+`rule:<cid>:<id>`, `extdef:<cid>:<key>`, `syn:<cid>:<attr>:<variant>`, `golden:<cid>:<gid>`,
+**`expect:<cid>:<gid>:<key>`** (v16c->v17 lost two of dbu2's), `kind:<k>`, `retkind:` / `retcat:`,
+`excl:<cid>`.
+
+**Both asset shapes are normalised** -- the E-ALL `category_configs` LIST and wiring's single
+`category_config` -- and goldens are read EFFECTIVELY, mirroring `_load_multi:358-360`. That is what
+makes CP1b report as a lost CONFIG KEY and **not** a lost golden (T5).
+
+**INTENT.** Machine-readable declarations exist today at exactly two granularities:
+`retired_category_ids` and `retired_kinds`. A removal is DECLARED when the new asset ADDS the
+matching entry, cascading to every atom beneath a retired category. **Below that granularity nothing
+can express "this golden was removed on purpose"** -- `slice_note` and `excluded_categories` are
+prose with ZERO code consumers, so the gate echoes them as UNVERIFIED CONTEXT, never as a clearance.
+The MINIMUM declaration that would close the gap is one optional top-level key,
+`"intentional_removals": ["golden:db_switchgear:dbu2", ...]` -- a flat list of the atom strings the
+gate already prints (copy the line, paste it in), travelling WITH the asset so it is reviewed in the
+same diff, ABSENT meaning today's behaviour exactly. **The gate reads it when present; no asset
+carries it yet**, so adoption is a mint-time choice needing no code change.
+
+**BLIND-SPOT warning.** When an operand is a working-copy path whose file has more than one commit,
+the gate NAMES those commits and says the comparison cannot see an in-place repair -- rather than
+reporting a comforting "clean".
+
+**UNINSPECTABLE WINDOW.** The gate DERIVES the missing E-ALL versions from the files present (an
+integer gap; a suffix beyond `a` implying its earlier siblings) and names them in every run:
+**v15, v16, v16a, v16b are not on disk and those mints cannot be inspected at all**, with the note
+that the one known loss from that era (dbu3) is recorded and repaired.
+
+### Self-test -- T1-T5, ALL PASS
+
+| | pair | result |
+|---|---|---|
+| **T1** | v16c -> v17 **AS COMMITTED** | **19 atoms lost, `golden:db_switchgear:dbu3` among them.** The calibration case. |
+| **T2** | v16c -> v17 **AS ON DISK** | 15 atoms lost, dbu3 **NOT** reported, and the BLIND-SPOT warning fires naming both v17 commits |
+| **T3** | v25 -> v26 **AS MINTED** (both operands commits) | 35 lost, **35 DECLARED / 0 UNDECLARED** -- 1 category, 12 attrs, 3 pipelines, 1 golden (+3 expect keys, 9 config keys, 6 extraction defaults), all cascading from the one `retired_category_ids` entry |
+| **T4** | wiring `--history` (its 2 commits ARE its only history) | walked; no atoms lost across the pair |
+| **T5** | v26 as committed -> v26 working copy (**this slice's own CP1b**) | exactly `cfgkey:switches_sockets:goldens`, and **no golden or expect key lost** -- the effective-goldens rule proven on a live change |
+
+**T3 was originally written against working copies and reported 1 undeclared atom** -- it was folding
+this slice's own CP1b edit into the v25->v26 mint. Pinning both operands to commits separated them.
+That is the gate's own lesson landing on its own test.
+
+### Tests -- `test_rate_master` 71 -> 73
+
+- **`test_71_wiring_asset_carries_the_in_system_edits_and_a_reimport_keeps_them`** (POSITIVE, both
+  halves): the asset carries `pipeline_labels` and `runs.default`, **and a fresh `load_rate_master`
+  round-trip STORES both** -- asserting the file alone would not show that a `replace=True` now
+  preserves them.
+- **`test_72_eall_v26_carries_no_stale_config_level_goldens`**: `switches_sockets` carries no
+  config-level `goldens`; the surviving top-level `ss1` is 8M / blank_qty 1 / 740-150-510; **NEGATIVE
+  half** -- no category may carry a config-level copy that disagrees with the top-level dict.
+
+**Both pins proven in the FAILING direction too**, against the pre-repair committed assets: absent
+`pipeline_labels`, `runs` with no `default`, `goldens` present on the config, and config-level
+`ss1` 6M/700-140-480 vs top-level 8M/740-150-510.
+
+### Gates
+
+| Gate | Result |
+|---|---|
+| **G1** vitest | baseline **1479 / 56 files** -> final **1479 / 56**, all green |
+| **G1** backend | baseline **71 OK** -> final **73 OK** (the two new pins) |
+| **G2** tsc `--noEmit` | **zero NEW errors** -- no `.ts`/`.tsx` file was touched; every reported error is pre-existing and in an untouched file |
+| **G3** goldens | **25 total** (20 E-ALL top-level + 5 wiring), asset == live for EVERY category, and the ONLY change is the intended stale-copy removal. The `miscellaneous` m1 float artifact is untouched. |
+| **G4** pricing-editor rows | **NO CHANGE. 249 rows / 94 rate-editable**, identical to the figure recorded by the previous slice; per-category split below |
+| **G5** wiring write-back | **PROVEN, not asserted** -- asset vs live is key-by-key identical in BOTH directions (no key asset-only, none DB-only, no value differing), and a SIMULATED re-import (the exact dict `load_rate_master` would `json.dumps`) carries `pipeline_labels` and `runs.default` and equals the live config |
+| **G6** | T1-T5 above, ALL PASS |
+| **G7** | **zero AI calls.** Newest `modified` proves nothing moved: `BoQ Cell Pricing` 2026-07-31, `BOQ Nodes` / `BoQ Sheet` / `BoQ Row Category` 2026-08-04, `BoQ Rate Suggestion Run` 2026-08-08, `BoQ Rate Master Item` 2026-08-09 00:04 (the v26 import, pre-session). The ONLY session write is the reversible cert marker: `Version` rows 27 -> **29**, restored byte-identically. |
+
+**G4 per-category** (249 rows swept, whole grid): Point Wiring 26/23 - Wiring Cabling & Termination
+24/22 - Switches and Sockets 16/16 - DB and Switchgear 15/14 - Light Fixtures 15/0 - CableTray &
+Raceway 15/8 - Electrical Conduit 10/10 - Pop up Boxes 1/1 - uncategorised 127/0.
+
+### De-stale + MARKER
+
+Full ritual: bench restarted (**`bench start` self-terminates in this container -- honcho tears the
+group down when `schedule.1` exits rc=0; and a plain `frappe serve` HANGS under the watchdog
+reloader. `bench serve --port 8000 --noreload` is what actually serves**); vite killed **by listed
+PID** (1569/1610/1611), confirmed empty, restarted detached with `node_modules/.vite` cleared;
+:8080 and :8000 both **200**; site data + caches cleared and **1 SW registration unregistered** with
+**cookies preserved**; both stale :8080 tabs CLOSED, fresh tab, bare root before the deep route.
+`sid` confirmed present and **HttpOnly** via the CDP cookie API (`document.cookie` cannot see it).
+
+**MARKER: a DATA marker, because NOTHING USER-FACING CHANGED** -- this slice touched two asset JSON
+files, one new script and one test file, none of which the running app loads. A code marker would
+have had nothing to prove. The DATA marker instead proves the browser reads the LIVE config, which
+is what makes V1-V3 trustworthy. Applied through the audited RM-4b `update_rate_config`, **both
+directions**: `pipeline_labels` -> `"Cable MARKER-A7 per Mtr"` / `"Termination MARKER-A7 per Set"`
+rendered in the panel with the originals absent; restored -> originals back, `MARKER-A7` absent
+everywhere; the whole config verified **byte-identical to the pre-marker snapshot**.
+
+### Cert (CDP, attached to the owner's logged-in Chrome -- no fresh browser)
+
+**V1** -- the pricing editor's `wiring_cabling` group headings render from `pipeline_labels`:
+**"Cable -- per Mtr"** and **"Termination -- per Set"** (BOQ-26-00019 / `'12 Internal Works '` row 120,
+supply 120 / install 24 / combined 144, termination 70 / 20). The `Runs` attribute shows its
+`default` badge in the same panel.
+**V2** -- `switches_sockets` goldens read **s1 110/30/80** and **ss1 740/150/510**, both green on the
+preview gate; the stale **700/140/480** appears nowhere, and the stored-goldens table shows ss1 as
+8M / blank_qty 1.
+**V3** -- preview gate, EDIT MODE, FRESH PAGE LOAD PER CATEGORY, each exited via **Cancel**:
+switches_sockets **6/6**, point_wiring **9/9**, wiring_cabling **20/20**, db_switchgear **8/8** --
+**43 checks, all green**.
+**V4** -- the pricing editor is unchanged: banner **"76 of 84 priceable lines priced"**, row **129**
+`3Cx4 sq.mm UnArmoured, flexible Copper Cable`, Wiring Cabling & Termination, M, qty 3010, amounts
+**758520** / **90300**.
+
+**Nothing was left saved:** every edit-mode exit was via Cancel, and the only `Version` rows added
+are the marker's two.
+
+### Where the gate COULD hang later (reported, NOT built -- C1)
+
+CI is `workflow_dispatch` only (`push:` / `pull_request:` are commented out) and `.git/hooks/` holds
+only samples, so nothing runs automatically today. If the owner later wants it automatic, the
+candidates are a pre-commit hook, a re-enabled CI job, or a call alongside
+`python3 scripts/residence_check.py` in whatever pre-commit routine exists.
+
+### Still owed / not done
+
+- **`test_rate_master._ASSET` is still pinned to `rate_master_electrical_all_v22.json`** -- four mints
+  stale, and **`v26` is referenced by no code path except the new `test_72`**. De-staling that pin is a
+  behaviour-changing edit to shipped assertions and was left alone (out of this slice's ruling).
+- The nine IDENTICAL config-level golden duplicates remain (only the divergent one was ruled on).
+- The loader/editor validation asymmetry remains banked as its own slice (C2, untouched here).
