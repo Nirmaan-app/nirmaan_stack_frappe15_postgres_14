@@ -844,6 +844,31 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   across families.** The resulting core x thickness grid is deliberately NOT rectangular -- a pair
   the catalog does not carry is an honest no-match, and constraining one dropdown by another's
   selection is the dependent-`where` mechanism cables are deferred for.
+- **A `<Select>` MUST NEVER BE BOUND TO A VALUE IT CANNOT OFFER (owner-locked).** A control whose
+  `value` is absent from its own option list is a TRAPDOOR: it displays nothing, and one interaction
+  overwrites the value with something the list CAN represent -- irreversibly, because the original was
+  never on offer. Where the options enumerate a declared union, DERIVE them from an exhaustive
+  `Record<Union, true>` presence map rather than hand-listing them in the JSX, so a new union member
+  becomes a COMPILE ERROR instead of a silent omission. This is not a styling rule: the type picker on
+  the Rate Master Pipelines tab hand-listed two of the three attribute types, and the four live
+  `number_choice` definitions rendered blank against it. **A placeholder is NOT a fix** -- it makes the
+  gap look intentional while leaving the overwrite reachable.
+- **AN ATTRIBUTE'S TYPE MUST NOT BE LOSABLE BY A SINGLE INTERACTION (owner-locked).** `coerceForMatch`
+  keys the catalog match on the TYPE, so a wrong type matches NOTHING, silently -- and the server
+  accepts it (`_validate_config` only requires a dropdown type to carry `values` OR `values_from`; it
+  never checks the type against the source column's). **The editor may only change what it can express
+  end to end:** a definition whose values come from `values_from` has its type ENTANGLED with a source
+  column the editor can neither see nor set, so that type is READ-ONLY there. A static-`values` or plain
+  number definition keeps its full reach. Reopening the lock is the authoring slice's job -- authoring a
+  `values_from` means authoring its source column first, and only then is the type safely settable.
+- **THE ATTRIBUTE TABLE MUST SHOW WHERE A DEFINITION'S VALUES COME FROM, not only a static list it may
+  not carry (owner-locked).** Rendering `d.values` alone reads as EMPTY on every `values_from`
+  definition, and empty is a WRONG picture rather than an incomplete one -- a catalog-resolved dropdown
+  with a None sentinel and dependent fields showed as a blank cell. Name the source (`<kind>.<attr>`),
+  keep the `where` PAIRS (the pair is what distinguishes two otherwise identical specs), and mark
+  None-ability. **Do NOT resolve the values there:** the resolution already exists in three places
+  (server extraction, the Derivation tab, the pricing helper), and a fourth copy is the drift this
+  codebase keeps paying for. Describe the spec; do not execute it.
 
 ### Review screen (`ReviewTree.tsx`) -- load-bearing invariants
 

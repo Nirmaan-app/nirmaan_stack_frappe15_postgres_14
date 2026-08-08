@@ -19788,3 +19788,199 @@ is `kept (a stated value wins)` -> 5976, no floor and no warning; V4 row 295 sti
 preview gate shows plain "Save" with 0 changed goldens for all four categories, each on a fresh load
 and each exited via Cancel; V6 R9 renders verbatim. Nothing was applied and "Use this value" was never
 pressed.
+
+## Build slice TRAPDOOR -- the attribute type-picker trapdoor, and the blank values column
+
+**FRONTEND ONLY.** Two safety fixes on the Rate Master Pipelines tab. **NOT the authoring feature** --
+that remains unbuilt and is named at the end of this section. Zero config changes, zero DB writes, zero
+AI calls, no mint, no apply, no re-extraction. One file changed plus one new test file.
+
+### Defect 1 -- THE TYPE-PICKER TRAPDOOR (live, one click, no error, no undo)
+
+`RateMasterPipelines.tsx` bound the attribute type `<Select>` to `value={d.type}` while its
+`<SelectContent>` hand-listed **`choice` and `number` only**, and `<SelectValue />` carried no
+`placeholder`. The declared union (`rateMasterTypes.AttributeDefinition["type"]`) has carried
+`number_choice` since CP2, and **FOUR live definitions use it** -- point_wiring's `wire1_core`,
+`wire1_thickness_sqmm`, `wire2_core`, `wire2_thickness_sqmm`.
+
+**The mechanism, and why it was urgent.** On those four rows the control displayed a value it could not
+offer. An admin touching it overwrote the type with `choice` or `number` **and could not set it back**,
+because `number_choice` was not on the list. Choosing `choice` restores the exact CP2 defect the type
+was created to fix: `coerceForMatch` keys on the type, so a `choice` emits the string `"3"` against the
+stored numeric `3` and matches NOTHING, silently. **And the server accepts the save** --
+`rate_master.py:1064` only requires a dropdown type to carry `values` OR `values_from`, and
+`values_from` is present, so a wrong-but-present type passes validation. One click, no error, no undo,
+and point_wiring stops pricing.
+
+**The shape chosen: (c), in two halves, because (a) alone fails the requirement.**
+
+Option (a) -- adding `number_choice` to the picker -- makes the control HONEST but not SAFE. With only
+the option added, one click of `choice` on `wire1_core` still reaches a broken state: the definition
+resolves from the NUMERIC column `cable.core`, so a string coercion matches nothing and the server still
+accepts it. The trapdoor becomes reversible; the silent break does not go away. **The hard requirement
+was that no single interaction can reach a broken state, so (a) was insufficient on its own.** (What the
+validator does in the (a) case, as asked: a dropdown type with NEITHER `values` NOR `values_from` is
+REJECTED with a named error and no write; but a type/domain MISMATCH -- `number_choice` over a string
+column, `choice` over a numeric one -- passes validation and breaks silently. The validator is not a
+safety net here.)
+
+Option (b) -- disabling the control where the picker cannot represent the value -- keys on a property of
+the PICKER, not on safety. It leaves the identical hazard on the **22 `choice` + `values_from`**
+definitions: switching one to `number` nulls every catalog string just as silently. And a hypothetical
+static-values `number_choice` would still be a trapdoor.
+
+**(c) = both halves:**
+
+1. **The option list is DERIVED, never hand-listed.** `ATTRIBUTE_TYPE_OPTIONS` comes from an exhaustive
+   `Record<AttributeDefinition["type"], true>` presence map, so **a future member added to the union makes
+   that object a compile error** and the picker cannot silently fall behind the vocabulary again. This is
+   why it is a map and not an array literal.
+2. **The control is READ-ONLY wherever the values come from the catalog** (`isTypeLockedByValuesSource`
+   = `!!d.values_from`). Such a definition's type is entangled with a source column this editor can
+   neither see nor set, and changing one half of an entangled pair is how a config goes silently wrong.
+   Every definition the editor CAN express end to end -- a static `values` list, or a plain number --
+   keeps its full reach. **This REMOVES reach; it adds no control.**
+
+Measured lockdown: **26 of 86 live attribute definitions (30%)** get a read-only type cell; the other 60
+stay fully editable. A newly added attribute carries no `values_from`, so authoring a new one is
+unaffected.
+
+### Defect 2 -- THE BLANK VALUES COLUMN (a wrong picture, not merely an incomplete one)
+
+The read-only table rendered the definition's static `values` list only, and **no live `values_from`
+definition carries one** -- so that column was BLANK on all 26 of them, and the table showed neither
+`values_from`, `allow_none` nor `disables_when_none`. `plate_item` read as `choice | (blank) | yes` for a
+definition actually driving a nine-value catalog-resolved dropdown with a None sentinel and a dependent
+field.
+
+**The shape chosen.** The column is renamed `values source` and rendered from a new pure
+`describeValuesSource(d)`:
+
+| definition | cell |
+|---|---|
+| `values_from` + `where` | `catalog cable.core - material=COPPER, insulation=UNARMOURED` |
+| `values_from`, no `where` | `catalog db_shell.item` |
+| static `values` | `ALUMINIUM, COPPER` (**unchanged from before**) |
+| neither | an em-dash |
+| `allow_none` | a `None` chip, titled with the `disables_when_none` targets |
+
+**What is deliberately NOT shown: the RESOLVED VALUES.** Resolving them here would be a FOURTH copy of
+the values_from resolution (the backend's `values_from_catalog`, the Derivation tab's, and the pricing
+helper's `attributeOptions` are the three that exist), and the standing lesson is that copies agree
+until they do not. This describes the SPEC; it does not execute it. The `where` PAIRS are kept rather
+than just the keys because the pair is what DISTINGUISHES two otherwise identical specs --
+`switch_socket_item.item` backs both the Switch and the Socket slot. Every live filter is one or two
+short pairs, so the whole spec fits one line.
+
+The edit row gets the same treatment: on a locked row the (necessarily empty) static-values input is
+replaced by the catalog-source chip, so the edit view and the read-only view tell the same story.
+
+### The sweep -- is any OTHER `<Select>` bound to a value it does not offer?
+
+Swept the whole rate-master module (5 Selects across 3 files) and measured each against live data.
+**One more instance exists, and it is real:**
+
+| site | binding | verdict |
+|---|---|---|
+| `RateMasterPipelines.tsx` type picker | `d.type` vs 2 hand-listed items | **THE DEFECT -- fixed** |
+| `RateMasterPipelines.tsx` AddStep | `STEP_VOCABULARY[0]` vs `STEP_VOCABULARY` | safe by construction (same array) |
+| `RateMasterPipelines.tsx` condition attr | a `when` key vs `attrDefs` | **measured: 0 unofferable keys** across all 13 active configs; has a placeholder |
+| `RateMasterDerivation.tsx:439` attribute value | `selected[d.id]` vs `optionsFor(d)` | **1 LIVE instance: `switches_sockets.colour` seeds `"NA"` against its 2 options `["White","Grey"]`** -- the seed comes from `items[0].attributes.colour`, and the first `switch_socket_item` row is a Back Box, which carries `colour: "NA"` |
+| `RateMasterDataViewer.tsx` kind / add-row attr | seeded from the same lists / starts empty | safe |
+
+**The Derivation instance is NOT fixed here, deliberately.** `RateMasterDerivation.tsx` is outside this
+slice's exclusive file list, and the two cases differ in kind: the Pipelines binding is over DRAFT CONFIG
+that gets SAVED (a trapdoor), while the Derivation binding is over an EPHEMERAL configurator scratchpad
+(`selected`) that persists nothing. It is a display oddity, not a data-loss path. Recorded here so the
+next person does not have to rediscover it. App-wide there are 118 `<Select>` usages; a full audit was
+out of scope.
+
+### Tests
+
+New file `frontend/src/pages/pricing/rate-master/RateMasterPipelines.test.ts` -- **22 tests**, all on the
+two pure exports (component render is structurally untestable in the node env, which is exactly why this
+defect survived: no test in the repo can see what a `<Select>` displays).
+
+*Positive:* the option set covers all three declared types; it can represent the type of every live
+definition shape; each of the four live `number_choice` definitions is locked; a catalog-backed `choice`
+(`plate_item`, `db_shell_item`) is locked too; the catalog source + its filter pairs render; the
+no-`where` shape renders with no filters; a static list renders exactly as the old column did;
+None-ability and the dependants a None clears are surfaced.
+
+*Negative:* nothing outside the vocabulary reaches the picker; a static-values choice and a plain number
+are NOT locked (the lock must not spread); a freshly added attribute is NOT locked (new attributes stay
+authorable); a hypothetical static-values `number_choice` is editable AND representable (no trapdoor in
+either direction); a malformed `values_from` renders `catalog ?.?` instead of throwing; an unresolvable
+source is described without any attempt to resolve it.
+
+*Coverage in plain English:* every claim this slice makes about WHICH definitions refuse a type edit, and
+about WHAT the values column says, is pinned. What is NOT pinned -- and cannot be -- is that the disabled
+attribute actually reaches the DOM; that is the browser cert's job, and it is why V1 attacked the control
+three ways.
+
+### Cert
+
+Live on the owner's Chrome via CDP after the full de-stale ritual (bench restarted; vite killed **by
+listed PID**, never pattern-killed; `node_modules/.vite` cleared; :8080 and :8000 both 200; service
+worker unregistered + caches cleared with **cookies preserved**; both localhost tabs CLOSED and a new one
+opened; bare root before the deep route; session confirmed via the CDP cookie API -- `sid` present,
+HttpOnly, 56 chars, `user_id=admins@nirmaan.app`, no `/login` redirect).
+
+**CODE MARKER, both directions**, on the module as served by vite: NEW present (`values source` x1,
+`ATTRIBUTE_TYPE_OPTIONS` x2, `isTypeLockedByValuesSource` x2, `describeValuesSource` x3) and OLD absent
+(the hand-listed `value: "choice"` SelectItem x0, the `>values<` header x0).
+
+**V1 -- the trapdoor, on point_wiring `wire1_core` in EDIT MODE.** The control now DISPLAYS
+`number_choice` (it displayed nothing before) and is DISABLED, with the title *"Type is fixed: this
+attribute's values come from the catalog (values_from), and its type must match that column"*. Attacked
+three ways -- a synthetic DOM click, a REAL CDP mouse click at the trigger's centre, and focus +
+ArrowDown/Enter. **No listbox opened on any of them, focus would not even land on the trigger, and all
+four `number_choice` rows still read `number_choice` afterwards.** On an UNLOCKED row (`conduit_type`)
+the picker offers **choice / number / number_choice** -- so the type is selectable AND re-selectable and
+the trapdoor is closed in both directions. Exited via **Cancel**.
+
+**V2 -- the values column.** point_wiring 19 rows (8 catalog-backed), db_switchgear 14 (7),
+switches_sockets 12 (5), wiring_cabling 6 (0). Three verbatim:
+`wire1_core | number_choice | catalog cable.core - material=COPPER, insulation=UNARMOURED`;
+`db_shell_item | choice | catalog db_shell.item` + None chip (the 1-of-26 no-`where` shape);
+`plate_item | choice | catalog switch_socket_item.item - family=Grid and Face Plates` + None chip.
+
+**V3 -- a static `values` choice still renders as before.** They exist: wiring_cabling has SIX
+definitions and ZERO catalog-backed ones, so it is the pure regression case -- `material` reads
+`ALUMINIUM, COPPER` and `insulation` reads `ARMOURED, UNARMOURED`, byte-identical to the old column.
+
+**V4 -- preview gate, EDIT MODE, FRESH PAGE LOAD PER CATEGORY, each exited via Cancel:** point_wiring
+9 rows / 9 green, switches_sockets 6/6, wiring_cabling 20/20, db_switchgear 8/8. **43 golden checks, all
+green, zero changed**; the Save button read plain `Save` (not "Save with N changed") in all four.
+
+**V5 -- the four `number_choice` definitions read back FROM THE DB after the cert: byte-identical** to
+the pre-slice capture. `Version` rows for `BoQ Rate Category Config` stayed at **27**, and every config
+doc's `modified` stamp is unchanged -- zero writes from four edit-mode sessions.
+
+### Gates
+
+G1 vitest **55 -> 56 files, 1,460 -> 1,482 tests**, all green; backend `test_rate_master` **71 OK**,
+unchanged both sides. G2 tsc: **3,236 pre-existing repo errors, ZERO** mentioning either in-scope file.
+G3 all **26 goldens byte-identical** -- the per-category sha256 of the stored `goldens` array is
+unchanged for all 13 categories, and the `miscellaneous` m1 float artifact (187.2 vs
+187.20000000000002) is confirmed **present and untouched**. G4 no change to pricing-editor row counts:
+`RateMasterPipelines.tsx` has exactly ONE importer (`RateMasterPage.tsx`) and **zero references from
+`boq-wizard/`**, so it is not in the pricing editor's import graph at all; a post-change live load of the
+sheet confirmed it still renders (24 windowed rows, 8 suggestion badges, no error boundary). G5 above.
+G6 zero AI calls, zero config writes, zero DB writes.
+
+### THE AUTHORING FEATURE REMAINS UNBUILT
+
+This slice made the existing controls SAFE and HONEST. It did **not** add the ability to author a
+`values_from`. **Seven of the thirteen keys a live definition carries still have no control**, and the
+next slice starts from exactly this list:
+
+`values_from.kind` (26/26 live defs) - `values_from.attr` (26/26) - `values_from.where` (25/26) -
+`allow_none` (23/26) - `disables_when_none` (22/26) - `default` (0/26, declared) - `note` (0/26, declared).
+
+The lock added in Defect 1 is where that slice deliberately reopens: authoring a `values_from` means
+authoring its source column, and only then is its type safely settable. Two findings from the recon that
+the authoring slice must carry: **`values_from` is not structurally validated at all** (the server only
+tests it for truthiness, so a malformed one is accepted and resolves to an empty dropdown with no error);
+and **an in-system config edit is DROPPED by the next `replace=True` asset import** -- the goldens trap
+in a new place, with no write-back destination.
