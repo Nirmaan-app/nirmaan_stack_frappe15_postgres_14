@@ -44,10 +44,13 @@ function coerceSelected(def: AttributeDefinition, raw: string): string | number 
 // from a computed binding INSTEAD of from that attribute, which the stored `qty` already declares:
 //   {from_fit: "blank_count"}  -> the attribute is superseded  -> derived, read-only
 //   {from_attr: "blank_qty"}   -> the attribute IS the input   -> stays editable
-// That distinction is exactly right on live data and needs no asset mint: switches_sockets and
-// point_wiring carry the from_fit form, while switches_point still reads `blank_qty` as a genuine
-// input and therefore OPTS OUT AUTOMATICALLY. Hardcoding `d.id === "blank_qty"` would have frozen a
-// field that is still live there -- the trap the recon flagged.
+// The rule is READ PER CONFIG, so each category answers for itself and no asset mint is needed:
+// switches_sockets and point_wiring carry the from_fit form and their `blank_qty` is derived, while a
+// config that still declares {from_attr: "blank_qty"} OPTS OUT AUTOMATICALLY and keeps that field
+// editable. ⚠️ Hardcoding `d.id === "blank_qty"` would freeze the field for EVERY config, including one
+// that genuinely reads it -- which is why the shape, not the id, is what decides. (The from_attr case
+// was live on `switches_point` until that category was retired in 2026-08; the RULE does not depend on
+// an example existing, and must keep working the moment another config declares that shape.)
 //
 // The `_qty` suffix ties a component to its attribute (`blank` -> `blank_qty`), the SAME convention
 // every shipped config already uses (switch/switch_qty, socket1/socket1_qty, plate/plate_qty). The
