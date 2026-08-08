@@ -1816,3 +1816,69 @@ class TestRateMaster(FrappeTestCase):
         (pinned in ratePipelineInterpreter.test.ts); a step known to only one side is unusable."""
         self.assertIn("derive_attribute", rate_master._KNOWN_STEP_TYPES)
         self.assertEqual(len(rate_master._KNOWN_STEP_TYPES), 13)
+
+    # ---- MINT GATE: the two carry-forward repairs ----
+    #
+    # A replace=True is WHOLESALE -- the prior config row is deactivated and a new one is inserted
+    # from the payload ALONE. Anything the asset does not carry is gone. These two pins guard the
+    # values that were living ONLY in the DB (as audited RM-4b edits) until they were written back.
+
+    def test_71_wiring_asset_carries_the_in_system_edits_and_a_reimport_keeps_them(self):
+        """POSITIVE, both halves. `pipeline_labels` and `attribute_definitions[runs].default` were
+        made in-system via RM-4b and were absent from the asset, so a re-import DISCARDED them.
+
+        `default` is NOT cosmetic: extraction.build_attribute_defs copies it into the per-attribute
+        definitions sent to the model, so losing it is a behavioural regression in extraction that no
+        other test can see. The round-trip through the loader is the real proof -- asserting the file
+        alone would not show that a replace=True now preserves them."""
+        asset_cfg = type(self).raw["category_config"]
+        self.assertEqual(
+            asset_cfg.get("pipeline_labels"),
+            {"cable_boq": "Cable — per Mtr", "termination_boq": "Termination — per Set"},
+        )
+        runs = {d["id"]: d for d in asset_cfg["attribute_definitions"]}["runs"]
+        self.assertEqual(runs.get("default"), 1)
+
+        # the round-trip: a fresh load must STORE both, or the repair has not actually landed
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._real_payload(disc))
+        stored = rate_master.get_rate_category_config(disc, "wiring_cabling")["config"]
+        self.assertEqual(stored.get("pipeline_labels"), asset_cfg["pipeline_labels"])
+        stored_runs = {d["id"]: d for d in stored["attribute_definitions"]}["runs"]
+        self.assertEqual(stored_runs.get("default"), 1)
+
+    def test_72_eall_v26_carries_no_stale_config_level_goldens(self):
+        """The top-level `goldens` dict is the AUTHORITY (#178); loader._load_multi OVERWRITES a
+        config's own `goldens` from it. switches_sockets carried a SECOND, disagreeing copy -- the
+        known-incoherent slice-1a ss1 (a 6M plate holding 7 modules) that slice 2 re-minted.
+
+        It was harmless ONLY while the top-level entry existed to overwrite it. Drop that entry --
+        exactly what a retirement does -- and the stale copy would load SILENTLY. NEGATIVE half: no
+        config may carry a `goldens` copy that disagrees with the top-level dict."""
+        path = os.path.join(
+            os.path.dirname(loader.__file__), "data", "rate_master_electrical_all_v26.json"
+        )
+        with open(path, "r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+
+        ss = [c for c in payload["category_configs"] if c["category_id"] == "switches_sockets"][0]
+        self.assertNotIn("goldens", ss)
+
+        # the surviving authority is the slice-2 re-mint, not the incoherent 1a golden
+        ss1 = {g["id"]: g for g in payload["goldens"]["switches_sockets"]}["ss1"]
+        self.assertEqual(ss1["attrs"]["plate_item"], "8M")
+        self.assertEqual(ss1["attrs"]["blank_qty"], 1.0)
+        self.assertEqual(ss1["expect"]["swsock_boq"], {"supply": 740.0, "install": 150.0})
+        self.assertEqual(ss1["expect"]["swsock_bcs"], {"bcs_supply": 510.0})
+
+        # NEGATIVE: no OTHER category may carry a divergent second copy either
+        for cfg in payload["category_configs"]:
+            inner = cfg.get("goldens")
+            top = payload["goldens"].get(cfg["category_id"])
+            if inner is None or top is None:
+                continue
+            self.assertEqual(
+                json.dumps(inner, sort_keys=True), json.dumps(top, sort_keys=True),
+                "%s carries a config-level goldens copy that disagrees with the top-level dict"
+                % cfg["category_id"],
+            )

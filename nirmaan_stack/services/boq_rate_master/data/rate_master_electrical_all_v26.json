@@ -16289,62 +16289,6 @@
    },
    "extraction_none_guidance": true,
    "notes": "SLICE 1a (2026-08-06): rebuilt as a PER-COMPONENT COMPOSITE. Previously matching_mode item_identity, which routed the category to the identity prompt whose composite-refusal clause made the model return null for every assembly row (48/48 blank at confidence 0.9); point_wiring, same run/sheet/model with NO matching_mode, filled 310/368. Both matching_mode and identity_attribute_id are REMOVED together (identity_attribute_id is only read when the mode is item_identity). item_kinds is KEPT - this category remains the sole owner of switch_socket_item. Six None-able slots; TWO socket slots because a single row can name two distinct socket types. ROUNDING: sum the RAW component lines, multiply once, roundup to TENS - the pre-existing switches_sockets convention, NOT point_wiring's per-component UNIT rounding, which its notes record as 'INTENTIONAL, per the sheet'. The two categories are deliberately different.",
-   "goldens": [
-    {
-     "id": "s1",
-     "attrs": {
-      "switch_item": "None",
-      "switch_qty": 0.0,
-      "socket1_item": "6A 3-Pin Socket",
-      "socket1_qty": 1.0,
-      "socket2_item": "None",
-      "socket2_qty": 0.0,
-      "blank_item": "None",
-      "blank_qty": 0.0,
-      "plate_item": "None",
-      "plate_qty": 0.0,
-      "colour": "White",
-      "back_box": "No"
-     },
-     "expect": {
-      "swsock_boq": {
-       "supply": 110.0,
-       "install": 30.0
-      },
-      "swsock_bcs": {
-       "bcs_supply": 80.0
-      }
-     },
-     "oracle": "re-stated from the pre-rebuild single-item s1; values UNMOVED. raw 282 (6A 3-Pin Socket White) x0.3625 = 102.225 -> tens 110; 110 x0.2 = 22 -> tens 30; 282 x0.25 = 70.5 -> tens 80"
-    },
-    {
-     "id": "ss1",
-     "attrs": {
-      "switch_item": "16A 1 WAY SWITCH",
-      "switch_qty": 1.0,
-      "socket1_item": "6A/16A 3-Pin Socket",
-      "socket1_qty": 1.0,
-      "socket2_item": "6A 3-Pin Socket",
-      "socket2_qty": 2.0,
-      "blank_item": "1M Blanker",
-      "blank_qty": 2.0,
-      "plate_item": "6M",
-      "plate_qty": 1.0,
-      "colour": "White",
-      "back_box": "Yes"
-     },
-     "expect": {
-      "swsock_boq": {
-       "supply": 700.0,
-       "install": 140.0
-      },
-      "swsock_bcs": {
-       "bcs_supply": 480.0
-      }
-     },
-     "oracle": "SLICE 1a composite golden, derived from CATALOG list prices x the rate stages (NOT from the config): switch 258x1 + socket1 425x1 + socket2 282x2 + blank 61x2 + plate 302x1 + back_box(6M,NA) 247x1 = raw 1918; 1918 x0.3625 = 695.275 -> tens 700; 700 x0.2 = 140 -> tens 140; 1918 x0.25 = 479.5 -> tens 480"
-    }
-   ],
    "rules": [
     {
      "id": "S3",

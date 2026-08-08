@@ -11504,7 +11504,8 @@
    {
     "id": "runs",
     "label": "Runs",
-    "type": "number"
+    "type": "number",
+    "default": 1
    },
    {
     "id": "thickness_sqmm",
@@ -11522,6 +11523,10 @@
     "note": "day-one dimension; becomes a selector when multi-brand data loads"
    }
   ],
+  "pipeline_labels": {
+   "cable_boq": "Cable — per Mtr",
+   "termination_boq": "Termination — per Set"
+  },
   "pipelines": {
    "cable_boq": {
     "output": [
