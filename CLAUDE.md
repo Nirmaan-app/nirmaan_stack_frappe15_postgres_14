@@ -665,7 +665,7 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   d1/d2 removed.
   **A functional config with a RED preview gate is exactly what the gate exists to surface -- even when the miss
   is in the golden, not the pipeline (two i1 golden defects caught + fixed by regenerated assets at EA-4b).**
-  **The wiring + point_wiring + switches_point goldens are the standing regression pins; the wiring-asset
+  **The wiring + point_wiring + switches_sockets goldens are the standing regression pins (`switches_point` was RETIRED 2026-08-08 and its `sp1` golden went with it); the wiring-asset
   invariant sha is `76e09bba0d7affa1` (ext-b 2026-08-05 -- was `dcc9b2ea69f072bb`; the owner ACCEPTED this break when `runs` landed. The earlier `c10509…` was a stale carry-error).** The Rate Master category selector is
   REGISTRY-driven (`rateMasterRegistry.ts`), not config-read. The pricing-sheet helper stays wiring-only
   and shows its category coming-soon note for other categories (honest no-compute). A `scale` step whose
@@ -696,6 +696,19 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   kind/category left active from a prior batch (e.g. ups after the Floor BOX correction) is superseded rather
   than left orphan-active. Freeze-and-supersede (rows retained), logged in the load summary; the
   wiring-untouched invariant is unaffected.
+- **⚠️ A CATEGORY IS RETIRED VIA `retired_category_ids`, NEVER BY OMISSION FROM AN ASSET (owner-locked).**
+  `_load_multi` computes its supersede scope from the PAYLOAD, so a category simply DROPPED from the
+  asset is never touched by a `replace=True` and stays **ORPHAN-ACTIVE** — still `active = 1`, still
+  served by every active-only reader, while the asset that is supposed to define it no longer mentions
+  it. Naming it in `retired_category_ids` is the only thing that deactivates it. **There is NO delete
+  path** — not in the loader, not in any admin write endpoint (the item-level one is even named
+  `deactivate_…` and RETAINS the row); the whole module is freeze-and-supersede, so "delete this
+  category" always means "retire it", and a hard delete would be a manual DB operation outside every
+  audited path.
+- **The Rate Master category picker is REGISTRY-driven, not config-driven, so a retired category must
+  leave `rateMasterRegistry.ts` in the SAME change.** The list the picker renders comes from the
+  registry; retiring the config alone leaves the category on offer and renders
+  "No active config found for …" when it is chosen.
 - **Benchmark data (owner ruling):** the committed data asset is the **28-Jul benchmark workbook**
   (`rate_master_wiring_cabling_v3.json`) — the reference going forward, superseding the earlier 25-Jul
   reference. A benchmark refresh is a `replace=True` re-import of a new asset (freeze-and-supersede: the

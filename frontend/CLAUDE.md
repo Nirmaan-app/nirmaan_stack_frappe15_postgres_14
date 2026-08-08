@@ -1280,6 +1280,14 @@ in the plan doc.
   lazy + `export { RateMasterPage as Component }`. `rateMasterRegistry.ts` is registry-shaped like
   `pricingWorkbooks.ts` (Electrical today); the sidebar registration is the SAME four registry-driven
   touches the pricing workbooks use (role-gated item, `allKeys`, `groupMappings`, flat-label Set).
+- **⚠️ THE CATEGORY PICKER IS REGISTRY-DRIVEN, NOT CONFIG-DRIVEN, so RETIRING a category means removing
+  its `rateMasterRegistry.ts` line in the SAME change (owner-locked).** The list on screen comes from the
+  registry, never from which configs are active — retire the config alone and the category is still
+  offered, and choosing it renders "No active config found for …". **And retirement itself is
+  `retired_category_ids` in the asset, NEVER omission**: a category merely dropped from an asset is
+  outside the `replace=True` supersede scope and stays ORPHAN-ACTIVE. There is no delete path in the
+  loader or any admin endpoint — this module is freeze-and-supersede, so "remove a category" is always
+  "retire it + drop its registry line".
 - **`ratePipelineInterpreter.ts` is THE single compute source (owner-locked) -- a PURE TS module with NO
   React imports.** It executes the stored pipeline step vocabulary (`match_master_row`,
   `apply_effective_multiplier` with conditions, `scale`, `component`, `component_band`, `sum_components`,
@@ -1438,7 +1446,7 @@ in the plan doc.
   `round_lookup: null` -> the table-hit is UNROUNDED `matched[target] x mult` (sheet-faithful), while
   `round_ratio: -1` rounds the ratio branches to tens. This corrected the EA-4c drift: **dbu4 TPN-6WAY table-hit
   install `850 x 1.5` = 1275 UNROUNDED** (was over-rounded to 1280); goldens are now dbu1 (fallback 24360/3660/
-  14760) / dbu2 (TPN-8WAY table-hit 1500) / **dbu4 (TPN-6WAY 1275)**, d1/d2/dbu3-single-item removed. **The wiring + point_wiring + switches_point + DB-build-up goldens are the standing regression pins for every addition.** The Rate Master
+  14760) / dbu2 (TPN-8WAY table-hit 1500) / **dbu4 (TPN-6WAY 1275)**, d1/d2/dbu3-single-item removed. **The wiring + point_wiring + switches_sockets + DB-build-up goldens are the standing regression pins for every addition** (`switches_point` was RETIRED 2026-08-08; its `sp1` golden went with it). The Rate Master
   category selector is REGISTRY-driven (`rateMasterRegistry.ts` lists all eleven Electrical categories),
   NOT config-read. **`module_fit` (owner-locked) computes a row's MODULE COUNT in the PIPELINE, never by
   the model** — a model-selected plate leaves NO trace, and the trace is the point: the step emits the
@@ -1475,9 +1483,10 @@ in the plan doc.
   (owner-locked).** The blank line takes `qty: {from_fit: "blank_count"}`, so the attribute is no
   longer an input and must not render as one. **The derived-ness is READ FROM THE EXISTING CONFIG, not
   a new key and never hardcoded by attribute id:** a component taking `{from_fit}` has SUPERSEDED its
-  `<name>_qty` attribute, while one taking `{from_attr}` still reads it — which is what makes
-  `switches_point` (still on `from_attr`) opt out automatically, and hardcoding by id would have
-  frozen a field that is genuinely editable there. An attribute read as an input ANYWHERE is never
+  `<name>_qty` attribute, while one taking `{from_attr}` still reads it — so a config declaring the
+  `{from_attr}` shape opts out AUTOMATICALLY and keeps that field editable, and hardcoding by id would
+  freeze it for every config including one that genuinely reads it. (That case was live on
+  `switches_point` until it was retired 2026-08-08; the RULE does not depend on an example existing.) An attribute read as an input ANYWHERE is never
   derived. **⚠️ A DERIVED DISPLAY MUST NEVER BE WRITTEN BACK INTO THE FORM'S STATE** — `selected`
   means "what the user or extraction supplied", and writing a computed value into it makes the two
   indistinguishable to every later reader. Display it from the pipeline results and leave the state

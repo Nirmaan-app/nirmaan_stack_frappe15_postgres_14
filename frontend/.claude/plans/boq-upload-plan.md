@@ -17683,7 +17683,7 @@ which flagged `goldens DIFFERS`. Re-minted at the top level, re-applied, verifie
 The cert originally required a None'd component's trace line to VANISH. It does not: it renders an explicit
 `component: socket2  None -> 0`. That is the EA-4a-r **positive-absence contract** working as designed --
 `components[name] = 0` plus a labelled trace step, deliberately distinct from a no-compute and from a
-computed zero, and identical to the certified `switches_point` template. **Owner ruling: `None -> 0` IS the
+computed zero, and identical to the certified six-line switch/socket assembly shape (authored on `switches_point`, which was RETIRED 2026-08-08; the shape lives on in `switches_sockets`). **Owner ruling: `None -> 0` IS the
 contract; the criterion was reworded and no code changed.**
 
 ### Gates + cert
@@ -19984,3 +19984,169 @@ the authoring slice must carry: **`values_from` is not structurally validated at
 tests it for truthiness, so a malformed one is accepted and resolves to an empty dropdown with no error);
 and **an in-system config edit is DROPPED by the next `replace=True` asset import** -- the goldens trap
 in a new place, with no write-back destination.
+
+## Build slice SWPOINT-RETIRE -- `switches_point` is RETIRED, not deleted
+
+**Asset mint + apply + a test-file refactor.** Zero AI calls, no re-extraction. The ONLY DB write is the
+authorised `replace=True` apply of v26. Goldens **26 -> 25**; nothing else moves.
+
+### Why the owner's "delete" ruling was REVISED to "retire"
+
+The ruling was DELETE, on the grounds that the category causes confusion: a reader could reasonably take
+it for the switch-and-socket category, and it was built for rows `switches_sockets` already covers. The
+recon establishing safety also established that **a true delete has no product path**:
+
+1. **A `replace=True` on an asset that merely LACKS the category does NOT remove it -- it leaves the
+   stored config ORPHAN-ACTIVE.** `_load_multi` computes its supersede scope from the PAYLOAD
+   (`payload_cat_ids` -> `_deactivate_scope`), so a category absent from the payload is never touched and
+   keeps `active = 1` while every active-only reader goes on serving it. The loader's own comment names
+   the trap: *"retired scope -- kinds / category_ids dropped from THIS payload that must be superseded on
+   a replace (else they stay orphan-active from a prior batch, e.g. ups after the Floor BOX fix)"*.
+2. **There is no delete affordance anywhere** -- not in `loader.py`, not in any of the five admin write
+   endpoints. The item-level endpoint is even named `deactivate_rate_master_item` and its contract is
+   *"sets active=0 (RETAINED, never deleted)"*. The whole module is freeze-and-supersede.
+3. A hard delete would therefore be `frappe.delete_doc` on **14 rows** (1 active + 13 superseded) as a
+   manual DB operation outside every audited path.
+
+**The owner accordingly ruled RETIRE, via `retired_category_ids` (the `ups` precedent already in v25).
+His reason is served either way: the registry line and the config both go, and only an inactive DB row
+survives.**
+
+### Why it was safe -- what the recon established
+
+- **It owned NO item kinds** (`item_kinds: []`). It was a pure BORROWER of `switch_socket_item`, which
+  `switches_sockets` declares and owns (58 active rows, untouched). Nothing was orphaned.
+- **ZERO production rows anywhere.** `final_category_id` / `human_category_id` / `rule_category_id` /
+  `ai_category_id` = 0 across EVERY BoQ; 0 ground-truth snapshots; 0 of 28 suggestion runs; 0 of 6
+  rate-suggestion Use events. `BoQ Cell Pricing` carries no category field, so no priced cell could
+  derive from it.
+- **It was ABSENT FROM THE CLASSIFIER VOCABULARY.** `categories_electrical.json` declares 15 ids and
+  `switches_point` is not among them; 0 occurrences in the rules or the AI prompt. **No row could ever be
+  classified to it** -- and its own config `notes` said so: *"Rows classify as switches_sockets under
+  'POINT WIRING' ancestors."*
+- No other category's config referenced it functionally (one prose mention in `db_switchgear.notes`).
+
+### Its SHAPE is the template `switches_sockets` was rebuilt from -- that history STAYS
+
+When `switches_sockets` was rebuilt as a per-component composite (SLICE 1a) it was rebuilt FROM the
+six-line switch/socket/plate/box shape authored here, and its test pipelines still spread that same
+array. The constant was therefore **KEPT and RENAMED**, not inlined:
+`SWPT_LINES` -> **`SWITCH_SOCKET_ASSEMBLY_LINES`**, named for WHAT IT IS rather than whose it was.
+Inlining was rejected deliberately: two copies of six `component_ref` lines would be free to drift, and
+the sharing is the honest record of the rebuild. `SS_BOQ` and `SS_BCS` spread the renamed constant.
+
+### How the T11 disagreement was preserved, detached from the category
+
+`sp1` was the golden whose guiding-sheet plate of **6M** DISAGREED with the module formula's **8** (2
+switches + 3 sockets -> `2x3 + 1x2 = 8` -> an 8M plate). The owner ruled the formula wins, and T11 pinned
+the disagreement by reading `SP1.plate_item` off the switches_point fixture.
+
+**The disagreement is not about that category** -- it is the only pinned case anywhere of a
+guiding-sheet value contradicting a computed one, and `module_fit` with take-the-larger is LIVE on
+`switches_sockets` and `point_wiring`, whose plate ladders resolve this shape identically. So the fixture
+is **inlined at T11 as `MODULE_DISAGREEMENT_CASE`** (`statedPlate: "6M"` + the three quantities), named
+for what it demonstrates rather than for the golden it came from, and no longer depends on any category's
+stored attrs. Both T11 tests are unchanged in substance.
+
+### The switches_point describe block was removed and NOTHING was lost
+
+⚠️ **This corrects the recon.** The recon said the block's `plate=None` case was *"the only test anywhere
+proving `none_skips` propagates through a `@plate_item` binding to `back_box`"*. **It is not.** The
+`switches_sockets` block already carries both cases verbatim -- *"NEGATIVE: socket2=None is an ABSENCE,
+not a zero-priced line"* and *"NEGATIVE: plate=None zeroes the back box too (it is keyed @plate_item)"* --
+running the same six lines through `SS_BOQ`. The third case was the sp1 golden itself, which went with
+the category. A retirement note stands where the block was, pointing at both.
+
+### The sweep -- every remaining occurrence, classified
+
+| file | n | classification |
+|---|---|---|
+| `rateMasterRegistry.ts` | 2 -> **1** | **LIVE CODE -- the registry ENTRY is REMOVED.** The picker is registry-driven, so leaving it would have offered a category whose config no longer resolves. The 1 remaining is the retirement comment. |
+| `ratePipelineInterpreter.test.ts` | 10 -> **9** | **TESTS -- refactored** (rename + block removed + T11 detached). All 9 remaining are history/retirement comments. |
+| `RateMasterDerivation.tsx` | 1 | **Comment REWORDED.** It cited switches_point as the live proof that a `{from_attr}` component opts out of `derivedQtyAttrs`. The EVIDENCE went stale; the RULE did not. It now states the rule and names the example as retired. |
+| `CLAUDE.md` (root) + `frontend/CLAUDE.md` | 4 + 5 | **DANGLING INSTRUCTIONS FIXED:** both lines naming its goldens as *"the standing regression pins"* now name `switches_sockets` instead. `frontend/CLAUDE.md`'s derived-ness invariant (the twin of the code comment above) was reworded for the same reason. The **HISTORICAL** "EA-4b SHIPPED switches_point" passages STAY. |
+| plan doc | 22 | **HISTORICAL -- kept**, except *"identical to the certified `switches_point` template"*, reworded to name the shape rather than the retired category. |
+| `data/*.json` v16c-v25 | 39 | **Asset history -- untouched.** v26 carries it only in `retired_category_ids` / `excluded_categories` / `slice_note`. |
+| `extraction.py:419`, root `CLAUDE.md:655` | 2 | ⚠️ **FOUND, REPORTED, NOT EDITED** -- both name switches_point in an EXAMPLE LIST of future composite adopters (*"a second composite (switches_point / industrial_sockets / future HVAC)"*), which was already factually wrong before this slice (`matching_mode: null`, `composite_slots: null`). Outside the approved edit list; left for an owner call. |
+
+### The mint
+
+**v26** = v25 minus the category. `sha256 ebdca65911afbeabe64bfda446d56581ec615c30b3a4277f05e6f735ab3460da`,
+401,129 bytes. Applied by explicit path, `replace=True`, batch **`rmbulk-b4098d567a54`**.
+
+- `category_configs` **12 -> 11** (switches_point removed)
+- **the LOAD-BEARING top-level `goldens["switches_point"]` removed with it (#178: the loader reads ONLY
+  there and OVERWRITES each config's own key, so a per-config golden is silently ignored -- contents were
+  compared, never counts)**
+- `retired_category_ids` **`["ups"]` -> `["ups", "switches_point"]"`** -- the load summary reports
+  `retired_configs_deactivated: 1`
+- `retired_kinds` **UNCHANGED** (it owned none); `items` **UNCHANGED** (795, including the 58
+  `switch_socket_item` rows, which belong to `switches_sockets`)
+- an `excluded_categories` entry records WHY, beside the `ups` one
+
+⚠️ Note on the asset's `sha256_prefix` field: it reads `efa4a1e63d079048` in v22, v23, v24 AND v25 and
+matches none of their file hashes -- a dead carried field with no computable convention. **Carried
+forward verbatim** rather than invented; the real file hash is above.
+
+### Verification of the apply
+
+**Stored == asset, KEY BY KEY**, for all 11 re-loaded configs, and each is **byte-identical to its own
+superseded predecessor**: earthing, conduit_piping, junction_box_raceway, cabletray_raceway,
+industrial_sockets, **switches_sockets**, db_switchgear, miscellaneous, lighting_mgmt_system,
+popup_boxes, point_wiring -- all `identical=True`.
+
+Golden ids per category, **before -> after**:
+
+```
+cabletray_raceway [t1,t2,t3]        -> [t1,t2,t3]        earthing        [e1,e2]     -> [e1,e2]
+conduit_piping    [c1]              -> [c1]              industrial_sockets [i1]     -> [i1]
+db_switchgear     [dbu1..dbu4]      -> [dbu1..dbu4]      junction_box_raceway [j1]   -> [j1]
+lighting_mgmt_system []             -> []                miscellaneous   [m1,m2]     -> [m1,m2]
+point_wiring      [pw1,pw2,pw3]     -> [pw1,pw2,pw3]     popup_boxes     [p1]        -> [p1]
+switches_sockets  [s1,ss1]          -> [s1,ss1]          wiring_cabling  [g1..g5]    -> [g1..g5]
+switches_point    [sp1]             -> RETIRED
+TOTAL 26 -> 25
+```
+
+Every remaining category's stored-goldens sha256 is **identical to the pre-apply baseline**, all twelve.
+`switches_point` reads **`active = 0`** across all 14 rows. **`wiring_cabling` is UNTOUCHED** -- it lives
+in the SEPARATE wiring asset and kept its batch `rmbulk-f676a178e05a` and its goldens sha
+`e39744edff640acd`.
+
+### Gates
+
+| gate | result |
+|---|---|
+| **G1** vitest | **56 files, 1,482 -> 1,479** tests, all green (-3 = the removed switches_point block) |
+| **G1** backend `test_rate_master` | **71 OK**, unchanged both sides |
+| **G2** tsc | **3,236** repo-wide errors, identical to baseline; **ZERO** in any in-scope file |
+| **G3** goldens | **26 -> 25**, and that is the ONLY change. **Nothing in code asserts a count of 26** (the number lives solely in historical plan-doc gate lines, which stay as records). The `miscellaneous` m1 float artifact (187.2 vs 187.20000000000002) is confirmed **present and untouched**. |
+| **G4** pricing-editor rows | **NO CHANGE.** 249 rows / 94 badged / 188 badge cells, per-category split identical before and after; no row reads "Switches Point". |
+| **G5** switches_sockets | config sha **`6a0c097b5f88121d`** before AND after; goldens `[s1, ss1]` sha **`02e6bd92bbae9cbf`** unmoved |
+| **G6** | zero AI calls; the ONLY DB write is the authorised apply |
+
+### Cert
+
+Full de-stale first (bench restarted; vite killed **by listed PID**; `node_modules/.vite` cleared; :8080
+and :8000 both 200; SW unregistered + caches cleared with cookies preserved; both tabs CLOSED, new tab,
+bare root before the deep route; `sid` HttpOnly 56 chars, `user_id=admins@nirmaan.app`).
+
+**CODE MARKER, both directions** on the served `rateMasterRegistry.ts`: OLD label `"Switches Point"` **x0**
+(was 1), NEW `"Point Wiring"` **x1** and **12** `category_id:` entries (was 13).
+
+**V1** -- the picker offers **12** categories and **NOT** "Switches Point": Wiring Cabling & Termination,
+Earthing, Electrical Conduit, Junction Box for Raceway, CableTray & Raceway, Pop-up / Floor Boxes,
+Industrial Socket, Switches and Sockets, DB and Switchgear, Miscellaneous, Lighting Management System,
+Point Wiring.
+**V2** -- `switches_sockets` renders correctly: its **12 slots** (switch/socket1/socket2/blank/plate +
+their qtys + colour + back_box, each catalog-backed slot showing its source), its goldens **s1** (110/30/
+80) and **ss1** (740/150/510), and all three estimator rules **S3/S1/S2** with full guidance on the
+Derivation tab; it computes (supply 110 / install 30) with no error boundary.
+**V3** -- preview gate, EDIT MODE, FRESH PAGE LOAD PER CATEGORY, each exited via **Cancel**:
+switches_sockets 6/6 green, point_wiring 9/9, wiring_cabling 20/20, db_switchgear 8/8 -- **43 checks, all
+green, zero changed**, plain `Save` in all four.
+**V4** -- the pricing editor is unchanged: row **239**, Row Type Item, category Switches and Sockets,
+Nos. / qty 12 / rates 1 + 1 / amounts **3960** and **840**, 2 suggestion badges.
+
+**Nothing was saved by the cert:** `Version` rows for the config doctype stayed at **27**, and every
+config's `modified` stamp is the apply time, not later.
