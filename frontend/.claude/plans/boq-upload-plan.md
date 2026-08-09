@@ -20356,3 +20356,202 @@ candidates are a pre-commit hook, a re-enabled CI job, or a call alongside
   behaviour-changing edit to shipped assertions and was left alone (out of this slice's ruling).
 - The nine IDENTICAL config-level golden duplicates remain (only the divergent one was ruled on).
 - The loader/editor validation asymmetry remains banked as its own slice (C2, untouched here).
+
+---
+
+## Build slice SELROW -- selected-row suggest runs (2026-08-09)
+
+Branch `feature/boq-pricing-helper`, feat `d60c940f`. Tick boxes in the pricing editor's Excel-row
+column scope a suggestion run to just those rows.
+
+**Why it exists.** Every diagnostic this arc re-extracted a WHOLE SHEET to inspect a handful of rows,
+and a re-extraction re-rolls EVERY attribute on EVERY row. That is how ten switch rows lost their
+`plate_item` and cost a day chasing a prompt-attention theory that turned out to be a gate bug. This
+is the tool that would have avoided it, and it is the tool the next two rule changes get verified
+with.
+
+### THE INVERSION -- the natural implementation is the DESTRUCTIVE one
+
+Scoping `assemble_population` to the ticked rows is the shortest, most natural-reading change, and it
+is the one that destroys data. `population_rows` would then equal the ticked set, so
+`complete = env.complete and not (population - acc_attempted)` evaluates True, `_finalise_run` flips
+`active = 1` and deactivates the prior run -- and the new active run contains ONLY the ticked rows.
+Every unselected row loses its extraction, its badge and its "Use this value". The rows are not
+deleted (the superseded doc is retained at `active=0`) but nothing in the product can reach them.
+
+The other naive shape -- filter the processed rows but leave the population whole -- is not
+destructive but is useless: the run ends `status=partial` / `active=0`, is never adopted by the
+editor, and surfaces a **Resume** button that would re-extract the entire remaining sheet, which is
+exactly what the feature exists to prevent.
+
+**Neither is used.** The shipped shape scopes the PROCESSING and carries the rest forward.
+
+### `only_rows` -- positive polarity, server-validated
+
+`start_suggest(boq, sheet_name, resume_run_id, only_rows)`; `run_extraction(..., only_rows)` filters
+which rows are processed while `population_rows` stays the whole sheet.
+
+- **POSITIVE, not `skip_rows`.** `skip_rows` says "don't do these" and is derived server-side from a
+  done-marker; a tick box says "DO THESE". Inverting a tick set on the client would force the client
+  to reproduce the server's population definition -- the fifth-definition drift this slice avoids.
+- **REJECT, never silently narrow** (owner choice, recorded). `_guard_only_rows` compares the
+  selection against `assemble_population` and throws naming the offending rows. Rationale: a row
+  outside the population means the client's eligible set is STALE (someone re-classified, or the
+  category gate moved) and the confirmation the user just accepted named a count that is no longer
+  true. Running the survivors would honour a number nobody agreed to.
+- Three further pre-flight refusals, each before a token is spent: `resume_run_id` + `only_rows`
+  together (a resume already has its own scope); **AI off** (a scoped pass would blank the picked rows
+  AND stamp `ai_status="disabled"` onto a document whose carried rows were extracted with AI on); and
+  **no completed run to carry forward from** ("run the whole sheet once first").
+- **ABSENT or EMPTY `only_rows` behaves exactly as before**, pinned by `test_73` / `test_76`.
+
+### The carry-forward write (owner-ruled) -- a NEW document, never a merge
+
+Every scoped run writes a NEW `BoQ Rate Suggestion Run` seeded with the prior active run's untouched
+rows. Nothing is edited in place. The owner's reasoning, recorded so it is not re-litigated: a merged
+run's `run_at` and `ai_status` stop describing the rows and start describing the last touch, and the
+previous values are destroyed -- while this arc has repeatedly depended on comparing a row's before
+against its after. The rest of the module already works this way (committed sheets, category
+assignments, config revisions all supersede rather than mutate).
+
+Carry-forward is scoped to `only_rows` deliberately: a whole-sheet run has no untouched rows, and
+seeding one would change today's partial semantics (a halted whole-sheet run would silently inherit
+the old run's rows instead of reporting them pending).
+
+**The skip set must EXCLUDE the scope, or nothing runs.** On a scoped pass `acc_attempted` is
+seeded from the CARRIED run's `attempted_rows`, which already contains the ticked rows (the carry
+source is a complete run). Passing it straight through as `skip_rows` -- the pre-slice behaviour --
+would skip precisely the rows the user ticked. `pending_skip = acc_attempted - scope` is what makes
+"re-run these" mean re-run. Measured on the live run: without the subtraction the pass would process
+**zero** rows.
+
+A RESUME of a halted scoped run needs no special case: it passes no scope, and its `acc_attempted`
+holds the carried rows plus whatever the halted pass finished, so `population - attempted` resolves
+to exactly the ticked rows still pending.
+
+### What the run-level fields mean on a partial-scope run
+
+- `run_at` -- when THIS DOCUMENT's pass finished. It describes the document, not every row in it;
+  carried rows were extracted earlier, by the document this one superseded. That prior document is
+  retained at `active=0` with its own `run_at` intact, so the older timestamp is never destroyed --
+  which is exactly why the owner ruled for a new document over an in-place merge.
+- `ai_status` -- the status of THIS pass's AI calls. Honest for the rows this pass extracted; a scoped
+  run can only reach the worker with AI ON, so it cannot stamp "disabled" over carried rows.
+- `attempted_rows` -- the rows this DOCUMENT has results for (carried + newly extracted), never "the
+  rows this pass touched". That is the meaning both consumers already require: the completeness test
+  and the resume's skip set.
+
+### The byte-identity proof (G5)
+
+`serialize_run_results` is now THE single serialisation for every writer (`_open_run_doc`,
+`_write_run_progress`, `_finalise_run`). Three properties are load-bearing: `json.dumps` with DEFAULT
+separators, `sorted` by excel_row, and row dicts passed through UNTOUCHED (never re-derived --
+`_corroborate` / `_row_result` run only for rows the pass actually extracts). The `results` column is
+postgres **`json`, not `jsonb`**, so submitted text is stored verbatim.
+
+Proven against the LIVE active run `BRSR-26-00425` (read-only, simulated in memory, no writes, no
+re-extraction):
+
+| step | result |
+|---|---|
+| stored `results` text | 93,166 chars, 94 rows, 211 `defaulted` cells |
+| seed: `serialize_run_results(parsed) == stored text` | **True** |
+| merge 4 rows, then compare the 90 untouched | **0 rows whose text changed** |
+| `defaulted` cells on untouched rows | 209 before, 209 after -- **PRESERVED** |
+| exact reconstruction (stored text with only the 4 fragments substituted) | **== new text** |
+| negative control: `indent=2` / `sort_keys=True` / compact separators | all **False** (the property has teeth) |
+| completeness: `population - acc_attempted` | empty -> `complete=True`, supersede is SAFE |
+
+### The four definitions of "eligible", and why the tick follows the run's
+
+| | definition | owner | on the reference sheet |
+|---|---|---|---|
+| D0 | `node_type in {Line Item, Preamble}` | `isPriceableType` / `blank_category_eligible_rows` | 164 |
+| DP | D0 + qty in a RATE-COLUMN area | `priceability.isPriceableLine` | (flags / N-of-M) |
+| D1 | Line Item always, or qty-bearing Preamble | `isRateEditableRow` / `_rate_editable_excel_rows` | 139 |
+| **D2** | **D1 + non-blank resolved category + eligible config** | **`assemble_population`** | **94** |
+
+The tick box follows **D2**. Ticking on D1 would offer **45** rows the run silently drops. The set is
+surfaced by the server as `get_active_suggestion_run().eligible_rows` and is never re-derived on the
+client -- a client-side copy would be a FIFTH definition, free to drift.
+
+**The 45-row gap, itemised:** 31 rows are rate-editable with a BLANK resolved category -- and they are
+blank only because the owner used the admin category-gate override; a real user cannot reach pricing
+until they are classified, so that group is normally EMPTY. The remaining **14 are `light_fixtures`,
+which has NO rate config at all** -- a genuine and permanent exclusion, logged here as a separate
+product gap (the classifier emits the category; the rate master has no config for it, so those rows
+can never be priced by the helper until one is authored).
+
+### Frontend
+
+- Tick box in the Excel-row `<td>` (`data-colkey="a0"`), inside the existing flex strip before the
+  flag icon, `stopPropagation` so a tick does not also move the cell cursor.
+- **Selection lives at PAGE level.** The memoized row receives only per-row BOOLEANS (`tickable`,
+  `selected`) plus a reference-stable `onToggleTick` -- never the set, and NEVER a count. Measured:
+  **exactly 1 row re-renders per tick**, 12 rapid ticks in ~1.0 s with **zero long tasks**.
+- Keyed on the DURABLE `source_row_number`, never the window array index -- under virtualized row
+  recycling a collapse/filter reshuffle makes array index N map to a different row. Certified by
+  scrolling to the end of the sheet and back with ticks set.
+- The existing "Suggest rates" button is REPURPOSED (a count badge appears when rows are ticked); it
+  now always opens a confirmation. `suggestConfirmCopy` is pure and unit-tested.
+- Ticks are per-sheet and session-only (cleared on sheet switch; component state, so a reload clears
+  them). `pruneSelectionToEligible` drops ticks a re-classify made ineligible, keeping the
+  confirmation's count honest.
+
+### The confirmation (verbatim, as certified)
+
+Selected-row branch:
+
+> **Suggest rates for 4 selected rows?**
+> 4 rows will be re-extracted. Every other row keeps the attributes it already has -- they are carried
+> forward unchanged.
+> [Cancel] [Run 4 rows]
+
+Whole-sheet branch -- **the wording is the product, more than the count**:
+
+> **Re-extract the whole sheet (94 rows)?**
+> No rows are selected, so all 94 eligible rows will be sent for extraction.
+> **This OVERWRITES the attributes on every row, including rows that are already correct. To re-run
+> just a few, tick them in the Excel-row column first.**
+> [Cancel] [Re-extract all 94 rows]  <- primary action styled DESTRUCTIVE
+
+### Cert (CDP, owner's logged-in Chrome; ZERO AI calls -- every confirmation CANCELLED)
+
+**V1** 94 tick boxes == the server's 94-row population exactly; 0 boxes on a non-eligible row, 0
+eligible rows missing a box. Rows with no box, sampled: 9 (Preamble), 11 (Preamble), 12 (Note); 155
+without a box in total. **V2** four ticked -> button reads "Suggest rates 4", confirmation names four,
+CANCELLED, ticks survive. **V3** unticked all -> whole-sheet confirmation with the overwrite warning
+and a destructive action, CANCELLED. **V4** 1 row re-rendered per tick x6; 12-click burst 1,018 ms, 0
+long tasks. **V5** ticks survive scrolling the whole sheet and back; reload -> 0 ticked, button back
+to "Suggest rates". **V6** preview gate in EDIT MODE, FRESH PAGE LOAD PER CATEGORY, each exited via
+Cancel: switches_sockets (s1, ss1), point_wiring (pw1, pw2, pw3), wiring_cabling (g1-g5),
+db_switchgear (dbu1-dbu4) -- all green "Save", **no changed goldens** anywhere.
+
+**The cert caught a stale WEB process.** V1 first returned `eligible_rows: 0` while the run held 94
+rows: `bench serve --port 8000 --noreload` had not been restarted, so the endpoint was still the old
+code. The de-stale ritual must restart **three** things, not one -- the RQ worker (§9 #171), the vite
+dev server, AND the `--noreload` web process. All three are unsupervised (PPID 1) and do not respawn.
+
+### Gates
+
+G1 vitest 1,479 -> **1,491** green (56 files); backend `test_rate_master` 73 -> **80** green.
+G2 `tsc --noEmit` -- **zero** errors in both in-scope files (the repo carries a large pre-existing
+baseline elsewhere). G3 **25 goldens**, unmoved, and no asset/interpreter/config file touched.
+G4 rows producing a value per category **identical**: cabletray_raceway 8, conduit_piping 10,
+db_switchgear 14, point_wiring 23, popup_boxes 1, switches_sockets 16, wiring_cabling 22 = 94.
+G5 above. G6 pinned. G7 zero AI calls, zero config writes, run-doc count unchanged at 28 and
+`BRSR-26-00425` still active with its original `run_at`.
+
+### Still owed / not done
+
+- **`test_rate_suggest` carries ONE pre-existing failure**, unchanged by this slice and not
+  auto-fixed: `test_e4_point_wiring_r9_records_runs_and_cores_separately` pins the R9 rule label
+  "Wire runs and cores in point wiring" while the live config now reads "Wire runs, cores, and the
+  number of points in point wiring". It is a live-DB-dependent pin that went stale when the `points`
+  attribute landed.
+- **`light_fixtures` has no rate config** -- 14 rows on the reference sheet can never be priced by the
+  helper. Logged here as a product gap, not addressed.
+- The tick column has no select-all / clear-all affordance in the header.
+- Performance was measured on the 249-row reference sheet, not the ~1,093-row largest sheet. The
+  result generalises structurally (virtualization keeps ~26 rows in the DOM regardless, and the
+  per-tick re-render count is 1 independent of sheet size) but was not measured there.

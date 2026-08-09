@@ -677,6 +677,29 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   - **`GridColumnFilter` deliberately DUPLICATES `RateMasterDataViewer`'s `ColumnFilter` rather than
     importing it** (owner ruling): exporting would couple two independent modules, and the two already
     diverge. Do not "de-duplicate" them.
+- **THE TICK BOX FOLLOWS THE RUN'S ELIGIBILITY, NEVER THE BADGE SET (owner-locked).** FOUR
+  definitions of "eligible" live in this screen and they disagree: the priceable MASTER SET
+  (`isPriceableType`), priceability's priceable LINE (qty in a rate-column area), the RATE-EDITABLE
+  set the badges and the faint opener render on (`isRateEditableRow`), and the suggest RUN's own
+  population (`assemble_population` — rate-editable AND a non-blank resolved category AND that
+  category having an eligible rate config). **The set is surfaced BY THE SERVER**
+  (`get_active_suggestion_run().eligible_rows`) and must never be re-derived client-side: a copy
+  would be a FIFTH definition, free to drift, and the drift presents as ticks the run silently
+  ignores. Ticking on the badge set would offer rows the run drops.
+- **SELECTION STATE IS PAGE-LEVEL AND ONLY BOOLEANS REACH THE MEMOIZED ROW.** The row receives
+  `tickable` + `selected` (per-row booleans, compared by value in `pricingRowPropsAreEqual`) plus a
+  reference-stable `onToggleTick` — **never the selection Set and NEVER a count**; a count changes
+  on every tick and would re-render every row. This is the `openRemark` shape. The COUNT the
+  confirmation quotes stays page-local and is never passed down. Selection is keyed by the DURABLE
+  `source_row_number`, never the window array index (virtualized recycling remaps indices), and it
+  is per-sheet + session-only.
+- **THE "SUGGEST RATES" BUTTON IS REPURPOSED, NOT DUPLICATED, AND ALWAYS CONFIRMS BEFORE AN AI
+  CALL.** Ticks present -> run those; none -> the whole sheet. **The whole-sheet WORDING is the
+  product, more than the count**: it must warn that re-running OVERWRITES rows that are already
+  correct and point at the tick alternative, and its action renders DESTRUCTIVELY so a stray click
+  cannot launch a full re-extraction. The copy lives in the pure `suggestConfirmCopy` so both
+  branches are unit-testable; the selected-row branch carries NO warning because it has no such
+  consequence.
 - **The rate-helper panel's three-way attribute state (owner-locked).** `ExtractedAttr` and
   `WorkingsAttribute` both declare `defaulted?: boolean` (it always arrived on the wire; it is no longer
   read through a cast), and the pure `isAttrBlank` / `isAttrDefaulted` in `rateHelperTypes.ts` are the

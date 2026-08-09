@@ -974,6 +974,35 @@ invariants:
   is unchanged. **The trigger was ANY high-attribute-count category at the full batch size, NOT
   `composite_decomposition` specifically** — the failing batch was a non-composite assembly category, so a fix
   scoped to composite mode would have missed it.
+- **A PARTIAL-SCOPE SUGGEST RUN SCOPES THE PROCESSING, NEVER THE POPULATION (owner-locked).**
+  `start_suggest`/`run_extraction` take a POSITIVE `only_rows` (a tick box says "do these";
+  `skip_rows` is the resume's done-marker lever and says the opposite — inverting it on the client
+  would force the client to reproduce the server's population definition). **`assemble_population`
+  is UNTOUCHED and `population_rows` is ALWAYS the whole sheet**, because it is the completeness
+  yardstick `complete = ... and not (population - attempted)` tests against. **Narrowing the
+  population instead is the DESTRUCTIVE implementation** — `complete` becomes reachable with only
+  the selected rows present, the run flips `active=1`, the prior run is deactivated, and every
+  unselected row silently loses its extraction, its badge and its "Use this value". `only_rows` is
+  validated server-side and **REJECTED, never silently narrowed** (a row outside the population
+  means the client's eligible set is stale and the count the user just confirmed is no longer true).
+  **ABSENT or EMPTY `only_rows` is byte-identical to the whole-sheet path.**
+- **EVERY SUGGEST RUN WRITES A NEW DOCUMENT CARRYING THE UNTOUCHED ROWS FORWARD BYTE-IDENTICALLY —
+  nothing is edited in place (owner-locked).** A merged run's `run_at` and `ai_status` stop
+  describing the rows and start describing the last touch, and the previous values are destroyed;
+  the rest of the module already supersedes rather than mutates. **BYTE-IDENTITY is the
+  requirement, not "still present"** — a carry that re-serialised and dropped a `defaulted` flag
+  would pass a parsed-value check and still be a silent regression. `serialize_run_results` is THE
+  single serialisation for every writer and its three properties are load-bearing: `json.dumps`
+  with DEFAULT separators (no `indent`/`sort_keys`), `sorted` by excel_row, and row dicts passed
+  through UNTOUCHED (never re-derived — `_corroborate`/`_row_result` run only for rows the pass
+  actually extracts). The `results` column is postgres **`json`, NOT `jsonb`**, so submitted text
+  is stored verbatim and the guarantee survives the round trip. **⚠️ The skip set must EXCLUDE the
+  scope or NOTHING runs**: a scoped pass seeds `acc_attempted` from the carried COMPLETE run, which
+  already contains the ticked rows, so `pending_skip = acc_attempted - scope` is what makes
+  "re-run these" mean re-run. Carry-forward is scoped to `only_rows` deliberately — seeding a
+  whole-sheet run would make a halted run silently inherit the old rows instead of reporting them
+  pending. A scoped run is refused when AI is off (it would blank the picked rows and mislabel the
+  document), when a resume is also requested, and when there is no completed run to carry from.
 - **Extraction prompt rulings (owner, `prompts/boq_rate_attr_extraction_prompt.md`):** tolerate spelling
   variants (map to the canonical value), and — for an ARMOURED/UNARMOURED insulation attribute — a FLEXIBLE
   cable is UNARMOURED, and insulation DEFAULTS to UNARMOURED when neither armoured nor unarmoured is stated.
