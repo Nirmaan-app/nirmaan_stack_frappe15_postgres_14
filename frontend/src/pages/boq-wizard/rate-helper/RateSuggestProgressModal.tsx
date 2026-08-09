@@ -31,6 +31,10 @@ export interface SuggestModalSummary {
    *  published by the worker; the client simply never declared it, which is why the completion
    *  message reported the population. */
   scoped_row_count?: number | null;
+  /** How many rows THIS PASS attempted (distinct from `attempted_count`, which is DOCUMENT-level
+   *  and is inflated by carried rows on a scoped run). Present from the pass-count slice onward;
+   *  ABSENT on any older payload, which degrades to the previous "split unavailable" wording. */
+  pass_attempted_count?: number;
 }
 
 /** The three outcomes a completion message may report. `null` = not applicable to this run shape
@@ -75,7 +79,23 @@ export function suggestOutcomeCounts(s: SuggestModalSummary | null): SuggestOutc
     if (scoped === null) return { ...none, reExtracted: docRows };
     return { ...none, reExtracted: scoped, carriedForward: Math.max(0, docRows - scoped) };
   }
-  if (scoped !== null) return { ...none, splitUnavailable: true };
+  if (scoped !== null) {
+    // HALTED SCOPED. The three-way split needs THIS PASS's own count -- `attempted_count` is
+    // document-level (carried rows already count as attempted), so it would report the whole
+    // document and make "not reached" come out as 0. `pass_attempted_count` is the pass's own set:
+    //   re-extracted    = the pass's count
+    //   carried forward = document rows - the pass's count   (rows this pass never touched)
+    //   not reached     = the scope    - the pass's count   (ticked rows left unfinished)
+    // ABSENT on an older payload -> the previous honest "split unavailable" wording, unchanged.
+    const passDone = typeof s.pass_attempted_count === "number" ? s.pass_attempted_count : null;
+    if (passDone === null) return { ...none, splitUnavailable: true };
+    return {
+      ...none,
+      reExtracted: passDone,
+      carriedForward: Math.max(0, docRows - passDone),
+      notReached: Math.max(0, scoped - passDone),
+    };
+  }
   const attempted = typeof s.attempted_count === "number" ? s.attempted_count : null;
   const population = typeof s.population_count === "number" ? s.population_count : null;
   return {

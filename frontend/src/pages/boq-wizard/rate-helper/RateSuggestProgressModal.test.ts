@@ -39,8 +39,11 @@ const wholeSheetHalted: SuggestModalSummary = {
 const scopedHalted: SuggestModalSummary = {
   status: "partial", run_status: "partial", results: doc(94),
   attempted_count: 94, population_count: 94, scoped_row_count: 4,
+  pass_attempted_count: 2,                 // this pass finished 2 of the 4 ticked rows
   halt_reason: "An AI request kept failing.",
 };
+/** The SAME halted scoped run as it arrives from a payload that predates the pass count. */
+const scopedHaltedLegacy: SuggestModalSummary = { ...scopedHalted, pass_attempted_count: undefined };
 
 describe("suggestOutcomeCounts (what actually RAN, never the population)", () => {
   it("WHOLE-SHEET COMPLETE: every row re-extracted, nothing carried, nothing missed", () => {
@@ -61,11 +64,21 @@ describe("suggestOutcomeCounts (what actually RAN, never the population)", () =>
     });
   });
 
-  it("SCOPED HALTED: the split is NOT derivable, so it reports so rather than inventing one", () => {
-    // attempted_count is DOCUMENT-level here (carried rows already count as attempted), so
-    // population - attempted is 0 and would falsely read "nothing missed".
-    expect(suggestOutcomeCounts(scopedHalted).splitUnavailable).toBe(true);
-    expect(suggestOutcomeCounts(scopedHalted).notReached).toBeNull();
+  it("SCOPED HALTED: all THREE counts, from the pass's own count", () => {
+    // attempted_count is DOCUMENT-level here (carried rows already count as attempted), so it
+    // would report 94 and make "not reached" come out as 0. pass_attempted_count is the pass's own.
+    expect(suggestOutcomeCounts(scopedHalted)).toEqual({
+      reExtracted: 2,        // this pass finished 2
+      carriedForward: 92,    // 94 document rows it never touched
+      notReached: 2,         // 2 of the 4 ticked rows left unfinished
+      splitUnavailable: false,
+    });
+  });
+
+  it("SCOPED HALTED on a LEGACY payload: degrades to the honest 'split unavailable'", () => {
+    // backwards compatibility: a payload from before the pass count must not invent numbers
+    expect(suggestOutcomeCounts(scopedHaltedLegacy).splitUnavailable).toBe(true);
+    expect(suggestOutcomeCounts(scopedHaltedLegacy).notReached).toBeNull();
   });
 
   it("a null summary yields nothing rather than zeroes", () => {
@@ -102,8 +115,22 @@ describe("suggestCompletionLine (the wording)", () => {
     expect(line).toContain("not reached");
   });
 
-  it("SCOPED HALTED -- states what is known, invents no number", () => {
+  it("SCOPED HALTED -- all three counts, each named separately", () => {
+    expect(suggestCompletionLine(scopedHalted)).toBe(
+      "2 rows re-extracted. 92 rows carried forward unchanged. 2 rows not reached.",
+    );
+  });
+
+  it("SCOPED HALTED -- 'carried forward' and 'not reached' stay SEPARATE facts", () => {
     const line = suggestCompletionLine(scopedHalted);
+    expect(line).toContain("carried forward unchanged");
+    expect(line).toContain("not reached");
+    // never folded into one number: 92 and 2 are different things to whoever checks
+    expect(line).not.toContain("94 rows");
+  });
+
+  it("SCOPED HALTED on a LEGACY payload -- states what is known, invents no number", () => {
+    const line = suggestCompletionLine(scopedHaltedLegacy);
     expect(line).toContain("stopped before finishing the 4 rows you selected");
     expect(line).toContain("carried forward unchanged");
     expect(line).not.toContain("not reached");
@@ -147,5 +174,41 @@ describe("pre-existing modal helpers still behave (regression guard)", () => {
     expect(suggestPercent(null)).toBe(0);
     expect(suggestAiStatusWarning("ran")).toBe("");
     expect(suggestAiStatusWarning("disabled")).toContain("AI extraction was OFF");
+  });
+});
+
+// ⚠️ THE REGRESSION THE OWNER ASKED TO PIN RATHER THAN ASSUME.
+// Publishing a new payload field must not disturb the three shapes that already read correctly.
+// Each is asserted BYTE-FOR-BYTE identical with and without `pass_attempted_count` present -- so a
+// future reader can see that the addition is inert everywhere except the halted-scoped branch.
+describe("adding pass_attempted_count leaves the three already-correct shapes UNCHANGED", () => {
+  const withCount = (s: SuggestModalSummary): SuggestModalSummary =>
+    ({ ...s, pass_attempted_count: 7 });   // a value that would be WRONG if it were ever read here
+
+  const cases: Array<[string, SuggestModalSummary, string]> = [
+    ["whole-sheet complete", wholeSheetComplete, "94 rows re-extracted."],
+    ["scoped complete", scopedComplete, "4 rows re-extracted. 90 rows carried forward unchanged."],
+    ["whole-sheet halted", wholeSheetHalted, "12 rows re-extracted. 82 rows not reached."],
+  ];
+
+  for (const [label, summary, expected] of cases) {
+    it(`${label}: wording is identical with and without the new field`, () => {
+      expect(suggestCompletionLine(summary)).toBe(expected);
+      expect(suggestCompletionLine(withCount(summary))).toBe(expected);
+    });
+
+    it(`${label}: the derived counts are identical too`, () => {
+      expect(suggestOutcomeCounts(withCount(summary))).toEqual(suggestOutcomeCounts(summary));
+    });
+  }
+
+  it("the new field is read ONLY on the halted-scoped branch", () => {
+    // same summary, only the new field differs -> only this shape's numbers move
+    const a = suggestOutcomeCounts({ ...scopedHalted, pass_attempted_count: 1 });
+    const b = suggestOutcomeCounts({ ...scopedHalted, pass_attempted_count: 3 });
+    expect(a).not.toEqual(b);
+    // ...while a complete scoped run ignores it entirely
+    expect(suggestOutcomeCounts({ ...scopedComplete, pass_attempted_count: 1 }))
+      .toEqual(suggestOutcomeCounts({ ...scopedComplete, pass_attempted_count: 3 }));
   });
 });

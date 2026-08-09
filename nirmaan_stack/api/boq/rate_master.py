@@ -602,6 +602,32 @@ def _finalise_run(run_name, cv, ai_status, merged, acc_attempted, complete, halt
     frappe.db.set_value(RUN_DOCTYPE, run_name, values, update_modified=False)
 
 
+def pass_attempted_count(env):
+    """How many rows THIS PASS attempted -- read from the envelope, never from the run document.
+
+    ⚠️ THE DISTINCTION THIS EXISTS FOR. The payload's `attempted_count` is DOCUMENT-level
+    (`len(acc_attempted)`): on a SCOPED run it is seeded with the carried run's rows, so it counts
+    every row the document has results for. That is the right number for the completeness test and
+    for the resume's skip set, and the WRONG number for "how much did this pass actually do" --
+    on a halted scoped run `population - attempted` is 0, which reads as "nothing missed" when
+    rows were in fact left unfinished.
+
+    `env["attempted_rows"]` is this pass's own set (run_extraction builds it from the batches that
+    returned), which is what makes the halted-scoped three-way split derivable:
+        re-extracted    = this count
+        carried forward = document rows - this count
+        not reached     = the scope - this count
+
+    "Attempted" is deliberate, and matches what `attempted_count` already means on the whole-sheet
+    halt path: a row whose batch RETURNED counts even if the model answered null for it -- we asked.
+    Only a row whose batch never completed stays pending.
+
+    NOTE the fail-closed paths (AI disabled / no key) report every row as attempted, because they
+    return a blank row for each. That is unchanged behaviour and cannot reach a SCOPED run at all --
+    `_guard_only_rows` refuses one while AI is off. Pure -- unit-tested."""
+    return len(env.get("attempted_rows") or [])
+
+
 def _mark_run_failed(run_name, halt_reason):
     """An unexpected failure. The run KEEPS its checkpointed rows (active stays 0)."""
     frappe.db.set_value(
@@ -724,6 +750,11 @@ def _suggest_worker(boq=None, sheet_name=None, user=None, resume_run_id=None, on
             # How many rows THIS pass was scoped to (None on a whole-sheet run), so the editor can
             # report "4 rows re-extracted" rather than implying the whole sheet was re-rolled.
             "scoped_row_count": len(scope) if scope is not None else None,
+            # How many rows THIS pass attempted. ADDITIVE and PURELY INFORMATIONAL -- nothing on the
+            # server reads it; it exists so a HALTED SCOPED run can report all three counts instead
+            # of degrading to "the split is unknown". See pass_attempted_count for why the
+            # document-level `attempted_count` cannot answer that question.
+            "pass_attempted_count": pass_attempted_count(env),
         }
     except Exception:
         # NOTE: deliberately NO frappe.db.rollback() here. Every checkpoint was committed as it was

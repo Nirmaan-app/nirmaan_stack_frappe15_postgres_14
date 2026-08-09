@@ -58,6 +58,14 @@ SELECTED-ROW RUNS (only_rows + the carry-forward write). Plain-English coverage:
   - _guard_only_rows refuses resume+only_rows together, and refuses a scoped run
     when AI is off (it would blank the picked rows) or when there is no completed
     run to carry forward from                                                       -> test_79
+  - pass_attempted_count reads THIS PASS's rows off the envelope, and is NOT the
+    document-level attempted_count a carried scoped run inflates (POSITIVE +
+    NEGATIVE); absent/empty envelopes yield 0 rather than raising                    -> test_80
+  - the worker PUBLISHES pass_attempted_count on the terminal payload, and on a
+    carried scoped run it differs from attempted_count -- which is what makes the
+    halted-scoped three-way split derivable at all                                   -> test_81
+  - ADDITIVE ONLY: publishing the new key leaves every pre-existing payload key
+    byte-identical, on both a complete and a halted pass                              -> test_81
 """
 
 import copy
@@ -2121,3 +2129,100 @@ class TestRateMaster(FrappeTestCase):
             with self.assertRaises(frappe.ValidationError) as ctx:
                 rate_master._guard_only_rows("B", "S", 4, [16], None)
             self.assertIn("carry", str(ctx.exception).lower())
+
+
+    def test_80_pass_attempted_count_reads_this_pass_not_the_document(self):
+        """POSITIVE: the count comes off the ENVELOPE, which run_extraction builds from the batches
+        THIS pass completed.
+
+        NEGATIVE, and the whole reason the helper exists: it is NOT the document-level number. On a
+        carried scoped run `attempted_count` (len(acc_attempted)) counts every row the DOCUMENT has
+        results for -- carried rows included -- so it cannot answer "how much did this pass do".
+        A missing or empty envelope yields 0 rather than raising."""
+        # POSITIVE -- this pass attempted three rows
+        self.assertEqual(rate_master.pass_attempted_count({"attempted_rows": [16, 22, 30]}), 3)
+
+        # NEGATIVE -- absent / empty / None never raise, and never guess
+        self.assertEqual(rate_master.pass_attempted_count({}), 0)
+        self.assertEqual(rate_master.pass_attempted_count({"attempted_rows": []}), 0)
+        self.assertEqual(rate_master.pass_attempted_count({"attempted_rows": None}), 0)
+
+        # NEGATIVE -- it must NOT be confused with the document total. A scoped pass that finished
+        # 2 of its 4 rows against a 94-row carried document: the document knows 94, the pass did 2.
+        env = {"attempted_rows": [16, 22]}
+        acc_attempted = set(range(1, 95))          # what the run doc holds after the carry
+        self.assertEqual(rate_master.pass_attempted_count(env), 2)
+        self.assertNotEqual(rate_master.pass_attempted_count(env), len(acc_attempted))
+
+    def _run_worker_capture(self, env, only_rows=None, prior_results=None, prior_attempted=None):
+        """Drive the REAL _suggest_worker payload construction with the DB + AI mocked out, and
+        return the terminal payload it publishes. No AI call, no DB write, no enqueue."""
+        published = {}
+
+        def _capture(event, payload, **kw):
+            published.update(payload)
+
+        prior_results = prior_results or []
+        prior_attempted = prior_attempted or []
+        with mock.patch.object(rate_master, "_s_get_marker", return_value={"job_id": "J"}),              mock.patch.object(rate_master, "_resolve_committed_version", return_value=4),              mock.patch.object(rate_master, "_open_run_doc",
+                               return_value=("RUN-NAME", "RUN-ID", prior_results, prior_attempted)),              mock.patch.object(rate_master.extraction, "run_extraction", return_value=env),              mock.patch.object(rate_master, "_finalise_run"),              mock.patch.object(rate_master, "_write_run_progress"),              mock.patch.object(rate_master, "_s_clear_marker"),              mock.patch.object(frappe, "publish_realtime", side_effect=_capture), mock.patch.object(frappe, "log_error"),              mock.patch.object(frappe.db, "commit"),              mock.patch.object(frappe, "cache", return_value=mock.MagicMock()):
+            rate_master._suggest_worker(
+                boq="B", sheet_name="S", user="u@x", only_rows=only_rows,
+            )
+        return published
+
+    def test_81_worker_publishes_the_pass_count_and_changes_nothing_else(self):
+        """The wiring, on the REAL worker. A carried SCOPED pass that halted part-way must publish a
+        pass count that DIFFERS from the document-level attempted_count -- that difference is what
+        makes the halted-scoped three-way split derivable at all.
+
+        ADDITIVE-ONLY half (the regression the owner asked to pin rather than assume): adding the
+        key must leave every PRE-EXISTING payload key byte-identical, on a complete pass and on a
+        halted one. The three message shapes that already read correctly are driven entirely by
+        those keys, so if none of them moves, none of those messages can move."""
+        rows = lambda ns: [{"excel_row": n} for n in ns]
+        carried = rows(range(1, 95))
+        carried_attempted = list(range(1, 95))
+
+        # ---- a HALTED SCOPED pass: scoped to 4 rows, only 2 batches landed ----
+        halted_env = {
+            "committed_version": 4, "ai_status": "ran", "results": rows([16, 22]),
+            "complete": False, "halted": True, "halt_reason": "An AI request kept failing.",
+            "attempted_rows": [16, 22], "population_rows": list(range(1, 95)),
+        }
+        p = self._run_worker_capture(
+            halted_env, only_rows=[16, 22, 30, 36],
+            prior_results=carried, prior_attempted=carried_attempted,
+        )
+        self.assertEqual(p["run_status"], "partial")
+        self.assertEqual(p["scoped_row_count"], 4)
+        self.assertEqual(p["pass_attempted_count"], 2)          # what THIS pass did
+        self.assertEqual(p["attempted_count"], 94)              # what the DOCUMENT holds
+        self.assertNotEqual(p["pass_attempted_count"], p["attempted_count"])
+        # the three counts the message needs are now all derivable
+        self.assertEqual(len(p["results"]) - p["pass_attempted_count"], 92)   # carried forward
+        self.assertEqual(p["scoped_row_count"] - p["pass_attempted_count"], 2)  # not reached
+
+        # ---- ADDITIVE-ONLY: the pre-existing keys are untouched, complete AND halted ----
+        complete_env = {
+            "committed_version": 4, "ai_status": "ran", "results": rows(range(1, 95)),
+            "complete": True, "halted": False, "halt_reason": None,
+            "attempted_rows": list(range(1, 95)), "population_rows": list(range(1, 95)),
+        }
+        for label, env, only in (
+            ("whole-sheet complete", complete_env, None),
+            ("whole-sheet halted", {**halted_env, "results": rows([1, 2])}, None),
+        ):
+            got = self._run_worker_capture(env, only_rows=only)
+            # every key the pre-slice payload carried, unchanged in name and value
+            for key in ("status", "boq", "sheet_name", "committed_version", "run_id", "ai_status",
+                        "run_status", "results", "attempted_count", "population_count",
+                        "halt_reason", "scoped_row_count"):
+                self.assertIn(key, got, "%s: %s disappeared from the payload" % (label, key))
+            self.assertIsNone(got["scoped_row_count"], label)   # whole-sheet stays None
+            self.assertIn("pass_attempted_count", got)
+        # and the ONLY new key is the one this slice added
+        expected = {"status", "boq", "sheet_name", "committed_version", "run_id", "ai_status",
+                    "run_status", "results", "attempted_count", "population_count", "halt_reason",
+                    "scoped_row_count", "pass_attempted_count"}
+        self.assertEqual(set(self._run_worker_capture(complete_env).keys()), expected)
