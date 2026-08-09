@@ -115,6 +115,7 @@ import {
   isRateDescriptor,
   isTakeoverError,
   orderCommittedSheets,
+  passesTickedFilter,
   pruneSelectionToEligible,
   shouldExitFullscreenOnEsc,
   stepHit,
@@ -353,6 +354,9 @@ interface SuggestStatusResponse {
   halt_reason?: string | null;
   attempted_count?: number;
   population_count?: number;
+  /** SELROW: rows THIS pass was scoped to (null on a whole-sheet run). The completion message needs
+   *  it to report what RAN rather than the population. Already published by the worker. */
+  scoped_row_count?: number | null;
 }
 
 /** SR-1: a resumable partial run, surfaced ALONGSIDE the active (complete) run -- a partial is
@@ -959,6 +963,12 @@ const SheetPricingPage = () => {
   // count changes on every tick and would re-render all ~1,093 rows.
   const [selectedRows, setSelectedRows] = useState<ReadonlySet<number>>(EMPTY_SELECTION);
   const [suggestConfirmOpen, setSuggestConfirmOpen] = useState(false);
+  // SELROW filter: "show only ticked rows". A page-level BOOLEAN that acts on the ROW SET via
+  // passesViewFilter -- it never reaches the memoized row (only the header toggle's own pressed
+  // state does, which is a grid-level prop outside pricingRowPropsAreEqual). Session-only, like
+  // the ticks it depends on.
+  const [showOnlyTicked, setShowOnlyTicked] = useState(false);
+  const onToggleTicked = useCallback(() => setShowOnlyTicked((v) => !v), []);
   const suggestRunningRef = useRef(false);
   suggestRunningRef.current = suggestRunning;
   const usedPairsRef = useRef<Set<string>>(new Set());
@@ -1127,6 +1137,7 @@ const SheetPricingPage = () => {
     // SELECTED-ROW runs: ticks are per-sheet AND session-only (they clear on reload because they
     // live in component state and are never persisted).
     setSelectedRows(EMPTY_SELECTION);
+    setShowOnlyTicked(false); // SELROW filter is per-sheet, like the ticks it reads
     setSuggestConfirmOpen(false);
     usedPairsRef.current = new Set();
     setReviewOpen(false); // Slice 4a: the review-list strip is per-sheet
@@ -2258,6 +2269,7 @@ const SheetPricingPage = () => {
           halt_reason: msg.halt_reason,
           attempted_count: msg.attempted_count,
           population_count: msg.population_count,
+          scoped_row_count: msg.scoped_row_count,
         });
         // SR-1: only a COMPLETE run is adopted as the page's live run. A partial keeps whatever
         // complete run was already there (it never superseded it server-side either), so the
@@ -2531,9 +2543,21 @@ const SheetPricingPage = () => {
     // U1 -- the FOURTH clause: the two header column filters. Same composition law as the three
     // above: AND across axes, and an EMPTY selection is a PASS-THROUGH (never "hide everything").
     passesColumnFilter(rowTypeFilter, r.effective_classification) &&
-    passesCategoryFilter(r);
+    passesCategoryFilter(r) &&
+    // SELROW -- the FIFTH clause: "show only ticked rows". Same composition law as the four above:
+    // AND across axes, and OFF (or nothing ticked) is a PASS-THROUGH, never "hide everything".
+    // It READS the page's ONE selection set -- the state is not duplicated, and because it reads
+    // the live set, unticking while filtered drops the row immediately (owner ruling), with no
+    // special case anywhere.
+    passesTickedFilter(showOnlyTicked, selectedRows, r.source_row_number);
+  // SELROW: the ticked filter must be listed here too, or the `!anyViewFilter` FAST PATH returns
+  // the unfiltered `rows` and the toggle silently does nothing. It counts as active only when it
+  // would actually narrow anything (on AND something ticked) -- which is the same pass-through law
+  // passesTickedFilter obeys, kept in one place so the two cannot disagree.
+  const tickedFilterActive = showOnlyTicked && selectedRows.size > 0;
   const anyViewFilter =
-    showOnlyUnpriced || showNeedsReview || !noRowTypeHidden || rowTypeFilter.size > 0 || categoryFilter.size > 0;
+    showOnlyUnpriced || showNeedsReview || !noRowTypeHidden || rowTypeFilter.size > 0 ||
+    categoryFilter.size > 0 || tickedFilterActive;
   // displayRows: the view filter AND collapse, composed in ONE page-side pass (R4). VIEW-ONLY --
   // the count (computePricedCount over `rows`), the Summary (rows={rows}), and the review/flag
   // feed all read the UNFILTERED `rows`, so neither hiding a row-type NOR collapsing a subtree
@@ -2564,6 +2588,11 @@ const SheetPricingPage = () => {
       showSubtotals,
       rowTypeFilter,
       categoryFilter,
+      // SELROW: both inputs of the fifth clause. `selectedRows` is a NEW Set per tick, so the memo
+      // recomputes exactly when the ticked set changes -- which is what makes unticking while
+      // filtered drop the row immediately.
+      showOnlyTicked,
+      selectedRows,
       categoriesByExcelRow,
       columnDescriptors,
       collapsed,
@@ -4236,6 +4265,12 @@ const SheetPricingPage = () => {
             onToggleTick={
               RATE_HELPER_ENABLED && !suggestRatesDisabled && eligibleRows.size > 0
                 ? handleToggleTick
+                : undefined
+            }
+            showOnlyTicked={showOnlyTicked}
+            onToggleTicked={
+              RATE_HELPER_ENABLED && !suggestRatesDisabled && eligibleRows.size > 0
+                ? onToggleTicked
                 : undefined
             }
             // F3: the amount-column formula header label + builder. columnFormulas drives the

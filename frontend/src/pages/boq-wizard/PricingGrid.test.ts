@@ -25,6 +25,7 @@ import {
   isCategoryGateOpen,
   toggleRowSelection,
   pruneSelectionToEligible,
+  passesTickedFilter,
   suggestConfirmCopy,
   buildOptimisticVerdict,
   colorClassForToken,
@@ -1565,5 +1566,49 @@ describe("suggestConfirmCopy (the confirmation before ANY AI call)", () => {
   it("the two branches are distinguishable by `wholeSheet` alone (drives destructive styling)", () => {
     expect(suggestConfirmCopy(0, 10).wholeSheet).toBe(true);
     expect(suggestConfirmCopy(1, 10).wholeSheet).toBe(false);
+  });
+});
+
+// ── SELROW filter: "show only ticked rows" ────────────────────────────────────────────
+//
+// Plain-English coverage. The toggle narrows the grid to the ticked rows so a selection can be
+// checked before any spend. It READS the page's one selection set, so unticking while filtered
+// drops the row immediately with no special case. OFF -- or nothing ticked -- is a PASS-THROUGH,
+// never "hide everything": an empty grid with no explanation is the worse failure.
+
+describe("passesTickedFilter (toggle, not a value list)", () => {
+  const sel = new Set([16, 41]);
+
+  it("OFF is a pass-through for every row", () => {
+    expect(passesTickedFilter(false, sel, 16)).toBe(true);
+    expect(passesTickedFilter(false, sel, 99)).toBe(true);
+  });
+
+  it("ON keeps ticked rows and drops the rest", () => {
+    expect(passesTickedFilter(true, sel, 16)).toBe(true);
+    expect(passesTickedFilter(true, sel, 41)).toBe(true);
+    expect(passesTickedFilter(true, sel, 99)).toBe(false);
+  });
+
+  it("ON with an EMPTY selection is a PASS-THROUGH, never an empty grid", () => {
+    // the accidental state: the user unticks the last row while the filter is on
+    expect(passesTickedFilter(true, new Set<number>(), 16)).toBe(true);
+    expect(passesTickedFilter(true, new Set<number>(), 99)).toBe(true);
+  });
+
+  it("UNTICKING WHILE FILTERED drops the row immediately (it reads the live set)", () => {
+    const before = new Set([16, 41]);
+    expect(passesTickedFilter(true, before, 16)).toBe(true);
+    const after = toggleRowSelection(before, 16); // untick 16
+    expect(passesTickedFilter(true, after, 16)).toBe(false);
+    expect(passesTickedFilter(true, after, 41)).toBe(true);
+  });
+
+  it("composes as an AND clause: it only ever REMOVES rows, never adds one back", () => {
+    const rows = [10, 16, 28, 41];
+    const visible = rows.filter((r) => passesTickedFilter(true, sel, r));
+    expect(visible).toEqual([16, 41]);
+    const off = rows.filter((r) => passesTickedFilter(false, sel, r));
+    expect(off).toEqual(rows);
   });
 });

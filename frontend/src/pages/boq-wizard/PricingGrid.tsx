@@ -62,7 +62,7 @@ import {
   type SetStateAction,
 } from "react";
 import { debounce, type DebouncedFunc } from "lodash";
-import { Palette, MessageSquare, AlertTriangle, Flag, Scale, ChevronRight, Check, CornerDownRight, Sparkles } from "lucide-react";
+import { Palette, MessageSquare, AlertTriangle, Flag, Scale, ChevronRight, Check, CornerDownRight, Sparkles, ListChecks } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -564,6 +564,31 @@ export function pruneSelectionToEligible(
   const next = new Set<number>();
   for (const er of selected) if (eligible.has(er)) next.add(er);
   return next;
+}
+
+/**
+ * SELROW filter -- PURE. Does this row pass the "show only ticked rows" toggle?
+ *
+ * ⚠️ It is a TOGGLE, not a value list. `GridColumnFilter` is built entirely around distinct-VALUE
+ * lists (an options array, a Set<string> selection, a type-to-search box, membership matching), and
+ * a thousand row numbers would be a useless list. Bending it into a toggle would put a search box
+ * over two pseudo-options and express a boolean as a set of sentinels -- worse, not better. So the
+ * Excel-row header carries a dedicated toggle instead, and this is its predicate.
+ *
+ * ⚠️ OFF, or NO ROWS TICKED, is a PASS-THROUGH -- the same composition law the value-list filters
+ * obey ("an EMPTY selection never means hide everything"). A filter that empties the grid with no
+ * explanation is the worse failure, so the toggle is additionally DISABLED while nothing is ticked.
+ *
+ * ⚠️ UNTICKING WHILE FILTERED makes the row vanish immediately (owner ruling) -- and that falls out
+ * of reading the live selection here rather than snapshotting it. Do NOT special-case it.
+ */
+export function passesTickedFilter(
+  showOnlyTicked: boolean,
+  selected: ReadonlySet<number>,
+  excelRow: number,
+): boolean {
+  if (!showOnlyTicked || selected.size === 0) return true;
+  return selected.has(excelRow);
 }
 
 export interface SuggestConfirmCopy {
@@ -1755,6 +1780,14 @@ interface PricingGridProps {
   selectedRows?: ReadonlySet<number>;
   /** Reference-stable page callback; ABSENT => no tick column at all (no run yet / feature off). */
   onToggleTick?: (excelRow: number) => void;
+  /**
+   * SELROW filter (grid-level, header only). `showOnlyTicked` drives the header toggle's pressed
+   * state; `onToggleTicked` flips it. BOTH stay OUT of `pricingRowPropsAreEqual` -- the FILTERING
+   * itself happens page-side in `passesViewFilter` (the ONE place view filters compose), so the row
+   * never learns about it and the memo is untouched. ABSENT => no toggle rendered.
+   */
+  showOnlyTicked?: boolean;
+  onToggleTicked?: () => void;
   /**
    * CL-3: id -> label for the Category cell's DISPLAY (from classify.get_category_catalog). A
    * reference-stable Map (page-built, changes only on fetch, never on keystroke) -> memo-safe.
@@ -3065,7 +3098,7 @@ PricingGridRow.displayName = "PricingGridRow";
 // grid props identity-stable (the 12 useMemo/useCallback wraps -- esp. `rows`/`displayRows`); a
 // future non-stable prop silently kills the shield (see frontend/CLAUDE.md).
 export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(function PricingGrid(
-  { rows, columnDescriptors, onSaveRate, onBatchWrite, onDirtyChange, onHistoryChange, override = false, formulasComplete = true, categoryGateOpen = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], categoriesByExcelRow = EMPTY_CATEGORY_MAP, hasRun = false, rowTypeFilterOptions = EMPTY_FILTER_OPTIONS, rowTypeFilter = EMPTY_FILTER_SET, onRowTypeFilterChange, categoryFilterOptions = EMPTY_FILTER_OPTIONS, categoryFilter = EMPTY_FILTER_SET, onCategoryFilterChange, categoryLabelById = EMPTY_CATEGORY_LABEL_MAP, onCategoryClick, rowSuggestionsByExcelRow = EMPTY_SUGGESTIONS_MAP, onSuggestionBadgeClick, tickableRows = EMPTY_ROW_SET, selectedRows = EMPTY_ROW_SET, onToggleTick, onSaveReconChoice, hiddenCols, currentHitExcelRow = null, collapsed, childrenByParent, onToggleCollapse, onRevealRow, frozen = false, virtualized = false },
+  { rows, columnDescriptors, onSaveRate, onBatchWrite, onDirtyChange, onHistoryChange, override = false, formulasComplete = true, categoryGateOpen = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], categoriesByExcelRow = EMPTY_CATEGORY_MAP, hasRun = false, rowTypeFilterOptions = EMPTY_FILTER_OPTIONS, rowTypeFilter = EMPTY_FILTER_SET, onRowTypeFilterChange, categoryFilterOptions = EMPTY_FILTER_OPTIONS, categoryFilter = EMPTY_FILTER_SET, onCategoryFilterChange, categoryLabelById = EMPTY_CATEGORY_LABEL_MAP, onCategoryClick, rowSuggestionsByExcelRow = EMPTY_SUGGESTIONS_MAP, onSuggestionBadgeClick, tickableRows = EMPTY_ROW_SET, selectedRows = EMPTY_ROW_SET, onToggleTick, showOnlyTicked = false, onToggleTicked, onSaveReconChoice, hiddenCols, currentHitExcelRow = null, collapsed, childrenByParent, onToggleCollapse, onRevealRow, frozen = false, virtualized = false },
   ref,
 ) {
   // Cluster B: per-cell reconciliation choice map (per-SHEET; reference-stable across a keystroke
@@ -4654,7 +4687,38 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
         title="Excel Row"
         className="px-2 py-2 text-left font-medium text-muted-foreground border-r border-border sticky top-0 z-20 bg-muted"
       >
-        <span className="block truncate">Excel Row</span>
+        {/* SELROW filter: a dedicated TOGGLE, not a GridColumnFilter -- that component is built
+            around distinct-VALUE lists and a thousand row numbers would be a useless list (see
+            passesTickedFilter). Rendered only when the tick column itself is live.
+            ⚠️ The h-4 + leading-none sizing is LOAD-BEARING, not styling: in FROZEN mode this
+            header lives in the frozen table while Category lives in the scrolling one, and an
+            affordance that changes this cell's height offsets the two panes against each other.
+            It must stay height-neutral in BOTH states (on and off). */}
+        <div className="flex items-center gap-1">
+          <span className="block truncate">Excel Row</span>
+          {onToggleTicked && (
+            <button
+              type="button"
+              onClick={onToggleTicked}
+              disabled={selectedRows.size === 0}
+              aria-pressed={showOnlyTicked}
+              title={
+                selectedRows.size === 0
+                  ? "Tick some rows first, then filter to just those"
+                  : showOnlyTicked
+                    ? "Showing only ticked rows -- click to show all rows"
+                    : "Show only the ticked rows"
+              }
+              className={cn(
+                "inline-flex h-4 shrink-0 items-center justify-center rounded leading-none",
+                "disabled:cursor-default disabled:opacity-30",
+                showOnlyTicked ? "text-primary" : "text-muted-foreground/70 hover:text-foreground",
+              )}
+            >
+              <ListChecks className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
         {resizeHandle("a0", false)}
       </th>
       <th
