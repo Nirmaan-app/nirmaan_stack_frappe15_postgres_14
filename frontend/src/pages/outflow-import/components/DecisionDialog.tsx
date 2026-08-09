@@ -24,12 +24,15 @@ import {
     amountVerdict,
     isConfirmable,
     orderBySuggestion,
+    parseRecordKey,
+    recordKey,
     settlementLink,
     type DecisionTarget,
     type RowDecision,
+    type SettleableRecord,
 } from "../outflowTableModel";
+import { SettleableRecordTable } from "./SettleableRecordTable";
 
-const PAYMENT = "Project Payments";
 const PROJECT_EXPENSE = "Project Expenses";
 const NON_PROJECT_EXPENSE = "Non Project Expenses";
 
@@ -46,16 +49,6 @@ const CREATE_NEW_TARGET: { id: DecisionTarget; label: string; hint: string } = {
     id: "new",
     label: "Create a new expense",
     hint: "nothing to link to — record it here, already Paid",
-};
-
-/**
- * How each ledger is named ON A RECORD LINE (owner wording, slice R2). Singular, because it labels
- * one record rather than a table.
- */
-const LEDGER_LABEL: Record<string, string> = {
-    [PAYMENT]: "Project Payment",
-    [PROJECT_EXPENSE]: "Project Expense",
-    [NON_PROJECT_EXPENSE]: "Non Project Expense",
 };
 
 interface Props {
@@ -113,8 +106,11 @@ export const DecisionDialog = ({
         <Dialog open={Boolean(row)} onOpenChange={(open) => !open && onClose()}>
             {/* grid-rows-[auto_1fr_auto] + min-h-0 on the body is what pins header and footer and
                 gives the BODY the scrollbar. `max-h-[85vh]` bounds the whole thing to the
-                viewport; without the bound the scrim scrolls instead. */}
-            <DialogContent className="grid max-h-[85vh] w-[min(92vw,860px)] grid-rows-[auto_1fr_auto] gap-0 overflow-hidden p-0 sm:max-w-none">
+                viewport; without the bound the scrim scrolls instead.
+                ⚠️ 860px -> 960px WITH THE RECORD TABLE. Seven columns of real facts need the room;
+                at 860 the vendor and project columns truncate on almost every row, which defeats
+                the reason those facts became columns. */}
+            <DialogContent className="grid max-h-[85vh] w-[min(92vw,960px)] grid-rows-[auto_1fr_auto] gap-0 overflow-hidden p-0 sm:max-w-none">
                 <header className="border-b px-6 py-4">
                     <div className="flex flex-wrap items-baseline justify-between gap-2">
                         <h2 className="text-base font-semibold">{row.beneficiary_name}</h2>
@@ -330,42 +326,16 @@ const TargetOption = ({
 };
 
 /**
- * A DROPDOWN, not radios (owner ruling), that loads the chosen record's details beneath it.
+ * A search box over a RADIO TABLE of approved records (owner ruling 2026-08-07, replacing the
+ * dropdown), with a verdict line for whichever one is chosen.
  *
  * ⚠️ IT PRE-SELECTS NOTHING, AND THAT IS DELIBERATE (slice R1). It used to tick the sole record
  * whose amount matched. The only rows that still reach this picker with nothing chosen are rows the
  * MATCHER DECLINED -- unmatched, mismatched, or one of several candidates -- so an auto-tick here
  * would be the screen overruling the matcher on the weakest signal it has: amount alone, no vendor,
- * no date, and once this list spans all three ledgers, not even the right kind of record. The one
- * pre-selection in this feature comes from `sole_suggestion` on the server, via the page.
- */
-interface SettleableRecord {
-    /** Which ledger this record lives in. It arrives WITH the record; the reviewer never picks it. */
-    target_doctype: DecisionTarget;
-    name: string;
-    amount: number;
-    detail: string;
-    suggested: boolean;
-    /** The facts a reviewer picks a record BY (owner ruling 2026-08-06). */
-    vendor_name: string;
-    project_name: string;
-    document_name: string;
-    /**
-     * ⚠️ TWO DATE KEYS, NEVER ONE. Only `Project Payments` records an approval date -- neither
-     * expense doctype has the field at all. The expense's last-changed timestamp is real and useful
-     * for judging how stale a record is, but it is NOT an approval date, so it travels under its own
-     * name and is labelled differently on screen (owner ruling 2026-08-06). Merging them into one
-     * key would make a modification look like an approval on two thirds of the list.
-     */
-    approved_on: string;
-    updated_on: string;
-}
-
-/** `<doctype>|<name>` -- unique across ledgers, which a bare record name is not guaranteed to be. */
-const optionValue = (record: { target_doctype: string; name: string }) =>
-    `${record.target_doctype}|${record.name}`;
-
-/**
+ * no account, and across all three ledgers not even the right kind of record. The one pre-selection
+ * in this feature comes from `sole_suggestion` on the server, via the page.
+ *
  * ⚠️ THIS BROWSES APPROVED RECORDS. IT DOES NOT SHOW THE MATCHER'S OUTPUT, and the difference is
  * the whole point of this component.
  *
@@ -432,10 +402,12 @@ const RecordPicker = ({
                         : "There are no approved payments or expenses to link to."}
                 </p>
             ) : (
-                <Select
-                    value={
+                <SettleableRecordTable
+                    records={options}
+                    bankAmount={row.amount}
+                    selected={
                         decision.target && decision.linkTo
-                            ? optionValue({
+                            ? recordKey({
                                   target_doctype: decision.target,
                                   name: decision.linkTo,
                               })
@@ -444,29 +416,15 @@ const RecordPicker = ({
                     // ⚠️ THE LEDGER COMES FROM THE RECORD. It used to come from the card clicked
                     // beforehand; with one list there is no such card, so picking a record is what
                     // decides which table gets written.
-                    onValueChange={(value) => {
-                        const [target, ...rest] = value.split("|");
-                        onChange({
-                            ...decision,
-                            target: target as DecisionTarget,
-                            linkTo: rest.join("|"),
-                        });
+                    onSelect={(value) => {
+                        const picked = parseRecordKey(value);
+                        if (!picked) return;
+                        onChange({ ...decision, target: picked.target, linkTo: picked.name });
                     }}
-                >
-                    <SelectTrigger className="h-auto min-h-9 py-1.5">
-                        <SelectValue placeholder="Choose a record…" />
-                    </SelectTrigger>
-                    <SelectContent className="max-w-[min(90vw,640px)]">
-                        {options.map((option) => (
-                            <SelectItem key={optionValue(option)} value={optionValue(option)}>
-                                <OptionLine option={option} />
-                            </SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
+                />
             )}
 
-            {selected && <RecordDetail record={selected} bankAmount={row.amount} />}
+            {selected && <RecordVerdict record={selected} bankAmount={row.amount} />}
 
             {/* ⚠️ CLEARING IS A SEPARATE ACT FROM CHOOSING. A Radix Select cannot return to "no
                 value" through the dropdown -- every item sets one -- so without this a reviewer who
@@ -491,66 +449,23 @@ const RecordPicker = ({
 };
 
 /**
- * One record line: payment type, vendor, project, amount and a date (owner ruling, slice R2).
+ * What choosing THIS record means, in one line under the table.
  *
- * ⚠️ THE ID ALONE IS NOT ENOUGH TO CHOOSE BY. `PAY-00105-034` says nothing about whose money it is
- * -- a reviewer with three approved records in front of them picks by vendor and project, and
- * scanning them meant opening each one to find out. The facts go on the line itself.
+ * ⚠️ IT SHRANK FROM A FULL DETAIL CARD WHEN THE LIST BECAME A TABLE, and the deletion is the point.
+ * That card repeated the ledger, the id, the vendor, the project, the date and the amount -- every
+ * one of which is now a COLUMN the reviewer can read on the chosen row itself. What a column cannot
+ * carry is the sentence explaining what the amount difference MEANS, and the way out to the record,
+ * so those are what is left.
  *
- * ⚠️ THE TYPE BADGE IS NOT DECORATION. One list now holds all three ledgers, so it is the only
- * thing on the line saying whether this is a payment against a PO or an expense somebody booked --
- * which is what the three separate cards used to say by existing.
- */
-const OptionLine = ({ option }: { option: SettleableRecord }) => (
-    <span className="flex w-full min-w-0 flex-col gap-0.5 py-0.5">
-        <span className="flex min-w-0 items-baseline gap-2">
-            <span className="truncate font-medium">{option.vendor_name || option.name}</span>
-            <span className="ml-auto shrink-0 tabular-nums">
-                {formatToRoundedIndianRupee(option.amount)}
-            </span>
-            <span className="shrink-0">{option.suggested ? "✓" : "⚠"}</span>
-        </span>
-        <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 text-[11px] text-muted-foreground">
-            <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-medium text-foreground/70">
-                {LEDGER_LABEL[option.target_doctype] ?? option.target_doctype}
-            </span>
-            <span className="font-mono">{option.name}</span>
-            {option.project_name && <span className="truncate">{option.project_name}</span>}
-            {option.document_name && (
-                <span className="truncate font-mono">{option.document_name}</span>
-            )}
-            <RecordDate option={option} />
-        </span>
-    </span>
-);
-
-/**
- * The record's date, saying WHICH date it is.
- *
- * ⚠️ AN EXPENSE HAS NO APPROVAL DATE -- neither expense doctype carries the field, and only
- * `Project Payments` records one. So a payment reads "approved 12-Jul-2026" and an expense reads
- * "updated 12-Jul-2026" (owner ruling 2026-08-06). The two words are the guard: presenting a
- * modification timestamp under the word "approved" would be a confident lie on two thirds of the
- * list, and a reviewer settling by approval date would have no way to see it.
- */
-const RecordDate = ({ option }: { option: SettleableRecord }) => {
-    if (option.approved_on) return <span>approved {formatDate(option.approved_on)}</span>;
-    if (option.updated_on) return <span>updated {formatDate(option.updated_on)}</span>;
-    return null;
-};
-
-/**
- * The chosen record's details plus an explicit amount verdict.
- *
- * ⚠️ THREE STATES, NOT TWO. Exact / within the tolerance / outside it. Two states would have to
- * call a 31-paise difference either "same" (untrue) or a warning (misleading, since the system
- * settles it happily) -- and the bank rounds to the rupee on about a third of all payments, so
- * that middle case is the common one, not the rare one.
+ * ⚠️ THREE STATES, NOT TWO. Exact / within the tolerance / outside it. Two states would have to call
+ * a 31-paise difference either "same" (untrue) or a warning (misleading, since the system settles it
+ * happily) -- and the bank rounds to the rupee on about a third of all payments, so that middle case
+ * is the common one, not the rare one.
  *
  * The tolerance's VALUE is deliberately not named here: it lives on the server, and a number
- * repeated in the client would drift the moment the owner changed it.
+ * repeated in the client would drift the moment the owner changed it -- which has happened twice.
  */
-const RecordDetail = ({
+const RecordVerdict = ({
     record,
     bankAmount,
 }: {
@@ -561,63 +476,53 @@ const RecordDetail = ({
     const settleable = record.suggested;
     const link = settlementLink(record.target_doctype, record.name);
     return (
-        <div className="rounded-md border bg-background p-3 text-sm">
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <span className="flex min-w-0 items-baseline gap-2">
-                    {/* Repeated from the dropdown line because this panel is what stays on screen
-                        after the list closes -- and "which ledger am I about to write to" is the
-                        one fact the reviewer no longer chose explicitly. */}
-                    <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium">
-                        {LEDGER_LABEL[record.target_doctype] ?? record.target_doctype}
-                    </span>
-                    <span className="truncate font-mono text-xs">{record.name}</span>
-                    {/* Opening the record is a READ, and it navigates away from a dialog holding an
-                        unconfirmed decision -- so it is a quiet link beside the id, never a button
-                        competing with Confirm. */}
-                    {link && (
-                        <Link
-                            to={link.href}
-                            title={link.title}
-                            className="shrink-0 text-primary hover:underline"
-                        >
-                            <ExternalLink className="h-3.5 w-3.5" />
-                        </Link>
-                    )}
-                </span>
-                <span className="tabular-nums">
-                    {formatToRoundedIndianRupee(record.amount)}
-                </span>
-            </div>
-            {record.detail && (
-                <p className="mt-1 text-xs text-muted-foreground">{record.detail}</p>
-            )}
-            <p className="mt-1 text-[11px] text-muted-foreground">
-                <RecordDate option={record} />
-            </p>
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-background px-3 py-2">
             <p
-                className={`mt-2 flex items-center gap-1.5 text-xs ${
+                className={`flex items-center gap-1.5 text-xs ${
                     settleable ? "text-emerald-700" : "text-amber-700"
                 }`}
             >
                 {verdict.same ? (
                     <>
-                        <Check className="h-3.5 w-3.5" /> Same amount as the bank row
+                        <Check className="h-3.5 w-3.5 shrink-0" />
+                        <span>
+                            <span className="font-mono">{record.name}</span> is the same amount as
+                            the bank row
+                        </span>
                     </>
                 ) : settleable ? (
                     <>
-                        <Check className="h-3.5 w-3.5" />
-                        Differs by {formatToRoundedIndianRupee(Math.abs(verdict.difference))} —
-                        within the accepted rounding tolerance, so this can be settled
+                        <Check className="h-3.5 w-3.5 shrink-0" />
+                        <span>
+                            <span className="font-mono">{record.name}</span> differs by{" "}
+                            {formatToRoundedIndianRupee(Math.abs(verdict.difference))} — within the
+                            accepted rounding tolerance, so this can be settled
+                        </span>
                     </>
                 ) : (
                     <>
-                        <AlertTriangle className="h-3.5 w-3.5" />
-                        Differs by {formatToRoundedIndianRupee(Math.abs(verdict.difference))} — too
-                        far apart to settle here. A deduction such as TDS looks like this; settle it
-                        in the payments screen
+                        <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                        <span>
+                            <span className="font-mono">{record.name}</span> differs by{" "}
+                            {formatToRoundedIndianRupee(Math.abs(verdict.difference))} — too far
+                            apart to settle here. A deduction such as TDS looks like this; settle it
+                            in the payments screen
+                        </span>
                     </>
                 )}
             </p>
+            {/* Opening the record is a READ, and it navigates away from a dialog holding an
+                unconfirmed decision -- so it is a quiet link, never a button competing with
+                Confirm. */}
+            {link && (
+                <Link
+                    to={link.href}
+                    title={link.title}
+                    className="flex shrink-0 items-center gap-1 text-xs text-primary hover:underline"
+                >
+                    Open <ExternalLink className="h-3.5 w-3.5" />
+                </Link>
+            )}
         </div>
     );
 };

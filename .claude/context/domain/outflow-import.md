@@ -28,9 +28,10 @@ pick one ad-hoc; ask.
 |---|---|---|
 | Row + batch status derivation | `services/outflow_import/status.py` (`derive_row_outcome`, `derive_staged_row_outcome`, `derive_batch_status`, `derive_batch_counters`) — B3 | compute a `row_status` or a batch `status`. The frontend mirror `outflowImportStatus.ts` is a CONVENIENCE pinned by a parity test; this file is the authority |
 | Which record the screen pre-selects | `services/outflow_import/status.py` (`sole_suggestion`) | re-derive "exactly one candidate" anywhere else — the browser did, from a different candidate list than the note counted, and the two disagreed |
-| The amount tolerance (±₹1) | `services/outflow_import/amounts.py` (`amounts_match`) | hold a second copy, **or add a comparison that is not on the list**. FIVE call sites: both SQL pool queries, the matcher, the settle guard, and the already-paid duplicate check. A pool wider than the guard offers a record the confirm then refuses; the fifth was *missing* until 2026-08-07 and flagged 8 of 26 rows in a live statement as discrepancies over sub-rupee rounding |
+| The two amount windows (settle ±₹5, tier 1 ±₹1) | `services/outflow_import/amounts.py` (`AMOUNT_TOLERANCE`, `TIER1_TOLERANCE`, `amounts_match`) | hold a copy of either, **or add a comparison that is not on the list**. FIVE call sites: both SQL pool queries, the matcher, the settle guard, and the already-paid duplicate check. `TIER1_TOLERANCE ≤ AMOUNT_TOLERANCE` always — a tier wider than the settle window offers a record the confirm then refuses. The fifth site was *missing* until 2026-08-07 and flagged 8 of 26 rows in a live statement as discrepancies over sub-rupee rounding |
+| Does a remark name a project? | `services/outflow_import/project_match.py` (`build_project_index`, `ProjectIndex.sole_project`) | re-derive it. Tier 2 auto-suggests on this predicate, so a second copy is a second opinion about where money goes |
 | What may be settled, and from which status | `services/outflow_import/ledgers.py` (`SETTLEABLE_STATUSES`, `settleable_statuses`) | carry its own Approved-only list. Read by `candidates.py` (what may be OFFERED) and `settle.py` (what may be WRITTEN) so the two can never disagree about one record |
-| Bank row → target matching | `services/outflow_import/matcher.py` (`match_row`, `match_payments`, `match_expenses`, `resolve_vendors`) | decide anything. It PROPOSES ranked candidates; `status.py` derives the outcome and a person makes the choice |
+| Bank row → target matching | `services/outflow_import/matcher.py` (`match_row`, `match_by_reference`, `match_payments`, `match_expenses`, `resolve_vendors`) | decide anything. It PROPOSES ranked candidates; `status.py` derives the outcome and a person makes the choice |
 | The settlement write | `services/outflow_import/settle.py` + the one orchestrator `api/outflow_import/expenses.settle_row` | write to a ledger from anywhere else in this feature |
 | Candidate pool queries | `services/outflow_import/candidates.py` | query a ledger for candidates inline in an endpoint |
 | Browsable approved records (hand-linking) | `api/outflow_import/review.search_settleable_records` (+ `_search_one_ledger`) | reuse `get_row_candidates` for browsing — that is the MATCHER's output, and when the matcher finds nothing it is empty, which is exactly when hand-linking is needed |
@@ -68,29 +69,51 @@ v2 → v3: `Reconciled` → `Skipped`/`Matched` · `Amount mismatch` → `Mismat
 
 ## The matching rules, in one place
 
+**Three tiers, owner-ruled 2026-08-07. The first that finds anything STOPS the ladder.**
+
 ```
 1. STAGED     already imported / duplicate in file / not SUCCESS      -> Skipped
 2. DUPLICATE  Paid payment with this reference, amounts agree         -> Skipped
                                               amounts differ          -> Mismatched
-3. PAYMENTS   Pass A: normalised UTR equal            (finds fan-out)
-              Pass B: vendor + amount +-Rs 1 + date +-3d + Approved
-4. EXPENSES   amount +-Rs 1, corroborated by description text
-5. OUTCOME    >=1 approved candidate -> Matched     else -> Unmatched
+3. TIER 0     normalised UTR equal                     (finds fan-out; payments)
+4. TIER 1     beneficiary account AND IFSC = a vendor's, amount +-Re 1 (payments)
+5. TIER 2     amount +-Rs 5 AND the remark names the record's project  (payments + Project Expenses)
+6. OUTCOME    >=1 approved candidate -> Matched     else -> Unmatched
 ```
 
-**Vendor resolution** (feeds Pass B; ≥2 survivors = ambiguous, nothing auto-recorded):
+**A lower tier never tops up a higher one.** Two candidates pre-select nothing, so reaching into
+tier 2 after tier 1 found one would turn a confident row into an ambiguous one. Enforced in
+`match_row`, which is why it orchestrates rather than calling both matchers.
+
+**Vendor resolution** (≥2 survivors = ambiguous, nothing auto-recorded):
 account+IFSC 0.95 · account 0.80 · exact name 0.75 · partial name 0.60×containment. Floor 0.35; a
 name needs ≥2 non-noise words. **Containment, not Jaccard** — a statement name is routinely a subset
-of the vendor name.
+of the vendor name. ⚠️ **Only the `ifsc_matches` candidates admit anything to tier 1**; the name
+scoring still runs and is still persisted as the row's resolved vendor, but it no longer MATCHES
+anything. A name is a scoring form, never an identity.
+
+**Project corroboration** (`project_match.py`): a remark names a project if it contains the project's
+whole name (longest nested name wins — `Fujitsu Chennai` over `Fujitsu`), else a keyword unique to
+one project. **Two projects named ⇒ nothing.** Distinctiveness is counted from the project list
+itself, so cities self-tune; one small `GENERIC_PROJECT_TOKENS` list handles words common in English
+but rare in the master (`site`, `office`, `work`). Measured: **172 of 194 live projects (88%) are
+identifiable by their own name; the other 22 are all duplicate-named pairs** (two `Fidelity
+Chennai`, two `SEBI Lucknow`, `ANSR` beside `ANSR - 2`).
 
 **Never matches, by design:** non-Approved records · TDS payments (the bank sends `amount − tds`,
-thousands off — ±₹1 cannot reach it and **must not be widened to**) · fan-out of a settleable group
-(report-only, Q4) · a beneficiary resolving to no vendor.
+thousands off — neither window can reach it and **neither must be widened to**) · fan-out of a
+settleable group (report-only, Q4) · `Non Project Expenses` (no project column, so nothing can
+corroborate it) · a beneficiary whose account+IFSC resolves to no vendor and whose remark names no
+project.
 
-⚠️ **`match_expenses` matches on AMOUNT ALONE.** The description text only raises the score; it never
-gates. So a round-number transfer that has an approved payment *and* an unrelated approved expense at
-the same amount honestly has **two** candidates and correctly pre-selects nothing. This is the
-"never guess" rule working, and it is the practical ceiling on how often a row opens ready.
+⚠️ **`match_expenses` REQUIRES the project — this REVERSED on 2026-08-07.** It used to match on
+AMOUNT ALONE with the description only raising the score, which is why a round-number transfer with
+an approved payment *and* an unrelated approved expense at the same amount honestly had **two**
+candidates and pre-selected nothing. That was the practical ceiling on how often a row opened ready.
+Description text (payee name / account / IFSC) still RANKS the candidates the project gate admitted.
+
+⚠️ **DELETED, and not by oversight: the old Pass B** (vendor-by-name + amount + date ±3d). Rows it
+used to catch now arrive `Unmatched` and are linked by hand. Owner's call, made with the loss stated.
 
 ---
 
@@ -102,12 +125,15 @@ the same amount honestly has **two** candidates and correctly pre-selects nothin
 2. **The already-Paid check is a SKIP, not a match** (Q14) — and it is the **only** route to
    `Mismatched`. Delete it and a hand-ticked payment reads `Unmatched`, and the obvious next click
    books the same money twice.
-3. **`Mismatched` is AMOUNTS ONLY, and only beyond the ±₹1 window.** The v2 `Reference mismatch`
+3. **`Mismatched` is AMOUNTS ONLY, and only beyond the settle window.** The v2 `Reference mismatch`
    branch is deleted, not folded in. A reference is only ever *written into a blank*, never compared.
    ⚠️ This branch used **exact** equality until 2026-08-07, which made every hand-ticked payment
    carrying paise a "discrepancy" — 8 of 26 rows on a live statement, over gaps of 14 to 86 paise,
    each announced with a note suggesting TDS. `status.py` now imports `amounts.amounts_match`; that
    is its **one** permitted package import and the purity test was narrowed to say so.
+   ⚠️ It reads the **settle** window (now ±₹5), not tier 1's ±₹1 — a duplicate guard asks the same
+   question the write guard asks. Accepted consequence of the widening: a hand-ticked payment ₹4 off
+   now reads `Skipped` rather than `Mismatched`.
 4. **`for_update=True` must never carry `cache=True`.** Frappe skips the row lock on a cached read,
    which makes the concurrency guard decorative.
 5. **Two payment hooks commit mid-save** — `update_parent_amount_paid` and the Approved→Paid
@@ -115,7 +141,10 @@ the same amount honestly has **two** candidates and correctly pre-selects nothin
    place, read in exactly two). `amount_paid` is still recomputed, inside the same transaction. The
    test is not "is this side effect wanted" but **"does it commit"** — a commit inside the savepoint
    makes the rollback a silent no-op.
-6. **The ±₹1 tolerance lives in ONE place** — see the residence manifest.
+6. **Both amount windows live in ONE place** — see the residence manifest. ⚠️ **A fixture that pins a
+   REFUSAL by amount must sit clearly OUTSIDE the settle window, never one step past its edge.** The
+   edge has moved twice, and both times a `+1` / `+5` margin silently turned a refusal test into an
+   acceptance test that still asserted a refusal (`test_expenses.py`, 2026-08-06 and 2026-08-07).
 7. **`Outflow Row Match` records SETTLEMENTS ONLY.** A match run writes none. A suggestion stored
    there would take the `(transfer_id, target_doctype, target_name)` unique key before the settlement
    that needs it — failing the confirm on the happy path. The match run's suggestion therefore lives
@@ -155,9 +184,17 @@ browser walk.
   to be ticked and confirmed, and that confirmation is still the only thing that writes.
 - **One "Link payment" list, not three ledger cards.** Picking a ledger first asks the reviewer a
   question the bank statement does not answer — a transfer to a vendor may have been raised as a
-  Project Payment or booked as a Project Expense. Each record line carries its **type badge**, id,
-  project, document and date, and the **ledger arrives with the chosen record** rather than from a
-  card clicked beforehand.
+  Project Payment or booked as a Project Expense. The **ledger arrives with the chosen record**
+  rather than from a card clicked beforehand.
+- **That list is a RADIO TABLE, not a dropdown** (owner, 2026-08-07 — `SettleableRecordTable.tsx`).
+  Type · Record · Vendor · Project · Approved/Updated · Amount are COLUMNS, so three approved
+  records can be compared down the page instead of read as eight stacked facts three times over.
+  The facts did not change; their arrangement did. Fixed **260px** height with the header sticky
+  inside the scroll container, so the dialog's own height never moves however many records come
+  back — a list that grows pushes Confirm, the one control the dialog exists for, out of reach. The
+  column model lives in `outflowTableModel.RECORD_COLUMNS` so the header and body cannot drift, and
+  it is a real `<input type="radio">` in a real radiogroup because this is the control that decides
+  where money is written.
 - **"Create a new expense" is HIDDEN, not deleted** — one `const` in `DecisionDialog.tsx`. The form,
   `RowDecision.newExpense`, the `new` branch of `isConfirmable` and the `create_expense` endpoint are
   all intact. Linking and skipping are currently the only two ways to resolve a row.
@@ -205,7 +242,7 @@ DECISION, and auto-skipping would manufacture decisions nobody made.
 
 | Suite | How |
 |---|---|
-| pure services (7 modules) | `python -m unittest discover -s nirmaan_stack/services/outflow_import -t . -p "test_*.py"` — no bench needed |
+| pure services (8 modules, 245 tests) | `python -m unittest discover -s nirmaan_stack/services/outflow_import -t . -p "test_*.py"` — no bench needed |
 | api (`test_upload`/`test_review`/`test_expenses`/`test_settle_payment`/`test_close`) | `bench --site localhost run-tests --app nirmaan_stack --module nirmaan_stack.api.outflow_import.<module>` |
 | frontend | `yarn test` (vitest, `node` environment — pure helpers only) |
 
@@ -217,3 +254,11 @@ residue survives — clean with `frappe.db.delete` on the three doctypes filtere
 ⚠️ **The api suites also SEE the live ledger.** An assertion that pins an exact candidate count will
 fail when real data drifts; assert partitions and invariants, and where a specific amount matters,
 assert the precondition so a drift reports itself instead of looking like a broken deriver.
+
+⚠️ **Every fixture payment in `test_review` carries its own row's bank reference, so the bulk of that
+suite exercises TIER 0 and nothing else.** `TestTheTierLadderEndToEnd` is the deliberate exception —
+it plants junk-UTR payments plus a fabricated vendor and project to drive tiers 1 and 2 through the
+real endpoint. It exists to cover the WIRING (that `_load_pools` loads a project index and that it
+reaches `match_row`), which every pure test would pass without. Its **control** — row 0006, identical
+in every respect except that its remark names no project, and which must stay `Unmatched` — is the
+assertion that fails first if tier 2 ever stops requiring one.

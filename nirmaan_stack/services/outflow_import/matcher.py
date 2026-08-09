@@ -12,22 +12,40 @@ is derived in `status.py` and the choice is made by a person. That is not timidi
 the data: one bank account maps to three legally distinct D.S. Ductofab companies with different
 GSTs, and to two separate Siemens entities. There is no signal in a statement that separates them.
 
-TWO PASSES, AND THE ORDER IS LOAD-BEARING
------------------------------------------
-Pass A -- bank reference. `normalize_reference(bank_reference_no) == normalize_reference(utr)`.
-    A direct key, and the only pass that can discover FAN-OUT: one transfer settling several
+THREE TIERS, AND THE FIRST ONE THAT FINDS ANYTHING STOPS THE LADDER
+-------------------------------------------------------------------
+The tiers are graded by CONFIDENCE, not by convenience, and they are owner-ruled (2026-08-07). A
+lower tier is never consulted to "top up" a higher one: if tier 1 found two candidates, that is an
+ambiguity for a person to resolve, and reaching into tier 2 for a third would only make it worse.
+
+TIER 0 -- bank reference. `normalize_reference(bank_reference_no) == normalize_reference(utr)`.
+    A direct key, and the only tier that can discover FAN-OUT: one transfer settling several
     payments. Measured on live data: 40 such transfers covering 99 payments and 2.53% of all
     settled value, the largest a single Rs 7,289,432 IMPS across 7 payments and 6 projects.
-    Grouping is by shared reference, which is why this pass groups and Pass B does not.
+    Grouping is by shared reference, which is why this tier groups and no other one does.
 
-Pass B -- vendor + exact amount + a date window. Needed because 932 of 7,420 Paid payments (12.6%)
-    carry a `utr` that is not a bank reference at all: PO numbers, short numbers, the literal
-    string "refund". Pass A cannot see those rows, so without Pass B they read as unrecorded money.
+TIER 1 -- the beneficiary's bank account AND IFSC both match a vendor on file, and the amount agrees
+    within `TIER1_TOLERANCE` (Re 1). This is the nearly-certain tier: the money demonstrably went to
+    an account this company holds for that vendor, so the tight amount window costs nothing and the
+    date is not consulted at all. Payments only -- an expense has no beneficiary account to compare.
 
-PASS B IS DELIBERATELY SINGLE-TARGET. A fan-out group's members each hold a FRACTION of the bank
-amount, so an exact-amount pass can never reassemble one. Rather than guess at a partition -- which
-would mean inventing an allocation nobody authorised -- an unreferenced fan-out stays Unmatched and
-says so. Inferring a group from amounts alone is the one thing this module must not do.
+TIER 2 -- the amount agrees within `AMOUNT_TOLERANCE` (Rs 5) AND the transfer's remark names the
+    record's project. Payments AND Project Expenses. The amount alone is a weak signal, so the
+    project is what makes this tier safe to suggest; `project_match.py` owns that rule, including
+    its refusal to guess between two projects. `Non Project Expenses` has no project column, so it
+    can never be reached here -- correctly, since nothing would corroborate it.
+
+⚠️ EVERY TIER BELOW 0 IS DELIBERATELY SINGLE-TARGET. A fan-out group's members each hold a FRACTION
+of the bank amount, so an amount-based tier can never reassemble one. Rather than guess at a
+partition -- which would mean inventing an allocation nobody authorised -- an unreferenced fan-out
+stays Unmatched and says so. Inferring a group from amounts alone is the one thing this must not do.
+
+⚠️ WHAT WAS DELETED HERE, AND WHY IT IS NOT AN OVERSIGHT (owner ruling 2026-08-07). The previous
+"Pass B" matched on VENDOR NAME + amount + a 3-day date window, and amount-only expense matching
+stood beside it. Both were heuristics that decided things: a name-scored vendor and a round number
+are not evidence that this transfer paid that record. Rows they used to catch now arrive `Unmatched`
+and are linked by hand, which the decision dialog exists for. The vendor NAME scoring below is still
+built and still persisted as the row's resolved vendor -- it just no longer matches anything.
 
 WHAT IS NOT A SIGNAL: `Beneficiary Id`. It is stored nowhere in this database, so it can never
 resolve to anything. It is carried on the row for provenance and ignored here.
@@ -40,7 +58,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Mapping, Sequence
 
-from nirmaan_stack.services.outflow_import.amounts import amounts_match
+from nirmaan_stack.services.outflow_import.amounts import TIER1_TOLERANCE, amounts_match
 from nirmaan_stack.services.outflow_import.normalize import (
     NAME_NOISE_TOKENS,
     name_tokens,
@@ -56,32 +74,44 @@ __all__ = [
     "VendorResolution",
     "TargetRef",
     "PaymentGroup",
+    "PaymentMatch",
     "ExpenseCandidate",
     "RowMatchResult",
     "VendorScoringPolicy",
     "DEFAULT_VENDOR_POLICY",
     "build_vendor_index",
     "resolve_vendors",
+    "account_ifsc_vendors",
+    "match_by_reference",
     "match_payments",
     "match_expenses",
     "match_row",
     "BASIS_BANK_REFERENCE",
-    "BASIS_VENDOR_AMOUNT_DATE",
+    "BASIS_ACCOUNT_IFSC",
+    "BASIS_PROJECT_REMARK",
     "BASIS_ACCOUNT",
     "BASIS_NAME",
     "BASIS_NONE",
+    "TIER_REFERENCE",
+    "TIER_ACCOUNT",
+    "TIER_PROJECT",
+    "TIER_NONE",
 ]
 
 BASIS_BANK_REFERENCE = "Bank reference"
-BASIS_VENDOR_AMOUNT_DATE = "Vendor+amount+date"
+BASIS_ACCOUNT_IFSC = "Account+IFSC+amount"
+BASIS_PROJECT_REMARK = "Amount+project in remark"
 BASIS_ACCOUNT = "account"
 BASIS_NAME = "name"
 BASIS_NONE = "none"
 
-# How far a payment_date may sit from the transfer date and still be the same event. A payment is
-# recorded the same day 98.9% of the time, but month-end and weekend batches drift; three days
-# covers a Friday transfer recorded on Monday without reaching into the next week's run.
-DEFAULT_DATE_WINDOW_DAYS = 3
+# Which tier a result came from. Carried on `RowMatchResult` so `status.py` can say WHY a row
+# matched -- "the bank account matches" and "the amount agrees and the remark names the project" are
+# very different claims, and the reviewer confirming the row is entitled to know which one they got.
+TIER_REFERENCE = "reference"
+TIER_ACCOUNT = "account+IFSC"
+TIER_PROJECT = "project in remark"
+TIER_NONE = ""
 
 
 # ---------------------------------------------------------------------------------------------
@@ -148,6 +178,14 @@ class VendorCandidate:
     basis: str
     reasons: tuple[str, ...] = ()
 
+    ifsc_matches: bool = False
+    """Both the bank account AND the IFSC agreed. THE TIER 1 GATE.
+
+    ⚠️ A FIELD, NOT A STRING SEARCH THROUGH `reasons`. Tier 1 is the tier that auto-suggests on the
+    strongest evidence in this feature, and gating it on prose that exists to be read by a human
+    would make an edit to a sentence silently change what settles.
+    """
+
 
 @dataclass(frozen=True)
 class VendorResolution:
@@ -193,10 +231,26 @@ class ExpenseCandidate:
 
 
 @dataclass(frozen=True)
+class PaymentMatch:
+    """The payment ladder's result AND which tier produced it.
+
+    The tier travels with the groups rather than being re-derived from `basis` by the caller: a
+    caller that has to work out which rung it is standing on is one refactor away from getting it
+    wrong, and this one decides whether expenses are consulted at all.
+    """
+
+    groups: tuple[PaymentGroup, ...] = ()
+    tier: str = TIER_NONE
+
+
+@dataclass(frozen=True)
 class RowMatchResult:
     vendor: VendorResolution
     payment_groups: tuple[PaymentGroup, ...] = ()
     expense_candidates: tuple[ExpenseCandidate, ...] = ()
+    tier: str = TIER_NONE
+    project: str | None = None
+    """The project the remark named, when tier 2 ran. `None` everywhere else."""
 
     @property
     def best_payment_group(self) -> PaymentGroup | None:
@@ -318,6 +372,7 @@ def resolve_vendors(
             score=policy.ACCOUNT_AND_IFSC_MATCH if ifsc_matches else policy.ACCOUNT_MATCH,
             basis=BASIS_ACCOUNT,
             reasons=tuple(reasons),
+            ifsc_matches=ifsc_matches,
         )
 
     row_name = normalize_name(beneficiary)
@@ -338,11 +393,17 @@ def resolve_vendors(
             else:
                 # Corroboration: the name agrees with an account hit. Keep the account basis (it is
                 # the stronger claim) and record the extra reason for the reviewer.
+                #
+                # ⚠️ `ifsc_matches` MUST BE CARRIED THROUGH. This branch REBUILDS the candidate, so
+                # a field left off here is silently reset to False -- and the symptom would be tier 1
+                # declining exactly the rows where the evidence is STRONGEST (account, IFSC and name
+                # all agreeing), which is the last place anyone would look for a bug.
                 scored[vendor.name] = VendorCandidate(
                     vendor=existing.vendor,
                     score=max(existing.score, name_score),
                     basis=existing.basis,
                     reasons=existing.reasons + (reason,),
+                    ifsc_matches=existing.ifsc_matches,
                 )
 
     if not scored:
@@ -388,79 +449,135 @@ def _name_score(
 # ---------------------------------------------------------------------------------------------
 
 
+def account_ifsc_vendors(vendor: VendorResolution | None) -> frozenset[str]:
+    """The vendors whose bank account AND IFSC both matched. THE TIER 1 POPULATION.
+
+    ⚠️ NARROWER THAN `vendor.candidates`, DELIBERATELY. A resolution also carries name-scored
+    candidates and account-only ones, and tier 1 must see neither: a name is a scoring form, never
+    an identity (see `normalize.py`), and an account without its IFSC is a digit sequence that could
+    collide. Tier 1 is allowed to auto-suggest precisely because it stands on the strong pair.
+    """
+    return frozenset(
+        c.vendor.name for c in (vendor.candidates if vendor else ()) if c.ifsc_matches
+    )
+
+
+def match_by_reference(row, targets: Sequence[TargetRef]) -> tuple[PaymentGroup, ...]:
+    """TIER 0: payments sharing this transfer's bank reference, as ONE group.
+
+    ⚠️ ALSO THE DUPLICATE GUARD'S ENTRY POINT, and that is why it is a function of its own rather
+    than the first branch of `match_payments`. `review._paid_duplicate_for` must match on the
+    reference ALONE -- a heuristic hit there would SKIP a row on a guess, which is the one outcome a
+    duplicate guard may never produce. It used to get that property by calling `match_payments` with
+    no vendor and relying on the lower passes being unable to run; with a tier ladder behind that
+    name, "it cannot reach the other tiers" stopped being true by construction and became true only
+    by argument. This makes it structural again.
+
+    The group is the unit because a fan-out settles together: one transfer, several payments, one
+    decision.
+    """
+    reference = getattr(row, "normalized_reference", "") or normalize_reference(
+        getattr(row, "bank_reference_no", "")
+    )
+    if not reference:
+        return ()
+
+    by_reference = [t for t in targets if t.normalized_reference == reference]
+    if not by_reference:
+        return ()
+
+    return (
+        PaymentGroup(
+            targets=tuple(sorted(by_reference, key=lambda t: t.name)),
+            basis=BASIS_BANK_REFERENCE,
+            score=1.0,
+        ),
+    )
+
+
 def match_payments(
     row,
     targets: Sequence[TargetRef],
     vendor: VendorResolution | None = None,
-    date_window_days: int = DEFAULT_DATE_WINDOW_DAYS,
-) -> tuple[PaymentGroup, ...]:
-    """Rank payment groups for a bank row. Pass A (reference) then Pass B (vendor+amount+date)."""
-    reference = getattr(row, "normalized_reference", "") or normalize_reference(
-        getattr(row, "bank_reference_no", "")
-    )
+    project: str | None = None,
+) -> PaymentMatch:
+    """The payment ladder: reference, then account+IFSC, then amount+project. First hit wins.
 
-    groups: list[PaymentGroup] = []
+    `project` is the project the remark NAMES, already resolved -- an id, not an index. Resolving it
+    is `project_match.py`'s job and doing it once per row in `match_row` keeps this function a pure
+    function of plain values, which is what makes the tier boundaries testable one at a time.
+    """
+    groups = match_by_reference(row, targets)
+    if groups:
+        return PaymentMatch(groups=groups, tier=TIER_REFERENCE)
 
-    # --- Pass A: shared bank reference. The only pass that can discover fan-out. ---
-    if reference:
-        by_reference = [t for t in targets if t.normalized_reference == reference]
-        if by_reference:
-            groups.append(
-                PaymentGroup(
-                    targets=tuple(sorted(by_reference, key=lambda t: t.name)),
-                    basis=BASIS_BANK_REFERENCE,
-                    score=1.0,
-                )
+    amount = getattr(row, "amount", Decimal("0"))
+
+    # --- TIER 1: the money went to a bank account we hold for this vendor. SINGLE TARGET ONLY. ---
+    vendor_names = account_ifsc_vendors(vendor)
+    if vendor_names:
+        tier1 = [
+            PaymentGroup(targets=(t,), basis=BASIS_ACCOUNT_IFSC, score=0.9)
+            for t in targets
+            # ⚠️ THE STRICT WINDOW, NOT THE SETTLE WINDOW. Tier 1 claims a rounding, and a rounding
+            # cannot move a figure by more than a rupee. A Rs 4 gap is a real difference and belongs
+            # to tier 2, where the project has to corroborate it.
+            if amounts_match(t.amount, amount, TIER1_TOLERANCE)
+            # A target with NO vendor of its own can never satisfy a vendor correspondence either.
+            # (Payments are born from PO terms and always carry one, so this is a guard rather than
+            # a live case -- but "matches because it has no vendor to disagree with" is the wrong
+            # reason to offer anything.)
+            and t.vendor in vendor_names
+        ]
+        if tier1:
+            return PaymentMatch(
+                groups=tuple(sorted(tier1, key=lambda g: g.targets[0].name)),
+                tier=TIER_ACCOUNT,
             )
 
-    if groups:
-        return tuple(groups)
+    # --- TIER 2: the amount agrees and the remark names this payment's project. ---
+    if not project:
+        return PaymentMatch()
 
-    # --- Pass B: vendor + exact amount + date window. SINGLE TARGET ONLY. ---
-    vendor_names = {c.vendor.name for c in (vendor.candidates if vendor else ())}
-    amount = getattr(row, "amount", Decimal("0"))
-    row_date = getattr(row, "added_on_date", None)
-
-    # No vendor resolved => Pass B cannot run at all. It is "vendor + amount + date"; without the
-    # vendor it degrades to "amount + date", which on a ledger of 7,000+ payments matches far too
-    # much to put in front of a reviewer.
-    if not vendor_names:
-        return ()
-
-    for target in targets:
-        # ⚠️ TOLERANT, NOT EXACT (owner ruling 2026-08-06). 31.4% of payments carry paise while the
-        # bank sends whole rupees, so an exact test matched almost nothing on real data. The window
-        # lives in `amounts.AMOUNT_TOLERANCE` and is shared with the SQL pool query and the settle
-        # guard -- a pool wider than the guard offers a record the confirm then refuses.
-        if not amounts_match(target.amount, amount):
-            continue
-        # A target with NO vendor of its own can never satisfy a vendor correspondence either.
-        # (Payments are born from PO terms and always carry one, so this is a guard rather than a
-        # live case -- but "matches because it has no vendor to disagree with" is the wrong
-        # reason to offer anything.)
-        if target.vendor not in vendor_names:
-            continue
-        if not _within_window(row_date, target.txn_date, date_window_days):
-            continue
-        groups.append(
-            PaymentGroup(targets=(target,), basis=BASIS_VENDOR_AMOUNT_DATE, score=0.5)
-        )
-
-    return tuple(sorted(groups, key=lambda g: (-g.score, g.targets[0].name)))
+    tier2 = [
+        PaymentGroup(targets=(t,), basis=BASIS_PROJECT_REMARK, score=0.6)
+        for t in targets
+        if amounts_match(t.amount, amount) and t.project and t.project == project
+    ]
+    if not tier2:
+        return PaymentMatch()
+    return PaymentMatch(
+        groups=tuple(sorted(tier2, key=lambda g: g.targets[0].name)), tier=TIER_PROJECT
+    )
 
 
 def match_expenses(
     row,
     targets: Sequence[TargetRef],
+    project: str | None = None,
 ) -> tuple[ExpenseCandidate, ...]:
-    """Rank expense candidates: exact amount, corroborated by the description free text.
+    """TIER 2 ONLY: expenses whose amount agrees AND whose project the remark names.
 
-    Vendor cannot filter here and that is a property of the data, not an omission:
+    ⚠️ THE PROJECT IS NOW A GATE, NOT A BONUS, AND THIS REVERSES THE PREVIOUS RULE (owner ruling
+    2026-08-07). This function used to match on AMOUNT ALONE, which meant a round-number transfer
+    with an approved payment and an unrelated approved expense at the same figure honestly had two
+    candidates and pre-selected nothing -- the practical ceiling on how often a row opened ready.
+    An expense with no project named in the remark is now simply not offered.
+
+    ⚠️ NO PROJECT NAMED => NOTHING, and the early return says so before any target is examined. It
+    is not "match everything when we have no project to filter by", which is what an unguarded
+    filter would quietly become.
+
+    Vendor still cannot filter here and that is a property of the data, not an omission:
     `Project Expenses.vendor` is populated on 0.58% of rows and `Non Project Expenses` has no vendor
-    column at all. What the descriptions DO carry -- inconsistently, but often -- is the payee's
-    name, account number or IFSC, typed in by whoever raised the expense. That is a real signal and
-    a fragile one, so it corroborates an amount match and never stands alone.
+    column at all -- which is also why the latter can never be matched here, since it has no project
+    column either. What the descriptions DO carry -- inconsistently, but often -- is the payee's
+    name, account number or IFSC, typed in by whoever raised the expense. That remains a RANKING
+    signal only: it orders the candidates the project gate already admitted.
     """
+    if not project:
+        return ()
+
     amount = getattr(row, "amount", Decimal("0"))
     beneficiary_tokens = frozenset(
         t for t in name_tokens(getattr(row, "beneficiary_name", "")) if t not in NAME_NOISE_TOKENS
@@ -470,13 +587,18 @@ def match_expenses(
 
     out: list[ExpenseCandidate] = []
     for target in targets:
-        # Same tolerance as the payment pass -- see `amounts.py`.
+        # The SETTLE window, same as tier 2's payment half -- see `amounts.py`.
         if not amounts_match(target.amount, amount):
+            continue
+        if not target.project or target.project != project:
             continue
 
         score = 0.4
         exact = target.amount == amount
-        reasons = ["amount matches exactly" if exact else "amount matches within the tolerance"]
+        reasons = [
+            "amount matches exactly" if exact else "amount matches within the tolerance",
+            "the remark names this project",
+        ]
         description = target.description or ""
         description_tokens = frozenset(
             t for t in name_tokens(description) if t not in NAME_NOISE_TOKENS
@@ -504,23 +626,45 @@ def match_row(
     vendor_index: VendorIndex,
     payment_targets: Sequence[TargetRef] = (),
     expense_targets: Sequence[TargetRef] = (),
+    project_index=None,
     policy: VendorScoringPolicy = DEFAULT_VENDOR_POLICY,
-    date_window_days: int = DEFAULT_DATE_WINDOW_DAYS,
 ) -> RowMatchResult:
-    """Resolve one bank row against every pool. Proposes only -- see the module docstring."""
+    """Run the tier ladder for one bank row. Proposes only -- see the module docstring.
+
+    ⚠️ THIS IS WHERE "THE FIRST TIER THAT FINDS ANYTHING STOPS THE LADDER" IS ENFORCED, and it is
+    the reason expenses are not simply matched alongside payments. Expenses live at tier 2, so a row
+    that matched at tier 0 or tier 1 must not also be handed an expense candidate -- that would turn
+    a confident single suggestion into a two-candidate ambiguity that pre-selects nothing, which is
+    exactly the failure the tiers were introduced to remove.
+
+    `project_index` is optional so every existing caller and test keeps working without one; with no
+    index there is no tier 2 at all, and the ladder honestly stops after tier 1.
+    """
     vendor = resolve_vendors(row, vendor_index, policy)
-    return RowMatchResult(
-        vendor=vendor,
-        payment_groups=match_payments(row, payment_targets, vendor, date_window_days),
-        expense_candidates=match_expenses(row, expense_targets),
+
+    # Resolved ONCE per row and passed down as a plain id. `sole_project` returns None when the
+    # remark names two projects, which is what keeps tier 2 from guessing between them.
+    project = (
+        project_index.sole_project(getattr(row, "remarks", "")) if project_index else None
     )
 
+    payments = match_payments(row, payment_targets, vendor, project)
+    if payments.tier in (TIER_REFERENCE, TIER_ACCOUNT):
+        return RowMatchResult(
+            vendor=vendor, payment_groups=payments.groups, tier=payments.tier
+        )
 
-def _within_window(left: date | None, right: date | None, days: int) -> bool:
-    if left is None or right is None:
-        # An undated row or target cannot be excluded on date evidence we do not have.
-        return True
-    return abs((left - right).days) <= days
+    expenses = match_expenses(row, expense_targets, project)
+    if payments.groups or expenses:
+        return RowMatchResult(
+            vendor=vendor,
+            payment_groups=payments.groups,
+            expense_candidates=expenses,
+            tier=TIER_PROJECT,
+            project=project,
+        )
+
+    return RowMatchResult(vendor=vendor, tier=TIER_NONE)
 
 
 def _digits_only(text: str) -> str:

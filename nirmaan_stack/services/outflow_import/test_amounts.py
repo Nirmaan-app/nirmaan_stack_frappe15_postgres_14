@@ -15,6 +15,7 @@ from decimal import Decimal
 
 from nirmaan_stack.services.outflow_import.amounts import (
     AMOUNT_TOLERANCE,
+    TIER1_TOLERANCE,
     amount_difference,
     amounts_match,
     to_decimal,
@@ -23,12 +24,24 @@ from nirmaan_stack.services.outflow_import.amounts import (
 
 
 class TestTheTolerance(unittest.TestCase):
-    def test_it_is_one_rupee(self):
-        """Owner ruling 2026-08-06, narrowed from an initial Rs 5 the same day. Re 1 is exactly the
-        width of the phenomenon: rounding a paise amount to the rupee cannot move it a whole one."""
-        self.assertEqual(AMOUNT_TOLERANCE, Decimal("1"))
+    def test_the_settle_window_is_five_rupees(self):
+        """Owner ruling 2026-08-07, widened from Re 1 when tier 2 arrived. This is the window that
+        governs what may be WRITTEN, and therefore everything the screen may offer."""
+        self.assertEqual(AMOUNT_TOLERANCE, Decimal("5"))
 
-    def test_the_three_real_cases_all_match(self):
+    def test_the_tier_one_window_is_one_rupee(self):
+        """Re 1 is exactly the width of the phenomenon: rounding a paise amount to the whole rupee
+        cannot move it a full one. Tier 1 keeps it because account + IFSC is a second strong axis."""
+        self.assertEqual(TIER1_TOLERANCE, Decimal("1"))
+
+    def test_the_tier_window_is_never_wider_than_the_settle_window(self):
+        """⚠️ THE RELATION, NOT THE TWO NUMBERS. A tier wider than the settle window would let the
+        matcher propose a record the confirm then refuses -- which is the one failure the whole
+        single-owner discipline in this module exists to prevent. Tighten or widen either value and
+        this still has to hold."""
+        self.assertLessEqual(TIER1_TOLERANCE, AMOUNT_TOLERANCE)
+
+    def test_the_three_real_cases_all_match_in_both_windows(self):
         """The measured failures that occasioned the rule. If any of these stops matching, the
         matcher has gone back to finding nothing on live data."""
         for bank, payment in (
@@ -37,22 +50,35 @@ class TestTheTolerance(unittest.TestCase):
             ("36963.00", "36962.32"),
         ):
             self.assertTrue(amounts_match(bank, payment), f"{bank} vs {payment}")
+            # Sub-rupee rounding is what tier 1 is FOR, so the strict window has to cover it too --
+            # otherwise the nearly-certain tier would be the one that finds nothing.
+            self.assertTrue(
+                amounts_match(bank, payment, TIER1_TOLERANCE), f"tier 1: {bank} vs {payment}"
+            )
 
-    def test_a_tds_deduction_never_matches(self):
-        """⚠️ THE LOAD-BEARING NEGATIVE. TDS is thousands. If the window ever reached it, the
+    def test_a_tds_deduction_never_matches_in_either_window(self):
+        """⚠️ THE LOAD-BEARING NEGATIVE. TDS is thousands. If either window ever reached it, the
         import would settle a payment for materially less than it was approved for, silently.
         This is the deferred Q11 case and it must stay deferred."""
         self.assertFalse(amounts_match("98000", "100000"))
         self.assertFalse(amounts_match("701442", "715757"))
+        self.assertFalse(amounts_match("98000", "100000", TIER1_TOLERANCE))
 
     def test_the_boundary_is_inclusive(self):
-        """Stated so the rule can be said out loud without an exception: "within a rupee" means a
-        difference of exactly one rupee counts."""
-        self.assertTrue(amounts_match("5000", "4999"))
-        self.assertTrue(amounts_match("4999", "5000"))
+        """Stated so the rule can be said out loud without an exception: "within five rupees" means
+        a difference of exactly five rupees counts."""
+        self.assertTrue(amounts_match("5000", "4995"))
+        self.assertTrue(amounts_match("4995", "5000"))
 
     def test_just_outside_does_not_match(self):
-        self.assertFalse(amounts_match("5000", "4998.99"))
+        self.assertFalse(amounts_match("5000", "4994.99"))
+
+    def test_the_tier_one_window_refuses_what_the_settle_window_accepts(self):
+        """The two windows have to be genuinely different or tier 1 is not a tier. A Rs 4 gap is
+        settleable but is NOT evidence of a rounding, so tier 1 declines it and the row falls
+        through to tier 2 -- where the project named in the remark has to corroborate it."""
+        self.assertTrue(amounts_match("5000", "4996"))
+        self.assertFalse(amounts_match("5000", "4996", TIER1_TOLERANCE))
 
     def test_it_is_symmetric(self):
         # A pool query compares one way and the settle guard the other; an asymmetric rule would
@@ -92,8 +118,14 @@ class TestDecimalCoercion(unittest.TestCase):
 class TestToleranceBounds(unittest.TestCase):
     def test_the_window_is_the_tolerance_either_side(self):
         low, high = tolerance_bounds("5000")
-        self.assertEqual(low, Decimal("4999"))
-        self.assertEqual(high, Decimal("5001"))
+        self.assertEqual(low, Decimal("4995"))
+        self.assertEqual(high, Decimal("5005"))
+
+    def test_the_bounds_default_to_the_settle_window_not_the_tier_window(self):
+        """⚠️ THE POOL MUST BE THE WIDER OF THE TWO. It is queried once and then filtered in memory
+        by whichever tier is running; a pool built at the TIER window would hide every tier 2
+        candidate before the matcher ever saw it."""
+        self.assertEqual(tolerance_bounds("5000"), tolerance_bounds("5000", AMOUNT_TOLERANCE))
 
     def test_the_sql_bounds_agree_with_the_python_comparison(self):
         """⚠️ THE ONE THAT KEEPS THE FOUR CALL SITES HONEST. The SQL pool query cannot call

@@ -4,8 +4,13 @@ import type { OutflowImportRow } from "@/types/NirmaanStack/OutflowImportBatch";
 import {
     DEFAULT_HIDDEN_COLUMNS,
     OUTFLOW_COLUMNS,
+    RECORD_COLUMNS,
     activeFilterCount,
     amountVerdict,
+    ledgerLabel,
+    parseRecordKey,
+    recordDateLabel,
+    recordKey,
     countDecided,
     decidedRows,
     decisionOrigin,
@@ -713,5 +718,91 @@ describe("candidate ordering and pre-selection", () => {
         const verdict = amountVerdict(18678.69, 18679);
         expect(verdict.same).toBe(false);
         expect(verdict.difference).toBeCloseTo(-0.31, 2);
+    });
+});
+
+describe("the settleable-record table model", () => {
+    const payment = {
+        target_doctype: "Project Payments" as const,
+        name: "PAY-00105-034",
+        amount: 21924.1,
+        detail: "",
+        suggested: true,
+        vendor_name: "Testfamily Enterprises",
+        project_name: "EXL Kochi",
+        document_name: "PO/077/00066/25-26",
+        approved_on: "2026-07-12 10:00:00",
+        updated_on: "2026-07-20 10:00:00",
+    };
+    const expense = { ...payment, target_doctype: "Project Expenses" as const, name: "EXP-1", approved_on: "" };
+
+    it("keys a record by ledger AND name, because a bare name is not unique across three ledgers", () => {
+        expect(recordKey(payment)).toBe("Project Payments|PAY-00105-034");
+        expect(recordKey({ target_doctype: "Project Expenses", name: "PAY-00105-034" })).not.toBe(
+            recordKey(payment)
+        );
+    });
+
+    it("round-trips a key back into the ledger and the name", () => {
+        expect(parseRecordKey(recordKey(payment))).toEqual({
+            target: "Project Payments",
+            name: "PAY-00105-034",
+        });
+    });
+
+    it("round-trips a name that itself contains the separator", () => {
+        // The doctype half can hold no "|"; the name half may, so the split must rejoin the tail.
+        const odd = { target_doctype: "Project Expenses" as const, name: "EXP|WITH|PIPES" };
+        expect(parseRecordKey(recordKey(odd))).toEqual({
+            target: "Project Expenses",
+            name: "EXP|WITH|PIPES",
+        });
+    });
+
+    it("refuses a malformed key rather than returning half a decision", () => {
+        // A half-written decision reaches `settle_row` with an undefined doctype.
+        expect(parseRecordKey("")).toBeNull();
+        expect(parseRecordKey("Project Payments")).toBeNull();
+        expect(parseRecordKey("|PAY-1")).toBeNull();
+    });
+
+    it("says APPROVED for a payment and UPDATED for an expense", () => {
+        // ⚠️ THE OWNER RULING THIS FUNCTION EXISTS FOR. Neither expense doctype has an approval
+        // date; presenting its modification timestamp under the word "approved" would be a
+        // confident lie on two thirds of the list.
+        const format = (value: string) => `formatted(${value})`;
+        expect(recordDateLabel(payment, format)).toBe("approved formatted(2026-07-12 10:00:00)");
+        expect(recordDateLabel(expense, format)).toBe("updated formatted(2026-07-20 10:00:00)");
+    });
+
+    it("says nothing rather than inventing a date when the record has neither", () => {
+        expect(recordDateLabel({ approved_on: "", updated_on: "" }, (v) => v)).toBe("");
+    });
+
+    it("prefers the approval date when a payment carries both", () => {
+        expect(recordDateLabel(payment, (v) => v)).toContain("approved");
+    });
+
+    it("names each ledger in the singular, and passes an unknown one through unchanged", () => {
+        expect(ledgerLabel("Project Payments")).toBe("Project Payment");
+        expect(ledgerLabel("Non Project Expenses")).toBe("Non Project Expense");
+        expect(ledgerLabel("Something Else")).toBe("Something Else");
+    });
+
+    it("declares every column the reviewer picks a record by", () => {
+        expect(RECORD_COLUMNS.map((c) => c.id)).toEqual([
+            "type",
+            "record",
+            "vendor",
+            "project",
+            "date",
+            "amount",
+        ]);
+    });
+
+    it("gives every column a fixed width, so the header and the scrolling body stay in step", () => {
+        for (const column of RECORD_COLUMNS) {
+            expect(column.width).toMatch(/^\d+px$/);
+        }
     });
 });

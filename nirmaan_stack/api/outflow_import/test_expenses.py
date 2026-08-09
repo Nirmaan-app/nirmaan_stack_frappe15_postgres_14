@@ -296,8 +296,15 @@ class TestRefusals(SettlementFixture):
     def test_a_failed_settlement_leaves_nothing_behind(self):
         # Savepoint isolation: the refusal must not leave a match record claiming a settlement
         # that never happened.
+        #
+        # ⚠️ THE MARGIN WAS +5 UNTIL 2026-08-07 AND IS NOW +100 -- THE SECOND TIME THIS FILE HAS
+        # BEEN BITTEN BY IT (see `test_a_differing_amount_is_refused`, bitten at +1 in the other
+        # direction on 2026-08-06). Rs 5 became the settle window's INCLUSIVE boundary, so this
+        # fixture stopped provoking a refusal and started provoking an acceptance, while still
+        # asserting one. A test that pins a REFUSAL by amount must sit clearly OUTSIDE the window,
+        # never one step past its edge -- the edge moves.
         row = self._next_settleable_row()
-        expense = self._make_expense(PROJECT_EXPENSE, float(row["amount"]) + 5)
+        expense = self._make_expense(PROJECT_EXPENSE, float(row["amount"]) + 100)
         with self.assertRaises(AmountMismatchError):
             settle_expense(row["name"], PROJECT_EXPENSE, expense)
         self.assertEqual(frappe.db.count(MATCH_DOCTYPE, {"import_row": row["name"]}), 0)

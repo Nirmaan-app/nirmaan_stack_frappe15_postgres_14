@@ -315,6 +315,61 @@ deriver.
 **Still owed:** the live browser walk (the real gate — no DOM test environment exists here), the
 production migrate (now **six** doctype JSONs on this branch), and the push. Nothing is pushed.
 
+### T1–T5 — tiered matching + the Link payment table (2026-08-07)
+
+Owner-directed, after the first real import: matching was finding too little and finding it on weak
+evidence, and the Link payment dropdown was the wrong shape for comparing records.
+
+**T1 — two amount windows.** `AMOUNT_TOLERANCE` ₹1 → **₹5** (the SETTLE window: SQL pools, write
+guard, `suggested` flag, already-paid duplicate check) and a new `TIER1_TOLERANCE` = **₹1** used only
+by tier 1. Invariant `TIER1_TOLERANCE ≤ AMOUNT_TOLERANCE` pinned by a test. Owner accepted both
+consequences in writing: a payment genuinely ₹4 short now settles silently, and a hand-ticked payment
+₹4 off reads `Skipped` rather than `Mismatched`. `test_amounts` 15 → 19.
+
+**T2 — `services/outflow_import/project_match.py`** (new pure module + `candidates.load_project_index`).
+Two readings, tried in order: the remark contains a project's WHOLE name (longest **nested** name
+wins — `Fujitsu Chennai` over `Fujitsu`; two names that do not contain each other is an ambiguity and
+yields nothing), else a keyword unique to one project. Distinctiveness is COUNTED from the project
+list, so cities self-tune. ⚠️ Counting alone was not enough and the first real-data run proved it:
+`BOQ MEP SITE 3 TABLESPACE` is the only project naming "site", so "site" became an identifier and
+"sebi lucknow site" then named two projects — hence one small `GENERIC_PROJECT_TOKENS` list, applied
+to the keyword reading ONLY (applying it to the whole-name reading would shrink `New Project at
+Chennai` to "chennai"). Measured on the live master: **172/194 (88%) identifiable by their own name;
+all 22 that are not are duplicate-named pairs** (two `Fidelity Chennai`, two `SEBI Lucknow`, `ANSR`
+beside `ANSR - 2`, `Switch 1`/`Switch 2` — several differ only by a trailing digit, which is dropped
+as a bare number, so renaming them in the master is the only fix). 26 new tests.
+
+**T3 — the tier ladder.** `match_by_reference` extracted (tier 0, and now the duplicate guard's own
+entry point — it used to rely on "no vendor passed, so the lower passes cannot run", true by
+argument rather than construction, and tier 2 needs no vendor at all). `VendorCandidate.ifsc_matches`
+added so tier 1 gates on a field, not on prose. **Pass B deleted**; `match_expenses` now REQUIRES the
+project (description text still ranks). `load_payments_for_vendors` → `load_payments_by_amount` —
+one pool, scoped by amount alone, because a pool narrower than a tier hides matches without a trace.
+`match_row` orchestrates the ladder so a tier-1 hit is never topped up with a tier-2 expense.
+`status._matched_note` gains a clause naming the tier. `test_matcher` 34 → 47.
+
+**T4 — `components/SettleableRecordTable.tsx`** (new). Radio table, 6 columns from
+`outflowTableModel.RECORD_COLUMNS`, fixed 260px scroll with a sticky header, dialog 860 → 960px. The
+detail card shrank to a one-line verdict — everything else in it is now a column. `outflowTableModel`
+gained `SettleableRecord`, `recordKey`/`parseRecordKey`, `recordDateLabel`, `ledgerLabel`.
+vitest 1642 → 1652.
+
+**T5 — docs.** Domain doc: matching rules, residence manifest (two windows + `project_match.py`),
+the now-REVERSED `match_expenses` warning, the screen section, the test notes.
+
+**Tests:** 245 pure · api `test_review` 36 → 40 (incl. `TestTheTierLadderEndToEnd`, which drives
+tiers 1 and 2 through the real endpoint because every other fixture payment carries its row's own
+UTR and so only ever exercised tier 0) · `test_expenses` 21 · `test_settle_payment` 14 ·
+`test_upload` 25 · `test_close` 13 · 1652 vitest · `tsc` clean across `src/pages/outflow-import` ·
+`yarn build` succeeds.
+
+⚠️ **No doctype changes and no migrate in T1–T5.**
+
+⚠️ **STILL OWED, AND IT IS THE REAL GATE: the live browser walk, plus a measurement of tier 2 on a
+real statement.** The dev DB carries **0 outflow import rows and 5 Approved payments**, so neither
+the table nor the tiers have been seen against real data; T3 is verified against fixtures only. One
+real statement's remarks column is what would tell us how often a remark actually names a project.
+
 ---
 
 ## §Z — v2 as-built record (superseded)

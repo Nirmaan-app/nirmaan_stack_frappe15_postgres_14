@@ -39,6 +39,7 @@ from nirmaan_stack.api.outflow_import.review import (
     skip_row,
 )
 from nirmaan_stack.api.outflow_import.upload import BATCH_DOCTYPE, ROW_DOCTYPE, _stage_batch
+from nirmaan_stack.services.outflow_import.amounts import AMOUNT_TOLERANCE
 from nirmaan_stack.services.outflow_import.parser import parse_statement
 
 FIXTURE = (
@@ -383,12 +384,12 @@ class TestSuggestionIsPersisted(OutflowReviewFixture):
     matcher for one row at a time when a reviewer opened it -- which is why a matched row could not
     show as ready in the table, and why every row had to be opened individually to be confirmed.
 
-    ⚠️ THE POSITIVE CASE CANNOT USE ROW 0001, AND THE REASON IS WORTH KNOWING BEFORE YOU "FIX" IT.
-    This suite runs against the LIVE development database, and `match_expenses` matches on AMOUNT
-    ALONE -- the description text only raises the score, it never gates. Row 0001 is a round
-    Rs 5,000, and a real approved Project Expense sits at exactly Rs 5,000, so that row honestly has
-    TWO approved candidates and correctly suggests nothing. Row 0009's Rs 1,234.50 is the one
-    non-round amount in the fixture, which is what makes it a stable single-candidate row. The
+    ⚠️ THE POSITIVE CASE CANNOT USE ROW 0001, AND THE REASON CHANGED ON 2026-08-07 WITHOUT THE
+    CONCLUSION CHANGING. It used to be that `match_expenses` matched on AMOUNT ALONE, so a live
+    approved expense at a round Rs 5,000 gave row 0001 a second candidate. Expenses now sit at tier
+    2 and require the remark to name their project, so that particular collision is gone -- but the
+    same shape can still arrive from a live approved PAYMENT at the same round amount in the same
+    project, and row 0009's Rs 1,234.50 remains the one non-round amount in the fixture. The
     precondition is asserted rather than assumed, so a future collision reports itself as data drift
     instead of looking like a broken deriver.
     """
@@ -407,34 +408,64 @@ class TestSuggestionIsPersisted(OutflowReviewFixture):
     def _approved_expenses_at(amount: float) -> int:
         """How many live approved expenses share this amount, on either expense ledger.
 
+        ⚠️ THE WINDOW IS THE SETTLE WINDOW AND IT IS READ FROM `amounts.py`, NOT RETYPED. This guard
+        was written with a hardcoded `<= 1` and silently became wrong the day the window widened to
+        Rs 5 -- a precondition that under-counts is worse than none, because it reports "no
+        collision" while one exists.
+
         `Project Expenses.amount` is a Data column of numeric strings and the non-project one is
         real Currency -- the same asymmetry the candidate queries carry.
         """
+        window = float(AMOUNT_TOLERANCE)
         project = frappe.db.sql(
             """SELECT count(*) FROM "tabProject Expenses"
                WHERE status = 'Approved' AND amount IS NOT NULL AND btrim(amount) <> ''
-                 AND abs(CAST(btrim(amount) AS numeric) - %s) <= 1""",
-            (amount,),
+                 AND abs(CAST(btrim(amount) AS numeric) - %s) <= %s""",
+            (amount, window),
         )[0][0]
         non_project = frappe.db.sql(
             """SELECT count(*) FROM "tabNon Project Expenses"
-               WHERE status = 'Approved' AND abs(amount - %s) <= 1""",
-            (amount,),
+               WHERE status = 'Approved' AND abs(amount - %s) <= %s""",
+            (amount, window),
         )[0][0]
         return int(project) + int(non_project)
 
-    def test_a_single_approved_payment_is_recorded_as_the_suggestion(self):
-        self.assertEqual(
-            self._approved_expenses_at(1234.50),
-            0,
-            "A live approved expense has appeared at Rs 1,234.50, so this row now has two "
-            "candidates and correctly suggests nothing. That is the deriver working -- pick another "
-            "amount for this test rather than relaxing the rule.",
+    def _approved_payments_at(self, amount: float) -> int:
+        """Live approved payments inside the settle window at this amount, in the fixture's project.
+
+        THE COLLISION THAT CAN STILL HAPPEN. Tier 2 admits a payment on amount + project, and the
+        fixture plants its payments against a REAL project, so a live approved payment at the same
+        amount in that project would give row 0009 a second candidate -- correctly, and this test
+        would then fail for a reason that is not a bug.
+        """
+        return int(
+            frappe.db.sql(
+                """SELECT count(*) FROM "tabProject Payments"
+                   WHERE status = 'Approved' AND project = %s AND abs(amount - %s) <= %s
+                     AND name <> %s""",
+                (self.project, amount, float(AMOUNT_TOLERANCE), self.pay_solo),
+            )[0][0]
         )
+
+    def test_a_single_approved_payment_is_recorded_as_the_suggestion(self):
+        drift = (
+            "A live approved record has appeared at Rs 1,234.50, so this row now has two candidates "
+            "and correctly suggests nothing. That is the deriver working -- pick another amount for "
+            "this test rather than relaxing the rule."
+        )
+        self.assertEqual(self._approved_expenses_at(1234.50), 0, drift)
+        self.assertEqual(self._approved_payments_at(1234.50), 0, drift)
         row = self._rows_by_transfer_suffix()["0009"]
         self.assertEqual(row["row_status"], "Matched")
         self.assertEqual(row["suggested_doctype"], "Project Payments")
         self.assertEqual(row["suggested_name"], self.pay_solo)
+
+    def test_the_note_says_which_tier_matched_it(self):
+        """The reviewer's whole basis for trusting a suggestion is WHY it was made, and the three
+        tiers are very different claims. Row 0009's planted payment carries the row's own bank
+        reference, so this is the tier 0 wording."""
+        row = self._rows_by_transfer_suffix()["0009"]
+        self.assertIn("bank reference is recorded on it", row["outcome_note"])
 
     def test_no_unmatched_row_anywhere_carries_a_suggestion(self):
         """Asserted across every row rather than one named one: which fixture rows end up Unmatched
@@ -664,6 +695,115 @@ class TestReadEndpoints(OutflowReviewFixture):
         payload = get_row_candidates(row["name"])
         self.assertTrue(payload["payment_groups"])
         self.assertEqual(payload["payment_groups"][0]["targets"][0]["name"], self.pay_clean)
+
+
+class TestTheTierLadderEndToEnd(OutflowReviewFixture):
+    """Tiers 1 and 2 through the REAL endpoint, pools and all.
+
+    ⚠️ THIS CLASS EXISTS BECAUSE EVERY OTHER FIXTURE PAYMENT CARRIES ITS ROW'S OWN BANK REFERENCE,
+    so the whole of `test_review` was exercising TIER 0 and nothing else. The pure suite covers the
+    tier rules exhaustively with a hand-built index; what it cannot cover is the WIRING -- that
+    `_load_pools` actually loads a project index, that it reaches `match_row`, and that the amount
+    pool is wide enough for tier 2. Forget any one of those and every pure test still passes while
+    tiers 1 and 2 never fire in production.
+
+    Both planted payments carry a UTR that is NOT a bank reference -- the shape 932 of 7,420 live
+    Paid payments really have -- so tier 0 cannot fire and the ladder has to reach further.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+
+        # A project whose name cannot collide with the 194 live ones, so the remark below names it
+        # unambiguously. Raw-inserted for the same reason payments are: `Projects.after_insert`
+        # generates work milestones, and this suite runs against the LIVE development database.
+        cls.test_project = f"TEST-OFP-{frappe.generate_hash(length=10)}"
+        cls.test_project_name = f"Quarkbridge{frappe.generate_hash(length=6)}"
+        frappe.db.sql(
+            """
+            INSERT INTO "tabProjects" (name, creation, modified, modified_by, owner, docstatus, idx,
+                                       project_name)
+            VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s)
+            """,
+            (cls.test_project, "Administrator", "Administrator", cls.test_project_name),
+        )
+
+        # TIER 1 -- row 0010 pays account 82345678908 / TEST0000008. A vendor holding BOTH is what
+        # admits it; the payment's junk UTR is what keeps tier 0 out of the way.
+        cls.tier1_row = cls._row("0010")
+        cls.test_vendor = f"TEST-OFV-{frappe.generate_hash(length=10)}"
+        frappe.db.sql(
+            """
+            INSERT INTO "tabVendors" (name, creation, modified, modified_by, owner, docstatus, idx,
+                                      vendor_name, account_number, ifsc)
+            VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s)
+            """,
+            (cls.test_vendor, "Administrator", "Administrator", "Testvendor Theta Ltd",
+             cls.tier1_row.bank_account, cls.tier1_row.ifsc),
+        )
+        cls.pay_tier1 = cls._insert_payment_row(
+            amount=cls.tier1_row.amount, status="Approved",
+            utr="PO/077/00066/25-26", payment_date=None, project=cls.test_project,
+        )
+        frappe.db.set_value(
+            "Project Payments", cls.pay_tier1, "vendor", cls.test_vendor, update_modified=False
+        )
+
+        # TIER 2 -- row 0009 has no IFSC at all, so it can never reach tier 1. Naming the project in
+        # its remark is the only thing that can match it.
+        cls.tier2_row = cls._row("0009")
+        cls.pay_tier2 = cls._insert_payment_row(
+            amount=cls.tier2_row.amount, status="Approved",
+            utr="refund", payment_date=None, project=cls.test_project,
+        )
+        frappe.db.set_value(
+            ROW_DOCTYPE,
+            {"import_batch": cls.batch.name, "transfer_id": cls.tier2_row.transfer_id},
+            "remarks",
+            f"Material advance for {cls.test_project_name}",
+            update_modified=False,
+        )
+
+        # THE CONTROL for tier 2 -- identical to the row above in every respect EXCEPT the remark,
+        # which is left as the fixture wrote it ("Sample Project materials", naming no project this
+        # company runs). Row 0006's own planted payment is CEO Pending and so is not in any pool.
+        cls.control_row = cls._row("0006")
+        cls.pay_control = cls._insert_payment_row(
+            amount=cls.control_row.amount, status="Approved",
+            utr="refund", payment_date=None, project=cls.test_project,
+        )
+
+        frappe.db.commit()
+        match_batch(cls.batch.name)
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete("Vendors", {"name": cls.test_vendor})
+        frappe.db.delete("Projects", {"name": cls.test_project})
+        super().tearDownClass()
+
+    def test_tier_1_matches_on_the_bank_account_and_ifsc(self):
+        row = self._rows_by_transfer_suffix()["0010"]
+        self.assertEqual(row["row_status"], "Matched")
+        self.assertEqual(row["suggested_name"], self.pay_tier1)
+        self.assertIn("went to this vendor's bank account", row["outcome_note"])
+
+    def test_tier_2_matches_on_the_project_named_in_the_remark(self):
+        row = self._rows_by_transfer_suffix()["0009"]
+        self.assertEqual(row["row_status"], "Matched")
+        self.assertEqual(row["suggested_name"], self.pay_tier2)
+        self.assertIn("remark names its project", row["outcome_note"])
+
+    def test_a_row_whose_remark_names_no_project_reaches_no_tier_2(self):
+        """⚠️ THE CONTROL, AND IT IS THE MOST LOAD-BEARING TEST IN THIS CLASS. Row 0006 has an
+        approved payment planted at its exact amount, in a project, with a junk UTR -- everything
+        the row above has -- and differs ONLY in that its remark names no project. It must stay
+        `Unmatched`. If tier 2 ever stops requiring the project, the amount pool is wide enough that
+        this row matches instantly, and this assertion is what says so."""
+        row = self._rows_by_transfer_suffix()["0006"]
+        self.assertEqual(row["row_status"], "Unmatched")
+        self.assertIsNone(row["suggested_name"])
 
 
 # ⚠️ `get_reconciliation_report` AND ITS TWO TESTS WERE DELETED AT V5, and one capability went with

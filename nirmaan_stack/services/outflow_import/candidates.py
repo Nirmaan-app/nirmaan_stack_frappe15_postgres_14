@@ -42,7 +42,7 @@ screen can never offer a record the write path would refuse, or the reverse.
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
 from typing import Sequence
 
@@ -58,12 +58,14 @@ from nirmaan_stack.services.outflow_import.ledgers import (
 )
 from nirmaan_stack.services.outflow_import.matcher import TargetRef, VendorIndex, VendorRef, build_vendor_index
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount, normalize_reference
+from nirmaan_stack.services.outflow_import.project_match import ProjectIndex, build_project_index
 
 __all__ = [
     "load_vendor_index",
+    "load_project_index",
     "load_payments_by_reference",
     "load_paid_payments_by_reference",
-    "load_payments_for_vendors",
+    "load_payments_by_amount",
     "load_expense_targets",
     "find_earlier_batches_for_transfers",
     "amount_window_sql",
@@ -126,6 +128,27 @@ def load_vendor_index() -> VendorIndex:
     )
 
 
+def load_project_index() -> ProjectIndex:
+    """Build the tier 2 project index once per batch. ~194 rows.
+
+    Same shape and the same reason as `load_vendor_index`: tokenising every project name for each of
+    ~50 rows would be redundant work, and the index is a derived value rather than a cache.
+
+    ⚠️ EVERY PROJECT IS LOADED, not just active or Won ones. The index's whole job is to decide which
+    tokens are DISTINCTIVE, and that is a property of the full set of names -- filtering the list
+    would make a word look unique that is not, which is the one way this rule produces a wrong
+    answer rather than no answer.
+    """
+    rows = frappe.db.sql(
+        """
+        SELECT name, project_name
+        FROM "tabProjects"
+        """,
+        as_dict=True,
+    )
+    return build_project_index([(r["name"], r.get("project_name") or "") for r in rows])
+
+
 def load_payments_by_reference(references: Sequence[str]) -> tuple[TargetRef, ...]:
     """Pass A, SETTLE CANDIDATES: APPROVED payments whose normalised UTR is one of these.
 
@@ -182,46 +205,40 @@ def _payments_by_reference(
     return tuple(_payment_target(r) for r in rows)
 
 
-def load_payments_for_vendors(
-    vendor_names: Sequence[str],
-    amounts: Sequence[Decimal],
-    period_from: date | None,
-    period_to: date | None,
-    window_days: int = 3,
-) -> tuple[TargetRef, ...]:
-    """Pass B, SETTLE CANDIDATES: APPROVED payments for these vendors, at these exact amounts,
-    near this period.
+def load_payments_by_amount(amounts: Sequence[Decimal]) -> tuple[TargetRef, ...]:
+    """TIERS 1 AND 2, SETTLE CANDIDATES: APPROVED payments inside these amount windows.
 
-    Scoped by all four axes because the fallback pass has no strong key -- widening any one of them
-    turns a suggestion list into a haystack. `Approved` is the fourth, added at v3: without it this
-    pass returns Paid payments, which are duplicates rather than candidates, and CEO Pending ones,
-    which cannot be settled at all.
+    ⚠️ ONE POOL SERVES BOTH TIERS, AND THE AMOUNT IS THE ONLY AXIS IT SCOPES BY. Tier 1 then filters
+    it in memory by vendor and the strict Re 1 window; tier 2 filters it by project. Pushing either
+    of those into SQL would build a pool that is narrower than one of the tiers -- and a pool
+    narrower than a tier hides matches without leaving a trace, which is worse than a pool that is
+    slightly too wide.
+
+    ⚠️ IT REPLACED A VENDOR-SCOPED, DATE-SCOPED QUERY, AND LOSING BOTH AXES IS DELIBERATE. The old
+    "Pass B" needed them because it matched on a NAME-scored vendor and had no other strong signal,
+    so a wide pool became a haystack. Tier 1 matches on the bank account, which is an identity form,
+    and consults no date at all (owner ruling 2026-08-07: the money either went to that account or
+    it did not). The amount windows still bound this to the batch rather than to the ledger, which
+    is the property that actually mattered.
+
+    `Approved` only, from `ledgers.SETTLEABLE_STATUSES`: without it this returns Paid payments, which
+    are duplicates rather than candidates, and CEO Pending ones, which cannot be settled at all.
     """
-    vendors = sorted({v for v in vendor_names if v})
     values = sorted({normalize_amount(a) for a in amounts})
-    if not vendors or not values:
+    if not values:
         return ()
 
-    vendor_ph = ", ".join(["%s"] * len(vendors))
     status_ph = ", ".join(["%s"] * len(_PAYMENT_STATUSES))
     amount_clause, amount_params = amount_window_sql("amount", values)
-    params: list = [*vendors, *amount_params, *_PAYMENT_STATUSES]
-
-    date_clause = ""
-    if period_from and period_to:
-        date_clause = " AND (payment_date IS NULL OR payment_date BETWEEN %s AND %s)"
-        params.extend([period_from - timedelta(days=window_days), period_to + timedelta(days=window_days)])
 
     rows = frappe.db.sql(
         f"""
         SELECT name, amount, status, vendor, utr, payment_date, project, document_type, document_name
         FROM "tabProject Payments"
-        WHERE vendor IN ({vendor_ph})
-          AND {amount_clause}
+        WHERE {amount_clause}
           AND status IN ({status_ph})
-          {date_clause}
         """,
-        tuple(params),
+        tuple([*amount_params, *_PAYMENT_STATUSES]),
         as_dict=True,
     )
     return tuple(_payment_target(r) for r in rows)
@@ -334,7 +351,7 @@ def find_earlier_batches_for_transfers(
 
     ⚠️ A BATCH WITH NO RECORDED PERIOD IS ALWAYS SEARCHED. It cannot be excluded on evidence we do
     not have, and dropping it would turn "we could not date this batch" into "this batch contains
-    nothing" -- the same reasoning the matcher's date window uses for an undated row.
+    nothing".
     """
     wanted = sorted({t for t in transfer_ids if t})
     if not wanted:

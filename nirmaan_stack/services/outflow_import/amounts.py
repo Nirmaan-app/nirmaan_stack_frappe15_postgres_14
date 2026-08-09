@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""When two amounts count as the same money (slice V4a).
+"""When two amounts count as the same money (slice V4a; two windows from T1).
 
 PURE MODULE -- no `frappe`, no database, no request context.
 
@@ -17,20 +17,41 @@ transfer that paid them --
 -- and every one came out `Unmatched`. On that data the matcher could match NOTHING. It was not
 broken; the rule was.
 
-THE TOLERANCE IS Rs 1, OWNER RULING 2026-08-06 (narrowed from an initial Rs 5 the same day). Re 1
-is exactly the width of the phenomenon: the bank rounds a paise amount to the whole rupee, so the
-gap is always strictly less than a rupee. Anything wider starts absorbing differences that are not
-rounding -- a Rs 5 window would silently settle a payment that is genuinely Rs 4 short, and nobody
-would ever see it.
+THERE ARE TWO WINDOWS, AND THEY ARE NOT INTERCHANGEABLE
+-------------------------------------------------------
+`AMOUNT_TOLERANCE` (Rs 5) is the SETTLE window. It governs what may be WRITTEN, and therefore also
+    what may be OFFERED: the SQL pools, the write guard, the browse list's `suggested` flag and the
+    already-Paid duplicate check all read it. Everything the screen shows as settleable is inside
+    it, and everything inside it the write path accepts.
 
-It is NOT the deferred Q11 tolerance pass: TDS is a deduction of THOUSANDS (2% of the amount),
-which this window cannot reach and must not be stretched to reach. A TDS payment still arrives
+`TIER1_TOLERANCE` (Re 1) is the STRICT window used by ONE caller: the matcher's tier 1, where the
+    beneficiary's bank account and IFSC both match a vendor on file. Re 1 is exactly the width of
+    the rounding phenomenon -- the bank rounds a paise amount to the whole rupee, so the gap is
+    always strictly less than a rupee. Tier 1 is the "nearly certain" tier and it keeps the tight
+    window because it can: it has a second, strong axis of evidence.
+
+⚠️ THE RELATION IS LOAD-BEARING: `TIER1_TOLERANCE <= AMOUNT_TOLERANCE`, ALWAYS. A tier window wider
+than the settle window would let the matcher propose a record the confirm then refuses -- the exact
+failure the "one number" note below was written about. Pinned by a test.
+
+⚠️ Rs 5 IS A DECISION, NOT DRIFT (owner ruling 2026-08-07). This file previously carried Rs 1 and
+said, correctly for that day, that Rs 5 "would silently settle a payment that is genuinely Rs 4
+short, and nobody would ever see it". That remains TRUE and was accepted: tier 2 matches on amount
+PLUS the project named in the transfer's remark, and the owner ruled the corroborated pair worth the
+Rs 5 window. Two consequences that follow and were accepted with it:
+  * a payment genuinely Rs 4 short now settles silently;
+  * a hand-ticked payment Rs 4 off now reads `Skipped` rather than `Mismatched`.
+Do not "restore" Re 1 here as a tidy-up. Re 1 still exists -- it is `TIER1_TOLERANCE`.
+
+NEITHER WINDOW IS THE DEFERRED Q11 TOLERANCE PASS: TDS is a deduction of THOUSANDS (2% of the
+amount), which neither can reach and neither may be stretched to reach. A TDS payment still arrives
 `Unmatched` and is settled by hand.
 
 ⚠️ ONE OWNER, FIVE CALL SITES, AND THAT IS THE WHOLE POINT. The rule is applied by:
-  * `candidates.load_payments_for_vendors`  -- the SQL pool query
+  * `candidates.load_payments_by_amount`    -- the SQL pool query
   * `candidates.load_expense_targets`       -- the SQL pool query
-  * `matcher.match_payments` / `match_expenses` -- the in-memory comparison
+  * `matcher.match_payments` / `match_expenses` -- the in-memory comparison (tier 1 at
+                                               `TIER1_TOLERANCE`, tier 2 at `AMOUNT_TOLERANCE`)
   * `settle.settle_payment` / `_lock_and_assert_settleable` -- the WRITE guard
   * `status.derive_row_outcome`             -- the ALREADY-PAID duplicate check
 These are easy to fix independently and catastrophic to fix inconsistently: a pool wider than the
@@ -45,7 +66,7 @@ with `!=` -- exact -- because the list above had four entries and nobody checked
 not on it. Since the bank rounds to the whole rupee, EVERY hand-ticked payment carrying paise came
 back `Mismatched`, announced with a note suggesting TDS. On one real 26-row statement that was 8
 rows and Rs 3.12 of "discrepancy". If you add an amount comparison anywhere in this feature, add it
-to this list.
+to this list -- and say WHICH window it uses.
 
 ⚠️ THE DIFFERENCE IS NOT RECORDED ANYWHERE. Settling a Rs 18,678.69 payment from a Rs 18,679.00
 transfer leaves the payment at 18,678.69 and marks it Paid. The 31 paise is absorbed, not booked.
@@ -58,15 +79,21 @@ from decimal import Decimal, InvalidOperation
 
 __all__ = [
     "AMOUNT_TOLERANCE",
+    "TIER1_TOLERANCE",
     "amounts_match",
     "amount_difference",
     "tolerance_bounds",
     "to_decimal",
 ]
 
-# Owner ruling 2026-08-06. ONE number. Changing it changes matching AND settling together, which is
-# why nothing else in this package may hold a copy -- not the SQL, not the frontend.
-AMOUNT_TOLERANCE = Decimal("1")
+# THE SETTLE WINDOW. Owner ruling 2026-08-07 (widened from Re 1 with tier 2; see the docstring).
+# Changing it changes what may be offered AND what may be written, together -- which is why nothing
+# else in this package may hold a copy, not the SQL and not the frontend.
+AMOUNT_TOLERANCE = Decimal("5")
+
+# THE TIER 1 WINDOW. One caller: `matcher`'s account+IFSC tier, which can afford to be strict
+# because it has a second strong axis. MUST stay <= AMOUNT_TOLERANCE -- see the docstring.
+TIER1_TOLERANCE = Decimal("1")
 
 
 def to_decimal(value) -> Decimal:

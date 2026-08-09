@@ -29,7 +29,7 @@ import frappe
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
 from nirmaan_stack.services.outflow_import import candidates as C
 from nirmaan_stack.services.outflow_import.matcher import (
-    match_payments,
+    match_by_reference,
     match_row,
     resolve_vendors,
 )
@@ -111,7 +111,13 @@ def match_batch(batch: str):
     if matchable:
         pools = _load_pools(matchable, batch)
         for row in matchable:
-            result = match_row(row, pools["vendors"], pools["payments"], pools["expenses"])
+            result = match_row(
+                row,
+                pools["vendors"],
+                pools["payments"],
+                pools["expenses"],
+                pools["projects"],
+            )
             outcome = derive_row_outcome(
                 row, result, paid_duplicate=_paid_duplicate_for(row, pools)
             )
@@ -134,9 +140,10 @@ def _load_pools(rows, batch: str) -> dict:
     itself, and a batch is tens of rows, not thousands.
     """
     vendor_index = C.load_vendor_index()
+    project_index = C.load_project_index()
     references = [r.normalized_reference for r in rows]
 
-    # Pass A pool: APPROVED payments whose stored reference matches one of ours.
+    # Tier 0 pool: APPROVED payments whose stored reference matches one of ours.
     by_reference = C.load_payments_by_reference(references)
 
     # ⚠️ A SEPARATE POOL, AND A SEPARATE QUERY, FOR A SEPARATE QUESTION (owner ruling Q14). These
@@ -146,25 +153,18 @@ def _load_pools(rows, batch: str) -> dict:
     # is the common case, not an edge case.
     paid_duplicates = C.load_paid_payments_by_reference(references)
 
-    # Pass B pool: needs vendors resolved first, so resolve now to collect the names.
-    vendor_names: set[str] = set()
-    for row in rows:
-        for candidate in resolve_vendors(row, vendor_index).candidates:
-            vendor_names.add(candidate.vendor.name)
+    # Tier 1 + tier 2 pool: APPROVED payments at these amounts, scoped by NOTHING ELSE. The matcher
+    # narrows it per tier -- by vendor account at tier 1, by project at tier 2 -- so a pool scoped by
+    # either axis here would be narrower than one of the tiers and would hide matches silently.
+    by_amount = C.load_payments_by_amount([r.amount for r in rows])
 
-    period_from, period_to = frappe.db.get_value(
-        BATCH_DOCTYPE, batch, ["period_from", "period_to"]
-    )
-    by_vendor = C.load_payments_for_vendors(
-        sorted(vendor_names), [r.amount for r in rows], period_from, period_to
-    )
-
-    # The union is correct for both passes: Pass A filters it by reference, Pass B by
-    # vendor + exact amount + date window.
-    payments = {t.name: t for t in (*by_reference, *by_vendor)}
+    # The union is correct for every tier: tier 0 filters it by reference, tier 1 by vendor account
+    # and the strict window, tier 2 by project.
+    payments = {t.name: t for t in (*by_reference, *by_amount)}
 
     return {
         "vendors": vendor_index,
+        "projects": project_index,
         "payments": tuple(payments.values()),
         "paid_duplicates": paid_duplicates,
         "expenses": C.load_expense_targets([r.amount for r in rows]),
@@ -174,15 +174,18 @@ def _load_pools(rows, batch: str) -> dict:
 def _paid_duplicate_for(row, pools):
     """The already-Paid group this row duplicates, or None.
 
-    Reuses `match_payments` rather than hand-rolling a reference compare, so a FAN-OUT that was
+    Reuses `match_by_reference` rather than hand-rolling a reference compare, so a FAN-OUT that was
     recorded by hand is recognised as ONE already-recorded transfer instead of a shortfall against
     whichever payment happened to be found first. The matcher is untouched -- only the pool differs.
 
-    No vendor resolution is passed: this must match on the bank reference alone. `match_payments`
-    Pass B (vendor + amount + date) is a SUGGESTION heuristic, and a heuristic hit here would skip a
-    row on a guess, which is the one outcome a duplicate guard must never produce.
+    ⚠️ IT CALLS `match_by_reference`, NOT `match_payments`, AND THE DISTINCTION IS THE GUARD. This
+    must match on the bank reference ALONE: tiers 1 and 2 are SUGGESTION heuristics, and a heuristic
+    hit here would SKIP a row on a guess, which is the one outcome a duplicate guard may never
+    produce. It used to call `match_payments` with no vendor and rely on the lower passes being
+    unable to run without one -- true at the time, but true by argument rather than by construction,
+    and tier 2 needs no vendor at all. Naming the reference-only function makes it structural.
     """
-    groups = match_payments(row, pools["paid_duplicates"])
+    groups = match_by_reference(row, pools["paid_duplicates"])
     return groups[0] if groups else None
 
 
@@ -372,24 +375,23 @@ def get_row_candidates(row: str):
 
     staged = _StagedRow(doc)
     vendor_index = C.load_vendor_index()
+    project_index = C.load_project_index()
     resolution = resolve_vendors(staged, vendor_index)
     payments = {
         t.name: t
         for t in (
             *C.load_payments_by_reference([staged.normalized_reference]),
-            *C.load_payments_for_vendors(
-                [c.vendor.name for c in resolution.candidates],
-                [staged.amount],
-                staged.added_on_date,
-                staged.added_on_date,
-            ),
+            *C.load_payments_by_amount([staged.amount]),
         )
     }
     expenses = C.load_expense_targets([staged.amount])
-    result = match_row(staged, vendor_index, tuple(payments.values()), expenses)
+    result = match_row(
+        staged, vendor_index, tuple(payments.values()), expenses, project_index
+    )
 
     return {
         "row": row,
+        "tier": result.tier,
         "vendor_candidates": [
             {
                 "vendor": c.vendor.name,

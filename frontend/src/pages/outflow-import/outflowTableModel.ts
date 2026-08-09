@@ -528,11 +528,12 @@ export interface CandidateLike {
     /**
      * Whether the SERVER considers this amount close enough to settle.
      *
-     * ⚠️ THE CLIENT MUST NOT HOLD A SECOND COPY OF THE TOLERANCE. The window is Rs 5 and lives in
-     * `services/outflow_import/amounts.py`, shared by the pool query, the matcher and the write
-     * guard. A number duplicated here would drift the moment the owner changed it, and the
-     * symptom would be a screen offering a record the confirm then refuses. So the server says
-     * suggested-or-not and the screen only renders it.
+     * ⚠️ THE CLIENT MUST NOT HOLD A COPY OF EITHER TOLERANCE. There are now TWO windows and both
+     * live in `services/outflow_import/amounts.py`: `AMOUNT_TOLERANCE` is the SETTLE window shared
+     * by the pool query and the write guard, and `TIER1_TOLERANCE` is the strict window the
+     * matcher's account+IFSC tier uses. This flag reports the first one and nothing else. A number
+     * duplicated here would drift the moment the owner changed it -- and it HAS changed, twice --
+     * and the symptom would be a screen offering a record the confirm then refuses.
      */
     suggested?: boolean;
 }
@@ -549,6 +550,112 @@ export const orderBySuggestion = <T extends CandidateLike>(
             Math.abs(Number(b.amount) - Number(bankAmount))
         );
     });
+
+// --- the settleable-record table ------------------------------------------------------------------
+
+/**
+ * One approved record a reviewer may link a transfer to.
+ *
+ * Mirrors what `review.search_settleable_records` returns, field for field. Declared here rather
+ * than in the dialog so the column model below and the component render from ONE shape.
+ */
+export interface SettleableRecord {
+    /** Which ledger this record lives in. It arrives WITH the record; the reviewer never picks it. */
+    target_doctype: DecisionTarget;
+    name: string;
+    amount: number;
+    detail: string;
+    suggested: boolean;
+    /** The facts a reviewer picks a record BY (owner ruling 2026-08-06). */
+    vendor_name: string;
+    project_name: string;
+    document_name: string;
+    /**
+     * ⚠️ TWO DATE KEYS, NEVER ONE. Only `Project Payments` records an approval date -- neither
+     * expense doctype has the field at all. The expense's last-changed timestamp is real and useful
+     * for judging how stale a record is, but it is NOT an approval date, so it travels under its own
+     * name and is labelled differently on screen (owner ruling 2026-08-06). Merging them into one
+     * key would present a modification as an approval on two thirds of the list.
+     */
+    approved_on: string;
+    updated_on: string;
+}
+
+/** How each ledger is named ON A RECORD LINE (owner wording, slice R2). Singular -- it labels one
+ *  record rather than a table. */
+export const LEDGER_LABEL: Record<string, string> = {
+    "Project Payments": "Project Payment",
+    "Project Expenses": "Project Expense",
+    "Non Project Expenses": "Non Project Expense",
+};
+
+export const ledgerLabel = (doctype: string): string => LEDGER_LABEL[doctype] ?? doctype;
+
+/**
+ * `<doctype>|<name>` -- unique across ledgers, which a bare record name is not guaranteed to be.
+ *
+ * It is the radio group's value as well as the React key, so the two can never disagree about which
+ * row is selected.
+ */
+export const recordKey = (record: { target_doctype: string; name: string }): string =>
+    `${record.target_doctype}|${record.name}`;
+
+/** Split a `recordKey` back into its halves. The doctype half can contain no `|`; the name half may. */
+export const parseRecordKey = (
+    value: string
+): { target: DecisionTarget; name: string } | null => {
+    const [target, ...rest] = value.split("|");
+    const name = rest.join("|");
+    if (!target || !name) return null;
+    return { target: target as DecisionTarget, name };
+};
+
+/**
+ * The record's date, SAYING WHICH DATE IT IS.
+ *
+ * ⚠️ A PURE FUNCTION RATHER THAN A TERNARY IN JSX, because the distinction is an owner ruling and
+ * not a formatting detail. Neither expense doctype carries an approval date -- only
+ * `Project Payments` records one -- so a payment reads "approved 12-Jul-2026" and an expense reads
+ * "updated 12-Jul-2026". Presenting a modification timestamp under the word "approved" would be a
+ * confident lie on two thirds of the list, and a reviewer settling by approval date would have no
+ * way to see it. `format` is injected so this stays testable without importing the date utility.
+ */
+export const recordDateLabel = (
+    record: Pick<SettleableRecord, "approved_on" | "updated_on">,
+    format: (value: string) => string
+): string => {
+    if (record.approved_on) return `approved ${format(record.approved_on)}`;
+    if (record.updated_on) return `updated ${format(record.updated_on)}`;
+    return "";
+};
+
+export interface RecordColumn {
+    id: string;
+    title: string;
+    /** Column width. Fixed so the header and the scrolling body stay in step. */
+    width: string;
+    align?: "right";
+    mono?: boolean;
+}
+
+/**
+ * The columns of the Link payment table, in order.
+ *
+ * ⚠️ ONE MODEL DRIVES THE HEADER AND THE BODY, exactly as `OUTFLOW_COLUMNS` does for the rows
+ * table -- a header list beside a hand-written row of cells is how the two drift apart.
+ *
+ * The set is the owner's "facts a reviewer picks a record by" (2026-08-06), which used to be
+ * crammed onto two wrapped lines of a dropdown option. As columns they can be COMPARED down the
+ * page, which is the entire reason this became a table.
+ */
+export const RECORD_COLUMNS: RecordColumn[] = [
+    { id: "type", title: "Type", width: "140px" },
+    { id: "record", title: "Record", width: "150px", mono: true },
+    { id: "vendor", title: "Vendor", width: "180px" },
+    { id: "project", title: "Project", width: "160px" },
+    { id: "date", title: "Approved", width: "130px" },
+    { id: "amount", title: "Amount", width: "150px", align: "right" },
+];
 
 /** `same amount ✓` / `differs by ₹X ⚠`, as data. */
 export const amountVerdict = (

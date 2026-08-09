@@ -214,22 +214,28 @@ class TestAlreadyPaidDuplicate(unittest.TestCase):
             self.assertEqual(outcome.status, ROW_SKIPPED, f"recorded {recorded}")
             self.assertIn("Already recorded as Paid", outcome.note)
 
-    def test_the_rounding_window_is_inclusive_at_exactly_one_rupee(self):
-        """Stated to an accountant as "within a rupee" -- so exactly a rupee is within it."""
+    def test_the_window_is_inclusive_at_exactly_the_settle_tolerance(self):
+        """This branch reads the SETTLE window (`AMOUNT_TOLERANCE`), not tier 1's Re 1 -- a duplicate
+        guard asks "is this the same money we already recorded", which is the same question the
+        write guard asks. Stated to an accountant as "within five rupees", so exactly five is in."""
         outcome = derive_row_outcome(
             _Row(amount="18904"),
             _match(),
-            paid_duplicate=_group([_payment(amount="18903", status="Paid")]),
+            paid_duplicate=_group([_payment(amount="18899", status="Paid")]),
         )
         self.assertEqual(outcome.status, ROW_SKIPPED)
 
     def test_a_gap_just_over_the_window_is_still_reported(self):
-        """The other half: widening the window must not swallow a real shortfall. A rupee and one
-        paisa is not rounding."""
+        """The other half: widening the window must not swallow a real shortfall. Five rupees and
+        one paisa is not rounding.
+
+        ⚠️ ACCEPTED CONSEQUENCE OF THE 2026-08-07 WIDENING: a hand-ticked payment Rs 4 off now reads
+        `Skipped` where it used to read `Mismatched`. The owner took that trade knowingly when tier 2
+        arrived; it is recorded in `amounts.py` and it is not a regression to be "fixed" here."""
         outcome = derive_row_outcome(
             _Row(amount="18904"),
             _match(),
-            paid_duplicate=_group([_payment(amount="18902.99", status="Paid")]),
+            paid_duplicate=_group([_payment(amount="18898.99", status="Paid")]),
         )
         self.assertEqual(outcome.status, ROW_MISMATCHED)
 

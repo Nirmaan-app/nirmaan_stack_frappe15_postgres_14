@@ -293,7 +293,7 @@ def derive_row_outcome(
     #    something settleable was found, and a person confirms which. The vocabulary is fixed at
     #    seven statuses and deliberately has no "Ambiguous"; the distinction is a screen concern,
     #    carried in the note rather than in the status.
-    return RowOutcome(ROW_MATCHED, _matched_note(candidates))
+    return RowOutcome(ROW_MATCHED, _matched_note(candidates, getattr(match, "tier", "")))
 
 
 def _settleable_candidates(match) -> tuple:
@@ -354,20 +354,43 @@ def sole_suggestion(outcome: RowOutcome, match=None) -> Suggestion | None:
     return Suggestion(target.doctype, target.name)
 
 
-def _matched_note(candidates: Sequence) -> str:
+# How each tier reads to a reviewer. The tier is the reviewer's whole basis for trusting a
+# suggestion -- "the bank account matches" and "the amount agrees and the remark names the project"
+# are very different claims, and the person confirming the settlement is entitled to know which one
+# they are being shown.
+#
+# ⚠️ AN UNKNOWN TIER ADDS NOTHING RATHER THAN GUESSING. `derive_row_outcome` reads the tier with
+# `getattr`, so a match object that predates tiers (or a future tier nobody taught this map) yields
+# an empty clause and the note is exactly what it always was, rather than a wrong explanation.
+_TIER_CLAUSE = {
+    "reference": "The bank reference is recorded on it.",
+    "account+IFSC": "The transfer went to this vendor's bank account, and the amounts agree.",
+    "project in remark": "The amounts agree and the remark names its project.",
+}
+
+
+def _matched_note(candidates: Sequence, tier: str = "") -> str:
+    because = _TIER_CLAUSE.get(tier, "")
     if len(candidates) == 1:
         only = candidates[0]
         names = _name_list(only)
         targets = getattr(only, "targets", None)
         if targets and len(targets) > 1:
-            return f"One transfer settling {len(targets)} approved payments: {names}."
-        return f"One approved record at this amount: {names}."
+            return _joined(
+                f"One transfer settling {len(targets)} approved payments: {names}.", because
+            )
+        return _joined(f"One approved record at this amount: {names}.", because)
     listed = ", ".join(_name_list(c) for c in candidates[:3])
     more = "" if len(candidates) <= 3 else f" and {len(candidates) - 3} more"
-    return (
-        f"{len(candidates)} approved records match this amount: {listed}{more}. "
-        f"Choose which one this transfer settled."
+    return _joined(
+        f"{len(candidates)} approved records match this amount: {listed}{more}.",
+        because,
+        "Choose which one this transfer settled.",
     )
+
+
+def _joined(*sentences: str) -> str:
+    return " ".join(s for s in sentences if s)
 
 
 def _unmatched_note() -> str:
