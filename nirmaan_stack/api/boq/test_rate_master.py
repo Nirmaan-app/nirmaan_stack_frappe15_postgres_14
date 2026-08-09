@@ -1318,7 +1318,11 @@ class TestRateMaster(FrappeTestCase):
             {"discipline": "Electrical", "category_id": "point_wiring", "active": 1}, "config",
         ))
         by_id = {g["id"]: g for g in (cfg.get("goldens") or [])}
-        self.assertEqual(sorted(by_id), ["pw1", "pw2", "pw3"])
+        # pw4 (RULING 1, 2026-08-09) joins them: the ZERO-MODULE light point that pins the back-box
+        # fallback. It is asserted in full by test_72b; here it only has to be PRESENT, because this
+        # list is exhaustive on purpose -- a golden appearing or vanishing unnoticed is the failure
+        # this line exists to catch, and it caught pw4 exactly as intended.
+        self.assertEqual(sorted(by_id), ["pw1", "pw2", "pw3", "pw4"])
         self.assertEqual(by_id["pw1"]["expect"]["pw_boq_supply"]["supply"], 1869.0)
         self.assertEqual(by_id["pw1"]["expect"]["pw_boq_install"]["install"], 735.0)
         self.assertEqual(by_id["pw1"]["expect"]["pw_bcs"]["bcs_supply"], 1370.0)
@@ -1842,6 +1846,118 @@ class TestRateMaster(FrappeTestCase):
         }
         rate_master._validate_config(self._derive_attr_config(params))  # must not raise
 
+    # ---- RULINGS 1 + 2 (owner 2026-08-09): the ZERO-MODULE BOX FALLBACK and the INSTALL STEP FUNCTION
+    #
+    # C3 for the third time. Both rulings add an OPTIONAL key, and an optional key is exactly the shape
+    # that slips through: `rate_stages` and `ladders` positively validate the keys they know and ignore
+    # the rest, so a mistyped or inert value would save cleanly and do nothing at runtime. Each new key
+    # is therefore validated POSITIVELY, and each one's inert-but-plausible form (a non-positive
+    # divisor, a divisor with no partner) is REJECTED rather than tolerated -- a config that looks
+    # stepped and prices linearly is worse than one that will not save.
+    #
+    # Neither key names an attribute, so there is nothing new to _ref-guard; the partner keys that DO
+    # name attributes (`mult_from_attr`, `floor_from`) were already guarded and stay so.
+
+    def _stage_config(self, stage):
+        return {
+            "discipline": "Electrical", "category_id": "step_divisor_probe",
+            "attribute_definitions": [
+                {"id": "wire1_runs", "label": "Runs", "type": "number"},
+                {"id": "circuit_length_m", "label": "Len", "type": "number"},
+            ],
+            "pipelines": {"p": {"output": ["supply"], "steps": [
+                {"step": "component_ref", "name": "wire1", "target": "install_base_per_mtr",
+                 "ref": {"kind": "cable"}, "rate_stages": [stage],
+                 "qty": {"from_attr": "circuit_length_m"}},
+            ]}},
+        }
+
+    def _ladder_config(self, ladder_extra):
+        return {
+            "discipline": "Electrical", "category_id": "zero_modules_probe",
+            "attribute_definitions": [
+                {"id": "switch_qty", "label": "Switch qty", "type": "number"},
+                {"id": "plate_item", "label": "Plate", "type": "choice", "values": ["3M"]},
+            ],
+            "pipelines": {"p": {"output": ["supply"], "steps": [
+                {"step": "module_fit", "params": {
+                    "terms": [{"attr": "switch_qty", "weight": 1}],
+                    "ladders": [dict({
+                        "kind": "switch_socket_item", "where": {"family": "Back Box"},
+                        "bind": "box_item", "floor_from": "plate_item", "on_none": "computed",
+                    }, **ladder_extra)],
+                }},
+            ]}},
+        }
+
+    def test_70a_on_zero_modules_is_accepted_and_absence_stays_valid(self):
+        """POSITIVE, both halves. The fallback saves, and a ladder WITHOUT it is still valid config --
+        absence is the shipped shape for the plate ladder and for every pre-ruling category."""
+        rate_master._validate_config(self._ladder_config({"on_zero_modules": 3}))  # must not raise
+        rate_master._validate_config(self._ladder_config({}))  # must not raise
+
+    def test_70b_on_zero_modules_rejects_an_inert_or_malformed_count(self):
+        """NEGATIVE. The interpreter reads a non-positive value as 'no fallback declared', so accepting
+        one here would ship a ladder that looks configured and suppresses the box exactly as before."""
+        for bad in (0, -3, "3M", float("inf")):
+            with self.subTest(bad=bad):
+                with self.assertRaises(frappe.ValidationError) as cm:
+                    rate_master._validate_config(self._ladder_config({"on_zero_modules": bad}))
+                self.assertIn("on_zero_modules", str(cm.exception))
+
+    def test_70c_mult_step_divisor_is_accepted_beside_its_partner(self):
+        """POSITIVE, both halves. A stepped stage saves; a stage with neither key (every shipped supply
+        and BCS stage) is untouched and still valid."""
+        rate_master._validate_config(self._stage_config(
+            {"mult": 2.0, "round": "up0", "mult_from_attr": "wire1_runs", "mult_step_divisor": 3}))
+        rate_master._validate_config(self._stage_config({"mult": 2.0, "round": "up0"}))
+
+    def test_70d_mult_step_divisor_rejects_an_inert_divisor_or_an_orphan(self):
+        """NEGATIVE sweep. Both failure shapes are SILENT at runtime: a non-positive divisor multiplies
+        linearly, and a divisor with no `mult_from_attr` divides a factor that is always 1."""
+        cases = [
+            ({"mult": 2.0, "mult_from_attr": "wire1_runs", "mult_step_divisor": 0}, "positive finite"),
+            ({"mult": 2.0, "mult_from_attr": "wire1_runs", "mult_step_divisor": -3}, "positive finite"),
+            ({"mult": 2.0, "mult_from_attr": "wire1_runs", "mult_step_divisor": "3"}, "positive finite"),
+            ({"mult": 2.0, "mult_step_divisor": 3}, "mult_from_attr"),
+        ]
+        for stage, needle in cases:
+            with self.subTest(needle=needle):
+                with self.assertRaises(frappe.ValidationError) as cm:
+                    rate_master._validate_config(self._stage_config(stage))
+                self.assertIn(needle, str(cm.exception))
+
+    def test_70e_scale_step_divisor_param_is_accepted_and_its_orphan_refused(self):
+        """The `scale` half of the SAME capability. `_validate_params` already accepted any finite
+        number, so the positive case never needed a change -- the NEGATIVES are the point."""
+        def cfg(params):
+            return {
+                "discipline": "Electrical", "category_id": "scale_divisor_probe",
+                "attribute_definitions": [{"id": "runs", "label": "Runs", "type": "number"}],
+                "pipelines": {"p": {"output": ["install_per_mtr"], "steps": [
+                    {"step": "scale", "target": "install_per_mtr", "result": "install_per_mtr",
+                     "params": params, "formula": "base*runs"},
+                ]}},
+            }
+        # POSITIVE: the shipped wiring shape, stepped
+        rate_master._validate_config(cfg({"runs_from_attr": "runs", "runs_step_divisor": 3}))
+        # POSITIVE: the LINEAR shape is byte-untouched
+        rate_master._validate_config(cfg({"runs_from_attr": "runs"}))
+        for params, needle in (
+            ({"runs_from_attr": "runs", "runs_step_divisor": 0}, "positive finite"),
+            ({"runs_from_attr": "runs", "runs_step_divisor": -1}, "positive finite"),
+            ({"runs_step_divisor": 3}, "runs_from_attr"),
+        ):
+            with self.subTest(needle=needle):
+                with self.assertRaises(frappe.ValidationError) as cm:
+                    rate_master._validate_config(cfg(params))
+                self.assertIn(needle, str(cm.exception))
+
+    def test_70f_the_two_step_divisor_suffixes_are_the_same_string(self):
+        """The interpreter names this suffix too (STEP_DIVISOR_SUFFIX). If the two ever drift, a config
+        saves on one side and does nothing on the other -- the quietest failure this pair can have."""
+        self.assertEqual(rate_master._STEP_DIVISOR_SUFFIX, "_step_divisor")
+
     def test_70_derive_attribute_is_in_the_known_step_vocabulary(self):
         """The vocabulary pin's server half. The frontend STEP_VOCABULARY carries the same 13 members
         (pinned in ratePipelineInterpreter.test.ts); a step known to only one side is unusable."""
@@ -1878,7 +1994,17 @@ class TestRateMaster(FrappeTestCase):
         stored_runs = {d["id"]: d for d in stored["attribute_definitions"]}["runs"]
         self.assertEqual(stored_runs.get("default"), 1)
 
-    def test_72_eall_v26_carries_no_stale_config_level_goldens(self):
+    # The CURRENT E-ALL asset. Named ONCE, version-free at the call sites, because the pin below
+    # guards whichever asset is live -- and it was silently left behind on v26 when v27 was minted,
+    # which is precisely the C4 trap it exists to catch.
+    _EALL_CURRENT = "rate_master_electrical_all_v27.json"
+
+    def _current_eall_asset(self):
+        path = os.path.join(os.path.dirname(loader.__file__), "data", self._EALL_CURRENT)
+        with open(path, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+
+    def test_72_the_current_eall_asset_carries_no_stale_config_level_goldens(self):
         """The top-level `goldens` dict is the AUTHORITY (#178); loader._load_multi OVERWRITES a
         config's own `goldens` from it. switches_sockets carried a SECOND, disagreeing copy -- the
         known-incoherent slice-1a ss1 (a 6M plate holding 7 modules) that slice 2 re-minted.
@@ -1886,11 +2012,7 @@ class TestRateMaster(FrappeTestCase):
         It was harmless ONLY while the top-level entry existed to overwrite it. Drop that entry --
         exactly what a retirement does -- and the stale copy would load SILENTLY. NEGATIVE half: no
         config may carry a `goldens` copy that disagrees with the top-level dict."""
-        path = os.path.join(
-            os.path.dirname(loader.__file__), "data", "rate_master_electrical_all_v26.json"
-        )
-        with open(path, "r", encoding="utf-8") as fh:
-            payload = json.load(fh)
+        payload = self._current_eall_asset()
 
         ss = [c for c in payload["category_configs"] if c["category_id"] == "switches_sockets"][0]
         self.assertNotIn("goldens", ss)
@@ -1913,6 +2035,108 @@ class TestRateMaster(FrappeTestCase):
                 "%s carries a config-level goldens copy that disagrees with the top-level dict"
                 % cfg["category_id"],
             )
+
+    def test_72a_both_assets_carry_the_two_rulings_exactly_where_they_belong(self):
+        """RULINGS 1 + 2, as SHIPPED. This is the test_71-shaped pin: a `replace=True` is WHOLESALE, so
+        a key silently absent from a future mint is gone from the active config with no signal at all.
+
+        Every assertion has a NEGATIVE twin, because on both rulings the damage is in the over-reach:
+          - the BOX ladder takes the fallback, the PLATE ladder must NOT (nothing on it => no plate);
+          - INSTALL steps in threes, SUPPLY and BCS must NOT (three runs is three times the wire);
+          - and `termination_boq` install must carry NO runs multiplier of its own -- it inherits one
+            through `install_as_ratio`, so a second would be runs-SQUARED."""
+        payload = self._current_eall_asset()
+        pw = [c for c in payload["category_configs"] if c["category_id"] == "point_wiring"][0]
+
+        # ---- RULING 1: the box ladder only, in every pipeline ----
+        seen = 0
+        for pid, pl in pw["pipelines"].items():
+            mf = [s for s in pl["steps"] if s.get("step") == "module_fit"]
+            self.assertEqual(len(mf), 1, "%s should carry exactly one module_fit" % pid)
+            for lad in mf[0]["params"]["ladders"]:
+                if lad["bind"] == "box_item":
+                    self.assertEqual(lad.get("on_zero_modules"), 3, pid)
+                    seen += 1
+                else:
+                    # NEGATIVE: the plate ladder must never fall back -- with nothing on it there is
+                    # no plate, and a fallback there would manufacture one.
+                    self.assertEqual(lad["bind"], "plate_item")
+                    self.assertNotIn("on_zero_modules", lad, pid)
+        self.assertEqual(seen, 3, "all three point_wiring pipelines must carry the fallback")
+
+        # ---- RULING 2: pw_boq_install's wire stages only ----
+        for pid, pl in pw["pipelines"].items():
+            stepped = pid == "pw_boq_install"
+            for st in pl["steps"]:
+                if st.get("step") != "component_ref" or st.get("name") not in ("wire1", "wire2"):
+                    continue
+                for stg in st.get("rate_stages") or []:
+                    if "mult_from_attr" not in stg:
+                        continue
+                    if stepped:
+                        self.assertEqual(stg.get("mult_step_divisor"), 3, "%s/%s" % (pid, st["name"]))
+                    else:
+                        # NEGATIVE: supply (0.602) and BCS (0.4515) stay LINEAR
+                        self.assertNotIn("mult_step_divisor", stg, "%s/%s" % (pid, st["name"]))
+
+        # ---- RULING 2, the wiring asset: cable install only ----
+        wpath = os.path.join(
+            os.path.dirname(loader.__file__), "data", "rate_master_wiring_cabling_v3.json"
+        )
+        with open(wpath, "r", encoding="utf-8") as fh:
+            wcfg = json.load(fh)["category_config"]
+        for pid, pl in wcfg["pipelines"].items():
+            for st in pl["steps"]:
+                if st.get("step") != "scale":
+                    continue
+                prm = st.get("params") or {}
+                if "runs_from_attr" not in prm:
+                    continue
+                if pid == "cable_boq" and st["result"] == "install_per_mtr":
+                    self.assertEqual(prm.get("runs_step_divisor"), 3)
+                else:
+                    # NEGATIVE: cable supply, termination supply, and BOTH BCS outputs stay LINEAR
+                    self.assertNotIn("runs_step_divisor", prm, "%s/%s" % (pid, st["result"]))
+
+        # ---- C2: termination install is BYTE-UNTOUCHED, ordering and rounding included ----
+        tb = wcfg["pipelines"]["termination_boq"]["steps"]
+        iar = [i for i, s in enumerate(tb) if s.get("step") == "install_as_ratio"]
+        self.assertEqual(len(iar), 1)
+        self.assertEqual(tb[iar[0]]["params"], {"ratio": 0.25})
+        # the supply runs `scale` still sits BEFORE it -- that ordering IS the inheritance
+        scale_i = [i for i, s in enumerate(tb) if s.get("step") == "scale"]
+        self.assertTrue(scale_i and max(scale_i) < iar[0])
+        # ...and the roundup still lands AFTER it, where it always did
+        self.assertEqual(tb[iar[0] + 1]["step"], "roundup")
+        self.assertEqual(tb[iar[0] + 1]["params"], {"digits": -1})
+
+    def test_72b_the_new_golden_pw4_is_a_zero_module_row_with_a_back_box(self):
+        """CP3. pw4 pins RULING 1, which would otherwise ship UNPINNED -- every other point_wiring
+        golden drives a plate, so none of them ever reaches the zero-module path.
+
+        The VALUES are asserted by the RM-4b preview gate against the live catalog; what this pins is
+        that the golden still DRIVES the case it was minted for. A pw4 that quietly gained a plate, or
+        lost its back box, would go green while testing nothing."""
+        goldens = {g["id"]: g for g in self._current_eall_asset()["goldens"]["point_wiring"]}
+        self.assertIn("pw4", goldens)
+        a = goldens["pw4"]["attrs"]
+        # zero modules: BOTH module terms positively absent
+        self.assertEqual(a["switch_item"], "None")
+        self.assertEqual(a["socket_item"], "None")
+        self.assertEqual(a["switch_qty"], 0.0)
+        self.assertEqual(a["socket_qty"], 0.0)
+        # no plate, and the box explicitly asked for
+        self.assertEqual(a["plate_item"], "None")
+        self.assertEqual(a["back_box"], "Yes")
+        # circuit_length_m must be DERIVED, never stated -- a stated length wins and would make the
+        # derive_attribute step inert while the golden stayed green
+        self.assertNotIn("circuit_length_m", a)
+        self.assertEqual(a["points"], 1)
+        self.assertEqual(goldens["pw4"]["expect"], {
+            "pw_boq_supply": {"supply": 607.0},
+            "pw_boq_install": {"install": 330.0},
+            "pw_bcs": {"bcs_supply": 445.0},
+        })
 
     # ══════════════════════════════════════════════════════════════════════════════════
     # SELECTED-ROW RUNS -- only_rows + the carry-forward write.

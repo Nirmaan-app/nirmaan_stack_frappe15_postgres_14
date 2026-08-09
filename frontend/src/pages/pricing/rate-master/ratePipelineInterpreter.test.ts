@@ -16,6 +16,7 @@ import {
   roundUp,
   runAllPipelines,
   runPipeline,
+  stepFactor,
 } from "./ratePipelineInterpreter";
 import { STEP_VOCABULARY, blankStep, coerceForMatch } from "./rateMasterStructure";
 import { derivedQtyAttrs, derivedQtyValue } from "./RateMasterDerivation";
@@ -47,7 +48,12 @@ const PIPELINES: Record<string, Pipeline> = {
         formula: "base*(1+install_markup)",
       },
       { step: "roundup", target: "install_per_mtr", params: { digits: 0 } },
-      { step: "scale", target: "install_per_mtr", result: "install_per_mtr", params: { runs_from_attr: "runs" }, formula: "base*runs" },
+      // RULING 2 (2026-08-09): cable INSTALL steps in threes. This fixture claims to be the stored
+      // config VERBATIM and the goldens run through it, so it MUST carry the divisor the shipped
+      // asset carries -- a fixture that says "verbatim" and drifts is a quiet lie, and the next
+      // reader would reasonably trust it to describe production. SUPPLY (line above) and both BCS
+      // pipelines keep the LINEAR shape, which is equally the shipped truth.
+      { step: "scale", target: "install_per_mtr", result: "install_per_mtr", params: { runs_from_attr: "runs", runs_step_divisor: 3 }, formula: "base*runs" },
     ],
   },
   termination_boq: {
@@ -192,11 +198,21 @@ describe("ext-b runs multiplier", () => {
     expect(runPipeline("cable_bcs", PIPELINES.cable_bcs, ITEMS, omitted).finals).toEqual({ bcs_supply_per_mtr: 87 });
   });
 
-  it("runs=3 multiplies each cable output exactly 3x", () => {
+  it("runs=3 multiplies SUPPLY and BCS by 3, and INSTALL by ceil(3/3) = 1 (RULING 2)", () => {
     const a = sel("COPPER", "UNARMOURED", 1.0, 6.0, 3);
-    // 120*3 and 20*3 -- the multiplier attaches AFTER each roundup, so it scales a rounded rate
-    expect(runPipeline("cable_boq", PIPELINES.cable_boq, ITEMS, a).finals).toEqual({ supply_per_mtr: 360, install_per_mtr: 60 });
+    // The multiplier still attaches AFTER each roundup, so it scales a ROUNDED rate -- unchanged.
+    // What changed is the FACTOR on install alone: three runs is three times the wire and three
+    // times the BCS, but ONE unit of labour. 120*3 = 360 supply; install stays at its 1x rate of 20.
+    // Before Ruling 2 this line read `install_per_mtr: 60` -- that 60 IS the excessive install rate.
+    expect(runPipeline("cable_boq", PIPELINES.cable_boq, ITEMS, a).finals).toEqual({ supply_per_mtr: 360, install_per_mtr: 20 });
     expect(runPipeline("cable_bcs", PIPELINES.cable_bcs, ITEMS, a).finals).toEqual({ bcs_supply_per_mtr: 261 });
+  });
+
+  it("runs=4 crosses the first rung: supply x4, install x2 -- the shape live data cannot show", () => {
+    // Live data tops out at 3 runs, so this is the ONLY place the ladder's SHAPE is visible at all.
+    const a = sel("COPPER", "UNARMOURED", 1.0, 6.0, 4);
+    expect(runPipeline("cable_boq", PIPELINES.cable_boq, ITEMS, a).finals).toEqual({ supply_per_mtr: 480, install_per_mtr: 40 });
+    expect(runPipeline("cable_bcs", PIPELINES.cable_bcs, ITEMS, a).finals).toEqual({ bcs_supply_per_mtr: 348 });
   });
 
   it("termination install INHERITS runs and is never squared (owner ruling 2026-08-05)", () => {
@@ -865,6 +881,249 @@ describe("PW-FIX: a ZERO module count yields no plate / no box / no blanks, and 
     expect(mfTrace(r)).toContain("= 3 modules");
     expect(mfTrace(r)).toContain("plate_item 3M");
     expect(mfTrace(r)).toContain("box_item 3M");
+  });
+});
+
+// ---- RULING 1 (owner 2026-08-09): THE ZERO-MODULE BACK-BOX FALLBACK, **STATE A ONLY** -------------
+// A light point on an MCB has no switch and no socket, so the module count is 0, so nothing fits any
+// ladder and the box was suppressed with the plate. But a light point still needs a junction box.
+//
+// The three pins that matter are the two NEGATIVES either side of the positive: the fallback must not
+// fire when the key is absent (additivity), and it must not fire on STATE B -- a "None" plate with a
+// NON-ZERO count, which `on_none: "computed"` already boxes correctly and which the fallback would
+// DOWNGRADE. The PW-FIX block above is itself the strongest additivity pin: it asserts the zero-module
+// trace string VERBATIM against ladders carrying no `on_zero_modules`, and it must stay green.
+const PW_MODULE_FIT_ZERO3 = {
+  step: "module_fit" as const,
+  params: {
+    ...PW_MODULE_FIT.params,
+    ladders: [
+      // the PLATE ladder deliberately does NOT declare it: with nothing on it there is no plate
+      PW_MODULE_FIT.params.ladders[0],
+      { ...PW_MODULE_FIT.params.ladders[1], on_zero_modules: 3 },
+    ],
+  },
+};
+const pwZeroPipe = (mf: unknown): Pipeline => ({
+  output: ["supply"],
+  steps: PW_MF_SUPPLY.steps.map((s) => ((s as { step: string }).step === "module_fit" ? mf : s)) as Pipeline["steps"],
+});
+
+describe("RULING 1 -- a ZERO module count with a declared fallback fits a 3M back box (STATE A)", () => {
+  it("row 198's shape now prices a 3M BOX -- and still no plate and no blanks", () => {
+    const r = runPipeline("pw_boq_supply", pwZeroPipe(PW_MODULE_FIT_ZERO3), PW198_ITEMS, PW_ROW198);
+    expect(r.status).toBe("ok");
+    // ceil(158 x 0.3625) = ceil(57.275) = 58, qty 1 (back_box "Yes")
+    expect(lineOf(r, "back_box")).toBe(58);
+    expect(lineOf(r, "plate")).toBe(0);
+    expect(lineOf(r, "blank")).toBe(0);
+    // 2301 (the PW-FIX total) + the 58 box line
+    expect(r.finals).toEqual({ supply: 2359 });
+  });
+
+  it("THE TRACE SAYS SO -- the default is named, not silently applied", () => {
+    const r = runPipeline("pw_boq_supply", pwZeroPipe(PW_MODULE_FIT_ZERO3), PW198_ITEMS, PW_ROW198);
+    expect(mfTrace(r)).toBe(
+      "2 x socket_qty(None) + 1 x switch_qty(None) = 0 modules -> " +
+        "no plate_item (nothing to fit), box_item 3M (nothing to fit -- default 3); no plate -> 0 blanks",
+    );
+  });
+
+  it("NEGATIVE -- back_box 'No' still prices NO box (the component's own qty gate, not a second one)", () => {
+    const r = runPipeline("pw_boq_supply", pwZeroPipe(PW_MODULE_FIT_ZERO3), PW198_ITEMS, { ...PW_ROW198, back_box: "No" });
+    expect(r.status).toBe("ok");
+    expect(lineOf(r, "back_box")).toBe(0);
+    expect(r.finals).toEqual({ supply: 2301 });
+  });
+
+  it("NEGATIVE (additivity) -- the SAME row with no `on_zero_modules` is byte-identical to PW-FIX", () => {
+    const withKey = runPipeline("pw_boq_supply", pwZeroPipe(PW_MODULE_FIT), PW198_ITEMS, PW_ROW198);
+    expect(withKey.finals).toEqual({ supply: 2301 });
+    expect(lineOf(withKey, "back_box")).toBe(0);
+    expect(mfTrace(withKey)).toContain("no box_item (nothing to fit)");
+  });
+
+  it("NEGATIVE (STATE B) -- a 'None' plate with a NON-ZERO count is UNTOUCHED by the fallback", () => {
+    // 1 socket (2) + 1 switch (1) = 3 modules, plate "None". `on_none: "computed"` fits the box on the
+    // COMPUTED count. The fallback must not reach here -- if it did, a 7-module row would drop to 3M.
+    const stateB = { ...PW1, plate_item: "None", plate_qty: 0, blank_item: "None" };
+    const withFallback = runPipeline("pw_boq_supply", pwZeroPipe(PW_MODULE_FIT_ZERO3), PW198_ITEMS, stateB);
+    const without = runPipeline("pw_boq_supply", pwZeroPipe(PW_MODULE_FIT), PW198_ITEMS, stateB);
+    expect(withFallback.finals).toEqual(without.finals);
+    expect(mfTrace(withFallback)).toBe(mfTrace(without));
+    expect(mfTrace(withFallback)).toContain("= 3 modules");
+    expect(mfTrace(withFallback)).not.toContain("nothing to fit -- default");
+  });
+
+  it("NEGATIVE (case a) -- a row WITH a plate is untouched in every respect", () => {
+    const plated = { ...PW1, blank_item: "None" };
+    const withFallback = runPipeline("pw_boq_supply", pwZeroPipe(PW_MODULE_FIT_ZERO3), PW198_ITEMS, plated);
+    const without = runPipeline("pw_boq_supply", pwZeroPipe(PW_MODULE_FIT), PW198_ITEMS, plated);
+    expect(withFallback.finals).toEqual(without.finals);
+    expect(mfTrace(withFallback)).toBe(mfTrace(without));
+  });
+
+  it("the fallback COUNT resolves on the CATALOG ladder -- it is a count, never a label", () => {
+    // The fixture catalog carries ONLY a 3M box. Asking for 2 must take the NEXT HIGHER rung (3M) and
+    // SAY it did -- which is what proves config names a number and the catalog names the rung.
+    const two = { ...PW_MODULE_FIT_ZERO3, params: { ...PW_MODULE_FIT_ZERO3.params,
+      ladders: [PW_MODULE_FIT.params.ladders[0], { ...PW_MODULE_FIT.params.ladders[1], on_zero_modules: 2 }] } };
+    const r = runPipeline("pw_boq_supply", pwZeroPipe(two), PW198_ITEMS, PW_ROW198);
+    expect(r.status).toBe("ok");
+    expect(mfTrace(r)).toContain("box_item 3M (nothing to fit -- default 2) (next higher)");
+    expect(lineOf(r, "back_box")).toBe(58);
+  });
+
+  it("NEGATIVE -- a fallback ABOVE the ladder's top is an HONEST no-compute, never a clamp", () => {
+    const huge = { ...PW_MODULE_FIT_ZERO3, params: { ...PW_MODULE_FIT_ZERO3.params,
+      ladders: [PW_MODULE_FIT.params.ladders[0], { ...PW_MODULE_FIT.params.ladders[1], on_zero_modules: 99 }] } };
+    const r = runPipeline("pw_boq_supply", pwZeroPipe(huge), PW198_ITEMS, PW_ROW198);
+    expect(r.status).toBe("no_match");
+    expect(r.steps[r.steps.length - 1].label).toContain("exceeds the largest 'box_item'");
+  });
+});
+
+// ---- RULING 2 (owner 2026-08-09): WIRE INSTALL STEPS IN THREES ------------------------------------
+// `ceil(runs / 3)`: 1-3 runs bill one unit of install, 4-6 two, 7-9 three. Three runs of wire is three
+// times the WIRE but not three times the LABOUR -- so SUPPLY and BCS keep multiplying LINEARLY and only
+// the install multiplier steps.
+//
+// `ceil(n/3)` was UNREACHABLE in the formula language: the tokenizer accepts `+ - * /` and there is no
+// function-call syntax at all (an identifier followed by `(` throws). Hence a new capability rather
+// than a config edit -- and hence the additivity pins below, which are what make it safe to ship.
+describe("RULING 2 -- stepFactor, the ONE definition of the step function", () => {
+  it("the divisor is CONFIG: absent / non-finite / <= 0 is the IDENTITY (this is the additivity)", () => {
+    for (const raw of [1, 2, 3, 4, 7, 12.5]) {
+      expect(stepFactor(raw)).toBe(raw);
+      expect(stepFactor(raw, undefined)).toBe(raw);
+      expect(stepFactor(raw, 0)).toBe(raw);
+      expect(stepFactor(raw, -3)).toBe(raw);
+      expect(stepFactor(raw, Number.NaN)).toBe(raw);
+    }
+  });
+
+  it("divisor 3 -- 1-3 -> 1x, 4-6 -> 2x, 7-9 -> 3x (the owner's table, exhaustively)", () => {
+    const expected = [1, 1, 1, 2, 2, 2, 3, 3, 3];
+    for (let runs = 1; runs <= 9; runs++) expect(stepFactor(runs, 3)).toBe(expected[runs - 1]);
+  });
+
+  it("an EXACT multiple never tips to the next rung -- 6 runs is 2x, not 3x", () => {
+    expect(stepFactor(6, 3)).toBe(2);
+    expect(stepFactor(9, 3)).toBe(3);
+    expect(stepFactor(3, 3)).toBe(1);
+  });
+
+  it("the divisor is PARAMETERISED -- 3 is this ruling's number, not the mechanism's", () => {
+    expect(stepFactor(4, 2)).toBe(2);
+    expect(stepFactor(4, 4)).toBe(1);
+    expect(stepFactor(10, 5)).toBe(2);
+  });
+
+  it("NEVER A SILENT ZERO -- a positive factor can never round down to nothing", () => {
+    expect(stepFactor(1, 1000)).toBe(1);
+    expect(stepFactor(1e-9, 3)).toBe(1);
+  });
+});
+
+describe("RULING 2 -- the step function on a rate stage (point_wiring wire install)", () => {
+  // wire1 install base 10.0: the stage is `base x 2.0 x factor`, rounded up to units, x length 15.
+  const installPipe = (extra: Record<string, unknown>): Pipeline => ({
+    output: ["install"],
+    steps: [
+      PW_CIRCUIT_FIT,
+      cref("wire1", wireRef("@wire1_core", "@wire1_thickness_sqmm"), "install_base_per_mtr",
+           [{ mult: 2.0, round: "up0", mult_from_attr: "wire1_runs", ...extra } as never], { from_attr: "circuit_length_m" }),
+      { step: "sum_components", result: "install" },
+    ],
+  });
+  const line = (runs: number, extra: Record<string, unknown>) =>
+    lineOf(runPipeline("p", installPipe(extra), PW_ITEMS, { ...PW1, wire1_runs: runs }), "wire1");
+
+  it("LINEAR without the divisor: 3 runs bills 3x -- byte-identical to before the ruling", () => {
+    expect(line(1, {})).toBe(300); // ceil(10 x 2 x 1) = 20, x 15
+    expect(line(3, {})).toBe(900); // ceil(10 x 2 x 3) = 60, x 15
+    expect(line(4, {})).toBe(1200);
+  });
+
+  it("STEPPED with `mult_step_divisor: 3` -- 3 runs bills 1x, 4 runs bills 2x", () => {
+    expect(line(1, { mult_step_divisor: 3 })).toBe(300);
+    expect(line(2, { mult_step_divisor: 3 })).toBe(300);
+    expect(line(3, { mult_step_divisor: 3 })).toBe(300);
+    expect(line(4, { mult_step_divisor: 3 })).toBe(600); // 2x, NOT 4x
+    expect(line(6, { mult_step_divisor: 3 })).toBe(600);
+    expect(line(7, { mult_step_divisor: 3 })).toBe(900); // 3x
+  });
+
+  it("ABSENT MEANS 1 still holds -- the point_wiring goldens depend on it", () => {
+    const noRuns = runPipeline("p", installPipe({ mult_step_divisor: 3 }), PW_ITEMS, PW1); // no wire1_runs at all
+    expect(noRuns.status).not.toBe("no_match");
+    expect(lineOf(noRuns, "wire1")).toBe(300);
+  });
+
+  it("THE TRACE SHOWS THE WORKING -- a stepped multiplier must never be silent arithmetic", () => {
+    const r = runPipeline("p", installPipe({ mult_step_divisor: 3 }), PW_ITEMS, { ...PW1, wire1_runs: 4 });
+    const mc = r.steps.find((s) => s.produced?.key === "wire1")?.matchedCondition;
+    expect(mc).toBe("rate 40 x qty 15 (wire1_runs 4 -> ceil(4/3) = 2x)");
+  });
+
+  it("NEGATIVE -- a stage with NO divisor emits NO note (the string is unchanged)", () => {
+    const r = runPipeline("p", installPipe({}), PW_ITEMS, { ...PW1, wire1_runs: 4 });
+    expect(r.steps.find((s) => s.produced?.key === "wire1")?.matchedCondition).toBe("rate 80 x qty 15");
+  });
+});
+
+describe("RULING 2 -- the step function on a `scale` param (wiring_cabling cable install)", () => {
+  const scalePipe = (params: Record<string, number | string>): Pipeline => ({
+    output: ["install_per_mtr"],
+    steps: [
+      { step: "match_master_row", params: { kind: "cable" } },
+      { step: "scale", target: "install_base_per_mtr", result: "install_per_mtr", params: { install_markup: 1.0 }, formula: "base*(1+install_markup)" },
+      { step: "roundup", target: "install_per_mtr", params: { digits: 0 } },
+      { step: "scale", target: "install_per_mtr", result: "install_per_mtr", params, formula: "base*runs" },
+    ],
+  });
+  const LINEAR = { runs_from_attr: "runs" };
+  const STEPPED = { runs_from_attr: "runs", runs_step_divisor: 3 };
+
+  it("LINEAR without the divisor -- g1 install 20, x3 = 60 (byte-identical to ext-b)", () => {
+    expect(runPipeline("p", scalePipe(LINEAR), ITEMS, sel("COPPER", "UNARMOURED", 1.0, 6.0, 3)).finals)
+      .toEqual({ install_per_mtr: 60 });
+  });
+
+  it("STEPPED -- 3 runs bills 1x (20), 4 runs bills 2x (40), 7 runs bills 3x (60)", () => {
+    const at = (runs: number) =>
+      runPipeline("p", scalePipe(STEPPED), ITEMS, sel("COPPER", "UNARMOURED", 1.0, 6.0, runs)).finals.install_per_mtr;
+    expect(at(1)).toBe(20);
+    expect(at(3)).toBe(20);
+    expect(at(4)).toBe(40);
+    expect(at(6)).toBe(40);
+    expect(at(7)).toBe(60);
+  });
+
+  it("the divisor is applied in a SECOND pass -- key ORDER cannot change the answer", () => {
+    const reversed = { runs_step_divisor: 3, runs_from_attr: "runs" };
+    expect(runPipeline("p", scalePipe(reversed), ITEMS, sel("COPPER", "UNARMOURED", 1.0, 6.0, 4)).finals)
+      .toEqual({ install_per_mtr: 40 });
+  });
+
+  it("NEGATIVE -- `scale`'s HONEST NO-COMPUTE is NOT softened by the divisor", () => {
+    // The divisor must never rescue a missing source attribute into a 1. scale hard-fails here (and
+    // deliberately differs from a rate stage's absent-means-1); that divergence must survive.
+    const noRuns = { material: "COPPER", insulation: "UNARMOURED", core: 1.0, thickness_sqmm: 6.0 };
+    const r = runPipeline("p", scalePipe(STEPPED), ITEMS, noRuns);
+    expect(r.status).toBe("no_match");
+    expect(r.finals).toEqual({});
+  });
+
+  it("THE TRACE SHOWS THE WORKING on this site too, from the SAME formatter", () => {
+    const r = runPipeline("p", scalePipe(STEPPED), ITEMS, sel("COPPER", "UNARMOURED", 1.0, 6.0, 4));
+    const last = r.steps[r.steps.length - 1];
+    expect(last.matchedCondition).toBe("runs 4 -> ceil(4/3) = 2x");
+  });
+
+  it("NEGATIVE -- no divisor param emits NO note", () => {
+    const r = runPipeline("p", scalePipe(LINEAR), ITEMS, sel("COPPER", "UNARMOURED", 1.0, 6.0, 4));
+    expect(r.steps[r.steps.length - 1].matchedCondition).toBeUndefined();
   });
 });
 

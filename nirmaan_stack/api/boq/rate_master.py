@@ -1330,6 +1330,9 @@ def _vthrow(msg):
 
 
 _FROM_ATTR_SUFFIX = "_from_attr"
+# RULING 2 (owner 2026-08-09): the `scale`-param half of the step function. Mirrors the interpreter's
+# STEP_DIVISOR_SUFFIX -- keep the two strings identical or a config saves here and does nothing there.
+_STEP_DIVISOR_SUFFIX = "_step_divisor"
 
 
 def _validate_params(params, where):
@@ -1354,6 +1357,20 @@ def _validate_params(params, where):
             if not isinstance(v, str) or not v.strip():
                 _vthrow(
                     f"{where}: parameter '{k}' must be a non-empty attribute id (a string)."
+                )
+            continue
+        # RULING 2: `<ident>_step_divisor` pairs with `<ident>_from_attr` and turns that binding into
+        # the STEP FUNCTION (ceil(raw / divisor)). It is a NUMBER, so the generic rule below would
+        # already accept it -- but only a POSITIVE one does anything: the interpreter treats zero or
+        # negative as "no divisor" and binds the raw value, so a typo would silently ship a linear
+        # multiplier wearing a stepped config. Both halves are checked here.
+        if isinstance(k, str) and k.endswith(_STEP_DIVISOR_SUFFIX):
+            if not _is_finite_number(v) or v <= 0:
+                _vthrow(f"{where}: parameter '{k}' must be a positive finite number (a step divisor).")
+            partner = f"{k[: -len(_STEP_DIVISOR_SUFFIX)]}{_FROM_ATTR_SUFFIX}"
+            if partner not in params:
+                _vthrow(
+                    f"{where}: parameter '{k}' needs its '{partner}' partner; on its own it does nothing."
                 )
             continue
         if not _is_finite_number(v):
@@ -1516,6 +1533,25 @@ def _validate_config(cfg):
                                 if not isinstance(mfa, str) or not mfa:
                                     _vthrow(f"{where}: rate_stages[{ri}].mult_from_attr must be an attribute id.")
                                 _ref(mfa, f"{where} (rate_stages[{ri}].mult_from_attr)")
+                            # RULING 2 (owner 2026-08-09): THE STEP FUNCTION. The mult_from_attr factor
+                            # becomes ceil(raw / divisor) -- wire install steps in threes while supply
+                            # and BCS stay linear. It names a NUMBER (no attribute to _ref); its partner
+                            # mult_from_attr is guarded just above. A non-positive divisor is REJECTED:
+                            # the interpreter reads it as "no divisor" and multiplies linearly, so
+                            # accepting it would ship a stage that looks stepped and is not.
+                            msd = stage.get("mult_step_divisor")
+                            if msd is not None:
+                                if not _is_finite_number(msd) or msd <= 0:
+                                    _vthrow(
+                                        f"{where}: rate_stages[{ri}].mult_step_divisor must be a positive finite number."
+                                    )
+                                if mfa is None:
+                                    # A divisor with nothing to divide is inert -- absentMeansOne makes the
+                                    # factor 1 and ceil(1/d) is 1. Catch the orphan at save, not at runtime.
+                                    _vthrow(
+                                        f"{where}: rate_stages[{ri}].mult_step_divisor needs a "
+                                        "'mult_from_attr' to step; on its own it does nothing."
+                                    )
                     q = s.get("qty")
                     if q is not None and not (
                         _is_finite_number(q)
@@ -1687,6 +1723,18 @@ def _validate_config(cfg):
                     if on_none is not None and on_none not in ("computed", "none"):
                         _vthrow(
                             f"{where}: module_fit ladders[{li}].on_none must be 'computed' or 'none'."
+                        )
+                    # RULING 1 (owner 2026-08-09): the module COUNT this ladder falls back to when the
+                    # computed count is ZERO (the back box's 3). It names a NUMBER, never a catalog
+                    # label -- the ladder stays catalog-derived -- so there is no attribute to _ref.
+                    # A non-positive value is REJECTED rather than tolerated: the interpreter treats it
+                    # as "no fallback declared", so accepting it here would let a typo look configured
+                    # while doing nothing at all.
+                    ozm = lad.get("on_zero_modules")
+                    if ozm is not None and (not _is_finite_number(ozm) or ozm <= 0):
+                        _vthrow(
+                            f"{where}: module_fit ladders[{li}].on_zero_modules, when present, "
+                            "must be a positive finite number (a module count)."
                         )
                 blanks = p.get("blanks")
                 if blanks is not None:

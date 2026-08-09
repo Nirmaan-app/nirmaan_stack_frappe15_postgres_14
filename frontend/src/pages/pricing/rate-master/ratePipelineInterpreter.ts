@@ -162,6 +162,44 @@ function substituteFormula(expr: string, env: Record<string, number>): string {
   return out;
 }
 
+/** The param-key suffix pairing a `scale` step's `<ident>_from_attr` binding with a step divisor.
+ * `runs_from_attr: "runs"` + `runs_step_divisor: 3` => the `runs` identifier binds ceil(runs/3). */
+export const STEP_DIVISOR_SUFFIX = "_step_divisor";
+
+/**
+ * RULING 2 (owner 2026-08-09) -- THE STEP FUNCTION, the ONE definition, shared by both sites that can
+ * carry an attribute-bound multiplier (a `component_ref` rate stage and a `scale` param binding) so
+ * they can never drift apart.
+ *
+ *   divisor absent / non-finite / <= 0  ->  the raw factor, UNCHANGED (this is what makes the whole
+ *                                           capability additive: every shipped config is byte-identical)
+ *   divisor d                           ->  ceil(raw / d)
+ *
+ * Three runs of wire is three times the WIRE but not three times the LABOUR: 1-3 runs bill one unit of
+ * install, 4-6 two, 7-9 three. **The divisor is CONFIG, never hardcoded** (the `module_fit` `terms`
+ * precedent) -- 3 is this ruling's number and another category may want another.
+ *
+ * ⚠️ NEVER A SILENT ZERO. The floor at 1 is EXPLICIT rather than incidental: callers only ever pass a
+ * positive raw factor (absentMeansOne guarantees it), so the ceiling is already >= 1 for every real
+ * input -- but a multiplier that could round DOWN to nothing would delete a line's labour silently,
+ * which is the one failure this must not have. The epsilon mirrors roundUp()'s: without it a
+ * float-imprecise exact multiple (6/3) could tip to the next rung and bill 3x for 6 runs.
+ *
+ * PURE.
+ */
+export function stepFactor(raw: number, divisor?: number): number {
+  if (typeof divisor !== "number" || !Number.isFinite(divisor) || divisor <= 0) return raw;
+  const stepped = Math.ceil(raw / divisor - 1e-9);
+  return stepped >= 1 ? stepped : 1;
+}
+
+/** THE WORKING, as one line: `wire1_runs 4 -> ceil(4/3) = 2x`. A price must show how it was built, and
+ * a stepped multiplier is exactly the kind of quiet arithmetic that otherwise looks like a wrong rate.
+ * Written by BOTH consumers from this one formatter. PURE; display only, never a parsing contract. */
+function stepFactorNote(attr: string, raw: number, divisor: number, factor: number): string {
+  return `${attr} ${fmtNum(raw)} -> ceil(${fmtNum(raw)}/${fmtNum(divisor)}) = ${fmtNum(factor)}x`;
+}
+
 /** Apply one rate stage's optional roundup. `up0` = ROUNDUP to units, `up-1` = to tens; absent => unrounded. */
 function roundByMode(x: number, mode?: "up0" | "up-1"): number {
   if (mode === "up0") return roundUp(x, 0);
@@ -192,9 +230,20 @@ function stageRate(
   base: number,
   stages: import("./rateMasterTypes").RateStage[] | undefined,
   selected: Record<string, string | number>,
+  notes?: string[],
 ): number {
   let r = base;
-  for (const st of stages ?? []) r = roundByMode(r * st.mult * absentMeansOne(selected, st.mult_from_attr), st.round);
+  for (const st of stages ?? []) {
+    // RULING 2: absentMeansOne resolves the factor EXACTLY as before (so an absent runs attribute is
+    // still 1), and the step divisor then transforms it. With no divisor stepFactor is the identity,
+    // so this line is arithmetically byte-identical to the pre-ruling one.
+    const raw = absentMeansOne(selected, st.mult_from_attr);
+    const factor = stepFactor(raw, st.mult_step_divisor);
+    if (notes && st.mult_from_attr && st.mult_step_divisor !== undefined) {
+      notes.push(stepFactorNote(st.mult_from_attr, raw, st.mult_step_divisor, factor));
+    }
+    r = roundByMode(r * st.mult * factor, st.round);
+  }
   return r;
 }
 
@@ -542,12 +591,28 @@ export function runPipeline(
         });
         continue;
       }
+      // RULING 2: the STEP FUNCTION, applied in a SECOND pass over the params. It must not ride inside
+      // the binding loop above -- object key order is not a contract, so a divisor listed before its
+      // `_from_attr` partner would silently do nothing. Every binding is present by now, so this pass
+      // can never miss one. With no `_step_divisor` param it does nothing and `env` is untouched.
+      const stepNotes: string[] = [];
+      for (const [pk, pv] of Object.entries(s.params ?? {})) {
+        if (!pk.endsWith("_from_attr")) continue;
+        const ident = pk.slice(0, -"_from_attr".length);
+        const divisor = (s.params ?? {})[`${ident}${STEP_DIVISOR_SUFFIX}`];
+        if (typeof divisor !== "number") continue;
+        const raw = env[ident];
+        const factor = stepFactor(raw, divisor);
+        env[ident] = factor;
+        stepNotes.push(stepFactorNote(String(pv), raw, divisor, factor));
+      }
       const value = evalFormula(s.formula, env);
       ctx[s.result] = value;
       steps.push({
         step: stepType,
         label: s.explain || "scale",
         params: s.params,
+        ...(stepNotes.length ? { matchedCondition: stepNotes.join("; ") } : {}),
         produced: { key: s.result, value },
         runningValues: snapshot(),
       });
@@ -827,6 +892,46 @@ export function runPipeline(
       const ladderOutcomes: import("./rateMasterTypes").ModuleFitLadderOutcome[] = [];
       for (const L of p?.ladders ?? []) {
         if (noModules) {
+          // RULING 1 (owner 2026-08-09) -- THE ZERO-MODULE FALLBACK, **STATE A ONLY**.
+          // A light point on an MCB carries no switch and no socket, so nothing fits any ladder and the
+          // back box was suppressed along with the plate. But a light point still needs a junction box.
+          // A ladder may declare the module COUNT it falls back to here; the CATALOG still names the
+          // rung, so this resolves through the ordinary fit (exact, else next higher) and retiring a
+          // size needs no config edit.
+          //
+          // ⚠️ THIS IS THE ONLY PLACE THE KEY IS READ, WHICH IS WHAT CONFINES IT TO STATE A. A row whose
+          // plate is "None" but whose module count is NON-ZERO never reaches this branch -- it is
+          // already served correctly by `on_none: "computed"` below, and letting the fallback fire there
+          // would DOWNGRADE a correctly-sized box (7 modules -> 8M) to the fallback size.
+          //
+          // ⚠️ It does NOT gate on `back_box`. The component's own `qty: {if_attr: {back_box: "Yes"}}`
+          // is where that question is already answered; asking it twice would be two definitions of one
+          // rule. With back_box "No" the label binds, the qty is 0, and the line is 0 exactly as before.
+          const zeroFit =
+            typeof L.on_zero_modules === "number" && Number.isFinite(L.on_zero_modules) && L.on_zero_modules > 0
+              ? L.on_zero_modules
+              : null;
+          if (zeroFit !== null) {
+            const rungs = buildModuleLadder(items, L);
+            if (!rungs.length) {
+              return bail(`ladder '${L.bind}' (${L.kind}) has no catalog rows -- no value computed`);
+            }
+            const fit = fitModuleLadder(rungs, zeroFit);
+            if (!fit) {
+              const top = rungs[rungs.length - 1];
+              return bail(
+                `${fmtNum(zeroFit)} modules exceeds the largest '${L.bind}' the catalog carries (${top.label}) -- no value computed`
+              );
+            }
+            fitLabels[L.bind] = fit.label;
+            fittedByBind[L.bind] = fit.modules;
+            if (L.bind_modules) ctx[L.bind_modules] = fit.modules;
+            ladderParts.push(
+              `${L.bind} ${fit.label} (nothing to fit -- default ${fmtNum(zeroFit)})${fit.exact ? "" : " (next higher)"}`
+            );
+            ladderOutcomes.push({ bind: L.bind, floorFrom: L.floor_from, label: fit.label, modules: fit.modules, absent: false });
+            continue;
+          }
           // Nothing to fit on ANY ladder. Bind the None sentinel so a `none_skips` component reading
           // this ladder ("@box_item") resolves to positive absence and zeroes its line -- WITHOUT it
           // the "@" reference is simply unbound, which aborts the whole pipeline on a missing bind
@@ -1062,14 +1167,19 @@ export function runPipeline(
           });
           return { pipelineId, outputs: pipeline.output, status: "no_match", steps, finals: {}, matchedItem, note: pipeline.note };
         }
-        const rate = stageRate(base, s.rate_stages, selected);
+        // RULING 2: `stageNotes` is filled ONLY by a stage carrying a step divisor, so a config without
+        // one produces the identical `rate N x qty M` string it always did.
+        const stageNotes: string[] = [];
+        const rate = stageRate(base, s.rate_stages, selected, stageNotes);
         const value = rate * qty;
         components[s.name] = value;
         steps.push({
           step: stepType,
           label: s.explain || `component: ${s.name}`,
           refItem: refLabel,
-          matchedCondition: `rate ${fmtNum(rate)} x qty ${fmtNum(qty)}`,
+          matchedCondition:
+            `rate ${fmtNum(rate)} x qty ${fmtNum(qty)}` +
+            (stageNotes.length ? ` (${stageNotes.join("; ")})` : ""),
           produced: { key: s.name, value },
           runningValues: { ...snapshot(), ...componentEntries(components) },
         });

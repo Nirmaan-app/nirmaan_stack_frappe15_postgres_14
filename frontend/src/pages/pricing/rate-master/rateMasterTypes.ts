@@ -88,6 +88,12 @@ export interface ScaleStep {
   // EA-1: a param key ending in `_from_attr` carries an ATTRIBUTE ID (string) whose selected value is
   // bound into the formula under the key's base name (e.g. `kva_from_attr: "kva"` -> bind `kva`).
   // Plain numeric params are bound by their exact name.
+  //
+  // RULING 2: a param key `<ident>_step_divisor` (a NUMBER) pairs with `<ident>_from_attr` and turns
+  // that binding into the STEP FUNCTION -- `ceil(raw / divisor)` instead of the raw value. Same
+  // capability as RateStage.mult_step_divisor, same shared helper, so the two cannot drift. ABSENT =>
+  // the raw binding, byte-identical. It does NOT soften this site's honest no-compute: a missing or
+  // non-numeric source attribute still refuses the pipeline BEFORE the divisor is ever consulted.
   params: Record<string, number | string>;
   formula: string;
   explain?: string;
@@ -131,6 +137,18 @@ export interface RateStage {
    * stage without this key is byte-identical. Distinct from `scale`'s `<ident>_from_attr`, which
    * hard-fails to an honest no-compute; see absentMeansOne() for why the two deliberately differ. */
   mult_from_attr?: string;
+  /** RULING 2 (owner 2026-08-09) -- THE STEP FUNCTION. When present, the `mult_from_attr` factor is
+   * not used raw: it becomes `ceil(raw / mult_step_divisor)`. Three runs of wire is three times the
+   * WIRE but not three times the LABOUR, so install steps in threes (1-3 -> 1x, 4-6 -> 2x, 7-9 -> 3x)
+   * while SUPPLY and BCS keep multiplying linearly.
+   *
+   * THE DIVISOR IS CONFIG, NEVER HARDCODED (the `module_fit` `terms` precedent) -- three is THIS
+   * ruling's rule, and another category may want another number.
+   *
+   * ABSENT => the raw factor, so every shipped stage is BYTE-IDENTICAL. It composes with, and does
+   * not replace, absentMeansOne: an absent/non-numeric runs attribute still resolves to 1 first, and
+   * ceil(1/d) is 1. The result can never be 0 -- see stepFactor(). */
+  mult_step_divisor?: number;
   round?: "up0" | "up-1";
 }
 /** The quantity multiplier for an assembly component_ref: a literal, a selected attribute, a circuit_fit
@@ -270,6 +288,29 @@ export interface ModuleLadderSpec {
    * the computed count -- the back box's rule, since a back box can exist with no face plate.
    * UNAFFECTED by the take-the-larger ruling. */
   on_none?: "computed" | "none";
+  // RULING 1 (owner 2026-08-09) -- THE ZERO-MODULE FALLBACK. **STATE A ONLY.**
+  //
+  // A light point wired straight to an MCB carries no switch and no socket, so the weighted sum is 0,
+  // so NOTHING fits any ladder and the back box is suppressed along with the plate. But a light point
+  // still needs a junction box. This names the module count THIS ladder fits when the computed count
+  // is ZERO -- 3 for the back box, resolved on the ladder like any other count.
+  //
+  // ⚠️ IT IS A COUNT, NOT A LABEL. The catalog names the rung ("3M"); config names only the number, so
+  // the ladder stays catalog-derived and retiring a size flows through with no config edit -- the same
+  // reason `ladders` carries no size list.
+  //
+  // ⚠️ STATE B IS OUT OF SCOPE AND STRUCTURALLY UNREACHABLE FROM HERE. A row with `plate_item: "None"`
+  // but a NON-ZERO module count already gets a correctly-sized box from `on_none: "computed"`, and
+  // this key is read ONLY on the zero-count path, so it can never fire there. A reading that let it
+  // would be a DOWNGRADE -- a 7-module row correctly boxed at 8M would drop to 3M.
+  //
+  // ⚠️ IT DOES NOT GATE ON `back_box`. The component's own `qty: {if_attr: {back_box: "Yes"}, ...}`
+  // already answers that question; a second gate here would be a second definition of the same rule.
+  // With `back_box: "No"` the ladder binds a label nobody prices and the line is 0, exactly as before.
+  //
+  // ABSENT => positive absence for this ladder, byte-identical to slice 2. The PLATE ladder must never
+  // declare it: with nothing on it there is no plate.
+  on_zero_modules?: number;
 }
 
 // SLICE 2: compute a module count, then resolve it against catalog ladders.

@@ -11608,7 +11608,8 @@
       "target": "install_per_mtr",
       "result": "install_per_mtr",
       "params": {
-       "runs_from_attr": "runs"
+       "runs_from_attr": "runs",
+       "runs_step_divisor": 3
       },
       "formula": "base*runs",
       "explain": "cable install scales the raw install_base rate, NOT supply, so it needs its own runs multiplier"
