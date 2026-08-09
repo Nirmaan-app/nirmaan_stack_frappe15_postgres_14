@@ -115,8 +115,11 @@ import {
   isRateDescriptor,
   isTakeoverError,
   orderCommittedSheets,
+  pruneSelectionToEligible,
   shouldExitFullscreenOnEsc,
   stepHit,
+  suggestConfirmCopy,
+  toggleRowSelection,
   type PricingGridHandle,
 } from "./PricingGrid";
 import type { BatchOutcome, BatchWrite } from "./clipboard";
@@ -237,6 +240,9 @@ interface ClassifyStatusResponse {
 }
 // HV-10: a stable empty catalog record for the default (no catalogs fetched) case.
 const EMPTY_CATALOGS: Record<string, EngineCatalog> = {};
+// SELECTED-ROW runs: a module-level empty selection so a reset cannot mint a new identity per
+// render and churn the memoized grid (the EMPTY_FILTER_SET precedent).
+const EMPTY_SELECTION: ReadonlySet<number> = new Set<number>();
 
 /**
  * HV-10: fetch ONE discipline's category catalog and report it up. Rendered once per ran-discipline
@@ -562,6 +568,10 @@ const SheetPricingPage = () => {
     message: {
       run: { run_id: string; committed_version: number; ai_status: string; results: SuggestRunResultRow[]; run_at?: string; status?: string } | null;
       partial_run?: PartialSuggestRun | null;
+      /** SELECTED-ROW runs: the excel rows the suggest run ACCEPTS (assemble_population's own
+       *  output). THE server is the single source -- see PricingGrid's tickableRows doc for why a
+       *  client-side copy would be a fifth, drifting definition of "eligible". */
+      eligible_rows?: number[];
     };
   }>(
     "nirmaan_stack.api.boq.rate_master.get_active_suggestion_run",
@@ -943,6 +953,12 @@ const SheetPricingPage = () => {
   // SR-1: reuses the modal's own summary type so the run-lifecycle keys (run_status / halt_reason /
   // attempted_count) stay declared in ONE place rather than drifting between page and modal.
   const [suggestSummary, setSuggestSummary] = useState<SuggestModalSummary | null>(null);
+  // SELECTED-ROW runs. The selection lives HERE, at page level, for two reasons: the button that
+  // consumes it is a page control, and the grid must receive only per-row BOOLEANS. The COUNT
+  // derived below is used by the page's own confirmation and is NEVER passed to PricingGrid -- a
+  // count changes on every tick and would re-render all ~1,093 rows.
+  const [selectedRows, setSelectedRows] = useState<ReadonlySet<number>>(EMPTY_SELECTION);
+  const [suggestConfirmOpen, setSuggestConfirmOpen] = useState(false);
   const suggestRunningRef = useRef(false);
   suggestRunningRef.current = suggestRunning;
   const usedPairsRef = useRef<Set<string>>(new Set());
@@ -1108,6 +1124,10 @@ const SheetPricingPage = () => {
     // RM-3: the run + used-pairs are per-sheet; the persistence effect re-adopts the new sheet's
     // active run (version-keyed) and its Use events after the fetches land.
     setSuggestRun(null);
+    // SELECTED-ROW runs: ticks are per-sheet AND session-only (they clear on reload because they
+    // live in component state and are never persisted).
+    setSelectedRows(EMPTY_SELECTION);
+    setSuggestConfirmOpen(false);
     usedPairsRef.current = new Set();
     setReviewOpen(false); // Slice 4a: the review-list strip is per-sheet
     setShowDismissed(false); // Slice 4b-ACKNOWLEDGE: the show-dismissed toggle is per-sheet
@@ -2254,10 +2274,39 @@ const SheetPricingPage = () => {
     [mutateActiveRun, mutateSuggestEvents],
   );
 
+  // ── SELECTED-ROW runs: the eligible set, the tick handler, and the confirmation ──────
+  // The SERVER's run-eligible rows. Reference-stable per fetch (a Set built from the payload), so
+  // handing it to the memoized grid does not churn it.
+  const eligibleRows = useMemo<ReadonlySet<number>>(
+    () => new Set(activeRunData?.message?.eligible_rows ?? []),
+    [activeRunData],
+  );
+  // A re-classify can drop a row out of the population while it sits ticked. The server REJECTS a
+  // selection containing such a row (it refuses the whole request rather than silently narrowing
+  // it), so pruning here is what keeps the confirmation's count honest. pruneSelectionToEligible
+  // returns the SAME reference when nothing changed, so this cannot loop.
+  useEffect(() => {
+    if (!RATE_HELPER_ENABLED) return;
+    setSelectedRows((prev) => (prev.size === 0 ? prev : pruneSelectionToEligible(prev, eligibleRows)));
+  }, [eligibleRows]);
+
+  const handleToggleTick = useCallback((excelRow: number) => {
+    setSelectedRows((prev) => toggleRowSelection(prev, excelRow));
+  }, []);
+
+  // The count the CONFIRMATION quotes. Page-local, never a grid prop.
+  const selectedCount = selectedRows.size;
+  const confirmCopy = useMemo(
+    () => suggestConfirmCopy(selectedCount, eligibleRows.size),
+    [selectedCount, eligibleRows],
+  );
+
   // ASYNC press: enqueue the run, open the blocking modal; the poll/socket drive it to terminal.
   // SR-1: pass resumeRunId to CONTINUE a partial run -- the server fills only its pending rows and
   // completes the SAME run doc, so a halted run is finished rather than restarted from scratch.
-  const runSuggestRates = useCallback(async (resumeRunId?: string) => {
+  // SELECTED-ROW runs: pass only_rows to re-extract JUST the ticked rows; every other row is
+  // carried forward byte-identically by the server into the new run document.
+  const runSuggestRates = useCallback(async (resumeRunId?: string, onlyRows?: number[]) => {
     setHelperPanel(null);
     setSuggestSummary(null);
     setSuggestProgress(null);
@@ -2268,12 +2317,20 @@ const SheetPricingPage = () => {
         boq: boqId,
         sheet_name: sheetName,
         ...(resumeRunId ? { resume_run_id: resumeRunId } : {}),
+        ...(onlyRows && onlyRows.length ? { only_rows: JSON.stringify(onlyRows) } : {}),
       });
     } catch {
       setSuggestRunning(false);
       setSuggestSummary({ status: "error" });
     }
   }, [startSuggestCall, boqId, sheetName]);
+
+  // The confirmed press. NOTHING is sent until the user accepts the dialog -- this is the ONLY
+  // path from the "Suggest rates" button to an AI call.
+  const confirmSuggestRates = useCallback(() => {
+    setSuggestConfirmOpen(false);
+    void runSuggestRates(undefined, selectedCount > 0 ? [...selectedRows].sort((a, b) => a - b) : undefined);
+  }, [runSuggestRates, selectedRows, selectedCount]);
 
   // SR-1: the resumable partial for this sheet, version-keyed exactly like the active run.
   const partialSuggestRun = useMemo<PartialSuggestRun | null>(() => {
@@ -3257,11 +3314,21 @@ const SheetPricingPage = () => {
               variant="outline"
               className="gap-1.5"
               disabled={suggestRatesDisabled}
-              onClick={() => void runSuggestRates()}
-              title={suggestRatesReason ?? "Suggest rates for editable rows"}
+              onClick={() => setSuggestConfirmOpen(true)}
+              title={
+                suggestRatesReason ??
+                (selectedCount > 0
+                  ? `Suggest rates for ${selectedCount} selected row${selectedCount === 1 ? "" : "s"}`
+                  : "Suggest rates for the whole sheet")
+              }
             >
               <Sparkles className="h-4 w-4" />
               Suggest rates
+              {selectedCount > 0 && (
+                <span className="ml-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-primary/15 px-1 text-[10px] font-semibold leading-none text-primary">
+                  {selectedCount}
+                </span>
+              )}
             </Button>
           )}
 
@@ -3499,6 +3566,40 @@ const SheetPricingPage = () => {
           }}
           onResume={partialSuggestRun ? resumeSuggestRun : undefined}
         />
+      )}
+      {/* SELECTED-ROW runs: THE confirmation before ANY AI call. There is no other path from the
+          "Suggest rates" button to a run. The copy is the PURE suggestConfirmCopy so both branches
+          are unit-testable; the whole-sheet branch carries the overwrite WARNING and renders its
+          action destructively, so a stray click cannot launch a full re-extraction. */}
+      {RATE_HELPER_ENABLED && (
+        <AlertDialog open={suggestConfirmOpen} onOpenChange={setSuggestConfirmOpen}>
+          <AlertDialogContent data-testid="suggest-confirm">
+            <AlertDialogHeader>
+              <AlertDialogTitle>{confirmCopy.title}</AlertDialogTitle>
+              <AlertDialogDescription asChild>
+                <div className="space-y-2">
+                  <p>{confirmCopy.body}</p>
+                  {confirmCopy.warning && (
+                    <p className="font-medium text-destructive">{confirmCopy.warning}</p>
+                  )}
+                </div>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={confirmSuggestRates}
+                className={
+                  confirmCopy.wholeSheet
+                    ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    : undefined
+                }
+              >
+                {confirmCopy.confirmLabel}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       )}
       {/* SR-1: a partial run must stay resumable ACROSS a reload -- the modal only exists for the
           session that produced it, but the partial is persisted on the run doc. This strip is the
@@ -4130,6 +4231,13 @@ const SheetPricingPage = () => {
             // value" (like categoriesByExcelRow) -- never on keystroke, so the memo shield holds.
             rowSuggestionsByExcelRow={RATE_HELPER_ENABLED ? suggestionsByExcelRow : undefined}
             onSuggestionBadgeClick={RATE_HELPER_ENABLED ? handleSuggestionBadgeClick : undefined}
+            tickableRows={RATE_HELPER_ENABLED ? eligibleRows : undefined}
+            selectedRows={RATE_HELPER_ENABLED ? selectedRows : undefined}
+            onToggleTick={
+              RATE_HELPER_ENABLED && !suggestRatesDisabled && eligibleRows.size > 0
+                ? handleToggleTick
+                : undefined
+            }
             // F3: the amount-column formula header label + builder. columnFormulas drives the
             // `f = ...` label; onSaveFormula is withheld when locked (header renders read-only).
             columnFormulas={columnFormulas}

@@ -204,9 +204,147 @@ def _guard_suggest_gate(boq, sheet_name, committed_version):
         frappe.throw("Every eligible row needs a category first.", title="Category gate")
 
 
+# ══════════════════════════════════════════════════════════════════════════════════════
+# SELECTED-ROW RUNS (only_rows) -- scope the PROCESSING, never the population.
+#
+# ⚠️ THE INVERSION, recorded so it is never re-derived the short way. The natural
+# implementation -- narrowing assemble_population to the ticked rows -- is the DESTRUCTIVE
+# one: population_rows then equals the ticked set, `complete` evaluates True, `active` flips
+# to 1, the prior run is deactivated, and the new active run contains ONLY those rows. Every
+# unselected row silently loses its extraction, its badge and its "Use this value". The other
+# naive shape (filter the processed rows but leave the population whole) ends status=partial /
+# active=0, is never adopted by the editor, and offers a "Resume" that would re-extract the
+# whole sheet -- exactly what this feature exists to prevent.
+#
+# The correct shape, and the only one implemented here:
+#   * assemble_population is UNTOUCHED -- population_rows is ALWAYS the whole sheet, so it
+#     stays the completeness yardstick (extraction.run_extraction:1041 relies on this).
+#   * run_extraction gains an `only_rows` PROCESSING filter (positive polarity).
+#   * the run doc is a NEW document SEEDED with the prior active run's untouched rows, carried
+#     across byte-identically, so `complete` is reached honestly and the supersede is safe.
+# ══════════════════════════════════════════════════════════════════════════════════════
+
+
+def normalize_only_rows(raw):
+    """`only_rows` -> a sorted list of unique ints, or None when ABSENT/EMPTY.
+
+    POSITIVE POLARITY, deliberately: a tick box says "DO THESE". `skip_rows` (the SR-1 resume
+    lever) says "don't do these" and is derived server-side from a done-marker; inverting a tick
+    set on the client would force the client to reproduce the server's population definition,
+    which is precisely the fifth-definition drift this slice avoids.
+
+    An ABSENT or EMPTY value returns None, which every downstream branch reads as "whole sheet",
+    so the unscoped path stays byte-identical to pre-slice behaviour. Accepts a JSON string (the
+    shape frappe-react-sdk posts), a list, or a single scalar. A non-integer member is a hard
+    error -- silently dropping one would run fewer rows than the confirmation named. Pure.
+    """
+    if raw is None or raw == "":
+        return None
+    # Only a STRING is JSON. _parse_json would hand a bare int straight to json.loads and raise a
+    # TypeError instead of the named "not a row number" error this function promises.
+    value = _parse_json(raw, None) if isinstance(raw, str) else raw
+    if value is None or value == "" or (isinstance(value, (list, tuple, set)) and not value):
+        return None
+    if not isinstance(value, (list, tuple, set)):
+        value = [value]
+    out = set()
+    for item in value:
+        try:
+            out.add(int(item))
+        except (TypeError, ValueError):
+            frappe.throw(
+                f"Selected row '{item}' is not a row number.", title="Bad selection"
+            )
+    return sorted(out) or None
+
+
+def _population_rows(boq, sheet_name):
+    """The excel_row set the suggest run ACCEPTS -- assemble_population's own output, read (never
+    re-derived). This is the ONE server definition the tick boxes follow; the editor's badge set
+    (rate-editable) is deliberately WIDER and must never be used for selection."""
+    _cv, rows = extraction.assemble_population(boq, sheet_name)
+    return {int(r["excel_row"]) for r in rows}
+
+
+def _carry_source_run(boq, sheet_name, committed_version):
+    """The run a SCOPED pass carries its untouched rows forward from: the sheet's single active
+    run, pinned to the CURRENT committed version and genuinely COMPLETE. Returns the row dict or
+    None.
+
+    Version-pinned for the same reason the resume is: a run made against an earlier committed
+    version describes rows that may since have changed, so carrying it forward would launder stale
+    values into a document that claims to describe the current sheet."""
+    rows = frappe.get_all(
+        RUN_DOCTYPE,
+        filters={"boq": boq, "sheet_name": sheet_name, "active": 1},
+        fields=["name", "run_id", "status", "committed_version", "results", "attempted_rows"],
+        order_by="creation desc",
+        limit=1,
+    )
+    if not rows:
+        return None
+    run = rows[0]
+    if run.get("committed_version") != committed_version:
+        return None
+    if (run.get("status") or "complete") != "complete":
+        return None
+    return run
+
+
+def _guard_only_rows(boq, sheet_name, cv, only, resume_run_id):
+    """Everything a SELECTED-ROW run must satisfy before a single token is spent. Throws with a
+    named, actionable message on each failure; returns nothing.
+
+    REJECT, not ignore (owner choice, recorded): a row the client sends that is not in the real
+    population means the client's eligible set is STALE -- someone re-classified, or the category
+    gate moved -- and the confirmation the user just accepted named a count that is no longer
+    true. Running the survivors would honour a number nobody agreed to. Refusing is loud,
+    cheap and recoverable (reload, re-tick); silently dropping is the failure mode this whole
+    slice exists to remove."""
+    if resume_run_id:
+        frappe.throw(
+            "A resume continues a halted run's own pending rows, so it cannot also take a row "
+            "selection. Resume the partial run, or start a fresh selected-row run.",
+            title="Resume and selection are exclusive",
+        )
+
+    # AI must be ON. A scoped pass with AI off returns BLANK attributes for every selected row
+    # (extraction fails closed) AND would stamp ai_status="disabled" onto a document whose carried
+    # rows were extracted with AI on -- mislabelling the whole document. Refuse before that.
+    from nirmaan_stack.api.boq.wizard.ai_settings import (
+        get_boq_ai_api_key,
+        get_boq_ai_settings,
+    )
+
+    if not get_boq_ai_settings().get("enabled") or not get_boq_ai_api_key():
+        frappe.throw(
+            "AI extraction is off, so a selected-row run would blank the rows you picked. "
+            "Turn AI on in Settings first.",
+            title="AI is off",
+        )
+
+    if not _carry_source_run(boq, sheet_name, cv):
+        frappe.throw(
+            "There is no completed suggestion run for this sheet to carry the untouched rows "
+            "forward from. Run the whole sheet once first, then re-run individual rows.",
+            title="Nothing to carry forward",
+        )
+
+    population = _population_rows(boq, sheet_name)
+    unknown = sorted(set(only) - population)
+    if unknown:
+        shown = ", ".join(str(x) for x in unknown[:10])
+        more = f" (and {len(unknown) - 10} more)" if len(unknown) > 10 else ""
+        frappe.throw(
+            f"These rows are not part of this sheet's suggestion population: {shown}{more}. "
+            "The sheet may have been re-classified since you picked them -- reload and try again.",
+            title="Rows not eligible",
+        )
+
+
 # ── Run skeleton ────────────────────────────────────────────────────────────────────
 @frappe.whitelist(methods=["POST"])
-def start_suggest(boq=None, sheet_name=None, resume_run_id=None):
+def start_suggest(boq=None, sheet_name=None, resume_run_id=None, only_rows=None):
     """Enqueue a background rate-suggestion (attribute extraction) run for one committed sheet.
     Returns immediately. Re-checks the D8 gate server-side. URL:
     /api/method/nirmaan_stack.api.boq.rate_master.start_suggest
@@ -216,6 +354,13 @@ def start_suggest(boq=None, sheet_name=None, resume_run_id=None):
     (same run_id) -- it never spawns a second run. The D8 gate and the committed-version keying are
     re-checked here exactly as for a fresh run, so a partial whose sheet has since been re-committed
     is refused rather than resumed against rows that may have changed.
+
+    SELECTED-ROW runs: pass `only_rows` (a list of excel row numbers, or its JSON string) to
+    re-extract JUST those rows. Every other row is carried forward BYTE-IDENTICALLY from the
+    sheet's current active run into a NEW document -- see _open_run_doc. ABSENT or EMPTY
+    `only_rows` behaves exactly as before this slice: a whole-sheet run, no carry-forward, no
+    extra query. `only_rows` is validated against assemble_population here and REJECTED (never
+    silently narrowed) if it names a row the run does not accept.
     """
     _require_login()
     if not boq:
@@ -229,6 +374,12 @@ def start_suggest(boq=None, sheet_name=None, resume_run_id=None):
     if cv is None:
         frappe.throw(f"No current committed sheet '{sheet_name}' for this BoQ.", title="Sheet not committed")
     _guard_suggest_gate(boq, sheet_name, cv)
+
+    # Normalise FIRST: an empty selection is indistinguishable from none, and both mean
+    # "whole sheet" -- so the guards below never run on the unscoped path (G6).
+    only = normalize_only_rows(only_rows)
+    if only is not None:
+        _guard_only_rows(boq, sheet_name, cv, only, resume_run_id)
 
     if resume_run_id:
         _validate_resume_target(boq, sheet_name, cv, resume_run_id)
@@ -251,11 +402,19 @@ def start_suggest(boq=None, sheet_name=None, resume_run_id=None):
         boq=boq,
         sheet_name=sheet_name,
         resume_run_id=resume_run_id,
+        only_rows=only,
     )
     frappe.cache().delete_value(_s_status_key(boq, sheet_name))
     _s_set_marker(boq, sheet_name, raw_job_id, user)
     frappe.db.commit()
-    return {"status": "queued", "job_id": raw_job_id, "resumed_run_id": resume_run_id or None}
+    return {
+        "status": "queued",
+        "job_id": raw_job_id,
+        "resumed_run_id": resume_run_id or None,
+        # Echo the ACCEPTED selection so the caller can prove the server agreed with its ticks.
+        "only_rows": only,
+        "scoped_row_count": len(only) if only is not None else None,
+    }
 
 
 def _validate_resume_target(boq, sheet_name, cv, resume_run_id):
@@ -291,11 +450,33 @@ def _validate_resume_target(boq, sheet_name, cv, resume_run_id):
 # and intentional for THIS doctype: BoQ Rate Suggestion Run is track_changes:0, so there is no
 # Version audit to bypass (unlike the rate-master editing endpoints, where set_value is FORBIDDEN
 # precisely because it would skip the audit). set_value also keeps a per-batch checkpoint cheap.
-def _open_run_doc(boq, sheet_name, cv, job_id, user, resume_run_id):
+def _open_run_doc(boq, sheet_name, cv, job_id, user, resume_run_id, only_rows=None):
     """Resolve the run doc a pass will write into: either the partial being RESUMED (same doc, same
     run_id -- never a second doc) or a freshly created one at status=running / active=0.
 
-    Returns (run_name, run_id, prior_results, prior_attempted)."""
+    Returns (run_name, run_id, prior_results, prior_attempted).
+
+    ⚠️ CARRY-FORWARD (owner-ruled): a SELECTED-ROW pass (`only_rows`) seeds the NEW document with
+    the sheet's current active run's rows, so the rows it does not touch survive into the document
+    that supersedes it. NOTHING IS EDITED IN PLACE. The owner's reasoning, recorded so it is not
+    re-litigated: a merged run's `run_at` and `ai_status` stop describing the rows and start
+    describing the last touch, and the previous values are destroyed -- while this arc has
+    repeatedly depended on comparing a row's before against its after. The rest of the module
+    already works this way (committed sheets, category assignments, config revisions all supersede
+    rather than mutate).
+
+    ⚠️ BYTE-IDENTITY, not "still present". The carried rows are handed on as the EXACT objects
+    parsed out of the prior document and are never re-derived -- `_corroborate` / `_row_result`
+    run only for rows the pass actually extracts. Because the `results` column is postgres `json`
+    (NOT `jsonb`, so submitted text is stored verbatim), every writer uses `json.dumps` with
+    default separators, Python preserves parsed key order, and every write re-emits the array
+    `sorted(...)` by excel_row, an untouched row's serialised text -- values, `confidence`,
+    `corroborated` and critically `defaulted` -- comes out character-for-character identical.
+
+    ⚠️ Carry-forward is scoped to `only_rows` DELIBERATELY. A whole-sheet run has no untouched
+    rows to carry, and seeding one would change today's partial semantics (a halted whole-sheet
+    run would silently inherit the old run's rows instead of reporting them pending). Absent
+    `only_rows` this function is byte-identical to pre-slice behaviour."""
     if resume_run_id:
         rows = frappe.get_all(
             RUN_DOCTYPE,
@@ -319,6 +500,16 @@ def _open_run_doc(boq, sheet_name, cv, job_id, user, resume_run_id):
         # The target vanished between the endpoint's validation and here -- fall through and start
         # a fresh run rather than losing the request entirely.
 
+    # CARRY-FORWARD seed (selected-row runs only). Seeded AT INSERT so the document is never a
+    # lie about what it holds: if this pass dies before its first checkpoint, the doc already
+    # carries the rows it inherited (and stays active=0, so the prior run keeps serving the editor).
+    carried_results, carried_attempted = [], []
+    if only_rows:
+        source = _carry_source_run(boq, sheet_name, cv)
+        if source:
+            carried_results = _parse_json(source.get("results"), [])
+            carried_attempted = _parse_json(source.get("attempted_rows"), [])
+
     run_id = resume_run_id or job_id or frappe.generate_hash(length=32)
     doc = frappe.new_doc(RUN_DOCTYPE)
     doc.boq = boq
@@ -327,13 +518,32 @@ def _open_run_doc(boq, sheet_name, cv, job_id, user, resume_run_id):
     doc.run_id = run_id
     doc.status = "running"
     doc.ai_status = ""
-    doc.results = "[]"
-    doc.attempted_rows = "[]"
+    doc.results = serialize_run_results(carried_results) if carried_results else "[]"
+    doc.attempted_rows = json.dumps(sorted(int(x) for x in carried_attempted)) if carried_attempted else "[]"
     doc.run_by = user
     doc.active = 0  # never supersede a prior COMPLETE run until this one completes
     doc.insert(ignore_permissions=True)
     frappe.db.commit()
-    return doc.name, run_id, [], []
+    return doc.name, run_id, carried_results, carried_attempted
+
+
+def serialize_run_results(rows):
+    """THE single serialisation of a run's `results` array. Every writer goes through it.
+
+    ⚠️ THIS FUNCTION IS THE BYTE-IDENTITY GUARANTEE, so its three properties are load-bearing and
+    none may be "tidied":
+      1. `json.dumps` with DEFAULT separators -- adding indent= or sort_keys= would re-emit every
+         untouched row with the same VALUES but different TEXT, passing a "still present" check
+         and failing byte-identity silently.
+      2. sorted by excel_row -- so a carried row lands in the same position it occupied before, and
+         a merge can never reorder the array.
+      3. the row dicts are passed through UNTOUCHED -- never rebuilt, never re-derived. Python
+         preserves the key order json.loads produced, so a parsed-then-redumped row emits its keys
+         in the original order, floats round-trip through shortest-repr exactly, and the optional
+         `defaulted` flag rides along inside the attribute cell it belongs to.
+    The `results` column is postgres `json` (NOT `jsonb`), so the submitted text is stored verbatim
+    and these three properties survive the round trip to disk. Pure -- unit-tested."""
+    return json.dumps(sorted(rows, key=lambda r: int(r["excel_row"])))
 
 
 def _write_run_progress(run_name, acc_results, acc_attempted):
@@ -341,7 +551,7 @@ def _write_run_progress(run_name, acc_results, acc_attempted):
     frappe.db.set_value(
         RUN_DOCTYPE, run_name,
         {
-            "results": json.dumps([acc_results[k] for k in sorted(acc_results)]),
+            "results": serialize_run_results(acc_results.values()),
             "attempted_rows": json.dumps(sorted(acc_attempted)),
         },
         update_modified=False,
@@ -353,11 +563,28 @@ def _finalise_run(run_name, cv, ai_status, merged, acc_attempted, complete, halt
                   boq, sheet_name):
     """Terminal state for a pass. COMPLETE flips active=1 and supersedes the prior active run --
     that is the ONLY moment a run becomes the live one. A PARTIAL stays active=0, so the previously
-    completed run remains what the editor reads."""
+    completed run remains what the editor reads.
+
+    WHAT THE RUN-LEVEL FIELDS MEAN ON A SELECTED-ROW (partial-scope) RUN -- stated because a
+    carry-forward document holds rows from more than one pass, and a field that quietly changed
+    subject would be the silent regression this slice exists to prevent:
+
+      * `run_at`   -- when THIS DOCUMENT's pass finished. It describes the document, NOT every row
+                      in it: carried rows were extracted earlier, by the document this one
+                      superseded. That prior document is retained (active=0) with its own run_at
+                      intact, so the older timestamp is never destroyed -- which is exactly why the
+                      owner ruled for a new document over an in-place merge.
+      * `ai_status`-- the status of THIS pass's AI calls. It is honest for the rows this pass
+                      extracted and says nothing about carried rows. A scoped run can only reach
+                      here with AI ON (_guard_only_rows refuses otherwise), so it cannot stamp
+                      "disabled" over a document whose carried rows were extracted with AI on.
+      * `attempted_rows` -- the rows this DOCUMENT has results for (carried + newly extracted),
+                      never "the rows this pass touched". That is the meaning both consumers
+                      already require: the completeness test below, and the resume's skip set."""
     values = {
         "committed_version": cv,
         "ai_status": ai_status,
-        "results": json.dumps(merged),
+        "results": serialize_run_results(merged),
         "attempted_rows": json.dumps(sorted(acc_attempted)),
         "status": "complete" if complete else "partial",
         "halt_reason": None if complete else halt_reason,
@@ -384,7 +611,7 @@ def _mark_run_failed(run_name, halt_reason):
     )
 
 
-def _suggest_worker(boq=None, sheet_name=None, user=None, resume_run_id=None):
+def _suggest_worker(boq=None, sheet_name=None, user=None, resume_run_id=None, only_rows=None):
     """Background worker: run extraction, WRITE the Suggestion Run doc (prior active -> active=0) at
     terminal SUCCESS, commit BEFORE publish, record + publish the terminal payload. On failure,
     records a terminal error payload and clears the marker (never left stuck)."""
@@ -410,11 +637,25 @@ def _suggest_worker(boq=None, sheet_name=None, user=None, resume_run_id=None):
         # is load-bearing: a running or partial run must NEVER supersede a prior COMPLETE run --
         # get_active_suggestion_run keeps returning the good one until this one truly completes.
         run_name, run_id, prior_results, prior_attempted = _open_run_doc(
-            boq, sheet_name, cv, job_id, user, resume_run_id
+            boq, sheet_name, cv, job_id, user, resume_run_id, only_rows=only_rows
         )
 
         acc_results = {int(r["excel_row"]): r for r in prior_results}
         acc_attempted = set(prior_attempted)
+
+        # SELECTED-ROW scoping. `scope` is the positive set this pass must process.
+        #
+        # ⚠️ The skip set must EXCLUDE the scope, or nothing runs. On a scoped pass acc_attempted
+        # is seeded with the CARRIED run's attempted rows -- which already contains the selected
+        # rows, because the carry source is a COMPLETE run. Passing it straight through as
+        # skip_rows (the pre-slice behaviour) would skip precisely the rows the user ticked.
+        # Subtracting the scope is what makes "re-run these" mean re-run rather than no-op.
+        #
+        # A RESUME of a halted scoped run passes no scope and needs no special case: its
+        # acc_attempted holds the carried rows plus whatever the halted pass finished, so
+        # population - attempted resolves to exactly the selected rows still pending.
+        scope = {int(x) for x in only_rows} if only_rows else None
+        pending_skip = (acc_attempted - scope) if scope is not None else acc_attempted
 
         def _checkpoint(row_results, attempted_now):
             """Persist one completed batch. This is the whole point of SR-1: the work survives a
@@ -428,7 +669,8 @@ def _suggest_worker(boq=None, sheet_name=None, user=None, resume_run_id=None):
             boq, sheet_name,
             progress_cb=_progress,
             checkpoint_cb=_checkpoint,
-            skip_rows=sorted(acc_attempted),
+            skip_rows=sorted(pending_skip),
+            only_rows=sorted(scope) if scope is not None else None,
         )
         cv = env["committed_version"]
         ai_status = env["ai_status"]
@@ -479,6 +721,9 @@ def _suggest_worker(boq=None, sheet_name=None, user=None, resume_run_id=None):
             "attempted_count": len(acc_attempted),
             "population_count": len(population) or len(acc_attempted),
             "halt_reason": env.get("halt_reason"),
+            # How many rows THIS pass was scoped to (None on a whole-sheet run), so the editor can
+            # report "4 rows re-extracted" rather than implying the whole sheet was re-rolled.
+            "scoped_row_count": len(scope) if scope is not None else None,
         }
     except Exception:
         # NOTE: deliberately NO frappe.db.rollback() here. Every checkpoint was committed as it was
@@ -571,6 +816,19 @@ def get_active_suggestion_run(boq=None, sheet_name=None):
         p["results"] = _parse_json(p.get("results"), [])
         p.pop("attempted_rows", None)
         out["partial_run"] = p
+
+    # SELECTED-ROW runs: the excel rows this sheet's suggest run ACCEPTS, so the editor can offer a
+    # tick box on exactly those and nowhere else.
+    #
+    # ⚠️ IT COMES FROM THE SERVER BECAUSE FOUR DEFINITIONS OF "ELIGIBLE" EXIST and they disagree by
+    # real numbers: the priceable master set (node_type in {Line Item, Preamble}), priceability's
+    # priceable LINE (qty in a rate-column area), the rate-editable set the badges render on (Line
+    # Item always + qty-bearing Preamble), and THIS one -- rate-editable AND a non-blank resolved
+    # category AND that category having an eligible rate config. On the reference sheet those are
+    # 164 / 139 / 94. A client-side copy would be a fifth definition, free to drift from the run's
+    # actual acceptance the first time eligibility changes -- and the drift would present as ticks
+    # the run silently ignores. Additive key; a client that ignores it is unaffected.
+    out["eligible_rows"] = sorted(_population_rows(boq, sheet_name))
     return out
 
 

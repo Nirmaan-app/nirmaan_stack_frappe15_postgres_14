@@ -23,6 +23,9 @@ import {
   isMasterSetBlank,
   countMasterSetBlankRows,
   isCategoryGateOpen,
+  toggleRowSelection,
+  pruneSelectionToEligible,
+  suggestConfirmCopy,
   buildOptimisticVerdict,
   colorClassForToken,
   swatchClassForToken,
@@ -1473,5 +1476,94 @@ describe("U1 pins -- the three existing view-filter clauses", () => {
     expect(passes(r, { ...allOff, showNeedsReview: true }, false, { effective_category_id: "x" })).toBe(false);
     // two axes on, both passing -> included
     expect(passes(r, { ...allOff, showOnlyUnpriced: true, showNeedsReview: true }, true, undefined)).toBe(true);
+  });
+});
+
+// ── SELECTED-ROW runs: selection helpers + the confirmation copy ─────────────────────
+//
+// Plain-English coverage. toggleRowSelection is the ONE way a tick changes the selection, so it
+// must be immutable (the grid derives per-row booleans from the reference). pruneSelectionToEligible
+// is what keeps the confirmation's count honest after a re-classify drops a row out of the
+// population -- the server REJECTS such a selection outright rather than narrowing it silently.
+// suggestConfirmCopy is the wording itself: the whole-sheet branch MUST carry the overwrite warning,
+// because that sentence is what a stray click needs to run into.
+
+describe("toggleRowSelection (immutable, keyed by durable excel row)", () => {
+  it("adds a row that is not selected", () => {
+    const out = toggleRowSelection(new Set([16]), 41);
+    expect([...out].sort((a, b) => a - b)).toEqual([16, 41]);
+  });
+
+  it("removes a row that is selected", () => {
+    expect([...toggleRowSelection(new Set([16, 41]), 16)]).toEqual([41]);
+  });
+
+  it("NEVER mutates the input set (the grid compares references)", () => {
+    const before = new Set([16]);
+    const out = toggleRowSelection(before, 41);
+    expect([...before]).toEqual([16]);
+    expect(out).not.toBe(before);
+  });
+
+  it("round-trips: tick then untick returns an equivalent (not identical) empty set", () => {
+    const once = toggleRowSelection(new Set<number>(), 28);
+    expect([...toggleRowSelection(once, 28)]).toEqual([]);
+  });
+});
+
+describe("pruneSelectionToEligible (drops ticks the run would reject)", () => {
+  it("drops a row that is no longer eligible", () => {
+    const out = pruneSelectionToEligible(new Set([16, 99]), new Set([16, 41]));
+    expect([...out]).toEqual([16]);
+  });
+
+  it("returns the SAME reference when nothing was dropped (cannot churn the grid or loop)", () => {
+    const sel = new Set([16, 41]);
+    expect(pruneSelectionToEligible(sel, new Set([16, 41, 99]))).toBe(sel);
+  });
+
+  it("an empty eligible set drops everything", () => {
+    expect([...pruneSelectionToEligible(new Set([16]), new Set<number>())]).toEqual([]);
+  });
+
+  it("an empty selection is returned as-is", () => {
+    const sel = new Set<number>();
+    expect(pruneSelectionToEligible(sel, new Set([16]))).toBe(sel);
+  });
+});
+
+describe("suggestConfirmCopy (the confirmation before ANY AI call)", () => {
+  it("SELECTED branch: names the count and promises the other rows are carried forward", () => {
+    const c = suggestConfirmCopy(4, 94);
+    expect(c.wholeSheet).toBe(false);
+    expect(c.title).toBe("Suggest rates for 4 selected rows?");
+    expect(c.body).toContain("carried forward unchanged");
+    expect(c.confirmLabel).toBe("Run 4 rows");
+    // NEGATIVE: a selected-row run has no overwrite consequence, so it must NOT warn about one
+    expect(c.warning).toBe("");
+  });
+
+  it("SELECTED branch: singular wording for exactly one row", () => {
+    const c = suggestConfirmCopy(1, 94);
+    expect(c.title).toBe("Suggest rates for 1 selected row?");
+    expect(c.confirmLabel).toBe("Run 1 row");
+  });
+
+  it("WHOLE-SHEET branch: names the row count AND carries the overwrite warning", () => {
+    const c = suggestConfirmCopy(0, 94);
+    expect(c.wholeSheet).toBe(true);
+    expect(c.title).toBe("Re-extract the whole sheet (94 rows)?");
+    expect(c.body).toContain("94 eligible rows");
+    // THE product requirement: the sentence a stray click must run into
+    expect(c.warning).toContain("OVERWRITES");
+    expect(c.warning).toContain("already correct");
+    // and it must point at the cheaper alternative
+    expect(c.warning).toContain("tick them");
+    expect(c.confirmLabel).toBe("Re-extract all 94 rows");
+  });
+
+  it("the two branches are distinguishable by `wholeSheet` alone (drives destructive styling)", () => {
+    expect(suggestConfirmCopy(0, 10).wholeSheet).toBe(true);
+    expect(suggestConfirmCopy(1, 10).wholeSheet).toBe(false);
   });
 });

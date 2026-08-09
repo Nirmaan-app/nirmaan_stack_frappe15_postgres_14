@@ -1002,7 +1002,8 @@ def _corroborate(row, row_attrs):
 
 
 # ── the runner ──────────────────────────────────────────────────────────────────────
-def run_extraction(boq, sheet_name, client=None, progress_cb=None, checkpoint_cb=None, skip_rows=None):
+def run_extraction(boq, sheet_name, client=None, progress_cb=None, checkpoint_cb=None, skip_rows=None,
+                   only_rows=None):
     """Assemble the population and extract attributes ACROSS ALL eligible categories (EA-2). Returns
     {committed_version, ai_status, model, results} where results =
     [{excel_row, description, category_id, attributes:{id:{value, confidence, corroborated}}}].
@@ -1020,6 +1021,16 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None, checkpoint_cb
         writes -- the callback owns persistence, exactly as progress_cb owns the Redis marker.
       * skip_rows: excel_rows already attempted by a previous run of THIS run doc; a resume passes
         the persisted attempted_rows so only pending rows are processed.
+
+    SELECTED-ROW addition (`only_rows`, also ADDITIVE -- absent => byte-identical):
+      * only_rows: the POSITIVE processing scope. When given, ONLY these excel_rows are extracted;
+        everything else is left for the caller to carry forward from the run it supersedes.
+        ⚠️ THIS SCOPES THE PROCESSING, NEVER THE POPULATION. `population_rows` below is always
+        computed from the FULL sheet, because it is the completeness yardstick the caller tests
+        `population - attempted` against. Narrowing the population instead is the DESTRUCTIVE
+        implementation: `complete` would then be reachable with only the selected rows present,
+        the run would flip active=1, and every unselected row would silently lose its extraction.
+        assemble_population's own definition is untouched by this parameter.
       * On a halt the loop BREAKS and falls through to the normal results assembly (which already
         tolerates a partial ai_out), returning the additive keys `complete` / `halted` /
         `halt_reason` / `attempted_rows`. ai_status is deliberately NOT widened -- it keeps its own
@@ -1038,8 +1049,15 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None, checkpoint_cb
     # population itself is always recomputed in full so `population_rows` stays the completeness
     # yardstick regardless of how many passes it took.
     skip = {int(x) for x in (skip_rows or [])}
+    # `only` is None (whole sheet) or the positive scope. An EMPTY only_rows is treated as ABSENT,
+    # so an empty selection can never mean "process nothing" by accident.
+    only = {int(x) for x in only_rows} if only_rows else None
+    # ⚠️ ALWAYS the full sheet -- the completeness yardstick, unaffected by either filter.
     population_rows = [r["excel_row"] for r in all_rows]
-    rows = [r for r in all_rows if r["excel_row"] not in skip]
+    rows = [
+        r for r in all_rows
+        if r["excel_row"] not in skip and (only is None or r["excel_row"] in only)
+    ]
 
     def _envelope(ai_status, results, complete=True, halt_reason=None, attempted=None):
         attempted_now = sorted(attempted) if attempted is not None else [r["excel_row"] for r in results]

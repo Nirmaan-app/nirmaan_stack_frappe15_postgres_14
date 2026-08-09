@@ -36,11 +36,34 @@ Coverage map (behavior -> test):
     pipeline_labels) accepted + a pipeline_labels edit audited (Version doc)     -> test_28
   - EA-2c: the earthing config's component_ref step round-trips through the
     RM-4b validator (accepted); a component_ref missing ref.kind is rejected     -> test_29
+
+SELECTED-ROW RUNS (only_rows + the carry-forward write). Plain-English coverage:
+  - normalize_only_rows: JSON string / list / scalar all parse; duplicates collapse
+    and the result is sorted; a NON-INTEGER member is REJECTED, never dropped      -> test_73
+  - G6 PIN: an ABSENT or EMPTY only_rows normalises to None, which every downstream
+    branch reads as "whole sheet" -- the unscoped path is unchanged by this slice   -> test_73
+  - serialize_run_results is THE byte-identity guarantee: re-serialising a parsed
+    blob reproduces the ORIGINAL TEXT character-for-character, `defaulted` flags
+    and float confidences included (POSITIVE); and a formatting-only change to the
+    dump would break it (NEGATIVE, asserted against indent/sort_keys variants)     -> test_74
+  - G5 CARRY-FORWARD: replacing ONE row leaves every OTHER row's serialised text
+    byte-identical -- proven by substring identity, not by parsed-value equality    -> test_75
+  - run_extraction's only_rows scopes the PROCESSING and NEVER the population:
+    population_rows stays the whole sheet while results carry only the scoped rows
+    (POSITIVE); only_rows=None processes everything (NEGATIVE half, the G6 pin)     -> test_76
+  - skip_rows and only_rows COMPOSE -- a row in both is skipped, which is what
+    makes a resume of a halted scoped run finish the right rows                     -> test_77
+  - _guard_only_rows REJECTS (never silently narrows) a row outside the run's
+    population, and names it; a fully-eligible selection passes                     -> test_78
+  - _guard_only_rows refuses resume+only_rows together, and refuses a scoped run
+    when AI is off (it would blank the picked rows) or when there is no completed
+    run to carry forward from                                                       -> test_79
 """
 
 import copy
 import json
 import os
+from unittest import mock
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -1882,3 +1905,219 @@ class TestRateMaster(FrappeTestCase):
                 "%s carries a config-level goldens copy that disagrees with the top-level dict"
                 % cfg["category_id"],
             )
+
+    # ══════════════════════════════════════════════════════════════════════════════════
+    # SELECTED-ROW RUNS -- only_rows + the carry-forward write.
+    # ZERO AI CALLS: every extraction test below drives the fail-closed (AI disabled) path,
+    # which returns blank rows WITHOUT constructing a client or issuing a request. The filter
+    # under test runs before that branch, so the scoping is proven without spending anything.
+    # ══════════════════════════════════════════════════════════════════════════════════
+
+    # A realistic results blob: out of excel_row order on purpose, with a `defaulted` flag, a
+    # float confidence, an int value, a null value and a non-ASCII description -- the shapes a
+    # naive re-serialisation is most likely to alter.
+    CARRY_ROWS = [
+        {"excel_row": 41, "description": "1.5 sqmm FRLS wire — 3 runs", "category_id": "point_wiring",
+         "attributes": {"wire1_core": {"value": 1, "confidence": 0.9, "corroborated": True},
+                        "wire1_runs": {"value": 3, "confidence": 0.85, "corroborated": False,
+                                       "defaulted": True}}},
+        {"excel_row": 16, "description": "6way TPN DB", "category_id": "db_switchgear",
+         "attributes": {"db_shell_item": {"value": "TPN DB 6WAY (DOUBLE DOOR IP 43)",
+                                          "confidence": 0.9, "corroborated": False},
+                        "db_shell_qty": {"value": 1, "confidence": 0.95, "corroborated": False}}},
+        {"excel_row": 28, "description": "6A modular switch", "category_id": "switches_sockets",
+         "attributes": {"plate_item": {"value": None, "confidence": 0.0, "corroborated": False},
+                        "colour": {"value": "WHITE", "confidence": 0.72, "corroborated": False,
+                                   "defaulted": True}}},
+    ]
+
+    def test_73_normalize_only_rows_parses_dedupes_sorts_and_rejects_a_non_integer(self):
+        """POSITIVE: every shape the wire can carry parses to a sorted, deduped int list.
+        NEGATIVE 1 (the G6 PIN): ABSENT or EMPTY -> None, which every downstream branch reads as
+        'whole sheet', so the unscoped path is untouched by this slice.
+        NEGATIVE 2: a non-integer member THROWS. Silently dropping it would run fewer rows than
+        the confirmation the user just accepted named -- the exact class of silent narrowing this
+        slice exists to remove."""
+        n = rate_master.normalize_only_rows
+
+        # POSITIVE -- list, JSON string (what frappe-react-sdk posts), and a bare scalar
+        self.assertEqual(n([28, 16, 41]), [16, 28, 41])
+        self.assertEqual(n("[28, 16, 41]"), [16, 28, 41])
+        self.assertEqual(n(41), [41])
+        self.assertEqual(n(["16", "28"]), [16, 28])          # numeric strings are row numbers
+        self.assertEqual(n([16, 16, 28, 16]), [16, 28])      # duplicates collapse
+
+        # NEGATIVE 1 -- the G6 pin: absent / empty in every spelling means "whole sheet"
+        for absent in (None, "", [], "[]", set()):
+            self.assertIsNone(n(absent), "%r must normalise to None (whole sheet)" % (absent,))
+
+        # NEGATIVE 2 -- a member that is not a row number is REJECTED, and named
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            n([16, "not-a-row"])
+        self.assertIn("not-a-row", str(ctx.exception))
+
+    def test_74_serialize_run_results_is_the_byte_identity_guarantee(self):
+        """POSITIVE: parsing a stored blob and re-serialising it reproduces the ORIGINAL TEXT
+        character-for-character -- `defaulted` flags, float confidences, nulls and non-ASCII
+        included. This is the property the whole carry-forward rests on.
+
+        NEGATIVE: the guarantee is NOT vacuous -- a formatting-only variant of the same values
+        produces DIFFERENT text, which is exactly how a 'tidy-up' of the dump would pass a
+        still-present check while breaking byte-identity."""
+        canonical = rate_master.serialize_run_results(self.CARRY_ROWS)
+
+        # POSITIVE: text -> parse -> text is a fixpoint (the round trip the carry performs)
+        self.assertEqual(rate_master.serialize_run_results(json.loads(canonical)), canonical)
+        # ... and idempotent under repetition (a run may be carried forward many times)
+        again = canonical
+        for _ in range(3):
+            again = rate_master.serialize_run_results(json.loads(again))
+        self.assertEqual(again, canonical)
+
+        # sorted by excel_row regardless of input order
+        self.assertEqual([r["excel_row"] for r in json.loads(canonical)], [16, 28, 41])
+        # the flags that must survive are actually present in the TEXT
+        self.assertEqual(canonical.count('"defaulted": true'), 2)
+        self.assertIn('"confidence": 0.72', canonical)
+        self.assertIn('"value": null', canonical)
+
+        # NEGATIVE: formatting variants are NOT byte-identical -> the property has teeth
+        rows_sorted = sorted(self.CARRY_ROWS, key=lambda r: r["excel_row"])
+        self.assertNotEqual(json.dumps(rows_sorted, indent=2), canonical)
+        self.assertNotEqual(json.dumps(rows_sorted, sort_keys=True), canonical)
+        self.assertNotEqual(json.dumps(rows_sorted, separators=(",", ":")), canonical)
+
+    def test_75_carry_forward_leaves_every_untouched_row_byte_identical(self):
+        """G5, the feature's premise. Simulate what a selected-row pass does to the results array:
+        seed from the prior run, REPLACE exactly one row, re-serialise. Every OTHER row's
+        serialised text must come out byte-identical -- asserted on the TEXT, not on parsed
+        values, because a re-serialisation that preserved the values and lost the `defaulted`
+        flag would pass a parsed comparison and still be the silent regression."""
+        before = rate_master.serialize_run_results(self.CARRY_ROWS)
+
+        # the merge the worker performs: an excel_row-keyed dict, one row overwritten
+        acc = {int(r["excel_row"]): r for r in json.loads(before)}
+        acc[28] = {"excel_row": 28, "description": "6A modular switch", "category_id": "switches_sockets",
+                   "attributes": {"plate_item": {"value": "2M", "confidence": 0.88, "corroborated": False}}}
+        after = rate_master.serialize_run_results(acc.values())
+
+        # every UNTOUCHED row's own serialised fragment survives verbatim in the new text
+        untouched = [r for r in self.CARRY_ROWS if r["excel_row"] != 28]
+        self.assertEqual(len(untouched), 2)
+        for row in untouched:
+            fragment = json.dumps(row)
+            self.assertIn(fragment, before)
+            self.assertIn(fragment, after, "row %s was not carried byte-identically" % row["excel_row"])
+
+        # the ONLY textual difference is the replaced row's fragment
+        old_fragment = json.dumps([r for r in self.CARRY_ROWS if r["excel_row"] == 28][0])
+        new_fragment = json.dumps(acc[28])
+        self.assertEqual(before.replace(old_fragment, new_fragment), after)
+
+        # The CARRIED rows keep their defaulted flag. Row 41 carries one and row 16 does not, so
+        # exactly one survives -- the replaced row 28 legitimately lost its own (it was re-extracted
+        # and the new reading is not a default). Pinning the number, not just ">0", is what would
+        # catch a carry that quietly dropped row 41's flag.
+        self.assertEqual(after.count('"defaulted": true'), 1)
+        self.assertIn('"defaulted": true', json.dumps(json.loads(after)[2]))  # row 41, still flagged
+
+    def _scoped_extraction(self, population, **kwargs):
+        """Drive run_extraction over a synthetic population with AI DISABLED (fail-closed), so the
+        row-selection filter is exercised with ZERO AI calls and no network client is ever built."""
+        rows = [
+            {"excel_row": er, "description": "row %d" % er, "discipline": "TEST_DISC",
+             "category_id": "test_cat", "anc_headers": [], "notes": ""}
+            for er in population
+        ]
+        cfg = {"attribute_definitions": [{"id": "attr_a", "type": "number"}], "pipelines": {"p": {}}}
+        with mock.patch.object(extraction, "assemble_population", return_value=(4, rows)), \
+             mock.patch.object(extraction, "_load_active_configs",
+                               return_value={("TEST_DISC", "test_cat"): cfg}), \
+             mock.patch.object(extraction, "build_attribute_defs",
+                               return_value=[{"id": "attr_a", "type": "number"}]), \
+             mock.patch.object(extraction, "select_prompt_text", return_value=""), \
+             mock.patch("nirmaan_stack.api.boq.wizard.ai_settings.get_boq_ai_settings",
+                        return_value={"enabled": False, "model": "test-model"}):
+            return extraction.run_extraction("TEST_BOQ", "TEST SHEET", **kwargs)
+
+    def test_76_only_rows_scopes_the_processing_and_never_the_population(self):
+        """C2, the load-bearing distinction. POSITIVE: with only_rows the envelope's `results`
+        carry ONLY the scoped rows, while `population_rows` remains the WHOLE sheet -- which is
+        what keeps the caller's completeness test (population - attempted) honest and stops a
+        scoped run from flipping active=1 on its own.
+
+        NEGATIVE half (the G6 pin): only_rows=None processes every row, exactly as before."""
+        population = [10, 16, 28, 33, 41]
+
+        env = self._scoped_extraction(population, only_rows=[16, 41])
+        self.assertEqual(sorted(r["excel_row"] for r in env["results"]), [16, 41])
+        self.assertEqual(sorted(env["population_rows"]), population,
+                         "only_rows must NOT narrow the population -- that is the destructive shape")
+        self.assertEqual(sorted(env["attempted_rows"]), [16, 41])
+
+        # NEGATIVE: absent scope == whole sheet, population unchanged
+        env_all = self._scoped_extraction(population)
+        self.assertEqual(sorted(r["excel_row"] for r in env_all["results"]), population)
+        self.assertEqual(sorted(env_all["population_rows"]), population)
+
+        # an EMPTY selection is treated as ABSENT, never as "process nothing"
+        env_empty = self._scoped_extraction(population, only_rows=[])
+        self.assertEqual(sorted(r["excel_row"] for r in env_empty["results"]), population)
+
+    def test_77_skip_rows_and_only_rows_compose(self):
+        """A resume of a HALTED scoped run relies on this: the rows that pass are the scope MINUS
+        whatever the earlier pass already finished. A row named by both filters is skipped."""
+        population = [10, 16, 28, 33, 41]
+        env = self._scoped_extraction(population, only_rows=[16, 28, 41], skip_rows=[28])
+        self.assertEqual(sorted(r["excel_row"] for r in env["results"]), [16, 41])
+        self.assertEqual(sorted(env["population_rows"]), population)
+
+    def test_78_guard_rejects_a_row_outside_the_population_and_names_it(self):
+        """REJECT, not ignore (owner choice). NEGATIVE: a row the client sends that the run does
+        not accept aborts the whole request and is NAMED, because the confirmation the user just
+        accepted quoted a count that is no longer true. POSITIVE: a fully eligible selection
+        passes the same guard untouched."""
+        with mock.patch.object(rate_master, "_carry_source_run", return_value={"name": "X"}), \
+             mock.patch.object(rate_master, "_population_rows", return_value={16, 28, 41}), \
+             mock.patch("nirmaan_stack.api.boq.wizard.ai_settings.get_boq_ai_settings",
+                        return_value={"enabled": True}), \
+             mock.patch("nirmaan_stack.api.boq.wizard.ai_settings.get_boq_ai_api_key",
+                        return_value="k"):
+            # NEGATIVE -- 99 is not in the population
+            with self.assertRaises(frappe.ValidationError) as ctx:
+                rate_master._guard_only_rows("B", "S", 4, [16, 99], None)
+            self.assertIn("99", str(ctx.exception))
+
+            # POSITIVE -- an eligible selection raises nothing
+            rate_master._guard_only_rows("B", "S", 4, [16, 41], None)
+
+    def test_79_guard_refuses_resume_plus_scope_ai_off_and_no_carry_source(self):
+        """Three NEGATIVE pre-flight refusals, each before a single token is spent:
+        (a) a resume already has its own scope, so it cannot also take a selection;
+        (b) AI off would blank the picked rows AND stamp ai_status='disabled' onto a document
+            whose carried rows were extracted with AI on -- mislabelling the whole document;
+        (c) with no completed run to carry forward from there is nothing to preserve, so the
+            'run the whole sheet once first' boundary is stated rather than silently producing a
+            partial that the editor would never adopt."""
+        ai_on = mock.patch("nirmaan_stack.api.boq.wizard.ai_settings.get_boq_ai_settings",
+                           return_value={"enabled": True})
+        key_on = mock.patch("nirmaan_stack.api.boq.wizard.ai_settings.get_boq_ai_api_key",
+                            return_value="k")
+
+        # (a) resume + only_rows are mutually exclusive -- refused before anything else is read
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            rate_master._guard_only_rows("B", "S", 4, [16], "some-run-id")
+        self.assertIn("selection", str(ctx.exception).lower())
+
+        # (b) AI off
+        with mock.patch("nirmaan_stack.api.boq.wizard.ai_settings.get_boq_ai_settings",
+                        return_value={"enabled": False}), key_on:
+            with self.assertRaises(frappe.ValidationError) as ctx:
+                rate_master._guard_only_rows("B", "S", 4, [16], None)
+            self.assertIn("AI", str(ctx.exception))
+
+        # (c) nothing to carry forward from
+        with ai_on, key_on, mock.patch.object(rate_master, "_carry_source_run", return_value=None):
+            with self.assertRaises(frappe.ValidationError) as ctx:
+                rate_master._guard_only_rows("B", "S", 4, [16], None)
+            self.assertIn("carry", str(ctx.exception).lower())
