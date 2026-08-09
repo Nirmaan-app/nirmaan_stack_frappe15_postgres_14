@@ -20780,3 +20780,144 @@ mocks every write; the run-doc count is unchanged).
 - The halted-scoped message has never been seen on screen; it is pinned by unit test only, and
   seeing it would require an AI request to fail part-way through a scoped run.
 - The tick column still has no select-all / clear-all affordance in its header.
+
+---
+
+## Build slice SCOPEPERSIST -- a halted scoped run resumes SCOPED (2026-08-09)
+
+Branch `feature/boq-pricing-helper`, feat `45153ed7`. Closes the gap the RESUME_SCOPE recon found,
+before it could open in production.
+
+### The gap
+
+`only_rows` was a REQUEST parameter. It reached `start_suggest`, rode `frappe.enqueue` into the
+worker as a local, and **died with the job**. Nothing persisted it, so a resume had no idea the run
+had ever been scoped.
+
+**PROSPECTIVE, not live:** no halted scoped run existed (or exists) in the database. The only halt
+path fires on an unexpected AI failure mid-run, so reaching this state requires a scoped run whose AI
+request fails part-way. That is also why it could never be certified in a browser -- see below.
+
+### ⚠️ The pre-existing behaviour was NOT an over-spend -- it was silent under-delivery
+
+The build brief carried the expectation that a halted scoped run would resume UNSCOPED and re-extract
+~90 rows, overwriting carried ones. **That is not what the shipped code did**, and the correction
+matters because the two failures need different urgency.
+
+`_open_run_doc` seeds a scoped run's `attempted_rows` from the CARRIED complete run, so the document
+already holds the whole population as attempted. On a resume `pending_skip = acc_attempted` = all 94
+-> `population - attempted` = **empty** -> `run_extraction` takes its `if cv is None or not rows:`
+early return, whose envelope carries `complete=True` by default -> the worker computes
+`complete = True and not (94 - 94)` = True -> `_finalise_run` sets `status="complete"`, `active=1`.
+
+So: **0 rows processed, the run declared COMPLETE, the unfinished ticked rows never re-extracted, and
+"Use this value" unlocked.** No spend, no overwrite, no data loss -- and no signal of any kind. The
+fix is identical for both readings, so nothing was lost by the brief's premise being wrong.
+
+### The shape, and why a schema change was unavoidable
+
+A new `scope_rows` JSON field on `BoQ Rate Suggestion Run`. It holds the scoped rows **STILL TO DO**;
+NULL means a WHOLE-SHEET run.
+
+The scope cannot be recovered from anything already stored:
+
+| candidate | why not |
+|---|---|
+| `attempted_rows` | seeded with the carried run's rows, so it is the whole population -- the ticked rows were in it before the pass began |
+| `results` | an UNFINISHED scoped row is byte-identical to the carried row it came from; only the FINISHED ones differ, and those are the ones we do not need |
+| Redis (beside the job marker) | 1-hour TTL; a partial must stay resumable across a reload and across days |
+| `halt_reason` / `run_id` | abusing a typed field to carry structured state |
+
+**Storing the REMAINING scope rather than the original is deliberate:** one shrinking list cannot
+disagree with itself, whereas an original-plus-progress pair can. Nothing needs the original.
+
+### The worker change
+
+`_open_run_doc` resolves the scope in ONE place and returns it as a 5th value:
+
+```
+a FRESH run   -> only_rows           (and persists it, so a later halt is resumable)
+a RESUME      -> whatever scope_rows holds on the document being resumed
+whole-sheet   -> None, in both cases -- every downstream branch byte-identical
+```
+
+The worker no longer computes `scope = {...} if only_rows else None`. **That re-derivation was the
+bug**: on a resume `only_rows` is necessarily None (the endpoint refuses resume + selection), so the
+scope evaporated. The field is rewritten at every checkpoint and at terminal as
+`scope - attempted-this-pass`, so a halt at any point leaves exactly the right remainder.
+
+⚠️ **A stored EMPTY list means "scoped, nothing left" and must NOT collapse to None** -- collapsing
+would reinstate the population fallback this slice removes. Pinned by test.
+
+### ONE SOURCE
+
+`get_active_suggestion_run` surfaces `scope_pending` / `scope_pending_count` **read from the same
+`scope_rows` the worker will process**. Before, the banner's number and the worker's work set were
+computed independently from different data, which is how one could promise 3 and the other deliver
+something else.
+
+⚠️ **The last consumer is NOT wired, and deliberately so.** The durable resume STRIP lives in
+`SheetPricingPage.tsx`, which is OUTSIDE this slice's exclusive file list, so it still shows the
+document-level `attempted_count` ("94 rows were saved"). The unified value is published and ready;
+displaying it is a one-line change in a file this slice was not granted. Reported rather than taken.
+
+### G5 -- the proof (simulated against the live population; no run, no spend)
+
+```
+live population 94 | carry source BRSR-26-00474 attempted 94
+ticked [16,22,30,36] | finished [16,22] | remaining [30,36]
+run doc after the halt -> attempted_rows = 94
+
+BEFORE  scope available to the resume : None
+        rows processed                : 0  []
+        -> marked COMPLETE with [30, 36] never re-extracted
+
+AFTER   scope read from scope_rows    : [30, 36]
+        rows processed                : 2  [30, 36]
+        carried rows re-extracted     : 0
+
+G6      whole-sheet halted run: BEFORE 82 rows, AFTER 82 rows -- identical
+```
+
+### Migration (C3, verified)
+
+`bench --site localhost migrate` ran clean -- **zero patches executed**, so `patches.txt` was never
+needed and was not touched (it carries only another developer's pre-existing edit). Verified after:
+the column exists as `json`/nullable; a sha256 fingerprint over every run document's
+`results` + `attempted_rows` + `status` + `active` is **IDENTICAL before and after**
+(`c39946f8…`); and all 29 existing documents carry `scope_rows` NULL, so every one of them resumes on
+the untouched whole-sheet path.
+
+### Cert
+
+**V1** the three prior slices are undisturbed: endpoint 94 eligible / 94 run rows, tick column 94 ==
+the server population, filter 3 ticked -> 3 visible -> 249, both confirmations verbatim and
+CANCELLED. **V2** an existing partial reads exactly as before (`attempted_count` 66 unchanged; the new
+keys come back `null`, the whole-sheet shape) and its banner is correctly version-filtered off screen
+(cv 2 vs a cv 4 sheet). **V3** preview gate in EDIT MODE, FRESH PAGE LOAD PER CATEGORY, each exited via
+Cancel: switches_sockets (s1, ss1), point_wiring (pw1-pw3), wiring_cabling (g1-g5), db_switchgear
+(dbu1-dbu4) -- all green Save, no changed goldens.
+
+**V4 -- what is proven by SIMULATION ONLY and cannot be seen on screen:** the scoped resume itself.
+Producing a halted scoped run requires an AI request to fail part-way through a scoped run, which
+cannot be staged without spending. **No browser step covered it.** It is proven by the G5 simulation
+plus four unit tests that drive the REAL `_suggest_worker` and the REAL `run_extraction` with AI
+disabled -- the fail-closed path returns one blank row per processed row, so the processing set is
+observable at zero cost.
+
+### Gates
+
+G1 vitest **1,522 -> 1,522** green (no frontend file changed); backend `test_rate_master`
+**82 -> 86** green. G2 `tsc --noEmit` -- zero errors under `boq-wizard/`. G3 **25 goldens**
+untouched, confirmed independently by V3. G4 rows producing a value per category unchanged (the
+endpoint still returns 94/94; nothing on the compute path moved). G5 above. G6 above and pinned by
+`test_85`. G7 zero AI calls; run-doc count unchanged at 29 and the fingerprint identical.
+
+### Still owed / not done
+
+- **The resume strip still quotes the document-level count.** One line in `SheetPricingPage.tsx`
+  (out of scope here) to read `scope_pending_count`.
+- The scoped-resume path has never run for real; it is simulated and unit-tested only.
+- A resume that processes ZERO rows still marks the run complete. With the scope persisted this is
+  now only reachable when the scope is genuinely exhausted, but the general sharp edge --
+  `_envelope`'s `complete=True` default for an empty processing set -- remains.

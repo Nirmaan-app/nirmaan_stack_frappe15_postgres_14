@@ -1003,6 +1003,21 @@ invariants:
   whole-sheet run would make a halted run silently inherit the old rows instead of reporting them
   pending. A scoped run is refused when AI is off (it would blank the picked rows and mislabel the
   document), when a resume is also requested, and when there is no completed run to carry from.
+- **A SCOPED RUN PERSISTS ITS SCOPE, AND A RESUME HONOURS IT (owner-locked).** `only_rows` is a
+  REQUEST parameter: it dies with the request, so a resume that re-derives the scope from it finds
+  nothing and silently falls back to the population — the run forgets it was ever scoped. The scope
+  lives on the run document (`scope_rows`, holding the rows STILL TO DO; NULL = whole-sheet) and is
+  resolved in ONE place, `_open_run_doc`, which returns it for a fresh run and for a resume alike.
+  **It is not recoverable from anything else**: `attempted_rows` is seeded with the carried run's
+  rows so it holds the whole population, and in `results` an unfinished scoped row is byte-identical
+  to the carried row it came from. **A stored EMPTY list means "scoped, nothing left" and must never
+  collapse to None** — that reinstates the fallback. A NULL scope keeps the whole-sheet path
+  byte-identical.
+- **A BANNER'S COUNT AND THE WORK IT TRIGGERS MUST DERIVE FROM ONE VALUE (owner-locked).** Two
+  independent computations over different data is how a control comes to promise one number and
+  deliver another; it is not a wording problem and cannot be fixed by rewording. Where a control
+  offers to do N things, the N it displays and the set the worker processes read the SAME stored
+  field.
 - **A RUN'S `attempted_count` IS DOCUMENT-LEVEL AND CANNOT DESCRIBE ONE PASS (owner-locked).** On a
   carried scoped run `acc_attempted` is SEEDED with the carried run's rows, so `attempted_count`
   counts every row the DOCUMENT has results for — the right number for the completeness test and
