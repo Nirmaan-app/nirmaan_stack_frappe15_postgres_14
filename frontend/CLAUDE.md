@@ -677,6 +677,34 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   - **`GridColumnFilter` deliberately DUPLICATES `RateMasterDataViewer`'s `ColumnFilter` rather than
     importing it** (owner ruling): exporting would couple two independent modules, and the two already
     diverge. Do not "de-duplicate" them.
+- **A COMPLETION MESSAGE REPORTS WHAT RAN, NEVER THE POPULATION (owner-locked).** The suggest-run
+  modal read `summary.results.length` — the whole DOCUMENT (carried + newly extracted) — so a
+  scoped run announced the population and a partial run read as a full one. The pass's own scope
+  rides the terminal payload; the message is built by a PURE, unit-pinned function so each run
+  shape's wording is testable without spending an AI call. **"carried forward unchanged" and "not
+  reached" are NEVER folded together** — they mean different things to someone deciding what to
+  check — and a count that does not apply is OMITTED, never printed as zero. Where the payload
+  cannot support a split (a HALTED SCOPED run: `attempted_count` is document-level there, so
+  "population − attempted" would falsely read zero-missed), the message says what IS known rather
+  than inventing a number. **Never name a single category in this message** — the population spans
+  many, and the old "wiring rows" label was a leftover from when the feature handled only cables.
+- **VIEW FILTERS COMPOSE IN EXACTLY ONE PLACE AND ALWAYS AND (owner-locked).** Every view filter is
+  a clause in `SheetPricingPage.passesViewFilter` — never a second pipeline. **A new clause must
+  ALSO be added to `anyViewFilter`**, because `displayRows` has a `!anyViewFilter` FAST PATH that
+  returns the unfiltered rows: a clause added without it compiles, passes its unit tests, and
+  silently does nothing. Its inputs must join the `displayRows` dependency array for the same
+  reason. **An EMPTY selection is a PASS-THROUGH, never "hide everything".**
+- **A FILTER MUST NEVER HIDE EVERY ROW WITHOUT SAYING WHY.** The ticked-rows toggle carries BOTH
+  guards deliberately: the predicate passes everything through when nothing is ticked, AND the
+  control is DISABLED with a tooltip saying what to do first. The accidental state (untick the last
+  row while filtered) therefore restores the full sheet instead of emptying the grid.
+- **THE TICKED-ROWS FILTER IS A TOGGLE, NOT A VALUE LIST, AND IT READS THE SELECTION SET.**
+  `GridColumnFilter` is built entirely around distinct-VALUE lists (options array, `Set<string>`,
+  type-to-search, membership matching); a thousand row numbers would be a useless list, and bending
+  it would put a search box over two pseudo-options and express a boolean as a set of sentinels. The
+  toggle READS the page's ONE selection set and never duplicates it — which is also what makes
+  unticking while filtered drop the row immediately, with no special case. Only the toggle's own
+  pressed state reaches the grid, and it stays OUT of `pricingRowPropsAreEqual`.
 - **THE TICK BOX FOLLOWS THE RUN'S ELIGIBILITY, NEVER THE BADGE SET (owner-locked).** FOUR
   definitions of "eligible" live in this screen and they disagree: the priceable MASTER SET
   (`isPriceableType`), priceability's priceable LINE (qty in a rate-column area), the RATE-EDITABLE

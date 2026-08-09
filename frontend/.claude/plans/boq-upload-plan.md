@@ -20555,3 +20555,133 @@ G5 above. G6 pinned. G7 zero AI calls, zero config writes, run-doc count unchang
 - Performance was measured on the 249-row reference sheet, not the ~1,093-row largest sheet. The
   result generalises structurally (virtualization keeps ~26 rows in the DOM regardless, and the
   per-tick re-render count is 1 independent of sheet size) but was not measured there.
+
+---
+
+## Build slice TICKFILTER -- the ticked-rows filter + an honest completion message (2026-08-09)
+
+Branch `feature/boq-pricing-helper`, feat `a9b7bcdc`. Two frontend fixes on top of the selected-row
+build.
+
+### Part A -- the completion message reported the POPULATION, not what ran
+
+After a scoped run the owner saw:
+
+> **Suggestions ready**
+> 94 wiring rows extracted -- badges are on the rate cells.
+
+Wrong twice. The number came from `summary.results.length` (`RateSuggestProgressModal.tsx:77`),
+which is the whole DOCUMENT -- carried rows plus newly extracted ones, i.e. the population -- so a
+4-row scoped run reported 94 and a partial run read as a full one. And "wiring" was a stale label
+from when the feature only handled cables: those 94 rows span SEVEN categories (point_wiring,
+switches_sockets, db_switchgear, cabletray_raceway, conduit_piping, wiring_cabling, popup_boxes).
+The selected-row work did not cause either; it made the first one visible.
+
+**No backend change was required.** The worker already publishes `scoped_row_count` (the pass's own
+scope, `null` on a whole-sheet run) -- it was added in the selected-row slice and the client simply
+never declared it. Declaring it on `SuggestStatusResponse` / `SuggestModalSummary` and threading it
+through `onSuggestStatus` was the whole data fix.
+
+**What the payload does and does not support:**
+
+| run shape | re-extracted | carried forward | not reached |
+|---|---|---|---|
+| whole-sheet complete | every document row | n/a (nothing carried) | n/a |
+| scoped complete | `scoped_row_count` | `results.length - scoped_row_count` | n/a |
+| whole-sheet halted | `attempted_count` | n/a | `population_count - attempted_count` |
+| **scoped halted** | **not derivable** | **not derivable** | **not derivable** |
+
+The scoped halt is the one gap: `attempted_count` is DOCUMENT-level (carried rows already count as
+attempted), so `population - attempted` is 0 and would falsely read "nothing missed". The per-pass
+count exists server-side as `env["attempted_rows"]` but is not published. Rather than invent a
+number, that case reports what IS known. Surfacing it would be a one-line backend addition and is
+NOT done here (the brief required stopping and reporting before any backend change).
+
+**Final wording** (pure `suggestCompletionLine`, unit-pinned):
+
+- Whole-sheet complete: `94 rows re-extracted.`
+- Scoped complete: `4 rows re-extracted. 90 rows carried forward unchanged.`
+- Whole-sheet halted: `12 rows re-extracted. 82 rows not reached.`
+- Scoped halted: `The run stopped before finishing the 4 rows you selected. Every other row is
+  carried forward unchanged — resume to finish the rest.`
+- Second line, always: `Badges are on the rate cells.`
+
+**"carried forward unchanged" and "not reached" are NEVER folded together** -- they mean different
+things to someone deciding what to check. A count that does not apply is OMITTED, never printed as
+zero. The "Starting… extracting attributes for wiring rows" line lost "wiring" too.
+
+### Part B -- the filter is a TOGGLE, and deliberately not a GridColumnFilter
+
+**The existing header-filter machinery cannot carry a toggle without being made worse.**
+`GridColumnFilter` is built entirely around distinct-VALUE lists: an `options: ColumnFilterOption[]`
+array, a `ReadonlySet<string>` selection, a type-to-search box, and `passesColumnFilter` as a
+membership test. Carrying a toggle would mean inventing two pseudo-options ("Ticked" / "Not
+ticked"), putting a search box over two items, and expressing a boolean as a set of sentinels. A
+thousand row numbers as a value list would be useless in any case. So the Excel-row header carries a
+dedicated `ListChecks` toggle button instead, and the predicate is the pure `passesTickedFilter`.
+
+**Composition.** It joins `passesViewFilter` as a **FIFTH clause** -- the ONE place view filters
+compose. No second pipeline. AND across axes; OFF (or nothing ticked) is a PASS-THROUGH, the same
+law the value-list filters obey.
+
+**⚠️ `anyViewFilter` had to learn about the new axis.** `displayRows` has a fast path
+(`!anyViewFilter && !collapseActive` returns `rows` unfiltered), so adding the clause alone left the
+toggle silently doing nothing -- the browser cert caught it applying to 249 of 249 rows. The memo's
+dependency array needed `showOnlyTicked` + `selectedRows` for the same reason. Both are recorded
+because the clause looked complete and was not.
+
+**Untick-while-filtered** (owner ruling): the row disappears immediately. That falls out of reading
+the LIVE selection set in the predicate rather than snapshotting it -- there is no special case
+anywhere, and `selectedRows` being a new Set per tick is what makes the memo recompute.
+
+**Empty selection: BOTH guards, deliberately.** The predicate passes everything through (so the full
+sheet returns), AND the toggle is DISABLED while nothing is ticked, with the tooltip "Tick some rows
+first, then filter to just those". An empty grid with no explanation is the worse failure, so the
+state is unreachable by construction rather than merely unlikely.
+
+**Performance.** The selection set already lives at page level from the previous slice and is READ,
+never duplicated. Only the toggle's own pressed state reaches the grid, and it stays OUT of
+`pricingRowPropsAreEqual` -- the filtering happens page-side on the row set, so the memoized row
+never learns about it. No count reaches the row.
+
+**The header toggle's `h-4` + `leading-none` sizing is load-bearing**, not styling: in FROZEN mode
+this header lives in the frozen table while Category lives in the scrolling one, so an affordance
+that changes this cell's height offsets the two panes. It must stay height-neutral in both states.
+
+### Cert (CDP, owner's logged-in Chrome; ZERO AI calls -- "Suggest rates" never pressed)
+
+**V1** four scattered rows ticked `[16, 120, 219, 364]`; filter ON -> exactly those 4 visible, from
+249. With 0 ticked the toggle is present but DISABLED. **V2** unticked 16 while filtered -> it
+vanished immediately, `[120, 219, 364]` remained. **V3** unticked ALL while filtered -> the full 249
+rows returned (never a blank grid) and the toggle went disabled with its explanatory tooltip.
+**V4** ticked-only 4; the Category filter "(Blanks)" alone matches 42; ANDed -> **0** -- a replacing
+filter would have shown 42, so the 0 is the proof it ANDs. **V5** filter OFF -> 249 rows, ticks
+still set (4). **V6** toggling on/off touches ~5 `<tr>` (the row SET is genuinely changing -- that is
+the filter working, not a memo defeat); ticking while filtered touches 1-3; a 10-toggle burst ran in
+796 ms with **0 long tasks**. **V7** reload -> 0 ticks, toggle disabled and unpressed, 249 rows.
+**V8** the message is pinned by 15 unit tests rather than by spending; the SCOPED-COMPLETE and
+SCOPED-HALTED cases cannot be seen live without an AI run, and were deliberately not exercised.
+
+**⚠️ A stale vite transform cost a cert cycle.** After editing `anyViewFilter`, vite served the OLD
+module; a plain `curl` also returned a cached response, which briefly disguised it as a code defect.
+A cache-busted fetch showed the new text, and only a full vite restart plus a CLOSE-the-tab reload
+made the browser take it. A hard reload alone is insufficient -- as the ritual says.
+
+### Gates
+
+G1 vitest 1,491 -> **1,512** green (56 -> 57 files). **No backend suite is implicated** -- `git diff`
+shows no backend source file changed (only the pre-declared `patches.txt` noise), so none was run.
+G2 `tsc --noEmit` -- zero errors in all three in-scope files. G3 **25 goldens** untouched: no asset,
+interpreter or config file is in the diff. G4 rows producing a value per category unchanged for the
+same reason -- this slice adds a view filter and rewrites a string. G5 zero AI calls, zero config
+writes, zero DB writes.
+
+### Still owed / not done
+
+- **The scoped-halt split needs one published number.** `env["attempted_rows"]` (this pass's own
+  rows) exists in the worker and is not in the terminal payload; publishing it would let the halted
+  scoped case report all three counts like the other shapes.
+- The message was verified by unit pin, not by a live run -- seeing the scoped cases on screen costs
+  an AI call.
+- The toggle has no keyboard shortcut and no select-all/clear-all in the header (the latter is still
+  owed from the previous slice).
