@@ -1003,6 +1003,14 @@ invariants:
   whole-sheet run would make a halted run silently inherit the old rows instead of reporting them
   pending. A scoped run is refused when AI is off (it would blank the picked rows and mislabel the
   document), when a resume is also requested, and when there is no completed run to carry from.
+- **A RUN'S `attempted_count` IS DOCUMENT-LEVEL AND CANNOT DESCRIBE ONE PASS (owner-locked).** On a
+  carried scoped run `acc_attempted` is SEEDED with the carried run's rows, so `attempted_count`
+  counts every row the DOCUMENT has results for — the right number for the completeness test and
+  the resume's skip set, and the wrong one for "how much did this pass do". Subtracting it from the
+  population then yields 0, which reads as "nothing missed" precisely when ticked rows were left
+  unfinished. The pass's own set is `env["attempted_rows"]`, published as `pass_attempted_count`;
+  anything reporting what a PASS did must read that. Keep the two names distinct — they answer
+  different questions and collapsing them re-creates the defect silently.
 - **Extraction prompt rulings (owner, `prompts/boq_rate_attr_extraction_prompt.md`):** tolerate spelling
   variants (map to the canonical value), and — for an ARMOURED/UNARMOURED insulation attribute — a FLEXIBLE
   cable is UNARMOURED, and insulation DEFAULTS to UNARMOURED when neither armoured nor unarmoured is stated.

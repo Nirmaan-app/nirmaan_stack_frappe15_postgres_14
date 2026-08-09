@@ -20685,3 +20685,98 @@ writes, zero DB writes.
   an AI call.
 - The toggle has no keyboard shortcut and no select-all/clear-all in the header (the latter is still
   owed from the previous slice).
+
+---
+
+## Build slice PASSCOUNT -- the per-pass count closes the halted-scoped split (2026-08-09)
+
+Branch `feature/boq-pricing-helper`, feat `66f541ed`. The one gap the previous slice logged as owed.
+
+### The gap
+
+A halted SCOPED run was the only shape whose outcome could not be split. The payload's
+`attempted_count` is DOCUMENT-level (`len(acc_attempted)`), and on a scoped run that set is SEEDED
+with the carried run's rows -- so `population - attempted` evaluated to **0** and would have read
+"nothing missed" while ticked rows sat unfinished. The message therefore reported what it knew and
+invented no numbers.
+
+The per-pass set already existed in the worker as `env["attempted_rows"]` (run_extraction builds it
+from the batches that returned). It was simply never published.
+
+### The change
+
+`pass_attempted_count(env)` reads it, and the terminal payload carries it as
+`pass_attempted_count`. That makes the three-way split derivable:
+
+```
+re-extracted    = the pass's own count
+carried forward = document rows - the pass's count      (rows this pass never touched)
+not reached     = the scope     - the pass's count      (ticked rows left unfinished)
+```
+
+A scoped pass that finished 2 of 4 ticked rows against a 94-row carried document now reports:
+
+> **2 rows re-extracted. 92 rows carried forward unchanged. 2 rows not reached.**
+
+**All four message shapes are now covered:**
+
+| shape | line |
+|---|---|
+| whole-sheet complete | `94 rows re-extracted.` |
+| scoped complete | `4 rows re-extracted. 90 rows carried forward unchanged.` |
+| whole-sheet halted | `12 rows re-extracted. 82 rows not reached.` |
+| **scoped halted** | **`2 rows re-extracted. 92 rows carried forward unchanged. 2 rows not reached.`** |
+| scoped halted, LEGACY payload | the previous "stopped before finishing the 4 rows you selected…" |
+
+**"Attempted" is deliberate** and matches what `attempted_count` already means on the whole-sheet
+halt path: a row whose batch RETURNED counts even if the model answered null for it -- we asked.
+Only a row whose batch never completed stays pending. The fail-closed paths (AI disabled / no key)
+report every row as attempted because they return a blank row for each; that is unchanged, and
+cannot reach a SCOPED run at all, because `_guard_only_rows` refuses one while AI is off.
+
+### ADDITIVE AND INERT -- pinned rather than assumed (owner request)
+
+A new payload field should not disturb three cases that already read correctly, and that is exactly
+the kind of thing worth pinning:
+
+- **`test_81` drives the REAL `_suggest_worker`** (DB, AI and enqueue mocked; no writes, no AI call)
+  and asserts the payload's **exact key set** -- the twelve pre-existing keys plus the one new one,
+  on a complete pass and on a halted one. Nothing was renamed, dropped or re-valued.
+- **The three already-correct shapes are asserted BYTE-FOR-BYTE identical with and without the new
+  field present**, both for the wording and for the derived counts. The probe value used is one that
+  would be WRONG if it were ever read on those branches, so a stray read would fail the pin.
+- **A test pins that the field is read on the halted-scoped branch ALONE**: varying it changes that
+  shape's numbers and changes nothing on a complete scoped run.
+- **Backwards compatible**: a payload without the field (any older run, or an older worker) degrades
+  to the previous honest "split unavailable" wording rather than inventing a number.
+
+### Cert
+
+Backend wiring is pinned by `test_81` on the real worker rather than by a live run. The message
+shapes are pinned by 26 unit tests. **The halted-scoped case cannot be produced live without an AI
+request failing part-way, so it was NOT exercised in the browser and nothing was spent.**
+
+Browser regression pass after the backend restart (worker + `--noreload` web + vite all restarted,
+markers checked both directions on the frontend module AND on the live backend module): the endpoint
+still answers (94 eligible / 94 run rows / complete), the tick column still matches the server
+population exactly (94), the ticked-rows filter still narrows and clears (3 ticked -> 3 visible ->
+249), and both confirmations still render correctly and were CANCELLED.
+
+**⚠️ A pattern-kill killed the probe's own shell.** `pgrep -f "frappe worker|serve --port 8000|vite"`
+matched the `bash -c` wrapper running the pattern, so the kill loop terminated itself (exit 143).
+The listed-PID discipline exists for exactly this; resolve PIDs with `ps -eo pid,cmd` and exclude the
+wrapper before killing.
+
+### Gates
+
+G1 vitest 1,512 -> **1,522** green (57 files); backend `test_rate_master` 80 -> **82** green.
+G2 `tsc --noEmit` -- zero errors in every in-scope file. G3 **25 goldens** untouched (no asset,
+interpreter or config file in the diff). G4 rows producing a value per category unchanged -- nothing
+on the compute path moved. G5 zero AI calls, zero config writes, zero DB writes (the worker test
+mocks every write; the run-doc count is unchanged).
+
+### Still owed / not done
+
+- The halted-scoped message has never been seen on screen; it is pinned by unit test only, and
+  seeing it would require an AI request to fail part-way through a scoped run.
+- The tick column still has no select-all / clear-all affordance in its header.

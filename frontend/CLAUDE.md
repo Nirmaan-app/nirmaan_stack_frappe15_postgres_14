@@ -684,9 +684,12 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   shape's wording is testable without spending an AI call. **"carried forward unchanged" and "not
   reached" are NEVER folded together** — they mean different things to someone deciding what to
   check — and a count that does not apply is OMITTED, never printed as zero. Where the payload
-  cannot support a split (a HALTED SCOPED run: `attempted_count` is document-level there, so
-  "population − attempted" would falsely read zero-missed), the message says what IS known rather
-  than inventing a number. **Never name a single category in this message** — the population spans
+  cannot support a split, the message says what IS known rather than inventing a number — that is
+  the fallback, not the target. **The COUNT A MESSAGE NEEDS MUST COME FROM THE PASS, NOT THE
+  DOCUMENT:** a run document accumulates carried rows, so a document-level "attempted" figure
+  answers "what does this document hold", never "what did this pass do", and subtracting it from
+  the population reads as zero-missed exactly when rows were left unfinished. Where both numbers
+  exist, take the per-pass one and derive carried-forward and not-reached from it. **Never name a single category in this message** — the population spans
   many, and the old "wiring rows" label was a leftover from when the feature handled only cables.
 - **VIEW FILTERS COMPOSE IN EXACTLY ONE PLACE AND ALWAYS AND (owner-locked).** Every view filter is
   a clause in `SheetPricingPage.passesViewFilter` — never a second pipeline. **A new clause must
