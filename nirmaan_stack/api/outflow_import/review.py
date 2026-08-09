@@ -24,6 +24,8 @@ TWO ROW STATES ARE NEVER RE-MATCHED:
   * `Settled`  -- an expense was written against this row. Re-matching would strand that audit.
 """
 
+from decimal import Decimal
+
 import frappe
 
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
@@ -43,8 +45,10 @@ from nirmaan_stack.services.outflow_import.status import (
     OPEN_ROW_STATUSES,
     ROW_SETTLED,
     ROW_SKIPPED,
+    StatusTally,
     derive_batch_counters,
     derive_batch_status,
+    derive_import_summary,
     derive_row_outcome,
     sole_suggestion,
 )
@@ -702,6 +706,106 @@ def _refresh_batch_rollup(batch: str) -> list:
     values["status"] = derive_batch_status(statuses)
     frappe.db.set_value(BATCH_DOCTYPE, batch, values, update_modified=False)
     return statuses
+
+
+@frappe.whitelist()
+def get_import_summary(batch: str):
+    """Everything the summary section reports about one import (slice X2).
+
+    ⚠️ ONE `GROUP BY`, NOT A ROW LOOP. This is a count and a sum over every row of an import, which
+    ADR-0010 puts in the database. `get_batch_rows` exists for the rows themselves; using it here
+    would load the whole import to add up two columns, and would get slower every month the feature
+    is used. The pure `derive_import_summary` assembles what the query returns.
+
+    ⚠️ IT DERIVES NOTHING ITSELF. Every count, sum and percentage comes out of `status.py`, which is
+    the only deriver in this feature (ADR-0010 B3). A summary that computed its own numbers could
+    disagree with the tabs directly beneath it, which is worse than showing no summary at all.
+
+    ⚠️ THE AUTO / MANUAL SKIP SPLIT KEYS ON `decided_by`, NOT ON THE REASON TEXT. A skip written at
+    upload carries a system-generated `skip_reason` and no decider; a manual one records the person.
+    That is a fact the database already holds exactly, so it needs no sentence parsed -- the same
+    rule `_related_paid_payments` follows for exactly the same reason.
+    """
+    require_outflow_access()
+    _assert_batch(batch)
+
+    grouped = frappe.db.sql(
+        """
+        SELECT row_status                                        AS status,
+               COUNT(*)                                          AS count,
+               COALESCE(SUM(amount), 0)                          AS value,
+               COALESCE(SUM(CASE WHEN COALESCE(suggested_name, '') <> ''
+                                 THEN 1 ELSE 0 END), 0)          AS with_suggestion,
+               COALESCE(SUM(CASE WHEN COALESCE(suggested_name, '') <> ''
+                                 THEN amount ELSE 0 END), 0)     AS suggested_value,
+               COALESCE(SUM(CASE WHEN COALESCE(decided_by, '') = ''
+                                 THEN 1 ELSE 0 END), 0)          AS undecided_by_a_person
+        FROM "tabOutflow Import Row"
+        WHERE import_batch = %s
+        GROUP BY row_status
+        """,
+        (batch,),
+        as_dict=True,
+    )
+
+    summary = derive_import_summary(
+        StatusTally(
+            status=g["status"] or "",
+            count=int(g["count"] or 0),
+            value=normalize_amount(g["value"]),
+            with_suggestion=int(g["with_suggestion"] or 0),
+            suggested_value=normalize_amount(g["suggested_value"]),
+        )
+        for g in grouped
+    )
+
+    auto_skipped = sum(
+        int(g["undecided_by_a_person"] or 0)
+        for g in grouped
+        if (g["status"] or "") == ROW_SKIPPED
+    )
+
+    meta = frappe.db.get_value(
+        BATCH_DOCTYPE,
+        batch,
+        [
+            "name", "original_filename", "source", "period_from", "period_to",
+            "status", "gross_amount", "charges_amount", "overlaps_batch",
+            "uploaded_by", "uploaded_at", "closed_at", "closed_by", "close_reason",
+        ],
+        as_dict=True,
+    )
+
+    return {
+        "batch": batch,
+        "import": meta,
+        "totals": _jsonable_summary(summary),
+        # Which skips were the system's and which were a person's. The screen labels them
+        # differently because they mean different things: one is bookkeeping, one is a decision.
+        "auto_skipped_rows": auto_skipped,
+        "manually_skipped_rows": max(summary["skipped_rows"] - auto_skipped, 0),
+    }
+
+
+def _jsonable_summary(summary: dict) -> dict:
+    """Decimals to floats for transport, without touching the deriver's own types.
+
+    The pure module works in `Decimal` because money does; the wire does not carry one. Converting
+    HERE rather than in `derive_import_summary` keeps the deriver exact and testable in the type it
+    actually reasons in.
+    """
+    out = {}
+    for key, value in summary.items():
+        if key == "by_status":
+            out[key] = {
+                status: {"count": bucket["count"], "value": float(bucket["value"])}
+                for status, bucket in value.items()
+            }
+        elif isinstance(value, Decimal):
+            out[key] = float(value)
+        else:
+            out[key] = value
+    return out
 
 
 @frappe.whitelist(methods=["POST"])

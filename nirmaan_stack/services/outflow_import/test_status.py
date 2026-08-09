@@ -45,9 +45,11 @@ from nirmaan_stack.services.outflow_import.status import (
     ROW_UNMATCHED,
     TERMINAL_ROW_STATUSES,
     RowOutcome,
+    StatusTally,
     Suggestion,
     derive_batch_counters,
     derive_batch_status,
+    derive_import_summary,
     derive_row_outcome,
     derive_staged_row_outcome,
     sole_suggestion,
@@ -523,6 +525,134 @@ class TestBatchCounters(unittest.TestCase):
         self.assertEqual(counters["settled_rows"], 2)
         self.assertEqual(counters["skipped_rows"], 1)
         self.assertEqual(counters["error_rows"], 1)
+
+
+class TestImportSummary(unittest.TestCase):
+    """`derive_import_summary` -- the numbers the summary section reports (slice X2).
+
+    Its input is ALREADY AGGREGATED by the database: one `StatusTally` per `row_status`. A summary
+    over a whole import is a count and a sum over many rows, which belongs in SQL (ADR-0010), so
+    this module assembles rather than counts.
+    """
+
+    def test_an_empty_import_reports_zeroes_rather_than_nothing(self):
+        """A batch staged and never matched still has to render. Every figure is 0, and crucially
+        `decided_percent` is 0.0 rather than a ZeroDivisionError."""
+        summary = derive_import_summary([])
+        self.assertEqual(summary["total_rows"], 0)
+        self.assertEqual(summary["total_value"], Decimal("0"))
+        self.assertEqual(summary["decided_percent"], 0.0)
+        self.assertEqual(summary["open_rows"], 0)
+
+    def test_every_status_is_present_even_at_zero(self):
+        """⚠️ ZERO-FILLED ON PURPOSE. A screen that renders only the statuses present reads as
+        though the missing ones do not apply. "Unmatched 0" is the most useful cell on the panel --
+        it is the one that says the import has finished finding work."""
+        summary = derive_import_summary([StatusTally(ROW_SETTLED, 3, Decimal("300"))])
+        for status in ROW_STATUSES:
+            self.assertIn(status, summary["by_status"])
+        self.assertEqual(summary["by_status"][ROW_UNMATCHED], {"count": 0, "value": Decimal("0")})
+
+    def test_counts_and_money_both_roll_up(self):
+        summary = derive_import_summary(
+            [
+                StatusTally(ROW_SETTLED, 2, Decimal("5000.50")),
+                StatusTally(ROW_UNMATCHED, 3, Decimal("1200")),
+                StatusTally(ROW_SKIPPED, 1, Decimal("99.49")),
+            ]
+        )
+        self.assertEqual(summary["total_rows"], 6)
+        self.assertEqual(summary["total_value"], Decimal("6299.99"))
+        self.assertEqual(summary["settled_value"], Decimal("5000.50"))
+        self.assertEqual(summary["unmatched_rows"], 3)
+
+    def test_the_open_value_is_summed_not_subtracted(self):
+        """⚠️ THE ARITHMETIC IS IDENTICAL TODAY AND THE FAILURE MODES ARE NOT. Subtracting settled
+        and skipped from the total goes NEGATIVE the moment a status falls outside both sets -- a
+        legacy v2 value on an old row, say. Summing what is genuinely open cannot lie."""
+        summary = derive_import_summary(
+            [
+                StatusTally(ROW_MATCHED, 1, Decimal("100")),
+                StatusTally(ROW_UNMATCHED, 1, Decimal("200")),
+                StatusTally(ROW_SETTLED, 1, Decimal("900")),
+                StatusTally("Reconciled", 4, Decimal("4000")),  # a retired v2 value
+            ]
+        )
+        self.assertEqual(summary["open_value"], Decimal("300"))
+        self.assertGreaterEqual(summary["open_value"], Decimal("0"))
+
+    def test_an_unknown_status_is_carried_into_the_totals_not_dropped(self):
+        """Rows staged under v2 hold retired values. A summary that omitted them would report a
+        total smaller than the import, which is the one number nobody would think to doubt."""
+        summary = derive_import_summary([StatusTally("Reconciled", 4, Decimal("4000"))])
+        self.assertEqual(summary["total_rows"], 4)
+        self.assertEqual(summary["total_value"], Decimal("4000"))
+        self.assertEqual(summary["by_status"]["Reconciled"]["count"], 4)
+
+    def test_decided_counts_only_the_terminal_statuses(self):
+        summary = derive_import_summary(
+            [
+                StatusTally(ROW_SETTLED, 3, Decimal("300")),
+                StatusTally(ROW_SKIPPED, 1, Decimal("100")),
+                StatusTally(ROW_MATCHED, 4, Decimal("400")),
+            ]
+        )
+        self.assertEqual(summary["decided_rows"], 4)
+        self.assertEqual(summary["decided_percent"], 50.0)
+
+    def test_matched_splits_into_confirmable_and_ambiguous(self):
+        """⚠️ THE SPLIT THE BULK CONFIRM IS BUILT ON. A `Matched` row with no stored suggestion is
+        one where the matcher found SEVERAL approved records and deliberately chose none -- it can
+        be listed but never auto-confirmed, because there is nothing to confirm it against."""
+        summary = derive_import_summary(
+            [
+                StatusTally(
+                    ROW_MATCHED, 10, Decimal("10000"),
+                    with_suggestion=7, suggested_value=Decimal("6500"),
+                )
+            ]
+        )
+        self.assertEqual(summary["confirmable_rows"], 7)
+        self.assertEqual(summary["confirmable_value"], Decimal("6500"))
+        self.assertEqual(summary["ambiguous_rows"], 3)
+
+    def test_the_confirmable_value_is_its_own_sum_not_a_share(self):
+        """Three matched rows of 10, 10 and 90,000 where only the last is confirmable are NOT "one
+        third of the value". Apportioning would invent a number; the query sums the subset."""
+        summary = derive_import_summary(
+            [
+                StatusTally(
+                    ROW_MATCHED, 3, Decimal("90020"),
+                    with_suggestion=1, suggested_value=Decimal("90000"),
+                )
+            ]
+        )
+        self.assertEqual(summary["confirmable_value"], Decimal("90000"))
+
+    def test_a_suggestion_outside_matched_never_counts_as_confirmable(self):
+        """A stored suggestion is blanked on every re-run that no longer finds one, but a `Skipped`
+        row could still carry a stale pair from an older code path. Only `Matched` is confirmable --
+        the same gate `sole_suggestion` applies, applied again where the number is reported."""
+        summary = derive_import_summary(
+            [StatusTally(ROW_SKIPPED, 2, Decimal("200"), with_suggestion=2)]
+        )
+        self.assertEqual(summary["confirmable_rows"], 0)
+
+    def test_mismatched_is_reported_even_though_it_is_usually_zero(self):
+        """The owner asked for "matched and mismatched". `Mismatched` fires only when a hand-ticked
+        payment disagrees on amount beyond the settle window, so it is normally 0 -- and the split
+        that carries the WORK is matched vs unmatched. Both are returned; the screen chooses."""
+        summary = derive_import_summary([StatusTally(ROW_MISMATCHED, 1, Decimal("18679"))])
+        self.assertEqual(summary["mismatched_rows"], 1)
+        self.assertEqual(summary["mismatched_value"], Decimal("18679"))
+
+    def test_it_accepts_a_generator(self):
+        """The endpoint passes a genexp straight off the query rows. Consuming the input twice
+        would silently produce an empty summary."""
+        summary = derive_import_summary(
+            StatusTally(s, 1, Decimal("10")) for s in (ROW_SETTLED, ROW_SKIPPED)
+        )
+        self.assertEqual(summary["total_rows"], 2)
 
 
 class TestPurity(unittest.TestCase):

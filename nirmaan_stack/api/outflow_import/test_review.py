@@ -33,6 +33,7 @@ import frappe
 from nirmaan_stack.api.outflow_import.review import (
     MATCH_DOCTYPE,
     get_batch_rows,
+    get_import_summary,
     get_row_candidates,
     match_batch,
     search_settleable_records,
@@ -695,6 +696,101 @@ class TestReadEndpoints(OutflowReviewFixture):
         payload = get_row_candidates(row["name"])
         self.assertTrue(payload["payment_groups"])
         self.assertEqual(payload["payment_groups"][0]["targets"][0]["name"], self.pay_clean)
+
+
+class TestImportSummaryEndpoint(OutflowReviewFixture):
+    """`get_import_summary` -- the aggregate behind the summary section (slice X2).
+
+    ⚠️ ASSERT PARTITIONS AND INVARIANTS, NOT EXACT COUNTS. This suite sees the LIVE ledger, so how
+    many rows land `Matched` depends on what is approved in the database on the day. What must hold
+    whatever the data does is that the numbers add up and agree with the rows they describe.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        match_batch(cls.batch.name)
+
+    def test_the_status_counts_sum_to_the_total(self):
+        summary = get_import_summary(self.batch.name)["totals"]
+        counted = sum(b["count"] for b in summary["by_status"].values())
+        self.assertEqual(counted, summary["total_rows"])
+        self.assertEqual(summary["total_rows"], len(self.parsed.rows))
+
+    def test_open_and_decided_partition_the_import(self):
+        """The two halves the screen shows as "still to do" and "done". If they ever stop summing to
+        the total, a row is in a status neither set recognises and the panel is quietly lying."""
+        summary = get_import_summary(self.batch.name)["totals"]
+        self.assertEqual(summary["open_rows"] + summary["decided_rows"], summary["total_rows"])
+
+    def test_the_money_agrees_with_the_rows_it_describes(self):
+        """Pinned against `get_batch_rows`, which is the other read of the same data. The summary is
+        an aggregate the screen shows ABOVE that table; the two disagreeing would be worse than
+        either being absent."""
+        summary = get_import_summary(self.batch.name)["totals"]
+        rows = get_batch_rows(self.batch.name)["rows"]
+        self.assertAlmostEqual(
+            summary["total_value"], sum(r["amount"] for r in rows), places=2
+        )
+
+    def test_confirmable_never_exceeds_matched_and_ambiguous_is_the_rest(self):
+        summary = get_import_summary(self.batch.name)["totals"]
+        self.assertLessEqual(summary["confirmable_rows"], summary["matched_rows"])
+        self.assertEqual(
+            summary["confirmable_rows"] + summary["ambiguous_rows"], summary["matched_rows"]
+        )
+
+    def test_confirmable_counts_exactly_the_rows_carrying_a_suggestion(self):
+        """The number the bulk-confirm button will show. It must equal the rows that actually store
+        a pick -- if it counted `Matched` instead, the dialog would promise more than it can act on.
+        """
+        summary = get_import_summary(self.batch.name)["totals"]
+        stored = frappe.db.count(
+            ROW_DOCTYPE,
+            {
+                "import_batch": self.batch.name,
+                "row_status": "Matched",
+                "suggested_name": ["is", "set"],
+            },
+        )
+        self.assertEqual(summary["confirmable_rows"], stored)
+
+    def test_the_skip_split_keys_on_the_decider_not_on_the_reason_text(self):
+        """An upload-time skip has a system reason and NO decider; a manual one records the person.
+        That is a fact the database holds exactly, so nothing here parses a sentence."""
+        before = get_import_summary(self.batch.name)
+        self.assertEqual(before["manually_skipped_rows"], 0)
+        self.assertGreater(before["auto_skipped_rows"], 0)  # the fixture's failed + duplicate rows
+
+        row = self._rows_by_transfer_suffix()["0009"]
+        skip_row(row["name"], "settled from the other account")
+
+        after = get_import_summary(self.batch.name)
+        self.assertEqual(after["manually_skipped_rows"], 1)
+        self.assertEqual(after["auto_skipped_rows"], before["auto_skipped_rows"])
+        self.assertEqual(
+            after["auto_skipped_rows"] + after["manually_skipped_rows"],
+            after["totals"]["skipped_rows"],
+        )
+
+    def test_it_carries_the_identity_a_person_recognises_the_import_by(self):
+        """The picker labels imports by file and period, never by the batch id -- which means
+        nothing to an accountant."""
+        payload = get_import_summary(self.batch.name)
+        self.assertEqual(payload["import"]["name"], self.batch.name)
+        self.assertEqual(payload["import"]["original_filename"], "test-statement.csv")
+        self.assertIsNotNone(payload["import"]["period_from"])
+
+    def test_every_money_figure_crosses_the_wire_as_a_number(self):
+        """The deriver works in Decimal because money does; JSON does not carry one. A Decimal that
+        reached the response would serialise as a string and every arithmetic on the screen would
+        silently concatenate."""
+        payload = get_import_summary(self.batch.name)
+        totals = payload["totals"]
+        for key in ("total_value", "open_value", "settled_value", "confirmable_value"):
+            self.assertIsInstance(totals[key], float, key)
+        for bucket in totals["by_status"].values():
+            self.assertIsInstance(bucket["value"], float)
 
 
 class TestTheTierLadderEndToEnd(OutflowReviewFixture):

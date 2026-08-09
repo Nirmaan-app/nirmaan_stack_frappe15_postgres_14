@@ -106,11 +106,13 @@ __all__ = [
     "BATCH_STATUSES",
     "RowOutcome",
     "Suggestion",
+    "StatusTally",
     "derive_staged_row_outcome",
     "derive_row_outcome",
     "sole_suggestion",
     "derive_batch_status",
     "derive_batch_counters",
+    "derive_import_summary",
     "SKIP_REASON_NOT_SUCCESSFUL",
     "SKIP_REASON_ALREADY_IMPORTED",
     "SKIP_REASON_DUPLICATE_IN_FILE",
@@ -459,6 +461,120 @@ def derive_batch_status(row_statuses: Iterable[str]) -> str:
     if terminal_rows:
         return BATCH_PARTIALLY_SETTLED
     return BATCH_IN_REVIEW
+
+
+@dataclass(frozen=True)
+class StatusTally:
+    """One `row_status` group of an import, ALREADY AGGREGATED BY THE DATABASE.
+
+    ⚠️ THE SHAPE IS THE POINT, AND IT IS WHY THIS IS NOT A LIST OF ROWS. A summary over a whole
+    import is a count and a sum over many rows, and ADR-0010 puts those in the database -- one
+    `GROUP BY`, not a `get_all` and a Python loop that gets slower every month the feature is used.
+    So the endpoint aggregates and this module assembles. The deriver stays pure and unit-testable;
+    the query stays a query.
+
+    `with_suggestion` / `suggested_value` count and total the rows in this group carrying the match
+    run's single pick. They are only ever non-zero for `Matched`, and they are what separates "the
+    matcher was sure" from "the matcher found several and deliberately chose none" -- the split the
+    bulk confirm is built on.
+
+    ⚠️ `suggested_value` IS ITS OWN SUM, NOT A SHARE OF `value`. Apportioning the group's total by
+    row count would invent a number: three matched rows of Rs 10, Rs 10 and Rs 90,000 where only the
+    last is confirmable are not "two thirds of the value". The query sums the subset directly, which
+    costs one more `CASE` in a query that was already grouping.
+    """
+
+    status: str
+    count: int
+    value: Decimal = Decimal("0")
+    with_suggestion: int = 0
+    suggested_value: Decimal = Decimal("0")
+
+
+def derive_import_summary(tallies: Iterable[StatusTally]) -> dict:
+    """Everything the summary section reports about ONE import.
+
+    Counts AND money, per status, plus the four derived figures a reviewer actually reads.
+
+    ⚠️ EVERY STATUS IS ZERO-FILLED, on purpose. A screen that renders only the statuses present
+    reads as though the missing ones do not apply, when what they mean is "none of these, right
+    now" -- and "Unmatched 0" is a genuinely useful thing to see, because it is the one that says
+    the import is finished finding work.
+
+    ⚠️ `open_value` IS SUMMED FROM THE OPEN STATUSES, NOT SUBTRACTED FROM THE TOTAL. Subtraction
+    would be arithmetically identical while the statuses partition, and would silently go NEGATIVE
+    the day one does not -- a legacy v2 value on an old row, say. Summing what is actually open
+    cannot lie, and an unrecognised status simply falls out of both sets rather than corrupting one.
+
+    ⚠️ AN UNKNOWN STATUS IS CARRIED, NOT DROPPED. It counts toward the totals and appears in
+    `by_status` under its own name. Rows staged under v2 hold retired values, and a summary that
+    quietly omitted them would report a total smaller than the import.
+    """
+    by_status: dict[str, dict] = {
+        status: {"count": 0, "value": Decimal("0")} for status in ROW_STATUSES
+    }
+    confirmable_rows = 0
+    confirmable_value = Decimal("0")
+
+    total_rows = 0
+    total_value = Decimal("0")
+
+    for tally in tallies:
+        bucket = by_status.setdefault(
+            tally.status, {"count": 0, "value": Decimal("0")}
+        )
+        bucket["count"] += tally.count
+        bucket["value"] += tally.value
+        total_rows += tally.count
+        total_value += tally.value
+        if tally.status == ROW_MATCHED:
+            confirmable_rows += tally.with_suggestion
+            confirmable_value += tally.suggested_value
+
+    def rows(status: str) -> int:
+        return by_status.get(status, {}).get("count", 0)
+
+    def value(status: str) -> Decimal:
+        return by_status.get(status, {}).get("value", Decimal("0"))
+
+    open_rows = sum(rows(s) for s in OPEN_ROW_STATUSES)
+    open_value = sum((value(s) for s in OPEN_ROW_STATUSES), Decimal("0"))
+    decided_rows = sum(rows(s) for s in TERMINAL_ROW_STATUSES)
+
+    return {
+        "total_rows": total_rows,
+        "total_value": total_value,
+        "by_status": by_status,
+        "open_rows": open_rows,
+        # The number a reviewer is actually asking for: how much of this statement is still
+        # unaccounted for. It is the one figure that says whether the import is finished.
+        "open_value": open_value,
+        "decided_rows": decided_rows,
+        "decided_percent": (
+            0.0 if total_rows == 0 else round(decided_rows / total_rows * 100, 1)
+        ),
+        "settled_rows": rows(ROW_SETTLED),
+        "settled_value": value(ROW_SETTLED),
+        "skipped_rows": rows(ROW_SKIPPED),
+        "skipped_value": value(ROW_SKIPPED),
+        "matched_rows": rows(ROW_MATCHED),
+        "matched_value": value(ROW_MATCHED),
+        "unmatched_rows": rows(ROW_UNMATCHED),
+        "unmatched_value": value(ROW_UNMATCHED),
+        # ⚠️ RARE BY DESIGN, AND SHOWN ANYWAY. `Mismatched` fires only when a payment somebody
+        # already ticked Paid by hand disagrees on amount beyond the settle window, so it is
+        # usually 0. The owner asked for "matched and mismatched"; the split that carries the WORK
+        # is matched vs unmatched, and both are returned so the screen can lead with the second
+        # without hiding the first.
+        "mismatched_rows": rows(ROW_MISMATCHED),
+        "mismatched_value": value(ROW_MISMATCHED),
+        "pending_rows": rows(ROW_PENDING_MATCH),
+        "error_rows": rows(ROW_ERROR),
+        # What "Confirm all matched" can actually act on, and what it cannot.
+        "confirmable_rows": confirmable_rows,
+        "confirmable_value": confirmable_value,
+        "ambiguous_rows": max(rows(ROW_MATCHED) - confirmable_rows, 0),
+    }
 
 
 def derive_batch_counters(row_statuses: Sequence[str]) -> dict:

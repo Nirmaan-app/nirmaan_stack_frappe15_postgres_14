@@ -623,6 +623,38 @@ six. Parked with the cost named; it is a one-field slice whenever the owner want
 
 **Migrate: none.**
 
+#### AS BUILT (2026-08-09) — BACKEND ONLY
+
+⚠️ **The summary SECTION (the UI) moved into X3.** It has no page to live on until the master screen
+exists, and building it against the retiring batch page would have meant writing it twice. X2 as
+shipped is the endpoint and the deriver.
+
+- `status.StatusTally` + `status.derive_import_summary(tallies) -> dict`. Input is **already
+  aggregated by the database** — one tally per `row_status` — which is what keeps the count-and-sum
+  in SQL (ADR-0010) while the assembly stays pure and unit-testable.
+- `review.get_import_summary(batch)` runs ONE `GROUP BY row_status` carrying `COUNT`, `SUM(amount)`,
+  and two `CASE` sums for the suggestion subset. Returns `{batch, import, totals, auto_skipped_rows,
+  manually_skipped_rows}`.
+- **`suggested_value` is its own SUM, not a share of the group's total.** Three matched rows of ₹10,
+  ₹10 and ₹90,000 where only the last is confirmable are not "one third of the value" — apportioning
+  would invent a number. Costs one more `CASE` in a query that was already grouping.
+- **`open_value` is summed from the open statuses, never subtracted from the total.** Identical
+  arithmetic today; subtraction goes negative the day a status falls outside both sets (a retired v2
+  value on an old row), and an unknown status is carried into the totals rather than dropped.
+- **The auto/manual skip split keys on `decided_by`, not on the reason text.** An upload-time skip
+  has a system reason and no decider; a manual one records the person. No sentence is parsed — the
+  same rule `_related_paid_payments` follows.
+- `_jsonable_summary` converts Decimal → float at the boundary only, so the deriver keeps reasoning
+  in the type money actually needs. Pinned by a test, because a Decimal reaching the response
+  serialises as a STRING and every arithmetic on the screen would silently concatenate.
+- **Deferred, with the cost named:** a duplicate-rows count. The only signal is the skip sentence,
+  and this feature has a standing rule against parsing those. The auto/manual split carries more
+  information for the same query.
+
+**Tests:** pure `test_status` +11 (254 pure tests run clean on the host). api `test_review` +8,
+asserting PARTITIONS and cross-checks against `get_batch_rows` rather than live counts. ⚠️ **The api
+suite was NOT run — Docker is still down.**
+
 ---
 
 ### §H.3 — Slice X3: the master table
