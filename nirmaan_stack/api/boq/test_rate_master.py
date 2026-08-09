@@ -2165,7 +2165,8 @@ class TestRateMaster(FrappeTestCase):
         prior_results = prior_results or []
         prior_attempted = prior_attempted or []
         with mock.patch.object(rate_master, "_s_get_marker", return_value={"job_id": "J"}),              mock.patch.object(rate_master, "_resolve_committed_version", return_value=4),              mock.patch.object(rate_master, "_open_run_doc",
-                               return_value=("RUN-NAME", "RUN-ID", prior_results, prior_attempted)),              mock.patch.object(rate_master.extraction, "run_extraction", return_value=env),              mock.patch.object(rate_master, "_finalise_run"),              mock.patch.object(rate_master, "_write_run_progress"),              mock.patch.object(rate_master, "_s_clear_marker"),              mock.patch.object(frappe, "publish_realtime", side_effect=_capture), mock.patch.object(frappe, "log_error"),              mock.patch.object(frappe.db, "commit"),              mock.patch.object(frappe, "cache", return_value=mock.MagicMock()):
+                               return_value=("RUN-NAME", "RUN-ID", prior_results, prior_attempted,
+                                             {int(x) for x in only_rows} if only_rows else None)),              mock.patch.object(rate_master.extraction, "run_extraction", return_value=env),              mock.patch.object(rate_master, "_finalise_run"),              mock.patch.object(rate_master, "_write_run_progress"),              mock.patch.object(rate_master, "_s_clear_marker"),              mock.patch.object(frappe, "publish_realtime", side_effect=_capture), mock.patch.object(frappe, "log_error"),              mock.patch.object(frappe.db, "commit"),              mock.patch.object(frappe, "cache", return_value=mock.MagicMock()):
             rate_master._suggest_worker(
                 boq="B", sheet_name="S", user="u@x", only_rows=only_rows,
             )
@@ -2226,3 +2227,156 @@ class TestRateMaster(FrappeTestCase):
                     "run_status", "results", "attempted_count", "population_count", "halt_reason",
                     "scoped_row_count", "pass_attempted_count"}
         self.assertEqual(set(self._run_worker_capture(complete_env).keys()), expected)
+
+    # ── SCOPE PERSISTENCE: a halted scoped run must resume SCOPED ────────────────────
+    # ZERO AI CALLS: the worker tests below drive the REAL run_extraction with AI DISABLED, which
+    # returns a blank row per processed row WITHOUT building a client or issuing a request. Those
+    # blank rows ARE the processing set, so the row arithmetic is observable for free.
+
+    def _extraction_env_mocks(self, population):
+        """Mock only what run_extraction needs to reach its row filter, with AI OFF."""
+        rows = [{"excel_row": er, "description": "row %d" % er, "discipline": "TEST_DISC",
+                 "category_id": "test_cat", "anc_headers": [], "notes": ""} for er in population]
+        cfg = {"attribute_definitions": [{"id": "a", "type": "number"}], "pipelines": {"p": {}}}
+        return [
+            mock.patch.object(extraction, "assemble_population", return_value=(4, rows)),
+            mock.patch.object(extraction, "_load_active_configs",
+                              return_value={("TEST_DISC", "test_cat"): cfg}),
+            mock.patch.object(extraction, "build_attribute_defs",
+                              return_value=[{"id": "a", "type": "number"}]),
+            mock.patch.object(extraction, "select_prompt_text", return_value=""),
+            mock.patch("nirmaan_stack.api.boq.wizard.ai_settings.get_boq_ai_settings",
+                       return_value={"enabled": False, "model": "m"}),
+        ]
+
+    def _resume_processed_rows(self, population, doc_attempted, doc_scope):
+        """Drive the REAL _suggest_worker + REAL run_extraction for a RESUME of a run whose stored
+        state is (attempted_rows=doc_attempted, scope_rows=doc_scope). Returns the excel_rows the
+        pass actually processed, read off the terminal payload. No DB write, no AI call."""
+        published = {}
+
+        def _capture(event, payload, **kw):
+            published.update(payload)
+
+        stack = self._extraction_env_mocks(population) + [
+            mock.patch.object(rate_master, "_s_get_marker", return_value={"job_id": "J"}),
+            mock.patch.object(rate_master, "_resolve_committed_version", return_value=4),
+            mock.patch.object(rate_master, "_open_run_doc",
+                              return_value=("N", "RID", [], list(doc_attempted), doc_scope)),
+            mock.patch.object(rate_master, "_finalise_run"),
+            mock.patch.object(rate_master, "_write_run_progress"),
+            mock.patch.object(rate_master, "_s_clear_marker"),
+            mock.patch.object(frappe, "publish_realtime", side_effect=_capture),
+            mock.patch.object(frappe, "log_error"),
+            mock.patch.object(frappe.db, "commit"),
+            mock.patch.object(frappe, "cache", return_value=mock.MagicMock()),
+        ]
+        for m in stack:
+            m.start()
+        try:
+            rate_master._suggest_worker(boq="B", sheet_name="S", user="u", resume_run_id="RID")
+        finally:
+            for m in reversed(stack):
+                m.stop()
+        return sorted(r["excel_row"] for r in published.get("results", [])), published
+
+    def test_83_open_run_doc_returns_the_persisted_scope_on_a_resume(self):
+        """POSITIVE: a resume reads the scope off the document it is resuming -- that is the whole
+        fix, because `only_rows` is a request parameter that died with the original request.
+
+        NEGATIVE 1: a whole-sheet run stores NULL and must resume with scope None (unchanged path).
+        NEGATIVE 2: a stored EMPTY list means 'scoped, nothing left' and must NOT collapse to None
+        -- collapsing would be the exact population fallback this slice removes."""
+        def _doc(scope_json):
+            return [{"name": "N", "results": "[]", "attempted_rows": "[1,2,3]",
+                     "scope_rows": scope_json}]
+
+        for stored, expected in (
+            ("[16, 22]", {16, 22}),      # POSITIVE -- scoped
+            (None, None),                # NEGATIVE 1 -- whole-sheet, unchanged
+            ("[]", set()),               # NEGATIVE 2 -- scoped-but-empty, NOT None
+        ):
+            with mock.patch.object(frappe, "get_all", return_value=_doc(stored)), \
+                 mock.patch.object(frappe.db, "set_value"), \
+                 mock.patch.object(frappe.db, "commit"):
+                out = rate_master._open_run_doc("B", "S", 4, "J", "u", "RID")
+            self.assertEqual(len(out), 5, "the scope must be the 5th return value")
+            self.assertEqual(out[4], expected, "stored %r -> %r" % (stored, expected))
+
+    def test_84_a_halted_scoped_run_resumes_SCOPED_and_never_touches_carried_rows(self):
+        """THE FIX, on the real worker. A 4-row scoped run halted after 2: the document carries the
+        whole 94-row population as attempted (the carry seeds it) and its scope_rows holds the two
+        rows still to do.
+
+        POSITIVE: the resume processes EXACTLY those two.
+        NEGATIVE (the damage pin): it touches NO carried row -- the resume's processing set and the
+        rows the run carried forward are disjoint."""
+        population = list(range(1, 95))
+        carried_attempted = set(population)          # what the carry seeded
+        remaining_scope = {30, 36}                   # scope_rows after the halt
+
+        processed, payload = self._resume_processed_rows(
+            population, carried_attempted, remaining_scope)
+
+        # POSITIVE -- exactly the remaining scoped rows
+        self.assertEqual(processed, [30, 36])
+        self.assertEqual(payload.get("scoped_row_count"), 2)
+
+        # NEGATIVE -- not one carried row was re-extracted
+        carried = set(population) - remaining_scope
+        self.assertEqual(sorted(set(processed) & carried), [],
+                         "a scoped resume must never re-extract a carried row")
+        self.assertLess(len(processed), len(population))
+
+    def test_85_a_whole_sheet_halted_run_resumes_EXACTLY_as_before(self):
+        """G6 / the backwards-compat pin. A whole-sheet run stores NULL scope_rows, so the resume
+        takes the untouched `population - attempted` path: same rows, same count as before this
+        slice. Every document already in the database is this shape."""
+        population = list(range(1, 95))
+        already_done = set(range(1, 13))             # 12 rows finished before the halt
+
+        processed, payload = self._resume_processed_rows(
+            population, already_done, None)          # NULL scope -> whole-sheet
+
+        self.assertEqual(processed, sorted(set(population) - already_done))
+        self.assertEqual(len(processed), 82)
+        self.assertIsNone(payload.get("scoped_row_count"),
+                          "a whole-sheet resume must not claim a scope")
+
+    def test_86_the_persisted_scope_shrinks_and_is_the_ONE_source(self):
+        """The scope is rewritten as the run progresses, so a later resume gets the remainder --
+        and `get_active_suggestion_run` quotes THAT SAME value rather than computing its own.
+
+        POSITIVE: _finalise_run persists (scope - attempted-this-pass).
+        NEGATIVE: a whole-sheet pass (scope_pending None) never writes the column at all, so an
+        existing document's shape is untouched."""
+        wrote = {}
+        with mock.patch.object(frappe.db, "set_value",
+                               side_effect=lambda dt, n, values, **kw: wrote.update(values)):
+            rate_master._finalise_run("N", 4, "ran", [], {1, 2}, complete=False,
+                                      halt_reason="stopped", boq="B", sheet_name="S",
+                                      scope_pending={30, 36})
+        self.assertEqual(json.loads(wrote["scope_rows"]), [30, 36])
+
+        wrote2 = {}
+        with mock.patch.object(frappe.db, "set_value",
+                               side_effect=lambda dt, n, values, **kw: wrote2.update(values)):
+            rate_master._finalise_run("N", 4, "ran", [], {1, 2}, complete=False,
+                                      halt_reason="stopped", boq="B", sheet_name="S",
+                                      scope_pending=None)
+        self.assertNotIn("scope_rows", wrote2)
+
+        # ONE SOURCE -- the read surfaces the STORED value, not a second computation
+        partial = {"run_id": "R", "committed_version": 4, "status": "partial",
+                   "attempted_rows": "[1,2,3]", "halt_reason": "x", "results": "[]",
+                   "scope_rows": "[30, 36]"}
+        with mock.patch.object(frappe, "get_all", side_effect=[[], [dict(partial)]]), \
+             mock.patch.object(rate_master, "_population_rows", return_value={1, 2, 3}):
+            out = rate_master.get_active_suggestion_run(boq="B", sheet_name="S")
+        self.assertEqual(out["partial_run"]["scope_pending"], [30, 36])
+        self.assertEqual(out["partial_run"]["scope_pending_count"], 2)
+
+        with mock.patch.object(frappe, "get_all", side_effect=[[], [dict(partial, scope_rows=None)]]), \
+             mock.patch.object(rate_master, "_population_rows", return_value={1, 2, 3}):
+            out2 = rate_master.get_active_suggestion_run(boq="B", sheet_name="S")
+        self.assertIsNone(out2["partial_run"]["scope_pending_count"])

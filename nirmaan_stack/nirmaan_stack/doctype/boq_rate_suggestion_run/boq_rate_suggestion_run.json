@@ -16,6 +16,7 @@
   "ai_status",
   "results",
   "attempted_rows",
+  "scope_rows",
   "halt_reason",
   "provenance_section",
   "run_by",
@@ -94,6 +95,12 @@
    "fieldname": "attempted_rows",
    "fieldtype": "JSON",
    "label": "Attempted Rows"
+  },
+  {
+   "description": "SELECTED-ROW runs: the rows this run is scoped to that are STILL TO DO. JSON list, or NULL for a WHOLE-SHEET run (no scope) -- absent is the legacy shape and resumes exactly as before. A scoped run's scope was previously a request parameter only, so it died with the request and a resume silently fell back to the population; persisting it is what lets a resume honour the scope. It SHRINKS as the run progresses (rewritten at every checkpoint and at terminal), so it is the ONE value both the resume's work set and any pending count read -- never two independent computations. The ORIGINAL scope is deliberately not kept: nothing needs it, and one shrinking list cannot disagree with itself.",
+   "fieldname": "scope_rows",
+   "fieldtype": "JSON",
+   "label": "Scope Rows (pending)"
   },
   {
    "description": "SR-1: why a partial run stopped, in plain language (e.g. the Anthropic usage limit). Persisted so the reason survives a page reload and can drive the resume affordance -- the pre-SR-1 opaque 'suggest_failed' error code could not.",

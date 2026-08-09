@@ -454,7 +454,16 @@ def _open_run_doc(boq, sheet_name, cv, job_id, user, resume_run_id, only_rows=No
     """Resolve the run doc a pass will write into: either the partial being RESUMED (same doc, same
     run_id -- never a second doc) or a freshly created one at status=running / active=0.
 
-    Returns (run_name, run_id, prior_results, prior_attempted).
+    Returns (run_name, run_id, prior_results, prior_attempted, scope).
+
+    ⚠️ THE SCOPE IS RESOLVED HERE, AND ONLY HERE. `only_rows` is a REQUEST parameter: it dies with
+    the request, so before it was persisted a resume had no idea the run had ever been scoped and
+    silently fell back to the population. `scope` is therefore:
+        a FRESH run   -> `only_rows` (persisted to `scope_rows` for the resume that may follow)
+        a RESUME      -> whatever `scope_rows` holds on the document being resumed
+        whole-sheet   -> None, in both cases, and everything downstream is byte-identical to before
+    `scope_rows` holds the rows STILL TO DO and shrinks as the run progresses, so the resume's work
+    set and any pending count read the SAME value.
 
     ⚠️ CARRY-FORWARD (owner-ruled): a SELECTED-ROW pass (`only_rows`) seeds the NEW document with
     the sheet's current active run's rows, so the rows it does not touch survive into the document
@@ -481,7 +490,7 @@ def _open_run_doc(boq, sheet_name, cv, job_id, user, resume_run_id, only_rows=No
         rows = frappe.get_all(
             RUN_DOCTYPE,
             filters={"boq": boq, "sheet_name": sheet_name, "run_id": resume_run_id},
-            fields=["name", "results", "attempted_rows"],
+            fields=["name", "results", "attempted_rows", "scope_rows"],
             limit=1,
         )
         if rows:
@@ -492,10 +501,18 @@ def _open_run_doc(boq, sheet_name, cv, job_id, user, resume_run_id, only_rows=No
                 update_modified=False,
             )
             frappe.db.commit()
+            # The resumed run's OWN scope. NULL/absent -> None -> a whole-sheet resume, which is
+            # exactly the pre-slice path. A stored list (even an empty one) means SCOPED, and an
+            # empty one must NOT collapse to None -- that would be the very fallback being fixed.
+            stored_scope = _parse_json(run.get("scope_rows"), None)
+            resumed_scope = (
+                {int(x) for x in stored_scope} if isinstance(stored_scope, list) else None
+            )
             return (
                 run["name"], resume_run_id,
                 _parse_json(run.get("results"), []),
                 _parse_json(run.get("attempted_rows"), []),
+                resumed_scope,
             )
         # The target vanished between the endpoint's validation and here -- fall through and start
         # a fresh run rather than losing the request entirely.
@@ -520,11 +537,15 @@ def _open_run_doc(boq, sheet_name, cv, job_id, user, resume_run_id, only_rows=No
     doc.ai_status = ""
     doc.results = serialize_run_results(carried_results) if carried_results else "[]"
     doc.attempted_rows = json.dumps(sorted(int(x) for x in carried_attempted)) if carried_attempted else "[]"
+    # Persist the scope up front, so a halt at ANY point leaves a resumable record of it. NULL on a
+    # whole-sheet run -- the column simply stays empty, exactly as for every pre-existing document.
+    doc.scope_rows = json.dumps(sorted(int(x) for x in only_rows)) if only_rows else None
     doc.run_by = user
     doc.active = 0  # never supersede a prior COMPLETE run until this one completes
     doc.insert(ignore_permissions=True)
     frappe.db.commit()
-    return doc.name, run_id, carried_results, carried_attempted
+    fresh_scope = {int(x) for x in only_rows} if only_rows else None
+    return doc.name, run_id, carried_results, carried_attempted, fresh_scope
 
 
 def serialize_run_results(rows):
@@ -546,21 +567,24 @@ def serialize_run_results(rows):
     return json.dumps(sorted(rows, key=lambda r: int(r["excel_row"])))
 
 
-def _write_run_progress(run_name, acc_results, acc_attempted):
-    """One checkpoint: the rows so far + the done-marker, committed immediately."""
-    frappe.db.set_value(
-        RUN_DOCTYPE, run_name,
-        {
-            "results": serialize_run_results(acc_results.values()),
-            "attempted_rows": json.dumps(sorted(acc_attempted)),
-        },
-        update_modified=False,
-    )
+def _write_run_progress(run_name, acc_results, acc_attempted, scope_pending=None):
+    """One checkpoint: the rows so far + the done-marker, committed immediately.
+
+    `scope_pending` is the scoped rows STILL TO DO after this batch (None on a whole-sheet run, which
+    leaves `scope_rows` untouched -- a whole-sheet run never writes that column at all). Writing it
+    per batch is what makes a halt at ANY point resumable to exactly the right remainder."""
+    values = {
+        "results": serialize_run_results(acc_results.values()),
+        "attempted_rows": json.dumps(sorted(acc_attempted)),
+    }
+    if scope_pending is not None:
+        values["scope_rows"] = json.dumps(sorted(scope_pending))
+    frappe.db.set_value(RUN_DOCTYPE, run_name, values, update_modified=False)
     frappe.db.commit()
 
 
 def _finalise_run(run_name, cv, ai_status, merged, acc_attempted, complete, halt_reason,
-                  boq, sheet_name):
+                  boq, sheet_name, scope_pending=None):
     """Terminal state for a pass. COMPLETE flips active=1 and supersedes the prior active run --
     that is the ONLY moment a run becomes the live one. A PARTIAL stays active=0, so the previously
     completed run remains what the editor reads.
@@ -589,6 +613,10 @@ def _finalise_run(run_name, cv, ai_status, merged, acc_attempted, complete, halt
         "status": "complete" if complete else "partial",
         "halt_reason": None if complete else halt_reason,
     }
+    # The scope a RESUME would honour. None on a whole-sheet run -> the column is never written, so
+    # every whole-sheet document keeps exactly the shape it had before this slice.
+    if scope_pending is not None:
+        values["scope_rows"] = json.dumps(sorted(scope_pending))
     if complete:
         values["active"] = 1
         values["run_at"] = frappe.utils.now()
@@ -662,7 +690,7 @@ def _suggest_worker(boq=None, sheet_name=None, user=None, resume_run_id=None, on
         # status=running / active=0, so every checkpoint has somewhere durable to land. active=0
         # is load-bearing: a running or partial run must NEVER supersede a prior COMPLETE run --
         # get_active_suggestion_run keeps returning the good one until this one truly completes.
-        run_name, run_id, prior_results, prior_attempted = _open_run_doc(
+        run_name, run_id, prior_results, prior_attempted, scope = _open_run_doc(
             boq, sheet_name, cv, job_id, user, resume_run_id, only_rows=only_rows
         )
 
@@ -680,7 +708,9 @@ def _suggest_worker(boq=None, sheet_name=None, user=None, resume_run_id=None, on
         # A RESUME of a halted scoped run passes no scope and needs no special case: its
         # acc_attempted holds the carried rows plus whatever the halted pass finished, so
         # population - attempted resolves to exactly the selected rows still pending.
-        scope = {int(x) for x in only_rows} if only_rows else None
+        # `scope` now comes from _open_run_doc: `only_rows` on a fresh run, the PERSISTED scope on a
+        # resume, None for whole-sheet in both cases. It is NOT re-derived from `only_rows` here --
+        # that is precisely what made a resume forget it had ever been scoped.
         pending_skip = (acc_attempted - scope) if scope is not None else acc_attempted
 
         def _checkpoint(row_results, attempted_now):
@@ -689,7 +719,12 @@ def _suggest_worker(boq=None, sheet_name=None, user=None, resume_run_id=None, on
             for row in row_results:
                 acc_results[int(row["excel_row"])] = row
             acc_attempted.update(int(x) for x in attempted_now)
-            _write_run_progress(run_name, acc_results, acc_attempted)
+            # SCOPE SHRINK: what remains of this run's scope after the batch. None on a whole-sheet
+            # run, which leaves scope_rows untouched (byte-identical to before this slice).
+            _write_run_progress(
+                run_name, acc_results, acc_attempted,
+                scope_pending=(scope - {int(x) for x in attempted_now}) if scope is not None else None,
+            )
 
         env = extraction.run_extraction(
             boq, sheet_name,
@@ -718,6 +753,9 @@ def _suggest_worker(boq=None, sheet_name=None, user=None, resume_run_id=None, on
         _finalise_run(
             run_name, cv, ai_status, merged, acc_attempted,
             complete=complete, halt_reason=env.get("halt_reason"), boq=boq, sheet_name=sheet_name,
+            scope_pending=(
+                scope - {int(x) for x in env.get("attempted_rows") or []}
+            ) if scope is not None else None,
         )
         if not complete:
             # A graceful halt must still leave an OPERATOR trail. The pricer sees halt_reason; this
@@ -837,7 +875,8 @@ def get_active_suggestion_run(boq=None, sheet_name=None):
     partials = frappe.get_all(
         RUN_DOCTYPE,
         filters={"boq": boq, "sheet_name": sheet_name, "status": "partial"},
-        fields=["run_id", "committed_version", "status", "attempted_rows", "halt_reason", "results"],
+        fields=["run_id", "committed_version", "status", "attempted_rows", "halt_reason", "results",
+                "scope_rows"],
         order_by="creation desc",
         limit=1,
     )
@@ -846,6 +885,14 @@ def get_active_suggestion_run(boq=None, sheet_name=None):
         p["attempted_count"] = len(_parse_json(p.get("attempted_rows"), []))
         p["results"] = _parse_json(p.get("results"), [])
         p.pop("attempted_rows", None)
+        # ONE SOURCE (the defect being fixed): the number any resume affordance quotes must be the
+        # SAME value the worker will process, not a second computation over different data. Both
+        # read `scope_rows`. NULL -> a whole-sheet partial, where "what a resume will do" is still
+        # population - attempted and there is no scope to quote.
+        stored_scope = _parse_json(p.get("scope_rows"), None)
+        p["scope_pending"] = sorted(int(x) for x in stored_scope) if isinstance(stored_scope, list) else None
+        p["scope_pending_count"] = len(p["scope_pending"]) if p["scope_pending"] is not None else None
+        p.pop("scope_rows", None)
         out["partial_run"] = p
 
     # SELECTED-ROW runs: the excel rows this sheet's suggest run ACCEPTS, so the editor can offer a
