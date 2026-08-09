@@ -1527,6 +1527,33 @@ in the plan doc.
   and copying the label made the WHOLE ROW unpriceable (a live defect before slice 2 part 2). A `"None"`
   plate keeps the plate line at ZERO while only the BOX takes the computed count — a box may exist with no
   face plate.
+  **A ZERO module count with `back_box = Yes` FITS A 3M BOX — the STATE-A fallback (owner-locked).** A
+  light point on an MCB has no switch and no socket, so nothing fits any ladder and the box vanished with
+  the plate; a light point still needs a junction box. A ladder may declare `on_zero_modules`, read ONLY
+  on the zero-count path. **It names a module COUNT, never a catalog label** — the catalog still supplies
+  the rung. **The PLATE ladder must never declare it**, and **STATE B (`plate_item: "None"` with a
+  NON-ZERO count) is OUT OF SCOPE and structurally unreachable** — `on_none: "computed"` already boxes
+  those rows correctly and a wider reading would DOWNGRADE them. **It does NOT re-gate on `back_box`**:
+  the component's own `qty: {if_attr: {back_box: "Yes"}}` is where that question is already answered.
+  **WIRE INSTALL STEPS IN THREES; SUPPLY AND BCS STAY LINEAR (owner-locked).** The install multiplier is
+  `ceil(runs / divisor)` — three runs is three times the WIRE but one unit of LABOUR. **The divisor is
+  CONFIG, never hardcoded**: a rate stage carries `mult_step_divisor`, a `scale` param carries
+  `<ident>_step_divisor`, and both resolve through the ONE exported `stepFactor` so they cannot drift.
+  **ABSENT ⇒ the raw factor, byte-identical.** It never softens either site's existing no-compute rule
+  (`scale` still hard-fails on a missing source attribute; a rate stage still resolves absence to 1 via
+  `absentMeansOne`, which the point_wiring goldens depend on) and can never yield 0. **`ceil(n/3)` needed
+  NEW interpreter work** — `tokenize` accepts `+ - * /` and `parseFactor` has no call syntax, so an
+  identifier followed by `(` throws; every existing rounding rounds a product, never a factor.
+  **⚠️ TERMINATION INSTALL INHERITS RUNS THROUGH `install_as_ratio` AND MUST NEVER CARRY ITS OWN
+  MULTIPLIER (owner-locked).** `install_as_ratio` sits AFTER the supply `scale` and reads the
+  already-multiplied supply, so the inheritance IS the multiplier; a second one would be runs-SQUARED
+  (pinned by the `"never squared"` test). Its position and its trailing `roundup(-1)` are equally
+  load-bearing — reordering would move where the rounding lands. Leave all three alone.
+  **⚠️ A `scale` step's `matchedCondition` is NOT RENDERED by the Derivation tab.** `RateMasterDerivation`
+  shows the param chips for any step carrying `params` and only falls through to `detailFor` when there
+  are none, so a note attached to a step WITH params is computed and never seen. The step function's
+  working is therefore visible on a `component_ref` (point_wiring wire install, where it rides the
+  existing `rate N x qty M` string) but NOT on the `scale` site (wiring_cabling cable install). Live-verified.
   **THE BLANKER'S COLOUR FOLLOWS THE ASSEMBLY and is NEVER hardcoded (owner-locked).** The blank
   component's ref binds `colour: "@colour"` like every other component, so a Grey assembly prices the
   Grey blanker and a White one the White blanker — a REAL price difference, not cosmetic. A hardcoded

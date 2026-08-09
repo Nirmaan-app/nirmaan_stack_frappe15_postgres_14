@@ -177,7 +177,32 @@ First worked proof: the `sidebar_counts` aggregate rewrite + the shared `service
   never clamped to the largest rung; this DELIBERATELY DIVERGES from `circuit_fit`, which does fall
   back to its largest size but then re-checks with `circuits <= 0` — `module_fit` has no such second
   gate, so it refuses at the ladder.
-- **A ZERO module count yields NO plate, NO box and NO blanks — but must NEVER kill the pipeline
+- **A ZERO module count with `back_box = Yes` FITS A 3M BOX — the STATE-A fallback (owner-locked).**
+  A light point wired straight to an MCB carries no switch and no socket, so nothing fits any ladder and
+  the box used to vanish with the plate; a light point still needs a junction box. A ladder may declare
+  `on_zero_modules`, read ONLY on the zero-count path. **It is a module COUNT, never a catalog label** —
+  the catalog still names the rung, so retiring a size needs no config edit. **The PLATE ladder must
+  never declare it** (with nothing on it there is no plate), and **STATE B — `plate_item: "None"` with a
+  NON-ZERO count — is OUT OF SCOPE and structurally unreachable**: `on_none: "computed"` already boxes
+  those rows correctly, and a wider reading would DOWNGRADE a correctly-sized box. **It does NOT re-gate
+  on `back_box`** — the component's own `qty: {if_attr: {back_box: "Yes"}}` already answers that, and
+  asking twice would be two definitions of one rule.
+- **WIRE INSTALL STEPS IN THREES; SUPPLY AND BCS STAY LINEAR (owner-locked).** The install multiplier is
+  `ceil(runs / divisor)` — three runs is three times the WIRE but one unit of LABOUR. **The divisor is
+  CONFIG, never hardcoded** (the `module_fit` `terms` precedent): a `component_ref` rate stage carries
+  `mult_step_divisor`, a `scale` param carries `<ident>_step_divisor`, and BOTH go through the one shared
+  `stepFactor` helper so they cannot drift. **ABSENT ⇒ the raw factor, byte-identical** — which is what
+  keeps every un-stepped attachment (cable supply, termination supply, both BCS, point_wiring supply and
+  BCS) exactly as it was. It never softens either site's existing no-compute rule and can never yield 0.
+  **`ceil(n/3)` required NEW interpreter work**: the formula language has four operators (`+ - * /`) and
+  NO function-call syntax, and every existing rounding rounds a product, never a factor.
+- **⚠️ TERMINATION INSTALL INHERITS RUNS THROUGH `install_as_ratio` AND MUST NEVER CARRY ITS OWN
+  MULTIPLIER (owner-locked).** `install_as_ratio` sits AFTER the supply `scale` and reads the
+  already-runs-multiplied supply, so the inheritance IS the multiplier. Attaching a second one gives
+  `runs x ceil(runs/3)` — the runs-SQUARED shape the ext-b ruling exists to prevent. Its ordering and its
+  trailing `roundup(-1)` are equally load-bearing: moving `install_as_ratio` ahead of the supply scale
+  would change WHERE the rounding lands, which is a second behavioural change. Leave all three alone.
+- **A ZERO module count yields NO plate and NO blanks — but must NEVER kill the pipeline
   (owner-locked).** A light point wired straight to an MCB carries no switch, socket or plate, so
   the weighted sum is 0; that is a REAL and COMMON product, not a data error. **Wire and conduit are
   unrelated to module counts**, so refusing the whole pipeline discards a `circuit_fit` that already
@@ -666,7 +691,7 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   **A functional config with a RED preview gate is exactly what the gate exists to surface -- even when the miss
   is in the golden, not the pipeline (two i1 golden defects caught + fixed by regenerated assets at EA-4b).**
   **The wiring + point_wiring + switches_sockets goldens are the standing regression pins (`switches_point` was RETIRED 2026-08-08 and its `sp1` golden went with it); the wiring-asset
-  invariant sha is `76e09bba0d7affa1` (ext-b 2026-08-05 -- was `dcc9b2ea69f072bb`; the owner ACCEPTED this break when `runs` landed. The earlier `c10509…` was a stale carry-error).** The Rate Master category selector is
+  invariant sha is `645a81d6841254e4` (2026-08-09, the install step function -- was `76e09bba0d7affa1` at ext-b 2026-08-05, and `dcc9b2ea69f072bb` before that; the owner ACCEPTED each break. The earlier `c10509…` was a stale carry-error).** The Rate Master category selector is
   REGISTRY-driven (`rateMasterRegistry.ts`), not config-read. The pricing-sheet helper stays wiring-only
   and shows its category coming-soon note for other categories (honest no-compute). A `scale` step whose
   TARGET RATE is missing (`null`/`NaN`) SKIPS that output (renders absent, never invented as 0) while the

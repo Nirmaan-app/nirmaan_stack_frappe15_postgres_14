@@ -20921,3 +20921,177 @@ endpoint still returns 94/94; nothing on the compute path moved). G5 above. G6 a
 - A resume that processes ZERO rows still marks the run complete. With the scope persisted this is
   now only reachable when the scope is genuinely exhausted, but the general sharp edge --
   `_envelope`'s `complete=True` default for an empty processing set -- remains.
+
+---
+
+## Build slice BOX-RUNS -- the 3M back-box fallback + stepped install by runs (2026-08-09/10)
+
+Two owner rulings, shipped together. Branch `feature/boq-pricing-helper`. E-ALL asset **v26 -> v27**
+(sha `d922bc9e7f7664b7`); wiring asset `rate_master_wiring_cabling_v3.json` edited IN PLACE,
+**sha `76e09bba0d7affa1` -> `645a81d6841254e4`** (owner-accepted break; the CLAUDE.md pin is updated,
+and the earlier plan-doc entries at 14214 / 15631 / 15688 / 15744 / 17173-17174 are left intact as the
+HISTORICAL record of what the sha was at ext-b and before).
+
+### THE FINDING: "invisible on live data" was WRONG, and the recon had already said so
+
+The build prompt asserted, as a thing the cert could not show:
+
+> THE STEP FUNCTION IS INVISIBLE ON LIVE DATA. Every row on the sheet has runs of 1, 2 or 3, and
+> `ceil(n/3) = 1` throughout -- so it is arithmetically IDENTICAL to today on every live row.
+
+and set a stopping condition forbidding any row but the 8 box rows from changing. **Both are false, and
+they contradict each other.** `ceil(n/3) = 1` for runs 1-3 is precisely the change: *today those rows
+multiply install by 2 and 3 LINEARLY*. Collapsing them to 1 is the excessive-install-rate correction the
+owner asked for. **The recon (Q3d, 2026-08-09) had already reported this explicitly** -- "the change is
+NOT unobservable ... a -54.1% cut to point_wiring wire install" -- and the premise was written as though
+it said the opposite. The build STOPPED at CP4 rather than guess; the owner ruled (a), the ruling stands,
+and the 18-row change is INTENDED.
+
+**Measured on `BOQ-26-00019 / "12 Internal Works " v4`, run BRSR-26-00474 (87/94 rows priced, before and
+after):** 69 rows unchanged, **18 changed**, none outside those 18.
+
+| rows | change |
+|---|---|
+| 196, 198, **200**, 202, 204, 206, 208, 210 | supply **+58 each** (the 3M box); install also falls (they are the runs=3 group) |
+| 217, 219, 221, 223, 225, 227, 229, 231, 233, 235 | install falls only (runs=2 rows); supply untouched |
+| all 22 `wiring_cabling` rows | **unchanged** -- every one is runs=1 |
+| every other category | **unchanged** |
+
+Row 200 (the ruling's own example, *"Set of eight (8) light points controlled by MCB"*): supply
+**5314 -> 5372**, the `back_box` line going **0 -> 58**. Total point_wiring wire-install across the sheet:
+**46 200 -> 21 200 (-54.1%)**.
+
+**BOTH halves must be reported together:** the step function's EFFECT is now plainly visible on live data
+(those 10 rows), but its SHAPE -- the 2x and 3x rungs -- is NOT, because live data tops out at 3 runs. The
+shape is observable only synthetically, in Rate Master -> Derivation (V3 below).
+
+### RULING 1 -- the back-box fallback, STATE A ONLY
+
+"No face plate" is TWO live states, and only one was in scope:
+
+- **STATE A -- the module count is ZERO.** Nothing fits any ladder, so the box was suppressed along with
+  the plate. **8 rows, all point_wiring.** THIS is the ruling.
+- **STATE B -- `plate_item = "None"` but modules > 0.** OUT OF SCOPE. The box ladder's
+  `on_none: "computed"` already fits the computed count and prices a box correctly. **A literal reading
+  would fire here too and DOWNGRADE 30 correctly-boxed rows** -- e.g. row 243 (`switches_sockets`,
+  7 modules) correctly gets an `8M` box and would have dropped to 3M.
+
+Implementation: an OPTIONAL `ModuleLadderSpec.on_zero_modules`, read in **exactly one place** -- the
+`if (noModules)` branch of the ladder loop, which runs BEFORE the `floor_from` / `on_none` logic. That
+placement is what confines it to State A structurally rather than by convention. It names a module
+**COUNT, never a catalog label**, so the rung still comes from the catalog (exact, else next higher) and
+retiring a size needs no config edit. The PLATE ladder does not declare it. It does **not** re-gate on
+`back_box` -- the component's own `qty: {if_attr: {back_box: "Yes"}}` already answers that, so
+`back_box = No` still prices no box with no second rule anywhere.
+
+Config: `on_zero_modules: 3` on the box ladder in **all three** point_wiring pipelines. `switches_sockets`
+was deliberately NOT given it -- its `module_fit` is shape-identical and a zero-module row there is
+conceivable, but C6 put its behaviour out of bounds. Flagged as a follow-up, not an oversight.
+
+### RULING 2 -- `ceil(runs / 3)` on wire install, and why it needed new interpreter work
+
+`ceil(n/3)` was UNREACHABLE in the config language, which is why this is a capability and not a data edit:
+`tokenize` accepts `+ - * /` only and `parseFactor` has no function-call syntax (an identifier followed by
+`(` throws). Every rounding in the vocabulary rounds a **product or a ctx value, never a factor** -- and
+the near-misses all fail: `scale`+`roundup` yields `ceil(base x runs / 3)`, not `base x ceil(runs/3)`;
+`derive_attribute` can write where a stage reads but has no rounding at all; an enumerated condition table
+is unreachable for a `component_ref` carrying `rate_stages` (it returns before conditions are read).
+
+**ONE pure exported helper, `stepFactor(raw, divisor)`**, shared by both sites that can carry an
+attribute-bound multiplier so they cannot drift. **The divisor is CONFIG** (the `module_fit` `terms`
+precedent) -- `3` appears nowhere in the interpreter. Absent / non-finite / <= 0 gives the identity, which
+is what makes the capability additive; the floor at 1 is explicit, so it can never silently delete a
+line's labour; the epsilon mirrors `roundUp`'s, so a float-imprecise 6/3 cannot tip to 3x.
+
+**THREE attachment points, not four:**
+
+| # | site | config key |
+|---|---|---|
+| 1 | `point_wiring` `pw_boq_install` **wire1** | `mult_step_divisor: 3` |
+| 2 | `point_wiring` `pw_boq_install` **wire2** | `mult_step_divisor: 3` |
+| 3 | `wiring_cabling` `cable_boq.install_per_mtr` | `runs_step_divisor: 3` |
+
+**The fourth -- `wiring_cabling` `termination_boq.install_per_set` -- is UNTOUCHED.** It is DERIVED:
+`install_as_ratio` sits AFTER the supply `scale` and reads the already-runs-multiplied supply, so it
+already inherits runs linearly. A step multiplier on top would give `runs x ceil(runs/3)` -- the
+runs-SQUARED shape the ext-b ruling exists to prevent. Restructuring to break the inheritance would ALSO
+move where its `roundup(-1)` lands, a second behavioural change the owner declined. Ordering, rounding and
+inheritance all stay exactly as they were. Everything else stays LINEAR: cable supply, termination supply,
+both BCS pipelines, and point_wiring's supply and BCS wire stages.
+
+### CP3 -- the new golden `pw4`, and why it mattered
+
+Every pre-existing point_wiring golden drives a plate, so Ruling 1 would have shipped **UNPINNED** -- the
+same shape as the blanker install factor: right, but unwatched. `pw4` is a zero-module light point on an
+MCB with `back_box = Yes`, and it carries **no `circuit_length_m`** (it must be DERIVED; a stated value
+wins and would make the `derive_attribute` step inert while the golden stayed green).
+
+Derived by hand from CATALOG LIST PRICES x the PRE-EXISTING rate stages -- never from the new config.
+Inputs: cable COPPER/UNARMOURED 1C x 1.5 `list 50.45` / `install_base 10.0`; conduit PVC 25 `list 60.0`;
+back box `3M` `list 158.0`. Length = `15 + (1-1)x5 = 15`; circuit_fit (wire2 "None", omitted) gives
+25 mm / 9 circuits / conduit qty 2; module_fit gives **0 modules -> no plate, box fits 3 -> "3M"**, 0 blanks.
+
+| line | supply | install | bcs |
+|---|---|---|---|
+| wire1 | `ceil(50.45x0.602)=31` x15 = **465** | `ceil(10x2x1)=20` x15 = **300** | `ceil(50.45x0.4515)=23` x15 = **345** |
+| conduit | `ceil(60x0.7)=42` x2 = **84** | `60x0.7=42`, `ceil(42x0.2)=9` x2 = **18** | `ceil(60x0.5)=30` x2 = **60** |
+| back_box | `ceil(158x0.3625)=58` | `ceil(158x0.0725)=12` | `ceil(158x0.25)=40` |
+| **total** | **607** | **330** | **445** |
+
+The system returns exactly 607 / 330 / 445, green in the live RM-4b preview gate.
+
+**A runs > 3 golden was deliberately NOT minted.** A multi-run expected value has no sheet basis -- the
+guiding ALL ITEM WISE RATE sheet carries no runs concept -- so any figure would come from our own
+arithmetic, which is what a golden must never be. The ladder is covered by mechanism tests (runs 1-9).
+
+### G5 -- the fixture decision, and why
+
+The two ext-b mechanism tests passed unchanged because the inline `PIPELINES` fixture carried the
+pre-ruling LINEAR config. **The fixture was converted to mirror the shipped config** and the one test that
+asserted the old linear install was updated (`install_per_mtr` 60 -> 20 at runs 3), with a runs=4 case
+added. Reason: the fixture is declared *"the four stored pipelines (verbatim shape from RM-1 config)"* and
+the goldens run through it, so a fixture that says verbatim and drifts is a quiet lie the next reader would
+reasonably trust. Coverage does not suffer -- the LINEAR mechanism is still shipped on five of the six runs
+attachments and keeps direct pins from the new `scalePipe(LINEAR)` tests and the point_wiring supply and
+BCS stage tests. **The "never squared" pin passes UNCHANGED**, as required: `termination_boq` carries no
+divisor, so supply 240 / install 60 at runs 3 still holds.
+
+### Operational finding -- the APPLY ORDER is load-bearing
+
+Applying E-ALL first and wiring second **deactivated 795 E-ALL items**. The wiring asset takes the
+**single-config** loader path, whose supersede is **DISCIPLINE-WIDE**, unlike `_load_multi`'s scoped one.
+The WIRING-UNTOUCHED invariant is **one-directional**: it protects wiring from an E-ALL import, not the
+reverse. Recovered by re-running E-ALL (scoped supersede left wiring alone) back to the exact pre-apply
+baseline -- 15 kinds / 1383 items / 12 configs. **Correct order: WIRING FIRST, THEN E-ALL.**
+
+Also caught: the E-ALL asset **mirrors** each config's goldens into the config (9 of 11 categories). The
+first mint appended `pw4` to the top-level dict only and desynchronised the mirror; `test_72` caught it.
+The mint now keeps both in step. `test_72` itself had been pinned to the asset **by name** and left on
+v26 -- exactly the C4 trap -- and now reads a version-free `_EALL_CURRENT` constant.
+
+### Verification
+
+- **vitest 1522 -> 1547** (+25), 57 files, all pass. **backend `test_rate_master` 86 -> 94**, OK.
+- **tsc: 3236 baseline -> 3236**, zero new, zero in `rate-master` (verified by stashing the changed files).
+- **Mint gate PASS on both assets**, run against COMMITS; the wiring blind-spot warning was followed up
+  with a full `--history` walk (PASS at every consecutive pair). Self-test T1-T5 all pass.
+- **G3: 78 golden checks, 78 match, 0 delta** via `evaluateGoldens`; only artifact is the KNOWN pre-existing
+  `m1` float (`187.2` vs `187.20000000000002`), within epsilon.
+- **Stored config == asset KEY BY KEY** for all 12 categories (contents, never counts).
+- **Cert (CDP, owner's Chrome, full de-stale ritual, CODE MARKER verified BOTH directions):**
+  V1 row-200 shape prices a 3M box (`box_item 3M (nothing to fit -- default 3)`, supply 1383 -> 1441 = +58);
+  V2 row-243 shape still `box_item 8M (next higher)`; V3 install stepping 1,1,1,2,2,2,3,3 with the working
+  on screen (`wire1_runs 4 -> ceil(4/3) = 2x`); V4 supply and BCS still exactly xN; V5 46 preview-gate rows
+  across four categories, every one green (incl. pw4); V6 termination install exactly
+  `roundup(supply x 0.25, -1)` at every runs value. Nothing applied -- Cancel only.
+
+### Known gaps
+
+- **A `scale` step's `matchedCondition` is not rendered.** `RateMasterDerivation` shows param chips for any
+  step carrying `params` and only falls through to `detailFor` when there are none. So the step function's
+  working is visible on the `component_ref` site (point_wiring) and NOT on the `scale` site
+  (wiring_cabling). Pre-existing renderer behaviour; the file was out of scope for this slice.
+- **`switches_sockets` has no zero-module fallback** (C6 out of bounds), though its ladder shape is identical.
+- **The 2x and 3x rungs have no live coverage** -- no production row exceeds 3 runs.
+- **5 point_wiring rows (295-305) price nothing**, pre-existing and unrelated: `wire1_thickness_sqmm` is
+  "None" and the `wire1` component carries no `none_skips`, so its ref matches nothing.
