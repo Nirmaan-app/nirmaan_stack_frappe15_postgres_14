@@ -29,6 +29,7 @@ pick one ad-hoc; ask.
 | Row + batch status derivation | `services/outflow_import/status.py` (`derive_row_outcome`, `derive_staged_row_outcome`, `derive_batch_status`, `derive_batch_counters`) — B3 | compute a `row_status` or a batch `status`. The frontend mirror `outflowImportStatus.ts` is a CONVENIENCE pinned by a parity test; this file is the authority |
 | Which record the screen pre-selects | `services/outflow_import/status.py` (`sole_suggestion`) | re-derive "exactly one candidate" anywhere else — the browser did, from a different candidate list than the note counted, and the two disagreed |
 | The two amount windows (settle ±₹5, tier 1 ±₹1) | `services/outflow_import/amounts.py` (`AMOUNT_TOLERANCE`, `TIER1_TOLERANCE`, `amounts_match`) | hold a copy of either, **or add a comparison that is not on the list**. FIVE call sites: both SQL pool queries, the matcher, the settle guard, and the already-paid duplicate check. `TIER1_TOLERANCE ≤ AMOUNT_TOLERANCE` always — a tier wider than the settle window offers a record the confirm then refuses. The fifth site was *missing* until 2026-08-07 and flagged 8 of 26 rows in a live statement as discrepancies over sub-rupee rounding |
+| What amount a settle WRITES (X1) | `services/outflow_import/amounts.py` (`rewrite_amount`) | decide it at a write site. It is **not a sixth window site**: the window already gated the pool and the write guard already re-asserted it, so this answers only "do these differ at all". ⚠️ Do not "finish" it by giving it a tolerance — that would put a second, quieter opinion about what may be settled inside a function whose job is to say what the number is |
 | Does a remark name a project? | `services/outflow_import/project_match.py` (`build_project_index`, `ProjectIndex.sole_project`) | re-derive it. Tier 2 auto-suggests on this predicate, so a second copy is a second opinion about where money goes |
 | What may be settled, and from which status | `services/outflow_import/ledgers.py` (`SETTLEABLE_STATUSES`, `settleable_statuses`) | carry its own Approved-only list. Read by `candidates.py` (what may be OFFERED) and `settle.py` (what may be WRITTEN) so the two can never disagree about one record |
 | Bank row → target matching | `services/outflow_import/matcher.py` (`match_row`, `match_by_reference`, `match_payments`, `match_expenses`, `resolve_vendors`) | decide anything. It PROPOSES ranked candidates; `status.py` derives the outcome and a person makes the choice |
@@ -161,6 +162,26 @@ used to catch now arrive `Unmatched` and are linked by hand. Owner's call, made 
    would present a modification as an approval on two thirds of the list.
 10. **`Outflow Import Row.remarks` must stay `Text`.** As `Data` it is `varchar(140)` and Frappe
     *throws* rather than truncating.
+11. **A settle WRITES MONEY as of X1, and three things hold it safe.** The record takes the bank's
+    amount whenever the two differ (`amounts.rewrite_amount`), both directions, all three ledgers.
+    (a) **The ±₹5 guard still runs first** — the rewrite corrects what is written and never widens
+    what may be written, so TDS is still unreachable. (b) **Every change is audited**, which is why
+    the expense path had to move off `frappe.db.set_value` onto `doc.save()`: `set_value` skips the
+    document lifecycle, so `track_changes` is inert for it and the rewrite would have left no record
+    of who changed the figure or what it had been. (c) **The bank OVERPAYING rewrites too** — owner
+    ruling, so this import can record spending slightly above an approval, and the Version log is
+    the only thing that says so.
+12. **That expense switch woke a third committer, and the suppression is narrow on purpose.**
+    `project_cashflow_hold_update` is wired to `Project Payments` **and** `Project Expenses`
+    `on_update`, and reaches a `frappe.db.commit()` in ONE branch — notifying the holder of a manual
+    CEO Hold that has become releasable. `settle.py` sets `frappe.flags.outflow_import_settling`
+    around its saves and that branch bails on it. ⚠️ **It guards the NOTIFY, not the RECOMPUTE:**
+    `sync_cashflow_reason` never commits, so the gap still recalculates inside the import's
+    transaction. A request-level flag rather than `doc.flags` because the commit sits in an inner
+    helper that never sees the doc — restored in a `finally`, never blindly cleared. Two side notes:
+    the payment path had been exposed to that same commit since V2 (X1 closes it, does not open it),
+    and **settling an expense never moved the CEO-Hold gap at all before X1**, because `set_value`
+    fires no hooks.
 
 ---
 
@@ -228,8 +249,11 @@ DECISION, and auto-skipping would manufacture decisions nobody made.
   subtract. A tolerance pass (Q11) and a TDS box (Q6) are **next version**.
 - **No undo of a settle** from inside the import (Q9). Fix it in the payments screen.
 - **Fan-out is report-only** (Q4) — which is why the existing UTR guard is never challenged.
-- **The paise difference is not recorded.** Settling an ₹18,678.69 payment from an ₹18,679.00
-  transfer leaves the payment at ₹18,678.69. Accepted explicitly.
+- ~~**The paise difference is not recorded.**~~ **REVERSED 2026-08-09 (slice X1).** It used to say:
+  *"Settling an ₹18,678.69 payment from an ₹18,679.00 transfer leaves the payment at ₹18,678.69.
+  Accepted explicitly."* The record now takes the **bank's** amount, in **both directions**, on all
+  three ledgers — see the invariant below. Kept struck through rather than deleted: both positions
+  were held deliberately, and the next reader is entitled to see that.
 - **There is no reverse view.** `get_reconciliation_report` was deleted at V5, and with it the answer
   to "is every payment we recorded backed by a real transfer?". The three tabs answer only "is this
   transfer recorded?". Deliberate scope decision, not an oversight.

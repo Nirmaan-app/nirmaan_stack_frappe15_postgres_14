@@ -1,7 +1,9 @@
 # Bulk Import Outflow Transactions — Implementation Plan
 
-**Version:** **v3** (2026-08-06). Supersedes v2 wherever they conflict.
-**Status:** **SPEC CLOSED, SCREEN SIGNED OFF, ready to build. No v3 code written yet.**
+**Version:** **v3** (2026-08-06), **+ the v4 arc planned in §H** (2026-08-09). Supersedes v2 wherever
+they conflict.
+**Status:** **v3 is BUILT and committed** through T1–T5 (`6567d2e4`); the live browser walk and the
+production migrate are still owed. **v4 (§H) is PLANNED, NOT STARTED — no code written.**
 **Fresh-session brief:** `docs/outflow-import/HANDOFF.md` — read it first.
 **Branch (proposed):** `feature/outflow-import`
 **Spec + all 13 owner rulings:** `docs/outflow-import/workflow.html` **section 0** (7 tabs).
@@ -369,6 +371,416 @@ UTR and so only ever exercised tier 0) · `test_expenses` 21 · `test_settle_pay
 real statement.** The dev DB carries **0 outflow import rows and 5 Approved payments**, so neither
 the table nor the tiers have been seen against real data; T3 is verified against fixtures only. One
 real statement's remarks column is what would tell us how often a remark actually names a project.
+
+---
+
+## §H — v4: exact amounts + the unified screen (PLANNED 2026-08-09, no code written)
+
+Two owner requests that arrived together and are independent in the code:
+
+> **1.** When the bank amount differs from the record's amount, write the BANK amount onto the record.
+> **2.** The sheet stops being a place you navigate to. One master table of every transaction, an
+> import DIALOG that adds to it, a summary of any chosen import above it, and a bulk
+> confirm-all-matched action inside that summary.
+
+### §H.0 — The four owner rulings that scope this arc (2026-08-09)
+
+| # | Question | Ruling |
+|---|---|---|
+| 1 | Bank paid MORE than approved (up to Rs 5 over) | **Overwrite both ways.** The bank amount always wins. Accepted: the import can now record spending slightly ABOVE an approval, and only the Version log says so. |
+| 2 | Which ledgers | **All three.** Which forces the expense write path off `set_value` — see §H.1, it is the biggest single risk in this arc. |
+| 3 | "import, skipping and confirmation in that dialog" | **Import dialog + per-row dialogs.** The import dialog runs upload → preview → confirm → match, then closes. Skip/confirm on ONE row keep their own dialog, opened from the master table. |
+| 4 | Master table default | **Open work first, paged.** Default scope = rows still owed a decision. Settled and Skipped are tabs. Server-side paging and filtering throughout. |
+
+⚠️ **A FIFTH RULING IS STILL OPEN and it is a naming one, raised but not answered: the owner asked
+for "approve all the matched transactions".** This feature's entire safety story is that it **never
+approves anything** — it records that already-approved money left the bank. A button labelled
+*Approve* inside it tells an accountant they are approving payments, which is false. §H.5 is written
+as **"Confirm all matched"** throughout. If the owner overrules this, the label changes in exactly
+one place and nothing else in the slice moves.
+
+---
+
+### §H.1 — Slice X1: write the exact bank amount
+
+**Goal.** At settle time, if the record's amount differs from the bank's, the record takes the
+bank's. All three ledgers, both directions. The `+-Rs 5` settle window is unchanged and still runs
+FIRST — the rewrite never widens what may be settled, it only corrects what is written.
+
+**This REVERSES a recorded ruling.** The domain doc's "Known limits" says, in the owner's own
+accepted words: *"The paise difference is not recorded. Settling an Rs 18,678.69 payment from an
+Rs 18,679.00 transfer leaves the payment at Rs 18,678.69. Accepted explicitly."* That entry gets
+rewritten as a reversal, not silently deleted — the next reader must be able to see that both
+positions were held deliberately.
+
+**⚠️ This is a NEW KIND OF WRITE and the spine has to be restated precisely.** Until now the import
+wrote `status`, `utr`, `payment_date`, `payment_by` — never money. It now edits a financial figure a
+human approved. The spine still holds and must be re-stated in these words: *the import never
+approves and never creates a record; it now also corrects the settled amount to what the bank
+actually moved.* Anything in the codebase that reads "this import does not touch amounts" is history
+from this slice on.
+
+#### The decision itself
+
+One new PURE function in `amounts.py`, joining the residence manifest:
+
+```
+rewrite_amount(record_amount, bank_amount) -> Decimal | None
+    the bank amount when the two differ, else None
+```
+
+It lives there because `amounts.py` owns "when two amounts count as the same money" and already owns
+`to_decimal`, so the Decimal/float/numeric-string coercion has exactly one home.
+
+⚠️ **It does NOT read either window, and the manifest note must say so.** The manifest currently
+pins the two windows to FIVE call sites. `rewrite_amount` is a sixth call into the module but not a
+sixth window use — by the time it runs, `amounts_match` has already proven the pair is inside the
+settle window. Do not let a later reader "tidy" it into taking a tolerance.
+
+#### Payments — `settle.settle_payment`
+
+Straightforward, because the plumbing already exists:
+
+- `_lock_and_assert_payment_settleable` already returns the locked record's amount, already proven
+  inside the window. Feed it and the bank amount to `rewrite_amount`; assign `doc.amount` when it
+  returns a value.
+- **The audit is FREE and is the reason this is safe.** `Project Payments` carries
+  `track_changes: 1` and this path already writes through `doc.save()`, so every amount change lands
+  in the Version log with the user and the timestamp, with no new field and no new code.
+- **`amount_paid` on the parent PO recomputes itself correctly.** The `update_parent_amount_paid`
+  hook SUMS the paid payments rather than incrementing, so it picks up the new figure — and under
+  `from_outflow_import` it recomputes inside our transaction and skips only its commit. Pin it with
+  a test rather than trusting the reading.
+- Vendor-credit recalculation is deliberately NOT suppressed on this path and will see the new
+  amount. That is correct and wanted.
+- **`tds` is still never written.** Unchanged, and the reason is unchanged: this import does not
+  know the deduction.
+
+`SettleResult` gains `original_amount` and reports `amount` as the value **written**, not the value
+found. Today it returns the pre-settle amount, which after this slice would be a quietly wrong
+number on the one screen that needs it most (§H.5 shows the delta per row before you confirm).
+
+#### Expenses — `settle.settle_existing_expense` — ⚠️ THE RISK IN THIS ARC
+
+Ruling 2 says all three ledgers. That single word forces a change nobody asked for directly:
+
+**Today the expense settle writes with `frappe.db.set_value`, which skips the document lifecycle
+entirely.** No `validate`, no `on_update`, **no Version**. So an amount rewritten through that call
+would be an unaudited edit to a financial figure — precisely the thing the payment path gets for
+free. The write must move to `frappe.get_doc(...)` + `doc.save(ignore_permissions=True)`.
+
+Moving it fires hooks that have never fired here before, and that cuts both ways.
+
+**Finding 1 — it FIXES a silent bug that predates this arc.** `hooks.py` wires
+`project_cashflow_hold_update.on_project_expense` to `Project Expenses` `on_update`, and that hook
+recomputes the project's CEO-Hold cashflow gap whenever a row enters or leaves `Paid`. Because the
+import settles with `set_value`, **that hook has never run when this feature settles an expense** —
+so settling a project expense through the import has never moved the CEO-Hold gap. `api/…/expenses.py`
+carries a long docstring explaining that the CEO-Hold hook is *"deliberately NOT suppressed"*; that
+reasoning is sound for `create_expense`, which genuinely inserts a document, and has simply never
+applied to the settle path beside it. Switching to `doc.save()` makes the stated intent true for the
+first time. **Record it as a bug fix, not as a side effect.**
+
+**Finding 2 — it BREAKS the per-row savepoint isolation, exactly as the payment path once did.**
+That same cashflow module calls `frappe.db.commit()` (two sites: before its realtime publish, and
+once more in its own path). **A commit inside the savepoint makes the rollback a silent no-op** —
+"Confirm 8" could then leave four rows written and four not, with nothing recording which. This is
+the identical failure `update_parent_amount_paid` and the notification cascade were suppressed for.
+
+**The fix, and why it is shaped differently from the existing two.** The existing suppressions read
+`doc.flags.from_outflow_import` at the hook site, which works because the hook has the doc. Here the
+commits sit in INNER helpers that never see it. So this slice sets a REQUEST-level
+`frappe.flags.outflow_import_settling` around the save in `settle.py` and guards those commits on it.
+
+Three things about that flag are load-bearing and must be written into the code, not just here:
+1. **It is set and cleared in a `try/finally`.** A request-level flag that leaks would suppress a
+   commit for unrelated later work in the same request.
+2. **It suppresses the COMMIT, never the RECOMPUTE.** The CEO-Hold gap still recalculates, inside our
+   transaction, and lands when the endpoint commits. Same shape as `update_parent_amount_paid`, and
+   the same test: not *"is this side effect wanted"* but ***"does it commit"***.
+3. **The realtime publish is suppressed with it,** because publishing before our commit announces
+   state that is not yet durable. Accepted cost: a settle no longer pushes a live CEO-Hold update to
+   other browsers; the state is correct on their next read. Named here so it is a decision, not a
+   regression somebody finds later.
+
+`Non Project Expenses` has no such hook (only `on_trash`) and is clean.
+
+**Two smaller checks already done, recorded so nobody re-does them:** both expense doctypes'
+`validate` short-circuits on `not self.is_new()`, so the AUTO_APPROVE_LIMIT branch cannot re-flip a
+status on a settle-time save. And `Project Expenses.amount` is a **Data** column of numeric strings
+while `Non Project Expenses.amount` is real **Currency**, so the write goes through the existing
+`format_amount_for` rather than assuming a shape.
+
+**⚠️ The fallback, if the hook work proves worse than it looks.** Narrow ruling 2 back to payments
+only and leave the expense path on `set_value`. That is a ruling change, not a silent retreat — it
+must go back to the owner, because the reason for all-three was audit parity.
+
+#### What must NOT change in X1
+
+- The `+-Rs 5` guard runs first and still REFUSES anything outside it. A TDS payment is still
+  unsettleable here.
+- The reference is still only ever written into a blank, never compared.
+- The already-Paid duplicate check and the `Mismatched` branch are untouched — they compare the bank
+  against a record that is ALREADY Paid, where there is nothing to rewrite.
+
+#### Tests
+
+- **pure** (`test_amounts`): `rewrite_amount` — equal pair yields `None`; bank higher yields the bank
+  amount; bank lower yields the bank amount; Decimal / float / numeric-string inputs all coerce.
+- **api `test_settle_payment`**: a 31-paise gap rewrites `amount`; a Version row exists carrying the
+  change; the parent PO's `amount_paid` equals the new sum; an exactly-equal pair leaves the amount
+  alone.
+- **api `test_expenses`**: the same on both expense doctypes; `Project Expenses.amount` comes back in
+  its Data shape; the CEO-Hold recompute RAN; **and the savepoint-isolation test still passes with
+  the expense path now going through `doc.save()`** — that one is the real gate on this slice.
+- ⚠️ **The standing fixture warning applies:** a fixture pinning a REFUSAL by amount must sit clearly
+  OUTSIDE the Rs 5 window, never one step past its edge. That has silently inverted a refusal test
+  into an acceptance test twice already.
+
+**Migrate: none.**
+
+#### AS BUILT (2026-08-09)
+
+Landed as planned, with three findings worth carrying forward.
+
+- `amounts.rewrite_amount(record, bank) -> Decimal | None` — `None` on an equal pair, so an ordinary
+  settlement writes nothing and mints no Version claiming a change. No tolerance parameter, pinned
+  by a signature test.
+- `settle_payment` and `settle_existing_expense` both apply it through `format_amount_for`, so the
+  `Project Expenses` Data column keeps its bare-numeric-string shape on a rewrite as on a create.
+- `SettleResult` gained `original_amount` + an `amount_changed` property; `amount` now means WHAT WAS
+  WRITTEN. `_summary` surfaces all three to the client, and `_settled_note` names the correction on
+  the import row ("Amount corrected from X to Y to match the transfer") — silent when nothing changed.
+- **FINDING 1 — the commit is narrower than feared.** `sync_cashflow_reason` genuinely never commits;
+  the only commit reachable from `trigger_check` is inside `_notify_manual_hold_releasable`. So the
+  suppression is ONE line added to that function's existing `in_patch / in_migrate / in_install /
+  in_import` bail list, not new machinery. The recompute is untouched.
+- **FINDING 2 — the payment path was already exposed.** That hook is wired to `Project Payments`
+  `on_update` too, so V2's savepoint isolation had a hole in it from the day it shipped, reachable
+  whenever a settle brought a manually-held project back within its limit. X1 closes it for both
+  ledgers.
+- **FINDING 3 — the pre-existing isolation test could not have caught it.** It provokes a refusal in
+  the amount GUARD, which throws BEFORE anything is saved, so it can never observe a commit that
+  happens DURING a save. `test_a_failure_AFTER_the_expense_save_rolls_the_expense_back` patches
+  `_record_settlement` to raise after the save; that is the arrangement that actually pins it.
+
+**Tests:** pure `test_amounts` 19 → 26 (243 pure tests run clean on the host via a package stub —
+`test_ledgers` alone needs a bench, since `candidates.py` imports `frappe`). api
+`test_settle_payment` +7, `test_expenses` +8. ⚠️ **The api suites were NOT run — Docker is down on
+this host, so the bench runner is unreachable. They are written, not verified.** Both suites also
+gained Version-row cleanup in teardown, since X1 makes every settle mint one on a live database.
+
+---
+
+### §H.2 — Slice X2: the import summary
+
+**Goal.** One endpoint returning everything the summary section renders for a chosen import.
+
+**Where the numbers are derived.** A new pure `derive_import_summary(rows)` in `status.py`, taking
+`(status, amount)` pairs. That keeps the residence rule intact — `status.py` is the ONLY place a
+status or a count over statuses is derived, and a summary that disagreed with the tabs beneath it
+would be worse than no summary.
+
+**Where they are COUNTED.** One SQL `GROUP BY row_status` with `COUNT(*)` and `SUM(amount)` on
+`Outflow Import Row`, in the new `review.get_import_summary(batch)`. Aggregates belong in the
+database (ADR-0010) — never a `get_all` and a Python loop.
+
+**What it returns.**
+
+| Group | Fields |
+|---|---|
+| Identity | batch name, source file, statement period from–to, uploaded on, uploaded by, batch status, `closed_at` |
+| Totals | total rows, **total transaction value** |
+| Per status | count **and value** for each of the seven statuses |
+| Derived | settled value · skipped value · **open value** (total − settled − skipped) · decided percentage |
+| Bulk | count + value of `Matched` rows **carrying a suggestion** (what §H.5 can confirm), and count of `Matched` rows **without** one |
+| Provenance | rows skipped as already-imported duplicates |
+
+**⚠️ On "matched and mismatched", which is what the owner asked for.** `Mismatched` is a RARE status
+in this design — it fires only when a payment somebody already ticked Paid by hand disagrees on
+amount beyond the window. On a real statement it is usually 0 or 1. The split that carries the work
+is **Matched vs Unmatched**. Both are returned; the section leads with Matched / Unmatched / Settled
+/ Skipped and shows Mismatched and Error beside them, so a non-zero one is still impossible to miss.
+
+**Every count is a link.** Clicking one filters the master table below to exactly those rows. That is
+what turns the summary from a report into a worklist, and it costs nothing beyond wiring the
+existing filter.
+
+**The import picker** reads `Outflow Import Batch` through the existing generic list hook — no new
+endpoint. Entries are labelled `file · period · uploaded date`, never the batch id, which means
+nothing to an accountant. Defaults to the newest.
+
+**Deliberately DEFERRED: the match-tier breakdown** (how many rows matched by reference, by vendor
+account, by project-in-remark). It would be the best available evidence for whether tier 2 earns its
+keep — and the tier is currently used to compose the note and then **thrown away**, never stored. So
+it needs a new field on `Outflow Import Row` and therefore a migrate, on a branch that already owes
+six. Parked with the cost named; it is a one-field slice whenever the owner wants it.
+
+#### Tests
+- **pure** (`test_status`): empty batch; all-settled; mixed; value sums; open value never negative.
+- **api** (`test_review`): assert PARTITIONS and invariants, never exact live counts — these suites
+  see the live ledger and a pinned number becomes a false failure when real data drifts.
+
+**Migrate: none.**
+
+---
+
+### §H.3 — Slice X3: the master table
+
+**Goal.** `/bulk-import-outflow` becomes one table of every staged transaction, across every import.
+The batch stops being a destination and becomes an ATTRIBUTE — a column and a filter.
+
+**The `Outflow Import Batch` doctype survives untouched.** It still holds provenance, the statement
+period, the counters and `closed_at`, and it is still what the cross-batch duplicate guard reads at
+upload. Only the navigation changes. Nothing about matching, settling or duplicate detection moves.
+
+**⚠️ THE SIZE PROBLEM IS THE WHOLE SLICE.** The batch screen loads an entire batch in one call and
+filters, sorts and searches it IN THE BROWSER. Correct for 26 rows; wrong for every row ever staged.
+Weekly statements reach thousands within a couple of years, and `get_batch_rows` also runs a
+paid-payments lookup on every fetch.
+
+So: a new `review.get_outflow_rows(filters, sort, limit, offset) -> {rows, total}`.
+
+- Filters: status set, batch, date range, amount range, and text across beneficiary / remarks /
+  reference. **AND across columns, OR within a column** — the same composition the current client
+  filters use and the same one the rest of this app uses.
+- Default scope (ruling 4): the OPEN statuses. Settled and Skipped are tabs, not the landing view.
+- `_related_paid_payments` runs for the PAGE's references instead of the batch's — same query, less
+  of it.
+
+**⚠️ Filtering moves to SQL, and the client copies must be DELETED, not left beside it.** `visibleRows`
+/ `passesFilters` / `matchesQuery` in `outflowTableModel.ts` become a second filter engine the moment
+the server has one, and two engines that answer "which rows match" will disagree the day somebody
+edits one. Residence rule F1/F3: one home. This costs real vitest coverage, which the slice replaces
+with endpoint tests — **the count going DOWN is expected here and is not a regression.**
+
+**What stays in `outflowTableModel.ts`:** decisions, tabs, the column model, `isConfirmable`,
+seeding, the record shapes. Those are the parts that are not about querying.
+
+**Decisions still live in the browser until confirmed**, keyed by row name, so they survive paging.
+But the bulk bar's wording has to get honest: it counts decided rows **among the rows loaded**, not
+across pages it has never seen. §H.5 is the answer for acting on a whole import at once, and it is
+driven from the server precisely because client decisions cannot span unloaded pages.
+
+**New column: Import** (file + date), because rows now arrive from many sheets and "which statement
+was this?" becomes a real question for the first time.
+
+**Routes.** `/bulk-import-outflow` = the master. **`/bulk-import-outflow/:id` is KEPT** and renders
+the master pre-filtered to that batch, so every existing deep link and bookmark still resolves.
+`/bulk-import-outflow/new` is removed — the dialog replaces it.
+
+**⚠️ Likely the only MIGRATE in this arc.** The row doctype will now be queried by `row_status`,
+`import_batch` and `added_on` across the whole table rather than by parent batch. That wants a
+composite index declared in the controller's `on_doctype_update` — and a plain migrate does NOT fire
+that hook for a controller-only change, so an already-deployed database needs a patch module that
+CALLS the hook (the `add_boq_read_indexes` precedent). Decide the index from the final query shape,
+not before.
+
+#### Tests
+- **api**: paging, total count, default scope, filters composing, deep-link scoping to one batch.
+- ⚠️ **The table itself is a React semantic and this repo has NO DOM test environment. The honest
+  gate is a live browser walk.**
+
+---
+
+### §H.4 — Slice X4: the import dialog
+
+**Goal.** `NewOutflowImportPage.tsx` becomes `ImportStatementDialog.tsx`, opened from the master
+screen. Same two steps inside: choose file → preview → confirm.
+
+- Every upload rule is unchanged and stays SERVER-side: parse-before-`save_file`, the
+  period-narrowed duplicate lookup, refuse at 100% duplicates, warn at 90%.
+- **The dialog runs the match itself after staging** and closes only when it is done, refreshing the
+  master table and the summary. Today "Run match" is a separate button on a screen the user has to
+  find first; there is no case where an accountant uploads a statement and does NOT want it matched.
+  A manual **Re-run match** stays available on the summary, because re-running IS a normal act — the
+  ledger changes under a batch all day.
+- `OutflowImportBatchPage.tsx` is retired; its decision wiring moves to the master page.
+- `CloseBatchDialog` moves into the summary section and acts on the SELECTED import. Its confirm
+  step stays — closing is the one action whose consequence is invisible afterwards.
+- The per-row `DecisionDialog` and `SettleableRecordTable` are **unchanged** (ruling 3). They open
+  from the master table instead of from the batch page. Everything the T4 radio table earned carries
+  over untouched.
+
+#### Tests
+No pure logic changes. **Browser walk is the gate.**
+
+---
+
+### §H.5 — Slice X5: confirm all matched
+
+**Goal.** One button in the summary opens a dialog listing every row the matcher was SURE about,
+with the record each will settle, and confirms them together.
+
+**⚠️ "Matched" is not the same as "confirmable", and conflating them is the trap in this slice.** A
+row is `Matched` when the matcher found **one OR MORE** approved records. When it found two it
+deliberately stores NO suggestion — the screen never guesses between two real records. So the dialog
+shows two lists:
+
+- **Ready (N).** `Matched` **and** carrying a stored `suggested_doctype`/`suggested_name`. Ticked by
+  default, confirmable.
+- **Needs you (M).** `Matched` with no suggestion. Listed read-only with a link that opens the
+  per-row dialog. **Never auto-confirmable** — there is nothing to confirm them against.
+
+**Each ready row shows the bank line beside the record it will settle**, and — because of §H.1 —
+**the amount delta.** Confirming 40 rows will now silently rewrite up to 40 approved figures, so
+`Rs 18,678.69 -> Rs 18,679.00` has to be legible BEFORE the click, not discoverable after it. Rows
+with a delta get a marker so a scan finds them.
+
+**Execution keeps the per-row isolation exactly as it is: one call per row.** The existing endpoint's
+docstring forbids all-or-nothing in these words — *"one unsettleable row would then discard seven
+good decisions"* — and that reasoning gets stronger, not weaker, at forty rows. The client loops with
+a progress bar and a cancel.
+
+⚠️ A server-side bulk endpoint is the obvious optimisation and is **deliberately not in this slice**.
+It is only safe if it reproduces per-row savepoints, per-row commits and a per-row result list, and
+the version of it that is easy to write is one transaction — which is the exact thing that must not
+ship. Revisit only if round-trip count proves to be a real problem in a real browser.
+
+**A results panel closes the action:** *N settled, M failed*, each failure carrying its real reason
+(already Paid by someone else, status changed, amount drifted outside the window). **Failures here
+are NORMAL, not exceptional** — payments get ticked by hand all day, and the per-row locks are what
+make a stale confirm fail safely instead of writing the wrong thing.
+
+**Staleness is surfaced, not forced.** The button shows *"matched 4 hours ago"* and offers Re-run
+match beside it. Forcing a re-match before every bulk confirm would be theatre: the locks already
+make the stale case safe.
+
+#### Tests
+- **api**: `get_confirmable_rows` excludes ambiguous `Matched` rows, excludes settled/skipped, and
+  carries the delta.
+- **pure**: any selection/summary helper added to `outflowTableModel.ts`.
+- ⚠️ **Browser walk for the dialog.**
+
+---
+
+### §H.6 — Order, and what each slice costs
+
+| Slice | Depends on | Migrate | Verifiable here? |
+|---|---|---|---|
+| **X1** exact amounts | — | none | **Yes** — pure + api tests, incl. the isolation regression |
+| **X2** summary | — | none | **Yes** — pure + api tests |
+| **X3** master table | X2 (for the counts it links to) | **likely one index + a patch** | Partly — endpoint yes, table NO (browser) |
+| **X4** import dialog | X3 | none | **No** — browser only |
+| **X5** confirm all matched | X1, X2, X3 | none | Partly — endpoint yes, dialog NO (browser) |
+
+X1 and X2 are independent of each other and of everything else; either can ship alone. X1 goes first
+regardless, because X5 has to display what it introduces.
+
+### §H.7 — Obligations this arc inherits and adds
+
+**Inherited, still unpaid:**
+- **The live browser walk of the v3 screen.** Never done. The dev database carries 0 import rows and
+  5 approved payments, so neither the table nor tiers 1 and 2 have been seen against real data.
+- **The production migrate** — six doctype JSONs on this branch already.
+- **Nothing is pushed.**
+
+**Added by this arc:**
+- A **seventh** migrate obligation if X3 lands an index, plus a patch module for deployed databases.
+- A behaviour change to the CEO-Hold cashflow recompute on expense settles (§H.1) — it starts
+  running, which it should always have done, and stops publishing realtime on that path.
+- The reversal of the "paise difference is not recorded" limit in the domain doc.
+- ⚠️ **The `Approve` vs `Confirm` label ruling is still open** (§H.0).
 
 ---
 

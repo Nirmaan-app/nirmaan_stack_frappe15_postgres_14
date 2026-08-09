@@ -79,6 +79,27 @@ def _notify_manual_hold_releasable(project_id: str, holder_user: str) -> None:
 	if frappe.flags.in_patch or frappe.flags.in_migrate or frappe.flags.in_install or frappe.flags.in_import:
 		return
 
+	# ⚠️ AND NEVER DURING A BULK IMPORT OUTFLOW SETTLE, BECAUSE THIS FUNCTION COMMITS (below).
+	#
+	# This is a CORRECTNESS guard, not a volume one. Bulk Import Outflow settles a bank statement
+	# row by row, each row inside its own savepoint, so that row 3 failing leaves rows 1-2 written
+	# and rows 4+ still attempted. `frappe.db.commit()` inside that savepoint makes the caller's
+	# rollback a silent no-op — a half-written settlement with nothing recording which half.
+	#
+	# ⚠️ IT GUARDS THE NOTIFY, NOT THE RECOMPUTE, AND THE DISTINCTION IS THE WHOLE POINT.
+	# `sync_cashflow_reason` above never commits (it says so, and it is true), so the gap
+	# recomputation and the CEO-Hold mirror still run for an imported settlement and land in the
+	# import's own transaction. Only this branch — a MANUAL hold that has become releasable, which
+	# inserts a notification, commits, and publishes realtime — is skipped. The holder is not told
+	# by this particular save; the next event, or the weekly evaluator, tells them.
+	#
+	# The flag is set by `services/outflow_import/settle.py` around its `doc.save()` calls and
+	# cleared in a `finally`. It covers BOTH ledgers: this module is wired to `Project Payments`
+	# on_update AND `Project Expenses` on_update, so the payment path was exposed to this same
+	# commit before the expense path ever reached it.
+	if frappe.flags.get("outflow_import_settling"):
+		return
+
 	if frappe.db.exists(
 		"Nirmaan Notifications",
 		{

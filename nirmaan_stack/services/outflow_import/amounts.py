@@ -68,9 +68,20 @@ back `Mismatched`, announced with a note suggesting TDS. On one real 26-row stat
 rows and Rs 3.12 of "discrepancy". If you add an amount comparison anywhere in this feature, add it
 to this list -- and say WHICH window it uses.
 
-⚠️ THE DIFFERENCE IS NOT RECORDED ANYWHERE. Settling a Rs 18,678.69 payment from a Rs 18,679.00
-transfer leaves the payment at 18,678.69 and marks it Paid. The 31 paise is absorbed, not booked.
-That was accepted explicitly; writing it somewhere is a larger change than this one.
+⚠️ THE DIFFERENCE IS NOW WRITTEN ONTO THE RECORD -- REVERSED BY THE OWNER 2026-08-09 (slice X1).
+This file said, correctly for that day: "the difference is not recorded anywhere ... the 31 paise is
+absorbed, not booked. That was accepted explicitly." It no longer is. `rewrite_amount` below settles
+a Rs 18,678.69 payment from a Rs 18,679.00 transfer by writing 18,679.00 ONTO THE PAYMENT, so the
+ledger says what actually left the bank. BOTH DIRECTIONS, on all three ledgers.
+
+Two things about that reversal belong here rather than at the call sites:
+  * `rewrite_amount` DOES NOT READ EITHER WINDOW, and it is not a sixth window site. By the time it
+    runs, `amounts_match` has already proven the pair is inside the settle window and the write
+    guard has already accepted the record. It answers "do these two differ at all", nothing more.
+    Do not "finish" it by handing it a tolerance -- a tolerance there would silently re-decide what
+    may be settled, which is the guard's job and only the guard's.
+  * The window itself is UNCHANGED. Rewriting the amount corrects what gets written; it never
+    widens what may be written. A record outside +-Rs 5 is refused exactly as before.
 """
 
 from __future__ import annotations
@@ -84,6 +95,7 @@ __all__ = [
     "amount_difference",
     "tolerance_bounds",
     "to_decimal",
+    "rewrite_amount",
 ]
 
 # THE SETTLE WINDOW. Owner ruling 2026-08-07 (widened from Re 1 with tier 2; see the docstring).
@@ -126,6 +138,34 @@ def amounts_match(left, right, tolerance: Decimal = AMOUNT_TOLERANCE) -> bool:
     but not exactly five".
     """
     return abs(amount_difference(left, right)) <= to_decimal(tolerance)
+
+
+def rewrite_amount(record_amount, bank_amount) -> Decimal | None:
+    """The amount to WRITE onto a record being settled, or `None` to leave it alone (slice X1).
+
+    Returns the BANK amount whenever the two differ, in EITHER direction, and `None` when they are
+    already equal. The caller writes only on a value, so an equal pair produces no write at all --
+    which matters because the expense and payment paths both save the whole document, and a
+    no-op field assignment would still mint a Version row saying nothing happened.
+
+    ⚠️ IT TAKES NO TOLERANCE, ON PURPOSE -- see the module docstring. The settle window has already
+    done its work by the time this is called: `amounts_match` gated the candidate pool, and the
+    write guard re-asserted it under a row lock. Asking again here would put a second, quieter
+    opinion about what may be settled in a function whose job is only to say what the number is.
+
+    ⚠️ BOTH DIRECTIONS, AND THE UPWARD ONE IS THE DELIBERATE PART (owner ruling 2026-08-09). When
+    the bank moved MORE than the approved amount -- up to Rs 5 more -- the record takes the larger
+    figure, which means this import can record spending slightly above an approval. That was chosen
+    with the consequence stated: the ledger's job is to say what left the bank. The audit trail is
+    the Version log on all three ledgers, which is why both write paths go through `doc.save()`.
+
+    The comparison is Decimal-exact through `to_decimal`, so a Data column holding "18678.69", a
+    float column and a PG numeric all compare as the same money and none of them drifts through
+    binary float.
+    """
+    record = to_decimal(record_amount)
+    bank = to_decimal(bank_amount)
+    return None if record == bank else bank
 
 
 def tolerance_bounds(

@@ -22,13 +22,28 @@ refresh the batch rollup. Those four are one fact and must not half-happen -- a 
 without its expense would claim a settlement that never occurred, and an expense without its match
 record could be settled a second time by the next statement.
 
-WHY THE CEO-HOLD HOOK IS DELIBERATELY *NOT* SUPPRESSED HERE. `hooks.py` fires
+WHY THE CEO-HOLD RECOMPUTE IS DELIBERATELY *NOT* SUPPRESSED HERE. `hooks.py` fires
 `project_cashflow_hold_update.on_project_expense` on Project Expenses insert/update, and
-`frappe.flags.in_import` would switch it off. The BoQ-style bulk loaders set that flag because they
-write hundreds of rows and recompute once at the end. Settlement is one expense per reviewer
-action, and the cashflow gap SHOULD move when a Paid expense appears -- suppressing it would leave
-a project's CEO-Hold state stale for no gain. If a settle-everything action ever ships, that is
-when the flag becomes right: suppress per row, recompute once.
+`frappe.flags.in_import` would switch it off wholesale. The BoQ-style bulk loaders set that flag
+because they write hundreds of rows and recompute once at the end. Settlement is one expense per
+reviewer action, and the cashflow gap SHOULD move when a Paid expense appears -- suppressing it
+would leave a project's CEO-Hold state stale for no gain. If a settle-everything action ever ships,
+that is when the wholesale flag becomes right: suppress per row, recompute once.
+
+⚠️ THAT PARAGRAPH DESCRIBED AN INTENT THE SETTLE PATH DID NOT ACTUALLY HAVE UNTIL X1, and the
+correction is worth reading before trusting any hook claim in this module. It was true of
+`create_expense`, which inserts a document. It was NOT true of `settle_expense`, which wrote with
+`frappe.db.set_value` -- a write that skips the document lifecycle, so that hook never fired and a
+settled expense never moved the cashflow gap at all. X1 moved the expense write onto `doc.save()`
+(it had to, to audit the amount rewrite), which is what finally makes the intent above real.
+
+⚠️ AND IT WOKE A THIRD COMMITTER, WHICH IS SUPPRESSED -- NARROWLY. The cashflow module can reach a
+`frappe.db.commit()` in ONE branch: notifying the holder of a manual CEO Hold that has become
+releasable. A commit there would break the savepoint below exactly as the other two would.
+`services/outflow_import/settle.py` sets `frappe.flags.outflow_import_settling` around its saves
+and that branch bails on it. The RECOMPUTE still runs; only the notify, its commit and its realtime
+publish are skipped. Note this hook is wired to `Project Payments` too, so the payment path had
+been exposed to that same commit since V2 -- a hole X1 closes rather than opens.
 
 WHY THE PAYMENT HOOKS *ARE* SUPPRESSED, which reads like the opposite decision and is not. Read
 side by side: the CEO-Hold recompute above holds NO commit, so leaving it on costs nothing. The two
@@ -227,14 +242,31 @@ def _record_settlement(staged, doc, result, actor) -> None:
         staged.name,
         {
             "row_status": ROW_SETTLED,
-            "outcome_note": (
-                f"{'Recorded' if result.created else 'Settled'} {result.doctype} {result.name}."
-            ),
+            "outcome_note": _settled_note(result),
             "decided_at": frappe.utils.now_datetime(),
             "decided_by": actor,
         },
         update_modified=False,
     )
+
+
+def _settled_note(result) -> str:
+    """The sentence a reviewer reads on a settled row.
+
+    ⚠️ IT NAMES AN AMOUNT CORRECTION WHEN THERE WAS ONE (X1). The rewrite edits an approved figure,
+    and the note is the only place that fact survives on the import's own screen -- the Version log
+    holds it durably, but nobody opens a Version log to answer "why is this payment 31 paise
+    different from what I approved". Silent by design when nothing changed: a note that said
+    "amount unchanged" on every ordinary row would train people to stop reading it.
+    """
+    verb = "Recorded" if result.created else "Settled"
+    note = f"{verb} {result.doctype} {result.name}."
+    if result.amount_changed:
+        note += (
+            f" Amount corrected from {result.original_amount} to {result.amount} "
+            f"to match the transfer."
+        )
+    return note
 
 
 def _summary(row: str, result, batch: str, statuses) -> dict:
@@ -251,6 +283,13 @@ def _summary(row: str, result, batch: str, statuses) -> dict:
             "name": result.name,
             "amount": float(result.amount),
             "created": result.created,
+            # X1: what the record held before, and whether we changed it. The screen shows the
+            # delta on the bulk-confirm surface; `None` on a created expense, which had no
+            # previous amount to correct.
+            "original_amount": (
+                None if result.original_amount is None else float(result.original_amount)
+            ),
+            "amount_changed": result.amount_changed,
         },
         "batch_status": derive_batch_status(statuses),
         "counters": derive_batch_counters(statuses),

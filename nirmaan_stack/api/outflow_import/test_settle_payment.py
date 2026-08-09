@@ -140,6 +140,13 @@ class PaymentSettlementFixture(unittest.TestCase):
         for name in self.batches:
             frappe.db.delete(ROW_DOCTYPE, {"import_batch": name})
             frappe.db.delete(BATCH_DOCTYPE, {"name": name})
+        if self.payments:
+            # X1 routes the settle through `doc.save()` on a `track_changes` doctype, so each
+            # settlement now mints a Version row. This suite writes to the LIVE database, so its
+            # audit residue is purged with the payments it describes.
+            frappe.db.delete(
+                "Version", {"ref_doctype": PAYMENT, "docname": ["in", self.payments]}
+            )
         for name in self.payments:
             frappe.db.delete(PAYMENT, {"name": name})
         for name in self.pos:
@@ -229,6 +236,124 @@ class TestAmountPaidIsRecomputedExactlyOnce(PaymentSettlementFixture):
         )
         total = self._po_amount_paid()
         self.assertEqual(total, expected)
+
+
+class TestTheAmountIsCorrectedToTheBank(PaymentSettlementFixture):
+    """Slice X1 -- the record takes the amount the bank actually moved (owner ruling 2026-08-09).
+
+    This REVERSES the earlier accepted position that "the paise difference is not recorded". Both
+    directions, and the audit is the Version log, which is why the write goes through `doc.save()`.
+    """
+
+    def _shift_planted(self, suffix, delta):
+        """Move the planted payment off the bank amount by `delta`, still inside the settle window.
+
+        ⚠️ IT MOVES THE PLANTED PAYMENT RATHER THAN PLANTING A SECOND ONE, and the reason is the
+        reference guard: the fixture already put this row's UTR on this payment, so settling the
+        row against any OTHER payment is refused by `_assert_reference_is_free` before an amount is
+        ever compared. A second payment would test the UTR guard, not the rewrite.
+        """
+        row = self._import_row(suffix)
+        shifted = round(float(row.amount) + delta, 2)
+        frappe.db.set_value(
+            PAYMENT, self.planted[suffix], "amount", shifted, update_modified=False
+        )
+        frappe.db.commit()
+        return row, shifted
+
+    def test_a_payment_short_by_paise_takes_the_bank_amount(self):
+        """The owner's own example: an 18,678.69 payment settled from an 18,679.00 transfer ends up
+        at 18,679.00. Before X1 it stayed at 18,678.69 and the 31 paise was absorbed."""
+        row, shifted = self._shift_planted("0001", -0.31)
+        self.assertNotEqual(shifted, float(row.amount))  # precondition, not the assertion
+
+        settle_row(row.name, PAYMENT, self.planted["0001"])
+
+        after = frappe.db.get_value(
+            PAYMENT, self.planted["0001"], ["amount", "status"], as_dict=True
+        )
+        self.assertEqual(float(after.amount), float(row.amount))
+        self.assertEqual(after.status, "Paid")
+
+    def test_a_payment_the_bank_OVERPAID_also_takes_the_bank_amount(self):
+        """⚠️ THE DELIBERATE HALF. The bank moved MORE than was approved and the record takes the
+        larger figure, so this import can record spending above an approval. Owner ruling, made
+        with that consequence stated. If this test is ever "fixed" to assert the approved amount
+        survived, the ruling changed -- check before believing the test."""
+        row, _ = self._shift_planted("0003", -4.00)  # record LOW, bank HIGH
+
+        settle_row(row.name, PAYMENT, self.planted["0003"])
+
+        self.assertEqual(
+            float(frappe.db.get_value(PAYMENT, self.planted["0003"], "amount")),
+            float(row.amount),
+        )
+
+    def test_an_equal_amount_is_left_exactly_as_it_was(self):
+        """The ordinary case must stay a no-op. `rewrite_amount` returns None on an equal pair
+        precisely so an unchanged settlement does not mint a Version row claiming a change."""
+        row = self._import_row("0004")
+        before = float(frappe.db.get_value(PAYMENT, self.planted["0004"], "amount"))
+        self.assertEqual(before, float(row.amount))  # precondition
+
+        settle_row(row.name, PAYMENT, self.planted["0004"])
+
+        self.assertEqual(
+            float(frappe.db.get_value(PAYMENT, self.planted["0004"], "amount")), before
+        )
+
+    def test_the_correction_is_recorded_in_the_version_log(self):
+        """⚠️ THE AUDIT IS THE WHOLE REASON THIS IS SAFE TO DO. An amount rewritten with no record
+        of who changed it or what it had been is an unattributable edit to an approved figure. The
+        Version row exists only because the write goes through `doc.save()` on a `track_changes`
+        doctype -- a `set_value` write would leave nothing."""
+        row, _ = self._shift_planted("0006", -0.68)
+
+        settle_row(row.name, PAYMENT, self.planted["0006"])
+
+        versions = frappe.get_all(
+            "Version",
+            filters={"ref_doctype": PAYMENT, "docname": self.planted["0006"]},
+            fields=["data"],
+        )
+        self.assertTrue(versions, "no Version row recorded the amount correction")
+        self.assertTrue(
+            any("amount" in (v.get("data") or "") for v in versions),
+            "a Version exists but does not mention the amount",
+        )
+
+    def test_the_parent_total_uses_the_CORRECTED_amount(self):
+        """`update_parent_amount_paid` SUMS the paid payments, so it picks the rewrite up on its
+        own. Pinned rather than reasoned about: if it ever incremented instead, the PO's paid total
+        would carry the pre-correction figure and disagree with the payment beneath it."""
+        row, _ = self._shift_planted("0007", -0.90)
+
+        settle_row(row.name, PAYMENT, self.planted["0007"])
+
+        self.assertEqual(self._po_amount_paid(), float(row.amount))
+
+    def test_the_row_note_says_the_amount_was_corrected(self):
+        """The import's own screen is where somebody asks "why is this 31 paise off what I
+        approved". The Version log holds the fact durably; the note is what surfaces it."""
+        row, shifted = self._shift_planted("0008", -0.14)
+
+        settle_row(row.name, PAYMENT, self.planted["0008"])
+
+        note = frappe.db.get_value(ROW_DOCTYPE, row.name, "outcome_note") or ""
+        self.assertIn("corrected", note.lower())
+        self.assertIn(str(shifted), note.replace(",", ""))
+
+    def test_the_result_reports_what_was_written_not_what_was_found(self):
+        """`SettleResult.amount` changed meaning at X1. The bulk-confirm surface shows the delta per
+        row, so a result still reporting the pre-settle figure would report the number it just
+        replaced -- on the one screen that most needs the truth."""
+        row, shifted = self._shift_planted("0001", -0.31)
+
+        summary = settle_row(row.name, PAYMENT, self.planted["0001"])
+
+        self.assertEqual(summary["settled"]["amount"], float(row.amount))
+        self.assertEqual(summary["settled"]["original_amount"], shifted)
+        self.assertTrue(summary["settled"]["amount_changed"])
 
 
 class TestRefusals(PaymentSettlementFixture):

@@ -42,10 +42,30 @@ CREATING AT `Paid` DELIBERATELY BYPASSES AUTO-APPROVAL. Both doctypes' `validate
 via `if self.status and self.status != 'Requested': return`, so the `< Rs 5,000` auto-approve rule
 never evaluates. That is intended -- approving a spend that has already left the bank is theatre --
 and it is recorded here so a later reader does not "fix" it.
+
+⚠️ SLICE X1 (owner ruling 2026-08-09): THIS MODULE NOW WRITES MONEY, AND THE SPINE HAS TO BE
+RESTATED PRECISELY. Until X1 a settlement wrote `status`, `payment_date`, a reference and
+`payment_by` -- never an amount. It now also writes the BANK's amount onto the record whenever the
+two differ, in either direction, on all three ledgers (`amounts.rewrite_amount`). The spine is
+unchanged in what matters and NARROWER than "never touches money": this import never approves and
+never creates a payment; it settles the last rung of a ladder somebody else climbed, and it now
+records that rung at the figure the bank actually moved. Anything in this repo still reading "the
+import does not touch amounts" is history from X1 on.
+
+Two guarantees make that safe to say, and both are structural rather than promised:
+  * THE WINDOW STILL GATES THE WRITE. `_lock_and_assert_settleable` /
+    `_lock_and_assert_payment_settleable` run FIRST and still refuse anything outside +-Rs 5. The
+    rewrite corrects what is written; it never widens what may be written.
+  * EVERY AMOUNT CHANGE IS AUDITED. All three doctypes carry `track_changes: 1`, and BOTH write
+    paths now go through `doc.save()`, so each change lands in the Version log with its user and
+    timestamp. ⚠️ THAT IS WHY THE EXPENSE PATH STOPPED USING `frappe.db.set_value` -- see
+    `settle_existing_expense`. `set_value` skips the document lifecycle entirely, so an amount
+    rewritten through it would be an unaudited edit to a financial figure.
 """
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -58,7 +78,7 @@ from nirmaan_stack.services.outflow_import.ledgers import (
 from nirmaan_stack.services.outflow_import.ledgers import (
     PROJECT_EXPENSE_DOCTYPE as PROJECT_EXPENSE,
 )
-from nirmaan_stack.services.outflow_import.amounts import amounts_match
+from nirmaan_stack.services.outflow_import.amounts import amounts_match, rewrite_amount
 from nirmaan_stack.services.outflow_import.ledgers import PAYMENT_DOCTYPE
 from nirmaan_stack.services.outflow_import.ledgers import (
     SETTLEABLE_STATUSES,
@@ -139,10 +159,52 @@ class DuplicateReferenceError(ExpenseSettlementError):
 
 @dataclass(frozen=True)
 class SettleResult:
+    """What a settlement wrote.
+
+    ⚠️ `amount` IS THE AMOUNT WRITTEN, NOT THE AMOUNT FOUND (changed at X1). It used to report the
+    record's pre-settle figure, which was the same number until X1 made a settle able to change it.
+    Leaving it as the old value would have made the one screen that most needs the truth -- the
+    bulk confirm, which shows the delta per row -- quietly report the figure it just replaced.
+
+    `original_amount` is what the record held BEFORE the settle, so a caller can show
+    `18,678.69 -> 18,679.00` without re-reading the record. It is `None` for a created expense,
+    which had no previous amount.
+    """
+
     doctype: str
     name: str
     amount: Decimal
     created: bool
+    original_amount: Decimal | None = None
+
+    @property
+    def amount_changed(self) -> bool:
+        """Whether this settlement rewrote the record's amount."""
+        return self.original_amount is not None and self.original_amount != self.amount
+
+
+@contextmanager
+def _outflow_import_write():
+    """Mark the request as an outflow-import settlement for the duration of one `doc.save()`.
+
+    ⚠️ A REQUEST-LEVEL FLAG, WHERE THE OTHER TWO SUPPRESSIONS USE `doc.flags`, AND THE DIFFERENCE IS
+    FORCED. `update_parent_amount_paid` and the notification cascade read `doc.flags` because they
+    are handed the document. The third committer -- `project_cashflow_hold_update`, wired to
+    `Project Payments` AND `Project Expenses` `on_update` -- reaches its `frappe.db.commit()` from
+    an INNER helper that never sees the doc, so a doc flag cannot reach it. `frappe.flags` can, and
+    it is the same mechanism that module's own `in_import` / `in_patch` guards already use.
+
+    ⚠️ THE PREVIOUS VALUE IS RESTORED, NOT BLINDLY CLEARED. A request-level flag that leaks would
+    suppress a commit for unrelated later work in the same request; one that resets to False would
+    break a nesting caller. `finally` covers the raise path, which is the one that matters -- a
+    settlement that throws is exactly when the caller is about to roll back to its savepoint.
+    """
+    previous = frappe.flags.get("outflow_import_settling")
+    frappe.flags.outflow_import_settling = True
+    try:
+        yield
+    finally:
+        frappe.flags.outflow_import_settling = previous
 
 
 def format_amount_for(doctype: str, amount: Decimal):
@@ -237,6 +299,37 @@ def settle_existing_expense(
     ⚠️ EXPENSES ONLY, still. `Project Payments` is in `SETTLEABLE_STATUSES` from V1 on, so this
     guard tests `is_expense_doctype` rather than map membership -- the map answers "what status may
     I settle this from", not "may THIS module settle it". V2 adds the payment path beside this one.
+
+    ⚠️ THIS WRITES THROUGH `doc.save()` AS OF X1. IT USED TO USE `frappe.db.set_value`, AND THE
+    SWITCH IS THE LOAD-BEARING PART OF THIS SLICE -- three consequences, in order of how badly each
+    would bite:
+
+    1. THE AMOUNT REWRITE IS AUDITED. `set_value` writes past the document lifecycle, so it fires
+       no `validate`, no `on_update`, and -- the reason this had to change -- NO VERSION. Both
+       expense doctypes carry `track_changes: 1`, but that setting is inert for a `set_value`
+       write. Rewriting a financial figure through it would have left no record of who changed the
+       amount or what it had been, on the exact write X1 exists to make.
+
+    2. IT FIXES A SILENT BUG THAT PREDATES THIS SLICE. `hooks.py` wires
+       `project_cashflow_hold_update.on_project_expense` to `Project Expenses` `on_update`, which
+       recomputes the project's CEO-Hold cashflow gap whenever a row enters or leaves `Paid`.
+       Because this function used `set_value`, THAT HOOK HAS NEVER RUN when this feature settled an
+       expense -- so settling one has never moved the CEO-Hold gap. The docstring on
+       `api/outflow_import/expenses.py` explaining that the CEO-Hold hook is "deliberately NOT
+       suppressed" was sound for `create_expense`, which genuinely inserts a document, and had
+       simply never applied to this path. It applies now.
+
+    3. IT WAKES A COMMITTER, WHICH `_outflow_import_write` HOLDS SHUT. That same cashflow module
+       can reach a `frappe.db.commit()` -- in its manual-hold-releasable notification branch -- and
+       a commit inside the caller's savepoint makes the per-row rollback a silent no-op. The flag
+       suppresses that ONE branch; the gap recomputation itself still runs, in our transaction. See
+       both `_outflow_import_write` and the guard at the hook site.
+
+    ⚠️ `payment_date` AND `payment_ref` ARE STILL ASSIGNED UNCONDITIONALLY, INCLUDING AS `None`,
+    which is exactly what the `set_value` dict did. It looks careless beside `settle_payment`'s
+    guarded writes and is kept deliberately: changing it here would be an unrelated behaviour change
+    riding a slice about amounts. In practice the field is always blank -- the record is `Approved`,
+    and both are written at settlement.
     """
     if not is_expense_doctype(target_doctype):
         frappe.throw(
@@ -248,19 +341,34 @@ def settle_existing_expense(
     bank_amount = normalize_amount(getattr(row, "amount", 0))
     amount = _lock_and_assert_settleable(target_doctype, target_name, bank_amount)
 
-    values = {
-        "status": _PAID,
-        "payment_date": getattr(row, "added_on_date", None),
-        "payment_ref": getattr(row, "bank_reference_no", "") or None,
-    }
+    doc = frappe.get_doc(target_doctype, target_name)
+    doc.status = _PAID
+    doc.payment_date = getattr(row, "added_on_date", None)
+    doc.payment_ref = (getattr(row, "bank_reference_no", "") or "") or None
     # payment_by exists ONLY on Project Expenses, and it is the finalising user -- deliberately NOT
     # the statement's "Added by", which the gateway truncates to 15 characters (owner ruling).
     if target_doctype == PROJECT_EXPENSE:
-        values["payment_by"] = actor
+        doc.payment_by = actor
 
-    frappe.db.set_value(target_doctype, target_name, values, update_modified=True)
+    # X1: the record takes the amount the bank actually moved. `format_amount_for` is what keeps
+    # `Project Expenses.amount` a bare numeric STRING and `Non Project Expenses.amount` a number --
+    # the two are not twins and writing one shape into the other is how the Data column stops being
+    # self-consistent.
+    written = amount
+    exact = rewrite_amount(amount, bank_amount)
+    if exact is not None:
+        doc.amount = format_amount_for(target_doctype, exact)
+        written = exact
+
+    with _outflow_import_write():
+        doc.save(ignore_permissions=True)
+
     return SettleResult(
-        doctype=target_doctype, name=target_name, amount=amount, created=False
+        doctype=target_doctype,
+        name=target_name,
+        amount=written,
+        created=False,
+        original_amount=amount,
     )
 
 
@@ -282,12 +390,15 @@ def settle_payment(row, target_name: str, actor: str) -> SettleResult:
       2. DISTINCT ERRORS. The canonical path throws one sentence for CEO Pending, Requested,
          Rejected and already-Paid alike, leaving the caller no way to react differently. A bulk
          confirm needs to tell "somebody beat me to it" from "this was never settleable".
-      3. THE AMOUNT MUST MATCH EXACTLY, as it must for an expense. A TDS payment therefore cannot
-         be settled here at all -- the bank sends `amount - tds` -- which is the accepted cost of
-         deferring the tolerance pass (Q11). Those rows stay `Unmatched` and go through the
-         existing screen, which is unchanged and always available (Q12).
-      4. NO TDS IS EVER WRITTEN. `tds` is recorded at fulfilment by a human who knows the
-         deduction; this import does not know it and must not invent one. The field is left alone.
+      3. THE AMOUNT MUST MATCH WITHIN THE SETTLE WINDOW, as it must for an expense, and X1 then
+         WRITES THE BANK'S FIGURE onto the payment when the two differ. A TDS payment still cannot
+         be settled here at all -- the bank sends `amount - tds`, thousands out, which no window
+         reaches -- the accepted cost of deferring the tolerance pass (Q11). Those rows stay
+         `Unmatched` and go through the existing screen (Q12).
+      4. NO TDS IS EVER WRITTEN, and X1 does not change this. `tds` is recorded at fulfilment by a
+         human who knows the deduction; this import does not know it and must not invent one.
+         Rewriting `amount` to the bank figure is NOT a way of recording a deduction -- it cannot
+         be, since anything TDS-sized was refused two lines earlier.
 
     THE UTR GUARD IS KEPT AS-IS (owner ruling Q4). It refuses a reference already sitting on
     another payment, which would throw on the second payment of a fan-out group -- and fan-out is
@@ -314,15 +425,35 @@ def settle_payment(row, target_name: str, actor: str) -> SettleResult:
     if payment_date:
         doc.payment_date = payment_date
 
+    # X1: the payment takes the amount the bank actually moved, in either direction. `current` was
+    # proven inside the settle window under the row lock a few lines up, so the gap here is at most
+    # Rs 5 and is rounding, not a deduction. `update_parent_amount_paid` SUMS the paid payments
+    # rather than incrementing, so the PO's `amount_paid` picks this up on its own -- inside this
+    # same transaction, since that hook's commit is suppressed for this path.
+    written = current
+    exact = rewrite_amount(current, bank_amount)
+    if exact is not None:
+        doc.amount = format_amount_for(PAYMENT_DOCTYPE, exact)
+        written = exact
+
     # ⚠️ SET BEFORE SAVE -- the hooks read it during the save, not after. This is what keeps the
     # per-row savepoint intact; see the comments at both hook sites.
     doc.flags.from_outflow_import = True
-    doc.save(ignore_permissions=True)
+    # ⚠️ AND THE REQUEST FLAG BESIDE IT, for the THIRD committer -- the CEO-Hold cashflow hook,
+    # which is wired to this doctype's `on_update` too and reaches its commit from a helper that
+    # never sees `doc`. It was exposed to that commit before X1; the doc flag could never have
+    # reached it. See `_outflow_import_write`.
+    with _outflow_import_write():
+        doc.save(ignore_permissions=True)
 
     _advance_po_latest_payment_date(doc, payment_date)
 
     return SettleResult(
-        doctype=PAYMENT_DOCTYPE, name=target_name, amount=current, created=False
+        doctype=PAYMENT_DOCTYPE,
+        name=target_name,
+        amount=written,
+        created=False,
+        original_amount=current,
     )
 
 

@@ -18,6 +18,7 @@ from nirmaan_stack.services.outflow_import.amounts import (
     TIER1_TOLERANCE,
     amount_difference,
     amounts_match,
+    rewrite_amount,
     to_decimal,
     tolerance_bounds,
 )
@@ -142,6 +143,65 @@ class TestToleranceBounds(unittest.TestCase):
                     amounts_match(candidate, bank),
                     f"SQL window and amounts_match disagree on {candidate} vs {bank}",
                 )
+
+
+class TestRewriteAmount(unittest.TestCase):
+    """`rewrite_amount` -- what to WRITE onto a record being settled (slice X1).
+
+    It exists because the owner reversed "the paise difference is not recorded" on 2026-08-09. The
+    record now takes the amount the bank actually moved.
+    """
+
+    def test_an_equal_pair_writes_nothing(self):
+        """`None`, not the amount -- the caller writes only on a value, and both settle paths save
+        the whole document. Returning the identical figure would mint a Version row per settlement
+        saying nothing changed, on the ordinary case."""
+        self.assertIsNone(rewrite_amount(Decimal("5000"), Decimal("5000")))
+
+    def test_the_bank_amount_wins_when_the_record_is_higher(self):
+        """The real case, and the one the owner named: an 18,678.69 payment settled from an
+        18,679.00 transfer becomes 18,679.00."""
+        self.assertEqual(
+            rewrite_amount(Decimal("18678.69"), Decimal("18679.00")), Decimal("18679.00")
+        )
+
+    def test_the_bank_amount_wins_when_the_record_is_lower_too(self):
+        """⚠️ THE UPWARD DIRECTION IS THE DELIBERATE HALF (owner ruling 2026-08-09). The bank moved
+        MORE than was approved, and the record takes the larger figure -- so this import can record
+        spending slightly above an approval. Chosen with that consequence stated; the Version log
+        is the audit. Flip this to one-directional only on a new ruling, never as a tidy-up."""
+        self.assertEqual(
+            rewrite_amount(Decimal("1000.00"), Decimal("1004.00")), Decimal("1004.00")
+        )
+
+    def test_it_reads_the_data_column_string_form(self):
+        """`Project Expenses.amount` is a Data column of bare numeric strings, so the record side
+        arrives as text. '2935' and 2935 are the same money and must not produce a write."""
+        self.assertIsNone(rewrite_amount("2935", Decimal("2935")))
+        self.assertEqual(rewrite_amount("2935", Decimal("2936")), Decimal("2936"))
+
+    def test_a_float_does_not_manufacture_a_difference(self):
+        """Coercion goes through `to_decimal`, so a float column cannot make an equal pair look
+        unequal through binary error -- which would rewrite an amount to itself on every settle."""
+        self.assertIsNone(rewrite_amount(0.1, Decimal("0.1")))
+
+    def test_it_takes_no_tolerance_and_reads_neither_window(self):
+        """⚠️ THE SIGNATURE IS THE GUARD. By the time this runs, `amounts_match` has gated the pool
+        and the write guard has re-asserted the window under a row lock. A tolerance parameter here
+        would put a second, quieter opinion about what may be settled inside a function whose only
+        job is to say what the number is."""
+        import inspect
+
+        signature = inspect.signature(rewrite_amount)
+        self.assertEqual(list(signature.parameters), ["record_amount", "bank_amount"])
+
+    def test_a_difference_far_outside_the_window_still_reports_the_bank_amount(self):
+        """It does NOT gate on the window, and that is correct -- a TDS-sized gap never reaches this
+        function because the write guard refused the settlement first. Pinned so nobody "fixes" it
+        by adding a tolerance check and quietly widens what may be written."""
+        self.assertEqual(
+            rewrite_amount(Decimal("100000"), Decimal("98000")), Decimal("98000")
+        )
 
 
 class TestPurity(unittest.TestCase):

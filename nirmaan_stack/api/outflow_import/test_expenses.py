@@ -15,6 +15,7 @@ the guards more load-bearing than the happy path.
 import unittest
 from dataclasses import replace
 from decimal import Decimal
+from unittest.mock import patch
 
 import frappe
 
@@ -93,6 +94,15 @@ class SettlementFixture(unittest.TestCase):
         for name in cls.batches:
             frappe.db.delete(ROW_DOCTYPE, {"import_batch": name})
             frappe.db.delete(BATCH_DOCTYPE, {"name": name})
+        # X1 moved the expense settle onto `doc.save()`, so each settlement now mints a Version row
+        # on a `track_changes` doctype. This suite writes to the LIVE database; its audit residue
+        # is purged with the expenses it describes.
+        for doctype, names in (
+            (PROJECT_EXPENSE, cls.project_expenses),
+            (NON_PROJECT_EXPENSE, cls.non_project_expenses),
+        ):
+            if names:
+                frappe.db.delete("Version", {"ref_doctype": doctype, "docname": ["in", names]})
         for name in cls.project_expenses:
             frappe.db.delete(PROJECT_EXPENSE, {"name": name})
         for name in cls.non_project_expenses:
@@ -309,6 +319,136 @@ class TestRefusals(SettlementFixture):
             settle_expense(row["name"], PROJECT_EXPENSE, expense)
         self.assertEqual(frappe.db.count(MATCH_DOCTYPE, {"import_row": row["name"]}), 0)
         self.assertNotEqual(frappe.db.get_value(ROW_DOCTYPE, row["name"], "row_status"), "Settled")
+
+
+class TestTheAmountIsCorrectedToTheBank(SettlementFixture):
+    """Slice X1 on the EXPENSE ledgers -- and on the `set_value` -> `doc.save()` switch it forced.
+
+    ⚠️ THIS CLASS IS THE GATE ON THE RISKIEST CHANGE IN X1. Auditing an amount rewrite meant the
+    expense write could no longer go through `frappe.db.set_value`, which skips the document
+    lifecycle -- no `validate`, no `on_update`, and NO VERSION. Moving to `doc.save()` buys the
+    audit, fixes a hook that had never fired on this path, and wakes a committer that would
+    otherwise break the per-row savepoint. All three are pinned below.
+    """
+
+    def test_a_project_expense_short_by_paise_takes_the_bank_amount(self):
+        row = self._next_settleable_row()
+        expense = self._make_expense(PROJECT_EXPENSE, float(row["amount"]) - 0.31)
+
+        settle_expense(row["name"], PROJECT_EXPENSE, expense)
+
+        after = frappe.db.get_value(
+            PROJECT_EXPENSE, expense, ["amount", "status"], as_dict=True
+        )
+        self.assertEqual(after.status, "Paid")
+        self.assertEqual(Decimal(str(after.amount)), Decimal(str(row["amount"])))
+
+    def test_the_corrected_project_amount_is_still_a_bare_numeric_string(self):
+        """⚠️ `Project Expenses.amount` IS A DATA COLUMN and 2,574 live rows hold bare numeric
+        strings. Writing a float through the rewrite would store '5000.0' beside every neighbour's
+        '5000' -- the numeric CAST the candidate query relies on would still work, which is exactly
+        why this drift would go unnoticed. `format_amount_for` is what prevents it, on the rewrite
+        as much as on a create."""
+        row = self._next_settleable_row()
+        expense = self._make_expense(PROJECT_EXPENSE, float(row["amount"]) - 1)
+
+        settle_expense(row["name"], PROJECT_EXPENSE, expense)
+
+        stored = frappe.db.get_value(PROJECT_EXPENSE, expense, "amount")
+        self.assertIsInstance(stored, str)
+        self.assertNotIn(",", stored)
+        self.assertEqual(Decimal(stored), Decimal(str(row["amount"])))
+
+    def test_a_non_project_expense_takes_it_too_as_a_number(self):
+        """The other ledger, and the other storage shape -- `Non Project Expenses.amount` is real
+        Currency. The two expense doctypes are NOT twins and this is one of the three ways."""
+        row = self._next_settleable_row()
+        expense = self._make_expense(NON_PROJECT_EXPENSE, float(row["amount"]) - 0.68)
+
+        settle_expense(row["name"], NON_PROJECT_EXPENSE, expense)
+
+        stored = frappe.db.get_value(NON_PROJECT_EXPENSE, expense, "amount")
+        self.assertEqual(Decimal(str(stored)), Decimal(str(row["amount"])))
+
+    def test_the_bank_OVERPAYING_also_rewrites(self):
+        """The deliberate half of the ruling: the record takes the LARGER figure, so this import can
+        record spending above what was approved. Owner ruling 2026-08-09, consequence stated."""
+        row = self._next_settleable_row()
+        expense = self._make_expense(PROJECT_EXPENSE, float(row["amount"]) + 4)
+
+        settle_expense(row["name"], PROJECT_EXPENSE, expense)
+
+        self.assertEqual(
+            Decimal(frappe.db.get_value(PROJECT_EXPENSE, expense, "amount")),
+            Decimal(str(row["amount"])),
+        )
+
+    def test_an_equal_amount_is_left_exactly_as_it_was(self):
+        row = self._next_settleable_row()
+        expense = self._make_expense(PROJECT_EXPENSE, row["amount"])
+        before = frappe.db.get_value(PROJECT_EXPENSE, expense, "amount")
+
+        settle_expense(row["name"], PROJECT_EXPENSE, expense)
+
+        self.assertEqual(frappe.db.get_value(PROJECT_EXPENSE, expense, "amount"), before)
+
+    def test_the_settle_now_goes_through_the_document_lifecycle_at_all(self):
+        """⚠️ THE PROXY FOR THE WHOLE SWITCH. A `set_value` write mints no Version however the
+        doctype is configured, so a Version row here proves the settle went through `doc.save()`.
+        The CEO-Hold cashflow hook rides the same lifecycle -- it had never fired on this path, and
+        it does now."""
+        row = self._next_settleable_row()
+        expense = self._make_expense(PROJECT_EXPENSE, float(row["amount"]) - 0.9)
+
+        settle_expense(row["name"], PROJECT_EXPENSE, expense)
+
+        versions = frappe.get_all(
+            "Version",
+            filters={"ref_doctype": PROJECT_EXPENSE, "docname": expense},
+            fields=["data"],
+        )
+        self.assertTrue(versions, "the settle wrote no Version -- it is still bypassing doc.save()")
+        self.assertTrue(any("amount" in (v.get("data") or "") for v in versions))
+
+    def test_a_failure_AFTER_the_expense_save_rolls_the_expense_back(self):
+        """⚠️ THE SAVEPOINT REGRESSION, AND THE REASON IT HAD TO BE WRITTEN FOR X1.
+
+        The pre-existing isolation test provokes a refusal in the amount GUARD, which throws before
+        anything is saved -- so it cannot see a commit that happens DURING the save. `doc.save()`
+        now fires hooks, one of which can reach `frappe.db.commit()`, and a commit inside the
+        caller's savepoint makes the rollback a silent no-op. Forcing the failure AFTER the save is
+        the only arrangement that catches it: if anything committed, the expense stays `Paid` here.
+        """
+        row = self._next_settleable_row()
+        expense = self._make_expense(PROJECT_EXPENSE, float(row["amount"]) - 0.31)
+
+        with patch(
+            "nirmaan_stack.api.outflow_import.expenses._record_settlement",
+            side_effect=RuntimeError("forced after the expense was saved"),
+        ):
+            with self.assertRaises(RuntimeError):
+                settle_expense(row["name"], PROJECT_EXPENSE, expense)
+
+        after = frappe.db.get_value(
+            PROJECT_EXPENSE, expense, ["status", "amount"], as_dict=True
+        )
+        self.assertEqual(after.status, "Approved", "the settle committed inside its own savepoint")
+        self.assertEqual(Decimal(after.amount), Decimal(str(float(row["amount"]) - 0.31)))
+        self.assertEqual(frappe.db.count(MATCH_DOCTYPE, {"import_row": row["name"]}), 0)
+        self.assertNotEqual(
+            frappe.db.get_value(ROW_DOCTYPE, row["name"], "row_status"), "Settled"
+        )
+
+    def test_the_request_flag_does_not_leak_past_the_save(self):
+        """`_outflow_import_write` restores the previous value in a `finally`. A leaked flag would
+        silently suppress a CEO-Hold notification commit for unrelated later work in the same
+        request -- the kind of bug that surfaces as "notifications stopped, sometimes"."""
+        row = self._next_settleable_row()
+        expense = self._make_expense(PROJECT_EXPENSE, row["amount"])
+
+        settle_expense(row["name"], PROJECT_EXPENSE, expense)
+
+        self.assertFalse(frappe.flags.get("outflow_import_settling"))
 
 
 class TestCreateExpense(SettlementFixture):
