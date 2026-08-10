@@ -17,7 +17,7 @@ import { useEffect, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
 import { v4 as uuidv4 } from 'uuid'; // Import uuid for unique IDs
-import { PROCUREMENT_PROFILES } from "@/constants/roles";
+import { SERVICE_PROCUREMENT_PROFILES } from "@/constants/roles";
 
 const NewSR = () => {
 
@@ -126,7 +126,7 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
 
     const handleSubmit = async () => {
         if (
-            ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile"]
+            ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...SERVICE_PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile"]
                 .includes(userData?.role)
         ) {
             try {

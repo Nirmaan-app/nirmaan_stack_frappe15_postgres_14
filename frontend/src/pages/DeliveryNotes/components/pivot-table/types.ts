@@ -1,6 +1,6 @@
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { DeliveryNote } from "@/types/NirmaanStack/DeliveryNotes";
-import { PROCUREMENT_PROFILES } from "@/constants/roles";
+import { MATERIAL_PROCUREMENT_PROFILES } from "@/constants/roles";
 
 /** A single row in the pivot table — one per PO item */
 export interface PivotRow {
@@ -48,7 +48,7 @@ export const DELIVERY_EDIT_ROLES = [
   "Nirmaan PMO Executive Profile",
   "Nirmaan Project Manager Profile",
   "Nirmaan Project Lead Profile",
-  ...PROCUREMENT_PROFILES,
+  ...MATERIAL_PROCUREMENT_PROFILES,
 ] as const;
 
 /** Roles allowed to create return notes */
@@ -56,7 +56,7 @@ export const RETURN_NOTE_ROLES = [
   "Nirmaan Admin Profile",
   "Nirmaan PMO Executive Profile",
   "Nirmaan Project Lead Profile",
-  ...PROCUREMENT_PROFILES,
+  ...MATERIAL_PROCUREMENT_PROFILES,
 ] as const;
 
 export interface DeliveryPivotTableProps {

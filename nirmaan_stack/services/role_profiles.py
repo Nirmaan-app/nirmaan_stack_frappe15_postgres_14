@@ -23,12 +23,45 @@ This layer is the enforcement boundary.
 
 PROCUREMENT_EXECUTIVE_PROFILE = "Nirmaan Procurement Executive Profile"
 PROCUREMENT_LEAD_PROFILE = "Nirmaan Procurement Lead Profile"
+MATERIAL_PROCUREMENT_EXECUTIVE_PROFILE = "Nirmaan Material Procurement Executive Profile"
+SERVICE_PROCUREMENT_EXECUTIVE_PROFILE = "Nirmaan Service Procurement Executive Profile"
 
-# Every role profile carrying procurement access. Lead's Role Profile is a strict
-# superset of Executive's at the Role level, so at the profile level the two are
-# treated identically. If Lead ever needs more than Executive, add a dedicated
-# gate at that one call site rather than splitting this tuple.
+# Procurement splits by WHAT IS BOUGHT. Material = the PR -> PO chain and
+# everything downstream of a material buy; Service = Work Orders (Service
+# Requests) and the WO rate card.
+#
+# NOTE the split is a VIEW split, not an access boundary (owner ruling). Both
+# new profiles carry the SAME Role (`Nirmaan Procurement Executive`), which is
+# what lets all 101 doctype permissions keep working with no doctype edit and no
+# migrate -- and it also means neither profile is actually refused anything at
+# the Role layer. These tuples narrow what a person is SHOWN. Do not cite them
+# as security.
+#
+# The two legacy profiles sit in BOTH sets on purpose: Procurement Executive
+# predates the split and keeps seeing everything (its existing users are
+# untouched until migrated by hand), and Procurement Lead leads both sides.
+MATERIAL_PROCUREMENT_PROFILES = (
+    PROCUREMENT_EXECUTIVE_PROFILE,
+    PROCUREMENT_LEAD_PROFILE,
+    MATERIAL_PROCUREMENT_EXECUTIVE_PROFILE,
+)
+
+SERVICE_PROCUREMENT_PROFILES = (
+    PROCUREMENT_EXECUTIVE_PROFILE,
+    PROCUREMENT_LEAD_PROFILE,
+    SERVICE_PROCUREMENT_EXECUTIVE_PROFILE,
+)
+
+# Every profile carrying procurement access -- the UNION, and the DEFAULT.
+#
+# This name and meaning are deliberately unchanged by the material/service
+# split: a shared surface belongs to every procurement person. Only
+# material-only and service-only call sites get narrowed. Defaulting to the
+# union means a site someone forgets to narrow shows one stray surface -- it can
+# never lock a user out of their own job.
 PROCUREMENT_PROFILES = (
     PROCUREMENT_EXECUTIVE_PROFILE,
     PROCUREMENT_LEAD_PROFILE,
+    MATERIAL_PROCUREMENT_EXECUTIVE_PROFILE,
+    SERVICE_PROCUREMENT_EXECUTIVE_PROFILE,
 )

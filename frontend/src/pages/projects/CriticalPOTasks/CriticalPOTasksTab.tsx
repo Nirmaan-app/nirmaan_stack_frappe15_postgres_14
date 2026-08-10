@@ -9,7 +9,7 @@ import { ManageSetupDialog } from "./components/ManageSetupDialog";
 import { formatDate } from "@/utils/FormatDate";
 import { Calendar } from "lucide-react";
 import { useUserData } from "@/hooks/useUserData";
-import { PROCUREMENT_PROFILES } from "@/constants/roles";
+import { MATERIAL_PROCUREMENT_PROFILES } from "@/constants/roles";
 
 // Roles that can manage setup (Add/Delete tasks configuration)
 const MANAGE_SETUP_ROLES = [
@@ -23,7 +23,7 @@ const EDIT_ROLES = [
   "Nirmaan Admin Profile",
   "Nirmaan PMO Executive Profile",
   "Nirmaan Project Lead Profile",
-  ...PROCUREMENT_PROFILES,
+  ...MATERIAL_PROCUREMENT_PROFILES,
 ];
 
 interface CriticalPOTasksTabProps {

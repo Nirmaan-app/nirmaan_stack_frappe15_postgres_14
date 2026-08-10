@@ -1,6 +1,11 @@
 import { create } from 'zustand';
 import { REPORTS_TABS } from '../constants'; // Adjust path
-import { PROCUREMENT_PROFILES, isProcurementProfile } from "@/constants/roles";
+import {
+    MATERIAL_PROCUREMENT_PROFILES,
+    PROCUREMENT_PROFILES,
+    SERVICE_PROCUREMENT_PROFILES,
+    isProcurementProfile,
+} from "@/constants/roles";
 
 export type ProjectReportType = 'Cash Sheet' | 'Inflow Report' | 'Outflow Report(Project)' | 'Outflow Report(Non-Project)' | 'Project Progress Report' | 'Inventory Report' | 'Project GST' | 'Monthly WIP';
 
@@ -57,13 +62,13 @@ const getDefaultReportTypeForTabAndRole = (tab: string, userRole?: string): Repo
             return 'Dispatched for 1 days';
         }
         // Other roles (Admin, Accountant) who can see PO tab
-        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", ...PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(userRole || "")) {
+        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", ...MATERIAL_PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(userRole || "")) {
             return 'Pending Invoices'; // Default for Admin/Accountant on PO tab
         }
         return null; // No default if role cannot see this tab's reports
     } else if (tab === REPORTS_TABS.SR) {
         // Assuming SR tab is visible to Admin, Accountant, PM
-        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", ...PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(userRole || "")) {
+        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", ...SERVICE_PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(userRole || "")) {
             return 'Pending Invoices'; // Default for SR tab for allowed roles
         }
         return null;

@@ -63,7 +63,7 @@ import { v4 as uuidv4 } from "uuid";
 import { ApiResponse } from "@/types/NirmaanStack/ApiResponse";
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 import { useGstOptions } from "@/hooks/useGstOptions";
-import { PROCUREMENT_PROFILES } from "@/constants/roles";
+import { MATERIAL_PROCUREMENT_PROFILES } from "@/constants/roles";
 
 // =================================================================================
 // PROPS & TYPE DEFINITIONS
@@ -779,7 +779,7 @@ const canRequestPaymentForTerm = (term: PaymentTerm): boolean => {
 };
 
 const PaymentTermRow = ({ term, onReques_tPayment, role }) => {
-  const hasPermission = [...PROCUREMENT_PROFILES, "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role);
+  const hasPermission = [...MATERIAL_PROCUREMENT_PROFILES, "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role);
 
   // Calculate eligibility using the helper function
   const isEligibleForRequest = canRequestPaymentForTerm(term);
@@ -936,7 +936,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
 
 
 
-  const isReadOnly = accountsPage || estimatesViewing || PO.status === "Inactive" || ![...PROCUREMENT_PROFILES, "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role);
+  const isReadOnly = accountsPage || estimatesViewing || PO.status === "Inactive" || ![...MATERIAL_PROCUREMENT_PROFILES, "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role);
 
   // const isPaymentTermsEditable = useMemo(() => {
   //   if (

@@ -17,7 +17,7 @@ import {
     getSubjectBadgeClass,
     PORemarkData,
 } from "../hooks/usePORemarks";
-import { PROCUREMENT_PROFILES } from "@/constants/roles";
+import { MATERIAL_PROCUREMENT_PROFILES } from "@/constants/roles";
 
 interface PORemarksPopoverProps {
     poId: string;
@@ -41,7 +41,7 @@ export const PORemarksPopover: React.FC<PORemarksPopoverProps> = ({ poId }) => {
             "Nirmaan PMO Executive Profile",
             "Nirmaan Accountant Profile",
             "Nirmaan Accountant Lead Profile",
-            ...PROCUREMENT_PROFILES,
+            ...MATERIAL_PROCUREMENT_PROFILES,
             "Nirmaan Project Lead Profile",
             "Nirmaan Project Manager Profile",
         ];

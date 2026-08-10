@@ -3,14 +3,14 @@ import json
 from collections import defaultdict
 from datetime import date
 from frappe.utils import create_batch
-from nirmaan_stack.services.role_profiles import PROCUREMENT_PROFILES
+from nirmaan_stack.services.role_profiles import MATERIAL_PROCUREMENT_PROFILES
 
 
 # Roles that require project-level filtering based on user permissions
 FILTERED_ACCESS_ROLES = {
     "Nirmaan Project Manager Profile",
     "Nirmaan Project Lead Profile",
-    *PROCUREMENT_PROFILES,
+    *MATERIAL_PROCUREMENT_PROFILES,
 }
 
 # Roles with full access to all projects

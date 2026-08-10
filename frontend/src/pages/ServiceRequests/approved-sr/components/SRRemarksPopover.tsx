@@ -16,7 +16,7 @@ import {
     getSubjectBadgeClass,
     SRRemarkData,
 } from "../hooks/useSRRemarks";
-import { PROCUREMENT_PROFILES } from "@/constants/roles";
+import { SERVICE_PROCUREMENT_PROFILES } from "@/constants/roles";
 
 interface SRRemarksPopoverProps {
     srId: string;
@@ -38,7 +38,7 @@ export const SRRemarksPopover: React.FC<SRRemarksPopoverProps> = ({ srId }) => {
             "Nirmaan PMO Executive Profile",
             "Nirmaan Accountant Profile",
             "Nirmaan Accountant Lead Profile",
-            ...PROCUREMENT_PROFILES,
+            ...SERVICE_PROCUREMENT_PROFILES,
             "Nirmaan Project Lead Profile",
             "Nirmaan Project Manager Profile",
         ];

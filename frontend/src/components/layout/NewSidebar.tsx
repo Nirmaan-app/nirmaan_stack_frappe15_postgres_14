@@ -67,7 +67,13 @@ import {
 } from "../ui/collapsible";
 import { Separator } from "../ui/separator";
 import { useCountsBridge } from "@/hooks/useSidebarCounts";
-import { PROCUREMENT_PROFILES, isProcurementProfile } from "@/constants/roles";
+import {
+  MATERIAL_PROCUREMENT_PROFILES,
+  PROCUREMENT_PROFILES,
+  SERVICE_PROCUREMENT_PROFILES,
+  isMaterialProcurementProfile,
+  isProcurementProfile,
+} from "@/constants/roles";
 
 export function NewSidebar() {
   const [role, setRole] = useState<string | null>(null);
@@ -287,13 +293,20 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(isProcurementProfile(role)
+    // Products is the MATERIAL item master; Vendors and Assets are shared across
+    // both procurement sides. They were one block before the material/service
+    // split and had to be separated.
+    ...(isMaterialProcurementProfile(role)
       ? [
         {
           key: "/products",
           icon: ShoppingCart,
           label: "Products",
         },
+      ]
+      : []),
+    ...(isProcurementProfile(role)
+      ? [
         {
           key: "/vendors",
           icon: Store,
@@ -438,7 +451,7 @@ export function NewSidebar() {
 
 
     ...([
-      ...PROCUREMENT_PROFILES,
+      ...MATERIAL_PROCUREMENT_PROFILES,
       "Nirmaan Admin Profile",
       "Nirmaan PMO Executive Profile",
       "Nirmaan Project Lead Profile"
@@ -452,7 +465,7 @@ export function NewSidebar() {
       ]
       : []),
     ...(user_id == "Administrator" || [
-      ...PROCUREMENT_PROFILES,
+      ...MATERIAL_PROCUREMENT_PROFILES,
       "Nirmaan Admin Profile",
       "Nirmaan PMO Executive Profile",
       "Nirmaan Project Lead Profile",
@@ -469,7 +482,7 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(role as string)
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...SERVICE_PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(role as string)
       ? [
 
         {
@@ -485,7 +498,7 @@ export function NewSidebar() {
       ]
       : []),
 
-    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Billing Executive Profile", ...PROCUREMENT_PROFILES].includes(role as string)
+    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Billing Executive Profile", ...SERVICE_PROCUREMENT_PROFILES].includes(role as string)
       ? [
         {
           key: '/work-order-rate-card',
@@ -592,7 +605,7 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile", ...PROCUREMENT_PROFILES].includes(role as string)
+    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile", ...MATERIAL_PROCUREMENT_PROFILES].includes(role as string)
       ? [
         {
           key: '/inventory',
@@ -601,7 +614,7 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role as string)
+    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...MATERIAL_PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role as string)
       ? [
         {
           key: '/internal-transfer-memos',
@@ -610,7 +623,7 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role as string)
+    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...MATERIAL_PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role as string)
       ? [
         {
           key: '/warehouse',
@@ -655,7 +668,7 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile", ...PROCUREMENT_PROFILES].includes(role as string)
+    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile", ...MATERIAL_PROCUREMENT_PROFILES].includes(role as string)
       ? [
         {
           key: '/critical-po-tracker',
@@ -664,7 +677,7 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile", ...PROCUREMENT_PROFILES].includes(role as string)
+    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile", ...MATERIAL_PROCUREMENT_PROFILES].includes(role as string)
       ? [
         {
           key: '/pr-tracker',
@@ -682,7 +695,7 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile", ...PROCUREMENT_PROFILES].includes(role as string)
+    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile", ...MATERIAL_PROCUREMENT_PROFILES].includes(role as string)
       ? [
         {
           key: '/material-plan-tracker',

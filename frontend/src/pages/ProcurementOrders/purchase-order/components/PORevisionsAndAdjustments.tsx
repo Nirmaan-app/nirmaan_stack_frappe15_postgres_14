@@ -22,6 +22,7 @@ import {
   Wallet,
   History,
   ArrowLeftRight,
+  PencilLine,
 } from "lucide-react";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
@@ -32,7 +33,7 @@ import {
   type POAdjustmentDoc,
 } from "@/pages/POAdjustment/data/usePOAdjustmentQueries";
 import { useUserData } from "@/hooks/useUserData";
-import { PROCUREMENT_PROFILES } from "@/constants/roles";
+import { MATERIAL_PROCUREMENT_PROFILES } from "@/constants/roles";
 
 interface PORevisionsAndAdjustmentsProps {
   poId: string;
@@ -43,7 +44,7 @@ const REVISION_ROLES = [
   "Nirmaan PMO Executive Profile",
   "Nirmaan Accountant Profile",
   "Nirmaan Accountant Lead Profile",
-  ...PROCUREMENT_PROFILES,
+  ...MATERIAL_PROCUREMENT_PROFILES,
 ];
 
 const statusConfig: Record<
@@ -591,6 +592,55 @@ const ChangeChip: React.FC<{
    Adjustments List — restyled to match revision timeline design
    ───────────────────────────────────────────────────────────────────────────── */
 
+/**
+ * Shown ONLY when the stored balance disagrees with the adjustment's own audit rows.
+ *
+ * That happens when someone hand-edits `remaining_impact` (or deletes an audit row)
+ * in Desk — which stays deliberately possible for emergencies (owner ruling
+ * 2026-08-11). The point of this notice is that such an edit can no longer be
+ * invisible: two POs sat payment-locked for weeks on numbers nobody could account
+ * for, and the ledger itself is what every downstream decision reads.
+ *
+ * `ledger_in_sync === undefined` means an older backend that cannot answer — render
+ * nothing rather than accuse a healthy doc.
+ *
+ * `manual_edit === null` on an out-of-sync doc means the edit predates
+ * `track_changes`, so the actor is genuinely unknowable. Say so; never imply nobody
+ * did it.
+ */
+const ManualEditNotice: React.FC<{ adjustment: POAdjustmentDoc }> = ({
+  adjustment,
+}) => {
+  if (adjustment.ledger_in_sync !== false) return null;
+
+  const { manual_edit: edit, computed_from_children: computed } = adjustment;
+
+  return (
+    <div className="mb-3 flex items-start gap-2 rounded-md border border-orange-200 bg-orange-50 px-2.5 py-2">
+      <PencilLine className="mt-0.5 h-3.5 w-3.5 shrink-0 text-orange-600" />
+      <div className="min-w-0 text-[11px] leading-relaxed text-orange-800">
+        <span className="font-semibold">Manually adjusted.</span>{" "}
+        The stored balance is{" "}
+        <span className="font-semibold">
+          {formatToIndianRupee(adjustment.remaining_impact)}
+        </span>
+        {typeof computed === "number" && (
+          <>
+            , but the entries below add up to{" "}
+            <span className="font-semibold">
+              {formatToIndianRupee(computed)}
+            </span>
+          </>
+        )}
+        .{" "}
+        {edit
+          ? `Last edited by ${edit.by} on ${formatDate(edit.at)}.`
+          : "This edit was made before change-tracking was switched on, so it cannot be attributed."}
+      </div>
+    </div>
+  );
+};
+
 const AdjustmentsList: React.FC<{ adjustment: POAdjustmentDoc }> = ({
   adjustment,
 }) => {
@@ -623,6 +673,8 @@ const AdjustmentsList: React.FC<{ adjustment: POAdjustmentDoc }> = ({
           </Badge>
         )}
       </div>
+
+      <ManualEditNotice adjustment={adjustment} />
 
       <div className="space-y-2">
         {adjustment.adjustment_items.map((item, idx) => {

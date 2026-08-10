@@ -34,7 +34,7 @@ import {
     PORemarkData,
 } from "../hooks/usePORemarks";
 import { cn } from "@/lib/utils";
-import { PROCUREMENT_PROFILES } from "@/constants/roles";
+import { MATERIAL_PROCUREMENT_PROFILES } from "@/constants/roles";
 
 interface PORemarksProps {
     poId: string;
@@ -135,7 +135,7 @@ export const PORemarks: React.FC<PORemarksProps> = ({ poId }) => {
             "Nirmaan PMO Executive Profile",
             "Nirmaan Accountant Profile",
             "Nirmaan Accountant Lead Profile",
-            ...PROCUREMENT_PROFILES,
+            ...MATERIAL_PROCUREMENT_PROFILES,
             "Nirmaan Project Lead Profile",
         ];
         return allowedRoles.includes(role || "");

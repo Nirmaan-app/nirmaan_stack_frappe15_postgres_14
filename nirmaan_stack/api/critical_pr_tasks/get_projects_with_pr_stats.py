@@ -4,7 +4,7 @@ from collections import defaultdict
 from frappe.utils import create_batch
 
 from typing import Any, Dict, Set, TypedDict
-from nirmaan_stack.services.role_profiles import PROCUREMENT_PROFILES
+from nirmaan_stack.services.role_profiles import MATERIAL_PROCUREMENT_PROFILES
 
 class ProjectStats(TypedDict):
     project: str
@@ -23,7 +23,7 @@ class ProjectStats(TypedDict):
 FILTERED_ACCESS_ROLES = {
     "Nirmaan Project Manager Profile",
     "Nirmaan Project Lead Profile",
-    *PROCUREMENT_PROFILES,
+    *MATERIAL_PROCUREMENT_PROFILES,
 }
 
 # Roles with full access to all projects

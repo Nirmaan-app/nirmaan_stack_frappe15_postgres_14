@@ -37,7 +37,7 @@ import {
     RemarkSubject,
     SRRemarkData,
 } from "../hooks/useSRRemarks";
-import { PROCUREMENT_PROFILES } from "@/constants/roles";
+import { SERVICE_PROCUREMENT_PROFILES } from "@/constants/roles";
 
 interface SRRemarksProps {
     srId: string;
@@ -72,7 +72,7 @@ export const SRRemarks: React.FC<SRRemarksProps> = ({ srId }) => {
             "Nirmaan PMO Executive Profile",
             "Nirmaan Accountant Profile",
             "Nirmaan Accountant Lead Profile",
-            ...PROCUREMENT_PROFILES,
+            ...SERVICE_PROCUREMENT_PROFILES,
             "Nirmaan Project Lead Profile",
             "Nirmaan Project Manager Profile",
         ];

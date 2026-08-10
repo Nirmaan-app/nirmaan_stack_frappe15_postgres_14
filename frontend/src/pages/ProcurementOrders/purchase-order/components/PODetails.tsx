@@ -94,7 +94,7 @@ import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 import { POAdjustmentButton } from "@/pages/POAdjustment/POAdjustmentButton";
 import { PORevisionDialog } from "@/pages/PORevision/PORevisionDialog";
 import { usePOLockCheck } from "@/pages/PORevision/data/usePORevisionQueries";
-import { PROCUREMENT_PROFILES, isProcurementProfile } from "@/constants/roles";
+import { MATERIAL_PROCUREMENT_PROFILES, isMaterialProcurementProfile } from "@/constants/roles";
 
 interface PODetailsProps {
   po: ProcurementOrder | null;
@@ -682,7 +682,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
               poName={po?.name || ""}
               projectId={po?.project || ""}
               onUpdate={poMutate}
-              canEdit={["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", ...PROCUREMENT_PROFILES].includes(role)}
+              canEdit={["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", ...MATERIAL_PROCUREMENT_PROFILES].includes(role)}
             />
           </div>
 
@@ -785,7 +785,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                 //!summaryPage &&
                 !accountsPage &&
                 !estimatesViewing &&
-                ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...PROCUREMENT_PROFILES].includes(role) && (
+                ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...MATERIAL_PROCUREMENT_PROFILES].includes(role) && (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
@@ -810,7 +810,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
 
               {/* Adjust Payments Button */}
               {po?.name && onAdjustPayments && !accountsPage && !estimatesViewing &&
-                ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...PROCUREMENT_PROFILES].includes(role) && (
+                ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...MATERIAL_PROCUREMENT_PROFILES].includes(role) && (
                   <POAdjustmentButton poId={po.name} onClick={() => {
                     if (isVendorHoldBlocked) {
                       showVendorBlockedToast();
@@ -827,7 +827,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                 !isItemLocked &&
                 ["Dispatched", "Partially Dispatched"].includes(po?.status || "") &&
                 !(poPayments?.length) &&
-                [...PROCUREMENT_PROFILES, "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) && (
+                [...MATERIAL_PROCUREMENT_PROFILES, "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) && (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
@@ -876,7 +876,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                 <>
                   {/* Upload DC - shown for delivered statuses */}
                   {["Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"].includes(po?.status) &&
-                    ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Manager Profile", "Nirmaan Project Lead Profile", ...PROCUREMENT_PROFILES].includes(role) && (
+                    ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Manager Profile", "Nirmaan Project Lead Profile", ...MATERIAL_PROCUREMENT_PROFILES].includes(role) && (
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <span tabIndex={0} className="shrink-0">
@@ -900,7 +900,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
 
                   {/* Upload MIR - shown for delivered statuses */}
                   {["Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"].includes(po?.status) &&
-                    ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Manager Profile", "Nirmaan Project Lead Profile", ...PROCUREMENT_PROFILES].includes(role) && (
+                    ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Manager Profile", "Nirmaan Project Lead Profile", ...MATERIAL_PROCUREMENT_PROFILES].includes(role) && (
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <span tabIndex={0} className="shrink-0">
@@ -947,7 +947,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                 summaryPage ||
                 accountsPage ||
                 estimatesViewing ||
-                !isProcurementProfile(role)) && (
+                !isMaterialProcurementProfile(role)) && (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
@@ -984,7 +984,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                 !estimatesViewing &&
                 po?.status === "PO Approved" &&
                 !(poPayments?.length) &&
-                [...PROCUREMENT_PROFILES, "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) && (
+                [...MATERIAL_PROCUREMENT_PROFILES, "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) && (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
@@ -1005,7 +1005,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
               {!accountsPage &&
                 !estimatesViewing &&
                 ["PO Approved", "Partially Dispatched"].includes(po?.status || "") &&
-                [...PROCUREMENT_PROFILES, "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) && (
+                [...MATERIAL_PROCUREMENT_PROFILES, "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) && (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button

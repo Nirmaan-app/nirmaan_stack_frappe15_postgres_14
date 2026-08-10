@@ -17,7 +17,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
 import { downloadProjectPrintFormatPdf } from "@/pages/projects/data/tab/planning/useProjectPlanningDownloadApi";
 
-import { isProcurementProfile } from "@/constants/roles";
+import { isMaterialProcurementProfile } from "@/constants/roles";
 
 const ADMIN_ROLE = "Nirmaan Admin Profile";
 import {
@@ -57,7 +57,7 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
     // --- Role gates ---
     const { role } = useUserData();
     const isAdmin = role === ADMIN_ROLE;
-    const canEditPlan = isAdmin || isProcurementProfile(role);
+    const canEditPlan = isAdmin || isMaterialProcurementProfile(role);
 
     // --- Date/Duration State (Local) ---
     const activeDurationParam = useUrlParam("planningDuration");

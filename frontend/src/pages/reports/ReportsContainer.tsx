@@ -7,7 +7,12 @@ import { DCMIRReportType, POReportOption, SROption, ProjectReportType, ReportTyp
 import { getUrlStringParam } from '@/hooks/useServerDataTable';
 import { urlStateManager } from '@/utils/urlStateManager';
 import { cn } from '@/lib/utils';
-import { PROCUREMENT_PROFILES, isProcurementProfile } from "@/constants/roles";
+import {
+    MATERIAL_PROCUREMENT_PROFILES,
+    PROCUREMENT_PROFILES,
+    SERVICE_PROCUREMENT_PROFILES,
+    isProcurementProfile,
+} from "@/constants/roles";
 
 // Lazy load report components
 const ProjectReports = React.lazy(() => import('./components/ProjectReports'));
@@ -158,10 +163,10 @@ export default function ReportsContainer() {
         if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Lead Profile"].includes(role)) {
             availableTabs.push({ label: "Vendors", value: REPORTS_TABS.VENDORS });
         }
-        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Manager Profile", ...PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(role)) {
+        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Manager Profile", ...MATERIAL_PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(role)) {
             availableTabs.push({ label: "PO", value: REPORTS_TABS.PO });
         }
-        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", ...PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(role)) {
+        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", ...SERVICE_PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(role)) {
             availableTabs.push({ label: "WO", value: REPORTS_TABS.SR });
         }
         if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Manager Profile", ...PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(role)) {

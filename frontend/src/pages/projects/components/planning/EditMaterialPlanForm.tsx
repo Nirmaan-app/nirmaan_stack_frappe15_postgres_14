@@ -9,10 +9,10 @@ import { useUpdateMaterialDeliveryPlan } from "@/pages/projects/data/material-pl
 import { useToast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { PROCUREMENT_PROFILES } from "@/constants/roles";
+import { MATERIAL_PROCUREMENT_PROFILES } from "@/constants/roles";
 
 const ADMIN_ROLE = "Nirmaan Admin Profile";
-const DELIVERY_STATUS_AUTHORIZED_ROLES = [ADMIN_ROLE, ...PROCUREMENT_PROFILES];
+const DELIVERY_STATUS_AUTHORIZED_ROLES = [ADMIN_ROLE, ...MATERIAL_PROCUREMENT_PROFILES];
 
 interface EditMaterialPlanFormProps {
     plan: any;

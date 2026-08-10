@@ -3,7 +3,7 @@
  * Used by ProcurementRequests.tsx for consistent tab values and role-based access
  */
 
-import { PROCUREMENT_PROFILES } from "@/constants/roles";
+import { MATERIAL_PROCUREMENT_PROFILES } from "@/constants/roles";
 
 export const PR_TABS = {
     APPROVE_PR: 'Approve PR',
@@ -53,7 +53,7 @@ export const PR_ADMIN_ROLES = [
 ];
 
 export const PR_EXEC_ROLES = [
-    ...PROCUREMENT_PROFILES,
+    ...MATERIAL_PROCUREMENT_PROFILES,
     "Nirmaan Admin Profile",
     "Nirmaan PMO Executive Profile",
     "Nirmaan Project Lead Profile",

@@ -32,7 +32,7 @@ import { ProcurementRequestItemDetail } from '@/types/NirmaanStack/ProcurementRe
 import { DraftItem } from '@/zustand/useApproveNewPRDraftStore';
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 import { getFrappeError } from '@/utils/frappeErrors';
-import { PROCUREMENT_PROFILES } from "@/constants/roles";
+import { MATERIAL_PROCUREMENT_PROFILES } from "@/constants/roles";
 
 /* ─────────────────────────────────────────────────────────────
    DRAFT MANAGER INTERFACE
@@ -165,7 +165,7 @@ export const useApprovePRLogic = ({
         usersList
             .filter(user => [
                 "Nirmaan Project Manager Profile",
-                ...PROCUREMENT_PROFILES,
+                ...MATERIAL_PROCUREMENT_PROFILES,
                 "Nirmaan Project Lead Profile",
             ].includes(user.role_profile ?? ''))
             .map(user => user.name),
