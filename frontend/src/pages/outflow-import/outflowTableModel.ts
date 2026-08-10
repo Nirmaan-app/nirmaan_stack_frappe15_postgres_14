@@ -86,6 +86,10 @@ export const OUTFLOW_COLUMNS: OutflowColumn[] = [
     // The Outcome cell is a BUTTON, not text, so it neither sorts nor filters -- there is nothing
     // meaningful to order "open this dialog" by.
     { id: "outcome", title: "Outcome", get: (r) => r.outcome_note ?? r.skip_reason ?? "", filter: "none", width: "320px" },
+    // ⚠️ NEW AT X3, AND IT ONLY MAKES SENSE FROM X3 ON. The batch screen showed one import, so
+    // naming it in every row would have been noise. The master table spans every import, and
+    // "which statement did this come from" becomes a real question the moment it does.
+    { id: "import_batch", title: "Import", get: (r) => r.import_filename ?? r.import_batch ?? "", filter: "facet", width: "170px" },
     { id: "bank_account", title: "Bank a/c", get: (r) => r.bank_account ?? "", filter: "facet", mono: true, hiddenByDefault: true, width: "120px" },
     { id: "ifsc", title: "IFSC", get: (r) => r.ifsc ?? "", filter: "facet", mono: true, hiddenByDefault: true, width: "120px" },
     { id: "time", title: "Time", get: (r) => timeOnly(r.added_on), filter: "facet", mono: true, hiddenByDefault: true, width: "84px" },
@@ -104,6 +108,21 @@ export const OUTFLOW_TABS: { id: OutflowTab; label: string }[] = [
 ];
 
 /**
+ * The tab, as the scope name the server knows it by.
+ *
+ * ⚠️ THE TWO VOCABULARIES DIFFER ON PURPOSE AND THIS IS THE ONE PLACE THEY MEET. The screen has
+ * always called it "Pending"; the endpoint calls the same set `open`, because server-side it is
+ * literally `OPEN_ROW_STATUSES` and naming it "pending" there would collide with the
+ * `Pending match run` STATUS, which is only one member of that set. Renaming either would be a
+ * bigger change than this map.
+ */
+export const SCOPE_FOR_TAB: Record<OutflowTab, string> = {
+    pending: "open",
+    settled: "settled",
+    skipped: "skipped",
+};
+
+/**
  * Which tab a row belongs in.
  *
  * ⚠️ DERIVED FROM THE STATUS DERIVER, never from a second list of status strings. `Pending` holds
@@ -116,14 +135,12 @@ export const tabForStatus = (status: string): OutflowTab => {
     return "pending";
 };
 
-export const rowsForTab = (rows: OutflowImportRow[], tab: OutflowTab): OutflowImportRow[] =>
-    rows.filter((r) => tabForStatus(r.row_status) === tab);
-
-export const tabCounts = (rows: OutflowImportRow[]): Record<OutflowTab, number> => {
-    const counts: Record<OutflowTab, number> = { pending: 0, settled: 0, skipped: 0 };
-    for (const row of rows) counts[tabForStatus(row.row_status)] += 1;
-    return counts;
-};
+// ⚠️ `rowsForTab` AND `tabCounts` WENT WITH THE CLIENT FILTER ENGINE (slice X3). Both partitioned
+// the rows the browser was holding, which was every row of one import. The master table holds ONE
+// PAGE of every import, so a count taken from it would describe the page rather than the table --
+// and `get_outflow_rows` returns `tab_counts` computed under the same filters, which is the number
+// the tabs actually need. `tabForStatus` survives because mapping a status to its tab is still a
+// real question: it is how a summary figure knows which tab to switch to.
 
 // --- search ------------------------------------------------------------------------------------
 
@@ -139,13 +156,17 @@ export const SEARCHABLE_FIELDS: (keyof OutflowImportRow)[] = [
     "beneficiary_name",
 ];
 
-export const matchesQuery = (row: OutflowImportRow, query: string): boolean => {
-    const needle = query.trim().toLowerCase();
-    if (!needle) return true;
-    return SEARCHABLE_FIELDS.some((field) =>
-        String(row[field] ?? "").toLowerCase().includes(needle)
-    );
-};
+/**
+ * ⚠️ THERE IS NO CLIENT-SIDE SEARCH, FILTER OR SORT ANY MORE (slice X3), AND THE DELETION WAS THE
+ * POINT. `matchesQuery`, `passesFilters`, `visibleRows` and `facetValues` used to answer "which
+ * rows match" in the browser, over the whole of one import. The master table spans EVERY import and
+ * is paged, so the server has to answer it -- and the moment the server can, a second copy in here
+ * is a second opinion that will disagree the day somebody edits one of them (ADR-0010 F1/F3).
+ *
+ * What lives here now is `serverQuery`: the pure translation from what the screen is showing to
+ * what the endpoint is asked. The MEANING of a filter is still testable; the APPLICATION of it is
+ * SQL. `highlightSegments` stays, because highlighting a hit is rendering, not filtering.
+ */
 
 /**
  * Split `text` into alternating non-match / match segments for the hit highlight.
@@ -186,41 +207,6 @@ export interface RangeFilter {
 /** Facet -> the chosen values; text -> a substring; range -> min/max. */
 export type ColumnFilters = Record<string, string[] | string | RangeFilter | undefined>;
 
-/**
- * AND across columns, OR within a column (owner ruling; same semantics as the Rate Master viewer).
- *
- * An EMPTY facet selection means "no filter on this column", not "match nothing" -- otherwise
- * unticking the last value would blank the table instead of clearing the filter, which reads as a
- * bug every time.
- */
-export const passesFilters = (
-    row: OutflowImportRow,
-    filters: ColumnFilters,
-    columns: OutflowColumn[] = OUTFLOW_COLUMNS
-): boolean =>
-    columns.every((column) => {
-        const filter = filters[column.id];
-        if (filter == null) return true;
-        const value = column.get(row);
-
-        if (column.filter === "facet") {
-            const chosen = filter as string[];
-            return !chosen.length || chosen.includes(String(value ?? ""));
-        }
-        if (column.filter === "text") {
-            const needle = String(filter).trim().toLowerCase();
-            return !needle || String(value ?? "").toLowerCase().includes(needle);
-        }
-        if (column.filter === "range") {
-            const { min, max } = (filter as RangeFilter) || {};
-            const numeric = Number(value ?? 0);
-            if (min != null && numeric < min) return false;
-            if (max != null && numeric > max) return false;
-            return true;
-        }
-        return true;
-    });
-
 export const activeFilterCount = (filters: ColumnFilters): number =>
     Object.values(filters).filter((filter) => {
         if (filter == null) return false;
@@ -230,19 +216,6 @@ export const activeFilterCount = (filters: ColumnFilters): number =>
         return range.min != null || range.max != null;
     }).length;
 
-/** The distinct values a facet column offers, in display order. */
-export const facetValues = (
-    rows: OutflowImportRow[],
-    column: OutflowColumn
-): string[] => {
-    const seen = new Set<string>();
-    for (const row of rows) {
-        const value = String(column.get(row) ?? "");
-        if (value) seen.add(value);
-    }
-    return [...seen].sort((a, b) => a.localeCompare(b));
-};
-
 // --- sorting -----------------------------------------------------------------------------------
 
 export interface SortState {
@@ -250,38 +223,268 @@ export interface SortState {
     direction: "asc" | "desc";
 }
 
-export const visibleRows = (
-    rows: OutflowImportRow[],
-    options: { query?: string; filters?: ColumnFilters; sort?: SortState } = {}
-): OutflowImportRow[] => {
-    const { query = "", filters = {}, sort } = options;
-    const out = rows.filter(
-        (row) => matchesQuery(row, query) && passesFilters(row, filters)
-    );
+// --- what the screen asks the server for (slice X3) ----------------------------------------------
 
-    const column = sort?.columnId
-        ? OUTFLOW_COLUMNS.find((c) => c.id === sort.columnId)
-        : undefined;
-    if (!column) return out;
+/** Which columns the server can facet on. Mirrors `review._FACET_COLUMNS`. */
+export const SERVER_FACET_COLUMNS: readonly string[] = [
+    "beneficiary_name",
+    "row_status",
+    "bank_account",
+    "ifsc",
+    "import_batch",
+    "added_on",
+];
 
-    // Copied before sorting: `rows` belongs to the caller, and sorting it in place would mutate
-    // state React is holding.
-    return [...out].sort((a, b) => {
-        const left = column.get(a);
-        const right = column.get(b);
-        let delta: number;
-        if (column.id === "added_on" || column.id === "time") {
-            // Dates compare as their raw ISO-ish strings, which sort correctly and avoid
-            // constructing a Date per comparison.
-            delta = String(a.added_on ?? "").localeCompare(String(b.added_on ?? ""));
-        } else if (typeof left === "number" || typeof right === "number") {
-            delta = Number(left ?? 0) - Number(right ?? 0);
-        } else {
-            delta = String(left ?? "").localeCompare(String(right ?? ""));
-        }
-        return sort!.direction === "asc" ? delta : -delta;
-    });
+/** Which columns the server can sort by. Mirrors `review._SORTABLE_COLUMNS`. */
+export const SERVER_SORT_COLUMNS: readonly string[] = [
+    "added_on",
+    "amount",
+    "beneficiary_name",
+    "bank_reference_no",
+    "row_status",
+    "import_batch",
+    "remarks",
+];
+
+export interface MasterTableState {
+    tab: OutflowTab;
+    query?: string;
+    filters?: ColumnFilters;
+    sort?: SortState;
+    /** Zero-based. */
+    page?: number;
+    pageSize?: number;
+    /** The import the screen is scoped to, if any. */
+    batch?: string | null;
+}
+
+export interface OutflowRowsQuery {
+    scope: string;
+    batch?: string;
+    search?: string;
+    facets?: Record<string, string[]>;
+    date_from?: string;
+    date_to?: string;
+    amount_min?: number;
+    amount_max?: number;
+    sort_by: string;
+    sort_dir: "asc" | "desc";
+    limit: number;
+    offset: number;
+}
+
+export const DEFAULT_PAGE_SIZE = 50;
+
+/**
+ * The screen's state, translated into `review.get_outflow_rows` arguments.
+ *
+ * ⚠️ THIS IS WHERE "WHAT A FILTER MEANS" NOW LIVES, and it is the reason the client engine could be
+ * deleted rather than merely bypassed. The meaning stays pure and testable in one function; the
+ * application of it is SQL, in one place, over the whole table rather than one page of it.
+ *
+ * ⚠️ AN EMPTY FILTER IS OMITTED, NEVER SENT AS AN EMPTY VALUE. An empty facet array reaching the
+ * server would be indistinguishable from a real selection in a naive handler, and the day one of
+ * them treats it as "match nothing" the table blanks when you untick the last value -- which is the
+ * exact bug the old client-side rule was written to avoid. Omitting is unambiguous at both ends.
+ *
+ * ⚠️ AN UNSORTABLE COLUMN FALLS BACK TO THE DEFAULT rather than being sent through. The Outcome
+ * column is a button, and the hidden Time column is a rendering of `added_on`; neither is a sort
+ * key the server knows, and a rejected sort would fail the whole page load over a cosmetic click.
+ */
+export const serverQuery = (state: MasterTableState): OutflowRowsQuery => {
+    const filters = state.filters ?? {};
+    const pageSize = state.pageSize ?? DEFAULT_PAGE_SIZE;
+    const page = Math.max(0, state.page ?? 0);
+
+    const facets: Record<string, string[]> = {};
+    for (const column of SERVER_FACET_COLUMNS) {
+        const chosen = filters[column];
+        if (Array.isArray(chosen) && chosen.length) facets[column] = [...chosen];
+    }
+
+    const query: OutflowRowsQuery = {
+        scope: SCOPE_FOR_TAB[state.tab],
+        sort_by: SERVER_SORT_COLUMNS.includes(state.sort?.columnId ?? "")
+            ? (state.sort!.columnId as string)
+            : "added_on",
+        sort_dir: state.sort?.columnId && SERVER_SORT_COLUMNS.includes(state.sort.columnId)
+            ? state.sort.direction
+            : "desc",
+        limit: pageSize,
+        offset: page * pageSize,
+    };
+
+    if (state.batch) query.batch = state.batch;
+
+    const search = (state.query ?? "").trim();
+    if (search) query.search = search;
+
+    if (Object.keys(facets).length) query.facets = facets;
+
+    // `remarks` and `bank_reference_no` carry a free-text filter in the same state shape. They are
+    // folded into `search`, which already covers both columns server-side, rather than growing two
+    // more parameters for a distinction no reader makes.
+    const text = [filters.remarks, filters.bank_reference_no]
+        .map((v) => String(v ?? "").trim())
+        .filter(Boolean)
+        .join(" ");
+    if (text && !search) query.search = text;
+
+    const amount = filters.amount as RangeFilter | undefined;
+    if (amount?.min != null) query.amount_min = amount.min;
+    if (amount?.max != null) query.amount_max = amount.max;
+
+    return query;
 };
+
+// --- the summary panel (slice X2/X3) -------------------------------------------------------------
+
+export interface SummaryTile {
+    id: string;
+    label: string;
+    count: number;
+    /** Which row statuses this figure covers -- clicking it scopes the table to exactly these. */
+    statuses: string[];
+    tone: string;
+}
+
+/**
+ * The clickable status figures, in the order a reviewer reads them.
+ *
+ * ⚠️ THE ORDER LEADS WITH THE WORK, NOT WITH THE VOCABULARY. Matched and Unmatched come first
+ * because they are what somebody has to act on; Settled and Skipped are the record of what is done.
+ *
+ * ⚠️ MISMATCHED AND ERROR APPEAR ONLY WHEN NON-ZERO, and that is the opposite of the rule the
+ * server follows. `derive_import_summary` zero-fills every status because a MISSING figure reads as
+ * "does not apply" -- but `Mismatched` fires only when a hand-ticked payment disagrees on amount
+ * beyond the settle window, so it is 0 on almost every import, and a permanent "0 Mismatched" chip
+ * would train people to stop reading the row it sits in. The owner asked for mismatched; it is
+ * here, and it is impossible to miss on the imports that have one.
+ */
+export const summaryTiles = (totals: {
+    matched_rows: number;
+    unmatched_rows: number;
+    mismatched_rows: number;
+    settled_rows: number;
+    skipped_rows: number;
+    pending_rows: number;
+    error_rows: number;
+}): SummaryTile[] => {
+    const tiles: SummaryTile[] = [
+        {
+            id: "matched",
+            label: "Matched",
+            count: totals.matched_rows,
+            statuses: ["Matched"],
+            tone: "border-sky-200 bg-sky-50 text-sky-900",
+        },
+        {
+            id: "unmatched",
+            label: "Unmatched",
+            count: totals.unmatched_rows,
+            statuses: ["Unmatched"],
+            tone: "border-amber-200 bg-amber-50 text-amber-900",
+        },
+        {
+            id: "settled",
+            label: "Settled",
+            count: totals.settled_rows,
+            statuses: ["Settled"],
+            tone: "border-emerald-200 bg-emerald-50 text-emerald-900",
+        },
+        {
+            id: "skipped",
+            label: "Skipped",
+            count: totals.skipped_rows,
+            statuses: ["Skipped"],
+            tone: "border-muted bg-muted/50 text-muted-foreground",
+        },
+    ];
+
+    if (totals.pending_rows > 0) {
+        tiles.unshift({
+            id: "pending",
+            label: "Not matched yet",
+            count: totals.pending_rows,
+            statuses: [ROW_PENDING_MATCH],
+            tone: "border-muted bg-muted/50 text-muted-foreground",
+        });
+    }
+    if (totals.mismatched_rows > 0) {
+        tiles.push({
+            id: "mismatched",
+            label: "Mismatched",
+            count: totals.mismatched_rows,
+            statuses: ["Mismatched"],
+            tone: "border-rose-200 bg-rose-50 text-rose-900",
+        });
+    }
+    if (totals.error_rows > 0) {
+        tiles.push({
+            id: "error",
+            label: "Errors",
+            count: totals.error_rows,
+            statuses: ["Error"],
+            tone: "border-rose-300 bg-rose-100 text-rose-900",
+        });
+    }
+    return tiles;
+};
+
+/**
+ * How one import reads in the picker.
+ *
+ * ⚠️ NEVER THE BATCH ID ALONE. `OFI-26-00007` means nothing to an accountant; the file they
+ * uploaded and the fortnight it covers is how they know which statement is which. The id is the
+ * last-resort fallback for a row missing both.
+ */
+export const importOptionLabel = (option: {
+    name: string;
+    original_filename?: string;
+    period_from?: string;
+    period_to?: string;
+}): string => {
+    const file = (option.original_filename ?? "").trim();
+    const from = dateOnly(option.period_from);
+    const to = dateOnly(option.period_to);
+    const period = from && to ? `${from} → ${to}` : from || to || "";
+    if (file && period) return `${file} · ${period}`;
+    return file || period || option.name;
+};
+
+// --- confirm all matched (slice X5) --------------------------------------------------------------
+
+/**
+ * One row of `review.get_confirmable_rows`.
+ *
+ * The target fields are absent on a `needs_you` row -- a row that matched SEVERAL approved records
+ * has no single one to name, which is exactly why it cannot be bulk-confirmed.
+ */
+export interface ConfirmableRow {
+    name: string;
+    added_on?: string;
+    amount: number;
+    beneficiary_name?: string;
+    remarks?: string;
+    bank_reference_no?: string;
+    outcome_note?: string;
+    target_doctype?: string;
+    target_name?: string;
+    target_amount?: number;
+    target_status?: string;
+    vendor_name?: string | null;
+    project_name?: string | null;
+    /** Bank amount minus the record's. Signed. */
+    amount_delta?: number;
+    /** Whether confirming will REWRITE the record's amount (slice X1). */
+    amount_changes?: boolean;
+}
+
+export interface ConfirmOutcome {
+    row: ConfirmableRow;
+    ok: boolean;
+    error?: string;
+}
 
 // --- what counts as decided --------------------------------------------------------------------
 

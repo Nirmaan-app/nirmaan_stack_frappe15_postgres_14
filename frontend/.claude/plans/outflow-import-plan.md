@@ -786,6 +786,57 @@ make the stale case safe.
 
 ---
 
+### §H.3–H.5 — AS BUILT (2026-08-10): the master screen, the dialog, Confirm all
+
+⚠️ **X3, X4 AND X5 LANDED AS ONE CHANGE, and they are not separable.** The moment the read moved to
+`get_outflow_rows`, the batch page was reading helpers that no longer existed — X3 without X4 leaves
+the tree broken, and the summary panel X2 deferred had no page to live on until both were done.
+X5's dialog is the only thing that makes the summary's headline button real.
+
+**Backend**
+- `review.get_outflow_rows(scope, batch, search, date_from/to, amount_min/max, facets, sort_by,
+  sort_dir, limit, offset)` → `{rows, total, limit, offset, scope, tab_counts}`. One shared
+  `_row_filters` builder feeds the page query, its count, the tab counts AND the facet values.
+- `review.get_outflow_facet_values(column, …)` — **the funnels survived server paging.** The easy
+  path was to ship search + date + amount and drop the per-column funnels; that would have been a
+  silent capability cut. Distinct values now come from the DB over the whole filtered table.
+  ⚠️ It deliberately does NOT apply the column's own selection.
+- `review.get_confirmable_rows(batch)` → `{ready, needs_you, ready_value}`, each ready row carrying
+  its target's vendor/project/status and its **amount delta**.
+- `review.list_imports(limit)` for the picker.
+- **Two allow-lists are injection guards, not tidiness:** `_SORTABLE_COLUMNS` and `_FACET_COLUMNS`
+  are interpolated (a sort key and a column name cannot be bound parameters). Everything else binds.
+- **MIGRATE:** a third index on `Outflow Import Row` — `(row_status, added_on)`, equality column
+  first, ordering second. The existing `(import_batch, row_status)` cannot serve a master query
+  whose leading column is unconstrained. Controller-only change ⇒ deployed DBs need
+  `patches/v3_0/add_outflow_master_index.py`, which CALLS the hook. **The `patches.txt` line is the
+  maintainer's to add.**
+
+**Frontend**
+- `OutflowMasterPage.tsx` replaces `OutflowImportBatchPage` + `OutflowImportListPage` (both
+  DELETED, along with `NewOutflowImportPage` and the now-orphaned `config/` DataTable wiring).
+- `ImportSummaryPanel` (picker + money figures + clickable status chips + Confirm-all),
+  `ImportStatementDialog` (upload → preview → confirm → **match**), `ConfirmAllMatchedDialog`.
+- **The client filter engine was DELETED, not bypassed** — `matchesQuery`, `passesFilters`,
+  `visibleRows`, `facetValues`, plus `rowsForTab`/`tabCounts`. `serverQuery` replaces them and owns
+  the MEANING of a filter; SQL owns the application. **The vitest count going DOWN is the correct
+  outcome and is not a regression.**
+- Routes: `index` and `:id` both render the master page; `:id` is kept so every pre-X3 link
+  resolves, pre-scoped. `/new` is gone.
+
+**Owner ruling honoured throughout: the word is CONFIRM, never APPROVE.**
+
+⚠️ **VERIFICATION STATE — READ BEFORE TRUSTING ANY OF THIS.**
+- ✅ `tsc --noEmit` clean across `src/pages/outflow-import`, the types and `routesConfig`.
+- ✅ 254 pure Python tests green on the host (via the package stub; `test_ledgers` alone needs a
+  bench because `candidates.py` imports `frappe`).
+- ❌ **vitest and `vite build` CANNOT RUN ON THIS HOST** — `node_modules` is the container's
+  linux-arm64 build and the native rollup/rolldown bindings are missing. The model tests are
+  type-checked but **not executed**.
+- ❌ **The api suites were NOT run** — Docker is down, so the bench runner is unreachable.
+  `test_review` gained ~20 tests across three new classes; they are written, not verified.
+- ❌ **No browser walk.** Three of these five slices are React semantics end to end.
+
 ### §H.6 — Order, and what each slice costs
 
 | Slice | Depends on | Migrate | Verifiable here? |

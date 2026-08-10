@@ -1,6 +1,6 @@
 // src/pages/outflow-import/components/OutflowRowsTable.tsx
 
-import { memo, useMemo } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowDown, ArrowUp, ChevronRight, ExternalLink, Filter, List, X } from "lucide-react";
 
@@ -16,7 +16,7 @@ import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { rowStatusTone } from "../outflowImportStatus";
 import {
     OUTFLOW_COLUMNS,
-    facetValues,
+    SERVER_SORT_COLUMNS,
     highlightSegments,
     rowSettlementLinks,
     type ColumnFilters,
@@ -29,8 +29,17 @@ import {
 
 interface Props {
     rows: OutflowImportRow[];
-    /** Unfiltered rows for this tab -- facet lists must offer every value, not only visible ones. */
-    facetSource: OutflowImportRow[];
+    /**
+     * The distinct values one funnel offers, fetched when it is OPENED (slice X3).
+     *
+     * ⚠️ IT REPLACED A `facetSource` ARRAY OF ROWS, and the replacement was forced by paging. The
+     * funnels used to be built from the rows the client held; a page of fifty rows knows fifty
+     * beneficiaries, so the same code against a paged table would offer a funnel that silently
+     * hides most of its own options. The values now come from the server, over the whole filtered
+     * table, and are fetched LAZILY -- on first open, not on mount -- so a table with six funnels
+     * does not fire six queries nobody asked for.
+     */
+    loadFacetValues: (columnId: string) => Promise<string[]>;
     query: string;
     filters: ColumnFilters;
     sort: SortState;
@@ -60,7 +69,7 @@ interface Props {
  */
 export const OutflowRowsTable = ({
     rows,
-    facetSource,
+    loadFacetValues,
     query,
     filters,
     sort,
@@ -110,7 +119,7 @@ export const OutflowRowsTable = ({
                                 column={column}
                                 sort={sort}
                                 filters={filters}
-                                facetSource={facetSource}
+                                loadFacetValues={loadFacetValues}
                                 onSort={onSort}
                                 onFilter={onFilter}
                             />
@@ -142,18 +151,22 @@ const HeaderCell = ({
     column,
     sort,
     filters,
-    facetSource,
+    loadFacetValues,
     onSort,
     onFilter,
 }: {
     column: OutflowColumn;
     sort: SortState;
     filters: ColumnFilters;
-    facetSource: OutflowImportRow[];
+    loadFacetValues: (columnId: string) => Promise<string[]>;
     onSort: (columnId: string) => void;
     onFilter: (columnId: string, value: ColumnFilters[string]) => void;
 }) => {
     const sorted = sort.columnId === column.id;
+    // ⚠️ SORTING IS THE SERVER'S NOW, so only the columns IT knows are clickable. A header that
+    // still looked sortable but silently did nothing would be worse than one that looks inert --
+    // and sending an unknown sort key would fail the whole page load over a cosmetic click.
+    const sortable = SERVER_SORT_COLUMNS.includes(column.id);
     const filter = filters[column.id];
     const active = Array.isArray(filter)
         ? filter.length > 0
@@ -170,7 +183,7 @@ const HeaderCell = ({
             className={`px-2 py-2 text-left font-medium ${column.align === "right" ? "text-right" : ""}`}
         >
             <div className="flex items-center gap-1">
-                {column.filter === "none" ? (
+                {!sortable ? (
                     <span className="text-xs uppercase tracking-wide text-muted-foreground">
                         {column.title}
                     </span>
@@ -208,10 +221,12 @@ const HeaderCell = ({
                             </button>
                         </PopoverTrigger>
                         <PopoverContent align="start" className="w-64 p-3">
+                            {/* Radix mounts this only when the popover OPENS, which is what makes
+                                the facet fetch lazy without any open-state bookkeeping here. */}
                             <ColumnFilterBody
                                 column={column}
                                 filter={filter}
-                                facetSource={facetSource}
+                                loadFacetValues={loadFacetValues}
                                 onFilter={onFilter}
                             />
                         </PopoverContent>
@@ -225,12 +240,12 @@ const HeaderCell = ({
 const ColumnFilterBody = ({
     column,
     filter,
-    facetSource,
+    loadFacetValues,
     onFilter,
 }: {
     column: OutflowColumn;
     filter: ColumnFilters[string];
-    facetSource: OutflowImportRow[];
+    loadFacetValues: (columnId: string) => Promise<string[]>;
     onFilter: (columnId: string, value: ColumnFilters[string]) => void;
 }) => {
     if (column.filter === "text") {
@@ -278,10 +293,54 @@ const ColumnFilterBody = ({
         );
     }
 
-    // Facet. Values come from the UNFILTERED tab rows, so a value never disappears from its own
-    // filter list the moment it is unticked -- which would make the filter impossible to undo.
-    const chosen = (filter as string[]) ?? [];
-    const values = facetValues(facetSource, column);
+    // Facet. Values arrive from the server, over the WHOLE filtered table, and deliberately
+    // WITHOUT this column's own selection applied -- otherwise the list would collapse to whatever
+    // is already ticked the moment you opened it, and there would be no way back to the values you
+    // unticked.
+    return (
+        <FacetFilterBody
+            column={column}
+            filter={filter}
+            loadFacetValues={loadFacetValues}
+            onFilter={onFilter}
+        />
+    );
+};
+
+const FacetFilterBody = ({
+    column,
+    filter,
+    loadFacetValues,
+    onFilter,
+}: {
+    column: OutflowColumn;
+    filter: ColumnFilters[string];
+    loadFacetValues: (columnId: string) => Promise<string[]>;
+    onFilter: (columnId: string, value: ColumnFilters[string]) => void;
+}) => {
+    const chosen = useMemo(() => (filter as string[]) ?? [], [filter]);
+    const [values, setValues] = useState<string[] | null>(null);
+    const [failed, setFailed] = useState(false);
+
+    useEffect(() => {
+        let live = true;
+        loadFacetValues(column.id)
+            .then((next) => live && setValues(next))
+            .catch(() => live && setFailed(true));
+        return () => {
+            // The popover can close before the fetch lands; setting state on the way out is the
+            // classic React warning, and here it would also be pointless work.
+            live = false;
+        };
+    }, [column.id, loadFacetValues]);
+
+    if (failed) {
+        return <p className="text-xs text-destructive">Could not load the values to filter on.</p>;
+    }
+    if (values === null) {
+        return <p className="text-xs text-muted-foreground">Loading…</p>;
+    }
+
     return (
         <div className="max-h-64 space-y-1 overflow-y-auto">
             {values.length === 0 && (
@@ -430,6 +489,15 @@ const Cell = ({
                 />
             );
 
+        case "import_batch":
+            // The FILENAME is what a person recognises an import by; the batch id means nothing to
+            // an accountant. It stays on the title so it is still recoverable when one is needed.
+            return (
+                <span className="block truncate text-xs text-muted-foreground" title={row.import_batch}>
+                    {row.import_filename || row.import_batch || "—"}
+                </span>
+            );
+
         case "time":
             return <>{String(row.added_on ?? "").split(/[ T]/)[1]?.slice(0, 5) || "—"}</>;
 
@@ -553,6 +621,62 @@ const Highlight = ({ text, query }: { text: string | null | undefined; query: st
                 )
             )}
         </>
+    );
+};
+
+/**
+ * Paging for the master table (slice X3).
+ *
+ * ⚠️ IT STATES THE RANGE AND THE TOTAL, not just "next / previous". A person working a statement
+ * needs to know whether the twelve rows in front of them are all of the open work or the first
+ * twelve of two hundred -- and with a filtered, paged table there is no other way to tell.
+ */
+export const TablePagination = ({
+    total,
+    limit,
+    offset,
+    busy,
+    onPage,
+}: {
+    total: number;
+    limit: number;
+    offset: number;
+    busy?: boolean;
+    onPage: (page: number) => void;
+}) => {
+    if (total <= limit) return null;
+    const page = Math.floor(offset / limit);
+    const pages = Math.ceil(total / limit);
+    const first = offset + 1;
+    const last = Math.min(offset + limit, total);
+
+    return (
+        <div className="flex items-center justify-between px-1 py-2 text-sm text-muted-foreground">
+            <span>
+                {first.toLocaleString()}–{last.toLocaleString()} of {total.toLocaleString()}
+            </span>
+            <div className="flex items-center gap-2">
+                <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={page === 0 || busy}
+                    onClick={() => onPage(page - 1)}
+                >
+                    Previous
+                </Button>
+                <span className="tabular-nums">
+                    {page + 1} / {pages}
+                </span>
+                <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={page + 1 >= pages || busy}
+                    onClick={() => onPage(page + 1)}
+                >
+                    Next
+                </Button>
+            </div>
+        </div>
     );
 };
 

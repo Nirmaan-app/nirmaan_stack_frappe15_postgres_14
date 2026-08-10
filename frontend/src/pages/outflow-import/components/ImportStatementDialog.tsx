@@ -1,11 +1,17 @@
-// src/pages/outflow-import/NewOutflowImportPage.tsx
+// src/pages/outflow-import/components/ImportStatementDialog.tsx
 
-import { useCallback, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { AlertTriangle, ArrowLeft, FileSpreadsheet, Loader2, Upload } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AlertTriangle, CheckCircle2, FileSpreadsheet, Loader2, Upload } from "lucide-react";
+import { useFrappePostCall } from "frappe-react-sdk";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import {
     Select,
@@ -38,22 +44,58 @@ const SOURCES = [
     { value: "Cashbook", label: "Cashbook (coming soon)", available: false },
 ];
 
-export const NewOutflowImportPage = () => {
-    const navigate = useNavigate();
+interface Props {
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    /** Called once the import is staged AND matched, with the new batch's name. */
+    onImported: (batch: string) => void;
+}
+
+/**
+ * Upload a bank statement (slice X4) -- the whole of the retired `NewOutflowImportPage`, in a dialog.
+ *
+ * ⚠️ IT RUNS THE MATCH ITSELF AND ONLY CLOSES WHEN THAT IS DONE, which is the one behavioural change
+ * from the page it replaces. "Run match" used to be a separate button on a separate screen the
+ * reviewer had to find after uploading -- and there is no case where somebody imports a statement
+ * and does NOT want it matched. A manual re-run stays on the summary panel, because re-running is a
+ * normal act: payments get ticked Paid by hand all day, so a batch matched at 10:00 finds different
+ * things at 16:00.
+ *
+ * ⚠️ THE UPLOAD AND THE MATCH ARE TWO SEPARATE SERVER CALLS AND THE FAILURE SHAPES DIFFER. If the
+ * upload succeeds and the match then fails, the rows ARE staged -- the dialog says so and hands the
+ * batch back, rather than reporting a failure that would send somebody to re-upload a statement
+ * that is already in.
+ */
+export const ImportStatementDialog = ({ open, onOpenChange, onImported }: Props) => {
     const inputRef = useRef<HTMLInputElement>(null);
 
     const [source, setSource] = useState("Cashfree");
     const [file, setFile] = useState<File | null>(null);
-    const [isBusy, setIsBusy] = useState<"preview" | "upload" | null>(null);
+    const [isBusy, setIsBusy] = useState<"preview" | "upload" | "match" | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [preview, setPreview] = useState<OutflowPreviewResult | null>(null);
-    const [result, setResult] = useState<OutflowUploadResult | null>(null);
+    const [staged, setStaged] = useState<OutflowUploadResult | null>(null);
     const [isDragging, setIsDragging] = useState(false);
+
+    const { call: runMatch } = useFrappePostCall(
+        "nirmaan_stack.api.outflow_import.review.match_batch"
+    );
+
+    // A dialog is REUSED, unlike the page it replaces -- which was unmounted and rebuilt on every
+    // visit. Without this reset, the second import opens showing the first one's preview.
+    useEffect(() => {
+        if (open) return;
+        setFile(null);
+        setPreview(null);
+        setStaged(null);
+        setError(null);
+        setIsBusy(null);
+    }, [open]);
 
     const acceptFile = useCallback((candidate: File | undefined | null) => {
         setError(null);
         setPreview(null);
-        setResult(null);
+        setStaged(null);
         if (!candidate) return;
 
         const lower = candidate.name.toLowerCase();
@@ -126,38 +168,61 @@ export const NewOutflowImportPage = () => {
         if (!file || isBusy) return;
         setIsBusy("upload");
         setError(null);
+
+        let batch: string;
         try {
             const message = (await post(UPLOAD_URL)) as OutflowUploadResult | undefined;
             if (!message?.batch) {
                 setError("The server accepted the file but returned no batch.");
+                setIsBusy(null);
                 return;
             }
-            setResult(message);
+            setStaged(message);
+            batch = message.batch;
         } catch (err: any) {
             setError(err?.message || "Upload failed.");
-        } finally {
             setIsBusy(null);
+            return;
         }
-    }, [file, isBusy, post]);
+
+        // ⚠️ PAST THIS POINT THE ROWS ARE WRITTEN. A match failure is reported as a match failure --
+        // never as an upload failure, which would send somebody to re-import a statement that is
+        // already in (and which the duplicate guard would then refuse, confusingly).
+        setIsBusy("match");
+        try {
+            await runMatch({ batch });
+        } catch (err: any) {
+            setError(
+                `The statement was imported, but matching it failed: ${
+                    err?.message || "unknown error"
+                }. Use “Re-run match” on the summary.`
+            );
+            setIsBusy(null);
+            onImported(batch);
+            return;
+        }
+        setIsBusy(null);
+        onImported(batch);
+        onOpenChange(false);
+    }, [file, isBusy, post, runMatch, onImported, onOpenChange]);
+
+    const working = isBusy === "upload" || isBusy === "match";
 
     return (
-        <div className="flex-1 space-y-4">
-            <div className="flex items-center gap-2">
-                <Button variant="ghost" size="sm" onClick={() => navigate("/bulk-import-outflow")}>
-                    <ArrowLeft className="mr-1 h-4 w-4" />
-                    Back
-                </Button>
-                <h2 className="text-xl font-bold tracking-tight">New Import</h2>
-            </div>
+        <Dialog open={open} onOpenChange={(next) => (working ? null : onOpenChange(next))}>
+            <DialogContent className="max-w-2xl">
+                <DialogHeader>
+                    <DialogTitle>Import a bank statement</DialogTitle>
+                    <DialogDescription>
+                        Transfers that have already left the bank. Nothing is settled by importing —
+                        every row is confirmed by a person afterwards.
+                    </DialogDescription>
+                </DialogHeader>
 
-            <Card className="max-w-3xl">
-                <CardHeader>
-                    <CardTitle className="text-base">Upload a bank statement</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-5">
+                <div className="space-y-5">
                     <div className="space-y-2">
                         <Label htmlFor="outflow-source">Source</Label>
-                        <Select value={source} onValueChange={setSource}>
+                        <Select value={source} onValueChange={setSource} disabled={working}>
                             <SelectTrigger id="outflow-source" className="max-w-xs">
                                 <SelectValue />
                             </SelectTrigger>
@@ -180,12 +245,12 @@ export const NewOutflowImportPage = () => {
                         onDrop={(e) => {
                             e.preventDefault();
                             setIsDragging(false);
-                            acceptFile(e.dataTransfer.files?.[0]);
+                            if (!working) acceptFile(e.dataTransfer.files?.[0]);
                         }}
-                        onClick={() => inputRef.current?.click()}
-                        className={`flex cursor-pointer flex-col items-center justify-center rounded-md border-2 border-dashed p-8 text-center transition-colors ${
+                        onClick={() => !working && inputRef.current?.click()}
+                        className={`flex cursor-pointer flex-col items-center justify-center rounded-md border-2 border-dashed p-6 text-center transition-colors ${
                             isDragging ? "border-primary bg-primary/5" : "border-muted-foreground/25"
-                        }`}
+                        } ${working ? "pointer-events-none opacity-60" : ""}`}
                     >
                         <input
                             ref={inputRef}
@@ -196,15 +261,15 @@ export const NewOutflowImportPage = () => {
                         />
                         {file ? (
                             <>
-                                <FileSpreadsheet className="mb-2 h-8 w-8 text-primary" />
+                                <FileSpreadsheet className="mb-2 h-7 w-7 text-primary" />
                                 <p className="font-medium">{file.name}</p>
                                 <p className="text-xs text-muted-foreground">
-                                    {(file.size / 1024).toFixed(1)} KB - click to choose another
+                                    {(file.size / 1024).toFixed(1)} KB — click to choose another
                                 </p>
                             </>
                         ) : (
                             <>
-                                <Upload className="mb-2 h-8 w-8 text-muted-foreground" />
+                                <Upload className="mb-2 h-7 w-7 text-muted-foreground" />
                                 <p className="font-medium">Drop a .csv or .xlsx statement here</p>
                                 <p className="text-xs text-muted-foreground">or click to browse</p>
                             </>
@@ -218,15 +283,15 @@ export const NewOutflowImportPage = () => {
                         </div>
                     )}
 
-                    {/* Parse -> preview -> confirm. The preview is where the detected period
-                        appears, BEFORE anything is written -- it was always captured, it just
-                        happened silently after the commit where nobody could see it. */}
-                    {result ? (
-                        <UploadSummary result={result} />
+                    {/* Parse -> preview -> confirm -> match. The preview is where the detected
+                        period appears, BEFORE anything is written. */}
+                    {staged ? (
+                        <StagedSummary result={staged} matching={isBusy === "match"} />
                     ) : preview ? (
                         <StatementPreview
                             preview={preview}
-                            busy={isBusy === "upload"}
+                            busy={working}
+                            phase={isBusy}
                             onConfirm={handleConfirm}
                             onChooseAnother={() => inputRef.current?.click()}
                         />
@@ -235,12 +300,12 @@ export const NewOutflowImportPage = () => {
                             {isBusy === "preview" && (
                                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                             )}
-                            {isBusy === "preview" ? "Reading statement..." : "Read statement"}
+                            {isBusy === "preview" ? "Reading statement…" : "Read statement"}
                         </Button>
                     )}
-                </CardContent>
-            </Card>
-        </div>
+                </div>
+            </DialogContent>
+        </Dialog>
     );
 };
 
@@ -255,11 +320,13 @@ export const NewOutflowImportPage = () => {
 const StatementPreview = ({
     preview,
     busy,
+    phase,
     onConfirm,
     onChooseAnother,
 }: {
     preview: OutflowPreviewResult;
     busy: boolean;
+    phase: "preview" | "upload" | "match" | null;
     onConfirm: () => void;
     onChooseAnother: () => void;
 }) => (
@@ -302,17 +369,6 @@ const StatementPreview = ({
                 }
             >
                 {preview.duplicate_message}
-                {preview.duplicate_of_batch && (
-                    <>
-                        {" "}
-                        <Link
-                            className="underline underline-offset-2"
-                            to={`/bulk-import-outflow/${preview.duplicate_of_batch}`}
-                        >
-                            Open {preview.duplicate_of_batch}
-                        </Link>
-                    </>
-                )}
             </p>
         )}
 
@@ -320,14 +376,7 @@ const StatementPreview = ({
             without sharing a single transfer. The precise guard is per-transfer. */}
         {preview.overlaps_batch && preview.overlaps_batch !== preview.duplicate_of_batch && (
             <p className="text-sm text-amber-700">
-                This period overlaps import{" "}
-                <Link
-                    className="underline underline-offset-2"
-                    to={`/bulk-import-outflow/${preview.overlaps_batch}`}
-                >
-                    {preview.overlaps_batch}
-                </Link>
-                .
+                This period overlaps an earlier import.
             </p>
         )}
 
@@ -340,19 +389,21 @@ const StatementPreview = ({
         )}
 
         <div className="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" onClick={onChooseAnother}>
+            <Button variant="outline" size="sm" onClick={onChooseAnother} disabled={busy}>
                 Choose another file
             </Button>
             {!preview.refused && (
                 <Button size="sm" onClick={onConfirm} disabled={busy}>
                     {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    {busy
-                        ? "Importing..."
-                        : preview.warn
-                          ? `Import the ${preview.new_rows} new ${
-                                preview.new_rows === 1 ? "transfer" : "transfers"
-                            }`
-                          : `Import ${preview.total_rows} transfers`}
+                    {phase === "upload"
+                        ? "Importing…"
+                        : phase === "match"
+                          ? "Matching…"
+                          : preview.warn
+                            ? `Import the ${preview.new_rows} new ${
+                                  preview.new_rows === 1 ? "transfer" : "transfers"
+                              }`
+                            : `Import ${preview.total_rows} transfers`}
                 </Button>
             )}
         </div>
@@ -366,41 +417,37 @@ const PreviewFigure = ({ label, value }: { label: string; value: string }) => (
     </div>
 );
 
-const UploadSummary = ({ result }: { result: OutflowUploadResult }) => (
-    <div className="space-y-3 rounded-md border bg-muted/30 p-4">
+/**
+ * Shown between the upload landing and the match finishing.
+ *
+ * It exists for the seconds in between, and for the case where the match FAILED -- the dialog stays
+ * open with the error above, and this panel is what says the rows are nonetheless imported.
+ */
+const StagedSummary = ({
+    result,
+    matching,
+}: {
+    result: OutflowUploadResult;
+    matching: boolean;
+}) => (
+    <div className="space-y-2 rounded-md border bg-muted/30 p-4">
         <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 text-sm">
-            <span className="font-medium">{result.total_rows} transfers staged</span>
+            <span className="flex items-center gap-1.5 font-medium">
+                <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                {result.total_rows} transfers imported
+            </span>
             {result.skipped_rows > 0 && (
                 <span className="text-muted-foreground">
                     {result.skipped_rows} skipped automatically
                 </span>
             )}
-            {result.period_from && (
-                <span className="text-muted-foreground">
-                    {result.period_from}
-                    {result.period_to && result.period_to !== result.period_from
-                        ? ` to ${result.period_to}`
-                        : ""}
-                </span>
-            )}
         </div>
-
-        {/* An overlapping period is a WARNING, never a block -- two statements can share dates
-            without sharing a single transfer. The precise duplicate guard is per-transfer and has
-            already run, which is what the skipped count above reflects. */}
-        {result.overlaps_batch && (
-            <p className="text-sm text-amber-700">
-                This period overlaps import{" "}
-                <Link
-                    className="underline underline-offset-2"
-                    to={`/bulk-import-outflow/${result.overlaps_batch}`}
-                >
-                    {result.overlaps_batch}
-                </Link>
-                . Any transfer already imported there has been skipped.
+        {matching && (
+            <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Matching them against approved payments and expenses…
             </p>
         )}
-
         {result.warnings.length > 0 && (
             <ul className="list-inside list-disc space-y-1 text-sm text-muted-foreground">
                 {result.warnings.map((w) => (
@@ -408,10 +455,6 @@ const UploadSummary = ({ result }: { result: OutflowUploadResult }) => (
                 ))}
             </ul>
         )}
-
-        <Button asChild size="sm">
-            <Link to={`/bulk-import-outflow/${result.batch}`}>Review {result.batch}</Link>
-        </Button>
     </div>
 );
 
@@ -428,6 +471,3 @@ function extractServerMessage(payload: string): string | null {
         return null;
     }
 }
-
-export const Component = NewOutflowImportPage;
-export default NewOutflowImportPage;

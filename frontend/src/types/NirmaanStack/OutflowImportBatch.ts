@@ -119,6 +119,83 @@ export interface OutflowImportRow {
      * payment its note only names in prose.
      */
     related_payments?: { target_doctype: string; target_name: string }[];
+    /**
+     * Which import staged this row.
+     *
+     * ⚠️ `import_batch` HAS ALWAYS EXISTED ON THE DOCTYPE; what is new at X3 is that the SCREEN
+     * reads it. The batch page showed one import and had no use for it. The master table spans
+     * every import, so the row has to say where it came from -- and the filename is what a person
+     * recognises, which is why the endpoint joins it in rather than making the client resolve ids.
+     */
+    import_batch?: string;
+    import_filename?: string;
+    import_period_from?: string;
+    import_period_to?: string;
+}
+
+/** One page of `review.get_outflow_rows`. */
+export interface OutflowRowsPage {
+    rows: OutflowImportRow[];
+    total: number;
+    limit: number;
+    offset: number;
+    scope: string;
+    /** Rows per tab UNDER THE CURRENT FILTERS -- not over the whole table. */
+    tab_counts: { open: number; settled: number; skipped: number; all: number };
+}
+
+/** One import, as the summary picker lists it. */
+export interface OutflowImportOption {
+    name: string;
+    original_filename?: string;
+    period_from?: string;
+    period_to?: string;
+    status?: string;
+    total_rows?: number;
+    uploaded_at?: string;
+    uploaded_by?: string;
+    closed_at?: string | null;
+}
+
+/** `review.get_import_summary` (slice X2). Every money figure crosses the wire as a number. */
+export interface OutflowImportSummary {
+    batch: string;
+    import: OutflowImportOption & {
+        source?: string;
+        gross_amount?: number;
+        charges_amount?: number;
+        overlaps_batch?: string | null;
+        closed_by?: string | null;
+        close_reason?: string | null;
+    };
+    totals: {
+        total_rows: number;
+        total_value: number;
+        by_status: Record<string, { count: number; value: number }>;
+        open_rows: number;
+        open_value: number;
+        decided_rows: number;
+        decided_percent: number;
+        settled_rows: number;
+        settled_value: number;
+        skipped_rows: number;
+        skipped_value: number;
+        matched_rows: number;
+        matched_value: number;
+        unmatched_rows: number;
+        unmatched_value: number;
+        mismatched_rows: number;
+        mismatched_value: number;
+        pending_rows: number;
+        error_rows: number;
+        /** `Matched` rows carrying the match run's single pick -- what "Confirm all" can act on. */
+        confirmable_rows: number;
+        confirmable_value: number;
+        /** `Matched` rows with SEVERAL candidates and therefore no pick. Never auto-confirmable. */
+        ambiguous_rows: number;
+    };
+    auto_skipped_rows: number;
+    manually_skipped_rows: number;
 }
 
 /** Ranked candidates for one row, fetched on demand when a reviewer opens it. */

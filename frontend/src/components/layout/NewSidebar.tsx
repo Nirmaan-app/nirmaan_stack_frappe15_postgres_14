@@ -819,8 +819,9 @@ export function NewSidebar() {
     ),
     // Rate Master (RM-2): single-segment key drives the active-item highlight.
     "/rate-master": ["rate-master"],
-    // Bulk Import Outflow (S3): the child route /bulk-import-outflow/new falls back to the
-    // first segment, so the parent stays highlighted while creating an import.
+    // Bulk Import Outflow: the deep-link route /bulk-import-outflow/:id falls back to the first
+    // segment, so the item stays highlighted when a link scopes the table to one import. (The
+    // /new child route went away at X4 -- uploading is a dialog on the same screen now.)
     "/bulk-import-outflow": ["bulk-import-outflow"],
   }), []);
 

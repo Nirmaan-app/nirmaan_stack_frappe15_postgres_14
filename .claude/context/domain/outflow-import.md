@@ -37,6 +37,9 @@ pick one ad-hoc; ask.
 | Candidate pool queries | `services/outflow_import/candidates.py` | query a ledger for candidates inline in an endpoint |
 | Browsable approved records (hand-linking) | `api/outflow_import/review.search_settleable_records` (+ `_search_one_ledger`) | reuse `get_row_candidates` for browsing — that is the MATCHER's output, and when the matcher finds nothing it is empty, which is exactly when hand-linking is needed |
 | What counts as "decided" on the screen | `frontend/src/pages/outflow-import/outflowTableModel.ts` (`isConfirmable`) | gate a confirm button on its own predicate — the dialog and the bulk bar both read this one |
+| Which rows the master table shows (X3) | `api/outflow_import/review.get_outflow_rows` (+ `_row_filters`, `_scope_clause`, `get_outflow_facet_values`) | filter, sort or search rows in the browser. ⚠️ `_row_filters` is ONE builder shared by the page query, its count, the tab counts and the facet values — a count computed under different filters than the page it labels is a lie that looks like a paging bug |
+| What the screen ASKS for (X3) | `outflowTableModel.serverQuery` | build endpoint params at a call site. It owns the MEANING of a filter; SQL owns the application |
+| One import's aggregate (X2) | `services/outflow_import/status.py` (`derive_import_summary`, `StatusTally`) | count or sum an import anywhere else. The DB does the `GROUP BY`; this assembles |
 | Seeding decisions from the match run | `outflowTableModel.ts` (`suggestedDecision`, `seedDecisions`, `decisionOrigin`) | pre-select inside a component; the dialog used to, and it could only fire once a row was already open |
 | Access | `api/outflow_import/permissions.require_outflow_access` | gate an endpoint any other way |
 
@@ -187,8 +190,43 @@ used to catch now arrive `Unmatched` and are linked by hand. Owner's call, made 
 
 ## The screen
 
-Three tabs over the batch's transfers — **Pending / Settled / Skipped** — plus a per-row decision
-dialog. Everything that is not a React semantic lives in the pure `outflowTableModel.ts`, because
+**ONE screen (X3 + X4), and the shape reversed there.** Until X3 a SHEET was a place: a list of
+imports → open one → see its rows, which existed only inside it. Now the **transactions** are the
+thing — one master table across every import at `/bulk-import-outflow` — and an import is an
+*attribute* of a row: a column, a filter, and the subject of the summary panel above.
+
+- **The table is SERVER-paged, filtered, sorted and searched** (`review.get_outflow_rows`). The
+  client filter engine (`matchesQuery` / `passesFilters` / `visibleRows` / `facetValues`) was
+  **deleted, not bypassed** — two engines answering "which rows match" disagree the day one is
+  edited. What survives in the pure model is `serverQuery`, which owns the *meaning* of a filter;
+  SQL owns the *application*. `rowsForTab` / `tabCounts` went too: the tab numbers now come from
+  the endpoint, computed **under the current filters**, so a search matching four rows can never
+  show "Settled 812" beside it.
+- **The per-column funnels survived the move**, and keeping them was deliberate — dropping them
+  would have been a silent capability cut in a refactor. Their distinct values come from
+  `get_outflow_facet_values` over the whole filtered table, fetched lazily on first open. ⚠️ That
+  endpoint deliberately does **not** apply the funnel's own selection: a funnel that filtered its
+  own options would collapse to whatever is ticked and offer no way back.
+- **Default scope is the open work** (owner ruling) — a worklist first, an archive second.
+- **`/bulk-import-outflow/:id` is KEPT** and renders the same page pre-scoped to that import, so
+  every pre-X3 link still resolves. `/new` is gone; uploading is a dialog.
+- **Three tabs — Pending / Settled / Skipped** — plus the per-row decision dialog, unchanged.
+- **The summary panel above summarises ONE import while the table spans all of them.** That is the
+  design: "how did that statement go?" and "what do I still owe a decision on?" are different
+  questions. Every figure is a button that scopes the table to itself.
+- **The import dialog runs the match itself** and closes only when it is done — there is no case
+  where somebody imports a statement and does not want it matched. A manual **Re-run match** stays
+  on the summary, because re-running is normal (payments get hand-ticked all day). ⚠️ If the upload
+  succeeds and the match then fails, that is reported as a MATCH failure — the rows *are* staged,
+  and saying "upload failed" would send someone to re-import a statement that is already in.
+- **"Confirm all matched" is CONFIRM, never APPROVE** (owner ruling 2026-08-09). This feature never
+  approves anything; a button saying otherwise would tell an accountant they are approving payments.
+  It acts only on `Matched` rows **carrying a stored suggestion** — a row that matched several
+  records has nothing to confirm against and is listed read-only as "needs you". It loops **one call
+  per row**, preserving the per-row savepoint isolation, and shows each row's **amount delta before
+  the click** (since X1, confirming rewrites amounts).
+
+Everything that is not a React semantic lives in the pure `outflowTableModel.ts`, because
 there is **no DOM test environment in this repository, by deliberate choice**: the table, the dialog
 and the selection behaviour are structurally untestable here and the honest verification is a live
 browser walk.

@@ -24,6 +24,7 @@ adds a convenient line:
     that needs it.
 """
 
+import json
 import unittest
 from dataclasses import replace
 from datetime import datetime
@@ -33,12 +34,16 @@ import frappe
 from nirmaan_stack.api.outflow_import.review import (
     MATCH_DOCTYPE,
     get_batch_rows,
+    get_confirmable_rows,
     get_import_summary,
+    get_outflow_facet_values,
+    get_outflow_rows,
     get_row_candidates,
     match_batch,
     search_settleable_records,
     skip_row,
 )
+from nirmaan_stack.api.outflow_import.expenses import settle_row
 from nirmaan_stack.api.outflow_import.upload import BATCH_DOCTYPE, ROW_DOCTYPE, _stage_batch
 from nirmaan_stack.services.outflow_import.amounts import AMOUNT_TOLERANCE
 from nirmaan_stack.services.outflow_import.parser import parse_statement
@@ -791,6 +796,217 @@ class TestImportSummaryEndpoint(OutflowReviewFixture):
             self.assertIsInstance(totals[key], float, key)
         for bucket in totals["by_status"].values():
             self.assertIsInstance(bucket["value"], float)
+
+
+class TestTheMasterTableEndpoint(OutflowReviewFixture):
+    """`get_outflow_rows` -- the paged read behind the master table (slice X3).
+
+    ⚠️ IT SPANS EVERY IMPORT, so this suite scopes to its OWN batch for anything it asserts a count
+    on. The live database carries other imports; a bare assertion here would pass or fail depending
+    on what else somebody uploaded.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        match_batch(cls.batch.name)
+
+    def _page(self, **kwargs):
+        kwargs.setdefault("batch", self.batch.name)
+        return get_outflow_rows(**kwargs)
+
+    def test_the_default_scope_is_the_open_work(self):
+        """⚠️ A PRODUCT DECISION, NOT A PERFORMANCE ONE (owner ruling). The master table is a
+        worklist first: it opens on what somebody still owes a decision on, not on months of settled
+        history that happens to sort first by date."""
+        page = self._page()
+        self.assertEqual(page["scope"], "open")
+        self.assertTrue(page["rows"])
+        for row in page["rows"]:
+            self.assertNotIn(row["row_status"], ("Settled", "Skipped"))
+
+    def test_the_scopes_partition_the_import(self):
+        counts = self._page()["tab_counts"]
+        self.assertEqual(counts["open"] + counts["settled"] + counts["skipped"], counts["all"])
+        self.assertEqual(counts["all"], len(self.parsed.rows))
+
+    def test_the_total_is_the_whole_result_not_the_page(self):
+        """The paging control reads this. If it were the page length, "1–5 of 5" would show on a
+        table with two hundred rows and nobody would know there was a second page."""
+        page = self._page(scope="all", limit=2)
+        self.assertEqual(len(page["rows"]), 2)
+        self.assertEqual(page["total"], len(self.parsed.rows))
+
+    def test_paging_walks_the_whole_set_without_repeating_a_row(self):
+        first = self._page(scope="all", limit=3, offset=0)["rows"]
+        second = self._page(scope="all", limit=3, offset=3)["rows"]
+        self.assertFalse({r["name"] for r in first} & {r["name"] for r in second})
+
+    def test_search_spans_the_fields_a_person_remembers_a_transfer_by(self):
+        target = self._rows_by_transfer_suffix()["0001"]
+        found = self._page(scope="all", search=(target["beneficiary_name"] or "")[:6])["rows"]
+        self.assertIn(target["name"], [r["name"] for r in found])
+
+    def test_the_tab_counts_describe_the_CURRENT_search(self):
+        """⚠️ NOT THE WHOLE TABLE. A search matching four rows must not show "Settled 812" beside
+        it -- the numbers would be describing something other than what is on screen."""
+        narrow = self._page(scope="all", search="a-string-no-remark-contains-zzz")
+        self.assertEqual(narrow["total"], 0)
+        self.assertEqual(narrow["tab_counts"]["all"], 0)
+
+    def test_an_unknown_scope_shows_everything_rather_than_nothing(self):
+        """Failing OPEN is the right way round here: a scope this server has not heard of should
+        show the whole table, which is visibly odd, rather than an empty one, which reads as
+        "there is no work"."""
+        self.assertEqual(
+            self._page(scope="not-a-scope")["total"], self._page(scope="all")["total"]
+        )
+
+    def test_a_row_says_which_import_staged_it(self):
+        """New at X3 and only meaningful from X3 on: the table spans every import, so "which
+        statement was this?" becomes a real question. The FILENAME is what a person recognises."""
+        row = self._page()["rows"][0]
+        self.assertEqual(row["import_batch"], self.batch.name)
+        self.assertEqual(row["import_filename"], "test-statement.csv")
+
+    def test_an_unsortable_column_cannot_reach_the_sql(self):
+        """The sort key is INTERPOLATED, so the allow-list is the injection guard. An unknown key
+        falls back to the default rather than throwing -- a rejected sort would fail a whole page
+        load over a cosmetic click."""
+        page = self._page(sort_by="amount); DROP TABLE x; --")
+        self.assertEqual(page["total"], self._page()["total"])
+
+    def test_the_page_size_is_capped(self):
+        """A client must not be able to ask for the entire table and reinstate the problem this
+        endpoint exists to solve."""
+        self.assertLessEqual(self._page(scope="all", limit=99999)["limit"], 200)
+
+    def test_facet_values_come_from_the_whole_filtered_table(self):
+        """⚠️ THE REASON THIS ENDPOINT EXISTS. The funnels used to be built from the rows the client
+        held; a page of fifty rows knows fifty beneficiaries, so the same code against a paged table
+        would offer a funnel that silently hides most of its own options."""
+        page = self._page(scope="all", limit=1)
+        values = get_outflow_facet_values(
+            "beneficiary_name", batch=self.batch.name, scope="all"
+        )["values"]
+        self.assertEqual(len(page["rows"]), 1)
+        self.assertGreater(len(values), 1)
+
+    def test_a_facet_selection_narrows_the_page(self):
+        target = self._rows_by_transfer_suffix()["0001"]
+        page = self._page(
+            scope="all",
+            facets=json.dumps({"beneficiary_name": [target["beneficiary_name"]]}),
+        )
+        self.assertTrue(page["rows"])
+        for row in page["rows"]:
+            self.assertEqual(row["beneficiary_name"], target["beneficiary_name"])
+
+    def test_an_empty_facet_selection_is_no_filter_at_all(self):
+        """Otherwise unticking the last value blanks the table instead of clearing the filter,
+        which reads as a bug every single time."""
+        self.assertEqual(
+            self._page(scope="all", facets=json.dumps({"beneficiary_name": []}))["total"],
+            self._page(scope="all")["total"],
+        )
+
+    def test_an_unknown_facet_column_is_ignored_rather_than_fatal(self):
+        """A stale bookmark carrying a facet from a column that has since been removed should show
+        an unfiltered table, not an error page."""
+        self.assertEqual(
+            self._page(scope="all", facets=json.dumps({"not_a_column": ["x"]}))["total"],
+            self._page(scope="all")["total"],
+        )
+
+    def test_an_unknown_facet_column_IS_fatal_when_asked_for_its_values(self):
+        """The read is the other way round: the column name is interpolated, so an unknown one is a
+        programming error and must be loud rather than silently empty."""
+        with self.assertRaises(frappe.ValidationError):
+            get_outflow_facet_values("amount); DROP TABLE x; --")
+
+
+class TestConfirmableRows(OutflowReviewFixture):
+    """`get_confirmable_rows` -- what "Confirm all matched" may and may not act on (slice X5)."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        match_batch(cls.batch.name)
+
+    def test_ready_rows_all_carry_a_target(self):
+        payload = get_confirmable_rows(self.batch.name)
+        self.assertTrue(payload["ready"])
+        for row in payload["ready"]:
+            self.assertTrue(row["target_doctype"])
+            self.assertTrue(row["target_name"])
+
+    def test_ready_and_needs_you_together_are_exactly_the_matched_rows(self):
+        """⚠️ `Matched` IS NOT THE SAME AS CONFIRMABLE. A row that matched SEVERAL approved records
+        stores no suggestion -- there is nothing to confirm it against -- and must appear in
+        `needs_you` rather than being dropped from the dialog entirely."""
+        payload = get_confirmable_rows(self.batch.name)
+        matched = frappe.db.count(
+            ROW_DOCTYPE, {"import_batch": self.batch.name, "row_status": "Matched"}
+        )
+        self.assertEqual(len(payload["ready"]) + len(payload["needs_you"]), matched)
+
+    def test_ready_counts_exactly_the_rows_carrying_a_stored_suggestion(self):
+        payload = get_confirmable_rows(self.batch.name)
+        stored = frappe.db.count(
+            ROW_DOCTYPE,
+            {
+                "import_batch": self.batch.name,
+                "row_status": "Matched",
+                "suggested_name": ["is", "set"],
+            },
+        )
+        self.assertEqual(len(payload["ready"]), stored)
+
+    def test_it_agrees_with_the_summary_about_how_many_are_confirmable(self):
+        """The button's number and the dialog's list must be the same number, or the dialog opens
+        promising more than it shows."""
+        self.assertEqual(
+            len(get_confirmable_rows(self.batch.name)["ready"]),
+            get_import_summary(self.batch.name)["totals"]["confirmable_rows"],
+        )
+
+    def test_every_ready_row_reports_whether_confirming_changes_the_amount(self):
+        """⚠️ SINCE X1 A SETTLE REWRITES THE RECORD'S AMOUNT, so confirming forty rows can change
+        forty approved figures. The dialog shows the delta BEFORE the click, which it can only do if
+        this read carries it."""
+        for row in get_confirmable_rows(self.batch.name)["ready"]:
+            self.assertIn("amount_changes", row)
+            self.assertIn("amount_delta", row)
+            self.assertEqual(
+                row["amount_changes"], row["target_amount"] != row["amount"]
+            )
+
+    def test_a_settled_row_leaves_the_confirmable_set(self):
+        payload = get_confirmable_rows(self.batch.name)
+        target = payload["ready"][0]
+        before = len(payload["ready"])
+
+        settle_row(target["name"], target["target_doctype"], target["target_name"])
+
+        self.assertEqual(len(get_confirmable_rows(self.batch.name)["ready"]), before - 1)
+
+    def test_a_suggestion_pointing_at_a_vanished_record_becomes_needs_you(self):
+        """Not an error and not a silent drop: the row still needs somebody, and saying so is the
+        only outcome that gets it looked at."""
+        rows = self._rows_by_transfer_suffix()
+        row = rows["0003"]
+        frappe.db.set_value(
+            ROW_DOCTYPE,
+            row["name"],
+            {"row_status": "Matched", "suggested_doctype": "Project Payments",
+             "suggested_name": "PAY-does-not-exist"},
+            update_modified=False,
+        )
+        frappe.db.commit()
+
+        payload = get_confirmable_rows(self.batch.name)
+        self.assertIn(row["name"], [r["name"] for r in payload["needs_you"]])
+        self.assertNotIn(row["name"], [r["name"] for r in payload["ready"]])
 
 
 class TestTheTierLadderEndToEnd(OutflowReviewFixture):

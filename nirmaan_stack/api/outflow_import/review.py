@@ -35,14 +35,17 @@ from nirmaan_stack.services.outflow_import.matcher import (
     match_row,
     resolve_vendors,
 )
-from nirmaan_stack.services.outflow_import.amounts import amounts_match
+from nirmaan_stack.services.outflow_import.amounts import amounts_match, rewrite_amount
 from nirmaan_stack.services.outflow_import.ledgers import (
     LEDGER_DOCTYPES,
+    NON_PROJECT_EXPENSE_DOCTYPE as NON_PROJECT_EXPENSE,
+    PROJECT_EXPENSE_DOCTYPE as PROJECT_EXPENSE,
     settleable_statuses,
 )
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
 from nirmaan_stack.services.outflow_import.status import (
     OPEN_ROW_STATUSES,
+    ROW_MATCHED,
     ROW_SETTLED,
     ROW_SKIPPED,
     StatusTally,
@@ -659,6 +662,516 @@ def _search_one_ledger(target_doctype: str, bank_amount, search: str, limit: int
         }
         for r in frappe.db.sql(sql, tuple(params), as_dict=True)
     ]
+
+
+# --- the master table (slice X3) ----------------------------------------------------------------
+
+# The three tabs, as STATUS SETS. `open` is every status still owing a decision, which is what makes
+# it the default scope: the master table is a worklist first and an archive second.
+SCOPE_OPEN = "open"
+SCOPE_SETTLED = "settled"
+SCOPE_SKIPPED = "skipped"
+SCOPE_ALL = "all"
+
+_SCOPE_STATUSES = {
+    SCOPE_OPEN: tuple(sorted(OPEN_ROW_STATUSES)),
+    SCOPE_SETTLED: (ROW_SETTLED,),
+    SCOPE_SKIPPED: (ROW_SKIPPED,),
+}
+
+# ⚠️ AN ALLOW-LIST, BECAUSE THE SORT COLUMN IS INTERPOLATED INTO SQL. A sort key cannot be a bound
+# parameter, so the only safe form is a mapping from an id the client may send to a column this
+# module names itself. Never widen this by passing the client's string through.
+_SORTABLE_COLUMNS = {
+    "added_on": "r.added_on",
+    "amount": "r.amount",
+    "beneficiary_name": "r.beneficiary_name",
+    "bank_reference_no": "r.bank_reference_no",
+    "row_status": "r.row_status",
+    "import_batch": "r.import_batch",
+    "remarks": "r.remarks",
+}
+
+_SEARCHABLE_COLUMNS = (
+    "r.beneficiary_name",
+    "r.remarks",
+    "r.bank_reference_no",
+    "r.transfer_id",
+    "r.bank_account",
+)
+
+# ⚠️ THE FACET COLUMNS SURVIVED THE MOVE TO SERVER PAGING, AND KEEPING THEM WAS DELIBERATE. The
+# batch screen offered a multi-select funnel per column, built from the distinct values of the rows
+# it had loaded. Paging breaks that -- a page of fifty rows knows fifty beneficiaries -- and the
+# easy answer was to drop the funnels and ship only search + date + amount. That would have been a
+# silent capability cut in a refactor nobody asked to lose anything in. So the distinct values come
+# from the database instead, over the WHOLE filtered table, through `get_outflow_facet_values`.
+#
+# An allow-list for the same reason as `_SORTABLE_COLUMNS`: the column name is interpolated.
+_FACET_COLUMNS = {
+    "beneficiary_name": "r.beneficiary_name",
+    "row_status": "r.row_status",
+    "bank_account": "r.bank_account",
+    "ifsc": "r.ifsc",
+    "import_batch": "r.import_batch",
+    # The screen facets on the DAY, not the timestamp -- which is what a person means by "the
+    # payment date". `added_on` is a Datetime, so the cast is what makes the facet's values match
+    # the cell's text.
+    "added_on": "CAST(r.added_on AS date)",
+}
+
+# One page. Generous enough that a whole statement usually fits on one, capped so a client cannot
+# ask for the entire table and reinstate the problem this endpoint exists to solve.
+_DEFAULT_PAGE_SIZE = 50
+_MAX_PAGE_SIZE = 200
+
+
+@frappe.whitelist()
+def get_outflow_rows(
+    scope: str = SCOPE_OPEN,
+    batch: str = None,
+    search: str = None,
+    date_from: str = None,
+    date_to: str = None,
+    amount_min=None,
+    amount_max=None,
+    facets=None,
+    sort_by: str = "added_on",
+    sort_dir: str = "desc",
+    limit=_DEFAULT_PAGE_SIZE,
+    offset=0,
+):
+    """One page of transactions across EVERY import (slice X3).
+
+    ⚠️ THIS REPLACES `get_batch_rows` AS THE SCREEN'S READ, AND THE REASON IS SIZE. The batch screen
+    loaded a whole import in one call and filtered, sorted and searched it IN THE BROWSER -- correct
+    for the twenty-six rows of one statement, wrong for every row ever staged. Weekly statements
+    reach thousands within a couple of years. `get_batch_rows` is KEPT: the api suites read it, and
+    it is still the honest way to ask for exactly one import's rows.
+
+    ⚠️ THE DEFAULT SCOPE IS `open`, WHICH IS A PRODUCT DECISION, NOT A PERFORMANCE ONE (owner ruling
+    2026-08-09). The master table is a worklist first: what it opens on is the work somebody still
+    owes a decision on, not months of settled history that happens to sort first by date.
+
+    FILTER COMPOSITION IS `AND` ACROSS COLUMNS, `OR` WITHIN ONE -- the same rule the rest of this
+    app's tables use, and the same one the client-side filters it replaces used.
+
+    `tab_counts` comes back with every page. It is deliberately computed under the SAME filters
+    minus the scope, so the three tab numbers describe the search a person is actually looking at
+    rather than the whole table -- a search that matches four rows should not show "Settled 812".
+    """
+    require_outflow_access()
+
+    where, params = _row_filters(
+        batch=batch,
+        search=search,
+        date_from=date_from,
+        date_to=date_to,
+        amount_min=amount_min,
+        amount_max=amount_max,
+        facets=facets,
+    )
+    scoped_where, scoped_params = _scope_clause(scope)
+
+    limit = max(1, min(int(limit or _DEFAULT_PAGE_SIZE), _MAX_PAGE_SIZE))
+    offset = max(0, int(offset or 0))
+
+    column = _SORTABLE_COLUMNS.get(sort_by or "", _SORTABLE_COLUMNS["added_on"])
+    direction = "ASC" if (sort_dir or "").lower() == "asc" else "DESC"
+
+    all_where = where + scoped_where
+    all_params = params + scoped_params
+    clause = (" WHERE " + " AND ".join(all_where)) if all_where else ""
+
+    rows = frappe.db.sql(
+        f"""
+        SELECT r.name, r.import_batch, r.transfer_id, r.reference_id, r.added_on, r.amount,
+               r.status_raw, r.beneficiary_name, r.beneficiary_id, r.bank_account, r.ifsc,
+               r.remarks, r.bank_reference_no, r.service_charge, r.service_tax, r.added_by_raw,
+               r.normalized_account, r.normalized_reference, r.resolved_vendor, r.resolved_project,
+               r.suggested_doctype, r.suggested_name, r.row_status, r.skip_reason, r.outcome_note,
+               b.original_filename AS import_filename,
+               b.period_from       AS import_period_from,
+               b.period_to         AS import_period_to
+        FROM "tabOutflow Import Row" r
+        LEFT JOIN "tabOutflow Import Batch" b ON b.name = r.import_batch
+        {clause}
+        ORDER BY {column} {direction}, r.name ASC
+        LIMIT %s OFFSET %s
+        """,
+        tuple(all_params) + (limit, offset),
+        as_dict=True,
+    )
+
+    total = frappe.db.sql(
+        f"""SELECT COUNT(*) AS n FROM "tabOutflow Import Row" r {clause}""",
+        tuple(all_params),
+        as_dict=True,
+    )[0]["n"]
+
+    related = _related_paid_payments(rows)
+
+    return {
+        "rows": [
+            {
+                **row,
+                "amount": float(row.get("amount") or 0),
+                "service_charge": float(row.get("service_charge") or 0),
+                "service_tax": float(row.get("service_tax") or 0),
+                # Kept for shape-compatibility with `get_batch_rows`, which the decision dialog and
+                # the settlement-link helpers already read. A master-table page never carries match
+                # records: they mean "settled", and the Settled tab reads them per row on demand.
+                "matches": [],
+                "related_payments": related.get(row.get("normalized_reference") or "", []),
+            }
+            for row in rows
+        ],
+        "total": int(total or 0),
+        "limit": limit,
+        "offset": offset,
+        "scope": scope,
+        "tab_counts": _tab_counts(where, params),
+    }
+
+
+def _row_filters(*, batch, search, date_from, date_to, amount_min, amount_max, facets=None):
+    """The WHERE fragments shared by the page query, its count, and the tab counts.
+
+    ⚠️ ONE BUILDER FOR ALL FOUR (the facet-values query too), because a count computed under
+    different filters than the page it labels is a lie that looks like a paging bug. Everything is
+    a bound parameter; the only interpolated values anywhere in this endpoint are the sort column
+    and the facet column, both from allow-lists.
+    """
+    where, params = [], []
+
+    if batch:
+        where.append("r.import_batch = %s")
+        params.append(batch)
+
+    text = (search or "").strip()
+    if text:
+        # OR within the one "column" a person perceives as search: they are hunting a transfer, and
+        # do not know or care which field carries what they half-remember.
+        needle = f"%{text}%"
+        where.append(
+            "(" + " OR ".join(f"COALESCE({c}, '') ILIKE %s" for c in _SEARCHABLE_COLUMNS) + ")"
+        )
+        params.extend([needle] * len(_SEARCHABLE_COLUMNS))
+
+    if date_from:
+        where.append("r.added_on >= %s")
+        params.append(date_from)
+    if date_to:
+        # Inclusive of the whole end DAY. `added_on` is a Datetime, so a bare date bound would
+        # silently exclude everything after midnight on the day a person typed.
+        where.append("r.added_on < (%s::date + INTERVAL '1 day')")
+        params.append(date_to)
+
+    if amount_min not in (None, ""):
+        where.append("r.amount >= %s")
+        params.append(float(amount_min))
+    if amount_max not in (None, ""):
+        where.append("r.amount <= %s")
+        params.append(float(amount_max))
+
+    for column, chosen in _parsed_facets(facets).items():
+        # ⚠️ AN EMPTY SELECTION MEANS "NO FILTER ON THIS COLUMN", NOT "MATCH NOTHING" -- the same
+        # rule the client-side filters used. Otherwise unticking the last value blanks the table
+        # instead of clearing the filter, which reads as a bug every single time.
+        if not chosen:
+            continue
+        expression = _FACET_COLUMNS[column]
+        placeholders = ", ".join(["%s"] * len(chosen))
+        where.append(f"CAST({expression} AS text) IN ({placeholders})")
+        params.extend([str(v) for v in chosen])
+
+    return where, params
+
+
+def _parsed_facets(facets) -> dict:
+    """`{column: [values]}`, keeping only the columns on the allow-list.
+
+    Arrives as a JSON string on a GET and as a real dict on a JSON POST, so both are accepted. An
+    UNKNOWN column is dropped SILENTLY rather than throwing: a stale bookmark carrying a facet from
+    a column that has since been removed should show an unfiltered table, not an error page.
+    """
+    if not facets:
+        return {}
+    if isinstance(facets, str):
+        try:
+            facets = frappe.parse_json(facets)
+        except Exception:
+            return {}
+    if not isinstance(facets, dict):
+        return {}
+    return {
+        column: list(values or [])
+        for column, values in facets.items()
+        if column in _FACET_COLUMNS
+    }
+
+
+@frappe.whitelist()
+def get_outflow_facet_values(
+    column: str,
+    batch: str = None,
+    search: str = None,
+    date_from: str = None,
+    date_to: str = None,
+    amount_min=None,
+    amount_max=None,
+    scope: str = None,
+    limit=500,
+):
+    """The distinct values one funnel offers, over the WHOLE filtered table (slice X3).
+
+    ⚠️ THIS EXISTS SO SERVER PAGING DID NOT COST THE SCREEN ITS FUNNELS. The client used to build
+    them from the rows it held; a page of fifty rows knows fifty beneficiaries, so the same code
+    against a paged table would offer a funnel that quietly hides most of its own options.
+
+    ⚠️ THE COLUMN'S OWN FACET SELECTION IS DELIBERATELY NOT APPLIED. A funnel that filtered its own
+    options would collapse to whatever is already ticked the moment you opened it, and there would
+    be no way back to the values you unticked. Every OTHER filter is applied, so the options stay
+    relevant to what is on screen.
+    """
+    require_outflow_access()
+    if column not in _FACET_COLUMNS:
+        frappe.throw(f"'{column}' is not a filterable column.", title="Unknown column")
+
+    where, params = _row_filters(
+        batch=batch,
+        search=search,
+        date_from=date_from,
+        date_to=date_to,
+        amount_min=amount_min,
+        amount_max=amount_max,
+    )
+    scoped_where, scoped_params = _scope_clause(scope) if scope else ([], [])
+    where, params = where + scoped_where, params + scoped_params
+    clause = (" WHERE " + " AND ".join(where)) if where else ""
+
+    expression = _FACET_COLUMNS[column]
+    rows = frappe.db.sql(
+        f"""
+        SELECT DISTINCT CAST({expression} AS text) AS value
+        FROM "tabOutflow Import Row" r
+        {clause}
+        ORDER BY value ASC
+        LIMIT %s
+        """,
+        tuple(params) + (max(1, min(int(limit or 500), 2000)),),
+        as_dict=True,
+    )
+    return {
+        "column": column,
+        "values": [r["value"] for r in rows if (r["value"] or "").strip()],
+    }
+
+
+def _scope_clause(scope: str):
+    """The tab, as a status set. An unknown scope means ALL rather than nothing.
+
+    Failing open is right here: a client sending a scope this server has not heard of should see the
+    whole table, which is visibly odd, rather than an empty one, which reads as "there is no work".
+    """
+    statuses = _SCOPE_STATUSES.get((scope or "").lower())
+    if not statuses:
+        return [], []
+    placeholders = ", ".join(["%s"] * len(statuses))
+    return [f"r.row_status IN ({placeholders})"], list(statuses)
+
+
+def _tab_counts(where, params) -> dict:
+    """How many rows each tab holds UNDER THE CURRENT FILTERS, in one grouped query."""
+    clause = (" WHERE " + " AND ".join(where)) if where else ""
+    grouped = frappe.db.sql(
+        f"""
+        SELECT r.row_status AS status, COUNT(*) AS n
+        FROM "tabOutflow Import Row" r
+        {clause}
+        GROUP BY r.row_status
+        """,
+        tuple(params),
+        as_dict=True,
+    )
+    by_status = {(g["status"] or ""): int(g["n"] or 0) for g in grouped}
+    return {
+        SCOPE_OPEN: sum(n for s, n in by_status.items() if s in OPEN_ROW_STATUSES),
+        SCOPE_SETTLED: by_status.get(ROW_SETTLED, 0),
+        SCOPE_SKIPPED: by_status.get(ROW_SKIPPED, 0),
+        SCOPE_ALL: sum(by_status.values()),
+    }
+
+
+@frappe.whitelist()
+def get_confirmable_rows(batch: str):
+    """What "Confirm all matched" can and cannot act on, for one import (slice X5).
+
+    ⚠️ `Matched` IS NOT THE SAME AS CONFIRMABLE, AND CONFLATING THEM IS THE TRAP IN THIS FEATURE. A
+    row is `Matched` when the matcher found one OR MORE approved records. When it found several it
+    deliberately stores NO suggestion -- the screen never guesses between two real records -- so
+    those rows have nothing to confirm them AGAINST. They come back in `needs_you`: listed, linked,
+    and never auto-confirmable.
+
+    ⚠️ EVERY READY ROW CARRIES ITS AMOUNT DELTA, and that is not decoration. Since X1 a settle
+    REWRITES the record's amount to the bank's whenever they differ, so confirming forty rows can
+    silently change forty approved figures. The person clicking is entitled to see
+    `18,678.69 -> 18,679.00` BEFORE the click, not discover it afterwards.
+
+    ⚠️ IT DOES NOT RE-RUN THE MATCH. The suggestions were computed whenever the match last ran, and
+    a payment may have been ticked Paid by hand since. That is safe to leave: the per-row write
+    guard re-asserts status and amount under a row lock, so a stale confirm FAILS rather than
+    writing the wrong thing. Forcing a re-match here would be theatre over a guard that already
+    holds.
+    """
+    require_outflow_access()
+    _assert_batch(batch)
+
+    rows = frappe.db.sql(
+        """
+        SELECT name, transfer_id, added_on, amount, beneficiary_name, remarks,
+               bank_reference_no, suggested_doctype, suggested_name, outcome_note
+        FROM "tabOutflow Import Row"
+        WHERE import_batch = %s AND row_status = %s
+        ORDER BY added_on ASC, name ASC
+        """,
+        (batch, ROW_MATCHED),
+        as_dict=True,
+    )
+
+    wanted: dict[str, list] = {}
+    for row in rows:
+        doctype = (row.get("suggested_doctype") or "").strip()
+        name = (row.get("suggested_name") or "").strip()
+        if doctype and name:
+            wanted.setdefault(doctype, []).append(name)
+
+    targets: dict[tuple, dict] = {}
+    for doctype, names in wanted.items():
+        for name, detail in _targets_by_name(doctype, names).items():
+            targets[(doctype, name)] = detail
+
+    ready, needs_you = [], []
+    for row in rows:
+        doctype = (row.get("suggested_doctype") or "").strip()
+        name = (row.get("suggested_name") or "").strip()
+        bank_amount = normalize_amount(row.get("amount"))
+        base = {
+            "name": row["name"],
+            "added_on": row.get("added_on"),
+            "amount": float(bank_amount),
+            "beneficiary_name": row.get("beneficiary_name"),
+            "remarks": row.get("remarks"),
+            "bank_reference_no": row.get("bank_reference_no"),
+            "outcome_note": row.get("outcome_note"),
+        }
+
+        detail = targets.get((doctype, name)) if doctype and name else None
+        if not detail:
+            # No suggestion, or one pointing at a record that has since gone. Both mean the same
+            # thing to this screen: a person has to open it.
+            needs_you.append(base)
+            continue
+
+        record_amount = normalize_amount(detail.get("amount"))
+        base.update(
+            {
+                "target_doctype": doctype,
+                "target_name": name,
+                "target_amount": float(record_amount),
+                "target_status": detail.get("status"),
+                "vendor_name": detail.get("vendor_name"),
+                "project_name": detail.get("project_name"),
+                # X1: what confirming will WRITE onto the record, and by how much it moves.
+                "amount_delta": float(bank_amount - record_amount),
+                "amount_changes": rewrite_amount(record_amount, bank_amount) is not None,
+            }
+        )
+        ready.append(base)
+
+    return {
+        "batch": batch,
+        "ready": ready,
+        "needs_you": needs_you,
+        "ready_value": float(sum(normalize_amount(r["amount"]) for r in ready)),
+    }
+
+
+def _targets_by_name(target_doctype: str, names: list) -> dict:
+    """One ledger's records, by name, with the facts the confirm list shows.
+
+    ⚠️ IT RE-READS STATUS RATHER THAN TRUSTING THE MATCH RUN. A payment ticked Paid by hand since the
+    match would otherwise be offered as ready to confirm; showing its real status lets the dialog
+    grey it out before somebody clicks a button that is going to be refused anyway.
+
+    Separate queries per ledger for the same reason `_search_one_ledger` is separate: the three
+    genuinely differ -- two joins on payments, one on project expenses, none on non-project ones --
+    and folding them into one parametrised query would hide the asymmetries a reader needs to see.
+    """
+    if not names:
+        return {}
+    placeholders = ", ".join(["%s"] * len(names))
+
+    if target_doctype == C.PAYMENT_DOCTYPE:
+        rows = frappe.db.sql(
+            f"""
+            SELECT p.name, p.amount, p.status, v.vendor_name, pr.project_name
+            FROM "tabProject Payments" p
+            LEFT JOIN "tabVendors" v ON v.name = p.vendor
+            LEFT JOIN "tabProjects" pr ON pr.name = p.project
+            WHERE p.name IN ({placeholders})
+            """,
+            tuple(names),
+            as_dict=True,
+        )
+    elif target_doctype == PROJECT_EXPENSE:
+        rows = frappe.db.sql(
+            f"""
+            SELECT e.name, e.amount, e.status, v.vendor_name, pr.project_name
+            FROM "tabProject Expenses" e
+            LEFT JOIN "tabVendors" v ON v.name = e.vendor
+            LEFT JOIN "tabProjects" pr ON pr.name = e.projects
+            WHERE e.name IN ({placeholders})
+            """,
+            tuple(names),
+            as_dict=True,
+        )
+    else:
+        # `Non Project Expenses` has NO vendor and NO project column at all -- the third of the
+        # three doctype asymmetries. Selecting either would be a hard SQL error, not a blank.
+        rows = frappe.db.sql(
+            f"""
+            SELECT e.name, e.amount, e.status,
+                   NULL AS vendor_name, NULL AS project_name
+            FROM "tabNon Project Expenses" e
+            WHERE e.name IN ({placeholders})
+            """,
+            tuple(names),
+            as_dict=True,
+        )
+
+    return {r["name"]: r for r in rows}
+
+
+@frappe.whitelist()
+def list_imports(limit=60):
+    """The import picker's options: newest first, labelled by what a person recognises.
+
+    ⚠️ NOT THE BATCH ID. An accountant knows a statement by its file and the fortnight it covers;
+    `OFI-26-00007` means nothing to them. The picker composes its label from these fields.
+    """
+    require_outflow_access()
+    return frappe.db.sql(
+        """
+        SELECT name, original_filename, period_from, period_to, status,
+               total_rows, uploaded_at, uploaded_by, closed_at
+        FROM "tabOutflow Import Batch"
+        ORDER BY uploaded_at DESC NULLS LAST, creation DESC
+        LIMIT %s
+        """,
+        (max(1, min(int(limit or 60), 200)),),
+        as_dict=True,
+    )
 
 
 # --- helpers -----------------------------------------------------------------------------------

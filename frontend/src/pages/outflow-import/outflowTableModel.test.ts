@@ -11,23 +11,22 @@ import {
     parseRecordKey,
     recordDateLabel,
     recordKey,
+    DEFAULT_PAGE_SIZE,
+    SCOPE_FOR_TAB,
     countDecided,
     decidedRows,
     decisionOrigin,
-    facetValues,
     highlightSegments,
+    importOptionLabel,
     isConfirmable,
-    matchesQuery,
     orderBySuggestion,
-    passesFilters,
     rowSettlementLinks,
-    rowsForTab,
     seedDecisions,
+    serverQuery,
     settlementLink,
     suggestedDecision,
-    tabCounts,
+    summaryTiles,
     tabForStatus,
-    visibleRows,
     type RowDecision,
 } from "./outflowTableModel";
 
@@ -104,56 +103,191 @@ describe("tabs", () => {
         expect(tabForStatus("Skipped")).toBe("skipped");
     });
 
-    it("never leaves a row homeless", () => {
+    it("puts an unknown status in Pending rather than dropping it", () => {
         // A status with no tab is invisible, which is worse than a wrong tab: the work silently
         // disappears from the screen.
-        const rows = [
-            row({ name: "a", row_status: "Matched" }),
-            row({ name: "b", row_status: "Settled" }),
-            row({ name: "c", row_status: "Skipped" }),
-            row({ name: "d", row_status: "Something the server invented" }),
-        ];
-        const counts = tabCounts(rows);
-        expect(counts.pending + counts.settled + counts.skipped).toBe(rows.length);
-    });
-
-    it("puts an unknown status in Pending rather than dropping it", () => {
         expect(tabForStatus("Something the server invented")).toBe("pending");
     });
 
-    it("partitions rows without duplicating any", () => {
-        const rows = [
-            row({ name: "a", row_status: "Matched" }),
-            row({ name: "b", row_status: "Settled" }),
-            row({ name: "c", row_status: "Skipped" }),
-        ];
-        expect(rowsForTab(rows, "pending").map((r) => r.name)).toEqual(["a"]);
-        expect(rowsForTab(rows, "settled").map((r) => r.name)).toEqual(["b"]);
-        expect(rowsForTab(rows, "skipped").map((r) => r.name)).toEqual(["c"]);
+    it("maps every tab to a scope the server knows", () => {
+        // ⚠️ The two vocabularies differ on purpose -- the screen says "Pending", the endpoint says
+        // "open", because server-side that set is literally OPEN_ROW_STATUSES and "pending" there
+        // would collide with the `Pending match run` STATUS. This map is the one place they meet,
+        // so an unmapped tab would silently scope to nothing.
+        expect(SCOPE_FOR_TAB.pending).toBe("open");
+        expect(SCOPE_FOR_TAB.settled).toBe("settled");
+        expect(SCOPE_FOR_TAB.skipped).toBe("skipped");
     });
 });
 
-describe("search", () => {
-    it("matches remarks, reference and beneficiary", () => {
-        expect(matchesQuery(row(), "milestone")).toBe(true);
-        expect(matchesQuery(row(), "620919")).toBe(true);
-        expect(matchesQuery(row(), "apex")).toBe(true);
+/**
+ * ⚠️ THE OLD `search` / `filters` / `visibleRows` SUITES ARE GONE, AND THE LOSS IS EXPECTED.
+ *
+ * They covered `matchesQuery`, `passesFilters`, `visibleRows` and `facetValues` -- the client-side
+ * filter engine, deleted at X3 because the master table is paged and the SERVER has to answer
+ * "which rows match". Keeping the client copy would have left two engines that disagree the day
+ * somebody edits one (ADR-0010 F1/F3), and keeping their tests would have pinned a rule nothing
+ * runs any more. What replaces them is `serverQuery` below, which pins the MEANING, plus the
+ * endpoint tests in `test_review.py`, which pin the APPLICATION. A test count that went down is the
+ * correct outcome here.
+ */
+describe("serverQuery", () => {
+    it("translates the tab into the scope the endpoint knows", () => {
+        expect(serverQuery({ tab: "pending" }).scope).toBe("open");
+        expect(serverQuery({ tab: "settled" }).scope).toBe("settled");
     });
 
-    it("does not match a field outside the three", () => {
-        // Scoped deliberately -- searching every column would match a status or an amount the
-        // reader did not mean and put the highlight somewhere confusing.
-        expect(matchesQuery(row(), "HDFC0001234")).toBe(false);
-        expect(matchesQuery(row({ row_status: "Mismatched" }), "Mismatched")).toBe(false);
+    it("omits an empty filter rather than sending an empty value", () => {
+        // ⚠️ An empty facet array reaching the server is indistinguishable from a real selection in
+        // a naive handler, and the day one treats it as "match nothing" the table blanks when you
+        // untick the last value. Omitting is unambiguous at both ends.
+        const query = serverQuery({
+            tab: "pending",
+            query: "   ",
+            filters: { beneficiary_name: [], amount: { min: null, max: null } },
+        });
+        expect(query.search).toBeUndefined();
+        expect(query.facets).toBeUndefined();
+        expect(query.amount_min).toBeUndefined();
     });
 
-    it("is case-insensitive and ignores surrounding whitespace", () => {
-        expect(matchesQuery(row(), "  ApEx  ")).toBe(true);
+    it("sends only the columns the server can facet on", () => {
+        const query = serverQuery({
+            tab: "pending",
+            filters: { beneficiary_name: ["APEX"], outcome: ["nonsense"] },
+        });
+        expect(query.facets).toEqual({ beneficiary_name: ["APEX"] });
     });
 
-    it("matches everything when the query is blank", () => {
-        expect(matchesQuery(row(), "")).toBe(true);
-        expect(matchesQuery(row(), "   ")).toBe(true);
+    it("passes an amount range through as two bounds", () => {
+        const query = serverQuery({ tab: "pending", filters: { amount: { min: 100, max: 500 } } });
+        expect(query.amount_min).toBe(100);
+        expect(query.amount_max).toBe(500);
+    });
+
+    it("allows a one-sided range", () => {
+        expect(serverQuery({ tab: "pending", filters: { amount: { min: 500 } } }).amount_max)
+            .toBeUndefined();
+        expect(serverQuery({ tab: "pending", filters: { amount: { max: 100 } } }).amount_min)
+            .toBeUndefined();
+    });
+
+    it("falls back to the default sort for a column the server cannot sort by", () => {
+        // The Outcome column is a button and Time is a rendering of `added_on`; neither is a sort
+        // key the endpoint knows, and sending one would fail the whole page load over a cosmetic
+        // click.
+        const query = serverQuery({
+            tab: "pending",
+            sort: { columnId: "outcome", direction: "asc" },
+        });
+        expect(query.sort_by).toBe("added_on");
+        expect(query.sort_dir).toBe("desc");
+    });
+
+    it("passes a sortable column through with its direction", () => {
+        const query = serverQuery({ tab: "pending", sort: { columnId: "amount", direction: "asc" } });
+        expect(query.sort_by).toBe("amount");
+        expect(query.sort_dir).toBe("asc");
+    });
+
+    it("turns the page number into an offset", () => {
+        expect(serverQuery({ tab: "pending", page: 0 }).offset).toBe(0);
+        expect(serverQuery({ tab: "pending", page: 2 }).offset).toBe(2 * DEFAULT_PAGE_SIZE);
+        expect(serverQuery({ tab: "pending", page: 2, pageSize: 10 }).offset).toBe(20);
+    });
+
+    it("never sends a negative offset", () => {
+        expect(serverQuery({ tab: "pending", page: -3 }).offset).toBe(0);
+    });
+
+    it("scopes to one import when the screen is deep-linked to it", () => {
+        expect(serverQuery({ tab: "pending", batch: "OFI-26-00007" }).batch).toBe("OFI-26-00007");
+        expect(serverQuery({ tab: "pending" }).batch).toBeUndefined();
+    });
+
+    it("folds a per-column text filter into the search the server already runs", () => {
+        // `remarks` and `bank_reference_no` are both covered by the endpoint's search, so they do
+        // not need two more parameters for a distinction no reader makes.
+        expect(serverQuery({ tab: "pending", filters: { remarks: "rent" } }).search).toBe("rent");
+    });
+
+    it("lets an explicit search win over a column text filter", () => {
+        const query = serverQuery({
+            tab: "pending",
+            query: "apex",
+            filters: { remarks: "rent" },
+        });
+        expect(query.search).toBe("apex");
+    });
+});
+
+describe("the summary panel's figures", () => {
+    const totals = {
+        matched_rows: 4,
+        unmatched_rows: 7,
+        mismatched_rows: 0,
+        settled_rows: 12,
+        skipped_rows: 3,
+        pending_rows: 0,
+        error_rows: 0,
+    };
+
+    it("leads with the work, not with the vocabulary", () => {
+        expect(summaryTiles(totals).map((t) => t.id)).toEqual([
+            "matched",
+            "unmatched",
+            "settled",
+            "skipped",
+        ]);
+    });
+
+    it("hides Mismatched and Errors when they are zero", () => {
+        // ⚠️ THE OPPOSITE OF THE SERVER'S RULE, deliberately. `derive_import_summary` zero-fills
+        // every status because a MISSING figure reads as "does not apply". But `Mismatched` fires
+        // only when a hand-ticked payment disagrees on amount beyond the window, so it is 0 on
+        // almost every import, and a permanent "0 Mismatched" chip trains people to stop reading
+        // the row it sits in.
+        expect(summaryTiles(totals).find((t) => t.id === "mismatched")).toBeUndefined();
+        expect(summaryTiles(totals).find((t) => t.id === "error")).toBeUndefined();
+    });
+
+    it("shows them the moment they are not zero", () => {
+        const tiles = summaryTiles({ ...totals, mismatched_rows: 1, error_rows: 2 });
+        expect(tiles.find((t) => t.id === "mismatched")?.count).toBe(1);
+        expect(tiles.find((t) => t.id === "error")?.count).toBe(2);
+    });
+
+    it("puts an un-matched-yet import's own figure first", () => {
+        const tiles = summaryTiles({ ...totals, pending_rows: 26 });
+        expect(tiles[0].id).toBe("pending");
+    });
+
+    it("carries the statuses each figure filters to", () => {
+        const matched = summaryTiles(totals).find((t) => t.id === "matched")!;
+        expect(matched.statuses).toEqual(["Matched"]);
+    });
+});
+
+describe("importOptionLabel", () => {
+    it("names the file and the period, never the batch id", () => {
+        // `OFI-26-00007` means nothing to an accountant; the file they uploaded and the fortnight
+        // it covers is how they know which statement is which.
+        expect(
+            importOptionLabel({
+                name: "OFI-26-00007",
+                original_filename: "july-b.csv",
+                period_from: "2026-07-16 00:00:00",
+                period_to: "2026-07-31 00:00:00",
+            })
+        ).toBe("july-b.csv · 2026-07-16 → 2026-07-31");
+    });
+
+    it("falls back through file, then period, then the id", () => {
+        expect(importOptionLabel({ name: "OFI-1", original_filename: "a.csv" })).toBe("a.csv");
+        expect(importOptionLabel({ name: "OFI-1", period_from: "2026-07-16 00:00:00" })).toBe(
+            "2026-07-16"
+        );
+        expect(importOptionLabel({ name: "OFI-1" })).toBe("OFI-1");
     });
 });
 
@@ -193,101 +327,15 @@ describe("highlightSegments", () => {
     });
 });
 
-describe("filters", () => {
-    const rows = [
-        row({ name: "a", beneficiary_name: "APEX", amount: 100, remarks: "rent" }),
-        row({ name: "b", beneficiary_name: "MERIDIAN", amount: 500, remarks: "cable" }),
-        row({ name: "c", beneficiary_name: "APEX", amount: 900, remarks: "rent, july" }),
-    ];
-
-    it("ORs within a facet column", () => {
-        const kept = rows.filter((r) => passesFilters(r, { beneficiary_name: ["APEX"] }));
-        expect(kept.map((r) => r.name)).toEqual(["a", "c"]);
-    });
-
-    it("ANDs across columns", () => {
-        const kept = rows.filter((r) =>
-            passesFilters(r, { beneficiary_name: ["APEX"], remarks: "july" })
-        );
-        expect(kept.map((r) => r.name)).toEqual(["c"]);
-    });
-
-    it("treats an EMPTY facet selection as no filter, not as match-nothing", () => {
-        // Otherwise unticking the last value blanks the table instead of clearing the filter,
-        // which reads as a bug every single time.
-        const kept = rows.filter((r) => passesFilters(r, { beneficiary_name: [] }));
-        expect(kept).toHaveLength(3);
-    });
-
-    it("applies a range filter inclusively at both ends", () => {
-        const kept = rows.filter((r) => passesFilters(r, { amount: { min: 100, max: 500 } }));
-        expect(kept.map((r) => r.name)).toEqual(["a", "b"]);
-    });
-
-    it("allows a one-sided range", () => {
-        expect(rows.filter((r) => passesFilters(r, { amount: { min: 500 } })).map((r) => r.name))
-            .toEqual(["b", "c"]);
-        expect(rows.filter((r) => passesFilters(r, { amount: { max: 100 } })).map((r) => r.name))
-            .toEqual(["a"]);
-    });
-
+describe("activeFilterCount", () => {
     it("counts only filters that are actually constraining anything", () => {
+        // It drives the "Clear filters (N)" control, so a filter that constrains nothing must not
+        // be counted -- otherwise the button offers to clear something invisible.
         expect(activeFilterCount({})).toBe(0);
         expect(activeFilterCount({ beneficiary_name: [] })).toBe(0);
         expect(activeFilterCount({ remarks: "  " })).toBe(0);
         expect(activeFilterCount({ amount: { min: null, max: null } })).toBe(0);
         expect(activeFilterCount({ beneficiary_name: ["APEX"], amount: { min: 1 } })).toBe(2);
-    });
-
-    it("offers each distinct facet value once, sorted", () => {
-        const column = OUTFLOW_COLUMNS.find((c) => c.id === "beneficiary_name")!;
-        expect(facetValues(rows, column)).toEqual(["APEX", "MERIDIAN"]);
-    });
-});
-
-describe("visibleRows", () => {
-    const rows = [
-        row({ name: "a", amount: 300, added_on: "2026-08-03 09:00:00", remarks: "beta" }),
-        row({ name: "b", amount: 100, added_on: "2026-08-05 09:00:00", remarks: "alpha" }),
-        row({ name: "c", amount: 200, added_on: "2026-08-04 09:00:00", remarks: "gamma" }),
-    ];
-
-    it("sorts numerically on a numeric column, not lexically", () => {
-        // "100" < "200" < "300" happens to agree lexically; 1000 would not, which is the case
-        // that matters on a real statement.
-        const withBig = [...rows, row({ name: "d", amount: 1000 })];
-        const sorted = visibleRows(withBig, { sort: { columnId: "amount", direction: "asc" } });
-        expect(sorted.map((r) => r.amount)).toEqual([100, 200, 300, 1000]);
-    });
-
-    it("reverses on desc", () => {
-        const sorted = visibleRows(rows, { sort: { columnId: "amount", direction: "desc" } });
-        expect(sorted.map((r) => r.name)).toEqual(["a", "c", "b"]);
-    });
-
-    it("sorts dates chronologically", () => {
-        const sorted = visibleRows(rows, { sort: { columnId: "added_on", direction: "asc" } });
-        expect(sorted.map((r) => r.name)).toEqual(["a", "c", "b"]);
-    });
-
-    it("combines search, filters and sort", () => {
-        const out = visibleRows(rows, {
-            query: "a",
-            filters: { amount: { min: 150 } },
-            sort: { columnId: "amount", direction: "asc" },
-        });
-        expect(out.map((r) => r.name)).toEqual(["c", "a"]);
-    });
-
-    it("does not mutate the array it was given", () => {
-        // It belongs to the caller, and sorting in place would mutate state React is holding.
-        const original = [...rows];
-        visibleRows(rows, { sort: { columnId: "amount", direction: "asc" } });
-        expect(rows).toEqual(original);
-    });
-
-    it("leaves the order untouched when no column is sorted", () => {
-        expect(visibleRows(rows, {}).map((r) => r.name)).toEqual(["a", "b", "c"]);
     });
 });
 

@@ -815,20 +815,22 @@ export const appRoutes: RouteObject[] = [
             ],
           },
 
-          // Bulk Import Outflow (S3) -- upload a bank statement, reconcile transfers against
-          // payments (read-only) and settle expenses (the only write). Guarded to Accountant /
-          // Accountant Lead / Admin; the backend gate in api/outflow_import/permissions.py is the
-          // real boundary. Single top-level segment, which is what the sidebar's active-item
-          // matching keys on.
+          // Bulk Import Outflow -- ONE screen (slices X3 + X4): a master table of every staged
+          // transfer, with the summary of a chosen import above it and the upload in a dialog.
+          // Guarded to Accountant / Accountant Lead / Admin; the backend gate in
+          // api/outflow_import/permissions.py is the real boundary. Single top-level segment, which
+          // is what the sidebar's active-item matching keys on.
+          //
+          // ⚠️ BOTH ROUTES RENDER THE SAME PAGE, and ":id" is KEPT for exactly one reason: every
+          // link and bookmark written before X3 points at a batch. It now lands on the master table
+          // pre-scoped to that import rather than 404ing. The "new" route is GONE -- the upload is
+          // a dialog on the master screen, so there is nowhere for it to go.
           {
             path: "bulk-import-outflow",
             element: <OutflowImportRoute />,
             children: [
-              { index: true, lazy: () => import("@/pages/outflow-import/OutflowImportListPage") },
-              { path: "new", lazy: () => import("@/pages/outflow-import/NewOutflowImportPage") },
-              // ":id" LAST -- a static sibling like "new" must be declared before the param
-              // route, or "/bulk-import-outflow/new" resolves as a batch named "new".
-              { path: ":id", lazy: () => import("@/pages/outflow-import/OutflowImportBatchPage") },
+              { index: true, lazy: () => import("@/pages/outflow-import/OutflowMasterPage") },
+              { path: ":id", lazy: () => import("@/pages/outflow-import/OutflowMasterPage") },
             ],
           },
 

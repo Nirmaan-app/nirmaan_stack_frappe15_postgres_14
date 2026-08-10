@@ -31,12 +31,24 @@ class OutflowImportRow(Document):
 
 
 def on_doctype_update():
-    """Read indexes: rows-of-a-batch (the review screen) and the cross-batch duplicate probe.
+    """Read indexes: rows-of-a-batch, the cross-batch duplicate probe, and the master table.
 
     EXPLICIT INDEX NAMES, and it is load-bearing: PostgreSQL index names are unique per SCHEMA, not
     per table, and Frappe generates them with no table prefix. `CREATE INDEX IF NOT EXISTS` matches
     by NAME ONLY, so a generic generated name that already exists on another table makes this a
     SILENT no-op -- the index simply never appears and nothing reports it.
+
+    ⚠️ THE THIRD INDEX IS THE ONE X3 ADDED, AND ITS COLUMN ORDER IS THE WHOLE POINT. The master
+    table queries ACROSS every import: it filters on `row_status` (the three tabs are status sets)
+    and orders by `added_on`. The existing `(import_batch, row_status)` index cannot serve that --
+    its leading column is the one the master query does NOT constrain. Equality column first,
+    ordering column second, so the scope filter and the sort are one index scan.
+
+    ⚠️ A PLAIN `bench migrate` DOES NOT FIRE THIS for a controller-only change, so an
+    already-deployed database needs `patches/v3_0/add_outflow_master_index.py`, which CALLS this
+    function rather than re-inlining the `add_index` -- one source of truth. A fresh site syncs it
+    here and the patch is a no-op.
     """
     frappe.db.add_index("Outflow Import Row", ["import_batch", "row_status"], "ofr_row_batch_status_idx")
     frappe.db.add_index("Outflow Import Row", ["transfer_id"], "ofr_row_transfer_idx")
+    frappe.db.add_index("Outflow Import Row", ["row_status", "added_on"], "ofr_row_status_added_idx")
