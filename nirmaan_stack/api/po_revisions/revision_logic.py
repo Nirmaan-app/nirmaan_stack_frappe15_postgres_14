@@ -10,11 +10,80 @@ from nirmaan_stack.api.po_adjustments._payment_utils import (
     _create_project_payment,
     _recalculate_amount_paid,
     _append_return_payment_term,
-    _reduce_payment_terms_lifo,
+    usable_po_credit,
 )
 from nirmaan_stack.api.vendor_credit import recalculate_vendor_credit
+from nirmaan_stack.services.po_revision_capacity import (
+    REDUCIBLE_TERM_STATUSES,
+    assess_decrease,
+)
 
 PO_REVISION_AUTO_APPROVAL_THRESHOLD = 5000.0
+
+
+def _guard_decrease_is_absorbable(po_id, diff):
+    """Refuse a decrease the PO cannot absorb because a payment request is holding the term.
+
+    See `services/po_revision_capacity` for the full rationale. In short: the absorber can
+    only reduce `Created` terms, so a decrease landing on a `Requested` / `CEO Pending` /
+    `Approved` term is absorbed by nothing and is then recorded as overpaid credit — locking
+    the PO's payments over money that never moved.
+
+    Blocks ONLY when a mid-approval term is the cause. A shortfall with no such term is a
+    genuine overpayment and continues to flow through the existing path untouched.
+
+    Called from BOTH entry points on purpose: `make_po_revisions` so it fails before a draft
+    exists, and `on_approval_revision` because a draft can sit Pending for days while someone
+    raises a payment request against the very term the decrease was going to consume.
+    """
+    if flt(diff) >= 0:
+        return
+
+    terms = frappe.get_all(
+        "PO Payment Terms",
+        filters={"parent": po_id},
+        fields=["label", "amount", "term_status", "project_payment"],
+        order_by="idx",
+    )
+    assessment = assess_decrease(terms, abs(flt(diff)))
+    if not assessment.is_blocked:
+        return
+
+    # PLAIN TEXT, NO MARKUP. The React app surfaces this through a shadcn toast whose
+    # description is rendered as text — `<br>` and `&bull;` show up literally there, and the
+    # user cannot read the one thing the message exists to tell them. Newlines are no better
+    # (HTML collapses them). So the parts are joined inline and it reads as prose everywhere:
+    # the app's toast, Frappe Desk, and a logged traceback.
+    held_by = "; ".join(
+        _("{0} ({1}, {2}{3})").format(
+            term.label or _("unlabelled term"),
+            frappe.utils.fmt_money(term.amount, currency="INR"),
+            term.term_status,
+            _(", payment request {0}{1}").format(
+                term.project_payment,
+                f" [{frappe.db.get_value('Project Payments', term.project_payment, 'status')}]",
+            )
+            if term.project_payment
+            else "",
+        )
+        for term in assessment.blocking_terms
+    )
+
+    frappe.throw(
+        _(
+            "This revision reduces {0} by {1}, but only {2} of unpaid payment terms can "
+            "absorb it. Held by: {3}. Settle or cancel that payment request first — "
+            "revising now would record {4} as money overpaid to the vendor and lock this "
+            "PO's payments."
+        ).format(
+            po_id,
+            frappe.utils.fmt_money(assessment.decrease, currency="INR"),
+            frappe.utils.fmt_money(assessment.capacity, currency="INR"),
+            held_by,
+            frappe.utils.fmt_money(assessment.shortfall, currency="INR"),
+        ),
+        title=_("Payment request is holding this PO's terms"),
+    )
 
 
 def _is_comment_only_revision(rev_doc):
@@ -94,6 +163,11 @@ def make_po_revisions(po_id, justification, revision_items, total_amount_differe
     and populates it with revision data.
     payment_return_details has been removed — payment handling is now decoupled.
     """
+    # OUTSIDE the try below, deliberately: that block re-raises everything as
+    # `frappe.throw(str(e))`, which would strip this refusal's title and flatten its
+    # formatting. The user needs to read which payment request to settle.
+    _guard_decrease_is_absorbable(po_id, total_amount_difference)
+
     try:
         po = frappe.get_doc("Procurement Orders", po_id)
 
@@ -225,6 +299,12 @@ def on_approval_revision(revision_name, _internal=False):
     if revision_doc.status == "Approved":
         frappe.throw(_("This revision is already approved."))
 
+    # Re-checked at APPROVAL, not just at creation, and this is the load-bearing half: a
+    # draft can sit Pending for days while someone raises a payment request against the very
+    # term the decrease was going to consume. Outside the try for the same reason as above —
+    # that block wraps everything as "Approval failed: {0}".
+    _guard_decrease_is_absorbable(revision_doc.revised_po, revision_doc.total_amount_difference)
+
     try:
         # Step 1: Sync Items
         sync_original_po_items(revision_doc)
@@ -293,12 +373,14 @@ def _get_available_po_credit(po_id):
     Reads the *number* (remaining_impact), NOT the status — so a 'Done' adjustment
     that still carries a negative balance is reused exactly like a 'Pending' one.
     Returns 0.0 when there is no adjustment or no credit.
+
+    Delegates to the shared `usable_po_credit`, which applies the D2 cap. THIS PATH IS WHY
+    THE CAP EXISTS: on PO/246/00103/26-27 the ledger claimed ₹4,130 of credit on a PO that
+    had paid ₹0, and had `_auto_add_payment_term` consumed it, the following ₹4,366 increase
+    would have raised a payment term of only ₹236 — under-billing the vendor by ₹4,130 while
+    the adjustment displayed `Done`. The cap returns 0.0 there.
     """
-    adj_name = frappe.db.get_value("PO Adjustments", {"po_id": po_id}, "name")
-    if not adj_name:
-        return 0.0
-    remaining = flt(frappe.db.get_value("PO Adjustments", adj_name, "remaining_impact"))
-    return max(0.0, -remaining)
+    return usable_po_credit(po_id)
 
 
 def _auto_add_payment_term(original_po, diff, revision_id):
@@ -414,8 +496,13 @@ def _auto_absorb_created_terms(original_po, abs_diff, revision_id):
         "revision_id": revision_id,
     }]
 
-    # Get modifiable terms in reverse order (LIFO)
-    modifiable_terms = [t for t in original_po.payment_terms if t.term_status == "Created"]
+    # Get modifiable terms in reverse order (LIFO).
+    # REDUCIBLE_TERM_STATUSES is {"Created"} — byte-identical to the literal this replaced.
+    # It is shared with the D1 gate (`_guard_decrease_is_absorbable`) so the check and the
+    # absorption can never disagree about what capacity means; widening one widens both.
+    modifiable_terms = [
+        t for t in original_po.payment_terms if t.term_status in REDUCIBLE_TERM_STATUSES
+    ]
 
     for term in reversed(modifiable_terms):
         if absorbed >= abs_diff - 0.01:
