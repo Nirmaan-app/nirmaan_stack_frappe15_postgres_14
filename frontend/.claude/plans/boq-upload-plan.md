@@ -21095,3 +21095,180 @@ v26 -- exactly the C4 trap -- and now reads a version-free `_EALL_CURRENT` const
 - **The 2x and 3x rungs have no live coverage** -- no production row exceeds 3 runs.
 - **5 point_wiring rows (295-305) price nothing**, pre-existing and unrelated: `wire1_thickness_sqmm` is
   "None" and the `wire1` component carries no `none_skips`, so its ref matches nothing.
+
+## Build slice BLANKER-BIND -- the blanker is inferred from the EFFECTIVE count (2026-08-10)
+
+Four owner rulings shipped together. Branch `feature/boq-pricing-helper`. E-ALL asset **v27 -> v28 ->
+v29** (`d922bc9e7f7664b7` -> `2b7bd11c946313e9` -> **`aa6c69a0b278c4d8`**), applied as batches
+`rmbulk-c37cc8b3c58d` then `rmbulk-1ac1ca9da022`. Wiring asset UNTOUCHED (`645a81d6841254e4`, batch
+`rmbulk-237b288346ab`). Baselines re-measured at the start: vitest **57 files / 1,547**, backend
+`test_rate_master` **94**.
+
+**The rulings.** R1 a POSITIVE effective count prices `1M Blanker` in the assembly's colour, whatever
+extraction returned for `blank_item`; R2 a ZERO count binds the None sentinel and the line reads as
+deliberately absent; R3 the boundary follows the **EFFECTIVE** count, so editing the quantity to zero
+reverts the item to None; R4 `blank_qty` becomes editable, seeded with the computed count; R5 an
+over-count is CORRECTED to the spare; R6 an under-count is HONOURED. **R5/R6 are deliberately
+asymmetric** -- above the spare is physically impossible (a blanker cannot go where a socket sits),
+below it is merely untidy.
+
+### Why Candidate 1, and why the obvious implementation is WRONG
+
+Three shapes could make the ref stop reading `blank_item`. The recon costed all three:
+
+| candidate | verdict |
+|---|---|
+| **1. bind the item through `fitLabels`** (SHIPPED) | The ref stays an ordinary `"@"`-reference. `resolveAtRef` already reads `fitLabels`; the `none_skips` short-circuit already treats an `@`-ref resolving to the sentinel as positive absence. **Nothing shared changes.** |
+| 2. widen `resolveAtRef` to read general `ctx` | REJECTED by existing precedent -- the readers are shared by all 13 categories and a `ctx` key colliding with an attribute id would silently re-price a shipped row (the `derive_attribute` overlay ruling). It also does not solve the problem: a count is a number, a ref needs a NAME. |
+| 3. an object-valued / conditional ref | Widest -- it would widen the ref type, the binding loop, the short-circuit AND the server validator, and introduce a second conditional grammar beside `QtySpec`. |
+
+**⚠️ THE LITERAL TRAP -- the obvious implementation, and it is wrong.** Putting the literal string
+`"None"` in the ref does NOT reach the `none_skips` short-circuit: that predicate tests
+`rawVal.startsWith("@")` as a conjunct evaluated BEFORE the sentinel comparison
+(`ratePipelineInterpreter.ts:1080-1092`), so a literal fails the predicate outright. It is then taken
+as a **CATALOG MATCH KEY**, matches no row (verified: 0 of 1,383 active Electrical items carry a
+literal `"None"` in any attribute), and `refRows.length !== 1` returns a **WHOLE-PIPELINE `no_match`**
+-- the entire row unpriceable, wire and conduit included, not merely the blank line. On this sheet
+that would have killed **34 of 39** rows and four of six goldens. Pinned by
+`"a LITERAL None in the ref does NOT short-circuit -- it kills the WHOLE pipeline"`.
+
+**Line 940 was the tell.** `module_fit` ALREADY binds `NONE_SENTINEL` into `fitLabels` on the
+zero-module path, and the short-circuit already consumes it (the PW-FIX contract). The ruling asked
+for behaviour the codebase already performs -- on the plate and the box -- just not on the blanker.
+This is not an analogy to that pattern; it is the same pattern on a second bind, and the ladder block
+already carried the two-binding precedent (`bind` + `bind_modules`).
+
+### The effective-vs-computed boundary
+
+`blanks` gains three optional keys: `qty_attr` (the attribute holding the stated count),
+`bind_item` + `item_when_positive` (the item bind). The arbitration lives in `module_fit` because it
+is the ONE step that sees both the computed spare and the row's own value, and it **runs first in
+every pipeline** -- so the panel AND the Rate Master Derivation screen inherit R5/R6 by construction.
+Putting the cap in the panel would have left Derivation uncapped and split one rule across two
+screens.
+
+```
+stated > spare   -> the SPARE      (capped;   physically impossible)
+stated <= spare  -> the STATED     (honoured; merely untidy)
+absent/blank/non-numeric/negative/"None" -> the SPARE (nothing was stated; this also SEEDS the field)
+effective > 0    -> fitLabels[bind_item] = item_when_positive
+effective == 0   -> fitLabels[bind_item] = NONE_SENTINEL
+```
+
+**⚠️ THE BIND MUST FIRE ON EVERY PATH THAT REACHES A COMPONENT, INCLUDING THE TWO ABSENT ONES.** An
+unbound `"@"` reference is a `bindMiss`, which refuses the WHOLE pipeline. The `absentLadders` branch
+(a `"None"` plate with non-zero modules -- the `s1` shape) binds NOTHING for the count, so without an
+item bind there `s1` would have gone from 110/30/80 to a no-compute. The COUNT still binds nothing on
+that path deliberately: an uncomputed blank count must render EMPTY, never 0, because "no plate to
+fill" is a different statement from "zero needed".
+
+**A malformed `bind_item` with no `item_when_positive` REFUSES the row** rather than silently pricing
+zero, matching the "declares no terms" precedent in the same step.
+
+### The notes list -- and its inertness proof
+
+The panel carried ONE warning slot, and it implied OVERRIDE in three independent places: the field
+name `upgrade`, the fixed ladder-shaped `AttrUpgradeNote`, and the `— using X` tail of its sentence.
+R6 needs the OPPOSITE meaning -- *we used your number, here is the consequence* -- and a warning that
+reads as a correction when the value was HONOURED is worse than none. So `upgrade?` became
+`notes?: AttrNote[]`, a discriminated union with one text function.
+
+**ORDERING is declared, not incidental** (`ATTR_NOTE_ORDER = ["upgrade", "capped", "uncovered"]` +
+a stable `sortAttrNotes`): size before count -- an upgrade changes WHICH rung is bought, the quantity
+notes change how many fillers go in it. Push order would have been an implementation accident.
+
+**The migration is inert BY CONSTRUCTION, not by copy.** `attrNoteText`'s `upgrade` case DELEGATES to
+the still-exported `upgradeWarningText`; that function's source is **byte-identical** (verified: the
+`git diff` of `rateHelperTypes.ts` contains no line touching its template). The pure text pin -- which
+calls `upgradeWarningText` directly with an object literal -- is **UNCHANGED by this slice** and is the
+byte-identity anchor. **Four STRUCTURAL pins that read the removed `.upgrade` field necessarily moved**
+(a migration changes the field they read, by construction); each was re-expressed against `notes` and
+a new explicit inertness test was added on top.
+
+Both texts, verbatim:
+
+| kind | text | meaning |
+|---|---|---|
+| `capped` | `N spare module(s) on this plate; M will not fit — pricing N.` (`No spare modules…` at zero) | WE OVERRODE YOU |
+| `uncovered` | `N module(s) will be left uncovered (S spare, T blanked).` | WE USED YOUR NUMBER |
+
+A test asserts the honoured note borrows **none** of the override's verbs (`pricing`, `will not fit`,
+`using`).
+
+### ⚠️ v29 -- the dead control that vetoed the live one (found IN THE CERT, not by a test)
+
+v28 shipped the bind and every suite was green -- but on screen `blank_qty` rendered **disabled** on
+row 243. Cause: `blank_item` kept `disables_when_none: ["blank_qty"]`, and extraction answered `"None"`
+there. **A now-inert control was greying out the field R4 had just made editable** -- on 1
+switches_sockets row and all 23 point_wiring rows. Measured A/B on screen: row 245 (`blank_item` a real
+blanker) enabled, row 243 (`"None"`) disabled. v29 removes ONLY that veto; `allow_none` STAYS (the
+owner ruled the equivalent tidy-up "let it be"). **No test could have caught this** -- it is a rendering
+consequence of config, and the repo has no DOM test environment.
+
+### Gates
+
+| gate | result |
+|---|---|
+| G1 vitest | **57 files / 1,583** (from 1,547) |
+| G1 backend | **100** (from 94) |
+| G2 tsc | zero errors in every touched file |
+| G3 preview gate | **46 golden checks, 4 categories, ALL GREEN, 0 deltas**; Save reads plain "Save" |
+| G4 editor rows | **1 row changed of 39**; see below |
+| G5 upgrade pin | text byte-identical; the pure text pin unchanged |
+| G6 mint gate | **PASS** both hops -- v27(HEAD)->v28 and v28->v29, "No atoms disappeared" |
+| G7 | zero AI calls; DB writes = the two authorised applies |
+
+`_validate_config`: **11 valid / 0 rejected** on both v28 and v29, plus five negative shapes refused
+(`bind_item` without `item_when_positive` and vice-versa, `qty_attr` `_ref`-guarded, `qty_attr`
+non-string, `bind_item` empty).
+
+### G4 -- what actually moved on `BOQ-26-00019 / "12 Internal Works " v4`
+
+**Exactly ONE row changed price.** Row **243** (*"2 Nos of 6A socket controlled by one switch+ 6A
+sockets with 6A SP Switch ( For TV )"*): 7 modules on an 8M plate = ONE spare, and extraction answered
+`blank_item: "None"`.
+
+| output | before | after |
+|---|---|---|
+| supply | 660 | **690** (+30) |
+| install | 140 | 140 (0) |
+| bcs | 460 | **480** (+20) |
+
+Both numbers were read from the LIVE screen: 690 as extracted, and **660 when the quantity is edited to
+0**, which reproduces the pre-change state exactly.
+
+The other 38 rows are price-unchanged: 4 switches_sockets rows already priced a blanker (245/247/269/271
+-- extraction gave a real item and stated == spare), 11 have zero spare, and all 23 point_wiring rows
+compute zero blanks.
+
+**One DISPLAY-only side effect worth knowing:** 11 switches_sockets rows now show
+`No spare modules on this plate; 1 will not fit — pricing 0.` because extraction stated `blank_qty: 1`
+where the plate has no spare. **No price moves.** It is a true and useful statement -- it tells the
+pricer the extraction over-counted -- but it is new UI on 11 rows.
+
+### Cert (CDP, attached to the owner's logged-in Chrome)
+
+V1 ✅ row 243 prices `blank: Switch 1M Blanker White = 61` while the panel still shows
+`Blank plate = None` -- supply 690. V2 ✅ zero-count rows carry NO `blank:` line at all (row 196, zero
+modules, quantity renders EMPTY; row 239, zero spare, quantity 0). V3 ✅ entered 5 against one spare ->
+priced 1, `1 spare module on this plate; 5 will not fit — pricing 1.` V4 ✅ plate widened to 12M (5
+spare), entered 2 -> `blank: Switch 1M Blanker White = 122` (the USER'S 2), `3 modules will be left
+uncovered (5 spare, 2 blanked).` V5 ✅ entered 0 -> the `blank:` line DISAPPEARS and supply falls
+690 -> 660. V6 ✅ plate narrowed to 3M -> `3M holds 3 modules; contents occupy 7 — using 8M.` renders
+beside the quantity's own note, two differently-worded notes on two fields at once. V7 ✅ all four
+categories, fresh page load each, edit mode entered and exited via CANCEL.
+
+**Marker:** a `data-blanker-marker` attribute, verified present (12 nodes) then absent (0) after
+removal and reload.
+
+### Owed / flagged, not fixed
+
+- **`blank_item` is now fully inert as a pricing input but is still extracted and still displayed** as a
+  live dropdown on every row (16/16 and 23/23 in the run answered it). The owner ruled the equivalent
+  tidy-up "let it be"; v29 removed only its VETO over the quantity.
+- **`item_when_positive` is the FIRST config value naming a catalog ITEM** rather than a `kind` + a
+  `where` filter. It is sound only because the ruling is premised on the catalog carrying exactly one
+  blanker. **If a second blanker is ever catalogued, this is the line that must change, and nothing
+  will fail loudly to say so.**
+- The 5 point_wiring rows 295-305 still price nothing -- pre-existing and unrelated (`wire1` has no
+  `none_skips`).

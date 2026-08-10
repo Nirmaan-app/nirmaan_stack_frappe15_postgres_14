@@ -1560,8 +1560,35 @@ in the plan doc.
   colour does NOT fail at runtime; it silently prices the wrong catalog row, which is why the guard is
   a PIN (the price path, never the colour string) rather than a code check. `1M Blanker` is the only
   blanker in the catalog, so the colour is the sole free variable on that line.
+- **⚠️ SUPERSEDED — `blank_qty` IS EDITABLE AGAIN, SEEDED WITH THE COMPUTED COUNT (owner-locked).** The
+  read-only ruling below is REVERSED: the blanker is no longer selected by extraction, and
+  `module_fit` now READS the quantity and arbitrates it against the plate's SPARE capacity, so an edit
+  genuinely reaches the price and a locked field would be the lie the read-only contract exists to
+  prevent, pointing the other way. **An over-count is CORRECTED to the spare (never the plate's total);
+  an under-count is HONOURED** — two notes, deliberately opposite in meaning, and the asymmetry must not
+  be flattened. The field reuses the FACE PLATE's seeded-but-editable state (`derived` + `derivedValue`,
+  `readOnly` never set); nothing new was invented for it. **Which attribute is arbitrated is READ FROM
+  CONFIG** (`blanksQtyAttr`, the `blanks.qty_attr` key), never by id — a config without it keeps the
+  fully-superseded read-only behaviour below, byte-identically. **THE TWO SCREENS STAY APART:** the Rate
+  Master Derivation screen still reads `derivedQtyAttrs` (the superseded-qty half only), which keys on
+  the component's unchanged `{from_fit}` shape, so its answer for `blank_qty` is the same before and
+  after; do not unify the predicates.
+- **⚠️ AN ATTRIBUTE'S `disables_when_none` CAN VETO A FIELD THAT MATTERS MORE THAN IT DOES.** Once
+  `blank_item` became inert as a pricing input it still carried `disables_when_none: ["blank_qty"]`,
+  so on every row where extraction answered `"None"` a DEAD dropdown greyed out the newly EDITABLE
+  quantity. **No test could see it** — it is a rendering consequence of config and there is no DOM test
+  environment. When an attribute stops driving the price, check what it still DISABLES.
+- **A field's warnings are a LIST, not a slot (`notes?: AttrNote[]`).** The single `upgrade?` slot
+  implied OVERRIDE in three places at once — its name, its ladder-shaped payload, and the `— using X`
+  tail of its sentence — so a note meaning *we used your number, here is the consequence* could not be
+  expressed without reading as a correction. Each kind words itself through the one `attrNoteText`;
+  the `upgrade` case DELEGATES to the still-exported `upgradeWarningText` so the shipped wording stays
+  byte-identical BY CONSTRUCTION rather than by copy. **Render order is DECLARED** (`ATTR_NOTE_ORDER`
+  + a stable `sortAttrNotes`): size before count, because an upgrade changes WHICH rung is bought and
+  the quantity notes change how many fillers go in it.
 - **`blank_qty` is DERIVED and READ-ONLY — the COMPUTED count always wins and a stated one is ignored
-  (owner-locked).** The blank line takes `qty: {from_fit: "blank_count"}`, so the attribute is no
+  (owner-locked; SUPERSEDED above — retained because the MECHANISM it describes still governs any
+  config that does not declare `blanks.qty_attr`).** The blank line takes `qty: {from_fit: "blank_count"}`, so the attribute is no
   longer an input and must not render as one. **The derived-ness is READ FROM THE EXISTING CONFIG, not
   a new key and never hardcoded by attribute id:** a component taking `{from_fit}` has SUPERSEDED its
   `<name>_qty` attribute, while one taking `{from_attr}` still reads it — so a config declaring the

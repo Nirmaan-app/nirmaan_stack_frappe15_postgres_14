@@ -177,6 +177,32 @@ First worked proof: the `sidebar_counts` aggregate rewrite + the shared `service
   never clamped to the largest rung; this DELIBERATELY DIVERGES from `circuit_fit`, which does fall
   back to its largest size but then re-checks with `circuits <= 0` — `module_fit` has no such second
   gate, so it refuses at the ladder.
+- **THE BLANKER IS INFERRED FROM THE EFFECTIVE COUNT, NEVER SELECTED BY EXTRACTION (owner-locked).**
+  A POSITIVE effective count prices `1M Blanker` in the assembly's colour whatever the model returned
+  for `blank_item`; a ZERO count binds the **None sentinel** so the line reads as deliberately absent
+  rather than as a blanker bought zero times. **The boundary follows the EFFECTIVE count, not the
+  computed one** — editing the quantity to zero reverts the item to None. `blank_qty` is therefore
+  EDITABLE again (seeded with the computed count): the earlier read-only ruling is REVERSED because
+  the pipeline now genuinely reads it. **An over-count is CORRECTED to the plate's SPARE capacity
+  (never its total — a blanker cannot go where a socket sits); an under-count is HONOURED with a
+  warning naming the uncovered modules. Do NOT flatten that asymmetry** — one is physically
+  impossible, the other merely untidy, and they carry deliberately different wording. The arbitration
+  lives in `module_fit` (config keys `qty_attr` / `bind_item` / `item_when_positive`), which is the
+  ONE step seeing both the spare and the stated value and which runs FIRST, so the pricing panel and
+  the Rate Master Derivation screen inherit it by construction.
+- **⚠️ A `ref` MUST NEVER CARRY A LITERAL THAT COULD MEAN "None" (owner-locked).** The `none_skips`
+  short-circuit tests the **`@` prefix FIRST**, so a literal never reaches the sentinel comparison: it
+  is taken as a **CATALOG MATCH KEY**, matches no row, and returns a **WHOLE-PIPELINE `no_match`** —
+  the entire row unpriceable, wire and conduit included, not merely that line. The item is bound
+  through `fitLabels` instead, exactly as a ladder binds its fitted rung, so the shared resolver and
+  the shared short-circuit are both UNTOUCHED. **The bind must fire on every path that reaches a
+  component, including the two absent ones** — an unbound `@` reference is a `bindMiss`, which refuses
+  the whole pipeline. The COUNT still binds nothing on the no-plate path deliberately: an uncomputed
+  blank count renders EMPTY, never 0.
+- **⚠️ `item_when_positive` is the FIRST config value naming a catalog ITEM** rather than a `kind` plus
+  a `where` filter, which is the convention ladders exist to keep. It is sound ONLY because the ruling
+  is premised on the catalog carrying exactly one blanker; a second one would make this line a
+  quietly wrong price, with nothing failing loudly.
 - **A ZERO module count with `back_box = Yes` FITS A 3M BOX — the STATE-A fallback (owner-locked).**
   A light point wired straight to an MCB carries no switch and no socket, so nothing fits any ladder and
   the box used to vanish with the plate; a light point still needs a junction box. A ladder may declare
