@@ -36,6 +36,18 @@ from nirmaan_stack.services.outflow_import.matcher import (
     resolve_vendors,
 )
 from nirmaan_stack.services.outflow_import.amounts import amounts_match, rewrite_amount
+from nirmaan_stack.services.outflow_import.claims import (
+    Claim,
+    claim_note,
+    resolve_claims,
+)
+from nirmaan_stack.services.outflow_import.disambiguate import (
+    RULE_SOLE,
+    RULE_STACK_PAIRING,
+    Candidate,
+    pick_from_several,
+    pick_note,
+)
 from nirmaan_stack.services.outflow_import.ledgers import (
     LEDGER_DOCTYPES,
     NON_PROJECT_EXPENSE_DOCTYPE as NON_PROJECT_EXPENSE,
@@ -53,6 +65,7 @@ from nirmaan_stack.services.outflow_import.stacks import (
 )
 from nirmaan_stack.services.outflow_import.status import (
     OPEN_ROW_STATUSES,
+    settleable_candidates,
     ROW_ERROR,
     ROW_MATCHED,
     ROW_MISMATCHED,
@@ -128,8 +141,11 @@ def match_batch(batch: str):
     matchable = [r for r in rows if r.row_status not in _FROZEN_ROW_STATUSES]
 
     paired = 0
+    released = 0
+    picked = 0
     if matchable:
         pools = _load_pools(matchable, batch)
+        results: dict = {}
         for row in matchable:
             result = match_row(
                 row,
@@ -142,6 +158,20 @@ def match_batch(batch: str):
                 row, result, paid_duplicate=_paid_duplicate_for(row, pools)
             )
             _persist_row_outcome(row, outcome, result, batch)
+            # Kept so the Option B pass below can reuse them. Re-running `match_row` per row would
+            # be the same work twice over pools that are already loaded.
+            results[row.name] = (row, result, outcome)
+
+        # ⚠️ BEFORE THE STACK PASS, AND AFTER THE LOOP. The per-row loop asks a question about ONE
+        # row -- "did this transfer find exactly one approved record?" -- and answers it
+        # independently for every row, so two transfers can each correctly find the SAME single
+        # record. The stack pass reads a `claimed` set built from those suggestions, so it must run
+        # against a set that has already been made consistent, or it inherits the duplicates.
+        released = _enforce_single_claim(matchable)
+
+        # ⚠️ AFTER THE CLAIM PASS. That pass frees records up, and choosing between candidates while
+        # another row still held one of them would only produce a pick for it to release.
+        picked = _disambiguate_matched(results, pools)
 
         # ⚠️ AFTER THE PER-ROW LOOP, NEVER INSIDE IT. The loop CLEARS every suggestion it does not
         # re-find (see `_persist_row_outcome`), so a pairing written mid-loop would be wiped by the
@@ -155,6 +185,12 @@ def match_batch(batch: str):
         "batch": batch,
         "matched_rows": len(matchable),
         "stack_paired_rows": paired,
+        # How many rows gave up a record another transfer had an equal hold on. Reported so a run
+        # that releases a lot is visible rather than silently producing "needs a choice" rows.
+        "released_rows": released,
+        # Rows where a rule separated several approved records (Option B). Reported so a run that
+        # leans hard on the rules is visible rather than silently pre-selecting more than usual.
+        "rule_picked_rows": picked,
         "counters": derive_batch_counters(statuses),
         "status": derive_batch_status(statuses),
     }
@@ -258,6 +294,19 @@ def _persist_row_outcome(row: _StagedRow, outcome, result, batch: str) -> None:
             "resolved_vendor": _sole_vendor(result),
             "suggested_doctype": suggestion.doctype if suggestion else None,
             "suggested_name": suggestion.name if suggestion else None,
+            # ⚠️ THE THREE PROVENANCE FIELDS ARE WRITTEN IN THIS ONE CALL, ALWAYS, INCLUDING AS
+            # BLANK. They describe the SUGGESTION -- what was chosen, how the counterpart was found,
+            # and that a machine chose it -- so they live and die with the pair beside them. Writing
+            # any of them separately is how a Check that means "suggested_name is set" starts
+            # disagreeing with whether suggested_name is set.
+            "auto_matched": 1 if suggestion else 0,
+            "match_basis": (getattr(result, "tier", "") or None) if suggestion else None,
+            # ⚠️ WRITTEN ON EVERY RUN, and only ever overwritten by `_disambiguate_matched` or the
+            # stack pass afterwards. A sole match now SAYS SO (`sole`) rather than leaving the field blank. Blank used to
+            # mean both "no rule" and "no suggestion", and that ambiguity filed the 112 arbitrary
+            # stack pairings under "Only candidate" in the confirm dialog's filter. Blank now means
+            # exactly one thing: there is no suggestion.
+            "suggestion_rule": RULE_SOLE if suggestion else None,
         },
         update_modified=False,
     )
@@ -266,6 +315,256 @@ def _persist_row_outcome(row: _StagedRow, outcome, result, batch: str) -> None:
     # and re-running the match is how they get cleared. It cannot touch a settlement -- `Settled` is
     # in `_FROZEN_ROW_STATUSES`, so a settled row never reaches this function at all.
     frappe.db.delete(MATCH_DOCTYPE, {"import_row": row.name})
+
+
+# --- Option B: the database half of `services/outflow_import/disambiguate.py` ---------------------
+
+
+def _disambiguation_candidates(result) -> list:
+    """The candidate list Option B may choose between, or `[]` to abstain.
+
+    ⚠️ A FAN-OUT DISQUALIFIES THE WHOLE SET, exactly as it disqualifies a whole stack (ruling Q4).
+    One transfer covering several payments is a single candidate with several targets and NO single
+    name to pre-select, so a set containing one is not a set of comparable alternatives. Abstaining
+    on the whole row is the narrow reading; picking around the fan-out would silently decide that
+    the fan-out was not the answer, which is a judgement about money this has no basis for.
+
+    Everything here comes from `status.settleable_candidates` -- the SAME list `sole_suggestion` and
+    `_matched_note` read. Building a second one is the defect that list's docstring exists about.
+    """
+    out = []
+    for candidate in settleable_candidates(result):
+        targets = getattr(candidate, "targets", None)
+        if targets is not None:
+            if len(targets) != 1:
+                return []
+            target = targets[0]
+        else:
+            target = getattr(candidate, "target", None)
+            if target is None:
+                return []
+        out.append(
+            Candidate(
+                doctype=target.doctype,
+                name=target.name,
+                amount=normalize_amount(target.amount),
+                project=(getattr(target, "project", "") or ""),
+            )
+        )
+    return out
+
+
+def _disambiguate_matched(results: dict, pools: dict) -> int:
+    """Pre-select a record on rows the matcher left ambiguous, where a rule can tell them apart.
+
+    THE MEASUREMENT THIS EXISTS FOR. `sole_suggestion` refuses to choose between two real records,
+    which is right, and on the first real statement it left 56 transfers with nothing pre-selected.
+    45 of those 56 could be separated by evidence already sitting on the row -- the project named in
+    the remark, the paise the bank actually moved, or the fact that the candidates were identical in
+    every dimension that reaches a ledger. `disambiguate.py` owns the rules and the fences; this
+    function owns the database and the ordering.
+
+    ⚠️ IT RUNS AFTER `_enforce_single_claim`, NOT BEFORE. That pass cleans up contests between SOLE
+    suggestions, and its releases free records up. Running first would mean choosing between
+    candidates while another row still held one of them, and then having that pick released.
+
+    ⚠️ IT FEEDS ITS OWN PICKS BACK IN, WHICH IS WHAT MAKES M3 WORK. Seven transfers against eight
+    identical records only resolve if each takes a DIFFERENT one. Without the running claim set every
+    twin row would pick the same record and `_enforce_single_claim` -- which has already run -- would
+    not be there to catch it.
+
+    ⚠️ THE ROW ORDER IS DETERMINISTIC, and it has to be for the same reason `pair_stack` re-sorts
+    both its sides: which transfer gets which of several identical records must not depend on
+    dictionary order, or a re-run moves a pre-selection out from under a reviewer mid-decision.
+    """
+    if not results:
+        return 0
+
+    claimed = {
+        (r["suggested_doctype"] or "", r["suggested_name"] or "")
+        for r in frappe.db.sql(
+            """
+            SELECT suggested_doctype, suggested_name
+            FROM "tabOutflow Import Row"
+            WHERE row_status IN %(open)s AND COALESCE(suggested_name, '') <> ''
+            """,
+            {"open": tuple(OPEN_ROW_STATUSES)},
+            as_dict=True,
+        )
+    }
+
+    fresh = {
+        r["name"]: r
+        for r in frappe.db.sql(
+            """
+            SELECT name, added_on, suggested_name
+            FROM "tabOutflow Import Row"
+            WHERE name IN %(names)s
+            """,
+            {"names": tuple(results)},
+            as_dict=True,
+        )
+    }
+
+    # ⚠️ WHICH ROWS BELONG TO A STACK, BECAUSE M3 MUST NOT TOUCH THEM. An unbalanced stack pairs
+    # NOTHING by owner ruling -- some transfer settles nothing and choosing which is a judgement
+    # about money. M3 applied row by row does precisely that partial pairing: the first N transfers
+    # take the records and the last one finds them claimed. Measured when this shipped unfenced: 62
+    # of 65 interchangeable picks landed on stack members and the leftovers screen fell from 6
+    # stacks to 3. Counted over EVERY open row, not just this batch, for the same reason
+    # `_resolve_stacks` reads across imports -- a stack does not respect batch boundaries.
+    stack_sizes: dict = {}
+    for r in frappe.db.sql(
+        """
+        SELECT normalized_account, amount FROM "tabOutflow Import Row"
+        WHERE row_status IN %(open)s
+        """,
+        {"open": tuple(OPEN_ROW_STATUSES)},
+        as_dict=True,
+    ):
+        account = (r["normalized_account"] or "").strip()
+        if account:
+            key = (account, str(r["amount"]))
+            stack_sizes[key] = stack_sizes.get(key, 0) + 1
+
+    def _in_a_stack(row) -> bool:
+        account = (getattr(row, "normalized_account", "") or "").strip()
+        if not account:
+            # ⚠️ A ROW WITH NO ACCOUNT IS NEVER STACKED (`stacks.stack_key`), so M3 is free to act on
+            # it -- there is no set of interchangeable transfers for it to partially pair.
+            return False
+        return stack_sizes.get((account, str(row.amount)), 0) >= 2
+
+    ordered = sorted(
+        results.values(),
+        key=lambda item: (str(fresh.get(item[0].name, {}).get("added_on") or ""), item[0].name),
+    )
+
+    picked = 0
+    for row, result, outcome in ordered:
+        if outcome.status != ROW_MATCHED:
+            continue
+        if (fresh.get(row.name, {}).get("suggested_name") or "").strip():
+            continue
+
+        candidates = _disambiguation_candidates(result)
+        if len(candidates) < 2:
+            # One candidate means `sole_suggestion` already spoke, or the claim pass took it away.
+            # Either way there is nothing here to disambiguate.
+            continue
+
+        pick = pick_from_several(
+            bank_amount=normalize_amount(row.amount),
+            candidates=candidates,
+            remark=row.remarks or "",
+            project_index=pools.get("projects"),
+            claimed=claimed,
+            allow_interchangeable=not _in_a_stack(row),
+        )
+        if pick is None:
+            continue
+
+        frappe.db.set_value(
+            ROW_DOCTYPE,
+            row.name,
+            {
+                "suggested_doctype": pick.doctype,
+                "suggested_name": pick.name,
+                "suggestion_rule": pick.rule,
+                "auto_matched": 1,
+                # The tier that FOUND the candidates. Option B chose between them; it did not find
+                # them, so the basis is still the ladder's.
+                "match_basis": (getattr(result, "tier", "") or None),
+                "outcome_note": pick_note(pick, candidates, normalize_amount(row.amount)),
+            },
+            update_modified=False,
+        )
+        claimed.add(pick.key)
+        picked += 1
+    return picked
+
+
+# --- a record is claimed once: the database half of `services/outflow_import/claims.py` -----------
+
+
+def _enforce_single_claim(matchable) -> int:
+    """Clear the suggestion on every row that lost a contest for a record. Returns how many.
+
+    THE DEFECT THIS EXISTS FOR, measured on the first real statement: five approved records each
+    carried a suggestion on several transfers, across 15 rows. A record can be settled once, so ten
+    of the 807 confirms were going to fail with `AlreadyPaidError` before anybody pressed the
+    button. `sole_suggestion` is not wrong -- it answers a question about ONE row, and answers it
+    correctly for each of them. Nothing was asking the question about the SET.
+
+    ⚠️ THE SCOPE FENCE IS THE FIRST THING TO UNDERSTAND HERE. This pass may only clear rows that
+    THIS RUN is responsible for -- the batch it is matching. A row in another batch that already
+    holds the record keeps it, and this batch's rows give way (`Claim.releasable`). The alternative
+    is a match run silently stripping the pre-selection off a screen in a different import, for a
+    reason nobody looking at that screen could discover. `_resolve_stacks` writes across imports on
+    exactly one condition -- it only ever FILLS A BLANK. Clearing is not filling a blank, so it does
+    not get the same licence.
+
+    ⚠️ IT READS ACROSS IMPORTS EVEN THOUGH IT ONLY WRITES INSIDE ONE. The contest is global -- the
+    rival transfer may have arrived in last fortnight's statement -- so a pass that only looked at
+    this batch would leave exactly the cross-batch duplicates it exists to catch. Read wide, write
+    narrow.
+
+    ⚠️ IT CLEARS THE PAIR AND REWRITES THE NOTE, AND CHANGES NO STATUS. The row stays `Matched`,
+    which is true: it still found approved records. What it no longer has is a pre-selection, which
+    is the honest state for a transfer with an equal claim on a record somebody else also matched.
+    Leaving the old note would be worse than leaving the suggestion -- it would still say "One
+    approved record at this amount", of a row that now shows nothing.
+    """
+    mine = {row.name for row in matchable}
+    if not mine:
+        return 0
+
+    held = frappe.db.sql(
+        """
+        SELECT name, added_on, suggested_doctype, suggested_name
+        FROM "tabOutflow Import Row"
+        WHERE row_status IN %(open)s
+          AND COALESCE(suggested_name, '') <> ''
+        """,
+        {"open": tuple(OPEN_ROW_STATUSES)},
+        as_dict=True,
+    )
+
+    outcome = resolve_claims(
+        Claim(
+            row=r["name"],
+            record=(r["suggested_doctype"] or "", r["suggested_name"] or ""),
+            added_on=str(r["added_on"] or ""),
+            releasable=r["name"] in mine,
+        )
+        for r in held
+    )
+    if not outcome.releases:
+        return 0
+
+    lost_record = {
+        r["name"]: (r["suggested_name"] or "") for r in held if r["name"] in set(outcome.releases)
+    }
+    for row_name in outcome.releases:
+        frappe.db.set_value(
+            ROW_DOCTYPE,
+            row_name,
+            {
+                "suggested_doctype": None,
+                "suggested_name": None,
+                # Provenance must never outlive the pick it explains. Blank here today because the
+                # loop already wrote it and Option B has not run yet -- written anyway, because that
+                # ordering is a fact about the caller and this function should not depend on it.
+                "suggestion_rule": None,
+                "auto_matched": 0,
+                "match_basis": None,
+                "outcome_note": claim_note(
+                    lost_record.get(row_name, ""), outcome.rivals.get(row_name, 2)
+                ),
+            },
+            update_modified=False,
+        )
+    return len(outcome.releases)
 
 
 # --- stacks: several interchangeable transfers against several interchangeable records (E2) ------
@@ -312,7 +611,19 @@ def _resolve_stacks(matchable, pools) -> int:
     claimed = {r["suggested_name"] for r in rows if (r.get("suggested_name") or "").strip()}
 
     staged = [_StagedRow(r) for r in rows if not (r.get("suggested_name") or "").strip()]
-    stacks = group_into_stacks(staged, lambda key, transfers: _stack_records(transfers[0], pools))
+
+    # ⚠️ CAPTURED FROM THE ONE CALL `group_into_stacks` ALREADY MAKES. It asks for a stack's records
+    # exactly once, so the tier that produced them is recorded on the way past rather than by
+    # matching a second time. Keyed by the stack key because a basis belongs to the SET -- every
+    # member returns the same records, which is the property `_stack_records` relies on.
+    basis_by_key: dict = {}
+
+    def _records_for(key, transfers):
+        targets, tier = _stack_records_with_basis(transfers[0], pools)
+        basis_by_key[key] = tier
+        return targets
+
+    stacks = group_into_stacks(staged, _records_for)
 
     paired = 0
     for stack in stacks:
@@ -331,6 +642,14 @@ def _resolve_stacks(matchable, pools) -> int:
                 {
                     "suggested_doctype": record.doctype,
                     "suggested_name": record.name,
+                    # ⚠️ THIS IS THE ROW CLASS THE PROVENANCE FIELDS WERE ADDED FOR. A stack pairing
+                    # is deterministic but ARBITRARY -- identical transfers zipped against identical
+                    # records -- and until now it carried a blank rule, so the confirm dialog filed
+                    # all 112 of them under "Only candidate": the arbitrary picks presented as the
+                    # safest kind there is.
+                    "suggestion_rule": RULE_STACK_PAIRING,
+                    "auto_matched": 1,
+                    "match_basis": basis_by_key.get(stack.key) or None,
                     "outcome_note": stack_note(candidate, record.name),
                 },
                 update_modified=False,
@@ -340,7 +659,19 @@ def _resolve_stacks(matchable, pools) -> int:
     return paired
 
 
-def _stack_records(representative, pools) -> tuple:
+def _stack_records_with_basis(representative, pools) -> tuple:
+    """`_stack_records`, plus the tier that found the records.
+
+    ⚠️ THE TIER IS TAKEN FROM THE SAME `match_row` CALL, not from a second one. Re-running the
+    matcher to ask "and which tier was that?" would be a second opinion about a question already
+    answered, over pools that may have moved -- the same reasoning that put `tier` on the result in
+    the first place rather than letting callers re-derive it from `basis`.
+    """
+    targets, tier = _stack_records(representative, pools, want_basis=True)
+    return targets, tier
+
+
+def _stack_records(representative, pools, want_basis: bool = False) -> tuple:
     """The candidate records a whole stack shares, via the SAME matcher every other row goes
     through.
 
@@ -368,9 +699,12 @@ def _stack_records(representative, pools) -> tuple:
     targets = []
     for group in result.payment_groups or ():
         if len(group.targets) != 1:
-            return ()
+            # A fan-out disqualifies the whole stack -- see the docstring. The basis goes with it.
+            return ((), "") if want_basis else ()
         targets.append(group.targets[0])
     targets.extend(c.target for c in (result.expense_candidates or ()))
+    if want_basis:
+        return tuple(targets), (getattr(result, "tier", "") or "")
     return tuple(targets)
 
 
@@ -971,6 +1305,7 @@ def _search_one_ledger(target_doctype: str, bank_amount, search: str, limit: int
 SCOPE_ALL = "all"
 SCOPE_NOT_MATCHED = "not_matched"
 SCOPE_MATCHED = "matched"
+SCOPE_SKIPPED = "skipped"
 
 _SCOPE_STATUSES = {
     # ⚠️ `all` CARRIES A REAL CLAUSE NOW, and it did not before. It used to fall through to "no
@@ -980,6 +1315,16 @@ _SCOPE_STATUSES = {
     SCOPE_ALL: tuple(s for s in ROW_STATUSES if s != ROW_SKIPPED),
     SCOPE_NOT_MATCHED: (ROW_PENDING_MATCH, ROW_MISMATCHED, ROW_ERROR),
     SCOPE_MATCHED: (ROW_MATCHED, ROW_SETTLED),
+    # ⚠️ A SCOPE, AND DELIBERATELY NOT A TAB (owner confirmed 2026-08-11). The ruling that "All means
+    # everything a person might still act on, not every row" is UNCHANGED, and no tab reaches a
+    # skipped transfer -- `test_no_tab_scope_will_show_a_skipped_row` still pins that. What this adds
+    # is a way to go LOOKING for them: the Skipped chip on the import summary opens a dialog that
+    # asks for this scope by name. Out of the way is not the same as invisible, and the summary line
+    # is no longer the only place they are reported.
+    #
+    # ⚠️ IT IS THE ONLY SCOPE THAT RETURNS THEM, and it returns nothing else. A scope that mixed
+    # skipped rows into a working view would be the thing the ruling forbids, arrived at sideways.
+    SCOPE_SKIPPED: (ROW_SKIPPED,),
 }
 
 # ⚠️ AN ALLOW-LIST, BECAUSE THE SORT COLUMN IS INTERPOLATED INTO SQL. A sort key cannot be a bound
@@ -1033,6 +1378,7 @@ _MAX_PAGE_SIZE = 200
 def get_outflow_rows(
     scope: str = SCOPE_NOT_MATCHED,
     batch: str = None,
+    failed=None,
     search: str = None,
     date_from: str = None,
     date_to: str = None,
@@ -1075,6 +1421,7 @@ def get_outflow_rows(
         amount_min=amount_min,
         amount_max=amount_max,
         facets=facets,
+        failed=failed,
     )
     scoped_where, scoped_params = _scope_clause(scope)
 
@@ -1094,7 +1441,8 @@ def get_outflow_rows(
                r.status_raw, r.beneficiary_name, r.beneficiary_id, r.bank_account, r.ifsc,
                r.remarks, r.bank_reference_no, r.service_charge, r.service_tax, r.added_by_raw,
                r.normalized_account, r.normalized_reference, r.resolved_vendor, r.resolved_project,
-               r.suggested_doctype, r.suggested_name, r.row_status, r.skip_reason, r.outcome_note,
+               r.suggested_doctype, r.suggested_name, r.suggestion_rule, r.match_basis,
+               r.auto_matched, r.row_status, r.skip_reason, r.outcome_note,
                b.original_filename AS import_filename,
                b.period_from       AS import_period_from,
                b.period_to         AS import_period_to
@@ -1115,6 +1463,7 @@ def get_outflow_rows(
     )[0]["n"]
 
     related = _related_paid_payments(rows)
+    tab_counts, status_counts = _tab_counts(where, params)
 
     return {
         "rows": [
@@ -1135,11 +1484,15 @@ def get_outflow_rows(
         "limit": limit,
         "offset": offset,
         "scope": scope,
-        "tab_counts": _tab_counts(where, params),
+        "tab_counts": tab_counts,
+        # The same population as `tab_counts`, broken down by status rather than by tab. See
+        # `_tab_counts`: one tab holds two statuses and its single number cannot say which.
+        "status_counts": status_counts,
     }
 
 
-def _row_filters(*, batch, search, date_from, date_to, amount_min, amount_max, facets=None):
+def _row_filters(*, batch, search, date_from, date_to, amount_min, amount_max, facets=None,
+                 failed=None):
     """The WHERE fragments shared by the page query, its count, and the tab counts.
 
     ⚠️ ONE BUILDER FOR ALL FOUR (the facet-values query too), because a count computed under
@@ -1152,6 +1505,22 @@ def _row_filters(*, batch, search, date_from, date_to, amount_min, amount_max, f
     if batch:
         where.append("r.import_batch = %s")
         params.append(batch)
+
+    # ⚠️ THE ONE SPLIT `row_status` CANNOT EXPRESS, and the reason the Skipped dialog needed it.
+    # `Skipped` covers three different facts, and only one of them -- a transfer the bank REFUSED --
+    # is money that never left the account. The owner ruled it out of every figure the import summary
+    # reports (option B), so the Skipped chip counts 20 while every row with that status is 47. Both
+    # are right; nothing could ask for one of them until now.
+    #
+    # ⚠️ THE DEFINITION OF "successful" IS BOUND, NEVER SPELLED. `parser.BANK_SUCCESS_STATUS` is the
+    # single source, exactly as `get_import_summary` binds it rather than writing 'SUCCESS' a second
+    # time -- two spellings of the bank's vocabulary is how the chip and the dialog would drift again.
+    if failed is not None:
+        wanted = str(failed).strip().lower() not in ("0", "false", "no", "")
+        where.append(
+            f"UPPER(COALESCE(r.status_raw, '')) {'<>' if wanted else '='} %s"
+        )
+        params.append(BANK_SUCCESS_STATUS)
 
     text = (search or "").strip()
     if text:
@@ -1289,13 +1658,28 @@ def _scope_clause(scope: str):
     return [f"r.row_status IN ({placeholders})"], list(statuses)
 
 
-def _tab_counts(where, params) -> dict:
+def _tab_counts(where, params) -> tuple[dict, dict]:
     """How many rows each tab holds UNDER THE CURRENT FILTERS, in one grouped query.
 
     ⚠️ EVERY COUNT IS DERIVED FROM `_SCOPE_STATUSES`, never from a second list of statuses written
     out here. The counts label the tabs, so a count that disagrees with what the tab actually shows
     is worse than no count -- and with `Skipped` now excluded from `all`, a hand-written `all` count
     would over-report by exactly the rows the tab refuses to show.
+
+    ⚠️ IT RETURNS THE PER-STATUS COUNTS AS WELL, AND THAT IS THE POINT OF THE SECOND RETURN VALUE.
+    One tab holds TWO statuses -- `Matched` (open) beside `Settled` (terminal) -- so its single
+    number cannot say which. Live-observed: 863 sat under a tab labelled "Matched / Settled" while
+    nothing at all had been settled, and the tab read as 863 finished. The split is already computed
+    here to derive the scopes; returning it costs nothing and no second query, and it is what lets
+    the tab show `863 matched · 0 settled` instead of one number that means two things.
+
+    ⚠️ ZERO-FILLED OVER `ROW_STATUSES`, so a status with no rows comes back as `0` rather than
+    absent. A missing key would render as an em dash, which reads as "unknown" when the truth is
+    "none" -- and "0 settled" is precisely the fact this split exists to make visible.
+
+    ⚠️ THE STATUS COUNTS ARE RAW AND INCLUDE `Skipped`, which no tab shows. They are a breakdown OF
+    the population, not a fourth scope; never sum them expecting a tab's number. Only `tab_counts`
+    is derived from `_SCOPE_STATUSES`, and it stays the one thing a tab is labelled with.
     """
     clause = (" WHERE " + " AND ".join(where)) if where else ""
     grouped = frappe.db.sql(
@@ -1309,10 +1693,18 @@ def _tab_counts(where, params) -> dict:
         as_dict=True,
     )
     by_status = {(g["status"] or ""): int(g["n"] or 0) for g in grouped}
-    return {
+    tabs = {
         scope: sum(n for s, n in by_status.items() if s in statuses)
         for scope, statuses in _SCOPE_STATUSES.items()
     }
+    status_counts = {status: by_status.get(status, 0) for status in ROW_STATUSES}
+    # An unrecognised status -- a row staged under an older vocabulary -- is CARRIED rather than
+    # dropped, on the same reasoning as `derive_import_summary`: a breakdown that quietly omitted it
+    # would report fewer rows than the population it claims to describe.
+    for status, n in by_status.items():
+        if status and status not in status_counts:
+            status_counts[status] = n
+    return tabs, status_counts
 
 
 @frappe.whitelist()
@@ -1355,7 +1747,8 @@ def get_confirmable_rows(batch: str):
     rows = frappe.db.sql(
         """
         SELECT name, transfer_id, added_on, amount, beneficiary_name, remarks,
-               bank_reference_no, suggested_doctype, suggested_name, outcome_note
+               bank_reference_no, suggested_doctype, suggested_name, outcome_note,
+               suggestion_rule, match_basis, auto_matched
         FROM "tabOutflow Import Row"
         WHERE import_batch = %s AND row_status = %s
         ORDER BY added_on ASC, name ASC
@@ -1389,6 +1782,13 @@ def get_confirmable_rows(batch: str):
             "remarks": row.get("remarks"),
             "bank_reference_no": row.get("bank_reference_no"),
             "outcome_note": row.get("outcome_note"),
+            # WHY this record was pre-selected, when it was not simply the only one. Blank is the
+            # ordinary case (exactly one approved candidate) and carries no doubt -- see
+            # `services/outflow_import/disambiguate.RULE_LABELS` for the vocabulary.
+            "suggestion_rule": row.get("suggestion_rule"),
+            # How the counterpart was FOUND, as opposed to how one was chosen from what was found.
+            "match_basis": row.get("match_basis"),
+            "auto_matched": bool(row.get("auto_matched")),
         }
 
         detail = targets.get((doctype, name)) if doctype and name else None
@@ -1414,6 +1814,10 @@ def get_confirmable_rows(batch: str):
                 "target_status": detail.get("status"),
                 "vendor_name": detail.get("vendor_name"),
                 "project_name": detail.get("project_name"),
+                # The order this payment is against. NOT always a PO -- see `_targets_by_name`.
+                # The pair travels together so the screen can label the id honestly.
+                "order_doctype": detail.get("document_type"),
+                "order_name": detail.get("document_name"),
                 # X1: what confirming will WRITE onto the record, and by how much it moves.
                 "amount_delta": float(bank_amount - record_amount),
                 "amount_changes": rewrite_amount(record_amount, bank_amount) is not None,
@@ -1452,9 +1856,16 @@ def _targets_by_name(target_doctype: str, names: list) -> dict:
     placeholders = ", ".join(["%s"] * len(names))
 
     if target_doctype == C.PAYMENT_DOCTYPE:
+        # ⚠️ `document_type` / `document_name` ARE THE ORDER THIS PAYMENT IS AGAINST, AND IT IS NOT
+        # ALWAYS A PO. Measured across the 802 payments of the first real statement: 602
+        # `Procurement Orders`, 193 `Service Requests`. The pair travels together for that reason --
+        # the id alone cannot say which it is, and a screen labelling an SR as a PO would be wrong
+        # on a quarter of its rows. `document_name` is a Dynamic Link, so the type is the thing that
+        # gives the id meaning, not decoration beside it.
         rows = frappe.db.sql(
             f"""
-            SELECT p.name, p.amount, p.status, v.vendor_name, pr.project_name
+            SELECT p.name, p.amount, p.status, v.vendor_name, pr.project_name,
+                   p.document_type, p.document_name
             FROM "tabProject Payments" p
             LEFT JOIN "tabVendors" v ON v.name = p.vendor
             LEFT JOIN "tabProjects" pr ON pr.name = p.project
@@ -1464,9 +1875,15 @@ def _targets_by_name(target_doctype: str, names: list) -> dict:
             as_dict=True,
         )
     elif target_doctype == PROJECT_EXPENSE:
+        # ⚠️ NULLED, NOT OMITTED. `Project Expenses` carries no order reference at all -- it has
+        # `invoice_ref` and `payment_ref`, which are different facts. Selecting the columns as NULL
+        # keeps the three ledgers' payload shape identical, so a caller never has to ask which
+        # ledger it is holding before reading a key. The same reason the non-project branch below
+        # spells out its two missing columns rather than dropping them.
         rows = frappe.db.sql(
             f"""
-            SELECT e.name, e.amount, e.status, v.vendor_name, pr.project_name
+            SELECT e.name, e.amount, e.status, v.vendor_name, pr.project_name,
+                   NULL AS document_type, NULL AS document_name
             FROM "tabProject Expenses" e
             LEFT JOIN "tabVendors" v ON v.name = e.vendor
             LEFT JOIN "tabProjects" pr ON pr.name = e.projects
@@ -1481,7 +1898,8 @@ def _targets_by_name(target_doctype: str, names: list) -> dict:
         rows = frappe.db.sql(
             f"""
             SELECT e.name, e.amount, e.status,
-                   NULL AS vendor_name, NULL AS project_name
+                   NULL AS vendor_name, NULL AS project_name,
+                   NULL AS document_type, NULL AS document_name
             FROM "tabNon Project Expenses" e
             WHERE e.name IN ({placeholders})
             """,

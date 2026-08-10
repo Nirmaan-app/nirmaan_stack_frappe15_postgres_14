@@ -30,6 +30,9 @@
   "resolved_project",
   "suggested_doctype",
   "suggested_name",
+  "suggestion_rule",
+  "auto_matched",
+  "match_basis",
   "decision_section",
   "row_status",
   "skip_reason",
@@ -189,6 +192,28 @@
    "fieldname": "suggested_name",
    "fieldtype": "Data",
    "label": "Suggested Record",
+   "read_only": 1
+  },
+  {
+   "description": "WHY the match run pre-selected suggested_name, when it was not simply the only approved candidate. Blank means the ordinary case -- exactly one record was found (services/outflow_import/status.sole_suggestion) -- so blank is by far the common value and carries no doubt. A non-blank value is one of the Option B rule ids owned by services/outflow_import/disambiguate: project-in-remark, nearest-amount, or interchangeable. Deliberately Data and NOT Select: a Select that later narrows leaves stored values Frappe will not rewrite, which is exactly what the Unmatched->Mismatched merge needed a patch for. disambiguate.RULE_LABELS is the authority on what a value means. Cleared on every re-run alongside the suggestion pair, so a stale reason can never outlive the pick it explains.",
+   "fieldname": "suggestion_rule",
+   "fieldtype": "Data",
+   "label": "Suggestion Rule",
+   "read_only": 1
+  },
+  {
+   "description": "Checked when this row's suggested record was chosen by the machine rather than by a person. It is exactly 'suggested_name is set' -- a human never writes a suggestion -- and it is STORED rather than derived so Desk list views, the report builder and permissions can filter on it, which they cannot do with an expression. The same reason Outflow Import Batch carries denormalised counters. SAFETY RULE: it is written in the same frappe.db.set_value as suggested_doctype/suggested_name at every write site and never on its own, so it cannot drift from the pair it describes.",
+   "fieldname": "auto_matched",
+   "fieldtype": "Check",
+   "label": "Auto Matched",
+   "default": "0",
+   "read_only": 1
+  },
+  {
+   "description": "HOW the counterpart was FOUND -- the tier of the matching ladder that produced it: 'reference' (the bank reference equals a stored UTR), 'account+IFSC' (the transfer went to a vendor's bank account and the amounts agree within Re 1), or 'project in remark' (the amounts agree within Rs 5 and the remark names the record's project). Owned by services/outflow_import/matcher.py, whose TIER_* constants are the vocabulary. This is a DIFFERENT question from suggestion_rule, which says how ONE record was chosen from what was found. Blank whenever there is no suggestion; all three provenance fields describe the pre-selection and are cleared together with it.",
+   "fieldname": "match_basis",
+   "fieldtype": "Data",
+   "label": "Match Basis",
    "read_only": 1
   },
   {

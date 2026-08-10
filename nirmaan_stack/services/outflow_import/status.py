@@ -107,6 +107,7 @@ __all__ = [
     "ROW_SETTLED",
     "ROW_SKIPPED",
     "ROW_ERROR",
+    "settleable_candidates",
     "ROW_STATUSES",
     "TERMINAL_ROW_STATUSES",
     "OPEN_ROW_STATUSES",
@@ -359,6 +360,18 @@ def _settleable_candidates(match) -> tuple:
             out.append(group)
     out.extend(getattr(match, "expense_candidates", ()) or ())
     return tuple(out)
+
+
+def settleable_candidates(match) -> tuple:
+    """The public name for `_settleable_candidates`, for callers outside this module.
+
+    ⚠️ IT IS AN ALIAS, NOT A SECOND IMPLEMENTATION, and that is the entire point of it. The docstring
+    above records the worst defect this feature has shipped, and its cause was a second, narrower
+    idea of "the candidates" (`best_payment_group`) living beside the real one. Option B's
+    disambiguation needs exactly this list -- so it gets exactly this list, rather than a copy that
+    could drift from the one `sole_suggestion` and `_matched_note` read.
+    """
+    return _settleable_candidates(match)
 
 
 def sole_suggestion(outcome: RowOutcome, match=None) -> Suggestion | None:

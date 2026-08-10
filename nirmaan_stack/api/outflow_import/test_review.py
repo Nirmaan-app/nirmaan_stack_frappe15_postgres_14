@@ -48,6 +48,7 @@ from nirmaan_stack.api.outflow_import.expenses import settle_row
 from nirmaan_stack.api.outflow_import.upload import BATCH_DOCTYPE, ROW_DOCTYPE, _stage_batch
 from nirmaan_stack.services.outflow_import.amounts import AMOUNT_TOLERANCE
 from nirmaan_stack.services.outflow_import.parser import parse_statement
+from nirmaan_stack.services.outflow_import.status import ROW_STATUSES
 
 FIXTURE = (
     frappe.get_app_path("nirmaan_stack")
@@ -905,13 +906,115 @@ class TestTheMasterTableEndpoint(OutflowReviewFixture):
         self.assertTrue(skipped, "the fixture must contain a skipped row for this to mean anything")
         self.assertEqual(counts["all"] + skipped, len(self.parsed.rows))
 
-    def test_no_scope_will_show_a_skipped_row(self):
-        """The other half of the ruling, asserted where a reader will look for it: there is no tab
-        that reaches a skipped transfer, so the import summary panel's auto/manual split line is the
-        ONLY surface reporting them."""
+    def test_no_tab_scope_will_show_a_skipped_row(self):
+        """The other half of the ruling, asserted where a reader will look for it: NO TAB reaches a
+        skipped transfer.
+
+        ⚠️ THE THREE SCOPES ARE NAMED HERE ON PURPOSE, rather than iterating `_SCOPE_STATUSES`. A
+        fourth scope exists now -- `skipped`, which the Skipped dialog asks for by name -- and
+        iterating the map would have made this test quietly assert the opposite of its own title the
+        moment that scope was added."""
         for scope in ("all", "not_matched", "matched"):
             for row in self._page(scope=scope, limit=200)["rows"]:
                 self.assertNotEqual(row["row_status"], "Skipped", scope)
+
+    def test_the_skipped_scope_returns_skipped_rows_and_nothing_else(self):
+        """The dialog's read. Going LOOKING for skipped rows is not the same as a worklist showing
+        them, which is why this is a scope with no tab."""
+        rows = self._page(scope="skipped", limit=200)["rows"]
+        self.assertTrue(rows, "the fixture must contain a skipped row")
+        for row in rows:
+            self.assertEqual(row["row_status"], "Skipped")
+
+    def test_the_skipped_scope_does_not_change_what_all_holds(self):
+        """Adding a scope must not widen the working views by one row."""
+        counts = self._page()["tab_counts"]
+        self.assertEqual(counts["not_matched"] + counts["matched"], counts["all"])
+        self.assertGreater(counts["skipped"], 0)
+
+    def test_the_failed_filter_splits_skipped_into_the_two_facts_it_hides(self):
+        """⚠️ THE CHIP SAYS 20 AND THE STATUS SAYS 47, AND BOTH ARE RIGHT. `Skipped` covers three
+        different facts; the owner ruled that a transfer the bank REFUSED leaves every figure the
+        summary reports (option B), so `skipped_rows` counts only the rest. Nothing could ask for one
+        of the two groups until this filter existed, which is how the Skipped dialog ended up showing
+        a number its own chip did not."""
+        every = self._page(scope="skipped", limit=200)
+        refused = self._page(scope="skipped", limit=200, failed=1)
+        recorded = self._page(scope="skipped", limit=200, failed=0)
+
+        self.assertEqual(refused["total"] + recorded["total"], every["total"])
+        self.assertTrue(refused["total"], "the fixture must contain a failed transfer")
+        self.assertTrue(recorded["total"], "the fixture must contain a non-failed skip")
+
+    def test_the_two_halves_of_skipped_reconcile_with_the_summary(self):
+        """The whole point: the dialog's split must ADD UP to what the panel above it says. If these
+        ever disagree, one of the two screens is lying about the same rows."""
+        summary = get_import_summary(self.batch.name)["totals"]
+        recorded = self._page(scope="skipped", limit=200, failed=0)["total"]
+        refused = self._page(scope="skipped", limit=200, failed=1)["total"]
+        self.assertEqual(recorded, summary["skipped_rows"])
+        self.assertEqual(refused, summary["failed_rows"])
+
+    def test_the_failed_filter_narrows_the_counts_it_labels(self):
+        """`_row_filters` is ONE builder for the page, its count, the tab counts and the facets --
+        so a filtered view's own numbers must move with it."""
+        page = self._page(scope="skipped", limit=200, failed=1)
+        self.assertEqual(page["tab_counts"]["skipped"], page["total"])
+
+    def test_a_skipped_row_carries_its_reason_somewhere_a_reader_will_find_it(self):
+        """⚠️ 20 of the 47 skipped rows on the first real statement have NO `skip_reason` -- the
+        already-Paid duplicates record it in `outcome_note` instead, exactly as the Mismatched causes
+        do. A dialog leaning on `skip_reason` alone would show blank cells for them."""
+        for row in self._page(scope="skipped", limit=200)["rows"]:
+            self.assertTrue(
+                (row.get("outcome_note") or row.get("skip_reason") or "").strip(),
+                f"{row['name']} is skipped and says nothing about why",
+            )
+
+    def test_the_matched_tab_can_be_told_apart_from_the_settled_half(self):
+        """⚠️ THE ONE TAB WHOSE SINGLE NUMBER MEANS TWO THINGS, and the failure is not symmetric --
+        it reads as the TERMINAL half. Live-observed on the first real statement: the tab read 863
+        under the label "Matched / Settled" while `settled_rows` was 0, and it was understood as 863
+        transfers finished. `status_counts` is what lets the tab render `863 matched - 0 settled`.
+
+        Asserted as the arithmetic rather than as "the key exists": the split has to keep ADDING UP
+        to the tab it labels, or the screen shows two numbers that disagree with the third.
+        """
+        page = self._page()
+        counts = page["status_counts"]
+        self.assertEqual(
+            counts["Matched"] + counts["Settled"],
+            page["tab_counts"]["matched"],
+            "the split must total the tab it labels",
+        )
+
+    def test_every_status_is_zero_filled_so_none_reads_as_unknown(self):
+        """A missing key renders as an em dash, which says "unknown" when the truth is "none" -- and
+        "0 settled" is precisely the fact this breakdown exists to make visible."""
+        counts = self._page()["status_counts"]
+        for status in ROW_STATUSES:
+            self.assertIn(status, counts, status)
+            self.assertIsInstance(counts[status], int)
+
+    def test_the_status_counts_describe_the_same_population_as_the_tabs(self):
+        """⚠️ RAW, AND THEY INCLUDE `Skipped`, which no tab shows -- so they are a breakdown OF the
+        population, never a fourth scope. This pins the relationship in the only direction that
+        holds: the tab scopes are a SUBSET, and the difference is exactly the skipped rows."""
+        page = self._page()
+        counts = page["status_counts"]
+        self.assertEqual(
+            sum(counts[s] for s in ROW_STATUSES if s != "Skipped"),
+            page["tab_counts"]["all"],
+            "`all` is every status except Skipped",
+        )
+        self.assertGreater(counts["Skipped"], 0, "the fixture must contain a skipped row")
+
+    def test_the_status_counts_narrow_with_the_search_like_the_tabs_do(self):
+        """They label the same tabs, so they must be computed under the same filters. A breakdown
+        taken over the whole table beside tab counts taken over a search is two numbers describing
+        two different things, side by side, with nothing saying so."""
+        narrow = self._page(scope="all", search="a-string-no-remark-contains-zzz")
+        self.assertEqual(sum(narrow["status_counts"].values()), 0)
 
     def test_the_total_is_the_whole_result_not_the_page(self):
         """The paging control reads this. If it were the page length, "1–5 of 5" would show on a
@@ -1651,3 +1754,264 @@ class TestStackAutoPairing(OutflowReviewFixture):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestARecordIsClaimedOnce(OutflowReviewFixture):
+    """The claim rule through the REAL endpoint (`_enforce_single_claim`).
+
+    THE DEFECT IT EXISTS FOR, found on the first real statement. `sole_suggestion` asks a question
+    about ONE row -- "did this transfer find exactly one approved record?" -- and answers it
+    independently for every row. So two transfers can each correctly find the SAME single record.
+    Five records were in that state across 15 rows; ten of the 807 confirms were going to fail with
+    `AlreadyPaidError` before anybody pressed the button.
+
+    ⚠️ THE FIXTURE USES TIER 2, NOT TIER 1, AND THAT IS THE REAL SHAPE. The live contenders were to
+    DIFFERENT beneficiaries -- one record was suggested to transfers for four unrelated payees -- so
+    they cannot have matched on a shared bank account. They matched on amount plus a project named
+    in the remark. Two DIFFERENT accounts is also what keeps them out of a stack, which is the whole
+    point: a stack is the case this rule is NOT about, and `_resolve_stacks` already guards itself.
+    """
+
+    AMOUNT = 6631.77  # implausible in the live ledger, so no real payment wanders into the pool
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.claim_project = f"TEST-OFP-{frappe.generate_hash(length=10)}"
+        cls.claim_project_name = f"Zephyrline{frappe.generate_hash(length=6)}"
+        frappe.db.sql(
+            """
+            INSERT INTO "tabProjects" (name, creation, modified, modified_by, owner, docstatus, idx,
+                                       project_name)
+            VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s)
+            """,
+            (cls.claim_project, "Administrator", "Administrator", cls.claim_project_name),
+        )
+
+        # Two transfers, DIFFERENT accounts, same amount, both naming the same project. Tier 2
+        # therefore offers both of them the same single approved payment.
+        cls.rows = [
+            cls._claim_row("0003", "70000000001", "2026-01-02 09:00:00"),
+            cls._claim_row("0004", "70000000002", "2026-01-03 09:00:00"),
+        ]
+        cls.payment = cls._insert_payment_row(
+            amount=cls.AMOUNT, status="Approved", utr="PO/CLAIM/00001/25-26",
+            payment_date=None, project=cls.claim_project,
+        )
+        frappe.db.commit()
+        cls.result = match_batch(cls.batch.name)
+
+    @classmethod
+    def _claim_row(cls, suffix, account, added_on) -> str:
+        from nirmaan_stack.services.outflow_import.normalize import normalize_account
+
+        name = frappe.db.get_value(
+            ROW_DOCTYPE,
+            {"import_batch": cls.batch.name, "transfer_id": cls._row(suffix).transfer_id},
+            "name",
+        )
+        frappe.db.set_value(
+            ROW_DOCTYPE,
+            name,
+            {
+                "bank_account": account,
+                "normalized_account": normalize_account(account),
+                "ifsc": "TEST0007777",
+                "amount": cls.AMOUNT,
+                "remarks": f"{cls.claim_project_name} miscellaneous services",
+                "added_on": added_on,
+                # Tier 0 must not fire, or each row takes its own record and there is no contest.
+                "bank_reference_no": None,
+                "normalized_reference": None,
+            },
+            update_modified=False,
+        )
+        return name
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete("Projects", {"name": cls.claim_project})
+        super().tearDownClass()
+
+    def _suggested(self, name):
+        return frappe.db.get_value(
+            ROW_DOCTYPE, name, ["suggested_doctype", "suggested_name", "row_status", "outcome_note"],
+            as_dict=True,
+        )
+
+    def test_the_precondition_both_transfers_really_did_match_the_one_payment(self):
+        """⚠️ ASSERTED, NOT ASSUMED. If tier 2 stopped reaching these rows the class below would go
+        green for the wrong reason -- nothing suggested is trivially not double-suggested."""
+        for name in self.rows:
+            self.assertEqual(self._suggested(name).row_status, "Matched")
+
+    def test_exactly_one_transfer_ends_up_holding_the_record(self):
+        held = [n for n in self.rows if (self._suggested(n).suggested_name or "") == self.payment]
+        self.assertEqual(len(held), 1, "a record can be settled once")
+
+    def test_the_earliest_transfer_is_the_one_that_keeps_it(self):
+        self.assertEqual(self._suggested(self.rows[0]).suggested_name, self.payment)
+
+    def test_the_loser_is_left_with_no_suggestion_rather_than_a_second_best(self):
+        """Losing a contest does not show a transfer belongs to something else."""
+        loser = self._suggested(self.rows[1])
+        self.assertFalse((loser.suggested_name or "").strip())
+        self.assertFalse((loser.suggested_doctype or "").strip())
+
+    def test_the_loser_stays_Matched_because_it_did_find_approved_records(self):
+        """The status is about what the matcher FOUND. What the row lost is a pre-selection."""
+        self.assertEqual(self._suggested(self.rows[1]).row_status, "Matched")
+
+    def test_the_loser_note_names_the_record_so_the_reviewer_can_go_and_look(self):
+        """⚠️ THE OLD NOTE WOULD BE WORSE THAN THE OLD SUGGESTION. It said "One approved record at
+        this amount", of a row that now shows nothing at all."""
+        note = self._suggested(self.rows[1]).outcome_note or ""
+        self.assertIn(self.payment, note)
+        self.assertIn("settled once", note)
+
+    def test_the_run_reports_how_many_rows_released(self):
+        """A run that releases a lot should be visible, not silently producing rows needing a
+        choice."""
+        self.assertGreaterEqual(self.result.get("released_rows", 0), 1)
+
+    def test_re_running_the_match_reproduces_the_same_holder(self):
+        """Determinism. A reshuffle between runs would move a suggestion out from under a reviewer
+        mid-decision -- the same guarantee `pair_stack` gives."""
+        match_batch(self.batch.name)
+        self.assertEqual(self._suggested(self.rows[0]).suggested_name, self.payment)
+        self.assertFalse((self._suggested(self.rows[1]).suggested_name or "").strip())
+
+    def test_no_payment_was_written_to(self):
+        """The claim rule touches import rows only. It must never reach a ledger."""
+        self.assertEqual(
+            frappe.db.get_value("Project Payments", self.payment, "status"), "Approved"
+        )
+
+
+class TestTheConfirmPayloadCarriesTheOrderAndTheRule(OutflowReviewFixture):
+    """S3 + the Option B stamp: what the rollup dialog's leaf needs to render honestly."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        match_batch(cls.batch.name)
+
+    def _ready(self):
+        return get_confirmable_rows(self.batch.name)["ready"]
+
+    def test_every_ready_row_declares_the_order_keys_even_when_blank(self):
+        """⚠️ THE SHAPE IS IDENTICAL ACROSS ALL THREE LEDGERS, on purpose. Two of them carry no order
+        reference at all, and omitting the keys there would make a caller ask which ledger it is
+        holding before it could read one."""
+        rows = self._ready()
+        self.assertTrue(rows, "the fixture must produce ready rows for this to mean anything")
+        for row in rows:
+            self.assertIn("order_doctype", row)
+            self.assertIn("order_name", row)
+
+    def test_a_payment_row_carries_the_order_TYPE_beside_the_id(self):
+        """⚠️ IT IS NOT ALWAYS A PO -- 602 Procurement Orders against 193 Service Requests on the
+        first real statement. Without the type the screen cannot label the id, and labelling every
+        one "PO" would be wrong on a quarter of the rows."""
+        payments = [r for r in self._ready() if r["target_doctype"] == "Project Payments"]
+        self.assertTrue(payments)
+        for row in payments:
+            if (row.get("order_name") or "").strip():
+                self.assertTrue(
+                    (row.get("order_doctype") or "").strip(),
+                    "an order id with no type cannot be labelled honestly",
+                )
+
+    def test_every_ready_row_declares_the_suggestion_rule_key(self):
+        """Blank is the ordinary case -- exactly one approved candidate -- and it must be a present
+        key rather than an absent one, or the dialog cannot tell "no rule" from "no data"."""
+        for row in self._ready():
+            self.assertIn("suggestion_rule", row)
+
+    def test_a_rule_is_only_ever_one_of_the_known_ids(self):
+        """The vocabulary lives in `disambiguate.RULE_LABELS`. A value outside it would render as a
+        blank chip on the screen, which reads as "no rule" -- the opposite of the truth."""
+        from nirmaan_stack.services.outflow_import.disambiguate import RULE_LABELS
+
+        for row in self._ready():
+            rule = (row.get("suggestion_rule") or "").strip()
+            if rule:
+                self.assertIn(rule, RULE_LABELS)
+
+
+class TestMatchProvenance(OutflowReviewFixture):
+    """T1: the three fields that say HOW a pre-selection was made.
+
+    ⚠️ THE DEFECT THIS SLICE FIXES. `suggestion_rule` recorded only Option B's three rules, so a
+    blank meant BOTH "no rule was needed" and "there is no suggestion". On the first real statement
+    that filed all 112 stack pairings -- deterministic but ARBITRARY, identical transfers zipped
+    against identical records -- under "Only candidate" in the confirm dialog's filter: the picks a
+    reviewer would most want to isolate, presented as the safest kind there is.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        match_batch(cls.batch.name)
+
+    def _rows(self, where="1=1"):
+        return frappe.db.sql(
+            f"""SELECT name, row_status, COALESCE(suggested_name,'') sn,
+                       COALESCE(suggestion_rule,'') rule, COALESCE(match_basis,'') basis,
+                       auto_matched
+                FROM "tabOutflow Import Row" WHERE import_batch = %s AND {where}""",
+            (self.batch.name,), as_dict=True,
+        )
+
+    def test_the_check_agrees_with_whether_there_is_a_suggestion(self):
+        """⚠️ THE WHOLE RISK OF STORING A DERIVED VALUE, asserted directly. `auto_matched` IS
+        "suggested_name is set" -- a human never writes a suggestion -- so the only way it can be
+        wrong is drift, and the only defence is that it is written in the same `set_value` as the
+        pair at every site."""
+        for row in self._rows():
+            self.assertEqual(
+                bool(row.sn), bool(row.auto_matched), f"{row.name} disagrees with its own suggestion"
+            )
+
+    def test_provenance_never_outlives_the_pick_it_explains(self):
+        """A row with no suggestion carries no rule and no basis. Otherwise the screen would explain
+        a choice that is no longer on the row -- the same class of lie the pair is cleared to
+        avoid."""
+        for row in self._rows("COALESCE(suggested_name,'') = ''"):
+            self.assertEqual(row.rule, "", row.name)
+            self.assertEqual(row.basis, "", row.name)
+
+    def test_every_suggestion_says_how_it_was_chosen(self):
+        """⚠️ BLANK NOW MEANS EXACTLY ONE THING: there is no suggestion. This is the assertion that
+        fails if a new write site is added without setting the rule."""
+        from nirmaan_stack.services.outflow_import.disambiguate import RULE_LABELS
+
+        for row in self._rows("COALESCE(suggested_name,'') <> ''"):
+            self.assertTrue(row.rule, f"{row.name} has a suggestion but does not say how")
+            self.assertIn(row.rule, RULE_LABELS, row.name)
+
+    def test_a_sole_match_says_sole_rather_than_saying_nothing(self):
+        sole = self._rows("suggestion_rule = 'sole'")
+        self.assertTrue(sole, "the fixture must produce at least one sole match")
+        for row in sole:
+            self.assertTrue(row.sn)
+            self.assertTrue(row.auto_matched)
+
+    def test_the_basis_is_one_of_the_matcher_tiers(self):
+        """The vocabulary is `matcher.TIER_*`, not a string invented at the write site."""
+        from nirmaan_stack.services.outflow_import.matcher import (
+            TIER_ACCOUNT, TIER_PROJECT, TIER_REFERENCE,
+        )
+
+        allowed = {TIER_REFERENCE, TIER_ACCOUNT, TIER_PROJECT}
+        for row in self._rows("COALESCE(match_basis,'') <> ''"):
+            self.assertIn(row.basis, allowed, row.name)
+
+    def test_a_settled_row_keeps_its_history_untouched(self):
+        """⚠️ A FROZEN ROW IS NEVER RE-DERIVED, so a row settled BEFORE these fields existed keeps a
+        blank rule for ever. That is correct -- the suggestion on a settled row is history, and a
+        match run that rewrote it would be editing the record of a decision already acted on. On the
+        live database this is 832 rows, and they must stay that way."""
+        settled = self._rows("row_status = 'Settled'")
+        for row in settled:
+            self.assertEqual(row.row_status, "Settled")

@@ -240,9 +240,22 @@ used to catch now arrive `Mismatched` and are linked by hand. Owner's call, made
       because `Skipped` covers three different facts (failed at the bank, a duplicate, a payment
       hand-ticked Paid) and only the first leaves the figures.
     - ⚠️ **`StatusTally.failed` tallies are excluded from `by_status` TOO**, so
-      `sum(by_status counts) == total_rows` still holds. Dropping them from the total while leaving
-      them in `by_status` would make the Skipped chip and the Statement total disagree by the failed
-      count — one visible number contradicting another on the same panel.
+      `sum(by_status counts) == total_rows` still holds *in the aggregate*.
+      **⚠️ THE SKIPPED CHIP NO LONGER RENDERS THAT FIGURE (owner, 2026-08-11).** `derive_import_summary`
+      is UNCHANGED — `skipped_rows` is still 20 — but `summaryTiles` renders
+      `skipped_rows + failed_rows`, because `row_status` is `Skipped` on all 47 and the chip is now a
+      **door**: it opens the Skipped dialog, which holds 47. A chip reading 20 that opened a list of
+      47 read as a bug however right both numbers were. The accepted cost is the one this bullet
+      originally forbade — the four chips now sum to `total_rows + failed_rows` — and it is paid down
+      by the split line beneath them (`N refused by the bank · N auto-skipped · N by hand`), which
+      accounts for the chip exactly. **The failed footnote had to change with it:** it used to say
+      "excluded from every figure above", which stopped being true the moment the chip counted them;
+      it now names the MONEY figures only. Anything that reverts the chip must revert that sentence
+      too, or the panel contradicts itself again in the other direction.
+    - **`get_outflow_rows` takes `failed`** (tri-state: absent = both halves) so the two facts inside
+      `Skipped` can be asked for separately — the Skipped dialog's `All / Already paid / Bank refused`
+      control. It binds `parser.BANK_SUCCESS_STATUS` rather than spelling `'SUCCESS'` a second time,
+      and it lives in `_row_filters`, so a filtered view's tab counts move with it.
     - ⚠️ **`auto_skipped` excludes them on the same terms**, or `manually_skipped_rows`
       (`skipped_rows - auto_skipped`) subtracts rows its minuend no longer contains.
     - `status.py` stays ignorant of the bank's vocabulary. The single definition of "successful" is
