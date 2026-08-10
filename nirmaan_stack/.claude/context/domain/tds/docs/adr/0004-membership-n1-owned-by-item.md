@@ -136,3 +136,94 @@ the moment the writer was retired.
 multi-group**, **1 WP violation**. The June 2026 audit (414 / 404 / 2) describes
 a different dataset. ⚠️ **Neither says anything about production — re-run both
 audits there before the patch runs.**
+
+---
+
+## Amendment B — the `members` child table returns as a DISPLAY MIRROR (2026-08-04)
+
+**Owner decision.** The Desk `Members` grid on `TDS Items` had been empty since
+this ADR retired the child table as a writer, and a group with eight linked SKUs
+showed "No Data". The owner asked for it to show members again, **without**
+moving membership back off `Items.linked_tds_item`.
+
+**The decision above is UNCHANGED.** `Items.linked_tds_item` remains the sole
+source of truth; every product read still derives from it. What changes is one
+line of the Consequences section: the child table is no longer "retired as a
+writer, to be dropped in a later cleanup". It is now **written by exactly one
+function, read by nothing, and must not be dropped.**
+
+### The mirror is one-way, and that is load-bearing
+
+- **One writer.** `api/tds/members.rebuild_group_members(group, full=False)`.
+  Nothing else may write those rows.
+- **Zero readers in the product.** `get_tds_item_members`, `get_tds_member_index`,
+  `get_group_category`, `tds_report._enrich_model_no` and `picker.search_tds_items`
+  all still query `Items`. Pinned by
+  `test_get_tds_item_members_reads_the_store_not_the_mirror`, which empties the
+  mirror and asserts the endpoint still answers correctly.
+- **The field is `read_only`.** A Desk edit would be silently discarded on the
+  next rebuild — worse than the empty grid it replaces, because it looks like it
+  worked.
+
+**Why the product must not read it, even though it now holds the same rows.**
+The TDS master list shows a member COUNT for every group at once
+(`get_tds_member_index`, one aggregate over `Items`). That cannot come from child
+tables without an N+1 or shipping every group's rows, so it stays on the store
+permanently. If the detail page read the mirror, the two screens would have
+different sources for "who is in this group" and could disagree — the same class
+of defect as the stale-count bug, made structural. The mirror is cosmetic; keep
+it that way.
+
+### `Items.on_update` comes back — this reverses an Amendment-A cleanup
+
+This ADR retired `Items.on_update` on the grounds that "there is no denormalized
+copy left to go stale". A mirror row stores COPIES of `item_name`/`category`, so
+that premise no longer holds and the hook returns with it, now covering **two**
+triggers: a linkage change (rebuild both ends) and an `item_name`/`category`
+change (refresh the stale copies). `after_delete` and `after_insert` cover the
+other two doc paths. Rebuild failures are logged and swallowed — an item edit
+must never fail because a display mirror could not refresh.
+
+⚠️ The `linking.py` endpoints do **not** reach those hooks: they write with
+`frappe.db.set_value(update_modified=False)`, which fires no doc lifecycle at
+all. Their explicit rebuild calls are the only thing keeping the grid in step,
+and `set_items_tds_link` must rebuild **both** ends of a move. Correctness holds
+only while every write to `linked_tds_item` calls the rebuild — which is true
+today because `set_value` on that field exists nowhere but `linking.py`.
+
+### Diff by default, `full=True` for the backfill
+
+The rebuild writes only what changed (a rename is one UPDATE, an unchanged group
+writes nothing), which also removes the O(n²) shape a bulk item edit would
+otherwise have. `full=True` clears and re-derives, and is kept because it
+**normalises `idx`** alphabetically. Both paths converge on membership from a
+corrupted mirror — an assumption that the diff would propagate drift was tested
+and proved false, and the docstring says so rather than the guess.
+
+### Read indexes, and a Frappe/PostgreSQL trap
+
+`Items.linked_tds_item` and `TDS Items Child Table.parent` were both UNINDEXED —
+a membership lookup Seq-Scanned 3,536 rows to return 8. Both are now declared in
+their controllers' `on_doctype_update()` and applied by a patch that CALLS those
+hooks, following the BoQ precedent (`boq_row_category`,
+`boq_committed_sheet_grid_row`, `patches/v3_0/add_boq_read_indexes`).
+
+⚠️ **A single-field index MUST be given an explicit `index_name`.** Frappe's
+default is `<field>_index`, and PostgreSQL index names are unique per SCHEMA, not
+per table. `parent_index` was already owned by `tabBoQ Committed Sheet Grid Row`,
+so the default-named call matched it, `IF NOT EXISTS` skipped, and it silently
+created nothing. **The same trap has already cost this codebase the declared
+`Items.item_name` index** — that name was taken by `tabTarget Rates`, so the
+index `items.json` asks for does not exist. Unfixed; noted here so it is not
+rediscovered as a mystery.
+
+### Backfill is mandatory, not optional
+
+The hooks only fire on changes made after they ship, so every pre-existing link
+would stay invisible. `patches/v3_0/backfill_tds_member_mirror` materialises the
+mirror once. It carries a `dry_run()` that writes nothing, prints its plan before
+and after, and **names every legacy child row it is about to discard** — those
+rows are the only surviving record of pre-ADR-0004 membership that never reached
+the store (the four groups the old Add-TDS-Item wizard stranded were exactly
+this). It warns rather than aborts on a mismatch: the mirror is cosmetic, and
+failing a migration over a display table is the wrong trade.

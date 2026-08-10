@@ -30,9 +30,17 @@ def export_tds_report(settings_json: str, items_json: str, project_name: str = "
     return {"message": "Job enqueued"}
 
 
-def _enrich_model_no(items):
-    """Compute the per-row "Model No." cell = distinct member categories of the
-    row's frozen TDS Item (group), comma-joined.
+def _enrich_derived_cells(items):
+    """Derive the two per-row cells that are computed LIVE from the master, not
+    frozen on the row: "Model No." and the Sample Description member list.
+
+      * `tds_model_no`      = distinct member CATEGORIES, comma-joined.
+      * `tds_member_names`  = member ITEM NAMES, comma-joined — what the Sample
+                              Description block prints in place of the frozen
+                              `tds_description` when the group has members.
+
+    Both come from ONE batched pass over `Items`; adding the member names cost a
+    field on the existing query, not another round trip.
 
     Phase 2 rows hold the frozen TDS Item id in `tds_item_id`; a group spans
     several member categories, so Model No. is the joined member-category list,
@@ -58,7 +66,8 @@ def _enrich_model_no(items):
 
     # Which of those ids are real TDS Item groups? (vs legacy SKU/CUS-/PCUS- ids)
     valid_groups = set()
-    member_cats = {}  # group id -> [distinct categories, in first-seen order]
+    member_cats = {}   # group id -> [distinct categories, in first-seen order]
+    member_names = {}  # group id -> [member item names, item_name asc]
     if item_ids:
         existing = frappe.get_all(
             "TDS Items",
@@ -77,13 +86,19 @@ def _enrich_model_no(items):
             rows = frappe.get_all(
                 "Items",
                 filters={"linked_tds_item": ["in", list(valid_groups)]},
-                fields=["linked_tds_item", "category"],
+                fields=["linked_tds_item", "category", "item_name"],
                 order_by="item_name asc",
                 limit_page_length=0,
             )
             for r in rows:
                 parent = r.get("linked_tds_item")
-                if not parent or not r.category:
+                if not parent:
+                    continue
+                if r.item_name:
+                    # Every member, in the query's item_name order. NOT deduped:
+                    # two members may legitimately share a name.
+                    member_names.setdefault(parent, []).append(r.item_name)
+                if not r.category:
                     continue
                 cats = member_cats.setdefault(parent, [])
                 if r.category not in cats:  # distinct, preserve order
@@ -96,9 +111,13 @@ def _enrich_model_no(items):
             # yields no categories → fall back to the frozen category string.
             cats = member_cats.get(gid)
             it["tds_model_no"] = ", ".join(cats) if cats else (it.get("tds_category") or "")
+            names = member_names.get(gid)
+            it["tds_member_names"] = ", ".join(names) if names else ""
         else:
-            # Legacy / unresolved id → frozen single category.
+            # Legacy / unresolved id → frozen single category, and no members to
+            # list, so the template keeps printing the frozen description.
             it["tds_model_no"] = it.get("tds_category") or ""
+            it["tds_member_names"] = ""
 
 
 def run_tds_export_job(user, settings_json, items_json, project_name):
@@ -112,7 +131,7 @@ def run_tds_export_job(user, settings_json, items_json, project_name):
 
         # Phase 2: a project row = (TDS Item group, Make); the "Model No." cell
         # is the group's distinct member categories, comma-joined (derived live).
-        _enrich_model_no(items)
+        _enrich_derived_cells(items)
 
         combined_data = json.dumps({"settings": settings, "history": items})
 

@@ -34,10 +34,12 @@
    "label": "Description"
   },
   {
+   "description": "Display mirror of Items.linked_tds_item, rebuilt automatically. Read-only on purpose: edits here are discarded on the next rebuild. Change membership from the TDS Item page or the Items master.",
    "fieldname": "members",
    "fieldtype": "Table",
    "label": "Members",
-   "options": "TDS Items Child Table"
+   "options": "TDS Items Child Table",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,

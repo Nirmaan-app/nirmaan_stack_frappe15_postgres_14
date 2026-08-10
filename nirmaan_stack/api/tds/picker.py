@@ -94,6 +94,43 @@ def get_tds_item_makes(tds_item: str):
 
 
 @frappe.whitelist()
+def get_tds_work_packages():
+	"""Work packages that actually HAVE TDS Items, with their group counts.
+
+	Sourced from `TDS Items` ITSELF — deliberately NOT from a work-package
+	doctype. Two reasons, both load-bearing:
+
+	  1. Every option is guaranteed to return results. A doctype-sourced list
+	     offers work packages with zero groups, so picking one yields an empty
+	     picker with no explanation.
+	  2. The ids are exactly the values `search_tds_items(work_package=...)`
+	     filters on. `TDS Items.work_package` links to **Procurement Packages**
+	     (14 rows), NOT the similarly-named `Work Packages` doctype (11 rows) —
+	     they overlap because both autoname on `work_package_name`, which is why
+	     the mismatch is easy to miss. Deriving from the data sidesteps the
+	     question entirely.
+
+	`group_count` lets the caller label each option, so a user can see whether a
+	package's list is small enough to browse before selecting it.
+
+	PostgreSQL: table identifier is double-quoted per the app's raw-SQL rule.
+
+	Returns: [{"work_package": "HVAC System", "group_count": 131}, ...]
+	         ordered by work package name.
+	"""
+	return frappe.db.sql(
+		"""
+		SELECT work_package, COUNT(*) AS group_count
+		FROM "tabTDS Items"
+		WHERE work_package IS NOT NULL AND work_package <> ''
+		GROUP BY work_package
+		ORDER BY work_package ASC
+		""",
+		as_dict=True,
+	)
+
+
+@frappe.whitelist()
 def search_tds_items(
 	query: str = "",
 	work_package: str = None,
@@ -117,7 +154,9 @@ def search_tds_items(
 	    query: search text. Empty/whitespace → returns the first `limit` groups
 	           (optionally WP-filtered), with `matched_member` null.
 	    work_package: optional WP filter — restricts results to that work package.
-	    limit: max number of groups to return (defaults to 50).
+	    limit: max number of groups to return (defaults to 50). **Pass 0 (or any
+	           value <= 0) for UNLIMITED** — the project picker does this so it can
+	           load the whole set once and filter client-side.
 	    include_member_matches: opt back into member-SKU matching (default False).
 
 	Returns a list of result objects:
@@ -137,12 +176,16 @@ def search_tds_items(
 	then groups surfaced only via a member hit. The frontend layers fuzzy ranking
 	on top of this.
 	"""
+	# `limit <= 0` means UNLIMITED (mirrors Frappe's own `limit_page_length=0`).
+	# It used to be coerced back to DEFAULT_LIMIT, which made an uncapped fetch
+	# impossible: callers asking for everything silently got 50. The project
+	# picker now loads the whole (optionally WP-scoped) set once and filters
+	# client-side, so it needs a real "no cap".
 	try:
 		limit = int(limit)
 	except (TypeError, ValueError):
 		limit = DEFAULT_LIMIT
-	if limit <= 0:
-		limit = DEFAULT_LIMIT
+	unlimited = limit <= 0
 
 	q = (query or "").strip()
 	q_lower = q.lower()
@@ -162,7 +205,8 @@ def search_tds_items(
 		fields=["name", "tds_item_name", "work_package"],
 		order_by="tds_item_name asc",
 		# Pull a generous slice; we trim to `limit` after merging member hits.
-		limit_page_length=0 if q else limit,
+		# A typed query OR an unlimited request reads the whole matching set.
+		limit_page_length=0 if (q or unlimited) else limit,
 	)
 
 	# ordered dict of tds_item id -> result skeleton (preserves name-first order)
@@ -234,7 +278,7 @@ def search_tds_items(
 				}
 
 	# ── 3. Trim to limit (name matches first, then member-only) ────────────────
-	ordered_ids = list(results.keys())[:limit]
+	ordered_ids = list(results.keys()) if unlimited else list(results.keys())[:limit]
 
 	# ── 4. Attach makes-with-datasheet in one batched query ────────────────────
 	makes_map = _makes_by_group(ordered_ids)

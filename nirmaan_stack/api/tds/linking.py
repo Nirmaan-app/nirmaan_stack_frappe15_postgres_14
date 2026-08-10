@@ -1,5 +1,7 @@
 import frappe
 
+from nirmaan_stack.api.tds.members import rebuild_group_members_bulk
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Why this module exists (membership is N:1, owned by the Item — ADR-0004):
@@ -310,6 +312,15 @@ def set_items_tds_link(item_ids, tds_item):
 		)
 		updated.append(item)
 
+	# Refresh the DISPLAY-ONLY `members` mirror. `set_value` fires no doc hook,
+	# so this call is the ONLY thing keeping the Desk grid in step — and BOTH
+	# sides of a move must be rebuilt: the destination gains a row, and every
+	# group an item was taken FROM loses one.
+	if updated:
+		rebuild_group_members_bulk(
+			[tds_item] + [r["from_group"] for r in reassigned]
+		)
+
 	frappe.db.commit()
 	return {"updated": updated, "reassigned": reassigned, "errors": errors}
 
@@ -338,25 +349,34 @@ def clear_items_tds_link(item_ids):
 		return {"cleared": cleared, "errors": errors}
 
 	# One existence check for the whole batch — a stale id from the UI should be
-	# reported, not silently written into the void.
+	# reported, not silently written into the void. The CURRENT link is read in
+	# the SAME pass: once cleared it is unrecoverable, and the `members` mirror
+	# rebuild below needs to know which groups just lost a row.
 	existing = {
-		r.name
+		r.name: r.get(LINK_FIELD)
 		for r in frappe.get_all(
 			ITEMS_DOCTYPE,
 			filters={"name": ["in", ids]},
-			fields=["name"],
+			fields=["name", LINK_FIELD],
 			limit_page_length=0,
 		)
 	}
 
+	affected_groups = []
 	for item in ids:
 		if item not in existing:
 			errors.append({"item": item, "reason": "Item does not exist."})
 			continue
+		if existing[item]:
+			affected_groups.append(existing[item])
 		frappe.db.set_value(
 			ITEMS_DOCTYPE, item, LINK_FIELD, None, update_modified=False
 		)
 		cleared.append(item)
+
+	# Refresh the DISPLAY-ONLY `members` mirror for every group that lost a member.
+	if affected_groups:
+		rebuild_group_members_bulk(affected_groups)
 
 	frappe.db.commit()
 	return {"cleared": cleared, "errors": errors}
