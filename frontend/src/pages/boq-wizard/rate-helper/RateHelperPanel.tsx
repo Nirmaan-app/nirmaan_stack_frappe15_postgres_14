@@ -13,11 +13,11 @@ import { cn } from "@/lib/utils";
 import { resolveRateHelpers } from "./rateHelperRegistry";
 import {
   attrDisplayValue,
+  attrNoteText,
   isAttrBlank,
   isAttrDefaulted,
   isShowingDerived,
   isSuggestion,
-  upgradeWarningText,
   type RateHelper,
   type RateHelperRowContext,
 } from "./rateHelperTypes";
@@ -440,15 +440,21 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                             </span>
                           )}
                         </label>
-                        {/* TAKE-THE-LARGER made this row's price use a bigger rung than the field
-                            shows. Saying so IS the fix: without it the field simply appears to
-                            ignore the pricer, which is what a silent override looks like from the
-                            outside. The trace prints UPGRADED too -- but a pricer may never open it. */}
-                        {a.upgrade && (
-                          <p className="pl-1 text-[10px] leading-tight text-amber-700 dark:text-amber-400">
-                            {upgradeWarningText(a.upgrade)}
+                        {/* Everything the pipeline must SAY about this field, in the declared
+                            ATTR_NOTE_ORDER. Two meanings live here and they are NOT interchangeable:
+                            an override (the field shows one thing and the row prices another -- say
+                            so, or it just looks like the pricer was ignored) and a CONSEQUENCE of a
+                            value that WAS honoured. The panel renders the sentence a note words for
+                            itself; it never decides which meaning applies. The trace carries the same
+                            facts -- but a pricer may never open it. */}
+                        {a.notes?.map((n, ni) => (
+                          <p
+                            key={`${n.kind}-${ni}`}
+                            className="pl-1 text-[10px] leading-tight text-amber-700 dark:text-amber-400"
+                          >
+                            {attrNoteText(n)}
                           </p>
-                        )}
+                        ))}
                         </div>
                         );
                       })}

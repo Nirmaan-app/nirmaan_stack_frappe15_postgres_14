@@ -1468,6 +1468,112 @@ class TestRateMaster(FrappeTestCase):
             rate_master._validate_config(cfg)
         self.assertIn("plate_itemm", str(cm.exception))
 
+
+    # ---- BLANKER ITEM BIND: the blanks block's three new keys ----
+    # The blanker is no longer selected by extraction. `module_fit` publishes its ITEM through the
+    # same fitLabels scope a ladder publishes its fitted rung into, so the blank component's ref stays
+    # an ordinary "@"-reference and nothing shared changes. The validator has to guard the two
+    # channels that can silently misfire: an attribute id (`qty_attr`) and the bind/label PAIR.
+
+    _MF_BLANKS_BOUND = {
+        "bind": "blank_count", "from_ladder": "plate_size",
+        "qty_attr": "blank_qty", "bind_item": "blank_fit_item", "item_when_positive": "1M Blanker",
+    }
+    _MF_BLANK_QTY_DEF = [{"id": "blank_qty", "label": "Blank qty", "type": "number"}]
+
+    def test_87_module_fit_blanks_item_bind_shape_is_accepted(self):
+        """POSITIVE. The shipped shape: an arbitrated quantity attribute plus the item bind pair."""
+        cfg = self._module_fit_config(
+            {"terms": self._MF_TERMS, "ladders": self._MF_LADDERS, "blanks": self._MF_BLANKS_BOUND},
+            extra_defs=self._MF_BLANK_QTY_DEF,
+        )
+        rate_master._validate_config(cfg)  # must not raise
+
+    def test_88_module_fit_blanks_qty_attr_is_reference_guarded(self):
+        """NEGATIVE, and the load-bearing guard. `qty_attr` names an ATTRIBUTE, so a typo would stop
+        the step ever finding a stated count to arbitrate on -- the row would price the computed spare
+        forever and nothing would say so. That is quieter than a no-compute and worse, exactly the
+        reasoning derive_attribute's `result_attr` carries."""
+        blanks = dict(self._MF_BLANKS_BOUND, qty_attr="blank_qtyy")
+        cfg = self._module_fit_config(
+            {"terms": self._MF_TERMS, "ladders": self._MF_LADDERS, "blanks": blanks},
+            extra_defs=self._MF_BLANK_QTY_DEF,
+        )
+        with self.assertRaises(frappe.ValidationError) as cm:
+            rate_master._validate_config(cfg)
+        self.assertIn("blank_qtyy", str(cm.exception))
+
+    def test_89_bind_item_and_item_when_positive_are_required_together(self):
+        """NEGATIVE, both directions. `bind_item` alone has nothing to bind on a positive count (the
+        interpreter refuses the row rather than silently pricing zero); `item_when_positive` alone is
+        dead config that reads as though it does something. Neither may be saved."""
+        for drop in ("item_when_positive", "bind_item"):
+            blanks = {k: v for k, v in self._MF_BLANKS_BOUND.items() if k != drop}
+            cfg = self._module_fit_config(
+                {"terms": self._MF_TERMS, "ladders": self._MF_LADDERS, "blanks": blanks},
+                extra_defs=self._MF_BLANK_QTY_DEF,
+            )
+            with self.assertRaises(frappe.ValidationError) as cm:
+                rate_master._validate_config(cfg)
+            self.assertIn("together", str(cm.exception))
+
+    def test_90_bind_item_and_item_when_positive_must_be_non_empty_strings(self):
+        """NEGATIVE. `bind_item` is a fitLabels KEY (not an attribute id, so NOT reference-guarded --
+        exactly like a ladder's `bind`) and `item_when_positive` is a catalog item NAME; both must
+        still be real strings rather than blanks or numbers."""
+        for key, bad in (("bind_item", ""), ("item_when_positive", ""), ("bind_item", 7)):
+            blanks = dict(self._MF_BLANKS_BOUND, **{key: bad})
+            cfg = self._module_fit_config(
+                {"terms": self._MF_TERMS, "ladders": self._MF_LADDERS, "blanks": blanks},
+                extra_defs=self._MF_BLANK_QTY_DEF,
+            )
+            with self.assertRaises(frappe.ValidationError) as cm:
+                rate_master._validate_config(cfg)
+            self.assertIn(key, str(cm.exception))
+
+    def test_91_a_blanks_block_without_the_new_keys_is_still_accepted(self):
+        """BACKWARDS-COMPAT. Every pre-existing config carries a bare {bind, from_ladder} blanks block
+        and must keep saving unchanged -- the three keys are OPTIONAL, and a config without them binds
+        no item and arbitrates nothing (the interpreter is byte-identical on that path)."""
+        cfg = self._module_fit_config({
+            "terms": self._MF_TERMS, "ladders": self._MF_LADDERS,
+            "blanks": {"bind": "blank_count", "from_ladder": "plate_size"},
+        })
+        rate_master._validate_config(cfg)  # must not raise
+
+    def test_92_the_shipped_v29_asset_validates_end_to_end(self):
+        """POSITIVE, over the REAL asset rather than a probe. Every category in the shipped E-ALL
+        payload must pass the validator -- the loader does NOT validate, so this suite is the only
+        place an un-savable config is caught before it reaches the editor."""
+        import json as _json, os as _os
+        path = _os.path.join(
+            _os.path.dirname(rate_master.__file__), "..", "..", "services", "boq_rate_master",
+            "data", "rate_master_electrical_all_v29.json",
+        )
+        with open(_os.path.abspath(path), encoding="utf-8") as fh:
+            payload = _json.load(fh)
+        goldens = payload.get("goldens") or {}
+        for cfg in payload["category_configs"]:
+            c = dict(cfg)
+            c["discipline"] = "Electrical"
+            if c["category_id"] in goldens:
+                c["goldens"] = goldens[c["category_id"]]
+            rate_master._validate_config(c)  # must not raise, for any category
+        # and the two changed categories really do carry the bind (a guard against a silent re-mint)
+        by_id = {c["category_id"]: c for c in payload["category_configs"]}
+        for cid in ("switches_sockets", "point_wiring"):
+            for pid, pl in by_id[cid]["pipelines"].items():
+                mf = [s for s in pl["steps"] if s.get("step") == "module_fit"]
+                self.assertTrue(mf, f"{cid}.{pid} lost its module_fit")
+                blanks = mf[0]["params"]["blanks"]
+                self.assertEqual(blanks["item_when_positive"], "1M Blanker")
+                self.assertEqual(blanks["bind_item"], "blank_fit_item")
+                self.assertEqual(blanks["qty_attr"], "blank_qty")
+                blank = [s for s in pl["steps"] if s.get("name") == "blank"][0]
+                # the ref reads the BOUND item, never the row's own blank_item, and never a literal
+                self.assertEqual(blank["ref"]["item"], "@blank_fit_item")
+                self.assertEqual(blank["ref"]["colour"], "@colour")
+
     def test_48_module_fit_blanks_from_ladder_must_name_a_declared_ladder(self):
         """NEGATIVE. A blank count keyed to a ladder that does not exist computes nothing; catch it at
         save rather than as a silent runtime no-compute."""
@@ -1605,7 +1711,18 @@ class TestRateMaster(FrappeTestCase):
                     where = "%s/%s" % (cid, pid)
                     ref = step.get("ref") or {}
                     self.assertEqual(ref.get("colour"), "@colour", where)
-                    self.assertEqual(ref.get("item"), "@blank_item", where)
+                    # SUPERSEDED BY THE ITEM BIND (owner ruling R1). This asserted "@blank_item" --
+                    # the row's own extracted value -- until the blanker stopped being SELECTED by
+                    # extraction. It is now bound by module_fit from the EFFECTIVE count, so the ref
+                    # reads the BIND. The assertion is kept (not deleted) and re-pointed, because what
+                    # it guards is unchanged: this line must reference something, and which something
+                    # decides whether a Grey assembly prices the Grey blanker.
+                    self.assertEqual(ref.get("item"), "@blank_fit_item", where)
+                    # ...and it must NEVER become a literal. `none_skips` tests the "@" prefix FIRST,
+                    # so a literal is taken as a CATALOG MATCH KEY: a literal "None" matches no row and
+                    # returns a WHOLE-PIPELINE no_match -- the entire row unpriceable, wire and conduit
+                    # included. That is the obvious implementation, and it is wrong.
+                    self.assertTrue(str(ref.get("item")).startswith("@"), where)
                     self.assertEqual(ref.get("family"), "Switch", where)
                     self.assertEqual(ref.get("kind"), "switch_socket_item", where)
                     # the COMPUTED count always wins -- the line never reads a stated quantity

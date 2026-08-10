@@ -1755,6 +1755,36 @@ def _validate_config(cfg):
                         if not isinstance(sa, str) or not sa:
                             _vthrow(f"{where}: module_fit blanks.stated_attr must be an attribute id.")
                         _ref(sa, f"{where} (blanks.stated_attr)")
+                    # THE ARBITRATED QUANTITY. Names the attribute holding the blank count the row
+                    # states; module_fit weighs it against the plate's spare capacity. It IS an
+                    # attribute id, so it is _ref-guarded -- a typo here would silently stop the step
+                    # ever finding a stated value to arbitrate on, which is quieter than a no-compute
+                    # and worse (the same reasoning as derive_attribute's result_attr).
+                    qa = blanks.get("qty_attr")
+                    if qa is not None:
+                        if not isinstance(qa, str) or not qa:
+                            _vthrow(f"{where}: module_fit blanks.qty_attr must be an attribute id.")
+                        _ref(qa, f"{where} (blanks.qty_attr)")
+                    # THE ITEM BIND. `bind_item` is a fitLabels KEY, not an attribute id, so it is NOT
+                    # _ref-guarded -- exactly like a ladder's `bind`, which names the scope a later
+                    # component_ref reads with "@<key>". `item_when_positive` is a CATALOG ITEM NAME.
+                    bi = blanks.get("bind_item")
+                    iwp = blanks.get("item_when_positive")
+                    for key, val in (("bind_item", bi), ("item_when_positive", iwp)):
+                        if val is not None and (not isinstance(val, str) or not val):
+                            _vthrow(
+                                f"{where}: module_fit blanks.{key}, when present, "
+                                f"must be a non-empty string."
+                            )
+                    # BOTH OR NEITHER. A bind_item with no item_when_positive has nothing to bind on a
+                    # positive count (the interpreter refuses the row rather than silently pricing
+                    # zero); an item_when_positive with no bind_item is dead config that reads as
+                    # though it does something. Catch both here rather than at runtime.
+                    if (bi is None) != (iwp is None):
+                        _vthrow(
+                            f"{where}: module_fit blanks needs 'bind_item' and 'item_when_positive' "
+                            f"together -- one without the other binds nothing."
+                        )
             elif st == "derive_attribute":
                 # CIRCUIT LENGTH part 1. params.terms binds formula identifiers to ATTRIBUTE ids and
                 # params.constants holds the rule's fixed numbers -- so the formula, its inputs AND its

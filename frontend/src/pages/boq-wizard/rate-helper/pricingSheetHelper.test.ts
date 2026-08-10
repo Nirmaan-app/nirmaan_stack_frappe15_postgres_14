@@ -4,11 +4,14 @@ import { describe, it, expect } from "vitest";
 import type { Pipeline, RateCategoryConfig, RateMasterItem } from "@/pages/pricing/rate-master/rateMasterTypes";
 import type { ExtractionRow, RateHelperRowContext } from "./rateHelperTypes";
 import {
+  ATTR_NOTE_ORDER,
   attrDisplayValue,
+  attrNoteText,
   isAttrBlank,
   isAttrDefaulted,
   isShowingDerived,
   isSuggestion,
+  sortAttrNotes,
   upgradeWarningText,
 } from "./rateHelperTypes";
 import { derivedQtyAttrs } from "@/pages/pricing/rate-master/RateMasterDerivation";
@@ -16,6 +19,7 @@ import { overridesForRow } from "./RateHelperPanel";
 import {
   applyDerivedDisplay,
   attributeOptions,
+  blanksQtyAttr,
   buildExtractionByRow,
   derivedAttrIds,
   isRunForVersion,
@@ -907,7 +911,7 @@ describe("DERIVED DISPLAY -- R1: the computed face plate is SHOWN and is not fla
     expect(plate?.value).toBe("12M");
     expect(attrDisplayValue(plate!)).toBe("12M");       // the entry is never overwritten on screen
     expect(plate?.readOnly).toBeUndefined();            // and it stays editable
-    expect(plate?.upgrade).toBeUndefined();             // 12M holds the contents -> no warning
+    expect(plate?.notes).toBeUndefined();               // 12M holds the contents -> no warning
   });
 
   it("POSITIVE: a None plate renders EMPTY, never a fabricated size", () => {
@@ -921,8 +925,10 @@ describe("DERIVED DISPLAY -- R2: a too-small entry WARNS, it is never silently l
   it("POSITIVE: the warning names BOTH numbers and the size actually priced", () => {
     // "1M & 2M" holds 2; the contents occupy 3. Take-the-larger prices 3M.
     const plate = mfCompute({ plate_item: "1M & 2M" })("plate_item");
-    expect(plate?.upgrade).toEqual({ stated: "1M & 2M", statedHolds: 2, occupied: 3, using: "3M" });
-    expect(upgradeWarningText(plate!.upgrade!)).toBe(
+    expect(plate?.notes).toEqual([
+      { kind: "upgrade", stated: "1M & 2M", statedHolds: 2, occupied: 3, using: "3M" },
+    ]);
+    expect(attrNoteText(plate!.notes![0])).toBe(
       "1M & 2M holds 2 modules; contents occupy 3 — using 3M.",
     );
   });
@@ -939,7 +945,54 @@ describe("DERIVED DISPLAY -- R2: a too-small entry WARNS, it is never silently l
   });
 
   it("NEGATIVE: an entry that FITS raises no warning", () => {
-    expect(mfCompute({ plate_item: "6M" })("plate_item")?.upgrade).toBeUndefined();
+    expect(mfCompute({ plate_item: "6M" })("plate_item")?.notes).toBeUndefined();
+  });
+
+  // ---- THE NOTES-LIST MIGRATION IS INERT ---------------------------------------------------------
+  // The upgrade warning is SHIPPED. Moving it from a bespoke `upgrade?` slot into the general notes
+  // list must not move one byte of what a pricer reads. The pin above (the singular case) still calls
+  // `upgradeWarningText` DIRECTLY and is UNCHANGED by this slice -- it is the byte-identity anchor.
+  // This pair proves the panel's new call site produces exactly what the old one did.
+  it("INERTNESS: attrNoteText delegates to upgradeWarningText -- byte-identical, both plural and singular", () => {
+    const plural = { stated: "1M & 2M", statedHolds: 2, occupied: 3, using: "3M" } as const;
+    const singular = { stated: "1M", statedHolds: 1, occupied: 3, using: "3M" } as const;
+    expect(attrNoteText({ kind: "upgrade", ...plural })).toBe(upgradeWarningText(plural));
+    expect(attrNoteText({ kind: "upgrade", ...singular })).toBe(upgradeWarningText(singular));
+    // and the literal strings, so a change to BOTH functions at once still fails here
+    expect(attrNoteText({ kind: "upgrade", ...plural })).toBe(
+      "1M & 2M holds 2 modules; contents occupy 3 — using 3M.",
+    );
+    expect(attrNoteText({ kind: "upgrade", ...singular })).toBe(
+      "1M holds 1 module; contents occupy 3 — using 3M.",
+    );
+  });
+
+  it("ORDERING is declared, not incidental: an upgrade renders before a quantity note", () => {
+    // Size before count -- an upgrade changes WHICH rung is bought, the quantity notes change how
+    // many fillers go in it, so the rung has to be settled first for the count to read sensibly.
+    const shuffled = sortAttrNotes([
+      { kind: "uncovered", stated: 0, spare: 1, uncovered: 1 },
+      { kind: "upgrade", stated: "1M", statedHolds: 1, occupied: 3, using: "3M" },
+    ]);
+    expect(shuffled.map((n) => n.kind)).toEqual(["upgrade", "uncovered"]);
+    expect(ATTR_NOTE_ORDER).toEqual(["upgrade", "capped", "uncovered"]);
+  });
+
+  it("the two quantity notes are worded so neither can be mistaken for the other", () => {
+    // capped = WE OVERRODE YOU; uncovered = WE USED YOUR NUMBER. An honoured value described as a
+    // correction is the exact defect the notes list exists to prevent.
+    expect(attrNoteText({ kind: "capped", stated: 2, spare: 1 })).toBe(
+      "1 spare module on this plate; 2 will not fit — pricing 1.",
+    );
+    expect(attrNoteText({ kind: "capped", stated: 1, spare: 0 })).toBe(
+      "No spare modules on this plate; 1 will not fit — pricing 0.",
+    );
+    expect(attrNoteText({ kind: "uncovered", stated: 0, spare: 1, uncovered: 1 })).toBe(
+      "1 module will be left uncovered (1 spare, 0 blanked).",
+    );
+    expect(attrNoteText({ kind: "uncovered", stated: 1, spare: 3, uncovered: 2 })).toBe(
+      "2 modules will be left uncovered (3 spare, 1 blanked).",
+    );
   });
 });
 
@@ -1301,5 +1354,150 @@ describe("derive_attribute -- the gate NARROWS for a computed target, and still 
     expect(d.has("circuit_length_m")).toBe(false);
     expect(d.has("plate_item")).toBe(true);   // the ladder-bind mechanism is untouched
     expect(d.has("blank_qty")).toBe(true);    // the superseded-qty mechanism is untouched
+  });
+});
+
+// ---- THE ARBITRATED BLANKER QUANTITY: SEEDED, EDITABLE, AND IT WARNS BOTH WAYS -----------------
+// R4 REVERSES the earlier read-only ruling, and the reason it was locked no longer holds: the field
+// looked fully superseded (its component still takes `qty: {from_fit}`) but `module_fit` now READS
+// it, weighs it against the plate's spare capacity, and an edit genuinely reaches the price.
+//
+// The state reused is the FACE PLATE's -- `derived` + a `derivedValue`, `readOnly` deliberately unset
+// -- so a stated value keeps the screen and a blank one shows what the pipeline computed. Nothing new
+// was invented for it.
+function arbitratedConfig(): RateCategoryConfig {
+  const base = moduleFitConfig() as unknown as {
+    pipelines: Record<string, { steps: Array<Record<string, unknown>> }>;
+  };
+  const cloned = JSON.parse(JSON.stringify(base)) as typeof base;
+  const mf = cloned.pipelines.probe_boq.steps[0] as {
+    params: { blanks: Record<string, unknown> };
+  };
+  mf.params.blanks = {
+    bind: "blank_count", from_ladder: "plate_item",
+    qty_attr: "blank_qty", bind_item: "blank_fit_item", item_when_positive: "1M Blanker",
+  };
+  return cloned as unknown as RateCategoryConfig;
+}
+function arbCompute(over: Record<string, string | number | null> = {}) {
+  const r = makePricingSheetHelper({
+    configsByCategory: new Map([["mf_probe", arbitratedConfig()]]),
+    items: PLATE_ITEMS,
+    extractionByRow: buildExtractionByRow([{ excel_row: 1, attributes: mfAttrs(over) as never }]),
+  }).compute(mfCtx(1));
+  if (!isSuggestion(r)) throw new Error("expected a suggestion");
+  return (id: string) => r.workings.attributes.find((a) => a.id === id);
+}
+
+describe("BLANKER QUANTITY -- R4: seeded and EDITABLE (the read-only ruling is reversed)", () => {
+  it("POSITIVE (R4): it is EDITABLE -- readOnly is not set on the arbitrated quantity", () => {
+    // 3 modules occupied on a 6M plate -> 3 spare. The field accepts an edit because module_fit
+    // reads it; locking it would promise the pricer their entry cannot reach the price, which is
+    // now false.
+    const blank = arbCompute({ plate_item: "6M", blank_qty: null })("blank_qty");
+    expect(blank?.readOnly).toBeUndefined();
+    expect(blank?.derived).toBe(true);
+  });
+
+  it("POSITIVE (R4, SEEDING): a blank field shows the COMPUTED spare", () => {
+    const blank = arbCompute({ plate_item: "6M", blank_qty: null })("blank_qty");
+    expect(blank?.derivedValue).toBe("3");
+    expect(attrDisplayValue(blank!)).toBe("3");
+    expect(blank?.value).toBe("");            // `value` still means "what the row SUPPLIED"
+  });
+
+  it("POSITIVE: a seeded-but-blank field is NOT flagged missing -- no red border on a computed value", () => {
+    expect(isAttrBlank(arbCompute({ plate_item: "6M", blank_qty: null })("blank_qty")!)).toBe(false);
+  });
+
+  it("POSITIVE: a STATED value keeps the screen -- warned, never overwritten", () => {
+    const blank = arbCompute({ plate_item: "6M", blank_qty: 1 })("blank_qty");
+    expect(blank?.value).toBe("1");
+    expect(attrDisplayValue(blank!)).toBe("1");   // the entry survives on screen
+    expect(blank?.derivedValue).toBe("1");        // and 1 is what prices (it is below the spare)
+  });
+});
+
+describe("BLANKER QUANTITY -- R5/R6: the two warnings mean OPPOSITE things", () => {
+  it("R5 (over-count CORRECTED): the note names the SPARE and what is priced instead", () => {
+    const blank = arbCompute({ plate_item: "6M", blank_qty: 5 })("blank_qty");   // 3 spare, 5 asked
+    expect(blank?.notes).toEqual([{ kind: "capped", stated: 5, spare: 3 }]);
+    expect(attrNoteText(blank!.notes![0])).toBe(
+      "3 spare modules on this plate; 5 will not fit — pricing 3.",
+    );
+    expect(blank?.derivedValue).toBe("3");        // the COMPUTED value won
+    expect(attrDisplayValue(blank!)).toBe("5");   // and the entry is still shown, not erased
+  });
+
+  it("R6 (under-count HONOURED): the note names what is LEFT UNCOVERED, never an override", () => {
+    const blank = arbCompute({ plate_item: "6M", blank_qty: 1 })("blank_qty");   // 3 spare, 1 asked
+    expect(blank?.notes).toEqual([{ kind: "uncovered", stated: 1, spare: 3, uncovered: 2 }]);
+    expect(attrNoteText(blank!.notes![0])).toBe(
+      "2 modules will be left uncovered (3 spare, 1 blanked).",
+    );
+    expect(blank?.derivedValue).toBe("1");        // the USER'S value won
+  });
+
+  it("R6 must never read as a correction -- the honoured note borrows none of the override's verbs", () => {
+    const honoured = attrNoteText({ kind: "uncovered", stated: 1, spare: 3, uncovered: 2 });
+    for (const overrideWord of ["pricing", "will not fit", "using"]) {
+      expect(honoured).not.toContain(overrideWord);
+    }
+  });
+
+  it("R3 at the boundary: a stated ZERO is honoured, and it is the note that says so", () => {
+    const blank = arbCompute({ plate_item: "6M", blank_qty: 0 })("blank_qty");
+    expect(blank?.derivedValue).toBe("0");
+    expect(blank?.notes).toEqual([{ kind: "uncovered", stated: 0, spare: 3, uncovered: 3 }]);
+  });
+
+  it("NEGATIVE: an entry EQUAL to the spare raises no note at all", () => {
+    expect(arbCompute({ plate_item: "6M", blank_qty: 3 })("blank_qty")?.notes).toBeUndefined();
+  });
+
+  it("NEGATIVE: nothing stated raises no note -- a seed is not an override", () => {
+    expect(arbCompute({ plate_item: "6M", blank_qty: null })("blank_qty")?.notes).toBeUndefined();
+  });
+
+  it("NEGATIVE: no plate to fill -> the field renders EMPTY, never 0, and says nothing", () => {
+    // "No plate to fill" is a different statement from "zero needed" (owner-locked).
+    const blank = arbCompute({ plate_item: "None", blank_qty: null })("blank_qty");
+    expect(blank?.derived).toBe(true);
+    expect(blank?.derivedValue).toBeUndefined();
+    expect(attrDisplayValue(blank!)).toBe("");
+    expect(blank?.notes).toBeUndefined();
+  });
+});
+
+describe("BLANKER QUANTITY -- the config-read predicate, and the two-screens distinction", () => {
+  it("POSITIVE: blanksQtyAttr reads the arbitrated attribute FROM CONFIG, never by id", () => {
+    expect(blanksQtyAttr(arbitratedConfig())).toBe("blank_qty");
+  });
+
+  it("NEGATIVE: a config with no qty_attr reports none -- and its quantity stays READ-ONLY", () => {
+    // The BACKWARDS-COMPAT half. A blanks block that does not arbitrate is byte-unaffected: its
+    // `<name>_qty` is still fully superseded by the component's {from_fit}, so the field stays locked
+    // exactly as it did before this slice.
+    expect(blanksQtyAttr(moduleFitConfig())).toBeUndefined();
+    const blank = mfCompute({ plate_item: "6M" })("blank_qty");
+    expect(blank?.readOnly).toBe(true);
+    expect(blank?.notes).toBeUndefined();
+  });
+
+  it("⚠️ THE TWO SCREENS STAY APART: Derivation still treats the quantity as superseded", () => {
+    // The pricing panel asks "what did the assembly come to, and may I change it?"; the Rate Master
+    // Derivation screen asks "what does this config compute?" and reads `derivedQtyAttrs` -- the
+    // superseded-qty half ONLY. That predicate keys on the component's `{from_fit}` shape, which is
+    // UNCHANGED by this slice, so Derivation's answer for blank_qty is the same before and after.
+    // Collapsing the two predicates is what would freeze a field that is genuinely editable here.
+    expect(derivedQtyAttrs(arbitratedConfig()).has("blank_qty")).toBe(true);
+    expect(derivedQtyAttrs(moduleFitConfig()).has("blank_qty")).toBe(true);
+    // and the panel's own predicate still reports it derived, so the missing-attribute gate is quiet
+    expect(derivedAttrIds(arbitratedConfig()).has("blank_qty")).toBe(true);
+  });
+
+  it("the arbitrated quantity is never flagged as missing input, stated or blank", () => {
+    expect(isAttrBlank(arbCompute({ plate_item: "6M", blank_qty: null })("blank_qty")!)).toBe(false);
+    expect(isAttrBlank(arbCompute({ plate_item: "6M", blank_qty: 2 })("blank_qty")!)).toBe(false);
   });
 });

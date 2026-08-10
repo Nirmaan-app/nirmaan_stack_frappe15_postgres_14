@@ -352,8 +352,48 @@ export interface ModuleFitStep {
       /** OPTIONAL: the attribute holding the plate the ROW STATES. When it is present and carries a
        * real size, the blanks are computed against IT -- because that is the plate that gets priced.
        * A stated plate SMALLER than its contents is a contradiction in the source data and yields an
-       * HONEST NO-COMPUTE, never a clamped zero and never a negative quantity. */
+       * HONEST NO-COMPUTE, never a clamped zero and never a negative quantity.
+       *
+       * ⚠️ THIS NAMES A PLATE LABEL, NOT A COUNT. It re-bases the blanks on a stated RUNG (it reads
+       * the value through `moduleSizesFromLabel`). It is NOT the stated-quantity hook -- that is
+       * `qty_attr` below -- and the two must never be conflated. */
       stated_attr?: string;
+      /** OPTIONAL: the attribute holding the blank COUNT the row states (extraction or a pricer's
+       * edit). Present => the count that prices is ARBITRATED between it and the computed spare:
+       *
+       *   stated > spare  -> the SPARE (an over-count is PHYSICALLY IMPOSSIBLE -- you cannot put a
+       *                      blanker where a socket sits -- so it is CORRECTED)
+       *   stated <= spare -> the STATED value (an under-count is merely untidy, so it is HONOURED)
+       *   absent / blank / non-numeric / negative -> the SPARE (nothing was stated)
+       *
+       * ⚠️ THE ASYMMETRY IS THE OWNER'S RULING, NOT AN OVERSIGHT. Do not flatten it to a clamp in
+       * one direction or a pass-through in the other.
+       *
+       * ⚠️ IT LIVES HERE, IN THE INTERPRETER, so BOTH surfaces that price a row inherit it -- the
+       * pricing panel and the Rate Master Derivation screen. Putting the cap in the panel would leave
+       * Derivation uncapped and split one rule across two screens.
+       *
+       * ABSENT => the computed spare, byte-identical to every pre-existing config. */
+      qty_attr?: string;
+      /** OPTIONAL: the fitLabels key the blanker's ITEM binds to, read by a later component_ref as
+       * "@<bind_item>" -- exactly as a ladder's `bind` publishes its fitted rung label.
+       *
+       * ⚠️ THIS IS WHY THE ITEM IS NOT A LITERAL IN THE REF. A ref carrying the literal string "None"
+       * does NOT reach the `none_skips` short-circuit (that predicate tests the "@" prefix FIRST), so
+       * the literal is taken as a CATALOG MATCH KEY, matches no row, and returns a WHOLE-PIPELINE
+       * no_match -- the entire row unpriceable, wire and conduit included. Binding through fitLabels
+       * keeps the ref an ordinary "@"-reference, so the SHARED resolver and the SHARED short-circuit
+       * both work exactly as they already do and neither is touched. */
+      bind_item?: string;
+      /** The catalog item bound to `bind_item` when the EFFECTIVE count is POSITIVE; the "None"
+       * sentinel is bound when it is zero (or when there is no plate to fill at all).
+       *
+       * ⚠️ A CATALOG ITEM NAME IN CONFIG. Ladders deliberately name only a `kind` + a `where` filter
+       * so retiring a size needs no config edit, and this departs from that. It is sound ONLY because
+       * the ruling is premised on the catalog carrying exactly ONE blanker, so nothing is being
+       * selected. If a second blanker is ever catalogued, THIS is the line that must change, and
+       * nothing will fail loudly to say so. */
+      item_when_positive?: string;
     };
   };
   explain?: string;
@@ -529,12 +569,37 @@ export interface DerivedAttrOutcome {
   unit?: string;
 }
 
+/**
+ * DERIVED DISPLAY -- the BLANK-COUNT arbitration, published as STRUCTURED DATA for the same reason
+ * `ModuleFitLadderOutcome.upgraded` is: the panel must SEED the quantity field, and must say when the
+ * row's own number was overridden or honoured. Re-deriving any of this panel-side would be a second
+ * copy of the arbitration rule; parsing the trace prose would be a contract on a human sentence.
+ *
+ * ABSENT when the step declared no `blanks` block, and when there is no plate to fill (a "None" plate
+ * or a zero module count) -- in both cases there is nothing to count and nothing to say.
+ */
+export interface ModuleFitBlanksOutcome {
+  /** The plate's SPARE capacity: the fitted rung's modules minus the modules its contents occupy.
+   * This is the ceiling an over-count is corrected to -- never the plate's TOTAL. */
+  spare: number;
+  /** The count that actually prices, after arbitration. */
+  effective: number;
+  /** The count the row STATED, when it stated a usable one. Absent => nothing was stated. */
+  stated?: number;
+  /** The stated count exceeded the spare and was CORRECTED down to it (physically impossible). */
+  capped: boolean;
+  /** The stated count was BELOW the spare and was HONOURED; this many modules stay uncovered. */
+  uncovered: number;
+}
+
 /** DERIVED DISPLAY -- the whole outcome of one `module_fit` step. */
 export interface ModuleFitOutcome {
   /** The weighted module count the row's contents occupy (the step's own arithmetic). */
   occupied: number;
   /** One entry per configured ladder, in config order. */
   ladders: ModuleFitLadderOutcome[];
+  /** The blank-count arbitration. Absent when nothing was counted (see ModuleFitBlanksOutcome). */
+  blanks?: ModuleFitBlanksOutcome;
 }
 
 export interface StepTrace {

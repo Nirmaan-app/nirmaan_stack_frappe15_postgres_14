@@ -2991,3 +2991,206 @@ describe("derive_attribute -- BACKWARD COMPATIBILITY (the shared readers are unt
     expect(plain.status).toBe("no_match");
   });
 });
+
+// ---- BLANKER ITEM BIND + THE EFFECTIVE-COUNT ARBITRATION ---------------------------------------
+// The blanker is no longer SELECTED by extraction. `module_fit` publishes the blanker's ITEM through
+// the same `fitLabels` scope a ladder publishes its fitted rung into, so the blank component's ref
+// stays an ordinary "@"-reference and NOTHING SHARED CHANGES.
+//
+// The trap these tests fence off: putting the LITERAL "None" in the ref instead. The `none_skips`
+// short-circuit tests the "@" prefix FIRST, so a literal never reaches it, is taken as a CATALOG
+// MATCH KEY, matches no row, and returns a WHOLE-PIPELINE no_match -- the entire row unpriceable,
+// wire and conduit included. The last test pins that failure so the "obvious" implementation can
+// never quietly come back.
+const BLANK_ITEM = "1M Blanker";
+const blankerFit = (over: Record<string, unknown> = {}) => ({
+  step: "module_fit" as const,
+  params: {
+    terms: SS_TERMS,
+    ladders: [
+      { kind: "switch_socket_item", where: { family: "Grid and Face Plates" }, bind: "plate_item", floor_from: "plate_item", on_none: "none" },
+      { kind: "switch_socket_item", where: { family: "Back Box" }, bind: "box_item", floor_from: "plate_item", on_none: "computed" },
+    ],
+    blanks: {
+      bind: "blank_count", from_ladder: "plate_item",
+      qty_attr: "blank_qty", bind_item: "blank_fit_item", item_when_positive: BLANK_ITEM,
+    },
+    ...over,
+  },
+});
+/** The blank line as the shipped configs express it -- the ref reads the BOUND item, never `blank_item`. */
+const BLANK_LINE = {
+  step: "component_ref" as const, name: "blank",
+  ref: { kind: "switch_socket_item", family: "Switch", item: "@blank_fit_item", colour: "@colour" },
+  target: "list_price", rate_stages: [{ mult: 1 }], qty: { from_fit: "blank_count" },
+  none_skips: true,
+};
+const BLANKER_ITEMS: RateMasterItem[] = [
+  ...LADDER_ITEMS,
+  ssItem("Switch", BLANK_ITEM, "White", 61), ssItem("Switch", BLANK_ITEM, "Grey", 79),
+];
+/** module_fit alone -- for reading the bind and the outcome. */
+const runFit = (sel: Record<string, string | number>, over: Record<string, unknown> = {}) =>
+  runPipeline("m", { output: [], steps: [blankerFit(over)] }, BLANKER_ITEMS, sel);
+/** module_fit + the blank line + a sum -- for reading what the row actually PRICES. */
+const runPriced = (sel: Record<string, string | number>, over: Record<string, unknown> = {}) =>
+  runPipeline(
+    "m",
+    { output: ["supply"], steps: [blankerFit(over), BLANK_LINE, { step: "sum_components", result: "supply" }] },
+    BLANKER_ITEMS,
+    sel,
+  );
+const fitOutcome = (r: ReturnType<typeof runPipeline>) =>
+  r.steps.find((s) => s.step === "module_fit")?.moduleFit;
+const blankRefStep = (r: ReturnType<typeof runPipeline>) =>
+  r.steps.find((s) => s.produced?.key === "blank");
+const blankRefValue = (r: ReturnType<typeof runPipeline>) => blankRefStep(r)?.produced?.value;
+
+describe("BLANKER -- the item bind follows the EFFECTIVE count", () => {
+  it("POSITIVE (R1): a positive count binds the blanker and PRICES it, in the assembly's colour", () => {
+    const r = runPriced(mfSel(2, 1, 1, { blank_qty: 1 }));   // 2x2 + 2x1 + 1x1 = 7 -> 8M plate, 1 spare
+    expect(r.status).toBe("ok");
+    expect(fitOutcome(r)?.blanks).toEqual({ spare: 1, effective: 1, stated: 1, capped: false, uncovered: 0 });
+    expect(blankRefValue(r)).toBe(61);                          // White 1M Blanker x 1
+    expect(r.finals.supply).toBe(61);
+  });
+
+  it("POSITIVE (R1): the colour follows the ASSEMBLY -- a Grey row prices the Grey blanker", () => {
+    expect(blankRefValue(runPriced(mfSel(2, 1, 1, { blank_qty: 1, colour: "Grey" })))).toBe(79);
+  });
+
+  it("POSITIVE (R1): extraction's own `blank_item` is IGNORED -- 'None' no longer suppresses the line", () => {
+    // THE WHOLE POINT. Before the bind, this row priced 0 because the model answered "None".
+    expect(blankRefValue(runPriced(mfSel(2, 1, 1, { blank_qty: 1, blank_item: "None" })))).toBe(61);
+  });
+
+  it("POSITIVE (R2): a ZERO spare binds the SENTINEL -- the line reads absent, not a blanker x 0", () => {
+    const r = runPriced(mfSel(1, 0, 1, {}));                 // 2x1 + 1x1 = 3 -> a 3M plate, 0 spare
+    expect(fitOutcome(r)?.blanks).toEqual({ spare: 0, effective: 0, capped: false, uncovered: 0 });
+    expect(blankRefValue(r)).toBe(0);
+    expect(blankRefStep(r)?.matchedCondition).toBe("None -> 0");
+  });
+
+  // ---- R3: THE BOUNDARY FOLLOWS THE EFFECTIVE COUNT, NOT THE COMPUTED ONE ----------------------
+  it("R3: editing the quantity to ZERO on a row that COMPUTED one reverts the item to None", () => {
+    const computed = runPriced(mfSel(2, 1, 1, {}));          // nothing stated -> the computed spare of 1
+    expect(blankRefStep(computed)?.matchedCondition).toBe("rate 61 x qty 1");
+
+    const edited = runPriced(mfSel(2, 1, 1, { blank_qty: 0 }));
+    expect(fitOutcome(edited)?.blanks).toEqual({ spare: 1, effective: 0, stated: 0, capped: false, uncovered: 1 });
+    // the ITEM reverted -- the line is positively absent, NOT a blanker bought zero times
+    expect(blankRefStep(edited)?.matchedCondition).toBe("None -> 0");
+    expect(blankRefValue(edited)).toBe(0);
+  });
+
+  it("R3: the effective count is what flips the bind, at every step from the spare down to zero", () => {
+    expect(fitOutcome(runFit(mfSel(2, 1, 1, { blank_qty: 1 })))?.blanks?.effective).toBe(1);
+    expect(fitOutcome(runFit(mfSel(2, 1, 1, { blank_qty: 0 })))?.blanks?.effective).toBe(0);
+    expect(blankRefStep(runPriced(mfSel(2, 1, 1, { blank_qty: 1 })))?.matchedCondition).toBe("rate 61 x qty 1");
+    expect(blankRefStep(runPriced(mfSel(2, 1, 1, { blank_qty: 0 })))?.matchedCondition).toBe("None -> 0");
+  });
+
+  // ---- R5 / R6: THE ASYMMETRY ------------------------------------------------------------------
+  it("R5 (over-count is CORRECTED): stated 2 against ONE spare prices 1 and reports capped", () => {
+    const r = runPriced(mfSel(2, 1, 1, { blank_qty: 2 }));
+    expect(fitOutcome(r)?.blanks).toEqual({ spare: 1, effective: 1, stated: 2, capped: true, uncovered: 0 });
+    expect(blankRefValue(r)).toBe(61);                          // ONE blanker, not two
+    expect(fitTrace(r)).toContain("(stated 2 exceeds the spare -- pricing 1)");
+  });
+
+  it("R5: the ceiling is the SPARE, never the plate's TOTAL -- an 8M plate holding 7 caps at 1", () => {
+    expect(fitOutcome(runFit(mfSel(2, 1, 1, { blank_qty: 8 })))?.blanks?.effective).toBe(1);
+  });
+
+  it("R6 (under-count is HONOURED): stated 1 against THREE spare prices 1 and says 2 stay uncovered", () => {
+    const r = runPriced(mfSel(1, 0, 1, { plate_item: "6M", blank_qty: 1 })); // 3 occupied on 6M -> 3 spare
+    expect(fitOutcome(r)?.blanks).toEqual({ spare: 3, effective: 1, stated: 1, capped: false, uncovered: 2 });
+    expect(blankRefValue(r)).toBe(61);                          // the USER'S number, NOT the computed 3
+    expect(fitTrace(r)).toContain("(stated 1 -- pricing 1, 2 left uncovered)");
+  });
+
+  it("NEGATIVE (R6 must never invert): the user's lower value is never raised to the spare", () => {
+    const cases: [number, string, number][] = [[0, "4M", 1], [1, "6M", 3], [2, "8M", 5]];
+    for (const [stated, plate, spare] of cases) {
+      const r = runFit(mfSel(1, 0, 1, { plate_item: plate, blank_qty: stated }));
+      expect(fitOutcome(r)?.blanks?.spare).toBe(spare);
+      expect(fitOutcome(r)?.blanks?.effective).toBe(stated);
+      expect(fitOutcome(r)?.blanks?.capped).toBe(false);
+    }
+  });
+
+  it("R4 (SEEDING): nothing stated -> the computed spare prices, and no arbitration is reported", () => {
+    const r = runPriced(mfSel(2, 1, 1, {}));
+    expect(fitOutcome(r)?.blanks).toEqual({ spare: 1, effective: 1, capped: false, uncovered: 0 });
+    expect(fitOutcome(r)?.blanks?.stated).toBeUndefined();
+    expect(fitTrace(r)).not.toContain("stated");
+  });
+
+  it("a BLANK / non-numeric / NEGATIVE / None entry is not a statement -- it defers to the spare", () => {
+    for (const bad of ["", "abc", -1, "None"] as const) {
+      const r = runFit(mfSel(2, 1, 1, { blank_qty: bad }));
+      expect(fitOutcome(r)?.blanks?.effective).toBe(1);
+      expect(fitOutcome(r)?.blanks?.stated).toBeUndefined();
+    }
+  });
+
+  // ---- THE TWO ABSENT PATHS MUST STILL BIND -----------------------------------------------------
+  it("a ZERO module count binds the sentinel -- and the row still PRICES (never a bindMiss)", () => {
+    const r = runPriced(mfSel(0, 0, 0, {}));                 // nothing on the plate at all
+    expect(r.status).toBe("ok");
+    expect(blankRefValue(r)).toBe(0);
+    expect(fitTrace(r)).toContain("no plate -> 0 blanks");
+  });
+
+  it("a None PLATE binds the sentinel -- the s1 shape still prices (this is the regression)", () => {
+    // s1: a lone socket with plate None. The count binds NOTHING here (an uncomputed blank count must
+    // render empty, not 0), so ONLY the item bind stands between this row and a whole-pipeline refusal.
+    const r = runPriced(mfSel(1, 0, 0, { plate_item: "None" }));
+    expect(r.status).toBe("ok");
+    expect(blankRefValue(r)).toBe(0);
+    expect(fitTrace(r)).toContain("no plate_item -> no blanks");
+    expect(fitOutcome(r)?.blanks).toBeUndefined();          // nothing counted -> nothing claimed
+  });
+
+  // ---- BACKWARDS COMPATIBILITY ------------------------------------------------------------------
+  it("NEGATIVE: a blanks block with NO bind_item / qty_attr is byte-identical to before", () => {
+    const legacy = { blanks: { bind: "blank_count", from_ladder: "plate_item" } };
+    const r = runFit(mfSel(2, 1, 1, { blank_qty: 99 }), legacy);
+    expect(fitOutcome(r)?.blanks).toEqual({ spare: 1, effective: 1, capped: false, uncovered: 0 });
+    expect(fitTrace(r)).toBe(
+      "2 x socket1_qty(2) + 2 x socket2_qty(1) + 1 x switch_qty(1) = 7 modules -> " +
+      "plate_item 8M (next higher), box_item 8M (next higher); 1 blank (plate_item 8 - 7)",
+    );
+  });
+
+  it("NEGATIVE: the base trace sentence is UNCHANGED when nothing was stated", () => {
+    expect(fitTrace(runFit(mfSel(2, 1, 1, {})))).toContain("; 1 blank (plate_item 8 - 7)");
+  });
+
+  it("MALFORMED: bind_item with no item_when_positive REFUSES rather than silently pricing zero", () => {
+    const broken = { blanks: { bind: "blank_count", from_ladder: "plate_item", bind_item: "blank_fit_item" } };
+    const r = runFit(mfSel(2, 1, 1, {}), broken);
+    expect(r.status).toBe("no_match");
+    // a bail() carries its cause on `label`, not `matchedCondition` (which fitTrace reads)
+    expect(r.steps.find((s) => s.step === "module_fit")?.label)
+      .toContain("bind_item with no item_when_positive");
+  });
+
+  // ---- THE LITERAL TRAP, PINNED SO IT CANNOT RETURN ----------------------------------------------
+  it("a LITERAL None in the ref does NOT short-circuit -- it kills the WHOLE pipeline", () => {
+    // The obvious implementation, and it is wrong: `none_skips` tests the "@" prefix first, so the
+    // literal is taken as a catalog match key, matches nothing, and refuses the entire row -- wire and
+    // conduit included, not merely the blank line. This is why the item is bound through fitLabels.
+    const literalLine = { ...BLANK_LINE, ref: { ...BLANK_LINE.ref, item: "None" } };
+    const r = runPipeline(
+      "m",
+      { output: ["supply"], steps: [blankerFit(), literalLine, { step: "sum_components", result: "supply" }] },
+      BLANKER_ITEMS,
+      mfSel(1, 0, 1, {}),
+    );
+    expect(r.status).toBe("no_match");
+    expect(r.finals).toEqual({});
+    expect(r.steps.find((s) => s.step === "component_ref")?.matchedCondition)
+      .toContain("no matching row(s)");
+  });
+});

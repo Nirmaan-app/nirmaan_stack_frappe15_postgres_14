@@ -1003,6 +1003,21 @@ export function runPipeline(
       }
 
       // (c) the blank (filler) count --------------------------------------------------------------
+      // THE ITEM BIND. A `blanks` block may publish the blanker's ITEM alongside its count, through
+      // the SAME fitLabels scope a ladder publishes its fitted rung into -- so the blank component's
+      // ref stays an ordinary "@"-reference and NOTHING SHARED CHANGES: `resolveAtRef` already reads
+      // fitLabels, and the `none_skips` short-circuit already treats an "@"-ref resolving to the
+      // sentinel as positive absence (the PW-FIX contract, line ~1086).
+      //
+      // ⚠️ IT MUST BIND ON EVERY PATH THAT REACHES A COMPONENT, INCLUDING THE TWO ABSENT ONES. An
+      // unbound "@" reference is `bindMiss`, which refuses the WHOLE PIPELINE -- so a plate-less row
+      // would stop pricing its wire and conduit too. Binding the sentinel is what lets `none_skips`
+      // zero the line instead. This is the same reasoning that makes the zero-module branch below
+      // bind a 0 count rather than binding nothing.
+      let blanksOutcome: import("./rateMasterTypes").ModuleFitBlanksOutcome | undefined;
+      const bindBlankItem = (label: string) => {
+        if (p?.blanks?.bind_item) fitLabels[p.blanks.bind_item] = label;
+      };
       let blankPart = "";
       if (noModules && p?.blanks) {
         // PW-FIX: with nothing on the plate there is no plate, and a filler fills a plate -- so there
@@ -1010,12 +1025,19 @@ export function runPipeline(
         // quantity via {from_fit} and an UNBOUND key is "quantity not provided", which aborts the row.
         // Zero is the honest number here, and it is a number we actually know.
         ctx[p.blanks.bind] = 0;
+        // Nothing on the plate means no plate, so there is no blanker either -- positive absence.
+        bindBlankItem(NONE_SENTINEL);
         blankPart = "; no plate -> 0 blanks";
       } else if (p?.blanks && absentLadders.has(p.blanks.from_ladder)) {
         // SLICE 2 part 2: the ladder the blanks are counted against is POSITIVELY ABSENT (a None
         // plate). Blanks fill a plate, so with no plate there are none -- that is an absence, not a
         // failure, and it must NOT refuse the row (a lone socket with no plate still prices).
-        // Nothing binds, so a blank component reading {from_fit} relies on its own none_skips.
+        // The COUNT still binds nothing -- an uncomputed blank count must render EMPTY on the form,
+        // never 0, because "no plate to fill" is a different statement from "zero needed"
+        // (owner-locked). The ITEM binds the sentinel, which is what zeroes the line now that the ref
+        // no longer reads the row's own `blank_item`; without it the "@" reference would be unbound
+        // and this row -- the `s1` shape -- would stop pricing entirely.
+        bindBlankItem(NONE_SENTINEL);
         blankPart = `; no ${p.blanks.from_ladder} -> no blanks`;
       } else if (p?.blanks) {
         const b = p.blanks;
@@ -1047,12 +1069,62 @@ export function runPipeline(
         // its action is the owner's CLAMP TO ZERO, never a refusal: a BoQ typo must not kill a row.
         // The clamp is NOT silent -- the trace says the plate was over-full.
         const rawBlanks = base - occupied;
-        const blanks = rawBlanks < 0 ? 0 : rawBlanks;
-        ctx[b.bind] = blanks;
+        const spare = rawBlanks < 0 ? 0 : rawBlanks;
+        // THE ARBITRATION -- the EFFECTIVE count, which is what prices and what decides the item.
+        //
+        // ⚠️ THE TWO DIRECTIONS ARE DELIBERATELY DIFFERENT AND MUST NOT BE FLATTENED. Above the spare
+        // is PHYSICALLY IMPOSSIBLE -- a blanker cannot go where a socket sits -- so it is CORRECTED
+        // down. Below the spare is merely untidy, so the row's own number is HONOURED and the
+        // consequence is reported instead. A clamp in both directions would silently overwrite a
+        // pricer's deliberate choice; a pass-through in both would price a plate that cannot exist.
+        //
+        // ⚠️ THE CEILING IS THE SPARE, NEVER THE PLATE'S TOTAL. An 8M plate holding 7 modules has ONE
+        // spare, so a stated 2 prices 1 -- not 8, and not 2.
+        let effective = spare;
+        let statedCount: number | undefined;
+        let capped = false;
+        if (b.qty_attr) {
+          const rawQty = selected[b.qty_attr];
+          const n = Number(rawQty);
+          // A blank / absent / non-numeric / NEGATIVE / "None" entry is NOT a statement of a count,
+          // so it defers to the computed spare (which is also what SEEDS the field on screen).
+          if (
+            rawQty !== undefined && rawQty !== null && rawQty !== "" &&
+            rawQty !== NONE_SENTINEL && Number.isFinite(n) && n >= 0
+          ) {
+            statedCount = n;
+            if (n > spare) { effective = spare; capped = true; } else { effective = n; }
+          }
+        }
+        const uncovered = spare - effective;
+        ctx[b.bind] = effective;
+        // POSITIVE => the blanker; ZERO => positive absence, so the line reads as deliberately absent
+        // rather than as a blanker bought zero times. This follows the EFFECTIVE count, which is what
+        // makes editing the quantity to zero revert the item to None.
+        if (b.bind_item) {
+          if (effective > 0 && !b.item_when_positive) {
+            // A MALFORMED step: it promises to bind an item and names none. Matching the "declares no
+            // terms" precedent above, that is a refusal rather than a silent zero -- silently binding
+            // the sentinel would price 0 blankers on a row that needs them and look deliberate.
+            return bail("module_fit blanks declares bind_item with no item_when_positive -- no value computed");
+          }
+          bindBlankItem(effective > 0 ? b.item_when_positive! : NONE_SENTINEL);
+        }
+        blanksOutcome = {
+          spare, effective, capped, uncovered,
+          ...(statedCount === undefined ? {} : { stated: statedCount }),
+        };
+        // The base sentence is UNCHANGED when nothing was stated (effective === spare), so every
+        // pre-existing trace pin still reads byte-identically; the arbitration appends its own clause.
         blankPart =
           rawBlanks < 0
             ? `; 0 blanks (${baseWhat} holds ${fmtNum(base)}, contents occupy ${fmtNum(occupied)} -- over-full, clamped)`
-            : `; ${fmtNum(blanks)} blank${blanks === 1 ? "" : "s"} (${baseWhat} ${fmtNum(base)} - ${fmtNum(occupied)})`;
+            : `; ${fmtNum(spare)} blank${spare === 1 ? "" : "s"} (${baseWhat} ${fmtNum(base)} - ${fmtNum(occupied)})`;
+        if (capped) {
+          blankPart += ` (stated ${fmtNum(statedCount!)} exceeds the spare -- pricing ${fmtNum(effective)})`;
+        } else if (statedCount !== undefined && uncovered > 0) {
+          blankPart += ` (stated ${fmtNum(statedCount)} -- pricing ${fmtNum(effective)}, ${fmtNum(uncovered)} left uncovered)`;
+        }
       }
 
       steps.push({
@@ -1062,7 +1134,7 @@ export function runPipeline(
         matchedCondition: `${termParts.join(" + ")} = ${fmtNum(occupied)} modules -> ${ladderParts.join(", ")}${blankPart}`,
         // (e) THE SAME WORKING AS DATA -- so a surface that must RENDER the fitted plate reads it
         // here instead of parsing (d). (d) stays the human sentence; this stays the contract.
-        moduleFit: { occupied, ladders: ladderOutcomes },
+        moduleFit: { occupied, ladders: ladderOutcomes, ...(blanksOutcome ? { blanks: blanksOutcome } : {}) },
         runningValues: snapshot(),
       });
     } else if (stepType === "component_ref") {

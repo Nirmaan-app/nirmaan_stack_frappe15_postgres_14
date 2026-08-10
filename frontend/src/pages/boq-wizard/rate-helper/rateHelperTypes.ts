@@ -54,10 +54,53 @@ export interface WorkingsAttribute {
    * lie). A ladder bind with a `floor_from` is the OPPOSITE case -- a stated value IS read, as the
    * floor -- so it stays editable. */
   readOnly?: boolean;
-  /** DERIVED DISPLAY: TAKE-THE-LARGER upgraded a stated value too small for the row's contents. The
-   * panel MUST say so: the pipeline is using a different size than the field shows, and a silent
-   * override reads as the field ignoring the user. */
-  upgrade?: AttrUpgradeNote;
+  /** DERIVED DISPLAY: everything the panel must SAY about this field, in render order.
+   *
+   * ⚠️ THIS REPLACED A SINGLE `upgrade?` SLOT, and the generalisation is the point. That slot could
+   * only ever express ONE meaning -- "we overrode you" -- in three independent places: its name, its
+   * fixed ladder-shaped payload, and the `— using X` tail of its sentence. The blanker quantity needs
+   * a note that means the OPPOSITE ("we used your number; here is the consequence"), and a warning
+   * that reads as a correction when the value was HONOURED is worse than no warning at all. So the
+   * field is a LIST of DISCRIMINATED notes and each kind words itself.
+   *
+   * Absent or empty => the field says nothing, exactly as an absent `upgrade` did. */
+  notes?: AttrNote[];
+}
+
+/**
+ * One thing the panel must say about a field. DISCRIMINATED BY `kind` -- each kind carries only the
+ * numbers ITS sentence needs, and `attrNoteText` is the ONE place a kind becomes prose.
+ *
+ * ⚠️ THE THREE KINDS MEAN DELIBERATELY DIFFERENT THINGS AND MUST NOT BE COLLAPSED:
+ *   upgrade   -> WE OVERRODE YOU. The stated rung cannot hold the contents, so a bigger one is priced.
+ *   capped    -> WE OVERRODE YOU. More blankers were asked for than the plate has SPARE modules.
+ *   uncovered -> WE USED YOUR NUMBER. Fewer blankers than spare modules; the rest stay uncovered.
+ * The first two are physical impossibilities and are corrected; the third is merely untidy and is
+ * HONOURED. That asymmetry is the owner's ruling and is why `uncovered` must never borrow the
+ * override wording.
+ */
+export type AttrNote =
+  | ({ kind: "upgrade" } & AttrUpgradeNote)
+  | { kind: "capped"; stated: number; spare: number }
+  | { kind: "uncovered"; stated: number; spare: number; uncovered: number };
+
+/**
+ * RENDER ORDER, declared rather than incidental.
+ *
+ * Two notes on one field must render deterministically, and push order is an implementation accident
+ * -- it changes the moment a producer is reordered, silently and with no test able to see it. The
+ * order is WHAT IS PRICED FIRST, THEN HOW MUCH OF IT: an `upgrade` changes WHICH rung the row buys,
+ * and `capped` / `uncovered` change HOW MANY fillers go in it, so the size has to be settled before
+ * the count reads sensibly. `capped` and `uncovered` are mutually exclusive by construction (a stated
+ * count is either above the spare or below it, never both), so their relative order never arises.
+ */
+export const ATTR_NOTE_ORDER: readonly AttrNote["kind"][] = ["upgrade", "capped", "uncovered"];
+
+/** PURE. Notes in `ATTR_NOTE_ORDER`. A STABLE sort, so two notes of one kind keep producer order. */
+export function sortAttrNotes(notes: AttrNote[]): AttrNote[] {
+  return [...notes].sort(
+    (a, b) => ATTR_NOTE_ORDER.indexOf(a.kind) - ATTR_NOTE_ORDER.indexOf(b.kind),
+  );
 }
 
 /** The numbers behind a take-the-larger UPGRADE, carried as DATA so each surface words it itself. */
@@ -80,6 +123,37 @@ export interface AttrUpgradeNote {
  */
 export function upgradeWarningText(u: AttrUpgradeNote): string {
   return `${u.stated} holds ${u.statedHolds} module${u.statedHolds === 1 ? "" : "s"}; contents occupy ${u.occupied} — using ${u.using}.`;
+}
+
+/**
+ * PURE. One note's sentence. The ONE place a note kind becomes prose, so the panel renders notes it
+ * does not have to understand.
+ *
+ * ⚠️ THE `upgrade` CASE DELEGATES to `upgradeWarningText` rather than restating it. That function is
+ * SHIPPED and its wording is pinned; copying the template here would make the migration's inertness a
+ * claim to re-verify on every future edit instead of a property of the code. Delegation makes the two
+ * byte-identical BY CONSTRUCTION.
+ *
+ * ⚠️ `capped` and `uncovered` are worded to be unmistakable for one another. `capped` says what was
+ * PRICED INSTEAD (an override); `uncovered` says what the row's own number LEAVES BEHIND (a
+ * consequence). Neither borrows the other's verb -- an honoured value described as a correction is
+ * the defect this whole mechanism exists to prevent.
+ */
+export function attrNoteText(n: AttrNote): string {
+  switch (n.kind) {
+    case "upgrade":
+      return upgradeWarningText(n);
+    case "capped":
+      return (
+        `${n.spare === 0 ? "No" : n.spare} spare module${n.spare === 1 ? "" : "s"} on this plate; ` +
+        `${n.stated} will not fit — pricing ${n.spare}.`
+      );
+    case "uncovered":
+      return (
+        `${n.uncovered} module${n.uncovered === 1 ? "" : "s"} will be left uncovered ` +
+        `(${n.spare} spare, ${n.stated} blanked).`
+      );
+  }
 }
 
 /**

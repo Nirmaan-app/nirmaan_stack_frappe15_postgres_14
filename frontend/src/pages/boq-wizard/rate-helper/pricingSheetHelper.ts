@@ -38,7 +38,9 @@ import type {
   RateCategoryConfig,
   RateMasterItem,
 } from "@/pages/pricing/rate-master/rateMasterTypes";
+import { sortAttrNotes } from "./rateHelperTypes";
 import type {
+  AttrNote,
   ExtractionRow,
   HelperResult,
   RateHelper,
@@ -188,6 +190,31 @@ export function attributeOptions(def: AttributeDefinition, items: RateMasterItem
  * ⚠️ READ FROM CONFIG, never hardcoded by id. `plate_item` / `box_item` are today's binds; a future
  * ladder may bind anything, and a category with no `module_fit` is byte-unaffected. PURE.
  */
+/**
+ * PURE. The attribute a `module_fit` `blanks` block ARBITRATES on -- the blanker quantity the row
+ * states, which the step weighs against the plate's spare capacity.
+ *
+ * ⚠️ THIS IS WHY THAT FIELD IS NOT READ-ONLY DESPITE LOOKING SUPERSEDED. Its component still takes
+ * `qty: {from_fit}`, so `derivedQtyAttrs` -- which keys purely on that shape -- reports it as fully
+ * superseded, and branch 1 of `applyDerivedDisplay` would lock it. But `module_fit` now READS the
+ * attribute, so it IS an input: the pipeline arbitrates between it and the computed spare, and an
+ * edit genuinely reaches the price. A locked field would be the lie the read-only contract exists to
+ * prevent, only pointing the other way.
+ *
+ * ⚠️ READ FROM CONFIG, never by attribute id. A config with no `qty_attr` is byte-unaffected and its
+ * quantity stays read-only exactly as before. PURE.
+ */
+export function blanksQtyAttr(config: RateCategoryConfig): string | undefined {
+  for (const pl of Object.values(config.pipelines ?? {})) {
+    for (const raw of pl.steps ?? []) {
+      const s = raw as { step?: string; params?: { blanks?: { qty_attr?: unknown } } };
+      const qa = s.params?.blanks?.qty_attr;
+      if (s.step === "module_fit" && typeof qa === "string" && qa) return qa;
+    }
+  }
+  return undefined;
+}
+
 export function derivedAttrIds(config: RateCategoryConfig): Set<string> {
   const out = new Set<string>(derivedQtyAttrs(config).keys());
   for (const pl of Object.values(config.pipelines ?? {})) {
@@ -261,8 +288,37 @@ export function applyDerivedDisplay(
   // trace prose and never by re-deriving the arithmetic (#179).
   const computedAttrs = derivedAttrOutcomes(results);
 
+  const arbitratedQty = blanksQtyAttr(config);
+
   return attrs.map((a) => {
     if (!derivedIds.has(a.id)) return a;
+
+    // 0. THE ARBITRATED QUANTITY (the blanker count). Checked FIRST, because the superseded branch
+    //    below would lock it -- and it is not superseded: `module_fit` reads it and weighs it against
+    //    the plate's spare capacity, so an edit reaches the price. SEEDED-BUT-EDITABLE, the state the
+    //    face plate already uses: `derived` + a `derivedValue`, and `readOnly` deliberately unset, so
+    //    a stated value keeps the screen and a blank one shows what the pipeline computed.
+    if (arbitratedQty && a.id === arbitratedQty) {
+      const b = fit?.blanks;
+      // Nothing was counted (a "None" plate, or nothing on the plate at all). An uncomputed count
+      // renders EMPTY, never 0 -- "no plate to fill" is a different statement from "zero needed".
+      if (!b) return { ...a, derived: true };
+      const notes: AttrNote[] = [];
+      if (b.stated !== undefined) {
+        // CORRECTED vs HONOURED -- the two say opposite things and are mutually exclusive by
+        // construction (a stated count is either above the spare or below it, never both).
+        if (b.capped) notes.push({ kind: "capped", stated: b.stated, spare: b.spare });
+        else if (b.uncovered > 0) {
+          notes.push({ kind: "uncovered", stated: b.stated, spare: b.spare, uncovered: b.uncovered });
+        }
+      }
+      return {
+        ...a,
+        derived: true,
+        derivedValue: String(b.effective),
+        ...(notes.length ? { notes: sortAttrNotes(notes) } : {}),
+      };
+    }
 
     const superseded = supersededQty.get(a.id);
     if (superseded) {
@@ -304,12 +360,15 @@ export function applyDerivedDisplay(
       ...(ladder.absent || ladder.label === null ? {} : { derivedValue: ladder.label }),
       ...(ladder.upgraded && ladder.label
         ? {
-            upgrade: {
-              stated: ladder.upgraded.stated,
-              statedHolds: ladder.upgraded.statedHolds,
-              occupied: ladder.upgraded.occupied,
-              using: ladder.label,
-            },
+            notes: [
+              {
+                kind: "upgrade" as const,
+                stated: ladder.upgraded.stated,
+                statedHolds: ladder.upgraded.statedHolds,
+                occupied: ladder.upgraded.occupied,
+                using: ladder.label,
+              },
+            ],
           }
         : {}),
     };
