@@ -52,9 +52,14 @@ interface SelectOption {
 export const UserForm = () => {
     const navigate = useNavigate();
 
+    // limit: 0 = every Role Profile. Without it Frappe applies its default page
+    // length of 20 and silently truncates, which hid the 21st profile from this
+    // dropdown entirely -- the role existed, was assignable in Desk, and simply
+    // could not be picked here.
     const { data: role_profile_list, isLoading: role_profile_list_loading, error: role_profile_list_error } = useFrappeGetDocList("Role Profile",
         {
             fields: ["*"],
+            limit: 0,
         },
         "Role Profile"
     );

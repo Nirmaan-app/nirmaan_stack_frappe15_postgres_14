@@ -41,6 +41,7 @@ from nirmaan_stack.api.boq.wizard.parse_run import _LIST_JSON_FIELDS
 # get_column_letter guarantees ^[A-Z]+$ keys -- the parser's SheetConfig validator (run live via
 # get_stale_sheets on every hub load) rejects any non-A-Z column_role_map key.
 from openpyxl.utils import column_index_from_string, get_column_letter
+from nirmaan_stack.services.role_profiles import PROCUREMENT_PROFILES
 
 
 # ---------------------------------------------------------------------------
@@ -54,7 +55,7 @@ from openpyxl.utils import column_index_from_string, get_column_letter
 _WIZARD_ROLE_PROFILES = frozenset({
     "Nirmaan Admin Profile",
     "Nirmaan PMO Executive Profile",
-    "Nirmaan Procurement Executive Profile",
+    *PROCUREMENT_PROFILES,
     "Nirmaan Estimates Executive Profile",
     "Nirmaan Project Lead Profile",
 })

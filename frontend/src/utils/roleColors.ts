@@ -45,6 +45,36 @@ export const ROLE_COLORS: Record<string, RoleColorScheme> = {
     gradient: "bg-gradient-to-br from-emerald-500 to-teal-600",
     ring: "ring-emerald-500/30",
   },
+  // Procurement Lead shares Procurement Executive's access but keeps its own
+  // shade (teal, adjacent to Executive's emerald) so the two stay tellable apart
+  // on badges and avatars.
+  "Nirmaan Procurement Lead Profile": {
+    bg: "bg-teal-50",
+    text: "text-teal-700",
+    border: "border-teal-200",
+    dot: "bg-teal-500",
+    gradient: "bg-gradient-to-br from-teal-500 to-cyan-600",
+    ring: "ring-teal-500/30",
+  },
+  // The two sides of the split. Green keeps Material in the Executive/Lead
+  // colour family (emerald, teal); Service moves away to violet because it is
+  // the genuinely different job, not a variant of the material one.
+  "Nirmaan Material Procurement Executive Profile": {
+    bg: "bg-green-50",
+    text: "text-green-700",
+    border: "border-green-200",
+    dot: "bg-green-500",
+    gradient: "bg-gradient-to-br from-green-500 to-emerald-600",
+    ring: "ring-green-500/30",
+  },
+  "Nirmaan Service Procurement Executive Profile": {
+    bg: "bg-violet-50",
+    text: "text-violet-700",
+    border: "border-violet-200",
+    dot: "bg-violet-500",
+    gradient: "bg-gradient-to-br from-violet-500 to-purple-600",
+    ring: "ring-violet-500/30",
+  },
   "Nirmaan Accountant Profile": {
     bg: "bg-purple-50",
     text: "text-purple-700",
@@ -152,6 +182,9 @@ export const ROLE_OPTIONS: { label: string; value: string }[] = [
   { label: "Project Lead", value: "Nirmaan Project Lead Profile" },
   { label: "Project Manager", value: "Nirmaan Project Manager Profile" },
   { label: "Procurement Executive", value: "Nirmaan Procurement Executive Profile" },
+  { label: "Procurement Lead", value: "Nirmaan Procurement Lead Profile" },
+  { label: "Material Procurement Executive", value: "Nirmaan Material Procurement Executive Profile" },
+  { label: "Service Procurement Executive", value: "Nirmaan Service Procurement Executive Profile" },
   { label: "Accountant", value: "Nirmaan Accountant Profile" },
   { label: "Accountant Lead", value: "Nirmaan Accountant Lead Profile" },
   { label: "Estimates Executive", value: "Nirmaan Estimates Executive Profile" },

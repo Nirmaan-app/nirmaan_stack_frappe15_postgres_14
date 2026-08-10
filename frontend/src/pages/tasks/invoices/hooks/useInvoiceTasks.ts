@@ -10,6 +10,7 @@ import { NirmaanAttachment } from '@/types/NirmaanStack/NirmaanAttachment';
 import { useMemo } from 'react';
 import { useUserData } from '@/hooks/useUserData';
 import { VENDOR_INVOICES_DOCTYPE } from '../constants';
+import { isProcurementProfile } from "@/constants/roles";
 
 type StatusFilter = 'Pending' | '!= Pending';
 
@@ -32,7 +33,7 @@ interface UseVendorInvoicesResult {
  */
 export const useInvoiceTasks = (statusFilter: StatusFilter): UseVendorInvoicesResult => {
     const { role, user_id } = useUserData();
-    const isProcurementUser = role === "Nirmaan Procurement Executive Profile";
+    const isProcurementUser = isProcurementProfile(role);
 
     // Build filters for Vendor Invoices
     const invoiceFilters: Filter<FrappeDoc<VendorInvoice>>[] = [

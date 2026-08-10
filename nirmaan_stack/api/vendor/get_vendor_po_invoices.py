@@ -23,15 +23,18 @@ def get_po_ledger_data(vendor_id):
     start_datetime = get_datetime(start_date)
 
     # --- Step 1: Fetch Purchase Orders ---
+    # Inactive POs ARE included; every transaction linked to one is flagged
+    # `is_inactive` so the ledger can tint those rows red.
     vendor_pos = frappe.get_all(
         "Procurement Orders",
-        filters={"vendor": vendor_id, "status": ("not in", [ "Merged", "Inactive", "PO Amendment"])},
-        fields=["name", "creation", "total_amount", "project_name"]
+        filters={"vendor": vendor_id, "status": ("not in", [ "Merged", "PO Amendment"])},
+        fields=["name", "creation", "total_amount", "project_name", "status"]
     )
     print(f"DEBUG LEDGER: Found {len(vendor_pos)} total historical Purchase Orders.")
 
     doc_names = []
     doc_project_map = {}
+    inactive_doc_names = set()
 
     # Process POs
     for po in vendor_pos:
@@ -39,13 +42,17 @@ def get_po_ledger_data(vendor_id):
         project_name_from_po = po.get("project_name", "N/A")
         doc_names.append(doc_name)
         doc_project_map[doc_name] = project_name_from_po
+        is_inactive = po.get("status") == "Inactive"
+        if is_inactive:
+            inactive_doc_names.add(doc_name)
         all_transactions.append({
             "type": "PO Created",
             "date": get_datetime(po.get("creation")),
             "details": f"PO: {doc_name}",
             "amount": flt(po.get('total_amount', 0)),
             "payment": 0,
-            "project": project_name_from_po
+            "project": project_name_from_po,
+            "is_inactive": is_inactive
         })
         log_counter += 1
 
@@ -82,7 +89,8 @@ def get_po_ledger_data(vendor_id):
             "details": f"SR: {doc_name}",
             "amount": sr_amount_no_gst,
             "payment": 0,
-            "project": resolved_project_name
+            "project": resolved_project_name,
+            "is_inactive": False
         })
         log_counter += 1
 
@@ -119,7 +127,8 @@ def get_po_ledger_data(vendor_id):
                 "details": f"Invoice No: {invoice.get('invoice_no')}\nFor {doc_type_abbr}: {doc_name}",
                 "amount": invoice_amount,
                 "payment": 0,
-                "project": project_name_for_invoice
+                "project": project_name_for_invoice,
+                "is_inactive": doc_name in inactive_doc_names
             })
             log_counter += 1
 
@@ -150,7 +159,8 @@ def get_po_ledger_data(vendor_id):
                 "details": f"UTR: {payment.get('utr', 'N/A')}\nFor {doc_type_abbr}: {linked_doc_name}",
                 "amount": 0,
                 "payment": flt(payment.get("amount", 0)),
-                "project": project_name_for_payment
+                "project": project_name_for_payment,
+                "is_inactive": linked_doc_name in inactive_doc_names
             })
             log_counter += 1
 

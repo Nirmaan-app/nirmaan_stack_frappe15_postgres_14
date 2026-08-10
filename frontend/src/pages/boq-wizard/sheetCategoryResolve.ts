@@ -8,6 +8,15 @@ import type {
   ResolvedSheetCategory,
   SheetCategoryRow,
 } from "./boqTypes";
+// TYPE-ONLY (erased at build): the tooltip's `state` parameter is defined as exactly what
+// deriveVerdictState returns, so the two cannot drift. No runtime import, so no module edge.
+import type { deriveVerdictState } from "./CategoryVerdictPicker";
+
+/** The three carry-provenance fields the tooltip reads -- nothing else about the row. */
+type CarriedProvenance = Pick<
+  SheetCategoryRow,
+  "carried_from_boq" | "carried_from_version" | "carried_from_other_boq"
+>;
 
 /**
  * Adapt a server-resolved row onto the grid's SheetCategoryRow shape, so PricingGrid +
@@ -30,6 +39,11 @@ import type {
  * someone else made on another BoQ. That indistinguishability is what made Amendment D delete the
  * annotation carry outright, so dropping this field here would re-create the defect the whole
  * amendment exists to avoid.
+ *
+ * ⚠️ Amendment F (R3) adds `carried_from_version`, the other half of that pair, on the same
+ * not-telemetry footing. Within ONE BoQ it is the only half that carries information -- the source
+ * and the destination are the same BoQ there, so naming the BoQ names what the reader is already
+ * looking at.
  */
 export function resolvedToSheetCategoryRow(r: ResolvedSheetCategory): SheetCategoryRow {
   const isBlank = r.effective_source === "blank";
@@ -43,7 +57,54 @@ export function resolvedToSheetCategoryRow(r: ResolvedSheetCategory): SheetCateg
     human_category_id: r.human_category_id ?? "",
     effective_category_id: r.effective_category_id ?? "",
     carried_from_boq: r.carried_from_boq ?? null,
+    // Amendment F (R3): the VERSION half of the provenance pair, passed through for the same
+    // reason -- and within one BoQ it is the ONLY half that says anything, since there the source
+    // and the destination are the same BoQ. `?? null` normalises only absent/null; a legitimate 0
+    // (the server's NOT-NULL Int default on an uncarried row) passes through VERBATIM.
+    carried_from_version: r.carried_from_version ?? null,
+    // Amendment F (R16): which of the two halves is the informative one. It CANNOT be re-derived
+    // downstream -- the grid is never told which BoQ it is rendering -- so dropping it here would
+    // leave the tooltip with no way to tell the two carries apart. `?? null` again keeps a
+    // legitimate `false` false.
+    carried_from_other_boq: r.carried_from_other_boq ?? null,
   };
+}
+
+/**
+ * The Category cell's tooltip: the whole `title` string, or undefined when there is nothing to
+ * say. Extracted from the grid's JSX so owner ruling R3 is enforceable by ASSERTION -- this repo
+ * has no DOM environment (`environment: "node"`, deliberate), so a string built inline in a
+ * `title=` attribute is untestable. Same reasoning as `carryChangesPhrase` (R13).
+ *
+ * `state` is whatever `deriveVerdictState` returned, tied to it by construction (a type-only
+ * import, fully erased at runtime -- no module edge, no cycle) so the two can never drift.
+ *
+ * PURE. The caller does no comparison and needs no knowledge of which BoQ it is rendering; R16
+ * put that decision on the server, which is the only place holding both operands.
+ */
+export function categoryCellTitle(
+  label: string,
+  state: ReturnType<typeof deriveVerdictState>,
+  cat: CarriedProvenance | undefined,
+): string | undefined {
+  if (state === "human") return `${label} (your pick)`;
+  if (state === "carried") return `${label} (carried from ${carriedFromNoun(cat)})`;
+  return label || undefined;
+}
+
+/**
+ * What to call the place a carried verdict came from.
+ *
+ * VERSION only when the server positively said the source was this same BoQ AND gave a real
+ * version. Everything else -- a cross-BoQ carry, a pre-R16 payload with no signal, or a carry
+ * stamped at version 0 (which is what an UNCARRIED row reads on that NOT-NULL Int column, so it
+ * is never a real source version) -- falls back to naming the BoQ, which is the wording that
+ * shipped first and is correct wherever the reader is not already looking at that BoQ.
+ */
+function carriedFromNoun(cat: CarriedProvenance | undefined): string {
+  const version = cat?.carried_from_version;
+  if (cat?.carried_from_other_boq === false && version) return `Version ${version}`;
+  return `${cat?.carried_from_boq}`;
 }
 
 /**

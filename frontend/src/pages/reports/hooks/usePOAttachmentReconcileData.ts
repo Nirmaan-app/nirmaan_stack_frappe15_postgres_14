@@ -1,11 +1,10 @@
 import { useFrappeGetDocList, FrappeDoc, GetDocListArgs } from 'frappe-react-sdk';
 import { useMemo } from 'react';
-import { ProcurementOrder, InvoiceDataType } from '@/types/NirmaanStack/ProcurementOrders';
+import { ProcurementOrder } from '@/types/NirmaanStack/ProcurementOrders';
 import { NirmaanAttachment } from '@/types/NirmaanStack/NirmaanAttachment';
 import { Projects } from '@/types/NirmaanStack/Projects';
 import { Vendors } from '@/types/NirmaanStack/Vendors';
 import { ProjectPayments } from '@/types/NirmaanStack/ProjectPayments';
-import { getTotalInvoiceAmount } from '@/utils/getAmounts';
 import { parseNumber } from '@/utils/parseNumber';
 import { queryKeys, getPaymentReportListOptions } from '@/config/queryKeys';
 
@@ -68,7 +67,7 @@ interface UsePOAttachmentReconcileDataResult {
 const getPOAttachmentReconcileOptions = (): GetDocListArgs<FrappeDoc<ProcurementOrder>> => ({
     fields: [
         'name', 'creation', 'modified', 'project', 'vendor', 'total_amount',
-        'loading_charges', 'freight_charges', 'invoice_data', 'status',
+        'loading_charges', 'freight_charges', 'status',
         'project_name', 'vendor_name', 'latest_delivery_date', 'amount_paid',
         'po_amount_delivered'
     ],
@@ -189,6 +188,43 @@ export const usePOAttachmentReconcileData = (): UsePOAttachmentReconcileDataResu
     }, [payments]);
 
     // Group attachments by PO name
+
+    // Fetch Vendor Invoices
+    const poNames = useMemo(() => purchaseOrders?.map(po => po.name) || [], [purchaseOrders]);
+    const {
+        data: vendorInvoices,
+        isLoading: invoicesLoading,
+        error: invoicesError,
+    } = useFrappeGetDocList<VendorInvoice>(
+        "Vendor Invoices",
+        {
+            fields: ['name', 'document_name', 'invoice_no', 'invoice_date', 'invoice_amount'],
+            filters: [
+                ['document_type', '=', 'Procurement Orders'],
+                ['status', '=', 'Approved'],
+                ['document_name', 'in', poNames]
+            ],
+            limit: 100000
+        },
+        poNames.length > 0 ? ["Vendor Invoices", "poAttachmentReconcile", ...poNames] : null
+    );
+
+    // Group invoices by PO
+    const invoicesByPO = useMemo(() => {
+        const map: Record<string, InvoiceHoverItem[]> = {};
+        if (vendorInvoices) {
+            vendorInvoices.forEach(inv => {
+                if (!map[inv.document_name]) map[inv.document_name] = [];
+                map[inv.document_name].push({
+                    date: inv.invoice_date,
+                    invoiceNo: inv.invoice_no,
+                    amount: inv.invoice_amount || 0
+                });
+            });
+        }
+        return map;
+    }, [vendorInvoices]);
+
     const attachmentsByPO = useMemo(() => {
         const map: Record<string, { dcs: AttachmentHoverItem[]; mirs: AttachmentHoverItem[] }> = {};
 
@@ -218,7 +254,7 @@ export const usePOAttachmentReconcileData = (): UsePOAttachmentReconcileDataResu
 
     // Transform PO data to row data
     const reportData = useMemo<POAttachmentReconcileRowData[] | null>(() => {
-        if (poLoading || attachmentsLoading || paymentsLoading || projectsLoading || vendorsLoading) {
+        if (poLoading || attachmentsLoading || paymentsLoading || projectsLoading || vendorsLoading || invoicesLoading) {
             return null;
         }
 
@@ -227,19 +263,8 @@ export const usePOAttachmentReconcileData = (): UsePOAttachmentReconcileDataResu
         }
 
         return purchaseOrders.map((po) => {
-            // Parse invoices from invoice_data
-            const invoiceData = po.invoice_data?.data as InvoiceDataType | undefined;
-            const invoices: InvoiceHoverItem[] = [];
-
-            if (invoiceData) {
-                Object.entries(invoiceData).forEach(([date, invoice]) => {
-                    invoices.push({
-                        date,
-                        invoiceNo: invoice.invoice_no,
-                        amount: parseNumber(invoice.amount),
-                    });
-                });
-            }
+            const invoices = invoicesByPO[po.name] || [];
+            const totalInvoiceAmount = invoices.reduce((sum, inv) => sum + inv.amount, 0);
 
             // Get attachments for this PO
             const poAttachments = attachmentsByPO[po.name] || { dcs: [], mirs: [] };
@@ -256,7 +281,7 @@ export const usePOAttachmentReconcileData = (): UsePOAttachmentReconcileDataResu
                 status: po.status,
                 totalPOAmount: parseNumber(po.total_amount),
                 totalAmountPaid: paymentsMap[po.name] || 0,
-                totalInvoiceAmount: getTotalInvoiceAmount(po.invoice_data),
+                totalInvoiceAmount,
                 poAmountDelivered: parseNumber(po.po_amount_delivered),
                 invoiceCount: invoices.length,
                 dcCount: poAttachments.dcs.length,

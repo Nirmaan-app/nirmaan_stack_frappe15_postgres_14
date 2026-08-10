@@ -3,9 +3,35 @@
 > **Relocated from root `CLAUDE.md`** in the 2026-06-25 context-hygiene split (it was bloating the
 > always-loaded instruction file with per-commit as-built detail). **Load this before working on BoQ
 > backend code.** Source of truth for live status = `frontend/.claude/plans/boq-upload-plan.md`.
-> Frontend conventions = `frontend/.claude/context/domain/boq-frontend.md`. The DOCS-UPDATE rule was
+> Frontend conventions = `boq-frontend.md`. The DOCS-UPDATE rule was
 > revised in the same split: per-slice / per-commit detail goes HERE + the plan, **never** back into the
 > always-loaded `CLAUDE.md`.
+
+---
+
+## Residence — concept → owner (ADR-0010)
+
+This manifest names the **one owning module** for each BoQ backend concept (per [ADR-0010](../../../docs/adr/0010-module-residence-rules.md)). It exists because root `CLAUDE.md` tells every reader to *"consult the domain doc's `## Residence — concept → owner` manifest"* before creating a helper for an existing concept — and until now BoQ had no such manifest to consult, so that instruction dead-ended on the largest active feature in the app. Shape copied from `procurement.md`, per its own template note.
+
+**No-new-scatter rule:** an edit touching one of these concepts must route through its owner — or at minimum must not create a *new* copy of the rule/shape/state. An **UNASSIGNED** owner means no single home exists yet: do **not** pick one ad-hoc; ask.
+
+⚠️ **Rows here are VERIFIED, not aspirational** — every owner below was resolved to a real definition when the row was written. Do not add a row you have not opened the file for.
+
+| Concept | Owner (module) | Nothing else may… |
+|---|---|---|
+| **BCS readiness** — "may a BCS cost be written on this committed sheet+version?" | `services/boq_bcs/readiness.py` (`bcs_is_ready`); `api/boq/wizard/bcs.py` **re-exports** it | define a second copy, or reach it by importing the api module — that closes `committed_carry -> bcs -> pricing -> committed_carry`. Pinned by identity **and** by an import-graph test |
+| **BCS column-confirmation rules** — what a valid quantity source is, what the amount denominator is, which combinations are refused | `services/boq_bcs/sources.py` (`build_qty_source` / `build_amount_source`) — a **pure** module, registered in `scripts/residence_check.py` `PURE_MODULES` | re-decide any of the three inside an endpoint. ⚠️ Do **not** register `readiness.py` alongside it: that module reads `frappe.db` by design and would fail the purity ratchet |
+| **Classification freeze state** | `services/boq_category/persist.py` (`is_sheet_classification_frozen`) — THE single frozen-reader | read `classification_frozen` off `BoQ Sheet` directly, or OR it into the pricing lock (pricing stays live under a classification freeze) |
+| **Effective category for a row across engines** (the multi-engine ladder) | `services/boq_category/persist.py` (`resolve_row_ladder`) | re-implement the human > auto > confidence precedence at a call site |
+| **Blank-category eligible count** (gate, banner, freeze summary, stamp inverse) | `services/boq_category/persist.py` (`blank_category_eligible_rows`, `population=` selects the set) | count blanks independently — the gate and the number on screen must come from ONE function or they can disagree |
+| **Committed-node qty-bearing test** | `services/boq_category/persist.py` (`node_is_qty_bearing` / `is_nonzero_qty`) | re-derive it in an endpoint. The client `isRowQtyBearing` is a DELIBERATE cross-language duplicate, not a second owner |
+| **Category gate condition** (may a rate be written at all?) | `api/boq/wizard/pricing.py` (`_categories_gate_ok`) — one condition, each call site keeping its own voiced message | invent a second condition. ⚠️ The cross-BoQ revision carry is deliberately **NOT** gated on it (ADR-0014 Amendment E) — that omission is load-bearing, not an oversight |
+| **Mandatory amount-formula completeness** | `api/boq/wizard/pricing.py` (`_sheet_formulas_complete`) | bypass it via the priceability override — the formula gate is ABSOLUTE and outranks it |
+| **Layer-carry dispatch** (plan **and** apply, both carry surfaces) | `api/boq/wizard/committed_carry.py` (`walk_layers`) | add a bespoke "carry X" action on either endpoint. One registration must light both surfaces, or the plan read and the apply can disagree |
+| **"Is this the same row?" across committed versions/BoQs** | `api/boq/wizard/committed_carry.py` (`committed_excel_row_match` / `version_addressed_excel_row_match`) | write a per-layer row matcher — that is a second answer to one question |
+| **Single-editor pricing lock** | `api/boq/wizard/pricing_lock.py` (`acquire_or_refresh`) | invent a second lock. A lock reject must mutate NOTHING |
+| **The joined `description` + `description_parts_raw` shape** | `services/boq_parser/classifier.py` (`_description_columns` / `_description_parts`) — owner-locked | re-join description columns anywhere else, or assume a single description column |
+| **Committed-tier amount / parent-rate recomputation** | **NONE, deliberately** — the committed controllers are CAPTURE-ONLY; the future tendering module owns calculations | re-add `amount = qty x rate` or a parent-rate overwrite to a committed controller |
 
 ---
 
@@ -210,10 +236,7 @@ NOT a hard block). bench migrate clean; backend 920 tests green (test_review_scr
 suite incl. orchestrator 69 / hierarchy 63); frontend tsc 0 new errors. NOTE: Frappe does not auto-drop DB columns -- the
 physical `validation_warnings` column on `tabBoQ Review Row` persists orphaned until an explicit `DROP COLUMN`.
 
-**Last updated:** 2026-06-24. **Live status + full per-slice as-built detail: see
-`frontend/.claude/plans/boq-upload-plan.md`** (the dedicated `### Slice ...` / `### Module 3 Slice ...` /
-`## Phase 5 Pricing Editor -- slice detail` sections) and `frontend/CLAUDE.md` for frontend conventions. The prepended
-per-slice status-block history was removed in the docs-hygiene cleanup (git holds it). **Latest slice (full-stack):**
+**Last updated:** 2026-06-24. **Latest slice (full-stack):**
 **Cluster B -- formula-vs-document reconciliation (per-cell choice).** When a committed (DOCUMENT) amount and the
 formula-computed amount DIVERGE for the same amount cell, the editor FLAGS it (mismatch only -- never auto-fixes; the
 tendering doc is client-owned) and lets the user CHOOSE per cell which value wins, stored stickily per committed version in
@@ -242,10 +265,7 @@ rate gate + a "Declare amount formulas to enable rate entry." banner. `save_amou
 gate. NO migrate (reads existing formula storage). backend test_pricing 104->110, frontend vitest 226->235, tsc 3175 (0 new),
 2026-06-24; see the pricing-editor quick rules below + plan §"Mandatory amount-formula gate". **Prior slice (full-stack):**
 Phase 5 Slice 4b-ACKNOWLEDGE -- the per-ROW review-strip DISMISSAL ("reviewed / looks OK") layer (NEW doctype BoQ Cell Dismissal +
-**Last updated:** 2026-06-25. **Live status + full per-slice as-built detail: see
-`frontend/.claude/plans/boq-upload-plan.md`** (the dedicated `### Slice ...` / `### Module 3 Slice ...` /
-`## Phase 5 Pricing Editor -- slice detail` sections) and `frontend/CLAUDE.md` for frontend conventions. The prepended
-per-slice status-block history was removed in the docs-hygiene cleanup (git holds it). **Latest frontend slice
+**Last updated:** 2026-06-25. **Latest frontend slice
 (2026-06-25):** BoQ review-screen FUZZY DESCRIPTION SEARCH -- FRONTEND-ONLY (no backend/doctype). The case-insensitive
 SUBSTRING search in BOTH `ReviewTree.tsx` (the #159 find-&-filter) and `SheetSearchView.tsx` (the row-finder, also the
 RestructureModal parent-picker) is replaced by the app-wide token-scoring matcher (`utils/tokenSearch`, the FuzzySearchSelect
@@ -293,7 +313,7 @@ which makes the no-formula-at-pricing state impossible (so the flag could never 
 
 | Feature | Branch | Spec | Status |
 |---|---|---|---|
-| BoQ Upload & Management | `feature/boq-phase-3` | `frontend/.claude/plans/boq-upload-plan.md` | Phases 1.x (parser, 588 tests) + Phase 3 Modules 1a/1b/2a/2b/3 COMPLETE. Review-screen arc COMPLETE: Slice A backend (feat fff26abd; -1 sentinel, resolve_effective / check_structural_integrity / append_edit_log_entry + 3 endpoints) -> B1/B1.1/B2a/B2b/B2c frontend (review tree + column descriptors + advisory flags + detail panel + Status column) -> C-values arc C-v1..C-v2d-fix (inline value/text/per-area editing + per-row Remarks). Restructure surface Slice 1a (searchable sheet-view `SheetSearchView.tsx`, FRONTEND-ONLY, feat 5ecf1820) LIVE-CERTIFIED 2026-06-09 (5/5 PASS on BOQ-26-00145). Slice 1b-alpha BACKEND (feat f7761415) -- shared write helper `_apply_and_save_row_edit` (save-inside/commit-outside) + transactional `save_review_restructure` (atomic reclassify+reparent, batch cycle-guard, FROM-but-not-TO assignable classes) + human-root via NEW `human_is_root` Check field (Option B, orthogonal to the -1 sentinel). CURRENT: Slice 1b-beta FRONTEND COMPLETE (feat e8eeab58) -- the restructure MODAL: detail-panel pill DropdownMenu -> childless light confirm OR staged `RestructureModal` (5 child-placement options, Path A fully-resolved child_moves, mounts certified SheetSearchView untouched as parent picker, row_number->row_index resolution + no-match guard), `onRestructured` reuses handleSaved; dev route + `_DevSheetSearchHarness.tsx` REMOVED. tsc 0 wizard-file errors + build exit 0; manual live-cert LC1-12 pending. Restructure-surface arc COMPLETE pending live-cert. Slice D1 -- "Parsed Check Done" marking + read-only FREEZE + Un-mark (BACKEND + FRONTEND): four-endpoint write freeze on a checked sheet via `_guard_sheet_not_frozen`, mark precondition (Parsed-only), new `unmark_sheet_parsed_check_done`, `readOnly` ReviewTree gating + Mark button + teal banner; test_review_screen 137 -> 147. Slice D2 -- per-sheet review CSV export (FRONTEND ONLY, feat 27866a2e): NEW wizard-local writer `exportReviewCsv.ts` (flat columns, per-area = one column per area per role, numbers raw, UTF-8 BOM) + "Export CSV" header button (status- and view-independent); reuses ReviewTree `resolveDescriptorValue`/`computeDepths`/`CLS_LABELS`/`FIXED_ROLE_DEDUPE` via export-keyword-only; the shared `src/utils/exportToCsv.ts` deliberately untouched. Slice D2b (latest) -- hub XLSX workbook export + per-card CSV export (FRONTEND + dependency, feat 91bf255d): a global "Export reviewed" footer button -> `ExportWorkbookDialog` (pre-ticked checklist of "Parsed Check Done" sheets) -> SEQUENTIAL `get_review_rows` fetch -> ONE .xlsx (one tab/sheet, numbers numeric, abort-on-any-failure) via NEW `exportReviewXlsx.ts`; a per-card "Export CSV" button -> the existing D2 .csv. NEW dep `exceljs` DYNAMICALLY imported (own lazy chunk, absent from hub/entry chunks); npm `xlsx` forbidden (abandoned + 2 CVEs). The D2 writer refactored to share a `buildReviewSheet` typed-cell core -> .csv stays byte-identical; Excel tab names sanitized+de-duplicated (tab title only, Sheet Name column verbatim #152). `SheetReviewPage.tsx` untouched (writer signature unchanged). OWED: single-pass full-sheet-read endpoint; C-values rate-editing live-cert against a Pattern-2-rate vehicle. **PHASE 4 (committed BoQ-model rebuild) COMPLETE: P4-1 BoQ Sheet tier -> P4-2 node re-point (sheet link + denormalized boq sync-guard) -> P4-3 commit field-mapping lock -> P4-4 8 missing node fields -> P4-5 child Float->Currency -> P4-6 skip-filter verify -> structural CHECKPOINT -> P4-FINAL (parent_boq retired + dev fixtures purged; 34 uploaded live-cert workbooks preserved). NEXT = Phase 5 commit arc (Finalized commit gate + general-specs faithful-row capture).** Full slice-by-slice history + as-built detail: see boq-upload-plan.md. Do not duplicate the changelog here. |
+| BoQ Upload & Management | `feature/boq-phase-3` | `frontend/.claude/plans/boq-upload-plan.md` | Phases 1.x (parser, 588 tests) + Phase 3 Modules 1a/1b/2a/2b/3 COMPLETE. Review-screen arc COMPLETE: Slice A backend (feat fff26abd; -1 sentinel, resolve_effective / check_structural_integrity / append_edit_log_entry + 3 endpoints) -> B1/B1.1/B2a/B2b/B2c frontend (review tree + column descriptors + advisory flags + detail panel + Status column) -> C-values arc C-v1..C-v2d-fix (inline value/text/per-area editing + per-row Remarks). Restructure surface Slice 1a (searchable sheet-view `SheetSearchView.tsx`, FRONTEND-ONLY, feat 5ecf1820) LIVE-CERTIFIED 2026-06-09 (5/5 PASS on BOQ-26-00145). Slice 1b-alpha BACKEND (feat f7761415) -- shared write helper `_apply_and_save_row_edit` (save-inside/commit-outside) + transactional `save_review_restructure` (atomic reclassify+reparent, batch cycle-guard, FROM-but-not-TO assignable classes) + human-root via NEW `human_is_root` Check field (Option B, orthogonal to the -1 sentinel). CURRENT: Slice 1b-beta FRONTEND COMPLETE (feat e8eeab58) -- the restructure MODAL: detail-panel pill DropdownMenu -> childless light confirm OR staged `RestructureModal` (5 child-placement options, Path A fully-resolved child_moves, mounts certified SheetSearchView untouched as parent picker, row_number->row_index resolution + no-match guard), `onRestructured` reuses handleSaved; dev route + `_DevSheetSearchHarness.tsx` REMOVED. tsc 0 wizard-file errors + build exit 0; manual live-cert LC1-12 pending. Restructure-surface arc COMPLETE pending live-cert. Slice D1 -- "Parsed Check Done" marking + read-only FREEZE + Un-mark (BACKEND + FRONTEND): four-endpoint write freeze on a checked sheet via `_guard_sheet_not_frozen`, mark precondition (Parsed-only), new `unmark_sheet_parsed_check_done`, `readOnly` ReviewTree gating + Mark button + teal banner; test_review_screen 137 -> 147. Slice D2 -- per-sheet review CSV export (FRONTEND ONLY, feat 27866a2e): NEW wizard-local writer `exportReviewCsv.ts` (flat columns, per-area = one column per area per role, numbers raw, UTF-8 BOM) + "Export CSV" header button (status- and view-independent); reuses ReviewTree `resolveDescriptorValue`/`computeDepths`/`CLS_LABELS`/`FIXED_ROLE_DEDUPE` via export-keyword-only; the shared `src/utils/exportToCsv.ts` deliberately untouched. Slice D2b (latest) -- hub XLSX workbook export + per-card CSV export (FRONTEND + dependency, feat 91bf255d): a global "Export reviewed" footer button -> `ExportWorkbookDialog` (pre-ticked checklist of "Parsed Check Done" sheets) -> SEQUENTIAL `get_review_rows` fetch -> ONE .xlsx (one tab/sheet, numbers numeric, abort-on-any-failure) via NEW `exportReviewXlsx.ts`; a per-card "Export CSV" button -> the existing D2 .csv. NEW dep `exceljs` DYNAMICALLY imported (own lazy chunk, absent from hub/entry chunks); npm `xlsx` forbidden (abandoned + 2 CVEs). The D2 writer refactored to share a `buildReviewSheet` typed-cell core -> .csv stays byte-identical; Excel tab names sanitized+de-duplicated (tab title only, Sheet Name column verbatim #152). `SheetReviewPage.tsx` untouched (writer signature unchanged). OWED: single-pass full-sheet-read endpoint; C-values rate-editing live-cert against a Pattern-2-rate vehicle. **PHASE 4 (committed BoQ-model rebuild) COMPLETE: P4-1 BoQ Sheet tier -> P4-2 node re-point (sheet link + denormalized boq sync-guard) -> P4-3 commit field-mapping lock -> P4-4 8 missing node fields -> P4-5 child Float->Currency -> P4-6 skip-filter verify -> structural CHECKPOINT -> P4-FINAL (parent_boq retired + dev fixtures purged; 34 uploaded live-cert workbooks preserved). NEXT = Phase 5 commit arc (Finalized commit gate + general-specs faithful-row capture).** Full slice-by-slice history + as-built detail: see plans/boq-upload-plan.md. Do not duplicate the changelog here. |
 
 ---
 
@@ -419,11 +439,11 @@ All wizard endpoints live in `nirmaan_stack/api/boq/wizard/`. All use `@frappe.w
 
 - `get_committable_sheets(boq_name)` -- `@frappe.whitelist()` bare (READ-ONLY). Loads `BOQs.sheet_drafts` + the `BOQs.general_specs_sheets` pointer (general-specs = POINTER membership on `source_sheet_name`, NOT `wizard_status == "General specs"` which is never literally stored), applies the pure helper. Returns `{"committable_sheets": [{"sheet_name", "disposition"}, ...]}`. Missing/unknown BoQ -> `frappe.throw`. URL: `/api/method/nirmaan_stack.api.boq.wizard.commit_gate.get_committable_sheets`
 
-- `get_committed_state(boq_name)` -- (Phase 5 Slice 4a, feat 964e14d0) `@frappe.whitelist()` bare (READ-ONLY). The per-sheet CURRENT committed-state read for the Slice-4b hub UI (committed badge + timestamp, "Committed: N" footer count, last-committed date/time in the commit modal). Sourced from the **`BoQ Committed Sheet Grid`** tier -- the authoritative `committed_at` source (written for BOTH dispositions, anchors the shared `commit_version`, one `is_current=1` row per (boq, source_sheet_name) by the pipeline's freeze-and-supersede invariant). Same missing/unknown-BoQ guard as `get_committable_sheets` (`frappe.throw` "boq_name is required." / "BOQs '...' not found."). Queries `frappe.get_all("BoQ Committed Sheet Grid", filters={"boq", "is_current": 1}, fields=["source_sheet_name", "committed_at", "commit_version"])` and maps each current row to `{"sheet_name": <source_sheet_name VERBATIM #152>, "committed_at": <Datetime|None>, "commit_version": int}`. Returns `{"committed_state": [...]}`; empty when nothing committed. SEPARATE from `get_committable_sheets` (eligibility) -- the modal needs BOTH (eligibility + committed-state). PURE read (no set_value/insert/save/commit). No dedup logic (the one-current invariant is pipeline-enforced). `test_commit_gate` 13 -> 18 (+5: current state, superseded-excluded, verbatim trailing space, empty case, unknown-BoQ throws). URL: `/api/method/nirmaan_stack.api.boq.wizard.commit_gate.get_committed_state`. **CONSUMED by the frontend (Phase 5 Slice 4b, feat 53645ab7):** the BoQ hub now wires the commit UI onto this read + the existing `commit_boq` -- a "Commit" footer button -> a checklist modal (`CommitDialog.tsx`) of `get_committable_sheets` rows that fires `commit_boq` (POST, `sheet_subset`=ordered ticked list) with a one-step re-commit warning (naming already-committed sheets + their last-committed date/time from this endpoint), a per-card "Committed" badge + timestamp, and a hub "Committed: N" tally. Frontend-only; committed-ness stays a separate marker, NOT a `wizard_status`. Full detail in frontend/CLAUDE.md + boq-upload-plan.md "Phase 5 Slice 4b". **Phase 5 Slice 3d (in-editor sheet tabs, feat pending) -- ADDITIVE `sheet_order`:** the per-sheet entry now also carries `sheet_order` (workbook tab order) so the pricing editor's tab strip lists sheets in workbook order. `sheet_order` is NOT on the queried `BoQ Committed Sheet Grid` tier -- it lives on the committed `BoQ Sheet` tier (written by the commit pipeline for both dispositions). It is sourced via a SECOND lookup `frappe.get_all("BoQ Sheet", filters={"boq", "is_current": 1}, fields=["sheet_name", "sheet_order"])` -> a `{sheet_name: sheet_order}` dict joined on the committed sheet identity (sheet_name VERBATIM #152); `None` when no current BoQ Sheet matches (defensive). The result is `.sort`ed by `(sheet_order is None, sheet_order or 0, sheet_name)` -> workbook order, None last, name tiebreak. PURELY ADDITIVE (existing keys/shape unchanged; the hub maps committedMap by sheet_name + does not assume order -> UNCHANGED, its TenderingDialog list is just now in workbook order). NO migrate (query field-add; sheet_order already exists on BoQ Sheet). `test_commit_gate` 18 -> 19 (+1 `TestGetCommittedStateOrdering`: out-of-order seed -> ordered + shape includes sheet_order). **General-specs faithful-grid view (feat pending) -- ADDITIVE `sheet_disposition`:** the per-sheet entry now ALSO carries `sheet_disposition` (grid_only / grid_and_nodes -- the commit-time discriminator, set on `BoQ Committed Sheet Grid` at commit). Added to the grid-tier `fields=[...]` + the return dict (purely additive). Lets the pricing editor fork a grid-only general-specs sheet to a read-only faithful-grid view. `test_commit_gate` 19 -> 20 (+1 `TestGetCommittedStateDisposition`).
+- `get_committed_state(boq_name)` -- (Phase 5 Slice 4a, feat 964e14d0) `@frappe.whitelist()` bare (READ-ONLY). The per-sheet CURRENT committed-state read for the Slice-4b hub UI (committed badge + timestamp, "Committed: N" footer count, last-committed date/time in the commit modal). Sourced from the **`BoQ Committed Sheet Grid`** tier -- the authoritative `committed_at` source (written for BOTH dispositions, anchors the shared `commit_version`, one `is_current=1` row per (boq, source_sheet_name) by the pipeline's freeze-and-supersede invariant). Same missing/unknown-BoQ guard as `get_committable_sheets` (`frappe.throw` "boq_name is required." / "BOQs '...' not found."). Queries `frappe.get_all("BoQ Committed Sheet Grid", filters={"boq", "is_current": 1}, fields=["source_sheet_name", "committed_at", "commit_version"])` and maps each current row to `{"sheet_name": <source_sheet_name VERBATIM #152>, "committed_at": <Datetime|None>, "commit_version": int}`. Returns `{"committed_state": [...]}`; empty when nothing committed. SEPARATE from `get_committable_sheets` (eligibility) -- the modal needs BOTH (eligibility + committed-state). PURE read (no set_value/insert/save/commit). No dedup logic (the one-current invariant is pipeline-enforced). `test_commit_gate` 13 -> 18 (+5: current state, superseded-excluded, verbatim trailing space, empty case, unknown-BoQ throws). URL: `/api/method/nirmaan_stack.api.boq.wizard.commit_gate.get_committed_state`. **CONSUMED by the frontend (Phase 5 Slice 4b, feat 53645ab7):** the BoQ hub now wires the commit UI onto this read + the existing `commit_boq` -- a "Commit" footer button -> a checklist modal (`CommitDialog.tsx`) of `get_committable_sheets` rows that fires `commit_boq` (POST, `sheet_subset`=ordered ticked list) with a one-step re-commit warning (naming already-committed sheets + their last-committed date/time from this endpoint), a per-card "Committed" badge + timestamp, and a hub "Committed: N" tally. Frontend-only; committed-ness stays a separate marker, NOT a `wizard_status`. Full detail in frontend/CLAUDE.md + plans/boq-upload-plan.md "Phase 5 Slice 4b". **Phase 5 Slice 3d (in-editor sheet tabs, feat pending) -- ADDITIVE `sheet_order`:** the per-sheet entry now also carries `sheet_order` (workbook tab order) so the pricing editor's tab strip lists sheets in workbook order. `sheet_order` is NOT on the queried `BoQ Committed Sheet Grid` tier -- it lives on the committed `BoQ Sheet` tier (written by the commit pipeline for both dispositions). It is sourced via a SECOND lookup `frappe.get_all("BoQ Sheet", filters={"boq", "is_current": 1}, fields=["sheet_name", "sheet_order"])` -> a `{sheet_name: sheet_order}` dict joined on the committed sheet identity (sheet_name VERBATIM #152); `None` when no current BoQ Sheet matches (defensive). The result is `.sort`ed by `(sheet_order is None, sheet_order or 0, sheet_name)` -> workbook order, None last, name tiebreak. PURELY ADDITIVE (existing keys/shape unchanged; the hub maps committedMap by sheet_name + does not assume order -> UNCHANGED, its TenderingDialog list is just now in workbook order). NO migrate (query field-add; sheet_order already exists on BoQ Sheet). `test_commit_gate` 18 -> 19 (+1 `TestGetCommittedStateOrdering`: out-of-order seed -> ordered + shape includes sheet_order). **General-specs faithful-grid view (feat pending) -- ADDITIVE `sheet_disposition`:** the per-sheet entry now ALSO carries `sheet_disposition` (grid_only / grid_and_nodes -- the commit-time discriminator, set on `BoQ Committed Sheet Grid` at commit). Added to the grid-tier `fields=[...]` + the return dict (purely additive). Lets the pricing editor fork a grid-only general-specs sheet to a read-only faithful-grid view. `test_commit_gate` 19 -> 20 (+1 `TestGetCommittedStateDisposition`).
 
 **`commit_pipeline.py`** (Phase 5 Slice 3a, feat pending) -- the combined commit shell + grid write-body. The FIRST writer of REAL parsed BoQ data into the committed schema. Single public endpoint:
 
-- `commit_boq(boq_name, sheet_subset)` -- `@frappe.whitelist(methods=["POST"])`. Commits a subset of a BoQ's sheets. SERVER-SIDE GATE RE-CHECK: every sheet in `sheet_subset` MUST be in the LIVE `compute_committable_sheets` set (same general-specs pointer read the gate uses) or the whole call throws BEFORE any file fetch / write -- the caller's subset is never trusted. `sheet_subset` accepts a JSON-string list or a Python list; empty/missing throws. SINGLE-OPEN: one `_fetch_boq_file_to_tempfile` + one `openpyxl.load_workbook`, then loop the sheets, each grid built by the SHARED `sheet_preview._extract_grid_rows(ws)` inside the one open workbook (no per-sheet re-open, no whitelisted-endpoint loop). **PER-SHEET FAILURE ISOLATION (Phase 5 Slice 5, feat 09714041):** the per-sheet loop wraps each sheet in `try/except` -- catch-rollback-continue-and-report (was propagate-and-abort). On a sheet failure it calls **`frappe.db.rollback()` (MANDATORY -- catching the exception SUPPRESSES Frappe's request-level rollback, so without it the failed sheet's freeze-before-write [prior `is_current` set to 0] + partial new writes stay pending and the NEXT sheet's `frappe.db.commit()` FLUSHES them, ORPHANING the sheet -- prior frozen, new incomplete, NO `is_current=1` version; a test proves T2 FAILS if the rollback line is removed)**, records `{sheet_name, reason}` in a new `failed[]` (`reason` via `_commit_failure_reason(e)` -- best-effort HTML-stripped message + safe fallback, never empty), `frappe.log_error`s the traceback, and continues. **DURABLE PERSISTENCE (Slice F1, feat 5c095b34):** immediately AFTER that mandatory `frappe.db.rollback()` the except calls `_record_commit_failure(boq, sheet, reason)` (`set_value` `commit_failure_reason`/`commit_failure_at` on the draft, `update_modified=False`) THEN an explicit `frappe.db.commit()` -- the rollback-then-write-then-commit ORDER is load-bearing: the write is AFTER the rollback so it survives it, the explicit commit is REQUIRED because `commit_boq` has NO trailing commit (a LAST-sheet failure would otherwise be lost), and the draft is a DIFFERENT doctype from the rolled-back tiers so the stamp cannot re-flush a rolled-back tier write (T2 orphan-prevention preserved). The success path's `_commit_one_sheet` CLEARS the stamp via `_clear_commit_failure` folded into its trailing commit. **MIXED STATE is a valid outcome** (some committed + some failed); NO all-or-nothing wrapper; earlier committed sheets are durable (commit-per-sheet boundary UNCHANGED). The sheet-not-in-workbook check is now INSIDE the per-sheet try (a genuinely-absent eligible sheet -> `failed[]`, loop continues); the UPFRONT gate re-check STAYS a whole-call throw (eligibility is a precondition, not a runtime failure). Returns `{"boq_name", "committed": [{sheet_name, disposition, sheet_disposition, grid_name, boq_sheet_name, commit_version, row_count, froze_prior, froze_prior_sheet, node_count, froze_nodes}, ...], "failed": [{sheet_name, reason}, ...]}` (`failed` is `[]` on full success -- the key is always present). URL: `/api/method/nirmaan_stack.api.boq.wizard.commit_pipeline.commit_boq`. **CONSUMED by the frontend (Phase 5 Slice 5 frontend, feat ab4a390b):** after `commit_boq` resolves, the hub surfaces the `{committed, failed}` envelope in an acknowledge-only `CommitResultsModal` (mirrors the parse-completion modal -- single OK) enumerating the committed sheets (with version) and the failed sheets (with reason); mixed outcomes are normal. `CommitDialog` hands the envelope up via `onCommitted(result)`; the hub stores it, fires the Slice-4b mutates, and opens the modal. Frontend detail in frontend/CLAUDE.md + boq-upload-plan.md "Phase 5 Slice 5 (frontend)".
+- `commit_boq(boq_name, sheet_subset)` -- `@frappe.whitelist(methods=["POST"])`. Commits a subset of a BoQ's sheets. SERVER-SIDE GATE RE-CHECK: every sheet in `sheet_subset` MUST be in the LIVE `compute_committable_sheets` set (same general-specs pointer read the gate uses) or the whole call throws BEFORE any file fetch / write -- the caller's subset is never trusted. `sheet_subset` accepts a JSON-string list or a Python list; empty/missing throws. SINGLE-OPEN: one `_fetch_boq_file_to_tempfile` + one `openpyxl.load_workbook`, then loop the sheets, each grid built by the SHARED `sheet_preview._extract_grid_rows(ws)` inside the one open workbook (no per-sheet re-open, no whitelisted-endpoint loop). **PER-SHEET FAILURE ISOLATION (Phase 5 Slice 5, feat 09714041):** the per-sheet loop wraps each sheet in `try/except` -- catch-rollback-continue-and-report (was propagate-and-abort). On a sheet failure it calls **`frappe.db.rollback()` (MANDATORY -- catching the exception SUPPRESSES Frappe's request-level rollback, so without it the failed sheet's freeze-before-write [prior `is_current` set to 0] + partial new writes stay pending and the NEXT sheet's `frappe.db.commit()` FLUSHES them, ORPHANING the sheet -- prior frozen, new incomplete, NO `is_current=1` version; a test proves T2 FAILS if the rollback line is removed)**, records `{sheet_name, reason}` in a new `failed[]` (`reason` via `_commit_failure_reason(e)` -- best-effort HTML-stripped message + safe fallback, never empty), `frappe.log_error`s the traceback, and continues. **DURABLE PERSISTENCE (Slice F1, feat 5c095b34):** immediately AFTER that mandatory `frappe.db.rollback()` the except calls `_record_commit_failure(boq, sheet, reason)` (`set_value` `commit_failure_reason`/`commit_failure_at` on the draft, `update_modified=False`) THEN an explicit `frappe.db.commit()` -- the rollback-then-write-then-commit ORDER is load-bearing: the write is AFTER the rollback so it survives it, the explicit commit is REQUIRED because `commit_boq` has NO trailing commit (a LAST-sheet failure would otherwise be lost), and the draft is a DIFFERENT doctype from the rolled-back tiers so the stamp cannot re-flush a rolled-back tier write (T2 orphan-prevention preserved). The success path's `_commit_one_sheet` CLEARS the stamp via `_clear_commit_failure` folded into its trailing commit. **MIXED STATE is a valid outcome** (some committed + some failed); NO all-or-nothing wrapper; earlier committed sheets are durable (commit-per-sheet boundary UNCHANGED). The sheet-not-in-workbook check is now INSIDE the per-sheet try (a genuinely-absent eligible sheet -> `failed[]`, loop continues); the UPFRONT gate re-check STAYS a whole-call throw (eligibility is a precondition, not a runtime failure). Returns `{"boq_name", "committed": [{sheet_name, disposition, sheet_disposition, grid_name, boq_sheet_name, commit_version, row_count, froze_prior, froze_prior_sheet, node_count, froze_nodes}, ...], "failed": [{sheet_name, reason}, ...]}` (`failed` is `[]` on full success -- the key is always present). URL: `/api/method/nirmaan_stack.api.boq.wizard.commit_pipeline.commit_boq`. **CONSUMED by the frontend (Phase 5 Slice 5 frontend, feat ab4a390b):** after `commit_boq` resolves, the hub surfaces the `{committed, failed}` envelope in an acknowledge-only `CommitResultsModal` (mirrors the parse-completion modal -- single OK) enumerating the committed sheets (with version) and the failed sheets (with reason); mixed outcomes are normal. `CommitDialog` hands the envelope up via `onCommitted(result)`; the hub stores it, fires the Slice-4b mutates, and opens the modal. Frontend detail in frontend/CLAUDE.md + plans/boq-upload-plan.md "Phase 5 Slice 5 (frontend)".
 - Internal write-body (`_commit_one_sheet` -> `_write_grid` + `_write_committed_boq_sheet` + `_commit_node_tree`): PER-SHEET transaction (one trailing `frappe.db.commit()` per sheet, NO savepoints -- the app-wide pattern). ONE SHARED `commit_version` per (boq, sheet) = `_next_commit_version` (grid max+1) covers grid+sheet+nodes. `_write_grid` -- VERBATIM (#152) `source_sheet_name`; `is_current=1`; `committed_at`; prior current frozen -> 0 via `_current_names` + `set_value`. `_write_committed_boq_sheet` (Slice 3b -- FREEZE-AND-SUPERSEDE, 3a's raw-delete RETIRED) -- freezes the prior current BoQ Sheet via `frappe.db.set_value(is_current=0)` (NOT doc.save() -- the list-valued `area_dimensions` would re-serialize and hit get_valid_dict; see gotcha) then INSERTS a fresh current under the shared version; COLUMN-CONFIG SNAPSHOT from the draft's `sheet_config` (`column_role_map`/`column_headers`/`area_dimensions` json.dumps'd, + `header_row`/`header_row_count`/`treat_as`); `sheet_order`/`sheet_label`/`work_packages` carried; `treat_as` = master_preamble (general_specs) / data (finalized); returns (new_name, prior_current_names). `_commit_node_tree` (Slice 3b, FINALIZED only) -- freezes prior nodes (attached to the frozen prior sheet[s], `set_value` is_current=0), reads review rows + `resolve_effective`, maps preamble/line_item -> nodes (the other 4 classifications grid-only), TWO-PASS write (pass1 insert parent-less with list-JSON fields NULL; pass2 set parent_node + doc.save() in ancestor-depth order; pass3 set_value the list-JSON fields attached_notes/edit_log), per-area child explosion via `_explode_area_children` (dual-shape, never downgrade). Returns {node_count, froze_nodes}. **LEVEL-LESS PREAMBLE GUARD (post-dogfood fix):** a real >=1 level (override or parser) is used unchanged; a level-less preamble (no override, no >=1 level) gets a level computed ONCE per sheet by `_compute_levelless_preamble_levels` -- WITH children -> `max(0, min(child effective-level) - 1)` (shallowest child wins; line-item children = level 0); CHILDLESS -> the sheet's shallowest DEFINED preamble level, else 0. (`_real_preamble_level(d)` is the shared level-less test.) The old flat default of 1 broke trees where a child was also level 1; the controller constraint relaxed >=1 -> >=0 to allow level 0.
 - DISPOSITION MAPPING (ties to the gate, NOT re-derived): `_DISPOSITION_TO_SHEET_DISPOSITION` general_specs->grid_only, finalized->grid_and_nodes; `_DISPOSITION_TO_TREAT_AS` general_specs->master_preamble, finalized->data.
 - **`_current_names(doctype, boq, name_field, value)` (Slice 3b)** -- the ONE centralized is-current accessor across all three committed tiers (grid:`source_sheet_name`, BoQ Sheet:`sheet_name`, BOQ Nodes:`sheet`); returns is_current=1 row names (value VERBATIM #152). One helper, three callers.
@@ -574,8 +594,8 @@ rides `wizard_status` + the seeded `sheet_config`.
 - **Diagnostics returned, NOT persisted:** `confirm_revision_mapping` returns `dispositions:[{sheet_name, status,
   reasons, dangling_roles, description_set_changed}]` per mapped data sheet. The **VISIBLE config-screen flag +
   config-time warning are SHIPPED on the frontend** (`SheetConfigPanel` re-derives them from the seeded map vs the
-  loaded preview columns, revision-scoped, as a SOFT non-blocking flag — see `frontend/.claude/context/domain/
-  boq-frontend.md` / `revisionConfigFlags.ts`).
+  loaded preview columns, revision-scoped, as a SOFT non-blocking flag — see the
+  `boq-frontend.md` / `revisionConfigFlags.ts`).
 - **Tests:** `services/boq_revision/test_column_diff.py` (17) + `api/boq/wizard/test_column_carry.py` (17, incl. a
   real-workbook read + the `dispositions` response). No regressions.
 
@@ -984,7 +1004,7 @@ carries nothing. Everything here is the explicit per-sheet action.
 > with **no precedence code anywhere**. Pinned by
 > `test_human_verdict_timestamp_is_carried_verbatim_not_freshened`.
 
-### The category gate moved (reverses Slice G2c for THIS path only)
+### The category gate moved (reverses G2c, cross-BoQ only)
 
 `categories_incomplete` is removed from `_APPLY_BLOCK_MESSAGE` / `_APPLY_BLOCK_TITLE`. Once the
 action carries categories, gating it on categories being complete blocks its own remedy: a freshly
@@ -992,7 +1012,7 @@ committed revision has **zero** category rows, so the gate is shut, so the carry
 them cannot run — and a revision containing one genuinely new line item could never satisfy a
 post-carry re-check either.
 
-⚠️ **`pricing.save_cell_price` and `pricing.apply_copy_forward` KEEP the gate and are untouched.**
+⚠️ **Both KEEP the gate; `save_cell_price` untouched, `apply_copy_forward`'s REORDERED (Amendment F).**
 The gate stops a *hand-typed* rate landing on an uncategorised row; a carry moves known values from
 a known-good source. **Do not "restore consistency" by re-adding it to the carry path** —
 `test_h_categories_block_is_gone_from_the_message_family` guards the message maps and a re-added
@@ -1481,3 +1501,341 @@ rows, row 430 unchanged) · C6 PASS (209 demotions, zero drift). Browser B1/B3/B
 **Tests:** whole `boq_parser` suite **625, OK**. One pre-existing assertion updated by owner ruling
 (`test_note_after_level0_subhead_attaches_to_the_anchor`) -- it pinned the divergence the fix removes; the
 three genuine top-of-BoQ master-bucket assertions are unchanged and green.
+
+---
+
+## BCS — the per-row internal COST layer (backend as-built, branch `feature/bcs-columns`)
+
+Per-slice narrative for the whole BCS arc (S1 → S6) lives in the plan doc. This section is the
+**backend reference**: what exists, what its rules are, and which of them are owner-locked. Frontend
+surfaces are in `boq-frontend.md`.
+
+⚠️ **NAME COLLISION.** "BCS" here is the BoQ cost layer. "BCS" in the **BoQ Rate Master** material
+(root `CLAUDE.md`, `frontend/CLAUDE.md`) is a *derivation pipeline* — discounted product cost plus
+wastage, no install. Unrelated concept, same three letters. The acronym is **never expanded anywhere
+in the codebase**; do not invent an expansion for it.
+
+### What BCS is
+
+The cost side of a committed BoQ sheet: hand-typed cost rates per row representing what the work
+costs **us**, sitting against the BoQ amount we charge the **client**. From those inputs the screen
+computes *BCS Total Amount* (quantity × cost) and *% Margin*.
+
+**Three cost inputs are stored, and which of them a sheet uses is the SCREEN's decision, not the
+backend's** (owner ruling): a sheet that splits its quote carries a Supply Rate and an Installation
+Rate; a sheet quoting one undifferentiated figure carries a Combined Rate instead. The third field
+exists so a combined-rate sheet's cost has an honest home rather than riding in a field named
+"supply". ⚠️ **`combined_rate` is NOT a total of the other two — never sum it with them, never derive
+it from them.** The frontend enforces this structurally: the live-kinds rule returns the halves OR
+the combined, never both, so the forbidden sum is not expressible downstream.
+
+### Storage
+
+**`BoQ Row BCS Rate`** — standalone (`istable=0`), `track_changes: 1`, autoname `BBCS-.YY.-.#####`.
+
+- **Identity is PER-ROW: `(boq, sheet_name` VERBATIM #152`, excel_row, committed_version)`.**
+  ⚠️ **There is deliberately NO `col_letter`** — the BCS columns are screen-only and have no Excel
+  origin. This is not an omission to be "completed": it is what keeps BCS structurally unable to
+  reach the client-facing export (below), and it is why the carry needs no per-column fan-out.
+- **Lifecycle is freeze-and-supersede** (`bcs_version` / `is_current` / `bcs_rated_at`), mirroring
+  `BoQ Cell Pricing` exactly. A cost row is never overwritten in place.
+- Semantic (non-identity) fields: `node` — a **per-version** pointer, re-resolved rather than
+  carried; `description` — a carry-forward **match guard**, not part of the key.
+- Values: `supply_rate` / `install_rate` / `combined_rate` (Currency) + `is_filled` (the layer's own
+  filled-state — committed node rates read `0.0`, not blank).
+- Provenance: `rate_source` (a Select; **storage capacity only today** — nothing writes anything but
+  `Manual`).
+- Carry provenance: `carried_from_boq` / `carried_from_version` / `carried_at`, provisioned unused at
+  S1 and consumed by the carry layer at S6.
+
+**`BoQ Sheet` gains five BCS data fields** (plus a section break): `bcs_enabled` (Check — the
+per-sheet, per-committed-version switch), `bcs_qty_source` + `bcs_amount_source` (JSON — the
+CONFIRMED column sources, stored as re-resolvable dicts rather than re-guessed), and
+`bcs_confirmed_by` / `bcs_confirmed_at` (who last confirmed the two columns, and when).
+
+### Endpoints — `api/boq/wizard/bcs.py`
+
+| Endpoint | Kind |
+|---|---|
+| `set_bcs_enabled` | whitelisted POST |
+| `confirm_bcs_columns` | whitelisted POST |
+| `get_bcs_state` | whitelisted, GET-capable |
+| `get_sheet_bcs_rates` | whitelisted, GET-capable |
+| `save_row_bcs_rates` | whitelisted POST |
+| `bcs_is_ready` | **not an endpoint** — the shared predicate, re-exported from the service layer |
+
+### ⚠️ Three owner-locked properties — the reason this is its own module
+
+**1. ONLY THE INPUT RATES PERSIST.** Total Amount and % Margin are ALWAYS computed downstream from
+the stored rates plus the sheet's confirmed quantity/amount columns. A stored copy could disagree
+with the live sheet, so there is deliberately **no column for either**.
+
+**2. THE READINESS GATE GUARDS BCS WRITES ONLY.** It is **NOT** ANDed into `save_cell_price`'s rate
+gate: an unconfirmed BCS section leaves ordinary client-facing pricing fully editable. **The failure
+mode is what makes this load-bearing — getting it wrong silently freezes client pricing in
+production**, every rate cell read-only for a reason nobody on the screen can see. A test greps
+`pricing.py` to keep the separation true.
+
+`save_row_bcs_rates` runs exactly four gates —
+
+    committed cell exists -> sheet not deliberately locked -> BCS readiness -> single-editor lock
+
+— and **SKIPS, on purpose**, the three that guard a CLIENT rate: the mandatory amount-formula gate,
+the ASYMMETRIC priceability gate (so **a qty-less Preamble IS costable**), and the category gate.
+Cost is a separate axis with its own two-column confirmation; someone must be able to cost a job
+while amount formulas are still being declared and rows are still being categorised. **The asymmetry
+IS the decision — do not add any of the three "to restore consistency".** Each skip is pinned by its
+own test.
+
+**3. BCS NEVER REACHES `export_priced_workbook`.** That export is handed to the CLIENT, so a BCS
+value in it leaks what the job costs us — **cost, every BCS-derived total, and the margin alike**.
+The exclusion holds **by construction**: the export reads `BoQ Cell Pricing` and names three fields
+explicitly (`excel_row`, `col_letter`, `rate`), while BCS lives in its own doctype with no
+`col_letter` at all. Pinned by a standing guard in `test_export_writeback.py`, which is
+**anti-vacuous by design** — it first asserts the BCS rows genuinely exist for the exported sheets,
+so a pass can never mean "there was nothing to leak".
+
+⚠️ **A NEW STORED COST FIELD MUST BE SEEDED INTO THAT GUARD'S FIXTURE.** This has already gone wrong
+once: when storage widened to a third field, the guard kept seeding only the two halves, so on the
+whole axis the widening opened it was passing because there was nothing there to leak — and a
+combined-rate sheet uses that field and *only* that field, so its cost could have reached a client
+workbook with the guard green.
+
+### The readiness predicate lives in `services/`, and it had to
+
+`bcs_is_ready(boq_name, sheet_name, committed_version) -> bool` — BCS enabled for this sheet+version
+AND both columns confirmed. A pure read; never mutates; never throws for a missing sheet (an
+uncommitted or re-committed-away version is simply *not ready*).
+
+It sits in **`services/boq_bcs/readiness.py`**, not in `api/`, because reaching it from the carry
+engine closes a ring verified at module level:
+
+```
+committed_carry -> bcs -> pricing -> committed_carry
+```
+
+`bcs.py` imports `pricing`; `pricing.py` imports `committed_carry`. **No placement anywhere inside
+`api/` avoids it** — `cross_boq_carry` imports both and `commit_pipeline` is a third dependent — so
+the predicate moved DOWN to the layer both sides may import (`api -> service` is the one legal
+direction). `bcs.py` imports the name straight back, so `bcs.bcs_is_ready` still resolves and no
+caller changed. Precedent is exact: `committed_carry` already reaches classification state through
+`services/boq_category/persist.py`, never the sibling api module.
+
+⚠️ **`committed_version` IS COERCED here, and that must not be "simplified" away.** The obvious model
+for a service-layer predicate over `BoQ Sheet` is `persist.is_sheet_classification_frozen`, which
+filters the same doctype on the same key but passes the version **RAW**. Measured, both halves:
+
+- a **numeric string** is fine either way — PostgreSQL casts the unknown-type literal to bigint, so
+  the raw form answers identically;
+- a **non-numeric** version is where the raw form fails, and it fails far worse than silently:
+  PostgreSQL raises `invalid input syntax for type bigint`, which **aborts the enclosing
+  transaction** and takes every later statement with it. On the carry path that transaction also
+  holds the rate writes, so a raw driver error replaces a named refusal and rolls the whole carry
+  back.
+
+That matters more here than at most call sites because this predicate's failure mode is a **silent
+skip** (below). `_coerce_int` is a deliberate three-line duplicate of `pricing._coerce_int` — copied
+rather than imported because importing would re-close the ring, and copied rather than replaced with
+a bare `int()` because that would change *which exception* a malformed version raises.
+
+⚠️ **RAW-vs-COERCED ASYMMETRY ON ONE PATH (documented, currently safe, deliberately not "fixed").**
+`committed_carry` calls `persist.is_sheet_classification_frozen(..., ctx.dest_version)` **raw** and
+`bcs_is_ready(..., ctx.dest_version)` **coerced** — the same value, on the same carry path. It is
+unreachable today: `_CarryCtx.dest_version` is annotated `int`, and both production builders read it
+from the `BoQ Sheet.commit_version` **Int** column. It is recorded because the raw shape's failure is
+transaction-aborting rather than local, so if a future caller ever supplies a non-DB version, the
+first of those two calls destroys the carry. Changing `persist.py` is a `boq_category` decision, not
+a BCS one.
+
+### The carry layer — `bcs_costs`, the fifth opt-in layer
+
+`bcs_costs` joins `committed_carry.LAYER_KEYS`, so **one registration lights both carry surfaces**
+(the cross-BoQ revision carry and the within-BoQ copy-forward). No migration — the three carry
+provenance fields were provisioned at S1.
+
+- **`carry_bcs_cost_layer` mirrors `carry_category_layer`, not an `_ANNOT_LAYERS` entry**, because it
+  needs a **sheet-level guard slot** and the generic annotation walker has none. It does **not** copy
+  the category layer's per-discipline fan-out: a BCS identity has no `discipline` dimension.
+- **Three writes resolve against the DESTINATION**: `node` (a per-version pointer — carrying the
+  source's would point a new cost row at an old node), `description` (it is the match guard *for the
+  row the cost sits on*), and `bcs_version` (`max(prior at destination) + 1`, never the source's and
+  never a hardcoded `1` — a frozen prior can exist with no current).
+- **Carried verbatim**: all three rate inputs independently, `is_filled`, and `rate_source` —
+  provenance of the *numbers*, which survives a copy, as distinct from provenance of the *record*.
+- ⚠️ **`bcs_rated_at` is carried VERBATIM and stays OLDER than the carry**; `carried_at` is the fresh
+  stamp. Mirrors the `human_verdict_at` precedent. HONEST CAVEAT: no live reader tie-breaks on
+  `bcs_rated_at` today, so this is forward-looking rather than load-bearing right now.
+- **Provenance is keyword-REQUIRED** (after a bare `*`, no defaults) — an unstamped carried record is
+  a `TypeError` at the call site, not a `None` discovered in the database later.
+- ⚠️ **THE CARRY MUST NEVER ROUTE THROUGH `save_row_bcs_rates`.** That endpoint is a **whole-row
+  snapshot**: it coerces every absent rate to `0.0` and writes all three unconditionally, so a source
+  row holding only a combined rate, carried through it, would silently **zero** a supply/install pair
+  the destination already held. This is a data-integrity ruling, not a style choice; it is pinned
+  both behaviourally and structurally.
+- **THE SILENT SKIP (owner ruling).** The readiness guard runs **first** and is sheet-scoped. A
+  destination that is not BCS-ready yields the zero outcome: nothing written, **no exception**, and
+  the rest of the carry — rates included — proceeds. Refusing the whole action instead would let one
+  unconfigured cost section block a rate carry the user actually asked for. **What makes the silence
+  acceptable is that the plan read runs the same guard** through the same dispatch, so a not-ready
+  sheet reports zeros, the layer renders disabled, and nothing is ever offered that would be dropped.
+  **The guard must never move behind the `apply` branch.**
+- **Default OFF in the client, never in the server.** An omitted `layers` payload is rates-only, so a
+  client that never learned about `bcs_costs` keeps the earlier behaviour exactly. ON is the
+  exception, not the rule, and an internal cost rate is the last layer on which to relax that.
+
+### BCS-S9 — BCS Total Amount as a formula TARGET, and what it cost the export boundary
+
+`BCS Total Amount`'s rule (`quantity × summed cost boxes`) was hardcoded in the frontend, so it
+could be neither seen nor varied per sheet. It is now a declarable formula.
+
+- **NO NEW SCHEMA.** It reuses `BoQ Cell Amount Formula` with `target_value_field = "bcs_total"`
+  (`pricing._BCS_TOTAL_TARGET` / `_BCS_TARGET_FIELDS`). No doctype change, no migrate, and it
+  rides the `column_formulas` payload + `save_amount_formula` that already existed.
+- **`save_amount_formula` branches for it:** a BCS target SKIPS the committed-column match (BCS
+  Total is screen-only — requiring a column would reject every BCS formula), refuses a non-null
+  `target_value_key` / `target_rate_subkey` (no area or kind axis), and **forces `target_col` to
+  NULL**.
+- **New operand vocabulary** `_BCS_OPERAND_FIELDS` = `bcs_supply` / `bcs_install` /
+  `bcs_combined` / `bcs_qty`. None resolves through `column_role_map` — the first three come from
+  the row's `BoQ Row BCS Rate`, the last from the sheet's confirmed BCS quantity source.
+
+⚠️ **THIS IS WHERE THE EXPORT BOUNDARY STOPPED BEING STRUCTURAL. READ BEFORE TOUCHING EITHER SET.**
+
+Property 3 above says BCS never reaches `export_priced_workbook`, and that the exclusion holds
+**by construction** — BCS lived in its own doctype, so the formula layer had no way to *name* a
+cost. **S9 gives the shared formula vocabulary BCS operands, so construction no longer does the
+work on its own.** Two DIRECTIONAL rules in `_validate_formula_operands` now do it:
+
+    a bcs_total target may use ONLY _BCS_OPERAND_FIELDS  -- it cannot reach into sheet data;
+    an amount  target may use NONE of them               -- cost cannot reach a client column.
+
+**The second is the one that matters, and it is not theoretical.** An amount column's computed
+VALUE is what the export writes, so a cost operand inside a client amount formula would leak the
+cost as a **NUMBER** — invisible to any audit of the export's field list, which is exactly the
+audit the old by-construction argument rested on. Both directions run on EVERY save (the amount
+side too, though nothing on that side changed) and are pinned by their own tests. **Do not relax
+either "for symmetry".**
+
+Because enforcement replaced construction, the export carries a **SECOND, INDEPENDENT STOP**:
+`export_template_workbook.resolve_target_col` returns `None` unconditionally for a target in
+`_INTERNAL_ONLY_TARGETS`, **before** either resolution path — so even a record whose `target_col`
+somehow survived non-null cannot be placed. One enforcement point for a leak of this kind is not
+enough; keep both.
+
+### BCS-S10 / S11 — the % Margin operands became formula targets too
+
+`% Margin = (1 − cost / amount) × 100`. Both operands are now declarable; **the RATIO is not.**
+
+| Target | Means | May name |
+|---|---|---|
+| `bcs_total` | BCS Total Amount | `_BCS_OPERAND_FIELDS` — the cost boxes, plus the sheet's qty columns |
+| `boq_total` (S10) | the margin's DENOMINATOR ("BOQ Total") | `_BOQ_OPERAND_FIELDS` = the sheet's Amount columns |
+| `bcs_margin_cost` (S11) | the margin's NUMERATOR | `_MARGIN_COST_OPERAND_FIELDS` = BCS operands **+ `bcs_total`** |
+
+`_TARGET_OPERAND_WHITELIST` is the one table driving `_validate_formula_operands`; every other
+(amount) target may name none of the BCS fields. All three are in `_BCS_TARGET_FIELDS` (screen-only
+→ `target_col` forced NULL) and in the export's `_INTERNAL_ONLY_TARGETS`.
+
+⚠️ **`bcs_total` IS BOTH A TARGET AND AN OPERAND, deliberately.** Choosing "BCS Total Amount" as the
+margin's cost must mean *whatever that column currently computes*, not a frozen copy of the rule it
+had when the margin was configured — so the numerator resolves it live, through its own formula.
+
+⚠️ **THE RATIO'S SHAPE STAYS IN CODE, AND NOT OUT OF CAUTION — IT IS INEXPRESSIBLE.** `(1 − … / …)
+× 100` needs the literals `1` and `100`, and `_validate_formula_structure` rejects a `literal` node
+outright ("Numeric literals are not allowed in a formula") — a rule that exists so nobody writes
+`Total Quantity × 450` in place of a rate reference. Keeping the wrapper in code is also what keeps
+`bcsMarginPercent`'s three guards unbypassable: zero denominator, non-finite, and a **NEGATIVE**
+denominator, which flips the inequality so −100 charged against 50 cost computes as **+150%** — a
+loss displayed as a profit. **Do not add a `bcs_margin` target.**
+
+### ⚠️ BCS-S12b — the two-operand-set bug, and what it says about the backend suite
+
+**S12 folded the sheet's qty value_fields into `_BCS_OPERAND_FIELDS`, the single set BOTH
+directional rules read. The leak rule then refused `qty_total` on an AMOUNT target as though it
+were internal cost — so `Total Quantity × Rate`, the canonical amount formula, became unsaveable
+on every sheet, with an error message about BCS cost that had nothing to do with what the user
+had built.** There are now two sets and they must stay two:
+
+- `_BCS_ONLY_OPERAND_FIELDS` — what an AMOUNT target may NEVER name (the internal cost figures);
+- `_BCS_OPERAND_FIELDS` — what a BCS target MAY name: the above **plus** the qty columns.
+
+The two rules point in opposite directions, so they cannot share a set.
+
+⚠️ **NOTHING ON THE FRONTEND CAUGHT THIS**, and nothing could: 1356 vitest tests and a clean
+`tsc` stayed green throughout, because the rule lives server-side. It surfaced the moment the
+backend suite ran, as a `setUpClass` error — which had also been **masking 15 further tests**
+(64 ran, 79 after the fix). Treat a `setUpClass` error as a suite-wide outage, not one failure.
+
+⚠️ **THE BACKEND SUITE HAD BEEN UNRUNNABLE FOR THE WHOLE ARC** — `import anthropic` failed at
+module load (the package is a declared dependency in `pyproject.toml`; the container simply
+lacked it). Every slice from F5 to S12 was written against a frontend suite alone. If the import
+breaks again, fix it before writing code, not after.
+
+### BCS-S12 — the two column pickers were removed, and readiness relaxed WITH them
+
+Owner ruling 2026-08-07. The BCS dialog is now a switch: *Turn BCS on* / *Turn BCS off* / Cancel.
+Which quantity and which amount a sheet measures against is chosen in the two formula dialogs,
+which name the sheet's REAL columns (with Excel letters) instead of a separate confirmation.
+
+⚠️ **`bcs_is_ready` IS NOW JUST `bcs_enabled`, AND THE TWO CHANGES MUST NEVER BE SEPARATED.**
+`save_row_bcs_rates` refuses every cost write while readiness is false. With no UI writing
+`bcs_qty_source` / `bcs_amount_source`, re-adding the confirmation requirement would make readiness
+permanently FALSE — BCS would switch on and stay silently read-only forever, with no message
+anywhere saying why. Re-adding the condition requires re-adding the pickers in the same edit.
+
+- `_QTY_VALUE_FIELDS` (`qty_total` / `qty_by_area`) joined `_BCS_OPERAND_FIELDS`, so a BCS formula
+  names the sheet's real quantity column. **`bcs_qty` is RETAINED** — formulas stored before S12
+  still resolve through the old confirmation.
+- **`confirm_bcs_columns` still exists and both JSON fields are still stored and read** (as the
+  built-in defaults' seed on pre-S12 sheets). Nothing is orphaned and no sheet's numbers moved.
+  `services/boq_bcs/sources.py` + `parity_cases.json` therefore stay live — do not delete them as
+  dead code; the endpoint is still their caller.
+
+### F5 — the operator vocabulary widened to `+ − × ÷`
+
+`_FORMULA_OPS` (was `{"+", "*"}`). ⚠️ **Operand ORDER became load-bearing:** `+`/`*` are
+commutative so nothing downstream ever had reason not to reorder an `operands` list, but for
+`-`/`/` the list order IS the arithmetic (`{"op":"-","operands":[a,b,c]}` means `((a−b)−c)`). Any
+future pass over a stored tree must preserve it. `_validate_formula_structure` stays STRUCTURAL —
+it does not fold operands, so a **zero divisor is not its business**; that is the frontend
+evaluator's refusal, exactly as cycle detection has always been F2's rather than F1's.
+
+⚠️ **`export_template_workbook._OP_INFIX` MUST STAY IN STEP WITH `_FORMULA_OPS`.** An operator
+missing from that map makes `ast_to_excel` return `None`, which fails SAFE (a blank amount cell)
+but **silently drops a formula the sheet really has**. This was missed in the F5 plan and caught
+only while building. Left-associativity needs no special handling there — `ast_to_excel` wraps
+every operator node in its own parentheses, so `(A5-B5-C5)` and `(A5-(B5+C5))` both read in Excel
+exactly as the evaluator folds them.
+
+⚠️ **THREE TESTS USED `"-"` AS THEIR EXAMPLE OF AN *UNSUPPORTED* OPERATOR** (the frontend
+evaluator, `test_pricing`, `test_export_writeback`) and all three had to move to `"^"`. Note the
+`test_export_writeback` one in particular: it asserted `ast_to_excel({"op": "/", "operands": []})`
+is `None`, which would have **kept passing for the wrong reason** after `/` was promoted — the
+empty operands list, not the operator, was doing the work. It now covers both arms.
+
+### The `ast`-not-grep tripwire rule got its second proof (BCS-S12b)
+
+`test_bcs_module_never_touches_the_client_facing_rate_gate` was a substring grep, and it went red
+against a **comment** in `pricing.py` that merely named the BCS doctype while explaining where
+cost operands come from — exactly the failure this doc predicted ("it fires on the comment warning
+against the thing, and the only way back to green is to delete the explanation").
+
+It is now `ast`-based and asks the real questions: does pricing.py IMPORT the bcs module, does it
+NAME `bcs_is_ready` / `_guard_bcs_ready`, does it address `"BoQ Row BCS Rate"` as a string
+constant in CODE. Comments are invisible to it in both directions.
+
+⚠️ **Its scope also had to NARROW.** Since S9 pricing.py legitimately knows the BCS formula target
+tokens and their operand vocabulary — knowing a target name is not calling the readiness gate. A
+blanket "no BCS strings anywhere in pricing.py" would forbid the formula layer the owner asked for.
+
+### Structural tripwires guarding all of the above
+
+Three of this layer's properties are held by tests that read **source structure**, not behaviour.
+
+⚠️ **They read the module through `ast`, never a substring grep, and that distinction is earned.**
+Written first as `assertNotIn(...)`, such a tripwire goes **red against the module's own docstring
+stating the prohibition** — it fires on the comment warning against the thing, and the only way back
+to green is to delete the explanation. A presence-side grep is worse still: it fails **open**, since
+a comment naming the path satisfies it while the import it guards is gone. The `ast` form asks the
+real questions — *does this module DEFINE this name?*, *does this module IMPORT that module?* — and
+leaves prose alone in both directions. **Write the next one this way from the start.**

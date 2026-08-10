@@ -144,6 +144,11 @@ doc_events = {
         ],
         "on_trash": "nirmaan_stack.integrations.controllers.user_permission.on_trash"
     },
+    "Reminder Schedule": {
+        # Re-date the current future Pending log when a schedule's due date changes, so an
+        # edit doesn't leave a stale occurrence + a duplicate new one. UPDATE only, never deletes.
+        "on_update": "nirmaan_stack.integrations.controllers.reminder_schedule.on_update",
+    },
     "Asset Management": {
         "after_insert": "nirmaan_stack.integrations.controllers.asset_management.after_insert",
         "on_update": "nirmaan_stack.integrations.controllers.asset_management.on_update",
@@ -166,8 +171,19 @@ doc_events = {
 		"on_update": "nirmaan_stack.nirmaan_stack.doctype.vendor_category.vendor_category.update_vendor_category",
         "on_trash": "nirmaan_stack.nirmaan_stack.doctype.vendor_category.vendor_category.delete_vendor_category"
     },
+    # `on_update` / `after_delete` maintain the `members` DISPLAY MIRROR on
+    # `TDS Items` (owner decision 2026-08-04). `Items.linked_tds_item` stays the
+    # source of truth and is what every read derives from; the child table is
+    # rebuilt from it only so the Desk `Members` grid is not empty. The rationale,
+    # and why the ADR-0004 retirement of this same hook is being reversed, is in
+    # `integrations/controllers/items.py`.
     "Items": {
-        "after_insert": "nirmaan_stack.integrations.controllers.items.after_insert"
+        "after_insert": "nirmaan_stack.integrations.controllers.items.after_insert",
+        "on_update": "nirmaan_stack.integrations.controllers.items.on_update",
+        "after_delete": "nirmaan_stack.integrations.controllers.items.after_delete"
+    },
+    "Project TDS Item List": {
+        "before_save": "nirmaan_stack.integrations.controllers.project_tds_item_list.before_save"
     },
     "Critical PO Items": {
         "after_insert": "nirmaan_stack.nirmaan_stack.doctype.critical_po_items.critical_po_items.after_insert",
@@ -191,6 +207,7 @@ doc_events = {
         "on_update": [
             "nirmaan_stack.integrations.controllers.procurement_orders.on_update",
             "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_procurement_order",
+            "nirmaan_stack.services.action_items.doc_hooks.on_po_update",
         ],
         "on_trash": [
             "nirmaan_stack.integrations.controllers.procurement_orders.on_trash",
@@ -263,10 +280,18 @@ doc_events = {
     },
     "PO Delivery Documents": {
         "validate": "nirmaan_stack.integrations.controllers.po_delivery_documents.validate",
+        "after_insert": "nirmaan_stack.services.action_items.doc_hooks.on_pdd_insert",
+        "on_trash": "nirmaan_stack.services.action_items.doc_hooks.on_pdd_delete",
     },
     "Delivery Notes": {
-        "on_update": "nirmaan_stack.integrations.controllers.delivery_notes.on_update",
-        "after_delete": "nirmaan_stack.integrations.controllers.delivery_notes.after_delete",
+        "on_update": [
+            "nirmaan_stack.integrations.controllers.delivery_notes.on_update",
+            "nirmaan_stack.services.action_items.doc_hooks.on_dn_update",
+        ],
+        "after_delete": [
+            "nirmaan_stack.integrations.controllers.delivery_notes.after_delete",
+            "nirmaan_stack.services.action_items.doc_hooks.on_dn_delete",
+        ],
     },
     "Internal Transfer Memo": {
         "validate": "nirmaan_stack.integrations.controllers.internal_transfer_memo.validate",
@@ -320,10 +345,19 @@ scheduler_events = {
 		"0 1 * * *": [
 			"nirmaan_stack.tasks.pmo_task_renewal.renew_due_recurring_tasks"
 		],
+		# 8 AM — compliance reminders: for each enabled Reminder Schedule, ensure the current
+		# cycle's Pending Reminder Schedule Log row exists (always-visible, idempotent). Writes
+		# LOG rows only — no email / push / Nirmaan Notification. Surfaced in the Action Center.
+		"0 8 * * *": [
+			"nirmaan_stack.tasks.reminders.send_due_reminders"
+		],
 		# Every 6 h — bulk-download temp .bin sweep (grace is also 6 h, so an
 		# orphan lives at most ~12 h).
 		"0 */6 * * *": [
 			"nirmaan_stack.tasks.cleanup_temp_downloads.cleanup_temp_downloads"
+        ],
+		"0 2 * * *": [
+			"nirmaan_stack.tasks.action_item_reconcile.run_nightly_reconcile"
 		]
 	}
 }

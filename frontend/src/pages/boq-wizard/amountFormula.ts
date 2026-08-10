@@ -11,7 +11,7 @@
  * PURITY (the locked boundary): this module imports NO React / DOM / Frappe, does NOT read a
  * ReviewRow / PricedRow, and does NOT import resolveDescriptorValue. The CALLER (F4) resolves
  * an operand ref to a value for THIS row/area and injects it via the `lookup` function. F2
- * only does: tree-walk, +/* arithmetic, area-binding of wildcard refs, amount-refs-amount
+ * only does: tree-walk, + - * / arithmetic, area-binding of wildcard refs, amount-refs-amount
  * dependency resolution, cycle detection, and the fail-safe. Deterministic + side-effect-free.
  *
  * FAIL-SAFE (the section-0 core): ANY operand anywhere in a formula's tree that resolves to
@@ -99,13 +99,84 @@ export function pickFormula(col: Column, formulaSet: ColumnFormula[]): ColumnFor
   return formulaSet.find((f) => sameAxis(f) && f.target_value_key === null) ?? null;
 }
 
+/** The operator vocabulary. `-` and `/` joined at F5; see FormulaOp for what that costs. */
+const OPS = new Set(["+", "*", "-", "/"]);
+
+/**
+ * `+` / `*` are COMMUTATIVE and ASSOCIATIVE -- an n-ary fold may start from their identity
+ * (0 / 1) and take the operands in any order. `-` / `/` are NEITHER, so their fold must start
+ * from `operands[0]` and proceed strictly left to right. This set is the discriminator, and it
+ * is the reason the fold below is not a one-liner.
+ */
+const NON_COMMUTATIVE_OPS = new Set(["-", "/"]);
+
+export type FormulaOp = "+" | "*" | "-" | "/";
+
+/**
+ * ★ THE ARITHMETIC, IN ONE PLACE -- fold already-evaluated operands under one operator.
+ *
+ * Split out of `evalNode` at BCS-S9 so the BCS Total Amount formula folds through the SAME
+ * code as a column formula. It matters more than a normal deduplication would: F5 made `-`
+ * and `/` order-sensitive and gave `/` a zero-divisor refusal, so a second copy would not
+ * merely drift, it would drift on the two operators whose rules are easiest to get subtly
+ * wrong. Callers differ only in how they turn a LEAF into an EvalResult.
+ *
+ * FAIL-SAFE, unchanged: any not-ok operand makes the whole fold not-ok, "broken" beating
+ * "not_yet", with no partial sum and no zero-substitution. See the evalNode docblock for the
+ * seed rule and why a zero divisor is refused before the division rather than after it.
+ */
+export function foldOperands(op: FormulaOp, results: readonly EvalResult[]): EvalResult {
+  // A non-commutative op has no identity to seed from -- it starts at its FIRST operand.
+  const seedFromFirst = NON_COMMUTATIVE_OPS.has(op);
+  let acc = op === "*" ? 1 : 0;
+  let seeded = !seedFromFirst; // "+"/"*" are seeded the moment they start
+  let sawNotYet = false;
+  let sawBroken = false;
+  let brokenDetail: string | undefined;
+  for (const r of results) {
+    if (!r.ok) {
+      if (r.reason === "broken") sawBroken = true;
+      else sawNotYet = true;
+      continue; // keep scanning so "broken" can win the reason; arithmetic is abandoned
+    }
+    if (!seeded) {
+      acc = r.value;
+      seeded = true;
+      continue;
+    }
+    if (op === "+") acc += r.value;
+    else if (op === "*") acc *= r.value;
+    else if (op === "-") acc -= r.value;
+    else {
+      // "/" -- refuse BEFORE dividing, then guard the result.
+      if (r.value === 0) {
+        sawBroken = true;
+        brokenDetail = brokenDetail ?? "divide-by-zero";
+        continue;
+      }
+      acc /= r.value;
+      if (!Number.isFinite(acc)) {
+        sawBroken = true;
+        brokenDetail = brokenDetail ?? "not-finite";
+      }
+    }
+  }
+  if (sawBroken) return { ok: false, reason: "broken", detail: brokenDetail };
+  if (sawNotYet) return { ok: false, reason: "not_yet" };
+  // Unreachable from evalNode (an operator node has >= 1 operand), but reachable if a caller
+  // hands over an empty list. Defensive rather than thrown -- this module never throws on data.
+  if (!seeded) return { ok: false, reason: "broken", detail: "malformed-node" };
+  return { ok: true, value: acc };
+}
+
 /** Is this node a well-formed operator node? (Defensive -- F1 structurally validates at save.) */
 function isOperatorNode(
   node: AmountFormulaNode,
-): node is { op: "+" | "*"; operands: AmountFormulaNode[] } {
+): node is { op: FormulaOp; operands: AmountFormulaNode[] } {
   const n = node as { op?: unknown; operands?: unknown };
   return (
-    (n.op === "+" || n.op === "*") &&
+    typeof n.op === "string" &&
+    OPS.has(n.op) &&
     Array.isArray(n.operands) &&
     n.operands.length > 0
   );
@@ -154,11 +225,26 @@ function evalColumn(
 }
 
 /**
- * Evaluate one token-tree node. An operator folds its operands (`*` product, `+` sum); a leaf
- * binds its ref to `bindArea` and recurses through evalColumn. FAIL-SAFE: if ANY operand is
- * not ok, the whole node is not ok -- "broken" wins over "not_yet" (a structural problem is
- * surfaced ahead of a merely-unpriced one), with NO partial sum and NO zero-substitution. A
- * malformed node (neither a valid operator nor a valid leaf) is "broken" (never thrown).
+ * Evaluate one token-tree node. An operator folds its operands LEFT TO RIGHT; a leaf binds its
+ * ref to `bindArea` and recurses through evalColumn. FAIL-SAFE: if ANY operand is not ok, the
+ * whole node is not ok -- "broken" wins over "not_yet" (a structural problem is surfaced ahead
+ * of a merely-unpriced one), with NO partial sum and NO zero-substitution. A malformed node
+ * (neither a valid operator nor a valid leaf) is "broken" (never thrown).
+ *
+ * ⚠️ THE SEED IS THE WHOLE F5 CHANGE. `+` / `*` seed from their IDENTITY (0 / 1) and are
+ * order-blind; `-` / `/` seed from `operands[0]` and are not, so `a - b` and `b - a` are
+ * different answers and the fold may not be reordered. `+` / `*` keep the identity seed
+ * BYTE-FOR-BYTE, which is what makes every formula stored before F5 evaluate to the number it
+ * always did.
+ *
+ * ⚠️ A ZERO DIVISOR IS REFUSED BEFORE THE DIVISION, NEVER AFTER (F5). `x / 0` is `Infinity`
+ * in JS, and an amount cell rendering "Infinity" on a document handed to a client is the exact
+ * failure this evaluator's fail-safe exists to prevent -- so it is reported as `broken`
+ * ("check formula"), which is also what makes it beat a co-occurring `not_yet` without a
+ * second precedence rule. NOT `not_yet`: that reason means a value is ABSENT, and a real 0 is
+ * present -- the formula is one this sheet's data cannot satisfy. A division whose RESULT
+ * leaves the double range (a denormal-tiny divisor) is caught on the same arm; the `+` / `*`
+ * arms are deliberately left alone, since guarding them would change pre-F5 behaviour.
  */
 function evalNode(
   node: AmountFormulaNode,
@@ -172,21 +258,10 @@ function evalNode(
     return evalColumn(col, formulaSet, lookup, visiting);
   }
   if (isOperatorNode(node)) {
-    let acc = node.op === "*" ? 1 : 0;
-    let sawNotYet = false;
-    let sawBroken = false;
-    for (const operand of node.operands) {
-      const r = evalNode(operand, formulaSet, lookup, visiting, bindArea);
-      if (!r.ok) {
-        if (r.reason === "broken") sawBroken = true;
-        else sawNotYet = true;
-        continue; // keep scanning so "broken" can win the reason; arithmetic is abandoned
-      }
-      acc = node.op === "*" ? acc * r.value : acc + r.value;
-    }
-    if (sawBroken) return { ok: false, reason: "broken" };
-    if (sawNotYet) return { ok: false, reason: "not_yet" };
-    return { ok: true, value: acc };
+    return foldOperands(
+      node.op,
+      node.operands.map((o) => evalNode(o, formulaSet, lookup, visiting, bindArea)),
+    );
   }
   // Neither a valid operator nor a valid leaf -> malformed (slipped past F1) -> broken.
   return { ok: false, reason: "broken", detail: "malformed-node" };

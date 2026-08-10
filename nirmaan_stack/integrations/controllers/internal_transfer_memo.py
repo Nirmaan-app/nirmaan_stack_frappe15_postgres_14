@@ -15,6 +15,7 @@ there is no separate approval step. This controller handles:
 
 import frappe
 from frappe.utils import flt, now
+from nirmaan_stack.services.role_profiles import MATERIAL_PROCUREMENT_PROFILES
 
 
 # ---------------------------------------------------------------------------
@@ -27,7 +28,7 @@ ADMIN_ROLE = "Nirmaan Admin Profile"
 # on the frontend so UI gating and backend enforcement stay in sync.
 DISPATCH_ROLES = (
     "Nirmaan Admin Profile",
-    "Nirmaan Procurement Executive Profile",
+    *MATERIAL_PROCUREMENT_PROFILES,
 )
 
 # Roles allowed to delete a pre-dispatch ITM. Mirrors `ITM_DELETE_ROLES` on
@@ -37,7 +38,7 @@ DISPATCH_ROLES = (
 DELETE_ROLES = (
     "Nirmaan Admin Profile",
     "Nirmaan PMO Executive Profile",
-    "Nirmaan Procurement Executive Profile",
+    *MATERIAL_PROCUREMENT_PROFILES,
 )
 
 # Statuses where deletion is blocked (dispatch/delivery has begun).

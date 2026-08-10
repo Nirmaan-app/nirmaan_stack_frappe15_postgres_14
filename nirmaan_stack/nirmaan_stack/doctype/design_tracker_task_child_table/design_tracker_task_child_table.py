@@ -7,6 +7,8 @@ from frappe.model.document import Document
 
 class DesignTrackerTaskChildTable(Document):
     def validate(self):
+        if self.flags.get("ignore_design_tracker_status_validation"):
+            return
         self.validate_file_link_for_submitted()
         self.validate_approval_proof_for_approved()
 

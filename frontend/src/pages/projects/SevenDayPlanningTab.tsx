@@ -8,6 +8,7 @@ import { useUserData } from "@/hooks/useUserData"; // Added import
 import { SevenDayPlanningTabs, PLANNING_TABS, PlanningTabValue } from "./components/planning/SevenDayPlanningTabs";
 import { cn } from "@/lib/utils";
 import { CashflowPlan } from "./CashflowPlan/CashflowPlan";
+import { isMaterialProcurementProfile } from "@/constants/roles";
 
 export const SevenDayPlanningTab = ({ isOverview, projectName }: { isOverview?: boolean; projectName?: string }) => {
   const { projectId } = useParams<{ projectId: string }>();
@@ -16,7 +17,7 @@ export const SevenDayPlanningTab = ({ isOverview, projectName }: { isOverview?: 
 
   // 1. Active Tab
   const { role } = useUserData() // Added user data hook logic inline or imported
-  const isProcurementExecutive = role === "Nirmaan Procurement Executive Profile";
+  const isProcurementExecutive = isMaterialProcurementProfile(role);
 
   const activeTabParam = useUrlParam("planningTab");
   

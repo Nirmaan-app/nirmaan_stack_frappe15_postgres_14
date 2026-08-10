@@ -4,6 +4,7 @@ import { TableRow, TableCell } from "@/components/ui/table";
 import { formatToRoundedIndianRupee } from '@/utils/FormatPrice';
 import { formatDate } from '@/utils/FormatDate';
 import {Link} from "react-router-dom";
+import { INACTIVE_PO_ROW_CLASSES } from '@/utils/inactivePoRowStyles';
 
 export interface LedgerEntry {
     date: string;
@@ -13,6 +14,8 @@ export interface LedgerEntry {
     amount: number;
     payment: number;
     balance: number;
+    /** True when this transaction belongs to a PO whose status is "Inactive". */
+    isInactive?: boolean;
 }
 
 interface LedgerTableRowProps {
@@ -78,7 +81,10 @@ export const LedgerTableRow: React.FC<LedgerTableRowProps> = ({ item }) => {
   };
 
   return (
-    <TableRow>
+    <TableRow
+      className={item.isInactive ? INACTIVE_PO_ROW_CLASSES : undefined}
+      title={item.isInactive ? "Linked PO is Inactive" : undefined}
+    >
       <TableCell className="px-2 py-1 text-sm">{formatDate(new Date(item.date))}</TableCell>
       <TableCell className={`px-2 py-1 text-sm ${getTransactionClass()}`}>
         {item.transactionType}

@@ -1,0 +1,98 @@
+# TDS — Context Glossary
+
+> Bounded context: Technical Data Sheets (TDS). Covers the global master
+> catalog (**TDS Repository**) and per-project consumption (**Project TDS**).
+> This file is a glossary only — no implementation details. Decisions with
+> trade-offs live in `docs/adr/`.
+
+## Terms
+
+- **TDS Item** *("TDS SKU")* — The **grouping entity** (new doctype). Its
+  **members are the Items SKUs that name it** as their group — "which catalog
+  items does this spec group cover" (membership is **N:1, item-owned**; see
+  ADR-0004). A TDS Item has **no Make and no datasheet of its own**. It is **scoped to a single
+  Work Package**, but its members **may span multiple Categories** within that WP
+  (so `work_package` lives on the TDS Item; `category` is per-member, not a single
+  group attribute — the TDS Item itself has no category field). **Members are
+  optional**: a TDS Item with **zero members** represents a *custom item* (no
+  Items SKU) — see Custom Item. "TDS SKU" is an informal synonym; the canonical
+  noun is **TDS Item**. One TDS Item is referenced by **many TDS Repository
+  Entries — one per Make**.
+
+- **TDS Repository Entry** *(the datasheet record)* — One row in the **TDS
+  Repository**, now keyed by the combination **(TDS Item, Make, attachment)**.
+  The Make and the `tds_attachment` (datasheet PDF) live here, not on the TDS
+  Item. Replaces the pre-change unit, which was keyed by **(Items SKU, Make,
+  attachment)** — the direct `Items` link is replaced by a `TDS Item` link.
+
+- **Items SKU** — A row from the **Items** master catalog (the company-wide item
+  master: item code + name + category). An Items SKU names **at most one** TDS
+  Item as its group, via its own `linked_tds_item` — membership is **N:1, owned by
+  the item** (supersedes the original many-to-many; see ADR-0004). It is no longer
+  referenced directly by a Repository Entry.
+
+- **Members mirror** — The `TDS Items.members` child table. It is **not** a store:
+  it is a **one-way, read-only copy** of `Items.linked_tds_item`, rebuilt from it
+  so the Frappe Desk form shows a group's members instead of "No Data". **Nothing
+  in the product reads it** — every member list, count and category derives from
+  `Items` — and a membership change is only ever made by setting
+  `linked_tds_item`, never by editing this grid (it is `read_only` precisely
+  because an edit there would be silently discarded). See ADR-0004 Amendment B.
+
+- **TDS Repository** — The global master catalog of **TDS Repository Entries**
+  (and, transitively, **TDS Items**). Not project-scoped. Admin-maintained.
+
+- **Project TDS** — The per-project workflow that consumes TDS Items: selecting
+  them for a project, sending for approval, and exporting a merged project TDS
+  report PDF.
+
+- **Project TDS Item List** — The doctype holding per-project consumption rows.
+  A project assembles its TDS by **selecting a TDS Item + Make** (i.e. one
+  Repository Entry); each row is a snapshot of that **group + make + datasheet**,
+  with its own approval status. The member Items SKUs travel as *coverage*
+  (informational), not as the selection key.
+
+- **Project TDS Setting** — Per-project branding/signatory config (client,
+  architect, consultant, GC/MEP contractor names + logos) used to render the
+  project TDS report.
+
+- **Custom Item** — An item with **no Items-master SKU**. In the new model a
+  custom item is modeled as a **member-less TDS Item** (zero members) carrying
+  just a label + Work Package — **no Items-master row is created** (the Items
+  master is never polluted). Custom is **inferred from 0 members** (no `is_custom`
+  flag); custom TDS Items carry **no category**. Legacy repository `CUS-NNNNNN`
+  rows migrate to member-less TDS Items. **Phase 2 retires project-only customs:**
+  the old `PCUS-NNNNNN` (project-scoped, never-shared) concept is removed — every
+  approved custom is a **shared** member-less TDS Item (one custom model; see
+  ADR-0003).
+
+- **Verified / Not Verified** — Status on a **Repository Entry** (per TDS Item +
+  Make) indicating whether that datasheet has been vetted. Set to Verified when an
+  approver signs off on a consuming project request.
+
+- **Approval-time promotion** — A second authoring path into the Repository.
+  Approving a project's *New* request writes the master: a missing make → a new
+  `(TDS Item, Make)` Repository Entry; a brand-new group → a new **member-less TDS
+  Item** + entry; both **born Verified**. In Phase 2 this promotion is
+  **Admin-only** and **group-aware**, and there is no longer a project-only
+  (`PCUS-`) escape hatch — every approved custom enters the shared master (see
+  ADR-0003).
+
+- **Coverage** — The member Items SKUs that ride along with a consumed TDS Item,
+  shown read-only/informational on the project row and report. It is **derived
+  live** from the selected TDS Item (never the selection key, never frozen on the
+  snapshot) — only the datasheet is the signed, frozen artifact.
+
+## Roles
+
+- **Admin (`Nirmaan Admin Profile`)** — Full control over the Master Repository (TDS Items & Entries). The sole approver of Project TDS requests. Deletes any Project TDS history record, at any status.
+- **PMO (`Nirmaan PMO Executive Profile`)** — Elevated project-level access. Responsible for exception handling (using the "Request New" flow to propose new Groups or Makes) and managing Project TDS setup details. Deletes Project TDS history rows that are **Pending or Rejected** only — an Approved row is part of the signed submittal record and stays Admin-only.
+
+> ⚠️ **Both delete rules are UI gates, not enforcement.** Delete goes straight
+> through `deleteDoc("Project TDS Item List", …)` — no whitelisted endpoint, no
+> permission check — and the doctype grants delete to **all 18 role profiles**.
+> Every role can already delete any row, Approved included, via the REST API.
+> The same gap covers approval: the approver rule lives only in the API layer
+> while every profile holds write. Closing either needs a whitelisted endpoint
+> or a `before_delete` / `before_save` hook.
+- **Project User (Leads, Managers, etc.)** — Consumers of the TDS system. Restricted to requesting existing, approved Master TDS items for their projects. Stripped of edit, delete, and "Request New" capabilities.

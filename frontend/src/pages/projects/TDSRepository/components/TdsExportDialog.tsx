@@ -8,7 +8,8 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Ban, FileDown, Eye, ExternalLink, Loader2, ChevronDown, ChevronRight, FilterX } from 'lucide-react';
+import { Ban, FileDown, Eye, ExternalLink, Loader2, ChevronDown, ChevronRight, FilterX, Search, X } from 'lucide-react';
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { TDSRepositoryData } from './SetupTDSRepositoryDialog';
@@ -135,14 +136,31 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
         return statusFilteredItems.filter(item => selectedPackages.includes(item.tds_work_package || 'Unknown'));
     }, [statusFilteredItems, selectedPackages]);
 
-    const groupedItems = useMemo(() => {
+    // Item-name search. A FIND-AND-TICK tool, deliberately NOT part of the export
+    // scope: it narrows what you SEE and what Select All acts on, never what the
+    // PDF contains. Export follows the checkboxes — see `handleExport`.
+    const [itemSearch, setItemSearch] = useState("");
+
+    // What the TABLE renders. `filteredItems` (status + package) stays the export
+    // scope; this is that set minus anything the search hides.
+    const visibleItems = useMemo(() => {
+        const q = itemSearch.trim().toLowerCase();
+        if (!q) return filteredItems;
+        return filteredItems.filter(item =>
+            (item.tds_item_name || "").toLowerCase().includes(q)
+        );
+    }, [filteredItems, itemSearch]);
+
+    // One grouping rule, applied to both sets, so the export keeps the exact
+    // package ordering the table has always used.
+    const groupByPackage = React.useCallback((items: TdsExportItem[]) => {
         const groups = new Map<string, TdsExportItem[]>();
-        filteredItems.forEach(item => {
+        items.forEach(item => {
             const pkg = item.tds_work_package || 'Unknown';
             if (!groups.has(pkg)) groups.set(pkg, []);
             groups.get(pkg)!.push(item);
         });
-        
+
         let sortedPackages: string[];
         if (selectedPackages.length > 0) {
             // Only include packages that actually have items in the current filtered view
@@ -156,7 +174,13 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
             package: pkg,
             items: groups.get(pkg)!
         }));
-    }, [filteredItems, selectedPackages]);
+    }, [selectedPackages]);
+
+    // Export scope — search-blind on purpose.
+    const groupedItems = useMemo(() => groupByPackage(filteredItems), [groupByPackage, filteredItems]);
+
+    // What the table renders.
+    const visibleGrouped = useMemo(() => groupByPackage(visibleItems), [groupByPackage, visibleItems]);
 
     // Reset selection when dialog opens
     React.useEffect(() => {
@@ -166,6 +190,7 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
             setSelectedPackages([]);
             setSelectedStatus("Approved");
             setCollapsedPackages(new Set());
+            setItemSearch("");
         }
     }, [isOpen, sortedItems]);
 
@@ -212,10 +237,13 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
         });
     };
 
+    // Select/De-Select All act on what is VISIBLE, so "search a term, tick every
+    // match" works. With an empty search box `visibleItems === filteredItems`,
+    // i.e. unchanged from before.
     const handleSelectAll = () => {
         setSelectedIds(prev => {
             const newSet = new Set(prev);
-            filteredItems.forEach(item => newSet.add(item.name));
+            visibleItems.forEach(item => newSet.add(item.name));
             return newSet;
         });
     };
@@ -223,7 +251,7 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
     const handleDeselectAll = () => {
         setSelectedIds(prev => {
             const newSet = new Set(prev);
-            filteredItems.forEach(item => newSet.delete(item.name));
+            visibleItems.forEach(item => newSet.delete(item.name));
             return newSet;
         });
     };
@@ -235,7 +263,8 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
         onExport(selectedItems, selectedStatus);
     };
 
-    const isAllSelected = filteredItems.length > 0 && filteredItems.every(item => selectedIds.has(item.name));
+    // Labels the Select/De-Select All button, so it tracks the visible set it acts on.
+    const isAllSelected = visibleItems.length > 0 && visibleItems.every(item => selectedIds.has(item.name));
 
     const visibleSelectedCount = filteredItems.filter(item => selectedIds.has(item.name)).length;
 
@@ -366,9 +395,42 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
                             )}
                         </div>
 
-                        {filteredItems.length === 0 ? (
+                        {/* Item-name search. Finds and ticks; never changes what exports. */}
+                        <div className="flex items-center gap-3 mb-3">
+                            <div className="relative flex-1 max-w-sm">
+                                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                                <Input
+                                    value={itemSearch}
+                                    onChange={(e) => setItemSearch(e.target.value)}
+                                    placeholder="Search item name..."
+                                    className="h-9 pl-8 pr-8"
+                                />
+                                {itemSearch && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setItemSearch("")}
+                                        title="Clear search"
+                                        className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded text-gray-400 hover:text-gray-600"
+                                    >
+                                        <X className="w-3.5 h-3.5" />
+                                    </button>
+                                )}
+                            </div>
+                            {/* Without this, "51/51 Selected" above a 3-row table reads like a bug. */}
+                            {itemSearch.trim() && (
+                                <span className="text-xs text-muted-foreground">
+                                    showing {visibleItems.length} of {filteredItems.length} · selection and export are unaffected
+                                </span>
+                            )}
+                        </div>
+
+                        {visibleItems.length === 0 ? (
                             <div className="flex-1 flex items-center justify-center text-gray-500 text-sm">
-                                {sortedItems.length === 0 ? "No items to export." : "No items match the selected filters."}
+                                {sortedItems.length === 0
+                                    ? "No items to export."
+                                    : itemSearch.trim()
+                                        ? `No item name matches "${itemSearch.trim()}".`
+                                        : "No items match the selected filters."}
                             </div>
                         ) : (
                             <div className="border rounded-lg">
@@ -386,7 +448,7 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {groupedItems.map((group) => {
+                                        {visibleGrouped.map((group) => {
                                             const selectedInGroup = group.items.filter(item => selectedIds.has(item.name)).length;
                                             const totalInGroup = group.items.length;
                                             const isCollapsed = collapsedPackages.has(group.package);

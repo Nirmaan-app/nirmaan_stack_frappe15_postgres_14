@@ -6,6 +6,32 @@ import frappe
 from frappe import _
 from frappe.utils import flt, nowdate
 
+from nirmaan_stack.services.po_credit import usable_credit
+
+
+def usable_po_credit(po_id, for_update=False):
+    """Overpaid credit `po_id` may actually spend — the ONE reader every spender goes through.
+
+    Applies the D2 cap (see `services/po_credit`): the adjustment ledger's claim, bounded by
+    what was genuinely overpaid. Returns 0.0 when the PO has no adjustment.
+
+    `for_update=True` takes the `SELECT ... FOR UPDATE` row lock on the adjustment, for the
+    concurrency guards. NOTE: the Procurement Orders row backing the cap is read WITHOUT a
+    lock, deliberately — locking it here would put a second row type into the push/pull lock
+    ordering and risk deadlocks against `_lock_and_assert_dest_capacity`, to protect a bound
+    that is already conservative. An unlocked cap is strictly better than no cap.
+    """
+    adj_name = frappe.db.get_value("PO Adjustments", {"po_id": po_id}, "name")
+    if not adj_name:
+        return 0.0
+    remaining = frappe.db.get_value(
+        "PO Adjustments", adj_name, "remaining_impact", for_update=for_update
+    )
+    po = frappe.db.get_value(
+        "Procurement Orders", po_id, ["amount_paid", "total_amount"], as_dict=True
+    ) or {}
+    return usable_credit(remaining, po.get("amount_paid"), po.get("total_amount"))
+
 
 def _create_project_payment(po_id, project, vendor, amt, status, utr=None, attachment=None):
     """
@@ -131,73 +157,23 @@ def _split_target_po_term(target_po_id, transfer_amount, payment_name, source_po
     target_po.save(ignore_permissions=True)
 
 
-def _reduce_payment_terms_lifo(original_po, reduction_needed, new_total):
-    """
-    Reduces modifiable terms bottom-up strictly according to reduction needed.
-    Adjusts the original PO's un-paid payment terms from the bottom up (LIFO).
-    """
-    locked_terms = [t for t in original_po.payment_terms if t.term_status in ["Paid", "Requested", "CEO Pending", "Approved"]]
-    modifiable_terms = [t for t in original_po.payment_terms if t.term_status == "Created"]
-    return_terms = [t for t in original_po.payment_terms if t.term_status == "Return"]
-
-    return_amount = sum(flt(t.amount) for t in return_terms if flt(t.amount) < 0)
-
-    locked_term_dicts = [t.as_dict() for t in locked_terms]
-    modifiable_term_dicts = [t.as_dict() for t in modifiable_terms]
-
-    reduction_needed_for_terms = max(0, reduction_needed - abs(return_amount))
-
-    for term_dict in reversed(modifiable_term_dicts):
-        if reduction_needed_for_terms <= 0.01:
-            break
-
-        term_amount = flt(term_dict.get("amount", 0))
-        amount_to_deduct = min(term_amount, reduction_needed_for_terms)
-
-        term_dict["amount"] = term_amount - amount_to_deduct
-        reduction_needed_for_terms -= amount_to_deduct
-
-    return_term_dicts = [t.as_dict() for t in return_terms]
-    final_modifiable_terms = [d for d in modifiable_term_dicts if flt(d.get("amount")) > 0.01]
-
-    if reduction_needed_for_terms > 0.01:
-        pay_adjustment = _create_project_payment(
-            po_id=original_po.name,
-            project=original_po.project,
-            vendor=original_po.vendor,
-            amt=-reduction_needed_for_terms,
-            status="Paid"
-        )
-        auto_return_term = {
-            "label": frappe.utils.cstr("Return - Overpayment Adjustment")[:140],
-            "amount": -reduction_needed_for_terms,
-            "percentage": 0.0,
-            "term_status": "Return",
-            "payment_type": original_po.payment_terms[0].payment_type if original_po.payment_terms else "",
-            "project_payment": pay_adjustment.name
-        }
-        return_term_dicts.append(auto_return_term)
-
-    original_po.set("payment_terms", locked_term_dicts + final_modifiable_terms + return_term_dicts)
-
-    current_payment_sum = sum(flt(t.amount) for t in original_po.payment_terms)
-    discrepancy = new_total - current_payment_sum
-
-    if abs(discrepancy) > 0.01:
-        last_adjustable_term = next(
-            (t for t in reversed(original_po.payment_terms)
-             if t.term_status not in ["Paid", "Requested", "CEO Pending", "Approved"] and "Return" not in (t.label or "")),
-            None
-        )
-        if last_adjustable_term:
-            last_adjustable_term.amount = flt(last_adjustable_term.amount) + discrepancy
-
-    for term in original_po.payment_terms:
-        if term.term_status == "Return" or new_total <= 0:
-            term.percentage = 0.0
-        else:
-            term.percentage = (flt(term.amount) / new_total) * 100
-
+# NOTE — `_reduce_payment_terms_lifo` was DELETED here (D3).
+#
+# It was a second, rival implementation of "shrink a PO's payment terms", orphaned when
+# commit 44a2cb75 replaced the old negative flow with the PO Adjustments system. It had no
+# callers. `_auto_absorb_created_terms` in api/po_revisions/revision_logic.py is the one
+# surviving implementation.
+#
+# It also held two behaviours the survivor lacks, and NEITHER should be ported back:
+#
+#   * forcing the payment terms to re-sum to the PO total. On the absorb path that is
+#     WRONG. When a decrease cannot be fully absorbed, terms legitimately exceed the total
+#     by the amount already PAID — e.g. PO/011/00097/26-27 carries Paid terms of 94,518
+#     against a 93,810 total, and the 708 gap IS the overpayment the adjustment records.
+#     Reconciling it away would erase the evidence.
+#   * minting a "Return - Overpayment Adjustment" term for the unabsorbed remainder. The
+#     adjustment ledger records that remainder now, and the D1 gate
+#     (services/po_revision_capacity) stops the case where the remainder was fictitious.
 
 def _lock_and_assert_source_credit(source_po, amount_needed):
     """
@@ -214,14 +190,12 @@ def _lock_and_assert_source_credit(source_po, amount_needed):
     Returns the available credit. Throws if the source has no adjustment or too little
     credit left.
     """
-    adj_name = frappe.db.get_value("PO Adjustments", {"po_id": source_po}, "name")
-    if not adj_name:
+    if not frappe.db.get_value("PO Adjustments", {"po_id": source_po}, "name"):
         frappe.throw(_("No overpaid credit found on {0}.").format(source_po))
-    # FOR UPDATE lock on the adjustment row; held until the txn commits/rolls back.
-    remaining = flt(frappe.db.get_value(
-        "PO Adjustments", adj_name, "remaining_impact", for_update=True
-    ))
-    available = max(0.0, -remaining)
+    # Takes the FOR UPDATE lock on the adjustment row (held until the txn commits/rolls
+    # back) AND applies the D2 cap, so a ledger claiming credit the PO never overpaid
+    # cannot be transferred out of it.
+    available = usable_po_credit(source_po, for_update=True)
     if flt(amount_needed) > available + 0.01:
         frappe.throw(_(
             "Only {0} credit remains on {1} (tried to use {2}). "

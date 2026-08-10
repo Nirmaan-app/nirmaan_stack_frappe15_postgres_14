@@ -144,7 +144,16 @@ _AMOUNT_SUBKEY_TO_ROLE = {
     "install": "amount_install_by_area",
     "total": "amount_total_by_area",
 }
-_OP_INFIX = {"*": "*", "+": "+"}
+# The token-tree operator -> its Excel infix symbol. MUST stay in step with pricing.py's
+# _FORMULA_OPS: an operator this map lacks makes ast_to_excel return None, which fails SAFE
+# (a blank amount cell in the exported workbook) but silently DROPS a formula the sheet really
+# has -- so widening the vocabulary without widening this map loses formulas in the export.
+# "-" and "/" joined at F5.
+#
+# Left-associativity needs no special handling here: ast_to_excel wraps EVERY operator node in
+# its own parentheses, so an n-ary "(A5-B5-C5)" reads in Excel exactly as the evaluator folds
+# it, and a nested node arrives pre-bracketed as "(A5-(B5+C5))".
+_OP_INFIX = {"*": "*", "+": "+", "-": "-", "/": "/"}
 
 
 def _json(val: Any, default: Any) -> Any:
@@ -219,12 +228,32 @@ _AMOUNT_FIELD_TO_ROLE = {
 }
 
 
+# BCS-S9/S10: formula targets that must NEVER be written into a workbook. Both are SCREEN-ONLY
+# columns with no col_letter: `bcs_total` (BCS Total Amount -- internal cost) and `boq_total`
+# (the % Margin denominator). They are here for DIFFERENT reasons and both belong:
+# bcs_total because exporting it would hand a client our cost, boq_total because it is a derived
+# on-screen figure with no column of its own to be written into. Mirrors
+# pricing._BCS_TARGET_FIELDS; duplicated rather than imported because this module must not depend
+# on the pricing endpoint module, and the set is two stable tokens.
+_INTERNAL_ONLY_TARGETS = frozenset({"bcs_total", "boq_total", "bcs_margin_cost"})
+
+
 def resolve_target_col(formula_rec: dict, role_map: dict) -> str | None:
     """The Excel column an amount formula WRITES into. Prefers resolving the target through the
     authoritative column_role_map (target_value_field [+ target_value_key/target_rate_subkey for a
     by-area amount] -> role -> letter); falls back to the stored target_col GUARD (which the
     doctype notes can drift on re-commit). None only when neither resolves -> the formula is
-    skipped (nothing to place)."""
+    skipped (nothing to place).
+
+    ⚠️ AN INTERNAL-ONLY TARGET RETURNS None UNCONDITIONALLY, BEFORE EITHER RESOLUTION PATH.
+    BCS Total Amount is what the work costs US; placing it in an exported workbook would hand a
+    client our cost. `pricing.save_amount_formula` already forces such a record's `target_col`
+    to NULL, so the fallback below could not resolve one anyway -- this is the SECOND,
+    independent stop, and it is deliberate. Before BCS-S9 no BCS value could be named by a
+    formula at all, so the boundary held by construction; it now rests on enforcement, and one
+    enforcement point for a leak of this kind is not enough."""
+    if formula_rec.get("target_value_field") in _INTERNAL_ONLY_TARGETS:
+        return None
     tv = formula_rec.get("target_value_field")
     role = _AMOUNT_FIELD_TO_ROLE.get(tv)
     if role:

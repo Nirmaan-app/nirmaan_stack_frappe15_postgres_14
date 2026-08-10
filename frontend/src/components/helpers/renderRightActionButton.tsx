@@ -13,6 +13,7 @@ import { useNavigate } from "react-router-dom";
 import { Badge } from "../ui/badge";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { canManageTendering } from "@/pages/projects/tendering/tenderingAuth";
+import { PROCUREMENT_PROFILES } from "@/constants/roles";
 
 interface RenderActionButtonProps {
   locationPath: string;
@@ -51,7 +52,7 @@ export const RenderRightActionButton = ({
   const { role, user_id } = useUserData()
   const isSales = role === "Nirmaan Sales Executive Profile" || role === "Nirmaan Sales Lead Profile";
   const { selectedProject } = useContext(UserContext);
-  const { toggleNewInflowDialog, toggleNewItemDialog, toggleNewProjectInvoiceDialog, toggleNewNonProjectExpenseDialog, toggleNewProjectExpenseDialog, toggleNewWODialog } = useDialogStore()
+  const { toggleNewInflowDialog, toggleNewItemDialog, toggleNewProjectInvoiceDialog, toggleNewNonProjectExpenseDialog, toggleNewProjectExpenseDialog, toggleNewWODialog, setNewReminderDialog, setEditReminderScheduleName } = useDialogStore()
 
   if (newButtonRoutes[locationPath]) {
     // "Add New Project" uses the shared canManageTendering gate (Admin / PMO /
@@ -73,7 +74,7 @@ export const RenderRightActionButton = ({
     );
   } else if (locationPath === "/prs&milestones/procurement-requests" && selectedProject) {
     return (
-      ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile"].includes(role) || user_id === "Administrator" ? (
+      ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", ...PROCUREMENT_PROFILES].includes(role) || user_id === "Administrator" ? (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button className="sm:mr-4 mr-2">
@@ -160,6 +161,26 @@ export const RenderRightActionButton = ({
       <Button onClick={toggleNewProjectExpenseDialog} className="sm:mr-4 mr-2">
         <CirclePlus className="w-5 h-5 pr-1" />
         Add <span className="hidden md:flex pl-1">New Project Expense</span>
+      </Button>
+    );
+  } else if (locationPath === "/reminders") {
+    // Reminders are Admin-only to manage (owner ruling): Add, Edit and Delete all share
+    // one gate. Every other role with sidebar access sees the table read-only.
+    // MUST stay in step with `canManage` in pages/Reminders/RemindersPage.tsx and with
+    // the server's `_require_reminder_editor` (api/reminders/write.py).
+    const canCreateReminder =
+      user_id === "Administrator" || role === "Nirmaan Admin Profile";
+    if (!canCreateReminder) return null;
+    return (
+      <Button
+        onClick={() => {
+          setEditReminderScheduleName(null); // ensure CREATE mode
+          setNewReminderDialog(true);
+        }}
+        className="sm:mr-4 mr-2"
+      >
+        <CirclePlus className="w-5 h-5 pr-1" />
+        Add <span className="hidden md:flex pl-1">Reminder</span>
       </Button>
     );
   } else {

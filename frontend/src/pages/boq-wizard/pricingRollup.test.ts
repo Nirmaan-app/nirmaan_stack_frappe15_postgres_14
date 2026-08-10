@@ -612,3 +612,115 @@ describe("rollupByParent reconciliation-choice resolution (Cluster B)", () => {
     expect(root(res, 0)!.totals["F"]).toBe(108);
   });
 });
+
+// ── BCS-S5: the cost axis, through the REAL entry point ───────────────────────────
+//
+// bcsRollup.test.ts pins the section arithmetic over synthetic nodes. These pin the WIRING: that
+// `rollupByParent` composes the row cost from the sheet's own quantity + stored rates, that the
+// tendered denominator is the SAME number the panel's amount columns show, and that omitting the
+// BCS input leaves every pre-BCS-S5 caller byte-identical.
+describe("rollupByParent -- the BCS cost axis (BCS-S5)", () => {
+  // qty_total (D) x rate_combined (E) -> amount_total (G). BCS reads quantity from D and the
+  // tendered amount from G; the COST comes from the stored BcsRowRate, not from column E.
+  const BCS_CDS = [
+    desc("D", "qty_total", "qty_total"),
+    desc("E", "rate_combined", "rate_combined"),
+    desc("G", "amount_total", "amount_total"),
+  ];
+  const entry = (col: string, role: string, value_field: string) => ({
+    col, role, area: null, value_field, value_key: null, rate_subkey: null,
+  });
+  const QTY_SOURCE = { mode: "qty_total", columns: [entry("D", "qty_total", "qty_total")] };
+  const AMT_SOURCE = { mode: "amount_total", columns: [entry("G", "amount_total", "amount_total")] };
+
+  /** A stored cost row -- only the three rate fields and the excel_row key matter here. */
+  const rate = (excel_row: number, combined_rate: number) =>
+    ({ excel_row, supply_rate: null, install_rate: null, combined_rate }) as never;
+
+  const bcsInput = (rates: Array<{ excel_row: number; combined_rate: number }>) => ({
+    ratesByExcelRow: new Map(rates.map((r) => [r.excel_row, rate(r.excel_row, r.combined_rate)])),
+    kinds: ["combined"] as const,
+    qtySource: QTY_SOURCE,
+    amountSource: AMT_SOURCE,
+  });
+
+  // One tiny line at 90% margin beside one huge line at 2%.
+  const skewedRows = () => [
+    prow({ row_index: 0, source_row_number: 10, effective_parent_index: null, effective_classification: "preamble", description: "Section", node_type: "Preamble" }),
+    prow({ row_index: 1, source_row_number: 11, effective_parent_index: 0, effective_classification: "line_item", description: "tiny", node_type: "Line Item", qty_total: 1, rate_combined: 10 }),
+    prow({ row_index: 2, source_row_number: 12, effective_parent_index: 0, effective_classification: "line_item", description: "huge", node_type: "Line Item", qty_total: 1, rate_combined: 1_000_000 }),
+  ];
+
+  it("B1 no BCS input -> bcs is null and nothing else changes (pre-BCS-S5 callers unaffected)", () => {
+    const res = rollupByParent(skewedRows(), BCS_CDS);
+    expect(res.bcs).toBeNull();
+    expect(res.grandTotals["G"]).toBe(1_000_010);
+  });
+
+  it("★ B2 the RATIO RULE end-to-end: the section reports the WEIGHTED margin, not the average", () => {
+    const res = rollupByParent(
+      skewedRows(), BCS_CDS, [], [],
+      bcsInput([{ excel_row: 11, combined_rate: 1 }, { excel_row: 12, combined_rate: 980_000 }]),
+    );
+    const section = res.bcs!.byRowIndex.get(0)!;
+    expect(section.cost).toBe(980_001); // 1x1 + 1x980,000
+    expect(section.tendered).toBe(1_000_010); // 1x10 + 1x1,000,000
+    const pct = section.margin.kind === "value" ? section.margin.value : NaN;
+    expect(pct).toBeCloseTo(2.00088, 4);
+    expect(pct).not.toBeCloseTo(46, 0); // the mean of the two lines' 90% and 2%
+    expect(pct).not.toBeCloseTo(92, 0); // their sum
+  });
+
+  it("B3 THE CONSISTENCY RULE: tendered IS the node's own rolled amount total, to the last unit", () => {
+    const rows = skewedRows();
+    const res = rollupByParent(rows, BCS_CDS, [], [], bcsInput([{ excel_row: 11, combined_rate: 1 }]));
+    // The number the panel's amount column shows for this section, and the margin's denominator.
+    expect(res.bcs!.byRowIndex.get(0)!.tendered).toBe(root(res, 0)!.totals["G"]);
+    expect(res.bcs!.grand.tendered).toBe(res.grandTotals["G"]);
+  });
+
+  it("B4 an UNCOSTED sheet reports cost null and a blank margin -- never a 0% section", () => {
+    const res = rollupByParent(skewedRows(), BCS_CDS, [], [], bcsInput([]));
+    const section = res.bcs!.byRowIndex.get(0)!;
+    expect(section.cost).toBeNull(); // NOT 0
+    expect(section.tendered).toBe(1_000_010);
+    expect(section.margin).toEqual({ kind: "blank", reason: "no_cost" });
+    expect(res.bcs!.grand.cost).toBeNull();
+  });
+
+  it("B5 a stored ZERO cost is costed -- 0 and 'nobody costed it' stay different facts", () => {
+    const res = rollupByParent(
+      skewedRows(), BCS_CDS, [], [],
+      bcsInput([{ excel_row: 11, combined_rate: 0 }, { excel_row: 12, combined_rate: 0 }]),
+    );
+    const section = res.bcs!.byRowIndex.get(0)!;
+    expect(section.cost).toBe(0); // a real claim: this section costs nothing
+    expect(section.margin).toEqual({ kind: "value", value: 100 });
+  });
+
+  it("B6 a row with no QUANTITY has no cost, however its rate is stored", () => {
+    const rows = [
+      prow({ row_index: 0, source_row_number: 10, effective_parent_index: null, effective_classification: "preamble", description: "S", node_type: "Preamble" }),
+      prow({ row_index: 1, source_row_number: 11, effective_parent_index: 0, effective_classification: "line_item", description: "no qty", node_type: "Line Item", rate_combined: 10 }),
+    ];
+    const res = rollupByParent(rows, BCS_CDS, [], [], bcsInput([{ excel_row: 11, combined_rate: 5 }]));
+    expect(res.bcs!.byRowIndex.get(0)!.cost).toBeNull();
+  });
+
+  it("B7 every node gets an entry, and a priced PREAMBLE's own cost counts exactly once", () => {
+    const rows = skewedRows();
+    // Give the preamble itself a quantity, so it carries a cost of its own beside its children's.
+    rows[0] = prow({ ...rows[0], qty_total: 2 });
+    const res = rollupByParent(
+      rows, BCS_CDS, [], [],
+      bcsInput([
+        { excel_row: 10, combined_rate: 3 }, // the preamble: 2 x 3 = 6
+        { excel_row: 11, combined_rate: 1 }, // 1 x 1 = 1
+        { excel_row: 12, combined_rate: 4 }, // 1 x 4 = 4
+      ]),
+    );
+    expect([...res.bcs!.byRowIndex.keys()].sort((a, b) => a - b)).toEqual([0, 1, 2]);
+    expect(res.bcs!.byRowIndex.get(0)!.cost).toBe(11); // 6 + 1 + 4, the preamble's own once
+    expect(res.bcs!.grand.cost).toBe(11);
+  });
+});

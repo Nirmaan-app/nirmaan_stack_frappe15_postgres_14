@@ -232,16 +232,13 @@ doc's **`## Residence — concept → owner`** manifest (see `.claude/context/do
 
 All BoQ wizard / pricing frontend code lives in `src/pages/boq-wizard/`. This section keeps ONLY the
 **stable conventions + load-bearing / owner-locked invariants**. The FULL per-slice as-built detail
-(component contracts, per-slice changelog, feat hashes) is relocated to
-**`frontend/.claude/context/domain/boq-frontend.md`** — load it before BoQ frontend work. Live status =
-`frontend/.claude/plans/boq-upload-plan.md`.
+(component contracts, per-slice changelog, feat hashes) is in
+`frontend/.claude/context/domain/boq-frontend.md` — load it first. Live status = `frontend/.claude/plans/boq-upload-plan.md`.
 
-**Docs discipline -- DOCS-UPDATE RULE (revised 2026-06-25, context-hygiene split):** per-slice / per-commit
-as-built detail goes into `boq-upload-plan.md` (live status) + `boq-frontend.md` (frontend) +
-`.claude/context/domain/boq-backend.md` (backend) ONLY. The always-loaded `CLAUDE.md` files get a MINIMAL
-touch ONLY when a STABLE convention or a load-bearing / owner-locked invariant changes — never a per-slice
-changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-session by the `.claude/hooks/guard_claude_md.py` PreToolUse hook** (blocks changelog-style appends + redirects to the domain docs; see `.claude/hooks/README.md`). **Frontend conventions file: `frontend/CLAUDE.md`
-(NOT `frontend/.claude/CLAUDE.md`).**
+**Docs discipline -- DOCS-UPDATE RULE:** full rule, and the `guard_claude_md.py` hook enforcing it, in root
+`CLAUDE.md`. Per-slice / per-commit as-built detail goes to `frontend/.claude/plans/boq-upload-plan.md` +
+`boq-frontend.md` + `boq-backend.md` ONLY — never into an always-loaded `CLAUDE.md`.
+**Frontend conventions file: `frontend/CLAUDE.md` (NOT `frontend/.claude/CLAUDE.md`).**
 
 ### Wizard (hub / spoke / review) -- stable conventions
 
@@ -261,7 +258,7 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
 - **`useFrappeGetDoc` swrKey:** 3rd arg is the swrKey; use `id ? undefined : null`, never `{ enabled }`.
 - **Parse / commit hub flows** are socket-driven (`boq:parse_run_done`, screen-scoped) with on-mount
   `parse_in_progress` recovery + reconnect self-heal; the acknowledge-only completion / commit-results modals are
-  hub-scoped. Full detail in `boq-frontend.md`.
+  hub-scoped. See the wizard-upload surface.
 - **SheetCard is a persistent 3-zone stepper** (`① Configure → ② Review → ③ Commit & Tender`). The
   effective-status → zone mapping lives in the PURE `sheetCardStages.ts` (`computeSheetStages`, unit-tested,
   ADR-0010 F4); `SheetCard.tsx` only renders descriptors + interpolates dynamic text (dates/reasons). There is
@@ -275,7 +272,7 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   sheet_order}`; the pricing editor's in-editor sheet-tab strip replaces the old picker (TenderingDialog removed).
 - **Commit dialog is one step:** all eligible sheets pre-ticked; a hard error routes to a slim errors-only notice
   (no per-warning "Looks OK" acks, no supersede-ack). Server gate re-check + `{committed, failed}` results modal +
-  `BOQ_DOWNSTREAM_ORPHAN` confirm are the safety boundary. Detail in `boq-frontend.md`.
+  `BOQ_DOWNSTREAM_ORPHAN` confirm are the safety boundary. See the revised-boq surface.
 
 ### Pricing editor (`PricingGrid.tsx` / `SheetPricingPage.tsx`) -- LOAD-BEARING invariants
 
@@ -313,7 +310,7 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   gate is ANDed in OUTSIDE `isRateEditableRow` so the override CANNOT bypass it. `onSaveFormula` (declaration) stays
   live while rates are locked. Server `_sheet_formulas_complete` is the real boundary. It ALSO gates the revision
   carry button (below).
-- **Revision carry button (owner-locked, ADR-0014 Amendment C + Amendment D):** a revision commit carries NOTHING, so
+- **Revision carry button (owner-locked, ADR-0014 Amendment C + E):** a revision commit carries NOTHING, so
   the ONE carry surface is the emerald **"Carry rates from original"** button in the pricing editor's action row,
   immediately after *Save now* (the hub's whole-BoQ button is REMOVED). Its four states come from the PURE
   `carryButtonState` (`CrossBoqCarryDialog.tsx`, ADR-0010 F4): **hidden** off a revision (`origin === "revision" &&
@@ -327,18 +324,27 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   `initialLayerChoices()`; never push it into the server** (an omitted `layers` payload is rates-only, which is exactly
   what a pre-E client keeps getting). The plan walks every layer with overwrite OFF, so
   `layerMoveCount = carried + (overwrite ? kept : 0)`. **Three gates had to widen to BOTH axes, and each matters:**
-  `nothingToCarry` replaces `selectedCount === 0` (unticking every rate but leaving Categories ticked is real work);
+  the apply gate is `carryWriteCount(...) === 0` (**R15 deleted `nothingToCarry`**), not `selectedCount === 0`;
   the destructive footer counts rates and layer records **separately** (they are not the same kind of loss); and
   `summarizeSheetCarry`'s "Nothing was carried." branch keys off every axis (a category-only carry is the LIKELIEST
   shape — a revision whose rates all conflict can still take the whole category set). Readiness is still
   `counts.clean + counts.conflict > 0`. Emerald is BANNED inside the dialog — it means priced/succeeded in
   this screen and belongs to the button + the post-apply line.
-- **The "carried" verdict state (Amendment E, owner ruling 2026-07-28):** `deriveVerdictState` gains `"carried"`,
-  rendered as sky text + `CornerDownRight` + a `carried from <BOQ>` tooltip. It marks **EVERY carried row, machine or
-  human** — provenance is the axis, and "who decided it" does not answer "was this inherited?"; the check therefore sits
-  ABOVE the human check. Its one input is `SheetCategoryRow.carried_from_boq`, which `resolvedToSheetCategoryRow` MUST
-  pass through — unlike `cross_engine_conflict`/`review_priority`/`votes` (telemetry, deliberately dropped), this is
-  provenance, and dropping it fails SILENTLY (every carried row renders as locally decided). Both gates built on
+- **The "carried" verdict state (Amendment E, owner ruling 2026-07-28; inputs corrected 2026-07-30 per R3/R16):**
+  `deriveVerdictState` gains `"carried"`, rendered as sky text + `CornerDownRight` + a provenance tooltip. It marks
+  **EVERY carried row, machine or human** — provenance is the axis, and "who decided it" does not answer "was this
+  inherited?"; the check therefore sits ABOVE the human check. It has **three inputs**, not one:
+    - `SheetCategoryRow.carried_from_boq` — the row's origin BoQ. **The STATE still keys on this field alone**, so a
+      row is `"carried"` iff this is set; the other two inputs shape the tooltip, never the verdict.
+      `resolvedToSheetCategoryRow` MUST pass it through — unlike `cross_engine_conflict`/`review_priority`/`votes`
+      (telemetry, deliberately dropped), this is provenance, and dropping it fails SILENTLY (every carried row renders
+      as locally decided).
+    - `carried_from_version` (R3) — which VERSION a within-BoQ carry came from.
+    - `carried_from_other_boq` (R16) — **derived SERVER-SIDE** in `get_sheet_categories_resolved`, not recomputed in
+      the client. Do not re-derive cross-BoQ-ness from a string compare in the frontend.
+  The tooltip therefore reads **`carried from Version N`** for a within-BoQ carry and **`carried from BOQ-…`** for a
+  cross-BoQ one — the two cases are distinguishable, and rendering the BoQ form for both was the pre-R16 bug. Both
+  gates built on
   `deriveVerdictState` are unaffected and test-pinned: `isRowEditable` (`!== "unclassified"`, so a carried row stays
   correctable) and `isMasterSetBlank` (`=== "unclassified"`, so an inherited category still opens the rate gate).
   ⚠️ `SheetPricingPage`'s `onApplied` MUST call `mutateCategories()` — Amendment D had removed it as a dead
@@ -347,6 +353,19 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   `formulaTokens.ts` (author; click-to-insert, NO literals) + `PricingGrid.evaluateAmountCell` (compute;
   formula-wins-else-pairing, draft-aware, fail-safe BLANK on any missing operand — never a stale number).
   `pricingRollup.ts` / `SummaryPanel.tsx` are formula-aware too.
+- **The operator vocabulary is `+ − × ÷` (F5), and the last two are NOT like the first two.** `+`/`*` are
+  commutative and associative, so an n-ary node's operand ORDER carries no meaning; `-`/`/` fold LEFT TO
+  RIGHT from `operands[0]`, so **the list order IS the arithmetic** (`{op:"-",operands:[a,b,c]}` means
+  `((a−b)−c)`). Any pass over a stored tree must preserve operand order. A MIXED tier parses
+  left-associatively into a binary chain, while a run of ONE operator stays n-ary — that split is what
+  keeps every pre-F5 formula's tree **byte-identical** (pinned by test; a re-shaped tree would move
+  committed sheets' amounts). ⚠️ **A ZERO DIVISOR IS REFUSED BEFORE THE DIVISION** and reported `broken`
+  ("check formula") — never `Infinity` on a tender document; `not_yet` would be wrong, since that reason
+  means a value is ABSENT and a real 0 is present. **`amountFormula.foldOperands` is the ONE
+  implementation** of all four operators (the BCS Total formula folds through it too) — do not write a
+  second. ⚠️ Adding an operator means extending `AmountFormulaBuilder.OP_GLYPH` (a total map, deliberately
+  not a ternary) **and** `pricing._FORMULA_OPS` **and** `export_template_workbook._OP_INFIX` — an operator
+  missing from that last one exports as a BLANK cell, silently dropping the formula.
 - **`reconcile.ts` is a PURE LEAF** (imports only types): the SHARED `amountsEqual` epsilon + `resolveDivergence`
   (D1 = DOCUMENT default). It exists so PricingGrid / priceability / pricingRollup share one comparison with NO cycle
   (PricingGrid must NOT import pricingRollup). Divergence fires only on `cell.kind === "value"`.
@@ -382,8 +401,8 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   (`isRowEditable`). The cell shows the human-readable LABEL (`labelFor`, id fallback) + 3 states via `deriveVerdictState`
   (auto / amber needs-review / emerald "your pick" human verdict). Selecting calls `set_row_category` (`""`=clear) with an
   OPTIMISTIC `categoryOverrides` patch folded into the reference-stable `categoriesByExcelRow` map + `mutateCategories`
-  reconcile + revert-on-error. The needs-review filter is UNCHANGED (a human verdict auto-drops the row via
-  `isNeedsReviewCategory`). Catalog + labels come from the read-only `get_category_catalog(discipline)` endpoint. The
+  reconcile + revert-on-error. The Check-Category filter drops a row once it has a verdict
+  (`isMasterSetBlank`). Catalog + labels come from the read-only `get_category_catalog(discipline)` endpoint. The
   two-engine overlap-conflict fork stays PARKED. `get_category_catalog` labels the ids -- never invent labels client-side.
 - **Blank-eligible clickability + amber "needs a category" fill (CL-6):** the click/Enter editability gate is
   `!!onCategoryClick && (isRowEditable(cat) || (isPriceableType(row.node_type) && hasRun))` — an ELIGIBLE
@@ -445,7 +464,7 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   computed, never persisted, NEVER rendered** (owner ruling, same as `review_priority`); the pure
   `resolvedToSheetCategoryRow` adapter (`sheetCategoryResolve.ts`) DROPS it so it can't reach a
   rendered surface, and maps each resolved row onto the grid's `SheetCategoryRow` so `PricingGrid` +
-  `deriveVerdictState` + `isNeedsReviewCategory` render UNCHANGED (blank rows still blank + amber).
+  `deriveVerdictState` + `isMasterSetBlank` render UNCHANGED (blank rows still blank + amber).
   `ranDisciplines` (the read's `disciplines[]`) drives: one `get_category_catalog` per ran-discipline
   (via child `EngineCatalogFetcher` -- the hook-safe N-dynamic-fetch pattern) into the grouped
   picker (`buildSheetEngineCatalogs`), and per-running-discipline status polling (one child
@@ -651,6 +670,117 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   memo shield holds; classic stays byte-identical). Same shape as the page-owned CategoryVerdictPicker's IO close. The
   grid-level `shouldCloseOverlay` mounted-set effect stays only as the remark BACKSTOP. Closing discards any unsaved draft
   (owner-accepted). EXEMPT: a popover in the STICKY `<th>` header (AmountFormulaBuilder) never scrolls off -> no observer.
+- **BCS -- the INTERNAL cost block inside the pricing editor** (`bcsColumns.ts` pure leaf + `bcsRollup.ts` +
+  `marginView.ts` + `BcsColumnsDialog.tsx` + `MarginRangeFilter.tsx`; the block itself renders inside
+  `PricingGrid`/`SummaryPanel`, no new
+  route). Full frontend as-built in `frontend/.claude/context/domain/boq-frontend.md`; storage, endpoints and the
+  carry layer in `.claude/context/domain/boq-backend.md`. ⚠️ **NAME COLLISION: "BCS" in the Rate Master section
+  below is a derivation pipeline -- an unrelated concept sharing three letters.** The acronym is never expanded
+  anywhere in the codebase; do not invent an expansion. The load-bearing invariants:
+  - **WHICH cost boxes a sheet gets is derived from the sheet's OWN rate columns** (`bcsLiveRateKinds`, owner
+    ruling): no Supply rate column -> no Supply box; a combined-rate sheet gets ONE box; no rate column at all ->
+    no block. ⚠️ **THE HALVES WIN OVER A COMBINED RATE MAPPED BESIDE THEM.** The backend forbids summing
+    `combined_rate` with the two halves, so the live set must never hold both or the total double-counts -- which
+    makes the prohibition **STRUCTURAL**: the arithmetic downstream cannot express the forbidden sum, because the
+    set it is given never contains both. A NARROWING, never a widening.
+  - **Column headers are an owner ruling, pinned by test:** `BCS Cost (Supply)` · `BCS Cost (Installation)` ·
+    `BCS Total Amount`. The prefix marks which side of the sheet a figure belongs to (BCS = what it costs US;
+    everything else = what we charge the CLIENT), which matters because the two blocks scroll apart on a wide
+    sheet. The mirror to the parser's `Rate (Install)` role label is deliberately NOT word-for-word -- do not
+    shorten `Installation` back to match it.
+  - **THE BLOCK IS FOUR COLUMNS (BCS-S8, owner 2026-08-07):** the two cost boxes · `BCS Total Amount` ·
+    `% Margin`. ⚠️ **`Tendered Total Amount` was REMOVED, reversing S3b's "ALWAYS SHOWN (owner ruling)" --
+    but ONLY the column. `bcsRowAmount` / `bcsTenderedAmountCell` / `BcsSectionTotals.tendered` still
+    compute it, because it is the margin's DIVISOR; deleting them blanks every % Margin on every sheet.**
+    Cost: the denominator is no longer verifiable by eye (the rule that % Margin divides by the figure SHOWN
+    still holds in code, but nothing on screen proves it). ⚠️ `isBcsInputColumn` answers "is this NOT a
+    computed kind?", so REMOVING a token from `BCS_COMPUTED_KINDS` makes it **typeable**, not inert --
+    anything dropped from that list must leave the `BcsComputedKind` union in the SAME edit.
+  - **`% Profit` is now `% Margin` (owner 2026-08-07) -- A RENAME, NOT A MATHS CHANGE.** The owner's
+    `(1 − BCS/BOQ) × 100` and the implemented `((amount − cost) / amount) × 100` are the same expression
+    rearranged; the identity is pinned by test. ⚠️ That test ALSO pins the misread grouping as WRONG:
+    `1 − (c/a) × 100` returns **−59** where the answer is **+40**. Do not "implement the owner's formula
+    literally". `bcsMarginPercent`'s guards (zero denominator, NEGATIVE denominator, non-finite) are
+    load-bearing -- rewriting it into the `1 − c/a` shape would compute the same thing while risking them.
+  - **`% Margin` HAS ITS OWN ƒ TOO (S10/S11), and it is ONE dialog with TWO slots** --
+    `MarginFormulaBuilder`, rendering `( 1 − COST ÷ AMOUNT ) × 100` with both operands live inside
+    it. ⚠️ S11 first shipped this as TWO badges and the owner rejected it: they are two halves of
+    one rule, and splitting them made the rule invisible. **The wrapper is rendered, NOT editable,
+    and that is STRUCTURAL** -- `1` and `100` are numeric literals, which this system has no token
+    for and the server rejects; keeping it in code is also what keeps `bcsMarginPercent`'s guards
+    (zero / non-finite / NEGATIVE denominator, the last of which would show a loss as +150%)
+    unbypassable. Targets `bcs_margin_cost` + `boq_total`; `rollBcsSections` takes a per-row
+    `ownTendered` override so the Summary panel follows a formula too. ⚠️ **Total Quantity must
+    stay reachable from the COST side** -- BCS Total is a ROW total while the cost boxes are
+    PER-UNIT rates, so without it the only reachable formula was dimensionally wrong.
+  - ⭐ **THE CHIP-NAMING RULE: a palette chip must read EXACTLY as its column reads in the grid.**
+    Broken twice in one session, both times found by the owner (`Amount (Total)` was a ROLE label;
+    `BCS Total` vs the header's `BCS Total Amount`). Sheet-column chips carry the **Excel letter**
+    (`G — Amount (Supply)`) -- the one label both surfaces share; BCS chips carry none, because
+    they have no Excel column and that absence is meaningful. **A chip nobody can locate in the
+    grid reads as a figure that does not exist.**
+  - **The % Margin column header OWNS the margin view controls (BCS-S13/S14, owner 2026-08-07).**
+    Layout is `[ƒ] % Margin [↑↓] [▼funnel]`. ⚠️ **BCS-S4's separate flat "margin VIEW" is DELETED** --
+    with its toolbar toggle, its header-as-sort-control, and `buildSectionLabels` (which existed only
+    because flattening destroyed the section context a tree shows by POSITION). Do not rebuild it;
+    a ranked overview is a rebuild, not an un-deletion.
+    - **The RANGE is a TERM of `passesViewFilter`, never a separate pass** -- so it ANDs with
+      Show-unpriced / Check-Category / the row-type toggles for free and search inherits it. The
+      **SORT** is the one genuine stage after it (ordering cannot be a predicate).
+    - **Both are SNAPSHOTS measured over the WHOLE sheet (`rowsRef.current`), never `displayRows`.**
+      A range measured over the filtered set narrows irreversibly on each Apply; a rank built over it
+      leaves later re-admitted rows unranked in the appended tail. Recomputed on an explicit
+      Apply/arrow click ONLY -- `activeCell` is array-index addressed, so a live re-derivation would
+      slide a different row under the cursor mid-keystroke.
+    - ⚠️ **MEMBERSHIP IS THE MARGIN, NEVER `node_type`.** `isMarginViewRow` (line-items-only) was the
+      VIEW's curation rule and could not survive either half: the grid renders % Margin on every row
+      that has one, so a qty-bearing Preamble showing 15% would vanish from a 10-25% filter beside
+      line items that stayed; and `marginSortRows`' output IS the grid's row set, so an unranked row
+      silently disappears from the sheet. Rows with no margin are already excluded by `marginInRange`.
+    - **Only the SORT suppresses tree claims** (flat depths, withheld `childrenByParent`, suspended
+      collapse) -- a filter merely drops rows, so a survivor's ancestry and chevron stay true. The
+      arrow is THREE-state (`off → asc → desc → off`); **off must stay reachable**, or the suppressed
+      hierarchy has no way back.
+    - ⚠️ **A CONTROL THAT CAN HIDE ITSELF NEEDS AN ESCAPE HATCH.** `PricingGrid`'s `rows.length === 0`
+      early return fires BEFORE the header, so a range matching nothing removed the only control that
+      could clear it. The empty state must therefore tell "empty sheet" from "your filters emptied it",
+      name the applied range **without blaming it** (filters compose -- claiming "nothing has a margin
+      in that band" may be false), and offer **Clear filters** resetting EVERY view filter. It must
+      stay an early return INSIDE the grid: lifting it into the page unmounts `PricingGrid` and
+      discards the unsaved drafts held in its state.
+  - **The BCS dialog is ONLY a switch (S12):** on/off + Cancel; both column pickers gone.
+    ⚠️ **Readiness dropped to `bcs_enabled` in the SAME change and the two are inseparable** --
+    re-adding the confirmation requirement without the pickers makes BCS switch on and stay
+    permanently read-only. The ribbon chip and the "BCS needs columns" banner were removed with
+    them (a banner that cannot fire is worse than none). ⚠️ **Enabling no longer opens the card**
+    -- that line was correct only while the card held the pickers.
+  - **`BCS Total Amount` is an EDITABLE FORMULA (BCS-S9, green ƒ on its header).** Stored in the EXISTING
+    `BoQ Cell Amount Formula` as `target_value_field = "bcs_total"` -- **no schema change, no migrate**, and
+    it rides the `column_formulas` payload + `onSaveFormula` that already existed. **`bcsColumns.bcsTotalCell`
+    is the ONE function that answers "this row's BCS total"** -- `PricingGrid` and `pricingRollup` computed it
+    separately before S9, which was survivable only while the rule was a constant; as per-sheet DATA two
+    copies would show different numbers in the grid and the Summary panel. Absent formula ⇒ the built-in
+    `(cost boxes) × quantity`, byte-identical to pre-S9. The operand vocabulary (`bcs_supply` / `bcs_install`
+    / `bcs_combined` / `bcs_qty`) is DISJOINT from the sheet's columns; the palette derives from
+    `bcsLiveRateKinds`, so it can never offer a box the sheet lacks. ⚠️ **The builder's palette group
+    headings must stay DERIVED (`paletteGroupOrder`), never a fixed list** -- a hardcoded
+    `["Quantity","Rate","Amount"]` silently dropped the BCS cost chips at render with no error and no empty
+    state, and only the owner caught it.
+  - **A BLANK IS NEVER A 0, and every blank knows WHY** (`BcsComputedCell` = value | blank+reason, surfaced as the
+    cell `title`). A `0` is a claim ("this costs nothing"); an absence is not. An unrecognised reason renders as an
+    explicit UNSUPPORTED state, never a silent blank. ⭐ **% Margin is never NaN, never Infinity, and NEVER A
+    PROFIT ON A LOSS** -- a NEGATIVE denominator flips the inequality (amount -100 vs cost 50 computes +150%), so
+    a loss-making row would display positive profit: confidently wrong, which is worse than visibly absent. It is
+    a **blank with a reason, not a blocked keystroke** (do not convert it into a validation); the COST side is
+    deliberately unguarded, since only the denominator's sign inverts the comparison.
+  - ⚠️ **`mergeBcsRowValues` takes a `ReadonlyMap` ON PURPOSE -- never "simplify" it to an object.** The grid's cost
+    drafts are keyed `` `${row_index}:${field}` `` while the merge reads BARE field keys; as plain objects the two
+    are structurally assignable, so passing the wrong key space COMPILES CLEANLY, finds nothing, and reverts a
+    controlled cost input on every keystroke while the debounce saves a number nobody typed. A `Record` is not
+    assignable to a `Map`, so the mistake is now a compile error.
+  - **The `bcs_costs` carry layer defaults OFF, and the default lives ONLY in the client** -- an omitted `layers`
+    payload is rates-only server-side. ON is the exception, not the rule, and an internal cost rate is the last
+    layer on which to relax "nothing arrives un-asked-for".
 
 - **Header column filters + the Row Type label (UI slice, owner-locked).** The pricing grid's Row Type
   and Category headers each carry a funnel (`boq-wizard/GridColumnFilter.tsx`) opening a type-to-search
@@ -952,144 +1082,15 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
 All wizard-frontend code lives in `src/pages/boq-wizard/`. Do not scatter
 wizard components into other page folders.
 
-**Project picker (M1.64):** The picker uses an inline `useFrappeGetDocList`
-dropdown -- no shared `ProjectSelector` component. Mirror the query shape
-from `NewMilestones.tsx` (fields: `["name", "project_name"]`, filter
-`status != Tendering`, limit 1000). Do NOT build a reusable ProjectSelector.
-
-**Global entry (M1.59):** Route is `/upload-boq` with optional `?project=<id>`
-query param for pre-selection. Defined as a React Router v6 `lazy()` route
-in `routesConfig.tsx`. The module must export `Component` (named) for lazy().
-
-**In-project tab (M1.5):** Tab key is `PROJECT_PAGE_TABS.BOQ = 'boq'`, accessed
-via `?page=boq` on `/projects/:projectId`. Tab component is `BoqProjectTab`
-(lazy via `React.lazy()`). New tab sets must be typed as
-`useMemo<Set<ProjectPageTabValue>>` to avoid TS narrowing failures.
-
-**Sidebar nav (M1.57):** Role-gated to Admin + PMO + Procurement Executive +
-Estimates Executive + Project Lead (identical to Item Price Search gating).
-Add label to the leaf-item discriminator Set in `NewSidebar.tsx`, to `allKeys`,
-and to `groupMappings`.
-
-**Color tokens (M1.66):** Use Tailwind token classes only -- `text-muted-foreground`,
-`bg-background`, `border-border`, `text-foreground`, `text-primary`, etc.
-Never hardcode hex values. All tokens defined in `src/index.css` :root.
-
-**UI library (M1.62):** shadcn/ui primitives only for wizard UI (Button, Card,
-Select, Dialog, etc.). No Ant Design in wizard components.
-
-**Tendering create-modal (M1.56):** The picker's 'Create new Tendering project'
-button opens `TenderingProjectForm` inside a shadcn `Dialog`. The form is
-rendered in embedded mode via two additive optional props:
-- `embedded?: boolean` -- suppresses the standalone page chrome (back button,
-  Card wrapper) so the form body sits cleanly inside the Dialog.
-- `onCreated?: (newProjectId: string) => void` -- called with the new project's
-  docname (`response.message.project_name`) on successful CREATE, replacing the
-  default navigate-to-tendering-tab behavior.
-- `onCancel` is extended to work in embedded CREATE mode (previously EDIT only).
-
-The standalone route `/projects/new-project/tendering` is byte-for-byte
-unchanged when these props are absent. This change is owner-approved (M1.56,
-Nitesh briefed Abhishek). Do NOT widen these props further without owner sign-off.
-
-In embedded mode all three react-select menus (State, City, Customer) render
-inline (`menuPortalTarget={undefined}`) rather than portalling to `document.body`.
-This prevents Radix Dialog's DismissableLayer from intercepting clicks on portalled
-elements and swallowing option selections. On the standalone route (embedded
-absent) the menus continue to portal to `document.body` as before.
-
-**useBoqWizardStore (M1.60):** Transient Zustand store at `src/zustand/useBoqWizardStore.ts`
-(no `persist` middleware -- wizard state is session-only). Mirrors `useProjectDraftStore`
-structure. Key state: `selectedProjectId`, `droppedFile` ({name,size}|null),
-`uploadStatus` ('idle' -- expanded in 1b-ii-b), `panelValues` (boqName/version/gst/notes),
-`confirmedFields` (boqName/version/gst booleans). Key actions: `setDroppedFile`,
-`clearFile`, `setPanelValue`, `confirmField`, `reset`. Call `reset()` when projectId
-changes to flush stale state; pre-fill `boqName` from the fetched project name
-afterwards (unconfirmed).
-
-**Upload screen layout (M1.4, M1.7):** `BoqUploadScreen.tsx` owns the two-pane
-layout (Card grid, 1-col mobile / 2-col md+). Renders in-place inside `BoqPickerPage`
-when `?project=<id>` is present -- no new route. `BoqDropZone.tsx` is the left pane;
-`BoqMasterPanel.tsx` is the right pane. Footer: Back-to-project (navigates to
-`/projects/<id>`) + Continue (disabled until 1b-ii-b gates it on file + confirmed fields).
-
-**Drop zone (M1.65):** `BoqDropZone.tsx` -- custom file-input pattern, no react-dropzone.
-Hidden `<input type="file" accept=".xlsx,.xlsm">` triggered by click/drag. Client-side
-validation only: wrong extension = Error D; >25 MB = Error H. Errors E (corrupted) and
-F (zero sheets) require the parser -- deferred to 1b-ii-b. On valid drop: collapses to
-file tile (filename + size + Replace link); file stored in `useBoqWizardStore.droppedFile`.
-
-**Blank-until-parsed + confirm-reset (§4.1 clarification, 1b-ii-b):** Required fields
-(BoQ Name, Version, GST) start BLANK (empty string, no radio selection) before parse.
-`DEFAULT_PANEL` in the store has all-empty values; `GstChoice` includes `""`. After
-parse success, `fillFromParse({boqName, version, gst, notes})` populates the fields
-AND resets `confirmedFields` to all-false, so the user sees the sparkle + opacity-50
-treatment on the REAL detected values. The sparkle/opacity condition checks BOTH
-`!confirmed && value !== ""` -- empty fields never show sparkle pre-parse. The
-1b-ii-a `useEffect` that pre-filled `boqName` from `project.project_name` is REMOVED.
-
-**Upload trigger flow (1b-ii-b):** On valid drop, `BoqDropZone` immediately POSTs to
-`/api/method/nirmaan_stack.api.boq.wizard.upload_file.upload_file` via native `fetch` with
-`FormData` (fields: `project_id` from store, `file`). CSRF token from
-`(window as any).frappe?.csrf_token`. Returns `{message: {job_id}}` synchronously;
-`setUploadStatus("parsing")` + `setJobId(job_id)` on success. Upload HTTP failure
-calls `resetUpload()` (not just `setUploadStatus("idle")`) so the drop zone
-reappears for retry.
-
-**uploadStatus lifecycle (1b-ii-b):** `idle` | `uploading` (POST in flight) |
-`parsing` (job enqueued, waiting for socket) | `done` (parse success, BOQs row
-created) | `error-E` (corrupted workbook, error_code="corrupted") | `error-F` (zero
-sheets, error_code="zero_sheets") | `error-internal` (unexpected server error).
-`BoqDropZone` renders spinner for uploading/parsing, error states for error-*, and
-file tile for idle/done. The 30s "taking longer" message is a local `setTimeout`
-in `BoqDropZone` that fires only during "parsing" -- not a timeout, parsing continues.
-
-**Socket listener pattern (1b-ii-b):** `boq:wizard_parse_done` is registered
-SCREEN-SCOPED in `BoqUploadScreen.tsx` via `useContext(FrappeContext)` -- NOT added
-to `socketListeners.ts` or `SocketInitializer.tsx`. Pattern: `socket.on(event, handler)`
-in a `useEffect([socket])` cleanup, `socket.off(event, handler)` in the cleanup
-return. Handler guards on `useBoqWizardStore.getState().uploadStatus === "parsing"` to
-filter events from concurrent uploads by other users (frappe.publish_realtime
-broadcasts to ALL connected clients without user targeting). Success path sets
-`boqDocName` + `uploadStatus("done")`; error path sets the appropriate error-* status.
-`useFrappeGetDoc("BOQs", boqDocName, boqDocName ? undefined : null)` then fetches the
-doc (third arg null disables SWR until boqDocName is set per sdk gotcha). A separate
-`useEffect([boqDoc, uploadStatus])` calls `fillFromParse` when the doc arrives.
-
-**Socket listener pattern (2b-frontend-i) -- hub `boq:parse_run_done` listener:** `boq:parse_run_done` is registered SCREEN-SCOPED in `BoqHubPage.tsx` via `useContext(FrappeContext)` -- NOT added to `socketListeners.ts` or `SocketInitializer.tsx` (same screen-scoped convention as the 1b-ii-b upload listener). `socket.on(event, handler)` in `useEffect([socket])`, `socket.off` in cleanup. KEY DIFFERENCE from the 1b-ii-b upload listener: guards on `payload.boq_name === boqId` (hub always knows its BoQ; no store-state check needed) rather than a store `uploadStatus` flag. On success: calls `mutate()` + sets `parseResult({parsed, notParsed, failed})` to open the completion modal (Bucket-2 Slice 2); on error: uses `PARSE_ERROR_MSGS` module-level const to set `parseError({message, severity})`. `boq:wizard_parse_done` (upload flow, 1b-ii-b, in `BoqUploadScreen`) and `boq:parse_run_done` (parse-run flow, 2b-frontend-i, in `BoqHubPage`) are DISTINCT events for DISTINCT flows -- do NOT conflate them.
-
-**Parse completion modal pattern (Bucket-2 Slice 2, feat 21e56963):** `BoqHubPage` shows parse results in an acknowledge-only `AlertDialog` (single OK action, no Cancel). Open-state is derived from `parseResult || parseError` -- the modal opens automatically when either is set; OK action (and Escape key via `onOpenChange`) clears both. HUB-SCOPED only; never make this app-global. Per-case message convention:
-- SUCCESS: up to 3 independent sub-lines, each shown only if the list is non-empty: (1) `Parsed: {names}` -- `font-medium text-foreground`; (2) `Not parsed (skipped, hidden, or general-specs): {names}` -- `text-muted-foreground` (NEUTRAL); (3) `Failed to parse: {names}` -- `text-destructive`. If all lists empty, show "Parse complete." fallback.
-- ERROR: one message per error code. `no_eligible_sheets` is NEUTRAL (`text-muted-foreground`) -- it is advisory, not a failure; all other codes are `text-destructive`. Exact messages in `PARSE_ERROR_MSGS` const in `BoqHubPage.tsx` (module-level, not re-defined per event).
-- `parseError` state shape: `{ message: string; severity: "destructive" | "neutral" } | null` -- preserving the error code semantics for styling. Do NOT flatten to a pre-baked string that loses the code.
-
-**On-mount parse_in_progress recovery convention (Bucket-2 Slice 2, feat 21e56963):** `parseInFlight` must be initialized from the server flag on every hub mount so it survives navigation and missed socket events. Pattern: a `useEffect([boq])` (mirrors the specs-checklist `useEffect([boq])` pattern) that calls `setParseInFlight(boq.parse_in_progress === 1)`. The live socket event still clears `parseInFlight` on done -- the on-mount read is the fallback only. Do NOT poll; a single read on doc-load is sufficient. Apply this pattern to any future hub-scoped "job is running" indicator that must survive navigation.
-
-**Parse button in-progress convention (Bucket-2 Slice 2):** When `parseInFlight=true`, the Parse workbook button should be `disabled` AND show a spinner (e.g. `<Loader2 className="mr-2 h-4 w-4 animate-spin" /> Parsing...`). This makes the recovered `parseInFlight=true` state visible without re-opening the confirm dialog. Pattern: `disabled={!canParse || parseInFlight}`.
-
-**Hub reconnect self-heal convention (#147 option-4, feat 193327b1):** The hub socket `useEffect([socket])` registers both the `boq:parse_run_done` done-handler AND a `socket.on("connect", onReconnect)` reconnect handler in the same effect body. `onReconnect = () => { void mutate(); }` re-fetches the BoQ doc on socket reconnect (and initial connect -- harmless, SWR deduplicates). The existing `useEffect([boq])` on-mount recovery then re-syncs `parseInFlight` from the fresh `parse_in_progress` server value, self-healing a missed done-event without a manual refresh. Cleanup: `socket.off("connect", onReconnect)` in the same return alongside `socket.off("boq:parse_run_done", handler)`. Reuses the existing `mutate` from `useFrappeGetDoc`; no new fetch mechanism. Apply this pattern to any future hub-scoped long-running job that uses a socket done-event + on-mount recovery.
-
-**ParseRunDialog dismiss convention (#147 option-4, feat 193327b1):** `ParseRunDialog`'s `onOpenChange` must allow dismiss even when `isLoading` (a parse is in flight) -- closing the dialog does NOT cancel the server parse job. The parse keeps running; the hub's Parse button continues showing Parsing... spinner (driven by `parseInFlight`). Pattern: `onOpenChange={(isOpen) => { if (!isOpen) onClose(); }}` -- no `isLoading` guard. The **Cancel button stays disabled** while loading because "Cancel" implies aborting the job, which is not supported (no cancel API exists). Three dismiss affordances are always available: X button (built-in via `disableCloseIcon=true` default in `DialogContent`), Escape key, and overlay-click. This pattern enables navigate-away-during-parse: user closes dialog mid-parse, hub body becomes interactive, user navigates away. On return, on-mount recovery restores `parseInFlight=true` from `parse_in_progress`.
-
-**Continue gate (M1.33-M1.36):** Enabled when `droppedFile !== null && uploadStatus
-=== "done" && confirmedFields.boqName && confirmedFields.version && confirmedFields.gst`.
-Disabled-state tooltip dynamically lists still-missing items. On click:
-`navigate(\`/upload-boq/hub/${boqDocName}\`)` -- navigates to the BoQ Hub screen
-(Module 2b-i, feat 81568df9). The old `handedOff` stub (CheckCircle2 placeholder,
-local useState) has been removed.
-
-**Pre-fill-unconfirmed pattern (S4.1, M1.34):** Required fields (BoQ Name, Version, GST)
-start blank (see blank-until-parsed above). After `fillFromParse`, they carry real
-detected values and show ~50% opacity with a ✨ sparkle until the user explicitly
-interacts (click, focus, or value change calls `confirmField`). Read-only (Project,
-Customer) and optional (Notes) fields are excluded from this treatment (M1.19, M1.32).
-GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
-satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
-store.
+**Wizard-screen detail (project picker, global entry + in-project tab, sidebar gating, colour tokens, UI
+library, the Tendering create-modal, `useBoqWizardStore`, the upload screen / drop zone, the
+blank-until-parsed + confirm-reset rule, the `uploadStatus` lifecycle, both socket-listener patterns, the
+hub parse-completion / recovery / reconnect / dismiss conventions, and the Continue + pre-fill gates)
+lives in **`frontend/.claude/context/domain/boq-frontend.md`** — load it before wizard work.
 
 ### BoQ Pricing Editor -- Frontend Conventions
 
-The FULL per-slice component contracts (keyboard-nav matrix, the row-memo anti-defeat rule, the formula engine F1–F4, reconciliation, collapse/expand, lock/unlock, the two-ribbon toolbar, search/column-hide, export/download, review-screen render contracts, etc.) live in **`.claude/context/domain/boq-frontend.md`**. Load it before pricing-editor / review-screen frontend work. The STABLE conventions + LOAD-BEARING invariants are summarized above (§ "Pricing editor … LOAD-BEARING invariants" and § "Review screen … load-bearing invariants").
+The FULL per-slice component contracts (keyboard-nav matrix, the row-memo anti-defeat rule, the formula engine F1–F4, reconciliation, collapse/expand, lock/unlock, the two-ribbon toolbar, search/column-hide, export/download, review-screen render contracts, etc.) live in **`frontend/.claude/context/domain/boq-frontend.md`**. Load it before pricing-editor / review-screen frontend work. The STABLE conventions + LOAD-BEARING invariants are summarized above (§ "Pricing editor … LOAD-BEARING invariants" and § "Review screen … load-bearing invariants").
 
 ### Pricing Module (HVAC / Electrical / ELV Pricing) -- Frontend Conventions
 

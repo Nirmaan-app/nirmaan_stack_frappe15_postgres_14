@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Settings2 } from 'lucide-react';
 import { useUserData } from "@/hooks/useUserData";
 import { SetupTDSRepositoryDialog, TDSRepositoryData } from './components';
+import { isProcurementProfile } from "@/constants/roles";
 
 interface NoTDSRepositoryViewProps {
     onConfirm: (data: TDSRepositoryData) => void;
@@ -27,7 +28,7 @@ export const NoTDSRepositoryView: React.FC<NoTDSRepositoryViewProps> = ({ onConf
                     onClick={() => setIsSetupDialogOpen(true)}
                     size="lg"
                     className="bg-red-600 hover:bg-red-700"
-                    disabled={role === "Nirmaan Procurement Executive Profile"}
+                    disabled={isProcurementProfile(role)}
                 >
                     Configure TDS Repository 
                 </Button>

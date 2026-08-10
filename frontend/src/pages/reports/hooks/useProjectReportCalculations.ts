@@ -35,7 +35,7 @@ interface ProjectReportParams { // <--- NEW INTERFACE
 // Define the structure for the calculated fields
 export interface ProjectCalculatedFields {
     totalInvoiced: number;
-    totalPoSrInvoiced: number; // This is the new field for invoiced amounts from invoice_data
+    totalPoSrInvoiced: number; // This is the combined invoiced amount for POs and SRs
     totalProjectInvoiced: number;
     totalInflow: number;
     totalOutflow: number;
@@ -443,7 +443,7 @@ export interface ProcessedProject extends Projects {
     // They are dynamically fetched/calculated by the cell renderers.
     // For typing purposes in cells or if you enrich data for export, they can be optional.
     totalInvoiced?: number;
-    totalPoSrInvoiced: number; // This is the new field for invoiced amounts from invoice_data
+    totalPoSrInvoiced: number; // This is the combined invoiced amount for POs and SRs
     totalProjectInvoiced?: number;
     totalInflow?: number;
     totalOutflow?: number;

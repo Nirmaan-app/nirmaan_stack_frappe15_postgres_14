@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, CheckCircle2, XCircle, FileText, Pencil, MessageSquare, Clock, User, Layers, Search, Filter, FilterX, Check, ChevronRight } from "lucide-react";
+import { CheckCircle2, XCircle, FileText, Pencil, MessageSquare, Clock, User, Layers, Search, Filter, FilterX, Check, ChevronRight } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
     Popover,
@@ -26,7 +26,8 @@ import {
     TooltipProvider,
     TooltipTrigger
 } from "@/components/ui/tooltip";
-import { useFrappeGetDocList, useFrappeGetDoc, useFrappeUpdateDoc, useFrappeDeleteDoc, useFrappeCreateDoc, useFrappeFileUpload, useFrappePostCall } from "frappe-react-sdk";
+import { useFrappeGetDocList, useFrappeGetDoc, useFrappeUpdateDoc, useFrappeDeleteDoc, useFrappeFileUpload, useFrappePostCall } from "frappe-react-sdk";
+// useFrappeCreateDoc removed in Phase 2 — promotion is now a backend API call.
 import { useUserData } from "@/hooks/useUserData";
 import {
     useReactTable,
@@ -115,14 +116,25 @@ const ITEM_STATUS_STYLES: Record<ItemStatusKind, { badge: string; text: string }
     "Not Verified": { badge: "bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-600/20",      text: "text-rose-800" },
 };
 
+// Item-status badge derivation (Phase 2, group model). Keyed on
+// (tds_item_id, tds_make) where tds_item_id is the frozen TDS Item (group) id.
+//   - "Custom Item"  → a "New" request proposing a BRAND-NEW group (no group id yet).
+//   - "New Item"     → a "New" request against an EXISTING group (group id set) —
+//                      typically a make missing a Repository Entry / datasheet.
+//   - "Verified"     → picked row whose master (tds_item, make) entry is Verified.
+//   - "Not Verified" → picked row with no Verified master entry for (tds_item, make).
+const repoKey = (tdsItemId?: string, make?: string) =>
+    `${tdsItemId || ""}|${(make || "").trim().toLowerCase()}`;
+
 const getItemStatusKind = (
-    item: { tds_status?: string; tds_item_id?: string; tds_work_package?: string; tds_category?: string; tds_item_name?: string; tds_make?: string },
+    item: { tds_status?: string; tds_item_id?: string; tds_make?: string },
     repoStatusByKey: Map<string, string>
 ): ItemStatusKind => {
     if (item.tds_status === "New" && !item.tds_item_id) return "Custom Item";
     if (item.tds_status === "New") return "New Item";
-    const key = `${item.tds_work_package}|${item.tds_category}|${(item.tds_item_name || "").trim().toLowerCase()}|${(item.tds_make || "").trim().toLowerCase()}`;
-    return repoStatusByKey.get(key) === "Verified" ? "Verified" : "Not Verified";
+    return repoStatusByKey.get(repoKey(item.tds_item_id, item.tds_make)) === "Verified"
+        ? "Verified"
+        : "Not Verified";
 };
 
 const ItemStatusBadge: React.FC<{ kind: ItemStatusKind }> = ({ kind }) => (
@@ -473,12 +485,16 @@ export const TDSApprovalDetail: React.FC = () => {
     // Use custom hook for user data and role
     const { user_id, role } = useUserData();
 
-    const ALLOWED_APPROVER_ROLES = [
-        "Nirmaan Admin Profile",
-        "Nirmaan Project Lead Profile",
-    ];
+    // Phase 2 (ADR-0003 P2-5): ALL TDS approval is Admin-only. Project Lead lost
+    // the pre-freeze approve right — both pick-only and promoting approvals now go
+    // through the Admin-only backend (`api/tds/approve.py`), which re-checks
+    // server-side. This UI gate is the cosmetic mirror of that authority.
+    const ALLOWED_APPROVER_ROLES = ["Nirmaan Admin Profile"];
 
-    const canApprove = user_id === "Administrator" || (!!role && ALLOWED_APPROVER_ROLES.includes(role));
+    // canApprove gates the select column, actions (pencil) column, the Approve/
+    // Reject footer, Select All, and the selection chip.
+    const canApprove =
+        user_id === "Administrator" || (!!role && ALLOWED_APPROVER_ROLES.includes(role));
 
     // Fetch items for this request ID
     const { data: allItems, isLoading, mutate } = useFrappeGetDocList<TDSItem>("Project TDS Item List", {
@@ -487,31 +503,31 @@ export const TDSApprovalDetail: React.FC = () => {
         limit: 0
     });
 
-    // TDS Repository — used to detect "already exists" cases at approval time
-    // so we can link a "New" project item to an existing repo entry instead of
-    // failing the approval or silently creating a duplicate row.
+    // TDS Repository (Phase 2 group shape: entries are (tds_item Link, make)).
+    // Used only to render the inline master "Verified" / "Not Verified" badge on
+    // picked rows. The OLD removed columns (tds_item_id/tds_item_name/category)
+    // are gone; we request only the current shape so get_list never throws. The
+    // approval/promotion writes are done server-side (api/tds/approve.py), so this
+    // fetch is read-only for badge derivation.
     type RepoEntry = {
         name: string;
-        tds_item_id: string;
-        tds_item_name: string;
+        tds_item: string;
         make: string;
-        work_package: string;
-        category: string;
         status?: string;
     };
-    const { data: repoEntries, mutate: mutateRepo } = useFrappeGetDocList<RepoEntry>("TDS Repository", {
-        fields: ["name", "tds_item_id", "tds_item_name", "make", "work_package", "category", "status"],
+    const { data: repoEntries } = useFrappeGetDocList<RepoEntry>("TDS Repository", {
+        fields: ["name", "tds_item", "make", "status"],
         limit: 0,
     });
 
-    // Lookup of TDS Repository status keyed by (wp|cat|name|make) — same shape we
-    // already use for findExistingRepoEntry. Used by the Pending Review row to
-    // render the master's "Verified" / "Not Verified" badge inline.
+    // Lookup of TDS Repository status keyed on (tds_item|make) — the entry's
+    // uniqueness key. Used by the Pending Review row to render the master's
+    // "Verified" / "Not Verified" badge inline. Keyed identically to repoKey().
     const repoStatusByKey = useMemo(() => {
         const map = new Map<string, string>();
         if (!repoEntries) return map;
         repoEntries.forEach(r => {
-            const key = `${r.work_package}|${r.category}|${(r.tds_item_name || "").trim().toLowerCase()}|${(r.make || "").trim().toLowerCase()}`;
+            const key = repoKey(r.tds_item, r.make);
             if (r.status) map.set(key, r.status);
         });
         return map;
@@ -521,11 +537,14 @@ export const TDSApprovalDetail: React.FC = () => {
     const projectId = allItems?.[0]?.tdsi_project_id;
     const { isCEOHold } = useCEOHoldGuard(projectId);
 
-    // PCUS allocator — backend is the single source of truth. Calling this at
-    // approval click time avoids SWR cache staleness across TDS request pages,
-    // which was causing id collisions (e.g. PCUS-000001 stamped twice).
-    const { call: allocatePcusIds } = useFrappePostCall(
-        "nirmaan_stack.api.tds.allocate_pcus.allocate_pcus_ids"
+    // Phase 2 group-aware approval/promotion — Admin-only, enforced server-side
+    // (api/tds/approve.py). Replaces the old client-side createDoc/updateDoc
+    // promotion that wrote removed TDS Repository columns and minted PCUS- customs.
+    const { call: approveTdsItems } = useFrappePostCall(
+        "nirmaan_stack.api.tds.approve.approve_tds_items"
+    );
+    const { call: rejectTdsItems } = useFrappePostCall(
+        "nirmaan_stack.api.tds.approve.reject_tds_items"
     );
 
     // Filter state (shared across Pending / Approved / Rejected sections)
@@ -713,7 +732,6 @@ export const TDSApprovalDetail: React.FC = () => {
 
     const { updateDoc } = useFrappeUpdateDoc();
     const { deleteDoc } = useFrappeDeleteDoc();
-    const { createDoc } = useFrappeCreateDoc();
     const { upload: uploadFile } = useFrappeFileUpload();
 
     // Derived Header Info
@@ -1188,6 +1206,14 @@ export const TDSApprovalDetail: React.FC = () => {
     ], [facetOptions, selectedWorkPackages, selectedCategories, selectedMakes, selectedItemNames]);
 
     const handleApprove = async () => {
+        // Phase 2 (ADR-0003): all promotion/verification happens server-side in
+        // api/tds/approve.py (Admin-only, re-checked there). We send the selected
+        // Project TDS Item List row names; the backend handles BOTH kinds:
+        //   - Pending (picked entry) → verifies the (tds_item, make) master entry,
+        //   - New (request)          → resolves/creates the member-less group +
+        //                              (tds_item, make) entry born Verified, snapshots
+        //                              the id/name back onto the row.
+        // No client-side createDoc/updateDoc, no PCUS allocation, no removed-field writes.
         const selectedItems = allPendingItems.filter(item => rowSelection[item.name]);
 
         if (selectedItems.length === 0) {
@@ -1196,200 +1222,97 @@ export const TDSApprovalDetail: React.FC = () => {
         }
 
         const willBeEmpty = selectedItems.length === allPendingItems.length;
-
-        // Find a repo entry matching a New project-item by (wp, cat, name, make).
-        // Case-insensitive on name + make to catch casing-only collisions.
-        const findExistingRepoEntry = (doc: TDSItem): RepoEntry | undefined => {
-            if (!repoEntries) return undefined;
-            const name = (doc.tds_item_name || "").trim().toLowerCase();
-            const make = (doc.tds_make || "").trim().toLowerCase();
-            return repoEntries.find(r =>
-                r.work_package === doc.tds_work_package &&
-                r.category === doc.tds_category &&
-                (r.tds_item_name || "").trim().toLowerCase() === name &&
-                (r.make || "").trim().toLowerCase() === make
-            );
-        };
+        const selectedNames = selectedItems.map(i => i.name);
 
         setProcessing(true);
-        let createdCount = 0;
-        let reusedCount = 0;
-        let projectOnlyCount = 0;
-
-        // Pre-allocate PCUS ids from the backend for every project-only custom in this
-        // batch. Single round-trip; backend reads the project's current max from the DB
-        // so we never collide with a previously-stamped id (the cached SWR value was
-        // unreliable across navigation between request pages).
-        const projectOnlyDocs = selectedItems.filter(
-            d => d.tds_status === "New" && !d.tds_item_id
-        );
-        let pcusIds: string[] = [];
-        if (projectOnlyDocs.length > 0) {
-            if (!projectId) {
-                toast({ title: "Error", description: "Project id missing — cannot allocate PCUS ids.", variant: "destructive" });
-                setProcessing(false);
-                return;
-            }
-            const resp = await allocatePcusIds({ project_id: projectId, count: projectOnlyDocs.length });
-            pcusIds = (resp?.message as string[]) || [];
-            if (pcusIds.length !== projectOnlyDocs.length) {
-                toast({ title: "Error", description: "Failed to allocate PCUS ids.", variant: "destructive" });
-                setProcessing(false);
-                return;
-            }
-        }
-        // Map Project TDS Item List doc name → pre-allocated PCUS id, consumed inside the loop.
-        const pcusByDocName = new Map<string, string>();
-        projectOnlyDocs.forEach((d, i) => pcusByDocName.set(d.name, pcusIds[i]));
         try {
-            // Helper: flip a TDS Repository entry to "Verified" if it isn't already.
-            // Approving an item is the act of vetting it, so the master gets verified.
-            const verifyRepo = async (repoName: string, currentStatus?: string) => {
-                if (currentStatus === "Verified") return;
-                await updateDoc("TDS Repository", repoName, { status: "Verified" });
-            };
+            const resp = await approveTdsItems({ doc_names: selectedNames });
+            const result = resp?.message;
+            const summary = result?.summary || {};
+            const errors: Array<{ name: string; error: string }> = result?.errors || [];
 
-            await Promise.all(selectedItems.map(async (doc) => {
-                if (doc.tds_status === "New") {
-                    // Project-only custom item: brand-new request with no source id.
-                    // Stays in Project TDS Item List under this project; no TDS Repository entry.
-                    // Pre-allocated PCUS id (from backend) is consumed here.
-                    if (!doc.tds_item_id) {
-                        const pcusId = pcusByDocName.get(doc.name)!;
-                        projectOnlyCount++;
-                        return updateDoc("Project TDS Item List", doc.name, {
-                            tds_status: "Approved",
-                            tds_item_id: pcusId,
-                        });
-                    }
-
-                    // Preflight: if an entry already exists in the repo, link to it instead
-                    const existing = findExistingRepoEntry(doc);
-                    if (existing) {
-                        reusedCount++;
-                        await verifyRepo(existing.name, existing.status);
-                        return updateDoc("Project TDS Item List", doc.name, {
-                            tds_status: "Approved",
-                            tds_item_id: existing.tds_item_id,
-                        });
-                    }
-
-                    // No preflight match — create a new repo entry, born "Verified" since an approver
-                    // just signed off on it.
-                    const repoPayload: Record<string, any> = {
-                        tds_item_name: doc.tds_item_name,
-                        make: doc.tds_make,
-                        description: doc.tds_description,
-                        work_package: doc.tds_work_package,
-                        category: doc.tds_category,
-                        tds_attachment: doc.tds_attachment,
-                        status: "Verified",
-                    };
-                    if (doc.tds_item_id) {
-                        repoPayload.tds_item_id = doc.tds_item_id;
-                    }
-
-                    try {
-                        const repoItem = await createDoc("TDS Repository", repoPayload);
-                        createdCount++;
-                        return updateDoc("Project TDS Item List", doc.name, {
-                            tds_status: "Approved",
-                            tds_item_id: repoItem.tds_item_id,
-                        });
-                    } catch (createErr) {
-                        // Race case: another user created the same (wp, cat, tds_item_id, make)
-                        // between our preflight and this create. Refresh the repo cache and
-                        // re-lookup by (wp, cat, name, make). If found, link to it.
-                        const refreshed = await mutateRepo();
-                        const fallbackMatch = refreshed?.find(r =>
-                            r.work_package === doc.tds_work_package &&
-                            r.category === doc.tds_category &&
-                            (r.tds_item_name || "").trim().toLowerCase() === (doc.tds_item_name || "").trim().toLowerCase() &&
-                            (r.make || "").trim().toLowerCase() === (doc.tds_make || "").trim().toLowerCase()
-                        );
-                        if (fallbackMatch) {
-                            reusedCount++;
-                            await verifyRepo(fallbackMatch.name, fallbackMatch.status);
-                            return updateDoc("Project TDS Item List", doc.name, {
-                                tds_status: "Approved",
-                                tds_item_id: fallbackMatch.tds_item_id,
-                            });
-                        }
-                        throw createErr;
-                    }
-                } else {
-                    // "Pending" — already-existing item picked from the master. Find the master
-                    // entry and verify it. Match by (tds_item_id Data field + wp + cat + make)
-                    // since that's the uniqueness key in the TDS Repository validate hook.
-                    const master = repoEntries?.find(r =>
-                        r.tds_item_id === doc.tds_item_id &&
-                        r.make === doc.tds_make &&
-                        r.work_package === doc.tds_work_package &&
-                        r.category === doc.tds_category
-                    );
-                    if (master) {
-                        await verifyRepo(master.name, master.status);
-                    }
-                    return updateDoc("Project TDS Item List", doc.name, { tds_status: "Approved" });
-                }
-            }));
-
+            const approved = summary.approved ?? 0;
             const total = selectedItems.length;
-            const parts: string[] = [];
-            if (createdCount > 0) parts.push(`${createdCount} added to TDS Repository`);
-            if (reusedCount > 0) parts.push(`${reusedCount} linked to existing entries`);
-            if (projectOnlyCount > 0) parts.push(`${projectOnlyCount} kept as project-only custom`);
-            toast({
-                title: "Approved",
-                description: parts.length > 0 ? `${total} items approved — ${parts.join(", ")}.` : `${total} items approved`,
-                variant: "success",
-            });
 
-            if (willBeEmpty) {
+            // Build a human summary from the backend's structured counts.
+            const parts: string[] = [];
+            if (summary.created_groups > 0) parts.push(`${summary.created_groups} new TDS Item(s) created`);
+            if (summary.created_entries > 0) parts.push(`${summary.created_entries} new datasheet entr(ies) added`);
+            if (summary.verified_existing > 0) parts.push(`${summary.verified_existing} entr(ies) verified`);
+
+            if (errors.length > 0) {
+                // Partial success — some rows failed (e.g. no master entry for a picked row).
+                toast({
+                    title: errors.length === total ? "Approval failed" : "Approved with errors",
+                    description: `${approved} of ${total} approved${parts.length ? ` — ${parts.join(", ")}` : ""}. ${errors.length} failed: ${errors.map(e => e.error).join("; ")}`,
+                    variant: errors.length === total ? "destructive" : "default",
+                });
+            } else {
+                toast({
+                    title: "Approved",
+                    description: parts.length > 0
+                        ? `${approved} item(s) approved — ${parts.join(", ")}.`
+                        : `${approved} item(s) approved.`,
+                    variant: "success",
+                });
+            }
+
+            // Refresh on any success (even partial) so approved rows leave Pending.
+            if (willBeEmpty && errors.length === 0) {
                 navigate("/tds-approval");
             } else {
                 setRowSelection({});
                 clearAllFilters();
                 mutate();
-                mutateRepo();
             }
-        } catch (e) {
+        } catch (e: any) {
             console.error(e);
-            toast({ title: "Error", description: "Failed to approve items", variant: "destructive" });
+            const msg = e?.message || e?._server_messages || "Failed to approve items";
+            toast({ title: "Error", description: typeof msg === "string" ? msg : "Failed to approve items", variant: "destructive" });
         } finally {
             setProcessing(false);
         }
     };
 
-    const handleReject = (remarks: string) => {
+    const handleReject = async (remarks: string) => {
         const selectedItems = allPendingItems.filter(item => rowSelection[item.name]);
 
         if (selectedItems.length === 0) return;
 
         const willBeEmpty = selectedItems.length === allPendingItems.length;
+        const selectedNames = selectedItems.map(i => i.name);
 
         setProcessing(true);
-        Promise.all(selectedItems.map(doc =>
-            updateDoc("Project TDS Item List", doc.name, {
-                tds_status: "Rejected",
-                tds_rejection_reason: remarks
-            })
-        )).then(() => {
-            toast({ title: "Rejected", description: `${selectedItems.length} items rejected`, variant: "success" });
+        try {
+            const resp = await rejectTdsItems({ doc_names: selectedNames, reason: remarks });
+            const result = resp?.message;
+            const rejected = result?.rejected ?? 0;
+            const errors: Array<{ name: string; error: string }> = result?.errors || [];
 
-            if (willBeEmpty) {
+            if (errors.length > 0) {
+                toast({
+                    title: errors.length === selectedItems.length ? "Rejection failed" : "Rejected with errors",
+                    description: `${rejected} of ${selectedItems.length} rejected. ${errors.length} failed.`,
+                    variant: errors.length === selectedItems.length ? "destructive" : "default",
+                });
+            } else {
+                toast({ title: "Rejected", description: `${rejected} item(s) rejected`, variant: "success" });
+            }
+
+            if (willBeEmpty && errors.length === 0) {
                 navigate("/tds-approval");
             } else {
                 setRowSelection({});
                 mutate();
                 setIsRejectModalOpen(false);
             }
-        }).catch((e) => {
+        } catch (e: any) {
             console.error(e);
-            toast({ title: "Error", description: "Failed to reject items", variant: "destructive" });
-        }).finally(() => {
+            const msg = e?.message || "Failed to reject items";
+            toast({ title: "Error", description: typeof msg === "string" ? msg : "Failed to reject items", variant: "destructive" });
+        } finally {
             setProcessing(false);
-        });
+        }
     };
 
     const onRejectClick = () => {

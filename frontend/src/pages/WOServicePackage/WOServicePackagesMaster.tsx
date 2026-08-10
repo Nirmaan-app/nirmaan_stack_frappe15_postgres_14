@@ -45,6 +45,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc, useFrappeGetDoc } from "frappe-react-sdk";
 import Cookies from "js-cookie";
+import { SERVICE_PROCUREMENT_PROFILES } from "@/constants/roles";
 
 // --- Types ---
 export interface WOServiceCategory {
@@ -96,7 +97,7 @@ export const WOServicePackagesMaster: React.FC = () => {
         user_id === "Administrator" ? null : undefined
     );
     const role = userData?.role_profile;
-    const isViewOnly = ["Nirmaan PMO Executive Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Billing Executive Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(role);
+    const isViewOnly = ["Nirmaan PMO Executive Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Billing Executive Profile", ...SERVICE_PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(role);
 
     const {
         data: categories,

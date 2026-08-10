@@ -34,7 +34,7 @@ import { useUsersList } from "../ProcurementRequests/ApproveNewPR/hooks/useUsers
 // --- Helper Components ---
 import { AmountPaidHoverCard } from "./AmountPaidHoverCard";
 import { useVendorsList } from "../ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList";
-import { DEFAULT_PP_FIELDS_TO_FETCH, getProjectPaymentsStaticFilters, PP_DATE_COLUMNS, PP_SEARCHABLE_FIELDS } from "./config/projectPaymentsTable.config";
+import { buildPaymentsUrlSyncKey, DEFAULT_PP_FIELDS_TO_FETCH, getProjectPaymentsStaticFilters, PP_DATE_COLUMNS, PP_SEARCHABLE_FIELDS } from "./config/projectPaymentsTable.config";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { EditFulfilledPaymentDialog } from "./update-payment/EditFulfilledPaymentDialog"; // Import the new dialog
 import { useUserData } from "@/hooks/useUserData";
@@ -138,9 +138,10 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
     }, [setEditFulfilledPaymentDialog]);
 
     // --- Dynamic URL Sync Key based on context and tab ---
-    const urlSyncKey = useMemo(() =>
-        `all_pay_${contextKey}_${tab.toLowerCase().replace(/\s+/g, '_')}`,
-        [contextKey, tab]);
+    // ⚠️ Built by the SHARED helper, not inline. Outside screens deep-link into these tables by
+    // constructing `<key>_q` / `<key>_searchBy`, so the format has to have one owner -- a second
+    // copy would fail silently (an unfiltered table) rather than error.
+    const urlSyncKey = useMemo(() => buildPaymentsUrlSyncKey(contextKey, tab), [contextKey, tab]);
 
 
     // --- Supporting Data Fetches (for lookups, calculations, and initial filtering if customerId is present) ---

@@ -1,7 +1,8 @@
 /**
  * CopyForwardDialog -- the review-before-apply surface for copy-forward (Phase 5 version-view
- * slice 2). Launched from the read-only version-history view: copies RATES from the viewed OLD
- * version into the CURRENT version. RATES ONLY -- never structure / amount / qty.
+ * slice 2). Launched from the read-only version-history view: copies RATES -- and, since WBC-W3-S5,
+ * any ticked non-rate LAYERS -- from the viewed OLD version into the CURRENT version. Never
+ * structure / amount / qty, and never amount formulas.
  *
  * Self-contained (mirrors CommitDialog): it fetches the server-classified plan
  * (get_copy_forward_plan), renders the per-row outcome table + bulk overwrite/keep, collects the
@@ -10,6 +11,27 @@
  * a wrong write); the three hard-skips (non_match / no_rate_column / non_priceable) are shown but
  * never selectable. Default selection: clean rows + conflicts pre-ticked, conflicts default KEEP
  * (a plain confirm copies the clean ones and touches no existing rate).
+ *
+ * WBC-W3-S5 (ADR-0014 Amendment F R1) gives this seam parity with the cross-BoQ revision carry: the
+ * SHARED `CarryLayersBlock` offers the four row-addressed layers, opt-in, CATEGORIES ON and the three
+ * annotation layers OFF. That asymmetry is a UI default owned by `initialLayerChoices()` -- an
+ * omitted `layers` payload is rates only, which is exactly what a pre-S5 client kept getting.
+ *
+ * ⚠️ WBC-S10 removed the server's category gate from this path entirely (G2c added it, Amendment F
+ * R2 reordered it, S10 deleted it). A copy into an uncategorised destination now SUCCEEDS: the rates
+ * land, and rate EDITING stays locked on the pricing grid until the categories are complete. So this
+ * dialog says nothing about categories, and there is nothing to say -- there was never any category
+ * messaging here to remove, only this note to correct.
+ *
+ * The one gate this dialog still mirrors is the MANDATORY amount-formula gate: `!formulasComplete`
+ * both raises the amber banner and disables the layer block + the apply button, because the server
+ * refuses the whole call -- layers included -- while it is unmet.
+ *
+ * WBC-S3a is a TRUTH-AND-FIT pass over the above, changing no carry behaviour: the box is bounded to
+ * the viewport so its footer cannot go off-screen (R-fit), the apply button reports WRITES across
+ * both axes instead of the raw selection so it cannot contradict the "Will copy ..." line above it
+ * (R11), and the shared block's two "the revision" strings are re-voiced for a surface where no
+ * revision exists (R9).
  */
 import { useEffect, useMemo, useState } from "react";
 import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
@@ -26,12 +48,31 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { getFrappeError } from "@/utils/frappeErrors";
+import { CARRY_LAYER_KEYS } from "./boqTypes";
 import type {
   ApplyCopyForwardResponse,
   CopyForwardDecision,
   CopyForwardPlanRow,
   GetCopyForwardPlanResponse,
 } from "./boqTypes";
+// WBC-W3-S5: the opt-in layer choice (block + pure helpers) is the SHARED CarryLayers module the
+// cross-BoQ dialog uses -- not a fork of it. Its `sheet` parameter is structural (CarryLayerSource),
+// which is what lets this response satisfy it without pretending to be a sheet.
+import {
+  CARRY_DESTINATION_WITHIN_BOQ,
+  CarryLayersBlock,
+  LAYER_BLOCK_SUBTEXT_WITHIN_BOQ,
+  LAYER_LABEL,
+  buildLayersPayload,
+  carryChangesPhrase,
+  carrySelectionSummary,
+  carryWriteCount,
+  countPhrase,
+  initialLayerChoices,
+  joinPhrases,
+  type CarryLayerSource,
+  type LayerChoices,
+} from "./CarryLayers";
 
 // ── Pure helpers (vitest-tested) ─────────────────────────────────────────────────
 
@@ -97,6 +138,83 @@ export function buildDecisions(
   return decisions;
 }
 
+/**
+ * How many rate cells the apply will actually WRITE: every selected CLEAN copy, plus the selected
+ * CONFLICTS whose Overwrite is armed. A selected conflict left on KEEP writes nothing.
+ *
+ * ⚠️ Why this is not `selected.size`. Conflicts are PRE-selected with Keep as their default, so on a
+ * version that has already been copied into, every rate reads as "selected" and none of them will
+ * move. Commit 313697e7 fixed exactly this on the cross-BoQ dialog, where the raw selection made it
+ * promise "Will carry 12 rates" and the post-apply line answer "Nothing was carried. 12 existing
+ * rates left as they were." The layer half has always respected the choice (`layerMoveCount`), so a
+ * selection-based rate figure would put the two halves of one sentence at odds with each other.
+ *
+ * ⚠️ The apply GATE reads this too, as of owner ruling R15 -- it used to key off the raw selection,
+ * and a comment here parked that as "a separate behaviour change". It was the same defect one layer
+ * down: with the selection gating and the writes labelling, the button could sit ENABLED, naming no
+ * figure, above no "Will copy" line at all (every conflict on Keep, no layer ticked). The gate is
+ * now `writeCount === 0`, so one number governs both the label and enablement.
+ */
+export function rateWriteCount(
+  plan: CopyForwardPlanRow[],
+  selected: Set<string>,
+  overwrite: Record<string, boolean>,
+): number {
+  return plan.filter((row) => {
+    const key = cellKey(row);
+    if (!selected.has(key)) return false;
+    if (row.outcome === 2) return true; // clean copy -> always writes
+    return row.outcome === 3 && !!overwrite[key]; // conflict -> only when armed
+  }).length;
+}
+
+/**
+ * The post-apply line the pricing page shows once the copy has landed (WBC-S3a).
+ *
+ * ⚠️ Why it is not the old inline template. That one reported RATES only, so a categories-only copy
+ * -- the likeliest shape of all, since a version whose rates all conflict can still take the whole
+ * category set -- read "Copied 0 rates into the current version." Not false, but it under-reports
+ * work that actually happened, on the axis this whole arc is about.
+ *
+ * This is `summarizeSheetCarry`'s multi-axis branch in the copy-forward's own voice: a clean copy
+ * and an overwrite both LANDED, a layer's `replaced` rows landed just as much as its `carried` ones,
+ * and the destination ("the current version") is named because this dialog is launched from a
+ * read-only view of an OLDER one.
+ */
+export function summarizeCopyForward(
+  summary: ApplyCopyForwardResponse | null | undefined,
+): string {
+  const rates = (summary?.copied ?? 0) + (summary?.conflicts_overwritten ?? 0);
+  const kept = summary?.conflicts_kept ?? 0;
+  const s = summary?.skipped;
+  const skipped =
+    (s?.non_match ?? 0) + (s?.no_rate_column ?? 0) + (s?.non_priceable ?? 0) + (s?.invalid ?? 0);
+
+  const landed: string[] = [];
+  if (rates > 0) landed.push(countPhrase(rates, "rate", "rates"));
+  for (const key of CARRY_LAYER_KEYS) {
+    const outcome = summary?.layers?.[key];
+    if (!outcome) continue; // the layer did not run at all
+    const n = outcome.carried + outcome.replaced;
+    if (n > 0) landed.push(`${n} ${LAYER_LABEL[key].toLowerCase()}`);
+  }
+
+  const parts: string[] = [
+    landed.length === 0
+      ? "Nothing was copied into the current version."
+      : `Copied ${joinPhrases(landed)} into the current version.`,
+  ];
+  if (kept > 0) {
+    parts.push(
+      `${kept} existing rate${kept === 1 ? "" : "s"} left as ${kept === 1 ? "it was" : "they were"}.`,
+    );
+  }
+  if (skipped > 0) {
+    parts.push(`${skipped} row${skipped === 1 ? "" : "s"} skipped.`);
+  }
+  return parts.join(" ");
+}
+
 const OUTCOME_META: Record<
   string,
   { label: string; badge: string }
@@ -141,25 +259,62 @@ export function CopyForwardDialog({
     "nirmaan_stack.api.boq.wizard.pricing.apply_copy_forward",
   );
 
+  const message = data?.message ?? null;
   const plan = useMemo(() => data?.message?.plan ?? [], [data]);
   const formulasComplete = data?.message?.current_formulas_complete ?? true;
   const currentVersion = data?.message?.current_version ?? null;
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [overwrite, setOverwrite] = useState<Record<string, boolean>>({});
+  const [layerChoices, setLayerChoices] = useState<LayerChoices>(initialLayerChoices);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Seed the default selection whenever a fresh plan arrives.
+  // Seed the default selection whenever a fresh plan arrives. The layer choices reset with it --
+  // they are a decision about THIS plan, so a stale tick must not survive into another.
   useEffect(() => {
     const init = initialSelection(plan);
     setSelected(init.selected);
     setOverwrite(init.overwrite);
+    setLayerChoices(initialLayerChoices());
     setError(null);
   }, [plan]);
 
   const conflictCount = plan.filter((r) => r.outcome === 3).length;
-  const selectedCount = selected.size;
+  /**
+   * The layer choice is OFFERED only where the block renders -- inside the non-empty-plan branch. A
+   * version with no priced rates shows the "nothing to copy" state and no block, so its layers must
+   * not be reachable from the footer button either: a carried record the user was never offered is
+   * precisely the defect Amendment E exists to keep answered. The cross-BoQ seam has the same hole by
+   * owner-locked design (`carryButtonState` refuses at zero rate cells), so this is parity, not a new
+   * restriction.
+   */
+  const layerSource: CarryLayerSource | null = plan.length > 0 ? message : null;
+  // WRITES, not the selection -- see rateWriteCount. This is what the "Will copy ..." line reports.
+  const rateWrites = useMemo(
+    () => rateWriteCount(plan, selected, overwrite),
+    [plan, selected, overwrite],
+  );
+  const selectionSummary = useMemo(
+    () => carrySelectionSummary(rateWrites, layerSource, layerChoices),
+    [rateWrites, layerSource, layerChoices],
+  );
+  // WBC-S3a / R11: what the BUTTON reports. The same walk that built the line above it, so the two
+  // can never contradict each other -- which they could, and did: `selectedCount` pre-includes every
+  // conflict on Keep, so "Copy 12 rates forward" could sit above "Will copy 30 categories".
+  const writeCount = useMemo(
+    () => carryWriteCount(rateWrites, layerSource, layerChoices),
+    [rateWrites, layerSource, layerChoices],
+  );
+  /**
+   * The apply gate, owner ruling R15: ONE number governs the label and enablement. It spans both
+   * axes (unticking every rate but leaving Categories ticked is real work) and it counts WRITES, so
+   * an all-Keep re-run with nothing else ticked now disables rather than offering a no-op.
+   *
+   * This is deliberately `writeCount === 0` and not a second helper over the same inputs: a second
+   * derivation is exactly how the label and the gate came to answer one question from two sources.
+   */
+  const nothingToWrite = writeCount === 0;
 
   const toggleRow = (row: CopyForwardPlanRow) => {
     const key = cellKey(row);
@@ -182,6 +337,9 @@ export function CopyForwardDialog({
         sheet_name: sheetName, // VERBATIM (#152)
         from_version: fromVersion,
         decisions: JSON.stringify(buildDecisions(plan, selected, overwrite)),
+        // The ticked layers ride the SAME server transaction as the rates -- one commit, one
+        // rollback. `{}` = rates only, which is what an un-offered layer axis must post.
+        layers: JSON.stringify(layerSource ? buildLayersPayload(layerChoices) : {}),
       });
       onApplied(res.message as ApplyCopyForwardResponse);
       onClose();
@@ -194,35 +352,45 @@ export function CopyForwardDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o && !running) onClose(); }}>
-      <DialogContent className="max-w-3xl">
-        <DialogHeader>
+      {/* Bounded height + flex column: the ONE scroll region below is the only thing that grows, so
+          the dialog can never run off the top or bottom of the viewport. The shadcn primitive is
+          `fixed top-1/2 -translate-y-1/2` with NO height bound, so an over-tall box overflows
+          SYMMETRICALLY and cannot be scrolled back -- and the bottom half that goes off-screen is
+          the footer, i.e. Copy and Cancel become unreachable. WBC-S3a: the S5 layer block put ~270px
+          of fixed height in here and the old mitigation (dropping the table cap 45vh -> 32vh) does
+          not bound the non-vh budget at all. Same fix, same house pattern, as 6619280a applied to
+          the sibling CrossBoqCarryDialog (and GenerateRFQDialog / SelectWOModal before it). */}
+      <DialogContent className="flex max-h-[85vh] max-w-3xl flex-col">
+        <DialogHeader className="shrink-0">
           <DialogTitle>Copy rates forward</DialogTitle>
+          {/* ⚠️ "Rates only" became FALSE at WBC-W3-S5 -- this action can carry the four non-rate
+              layers now. Structure and amounts still never change. */}
           <DialogDescription>
-            Copy rates from Version {fromVersion}
+            Copy from Version {fromVersion}
             {currentVersion !== null ? ` into the current Version ${currentVersion}` : " into the current version"}.
-            Rates only -- structure and amounts are never changed.
+            Structure and amounts are never changed.
           </DialogDescription>
         </DialogHeader>
 
         {isLoading ? (
-          <div className="flex items-center justify-center py-12">
+          <div className="flex shrink-0 items-center justify-center py-12">
             <Loader2 className="h-6 w-6 animate-spin text-primary" />
           </div>
         ) : plan.length === 0 ? (
-          <p className="py-8 text-center text-sm text-muted-foreground">
+          <p className="shrink-0 py-8 text-center text-sm text-muted-foreground">
             Version {fromVersion} has no priced rates to copy.
           </p>
         ) : (
           <>
             {!formulasComplete && (
-              <div className="flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+              <div className="flex shrink-0 items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
                 <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                 The current version still has amount columns without a formula. Declare them before copying.
               </div>
             )}
 
             {conflictCount > 0 && (
-              <div className="flex items-center gap-2 text-xs">
+              <div className="flex shrink-0 items-center gap-2 text-xs">
                 <span className="text-muted-foreground">{conflictCount} conflict{conflictCount > 1 ? "s" : ""}:</span>
                 <Button size="sm" variant="outline" className="h-7 px-2"
                   onClick={() => setOverwrite(applyBulkOverwrite(plan, true))}>
@@ -235,95 +403,133 @@ export function CopyForwardDialog({
               </div>
             )}
 
-            <div className="max-h-[45vh] overflow-auto rounded-md border border-border">
-              <table className="w-full text-xs">
-                <thead className="sticky top-0 bg-muted/50 text-muted-foreground">
-                  <tr>
-                    <th className="w-8 px-2 py-1.5"></th>
-                    <th className="px-2 py-1.5 text-left font-medium">Row</th>
-                    <th className="px-2 py-1.5 text-left font-medium">Description</th>
-                    <th className="px-2 py-1.5 text-right font-medium">Rate</th>
-                    <th className="px-2 py-1.5 text-left font-medium">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {plan.map((row) => {
-                    const key = cellKey(row);
-                    const metaKey = outcomeMetaKey(row);
-                    const meta = OUTCOME_META[metaKey];
-                    const writable = isWritable(row);
-                    return (
-                      <tr key={key} className={cn("border-t border-border", !writable && "opacity-60")}>
-                        <td className="px-2 py-1.5 align-top">
-                          {writable && (
-                            <Checkbox
-                              checked={selected.has(key)}
-                              onCheckedChange={() => toggleRow(row)}
-                              aria-label={`Copy row ${row.excel_row}`}
-                            />
-                          )}
-                        </td>
-                        <td className="px-2 py-1.5 align-top font-mono text-muted-foreground">{row.excel_row}</td>
-                        <td className="px-2 py-1.5 align-top">
-                          <span className="text-foreground">{row.description || "(no description)"}</span>
-                          {row.outcome === 1 && row.reason && (
-                            <span className="mt-0.5 block text-[11px] text-muted-foreground">{row.reason}</span>
-                          )}
-                        </td>
-                        <td className="px-2 py-1.5 align-top text-right tabular-nums">
-                          {row.outcome === 3 ? (
-                            <span className="inline-flex items-center gap-1 whitespace-nowrap">
-                              <span className="text-muted-foreground line-through">{row.current_rate}</span>
-                              <ArrowRight className="h-3 w-3 text-muted-foreground" />
+            {/* The ONE scroll region: the row table AND the layer block ride it together. The old
+                45vh/32vh conditional on the table is GONE -- it was the wrong mechanism, not a wrong
+                number. A `vh` cap on one child bounds nothing when the parent has no bound of its
+                own, and pinning the ~270px layer block outside the scroller would starve the table
+                to nothing on a short viewport (the reason 6619280a moved it inside on the sibling
+                dialog). The table keeps its frame but no longer scrolls itself: a second scroller
+                would put us straight back to "how tall may the inner one be?". */}
+            <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-1">
+              <div className="rounded-md border border-border">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-muted/50 text-muted-foreground">
+                    <tr>
+                      <th className="w-8 px-2 py-1.5"></th>
+                      <th className="px-2 py-1.5 text-left font-medium">Row</th>
+                      <th className="px-2 py-1.5 text-left font-medium">Description</th>
+                      <th className="px-2 py-1.5 text-right font-medium">Rate</th>
+                      <th className="px-2 py-1.5 text-left font-medium">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {plan.map((row) => {
+                      const key = cellKey(row);
+                      const metaKey = outcomeMetaKey(row);
+                      const meta = OUTCOME_META[metaKey];
+                      const writable = isWritable(row);
+                      return (
+                        <tr key={key} className={cn("border-t border-border", !writable && "opacity-60")}>
+                          <td className="px-2 py-1.5 align-top">
+                            {writable && (
+                              <Checkbox
+                                checked={selected.has(key)}
+                                onCheckedChange={() => toggleRow(row)}
+                                aria-label={`Copy row ${row.excel_row}`}
+                              />
+                            )}
+                          </td>
+                          <td className="px-2 py-1.5 align-top font-mono text-muted-foreground">{row.excel_row}</td>
+                          <td className="px-2 py-1.5 align-top">
+                            <span className="text-foreground">{row.description || "(no description)"}</span>
+                            {row.outcome === 1 && row.reason && (
+                              <span className="mt-0.5 block text-[11px] text-muted-foreground">{row.reason}</span>
+                            )}
+                          </td>
+                          <td className="px-2 py-1.5 align-top text-right tabular-nums">
+                            {row.outcome === 3 ? (
+                              <span className="inline-flex items-center gap-1 whitespace-nowrap">
+                                <span className="text-muted-foreground line-through">{row.current_rate}</span>
+                                <ArrowRight className="h-3 w-3 text-muted-foreground" />
+                                <span className="text-foreground">{row.source_rate}</span>
+                              </span>
+                            ) : (
                               <span className="text-foreground">{row.source_rate}</span>
+                            )}
+                          </td>
+                          <td className="px-2 py-1.5 align-top">
+                            <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide", meta.badge)}>
+                              {meta.label}
                             </span>
-                          ) : (
-                            <span className="text-foreground">{row.source_rate}</span>
-                          )}
-                        </td>
-                        <td className="px-2 py-1.5 align-top">
-                          <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide", meta.badge)}>
-                            {meta.label}
-                          </span>
-                          {row.outcome === 3 && selected.has(key) && (
-                            <div className="mt-1 flex items-center gap-2">
-                              <button type="button"
-                                onClick={() => setRowOverwrite(row, false)}
-                                className={cn("text-[11px]", !overwrite[key] ? "font-semibold text-foreground" : "text-muted-foreground")}>
-                                Keep
-                              </button>
-                              <span className="text-muted-foreground">/</span>
-                              <button type="button"
-                                onClick={() => setRowOverwrite(row, true)}
-                                className={cn("text-[11px]", overwrite[key] ? "font-semibold text-destructive" : "text-muted-foreground")}>
-                                Overwrite
-                              </button>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                            {row.outcome === 3 && selected.has(key) && (
+                              <div className="mt-1 flex items-center gap-2">
+                                <button type="button"
+                                  onClick={() => setRowOverwrite(row, false)}
+                                  className={cn("text-[11px]", !overwrite[key] ? "font-semibold text-foreground" : "text-muted-foreground")}>
+                                  Keep
+                                </button>
+                                <span className="text-muted-foreground">/</span>
+                                <button type="button"
+                                  onClick={() => setRowOverwrite(row, true)}
+                                  className={cn("text-[11px]", overwrite[key] ? "font-semibold text-destructive" : "text-muted-foreground")}>
+                                  Overwrite
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* The SHARED opt-in layer block (WBC-W3-S5), INSIDE the scroller above. `disabled` is
+                  the mandatory amount-formula gate: the server refuses the WHOLE call while it is
+                  unmet, layers included, so nothing here may be armed. The block hides itself when the
+                  server sent no preview, so a pre-Amendment-F server degrades to the rate-only dialog.
+                  `destination` is R9: within one BoQ the copy lands in the CURRENT VERSION -- there is
+                  no revision here for the colour rows to name. */}
+              {layerSource && (
+                <CarryLayersBlock
+                  sheet={layerSource}
+                  choices={layerChoices}
+                  disabled={!formulasComplete}
+                  subtext={LAYER_BLOCK_SUBTEXT_WITHIN_BOQ}
+                  destination={CARRY_DESTINATION_WITHIN_BOQ}
+                  onChange={(key, next) =>
+                    setLayerChoices((prev) => ({ ...prev, [key]: next }))
+                  }
+                />
+              )}
             </div>
           </>
         )}
 
-        {error && (
-          <p className="text-xs text-destructive">{error}</p>
+        {/* What will actually be WRITTEN, across both axes. A conflict left on Keep is excluded --
+            see rateWriteCount for the live symptom that rule was written for. */}
+        {selectionSummary && (
+          <p className="shrink-0 text-xs text-muted-foreground">Will copy {selectionSummary}.</p>
         )}
 
-        <DialogFooter>
+        {error && (
+          <p className="shrink-0 text-xs text-destructive">{error}</p>
+        )}
+
+        <DialogFooter className="shrink-0">
           <Button variant="ghost" onClick={onClose} disabled={running}>
             Cancel
           </Button>
           <Button
             onClick={handleApply}
-            disabled={running || isLoading || selectedCount === 0 || !formulasComplete}
+            disabled={running || isLoading || nothingToWrite || !formulasComplete}
           >
             {running ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            Copy {selectedCount > 0 ? `${selectedCount} ` : ""}rate{selectedCount === 1 ? "" : "s"} forward
+            {/* WBC-S3a / R11: WRITES across both axes, from the same walk as the "Will copy ..."
+                line directly above -- so the two can never contradict each other. It used to name
+                `selectedCount` rates, which pre-includes every conflict left on Keep.
+                R13: the noun is CHANGES -- "items" collides with `node_type === "Line Item"`. */}
+            Copy {carryChangesPhrase(writeCount)} forward
           </Button>
         </DialogFooter>
       </DialogContent>

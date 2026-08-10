@@ -29,8 +29,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatDeadlineShort, getExistingTaskNames, getUnifiedStatusStyle, parseDesignersFromField } from './utils';
 import { TaskEditModal } from './components/TaskEditModal';
-import { BulkAssignDialog } from './components/BulkAssignDialog';
-import { BulkStatusDialog } from './components/BulkStatusDialog';
+import { BulkUpdateDialog } from './components/BulkUpdateDialog';
 import { useFrappePostCall } from 'frappe-react-sdk';
 import { RenameZoneDialog } from './components/RenameZoneDialog';
 import { useUserData } from "@/hooks/useUserData";
@@ -857,8 +856,7 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
     ]);
     const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 50 });
     const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
-    const [isBulkAssignOpen, setIsBulkAssignOpen] = useState(false);
-    const [isBulkStatusOpen, setIsBulkStatusOpen] = useState(false);
+    const [isBulkUpdateOpen, setIsBulkUpdateOpen] = useState(false);
     const selectedCount = Object.keys(rowSelection).length;
 
     // Extract Unique Zones from Tracker Doc
@@ -1254,56 +1252,82 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
         await handleTaskSave(editingTask.name, fieldsToSend);
     };
 
-    // --- Bulk Assign Handler ---
-    const handleBulkAssign = async (taskUpdates: Map<string, AssignedDesignerDetail[]>) => {
+    // --- Combined Bulk Update Handler ---
+    const handleBulkUpdate = async (updates: {
+        taskNames: string[];
+        assignUpdates?: Map<string, AssignedDesignerDetail[]>;
+        deadline?: string;
+        status?: {
+            taskStatus: string;
+            taskSubStatus?: string;
+        };
+    }) => {
         if (!trackerDoc) return;
+        
+        let docSaved = false;
+        let statusUpdated = false;
 
-        const updatedTasks = JSON.parse(JSON.stringify(trackerDoc.design_tracker_task));
+        // 1. Handle Doc Saves (Assign & Deadline)
+        if (updates.assignUpdates || updates.deadline) {
+            const updatedTasks = JSON.parse(JSON.stringify(trackerDoc.design_tracker_task));
+            
+            if (updates.assignUpdates) {
+                for (const [taskName, newDesignerList] of updates.assignUpdates) {
+                    const idx = updatedTasks.findIndex((t: DesignTrackerTask) => t.name === taskName);
+                    if (idx !== -1) {
+                        updatedTasks[idx].assigned_designers = JSON.stringify({ list: newDesignerList });
+                    }
+                }
+            }
 
-        for (const [taskName, newDesignerList] of taskUpdates) {
-            const idx = updatedTasks.findIndex((t: DesignTrackerTask) => t.name === taskName);
-            if (idx !== -1) {
-                updatedTasks[idx].assigned_designers = JSON.stringify({ list: newDesignerList });
+            if (updates.deadline) {
+                for (const taskName of updates.taskNames) {
+                    const idx = updatedTasks.findIndex((t: DesignTrackerTask) => t.name === taskName);
+                    if (idx !== -1) {
+                        updatedTasks[idx].deadline = updates.deadline;
+                    }
+                }
+            }
+            
+            await handleParentDocSave({ design_tracker_task: updatedTasks });
+            docSaved = true;
+        }
+
+        // 2. Handle Status Save (API Call)
+        if (updates.status && trackerId) {
+            try {
+                await callBulkStatus({
+                    tracker_id: trackerId,
+                    task_names: JSON.stringify(updates.taskNames),
+                    task_status: updates.status.taskStatus,
+                    task_sub_status: updates.status.taskSubStatus || '',
+                });
+                await refetchTracker();
+                statusUpdated = true;
+            } catch (err: any) {
+                toast({
+                    title: "Status Update Failed",
+                    description: err?.message || "Could not update task statuses.",
+                    variant: "destructive",
+                });
+                if (!docSaved) throw err;
             }
         }
 
-        await handleParentDocSave({ design_tracker_task: updatedTasks });
         setRowSelection({});
-        toast({ title: "Success", description: `Designers assigned to ${taskUpdates.size} task(s).`, variant: "success" });
-    };
-
-    // --- Bulk Status handler (Admin only; backend skips file_link / approval_proof validators) ---
-    const handleBulkStatus = async ({
-        taskNames,
-        taskStatus,
-        taskSubStatus,
-    }: {
-        taskNames: string[];
-        taskStatus: string;
-        taskSubStatus?: string;
-    }) => {
-        if (!trackerId) return;
-        try {
-            const res: any = await callBulkStatus({
-                tracker_id: trackerId,
-                task_names: JSON.stringify(taskNames),
-                task_status: taskStatus,
-                task_sub_status: taskSubStatus || '',
+        
+        // Construct success message
+        const actions = [];
+        if (updates.assignUpdates) actions.push("designers");
+        if (updates.deadline) actions.push("deadlines");
+        if (statusUpdated) actions.push("statuses");
+        
+        if (actions.length > 0) {
+            toast({ 
+                title: "Success", 
+                description: `Updated ${actions.join(", ")} for selected tasks.`, 
+                variant: "success" 
             });
-            await refetchTracker();
-            setRowSelection({});
-            toast({
-                title: "Success",
-                description: `Status updated on ${res?.message?.updated ?? taskNames.length} task(s).`,
-                variant: "success",
-            });
-        } catch (err: any) {
-            toast({
-                title: "Bulk Status Failed",
-                description: err?.message || "Could not update task statuses.",
-                variant: "destructive",
-            });
-            throw err;
         }
     };
 
@@ -1890,22 +1914,11 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
                                     size="sm"
                                     variant="default"
                                     className="bg-blue-600 hover:bg-blue-700"
-                                    onClick={() => setIsBulkAssignOpen(true)}
+                                    onClick={() => setIsBulkUpdateOpen(true)}
                                 >
-                                    <Users className="h-3.5 w-3.5 mr-1.5" />
-                                    Bulk Assign ({selectedCount})
+                                    <Edit className="h-3.5 w-3.5 mr-1.5" />
+                                    Bulk Update ({selectedCount})
                                 </Button>
-                                {isAdmin && (
-                                    <Button
-                                        size="sm"
-                                        variant="default"
-                                        className="bg-red-600 hover:bg-red-700"
-                                        onClick={() => setIsBulkStatusOpen(true)}
-                                    >
-                                        <Check className="h-3.5 w-3.5 mr-1.5" />
-                                        Bulk Status ({selectedCount})
-                                    </Button>
-                                )}
                             </div>
                         ) : null
                     }
@@ -1980,22 +1993,14 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
                 />
             )}
 
-            <BulkAssignDialog
-                isOpen={isBulkAssignOpen}
-                onOpenChange={setIsBulkAssignOpen}
+            <BulkUpdateDialog
+                isOpen={isBulkUpdateOpen}
+                onOpenChange={setIsBulkUpdateOpen}
                 selectedTasks={selectedTaskObjects}
                 usersList={usersList || []}
-                onBulkAssign={handleBulkAssign}
+                isAdmin={isAdmin}
+                onBulkUpdate={handleBulkUpdate}
             />
-
-            {isAdmin && (
-                <BulkStatusDialog
-                    isOpen={isBulkStatusOpen}
-                    onOpenChange={setIsBulkStatusOpen}
-                    selectedTasks={selectedTaskObjects}
-                    onBulkStatus={handleBulkStatus}
-                />
-            )}
         </div>
     );
 };

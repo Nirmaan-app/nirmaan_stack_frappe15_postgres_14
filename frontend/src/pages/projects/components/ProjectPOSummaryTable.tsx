@@ -88,8 +88,6 @@ export const PO_SUMMARY_LIST_FIELDS_TO_FETCH: (
   // -----------------
   "expected_delivery_date",
   "latest_delivery_date",
-  "custom", // Add custom if used for badge
-  // Add invoice_data if needed for a column in this specific summary table
 ];
 
 // Searchable fields configuration for PO Summary tables

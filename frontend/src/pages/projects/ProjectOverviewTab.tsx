@@ -35,6 +35,7 @@ import { useGstOptions } from "@/hooks/useGstOptions";
 import { SevenDayPlanningTab } from "./SevenDayPlanningTab";
 import { useProjectOverviewApi } from "./data/tab/overview/useProjectOverviewTabApi";
 import { ProjectModuleDeactivationStatus } from "./components/ProjectModuleDeactivationStatus";
+import { PROCUREMENT_PROFILES } from "@/constants/roles";
 
 
 interface ProjectOverviewTabProps {
@@ -164,7 +165,7 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
           ?.filter(
             (user) =>
               !projectAssignees?.some((i) => i?.user === user?.name) &&
-              ["Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile", "Nirmaan Procurement Executive Profile"].includes(user?.role_profile)
+              ["Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile", ...PROCUREMENT_PROFILES].includes(user?.role_profile)
           )
           ?.map((op) => ({
             // This is the structure react-select expects.

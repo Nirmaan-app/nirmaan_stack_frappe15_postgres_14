@@ -6,12 +6,13 @@ import { DNColumn, PivotRow } from "../components/pivot-table/types";
 import { parseNumber } from "@/utils/parseNumber";
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 import { isCreatedToday } from "@/utils/FormatDate";
+import { MATERIAL_PROCUREMENT_PROFILES } from "@/constants/roles";
 
 const ALWAYS_EDIT_ROLES = [
   "Nirmaan Admin Profile",
   "Nirmaan PMO Executive Profile",
   "Nirmaan Project Lead Profile",
-  "Nirmaan Procurement Executive Profile",
+  ...MATERIAL_PROCUREMENT_PROFILES,
 ];
 
 interface UseDeliveryEditOptions {

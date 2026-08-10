@@ -285,6 +285,23 @@ def on_update(doc, method):
             except frappe.DoesNotExistError:
                 pass
 
+        # ⚠️ NOTIFICATIONS ARE SUPPRESSED FOR THE OUTFLOW IMPORT, AND ONLY FOR IT.
+        #
+        # TWO reasons, and the first is a correctness bug, not a preference. The loop below inserts
+        # a Nirmaan Notification per recipient and calls frappe.db.commit() after EACH one. Bulk
+        # Import Outflow settles a bank statement row by row inside per-row savepoints, and a
+        # commit here ends that isolation -- "Confirm 8" could then leave four rows written and
+        # four not, with no record of which. Same reason `from_adjustment` skips this block.
+        #
+        # The second is volume: confirming a forty-row statement would fan out to hundreds of
+        # push notifications and realtime events announcing payments the accountant is, at that
+        # moment, deliberately entering. The vendor-credit recalculation above is NOT suppressed --
+        # it holds no commit and it is real financial state.
+        #
+        # Every other caller is unaffected.
+        if doc.flags.get("from_outflow_import"):
+            return
+
         allowed_users = get_allowed_lead_users(doc) + get_admin_users() + get_allowed_procurement_users(doc)
         project = frappe.get_doc("Projects", doc.project)
         vendor = frappe.get_doc("Vendors", doc.vendor)

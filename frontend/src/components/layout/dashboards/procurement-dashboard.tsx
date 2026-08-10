@@ -22,6 +22,12 @@ import {
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { TailSpin } from "react-loader-spinner";
+import { useMemo } from "react";
+import { useUserData } from "@/hooks/useUserData";
+import {
+  isMaterialProcurementProfile,
+  isServiceProcurementProfile,
+} from "@/constants/roles";
 
 const BRAND_PRIMARY = "#D03B45";
 
@@ -43,11 +49,18 @@ interface DashboardSection {
   id: string;
   title: string;
   metrics: DashboardMetric[];
+  /**
+   * Which procurement side owns this section. ABSENT means shared -- shown to
+   * every procurement profile. This is a VIEW split, not an access boundary:
+   * the linked routes stay reachable either way.
+   */
+  side?: "material" | "service";
 }
 
 const PROCUREMENT_SECTIONS: DashboardSection[] = [
   {
     id: "pr-actions",
+    side: "material",
     title: "PR and Sent Back Actions",
     metrics: [
       {
@@ -70,6 +83,7 @@ const PROCUREMENT_SECTIONS: DashboardSection[] = [
   },
   {
     id: "sent-back",
+    side: "material",
     title: "Sent Back Actions",
     metrics: [
       {
@@ -100,6 +114,7 @@ const PROCUREMENT_SECTIONS: DashboardSection[] = [
   },
   {
     id: "work-orders",
+    side: "service",
     title: "Work Orders",
     metrics: [
       {
@@ -130,6 +145,7 @@ const PROCUREMENT_SECTIONS: DashboardSection[] = [
   },
   {
     id: "po-actions",
+    side: "material",
     title: "PO Actions",
     metrics: [
       {
@@ -420,6 +436,21 @@ const getNestedCount = (
 
 export default function ProcurementDashboard() {
   const { counts } = useDocCountStore();
+  const { role } = useUserData();
+
+  // Show only the sections this procurement side owns. An untagged section is
+  // shared and always renders. Both legacy profiles (Executive, Lead) sit in
+  // both sets, so their dashboard is unchanged.
+  const sections = useMemo(
+    () =>
+      PROCUREMENT_SECTIONS.filter(
+        (section) =>
+          !section.side ||
+          (section.side === "material" && isMaterialProcurementProfile(role)) ||
+          (section.side === "service" && isServiceProcurementProfile(role))
+      ),
+    [role]
+  );
 
   // Fetch doc counts for general actions — one batched round-trip via useCounts.
   const {
@@ -464,7 +495,7 @@ export default function ProcurementDashboard() {
   };
 
   return (
-    <div className="flex-1 space-y-8">
+    <div className="flex-1 space-y-8 p-6 md:p-8">
       {/* Header */}
       <div className="space-y-1">
         <h2 className="text-2xl font-semibold tracking-tight text-gray-900 dark:text-gray-100">
@@ -476,7 +507,7 @@ export default function ProcurementDashboard() {
       </div>
 
       {/* Sections */}
-      {PROCUREMENT_SECTIONS.map((section) => (
+      {sections.map((section) => (
         <Section key={section.id} title={section.title}>
           {section.metrics.map((metric) => {
             // Determine count source

@@ -15,6 +15,7 @@ import {
     DesignCategory,
 } from "@/pages/projects/data/project-form/useProjectFormQueries";
 import { useGstOptions } from "@/hooks/useGstOptions";
+import { isProcurementProfile } from "@/constants/roles";
 
 export interface SelectOption {
     label: string;
@@ -163,7 +164,7 @@ export const useProjectFormData = () => {
     })) || [];
 
     const procurementLeadOptions: SelectOption[] = users?.filter(
-        item => item.role_profile === "Nirmaan Procurement Executive Profile"
+        item => isProcurementProfile(item.role_profile)
     ).map(item => ({
         label: item.full_name,
         value: item.name

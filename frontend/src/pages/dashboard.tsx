@@ -20,6 +20,7 @@ import { useUserData } from "@/hooks/useUserData";
 import { UserContext } from "@/utils/auth/UserProvider";
 import { useContext ,useEffect} from "react";
 import * as Sentry from "@sentry/react";
+import { isProcurementProfile } from "@/constants/roles";
 
 
 export default function Dashboard() {
@@ -71,7 +72,7 @@ export default function Dashboard() {
                 :
                 <>{role === 'Nirmaan Project Manager Profile' && <ProjectManager />}
                     {role === 'Nirmaan Project Lead Profile' && <ProjectLead />}
-                    {role === 'Nirmaan Procurement Executive Profile' && <ProcurementDashboard />}
+                    {isProcurementProfile(role) && <ProcurementDashboard />}
                     {role === 'Nirmaan Estimates Executive Profile' && <EstimatesExecutive />}
                     {role === 'Nirmaan Billing Executive Profile' && <BillingExecutive />}
                     {(role === 'Nirmaan Accountant Profile' || role === 'Nirmaan Accountant Lead Profile') && <Accountant />}

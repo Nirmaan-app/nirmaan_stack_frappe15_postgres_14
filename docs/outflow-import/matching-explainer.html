@@ -1,0 +1,881 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How the outflow matcher works</title>
+<style>
+  :root{
+    --bg:#fbfaf9; --panel:#fff; --ink:#1c1a19; --muted:#6b6560; --line:#e5e0db;
+    --accent:#D03B45; --accent-soft:#fdf2f2; --ok:#0f7a52; --ok-soft:#eefaf4;
+    --warn:#9a6608; --warn-soft:#fdf7e8; --stop:#a63232; --stop-soft:#fdf0f0;
+    --code-bg:#f4f1ee; --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#17161a; --panel:#1f1e23; --ink:#eceaf0; --muted:#9d97a3; --line:#33313a;
+      --accent:#ff6b73; --accent-soft:#2b1f22; --ok:#4fd1a0; --ok-soft:#16261f;
+      --warn:#e5b25a; --warn-soft:#2a2318; --stop:#ff8a8a; --stop-soft:#2b1c1c;
+      --code-bg:#191820;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#17161a; --panel:#1f1e23; --ink:#eceaf0; --muted:#9d97a3; --line:#33313a;
+    --accent:#ff6b73; --accent-soft:#2b1f22; --ok:#4fd1a0; --ok-soft:#16261f;
+    --warn:#e5b25a; --warn-soft:#2a2318; --stop:#ff8a8a; --stop-soft:#2b1c1c;
+    --code-bg:#191820;
+  }
+  :root[data-theme="light"]{
+    --bg:#fbfaf9; --panel:#fff; --ink:#1c1a19; --muted:#6b6560; --line:#e5e0db;
+    --accent:#D03B45; --accent-soft:#fdf2f2; --ok:#0f7a52; --ok-soft:#eefaf4;
+    --warn:#9a6608; --warn-soft:#fdf7e8; --stop:#a63232; --stop-soft:#fdf0f0;
+    --code-bg:#f4f1ee;
+  }
+
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font:16px/1.65 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1100px;margin:0 auto;padding:0 24px 96px}
+  header.top{padding:56px 0 28px;border-bottom:1px solid var(--line);margin-bottom:36px}
+  header.top .eyebrow{color:var(--accent);font-weight:700;letter-spacing:.09em;text-transform:uppercase;font-size:12px}
+  h1{font-size:clamp(28px,4.4vw,42px);line-height:1.12;margin:12px 0 14px;letter-spacing:-.02em}
+  .lede{font-size:19px;color:var(--muted);max-width:74ch;margin:0}
+  .meta{margin-top:20px;font-size:13px;color:var(--muted);font-family:var(--mono)}
+
+  h2{font-size:26px;letter-spacing:-.01em;margin:56px 0 6px;scroll-margin-top:20px}
+  h2 .num{color:var(--accent);font-family:var(--mono);font-size:16px;margin-right:10px}
+  h3{font-size:18px;margin:32px 0 8px}
+  h4{font-size:15px;margin:22px 0 6px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+  p{max-width:76ch}
+  a{color:var(--accent)}
+
+  code{font-family:var(--mono);font-size:.9em;background:var(--code-bg);padding:2px 6px;border-radius:4px}
+  pre{background:var(--code-bg);border:1px solid var(--line);border-radius:10px;padding:16px 18px;overflow-x:auto;font-family:var(--mono);font-size:13.5px;line-height:1.6}
+  pre code{background:none;padding:0}
+
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px 22px;margin:20px 0}
+  .note{border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:0 10px 10px 0;padding:14px 18px;margin:20px 0}
+  .note.ok{border-left-color:var(--ok);background:var(--ok-soft)}
+  .note.warn{border-left-color:var(--warn);background:var(--warn-soft)}
+  .note.stop{border-left-color:var(--stop);background:var(--stop-soft)}
+  .note p{margin:.4em 0}
+  .note .lbl{font-weight:700;font-size:12px;letter-spacing:.07em;text-transform:uppercase;display:block;margin-bottom:4px}
+
+  .scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:18px 0}
+  table{border-collapse:collapse;width:100%;font-size:14.5px;min-width:520px}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700}
+  tbody tr:last-child td{border-bottom:none}
+  td.mono,th.mono{font-family:var(--mono);font-size:13px}
+  .num-cell{text-align:right;font-variant-numeric:tabular-nums;font-family:var(--mono)}
+
+  .ladder{display:flex;flex-direction:column;gap:0;margin:22px 0}
+  .rung{display:grid;grid-template-columns:44px 1fr;gap:16px;padding:16px 18px;border:1px solid var(--line);background:var(--panel)}
+  .rung:first-child{border-radius:12px 12px 0 0}
+  .rung:last-child{border-radius:0 0 12px 12px}
+  .rung + .rung{border-top:none}
+  .rung .step{font-family:var(--mono);font-weight:700;color:var(--accent);font-size:15px;padding-top:1px}
+  .rung h5{margin:0 0 4px;font-size:16px}
+  .rung p{margin:0;font-size:14.5px;color:var(--muted);max-width:none}
+  .rung .out{margin-top:8px;font-family:var(--mono);font-size:12.5px}
+  .pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:700;font-family:var(--mono);letter-spacing:.02em}
+  .p-skip{background:var(--code-bg);color:var(--muted)}
+  .p-mis{background:var(--warn-soft);color:var(--warn)}
+  .p-match{background:var(--ok-soft);color:var(--ok)}
+  .p-un{background:var(--stop-soft);color:var(--stop)}
+
+  .ex{border:1px solid var(--line);border-radius:12px;overflow:hidden;margin:20px 0;background:var(--panel)}
+  .ex > .hd{padding:11px 18px;background:var(--code-bg);font-size:12.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--line)}
+  .ex > .bd{padding:16px 18px}
+  .ex .bd > :first-child{margin-top:0}
+  .ex .bd > :last-child{margin-bottom:0}
+
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media (max-width:720px){.cols{grid-template-columns:1fr}}
+
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:2px 14px;font-size:14px;margin:10px 0}
+  .kv dt{color:var(--muted);font-size:12.5px;text-transform:uppercase;letter-spacing:.05em;padding-top:2px}
+  .kv dd{margin:0;font-family:var(--mono);font-size:13.5px}
+
+  nav.toc{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 22px;margin:0 0 12px}
+  nav.toc ol{margin:0;padding-left:20px;columns:2;column-gap:32px}
+  @media (max-width:720px){nav.toc ol{columns:1}}
+  nav.toc li{margin:4px 0;font-size:14.5px;break-inside:avoid}
+  nav.toc a{text-decoration:none}
+  nav.toc a:hover{text-decoration:underline}
+
+  hr{border:none;border-top:1px solid var(--line);margin:52px 0}
+  .foot{color:var(--muted);font-size:13.5px}
+  .arrow{color:var(--accent);font-family:var(--mono)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <div class="eyebrow">Bulk Import Outflow</div>
+  <h1>How the matcher decides what a bank transfer paid</h1>
+  <p class="lede">You upload a bank statement of money that has <em>already left the account</em>.
+  For each line, the system tries to find the one record in Nirmaan that the line settles. This
+  document explains exactly what it checks, in what order, and why each rule exists — every rule
+  here was written to fix an observed failure on real data.</p>
+  <p class="meta">source of truth: <code>nirmaan_stack/services/outflow_import/</code> &middot;
+  matcher.py &middot; normalize.py &middot; amounts.py &middot; status.py &middot; candidates.py</p>
+</header>
+
+<nav class="toc">
+  <ol>
+    <li><a href="#spine">What matching is actually for</a></li>
+    <li><a href="#ladder">The ladder: five steps, in order</a></li>
+    <li><a href="#normalise">Step 0 — Making values comparable</a></li>
+    <li><a href="#skips">Step 1 — Rows that never get matched</a></li>
+    <li><a href="#dupe">Step 2 — The already-paid guard</a></li>
+    <li><a href="#vendor">Step 3a — Working out who was paid</a></li>
+    <li><a href="#payments">Step 3b — Finding the payment</a></li>
+    <li><a href="#expenses">Step 4 — Finding the expense</a></li>
+    <li><a href="#outcome">Step 5 — The verdict</a></li>
+    <li><a href="#tolerance">The ₹1 rule</a></li>
+    <li><a href="#never">What never matches, on purpose</a></li>
+    <li><a href="#walkthrough">Three worked examples</a></li>
+    <li><a href="#where">Where each rule lives</a></li>
+  </ol>
+</nav>
+
+<h2 id="spine"><span class="num">01</span>What matching is actually for</h2>
+
+<p>The import <strong>pays what someone has already approved</strong>. It never approves anything,
+and it never creates a payment out of thin air. So matching has exactly one job:</p>
+
+<div class="note">
+  <span class="lbl">The question the matcher answers</span>
+  <p>“This ₹18,679 left the bank on 28 July. Which <strong>approved</strong> record in Nirmaan is it
+  paying?”</p>
+</div>
+
+<p>There are three places that record could live, and the matcher searches all three:</p>
+
+<div class="scroll">
+<table>
+  <thead><tr><th>Ledger</th><th>What it is</th><th>Matched by</th></tr></thead>
+  <tbody>
+    <tr><td><code>Project Payments</code></td><td>money owed against a PO or service request</td><td>bank reference, or vendor + amount + date</td></tr>
+    <tr><td><code>Project Expenses</code></td><td>project spend with no PO behind it</td><td>amount, corroborated by the description</td></tr>
+    <tr><td><code>Non Project Expenses</code></td><td>office and company overheads</td><td>amount, corroborated by the description</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="note stop">
+  <span class="lbl">Only “Approved” is ever matched</span>
+  <p>A record sitting at <code>Requested</code> or <code>CEO Pending</code> is <strong>not in the
+  candidate pool at all</strong>. The matcher literally cannot see it, so a transfer against one
+  comes back plainly <span class="pill p-un">Unmatched</span> — no status, no nudge, no “approve this
+  first” link. Nothing is ever offered that could not then be settled.</p>
+</div>
+
+<p>And one rule that shapes everything below:</p>
+
+<div class="note">
+  <span class="lbl">The matcher proposes. It never decides.</span>
+  <p>Every function here returns <em>ranked candidates</em>. The outcome is derived separately, and
+  the choice is made by a person. That is not caution for its own sake — it is forced by the data.
+  One bank account in this database maps to <strong>three legally distinct D.S. Ductofab
+  companies</strong> with different GSTs, and to <strong>two separate Siemens entities</strong>.
+  There is no signal in a bank statement that separates them.</p>
+</div>
+
+<h2 id="ladder"><span class="num">02</span>The ladder: five steps, in order</h2>
+
+<p>Precedence is deliberate. Each step can end the row; later steps only run if the earlier ones
+stayed silent.</p>
+
+<div class="ladder">
+  <div class="rung">
+    <div class="step">1</div>
+    <div>
+      <h5>Is this row even eligible?</h5>
+      <p>Already imported in an earlier batch, a repeat of a line earlier in the same file, or a
+      transfer the bank marked as failed.</p>
+      <div class="out"><span class="arrow">→</span> <span class="pill p-skip">Skipped</span></div>
+    </div>
+  </div>
+  <div class="rung">
+    <div class="step">2</div>
+    <div>
+      <h5>Did somebody already tick this by hand?</h5>
+      <p>A <strong>Paid</strong> payment already carrying this bank reference. Checked against a
+      deliberately separate pool from the candidates.</p>
+      <div class="out"><span class="arrow">→</span> amounts agree <span style="font-size:11px">(within ₹1)</span> <span class="pill p-skip">Skipped</span> &nbsp; differ by more <span class="pill p-mis">Mismatched</span></div>
+    </div>
+  </div>
+  <div class="rung">
+    <div class="step">3</div>
+    <div>
+      <h5>Is there an approved payment?</h5>
+      <p><strong>Pass A</strong> — the bank reference matches. <strong>Pass B</strong> — the vendor,
+      the amount (±₹1) and the date (±3 days) all line up.</p>
+      <div class="out"><span class="arrow">→</span> zero or more candidate groups</div>
+    </div>
+  </div>
+  <div class="rung">
+    <div class="step">4</div>
+    <div>
+      <h5>Is there an approved expense?</h5>
+      <p>Amount within ±₹1, then scored up by anything the description text corroborates.</p>
+      <div class="out"><span class="arrow">→</span> zero or more candidates</div>
+    </div>
+  </div>
+  <div class="rung">
+    <div class="step">5</div>
+    <div>
+      <h5>Count what was found</h5>
+      <p>One candidate is a confident suggestion the screen pre-selects. Several is an ambiguity it
+      presents without guessing between them.</p>
+      <div class="out"><span class="arrow">→</span> ≥1 <span class="pill p-match">Matched</span> &nbsp; none <span class="pill p-un">Unmatched</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="note warn">
+  <span class="lbl">Why steps 1 and 2 come first</span>
+  <p>Both describe money that must not be recorded again — or at all. A <em>failed</em> transfer
+  still carries a perfectly good bank reference and would match a payment happily. Checking
+  eligibility after matching would mean offering it.</p>
+</div>
+
+<h2 id="normalise"><span class="num">03</span>Step 0 — Making values comparable</h2>
+
+<p>Before anything is compared, both sides are converted to a canonical form. Raw string equality
+fails on real data in <em>every</em> field the matcher depends on.</p>
+
+<h3>The split that matters most</h3>
+
+<div class="cols">
+  <div class="panel">
+    <h4>Identity forms</h4>
+    <p style="font-size:14.5px"><code>normalize_account</code>, <code>normalize_reference</code></p>
+    <p style="font-size:14.5px;color:var(--muted)">Two values that normalise equal are treated as
+    <strong>the same thing</strong>. These must never merge things that are genuinely different.</p>
+  </div>
+  <div class="panel">
+    <h4>Scoring forms</h4>
+    <p style="font-size:14.5px"><code>normalize_name</code>, <code>name_tokens</code></p>
+    <p style="font-size:14.5px;color:var(--muted)">These feed a ranked suggestion a human confirms,
+    so they are <strong>allowed to be lossy</strong>. They even singularise words — a heuristic that
+    would be indefensible as an identity rule.</p>
+  </div>
+</div>
+
+<div class="note stop">
+  <span class="lbl">Never cross the streams</span>
+  <p>A normalised <strong>name</strong> must never be used as an identity key. And a normalised
+  <strong>account</strong> — even though it <em>is</em> an identity form — must never be treated as a
+  vendor identity, for the shared-account reason above. An account narrows a candidate set; a person
+  picks from it.</p>
+</div>
+
+<h3>Bank account numbers</h3>
+<p>Strip whitespace and separators, then strip <strong>leading zeros</strong>.</p>
+
+<div class="ex">
+  <div class="hd">Why leading zeros — a real failure</div>
+  <div class="bd">
+    <div class="scroll"><table>
+      <thead><tr><th>Source</th><th class="mono">Raw</th><th class="mono">Normalised</th></tr></thead>
+      <tbody>
+        <tr><td>bank statement</td><td class="mono">0869102000002783</td><td class="mono">869102000002783</td></tr>
+        <tr><td>vendor master</td><td class="mono">869102000002783</td><td class="mono">869102000002783</td></tr>
+        <tr><td>vendor master (another record)</td><td class="mono">'50200023578202 '</td><td class="mono">50200023578202</td></tr>
+      </tbody>
+    </table></div>
+    <p style="font-size:14.5px;margin-bottom:0">A raw compare misses the first pair entirely and the
+    vendor looks unknown. The trailing-space case is the mirror image of the same problem.</p>
+    <p style="font-size:14.5px;color:var(--muted);margin-bottom:0">An all-zero value normalises to
+    <code>"0"</code>, not the empty string — so a genuinely zero account stays distinguishable from a
+    missing one.</p>
+  </div>
+</div>
+
+<h3>Bank references (UTRs)</h3>
+<p>Strip <em>all</em> whitespace and upper-case. Leading zeros are <strong>preserved</strong> — unlike
+an account number, a reference is an opaque token and its first character is significant.</p>
+
+<div class="note">
+  <span class="lbl">226 live payments have a padded UTR</span>
+  <p>Values like <code>' 504918114686'</code> sit in the ledger today. The pre-existing guard
+  elsewhere in the app strips the incoming value but compares it against unstripped storage, so those
+  rows are invisible to it. Normalising <em>both</em> sides is the fix — which is why this is a
+  function and not a bare <code>.strip()</code> at the call site.</p>
+</div>
+
+<h3>Party names</h3>
+<p>Case-fold → turn <code>&amp;</code> into the word <code>and</code> → reduce every run of
+non-alphanumeric characters to one space → collapse whitespace.</p>
+
+<div class="scroll">
+<table>
+  <thead><tr><th>Observed mismatch</th><th class="mono">Statement</th><th class="mono">Vendor master</th><th>Fixed by</th></tr></thead>
+  <tbody>
+    <tr><td>trailing space</td><td class="mono">Sri Sai Enterprises</td><td class="mono">'Sri Sai Enterprises '</td><td>whitespace collapse</td></tr>
+    <tr><td>case</td><td class="mono">HAKIMI HARDWARE</td><td class="mono">Hakimi Hardware</td><td>case-fold</td></tr>
+    <tr><td>hyphen</td><td class="mono">RAJ MARKETING eHub</td><td class="mono">RAJ MARKETING e-Hub</td><td>token level (see below)</td></tr>
+    <tr><td>ampersand</td><td class="mono">… FASTENERS INDUSTRIAL NEEDS</td><td class="mono">… FASTENERS &amp; INDUSTRIAL NEEDS</td><td><code>&amp;</code> → <code>and</code>, then noise</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="note warn">
+  <span class="lbl">The one the canonical string cannot fix</span>
+  <p><code>e-Hub</code> becomes <code>e hub</code> while <code>eHub</code> becomes <code>ehub</code>.
+  Those are <em>not</em> equal as strings. That case is resolved at the token level instead — which
+  is exactly why the canonical string and the token set are two separate functions.</p>
+</div>
+
+<h3>Name tokens</h3>
+<p>Split the normalised name, expand legal abbreviations, then singularise each token.</p>
+
+<div class="cols">
+  <div class="panel">
+    <h4>Abbreviations expanded</h4>
+    <div class="scroll"><table>
+      <tbody>
+        <tr><td class="mono">pvt</td><td class="mono">→ private</td></tr>
+        <tr><td class="mono">pvtltd</td><td class="mono">→ private</td></tr>
+        <tr><td class="mono">ltd, ltd.</td><td class="mono">→ limited</td></tr>
+        <tr><td class="mono">co</td><td class="mono">→ company</td></tr>
+        <tr><td class="mono">corp</td><td class="mono">→ corporation</td></tr>
+        <tr><td class="mono">inc</td><td class="mono">→ incorporated</td></tr>
+      </tbody>
+    </table></div>
+    <p style="font-size:14px;color:var(--muted);margin-bottom:0">So <code>Dhatri Networks Pvt Ltd</code>
+    and <code>Dhatri Networks Private Limited</code> agree.</p>
+  </div>
+  <div class="panel">
+    <h4>Singularisation</h4>
+    <p style="font-size:14.5px">Drop one trailing <code>s</code> from a token of 4+ characters that
+    does not already end in <code>ss</code>.</p>
+    <div class="scroll"><table>
+      <tbody>
+        <tr><td class="mono">solutions</td><td class="mono">→ solution</td></tr>
+        <tr><td class="mono">express</td><td class="mono">→ express</td><td style="font-size:13px;color:var(--muted)">the <code>ss</code> guard</td></tr>
+        <tr><td class="mono">gas</td><td class="mono">→ gas</td><td style="font-size:13px;color:var(--muted)">too short</td></tr>
+      </tbody>
+    </table></div>
+    <p style="font-size:14px;color:var(--muted);margin-bottom:0">Exists for one observed pair:
+    the statement’s <code>Absolute Air Solutions</code> against the master’s
+    <code>Absolute Air Solution</code>.</p>
+  </div>
+</div>
+
+<h3>Noise words</h3>
+<p>Nine tokens carry no discriminating signal between two Indian trade names and are weighted out
+during scoring:</p>
+
+<pre><code>and · the · private · limited · company · corporation · incorporated · llp · llc</code></pre>
+
+<div class="cols">
+  <div class="note ok" style="margin-top:0">
+    <span class="lbl">Why <code>and</code> is noise</span>
+    <p>The statement writes <code>RIDDHI SIDDHI FASTENERS INDUSTRIAL NEEDS</code>; the master holds
+    <code>RIDDHI SIDDHI FASTENERS &amp; INDUSTRIAL NEEDS</code>. Treating the connective as noise is
+    what lets those two meet.</p>
+  </div>
+  <div class="note stop" style="margin-top:0">
+    <span class="lbl">Why trade words are <em>not</em> noise</span>
+    <p><code>enterprise</code>, <code>roadlines</code>, <code>hardware</code> are deliberately absent
+    from the list. They are exactly what separates <strong>Sri Sai Enterprises</strong> from
+    <strong>Sri Sai Roadlines</strong> — two different live vendors.</p>
+  </div>
+</div>
+
+<h2 id="skips"><span class="num">04</span>Step 1 — Rows that never get matched</h2>
+
+<div class="scroll">
+<table>
+  <thead><tr><th>Condition</th><th>Outcome</th><th>Reason shown to the reviewer</th></tr></thead>
+  <tbody>
+    <tr><td>This transfer id exists in an earlier batch</td><td><span class="pill p-skip">Skipped</span></td><td class="mono">Already imported in batch OFI-…</td></tr>
+    <tr><td>The same transfer id appears earlier in this same file</td><td><span class="pill p-skip">Skipped</span></td><td class="mono">This transfer appears earlier in the same statement.</td></tr>
+    <tr><td>The bank’s own status is not <code>SUCCESS</code></td><td><span class="pill p-skip">Skipped</span></td><td class="mono">Transfer did not succeed at the bank (FAILED).</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>The in-file duplicate check is separate from the cross-batch one for a mundane reason: the
+cross-batch lookup cannot see the file it is currently reading. Leaving it out is not cosmetic —
+both copies would offer the same record, and settling both would violate the database’s uniqueness
+constraint.</p>
+
+<h2 id="dupe"><span class="num">05</span>Step 2 — The already-paid guard</h2>
+
+<p>People tick payments Paid by hand all day. Half a statement being hand-ticked before it is
+uploaded is <strong>the normal case, not an edge case</strong>. So before looking for anything to
+settle, the matcher asks: is there already a <strong>Paid</strong> payment carrying this bank
+reference?</p>
+
+<div class="note stop">
+  <span class="lbl">This is a SKIP, not a match — and it is load-bearing</span>
+  <p>Delete this check and a hand-ticked payment comes back <span class="pill p-un">Unmatched</span>,
+  whose obvious next click records the same money a second time.</p>
+</div>
+
+<div class="ex">
+  <div class="hd">The three outcomes</div>
+  <div class="bd">
+    <div class="scroll"><table>
+      <thead><tr><th>Bank line</th><th>Already-Paid record(s)</th><th>Outcome</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="mono">₹22,000<br>ref 6209…893</td>
+          <td class="mono">one Paid payment, ₹22,000</td>
+          <td><span class="pill p-skip">Skipped</span><br><span style="font-size:13px;color:var(--muted)">“Already recorded as Paid on …”</span></td>
+        </tr>
+        <tr>
+          <td class="mono">₹22,000<br>ref 6209…893</td>
+          <td class="mono">one Paid payment, ₹21,999.60</td>
+          <td><span class="pill p-skip">Skipped</span><br><span style="font-size:13px;color:var(--muted)">40 paise is the bank rounding — inside the ₹1 window</span></td>
+        </tr>
+        <tr>
+          <td class="mono">₹22,000<br>ref 6209…893</td>
+          <td class="mono">one Paid payment, ₹22,450</td>
+          <td><span class="pill p-mis">Mismatched</span><br><span style="font-size:13px;color:var(--muted)">names the gap and the implied rate</span></td>
+        </tr>
+      </tbody>
+    </table></div>
+  </div>
+</div>
+
+<div class="note warn">
+  <span class="lbl">This is the ONLY route to “Mismatched”</span>
+  <p>The candidate passes below match on an amount <em>within a rupee</em>, so a genuine disagreement
+  is arithmetically impossible there. If you ever see a Mismatched row, it came from here.</p>
+  <p>The guard also matches on the <strong>bank reference alone</strong> — never on the vendor
+  heuristic. A heuristic hit here would skip a row on a guess, which is the one outcome a duplicate
+  guard must never produce.</p>
+</div>
+
+<div class="note stop">
+  <span class="lbl">The middle row above was a live defect, fixed 2026-08-07</span>
+  <p>This branch originally compared the amounts <strong>exactly</strong>, while every other amount
+  check in the feature used the ₹1 window. Since the bank rounds to the whole rupee and 31.4% of
+  payments carry paise, <em>every</em> hand-ticked payment with paise on it was reported as a
+  discrepancy — under a note suggesting TDS.</p>
+  <p>On a real 26-row statement that was <strong>8 rows</strong> flagged for investigation, over gaps
+  of 0.14, 0.15, 0.18, 0.40, 0.57, 0.68 and 0.86 — ₹3.12 of “discrepancy” in total. All eight now
+  skip correctly. The lesson generalises: when a tolerance has a list of call sites, the branch
+  <em>not</em> on the list is the one to check.</p>
+</div>
+
+<h2 id="vendor"><span class="num">06</span>Step 3a — Working out who was paid</h2>
+
+<p>Pass B of the payment search needs a vendor. Resolving one is its own scored search, and it
+<strong>never returns a single answer</strong> — it returns a ranked list.</p>
+
+<h3>The two signals</h3>
+
+<div class="scroll">
+<table>
+  <thead><tr><th>Signal</th><th class="num-cell">Score</th><th>Notes</th></tr></thead>
+  <tbody>
+    <tr><td>Bank account <em>and</em> IFSC both match</td><td class="num-cell">0.95</td><td>the IFSC separates a genuine hit from a coincidental digit collision</td></tr>
+    <tr><td>Bank account matches</td><td class="num-cell">0.80</td><td>18 vendors share an account with somebody else</td></tr>
+    <tr><td>Normalised name matches exactly</td><td class="num-cell">0.75</td><td>after all the normalisation above</td></tr>
+    <tr><td>Some name words in common</td><td class="num-cell">0.60 × containment</td><td>dropped below <strong>0.35</strong>; needs ≥2 non-noise words to score at all</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>Containment, not overlap</h3>
+
+<p>The share is computed against the <em>smaller</em> of the two token sets:</p>
+
+<pre><code>containment = shared_tokens / min(row_tokens, vendor_tokens)
+score       = 0.60 × containment</code></pre>
+
+<div class="ex">
+  <div class="hd">Why not Jaccard</div>
+  <div class="bd">
+    <dl class="kv">
+      <dt>Statement</dt><dd>Md Arsad Alam</dd>
+      <dt>Vendor master</dt><dd>Md Arsad Alam Electrical Work</dd>
+    </dl>
+    <div class="scroll"><table>
+      <thead><tr><th>Measure</th><th class="mono">Calculation</th><th class="num-cell">Result</th><th>Verdict</th></tr></thead>
+      <tbody>
+        <tr><td>Jaccard (overlap ÷ union)</td><td class="mono">3 / 5</td><td class="num-cell">0.60</td><td>punished for the vendor being more specific</td></tr>
+        <tr><td><strong>Containment</strong> (÷ smaller set)</td><td class="mono">3 / 3</td><td class="num-cell">1.00</td><td>correct — the statement name is a complete subset</td></tr>
+      </tbody>
+    </table></div>
+    <p style="margin-bottom:0">A bank statement carries an <em>account</em> name, which is routinely a
+    shortened form of the registered vendor name. Jaccard penalises exactly the case that happens
+    most.</p>
+  </div>
+</div>
+
+<h3>Both name fields feed the index</h3>
+<p><strong>174 of 1,077 vendors</strong> hold an <code>account_name</code> that differs from their
+<code>vendor_name</code> — sometimes the trading name, sometimes a person, occasionally the bank’s
+own name. Both are indexed, so a hit on either counts.</p>
+
+<h3>An account hit does not stop the name pass</h3>
+
+<div class="note">
+  <span class="lbl">Corroboration, not short-circuit</span>
+  <p>When an account hit and a name hit land on the same vendor, the account <strong>basis</strong> is
+  kept (it is the stronger claim), the score becomes the higher of the two, and the name reason is
+  <em>added</em> to the list shown to the reviewer. When an account is shared between vendors, the
+  name is the only thing that can order the tied candidates.</p>
+</div>
+
+<div class="note ok">
+  <span class="lbl">The case that justifies weighting account highly</span>
+  <p>A live transfer to a person’s name resolved to a company vendor — findable <strong>only</strong>
+  by bank account, because the beneficiary on the statement is an individual and the vendor in the
+  master is a business. Weight account too lightly and that match stops standing out.</p>
+</div>
+
+<div class="note warn">
+  <span class="lbl">Two or more survivors = ambiguous</span>
+  <p>Nothing is auto-recorded. The resolved vendor is written onto the import row
+  <strong>only</strong> when exactly one candidate survives — storing the top-ranked guess would turn
+  a suggestion into a recorded fact nobody chose.</p>
+</div>
+
+<h2 id="payments"><span class="num">07</span>Step 3b — Finding the payment</h2>
+
+<h3>Pass A — the bank reference</h3>
+
+<p>Compare the normalised bank reference on the statement line against the normalised
+<code>utr</code> stored on approved payments. Every payment sharing that reference is collected into
+<strong>one group</strong>.</p>
+
+<div class="note ok">
+  <span class="lbl">This is the only pass that can find a fan-out</span>
+  <p>One transfer sometimes settles several payments at once. Measured on live data: <strong>40 such
+  transfers covering 99 payments</strong> and 2.53% of all settled value — the largest a single
+  <strong>₹72,89,432</strong> IMPS spanning 7 payments across 6 projects. Grouping by shared reference
+  is what makes those visible as one event.</p>
+</div>
+
+<p><strong>If Pass A finds anything, Pass B never runs.</strong> A direct reference hit is a key, not
+a heuristic; there is nothing a weaker signal could add.</p>
+
+<h3>Pass B — vendor + amount + date</h3>
+
+<p>Only reached when Pass A found nothing. Three conditions, all required:</p>
+
+<div class="ladder">
+  <div class="rung"><div class="step">i</div><div><h5>The amount is within ₹1</h5><p>See <a href="#tolerance">the ₹1 rule</a>.</p></div></div>
+  <div class="rung"><div class="step">ii</div><div><h5>The payment’s vendor is one of the resolved vendor candidates</h5><p>A payment with no vendor of its own is skipped — “it matched because it had nothing to disagree with” is the wrong reason to offer anything.</p></div></div>
+  <div class="rung"><div class="step">iii</div><div><h5>The payment date is within 3 days</h5><p>A payment is recorded the same day 98.9% of the time, but month-end and weekend batches drift. Three days covers a Friday transfer recorded on Monday without reaching into the next week’s run. If either date is missing, the check passes — a row cannot be excluded on evidence that does not exist.</p></div></div>
+</div>
+
+<div class="note stop">
+  <span class="lbl">No vendor resolved ⇒ Pass B cannot run at all</span>
+  <p>It is “vendor + amount + date”. Without the vendor it degrades to “amount + date”, which against
+  a ledger of 7,000+ payments matches far too much to put in front of a person.</p>
+</div>
+
+<div class="note warn">
+  <span class="lbl">Pass B is deliberately single-target</span>
+  <p>Each hit becomes its own one-payment group. A fan-out group’s members each hold a
+  <em>fraction</em> of the bank amount, so an exact-amount pass can never reassemble one. Rather than
+  guess at a partition — which would mean inventing an allocation nobody authorised — an unreferenced
+  fan-out stays <span class="pill p-un">Unmatched</span> and says so.</p>
+</div>
+
+<div class="note">
+  <span class="lbl">Why Pass B has to exist at all</span>
+  <p><strong>932 of 7,420</strong> Paid payments (12.6%) carry a <code>utr</code> that is not a bank
+  reference at all: PO numbers, short numbers, and the literal string <code>refund</code>. Pass A
+  cannot see any of those, so without Pass B they would all read as unrecorded money.</p>
+</div>
+
+<h2 id="expenses"><span class="num">08</span>Step 4 — Finding the expense</h2>
+
+<p>Expenses are searched differently, because the data supports different things.</p>
+
+<div class="note warn">
+  <span class="lbl">Vendor cannot filter here, and that is a property of the data</span>
+  <p><code>Project Expenses.vendor</code> is populated on <strong>0.58%</strong> of rows, and
+  <code>Non Project Expenses</code> has no vendor column at all.</p>
+</div>
+
+<p>So the gate is the amount, and the description text is used to <em>rank</em>:</p>
+
+<div class="scroll">
+<table>
+  <thead><tr><th>Check</th><th class="num-cell">Score</th><th>Note</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Amount within ±₹1</strong></td><td class="num-cell">0.40</td><td>the only gate — everything below is a bonus</td></tr>
+    <tr><td>The beneficiary’s account number appears in the description</td><td class="num-cell">+0.40</td><td>matched on digits only, so separators and a leading zero still hit</td></tr>
+    <tr><td>The payee’s name words appear in the description</td><td class="num-cell">+0.20</td><td>noise words excluded</td></tr>
+    <tr><td>The IFSC appears in the description</td><td class="num-cell">+0.10</td><td></td></tr>
+  </tbody>
+</table>
+</div>
+<p style="font-size:14px;color:var(--muted)">Total is capped at 1.0.</p>
+
+<div class="note ok">
+  <span class="lbl">Where this signal comes from</span>
+  <p>Descriptions carry — inconsistently, but often — the payee’s name, account number or IFSC, typed
+  in by whoever raised the expense. The one clean live match found during this whole exercise was
+  discovered because an approved accommodation expense had the beneficiary’s <em>account number</em>
+  typed into its description.</p>
+</div>
+
+<div class="note stop">
+  <span class="lbl">The consequence you will actually notice</span>
+  <p>Because the amount is the <strong>only</strong> gate, a round-number transfer that has an
+  approved payment <em>and</em> an unrelated approved expense at the same amount honestly has
+  <strong>two</strong> candidates — so it will be <span class="pill p-match">Matched</span> but will
+  <strong>not</strong> pre-select anything. On a ₹5,000 transfer this is common. That is the
+  never-guess rule working as designed, not a bug.</p>
+</div>
+
+<h2 id="outcome"><span class="num">09</span>Step 5 — The verdict</h2>
+
+<p>The candidate list is: <strong>the best payment group</strong> (if any) plus <strong>every expense
+candidate</strong>. Then:</p>
+
+<div class="scroll">
+<table>
+  <thead><tr><th>Candidates found</th><th>Status</th><th>What the row says</th><th>Pre-selected?</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>none</td>
+      <td><span class="pill p-un">Unmatched</span></td>
+      <td class="mono">No approved payment or expense matches this transfer.</td>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>exactly one, holding one record</td>
+      <td><span class="pill p-match">Matched</span></td>
+      <td class="mono">One approved record at this amount: PAY-… </td>
+      <td><strong>yes</strong></td>
+    </tr>
+    <tr>
+      <td>exactly one, holding several (fan-out)</td>
+      <td><span class="pill p-match">Matched</span></td>
+      <td class="mono">One transfer settling 3 approved payments: …</td>
+      <td>no — no single record to name</td>
+    </tr>
+    <tr>
+      <td>two or more</td>
+      <td><span class="pill p-match">Matched</span></td>
+      <td class="mono">4 approved records match this amount: … Choose which one this transfer settled.</td>
+      <td>no — the screen never guesses</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<div class="note">
+  <span class="lbl">There is deliberately no “Ambiguous” status</span>
+  <p>Both the confident and the contested case are <span class="pill p-match">Matched</span> —
+  something settleable was found, and a person confirms which. The distinction is a screen concern,
+  carried in the note rather than in the vocabulary.</p>
+</div>
+
+<h2 id="tolerance"><span class="num">10</span>The ₹1 rule</h2>
+
+<div class="note stop">
+  <span class="lbl">Exact-amount matching did not survive contact with a bank</span>
+  <p><strong>31.4% of payments carry paise</strong> (2,370 of 7,556) while the bank sends whole
+  rupees. In the first real import, three approved payments each sat within a rupee of the transfer
+  that paid them — and every one came out <span class="pill p-un">Unmatched</span>. The matcher was
+  not broken; the rule was.</p>
+</div>
+
+<div class="ex">
+  <div class="hd">The three cases that changed the rule</div>
+  <div class="bd">
+    <div class="scroll"><table>
+      <thead><tr><th class="num-cell">Bank sent</th><th>Approved payment</th><th class="num-cell">Recorded</th><th class="num-cell">Off by</th></tr></thead>
+      <tbody>
+        <tr><td class="num-cell">18,679.00</td><td class="mono">PAY-00105-038</td><td class="num-cell">18,678.69</td><td class="num-cell">0.31</td></tr>
+        <tr><td class="num-cell">21,925.00</td><td class="mono">PAY-00105-034</td><td class="num-cell">21,924.10</td><td class="num-cell">0.90</td></tr>
+        <tr><td class="num-cell">36,963.00</td><td class="mono">PAY-00105-035</td><td class="num-cell">36,962.32</td><td class="num-cell">0.68</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</div>
+
+<p><strong>The window is ₹1, inclusive at the boundary.</strong> That is exactly the width of the
+phenomenon: the bank rounds a paise amount to the whole rupee, so the gap is always strictly less
+than a rupee.</p>
+
+<div class="note warn">
+  <span class="lbl">Why not wider</span>
+  <p>Anything wider starts absorbing differences that are <em>not</em> rounding. A ₹5 window would
+  silently settle a payment that is genuinely ₹4 short, and nobody would ever see it.</p>
+</div>
+
+<div class="note stop">
+  <span class="lbl">One number, five places</span>
+  <p>The tolerance is applied by both SQL pool queries, by the matcher, by the <strong>write
+  guard</strong>, and by the <strong>already-paid duplicate check</strong>. These are easy to change
+  independently and catastrophic to change inconsistently: a pool wider than the guard offers a
+  record the confirm then refuses; a guard wider than the pool silently permits a settlement the
+  screen never proposed.</p>
+  <p>The fifth was <em>missing</em> until 2026-08-07 and cost 8 rows in a live statement — see
+  <a href="#dupe">the already-paid guard</a>. If you are adding an amount comparison anywhere in this
+  feature, it belongs on this list.</p>
+</div>
+
+<div class="note">
+  <span class="lbl">The difference is absorbed, not booked</span>
+  <p>Settling an ₹18,678.69 payment from an ₹18,679.00 transfer leaves the payment at 18,678.69 and
+  marks it Paid. The 31 paise is not recorded anywhere. Accepted explicitly.</p>
+</div>
+
+<h2 id="never"><span class="num">11</span>What never matches, on purpose</h2>
+
+<div class="scroll">
+<table>
+  <thead><tr><th>Case</th><th>Why</th><th>What happens instead</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>Anything not Approved</strong></td>
+      <td>the import pays what is already approved; it never approves</td>
+      <td>plain <span class="pill p-un">Unmatched</span>, no nudge</td>
+    </tr>
+    <tr>
+      <td><strong>TDS payments</strong></td>
+      <td>the bank sends <code>amount − tds</code>, which is thousands off. ₹1 cannot reach it and must not be stretched to. Worse, <code>tds</code> is written at <em>fulfil</em> time — so an approved unpaid payment has a blank one and there is nothing to subtract</td>
+      <td><span class="pill p-un">Unmatched</span>; linked by hand. 709 of 7,421 Paid payments (9.6%) carry TDS</td>
+    </tr>
+    <tr>
+      <td><strong>An unreferenced fan-out</strong></td>
+      <td>Pass B is single-target by design; inferring a group from amounts alone would invent an allocation nobody authorised</td>
+      <td><span class="pill p-un">Unmatched</span></td>
+    </tr>
+    <tr>
+      <td><strong>A beneficiary resolving to no vendor</strong></td>
+      <td>Pass B cannot run without a vendor</td>
+      <td><span class="pill p-un">Unmatched</span>; the expense pass still applies</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<div class="note ok">
+  <span class="lbl">Unmatched is not a failure state</span>
+  <p>Every one of these rows is fully resolvable by hand: the decision dialog browses <em>all</em>
+  approved records across all three ledgers, independent of anything the matcher concluded. That
+  escape hatch is the point — the matcher is allowed to be conservative precisely because nothing
+  depends on it being complete.</p>
+</div>
+
+<h2 id="walkthrough"><span class="num">12</span>Three worked examples</h2>
+
+<div class="ex">
+  <div class="hd">A — the clean reference hit</div>
+  <div class="bd">
+    <dl class="kv">
+      <dt>Bank line</dt><dd>₹18,679.00 &middot; ref 620918788160 &middot; 28-Jul</dd>
+    </dl>
+    <ol style="font-size:15px">
+      <li><strong>Eligible?</strong> Yes — SUCCESS, not seen before.</li>
+      <li><strong>Already Paid?</strong> No Paid payment carries this reference.</li>
+      <li><strong>Pass A</strong> — normalise <code>620918788160</code>, compare against approved
+      payments’ UTRs. One hit: <code>PAY-00105-038</code> at ₹18,678.69.
+      <br><span style="color:var(--muted)">The 31-paise gap is inside the ₹1 window, so the pool query
+      returned it in the first place.</span></li>
+      <li>Pass A found something, so <strong>Pass B is skipped entirely</strong>.</li>
+      <li><strong>Expenses</strong> — none at this amount.</li>
+      <li><strong>Candidates: 1</strong>, holding 1 record.</li>
+    </ol>
+    <p style="margin-bottom:0"><span class="pill p-match">Matched</span> · pre-selected · the row
+    reads <em>“Matched PAY-00105-038 — tick to confirm”</em>.</p>
+  </div>
+</div>
+
+<div class="ex">
+  <div class="hd">B — matched, but nothing pre-selected</div>
+  <div class="bd">
+    <dl class="kv">
+      <dt>Bank line</dt><dd>₹5,000.00 &middot; a rent transfer &middot; 28-Jul</dd>
+    </dl>
+    <ol style="font-size:15px">
+      <li><strong>Pass A</strong> — no approved payment carries this reference.</li>
+      <li><strong>Pass B</strong> — the beneficiary is a person; a vendor is resolved, but no approved
+      payment lines up on amount + date.</li>
+      <li><strong>Expenses</strong> — an approved Project Expense sits at exactly ₹5,000. Base score
+      0.40, plus a bonus because the payee’s name appears in its description.</li>
+      <li><strong>But</strong> a second approved expense also sits at ₹5,000, unrelated. Amount is the
+      only gate, so it is a candidate too.</li>
+      <li><strong>Candidates: 2</strong>.</li>
+    </ol>
+    <p style="margin-bottom:0"><span class="pill p-match">Matched</span> · <strong>nothing
+    pre-selected</strong> · the row reads <em>“2 approved records match this amount… Choose which one
+    this transfer settled.”</em> The reviewer opens it and picks.</p>
+  </div>
+</div>
+
+<div class="ex">
+  <div class="hd">C — the TDS transfer</div>
+  <div class="bd">
+    <dl class="kv">
+      <dt>Bank line</dt><dd>₹1,96,000.00 &middot; an electrical contractor &middot; 28-Jul</dd>
+      <dt>The record</dt><dd>an approved payment of ₹2,00,000 with 2% TDS</dd>
+    </dl>
+    <ol style="font-size:15px">
+      <li><strong>Pass A</strong> — the payment’s UTR is blank (it is not Paid yet), so no hit.</li>
+      <li><strong>Pass B</strong> — the vendor resolves and the date lines up, but the amounts differ
+      by <strong>₹4,000</strong>. The ₹1 window rejects it, and the pool query never returned it
+      anyway.</li>
+      <li><strong>Expenses</strong> — nothing at ₹1,96,000.</li>
+      <li><strong>Candidates: 0</strong>.</li>
+    </ol>
+    <p><span class="pill p-un">Unmatched</span> — and this is correct, not a miss. Nothing in the data
+    says ₹1,96,000 and ₹2,00,000 are the same event: <code>tds</code> is only written when the payment
+    is fulfilled, so at approval time the field is blank and there is nothing to subtract.</p>
+    <p style="margin-bottom:0">The reviewer opens the row, searches the vendor by name, sees the
+    ₹2,00,000 payment marked with its ₹4,000 difference, and links it by hand — or settles it in the
+    payments screen. <strong>Records outside the tolerance are shown and marked, never hidden</strong>,
+    precisely so this is discoverable.</p>
+  </div>
+</div>
+
+<h2 id="where"><span class="num">13</span>Where each rule lives</h2>
+
+<div class="scroll">
+<table>
+  <thead><tr><th>Rule</th><th class="mono">Module</th></tr></thead>
+  <tbody>
+    <tr><td>Comparable forms (accounts, references, names, tokens, amounts)</td><td class="mono">services/outflow_import/normalize.py</td></tr>
+    <tr><td>The ₹1 window — one owner, four call sites</td><td class="mono">services/outflow_import/amounts.py</td></tr>
+    <tr><td>Vendor resolution, Pass A, Pass B, expense scoring</td><td class="mono">services/outflow_import/matcher.py</td></tr>
+    <tr><td>Precedence and the final verdict</td><td class="mono">services/outflow_import/status.py</td></tr>
+    <tr><td>Which record the screen pre-selects</td><td class="mono">status.sole_suggestion</td></tr>
+    <tr><td>What may be settled, and from which status</td><td class="mono">services/outflow_import/ledgers.py</td></tr>
+    <tr><td>The candidate pool queries</td><td class="mono">services/outflow_import/candidates.py</td></tr>
+    <tr><td>Duplicate-heavy upload verdicts</td><td class="mono">services/outflow_import/duplicates.py</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="note ok">
+  <span class="lbl">Every module above is pure</span>
+  <p>No database, no request context, no framework. Which is why the whole matching layer is covered
+  by <strong>192 unit tests</strong> that run without a bench in under a second — and why you can
+  reason about any rule here by reading one file.</p>
+</div>
+
+<hr>
+
+<p class="foot">Companion documents: <code>docs/outflow-import/workflow.html</code> (the spec, with the
+14 owner rulings) &middot; <code>docs/outflow-import/screen-prototype.html</code> (the signed-off
+screen) &middot; <code>.claude/context/domain/outflow-import.md</code> (the engineering reference,
+including the invariants that break silently).</p>
+<p class="foot">Every example in this document is drawn from cases already documented in the
+committed source. Figures were measured on the development database and should be re-measured before
+being quoted elsewhere.</p>
+
+</div>
+</body>
+</html>

@@ -7,10 +7,8 @@
  "engine": "InnoDB",
  "field_order": [
   "links_section",
+  "tds_item",
   "work_package",
-  "category",
-  "tds_item_id",
-  "tds_item_name",
   "make",
   "status",
   "section_break_veve",
@@ -24,16 +22,19 @@
    "label": "Links"
   },
   {
+   "fieldname": "tds_item",
+   "fieldtype": "Link",
+   "label": "TDS Item",
+   "options": "TDS Items",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "tds_item.work_package",
    "fieldname": "work_package",
    "fieldtype": "Link",
    "label": "Work Package",
-   "options": "Procurement Packages"
-  },
-  {
-   "fieldname": "category",
-   "fieldtype": "Link",
-   "label": "Category",
-   "options": "Category"
+   "options": "Procurement Packages",
+   "read_only": 1
   },
   {
    "fieldname": "make",
@@ -61,18 +62,6 @@
    "fieldname": "tds_attachment",
    "fieldtype": "Attach",
    "label": "TDS Attachment"
-  },
-  {
-   "fetch_from": "tds_item_id.item_name",
-   "fieldname": "tds_item_name",
-   "fieldtype": "Data",
-   "label": "TDS Item Name"
-  },
-  {
-   "fieldname": "tds_item_id",
-   "fieldtype": "Data",
-   "label": "TDS Item ID",
-   "options": "Items"
   }
  ],
  "grid_page_length": 50,

@@ -10,12 +10,13 @@ import { ArrowDownToLine, Wallet } from "lucide-react";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { useVendorAdjustmentCredit } from "./data/usePOAdjustmentQueries";
 import { ApplyVendorCreditDialog } from "./ApplyVendorCreditDialog";
+import { MATERIAL_PROCUREMENT_PROFILES } from "@/constants/roles";
 
 // Mirrors the existing "Adjust Payments" gating in PODetails.tsx.
 const APPLY_ROLES = [
   "Nirmaan Admin Profile",
   "Nirmaan PMO Executive Profile",
-  "Nirmaan Procurement Executive Profile",
+  ...MATERIAL_PROCUREMENT_PROFILES,
 ];
 
 interface PaymentTermLike {

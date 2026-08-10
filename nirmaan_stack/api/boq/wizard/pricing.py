@@ -38,6 +38,11 @@ from nirmaan_stack.api.boq.wizard.review_screen import (
 )
 from nirmaan_stack.api.boq.wizard import pricing_lock
 from nirmaan_stack.api.boq.wizard.pricing_lock import acquire_or_refresh, read_lock_info
+# WBC S2 (ADR-0014 Amendment F): the within-BoQ copy-forward adopts the SHARED committed-tier row
+# match + the SHARED layer-carry engine, so the two carry seams cannot drift. Safe at module level in
+# THIS direction only -- committed_carry imports no api module that reaches back here, whereas
+# cross_boq_carry imports `pricing`, so `pricing` must never import `cross_boq_carry`.
+from nirmaan_stack.api.boq.wizard import committed_carry
 # Slice G1: the committed-node qty-bearing test was relocated DOWN to the service layer
 # (persist.node_is_qty_bearing) so it is defined ONCE and the coming category-count refinement
 # can reach it without a service->api import. api -> service is the legal direction.
@@ -47,6 +52,7 @@ from nirmaan_stack.services.boq_category.persist import (
     blank_category_eligible_rows,
     node_is_qty_bearing,
 )
+from nirmaan_stack.services.boq_revision.normalize import normalize_n2
 
 _PRICING = "BoQ Cell Pricing"
 _BOQ_SHEET = "BoQ Sheet"
@@ -81,6 +87,99 @@ _AMOUNT_VALUE_FIELDS = frozenset(
     {"amount_by_area", "amount_total", "amount_supply", "amount_install"}
 )
 
+# ── BCS-S9: the BCS Total Amount column as a formula TARGET ──────────────────────
+# BCS Total Amount is a SCREEN-ONLY column of the internal cost block -- it has no committed
+# column and no col_letter, exactly like the BCS cost boxes. It is nonetheless a legitimate
+# formula target: until S9 its rule (quantity x the summed cost boxes) was hardcoded in two
+# separate frontend call sites, so nobody could see it and nobody could change it per sheet.
+_BCS_TOTAL_TARGET = "bcs_total"
+
+# The operand vocabulary a BCS formula may reference. These do NOT resolve through
+# column_role_map -- `bcs_supply`/`bcs_install`/`bcs_combined` come from the row's stored
+# `BoQ Row BCS Rate`, and `bcs_qty` is the sheet's CONFIRMED BCS quantity source. That is
+# precisely why they can never be turned into a spreadsheet cell reference.
+# The sheet's own QUANTITY columns. Admitted into the BCS targets at BCS-S12: with the BCS
+# dialog's Quantity picker gone, "Total Quantity" is no longer a confirmed abstraction -- the
+# formula names the sheet's real qty column, exactly as the amount side names real amount
+# columns. `bcs_qty` is RETAINED for formulas stored before S12, which still resolve through the
+# old confirmation.
+_QTY_VALUE_FIELDS = frozenset({"qty_total", "qty_by_area"})
+
+# ⚠️ TWO SETS, AND CONFLATING THEM IS A PRODUCTION-BREAKING BUG -- it shipped once, at S12, and
+# only the backend suite caught it.
+#
+# `_BCS_ONLY_OPERAND_FIELDS` is what an AMOUNT target may never name: the internal cost figures.
+# `_BCS_OPERAND_FIELDS` is what a BCS target MAY name, which is those PLUS the sheet's ordinary
+# quantity columns.
+#
+# S12 folded the qty fields into the single set that both rules read. The leak rule then refused
+# `qty_total` on an amount target as though it were internal cost -- so the CANONICAL amount
+# formula, `Total Quantity x Rate`, became unsaveable on every sheet, with a message about BCS
+# cost that had nothing to do with what the user had built. The two rules point in opposite
+# directions and must therefore read different sets.
+_BCS_ONLY_OPERAND_FIELDS = frozenset({"bcs_supply", "bcs_install", "bcs_combined", "bcs_qty"})
+_BCS_OPERAND_FIELDS = frozenset(_BCS_ONLY_OPERAND_FIELDS | _QTY_VALUE_FIELDS)
+
+# ⚠️ THE EXPORT-LEAK BOUNDARY, AND WHAT S9 CHANGED ABOUT IT (read before touching either set).
+#
+# The owner-locked rule is that BCS cost, every BCS-derived total, and the margin must NEVER
+# reach a client-facing workbook. Before S9 that held BY CONSTRUCTION: BCS lived in its own
+# doctype, so the formula layer had no way to name a cost. S9 gives the shared formula
+# vocabulary BCS operands, so construction no longer does the work on its own and TWO
+# DIRECTIONAL RULES do it instead (_validate_formula_operands):
+#
+#   a bcs_total target may use ONLY _BCS_OPERAND_FIELDS  -- it cannot reach into sheet data;
+#   an amount  target may use NONE of them               -- cost cannot reach a client column.
+#
+# The SECOND is the one that matters for the leak, and it is not theoretical: an amount
+# column's computed VALUE is what export_priced_workbook writes, so a cost operand inside a
+# client amount formula would leak the cost as a NUMBER -- invisible to any audit of the
+# export's field list, which is the audit the old by-construction argument relied on.
+# Both directions are pinned by their own tests. Do not relax either "for symmetry".
+#
+# BCS-S10 adds a THIRD rule for the new `boq_total` target below.
+#
+# ── BCS-S10: the % Margin DENOMINATOR as a formula target ────────────────────────
+# "BOQ Total" in the owner's vocabulary -- the amount charged to the client on a row, summed
+# from the sheet's Amount columns. Screen-only like bcs_total (no committed column of its own).
+#
+# ⚠️ ONLY THE DENOMINATOR IS EDITABLE. THE MARGIN'S SHAPE IS NOT, AND MUST NOT BECOME SO.
+# `% Margin = (1 - cost/amount) x 100` stays in code (frontend `bcsMarginPercent`), because that
+# function carries three guards a hand-written formula would walk straight past: a ZERO
+# denominator, a NON-FINITE result, and above all a NEGATIVE denominator -- which flips the
+# inequality, so an amount of -100 against a cost of 50 computes as +150%. That is a loss
+# displayed as a profit: confidently wrong, which the frontend docs call the one failure mode
+# worse than a blank. Making the shape editable hands that failure back to the user with nothing
+# guarding it. DO NOT add a `bcs_margin` target.
+_BOQ_TOTAL_TARGET = "boq_total"
+
+# BCS-S11: the % Margin NUMERATOR -- the cost side of the ratio. Defaults to the BCS Total
+# Amount column, but a sheet may instead measure against the raw cost boxes.
+_MARGIN_COST_TARGET = "bcs_margin_cost"
+
+# The numerator may also name `bcs_total` -- the COMPUTED BCS Total column, which is itself a
+# formula target. That is deliberate and is why it is an operand as well as a target: choosing
+# "BCS Total" must mean "whatever that column currently computes", not a frozen copy of the rule
+# it had when the margin was configured.
+_MARGIN_COST_OPERAND_FIELDS = frozenset(_BCS_OPERAND_FIELDS | {_BCS_TOTAL_TARGET})
+
+# What a boq_total formula may name: the sheet's AMOUNT columns, and NOTHING from BCS. It is a
+# CLIENT-FACING figure (what we charge), so admitting a cost operand here would put cost inside
+# the margin's denominator -- silently wrong, and on the wrong side of the internal/client line.
+_BOQ_OPERAND_FIELDS = frozenset(_AMOUNT_VALUE_FIELDS)
+
+# The SCREEN-ONLY targets: no committed column, no col_letter, never written to a workbook.
+# ONE answer to that question, so the operand rules and the save-path branch cannot disagree.
+_BCS_TARGET_FIELDS = frozenset({_BCS_TOTAL_TARGET, _BOQ_TOTAL_TARGET, _MARGIN_COST_TARGET})
+
+# Per-target operand whitelist. A target listed here may use ONLY its own set; every other
+# (amount) target may use none of the BCS ones. See _validate_formula_operands.
+_TARGET_OPERAND_WHITELIST = {
+    _BCS_TOTAL_TARGET: _BCS_OPERAND_FIELDS,
+    _BOQ_TOTAL_TARGET: _BOQ_OPERAND_FIELDS,
+    _MARGIN_COST_TARGET: _MARGIN_COST_OPERAND_FIELDS,
+}
+
 # The fields read back for a current formula record (the read + the merge share this).
 _FORMULA_READ_FIELDS = [
     "name", "boq", "sheet_name", "committed_version",
@@ -92,6 +191,12 @@ _FORMULA_READ_FIELDS = [
 # Structural-validation guard: the token tree must not nest pathologically deep (F1 does a
 # STRUCTURAL check only -- F2 owns evaluation + the cycle guard).
 _FORMULA_MAX_DEPTH = 50
+
+# The operator vocabulary a stored token tree may use. "-" and "/" joined at F5; the frontend
+# builder (formulaTokens.OpToken) and the evaluator (amountFormula) carry the same four. This
+# is a STRUCTURAL whitelist only -- see _validate_formula_structure for why a zero divisor is
+# not this module's business, and for what the two new operators cost in operand ordering.
+_FORMULA_OPS = frozenset({"+", "-", "*", "/"})
 
 # A rate cell is the ONLY cell a price overlays onto. A column_descriptor identifies a
 # rate cell by its value_field: per-area rates nest under "rate_by_area"; scalar rates use
@@ -327,10 +432,13 @@ def _categories_gate_ok(boq_name, sheet_name, committed_version) -> bool:
     Short-circuits when the override is set (no blank query then). Otherwise reuses the counter with
     the DEFAULT population='eligible' -- the SAME function + population get_freeze_summary counts and
     get_priced_rows surfaces (eligible_blank_category_count), so the gate, the freeze count, the
-    banner, and every caller can never disagree. Each caller applies its OWN messaging idiom over
-    this ONE condition: the save path throws via _guard_categories_complete (save-path wording);
-    apply_copy_forward throws its own copy-forward-voiced message inline; cross_boq_carry maps a
-    False to its reason tuple ('categories_incomplete'). sheet_name VERBATIM (#152)."""
+    banner, and every caller can never disagree. sheet_name VERBATIM (#152).
+
+    CALLERS, as of WBC-S10 -- exactly one, `api/boq/rate_master.py`. NEITHER carry path calls it any
+    more: Amendment E removed the gate from `cross_boq_carry` (it never mapped False to a
+    'categories_incomplete' reason -- that reason code does not exist), and S10 removed it from
+    `apply_copy_forward`. The SAVE path does not call it either; it throws via the separate
+    _guard_categories_complete, which threads the blank COUNT into its message."""
     if _get_category_gate_override(boq_name, sheet_name, committed_version):
         return True
     return not blank_category_eligible_rows(
@@ -347,9 +455,10 @@ def _guard_categories_complete(boq_name, sheet_name, committed_version) -> None:
 
     Slice G3a: threads the BLANK COUNT into the message. The override + eligible-blank checks are the
     SAME as _categories_gate_ok (identical `_get_category_gate_override` + `blank_category_eligible_rows(
-    ..., "eligible")`); inlined here ONLY so the length of the blank list is in hand for the message
-    (the carry paths keep delegating to _categories_gate_ok, whose bool needs no count). sheet_name
-    VERBATIM (#152)."""
+    ..., "eligible")`); inlined here ONLY so the length of the blank list is in hand for the message.
+    NO carry path delegates to _categories_gate_ok any more -- Amendment E removed the gate from
+    `cross_boq_carry` and WBC-S10 removed it from `apply_copy_forward`, leaving this SAVE-path guard
+    as the whole of the category gate on rate writes. sheet_name VERBATIM (#152)."""
     if _get_category_gate_override(boq_name, sheet_name, committed_version):
         return
     blanks = blank_category_eligible_rows(
@@ -639,11 +748,14 @@ def _resolve_and_guard_cell(boq_name, sheet_name, excel_row, committed_version, 
     failure (reject-mutates-nothing). Factored out of save_cell_price (UNCHANGED order/behaviour).
     NO lock acquire, NO write, NO commit.
 
-    This is the PER-CELL save path. The two rate carry-forward paths do NOT call it: they gate ONCE
-    up front at the SHEET level, then loop calling _resolve_committed_cell (resolve only) + the
-    shared writer -- apply_copy_forward (this file) and cross_boq_carry._apply_sheet_carry both run
-    the deliberate-lock + formula + category gates as a single sheet-level block (Slice G2c), because
-    those gates are inherently sheet-level and a per-cell call would re-run them K times."""
+    This is the PER-CELL save path, and the ONLY path that runs the CATEGORY gate. The two rate
+    carry-forward paths do NOT call it: they gate ONCE up front at the SHEET level, then loop calling
+    _resolve_committed_cell (resolve only) + the shared writer -- apply_copy_forward (this file) and
+    cross_boq_carry._apply_sheet_carry both run the deliberate-lock + formula gates as a single
+    sheet-level block, because those gates are inherently sheet-level and a per-cell call would re-run
+    them K times. Neither carry path runs the category gate: Amendment E removed it from the cross-BoQ
+    carry and WBC-S10 from the within-BoQ copy, on the owner's rule that the gate stops a HAND-TYPED
+    rate landing on an uncategorised row while a copy moves known values from a known-good source."""
     # The cell must exist in the committed tier (also yields the node pointer + node_type).
     node = _resolve_committed_cell(boq_name, sheet_name, excel_row, committed_version)
     node_name = node["name"]
@@ -1773,11 +1885,21 @@ def _validate_formula_structure(node, depth: int = 0) -> None:
     F1 does NOT evaluate and does NOT cycle-check, those are F2). Throws on malformed.
 
     A node is EXACTLY ONE of:
-      operator -> {"op": "+"|"*", "operands": [<node>, <node>, ...]}  (operands non-empty)
+      operator -> {"op": "+"|"-"|"*"|"/", "operands": [<node>, <node>, ...]}  (non-empty)
       leaf ref -> {"ref": {"value_field": <non-empty str>,
                            "value_key": <str|null>, "rate_subkey": <str|null>}}
     NO literal node (numeric literals are barred). A node carrying both "op" and "ref",
     neither, a "literal" key, a bad op, empty operands, or a wrong-typed ref -> throw.
+
+    "-" and "/" joined the vocabulary at F5. This validator is STRUCTURAL only, and stays so:
+    it does not fold the operands, so it has no opinion on a zero divisor -- that is the
+    EVALUATOR's call (frontend amountFormula.evalNode refuses the division and reports the
+    cell "broken"), exactly as cycle detection has always been F2's rather than F1's.
+
+    ⚠️ OPERAND ORDER BECAME LOAD-BEARING WITH THOSE TWO. `+` / `*` are commutative, so nothing
+    downstream ever had a reason not to reorder an "operands" list; for `-` / `/` the list
+    order IS the arithmetic (`{"op": "-", "operands": [a, b, c]}` means `((a - b) - c)`). Any
+    future pass over a stored tree must preserve operand order.
     """
     if depth > _FORMULA_MAX_DEPTH:
         frappe.throw("Formula is nested too deeply.", title="Invalid formula")
@@ -1798,9 +1920,10 @@ def _validate_formula_structure(node, depth: int = 0) -> None:
             title="Invalid formula",
         )
     if has_op:
-        if node["op"] not in {"+", "*"}:
+        if node["op"] not in _FORMULA_OPS:
             frappe.throw(
-                f"Unsupported operator {node['op']!r} (only + and * are allowed).",
+                f"Unsupported operator {node['op']!r} "
+                f"(only {', '.join(sorted(_FORMULA_OPS))} are allowed).",
                 title="Invalid formula",
             )
         operands = node.get("operands")
@@ -1822,6 +1945,56 @@ def _validate_formula_structure(node, depth: int = 0) -> None:
     for k in ("value_key", "rate_subkey"):
         if k in ref and ref[k] is not None and not isinstance(ref[k], str):
             frappe.throw(f"A formula ref's {k} must be a string or null.", title="Invalid formula")
+
+
+def _formula_leaf_fields(node, out: set) -> None:
+    """Collect every leaf ref's value_field in a token tree. Shape-tolerant on purpose --
+    _validate_formula_structure has already rejected a malformed tree, and this must never be
+    the thing that throws."""
+    if not isinstance(node, dict):
+        return
+    if "ref" in node:
+        vf = (node.get("ref") or {}).get("value_field")
+        if vf:
+            out.add(vf)
+        return
+    for child in node.get("operands") or []:
+        _formula_leaf_fields(child, out)
+
+
+def _validate_formula_operands(node, target_value_field: str) -> None:
+    """★ THE TWO DIRECTIONAL RULES that replaced the by-construction export boundary at S9.
+    See the _BCS_OPERAND_FIELDS block for why this exists and what it is standing in for.
+
+    A BCS target may name ONLY BCS operands; an AMOUNT target may name NONE of them. Both are
+    checked before any write, so a refusal mutates nothing."""
+    fields: set = set()
+    _formula_leaf_fields(node, fields)
+
+    allowed = _TARGET_OPERAND_WHITELIST.get(target_value_field)
+    if allowed is not None:
+        stray = sorted(f for f in fields if f not in allowed)
+        if stray:
+            what = {
+                _BCS_TOTAL_TARGET: "BCS cost and BCS quantity operands",
+                _MARGIN_COST_TARGET: "BCS Total or the BCS cost boxes",
+                _BOQ_TOTAL_TARGET: "the sheet's Amount columns",
+            }.get(target_value_field, "operands valid for this target")
+            frappe.throw(
+                f"This formula may only use {what}. Remove: {', '.join(stray)}.",
+                title="Operand not allowed here",
+            )
+        return
+
+    # The BCS-ONLY set, never `_BCS_OPERAND_FIELDS` -- see the note on those two constants.
+    leaked = sorted(f for f in fields if f in _BCS_ONLY_OPERAND_FIELDS)
+    if leaked:
+        frappe.throw(
+            f"A client-facing amount column may not be computed from internal BCS cost "
+            f"({', '.join(leaked)}). BCS cost is what the work costs us and must never reach "
+            f"a workbook handed to the client.",
+            title="BCS cost in a client column",
+        )
 
 
 def _coerce_formula_obj(formula):
@@ -2054,37 +2227,62 @@ def save_amount_formula(
     target_col = _normalize_optional(target_col)
     description = _normalize_optional(description)
 
+    # BCS-S9: a BCS target takes its OWN gate and skips the committed-column match entirely --
+    # BCS Total Amount is screen-only, so there is no column to match and no area/kind axis.
+    #
+    # ⚠️ `target_col` IS FORCED TO NULL, and that is not tidiness. export_template_workbook's
+    # `resolve_target_col` falls back to this stored guard when it cannot resolve a role, so a
+    # non-null value here is the one thing that could give a BCS formula an Excel column to be
+    # written into. (That module also refuses BCS targets outright -- two independent stops,
+    # deliberately, because this is the boundary S9 downgraded from construction to enforcement.)
+    is_bcs_target = target_value_field in _BCS_TARGET_FIELDS
+    if is_bcs_target:
+        if target_value_key is not None or target_rate_subkey is not None:
+            frappe.throw(
+                "The BCS Total Amount column has no area or kind dimension; "
+                "target_value_key and target_rate_subkey must both be empty.",
+                title="Invalid BCS target",
+            )
+        target_col = None
     # AMOUNT-TARGET GATE -- reject a non-amount target BEFORE any lock/write.
-    if target_value_field not in _AMOUNT_VALUE_FIELDS:
+    elif target_value_field not in _AMOUNT_VALUE_FIELDS:
         frappe.throw(
             f"Target value_field '{target_value_field}' is not an amount column. "
-            f"A formula may only target an amount column.",
+            f"A formula may only target an amount column, or the BCS Total Amount column.",
             title="Not an amount target",
         )
-    amount_descs = _committed_amount_descriptors(boq_name, sheet_name, committed_version)
-    # The override-or-wildcard match is the SHARED _formula_target_matches_column primitive
-    # (the same rule the completeness gate uses) -- a wildcard DEFAULT (target_value_key None)
-    # matches >=1 area's column of this value_field+rate_subkey; a per-area OVERRIDE matches the
-    # concrete (area, kind); a scalar target (value_key + rate_subkey None) matches the scalar col.
-    matched = any(
-        _formula_target_matches_column(
-            target_value_field, target_value_key, target_rate_subkey, d
+
+    # The committed-column match applies to AMOUNT targets only -- a BCS target has no committed
+    # column by design, so requiring one would reject every BCS formula ever saved.
+    if not is_bcs_target:
+        amount_descs = _committed_amount_descriptors(boq_name, sheet_name, committed_version)
+        # The override-or-wildcard match is the SHARED _formula_target_matches_column primitive
+        # (the same rule the completeness gate uses) -- a wildcard DEFAULT (target_value_key
+        # None) matches >=1 area's column of this value_field+rate_subkey; a per-area OVERRIDE
+        # matches the concrete (area, kind); a scalar target matches the scalar col.
+        matched = any(
+            _formula_target_matches_column(
+                target_value_field, target_value_key, target_rate_subkey, d
+            )
+            for d in amount_descs
         )
-        for d in amount_descs
-    )
-    if not matched:
-        frappe.throw(
-            "No matching committed amount column for the requested formula target "
-            f"(value_field={target_value_field!r}, area={target_value_key!r}, "
-            f"kind={target_rate_subkey!r}).",
-            title="No matching amount column",
-        )
+        if not matched:
+            frappe.throw(
+                "No matching committed amount column for the requested formula target "
+                f"(value_field={target_value_field!r}, area={target_value_key!r}, "
+                f"kind={target_rate_subkey!r}).",
+                title="No matching amount column",
+            )
 
     # STRUCTURAL validation of the formula (or detect the CLEAR signal). Done BEFORE the
     # lock so a malformed formula mutates nothing.
     formula_obj, is_clear = _coerce_formula_obj(formula)
     if not is_clear:
         _validate_formula_structure(formula_obj)
+        # BCS-S9: the two DIRECTIONAL operand rules. Runs on EVERY save, both directions, so
+        # the amount side is guarded even though nothing on that side changed -- that is the
+        # half standing in for the export boundary. See _BCS_OPERAND_FIELDS.
+        _validate_formula_operands(formula_obj, target_value_field)
 
     # DELIBERATE LOCK GUARD -- after the target-resolve + validation, before the lock acquire /
     # freeze+insert (reject-mutates-nothing). A locked sheet rejects amount-formula writes too.
@@ -2743,7 +2941,9 @@ def get_copy_forward_plan(boq_name=None, sheet_name=None, from_version=None) -> 
     target must be priceable WITHOUT the override), and the dest empty/filled check are ALL computed
     here (the single source of truth; apply re-derives the same). PURE READ.
 
-    Returns {plan, from_version, current_version, current_formulas_complete, counts}.
+    Returns {plan, from_version, current_version, current_formulas_complete, counts, layers}.
+    `layers` (ADR-0014 Amendment F R1) previews what each non-rate layer would do -- see
+    `_copy_forward_layer_preview`.
     URL: /api/method/nirmaan_stack.api.boq.wizard.pricing.get_copy_forward_plan"""
     if not boq_name:
         frappe.throw("boq_name is required.", title="Missing field: boq_name")
@@ -2782,14 +2982,136 @@ def get_copy_forward_plan(boq_name=None, sheet_name=None, from_version=None) -> 
             _sheet_formulas_complete(boq_name, sheet_name, current_version)
         ),
         "counts": counts,
+        "layers": _copy_forward_layer_preview(
+            boq_name, sheet_name, from_version, current_version
+        ),
     }
+
+
+def coerce_layers(layers):
+    """The per-layer choice map for EITHER carry seam; may arrive as a JSON string over HTTP. Returns
+    {layer_key: {"carry": bool, "overwrite": bool}} restricted to `committed_carry.LAYER_KEYS` -- an
+    unknown key is dropped SILENTLY rather than throwing, so a layer that exists on one side of the
+    wire but not the other cannot break the call (the alternative would make every layer addition a
+    lock-step deploy). None / "" / {} -> {}, which means RATES ONLY: the exact behaviour a client that
+    never learned about layers keeps getting.
+
+    ONE coercion for BOTH carry endpoints (`cross_boq_carry.apply_sheet_carry` and
+    `apply_copy_forward`), because two readers of one wire shape drift, and a drift here means the
+    same payload is honoured on one carry and ignored on the other.
+
+    WHY IT LIVES IN `pricing`: `committed_carry` (which owns LAYER_KEYS) must not import `pricing` or
+    the pricing -> committed_carry -> pricing cycle closes, and `pricing` cannot import
+    `cross_boq_carry` for the same reason -- while `pricing` is already the shared carry-primitives
+    home `cross_boq_carry` imports from and already owns `_coerce_bool`. PURE (no DB)."""
+    if isinstance(layers, str):
+        try:
+            layers = json.loads(layers or "{}")
+        except (ValueError, TypeError):
+            frappe.throw("layers must be a JSON object.", title="Invalid layers")
+    layers = layers or {}
+    if not isinstance(layers, dict):
+        frappe.throw("layers must be an object keyed by layer.", title="Invalid layers")
+    out = {}
+    for key in committed_carry.LAYER_KEYS:
+        choice = layers.get(key)
+        if not isinstance(choice, dict):
+            continue
+        out[key] = {
+            "carry": _coerce_bool(choice.get("carry")),
+            "overwrite": _coerce_bool(choice.get("overwrite")),
+        }
+    return out
+
+
+def _committed_sheet_docname(boq_name, sheet_name, committed_version):
+    """The `BoQ Sheet` docname for one committed version of a sheet -- CURRENT OR SUPERSEDED. The
+    address the version-addressed row match takes on each side. sheet_name VERBATIM (#152)."""
+    return frappe.db.get_value(
+        _BOQ_SHEET,
+        {"boq": boq_name, "sheet_name": sheet_name, "commit_version": committed_version},
+        "name",
+    )
+
+
+def _copy_forward_match(boq_name, sheet_name, from_version, current_version):
+    """The D6 row match between two committed VERSIONS of one sheet -- the within-BoQ twin map.
+
+    WBC S2 / ADR-0014 Amendment F R5: this REPLACED an inline raw-string exact-match with the shared
+    committed-tier matcher, so the within-BoQ carry and the cross-BoQ revision carry now decide "is
+    this the same row?" with ONE rule (same Excel position + same N2 description, each position unique
+    per side) instead of two that differed on whitespace, case and duplicate handling.
+
+    It calls the VERSION-ADDRESSED sibling, not `committed_excel_row_match`: within one BoQ the source
+    is an older version whose nodes were frozen to is_current=0 at re-commit, which the cross-BoQ
+    entry point cannot see (see `committed_carry.version_addressed_excel_row_match`).
+
+    Within one BoQ every matched pair is (row N -> row N), because the match joins on the SAME Excel
+    position -- which is why the plan and the decision wire stay keyed on the single `excel_row`."""
+    return committed_carry.version_addressed_excel_row_match(
+        boq_name,
+        _committed_sheet_docname(boq_name, sheet_name, from_version),
+        boq_name,
+        _committed_sheet_docname(boq_name, sheet_name, current_version),
+    )
+
+
+def _copy_forward_carry_ctx(boq_name, sheet_name, from_version, current_version):
+    """The layer engine's context for the WITHIN-BoQ version pair. One place builds it, so the plan
+    and the write cannot describe different sheet-versions.
+
+    Same BoQ, same sheet name, DIFFERENT versions -- the mirror image of the cross-BoQ carry's
+    context (different BoQs, possibly different sheet names). The layer engine itself is blind to the
+    distinction: it addresses records by (boq, sheet_name, committed_version, excel_row), and all
+    three of those differ between the two sides here exactly as they do there."""
+    return committed_carry.build_carry_ctx(
+        source_boq=boq_name,
+        source_sheet_name=sheet_name,
+        source_version=from_version,
+        dest_boq=boq_name,
+        dest_sheet_name=sheet_name,
+        dest_version=current_version,
+        twin=_copy_forward_match(
+            boq_name, sheet_name, from_version, current_version
+        ).original_to_revised,
+    )
+
+
+def _copy_forward_layer_preview(boq_name, sheet_name, from_version, current_version) -> dict:
+    """What each non-rate layer WOULD do, in the API's vocabulary. PURE READ -- every walk runs with
+    apply=False.
+
+    EVERY layer is planned regardless of what the user has ticked: the dialog cannot offer a choice it
+    has no counts for, and a layer the user has not yet considered is exactly the one whose numbers
+    they need to see. `overwrite=False` is the planning assumption (Keep is the default), so `kept`
+    reports how many destination rows already hold a record; arming Overwrite moves those into
+    `replaced` at apply time WITHOUT changing the total."""
+    return committed_carry.walk_layers(
+        _copy_forward_carry_ctx(boq_name, sheet_name, from_version, current_version),
+        {key: {"carry": True, "overwrite": False} for key in committed_carry.LAYER_KEYS},
+        apply=False,
+    )
+
+
+def _non_match_reason(excel_row, src_desc, cur_desc_by_row) -> str:
+    """The human string for a source row with no twin. Three distinguishable causes, because the user
+    fixes them differently -- and because a blanket "description changed" would be a lie for the last
+    two (their descriptions are identical)."""
+    if excel_row not in cur_desc_by_row:
+        return "This row is not in the current version (moved or removed) -- not copied."
+    if normalize_n2(cur_desc_by_row.get(excel_row)) != normalize_n2(src_desc):
+        return "This row's description changed in the current version -- not copied."
+    return (
+        "This row cannot be matched unambiguously -- its description is blank, or this Excel row "
+        "appears more than once on the sheet -- not copied."
+    )
 
 
 def _build_copy_forward_plan(boq_name, sheet_name, from_version, current_version) -> list:
     """The shared classifier (get_copy_forward_plan + apply_copy_forward both call it so the plan
     the user reviewed and the plan apply enforces are IDENTICAL -- no client trust, no drift).
     Returns the plan rows (see get_copy_forward_plan). PURE READ (no writes)."""
-    # Current version: node descriptions (for exact-match) + the restricted rate-role inverse.
+    # Current version: node descriptions (for the reason strings) + the restricted rate-role inverse.
     current = get_committed_rows(boq_name=boq_name, sheet_name=sheet_name)
     cur_desc_by_row = {
         r.get("source_row_number"): r.get("description") for r in (current.get("rows") or [])
@@ -2819,6 +3141,10 @@ def _build_copy_forward_plan(boq_name, sheet_name, from_version, current_version
         )
     }
 
+    twin = _copy_forward_match(
+        boq_name, sheet_name, from_version, current_version
+    ).original_to_revised
+
     plan = []
     for p in src_pricing:
         if not p.get("is_filled"):
@@ -2830,6 +3156,10 @@ def _build_copy_forward_plan(boq_name, sheet_name, from_version, current_version
         row = {
             "excel_row": excel_row,
             "description": src_desc,
+            # The DESTINATION row's own text. Under R5 a matched pair's two descriptions can differ
+            # (whitespace / case), and the pricing record being written belongs to the DESTINATION
+            # row -- so this, not `description`, is what the write stamps. Null on a skip.
+            "dest_description": None,
             "source_rate": p.get("rate"),
             "area": area,
             "rate_kind": rate_kind,
@@ -2839,15 +3169,15 @@ def _build_copy_forward_plan(boq_name, sheet_name, from_version, current_version
             "current_rate": None,
             "reason": None,
         }
-        # (1a) EXACT-MATCH -- the current node must exist at this address AND its description match.
-        if excel_row not in cur_desc_by_row:
+        # (1a) TWIN -- the SHARED N2 row match (R5), in place of the old raw byte-equality on
+        # description. Same Excel position + same N2 description, each position unique per side; a
+        # blank description never enters, and a position seen twice on either side is dropped. Within
+        # one BoQ a matched pair is always (row N -> row N), so the target address is `excel_row`.
+        if twin.get(excel_row) is None:
             row["skip_reason"] = "non_match"
-            row["reason"] = "This row is not in the current version (moved or removed) -- not copied."
+            row["reason"] = _non_match_reason(excel_row, src_desc, cur_desc_by_row)
             plan.append(row); continue
-        if (cur_desc_by_row.get(excel_row) or "") != (src_desc or ""):
-            row["skip_reason"] = "non_match"
-            row["reason"] = "This row's description changed in the current version -- not copied."
-            plan.append(row); continue
+        row["dest_description"] = cur_desc_by_row.get(excel_row)
         # (1b/1c/2/3) SHARED resolver: re-resolve the rate column by (area, rate_kind) -- NEVER the
         # bare col_letter -- + priceability re-gate + clean-vs-conflict. (Same-BOQ: the dest excel_row
         # equals the source excel_row.) The reason STRINGS stay local (context-specific phrasing).
@@ -2873,20 +3203,57 @@ def _build_copy_forward_plan(boq_name, sheet_name, from_version, current_version
 
 
 @frappe.whitelist(methods=["POST"])
-def apply_copy_forward(boq_name=None, sheet_name=None, from_version=None, decisions=None) -> dict:
-    """WRITE, ATOMIC. Copy the user-selected source rates into the CURRENT committed version.
+def apply_copy_forward(boq_name=None, sheet_name=None, from_version=None, decisions=None,
+                       layers=None) -> dict:
+    """WRITE, ATOMIC. Copy the user-selected source rates -- and any ticked non-rate LAYERS -- into the
+    CURRENT committed version.
     `decisions` (a JSON string or list over HTTP) = [{excel_row, area, rate_kind, overwrite}, ...]
     -- presence in the list = "copy this cell"; `overwrite` matters ONLY for a conflict (outcome 3).
 
     The server RE-DERIVES every row's outcome + target column + source rate via the SHARED classifier
     (_build_copy_forward_plan) -- a client-supplied outcome / target col / rate is NEVER trusted, so a
-    crafted POST cannot write a wrong column or an outcome-1 row. Sheet-level gates (deliberate lock,
-    mandatory amount-formula) are checked ONCE up front (a failure aborts the WHOLE apply). ONE
-    single-editor-lock acquire on the current version + ONE commit; on ANY error the whole apply ROLLS
-    BACK (no half-written copy). Writes reuse _write_cell_price_record (freeze-and-supersede + re-arms).
+    crafted POST cannot write a wrong column or an outcome-1 row. ONE single-editor-lock acquire on
+    the current version + ONE commit; on ANY error the whole apply ROLLS BACK (no half-written copy).
+    Writes reuse _write_cell_price_record (freeze-and-supersede + re-arms).
+
+    ⚠️ AMENDMENT F R1: `layers` = {layer_key: {"carry", "overwrite"}}, restricted to
+    `committed_carry.LAYER_KEYS` -- an unknown key is dropped silently so the two sides of the wire can
+    learn about a layer at different times. Omitted / {} -> rates only, byte-identical to the previous
+    behaviour. Layers ride the SAME transaction as the rates: one commit, one rollback, never a
+    half-state. Every carried record is provenance-stamped (`carried_from_boq` = this same BoQ,
+    `carried_from_version` = the source version); FORMULAS never carry, in either seam.
+
+    ⚠️ WBC-S10 (owner ruling) REMOVES THE CATEGORY GATE FROM THIS PATH. The sequence is now:
+
+        lock -> formulas -> acquire -> CARRY LAYERS -> rates -> commit
+
+    (G2c had put a PRE-FLIGHT category gate before the acquire; Amendment F R2 moved it after the
+    layer carry; S10 deletes it.)
+
+    The owner's reasoning, and it is the SAME reasoning already recorded in `cross_boq_carry` for the
+    revision carry: the gate exists to stop a HAND-TYPED rate landing on an uncategorised row. A copy
+    moves known values from a known-good source, which is a different risk. This is NOT a reversal of
+    Amendment E -- it is that same logic extended to the same-sheet copy.
+
+    Rates still cannot be EDITED until the categories are complete. That protection lives in
+    `_guard_categories_complete` on the SAVE path (`save_cell_price`) and is untouched here. A copy
+    into an uncategorised destination therefore arrives with rates VISIBLE but rate editing LOCKED,
+    the amber banner naming the rows still missing a category -- exactly the shape the revision carry
+    already produces.
+
+    SCOPE, and it is narrow: `save_cell_price` KEEPS the gate, and `_categories_gate_ok` itself stays
+    (it is still `rate_master`'s condition). Do not "restore consistency" by re-adding it here.
+
+    The mandatory amount-formula gate is UNAFFECTED and KEEPS PRECEDENCE -- it still runs FIRST,
+    before the lock and the layers, so a formula-incomplete sheet costs one cheap read and mutates
+    nothing.
+
+    Layers run BEFORE the rate loop here, where `cross_boq_carry` runs them after. Deliberate, and
+    safe: nothing couples them -- a rate write re-arms only the four COMPUTED dismissal kinds (never
+    `remark`, the one kind that carries) and reconciliation choices, which never carry.
 
     Returns {ok, copied, conflicts_overwritten, conflicts_kept,
-             skipped: {non_match, no_rate_column, non_priceable, invalid}}.
+             skipped: {non_match, no_rate_column, non_priceable, invalid}, layers}.
     URL: /api/method/nirmaan_stack.api.boq.wizard.pricing.apply_copy_forward"""
     if not boq_name:
         frappe.throw("boq_name is required.", title="Missing field: boq_name")
@@ -2906,6 +3273,7 @@ def apply_copy_forward(boq_name=None, sheet_name=None, from_version=None, decisi
     decisions = decisions or []
     if not isinstance(decisions, list):
         frappe.throw("decisions must be a list.", title="Invalid decisions")
+    layers = coerce_layers(layers)  # ONE coercion, shared with the cross-BOQ carry
 
     current_version = frappe.db.get_value(
         _BOQ_SHEET, {"boq": boq_name, "sheet_name": sheet_name, "is_current": 1}, "commit_version"
@@ -2927,40 +3295,39 @@ def apply_copy_forward(boq_name=None, sheet_name=None, from_version=None, decisi
         "conflicts_overwritten": 0,
         "conflicts_kept": 0,
         "skipped": {"non_match": 0, "no_rate_column": 0, "non_priceable": 0, "invalid": 0},
+        "layers": {},
     }
 
     try:
         # SHEET-LEVEL gates -- checked ONCE (a locked sheet / incomplete formulas aborts the WHOLE
         # apply, nothing written). Inside the try so any throw rolls back uniformly.
         _guard_sheet_not_locked(boq_name, sheet_name, current_version)
+        # The MANDATORY amount-formula gate is ABSOLUTE and owner-locked. It runs FIRST -- before the
+        # lock and before any layer write -- so a formula-incomplete sheet costs one cheap read and
+        # mutates nothing. It is the ONLY content gate left on this path (WBC-S10 removed the
+        # category one); a locked sheet and a lock held by another user are the other two refusals.
         if not _sheet_formulas_complete(boq_name, sheet_name, current_version):
             frappe.throw(
                 "Every amount column on the current version needs a declared formula before any "
                 "rate can be copied. Define the missing amount formulas first.",
                 title="Formulas incomplete",
             )
-        # CATEGORY GATE (Slice G2c) -- carried rates land on the DESTINATION (current version), so
-        # the DESTINATION's categories govern, exactly as on the save path. Sheet-level, checked
-        # ONCE here (never per row); the admin override is the only escape. Placed AFTER the formula
-        # gate (which keeps precedence) and BEFORE the single-editor acquire, inside the try so it
-        # rolls back uniformly and nothing is written on a block. It throws a COPY-FORWARD-voiced
-        # message (naming the destination + saying nothing was copied + how to re-run) over the
-        # SHARED _categories_gate_ok condition -- NOT _guard_categories_complete, whose save-path
-        # wording ("rate editing is locked") is wrong for a batch carry and is owner-locked.
-        if not _categories_gate_ok(boq_name, sheet_name, current_version):
-            frappe.throw(
-                f"Nothing was copied. The destination sheet '{sheet_name}' still has rows without a "
-                f"category - every line item and preamble needs one. Your existing rates are "
-                f"untouched. Categorise the destination, then run the copy-forward again and the "
-                f"rates will come across. An admin can override this to copy before classification "
-                f"is complete.",
-                title="Categories incomplete",
-            )
-        # ONE single-editor-lock acquire on the CURRENT version for the whole batch.
+        # ONE single-editor-lock acquire on the CURRENT version for the whole batch -- taken BEFORE
+        # the layer writes (R2), so every write in this transaction is made under the lock.
         acquire_or_refresh(
             boq_name, sheet_name, current_version, frappe.session.user, now_datetime()
         )
 
+        # THE NON-RATE LAYERS (Amendment F R1), on the SAME transaction as the rates. `walk_layers` is
+        # the SHARED dispatch the cross-BOQ carry uses, so a layer cannot be planned one way here and
+        # applied another way there -- and the classification-freeze guard inside
+        # `carry_category_layer` (the ONLY one on that path) is inherited rather than duplicated.
+        if layers:
+            summary["layers"] = committed_carry.walk_layers(
+                _copy_forward_carry_ctx(boq_name, sheet_name, from_version, current_version),
+                layers,
+                apply=True,
+            )
         for d in decisions:
             if not isinstance(d, dict):
                 summary["skipped"]["invalid"] += 1
@@ -2982,14 +3349,16 @@ def apply_copy_forward(boq_name=None, sheet_name=None, from_version=None, decisi
             if r["outcome"] == _CF_CONFLICT and not _coerce_bool(d.get("overwrite")):
                 summary["conflicts_kept"] += 1
                 continue
-            # Resolve the CURRENT node (exists -- exact-match passed) + write via the shared core
-            # (no per-cell commit). The re-resolved target col, the source rate, the source area/
-            # rate_kind. Description = the CURRENT row's (exact-match guarantees it equals source).
+            # Resolve the CURRENT node (exists -- the row matched) + write via the shared core (no
+            # per-cell commit). The re-resolved target col, the SOURCE rate, the source area/
+            # rate_kind, and the DESTINATION row's description -- under R5's N2 match the two
+            # spellings can differ, and this record is the destination row's cell (the cross-BoQ
+            # carry writes `dest_description` for the same reason).
             node = _resolve_committed_cell(boq_name, sheet_name, excel_row, current_version)
             _write_cell_price_record(
                 node["name"], boq_name, sheet_name, excel_row, r["target_col_letter"],
                 current_version, float(r["source_rate"] or 0.0),
-                r["area"], r["rate_kind"], r["description"],
+                r["area"], r["rate_kind"], r["dest_description"],
             )
             if r["outcome"] == _CF_CONFLICT:
                 summary["conflicts_overwritten"] += 1

@@ -761,9 +761,18 @@ export interface AmountFormulaRef {
   rate_subkey: string | null;
 }
 
-/** An operator node: a product (`*`) or sum (`+`) of its (non-empty) operands. */
+/**
+ * An operator node folded over its (non-empty) operands, LEFT TO RIGHT.
+ *
+ * `+` and `*` are commutative and associative, so their operand ORDER carries no meaning.
+ * `-` and `/` (added F5) are NEITHER, so for them the list order IS the semantics:
+ * `{op:"-", operands:[a,b,c]}` means `((a - b) - c)`, never any other pairing. A pass that
+ * reorders or re-groups operands is therefore safe on the first two operators and WRONG on
+ * the last two -- see amountFormula.evalNode, which seeds the fold from `operands[0]` for
+ * exactly this reason.
+ */
 export interface AmountFormulaOperatorNode {
-  op: "+" | "*";
+  op: "+" | "*" | "-" | "/";
   operands: AmountFormulaNode[];
 }
 
@@ -1277,6 +1286,10 @@ export interface GetCopyForwardPlanResponse {
     no_rate_column: number;
     non_priceable: number;
   };
+  /** ADR-0014 Amendment F R1: what each non-rate layer WOULD do, planned with overwrite OFF -- the
+   *  same preview `CrossBoqCarrySheet` carries, from the same shared walk. Optional so a response
+   *  from a pre-Amendment-F server degrades to the rate-only dialog instead of throwing. */
+  layers?: Partial<Record<CarryLayerKey, CarryLayerOutcome>>;
 }
 
 /** One user decision posted to apply_copy_forward. Presence = "copy this cell"; `overwrite` matters only for a conflict. */
@@ -1299,6 +1312,10 @@ export interface ApplyCopyForwardResponse {
     non_priceable: number;
     invalid: number;
   };
+  /** ADR-0014 Amendment F R1: what each non-rate layer ACTUALLY did, reporting ONLY the layers that
+   *  ran. Mirrors `ApplySheetCarryResponse.layers`, but OPTIONAL here -- a pre-Amendment-F server
+   *  sends no such key, and the post-apply line degrades to rates rather than reading undefined. */
+  layers?: Partial<Record<CarryLayerKey, CarryLayerOutcome>>;
 }
 
 // ── Cross-BOQ rate carry (S10 / #1106, ADR-0014 D9) ────────────────────────────────
@@ -1366,6 +1383,7 @@ export const CARRY_LAYER_KEYS = [
   "remarks",
   "colors",
   "remark_dismissals",
+  "bcs_costs",
 ] as const;
 export type CarryLayerKey = (typeof CARRY_LAYER_KEYS)[number];
 
@@ -1605,6 +1623,18 @@ export interface SheetCategoryRow {
    *  someone else made on another BoQ -- the un-attributed arrival Amendment D deleted the carry
    *  over. */
   carried_from_boq?: string | null;
+  /** ADR-0014 Amendment F (ruling R3): the source VERSION of that same carry. It is the
+   *  informative half WITHIN one BoQ -- there the source and destination are the same BoQ, so
+   *  `carried_from_boq` names the document the reader is already looking at and tells them
+   *  nothing. Read off the resolving discipline, exactly like `carried_from_boq`. An uncarried
+   *  row that resolved arrives as 0 (the server column is a NOT-NULL Int); `carried_from_boq` is
+   *  what says "carried at all", so this is never read on its own. */
+  carried_from_version?: number | null;
+  /** ADR-0014 Amendment F (ruling R16): did the carry come from a DIFFERENT BoQ? Decided by the
+   *  SERVER, which is the only place holding both operands -- the grid is never told which BoQ it
+   *  is rendering. null means the server said nothing (a pre-R16 payload), which the tooltip
+   *  treats as the cross-BoQ case, i.e. the behaviour that shipped first. */
+  carried_from_other_boq?: boolean | null;
 }
 
 /**
@@ -1638,11 +1668,24 @@ export interface ResolvedSheetCategory {
   /** Amendment E: provenance of the verdict that RESOLVED this row (not "any vote is carried") --
    *  a row can be carried in one engine and classified locally in another. */
   carried_from_boq: string | null;
+  /** Amendment F (R3): the VERSION half of that same pair, read off the SAME resolving
+   *  discipline. null when the row resolved blank (no resolving discipline to read it off);
+   *  0 when the resolving discipline's row was never carried (NOT-NULL Int on the server). */
+  carried_from_version: number | null;
+  /** Amendment F (R16): whether that source was a DIFFERENT BoQ. Server-derived -- no client can
+   *  compute it, because the pricing grid is never told which BoQ it is rendering. */
+  carried_from_other_boq: boolean | null;
   votes: Record<string, ResolvedVote>;
 }
 
 /** HV-10: the get_sheet_categories_resolved payload. `disciplines` = every engine with current
- * rows on the sheet (the picker's group set). */
+ * rows on the sheet (the picker's group set).
+ *
+ * WBC-S8: this is ALSO the payload of `classify.get_version_sheet_categories`, the version-scoped
+ * twin the pricing editor reads while browsing an OLDER committed version. ONE type because the
+ * two endpoints share ONE server-side body and are pinned byte-equal at the current version --
+ * so a field added to one arrives on both, and this interface can never describe only half of
+ * them. `committed_version` is the version RESOLVED (live reader) or REQUESTED (twin). */
 export interface GetSheetCategoriesResolvedResponse {
   committed_version: number | null;
   disciplines: string[];
@@ -1669,4 +1712,162 @@ export interface EngineCatalog {
   discipline: string;
   label: string;
   categories: CategoryCatalogEntry[];
+}
+
+// ── BCS-S2: the BCS cost section's two-column confirmation ───────────────────────
+// BCS records what a row costs US against what we charge the CLIENT, so it needs two numbers
+// off the committed sheet -- the row's Total Quantity and the Amount charged. Neither is a
+// fixed column across BoQs, so a human CONFIRMS which columns hold them, once per sheet+version.
+// The RULES about what may be picked live on the server (services/boq_bcs/sources.py) and are
+// mirrored for the card by the pure `bcsColumns.ts`; these are only the wire shapes.
+
+/**
+ * ONE stored, RE-RESOLVABLE confirmation entry -- the full descriptor identity, so a later
+ * reader resolves the value without re-deriving it from column_role_map. Mirrors the server's
+ * `sources._entry` field-for-field.
+ *
+ * `rate_subkey` is load-bearing for a PER-AREA AMOUNT (a three-hop resolve,
+ * amount_by_area[area][kind]); it is null on the two-hop shapes.
+ */
+export interface BcsColumnEntry {
+  col: string;
+  role: string;
+  area: string | null;
+  value_field: string;
+  value_key: string | null;
+  rate_subkey: string | null;
+}
+
+/**
+ * One side's stored confirmation: WHICH shape the sheet expresses the number in, plus the
+ * entries. A per-area mode means the entries' values are SUMMED.
+ *
+ * TEN MODES since BCS-S2b widened the amount rules (this comment corrected at BCS-S2c, which
+ * had named only the two original amount modes):
+ *
+ *   quantity  qty_total | qty_by_area
+ *   amount    amount_total | amount_supply_plus_install | amount_supply_only |
+ *             amount_install_only | amount_by_area | amount_by_area_supply_plus_install |
+ *             amount_by_area_supply_only | amount_by_area_install_only
+ *
+ * `mode` stays a plain `string` here ON PURPOSE, even though `bcsColumns.BcsMode` enumerates
+ * the ten. This is the WIRE shape, and the wire can carry a mode this build has never heard of
+ * -- a server that gains a ninth amount mode ships before the browser does. Typing it as the
+ * union would let a reader assume an exhaustive `switch` is safe when it is not.
+ * `bcsSummaryForMode` handles the unknown case explicitly rather than silently. Narrow AT the
+ * reader, never at the wire.
+ */
+export interface BcsSource {
+  mode: string;
+  columns: BcsColumnEntry[];
+}
+
+/**
+ * Response shape of `bcs.get_bcs_state` -- the BCS setup state of ONE committed sheet+version.
+ * A sheet with no current committed row at this version returns the all-empty, not-ready shape
+ * rather than throwing, so the caller can honestly render "BCS not set up".
+ *
+ * `is_ready` is the server's ONE readiness predicate (enabled AND both columns confirmed) --
+ * never re-derive it client-side. Note that disabling PRESERVES the two confirmations: readiness
+ * simply goes false, and re-enabling does not force a re-pick.
+ */
+export interface GetBcsStateResponse {
+  boq: string;
+  sheet_name: string;
+  committed_version: number;
+  bcs_enabled: 0 | 1;
+  bcs_qty_source: BcsSource | null;
+  bcs_amount_source: BcsSource | null;
+  bcs_confirmed_by: string | null;
+  bcs_confirmed_at: string | null;
+  is_ready: boolean;
+}
+
+// The RESPONSE shapes of `bcs.set_bcs_enabled` and `bcs.confirm_bcs_columns` were declared here
+// at BCS-S2 and referenced nowhere; they are DELETED at BCS-S2a (finding F7) rather than wired
+// up, for three reasons:
+//
+//   1. The page DELIBERATELY discards both POST bodies. Each write is followed by `mutateBcs()`,
+//      because `is_ready` is server-authoritative and is never re-derived client-side. Typing a
+//      payload we have chosen not to read would document a dependency we do not have.
+//   2. There is no `useFrappePostCall<T>` generic anywhere on SheetPricingPage -- all 19 POST
+//      calls are untyped -- so "using" these would have meant inventing a convention inside a
+//      slice whose job is to close review findings.
+//   3. An unreferenced interface has nothing pinning it to `bcs.py`, so it rots silently. The
+//      wire shapes stay documented where they are enforced: the endpoint docstrings.
+//
+// If a caller ever needs to READ one of these bodies, declare the shape then -- next to the code
+// that consumes it.
+
+// ── BCS-S3a: the COST-ENTRY wire shapes ──────────────────────────────────────────
+// The RULES (which boxes a sheet gets, what a Total reads, when a box is writable) live in the
+// pure `bcsColumns.ts`. These are only what crosses the wire, so `bcsColumns` and `undoHistory`
+// can both name them without either importing the other.
+
+/**
+ * The three stored cost fields, spelled EXACTLY as `save_row_bcs_rates` names its arguments.
+ * `combined_rate` is NOT a total of the other two (`bcs.py:16`) -- never sum it with them.
+ */
+export type BcsRateField = "supply_rate" | "install_rate" | "combined_rate";
+
+/**
+ * ⚠️ THE WHOLE-ROW SNAPSHOT. `save_row_bcs_rates` takes all three together and writes 0.0 for
+ * any it is not given (`bcs.py` `_num`), so this type exists to make a partial write
+ * unrepresentable: there is no shape in which a caller can send one rate and leave the others
+ * to chance. Built in exactly one place -- `bcsColumns.gatherBcsRowRates`.
+ */
+export interface BcsRowRates {
+  supply_rate: number;
+  install_rate: number;
+  combined_rate: number;
+}
+
+/**
+ * Per-ROW cost save args the PricingGrid hands up to the page's onSaveBcsRates. The grid
+ * supplies the row identity + the gathered triple; the page fills boq_name / sheet_name /
+ * committed_version and POSTs `save_row_bcs_rates`. Mirrors RemarkSaveArgs -- BCS identity is
+ * per-ROW, with no col_letter at all (the cost columns are screen-only, with no Excel origin).
+ */
+export interface BcsRowSaveArgs {
+  /** row.source_row_number (the Excel row). */
+  excelRow: number;
+  /** ALL THREE rates -- see BcsRowRates on why a partial payload is not expressible. */
+  rates: BcsRowRates;
+  /** row.description -- stored on the BCS record for the same re-resolvability the other
+   *  layers keep (optional, sent when present). */
+  description?: string;
+}
+
+/** One CURRENT stored cost row, as `bcs.get_sheet_bcs_rates` returns it (`_BCS_READ_FIELDS`). */
+export interface BcsRowRate {
+  name: string;
+  boq: string;
+  sheet_name: string;
+  excel_row: number;
+  committed_version: number;
+  node: string | null;
+  description: string | null;
+  supply_rate: number | null;
+  install_rate: number | null;
+  combined_rate: number | null;
+  is_filled: 0 | 1;
+  rate_source: string | null;
+  bcs_version: number;
+  is_current: 0 | 1;
+  bcs_rated_at: string | null;
+  carried_from_boq: string | null;
+  carried_from_version: number | null;
+  carried_at: string | null;
+}
+
+/**
+ * Response shape of `bcs.get_sheet_bcs_rates` -- every CURRENT cost row for one committed
+ * sheet+version. The stored INPUTS only: Total Amount and % Margin are computed by the reader
+ * and never stored, so a stored copy can never disagree with the live sheet.
+ */
+export interface GetSheetBcsRatesResponse {
+  boq: string;
+  sheet_name: string;
+  committed_version: number;
+  rows: BcsRowRate[];
 }

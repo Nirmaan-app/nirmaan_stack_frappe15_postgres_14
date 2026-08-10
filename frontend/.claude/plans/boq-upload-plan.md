@@ -21272,3 +21272,6007 @@ removal and reload.
   will fail loudly to say so.**
 - The 5 point_wiring rows 295-305 still price nothing -- pre-existing and unrelated (`wire1` has no
   `none_skips`).
+
+## Within-BoQ carry parity with the cross-BoQ revision carry
+
+**Opened** 2026-07-29 · **Tier** Full · **Track** feature
+**Branch** `feature/boq-within-boq-carry`, cut from `develop` @ `61f82798`
+**No migration.** Every provenance field this arc needs already existed from ADR-0014 Amendment E.
+**Nothing pushed. Owner live-certification: NOT STARTED.**
+
+> ✅ **ADR-0014 Amendment F is WRITTEN** (S6, 2026-07-30) — a banner in the ADR's Status section plus a
+> full detail block under D8. The citations in `pricing.py` / `committed_carry.py` / the test docstrings
+> now resolve. The **sixteen** rulings below are its content.
+>
+> ⚠️ **S6 could only complete ONE of its three doc targets.** Three in-scope files were denied by the
+> `SIZE CEILING` hook and two do not exist — see **F7 / F8** and **"S6 doc-correction backlog"** below.
+> The as-built detail that could not land in the reference docs is recorded in this fragment instead,
+> which is the destination the hook itself names.
+>
+> ✅ **S7 (2026-07-30) CLOSED that gap and made this register true again.** The 2026-07-30 repo carve
+> plus a same-day hook patch obsoleted the blockers: **F3 corrected** (the scope guard now whitelists
+> its own state file), **F7 obsolete** (all three over-ceiling docs carved into routers), **F9
+> superseded** (a 2,000 B repair band, sized from THIS arc's +133 B incident), **backlog #2 closed**
+> (the prose moved and is correct at `frontend-pricing-editor.md:61-79`). Nothing in the backlog is
+> outstanding. ⚠️ **F6 is separately stale — flagged, not corrected** (see the findings preamble).
+>
+> ➡️ **CONTINUED IN [`…-parity-part2.md`](2026-07-29-within-boq-carry-parity-part2.md)** — this file
+> reached its 32,000 B ceiling. Part 2 holds **S8** (a pre-existing `develop` defect: the pricing
+> editor rendered the CURRENT version's categories against an OLDER version's rows — 106 contradicted
+> rows measured in production), rulings **R20–R23**, and **S9**'s first bench-verified test counts.
+> **R22 lifted the facts-doc freeze, so F6 is now CORRECTED in part 2** — and its own "actual is 1188
+> across 50" was itself stale; measured at `f215d6a9` it is **1222 across 53**.
+
+---
+
+### The ask
+
+The owner shipped ADR-0014 Amendment E: the cross-BoQ revision carry
+(`cross_boq_carry.apply_sheet_carry`) moves rates plus an opt-in, provenance-stamped subset of
+`LAYER_KEYS = ("categories", "remarks", "colors", "remark_dismissals")`.
+
+He asked for the same on the WITHIN-BoQ version carry — `pricing.apply_copy_forward`, the
+"Copy rates forward" button that appears in the pricing editor when you browse to an older
+committed version of the same sheet.
+
+**His assumption was correct**: that button existed and carried rates ONLY.
+
+---
+
+### Ruling register (owner, 2026-07-29 / 2026-07-30)
+
+| # | Ruling | Notes |
+|---|---|---|
+| **R1** | Carry categories + remarks + colours + remark dismissals. | Reconciliation choices OUT — that doctype has no provenance fields, so including it would be a MIGRATE. Amount formulas OUT and still owner-locked never-carry in either seam (Amendment C). |
+| **R2** | The category gate moves to AFTER the layer carry: lock-check → formulas → acquire lock → carry layers → **category gate** → rates → commit, one transaction, rollback on refusal. | **REVERSES the G2c ruling.** The invariant is unchanged in words — no rate lands on an uncategorised row — only the moment of judgement moves, so the guard can no longer block its own remedy. An incomplete SOURCE still refuses and unwinds the carried layers. The formula gate keeps precedence. |
+| **R3** | Within-BoQ provenance is expressed by VERSION, not BoQ. | "carried from Version 2" within a BoQ; cross-BoQ keeps "carried from BOQ-26-…". Also settles the within-BoQ destination noun as "the current version". |
+| **~~R4~~** | ~~A local hand-pick outranks the carry in the display.~~ | **PARKED — see R10.** |
+| **R5** | The within-BoQ carry adopts the shared N2 description rule. | **Changes shipped rate behaviour**, five signed deltas: trailing-space / case / internal-whitespace now pair; blank descriptions stop pairing; a duplicated Excel row is dropped instead of last-silently-wins. Owner reads the last two as fixes. |
+| **R6** | `committed_carry.committed_excel_row_match` stays byte-frozen; a version-addressed sibling sits beside it. | Owner ruled AGAINST merging them behind a `current_only` flag. The sibling points at the original's warning rather than restating it. |
+| **R7** | The pricing record shows the DESTINATION's description text. | Under N2, a matched pair's descriptions can differ. Matches what the cross-BoQ carry already does. |
+| **R8** | The category gate is UNCONDITIONAL. | An annotations-only carry into an uncategorised destination is still refused. No carve-out. |
+| **R9** | Dialog copy fixes fold into the S3 slice rather than a separate pass. | |
+| **R10** | R4 is PARKED. | Nothing in the schema records WHO decided a row — see Finding F1. A precedence flip cannot be made truthful, and as ruled it would have started falsely claiming authorship on verdicts carried from a source. |
+| **R11** | The apply button reports WRITES, not selection — on BOTH dialogs in one change. | Same defect class `313697e7` fixed on the line and never on the button. Fixing one dialog only would recreate the divergence S1's extraction existed to prevent. |
+| **R12** | S5's two strings confirmed as drafted. | The dropped "Rates only" description, and `LAYER_BLOCK_SUBTEXT_WITHIN_BOQ` ("marked with the version it came from"). |
+| **R13** | The button noun is **"changes"**, not "items". | "items" collides with `node_type === "Line Item"` on this exact grid. Now enforced by test (`not.toContain("item")`), not by comment. |
+| **R14** | The cross-BoQ single-sheet bare "Carry" button stands. | Amendment E upheld; R11 named only the selection-based strings. ⚠️ Holds at the LABEL only — that button's `disabled` expression did change under R15, so its all-Keep case now disables where it previously enabled. |
+| **R15** | The apply button is gated on WRITES, not selection. | Finishes R11: one number governs both the label and enablement. **Reverses a parked code comment.** Implemented by DELETING `nothingToCarry`, which was the second source of truth. |
+| **R16** | The same-BoQ-vs-cross-BoQ decision is made SERVER-SIDE. | `get_sheet_categories_resolved` emits a derived `carried_from_other_boq` alongside BOTH raw provenance fields (additive; the raw fields stay). The grid renders what it is told: no comparison, no new prop, nothing crossing the React memo boundary. **Rejected:** threading a `boq` prop to `PricingGrid` (touches `pricingRowPropsAreEqual` on a grid rendering thousands of rows) and passing the BoQ into `resolvedToSheetCategoryRow` (a domain rule in a UI adapter with no DOM tests). **Rationale: "was this carried from elsewhere, or from an earlier version of myself" is a domain fact, not a presentation choice** — it belongs on the read that already calls itself resolved. ⚠️ Load-bearing: the signal is `bool(carried_from_boq) and carried_from_boq != boq`, **never** version truthiness, because `carried_from_version` is `bigint NOT NULL DEFAULT 0` so an uncarried row reads `0`. Pinned by `test_carry_stamped_at_version_zero_is_still_a_carry`. |
+
+| **R18** | One more attempt at backlog #2: tightening verbose prose AROUND a correction to pay for it is legitimate; compromising the correction to fit is not. | **Attempted, STOPPED at +133 B.** Confirms R17's fallback. The two `isNeedsReviewCategory` refs (retired, replaced by `isMasterSetBlank` — verified in `PricingGrid.tsx:491` + `ClassifySheetDialog.tsx:117`) DID land, -26 B. |
+| **R17** | Correct and prune in ONE net-shrinking edit per file: each of the three hook-blocked docs must come out SMALLER than it went in. | The answer to F7. Pruning must be genuine rot — (a) demonstrably stale/false, or (b) per-slice changelog detail the DOCS-UPDATE RULE bars from `CLAUDE.md` **and** whose substance already exists in a reference doc. **Do NOT reword a correction to squeeze under a ceiling**; if a file cannot be made both correct and smaller, STOP and report. Owner-locked invariant prose is never prunable, however verbose. |
+
+Three rulings reverse shipped decisions — **R2, R5, R15**.
+
+---
+
+### Load-bearing recon findings
+
+1. **The category gate already deadlocked this button before the arc.** It gates on the DESTINATION
+   (`pricing.py:3146` — recon read it at `:2950` BEFORE this arc's own R2 commit moved it; the
+   citation drifted because we edited the very line we had cited, which is the general lesson:
+   **a line number recorded in a fragment is invalidated by the slice that fragment describes**,
+   so cite the SYMBOL (`_categories_gate_ok` inside `apply_copy_forward`) and treat the number as
+   perishable), against `current_version`; every layer's identity includes
+   `committed_version`, so a re-commit mints a version with zero category rows;
+   `blank_category_eligible_rows` counts a never-classified row as blank because it keys on the
+   eligible `BOQ Nodes` set (`persist.py:202-206, 260-263`) and filters by `committed_version`
+   (`persist.py:250-251`). No grandfathering; the admin override lives per-version and does not
+   survive a re-commit. Pinned by `test_a_refused_when_destination_blank` /
+   `test_c_succeeds_once_categorised` / `test_e_uncategorised_source_does_not_block`.
+
+2. **Neither matcher is fuzzy.** `match_rows` (`services/boq_revision/row_match.py:127-151`) joins
+   on identical Excel position then requires N2-identical descriptions.
+   `committed_carry._match_rows_from_nodes` sets `row_id == excel_row` on both sides, so its twin
+   map can only pair a row with itself. Pinned by
+   `test_row_match.py::test_same_text_at_a_different_row_does_not_match`. **Tolerance for moved
+   rows exists nowhere in this codebase.** An early plan claim that consolidating the matchers was
+   "a pure consolidation, not a behaviour change" was WRONG and was caught by a builder stop.
+
+3. **`_match_rows_from_nodes` filters `is_current: 1`**, which within one BoQ empties the source
+   side (the older version's nodes were frozen to `is_current=0` at re-commit,
+   `commit_pipeline.py:857-858`). Measured: source v1 = 6 nodes all `=0`, dest v2 = 5 all `=1`.
+   Wired in naively this would have made the button silently carry nothing.
+
+4. **`set_human_verdict` annotates in place** (`persist.py:597-606`), writing exactly
+   `human_category_id` / `human_verdict_at` / `human_verdict_by` and never touching carry
+   provenance. `deriveVerdictState` checks `carried_from_boq` BEFORE `human_category_id`, so a
+   local pick on a carried row renders as "carried". The ladder is unaffected —
+   `carried_from_boq` is not a ladder input.
+
+---
+
+### Findings that outlive this arc
+
+> ⚠️ **The hooks named in F3 / F4 / F7 / F9 are PERSONAL/GLOBAL — `~/.claude/hooks/`
+> (`nirmaan_guard_scope.py`, `nirmaan_ceilings.py`, `nirmaan_guard_doc_size.py`,
+> `nirmaan_guard_push.py`, `nirmaan_context_digest.py`) — and are NOT committed to this repo.**
+> The repo's own `.claude/hooks/README.md` documents only two things: `guard_claude_md.py` and the
+> `.githooks/commit-msg` conventional-commit hook. **On another machine, or for another
+> contributor, those four findings may not apply at all** — the guard that produced them may be
+> absent, or at a different version. Treat them as observations about ONE operator's tooling on a
+> dated day, never as repo invariants. This is also why F3 and F9 went stale within days: the
+> tooling was patched out from under them, and nothing in the repo records that.
+
+**S7 (2026-07-30) re-verified the findings below against current tooling.** F3 corrected, F7 and F9
+superseded, **F2 and F8 re-checked and still standing** (no `typecheck` script in
+`frontend/package.json` — only `build`/`test`/`preview`/`test-local`, none of which invokes `tsc`;
+both dead doc paths still absent). **F1 and F5 were NOT re-checked by S7** — F1 is a code claim
+carried by the five-agent verification pass, F5 is a process observation with nothing to check
+against. **F6 was OVERTAKEN at S7 and left FLAGGED; S9 has now CORRECTED it** — the facts doc was
+refolded at `5de64ed8` (v5.91, `status: current`), quotes no count, and explicitly asks for the
+numbers it lacked; **R22** lifted the freeze that kept S7 out. See F6 below, and part 2.
+
+**F1 — the freeze authorship gap (pre-existing, not introduced here).**
+`persist.stamp_human_verdicts_bulk` writes `human_category_id`, `human_verdict_at = now` and
+`human_verdict_by` onto EVERY resolved non-blank row it stamps — carried or not, human-decided or
+machine-decided. Consequences: after any freeze, a carried row's `human_verdict_at` is newer than
+its `carried_at`, indistinguishable from a genuine local pick; and `deriveVerdictState` already
+returns `"human"` for auto-accepted machine verdicts on any frozen sheet. **Nothing in the schema
+records who actually decided a row.** This killed R4 and it will kill any future display-layer fix.
+The honest remedy is a verdict-provenance field, not another badge patch.
+
+**F2 — nothing ever invokes `tsc`.** No `typecheck` script in `frontend/package.json`; `build` is
+`vite build` (esbuild, strips types without checking); CI runs only the bench Python suite.
+Repo-wide baseline is ~3236 errors. The shared frontend types introduced in this arc are sound
+today but are enforced by a compiler no automated gate runs.
+
+**F3 — ~~`guard_scope.py` cannot rotate its own state file.~~ CORRECTED 2026-07-30 (S7): the fix
+F3 asked for now exists.** `nirmaan_guard_scope.py:108-120` declares
+`CONTROL_PLANE = (".claude/state/*", ".claude/state/**")` and unions it into `allowed`, with the
+comment *"The state file is the guard's CONTROL PLANE, never the work… Always allow it"* and an
+explicit statement of the tradeoff (an agent can widen its own scope; the guard's job is catching
+the write you did not mean to make, not defeating a determined one). **The finding was TRUE when
+written** — every rotation earlier in this arc genuinely was denied and required the owner to edit
+the file by hand — so it is recorded as corrected, not deleted. S7 rotated its own state file with
+no denial. ⚠️ Do not re-derive the old conclusion from the arc's earlier slices: they ran against
+an older hook.
+
+**F4 — a hook denies `git stash push`**, matching the substring "push". False positive; it cost a
+builder its plan to verify intermediate commits. Tighten the pattern to `git push`.
+
+**F5 — self-reported counts do not survive mechanical checking.** Three instances this arc:
+"92 assertions" was a test-CASE count (real assertions 133 → 161); a "~359px floor" was presented
+as derivable when independent arithmetic gives a ~280–400px band; "twelve changed assertions" was
+eleven (4 + 7, counted off the pre-image). None changed a verdict. All were caught by reviewers
+re-counting rather than reading. Report cases and assertions as separate numbers, always.
+
+**F6 — ✅ CORRECTED 2026-07-30 (S9).** As written: *the facts doc is stale on a metric this arc
+reports* — it recorded vitest **976 across 46 files**, and was owner-ruled untouchable. Both halves
+are now gone: the doc was refolded at `5de64ed8` and **R22** lifted the freeze. ⚠️ **F6's own
+replacement figure — "actual is 1188 across 50" — was ITSELF stale** by the time it was read.
+Measured at `f215d6a9`: **1222 across 53, zero skips**. Full disposition in part 2.
+
+**F7 — ~~three reference/convention docs are permanently uncorrectable at their size ceilings.~~
+OBSOLETE 2026-07-30 (S7): the carve F7 called for HAPPENED, on the same day.** All three trunks were
+cut down to routers and their content rehomed:
+
+| Doc | At S6 (F7) | Now | Content moved to |
+|---|---|---|---|
+| `CLAUDE.md` | 64 KB (1.6× a 40 KB ceiling) | **19.0 KB** | `.claude/context/conventions/backend-active-features.md` (37.7 KB) |
+| `frontend/CLAUDE.md` | 104 KB (2.6×) | **16.3 KB** | `frontend/.claude/context/conventions/frontend-pricing-editor.md` (41.9 KB) + siblings |
+| `.claude/context/domain/boq-backend.md` | 184 KB (2.3×) | **1.7 KB** (pure router) | `boq-backend-{wizard-endpoints,revised-boq,slice-changelog,doctypes-and-rules,operations}.md` |
+
+**The deadlock F7 described is gone**, and by the route F7 itself named ("the remedy is the surface
+split `boq-frontend.md` already received at `61f82798`"). All three now sit well UNDER their
+ceilings, so an ordinary correction lands with no special handling. **The ceiling VALUES also moved**
+— `CLAUDE.md` is now warn 20,000 / deny 30,000 (was a flat 40 KB), so do not reason from F7's
+numbers. Retained as a record because the reasoning still holds in general: *a guard that keeps a
+file small can block the edit that makes it correct* — which is exactly what F9's repair band was
+then built to answer.
+
+**F8 — two in-scope doc paths no longer exist; both were dissolved by the two commits this branch was
+cut from.** The branch is cut from `develop @ 61f82798`, and that commit plus its parent `15e9b81e`
+are exactly the two that removed them:
+
+| Path named in the S6 scope | Reality | Correct destination now |
+|---|---|---|
+| `frontend/.claude/context/domain/boq-frontend.md` | **deleted at `61f82798`** (287 KB → 10 surface files) | `domain/boq-frontend-revised-boq.md` (ADR-0014 amendments) · `-pricing-controls.md` (dialogs) · `-pricing-grid.md` (tooltip) |
+| `frontend/.claude/plans/boq-upload-plan.md` | **rotated at `15e9b81e`** | `frontend/.claude/plans/boq/` — `README.md`, `_slices.md`, `phasing.md`, `known-issues.md`, `decisions/`, `slices/` |
+
+**F9 — ~~the size guard is enforced PER TOOL CALL, so a correction can only land beside contiguous
+rot.~~ SUPERSEDED 2026-07-30 (S7): the tooling now has a REPAIR BAND built for exactly this.**
+`~/.claude/hooks/nirmaan_ceilings.py` sets `REPAIR_DELTA = 2_000` under a comment headed *"REPAIR
+BAND (load-bearing, added 2026-07-30)"* whose rationale **cites THIS ARC's incident by its numbers**:
+*"Sized from the real blocked correction (+133 B) with an order of magnitude of headroom: comfortably
+fits a factual fix or a redirect note, nowhere near enough to re-grow a document. A file in repair
+mode is TRACKED (the digest reports it), not silently forgiven."* So an over-ceiling file may still
+grow by up to 2,000 B **per tool call** — a one-clause correction of a false sentence now lands
+without needing an adjacent prunable byte. **The per-call granularity F9 described is still real; it
+simply no longer bites**, because the band is per-call too. The mechanism F9 recommended as the
+remedy (the carve) ALSO shipped — see F7.
+
+⚠️ **Do not infer from F9 that you must hunt for adjacent prose to delete.** That instruction was
+correct only under the pre-repair-band guard. R17's "one net-shrinking edit per file" was the
+workaround for a constraint that no longer exists; it is NOT a standing doc-hygiene rule, and
+applying it now would delete good prose to buy bytes you already have. What survives from R17 is its
+hard limit, which is unconditional: **never paraphrase or degrade a correction, or drop owner
+rationale, to fit a ceiling** — if a fix genuinely needs more than the band, the carve is overdue,
+so report and stop.
+
+⚠️ **Re-creating either file would directly undo those two commits** and was not attempted. None of
+the real destinations is in the S6 `files_in_scope`, so writing them is a `guard_scope.py` denial — a
+follow-up slice needs a corrected scope list. ⚠️ Both dead paths are still cited as live in
+`CLAUDE.md` (×5), `frontend/CLAUDE.md` (×3) and `boq-backend.md` (×6); every one of those pointers is
+dangling, and F7 blocks fixing them too.
+
+---
+
+### S6 doc-correction backlog — FULLY CLOSED (#1/#3/#4 at S6b, #2 at S7)
+
+| # | File | False statement | Outcome at S6b |
+|---|---|---|---|
+| 1 | `CLAUDE.md` | carry gate *"checked ONCE up front … and BEFORE the lock acquire"* | ✅ **FIXED.** Now states the gate is checked ONCE per call, and that the two seams differ DELIBERATELY: cross-BoQ REMOVED it (Amdt E), within-BoQ REORDERED it (Amdt F) to after the lock acquire and after the layer carry, one transaction, rollback on refusal; formula gate keeps precedence in both. |
+| 2 | ~~`frontend/CLAUDE.md`~~ → `frontend-pricing-editor.md` | carried-verdict cue *"Its one input is `SheetCategoryRow.carried_from_boq`"* | ✅ **CLOSED 2026-07-30 (S7) — the debt was PAID by the carve, not by another byte-squeeze.** The prose moved out of `frontend/CLAUDE.md` into `.claude/context/conventions/frontend-pricing-editor.md`, where it is now correct at **`:61-79`**, headed *"inputs corrected 2026-07-30 per R3/R16"*. It documents exactly the drafted wording: **three inputs** — `carried_from_boq` (and that the STATE still keys on this field ALONE), `carried_from_version` (R3), and `carried_from_other_boq` (R16, *"derived SERVER-SIDE… Do not re-derive cross-BoQ-ness from a string compare in the frontend"*) — plus the two-flavour tooltip, `carried from Version N` within a BoQ vs `carried from BOQ-…` across one, naming the pre-R16 bug. Nothing is owed. **Lesson: the blocked +133 B was never the real problem** — the file being 2.6× its ceiling was, and the structural fix dissolved the byte problem entirely. |
+| 3 | `frontend/CLAUDE.md` | *"`nothingToCarry` replaces `selectedCount === 0`"* | ✅ **FIXED.** Now: the apply gate is `carryWriteCount(...) === 0` (**R15 deleted `nothingToCarry`**), not `selectedCount === 0`. Paid for by correcting the same bullet's stale header `Amendment C + Amendment D` → `Amendment C + E`. |
+| 4 | `boq-backend.md` | *"`save_cell_price` and `apply_copy_forward` KEEP the gate **and are untouched**"* | ✅ **FIXED** (concise form, budget-limited): *"Both KEEP the gate; `save_cell_price` untouched, `apply_copy_forward`'s REORDERED (Amendment F)."* The **position** detail was omitted for want of bytes — it lives in ADR-0014 Amendment F and in `pricing.apply_copy_forward`'s own docstring, which records `was: lock → formulas → CATEGORY GATE → acquire → rates` / `now: lock → formulas → acquire → CARRY LAYERS → CATEGORY GATE → rates`. |
+
+**Where the as-built detail went instead.** The backend + frontend as-built for this arc — the
+`layers=` wire shape, the R2 gate order with line numbers, `coerce_layers` as the single coercion with
+`cross_boq_carry._coerce_layers` as an `assertIs`-pinned alias, the R6 sibling and why
+`committed_excel_row_match` must keep `is_current: 1` while the sibling cannot, the N2 deltas, and the
+three R16 keys with the derivation expression — is written into **ADR-0014's Amendment F block**,
+which accepted the write. It is not duplicated here.
+
+#### Three citation corrections found while verifying S6 (code is right; earlier notes were wrong)
+
+1. **`categoryCellTitle` lives in `sheetCategoryResolve.ts:85-93`, not `PricingGrid.tsx`** — the grid
+   only imports (`:175`) and calls it (`:2505-2509`). The per-surface branch is `carriedFromNoun`
+   (`:104-108`).
+2. **`deriveVerdictState` lives in `CategoryVerdictPicker.tsx:47-57`**, not in `sheetCategoryResolve.ts`.
+3. **`overflow-hidden` is absent from `CopyForwardDialog.tsx` entirely** — `rounded-md` at `:410` wraps
+   the plan table with no clipping context. The deferred item is *adding* `overflow-clip`, not
+   replacing an existing `overflow-hidden`. `carryWriteBreakdown` is also **not exported** (private by
+   design); the two public readers `carrySelectionSummary` / `carryWriteCount` are what the dialogs call.
+
+---
+
+### Slice status
+
+| # | Slice | Commits | Tests | Review |
+|---|---|---|---|---|
+| S1 | Extract `CarryLayers` from `CrossBoqCarryDialog` (no behaviour change) | `2490ac63` | vitest 1112, unchanged | — |
+| S2 | Backend: `layers=` on `apply_copy_forward`, gate reorder (R2), N2 routing (R5), frozen sibling (R6) | `89e46c74` `a786190c` `ebbceb24` `62801470` `7762e63c` `30cc5f83` | **OBSERVED GREEN** 255 / 49 / 60, zero skips | CAVEATS → blocking item cleared by an independent run |
+| S5 | `CopyForwardDialog` gains the layer block | `2a89cdb0` `12d5a023` | vitest 1131 | **FAIL** — unbounded `DialogContent` |
+| S3a | Truth-and-fit rework: viewport bound, write-count button, `\0` escapes, per-surface noun, toast, `layers?` types | `1fd6ea9a` `3e26a275` `5219c79d` | vitest **1167/1167**, verified by an independent run | CAVEATS, **blocking: none** |
+| S3a-rework | R13 noun ("changes"), R15 write-gate, dead whole-BoQ gate, `PENDING` marker removed | `37fd65c6` `edd424e0` | vitest **1173/1173**, 50 files, zero skips, verified by an independent run. In-scope: cases 156→162, assertions 237→248; 11 restated, 0 dropped, 0 weakened | CAVEATS, **blocking: none** |
+| S3b | R3: plumb `carried_from_version` end to end; R16 server-side `carried_from_other_boq`; delete two stale `PENDING OWNER CONFIRMATION` markers falsified by R12 (`CarryLayers.tsx:317`, `CopyForwardDialog.tsx:363`) | `eabd1a42` `eb627c11` `2d9450d7` `1df36531` `f31aa47d` | `test_classify` 77 → **83 OK**; vitest 1173 → **1188 / 50 files**, zero skips | **DONE** |
+| S6b | **R17 correct-and-prune.** Sizes: `CLAUDE.md` 63,829→**63,117** (−712) · `frontend/CLAUDE.md` 104,028→**91,286** (−12,742) · `boq-backend.md` 188,177→**187,338** (−839). All 14 dangling refs repointed (`plans/boq/`, `boq-frontend-*`); 3 of 4 falsehoods fixed (#2 hook-denied, F9); 2 EXTRA falsehoods found + fixed in `CLAUDE.md` (`_categories_gate_ok` documented as `population="rate_editable"` — code passes `"eligible"` at all 3 call sites; `"rate_editable"` has ZERO live call sites) | docs only | **PARTIAL** — #2 outstanding |
+| ~~S4~~ | ~~precedence flip~~ | **PARKED (R10)** | | |
+| S6 | **ADR-0014 Amendment F** + reference docs | ADR written 2026-07-30 | docs only — no suite implicated | **PARTIAL** — ADR ✅; 3 files hook-denied + 2 files do not exist (F7/F8) |
+| S8 | **Version-scoped category read** (detail in **part 2**). Fixes a defect PRE-EXISTING on `develop`: history mode rendered the CURRENT version's categories against an OLDER version's rows — measured 106 contradicted + 181 wrongly-blank rows on `BOQ-26-00133`. R20 twin endpoint `get_version_sheet_categories`; display follows the viewed version, the **gate does not** | `8d70f5f0` `f215d6a9` | `test_classify` 83 → **94 OK**, zero skips; vitest unchanged (React semantic, no DOM env); tsc 0 in both touched files | needs live A/B — R23 |
+| S9 | **Record and verify.** S8 recorded (part 2), R20–R23 registered, ADR-0014 Amendment F extended, F6 corrected, first bench-verified counts in the facts doc | docs only | **All suites OBSERVED GREEN** at `f215d6a9` — see the part-2 table | — |
+| S7 | **Record-truth cleanup.** F3 corrected · F7 obsolete · F9 superseded · backlog #2 closed · `pricing.py` citation `:2950`→`:3146` · global-hooks caveat · F6 flagged. **One comment-only code edit:** `_apply_sheet_carry`'s docstring said "RATES ONLY (Amendment D)" while the body carries layers (Amendment E) | | `test_cross_boq_carry` **60 → 60 OK**, zero skips (comment-only; unchanged as expected) | **CLOSES THE ARC's doc debt** |
+
+S3b scope: `classify.py` (+ field list and emit), `test_classify.py`, `boqTypes.ts`,
+`sheetCategoryResolve.ts` (this is where `resolvedToSheetCategoryRow` lives — NOT
+`SheetPricingPage.tsx`), `PricingGrid.tsx` (tooltip), plus the two marker files above.
+
+**Deferred, deliberately:** the `rounded-md` corner clip on `CopyForwardDialog.tsx:410`.
+`overflow-hidden` would establish a scroll container and re-bind the sticky `<thead>` to a box that
+never scrolls, breaking the sticky header. `overflow-clip` is the correct tool but has ZERO
+precedent in this repo and cannot be verified without a DOM. Try it during live certification.
+
+---
+
+### Owner live-certification — NOT STARTED
+
+1. **The footer at 1366×768.** Copy rates forward, 8+ rows, layer block visible. Copy and Cancel
+   must both be visible and clickable. **The one check no test in this repo can substitute for** —
+   there is no DOM environment (`environment: "node"`, deliberate). This is the failure that got S5
+   rejected.
+2. **The R15 gate, BOTH dialogs.** A version whose rows are all conflicts, every one left on Keep,
+   every layer unticked → the button must be DISABLED, name no figure, and have no "Will copy" line.
+   It was enabled before. Tick Categories → it must enable and read "Copy N changes forward" with a
+   matching line. Repeat on the cross-BoQ dialog: its button stays bare "Carry" (R14) but must flip
+   enabled/disabled identically. **No test anywhere can cover this** — the change lives in a
+   `disabled={...}` expression.
+3. **The deadlock break (R2 positive).** Freshly re-committed sheet, zero categories; source
+   version categories complete; tick Categories; apply. Must SUCCEED and open the gate with no
+   admin override. Before this arc it refused.
+4. **Refusal atomicity (R2 negative).** Source categories incomplete; tick Categories; apply. Must
+   refuse, write nothing of any layer, and leave pre-existing destination rates byte-identical.
+5. **R8.** Annotations-only into an uncategorised destination must refuse honestly.
+6. **Rates-only regression.** No layers ticked — behaviour identical to before the arc.
+7. **R5 on real data.** Rows differing only by case or spacing now carry.
+8. **R13 on the grid.** Read the button against the pricing grid BEHIND the dialog — the whole point
+   of the ruling is the collision with "Line Item" in the row behind it.
+9. **One number, not two.** Toggle rates and layers on and off; the button figure and the
+   "Will copy" line must move together every frame.
+10. **Sticky header pre-state.** Scroll the plan table and confirm the column header stays pinned.
+    Untouched by this arc — capture it now, because the deferred corner-clip fix is what could
+    break it.
+11. **Provenance spot-check, PRE-FREEZE only** (see F1): `carried_from_version` stamped,
+    `carried_at` fresh, and a carried category's `human_verdict_at` retaining the SOURCE's older
+    timestamp — never freshened.
+
+## Within-BoQ carry parity — PART 2 (S8, S9)
+
+**Chained from** [`2026-07-29-within-boq-carry-parity.md`](2026-07-29-within-boq-carry-parity.md)
+(part 1), which reached its 32,000 B fragment ceiling. Part 1 holds the ask, rulings **R1–R18**, the
+recon findings, findings **F1–F9**, and slices **S1–S7**. This part holds **S8** (a shipped defect
+found and fixed on this branch), rulings **R20–R23**, and the **S9 record-and-verify** slice with the
+first bench-verified test counts this arc has ever had.
+
+**Branch** `feature/boq-within-boq-carry` · **Tip at writing** `f215d6a9` · **Nothing pushed.**
+
+---
+
+### S8 — the pricing editor showed the WRONG version's categories
+
+`8d70f5f0` (backend) + `f215d6a9` (frontend), 2026-07-30.
+
+#### The defect
+
+Browsing an older committed version of a sheet, the pricing editor rendered the **CURRENT** version's
+category verdicts against the **OLDER** version's rows. Two independent causes, one visible symptom:
+
+1. `classify.get_sheet_categories_resolved` (`classify.py:528`) has **no version parameter**. It
+   resolves `_resolve_committed_version(boq, sheet_name)` (`:558`) and answers for whatever is
+   current — there was no way to ask it for an older version.
+2. The page's SWR key carried no version either, so switching version did not even **refetch**.
+
+#### Measured production impact
+
+On `BOQ-26-00133 | 'B- BOQ- Elec.'`, viewing v1 while v2 is current: **106 rows disagreed** and
+**181 more were wrongly blank**. Recorded in the twin's docstring (`classify.py:570-574`).
+
+⚠️ **No data was ever lost.** v1's 561 rows were intact the whole time; the reader simply could not
+be asked for them. This matters for triage: the remedy was a read path, never a repair.
+
+#### PRE-EXISTING on `develop` — not introduced by this arc
+
+Verified from git, not recalled:
+
+| What | Commit | Date | On `develop`? |
+|---|---|---|---|
+| Version-view — read-only committed-version history browser (Phase 5) | `184caed3` | 2026-06-26 | ✅ yes |
+| HV-10 — multi-engine per-row resolution + grouped picker, which put `get_sheet_categories_resolved` into `SheetPricingPage.tsx` | `76a41050` | 2026-07-22 | ✅ yes |
+
+`76a41050` is the **first and only** commit to introduce that reader into the page
+(`git log -S "get_sheet_categories_resolved" -- frontend/src/pages/boq-wizard/SheetPricingPage.tsx`).
+It wired the reader to the page and **never wired it to the version selector**.
+
+⚠️ **This was an OMISSION, not a decision. No ADR records a choice to scope it that way** — so S8 is
+a *fix*, and deliberately not an amendment: there is nothing to reverse. The defect shipped on
+`develop` roughly five weeks before this branch existed, and this branch merely found it.
+
+#### R20 — the fix is a separate version TWIN, not a parameter
+
+| | Rows | Categories |
+|---|---|---|
+| Live (current version) | `pricing.get_priced_rows` (`pricing.py:2196`) | `classify.get_sheet_categories_resolved` (`classify.py:528`) |
+| History (explicit version) | `pricing.get_version_priced_rows` (`pricing.py:2475`) | **`classify.get_version_sheet_categories` (`classify.py:565`)** — new |
+
+The twin follows the shape this repo **already established for the ROWS at this same seam**. The two
+cannot drift because the whole resolution body was extracted to
+**`classify._resolved_categories_at_version(boq, sheet_name, committed_version)`** (`:433`) and both
+endpoints end in a call to it — the live reader at `:561`, the twin at `:599`.
+
+Why not parameterise the live reader: it is the editor hot path **and** the source the blank-count
+and the category gate read. Leaving it untouched is precisely what keeps the gate on the current
+version. The twin coerces its version through `pricing._coerce_int` (`:597`) rather than minting a
+second coercion, so both version twins reject a bad version with the *same* message; an unknown
+version returns **graceful empty**, mirroring `get_version_priced_rows`.
+
+#### ⚠️ The load-bearing constraint: DISPLAY follows the viewed version, the GATE does not
+
+**In history mode the page deliberately holds TWO category reads at once.** This is not redundancy
+and must not be "tidied up" into one:
+
+- **Display** follows the version being **VIEWED** — otherwise the Category column lies.
+- **The gate** stays on the **CURRENT** version — because it governs *writes*, and writes always land
+  on the current version. A gate computed from a historical version's categories would be a **worse**
+  defect than the one being fixed: it would let a rate land on an uncategorised current row because
+  some older version happened to be complete.
+
+This is recorded in the live reader's own docstring (`classify.py:531-536`), which is the right home
+for it — it is the reason that reader must never gain a version parameter, and the docstring is what
+a future editor reads immediately before trying to add one.
+
+#### Frontend wiring (`f215d6a9`)
+
+- The twin fetch (`SheetPricingPage.tsx:604`), **disabled unless viewing history**; its SWR key is
+  derived from the params, so `committed_version` is in the key and a version switch refetches.
+- `categoriesByExcelRow` → **`liveCategoriesByExcelRow`** (`:562`) — the blank count, the category
+  gate, and every write path. The rename is the point: the old name did not say which version it was.
+- **`activeCategoriesByExcelRow`** (`:629`) joins the existing `isViewingHistory` funnel (`:444`).
+- **Four DISPLAY surfaces** repointed at the active map: the grid's Category column, `hasRun`, the
+  Check-Category view filter, and that filter's button.
+- `boqTypes.ts:1679` — `GetSheetCategoriesResolvedResponse` now records that it is the twin's payload
+  too. **One type, because the two endpoints share one server-side body.**
+
+#### Tests
+
+11 new cases in `TestVersionScopedSheetCategories` (`test_classify.py`), including the two that make
+the twin honest: **`test_twin_at_the_current_version_equals_the_live_reader`** (byte-equality pin —
+the two cannot diverge) and **`test_live_reader_still_resolves_the_current_version`** (a pin that the
+live reader was not quietly re-pointed while nobody was looking). `test_classify` **83 → 94 OK**.
+
+Frontend: vitest unchanged by S8 — the change lives in hook wiring and a memo funnel, which is a
+React semantic and therefore **structurally untestable here** (no DOM environment, deliberate). This
+is why S8 needs a live check rather than a unit test.
+
+---
+
+### Ruling register, continued (owner, 2026-07-30)
+
+Part 1 carries R1–R18. R19 was not issued.
+
+| # | Ruling | Notes |
+|---|---|---|
+| **R20** | The version-scoped category read is a **separate TWIN endpoint** (`get_version_sheet_categories`), **not** a parameter on the live reader. | Follows the `pricing.get_priced_rows` / `get_version_priced_rows` precedent at the same seam. **One shared private body** (`_resolved_categories_at_version`) so the two cannot drift — the twin is a second door onto one room, not a second room. |
+| **R21** | S8 lands on `feature/boq-within-boq-carry` rather than its own branch. | The defect is pre-existing on `develop` and unrelated to the carry arc, so a separate branch was defensible. The owner ruled for this lane: the arc is about to be certified in a browser, and the certifier will be sitting in exactly this screen. Splitting it would certify the fix nowhere. |
+| **R22** | **Record bench-verified test counts in `.claude/facts/handover.md`.** | ⚠️ **Supersedes the earlier "the facts doc is untouchable" ruling**, which applied to the OLD stale copy. The doc was refolded at `5de64ed8` (v5.91, `status: current`) and now *explicitly asks* for these numbers at its own next-action item 3. Recording them closes finding **F6** — see below. |
+| **R23** | **Browser certification is APPROVED**, against an eight-journey list, to run after this slice. | ⚠️ **The eight-journey list was not supplied to S9 and is not reproduced here.** Part 1's "Owner live-certification" section carries **ELEVEN** items. Whether the eight is a subset of those eleven or a separate list is **unresolved** — obtain the list before the certifier runs, and do not assume part 1's eleven are it. |
+
+---
+
+### S9 — record and verify (2026-07-30)
+
+Documentation and test runs only; **no code changed**. Closes the two gaps a Checklist B review
+raised: S8 was recorded nowhere, and no bench-verified test count existed anywhere in the arc.
+
+#### Bench-verified counts — measured at `f215d6a9`
+
+Every number below was **OBSERVED** in this session, in-container, via the bench runner. Cases and
+assertions are reported separately, per finding **F5**. Assertion counts are static counts of
+assertion call sites in each file, not runtime counts.
+
+| Suite | Cases | Assertions | Result | Skips |
+|---|---|---|---|---|
+| `api.boq.wizard.test_pricing` | **255** | 787 | OK | 0 |
+| `api.boq.wizard.test_committed_carry` | **49** | 101 | OK | 0 |
+| `api.boq.wizard.test_cross_boq_carry` | **60** | 152 | OK | 0 |
+| `api.boq.wizard.test_classify` | **94** | 303 | OK | 0 |
+| `services.boq_category.tests.test_decay` | **12** | 35 | OK | 0 |
+| `services.boq_category.tests.test_hv2_voter_harness` | **14** | 33 | OK | 0 |
+| `services.boq_category.tests.test_routing_policy` | **23** | 47 | OK | 0 |
+| `services.boq_category.tests.test_runner_electrical` | **82** | 146 | OK | 0 |
+| `services.boq_category.tests.test_runner_hvac` | **104** | 181 | OK | 0 |
+| **boq_category subtotal** | **235** | 442 | OK | 0 |
+| **vitest** (in-container) | **1222** across **53** files | 2216 `expect(` | passed | 0 |
+
+`tsc --noEmit`, run by hand in-container: **3,236 error lines repo-wide — the pre-existing baseline,
+unchanged** — and **0 in either file S8 touched** (`SheetPricingPage.tsx`, `boqTypes.ts`). **Nothing
+in the repo invokes tsc automatically** (finding F2 still stands: no `typecheck` script, `build` is
+`vite build`/esbuild which strips types without checking, CI runs the bench suite only). So this
+number is only ever as fresh as the last time someone ran it by hand.
+
+**Cross-check:** every backend suite's `Ran N tests` equals its count of `def test_` definitions, so
+no case was silently filtered out by a name pattern.
+
+⚠️ **`test_pricing` prints a SQL traceback and a duplicate-key line** from
+`test_atomicity_concurrent_first_edit_exactly_one_winner` (`test_pricing.py:794`). This is the
+suite **deliberately racing the pricing lock** and observing that exactly one insert wins — the
+noise is the assertion working, not a failure. It is a known tracked rider in the facts doc. The
+suite reports `OK`.
+
+#### F6 — CORRECTED (was: flagged, not corrected)
+
+Part 1 left F6 flagged because the facts doc was ruled untouchable. **R22 lifted that**, so F6 is
+now closed — and closing it exposed that **F6's own replacement number was itself stale**:
+
+| Claim | Source | Status |
+|---|---|---|
+| "vitest 976 across 46 files" | facts doc, v5.90 | ❌ was already historical |
+| "actual is 1188 across 50" | F6, as written in part 1 | ❌ **also stale** — that was true at S3b |
+| **1222 across 53 files, zero skips** | measured this session at `f215d6a9` | ✅ **verified** |
+
+**F6's conclusion always held; only its evidence rotted, twice.** This is finding **F5** demonstrated
+on F5's own author: a number recorded as "actual" is a *measurement with a date*, and stops being
+actual the moment the next slice lands. Cite the measurement commit or do not cite the number.
+
+#### Branch state — verified, and one earlier claim retracted
+
+Measured with `git rev-list --left-right --count develop...HEAD` and `git branch --contains`:
+
+- `feature/boq-within-boq-carry` is **29 commits ahead** of `develop`; `develop` is **0 ahead**.
+- Merge-base is `2bd6032f`, which **is** `develop`'s tip — a **clean fast-forward**, no conflicts.
+
+❌ **RETRACTED:** an earlier claim in this session's planning that the **RM-1…RM-4b** Rate Master arc
+landed on this branch as branch-only work. **It did not.** `bc997eeb` and `fe61165a` are both on
+`develop` (merged via PR #1133), and this branch's merge-base *is* that merge. The facts doc had this
+right all along (`handover.md:34` records the arc as MERGED via PR #1133) — the error was in the
+session narrative, not in the repo record. Nothing needed correcting in the fragment, which never
+repeated it.
+
+#### Scope note
+
+`frontend/.claude/plans/boq/_slices.md` is **NOT** in S9's `files_in_scope`, so **no register row was
+added for S8, S9, or this part-2 file.** Per the fragment-chaining convention that row is owed
+(`nirmaan_ceilings.py:73-75`: chain to `<slug>-part2.md` *and add its row to `_slices.md` beside part
+1*). It needs a follow-up slice with `_slices.md` in scope — until then these records are reachable
+only from part 1's pointer, not from the register.
+
+## WBC-S6c — the structural carve of both `CLAUDE.md` files
+
+**Date:** 2026-07-30 · **Tier:** Full · **Branch:** `feature/boq-within-boq-carry`
+**Supersedes:** `WBC-S6b-correct-and-prune` — byte-by-byte pruning to buy room for
+corrections. S6b was not wrong; it was working at the wrong altitude. The carve
+removes the need for it.
+
+---
+
+### Why this slice exists
+
+S6b hit a wall that was not a budget problem but a **design** problem. Recorded in
+the S6 fragment as F9, and worth restating because it is the whole justification:
+
+> The size guard allowed a write iff `projected <= current`, computed per tool
+> call. So a prune and a correction only offset each other when they sit in ONE
+> contiguous span. For backlog #2 — the carried-verdict cue in
+> `frontend/CLAUDE.md` — the best achievable after losslessly tightening both
+> carry bullets, dropping the optional F1 note and maximally compressing the new
+> text was **+133 B over a 3,329 B span**. Nothing in that span is duplicated
+> anywhere in the repo (0/30 lines). Closing the last 133 B would have meant
+> paraphrasing owner rationale prose. No edit was attempted.
+
+That is the process working correctly and the guard punishing it. Two root causes
+sat underneath:
+
+1. **The ceilings were targets, enforced as invariants.** When the guard was
+   installed, `frontend/CLAUDE.md` was already 104,028 B against a 40,000 B
+   ceiling (2.6x) and `CLAUDE.md` was 63,829 B (1.6x). Both files were born
+   non-compliant, so the only permitted operation was "shrink" — and because a
+   correction usually ADDS bytes, the documents were frozen in a state known to
+   be wrong. Being over budget must not mean being unable to tell the truth.
+2. **`CLAUDE.md` got a ceiling but never got a rotation rule.** The two documents
+   that were fixed before this — `boq-frontend.md` (287 KB → 10 surface files) and
+   `boq-upload-plan.md` (1.29 MB → trunk + fragments + registers) — each got a
+   *partition axis*. `CLAUDE.md` got only a number. A ceiling without a rotation
+   rule is a wall, not a policy.
+
+`CLAUDE.md` cannot be carved the way `boq-frontend.md` was, because its whole
+value is being **auto-loaded**. Split it into ten peers and nothing reads them. So
+it takes the shape the delivery skill already uses on itself: `SKILL.md` is 88
+lines routing to nine references. `CLAUDE.md` becomes a router.
+
+---
+
+### What changed
+
+#### The carve
+
+| File | Before | After | Ratio |
+|---|---|---|---|
+| `frontend/CLAUDE.md` | 105,817 B | **16,301 B** router | 6.5x smaller |
+| `CLAUDE.md` | 71,995 B | **19,048 B** router | 3.8x smaller |
+| **auto-loaded total** | **177,812 B** | **35,349 B** | **5.0x — ~35,600 tokens per session** |
+
+147,900 B moved to eleven on-demand surfaces:
+
+| New file | Bytes |
+|---|---|
+| `frontend/.claude/context/conventions/frontend-pricing-editor.md` | 41,173 |
+| `frontend/.claude/context/conventions/frontend-pricing-module.md` | 23,824 |
+| `frontend/.claude/context/conventions/frontend-gotchas.md` | 14,228 |
+| `frontend/.claude/context/conventions/frontend-rate-master.md` | 6,792 |
+| `frontend/.claude/context/conventions/frontend-wizard.md` | 3,416 |
+| `frontend/.claude/context/conventions/frontend-review-invariants.md` | 3,251 |
+| `.claude/context/conventions/backend-active-features.md` | 37,687 |
+| `.claude/context/conventions/backend-rate-master.md` | 6,829 |
+| `.claude/context/conventions/backend-domain-gotchas.md` | 4,303 |
+| `.claude/context/conventions/backend-pricing-module.md` | 3,919 |
+| `.claude/context/conventions/backend-rate-suggestion.md` | 2,478 |
+
+**Method — structural, never regex on content.** Phase 1 learned this the
+expensive way, when a regex classifier filed eight slice records as design
+records because their headings looked like design headings. Sections here were
+located by heading level and byte span, each span ending at "the next heading at
+the same or a shallower level".
+
+**Losslessness — verified, not asserted.** Independently of the migration
+script, every non-blank line of `git show HEAD:CLAUDE.md` and
+`git show HEAD:frontend/CLAUDE.md` was confirmed present in either the new router
+or exactly one destination file. **954 + 359 content lines, 0 lost.**
+
+A byte-accounting bug was caught mid-run and fixed before apply: the script
+reported `len(str)` while the guard measures UTF-8 **bytes**, and these documents
+are full of em-dashes, arrows and warning glyphs — a ~1% under-report (105,001 vs
+105,817). Every number above is bytes.
+
+#### Correction #2 — finally landed
+
+The carried-verdict cue in `frontend-pricing-editor.md` now states **three**
+inputs instead of one:
+
+- `carried_from_boq` — the row's origin BoQ. **The STATE still keys on this field
+  alone**; the other two shape the tooltip, never the verdict.
+- `carried_from_version` (R3) — which VERSION a within-BoQ carry came from.
+- `carried_from_other_boq` (R16) — **derived SERVER-SIDE** in
+  `get_sheet_categories_resolved`. Do not re-derive cross-BoQ-ness in the client.
+
+The tooltip reads `carried from Version N` within a BoQ and `carried from BOQ-…`
+across one. Rendering the BoQ form for both was the pre-R16 bug.
+
+The correction **grew** its file by ~1.2 KB — precisely the write the old guard
+denied. It landed because the file is now 42 KB against a 100 KB ceiling. The
+debt S6b recorded as "accepted, structurally uncorrectable" is closed.
+
+#### Fragment repatriated
+
+`.claude/plans/boq/slices/2026-07-29-within-boq-carry-parity.md` (24,752 B) was
+living in a **second, orphaned plan tree at the app root** — one file, while the
+real tree under `frontend/` holds 175 and owns `_slices.md`. Its record existed
+but was unreachable from the map, which is the literal form of "the documentation
+stopped making sense".
+
+Cause: `process-config.md` declares `fragments: frontend/.claude/plans/boq/…`,
+but the slice-state examples in `planner.md` and `orchestration.md` both showed
+`.claude/plans/boq/…` with no `frontend/` prefix — while `orchestration.md`
+simultaneously *mandates* launching from the app root. A relative `.claude/…`
+therefore resolved to the app root, and `guard_scope.py` waved it through because
+`plan_fragment` is always in scope.
+
+`git mv`d into the real tree, indexed in `_slices.md`, stray directories removed.
+
+---
+
+### Follow-on state
+
+- `.claude/context/domain/boq-backend.md` is **187,338 B against a 100,000 B
+  ceiling (1.9x)** and is now in repair mode. It has 20 `##` sections and is the
+  next carve. It is on-demand rather than auto-loaded, so it costs nothing per
+  session — but it can only take corrections up to 2 KB until it is split.
+- The facts doc is **51 commits behind `develop`, 75 behind HEAD**. A fold is owed.
+- The restructure (this slice plus `0060499e` and `dbd51571`) is **24 commits
+  ahead of `develop`, a clean fast-forward, published nowhere.** Until it merges,
+  every other clone still sees the 1.35 MB monolith and no `plans/boq/` tree.
+
+### Ratified process changes
+
+Recorded in `process-config.md`'s changelog on 2026-07-30, owner-approved:
+
+1. **Repair band.** A file over ceiling may still grow by up to 2,000 B per call,
+   so a document over budget stays correctable. Bounded and reported — the
+   session-open digest lists every over-ceiling file with its ratio.
+2. **Ceilings derived from the measured corpus**, with the derivation recorded
+   inline in `nirmaan_ceilings.py`, shared by the guard and the digest so the two
+   cannot disagree.
+3. **Fragment chaining.** Fragments stay write-once, but a slice too large for one
+   opens `<slug>-part2.md` and adds its own row beside part 1. Hard ceiling
+   22 KB warn / 32 KB deny.
+4. **Monotonic files rotate at the WARN band, not the deny band.** `_slices.md`
+   grows one row per slice forever; at the old 45,000 B deny it had roughly 100
+   slices left before no slice could register itself.
+5. **Path form.** Every slice-state path is repo-root-relative and carries the
+   `frontend/` prefix where the tree lives there.
+
+## WBC-S10 — ungate the within-BoQ copy-forward
+
+**Branch** `feature/boq-within-boq-carry` · **Base** `cb1241ba` · **Tier** FULL · **Date** 2026-07-30
+
+The within-BoQ "copy rates forward" action (`apply_copy_forward`) refused when the destination sheet
+had rows without a category. That gate is removed. Nothing else about the action changed.
+
+---
+
+### The owner's reasoning — the part that must survive
+
+The gate exists to stop a **HAND-TYPED** rate landing on an uncategorised row. A **copy** moves known
+values from a known-good source, which is a **different risk**.
+
+Rates still cannot be **EDITED** until categories are complete. That protection lives in
+`_guard_categories_complete` on the SAVE path and is **untouched** — byte-identical, verified.
+
+This is the **identical reasoning already recorded in `cross_boq_carry.py`** for the cross-BoQ carry
+(the Amendment E comment block). **This slice is NOT a reversal of Amendment E; it is an extension of
+its logic to the same-sheet copy.** Do not "restore consistency" by re-adding the gate.
+
+The resulting state is one the owner explicitly accepts: a copy into an uncategorised destination
+arrives with **rates visible but rate editing locked**, the amber banner naming the rows still
+missing a category — exactly the shape the revision carry already produces.
+
+#### Gate sequence
+
+```
+was (G2c):        lock -> formulas -> CATEGORY GATE -> acquire -> rates -> commit
+was (Amend F R2): lock -> formulas -> acquire -> CARRY LAYERS -> CATEGORY GATE -> rates -> commit
+now (S10):        lock -> formulas -> acquire -> CARRY LAYERS -> rates -> commit
+```
+
+The mandatory amount-formula gate is **unaffected and keeps precedence** — still first, before the
+lock and the layers.
+
+---
+
+### Seam
+
+`apply_copy_forward`'s **interface** — specifically its documented refusal set. The change removes one
+condition from that set. It is the right seam because the refusal set is what both callers cross:
+`CopyForwardDialog` (which mirrors gates into `disabled`) and the tests. The gate was never a
+property of the write loop or of `_write_cell_price_record`; it was a sheet-level precondition
+evaluated once at the endpoint, which is precisely where an endpoint-level policy belongs.
+
+`_categories_gate_ok` itself was NOT removed — it survives as `rate_master._guard_suggest_gate`'s
+condition. After this slice it has **exactly one caller**, `api/boq/rate_master.py:203`.
+
+---
+
+### What changed
+
+| File | Change |
+|---|---|
+| `nirmaan_stack/api/boq/wizard/pricing.py` | Gate block + its 12-line justification comment deleted from `apply_copy_forward`. Docstring gate diagram rewritten. `_categories_gate_ok` docstring caller list corrected. `_resolve_and_guard_cell` docstring corrected. Formula-gate comment re-voiced. |
+| `nirmaan_stack/api/boq/wizard/test_pricing.py` | 8 refusal tests disposed (see table). 1 new test. 2 class docstrings + 6 stale comments corrected. |
+| `frontend/src/pages/boq-wizard/CopyForwardDialog.tsx` | **Comment-only.** Docblock note corrected. |
+
+#### Documentation corrected because this change made it false
+
+- `_categories_gate_ok`'s docstring named `apply_copy_forward` as a caller (about to be untrue) **and**
+  claimed `cross_boq_carry` maps `False` to a `'categories_incomplete'` reason tuple — **that half was
+  already untrue at HEAD**; Amendment E removed the gate from that path and no such reason code
+  exists. Both corrected.
+- The "AMENDMENT F R2 REORDERS THE GATES" diagram in `apply_copy_forward`'s docstring.
+- `_resolve_and_guard_cell`'s docstring claimed **both** carry paths run "the deliberate-lock +
+  formula + category gates" — false for `cross_boq_carry` since Amendment E, and now false here too.
+
+---
+
+### Test dispositions
+
+Eight tests asserted this copy REFUSES. None were bulk-deleted and none were merely made to pass.
+
+| # | Test | Disposition | Why |
+|---|---|---|---|
+| a | `test_a_refused_when_destination_blank` | **INVERTED** → `test_a_copies_into_a_blank_destination` | Asserted the G3a refusal text. Now asserts the opposite over the same fixture, plus the stronger fact: the destination has zero categories **before and after**, so the rate demonstrably landed on an uncategorised row. |
+| b | `test_b_refusal_writes_nothing` | **DELETED** | Protected "a category refusal writes nothing". Void — no category refusal exists. Refusal-writes-nothing on the surviving axes is pinned by the lock test, the formula-precedence test, and `test_apply_rolls_back_on_mid_batch_failure`. |
+| d | `test_d_admin_override_unlocks` | **DELETED** | Protected "the admin override is the escape from the copy-path gate". Void — there is no gate to escape. The override's surviving job (the SAVE path) is covered by `TestCategoryGate` `test_d`/`test_e`. *(This test still PASSED after the change — deleted anyway, because a passing test whose subject no longer exists is worse than none.)* |
+| f | `test_f_replay_and_no_double_apply` | **MODIFIED** | Kept; only its opening "refused while blank" step removed. Its real subject — replay without double-apply — is untouched and still asserted. |
+| h | `test_h_qtyless_preamble_gates_carry` | **DELETED** | Protected the G2e "empty is empty" widening **as a carry refusal**. Void. The widening still governs the SAVE path and is covered by `TestCategoryGate` `test_g` and the whole of `TestEligibleGateWidened`. |
+| j | `test_j_preexisting_dest_rate_survives_refused_carry` | **INVERTED** → `test_j_preexisting_dest_rate_is_kept_as_a_conflict_not_overwritten` | Same fixture now proves the thing worth protecting: ungating did **not** turn a conflict into an overwrite. Row 30 holds 777.0, so the copy runs, classifies it outcome 3, and KEEPS it — byte-identical, no superseded history row. |
+| r2-1 | `test_r2_without_the_category_layer_the_gate_still_refuses` | **INVERTED** → `test_without_the_category_layer_the_rates_still_land` | Rates land; destination legitimately left priced-but-uncategorised; the ticked layer still carries. |
+| r2-2 | `test_r2_incomplete_source_categories_refuse_and_roll_back_every_layer` | **INVERTED** → `test_incomplete_source_categories_carry_what_exists_and_still_price_both_rows` | The most valuable inversion. Source row 51 has no category, so destination row 51 ends up **priced but uncategorised** — exactly the state the removed gate existed to prevent and exactly the state the owner ruled is fine. Asserts both rates land, only the one existing category carries, and the other three layers carry normally. |
+| r2-3 | `test_r2_a_refused_carry_leaves_a_preexisting_destination_rate_byte_identical` | **DELETED** | Protected "a CATEGORY-refused carry leaves a pre-existing rate byte-identical under R2's post-carry ordering". Void. Refusal-on-a-surviving-axis is pinned by the lock + formula tests; non-refused conflict-keep is now pinned by the inverted `j`. |
+
+#### `test_k` — kept, deliberately
+
+`test_k_gate_sees_uncommitted_category_writes_in_the_same_transaction` calls `_categories_gate_ok`
+**directly**, never through `apply_copy_forward`, so S10 does not touch what it exercises. It was
+written to prove the Amendment F R2 precondition, which is void — **but it is the only direct test of
+a helper that survives** and still gates Rate Master. Kept and re-voiced: what it now pins is that
+`_categories_gate_ok` is a **live** read, not a committed-only one.
+
+*(Checked: `rate_master._guard_suggest_gate` is a pre-flight endpoint check, so transaction
+visibility is not load-bearing for it. The test is kept for coverage of the helper, not for R2.)*
+
+#### New test
+
+`TestCopyForwardLayers.test_rates_only_carry_lands_on_a_destination_with_no_categories` — the
+headline. Layers **omitted** entirely (so nothing in the call could populate categories) into a
+destination with **no categories at all**. Asserts `copied == 1`, `layers == {}`, the rate lands, and
+— the assertion no other test makes — **the destination still has zero category rows afterwards**.
+
+**Red run shown before green:** the test failed with
+`ValidationError: Nothing was copied. The destination sheet 'CFL Fix ' still has rows without a
+category…` (`Ran 1 test … FAILED (errors=1)`), then passed after the gate removal (`Ran 1 test … OK`).
+
+#### Verified unchanged
+
+`_guard_categories_complete` and `_get_category_gate_override` confirmed **byte-identical** by
+extraction-and-compare against HEAD (1566 B and 468 B, unchanged). `_categories_gate_ok`'s **body**
+byte-identical (docstring only was corrected). `save_cell_price`'s call site untouched. Formula-gate
+precedence, lock-held refusal, duplicate-source-position drop, replay/no-double-apply, per-layer tick
+behaviour, and both save-path gate classes (`TestCategoryGate`, `TestEligibleGateWidened`) all pass
+unchanged.
+
+#### Fixture setup removed as newly-pointless
+
+Four `_categorise_fixture_eligible_rows` calls existed **only** to stop the removed gate refusing:
+`TestCopyForward.setUpClass`, `test_apply_re_resolves_drifted_column`, `test_omitted_layers_is_rates_only`,
+and `test_a_classification_frozen_destination_takes_no_category_write`. Removed with their comments —
+keeping the call would have required keeping a comment that is now false. Those tests now run against
+uncategorised destinations, which is the more honest fixture. The bare call in
+`TestCopyForwardN2Matching.setUpClass` was **left alone** (no false comment attached to it).
+
+---
+
+### Frontend finding (item 5)
+
+**`CopyForwardDialog.tsx` contains no user-visible category messaging at all — there was nothing to
+remove.** Stated explicitly rather than silently changing nothing:
+
+- No banner, warning, label, or helper text mentions categories or the category gate.
+- The only user-facing gate banner is the **amount-formula** one ("The current version still has
+  amount columns without a formula. Declare them before copying.") — **unchanged**.
+- `disabled={!formulasComplete}` on both the layer block and the apply button — **unchanged**, as
+  required.
+- The word "categories" appears only as the label of the opt-in **layer** checkbox, supplied by the
+  shared `CarryLayersBlock` (out of scope, and not gate messaging).
+- `grep` for `Categories incomplete` / `Categorise the destination` across `frontend/src/` — **no
+  matches**. The frontend never special-cased the removed server message.
+- One coincidence worth not misreading: the post-apply summary string `"Nothing was copied into the
+  current version."` (line ~200) is `summarizeCopyForward`'s zero-write branch. It shares wording
+  with the deleted server refusal but is unrelated. **Left alone.**
+
+The only category-gate content in the file was the **docblock**, which promised "the server still
+refuses and rolls the whole transaction back" and "R8 keeps that gate UNCONDITIONAL". That is now
+false, so it was corrected. **The frontend diff is comment-only** — verified by reading the diff.
+
+---
+
+### Verification — observed output
+
+| Suite | Baseline | Final |
+|---|---|---|
+| `test_pricing` | **Ran 255 — OK** | **Ran 252 — OK** |
+| `test_committed_carry` | **Ran 49 — OK** | **Ran 49 — OK** |
+| `test_cross_boq_carry` | **Ran 60 — OK** | **Ran 60 — OK** |
+| vitest (in-container) | **1222 passed, 53 files** | **1222 passed, 53 files** |
+
+`test_pricing` 255 → 252 reconciles exactly: **−4 deleted** (b, d, h, r2-3) **+1 new** = 252.
+
+Intermediate red state after the gate removal and before the dispositions: **8 failures**, exactly
+the 8 refusal tests listed above and nothing else — which is itself the evidence that the removal's
+blast radius was confined to the category axis.
+
+Run in-container via `docker exec … bench --site localhost run-tests --module …`. `test_pricing`
+prints a SQL traceback from the deliberate lock-race test (`duplicate key … tabBoQ Sheet Pricing
+Lock_pkey`) — expected noise; the suite still reports OK. No browser session ran against localhost
+during the bench runs (`tabSeries` naming-lock collision).
+
+**`tsc --noEmit`: 3236 errors repo-wide, ALL pre-existing — `CopyForwardDialog.tsx` contributes
+NONE.** Recorded because the number is alarming out of context; the frontend diff here is a comment.
+
+---
+
+### Findings
+
+1. **A pre-existing false claim was found while correcting a true one.** `_categories_gate_ok`'s
+   docstring said `cross_boq_carry` maps `False` to a `'categories_incomplete'` reason tuple. That
+   was **already wrong at HEAD** — Amendment E removed the gate from that path and no such reason
+   code exists anywhere. Corrected as part of item 3.
+
+2. **⚠️ OWNER RULING NEEDED — a stale clause survives inside a byte-identical function.**
+   `_guard_categories_complete`'s docstring (`pricing.py:360`) still reads *"(the carry paths keep
+   delegating to `_categories_gate_ok`, whose bool needs no count)"*. **No carry path delegates to it
+   any more** — Amendment E removed one, S10 the other. This is now false.
+   **It was NOT corrected**, because the build prompt required that function to survive
+   **byte-identical**, and that instruction carried an explicit failure test ("if editing stops being
+   gated, the change is wrong"). Obeying the stricter constraint and reporting the residue is the
+   safe order of operations; silently editing a function declared byte-identical is not.
+   **Owed: a one-line docstring fix, in a slice that puts `_guard_categories_complete` in scope.**
+
+3. No hook denied any write. No guard fired. No scope violation attempted.
+
+---
+
+### Deliberately NOT done
+
+- **`cross_boq_carry.py` not touched** — out of scope, already ungated. Read once for voice only.
+- **`rate_master.py` not touched** — out of scope. Confirmed it is now `_categories_gate_ok`'s sole
+  caller; its behaviour is unchanged.
+- **`_categories_gate_ok` not deleted** — it still has a live caller.
+- **Save path not touched** — the whole point of the slice is that editing stays gated.
+- **No browser E2E.** The frontend change is a comment, so there is nothing to see. The behaviour
+  change is server-side and fully covered by bench tests. A live check would be worth it only as part
+  of the arc's certification pass, against the pricing grid's amber-banner behaviour on a
+  freshly-copied uncategorised sheet.
+- **Finding 2 not fixed** — see above; needs the guarded function in scope.
+
+## WBC-S11 — serial-number second-pass match
+
+**Branch** `feature/boq-within-boq-carry` · **Base** `283a0199` · **Tier** FULL · **Date** 2026-07-30
+
+The original → revised rate carry could only match a row that had **not moved**: `match_rows`
+required identical Excel position AND identical N2 description, a conjunction with no fallback. A
+row that shifted could not carry even with byte-identical text. It now gets a second pass keyed on
+**serial number + description**.
+
+---
+
+### ADR-0014 **Amendment G** — the boundary
+
+#### The rule
+
+Pass 1 is unchanged and takes precedence. Pass 2 runs **only** over rows unmatched on **both** sides
+after pass 1, and pairs two rows only when all of:
+
+- serial non-blank on both sides
+- N2-normalized descriptions equal (the same comparison pass 1 makes)
+- the `(serial, description)` key occurs **exactly once** among unmatched originals **and** exactly
+  once among unmatched revised
+
+Anything else stays unmatched. This mirrors the existing *second sighting → neither is trustworthy →
+drop the key outright* discipline already used for duplicate positions. The owner's chosen failure
+mode: **a bad serial LOSES a match, it never CREATES a wrong one.**
+
+#### Where it is enabled
+
+| call site | pass 2 | consumer |
+|---|---|---|
+| `committed_carry.committed_excel_row_match` | **ON** | `cross_boq_carry` — the rate carry **and** the opt-in layer carry |
+| `committed_carry.version_addressed_excel_row_match` | off | `pricing.apply_copy_forward`, the within-BoQ copy-forward |
+| `review_carry.merge_revision_review_carry` | off | the parse-time classification + parenting carry |
+
+`serial_second_pass` is **keyword-only, default False**, so the consumers that must not have it are
+unaffected **by construction**, not by care.
+
+#### ⚠️ The boundary is STRUCTURE vs. everything else — not rates vs. layers
+
+**The build prompt's original framing was wrong and the owner corrected it mid-slice (2026-07-30).**
+It listed four consumers and said only the rate carry may have pass 2, with the cross-BoQ *layer*
+carry (categories / remarks / colours / dismissals) explicitly "unchanged". That is not achievable
+and not desirable:
+
+- **Not achievable.** #1 and #2 are not two `match_rows` call sites. `cross_boq_carry` derives **one**
+  match per sheet and four consumers read it — `_classify_carry` (rates), `_count_new_priceable_rows`,
+  `_plan_layer_counts` and `_carry_layers` (both via `_carry_ctx`, which takes
+  `twin=match.original_to_revised`). Holding the layers back would have required a second, stricter
+  derivation.
+- **Not desirable.** The risk the strict position rule contains is a row being **re-parented under a
+  stale or superseded heading** — a structural fault that propagates silently through every
+  descendant, unlike a wrong rate, which is a visible number a human catches in the pricing grid.
+  That risk lives in consumer #4, the **parse-time** carry, which stays strict and is untouched by
+  this slice. Categories, remarks and colours are **row-addressed annotations, not parenting**;
+  putting one on a row the match has *already decided is the same row* adds no structural risk the
+  rate does not already carry.
+- **And splitting would have partly undone Amendment E**, whose whole point is that the carry moves
+  categories and rates in **one** action so the category gate cannot block its own remedy. A moved
+  row left priced-but-uncategorised reinstates exactly the manual finishing step E removed. This is
+  the strongest argument for the ruling.
+
+**Ruling: one match, the layers ride along.** #1 and #2 both get pass 2. #3 and #4 stay strict, and
+the tests pinning them are now the entire boundary.
+
+#### ⚠️ If you are bisecting: commit `72933a60`'s message is SUPERSEDED
+
+`72933a60` (the pure-matcher commit) says the flag exists so that *"the three consumers that must
+not get it (the cross-BoQ layer carry, the within-BoQ copy-forward, the parse-time
+classification/parenting carry) are unaffected"*. **The first of those three is wrong.** The owner's
+ruling above arrived *after* that commit was written, and the cross-BoQ **layer** carry **does** get
+pass 2 — it reads the very same match object as the rate carry, so it was never separable.
+
+Corrected one commit later in `bce47806`, whose message and code docstrings carry the true boundary
+(structure vs. everything else). **Commit history is immutable, so the message itself cannot be
+fixed** — this note is the correction of record. Only two consumers must not get the flag:
+`version_addressed_excel_row_match` and the parse-time carry.
+
+#### This is a sanctioned exception, not drift
+
+`row_match.py`'s docstring warns that the design went through **four owner narrowings** and says not
+to loosen it back toward a diff or a walk. That warning stands. This slice is a deliberate,
+owner-approved, **opt-in and narrowly-scoped** exception, recorded so a future reader sees intent
+rather than erosion. What keeps it from being a re-run of the description-only engine D6 rejected:
+**pass 2 never guesses.** A key that is not unique on both sides pairs nothing.
+
+#### Deliberately out of scope — no float repair
+
+Live `code` values include `"2.3000000000000003"` (a formula cell whose float precision leaked into
+stored text), plus prose (`"GRAND TOTAL (EX GST 18%)"`), date strings (`"2010-06-01 00:00:00"`),
+`"SUB HEAD A"`, `"A."`, `"1.1.7"` and blanks. **No numeric coercion, no trailing-zero repair** —
+clever coercion is exactly how a wrong pairing gets made. Such rows stay unmatched. A possible later
+refinement, not an oversight.
+
+`normalize_n2` was **not modified** — it is single-homed across three unrelated carry axes. It is
+reused on both halves of the key, and **no separate serial normalizer was added**: trim + lowercase +
+whitespace-collapse is already the right rule for a printed serial. Case folding cannot mis-pair,
+because a fold that collided two real serials produces a duplicate key, which is dropped.
+
+---
+
+### Seam (A21)
+
+**`match_rows`'s interface.** The flag, the `MatchRow.serial` input and the `RowMatchResult.serial_matched`
+output all live there. It is the right seam because it is the **only** place the four consumers
+differ: they already share one row projection (`_content_match_rows`) and one result type, so the
+matching *rule* is the single thing that can vary between them. Putting the switch anywhere else
+makes the boundary worse:
+
+- on `_content_match_rows` (withholding the serial from the within-BoQ reader) — the boundary becomes
+  invisible at the call site, and a reader of `version_addressed_excel_row_match` cannot see why it
+  behaves differently. Pinned against by `test_both_entry_points_see_the_same_serials`.
+- as a parameter on `committed_excel_row_match` — the owner already ruled against widening that entry
+  point with a flag (Amendment F R6), and `test_freeze_pin_committed_excel_row_match_signature`
+  enforces it. That test still passes untouched: the flag is passed *through* to `match_rows`, so the
+  entry point's own signature is unchanged.
+
+The interface stayed small: one keyword-only boolean in, one frozenset out, both defaulted.
+
+---
+
+### What changed
+
+| File | Change |
+|---|---|
+| `services/boq_revision/row_match.py` | `MatchRow.serial`, `RowMatchResult.serial_matched`, the `serial_second_pass` flag, `_serial_second_pass` + `_serial_key`. `_index_by_excel_row` generalised to `_unique_index(rows, key)`; `_entered(rows)` becomes the one definition of which rows enter a match. Amendment G docstring. |
+| `services/boq_revision/test_row_match.py` | 22 new tests (17 → 39). |
+| `api/boq/wizard/committed_carry.py` | `code` added to `_NODE_MATCH_FIELDS`; `_content_match_rows` projects it onto `MatchRow.serial` for **both** readers; flag enabled in `committed_excel_row_match` only, with the ruling recorded on both entry points. |
+| `api/boq/wizard/test_committed_carry.py` | `_node()` gains `code=`. `TestCommitOverlayShiftStopsCarry` widened. New `TestSerialSecondPassBoundary` (9 new tests, 49 → 58). |
+| `api/boq/wizard/cross_boq_carry.py` | `match_pass` on every plan row; `removed` reason string corrected; Amendment G module docstring. |
+| `api/boq/wizard/test_cross_boq_carry.py` | `_seed_sheet` accepts `code`; `_color_on` / `_dismissal_on` helpers. Rich fixture gains row 17 → 30. New `TestSerialMovedRowCarriesEverything` (8 new tests, 60 → 68). |
+| `api/boq/wizard/pricing.py` | **Doc-only.** `_guard_categories_complete` docstring; body byte-identical. |
+
+**No `.tsx` touched** — owner's explicit call: plan data only, the dialog does not change.
+
+#### Intended consequence: `_count_new_priceable_rows` shrinks
+
+A serial-matched destination row genuinely **no longer needs a value typed by hand**, so it correctly
+drops out of the "N rows need new values" figure. Recorded as intended, not incidental, and pinned by
+causation: `test_a_serial_matched_row_does_not_count_as_needing_a_new_value` strips the destination
+serial and watches the figure go 3 → 4.
+
+#### The `removed` bucket is narrower
+
+Was *"moved, reworded or removed"*. A moved row can now carry, so the string reads
+**"removed, reworded, or moved without a matching serial number"** — which is exactly what is left in
+the bucket.
+
+---
+
+### Documentation rot corrected (commit `f289889a`)
+
+Five sites asserted that `pricing.apply_copy_forward` still keeps the category gate. All became false
+at **`283a0199`** (WBC-S10), not at this slice: `cross_boq_carry.py` ×2, `test_cross_boq_carry.py` ×2,
+`pricing.py` ×1.
+
+The `pricing.py` one is **S10's Finding 2, now discharged** — S10 recorded it as *"owed: a one-line
+docstring fix, in a slice that puts `_guard_categories_complete` in scope"*. This slice does.
+`_guard_categories_complete`'s **body verified byte-identical (646 B)**; only the docstring changed.
+
+In the **S10 fragment**, `Three` → `Four` in the `_categorise_fixture_eligible_rows` count sentence
+(it listed four). Sentence-initial, so capitalised; owner confirmed.
+
+---
+
+### Test dispositions
+
+Nothing was bulk-deleted. **40 tests added, 1 renamed away as a disclosed split — net +39.** The one
+that went is `test_the_shifted_row_is_not_a_twin` (row 2 below); it was replaced by two tests that
+cover *both* outcomes of the same move, so coverage is strictly stronger after the split.
+
+| # | Test | Disposition | Why |
+|---|---|---|---|
+| 1 | `TestPositionIsLoadBearing` (`test_row_match.py`) | **UNTOUCHED — verbatim** | The prompt's own failure test: it drives `match_rows` with the default and must keep passing. It does. If it ever fails, the default has leaked and the slice is wrong. Deliberately not modified even to add a comment. |
+| 2 | `test_the_shifted_row_is_not_a_twin` (`test_committed_carry.py`) | **SPLIT** → `test_the_shifted_row_without_a_serial_is_not_a_twin` + `test_the_shifted_row_WITH_a_matching_serial_is_a_twin` | The fixture had no serials, so with the flag on this test would have kept passing **for the wrong reason** — nothing in it could reach pass 2. The fixture gains a third row that moves *with* a serial, so both outcomes of the same move now sit side by side and neither can go green vacuously. A third test pins `serial_matched`. |
+| 3 | `test_plan_unmatched_rows_all_report_removed` (`test_cross_boq_carry.py`) | **MODIFIED, kept** | Row 14 is genuinely still `removed` — it moved *and has no serial*. Kept because that is a real, distinct case worth protecting. But "a moved row does not carry" is now only half true, so the test asserts the reason explicitly **and asserts row 14 really is serial-less** — otherwise a later fixture edit could silently turn it into a vacuous pass. Also now asserts `match_pass is None` on every skip. |
+| 4 | `test_plan_counts` (`test_cross_boq_carry.py`) | **MODIFIED** | `clean` 1 → 2: row 17 joins row 10 via the serial pass. The only count that moved; `removed` stays 3. |
+| 5 | `test_plan_new_rows_absent_but_counted` | **UNCHANGED, and checked** | `needs_new_value_count` stays 3. Dest row 30 is *matched*, so it never enters the unmatched set. Verified rather than assumed. |
+| 6 | `test_freeze_pin_committed_excel_row_match_signature` | **UNCHANGED** | Amendment F R6 pins this entry point's signature against exactly this kind of widening. It still passes: the flag is passed through to `match_rows`, not added as a parameter here. |
+| 7 | all apply tests in `TestCrossBoqRateCarry` | **UNCHANGED** | They pass explicit decisions, so an extra plan row cannot reach them. |
+
+#### New tests
+
+**`test_row_match.py` (+22)** — `TestSerialSecondPassIsOptIn` (default-off + keyword-only signature
+pin; a moved+serialled row does *not* pair with the flag off) and `TestSerialSecondPass`: the moved
+row carries; blank serial (both sides, one side, whitespace-only); differing serial; differing
+description on a matching serial; duplicate key on either side; sticky third sighting; same serial
+under *different* descriptions still pairs; pass 1 wins over a competing pass-2 candidate (both
+directions); a position-dropped duplicate can still pair on its serial; no float repair; a non-string
+serial does not raise; symmetry across both passes.
+
+**`test_committed_carry.py` (+9)** — `TestSerialSecondPassBoundary` seeds **the same** moved-and-
+serialled row into both committed shapes, so the two entry points are compared on identical data and
+the only difference can be the flag: cross-BoQ pairs it, within-BoQ does not. Plus blank / changed /
+duplicated serials against real `BOQ Nodes`, and `test_both_entry_points_see_the_same_serials`, which
+closes the one way the within-BoQ pin could pass hollowly (if the serial never reached `MatchRow` at
+all, the pin would hold even with the flag on).
+
+**`test_cross_boq_carry.py` (+8)** — the serial-moved row planned as a clean copy; `match_pass`
+reported per row; the reason string; the `needs_new_value_count` shrink proved by stripping the
+serial; and `TestSerialMovedRowCarriesEverything`, the end-to-end proof through `apply_sheet_carry`
+that a moved row carries its **rate and all four layers**, each still attributed with
+`carried_from_boq` / `carried_from_version`, and that stripping the destination serial makes all five
+stop landing.
+
+#### Consumers #3 and #4 — the whole boundary, pinned two ways
+
+- **Behavioural**: `test_the_within_boq_entry_point_does_NOT_pair_the_same_moved_row`.
+- **Structural**: `test_exactly_one_production_call_site_enables_the_second_pass` walks the app's
+  **AST** and asserts `serial_second_pass` appears as a call keyword in exactly one non-test file.
+  It covers the parse-time carry, which has no fixture here, and it catches a *third* consumer added
+  later — the actual regression this slice invites. Source-scanning is deliberate; a behavioural
+  mirror would need a full parse-worker fixture to assert a negative and still would not catch that.
+
+---
+
+### Live data — the expected-unmatched population
+
+Read-only query against the dev bench, 2026-07-30. **This is the number someone will ask about when
+a row does not carry.**
+
+| Measure | Value |
+|---|---|
+| current `BOQ Nodes` | 37,800 |
+| …with a non-blank `code` | **24,926** (~66%) |
+| unique `(sheet, code, description)` groups | **22,646** |
+| rows sitting in duplicate `(sheet, code, description)` groups | **2,280** — unmatched **by design** |
+
+**Serial alone was never viable**, and this is the evidence: within the live corpus `'a'` occurs
+**999** times, `'b'` 849, `'c'` 615, `'a.'` 333; inside a *single* sheet `'i)'` occurs 71 times and
+`'ii'` 62. It is the **pair** that carries the information — which is why the key is
+`(serial, description)` and never the serial on its own.
+
+The ~2,280 duplicate-group rows staying unmatched **is the safe failure mode working**, not a defect.
+Rows with no serial at all (~34%) are likewise untouched by pass 2 and keep behaving exactly as
+before.
+
+*(No `code` matching `%.%0000%` was found on this bench, so the `"2.3000000000000003"` shape was not
+directly observed here — but equivalent noise was: prose headers and date strings. The no-coercion
+ruling stands on that evidence regardless.)*
+
+---
+
+### Verification — observed output
+
+One suite at a time, in-container. No browser session ran against localhost during the bench runs
+(`tabSeries` naming-lock collision).
+
+| Suite | Baseline | Final |
+|---|---|---|
+| `test_row_match` | **Ran 17 — OK** | **Ran 39 — OK** |
+| `test_carry` | **Ran 29 — OK** | **Ran 29 — OK** |
+| `test_committed_carry` | **Ran 49 — OK** | **Ran 58 — OK** |
+| `test_cross_boq_carry` | **Ran 60 — OK** | **Ran 68 — OK** |
+| `test_pricing` | **Ran 252 — OK** | **Ran 252 — OK** |
+| vitest (in-container) | **1222 passed, 53 files** | **1222 passed, 53 files** |
+
+Net **+39** (40 added, 1 renamed away as the disclosed split). `test_pricing` prints a SQL traceback from
+`test_atomicity_concurrent_first_edit_exactly_one_winner` (`duplicate key … tabBoQ Sheet Pricing
+Lock_pkey`), which deliberately races the pricing lock — expected noise; the suite reports OK.
+
+#### Red runs shown before green (A22)
+
+| Cycle | Red | Green |
+|---|---|---|
+| the pure matcher | `Ran 39 … FAILED (errors=39)` — `TypeError: MatchRow.__init__() got an unexpected keyword argument 'serial'`, `KeyError: 'serial_second_pass'` | `Ran 39 … OK` |
+| the wiring | `Ran 58 … FAILED (failures=5)` | `Ran 58 … OK` |
+| plan data | `Ran 68 … FAILED (failures=1, errors=3)` | `Ran 68 … OK` |
+
+The doc-rot commit has no red run — it is comment-only, and there is no behaviour to fail.
+
+---
+
+### Findings
+
+1. **The spec's four-way consumer list was wrong; the build STOPPED and asked.** #1 and #2 are one
+   match, not two call sites. Resolved by owner ruling (b) — see the boundary section. The stop was
+   the right call: the two resolutions differed in user-visible behaviour (a moved row arriving
+   priced-but-uncategorised, or not).
+
+2. **⚠️ The prompt's predicted test conflicts did not exist, and that was the most dangerous thing in
+   the slice.** `_node()` and `_seed_sheet()` never populated `code`, so with the flag on, pass 2 was
+   **inert across every existing fixture** — `test_the_shifted_row_is_not_a_twin` and
+   `test_plan_unmatched_rows_all_report_removed` would both have stayed green **because the feature
+   never executed**. Fixed by extending both helpers and seeding serial-bearing moved rows beside the
+   serial-less ones. Recorded because the same trap will recur: *a green suite is not evidence a
+   fixture reaches the code under test.*
+
+3. **A test of mine was wrong twice before it was right, and both defects were in the test.** The
+   call-site pin first scanned raw text — which flagged `row_match.py` for merely *mentioning* the
+   flag in a docstring — and used a path root one level too shallow. Rewritten to match on the AST. A
+   pin a comment can trip is a pin people learn to ignore.
+
+4. **`_NODE_MATCH_FIELDS` fetches `level`, which `_content_match_rows` never uses.** Pre-existing dead
+   read. **NOT fixed** — out of scope. Harmless (`row_match` bars `level` from the matcher and the
+   projection does not pass it), but it should go in a slice that owns the file.
+
+5. **`scripts/residence_check.py` fails on rule F2 (207 → 208) — PRE-EXISTING, not this slice.**
+   Verified by running the checker from a throwaway worktree at base `283a0199`: byte-identical
+   output. This slice touched no frontend page (F2 is a frontend-page rule) and no `.tsx` at all.
+   Reported rather than worked around; the ratchet was **not** re-baselined.
+
+6. No hook denied any write. No guard fired. No scope violation attempted.
+
+---
+
+### Deliberately NOT done
+
+- **No frontend.** Owner's explicit call: plan data only. `match_pass` is served and nothing renders
+  it. The dialog still says "N rows will carry" without distinguishing how they matched — a
+  deliberate deferral, not an omission.
+- **`normalize_n2` not modified**, and no separate serial normalizer added.
+- **No float repair / numeric coercion** — see above.
+- **`version_addressed_excel_row_match` not widened**, and `review_carry` not touched at all.
+- **Finding 4 not fixed** — out of scope.
+- **The F2 ratchet not re-baselined** — it is not this slice's violation to absorb.
+- **No browser E2E.** The change is server-side and fully covered by bench tests; the frontend diff
+  is empty. Worth a live check at the arc's certification pass: a revision whose rows shifted should
+  now show rates carried onto the moved rows, with the "needs new value" count correspondingly lower.
+
+## WBC-S12 — record Amendment G, and correct three residues
+
+**Branch** `feature/boq-within-boq-carry` · **Base** `8b845cd4` · **Tier** STANDARD · **Date** 2026-07-31
+
+**This slice changes NO behaviour.** Every edit is prose — a docstring, an ADR, two plan documents.
+No function body, no signature, no test. The one `.py` file touched was verified docstring-only by
+AST comparison, not by eye (see *Verification*).
+
+WBC-S11 shipped the serial second-pass match on an owner ruling made **mid-slice**. The ruling was
+recorded in the slice fragment and in code docstrings, but **never in the ADR** — so the canonical
+decision record still read as though Amendment F were the latest word, and a future reader consulting
+it would not know the boundary had moved. This slice writes it down, and clears three factual
+residues found alongside it.
+
+---
+
+### 1. ADR-0014 gains **Amendment G** — the point of the slice
+
+Two blocks, matching the file's established structure (a summary block in `## Status`, a detail block
+under the decision it amends):
+
+- **`## Status`** — a `⚠️ AMENDMENT G — 2026-07-30, owner-directed` block, placed directly after
+  Amendment B's and before F's, which is where this file puts its newest amendment.
+- **`### D6`** (the row match key) — the detail block, placed **after** Amendment B's block and
+  before D6's original superseded prose. G *layers on* B rather than superseding it: pass 1 **is**
+  B's key, unchanged; G adds a fallback for the rows B leaves unmatched.
+
+**The letter G was free.** Latest in the file was F (2026-07-29). The blocks record the rule, the
+one enabled call site, the two seams that stay strict, the sanctioned-exception framing against
+`row_match.py`'s four-narrowings warning, the no-float-repair rejection, and the live-corpus
+evidence — cross-referencing the S11 fragment as the as-built record.
+
+**The boundary, stated correctly.** It is **structure vs. everything else**, NOT rates vs. layers.
+The original build prompt drew it at rates-vs-layers; the owner corrected that mid-S11. All three
+supporting arguments are carried into the ADR: the split was **not achievable** (one match object,
+four consumers), **not desirable** (the structural risk is stale-heading re-parenting, which lives
+in the parse-time carry), and would have **partly undone Amendment E** by letting a moved row arrive
+priced-but-uncategorised.
+
+### 2. The S11 fragment contradicted itself on test counts
+
+It asserted *"Zero tests deleted in this slice"* two sections above a disposition table whose row 2
+records a **SPLIT** — one test renamed away into two. Corrected to the true figure: **40 added, 1
+renamed away as a disclosed split, net +39**, with the note that coverage is strictly stronger after
+the split.
+
+**The same claim appeared twice.** `"+39 tests, 0 deleted"` in the Verification section made the
+identical assertion. Correcting only the named sentence would have left the document still
+contradicting itself, so both were fixed. Minimal edits — this fragment is write-once and this is a
+factual repair, not a rewrite.
+
+### 3. A bisect warning on commit `72933a60`
+
+`72933a60`'s message says the flag exists so *"the three consumers that must not get it (the
+cross-BoQ layer carry, the within-BoQ copy-forward, the parse-time classification/parenting carry)
+are unaffected"*. **The first of those three is wrong.** The owner's ruling arrived *after* that
+commit, and the cross-BoQ layer carry **does** get pass 2 — it reads the same match object as the
+rate carry and was never separable. Corrected one commit later in `bce47806`.
+
+**Commit history is immutable, so the message cannot be fixed.** A clearly-headed note in the S11
+fragment is now the correction of record, so anyone bisecting to `72933a60` is not misled.
+
+### 4. A stale Amendment-D-era sentence in `committed_carry.py`
+
+`stamp_revision_provenance`'s docstring claimed *"no seam anywhere copies row content between a
+revision and its original except the rates"*. **Amendment E falsified this on 2026-07-28** — the
+cross-BoQ per-sheet action moves categories, remarks, colours and dismissals too, opt-in and
+stamped. Corrected in place rather than deleted, so the claim is not reintroduced by someone reading
+the surrounding Amendment-C/D history. The surviving distinction is **COMMIT vs. explicit ACTION**,
+not rates vs. layers.
+
+Pre-existing rot, unrelated to S11 — the file's own module docstring has recorded Amendment E
+correctly since July; only this one function-level sentence was left behind.
+
+---
+
+### ⚠️ Two ADRs are numbered 0014
+
+`docs/adr/` holds **both** `0014-boq-revised-upload-and-carry.md` (this one) and
+`0014-invoice-mutation-permissions.md`. The collision is pre-existing and untouched. ADR-0014's own
+Status section already declares that historical `0002`/`0007`/`0008`/`0009` collisions are
+deliberately **not** renumbered as out of scope; this is a fourth instance of the same situation and
+is recorded here so the next person editing "ADR-0014" checks which file they have open. **Not
+fixed** — renumbering a referenced ADR is its own decision, not a documentation slice's to take.
+
+---
+
+### Verification
+
+No behaviour changed, so no suite run was owed. One smoke check was run because a `.py` file was
+edited:
+
+| Suite | Result |
+|---|---|
+| `test_committed_carry` | **Ran 58 — OK** (expected 58, matching S11's final count) |
+
+Before the smoke check, the docstring-only claim was proved **structurally** rather than by reading
+the diff: both revisions of `committed_carry.py` were parsed with `ast`, every module/class/function
+docstring stripped, and the resulting trees compared — **identical**. A prose edit that had
+accidentally landed inside a statement would have failed that check.
+
+**No red run (A22).** A red run is structurally impossible for this slice: there is no behaviour to
+fail. The `.py` edit is inside a docstring, and the other four files are documents. The honest
+verification is the AST equality above plus the unchanged suite count, and that is what was done.
+
+---
+
+### Findings
+
+1. **The prompt located the stale sentence at "around line 150"; it is at lines 88–90**, inside
+   `stamp_revision_provenance`'s docstring. Line ~150 holds a *different* docstring, the Amendment G
+   note on `committed_excel_row_match`. The quoted text was unambiguous, so this was a stale line
+   reference rather than a spec conflict, and the edit was made where the sentence actually lives.
+
+2. **⚠️ Commit `8b845cd4`'s message overclaims.** It reads *"docs(boq): record slice WBC-S11 **and
+   ADR-0014 Amendment G**"*, but it touched only `_slices.md` and the S11 fragment — **the ADR was
+   never opened**. That is exactly the gap this slice closes, and it is the second immutable commit
+   message in this arc whose text outran what it did (see the `72933a60` note in the S11 fragment).
+   Recorded, not fixable.
+
+3. **The prompt's corpus statistics differed slightly from the measured record.** It described `'a'`
+   ×999 / `'b'` ×849 / `'i)'` ×71 as all being within *one sheet*; the S11 fragment records `'a'`,
+   `'b'`, `'c'`, `'a.'` as **corpus-wide** counts and `'i)'` ×71 / `'ii'` ×62 as the *single-sheet*
+   ones. The fragment is the measurement record, so the ADR follows the fragment. The point both
+   versions make — serial alone is unusable, the pair rescues it — is unaffected.
+
+4. No hook denied any write. No guard fired. No scope violation attempted. Nothing was pushed.
+
+---
+
+### Deliberately NOT done
+
+- **The duplicate ADR number not resolved** — see above.
+- **`committed_carry.py`'s module-level opening line still reads `(ADR-0014, Amendment D)`.** Only
+  the sentence the prompt named was corrected. The line is arguably stale too, but the module
+  docstring immediately below it walks D → E → G accurately, so it is not misleading in place; a
+  slice that owns the file should decide it.
+- **S11 Finding 4 (`_NODE_MATCH_FIELDS` fetches an unused `level`) still not fixed** — still out of
+  scope, still owed a slice that owns the file.
+- **No other suite run, and no browser session against localhost** (the `tabSeries` naming-lock
+  collision rule).
+
+## WBC-S13 — fold the handover from git (v5.91 → v5.92)
+
+**Branch** `feature/boq-within-boq-carry` · **Base** `9cc5e689` · **Tier** STANDARD · **Date** 2026-07-31
+
+**This slice changes NO code.** One document was rewritten from git, plus this record and its index
+row. No `.py`, `.ts` or `.tsx` file was opened for edit; no test suite was run, deliberately — there
+is nothing for a test to observe.
+
+`.claude/facts/handover.md` is the first thing a fresh session reads, and the owner is about to open
+one. It was last folded at `e7f4602f`. **14 commits had landed since and it knew about none of
+them** — its tip, commit count, test table, next action and risk list were all stale or wrong. Every
+volatile fact was re-derived from `git log` / `git diff` in this checkout.
+
+---
+
+### 1. What was folded
+
+**Range `e7f4602f..9cc5e689` — 14 commits, 21 files, +2,683 / −408, Abhishek sole author.**
+Every figure verified against git; all three matched the build prompt exactly.
+
+| Slice | Commits | Landed |
+|---|---|---|
+| **WBC-S10** | `283a0199` | Copy-forward may land rates on uncategorised rows |
+| **WBC-S11** | `f289889a` `72933a60` `bce47806` `3cd922da` `8b845cd4` | Opt-in serial + description second-pass match, cross-BoQ only |
+| **WBC-S12** | `50a437a4` `9cc5e689` | ADR-0014 Amendment G under D6; three residues corrected |
+
+Lane state re-measured, not carried: **39 commits ahead of `develop`, 0 behind**; merge-base *is*
+`develop` (`2bd6032f`), so the merge is **still a clean fast-forward** (`git merge-tree
+--write-tree develop HEAD` returns a tree). `git branch -r --contains 9cc5e689` → 0, still unpushed.
+
+### 2. What was corrected
+
+- **Frontmatter** → `recorded_tip: 9cc5e689`, `v5.92`, dated 2026-07-31. Follows the established
+  convention of recording the tip *before* the fold commit, as `e7f4602f` did.
+- **Test table replaced.** The recorded `255 / 49 / 60` were historical. New figures are the
+  in-container observations made this session by an independent agent, each **re-checked here as a
+  static `def test_` count** — all six matched. Zero skips confirmed: no `@skip` decorator exists in
+  any of these modules (every `grep` hit for "skip" is the carry plan's own `skip_reason` taxonomy,
+  domain vocabulary, not a test skip).
+- **Next action rewritten.** Owner live certification for **both** S10 and S11 is now item 1 and
+  explicitly gates the merge, with the specific paired checks spelled out. Push/merge demoted to 2.
+- **Risks refreshed** — added *the arc is code-complete but UNCERTIFIED in a browser* as the top
+  risk; "25 commits unpushed" → 39.
+- **Migration debt restated as carried, not new.** This range adds **no** new exposure: the
+  doctype-JSON and `patches.txt` diffs over the range are both empty. The 4-new / 7-modified debt is
+  v5.91's, still undischarged.
+- **Standing noise:** `cert-shots/` added to the macOS list — it exists in `git status` and was
+  unrecorded, which is exactly the A13 misfire the section warns about.
+- **Plan-tree counts** refreshed: `_slices.md` 185 data rows, `slices/` 183 fragments.
+
+### 3. Three deferred items added (register is now OVER ceiling)
+
+The register was at its 5/5 ceiling. It is now **8**, and the doc says so plainly rather than
+dropping anything. Each was verified in this checkout before being written down:
+
+- **(f)** `_NODE_MATCH_FIELDS` (`committed_carry.py:77`) fetches `level`, but `_content_match_rows`
+  projects only `source_row_number`, `description` and `code`. **Confirmed dead read**, pre-existing.
+- **(g)** `docs/adr/` has **duplicate ADR numbers** — two files each at 0002, 0007, 0008, 0009 and
+  0014. "ADR-0014" by number alone is genuinely ambiguous here
+  (`0014-boq-revised-upload-and-carry.md` vs `0014-invoice-mutation-permissions.md`).
+- **(h)** Two immutable commit messages overclaim. `72933a60`'s body lists "the cross-BoQ layer
+  carry" among the consumers that must *not* get the second pass — the owner's ruling then changed
+  exactly that, and `bce47806` enabled it there. `8b845cd4`'s subject claims it wrote ADR-0014
+  Amendment G, but its diff touches only `_slices.md` and the S11 fragment; the ADR was not opened
+  until `50a437a4`. Anyone bisecting to either commit will be misled.
+
+Discharge candidates named in the doc: (a) and (b). (d) and (e) are marked load-bearing.
+
+### 4. Where git and the prompt differed
+
+**Nothing contradicted.** All 14 commits, both file/line totals, all six test counts, the
+sole-caller claim, the dead read, the duplicate ADR numbers and both overclaiming messages verified
+exactly as described. Two things the prompt did not mention, resolved by judgement and reported:
+
+1. **The replacement test table omitted two rows that are still true.** `test_classify` (94) and
+   `services.boq_category.tests` (235) were bench-verified at `f215d6a9`. `boq_category` is
+   untouched in this range, and `test_classify`'s count is unchanged (94 at `f215d6a9`, 94 at
+   `9cc5e689`). Replacing the table *literally* would have silently discarded two verified facts, so
+   **both rows were retained with their observation commit and provenance shown**, visually separated
+   from this session's six.
+2. **The `Assertions` column was dropped.** The prompt's replacement table has no assertion figures
+   and none were observed this session; inventing them by static grep would have added unverified
+   numbers. The `Suite` column still satisfies agreement #20's suite-distinguishing intent.
+
+### 5. Size
+
+17,952 B / 220 lines → **19,902 B / 250 lines**. Above the ~18 KB target and reported as such.
+~1.2 KB of genuinely historical content was deleted to make room rather than layered over: the
+v5.90-noise-list incident forensics (superseded by the corrected list itself), the "was 177.8 KB"
+before/after figures from the context restructure, the split/rotation commit trivia, and the
+per-slice test bookkeeping in the S10/S11 blocks — the last of which belongs in a slice fragment
+under the DOCS-UPDATE RULE, not in an always-read doc.
+
+The residual growth is content the fold *required*: three new deferred items, and a certification
+block the prompt asked to be explicit because it is what the next session acts on. **No owner
+rationale or ruling was paraphrased away to buy bytes.** If the doc must return to 18 KB, the
+honest carve is the 59-row Working-agreements index (3.3 KB, a pure lookup whose full text lives
+elsewhere) — flagged, not taken, because it would break the "resume from this doc alone" property.
+
+### 6. Verification
+
+No behaviour to test. `git diff --stat` on the commit confirms **three files, all in scope**, and
+**no `.py` / `.ts` / `.tsx` file present**.
+
+## BCS-S1 — the BCS cost layer's storage + endpoints (nothing renders yet)
+
+**Branch** `feature/bcs-columns` · **Base** `930802e2` · **Tier** FULL · **Date** 2026-08-02
+
+BCS is the **cost** side of the pricing editor: two hand-typed rates per committed row — a Supply
+Rate and an Installation Rate — recording what the work costs **us**, against the BoQ amount we
+charge the **client**. S1 lays the storage and the endpoint surface for the whole six-slice arc and
+**nothing else**: no frontend file was touched, nothing renders, and the owner accepted up front
+that this slice produces nothing visible. What it deliberately does NOT do is change `pricing.py` —
+that file is byte-untouched, which is what makes owner-locked rule 2 structural rather than a
+promise. The point of settling schema first is that the owner should pay for **one** production
+migration on this feature; that is why fields nothing reads yet (the provenance seam, the carry
+attribution triple) ship now.
+
+---
+
+### 1. What was built
+
+**A new doctype, `BoQ Row BCS Rate`** (`nirmaan_stack/doctype/boq_row_bcs_rate/`). Identity is
+`(boq, sheet_name [VERBATIM #152], excel_row, committed_version)` — **PER-ROW, with no
+`col_letter`**. That absence is the design: the two BCS columns are screen-only and have no Excel
+origin, so a sentinel column letter would be a lie about the source workbook. `BoQ Row Category`
+and `BoQ Cell Remark` are the established no-column precedent and were followed. Lifecycle is
+freeze-and-supersede (`bcs_version` / `is_current` / `bcs_rated_at`) copied from `BoQ Cell Pricing`,
+including its `is_filled` flag — `Currency` coerces unset to `0.0`, so without that flag a genuine
+zero cost is indistinguishable from "never entered". `description` (the match guard) and `node` (the
+re-resolvable pointer) mirror `BoQ Cell Pricing`; `track_changes` matches it at 1. The controller
+holds the `Document` class plus `on_doctype_update` and no business logic, per the practised
+convention in `boq_row_category.py:28-39`. The composite index is
+`(boq, sheet_name, committed_version, is_current, excel_row)` — the 4-column prefix serves the
+sheet-wide read, all five serve the per-row freeze-and-supersede lookup. **No `patches.txt` line**:
+a brand-new doctype creates its index atomically on fresh sync, so the `add_boq_read_indexes`
+precedent (which exists only for controller-only changes to already-shipped doctypes) does not
+apply.
+
+**Five new fields on `BoQ Sheet`**, shaped and worded on the `classification_frozen` and
+`category_gate_override` families: `bcs_enabled`, `bcs_qty_source`, `bcs_amount_source`,
+`bcs_confirmed_by`, `bcs_confirmed_at`. All written with
+`frappe.db.set_value(update_modified=False)` + commit, never `doc.save` — the list-valued
+`area_dimensions` JSON throws on a full save. The two confirmations are stored as **re-resolvable
+DICTs**, `{mode, columns:[{col, role, area, value_field, value_key}]}`, each entry carrying the full
+descriptor identity so a later reader resolves the value instead of re-deriving it from
+`column_role_map`. Top-level **dict, never a bare list** — deliberate: `base_document.py:391` throws
+`"Value for {0} cannot be a list"` on any list-valued non-table field, and this doctype already
+carries one such wall in `area_dimensions`; adding a second was avoidable at zero cost.
+
+**A new module `api/boq/wizard/bcs.py`** with six public names: `set_bcs_enabled`,
+`confirm_bcs_columns`, `get_bcs_state`, `get_sheet_bcs_rates`, `save_row_bcs_rates`, and the ONE
+shared readiness predicate `bcs_is_ready` (plus its throwing twin `_guard_bcs_ready`). Endpoints are
+thin orchestrators (ADR-0010 B4). `confirm_bcs_columns` validates both picks against the sheet's
+REAL descriptors via `pricing._committed_descriptors` — the same certified resolver the
+amount-formula gate uses, so "the columns this sheet really has" means exactly one thing across the
+app — and **both validations run to completion before the first write**, so a refusal stores nothing
+at all and a partial confirmation is impossible.
+
+`save_row_bcs_rates` runs the gates in `save_cell_price`'s order, all before any write: cell exists →
+deliberate sheet lock → BCS readiness → single-editor lock (`acquire_or_refresh`) → freeze + insert →
+one commit. A lock rejection therefore mutates nothing, which is asserted rather than assumed.
+
+### 2. The owner's reasoning — the part that must survive
+
+**Only the two rates persist.** Total Amount and % Profit are always computed downstream. A stored
+copy could disagree with the live sheet, and the sheet is the thing people trust. A test asserts the
+doctype has no `total_amount` / `profit_percent` / `profit` field, so a future slice cannot add one
+"just for convenience" without tripping it.
+
+**The BCS gate guards BCS cells only.** An unconfirmed BCS section must leave ordinary client-facing
+pricing fully editable. This is why BCS is its own module rather than more functions on `pricing.py`:
+`bcs` imports `pricing`, never the reverse, so the gate physically cannot reach the client rate
+chain. `test_bcs.py` greps `pricing.py`'s source for `bcs_is_ready`, `BoQ Row BCS Rate` and
+`wizard.bcs` and fails if any appears — the separation is enforced, not trusted.
+
+**BCS must never reach `export_priced_workbook`.** That export is handed to the client, so a BCS
+value in it leaks what the job costs us. The exclusion already holds by construction — the export
+reads `BoQ Cell Pricing` and names three fields explicitly — and BCS living in a separate doctype is
+what preserves that. **This is the reason BCS was not folded onto `BoQ Cell Pricing` as two extra
+columns**: that shape would have put internal cost one widened field-list away from a client
+workbook.
+
+**The install rate is a DELIBERATE divergence** from the Rate Master's recorded ruling that
+"BCS = discounted product cost + 5% wastage, **no install** (electrical labour is per-sqft, added at
+project level)". Owner-confirmed 2026-08-02: that ruling governs the Rate Master's *derived* BCS
+figure and is unchanged. This field is a different thing — a per-line installation cost the estimator
+enters directly in the pricing editor — and the two coexist meaning different things. The rationale
+is written into the field's own `description` in `boq_row_bcs_rate.json` as well as here, so a future
+reader who finds the apparent contradiction does not "restore consistency" by deleting the field.
+
+**The provenance seam.** A later slice must be able to record that a rate was derived from the Rate
+Master rather than hand-typed, at no further migration cost. That is one `Select` field
+(`rate_source`, default `Manual`) and nothing more — recording *that* it was derived is the whole
+requirement; a pointer to *which* rate-master row would be building a derivation system, which the
+prompt explicitly excluded. **Boundary flagged for the owner while it is still free:** if S-later
+needs that reference, it is a further field and therefore a further migration.
+
+### 3. Verification
+
+Real counts, in-container, `bench --site localhost run-tests`:
+
+| Suite | Baseline | Final |
+|---|---|---|
+| `test_bcs` | — (new file) | **35, OK** |
+| `test_export_writeback` | 42, OK | **47, OK** (+5) |
+
+Regression sweep, all unchanged and green: `test_pricing` **252 OK**, `test_commit_pipeline`
+**57 OK**, `test_review_screen` **260 OK**.
+
+**The red runs were real, not narrated.** Slice A's tests failed with
+`relation "tabBoQ Row BCS Rate" does not exist` (6 tests / 7 errors) before the doctype existed;
+slice B's failed with `ModuleNotFoundError: No module named 'nirmaan_stack.api.boq.wizard.bcs'`
+before the module existed. The export-exclusion guard is the honest exception: it pins a property
+that **already holds by construction**, so a genuine red is impossible without first breaking the
+export — and `export_writeback.py` was out of scope. Its power was proven instead by pointing the
+sentinel at `25`, a rate that IS in the fixture workbook, and confirming it fails
+(`AssertionError: Lists differ: ['25'] != [] : BCS cost 25 leaked into the CLIENT workbook`), then
+restoring `987654.21`. The guard also asserts the four BCS rows genuinely exist during the export,
+so a pass can never mean "there was nothing to leak".
+
+`bench --site localhost migrate` ran clean on the dev site (no `Traceback`, no `Error`). Every new
+column verified with `frappe.db.has_column`, all `True`: the 16 on `BoQ Row BCS Rate`
+(`boq`, `sheet_name`, `excel_row`, `committed_version`, `node`, `description`, `supply_rate`,
+`install_rate`, `is_filled`, `rate_source`, `bcs_version`, `is_current`, `bcs_rated_at`,
+`carried_from_boq`, `carried_from_version`, `carried_at`) and the 5 on `BoQ Sheet`. Negative control
+`has_column('BoQ Row BCS Rate', 'col_letter')` returned **False**, as intended. The composite index
+exists in `pg_indexes` as
+`btree (boq, sheet_name, committed_version, is_current, excel_row)`.
+
+⚠️ **PRODUCTION HAS NOT BEEN MIGRATED.** One new doctype + five new `BoQ Sheet` fields. Nothing in
+production reads them yet, but the migrate is owed before any BCS code ships.
+
+The **re-commit-invalidates** claim was verified, not assumed: `_write_committed_boq_sheet` inserts
+via `frappe.new_doc` and never touches the BCS fields, and a test makes a sheet ready at v1, inserts
+v2 the way the pipeline does, and asserts v2 is disabled, unconfirmed and not ready.
+
+`python3 scripts/residence_check.py`: B1/B2/B3/F5 all hold at baseline. **F2 reports 208 vs baseline
+207 — pre-existing at `930802e2`, not from this slice.** F2 counts `JSON.parse` in
+`frontend/src/pages`, and `git diff HEAD -- frontend/src` is empty; no frontend file was touched.
+Left alone deliberately (the fix is either a frontend page or `residence_baseline.json`, neither in
+scope).
+
+### 4. Deliberately NOT done
+
+- **`pricing.py` — byte-untouched.** It is out of scope, and its untouchedness is itself the
+  enforcement of owner-locked rule 2. `bcs.py` imports from it (`_committed_descriptors`,
+  `_resolve_committed_cell`, `_guard_sheet_not_locked`, `_current_sheet_name`, `_coerce_int`) so the
+  two layers cannot drift, but the dependency is strictly one-way — **`pricing` must never import
+  `bcs`**, the same rule it already records for `cross_boq_carry`.
+- **Every frontend file** — S2 onward. Nothing renders.
+- **The carry path** (`cross_boq_carry.py` / `committed_carry.py`) — S6. The three attribution
+  fields exist and are stamped by nothing.
+- **`patches.txt`** — a new doctype builds its index on fresh sync.
+- **No BCS gate on `save_cell_price`**, no BCS field on `BoQ Cell Pricing`, no stored total or
+  margin. Each is an owner-locked exclusion, each pinned by a test.
+
+### 5. Decisions this prompt did not settle — owner input wanted before S2
+
+1. **The amount confirmation is STRICT: only the scalar `amount_total` descriptor is accepted.**
+   The prompt named "Amount (Combined) == the `amount_total` descriptor", and that is implemented
+   literally. **Consequence:** a sheet that maps only PER-AREA amount columns
+   (`amount_total_by_area`, no scalar total) cannot confirm BCS at all. The shared committed test
+   fixture `COMMITTED_FIXTURE_ROLE_MAP` is exactly that shape, so this is not hypothetical. Widening
+   to accept the per-area total is a one-line change to `_AMOUNT_COMBINED_VALUE_FIELDS` with **no
+   migration** — which is why strict-and-flagged was chosen over quietly inventing scope. Needs a
+   real-data answer: how common is a committed sheet with no scalar Amount column?
+2. **Disabling BCS preserves the confirmation.** Re-enabling does not force re-picking the same two
+   columns; readiness simply goes false meanwhile. Not specified; reversible.
+3. **`is_filled` was added** although the prompt listed only the two Currency fields, because
+   `Currency` coerces unset to `0.0` and a real zero cost would otherwise be unreadable. Mirrors
+   `BoQ Cell Pricing.is_filled`.
+4. **Quantity picks arrive as `qty_cols`, a JSON list of column letters**, because the per-area mode
+   is inherently a set; the mode (`qty_total` vs `qty_by_area`) is DERIVED from the picked
+   descriptors, not trusted from the client. Mixing a scalar total with its own per-area parts is
+   refused — it would double-count.
+
+## BCS-S1a — close the Checklist B findings on BCS-S1
+
+**Branch** `feature/bcs-columns` · **Base** `5c45b65c` · **Tier** FULL · **Date** 2026-08-02
+
+BCS-S1 passed Checklist B **with caveats, nothing blocking**. This slice answers that review and
+nothing else. It relocates the two column-confirmation rules into a pure service module, widens the
+AMOUNT confirmation to sum per-area amounts (the one behaviour change), documents and test-pins the
+BCS write path's deliberate independence from the three client-facing gates, adds the positive
+control that owner rule 2 was missing, and tightens two soft spots in the export guard.
+
+**No migration. No doctype JSON touched. `pricing.py` untouched. No frontend file touched.** The
+whole slice is two commits: a pure move, then everything else on top of a known-good base.
+
+---
+
+### 1. Commit 1 — the relocation, and nothing else (`a16390a2`)
+
+Review **Finding 6** (ADR-0010 B1): `_build_qty_source` / `_build_amount_source` encode decisions the
+business names — what a valid quantity source is, why a scalar total may not be mixed with its own
+per-area parts, what counts as the amount denominator. Those do not belong in `api/`.
+
+New package `nirmaan_stack/services/boq_bcs/` (`__init__.py` + `sources.py`) now holds
+`build_qty_source` / `build_amount_source`, the private `_entry` projection and the value-field
+vocabulary. `api/boq/wizard/bcs.py` imports UP (api → service) and keeps only descriptor resolution
+and orchestration. The two builders went private → public because they now cross a module seam.
+
+The module name follows the two service precedents rather than inventing one:
+`boq_category/persist.py` (the `node_is_qty_bearing` / `resolve_row_ladder` relocations the prompt
+named) and `boq_revision/{carry,normalize,row_match}.py` — role-named modules inside a
+domain-named package. No conflict, so no stop was needed.
+
+**Purity is real, not asserted.** Verified by direct scan: zero `frappe.db` / `get_all(` / `get_doc(`
+/ `sql(`, zero imports from `api/`, and the *only* `frappe.` call in the code is `frappe.throw`. That
+one framework touch is deliberate and recorded in the module docstring — these refusals are
+user-facing and named, and downgrading them to `ValueError` would force every caller to re-voice
+them. ⚠️ **`scripts/residence_check.py`'s B1 rule did NOT verify any of this**: `PURE_MODULES` is a
+hand-maintained list containing exactly one file (`services/procurement_approval.py`), so B1 "holding
+at 0" says nothing about `boq_bcs`. Adding `services/boq_bcs/sources.py` to that list would give the
+purity contract real enforcement — see §5.
+
+**The move changed nothing, and that is checkable**: all **35** `test_bcs` tests passed
+**unmodified** immediately after it. No test was edited to make the move work.
+
+### 2. Per-area amounts SUM — the one behaviour change (owner ruling 2026-08-02)
+
+S1 implemented the amount confirmation strictly — scalar `amount_total` only — and its own record
+(§5.1 above) flagged the consequence honestly: **a sheet mapping only per-area amount columns could
+not enable BCS at all**, and the shared committed fixture `COMMITTED_FIXTURE_ROLE_MAP` is exactly
+that shape. Owner ruling: sum them, exactly as quantity already does.
+
+`build_amount_source` is now the deliberate MIRROR of `build_qty_source` — same list-shaped input,
+same two modes (`amount_total` / `amount_by_area`), same five refusals for the same reasons (empty
+pick, unknown column, wrong class, two scalar totals, scalar mixed with its own parts). The two read
+as one idea, which is the point; a reader who has understood one has understood both. The shared
+`_resolve_picks` helper is what keeps the "unknown column" refusal identical between them.
+
+Two consequences that were NOT in the prompt and had to be decided:
+
+- **`amount_col` (singular) → `amount_cols` (a JSON list).** Summing N columns needs a list, and
+  mirroring `qty_cols` was the explicit instruction. There is no non-test caller anywhere — verified
+  across backend and frontend — so this is a free rename, not a break. `_coerce_col_list` now takes
+  the field name so both picks voice their own refusals over ONE coercion. A tolerant "accept a bare
+  string too" alias was considered and rejected: two accepted shapes for one idea is exactly the
+  shallow interface this slice is trying not to build.
+- **`_entry` now records `rate_subkey`.** This was a latent defect the widening would otherwise have
+  introduced. A per-area AMOUNT is a **three-hop** resolve — `amount_by_area[area][kind]` — whereas a
+  per-area quantity is two hops (`qty_by_area[area]`). Without the kind, the stored confirmation
+  would not have been re-resolvable, which is the whole reason it is stored rather than re-derived.
+  Recorded on every entry (`None` on the two-hop shapes) so there is one entry shape, not a per-source
+  special case. Pinned by `test_the_per_area_amount_entry_stays_re_resolvable`.
+
+**A per-area supply/install HALF is refused** (`_is_combined_amount`), the exact twin of refusing
+scalar `amount_supply`. Accepting one would silently compare our cost against a fraction of what we
+charge the client. The fixture carries an `amount_supply_by_area` column purely so this is tested.
+
+The stored confirmation stays **dict-valued at top level** (the `base_document.py:391` list-valued
+JSON wall) — pinned by its own test rather than left to convention.
+
+### 3. The gate independence — documented AND pinned (owner-confirmed 2026-08-02)
+
+The BCS write path runs exactly four gates — committed-cell → sheet-lock → BCS-readiness →
+pricing-lock — and **deliberately skips** the mandatory amount-formula gate, the priceability gate
+and the category gate. Cost is a separate axis with its own two-column confirmation; it must not wait
+on the client-facing side being finished.
+
+Until now this was **undocumented and untested** — precisely the shape a later slice "fixes" into
+consistency. Both halves are now closed:
+
+- `bcs.py`'s module docstring states it in the owner's terms with the date, lists the three skipped
+  gates by name, and carries the same *do NOT add these to restore consistency* framing S1 used for
+  the install-rate divergence. `save_row_bcs_rates`'s own docstring had claimed the gate order
+  "mirrors save_cell_price **exactly**" — now corrected: the ORDER follows it, the SET is smaller.
+- Three tests, one per skip (`TestBcsWritesAreIndependentOfTheClientGates`): a BCS write succeeds
+  with incomplete amount formulas, with every category blank, and on a **zero-qty Preamble** row.
+  Each asserts its PRECONDITION first (`_sheet_formulas_complete` is False, `_categories_gate_ok` is
+  False, `_node_priceable_without_override` is False) so none can ever pass vacuously.
+
+⚠️ **Carry-forward for S3, not implemented here:** because % Profit needs the live formula-evaluated
+amount, a sheet without amount formulas will show costs and a Total Amount but a **blank margin**.
+S3 must render that blank **with a reason**, not leave it mysteriously empty. Recorded in the
+`bcs.py` docstring too, so it is found by someone reading the code rather than only the plan.
+
+### 4. The missing positive control, and the export-guard tightening
+
+**Finding 2 — the positive control (`test_an_ordinary_client_rate_write_succeeds_while_bcs_is_off`).**
+Owner rule 2 ("the BCS gate must never touch ordinary client-facing pricing") was pinned only by a
+`inspect.getsource(pricing)` grep. That is a good tripwire but not proof of behaviour, and it is
+blind to indirection — a gate arriving through a helper that never names BCS would sail past it. The
+new test drives the real `save_cell_price` on a sheet where BCS is disabled and unconfirmed, and
+asserts the rate lands. That is the assertion the whole design turns on, and nothing asserted it
+before. It satisfies the client gates the way the house does — `_declare_scalar_amount_formula`
+locally plus the imported `test_pricing._categorise_fixture_eligible_rows` — driving THROUGH the live
+gates rather than bypassing them with the admin override.
+
+**Finding 3 — two soft spots in the export guard**, structure otherwise kept intact (including the
+anti-vacuity assertion that BCS rows genuinely existed during the export):
+
+- `test_no_bcs_derived_total_or_margin_leaks_either` omitted the `str(int(...))` render form its
+  sibling includes, so an integer-rendered total would have slipped through. Added.
+- The source-grep guard matched case-**sensitively** while its own token list mixes cases (lowercase
+  `"bcs"` against `"BoQ Row BCS Rate"`) — a module-level `BCS_DOCTYPE` or `SUPPLY_RATE` would have
+  passed. Now matched case-insensitively.
+
+The sentinels (`_SUPPLY = 987654.21`, `_INSTALL = 123456.78`) are untouched, and so is the sibling
+test asserting client rate `25` IS present — that sibling is what makes the guard structurally
+failable rather than merely green.
+
+### 5. What the review found — recorded, not silently absorbed
+
+- **Findings 4/7 — the S1 plan-doc append mishap.** S1's append duplicated a line and stranded its
+  predecessor record before being fixed. It left **zero residue**, but S1's own record omitted it. An
+  error fixed and not recorded is itself a finding, so it is written here. This slice's append was
+  boundary-checked before writing and the predecessor record verified intact afterwards.
+- **The permission ruling — an EXPLICIT RULING, not an inheritance.** `BoQ Row BCS Rate` inherits
+  `BoQ Cell Pricing`'s permission block: ten roles, including **HR Executive, Accountant and Design
+  Executive**, can read internal cost and therefore margin. **Owner-confirmed 2026-08-02: leave as
+  inherited.** Recorded as a decision so a future reader sees a choice rather than a default.
+  Narrowing later is cheap — a permission block edit, no data migration.
+- **Finding 8 — the inherited concurrency residual.** The freeze→insert sequence takes no row lock
+  and relies on `pricing_lock.acquire_or_refresh`, which carries a known non-atomic duplicate race.
+  **Identical to shipped `save_cell_price`, so NOT introduced here** — but S1's record states "exactly
+  one current" unconditionally, and that is qualified now: the invariant holds under the single-editor
+  lock and under every sequential path, and is not proven under a genuine concurrent double-write. The
+  race is observable in this very session — the `test_pricing` run emits
+  `duplicate key value violates unique constraint "tabBoQ Sheet Pricing Lock_pkey"` while still
+  passing. Fixing it is a `pricing_lock` change and belongs to whoever owns that module.
+- **The residence_check F2 red is PRE-EXISTING and is NOT ours.** 208 vs baseline 207, traced to
+  commit `fe61165a` (RM-4b). **Deliberately not re-baselined and not fixed** — out of scope, and
+  re-baselining would silently absorb someone else's debt. **Every BCS slice inherits this red**, so a
+  future reader should not read it as evidence that BCS introduced anything.
+- **New, found while doing the work: `PURE_MODULES` is a one-file hand-list**, so ADR-0010 rule B1
+  enforces purity on `services/procurement_approval.py` and nothing else. `services/boq_bcs/sources.py`
+  is pure by construction and verified by hand this slice, but nothing will *keep* it pure. Adding it
+  (and the other pure service modules) to that list is a real, cheap enforcement win.
+  `scripts/residence_check.py` was outside this slice's scope, so it was reported, not edited.
+
+### 6. Verification
+
+| Suite | Baseline | Final |
+|---|---|---|
+| `test_bcs` | 35 | **48** (+13) |
+| `test_export_writeback` | 47 | **47** (2 tests tightened, no count change) |
+| `test_pricing` | 252 | 252 |
+| `test_commit_pipeline` | 57 | 57 |
+| `test_review_screen` | 260 | 260 |
+
+All OK, run in-container via `bench --site localhost run-tests --module …`. `git diff 5c45b65c --stat`
+over `nirmaan_stack/`: 5 files, +647 / −166.
+
+**Red before green, honestly reported.** The per-area amount work was genuine TDD: the 9 new tests
+were written first and ran **RED (44 ran, 9 errors)** against the S1 signature, then green at 44/44.
+
+The gate-independence pins and the positive control are **characterisation pins on existing
+behaviour, so a natural red run is structurally impossible** — they passed on first execution, which
+is the honest outcome. Rather than claim a red that did not happen, failability was demonstrated
+directly:
+
+- The three client gates were **temporarily wired into `save_row_bcs_rates`** → 13 errors + 1 failure,
+  with all three independence pins among them. Probe reverted.
+- The positive control's formula precondition was **temporarily removed** → it failed with the real
+  gate refusal (`"Every amount column on this sheet needs a declared formula…"`), proving it genuinely
+  reaches `save_cell_price` end-to-end. Probe reverted.
+
+`python3 scripts/residence_check.py`: B1 0/0, B2 8/8, B3 40/40, F5 116/116 all holding; F2 208 vs 207
+**red, pre-existing, untouched** (see §5). No migration was run because none was needed — no doctype
+JSON changed.
+
+### 7. Deliberately NOT done
+
+- **`pricing.py` — not touched at all.** It stays byte-identical, which is what keeps the
+  `test_bcs_module_never_touches_the_client_facing_rate_gate` grep meaningful.
+- **No doctype JSON, no migration.** `rate_subkey` rides inside the existing `bcs_amount_source` JSON
+  blob; nothing schema-level moved.
+- **`scripts/residence_baseline.json` — not re-baselined.** The F2 red is someone else's and stays visible.
+- **`scripts/residence_check.py` — not edited**, despite the `PURE_MODULES` gap being real and the fix
+  being one line. Out of scope; reported instead.
+- **No frontend file.** The rename `amount_col` → `amount_cols` lands before any client exists, which
+  is exactly when a rename is free. S2 onward consumes the new name.
+- **The carry path (S6) — untouched.** `carried_from_boq` / `carried_from_version` / `carried_at`
+  still exist and are still written by nothing.
+- **The `acquire_or_refresh` duplicate race — not fixed.** Pre-existing, shared with `save_cell_price`,
+  and a fix belongs in `pricing_lock` with its own slice. Qualified in §5 rather than quietly inherited.
+- **No live browser E2E.** This slice is backend-only with no rendering surface; the bench suites are
+  the whole of the observable behaviour.
+
+## BCS-S1b — harden the pure service layer before any UI lands on it
+
+**Branch** `feature/bcs-columns` · **Base** `36013170` · **Tier** FULL · **Date** 2026-08-02
+
+BCS-S1a passed Checklist B with caveats. Its review found one gap that is **unreachable today and
+load-bearing tomorrow**: `_resolve_picks` de-duplicated nothing, so a pick of `["F","F"]` stored two
+identical entries and any later sum double-counts the row. Nothing can reach it — no column picker
+exists yet — and S2 ships one. This slice closes it while nothing leans on it, adds the pure unit
+suite the module never had, registers the module with the B1 purity check, and records a doctype
+description drift as debt.
+
+**No migration. No doctype JSON. No frontend file. `api/boq/wizard/bcs.py` untouched** — the refusal
+belongs in the pure module, not the endpoint. Two commits: `cdc55d2d` (the refusal + tests),
+`798665ee` (the residence registration).
+
+---
+
+### 1. The sixth refusal — a duplicate column pick
+
+`services/boq_bcs/sources.py` `_resolve_picks` appended one descriptor per picked letter with no
+de-duplication. Treated as a **missing SIXTH member of an existing family of five**, not a new idea:
+same `frappe.throw` shape, same named title, same voice. The existing family, for reference —
+
+| # | Refusal | Title | Home |
+|---|---|---|---|
+| 1 | column not on the sheet | `Unknown column` | `_resolve_picks` (shared) |
+| 2 | empty selection | `No quantity/amount column picked` | each builder |
+| 3 | mapped column of the wrong class | `Not a quantity column` / `Not the Amount (Combined) column` | each builder |
+| 4 | scalar total mixed with its own per-area parts | `Mixed quantity/amount sources` | each builder |
+| 5 | more than one scalar total | `Too many total-quantity/amount columns` | each builder |
+| **6** | **same column picked twice** | **`Duplicate column`** | **`_resolve_picks` (shared)** |
+
+Three decisions inside it, none of which the prompt settled:
+
+- **It lives in the SHARED `_resolve_picks`, so both the quantity and the amount path are covered by
+  construction** rather than by two copies that could drift. The review found neither branch checked;
+  one implementation answers both. This is also why the message is source-neutral ("would count its
+  value twice") — exactly like refusal #1, the other shared one.
+- **It sits AFTER the resolve loop, not before it.** `["Z","Z"]` on a sheet with no Z therefore still
+  reports *unknown column* — the more fundamental fact about that pick — rather than *duplicate*. Pinned by
+  `test_an_unknown_column_beats_a_duplicate`.
+  **⚠️ CORRECTED at BCS-S1c (2026-08-02).** This bullet originally gave the consequence as *"every input
+  that threw before this slice throws identically"*, and that sentence had been copied into
+  `sources.py` and into the `test_an_unknown_column_beats_a_duplicate` docstring. **It is false as
+  written**, and all three copies are now corrected. The *safety* half held — the S1b review's 32-input
+  differential found zero behavioural changes, nothing newly accepted and nothing newly refused. What did
+  not hold is the claim about MESSAGES: this refusal precedes every per-source rule, so it SHADOWS **six**
+  titles, not the one scalar case that was disclosed — `Too many total-quantity columns`, `Too many amount
+  columns`, `Not a quantity column`, `Not the Amount (Combined) column`, `Mixed quantity sources`,
+  `Mixed amount sources`. Nothing broke, because no test anywhere asserts on a message in that family; the
+  defect was the sentence, sitting in three places that would be read as specification. The true, narrow
+  claim — the one the test actually pins — is the one now stated above: **an unknown column is still
+  reported as unknown.**
+- **Only the PER-AREA shape was ever a hole.** A repeated *scalar* pick already fell foul of the
+  one-scalar-column rule (#5), so it was refused **by accident of a rule aimed at something else**. It
+  is now refused for the reason that is actually true of it, which changes that input's *message*
+  (`Too many total-quantity columns` → `Duplicate column`) but not its outcome. No test asserted the
+  old message; the new one is strictly more accurate. Pinned by
+  `test_a_repeated_scalar_column_is_refused_on_purpose_now`.
+
+Emitted text, verified live rather than assumed:
+
+```
+Column(s) D are picked more than once. Pick each column once -- repeating one would count its value twice.
+Column(s) D, E are picked more than once. ...          # each repeat named once, however many times it appears
+```
+
+Both builders' public `Refuses:` docstring lists were updated — that list *is* the interface.
+
+### 2. Real unit tests for the pure module — `services/boq_bcs/test_sources.py` (NEW, 29 tests)
+
+The module had **no unit test file at all**; its behaviour was covered only *through the endpoints* —
+which is the roundabout coverage S1a's relocation existed to move away from. Covering it only
+end-to-end left the relocation half-done: the rules lived in a pure module but were still specified by
+a test needing a site, a project and three seeded sheets to say *"a rate column is not an amount
+column"*. Shape follows `services/test_procurement_approval.py` and
+`services/boq_revision/test_column_diff.py` (plain `unittest.TestCase`, module-level fixtures, no
+`FrappeTestCase`) — the closest structural matches, not a new shape.
+
+Tested at the module's own seam: `(picked letters, descriptor index) -> confirmation dict`, both sides
+supplied literally. Groups: quantity shapes · amount shapes · the stored entry (incl. the
+`rate_subkey` **three-hop** resolve S1a added — the subtlest thing in the module, and invisible on
+every other shape) · shared refusals · quantity refusals · amount refusals. All six refusals covered
+on both sources.
+
+The descriptor fixtures are **not invented** — each mirrors exactly what
+`review_screen._build_column_descriptors` emits for that role (`_SINGLETON_ROLE_TO_FIELD`, the `qty`
+branch, the `_AMOUNT_ROLE_TO_KIND` branch), which is what `bcs._descriptor_index` feeds the module in
+production.
+
+**On purity, precisely.** The tests touch no `frappe.db`, need no fixture, no site data, no request
+context, and create/read no document. They do need `frappe.local` **bound**, because the module's one
+deliberate framework touch is `frappe.throw` (its own docstring records why: a refusal here is
+user-facing and named, so a bare `ValueError` would make every caller re-voice it). Bare
+`python -m unittest` raises `RuntimeError: object is not bound`; the bench runner supplies the binding,
+which is how **both** sibling pure suites are run — and how CI runs them
+(`bench --site test_site run-tests --app nirmaan_stack`). This is a property of the module's
+documented design, **not** a sign the relocation failed to achieve what it claimed.
+
+### 3. Registered with the B1 purity check — and it buys nothing today
+
+`scripts/residence_check.py` `PURE_MODULES` was a hand-list of exactly one unrelated file;
+`services/boq_bcs/sources.py` is added to it.
+
+⚠️ **State plainly, so no future reader mistakes a green B1 for evidence this module was checked: rule
+B1 is INERT.** `strip_strings_and_comments` returns `" ".join(kept)`, so `frappe.db` reaches the regex
+as `frappe . db` and the B1 pattern `frappe\.(db\b|get_all\(|get_doc\(|sql\()` **cannot match it in any
+file, however impure.** Verified rather than asserted — feeding the checker a source that calls both
+`frappe.db.get_value` and `frappe.get_all` yields `[]` on the stripped text and `['db', 'get_all(']`
+on the raw. The registration is correct-in-principle and starts covering this module the day the
+tokenizer is fixed.
+
+**The tokenizer bug was deliberately NOT fixed here.** It is repo-wide with real blast radius: it
+would silently change what a shared enforcement script reports for every module in the codebase. Its
+own slice. A warning block above `PURE_MODULES` now records all of this in the file itself.
+
+Registration changed no rule count: **b1 holds at 0**.
+
+### 4. Doctype description drift — recorded as debt, deliberately not edited
+
+`boq_sheet.json` was **not touched** — editing it forces a migration this slice must not carry.
+S1a's record presented "no doctype JSON changes" as pure virtue while this drift sat there; that
+framing is corrected here. The drift is **wider than the S1a review named** (it named the first
+three):
+
+| Field | Says | Truth since |
+|---|---|---|
+| `bcs_amount_source` | "which is the `amount_total` descriptor" | S1a — a per-area `amount_by_area` + `rate_subkey:"total"` is equally valid |
+| `bcs_amount_source` | "a single entry" | S1a — the per-area shape sums N entries |
+| both | shape `{col, role, area, value_field, value_key}` | S1a — omits **`rate_subkey`**, which a three-hop per-area amount *requires* |
+| `bcs_amount_source` | refusals: absent column, wrong class | S1a/S1b — omits the supply/install **HALF** guard, the mixed refusal, the two-scalars refusal, the duplicate refusal |
+| `bcs_qty_source` | refusals: absent column, mixed | S1b — omits the duplicate refusal and the two-scalars refusal |
+| `bcs_amount_source` | (silent on mode values) | S1a — `amount_total` / `amount_by_area` |
+
+**Named remedy:** whichever future slice next carries a migration on `BoQ Sheet` corrects these two
+`description` strings in the same diff. Nothing else about the fields changes; this is wording only.
+
+### 5. The owner's reasoning — the part that must survive
+
+**Why harden server-side at all, when S2's picker will only ever send distinct letters?** Owner,
+2026-08-02: *an unwritten "the UI will not send bad data" assumption is exactly the shape that breaks
+later.* The picker is one caller; the builders will acquire more (S6's carry among them), and a rule
+that lives in the module holds for all of them without anyone remembering.
+
+**Why now, ahead of the visible work?** The gap is unreachable today. That is precisely what makes
+this the cheap moment — there is no UI to re-test, no data to migrate, and no user to surprise. The
+same fix after S2 ships costs a coordination.
+
+**Why refuse rather than silently de-duplicate?** De-duplicating would accept a malformed pick and
+hide the client bug that produced it. A refusal is how the defect stays visible.
+
+### 6. Verification
+
+Run in-container (`bench --site localhost`), no live browser session — last session activity
+2026-07-31 22:51 against 2026-08-02 17:06, so the `tabSeries` naming-lock collision was not in play.
+
+| Suite | Command module | Baseline | Final |
+|---|---|---|---|
+| BCS endpoints | `nirmaan_stack.api.boq.wizard.test_bcs` | 48 | **49** OK |
+| **BCS pure rules (NEW)** | `nirmaan_stack.services.boq_bcs.test_sources` | — | **29** OK |
+| export write-back | `nirmaan_stack.api.boq.wizard.test_export_writeback` | 47 | 47 OK |
+| pricing | `nirmaan_stack.api.boq.wizard.test_pricing` | 252 | 252 OK |
+| commit pipeline | `nirmaan_stack.api.boq.wizard.test_commit_pipeline` | 57 | 57 OK |
+| review screen | `nirmaan_stack.api.boq.wizard.test_review_screen` | 260 | 260 OK |
+
+The new suite's invocation is the sibling precedents' own:
+`bench --site localhost run-tests --module nirmaan_stack.services.boq_bcs.test_sources`.
+
+**Red before green, shown.** The duplicate refusal was written test-first at BOTH levels and both runs
+failed on `AssertionError: ValidationError not raised` before `sources.py` was touched — pure
+(2 failures) and endpoint (1 failure, 49 tests). The remaining 27 pure tests are **characterization**
+tests of behaviour that already existed; they have **no red phase by construction**, and saying
+otherwise would be a fiction. Their value is that the rules are now specified at the seam that owns
+them.
+
+`python3 scripts/residence_check.py` → b1 **0/0 holding**, b2 8/8, b3 40/40, f5 116/116;
+**f2 208 vs baseline 207 — the PRE-EXISTING red** traced to `fe61165a` (RM-4b). Not re-baselined, not
+fixed. `scripts/residence_baseline.json` shows an empty `git diff`.
+
+`git diff --numstat` for the code commits: `test_bcs.py` +35/−0, `sources.py` +37/−7,
+`residence_check.py` +15/−1, `test_sources.py` new (364 lines, 29 tests).
+**⚠️ CORRECTED at BCS-S1c (2026-08-02):** this line originally reported `sources.py` **+44/−8** and
+`residence_check.py` **+16/−1**, taken from `git diff --stat` — whose combined `+++---` bar was read as
+an insertion count. `--numstat` gives the real figures above and is what every later record uses.
+
+**Surfaced, not silently absorbed:** the `test_pricing` run prints
+`duplicate key value violates unique constraint "tabBoQ Sheet Pricing Lock_pkey"` after its `OK`. It is
+the known non-atomic `pricing_lock.acquire_or_refresh` race — an explicitly *handled*
+`DuplicateEntryError` (pricing_lock.py:171, with its own long note). Pre-existing and unrelated:
+`test_pricing`, `pricing.py` and `pricing_lock.py` contain zero references to `boq_bcs`, so this slice
+cannot have caused it.
+
+### 7. Deliberately NOT done
+
+- **`api/boq/wizard/bcs.py` — not touched.** The refusal is a rule about what a valid confirmation is,
+  which is the pure module's business (ADR-0010 B1); validating in the endpoint would put half the
+  confirmation rules in one module and half in another — the exact drift S1a's relocation removed.
+- **The B1 tokenizer bug — not fixed**, though it is one line and provably breaks the check. Repo-wide
+  blast radius; its own slice. Registering into an inert check is stated as buying nothing rather than
+  quietly implying coverage.
+- **`scripts/residence_baseline.json` — not re-baselined.** The F2 red is someone else's and stays visible.
+- **`boq_sheet.json` — not edited.** Would force a migration this slice must not carry; recorded as
+  debt with a named remedy in §4 instead.
+- **`pricing.py` — untouched**, keeping the `test_bcs_module_never_touches_the_client_facing_rate_gate`
+  grep meaningful.
+- **No case-folding of column letters.** `["f","F"]` is refused as an *unknown column* (the index is
+  keyed by the sheet's real uppercase letters), which is correct. Making duplicate detection
+  case-insensitive would be a behaviour change beyond this slice.
+- **The duplicate rule is NOT applied across the two sources.** Picking the same column as both the
+  quantity and the amount source is a different question with a different answer, and conflating them
+  would invent a rule nobody ruled on.
+  **⚠️ STRENGTHENED at BCS-S1c (2026-08-02):** this originally hedged that the class checks "already
+  refuse it in every real sheet shape". The truth is stronger — they refuse it **BY CONSTRUCTION**. The
+  two builders accept disjoint `value_field` sets (quantity `{qty_total, qty_by_area}`; amount
+  `amount_total`, or `amount_by_area` with `rate_subkey == "total"`), and a descriptor carries exactly
+  ONE `value_field`, so no column can satisfy both — this does not depend on any sheet's shape. A
+  cross-source rule would therefore be dead code. Pinned by
+  `test_an_amount_column_is_not_a_quantity_column` / `test_a_quantity_column_is_not_an_amount_column`.
+  Investigated and CLOSED at S1c — do not reopen.
+- **No frontend file, no migration, no doctype JSON.** S2 onward.
+- **The carry path (S6) — untouched.**
+- **The `acquire_or_refresh` duplicate race — not fixed.** Pre-existing; belongs in `pricing_lock`.
+- **No live browser E2E.** Backend-only, nothing renders; and the changed behaviour is unreachable from
+  any UI until S2 ships the picker, so there is literally nothing a browser could observe.
+
+## BCS-S1c — seal the confirmation rules: de-duplicate on the VALUE, not the letter
+
+**Branch** `feature/bcs-columns` · **Base** `768e5d2a` · **Tier** FULL · **Date** 2026-08-02
+
+S1b fixed the duplicate-column bug at the wrong level: it de-duplicated the picked **letter**, and its own
+review then proved by execution that two **different** letters resolving to the same underlying value were
+still accepted — producing exactly the double-count S1b existed to prevent. This slice re-keys that one
+refusal on the **resolved identity** `(value_field, value_key, rate_subkey)`, and corrects three claims
+that were written confidently and would have been read as specification. **Nothing else moved:** no
+endpoint, no doctype JSON, no migration, no frontend file, no baseline. It is the last foundation gap;
+S2 onward is pure feature work.
+
+---
+
+### 1. The real fix — `services/boq_bcs/sources.py`
+
+`_resolve_picks` keyed its duplicate check on the picked column **letter**. That is only the DEGENERATE
+case. `review_screen._build_column_descriptors` imposes **no uniqueness on `(role, area)` across
+columns**, so a sheet mapping Zone A quantity on **both D and E** produces two descriptors that resolve to
+one number — and `build_qty_source(["D","E"])` stored both and summed them. Reachable from a real sheet
+(a duplicated export column, a mid-migration remap), inert today, load-bearing at S3 where summing lands.
+
+The key is now the **resolved identity**:
+
+```python
+key = (desc.get("value_field"), desc.get("value_key"), desc.get("rate_subkey"))
+```
+
+Four decisions inside that one line, none of which the prompt settled:
+
+- **It SUBSUMES the letter case** — the same letter necessarily resolves identically — which is why the
+  S1b letter tests keep passing with **no edit**. That was verified in the order that makes it evidence:
+  the GREEN run happened *before* any existing assertion was touched.
+- **The letter check is KEPT, ahead of it.** Not as a second rule: as the specific **voicing** of the
+  degenerate case. Two message assertions pin S1b's exact wording (`"more than once"`, and the anchored
+  `^Column\(s\) D are picked`), and a single merged message could not have satisfied both without an
+  awkward disjunction (*"picked more than once, **or** hold the same value"*) that makes the user work out
+  which. **One rule, one title (`Duplicate column`), two voicings**, ordered most-specific-first — the same
+  shape as *unknown beats duplicate*.
+- **It stays in the shared `_resolve_picks`**, so both sources are covered by construction rather than by
+  two copies, and the message stays source-neutral. This is the same seam S1b chose; only its key changed.
+- **The new voicing names the offending GROUP**, because the user picked two columns that *look*
+  different and an unactionable refusal is barely a refusal:
+
+```
+Column(s) D, E resolve to the same value on this sheet, so picking them together would count
+that value twice. Pick one column per value.
+```
+
+**Refusal ordering, and what it now shadows** — verified by executing all 24 inputs, not by reading:
+
+| input | fixture | title |
+|---|---|---|
+| `["Z","Z"]` | SCALAR | `Unknown column` — unknown still beats duplicate |
+| `["D","D"]` | PER_AREA | `Duplicate column` (letter voicing) |
+| `["D","E"]` | ALIASED | `Duplicate column` (**value** voicing — the new refusal) |
+| `["D","E"]` | TWO_SCALARS | `Duplicate column` ← **was** `Too many total-quantity columns` |
+| `["D","E"]` | MIXED | `Mixed quantity sources` — still reachable |
+| `["C"]` | SCALAR | `Not a quantity column` — still reachable |
+| `["D"]`, `["D","E"]` | SCALAR / PER_AREA | **OK** — every valid shape still confirms |
+
+**A consequence the prompt did not anticipate, surfaced rather than absorbed:** widening the key makes two
+refusals **unreachable for every input** — `Too many total-quantity columns` and `Too many amount columns`.
+Their guard is "≥2 picks, all scalar totals of one role", and two such descriptors *necessarily* share
+`(value_field, None, None)`, so the duplicate check always fires first. **They are RETAINED, not deleted:**
+they are the correctly voiced refusal should this key ever narrow, and deleting a live refusal is a
+behaviour change this slice was not asked to make. Both are documented as unreachable in the code. The two
+tests covering them are bare `assertRaises` and still pass — the outcome is unchanged, only the message.
+
+### 2. Correcting a false claim that would have been read as specification
+
+S1b wrote *"every input that threw before this slice throws identically"* into **three** places:
+`sources.py`, the `test_an_unknown_column_beats_a_duplicate` docstring, and its own plan record. All three
+are corrected in place.
+
+The **safety** half held — the S1b review's 32-input differential found zero behavioural changes. What did
+not hold is the claim about **messages**: the duplicate refusal precedes every per-source rule, so it
+shadows **six** titles, not the one scalar case that was disclosed. Post-S1c the picture is sharper still,
+and the corrected text states the post-slice truth rather than the pre-slice one: four titles are shadowed
+**for inputs carrying a duplicate** (`Not a quantity column`, `Not the Amount (Combined) column`,
+`Mixed quantity sources`, `Mixed amount sources`), and two are shadowed **for every input** (the pair
+above). Nothing broke, because **no test anywhere asserts on a message in that family** — the defect was
+the sentence, not the code.
+
+Replacing it with the **narrow claim the test actually pins**: *an unknown column is still reported as
+unknown.* That, and only that, is what the ordering buys.
+
+### 3. Test tightening — proportionate, not a sweep
+
+- `test_the_unknown_column_refusal_names_the_column` asserted on `"Z"` — **one unanchored character**.
+  Harmless against the `SCALAR` fixture, but it would have matched **vacuously** the moment it were
+  repointed at `PER_AREA`, whose `"Zone A"` contains a Z. Now `r"^Column 'Z' is not a mapped column"`,
+  matching the escaped-and-anchored style already used elsewhere in the file.
+- The **duplicate family** — the one this slice owns — now pins its specific refusal instead of "some
+  refusal fired": the two S1b per-area tests move from bare `assertRaises` to `"more than once"`, and the
+  four new tests assert on `"same value"` / the anchored group message.
+- **The other 12 bare `assertRaises` were deliberately left alone.** The S1b review counted 16 of 29 pure
+  tests in that shape; rewriting all of them is a different slice with a different justification, and doing
+  it here would bury the change that matters.
+
+### 4. `scripts/residence_check.py` — the B1 warning was wrong in both directions
+
+Both corrections were **reproduced by execution before being written** (`strip_strings_and_comments`
+driven directly over a parseable and an unparseable fixture):
+
+- **It OVERSTATED.** The note claimed B1 cannot match *"in ANY file, however impure"*. But the
+  `tokenize/IndentationError/SyntaxError` branch **fails OPEN and returns the RAW source** — an
+  **unparseable** file DOES match, and over-matches into comments and docstrings, where a mere *mention* of
+  `frappe.db` counts as a violation. Measured: the unparseable fixture produced **2 matches**, one of them
+  from inside a docstring. The check is blind on every file that parses and over-eager on any that does not.
+- **It UNDERSTATED.** It cited only `frappe.db`. Measured: **all four** alternatives — `frappe.db`,
+  `frappe.get_all(`, `frappe.get_doc(`, `frappe.sql(` — score **0 matches** each, since every one spans a
+  token boundary the joiner pads.
+
+**The tokenizer bug itself is still NOT fixed** — repo-wide blast radius on a shared enforcement script,
+its own slice. Only the note changed; no rule count moved.
+
+### 5. Verification
+
+| suite | baseline → final |
+|---|---|
+| `services.boq_bcs.test_sources` | **29 → 33** |
+| `api.boq.wizard.test_bcs` | **49 → 50** |
+| `api.boq.wizard.test_export_writeback` | 47 → **47** |
+| `api.boq.wizard.test_pricing` | 252 → **252** |
+| `api.boq.wizard.test_commit_pipeline` | 57 → **57** |
+| `api.boq.wizard.test_review_screen` | 260 → **260** |
+
+**Red before green, shown twice — and once honestly declined.** The three new pure tests were written
+first and failed against the current key with `AssertionError: ValidationError not raised` (33 ran, 3
+failed) — i.e. the double-count was *accepted*. The endpoint test was then shown red by restoring
+`sources.py` from `HEAD` (`git show HEAD:…`, backup taken first, restore verified byte-identical by
+`shasum`) and re-running: 50 ran, 1 failed, same message — proving the aliased pick reached the **store**,
+not just the builder. **The wording corrections in §2 and §4 have no red phase**, and claiming one would be
+a fiction; they were verified by execution instead (the 24-input title probe, the B1 probe).
+
+`python3 scripts/residence_check.py` → b1 **0/0**, b2 8/8, b3 40/40, f5 116/116 all holding; **f2 208 vs
+baseline 207 — the PRE-EXISTING red** traced to `fe61165a` (RM-4b). Not re-baselined, not fixed, and my
+`residence_check.py` edit moved **no** rule count.
+
+`git diff --numstat` (authoritative — the S1b record's `--stat` misread is corrected above):
+`test_bcs.py` **+58/−0**, `sources.py` **+48/−18**, `test_sources.py` **+78/−12**,
+`residence_check.py` **+17/−6**.
+
+**Surfaced, not silently absorbed:** `test_pricing` again prints
+`duplicate key value violates unique constraint "tabBoQ Sheet Pricing Lock_pkey"` after its `OK` — the
+known non-atomic `pricing_lock.acquire_or_refresh` race, pre-existing and untouched here.
+
+**No live browser E2E**, for the same reason as S1b: the changed behaviour is unreachable from any UI until
+S2 ships the picker, so there is nothing a browser could observe.
+
+### 6. Deliberately NOT done
+
+- **NO cross-source duplicate rule.** Picking one column as both quantity and amount is **structurally
+  impossible** — disjoint `value_field` sets, one `value_field` per descriptor. Such a rule would be dead
+  code. Investigated, CLOSED, and the S1b record's weaker *"in every real sheet shape"* hedge strengthened
+  to *by construction*. **Do not reopen.**
+- **The two now-unreachable refusals — NOT deleted.** See §1. Retained deliberately, documented as
+  unreachable.
+- **The B1 tokenizer bug — NOT fixed.** Note corrected only; the fix is repo-wide and needs its own slice.
+- **`scripts/residence_baseline.json` — NOT re-baselined.** The F2 red is someone else's and stays visible.
+- **The other 12 bare `assertRaises` — NOT rewritten.** Out of proportion to this slice; see §3.
+- **`api/boq/wizard/bcs.py` — NOT touched.** The refusal is a rule about what a valid confirmation *is*,
+  which is the pure module's business (ADR-0010 B1) — the same reasoning as S1b.
+- **`pricing.py`, every doctype JSON, every frontend file, the carry path (S6) — untouched.**
+- **S1b's *"Only the PER-AREA shape was ever a hole"* bullet — left as written.** It is true on the axis
+  S1b was reasoning about (repeated letters); the aliased hole is a different axis, and this record
+  supersedes it. Only the three corrections the review actually named were edited into that record.
+
+## BCS-S2 — the BCS enable button and the two-column confirmation card
+
+**Branch** `feature/bcs-columns` · **Base** `cb21d74f` · **Tier** FULL · **Date** 2026-08-02
+
+The first **visible** surface of the BCS cost section. One button in the bottom ribbon beside Freeze
+Classification, a confirmation card behind it, an amber banner while it is on-but-unconfirmed, and a
+clickable chip once it is confirmed. **FRONTEND ONLY** — no backend file, no doctype JSON, no migration,
+and **no `PricingGrid.tsx` change**: no BCS column renders until S3, so the row-memo shield is untouched
+this slice. Two commits: `897a64f7` (the pure rules + tests) → `c492b1ab` (the surface).
+
+---
+
+### 1. The seam, and why the rules are not in the component
+
+The seam is **`frontend/src/pages/boq-wizard/bcsColumns.ts`** — a pure module (no React import) whose
+interface is *eligibility, labelling, validity, and the button's disabled reason*. The card is a thin
+renderer over it.
+
+That is the right seam for a reason this repo has already paid for twice. The question the card must
+answer — *"is this selection valid, and if not what do I say?"* — is a **domain rule whose authority
+lives on the server** (`services/boq_bcs/sources.py`). ADR-0010 **F1** says such a rule has one home,
+pinned to the backend's. Put it inside `BcsColumnsDialog.tsx` and two things follow immediately: it
+becomes **structurally untestable** (this repo has no DOM environment, by deliberate choice), and S3
+will need the same knowledge and grow a second copy. Extracted, the whole rule set is 44 unit tests and
+can be read side-by-side with the Python.
+
+**`validateBcsPicks` reproduces the server's PRECEDENCE, not just its conditions** — because the order
+decides *which* refusal a bad pick gets:
+
+| # | Refusal | Server origin |
+|---|---|---|
+| 1 | empty selection | `build_*_source` guard |
+| 2a | a column the sheet does not have | `_resolve_picks` loop — runs **first**, so an unknown column reads as unknown, the more fundamental fact, not as a duplicate |
+| 2b | the same letter twice | `_resolve_picks` dupes |
+| 2c | two **different** letters resolving to one value | `_resolve_picks` aliasing (the S1c fix) |
+| 3 | a mapped column of the wrong class | `fields <= {...}` / `_is_combined_amount` |
+| 4 | a scalar total mixed with its own per-area parts | `len(fields) > 1` |
+| 5 | more than one scalar total | `len(picked) != 1` |
+
+**Rule 5 is retained and unreachable, on the client exactly as on the server** — two scalar totals of one
+role necessarily share a resolved identity, so 2c fires first and shadows it. Deleting it would be a
+behaviour change of its own; a test pins the *shadowing* (`["D","L"]` → the duplicate message) so the two
+layers cannot drift apart silently.
+
+**Where the client narrows.** `eligibleBcsColumns` offers only columns that could pass the class check,
+so the card cannot even attempt most refusals. That is a **narrowing, never a widening** — the refusals
+still reachable from the offered set (mixing a total with its own parts; two columns holding one number)
+are exactly what the validity line catches. The wording is friendlier than a thrown error; the
+**conditions are identical**.
+
+### 2. The surface, and the invariants it had to respect
+
+- **`SheetPricingPage.tsx`** — reads `get_bcs_state` **pinned to `liveCommitVersion`, never the browsed
+  one** (BCS is configured per sheet+version; a re-commit mints a fresh `BoQ Sheet` row and correctly
+  starts BCS off + unconfirmed). POSTs `set_bcs_enabled` / `confirm_bcs_columns`, and mounts the card
+  **once at page level** with page-owned open state — mirroring `pickerState` + `CategoryVerdictPicker`,
+  never inside a row loop.
+- **`is_ready` is READ, never re-derived.** The server's one readiness predicate (enabled **and** both
+  columns confirmed) drives the button state, the banner and the chip, so none of them can disagree with
+  what a cost write will actually do.
+- **NO NEW COLOUR.** The button is `variant="outline"` off and `variant="default"` on — byte-identical in
+  kind to Freeze Classification beside it. Teal is the sheet lock, sky is Freeze-columns, emerald is
+  priced/succeeded, red is error, amber is attention; a sixth meaning would cost more than it buys.
+- **The banner is copied markup, on purpose.** There is no shared Banner component in this file — every
+  banner is copied amber `<div>` markup, so the new one matches character-for-character. Per the
+  category-gate precedent it **names the control and adds no jump button**.
+- **The collapsed rail gets one `chips.push` line.** `bcsNeedsColumns` is a visible banner *and* a state
+  in which every cost write is refused, which is precisely what that rail exists to keep a full-screen
+  collapse from hiding. One line, following the existing idiom — no second mechanism.
+- **Greyed with a reason, never hidden.** `bcsSetupReason` returns the first failing cause into the
+  native `title`, mirroring `suggestRatesReason`. BCS always *exists* as an action on a committed sheet,
+  so a disabled button is honest here — unlike "Carry rates from original", which is hidden off a
+  revision precisely because there the action does not exist and a disabled button would be a lie.
+
+### 3. The owner's reasoning — the part that must survive
+
+**Turning BCS off takes no confirm step, because it is not destructive.** This was checked against the
+backend, not assumed. `set_bcs_enabled(0)` writes **one flag**: the two confirmations are explicitly
+PRESERVED (so re-enabling never forces a re-pick — the endpoint's own docstring says so, and
+`test_enable_then_disable_round_trips` pins the round-trip), and **no `BoQ Row BCS Rate` is ever
+deleted** — nothing on this path deletes, and the doctype is freeze-and-supersede. Off therefore *hides*;
+it does not *discard*. That makes it the **Lock/Unlock shape** (a direct action), not the Freeze shape
+(fetch-a-summary, then confirm). It lives in the card's footer rather than on the ribbon button, so the
+ribbon control is never a destructive toggle.
+
+**Which gates the button respects, and which it deliberately does not.** `sheetLocked` (the deliberate
+per-sheet lock) is in, because the **server itself refuses** BCS setup there — `_guard_sheet_not_locked`
+runs in both `set_bcs_enabled` and `confirm_bcs_columns`. `viewingHistory` is in, not as a server rule but
+a targeting one. The **single-editor concurrency lock is deliberately OUT** of *this button's* gate set:
+the BCS **setup** endpoints — `set_bcs_enabled`, `confirm_bcs_columns` and the `get_bcs_state` read —
+neither acquire nor check it, and the neighbouring Freeze Classification control is independent of it for
+the same reason — choosing which columns BCS reads is a separate axis from client-facing pricing, exactly
+as `bcs.py`'s module docstring argues at length. Gating on the page's blanket `locked` would have been an
+invented client-side restriction.
+
+> ⚠️ **ERRATA — corrected at BCS-S2a (review finding F3).** As first written, the sentence above read
+> *"the BCS endpoints neither acquire nor check it"*, with no qualifier. That is **false of
+> `save_row_bcs_rates`**, the cost-entry write: it calls `pricing_lock.acquire_or_refresh` after its
+> guards and before the write (`bcs.py:88` imports it, `:472` calls it), exactly as `save_cell_price`
+> does. The claim is true of SETUP only. The original wording is quoted here rather than deleted so the
+> record still shows what S2 believed, but **do not build on it**: an S3 cost cell IS subject to the
+> single-editor concurrency lock even though this setup button is not, and its gating must say so. The
+> twin comment in `bcsColumns.ts` (`bcsSetupReason`'s docblock) carried the same error and was corrected
+> in the same slice. `bcs.py` itself was correct throughout and was not touched.
+
+**Multi-pick is load-bearing.** A sheet split per area needs *every* area column picked, because they
+**sum**; a scalar column is a lone pick; and a scalar must never be mixed with its own per-area parts. The
+card surfaces that last refusal in its validity line rather than permitting the attempt.
+
+### 4. Verification
+
+| Check | Command | Result |
+|---|---|---|
+| Unit tests (in-container) | `yarn test` | **1222 → 1266** (53 → 54 files), all green. **+44** |
+| Red before green | `npx vitest run …/bcsColumns.test.ts` | RED: *"Cannot find module './bcsColumns'"* → GREEN: 44 passed |
+| Type-check | `npx tsc --noEmit` | **0 errors in `boq-wizard`** (baseline 0; 3772 lines pre-existing elsewhere, unchanged) |
+| Production build | `npx vite build` | `✓ built in 43.21s` — clean. Output dir is gitignored; **0 tracked files changed** |
+| Scope | `git diff --stat` | 5 files, all in `files_in_scope`. `PricingGrid.tsx` **not** in the diff |
+
+**What no test here can cover, and needs a browser.** The repo has **no DOM test environment** (no jsdom,
+no testing-library — `vitest.config.ts` records the choice). Everything below is a React *semantic* and is
+therefore **structurally untestable in this repo**; a green suite says nothing about any of it:
+
+1. The off→on click both enabling BCS **and** opening the card in one act.
+2. The card hydrating from a stored confirmation on **re**-open (and a mid-edit refetch not stomping
+   in-progress picks — the effect is keyed on `open` alone).
+3. The chip appearing only once **both** sides are confirmed, and reopening the card.
+4. The banner appearing/clearing on the enable→confirm transition.
+5. The collapsed full-screen rail showing the "BCS needs columns" chip.
+6. **That the `React.memo(PricingGrid)` shield still bails** when the card opens/closes. The change adds
+   no grid prop and destabilises none, so it *should* — but "should" is the word that preceded T1 and T2.
+   Confirm with the React DevTools Profiler ("Why did this render?").
+
+### 5. Deliberately NOT done
+
+- **`PricingGrid.tsx` — untouched.** No BCS column renders until S3, so the row-memo shield and
+  `pricingRowPropsAreEqual` stay byte-unchanged. Nothing here needed it.
+- **Every backend file — untouched.** The endpoints and the pure rules exist and are reviewed across
+  S1/S1a/S1b/S1c. This slice wires a UI to a finished backend; it does not adjust it.
+- **No doctype JSON, no migration.** Nothing schema-shaped in this slice.
+- **The carry path (S6) — untouched.**
+- **No BCS rate entry.** `save_row_bcs_rates` exists and is gated by `bcs_is_ready`, but nothing on this
+  screen calls it yet. The banner's "cost entry stays locked" is about the server's refusal, not about a
+  control that ships here.
+- **No second readiness derivation.** The client never recomputes `is_ready` from `bcs_enabled` + the two
+  sources; it reads the server's. One number, one owner.
+- **The repo-wide `tsc` reds — not touched.** 3772 lines of pre-existing errors outside `boq-wizard`;
+  someone else's slice, and fixing them here would hide whether *this* change is clean.
+
+## BCS-S2a — close the S2 review findings, so S3 inherits a screen that never lies about BCS
+
+**Branch** `feature/bcs-columns` · **Base** `59b8049f` · **Tier** FULL · **Date** 2026-08-02
+
+Answers the Checklist B review of BCS-S2. Two substantive findings (**F1** the button read the wrong
+fetch's state; **F3** a comment that is false about the concurrency lock) plus five minor ones (**F2**,
+**F4**, **F7**, **F8/F9**, **F10**). Both substantive findings matter *before* S3, which hangs its cost
+cells off the same state and will be written by someone reading the same comments. **Frontend only** —
+no backend file, no doctype JSON, no migration, and `PricingGrid.tsx` is still untouched by this whole
+arc. Code in `e9503389`.
+
+---
+
+### 1. F1 — the button read the WRONG fetch's loading and error state
+
+`SheetPricingPage` fed `pricedLoading` / `pricedError` (the **priced rows** fetch) into `bcsSetupReason`,
+while `get_bcs_state`'s own `error` and `isLoading` were **never destructured**. Nothing type-checked
+wrong, which is why it survived review-by-reading.
+
+The consequence was not cosmetic. On a failed BCS read `bcsState` stayed null, so `bcs_enabled === 1`
+was false — and because *that one expression* was also the button's appearance, a sheet that was genuinely
+**enabled and confirmed** rendered **OFF and clickable**, dropped its confirmed chip, and **suppressed the
+amber banner**. No data harm (the click POSTs an idempotent enable and refetches), but it is exactly the
+screen-disagrees-with-the-server state the design exists to prevent.
+
+**The fix is two functions, not one flag,** because the finding has two halves:
+
+| Half | Change |
+|---|---|
+| *Is the control live, and why not?* | `bcsSetupReason` gains `bcsLoading` / `bcsError`, and its sheet-side fields are **renamed** `sheetLoading` / `sheetError` |
+| *What may the button CLAIM?* | new pure `bcsToggleState(...)` → `"unknown" \| "off" \| "on"` |
+
+**The rename is the actual defence.** The root cause of F1 is that `loading` / `error` did not say *whose*
+fetch they were, so the page passed the wrong pair and the reviewer could not see it. At the call site it
+now reads `sheetLoading: pricedLoading, … bcsLoading: bcsFetchLoading` — the mistake becomes visible on
+the page rather than needing to be remembered.
+
+**Three appearances, because there are three states.** SOLID = on. OUTLINE + calculator = off. Unknown
+**never borrows the OFF look**: it spins while loading, and shows the `AlertTriangle` glyph the banners
+already use for attention when the read failed — **no new colour** (the S2 palette ruling stands).
+`aria-pressed` is **omitted, not `false`**, when unknown: a toggle must not claim a state nobody told it.
+The enable POST is additionally gated on `bcsToggle !== "off"`, so an unknown state can never fall through
+to a write.
+
+`bcsSetupReason` is fed **SWR's real `error` / `isLoading`**, not this page's older
+`data === undefined / null` convention — which is what makes the error branch reachable at all. (That
+older convention is used at ~20 other call sites on this page and is **left alone**; see §5.)
+
+### 2. F3 — a comment that is false in the direction S3 will walk
+
+`bcsColumns.ts` and plan §3 both said the BCS endpoints *"do not acquire or check"* the single-editor
+concurrency lock. True of the three **setup** endpoints; **false of `save_row_bcs_rates`**, which imports
+`acquire_or_refresh` at `bcs.py:88` and calls it at `:472` — and that is precisely the endpoint S3 wires up.
+
+Both places now say **setup**, and both state positively that the **rate-save path DOES take the lock**.
+`bcs.py` was correct throughout and was **not edited**; only the frontend comment and the record were wrong.
+
+⚠️ The plan-§3 correction is written as **ERRATA**: the original sentence is quoted inside the correction
+rather than deleted, so the record still shows what S2 believed while the falsehood is neutralised. This is
+a deliberate, narrow departure from "never edit a record already written" — the standing rule protects
+history, and a *factual error aimed at the next slice* is the one thing it should not protect.
+
+### 3. The five minor findings
+
+- **F4 — a raw NUL byte** at the dup-key separator made the whole module read as **binary**: `file`
+  reported `data` and `grep` returned nothing without `-a`, so **audit and ratchet tooling silently skipped
+  every rule in the file**. Now `file` reports text and `grep` works unaided.
+- **F2 — the dup key coerced a null area to `""`** while the server keys the raw tuple, where `None != ""`.
+  Practically unreachable, but the **silent-unreachable direction**: the client refusing what the server
+  accepts. Both closed by **one** change — the key is now `JSON.stringify([value_field, value_key ?? null,
+  rate_subkey ?? null])`, which renders `null` and `""` distinctly (as the server does), is plain ASCII, and
+  removes the separator ambiguity a delimiter always carries.
+- **F7 — two dead types** (`SetBcsEnabledResponse`, `ConfirmBcsColumnsResponse`) → **DELETED**, not wired
+  up. Three reasons: the page *deliberately* discards both POST bodies and re-reads through `mutateBcs()`
+  because `is_ready` is server-authoritative; there is **no `useFrappePostCall<T>` generic anywhere on this
+  page** (19/19 untyped), so "using" them would invent a convention inside a findings-closing slice; and an
+  unreferenced interface has nothing pinning it to `bcs.py`, so it rots. The wire shapes stay documented in
+  the endpoint docstrings.
+- **F8/F9 — two non-discriminating assertions.** `/twice/i` **also matches** the duplicate-letter and
+  same-number refusals, so the mixed-rule tests passed whichever rule fired — they could not catch the
+  precedence regression they exist for. They now assert the mixing message's own words *and* that the two
+  preceding rules did **not** speak. Added the **qty-side class-before-mixed** precedence test that only the
+  amount side had.
+- **F10 — the card reset on sheet switch but not on version switch.** It is fed `columnDescriptors`, which
+  flip to the **history** version's descriptors on a version browse, while its Save still targets
+  `liveCommitVersion` — so it could offer a column the live-version save refuses. A **separate**
+  `[selectedVersion]` effect closes it (deliberately not folded into the `[sheetName]` block, whose other
+  resets — search, collapse, filters, classify state — must **not** fire on a version switch). `bcsToggling`
+  is left alone: it guards an in-flight POST against `liveCommitVersion`, which a version switch does not change.
+
+### 4. The owner's reasoning — the part that must survive
+
+**An unknown state is not an OFF state, and that is the whole finding.** S2's defect was not a wrong
+boolean; it was that *one expression* (`bcs_enabled === 1`) answered two different questions — "is BCS on?"
+and "what should this button look like?" — so absence of knowledge silently became knowledge of absence.
+`bcsToggleState` exists to make that collapse impossible to re-introduce. **S3 must read it rather than
+re-derive `bcs_enabled`** — an unknown state must not present as an empty, editable cost cell.
+
+**A stale payload behind a failed read is also unknown.** SWR keeps the last good `data` when a
+revalidation fails, so a payload can outlive its own truth. If the most recent read did not succeed we do
+not claim currency **in either direction** — including not claiming "on".
+
+**The chip and the banner stay silent when unknown, and that is correct.** The *lie* was the button
+claiming OFF; the chip's absence is merely **incomplete**. We cannot render columns we were never sent, and
+we must not assert "BCS needs columns" when nobody told us it does. Incomplete-but-honest beats
+complete-but-invented — and the button now carries the explanation for both.
+
+**The seam is `bcsColumns.ts`'s pure exported surface** (ADR-0010 F4). F1 happened precisely because a
+derivation lived inline in JSX, invisible to a repo with no DOM tests. Moving it behind a named pure
+function gives one small interface that the button variant, `aria-pressed`, the spinner, the write gate and
+S3's cost cells all share.
+
+### 5. Verification
+
+| Check | Command | Result |
+|---|---|---|
+| Unit tests (in-container) | `yarn test` | **1266 → 1279** (54 files, unchanged), all green. **+13** |
+| Red before green | `npx vitest run …/bcsColumns.test.ts` | RED **12 failed / 45 passed** → GREEN **57/57** |
+| Mutation proof (F8) | mixed rule emits a different `…twice…` message | **2 tests fail** — the old `/twice/i` would have passed |
+| Mutation proof (F9) | swap the class and mixed rules | **2 tests fail**, on **both** sides — pre-S2a only the amount side would have caught it |
+| Type-check | `npx tsc --noEmit` | **0 errors in `boq-wizard`** (baseline 0). Repo total **3236 → 3236**, unchanged |
+| Production build | `npx vite build` | clean; **0 tracked files changed** by the build |
+| Residence ratchet | `python3 scripts/residence_check.py` | B1 **0/0** · B2 **8/8** · B3 **40/40** · F5 **116/116** all holding; **F2 = 208 vs baseline 207** |
+| Scope | `git diff --stat` | 5 files, all in `files_in_scope`. `PricingGrid.tsx` **not** in the diff |
+
+**The residence F2 red is PRE-EXISTING and stays** (owner ruling 2026-08-02): it comes from the RM-4b Rate
+Master structure editor, not this arc. Measured at **208 on a clean tree before any edit in this slice, and
+208 after** — this slice added **zero**. The count is stated exactly, not as "still red", so a genuine
+increase to 209 would be unmistakably ours.
+
+**What no test here can cover, and needs a browser.** The repo has **no DOM test environment** (no jsdom,
+no testing-library — `vitest.config.ts` records the choice). The *rules* are fully unit-tested; every item
+below is a React **semantic** and is structurally untestable here, so a green suite says nothing about it:
+
+1. The button actually showing the **spinner** while `get_bcs_state` is in flight, and the **warning glyph**
+   after a failed read — rather than the OFF look. **This is the finding itself; it deserves the A/B.**
+   Force it by blocking the `get_bcs_state` request in DevTools on a sheet that is enabled and confirmed.
+2. The button being **unclickable** in that failed state (pre-S2a it was clickable).
+3. The confirmed **chip** and the amber **banner** staying absent while the state is unknown, and both
+   returning on a successful refetch.
+4. The card **closing** when the version ribbon switches version, and re-opening pre-filled afterwards.
+5. That the `React.memo(PricingGrid)` shield still bails — no grid prop was added or destabilised, so it
+   *should*, but "should" is the word that preceded T1 and T2. Confirm in the React DevTools Profiler.
+
+### 6. Deliberately NOT done
+
+- **The `!isGridOnly` gating — unchanged**, per the owner ruling: whether BCS belongs in grid-only mode is
+  unresolved and recon was out of scope.
+- **The residence F2 red — not fixed, not re-baselined**, per the owner ruling. Reported exactly (208).
+- **`PricingGrid.tsx` — untouched**, and still untouched by this whole arc. S3 owns it.
+- **Every backend file — untouched**, `bcs.py` included. The false statement was in the *frontend* comment
+  and the record; the backend was right.
+- **No doctype JSON, no migration.**
+- **The page's `data === undefined / null` loading convention — left alone at its ~20 other call sites.**
+  It looks inert against SWR (a rejected fetcher leaves `data` undefined and sets `error`, so
+  `pricedError` may never fire), but that is a **pre-existing, page-wide** question, not a BCS finding, and
+  widening into it would bury this slice. **Flagged for the owner as a separate recon.**
+- **`SheetPreviewFullResponse`** — a *third* unused interface noticed in `boqTypes.ts` while closing F7.
+  Left in place: it is not part of this arc and F7 named exactly two types.
+- **`BcsColumnsDialog.tsx` — in scope but unedited.** F10's fix is closing the card, not changing it; the
+  dialog already re-hydrates from the stored confirmation on every open.
+- **No BCS rate entry** — still nothing on this screen calls `save_row_bcs_rates`. S3.
+
+## BCS-S2b — widen the amount rules to the supply/install halves, and give a combined-rate sheet its own field
+
+**Branch** `feature/bcs-columns` · **Base** `ff638d43` · **Tier** FULL · **Date** 2026-08-02
+
+The design met real sheets and two assumptions turned out to be false. Most sheets have **no single
+"Amount (Total)" column** — they carry Amount (Supply) and Amount (Installation) separately — so the
+confirmation card's Amount list came up EMPTY on most real sheets; and some sheets do not split
+supply from installation at all. Backend half only: the amount source now accepts the halves (summed,
+including one-sided), and `BoQ Row BCS Rate` gains a third cost input. **What did NOT change:** every
+frontend file (S2c mirrors these rules next), `PricingGrid.tsx` (S3), `pricing.py` (untouched all arc),
+the carry path (S6), and the quantity source, which this slice never touches.
+
+---
+
+### 1. The two amount AXES — the shape of the widening
+
+`services/boq_bcs/sources.py` previously asked one yes/no question per column, `_is_combined_amount`.
+That is exactly the question that stopped being the right one: a pick is now judged **against the other
+picks**, not on its own. It is replaced by `_amount_axes(desc) -> (shape, kind)`, which places a column
+on two independent axes:
+
+| axis | values | where it is written |
+|---|---|---|
+| **shape** | `scalar` · `area` | scalar = the value_field itself; area = `amount_by_area` |
+| **kind** | `total` · `supply` · `install` | scalar: in the value_field · per-area: in `rate_subkey` |
+
+That asymmetry is the one genuine wrinkle — all three per-area kinds share the single value_field
+`amount_by_area`, so only the per-area shape needs the third hop.
+
+**Eight accepted shapes, eight modes**, held in one enumerable table (`_AMOUNT_MODES`) rather than
+built by string concatenation, so an unruled combination cannot mint a plausible-looking mode:
+
+| shape | kinds | mode | formula in force |
+|---|---|---|---|
+| scalar | total | `amount_total` | the Amount column |
+| scalar | supply+install | `amount_supply_plus_install` | Supply + Installation |
+| scalar | supply | `amount_supply_only` | Supply alone |
+| scalar | install | `amount_install_only` | Installation alone |
+| area | total | `amount_by_area` | Σ per-area Amount |
+| area | supply+install | `amount_by_area_supply_plus_install` | Σ over **both** axes |
+| area | supply | `amount_by_area_supply_only` | Σ per-area Supply |
+| area | install | `amount_by_area_install_only` | Σ per-area Installation |
+
+`amount_total` and `amount_by_area` are **byte-unchanged**, so confirmations stored before this slice
+read back identically.
+
+**The mode never branches the arithmetic.** In every one of the eight, the computation is "resolve each
+stored entry and add them up" — no coefficient, no subtraction, no dropped column. The mode exists for
+**disclosure** (S2c states it in words) and for the refusals. `test_the_arithmetic_is_sum_every_entry_in_every_mode`
+is where that stops being true if a future shape ever needs real arithmetic.
+
+### 2. What survived the reversal, and the ordering argument
+
+Three refusals stand:
+
+- **A TOTAL already CONTAINS its halves** → a total picked with a half is refused (`Mixed amount kinds`).
+  This is the *real* harm the old half-refusal was protecting, arriving along the kind axis instead of
+  the shape axis.
+- **Duplicates by RESOLVED VALUE** (BCS-S1c) — untouched, and re-pinned, since the new shapes add *more*
+  columns that can alias, not fewer.
+- **Scalar mixed with per-area** (`Mixed amount sources`) — untouched, and deliberately **not** widened:
+  no owner ruling covers a sheet that genuinely splits one kind scalar and the other per area, so it stays
+  refused rather than guessed at. If such a sheet appears, that is a ruling, not a bug.
+
+**The kind check runs BEFORE the shape check, and that reordering is provably free.** Under the old code
+every pick had to be the *combined* amount to reach the shape rule — so no input that was ever refused as
+`Mixed amount sources` was kind-mixed. Putting the more specific message first therefore cannot change the
+message any previously-refused input receives.
+
+The pre-S2b `"A sheet has exactly one combined Amount column"` rule became simply **false** (a scalar sheet
+now legitimately contributes two columns, its supply and its install). It is restated per-kind and retained
+as unreachable-by-construction — the same disposition, for the same stated reason, that BCS-S1c recorded
+for its own shadowed refusals.
+
+### 3. `combined_rate` — the third cost input
+
+A third `Currency` field on `BoQ Row BCS Rate`, for the one undifferentiated cost a combined-rate sheet
+quotes. Its description says plainly **when it is used** (a combined-rate sheet, where it is the only input
+offered and the halves stay 0.0) and **when it is not** (a split sheet, where the halves carry the cost).
+
+**It is not a total of the other two** — nothing derives it from them, nothing splits it back, and no reader
+may add it to them. `save_row_bcs_rates` accepts it *exactly* as the halves are accepted: optional,
+absent/empty → `0.0`, same named non-numeric refusal — **not stricter**, per the owner, and deliberately
+**not cross-validated** against them. Which input a sheet offers is the **screen's** decision, so storage
+refuses to have an opinion; a write that silently blanked the other field would strand a number on a sheet
+that changed shape. Added to `_BCS_READ_FIELDS` so `get_sheet_bcs_rates` surfaces it.
+
+### 4. The owner's reasoning — the part that must survive
+
+**ADAPT AND DISCLOSE, DO NOT REFUSE.** A sheet carrying only one half is accepted, and the software states
+the formula it is actually using. This **reverses** the earlier recommendation to refuse a lone half on the
+grounds that half an amount is not the amount. The owner's correction: **one-sided packages are genuine
+commercial shapes, not data gaps.** The safety comes from **disclosure, not from blocking** — which is why
+the mode vocabulary carries `_only` in its name and why the eight modes had to stay distinguishable.
+
+**Why the field lands now rather than later.** Production has never been migrated for BCS, so that debt is
+already owed; a third field added now rides the migration you already owe. After BCS ships it would be a
+second deployment.
+
+**Why a new field rather than reusing `supply_rate`.** A combined cost stored in a field named "supply"
+would lie about what the number is, and would strand anyone later trying to read the split back out.
+
+### 5. Verification
+
+| suite | baseline → final |
+|---|---|
+| `services.boq_bcs.test_sources` | **33 → 48** |
+| `api.boq.wizard.test_bcs` | **50 → 64** |
+| `test_export_writeback` | 47 → **47** |
+| `test_pricing` | 252 → **252** |
+| `test_commit_pipeline` | 57 → **57** |
+| `test_review_screen` | 260 → **260** |
+
+**Red before green, both halves.** The widened rules: 48 ran, **11 errors**, exactly the eleven new-shape
+tests. The field: red was broad and honest — `_current`'s field list named a column that did not exist, so
+every test touching it errored until the migration ran.
+
+**Migration.** `bench --site localhost migrate` completed clean.
+`frappe.db.has_column("BoQ Row BCS Rate", "combined_rate") -> True`; PostgreSQL `numeric(21,9)`, default `0`
+— identical shape to the two halves. ⚠️ **PRODUCTION IS STILL UNMIGRATED for the entire BCS arc.**
+
+**The export guard, re-confirmed with the new field POPULATED.** The standing test seeds only the two
+halves, so a green run of it proves nothing about `combined_rate` — stated rather than glossed. Two
+independent checks instead: (a) structural — `export_writeback.py` names **no** BCS token at all, so the
+exclusion is at the **doctype** level and survives field additions by construction; (b) runtime — a
+throwaway probe seeded 4 BCS rows carrying a `combined_rate` sentinel (anti-vacuity asserted), exported, and
+scanned 89 cells across 4 sheets: **0 leaks**. A `combined_rate` sentinel in the standing test's own fixture
+is **owed** to whichever slice owns that file.
+
+`python3 scripts/residence_check.py` → **F2 current=208**, byte-identical to the pre-edit baseline (not 209).
+Pre-existing red, left alone per the owner. B1 pure-module purity holds at **0**, confirming `sources.py`
+stayed pure.
+
+`git diff --stat ff638d43..HEAD` → 5 files, **738 insertions, 117 deletions**. Commits `9e59e42c` (rules) and
+`95f17f87` (field + migration).
+
+**The four rewritten pinning tests** — none deleted, and the suite is larger, not thinner:
+
+| test (new name) | now pins |
+|---|---|
+| `test_a_scalar_total_picked_together_with_a_half_is_refused` | F contains G and H, so the pair double-counts that half — not "a half is refused" |
+| `test_a_per_area_total_picked_together_with_a_per_area_half_is_refused` | the same, per-area; `rate_subkey` now decides by **comparing kinds**, not by testing against the constant `"total"` |
+| `test_a_half_poisons_an_otherwise_valid_per_area_COMBINED_selection` | same input still refused, different reason: H is already inside F — which is what distinguishes it from the now-valid split sheet |
+| `test_a_per_area_half_picked_WITH_its_own_combined_amount_is_refused` (endpoint) | the refusal SURFACES cleanly and stores nothing |
+
+The other three of the "seven" are `bcsColumns.test.ts` (frontend, **S2c's** to rewrite — out of scope here).
+
+### 6. Deliberately NOT done
+
+- **Every frontend file — untouched.** S2c mirrors these rules. ⚠️ **Known, disclosed intermediate state:**
+  `bcsColumns.ts`'s `isBcsAmountColumn` still returns `false` for the halves and `BcsMode` still lists only
+  four modes, so the picker cannot yet *offer* a half — meaning the six new modes are unreachable from the UI
+  until S2c. The backend is permissive and the frontend is not; nothing breaks, because the two shapes the
+  frontend does offer are byte-unchanged.
+- **`PricingGrid.tsx`** — S3. **`pricing.py`** — untouched all arc. **The carry path** — S6.
+- **No cross-field rule between the three rates** — deliberate, see §3.
+- **The scalar-vs-per-area mixing refusal — not widened.** Documented in-code as an un-ruled shape rather
+  than silently decided.
+- **The residence F2 red — not fixed, not re-baselined.** Reported exactly (**208**).
+- **`_AMOUNT_MODES` is indexed, not `.get()`-with-a-fallback** — a new amount *kind* added without deciding
+  its formula must `KeyError` loudly rather than mint a plausible mode. Unreachable from user input; the
+  guards cover every permitted pair.
+- **No `describe_amount_mode()` helper.** Turning a mode into plain words is S2c's copy decision, and
+  inventing the wording here would pre-empt it.
+
+## BCS-S2c — the browser learns the eight amount shapes, and the record is corrected
+
+**Branch** `feature/bcs-columns` · **Base** `f1b6d1a6` · **Tier** FULL · **Date** 2026-08-02
+
+S2b widened the SERVER to accept eight amount shapes; the browser still refused the halves, so the owner's
+fix was real in principle and **invisible in practice** — the confirmation card's Amount list stayed empty
+on exactly the sheets that prompted the change. This slice mirrors those rules in `bcsColumns.ts` and
+carries the corrections the S2b review found. **No migration** (the schema landed in S2b). `PricingGrid.tsx`
+(S3), `pricing.py` and the carry path (S6) are untouched. Two commits, corrections FIRST, so a reviewer can
+read them without the feature diff on top.
+
+---
+
+### 1. The corrections — commit `a1a9d260`
+
+| Where | Was | Now |
+|---|---|---|
+| `boq_row_bcs_rate.py:6,16-17` | "ONLY THE TWO RATES PERSIST"; formula `quantity x (supply + install)` | all three inputs, which set a sheet uses, **both** formulas, and "never sum all three" |
+| `bcs.py:387` | "the two rates only" | names all three; points at `_BCS_READ_FIELDS` |
+| `sources.py:328` | "Adding a total to its own parts would count every amount twice" | states the rule + **both** reasons, true of every input that can now reach it |
+| `test_sources.py:430,441,451` · `test_bcs.py:776` | `assertRaises(ValidationError)` | message-pinned on `"already includes the supply and installation"` |
+| `bcsColumns.ts:25` | "THIS FILE IS PLAIN ASCII" | "NO CONTROL CHARACTERS" — the invariant that is actually true and actually load-bearing |
+| `SheetPricingPage.tsx:3294` | UNKNOWN "never borrows the OFF look" | the separator that really holds: **off is CLICKABLE, unknown is DISABLED** |
+
+**The blocking one.** The doctype docblock is the canonical description of what `BoQ Row BCS Rate` stores,
+and it gave the downstream formula as `quantity x (supply + install)` — written before `combined_rate`
+existed. **On a combined-rate sheet that evaluates to ZERO**, because both halves are 0.0 there by design.
+**BCS-S3 implements that formula against this description**, so it was a bug waiting to be copied, not a
+stale comment. `bcs.py`'s module docstring got the S2b update; this one was missed.
+
+**The `sources.py` reword.** Before S2b every amount pick had to be the combined amount, so a shape mix was
+*necessarily* a total beside its own per-area parts and the sentence was true. Two families reach that line
+now and it is false about both: `scalar supply + per-area supply` (no total in the pick at all) and
+`scalar supply + per-area install` (not even the same figure — the un-ruled shape). The rule was right; the
+voicing had not followed. A refusal explaining itself with a fact the user can see is false sends them
+hunting for a column they never picked.
+
+### 2. The mirror — commit `f67741dc`
+
+`bcsColumns.ts` is the browser's mirror of `services/boq_bcs/sources.py`, and **`sources.py` is the
+authority** — read rule for rule, in the same order.
+
+- **`BcsMode` 4 → 10 members**, matching `_AMOUNT_MODES` exactly. `amount_total` / `amount_by_area` are
+  byte-unchanged, so confirmations stored before the widening read back identically.
+- **`isBcsAmountColumn`** now routes through the new **`bcsAmountAxes`** — the client twin of the server's
+  `_amount_axes`, which *replaced* the `_is_combined_amount` that S2b deleted and this file still cited in a
+  comment. That replacement is the shape of the whole widening: the old predicate answered "is this THE
+  combined amount?", which stopped being the right question once a pick is judged against the OTHER picks.
+- **`validateBcsPicks`** keeps ONE entry point and one shared prefix (empty → unknown → duplicate letter →
+  duplicate value → class), then forks into `qtyTail` / `amountTail`, because the two sides genuinely
+  diverge past the class check. `qtyTail` is byte-equivalent to before.
+- **`AMOUNT_MODES`** is a lookup table keyed on **sorted** kinds, mirroring Python's `frozenset`, so the
+  order the user clicked cannot change the mode.
+
+**Precedence is load-bearing and is mirrored exactly.** `_resolve_picks` runs before every per-source rule,
+so a duplicate shadows seven titles; and on the amount side **KIND is checked before SHAPE**. `["F","I"]`
+violates both — the server answers *"the combined Amount already includes the halves"*, so the card must
+too. The same rules in a different order give a different complaint for one input, which a user does not
+experience as a wording nit: it reads as the screen and the server disagreeing about their sheet.
+
+**The eight sentences** (`bcsSummaryForMode`, pinned VERBATIM by a test because the copy is a deliverable):
+
+⚠️ **CORRECTED AT BCS-S2d (2026-08-02).** The table below is the CURRENT copy. As first written, six of
+the eight opened *"This sheet has no combined Amount column, so …"* — a clause derived from what the user
+PICKED, never from what the sheet MAPS, and therefore FALSE on a sheet that maps Amount (Total) **and**
+both halves (picking the halves is legitimately accepted, and the card then denied the Total existed
+beneath a visible, pickable Total chip). It failed in the worst direction: it EXPLAINED AWAY the
+one-sidedness the sentence exists to flag. Owner ruling — **state what the formula USES and what it
+EXCLUDES, never why.** The superseded wording is deliberately NOT reproduced here; see BCS-S2d's record.
+
+| mode | sentence |
+|---|---|
+| `amount_total` | % Profit is measured against the combined Amount in column F. |
+| `amount_supply_plus_install` | % Profit is measured against the Supply amount plus the Installation amount (columns J and P), added together. |
+| `amount_supply_only` | % Profit is measured against the Supply amount alone (column J). Installation is not included. |
+| `amount_install_only` | % Profit is measured against the Installation amount alone (column P). Supply is not included. |
+| `amount_by_area` | % Profit is measured against the combined Amount in columns G and H, added together. |
+| `amount_by_area_supply_plus_install` | % Profit is measured against the Supply and Installation amounts in columns I, S, R and T, all added together. |
+| `amount_by_area_supply_only` | % Profit is measured against the Supply amounts in columns I and S, added together. Installation is not included. |
+| `amount_by_area_install_only` | % Profit is measured against the Installation amounts in columns R and T, added together. Supply is not included. |
+
+**`bcsStoredSummary` reads the mode FROM the stored confirmation** and never recomputes it from the column
+list — pinned by a test that feeds it a record whose `mode` and `columns` deliberately disagree and asserts
+the **mode** wins. An unrecognised mode is an explicit unsupported state, never a silent blank and never a
+guess (the `ratePipelineInterpreter` convention).
+
+`BcsColumnsDialog` renames the amount side off "Amount (Combined)", documents the validity line as the
+safety mechanism it now is, and gains a **"Currently saved:"** line shown only while the selection would
+change the stored formula. `bcs.py`'s not-ready message stops naming a column the sheet is not required to
+have.
+
+### 3. The owner's reasoning — the part that must survive
+
+**ADAPT AND DISCLOSE, NEVER REFUSE.** A one-sided sheet is accepted, and in exchange the software *states
+the formula it is actually using*. **THE SENTENCE IS THE SAFETY.** Without it, acceptance is the failure
+mode: a sheet whose % Profit is measured against the supply half alone renders identically to one measured
+against the whole amount, and nobody finds out until the margin is wrong. The disclosure is a deliverable,
+not decoration — which is why the eight sentences are pinned word for word.
+
+**Divergence is a defect in BOTH directions, and this slice existed for the quiet one.** A card saying
+"valid" about something the server rejects produces a thrown error someone can report. A card *refusing*
+something the server would accept produces **nothing at all** — a legitimate sheet is simply unusable, with
+no message to investigate. That is what sat between S2b and S2c.
+
+**The un-ruled shape stays refused.** One kind scalar and the other per-area is not covered by any ruling,
+so it is refused rather than guessed at — a RULING, not a bug, if such a sheet turns up.
+
+### 4. Verification
+
+| Check | Command | Result |
+|---|---|---|
+| Frontend unit | `yarn test` (in-container) | **1279 → 1318**, 54 files, 0 failures |
+| `bcsColumns.test.ts` | (same) | **57 → 96** tests |
+| Pure rules | `run-tests --module ...boq_bcs.test_sources` | **48 → 48** OK |
+| Endpoints | `run-tests --module ...wizard.test_bcs` | **64 → 64** OK |
+| Regression | `test_export_writeback` / `test_pricing` / `test_commit_pipeline` / `test_review_screen` | **47 / 252 / 57 / 260** all OK |
+| Types | `npx tsc --noEmit` | `boq-wizard` **0**; 3236 elsewhere, pre-existing |
+| Residence | `python3 scripts/residence_check.py` | B1 **0/0** · B2 8/8 · B3 40/40 · F5 116/116 holding; **F2 = 208** |
+
+**F2 = 208 — ERRATUM ON THE S2b RECORD.** That record called 208 "the pre-edit baseline". The ratchet's
+baseline in `scripts/residence_baseline.json` is **207**; 208 is the pre-existing red, and 208 is what this
+slice also measures, so **this slice added zero**. The substance was right and the label misleading — an
+earlier record is never edited, so the correction lives here. B1 holding at 0 confirms `sources.py` stayed
+pure and `bcsColumns.ts` gained no React/fetch import.
+
+**RED BEFORE GREEN, both honestly.** The mirror: 36 failed / 59 passed against the not-yet-widened module,
+then 95 → 96 green. The four message-pins: **measured, not reasoned, and the first probe DISPROVED the
+obvious claim.** Re-injecting the pre-S2b rule (`if kinds - {_KIND_TOTAL}`) left all three `test_sources`
+tests green *even after* the pin — every input in them carries a total AND a half, so both rules refuse them
+in the same words and no pin can see a difference that is not there. What the pin *does* catch was then
+verified separately: give the kind refusal the shape refusal's sentence and all three go red where the
+type-only version stayed green. The comment in the file states both halves, so nobody inherits the
+overclaim. The honest guard for the "refuse ANY half" regression is the acceptance side —
+`TestSplitAmountShapes` goes 11 red.
+
+**⚠️ WHAT NO TEST HERE COVERS.** This repo has **no DOM test environment** by deliberate choice, so every
+`BcsColumnsDialog` change is structurally untestable: the widened chip list, the renamed heading, the
+"Currently saved:" line and the disclosure actually *rendering* are all React semantics. The pure rules
+behind them are covered; the screen is not. **Needs the owner's eyes** — see the report's live-check list.
+
+### 5. Deliberately NOT done
+
+- **`PricingGrid.tsx`** — S3. **`pricing.py`** — untouched all arc. **The carry path** — S6.
+- **The S2b plan record — not edited.** Records already written are never rewritten; the 208/207 correction
+  is the erratum above.
+- **The residence F2 red — not fixed, not re-baselined.** Reported exactly (**208**).
+- **The qty side — untouched**, because `build_qty_source` is byte-identical to BCS-S1c. Its two summary
+  strings keep their older `=`/`+` voice, which now sits beside the amount side's prose. **Unifying that
+  voice is a copy decision for the owner, not a silent tidy-up.**
+- **`BcsSource.mode` stays `string`**, not narrowed to `BcsMode`. It is the WIRE shape, and a server that
+  gains a ninth mode ships before the browser does; typing it as the union would invite an exhaustive
+  `switch` that is not safe. Narrow at the reader, never at the wire.
+- **The scalar-vs-per-area mixing refusal — still not widened**, per §3.
+- **`test_export_writeback.py`'s `combined_rate` sentinel** — still owed to whichever slice owns that file.
+
+## BCS-S2d — make the disclosure true: the card no longer explains away its own warning
+
+**Branch** `feature/bcs-columns` · **Base** `84fb86e4` · **Tier** FULL · **Date** 2026-08-02
+
+The eight disclosure sentences now state **what the formula uses and what it excludes, and nothing else**.
+Six of them used to open *"This sheet has no combined Amount column, so …"* — a justification that was
+false on a real and legitimate sheet shape, and false in the one direction that matters. Also corrected
+six stale claims the S2b widening left behind, four of them in doctype descriptions (**migrate-carrying**).
+**The parity pin asked for in §4 was NOT built** — the cited precedent cannot express this rule set, and
+§5 records exactly why. No behaviour changed anywhere: modes, refusals, precedence and the wire shape are
+untouched, and the qty summaries were not touched at all.
+
+---
+
+### 1. The blocking fix — the sentence was arguing against itself
+
+`bcsSummaryForMode` is handed a **mode** and a list of **picked columns**. It is never handed the sheet's
+*other* columns. So every "why" it could offer was an inference from the pick — and the inference was
+wrong on a sheet that maps Amount (Total) **and** both halves. Picking the two halves there is correctly
+accepted (one shape, one kind, no total present in the pick), whereupon the card announced that the sheet
+had no combined Amount column, rendered directly beneath a visible, pickable **Amount (Total)** chip.
+
+The formula half of each sentence was true throughout. The **justification** half was false, and it failed
+in the worst available direction: this sentence is the entire safety mechanism for *adapt and disclose,
+never refuse* — a one-sided sheet is accepted **because** the software promises to say so — and a false
+excuse does not merely add noise, it **explains away the very one-sidedness the sentence exists to flag**.
+A reader who accepts the excuse stops looking. It had also been pinned by a test and transcribed into this
+plan doc, so the falsehood was ratified twice before anyone read it against a real sheet.
+
+**Owner ruling 2026-08-02: state what the formula USES and what it EXCLUDES — never why.** That is true on
+every sheet whatever else is mapped, and it cannot go stale.
+
+| mode | sentence (final) |
+|---|---|
+| `amount_total` | % Profit is measured against the combined Amount in column F. |
+| `amount_supply_plus_install` | % Profit is measured against the Supply amount plus the Installation amount (columns J and P), added together. |
+| `amount_supply_only` | % Profit is measured against the Supply amount alone (column J). Installation is not included. |
+| `amount_install_only` | % Profit is measured against the Installation amount alone (column P). Supply is not included. |
+| `amount_by_area` | % Profit is measured against the combined Amount in columns G and H, added together. |
+| `amount_by_area_supply_plus_install` | % Profit is measured against the Supply and Installation amounts in columns I, S, R and T, all added together. |
+| `amount_by_area_supply_only` | % Profit is measured against the Supply amounts in columns I and S, added together. Installation is not included. |
+| `amount_by_area_install_only` | % Profit is measured against the Installation amounts in columns R and T, added together. Supply is not included. |
+
+**Sentence 1 was already clean** and is byte-unchanged. **Sentence 5 (`amount_by_area`) gained four words** —
+"the combined Amount in". Its old clause (*"splits its combined Amount across areas"*) was the only causal
+clause carrying an operand: strip it naively and the sentence reads *"% Profit is measured against columns
+G and H, added together"*, a bare pair of letters with no statement of what kind of amount they hold. That
+was the one place the rewrite could have cost a sentence its clarity, so the kind was moved into the
+formula clause where it belongs. **Sentence 6 stays long** by owner review — naming every column is what
+lets a reader verify against the sheet.
+
+**Two NEW tests pin the RULE, not just the words** (the verbatim block pins the words, and would have
+allowed the excuse back under different phrasing): no sentence may narrate the sheet (`/This sheet/i`),
+claim a column is absent (`/no combined Amount/i`), or justify itself (`/, so /`); and every sentence must
+still name the kind of amount it sums. bcsColumns.test.ts 96 → 98.
+
+### 2. Six stale claims, four of them migrate-carrying
+
+Same defect class as the sentences — assertions that were true before BCS-S2b widened the KIND axis and
+were never revisited. The four doctype descriptions were corrected under the **sanctioned exception**
+(owner-approved 2026-08-02) because they are what the next slice's implementer reads.
+
+| where | was | now |
+|---|---|---|
+| `boq_sheet.json` `bcs_enabled` | "two hand-typed rates per row (Supply + Install)" | **three** fields — `supply_rate` / `install_rate` / `combined_rate`; which a sheet uses is the SCREEN's decision; `combined_rate` is NOT a total of the other two |
+| `boq_sheet.json` `bcs_amount_source` | "Amount (Combined) … a single entry" | the **eight** modes named, both axes, the adapt-and-disclose ruling, `rate_subkey`'s three-hop role, all five refusals |
+| `boq_row_bcs_rate.json` `rate_source` | "these two rates" | "these cost rates" |
+| `boq_row_bcs_rate.json` `excel_row` | "the two BCS columns" | "the BCS columns" |
+| `services/boq_bcs/sources.py:7` | "the row's combined Amount" | the AMOUNT CHARGED + an explicit ⚠️ that the old phrasing is the pre-S2b world |
+| `api/boq/wizard/test_bcs.py:220` | "the two BCS columns" | "the BCS columns" |
+
+`sources.py` is the one that mattered most: **it is the module that DEFINES the rules**, so its own header
+is the first thing a reader trusts and the last thing they think to doubt. That is the exact defect class
+S2c's first commit existed to sweep, still sitting in the authority file.
+
+### 3. The owner's reasoning — the part that must survive
+
+**Why drop the clause rather than fix it.** A corrected causal clause would still be a claim about the
+sheet, computed from data this function does not have, and it would go stale again the moment a sheet's
+mapping changed under a stored confirmation. A claim about the **formula** is checkable against the columns
+named beside it, by the reader, on the screen. That is why "never why" is a rule and not a style preference.
+
+**Why a false justification is worse than no justification.** Not symmetry — direction. The disclosure
+exists to make one-sidedness visible. An excuse that says the sheet *had no alternative* tells the reader
+the one-sidedness is unavoidable and therefore not worth checking. It converts the warning into a
+reassurance, which is strictly worse than silence.
+
+### 4. Verification
+
+| check | baseline → final |
+|---|---|
+| `yarn test` (in container) | **1318 → 1320**, 54 files, all green |
+| `bcsColumns.test.ts` | 96 → **98** (2 new rule tests) |
+| **RED shown before green** | 2 failed / 96 passed on the unchanged implementation — the verbatim pin and the new "never explains WHY" test, both on the causal clause |
+| `tsc --noEmit`, `boq-wizard` | **0 → 0** |
+| `python3 scripts/residence_check.py` | F2 **208** (baseline 207 — the pre-existing red; a 209 would have been ours). B1 0, B2 8, B3 40, F5 116, all holding |
+| `bench --site localhost migrate` | completed, no error/traceback |
+| **column diff across the migrate** | **EMPTY** — `BoQ Sheet` 45 columns, `BoQ Row BCS Rate` 28 columns, identical before and after |
+| doctype JSON structural diff vs `HEAD` | identical once `description` is stripped; 45 / 23 fields unchanged; only the four intended descriptions differ |
+| descriptions landed in DB | all four re-read post-migrate, zero stale phrases remaining |
+| `py_compile` on the three edited `.py` | OK |
+
+**The bench suites were NOT run, and that is a real gap.** A live browser session was connected throughout
+(Chrome PID 7537 → `:8080` ESTABLISHED, with `bench start` up), which is the recorded `tabSeries` naming-lock
+collision. The standing rule is not to run the bench suite against localhost alongside a browser session, so
+they were withheld rather than risked. Static substitutes only: `py_compile` passes, and the test-method
+counts are **`test_sources` 48 · `test_bcs` 64 · `test_export_writeback` 47** — matching the expected counts
+exactly, which is consistent with the backend edits being docstring-only. **`test_bcs`, `test_sources`,
+`test_pricing`, `test_commit_pipeline`, `test_review_screen` and `test_export_writeback` still owe a real
+run once the browser tab is closed.**
+
+**No DOM test environment**, so nothing here claims coverage of a React semantic. The sentences are pure
+string output and are fully covered; **what needs the owner's eyes is the card itself** — that the new
+sentence renders on one line without awkward wrapping in `BcsColumnsDialog`, and that sentence 5 reads
+naturally on a real per-area sheet.
+
+**⚠️ Production remains unmigrated for the whole BCS arc.** This slice adds a fourth description-only
+migration to that debt; nothing here changes a column, but prod still needs the arc's migrate before any
+BCS use.
+
+### 5. The parity pin — STOPPED, not built
+
+§4 of the build asked for the ADR-0010 F1 parity test binding `bcsColumns.ts` to `sources.py`, following
+`reconcile.ts` / `priceability.ts`. **The precedent cannot express this rule set, so nothing was built.**
+What the investigation actually found:
+
+1. **Neither cited precedent has a parity test.** `reconcile.ts`'s own docblock scopes it to *frontend*
+   unification ("the grid cell, the review strip, AND the rollup all agree"; `pricingRollup.ts` imports
+   `amountsEqual` from here). `priceability.test.ts` mentions the backend in two comments and checks nothing
+   across the boundary. ADR-0010's "Checked by: parity test FE↔BE" column is an **aspiration that was never
+   built for either module**.
+2. **The one real parity test in the repo is Python↔Python.** `services/boq_revision/test_normalize.py:56`
+   imports both implementations into one process and compares them on a case list. That mechanism exists
+   *because* both sides are importable together. TS and Python are not.
+3. **No cross-language runner exists in either direction** — no Python test shells out to node, no vitest
+   test reads a `.py`, and no fixture is consumed by both suites.
+4. **The decisive obstacle is not the language boundary, it is the missing shared vocabulary.** The server's
+   outcome is `(throw, title, message)`; the client's is `{ok:false, message}`. There is **no shared refusal
+   identifier**. Only the SUCCESS outcome (`mode`) is directly comparable today — so a parity test built now
+   could pin the eight accepted modes and **not the six-rule refusal chain, whose ORDER is load-bearing and
+   which is the larger, more drift-prone half.** That is precisely a *partial* parity test, and a partial one
+   is worse than none because it makes the gap look closed.
+
+**The gap is real and this slice does not close it.** The server widened at S2b and every frontend test
+stayed green through a whole slice of divergence — that silence is what put the owner in front of an empty
+dropdown. A genuine pin needs an owner decision on two things: **a shared refusal-code vocabulary on both
+sides**, and **where a shared case table lives** (a new file, outside this slice's scope by construction).
+Both are design changes to two modules, not a test.
+
+### 6. Deliberately NOT done
+
+- **The MINOR "smaller denominator" clause — DECLINED, on arithmetic.** The reviewer suggested the one-sided
+  sentences state that a smaller denominator makes % Profit read *higher*. `bcs.py:8` defines % Profit as
+  *"how much of the charged amount is margin"* — i.e. `(amount − cost) / amount`. The BCS cost rates are
+  hand-typed per row and do **not** shrink because the amount confirmation is one-sided, so a smaller
+  denominator makes % Profit read **LOWER**, not higher, and it can go sharply negative. (If S3 were to narrow
+  the cost side symmetrically, the direction becomes indeterminate — sheet-dependent, not assertable either
+  way.) Adding it would have planted a **fresh falsehood in the exact sentence this slice exists to make
+  true**, which is the same defect wearing new clothes. **The underlying instinct is right and worth serving
+  — a reader should know which way the number moves — but it belongs to BCS-S3, which owns the formula and
+  can state the direction from the shipped arithmetic instead of guessing at it.**
+- **The quantity summaries — untouched**, per the build's explicit hold. The voice-unification ruling is
+  deferred while the owner reconsiders the S2c reviewer's objection.
+- **`PricingGrid.tsx`** (S3a) · **`api/boq/wizard/bcs.py`** · **`pricing.py`** · **the carry path** (S6) —
+  all out of scope and untouched.
+- **`services/boq_bcs/test_sources.py` — in scope but not edited.** It was scanned for the same stale-claim
+  class and carries none; its "two columns" mentions are genuine pairs. It was in scope for the parity test
+  that was not built.
+- **The residence F2 red — not fixed, not re-baselined.** Reported exactly (**208**).
+- **The plan doc's S2c sentence table — CORRECTED IN PLACE, deliberately.** Records already written are
+  normally never rewritten, and this is the documented exception: the build explicitly required all three
+  carriers to agree, and leaving the ratified falsehood in the doc would have defeated the slice. The
+  correction is marked as such above that table, and the superseded wording is not reproduced there — it is
+  in §1 of this record and in git.
+- **`BcsColumnsDialog.tsx` — checked, no change needed.** Its docblock already quoted the sentence in the
+  clause-free form, so it became correct rather than stale. It is out of scope regardless.
+
+## BCS-S3a — the cost columns become real: type, paste and undo a cost, and see Total Amount
+
+**Branch** `feature/bcs-columns` · **Base** `dd02fd4d` · **Tier** FULL · **Date** 2026-08-02
+
+Seven slices built storage, rules, a toggle and a confirmation card, and **nothing was usable**. This one
+makes it usable: the cost inputs appear in the pricing grid, you type or paste into them, they save, and
+**Total Amount** reads quantity × what you entered. **Tendered Total Amount and % Profit are S3b** and are
+not here. No migration; the schema was already complete. Three commits: `40786348` (the pure rules),
+`99c7eec6` (the grid + page), `2089aab2` (the export sentinel + the CLAUDE.md note).
+
+---
+
+### 1. The whole-row gather — how the slice's one real hazard was solved
+
+`save_row_bcs_rates` is a **WHOLE-ROW SNAPSHOT WRITE**. It takes `supply_rate`, `install_rate` and
+`combined_rate` together and coerces every one it is *not* given to `0.0` (`bcs.py` `_num`, pinned by
+`test_bcs.py:1013-1024`). A client rate cell saves **per cell** — type in one, that one saves — and porting
+that shape to three cost boxes would have zeroed the untouched siblings on every keystroke debounce. It
+would have looked correct while typing and been wrong the moment anyone looked away.
+
+The solution is **one merge with two readers**, both pure, both in `bcsColumns.ts`:
+
+| function | what it produces | who reads it |
+|---|---|---|
+| `mergeBcsRowValues(saved, drafts)` | the row's three fields as display strings, three-valued: a live draft, else the stored value, else `null` for "never costed" | everything below |
+| `gatherBcsRowRates(merged)` | the numeric triple a save carries | **every** write path |
+| `bcsUnitCost(merged, kinds)` | the Total's multiplicand, `null` when nothing is entered | the Total Amount cell |
+
+**`gatherBcsRowRates` is the only place a cost payload is built.** ⚠️ **ERRATUM (BCS-S3a-fix):** this record
+originally read *"It iterates `BCS_RATE_FIELDS` rather than naming three fields, so a fourth stored rate could
+not be silently dropped from a write either."* **It does not iterate** — it names the three fields explicitly
+(`bcsColumns.ts:832-836`). That is the right shape (a fourth field on the `BcsRowRates` *payload* type breaks
+the literal at compile time), but the direction the sentence claimed — a fourth field added to
+`BCS_RATE_FIELDS`, which `mergeBcsRowValues` would then produce — **was enforced nowhere** and would have been
+dropped in silence. A test now closes it, proven falsifiable. `BcsRowRates`
+lives in `boqTypes.ts` precisely so a **partial payload is not expressible** — there is no shape in which a
+caller can send one rate and leave the others to chance.
+
+Three call sites all route through it, and each had its own way of getting this wrong:
+
+1. **The inline edit.** `commitBcsRate` gathers from the **latest drafts via a ref** (not render state — a
+   debounce fire must not gather a stale snapshot) plus the stored record, with the value being committed
+   applied on top since it may not have landed in state yet.
+2. **Paste / cut / fill-down.** ⚠️ This is where the row-vs-cell shape bites hardest. A block spanning two
+   cost columns must **not** fire twice for one row: the second call is a whole-row snapshot and would
+   overwrite the first with a `0` for the column it had just written. `clipboard.foldBcsWrites` folds the
+   per-CELL intents into **ONE write per ROW**, each starting from that row's own current triple.
+3. **Undo / redo.** A delta stays **per-field** even though the write is per-row — recording them folded
+   would lose which box the user actually touched, so an undo would overwrite a sibling the gesture never
+   wrote. The replay re-folds them through the same `foldBcsWrites`, off each row's *current* triple.
+
+### 2. Which boxes a sheet gets — and the one ruling this slice had to make
+
+The owner's rule is mechanical: the live boxes follow the sheet's **own rate columns**. No Rate (Supply)
+column ⇒ no Supply box; a combined-rate sheet ⇒ one undifferentiated box; no rate column at all ⇒ BCS cannot
+be done there. `bcsLiveRateKinds` implements exactly that, reading both the scalar `rate_*` fields and the
+per-area `rate_subkey` (where the combined one is spelled `total`).
+
+**But a sheet can map all three, and `bcs.py:16` forbids summing `combined_rate` with the two halves.** Left
+alone, such a sheet would get three boxes and a Total Amount that double-counts.
+
+**This is not hypothetical. Measured on the live bench: 22 of 553 current committed sheets map all three**
+(`Supply | Install | Total Rate` is an ordinary BoQ layout — e.g. `BQSH-26-00247 ELECTRICAL`,
+`BQSH-26-00300 HVAC Low side`). Distribution: 251 halves-only, 155 no rate column, 120 combined-only, 22 all
+three, 5 one-half-only.
+
+**Ruling made here: the HALVES WIN; `combined` is offered only when no half is mapped.** ⚠️ **This was a
+build-time decision, not an owner instruction, and it is the one thing in this slice that most wants the
+owner's eye.** The reasoning:
+
+- It makes the prohibition **structural** rather than conventional — the live set is either `{supply,
+  install}` or `{combined}`, never mixed, so the arithmetic downstream *cannot express* the forbidden sum.
+- On such a sheet the combined column is the sheet's **own** sum of its halves, and the halves carry
+  strictly more information. This is the same reading the AMOUNT side already takes when it refuses a total
+  picked beside the half it contains.
+- Collapsing such a sheet to one box would discard the supply/install split the sheet is built around.
+
+It is a **narrowing, never a widening** (the same safety argument `eligibleBcsColumns` makes), and reversing
+it is a one-function change — nothing downstream reads the rate columns again.
+
+### 3. Where the columns went, and the carve-out that had to follow
+
+The block sits **AFTER the descriptors and BEFORE Remarks**: one editable box per live kind, then a computed
+Total Amount. That placement disturbs strictly less colIndex algebra than a Category-style one —
+`descriptorColStart` and every descriptor's own colIndex are untouched, and only the tail moves right.
+
+**`descriptorAt` needed the mirror-image carve-out** of the leading `>= descriptorColStart` bound the
+Category column forced: its upper bound became `< bcsColStart`. Without it every cost cell would classify as
+the descriptor sitting at its index minus the offset, and a paste into a cost box would be read as a paste
+into a rate column. **With an empty block `bcsColStart === remarksColIndex`, so every index reverts to its
+pre-S3a value** and a sheet without BCS renders unchanged.
+
+Also touched, all of them collapsing to their old form on an empty block: `cellKindAt` (a new `"bcs"` kind;
+the computed Total classifies as `"other"` so it is never a paste target), `colCount`, `remarksColIndex`,
+`colIndexFromColKeyPure` (**two OPTIONAL trailing params**, so `PricingGrid.test.ts` — out of scope — and
+every existing caller compile and pass untouched), the two colgroups/headers, and the virtualizer spacer's
+`colSpan` (widened **at the call site**, because `pricingVirtual.ts` is out of scope and the addend is pure
+geometry the caller already holds).
+
+### 4. The gates, and why the rate predicate could not be reused
+
+`rateWritableAt` / `isDeltaWritable` gate on `formulasComplete` and `categoryGateOpen`. `save_row_bcs_rates`
+runs **four** gates and **skips those three on purpose** (`bcs.py:41-59`: *"Do NOT add any of the three 'to
+restore consistency with save_cell_price' — the asymmetry IS the decision"*). Reusing them here would have
+silently re-imposed all three, and nothing would have failed — the boxes would just have been inexplicably
+dead on a normal sheet.
+
+So `bcsCostEntryReason` is a **parallel** predicate in the server's own gate order: committed cell exists →
+sheet not deliberately locked → BCS ready → single-editor lock. **The lock is LAST**, for the same reason it
+is fourth in `bcs.py`: it is the only one of the four that is someone else's transient state rather than
+this sheet's own setup, so naming it first would hide the gate the user can act on. A negative test pins
+that the argument shape *cannot express* the three skipped gates, so a future "restore consistency" edit
+fails to compile rather than passing quietly.
+
+**Read-only is the ABSENCE of `onSaveBcsRates`** — no second per-cell `editable` signal. Visibility and
+editability are answered separately on purpose: a locked sheet still **shows** its costs read-only (with the
+reason as the cell title), while an **unknown** BCS state hides the block entirely, which is `bcsToggleState`'s
+S2a rule applied one layer out — absence of knowledge must not render as an empty, editable cost cell.
+
+**The deferred commit is load-bearing here exactly as it is for rates.** `onChange` writes a draft and
+schedules the 1 s debounce; the draft flips the sheet dirty, which fires the page's `ensureLockAcquired`
+**before** the save runs. `save_row_bcs_rates` takes `acquire_or_refresh` too (`bcs.py:498-501`), so a
+synchronous commit would race lock acquisition and trip a spurious takeover. For the same reason
+`hasUnsaved` now counts cost drafts — without that the very first cost keystroke would reach the server
+with no lock in hand.
+
+### 5. The memo shield
+
+`draftBcsRates` is **its own state map**, sliced by the reused (generic) `groupDraftsByRow`. Merging cost
+values into `draftRates` would have given every rate cell of the row a new slice on a cost keystroke,
+defeating `shallowEqualStrMap` for edits that have nothing to do with each other. Each row receives only its
+own draft slice, its own stored record (by reference) and its quantity as a **scalar** — never the whole
+`bcsRatesByExcelRow` Map, never the qty source. All **ten** (⚠️ **ERRATUM (BCS-S3a-fix):** this record said
+*eleven*; the comparator carries ten) new row props are in `pricingRowPropsAreEqual`;
+all five new grid props are `useMemo`'d / `useCallback`'d or plain scalars, including a module-level
+`EMPTY_BCS_KINDS` so an absent block never mints a fresh `[]`.
+
+### 6. The two questions this slice was asked to decide
+
+**(a) Why BCS is absent on grid-only sheets — the CAUSE, recorded in `SheetPricingPage` beside the fork.**
+The outcome was always right; the reasoning had never been written down, so a future reader could have
+changed it either way with equal confidence. **The cause is the ZERO NODES.** BCS identity is per committed
+ROW and `save_row_bcs_rates` resolves that row through `_resolve_committed_cell`, storing the resolved node
+as its pointer. A grid-only sheet commits a faithful **cell grid** and no nodes at all, so there is no
+per-line address for a cost to hang on — every write would refuse at gate 1. **Per-line cost there is not
+withheld; it does not exist to be withheld.** That it also renders through `SheetDataGrid` is a
+*consequence*, not the reason — so "add BCS to the faithful grid" on the strength of the rendering fork
+alone would be wrong twice over (it needs the sheet to commit nodes first, and those reference sheets have
+no quantities to multiply anyway).
+
+**(b) Should the duplicate guard re-validate on READ? — DECIDED NO.** `validateBcsPicks` catches a pick where
+two different letters resolve to one number (BCS-S1c), but only at write time; a stored confirmation is never
+re-checked. **It cannot go stale.** The confirmation lives on the *same* `BoQ Sheet` row as the
+`column_role_map` it was validated against, and that row is version-pinned and immutable — a re-commit mints
+a **new** row which starts BCS-disabled and unconfirmed. So the pairing a read-time check would defend
+against is unreachable by construction. Adding it would cost a `_committed_descriptors` resolve on the
+Total Amount render path to defend a state that cannot occur, and worse, would need a policy for what to *do*
+on failure — inventing a failure mode rather than catching one. **There is an honest fail-safe residue:**
+`bcsRowQuantity` skips any entry that does not resolve to a number, so a hypothetical stale entry degrades
+the Total to **blank**, never to a wrong figure.
+
+⚠️ **AMENDED AT BCS-S3a-fix, twice.** *(a) The residue now cites the refusal it is a residue OF:* the
+server-side aliasing throw in `_resolve_picks` (`services/boq_bcs/sources.py:192-203` — *"Column(s) … resolve
+to the same value on this sheet, so picking them together would count that value twice"*). That is the check
+this section decided not to repeat on read, so it is the check the residue backstops; without the citation
+the residue reads as a general robustness remark rather than a named backstop. *(b) The reversal condition was
+aimed at the wrong thing.* It named `column_role_map` being edited in place, which is only ONE way to reach a
+stale pairing. **The condition that actually matters is ANY WRITE PATH THAT REACHES A STORED BCS SOURCE
+WITHOUT GOING THROUGH `_resolve_picks`** — today the only two producers both call it (`sources.py:240` and
+`:291`), and that, not the immutability of the row, is what makes the pairing unreachable. A bulk loader, a
+patch, a carry, or a second endpoint that wrote `columns` directly would defeat it while `column_role_map`
+stayed untouched. **If a third producer of a stored BCS source appears, either route it through
+`_resolve_picks` or add the read-time check.**
+
+### 7. The export leak guard was green for the wrong reason
+
+`TestBcsCostRatesNeverReachTheExport` seeded only `supply_rate` and `install_rate`. BCS-S2b widened storage
+to a **third** field, `combined_rate` — and that is the **only** field a combined-rate sheet uses. So on the
+entire axis S2b opened, the guard was passing because **there was nothing there to leak**: precisely the
+vacuity its own docstring says it exists to avoid. A combined-rate sheet's internal cost could have reached a
+CLIENT workbook with the standing guard green.
+
+Fixed: `_COMBINED = 456789.33` seeded on every fixture row, asserted genuinely stored by the anti-vacuity
+test, and checked in both leak tests plus the module-grep token list. ⚠️ The derived-total test checks
+`_COMBINED` as **its own** per-unit cost and **not** added to the halves — that sum is an arithmetic the
+product never performs, so a sentinel for it could only ever pass.
+
+**VERIFIED FALSIFIABLE.** A guard that cannot fail is worse than none, so the sentinel was temporarily set to
+`25.0` — a value the fixture really stamps at `E2` — and **both** new assertions failed with the intended
+message (`BCS cost 25.0 leaked into the CLIENT workbook: ['25']`). Restored, green.
+
+⚠️ **A cleaner probe was BLOCKED and not routed around.** The first attempt injected a simulated BCS-stamping
+pass into `export_writeback.py` — the exact defect the guard exists to catch. `guard_scope.py` **DENIED** the
+write as out of scope, correctly. The file was verified untouched and the falsifiability was proven in-scope
+instead.
+
+### 8. Verification
+
+| check | baseline → final |
+|---|---|
+| `yarn test` (in container) | **1320 → 1369**, 54 files, all green |
+| `bcsColumns.test.ts` | 98 → **131** |
+| `clipboard.test.ts` | **19** → **29** (⚠️ **ERRATUM (BCS-S3a-fix):** the baseline was recorded as 18) |
+| `undoHistory.test.ts` | 16 → **22** |
+| **RED shown before green** | 32 failed / 99 passed (bcsColumns); 10 failed / 41 passed (clipboard + undoHistory); 2 failed (the export sentinel probe) |
+| `tsc --noEmit`, `boq-wizard` | **0 → 0** |
+| `test_export_writeback` | **47 → 47** OK (existing tests widened, none added) |
+| `test_sources` · `test_bcs` | **48 → 48** · **64 → 64** OK |
+| `test_pricing` · `test_commit_pipeline` · `test_review_screen` | **252 → 252** · **57 → 57** · **260 → 260** OK |
+| `python3 scripts/residence_check.py` | F2 **208** (baseline 207 — the pre-existing red; a 209 would have been ours). B1 0, B2 8, B3 40, F5 116, all holding |
+| `git diff --stat dd02fd4d..HEAD` | **12 files, +2107 / −48** (⚠️ **ERRATUM (BCS-S3a-fix):** recorded as *11 files, +1874*, which is `dd02fd4d..2089aab2` — the three CODE commits only. The named command reaches `HEAD`, i.e. `ba5ed9f4`, which includes the record commit itself) |
+
+**The bench suites WERE run.** The recorded collision is with an actively polling browser tab, not with
+`bench start` merely being up, so `tabSessions.lastupdate` was sampled across ~50 s: frozen at **`23:14:32`**
+(⚠️ **ERRATUM (BCS-S3a-fix):** transcribed as `22:14:32`; re-read from the live row at S3a-fix, which still
+held `2026-08-02 23:14:32.565961`), i.e. no live session. Both a baseline and a final pass ran clean.
+
+**No DOM test environment**, so nothing here claims coverage of a React semantic. Every pure helper is
+covered — the whole-row gather, the live-kinds rule, the arithmetic, the gate order, the colIndex geometry,
+the write folding, the undo inversion. **What needs the owner's eyes, in plain English:**
+
+1. **Typing a cost actually saves, and the sibling boxes keep their values.** The gather is unit-tested; that
+   the React commit path *calls* it with the live drafts is not observable here. Type in Supply on a
+   supply+install sheet, look away, come back: Install must still hold its number.
+2. **Paste across two cost columns writes one save per row.** The fold is unit-tested; that the grid feeds it
+   the right intents is not.
+3. **Ctrl+Z on a cost restores the previous value** without disturbing the sibling.
+4. **Total Amount reads quantity × cost** on a real sheet, and is **blank** (not 0) on a row with no
+   quantity or no cost entered.
+5. **The 22 all-three-rate sheets** now show **two** boxes (Supply, Install) and no Combined — the §2 ruling.
+6. **A locked sheet still shows costs, read-only, with a reason on hover.**
+
+### 9. Deliberately NOT done
+
+- **Tendered Total Amount and % Profit — S3b**, per the build's explicit boundary. The S2d record's held
+  item (stating which way % Profit moves under a one-sided amount) belongs there too: this slice ships the
+  cost numerator, not the margin.
+- **`pricing.py` / `save_cell_price` / the carry path / `scripts/residence_*`** — out of scope, untouched.
+- **`bcs.py` — untouched.** The whole hazard was handled on the client side, where the per-cell save shape
+  lives; the endpoint's whole-row contract is correct as written and needed no softening.
+- **`pricingVirtual.paneColSpan` — NOT edited** (out of scope). The cost columns' addend is applied at the
+  call site instead, which is where the caller already holds the geometry.
+- **`PricingGrid.test.ts` — NOT edited** (out of scope). This is why `colIndexFromColKeyPure`'s new
+  parameters are OPTIONAL and every new row prop is optional: the existing **164** (⚠️ **ERRATUM
+  (BCS-S3a-fix):** recorded as *143*) tests construct their own props objects and compile unchanged.
+  ⚠️ **That decision is what kept the two key spaces from ever meeting** — see the S3a-fix record. The file
+  is in scope from S3a-fix on, and the seam test now lives in it.
+- **A read-time duplicate re-validation — decided against**, with the reasoning and its one reversal
+  condition in §6(b). Recorded rather than silently skipped.
+- **The residence F2 red — not fixed, not re-baselined.** Reported exactly (**208**).
+- **Production remains unmigrated for the whole BCS arc.** This slice adds no migration of its own, but the
+  arc's prior ones are still owed before any BCS use in prod.
+
+## BCS-S3a-fix — the key-space defect: typing a cost now actually works
+
+**Branch** `feature/bcs-columns` · **Base** `ba5ed9f4` · **Tier** FULL · **Date** 2026-08-03
+
+**REVIEW:** PASS WITH CAVEATS, 2026-08-03 — defect gone and guard real, both proven by execution; four
+findings booked as debt, none blocking. *(Three of those four are corrected in place as `ERRATUM (BCS-S3b)`
+blocks below; the fourth, the stale `BCS_RATE_FIELDS` "iterates" claim, was corrected in
+`bcsColumns.ts:707-708` — its twin had been fixed at S3a-fix and this copy survived.)*
+
+BCS-S3a claimed the headline capability — *"type a cost, it saves, Total Amount shows"* — and **the typing
+half did not work.** This slice fixes that defect and its sibling on the paste path, hardens the seam so the
+class cannot recur silently, closes two invariants S3a asserted in prose and enforced nowhere, and files six
+errata against the S3a record. **No migration. No backend change** — `bcs.py`, `sources.py` and every Python
+file are byte-untouched. One code commit, `55b34aec`.
+
+---
+
+### 1. The defect, and why it was worse than it looked
+
+`PricingGrid.tsx` passed a **FULL-key** draft slice into a **BARE-key** reader:
+
+| side | key space | pinned by |
+|---|---|---|
+| `groupDraftsByRow` slice | `"12:supply_rate"` | `PricingGrid.test.ts` — *"with FULL keys kept"* |
+| `mergeBcsRowValues` | `"supply_rate"` | `bcsColumns.test.ts` — bare-key literals |
+
+`drafts["supply_rate"]` on `{"12:supply_rate":"150"}` is **always `undefined`**, so every cost box rendered
+its *stored* value no matter what was typed. **The `as Partial<Record<BcsRateField, string>>` cast was the
+only reason `tsc` stayed silent.**
+
+**It is a data-corruption path, not a display bug.** The `<Input>` is CONTROLLED on `value = merged[field] ?? ""`.
+Each keystroke therefore re-rendered the box back to the stored value, and the *next* `e.target.value` was
+computed against that reverted string — so the 1 s debounce could **commit a number the user never typed**.
+`onBlur` was saved only by its own `rawValue === saved` early return: it no-opped rather than writing a
+second corruption.
+
+The other two merge call sites (`gatherBcsForRow`, `bcsMergedFor`) were correct, each building a bare-key map
+via `bcsCellKey` lookups. **The broken site was the only one carrying a cast** — which is the tell worth
+remembering: *the cast marked the exact spot where a claim replaced a check.*
+
+### 2. The fix — and the part the build prompt got wrong
+
+The seam is the **draft key space crossing** from `PricingGrid` (which mints it) into `bcsColumns` (a pure
+leaf that must never learn PricingGrid's key format). Three call sites each performed that translation
+independently. It now has **one named owner**: the exported pure `PricingGrid.bcsDraftsForRow(rowIndex, drafts)`,
+sitting beside the `bcsCellKey` that mints the keys, and taking either the whole draft map or one row's slice
+(a slice keeps full keys, so they are interchangeable inputs). All three sites route through it. The cast is
+gone, and the fix compiles **without** one.
+
+> ⚠️ **BUT REMOVING THE CAST DID NOT MAKE `tsc` LOAD-BEARING, AND THE BUILD PROMPT ASSUMED IT WOULD.** The
+> prompt read *"the cast removal is the point"*. **Measured, not reasoned:** the call site was reverted to
+> pass the raw slice with **no cast at all**, and `tsc --noEmit` reported **nothing**. `Record<string, string>`
+> is structurally assignable to an all-optional `Partial<Record<BcsRateField, string>>` — an index signature
+> satisfies every optional property. So the cast removal made the defect *silently re-introducible with zero
+> syntactic signal*, which is arguably worse than the cast, because at least a cast is a visible confession.
+
+So the guard had to be real. **`mergeBcsRowValues`'s `drafts` parameter is now a `ReadonlyMap<BcsRateField, string>`,
+and `bcsDraftsForRow` returns a `Map`.** A `Record` is **not** assignable to a `Map`, so the mistake is a
+compile error. **Verified by re-running the same probe:**
+
+```
+PricingGrid.tsx(3030,52): error TS2345: Argument of type 'Record<string, string>'
+  is not assignable to parameter of type 'ReadonlyMap<BcsRateField, string>'.
+```
+
+`Map` was chosen over a `unique symbol` brand (which needs a cast inside the blessed producer — reintroducing
+the smell) and over an accessor callback (deeper, and there is precedent in `bcsRowQuantity`, but it makes a
+pure data-in/data-out function harder to test). Maps are already this codebase's idiom. Cost: 11 call sites in
+`bcsColumns.test.ts` became `new Map([...])`, which is **explicit at the point of authorship** — the opposite
+of an invisible structural coercion.
+
+### 3. Defect 2 — the batch path's draft lifecycle
+
+`runBatch` dropped **both** optimistic draft layers in one `.finally()`. A batch whose POSTs all landed but
+whose trailing refetch then **rejected** lost the cost drafts *and* left the saved map stale — and because
+`save_row_bcs_rates` is a **whole-row snapshot write**, the next inline edit on a row with no prior stored
+record gathered that stale map and wrote `0.0` over the pasted sibling. The inline path was already guarded
+(`commitBcsRate` keeps its draft in `.catch`); the batch path was not.
+
+`runBatch` now settles through the pure exported **`batchDraftsToDrop(settled)`**, which names the asymmetry
+instead of burying it:
+
+- **rates** drop on ANY settlement — *unchanged, pre-S3a certified*. `save_cell_price` is a **per-cell** write,
+  so falling back to the last saved value is honest and cannot harm a neighbour.
+- **cost drafts survive a REJECTION** — matching the inline guarantee exactly.
+
+A partial mid-batch failure still **resolves** (`{written, failed}`), so both layers drop as before; only a
+genuine rejection differs. Rejection re-throws, so every caller sees the settlement it always saw.
+
+On the page side, `SheetPricingPage`'s trailing refetches were **two bare `await`s**, so a rejected `mutate()`
+skipped `mutateBcsRates()` entirely. The cost layer is its own read; its refresh must not depend on another
+read succeeding. It is now in a nested `finally`.
+
+**⚠️ ACCEPTED CONSEQUENCE, stated rather than hidden.** Keeping cost drafts on rejection means a *stale*
+`BcsDelta.draftKey` (minted from `row_index` at record time and replayed later) would now persist its
+optimistic value on the wrong row instead of self-healing on the next drop. It requires `row_index` to have
+been reassigned for the same Excel row mid-session, the failure is **display-only and transient**, and the
+hazard it replaces is silent data loss. The trade is deliberate.
+
+> ⚠️ **ERRATUM (BCS-S3b): this record said the failure is "display-only and transient".** It is
+> **WRITE-PENDING** state, not display-only. A retained cost draft is not merely rendered: `flush()` walks
+> `draftBcsRatesRef.current`, parses the `row_index` back out of each key (`k.slice(0, sep)`) and calls
+> `autoSaveBcsCellRef`, which **commits** it. A stale `draftKey` can therefore reach `save_row_bcs_rates` on
+> the wrong row — the same wrong row the record already named, but *written* rather than shown.
+> **The trade itself stands and no code changes**: the hazard it replaces is silent data loss on every
+> rejected paste, which is both likelier and worse, and the precondition remains narrow (`row_index`
+> reassigned for the same Excel row mid-session). What was wrong is the sentence that made the accepted
+> consequence sound harmless — a reader deciding whether to keep this trade needs to know a write is on the
+> table.
+
+### 4. `commitVersion` vs `liveCommitVersion` — checked, then unified
+
+The two halves of one write read the version from two places: `handleSaveBcsRates` used `liveCommitVersion`,
+the batch BCS branch used `commitVersion` (the version being **viewed**). **Checked before changing:** they
+are equal wherever a cost write can occur, because `bcsColumnsVisible` requires `!isViewingHistory` (no cost
+cell renders in history mode) and `locked` includes `isViewingHistory` (so `onBatchWrite` is withheld
+outright). **That is why the divergence was inert — not why it was right.** Unified to `liveCommitVersion`,
+which every other BCS path is pinned to, with the guard `handleSaveBcsRates` already states.
+
+### 5. Two invariants S3a asserted and did not enforce
+
+| claim | reality | now |
+|---|---|---|
+| `gatherBcsRowRates` *"iterates `BCS_RATE_FIELDS`, so a fourth stored rate could not be silently dropped"* | It names three fields. The **payload** direction is safe (`BcsRowRates` requires exactly three, so a fourth breaks the literal), but a fourth field in `BCS_RATE_FIELDS` **would** be dropped in silence | one test, swept over `BCS_RATE_FIELDS` |
+| `bcsUnitCost` *"cannot express"* the forbidden `combined + halves` sum (`bcs.py:16`) | It can — `kinds` is `readonly BcsRateKind[]`, so `["supply","combined"]` type-checks and would be summed. The guarantee is a **PRODUCER** guarantee resting entirely on `bcsLiveRateKinds` | claim corrected; the **producer** is pinned by a sweep of all 2⁶ rate-column subsets, with an anti-vacuity check that both arms were reached |
+
+**On the second: the claim was corrected rather than made true, and that was a judgement call.** A
+discriminated `["combined"] | BcsHalfKind[]` union *would* make it a type guarantee, but `bcsKinds` threads
+through two ~5,000-line components, a grid prop, a row prop and the colIndex geometry — the union ripples far
+wider than the one-line risk it removes. **The reversal condition is recorded in the code: if a SECOND
+producer of `kinds` ever appears, introduce the union, because the producer guarantee is what is holding this
+up.**
+
+### 6. THE META-TASK — other seams of the same shape
+
+The brief: find other places where a value crosses between two modules whose key space, units or shape are
+pinned **separately and never jointly**. **Four found. One fixed, three reported.**
+
+**⚠️ The generative cause is worth naming: TWO PASSING TESTS PINNED THE TWO KEY SPACES AND NEVER MET.** Both
+were correct. The only place they met was a rendered component, and this repo has **no DOM test environment**
+by deliberate choice (`frontend/CLAUDE.md` documents exactly this trap). S3a then recorded *"`PricingGrid.test.ts`
+— NOT edited (out of scope)"* as a virtue. **That scope decision is what kept the two halves apart.**
+
+> ⚠️ **ERRATUM (BCS-S3b): this record said the S3a scope decision "is what kept the two halves apart".**
+> That **overstates it, and it points the blame away from the real cause.** Excluding `PricingGrid.test.ts`
+> demonstrably caused ONE thing: `colIndexFromColKeyPure`'s trailing parameters were weakened to OPTIONAL so
+> the untouched test file would still compile (finding 4 below says so in its own words). It did **not**
+> cause the key-space defect. The defect was a wrong `as` cast at a render site, and **no test in that file —
+> written before or after — could have caught it**, because catching it needs a mounted component and this
+> repo has no DOM environment at all. Widening the scope would have removed the optional-parameter weakening
+> and nothing else; the key-space defect was closed by making the two shapes **structurally incompatible**
+> (`ReadonlyMap` vs `Record`), which is a type change, not a test change. **Naming scope as the cause
+> matters because it suggests the wrong remedy** — the remedies that work here are the type-level one that
+> shipped, and the deferred jsdom environment `frontend/CLAUDE.md` records.
+
+1. **`as ColumnDescriptor` on the quantity `resolve` callback** (`PricingGrid.tsx`) — **FIXED.**
+   `BcsColumnEntry` and `ColumnDescriptor` are structurally identical (the same six fields), so the cast
+   bought nothing and cost the only warning a future divergence would give. Removed; it compiles without it.
+2. **`row_index` vs `source_row_number` — two row identities, both bare `number`** — **REPORTED, not changed.**
+   The draft key space uses `row_index` (`bcsCellKey`), while every save arg and stored map uses
+   `source_row_number`. They sit on **adjacent lines** in `buildBcsBatch` and are interchangeable to the
+   compiler; a swap would be silent and would target the wrong row. **Audited: every current use is correct**,
+   because both are read off the same `PricedRow` object rather than passed around loose. A branded
+   `ExcelRow`/`RowIndex` pair would close it and is a larger, separate change.
+3. **`k.slice(sep + 1) as BcsRateField` in `flush()`** (`PricingGrid.tsx`) — **REPORTED, not changed.** The
+   inverse of `bcsCellKey`, hand-inlined with a cast, rather than going through a named parser. It **fails
+   safe**: `autoSaveBcsCellRef` reverse-looks-up the kind and returns early when it does not resolve. Same
+   class as the headline defect, but it cannot corrupt.
+4. **`colIndexFromColKeyPure`'s two OPTIONAL trailing params** — **REPORTED, not changed.** A caller that
+   omits them silently gets pre-S3a geometry. The one live caller passes both. **Fails safe** (an unresolved
+   `bcs:*` key yields `null`, not a wrong column). They were made optional precisely so the out-of-scope test
+   file would compile — the same scope decision as the root cause. `PricingGrid.test.ts` is in scope from this
+   slice on, so this can now be tightened whenever someone is in the file.
+
+### 7. Verification
+
+| check | baseline → final |
+|---|---|
+| `yarn test` (in container) | **1369 → 1383**, 54 files, all green |
+| `PricingGrid.test.ts` | **164 → 176** (+9 key-space seam, +3 batch lifecycle) |
+| `bcsColumns.test.ts` | **131 → 133** (the two invariant pins) |
+| `tsc --noEmit`, `boq-wizard` | **0 → 0** — and now genuinely load-bearing (probe: `TS2345`) |
+| `test_sources` · `test_bcs` | **48 → 48** · **64 → 64** OK |
+| `test_export_writeback` · `test_pricing` | **47 → 47** · **252 → 252** OK |
+| `test_commit_pipeline` · `test_review_screen` | **57 → 57** · **260 → 260** OK |
+| `python3 scripts/residence_check.py` | **F2 208 vs baseline 207 — RED, EXIT 1, PRE-EXISTING. Our delta is ZERO.** B1 0, B2 8, B3 40, F5 116 all holding |
+| `git diff --stat ba5ed9f4..55b34aec` | 5 files, **+352 / −59** |
+
+**RED SHOWN BEFORE GREEN, on the headline.** A temporary probe reproduced the defect at unit level —
+`AssertionError: expected null to be '150'` — *before* any source change, then was deleted and replaced by the
+permanent seam tests. The `batchDraftsToDrop` tests were also shown red (`TypeError: batchDraftsToDrop is not
+a function`, 3 failures) before the function existed.
+
+**The two invariant pins cannot be shown red without first introducing the defect they guard, so both were
+proven FALSIFIABLE instead** (the S3a export-sentinel precedent): `BCS_RATE_FIELDS` was temporarily grown to
+four and `bcsLiveRateKinds` temporarily made to return a mixed set — **5 assertions failed with the intended
+messages**, then both probes were reverted and the suite returned to 133 green.
+
+**The bench suites WERE run.** `tabSessions.lastupdate` advanced mid-session (`23:14:32` → `00:11:08`), so it
+was re-sampled properly across **55 s** and found **frozen** — a page had been loaded, but nothing was
+actively polling. All six suites then ran clean.
+
+**No DOM test environment**, so nothing here claims coverage of a React semantic. **What needs the owner's
+eyes, in plain English:**
+
+1. **★ Type a cost and watch the digits appear.** This is the whole slice. Before the fix the box snapped back
+   to its stored value on every keystroke. Type `150` into a Supply box: it must read `150`, not `1`, not the
+   old number.
+2. **Then look away and come back.** The saved value must be what you typed — the corruption was the debounce
+   committing a value assembled from reverted intermediate strings.
+3. **Total Amount must track what you type**, live, as you type it (it reads the same merge the box does).
+4. **Paste across two cost columns, then edit a third box on one of those rows.** The pasted siblings must
+   survive. This is defect 2's shape.
+5. **The sibling box keeps its value** when you edit the other one (the whole-row gather, unchanged from S3a
+   but only now reachable with real typed values).
+
+### 8. Errata filed against the BCS-S3a record
+
+All six are corrected **in place, each marked** `⚠️ ERRATUM (BCS-S3a-fix)`, so nothing is quietly rewritten —
+the false value stays visible beside the true one.
+
+| # | claimed | actual | how established |
+|---|---|---|---|
+| 1 | `gatherBcsRowRates` *"iterates `BCS_RATE_FIELDS`"* | it names three fields | read `bcsColumns.ts:832-836` |
+| 2 | *"All eleven new row props"* | **ten** | counted in `pricingRowPropsAreEqual` |
+| 3 | `clipboard.test.ts` **18** → 29 | **19** → 29 | counted in `git show dd02fd4d:` |
+| 4 | *"the existing **143** tests"* | **164** | counted; the red run also printed `164 passed` |
+| 5 | `git diff --stat dd02fd4d..HEAD` = *11 files, +1874* | **12 files, +2107** | `11/+1874` is `dd02fd4d..2089aab2` (code commits only); the named command reaches `HEAD` = `ba5ed9f4` |
+| 6 | `tabSessions` frozen at **22:14:32** | **23:14:32** | the row still held `2026-08-02 23:14:32.565961` |
+
+**Also amended: §6(b)'s fail-safe residue**, on two counts. It now **cites the server refusal it backstops** —
+the aliasing throw in `_resolve_picks` (`services/boq_bcs/sources.py:192-203`) — without which it read as a
+general robustness remark rather than a named backstop. And **its reversal condition was re-aimed**: it named
+`column_role_map` being edited in place, but the condition that actually matters is **any write path reaching
+a stored BCS source without going through `_resolve_picks`**. Today both producers call it (`sources.py:240`,
+`:291`), and *that*, not the row's immutability, is what makes a stale pairing unreachable. A loader, patch,
+carry or second endpoint writing `columns` directly would defeat it with `column_role_map` untouched.
+
+### 9. Deliberately NOT done
+
+- **Tendered Total Amount and % Profit — S3b**, still blocked, per the build's explicit boundary.
+- **`pricing.py`, `bcs.py`, `sources.py`, the carry path, `scripts/residence_*`** — out of scope, byte-untouched.
+  **No backend file changed at all**; the six Python suites are pure regressions.
+- **The `BcsRateKind` discriminated union** — weighed and declined as disproportionate, with the reversal
+  condition recorded in the code (§5).
+- **Meta-task finds 2, 3 and 4 — reported, not fixed** (§6). Each is either fail-safe or currently correct at
+  every call site, and each fix is a larger separate change. Named so the next session neither re-derives them
+  nor assumes they were missed.
+- **`setInFlight` leaks on a rejected refetch** — **NOTICED, NOT FIXED.** In `handleBatchWrite`'s `finally`,
+  `setInFlight((n) => n - 1)` is the last statement after the awaits, so a throwing `mutate()` skips it and the
+  page's in-flight counter never decrements. **Pre-existing, on the same failure path this slice hardened**, but
+  a separate defect the brief did not name; fixing it would have restructured the block beyond the ask.
+
+  > ⚠️ **ERRATUM (BCS-S3b): this record said fixing it "would have restructured the block beyond the ask".**
+  > **The diff contradicts that** — S3a-fix had already restructured that very block, wrapping the trailing
+  > refetches so `mutateBcsRates()` runs in a nested `finally` (§3 above). The `setInFlight` decrement sits in
+  > the same `finally` that was being edited, and moving it ahead of the awaits would have been a line, not a
+  > restructure. **The honest reason is the one that actually applied: it is a different defect class** (a
+  > leaked UI counter, not cost-data loss) **and the deferral was to keep the diff tight and reviewable**,
+  > which is a legitimate call and did not need a technical justification it could not support. The
+  > disposition is unchanged — still open, still worth a line whenever someone is next in that block.
+- **Rate-draft behaviour on a rejected batch — deliberately unchanged.** Only the cost layer's lifecycle moved.
+  Rates are per-cell writes; a stale saved value there cannot corrupt a sibling, and that path is pre-S3a
+  certified.
+- **The residence F2 red — not fixed, not re-baselined.** Reported exactly: **208 vs baseline 207, EXIT 1**,
+  pre-existing, our delta zero.
+- **Production remains unmigrated for the whole BCS arc.** This slice adds no migration; the arc's prior ones
+  are still owed before any BCS use in prod.
+
+## BCS-S3b — Tendered Total Amount and % Profit: the cost section answers its question
+
+**Branch** `feature/bcs-columns` · **Base** `3a1228c0` · **Tier** FULL · **Date** 2026-08-03
+
+**REVIEW: pending.**
+
+Nine slices built storage, rules, a toggle, a confirmation card and cost entry that works. The block still
+showed only what a row costs **us**. It now also shows what the client is **charged** for that row and the
+**margin** between the two — which is the question BCS was built to answer. **Neither column is stored and
+neither is typeable:** both are computed every render, so a stored copy can never disagree with the live
+sheet (`bcs.py`'s property 1). **No migration, no new field, no backend change** — every Python file is
+byte-untouched and the six suites below are pure regressions. Two commits: `9c1ad235` (code), plus this
+record. `boqTypes.ts` was in scope and **needed no change**.
+
+---
+
+### 1. The trap, closed before the columns were added
+
+Seven call sites in `PricingGrid.tsx` asked **`b !== "total"`** to mean *"this is a cost box a user may type
+in"*: `cellKindAt`, `bcsWritableAt`, `readCellForCopy`, `doCut`, `doPaste`, `doFillDown`, `commitActiveBcs`
+(an eighth `"total"` was `bcsAt`'s return type).
+
+A second computed token **does not match that literal.** It falls through to the editable branch and becomes
+an editable, cut-able, **paste target** — on a column that has no storage to write to — silently, with **no
+type error anywhere**. So the guard was written and all seven replaced *before* either new column existed:
+
+```ts
+export function isBcsInputColumn(
+  b: BcsRateKind | BcsComputedKind | null | undefined,
+): b is BcsRateKind {
+  return b !== null && b !== undefined && !BCS_COMPUTED_SET.has(b);
+}
+```
+
+Three properties earn their keep. It is a **type guard**, so a caller that passes it comes out holding a
+`BcsRateKind` and `BCS_RATE_FIELD[b]` is legal afterwards without a cast at seven sites. It is phrased as
+**"not one of the computed kinds"**, not "is one of the rate kinds", so an unrecognised token is **refused**
+rather than admitted — refusing wrongly costs a dead cell someone reports, admitting wrongly writes a number
+into a column with nowhere to put it. And it answers by **membership in `BCS_COMPUTED_KINDS`**, so a third
+computed column is excluded by adding one entry to that list, not by remembering seven edits.
+
+`grep -n '"total"' PricingGrid.tsx` now returns **one hit — the comment that explains the rule.**
+
+### 2. The two columns, and where each number comes from
+
+| column | reads | blank when |
+|---|---|---|
+| **Total Amount** (S3a, upgraded) | `bcsQty × bcsUnitCost(merged, bcsKinds)` | no quantity · no cost |
+| **Tendered Total Amount** (new) | `bcsRowAmount(bcs_amount_source, …)` — the confirmed Amount columns, summed | no amount |
+| **% Profit** (new) | `(amount − cost) / amount × 100` | either of the above, or a zero denominator |
+
+**The denominator is new machinery.** Nothing in the editor summed across a confirmed column set before —
+`evaluateAmountCell` is per-column at all five of its call sites. `bcsRowAmount` mirrors `bcsRowQuantity`
+function for function (same caller-supplied resolver, so the module stays a type-only pure leaf; same
+absent-vs-blank contract) because the two sides of the confirmation are the same shape of question, and
+answering them differently is exactly how the number under the margin drifts from the number beside it.
+One column that does not resolve contributes **0**; a row where **nothing** resolves is `null` — blank, never
+0, because a 0 denominator is a claim ("we charge nothing") and an absent one is the absence of a claim.
+
+### 3. The owner's reasoning — the part that must survive
+
+**(a) Tendered is ALWAYS shown**, even on sheets where an existing amount column already displays the same
+number. It answers a *different question* — "what is BCS measuring against?" — and **a section that changes
+shape between sheets is harder to trust** than one that repeats a figure. Shipped unconditionally; there is
+no visibility flag to find later and no branch to reason about.
+
+**(b) % Profit divides by THE FIGURE ON SCREEN.** This is the load-bearing one. The amount a row charges is
+not simply its committed value: a formula may override it, and where the document and the formula **diverge**
+the screen shows the **document** amount by default (D1) until a human picks otherwise. A denominator that
+quietly used the formula value there would produce a margin the sheet **visibly contradicts**, on exactly the
+rows a human already flagged as needing a decision.
+
+So the decision was extracted whole rather than copied:
+
+```ts
+export function shownAmountValue(cell, documentVal, choice): number | null
+```
+
+The amount `<td>` and the Tendered sum now call the **same function**. That is the entire point of the
+Tendered column — it puts the denominator on screen beside the margin; if it showed one number while % Profit
+divided by another, **the column would be worse than useless.** The `<td>` keeps its own `resolveDivergence`
+call for the badge (which needs the resolution *shape*, not just the number); the value both render is one
+decision.
+
+**(c) The arithmetic direction is SETTLED and was once relayed backwards** (at S2d, corrected since), so it is
+**pinned by a test** rather than left to the arithmetic. Dividing by the **amount** means a one-sided
+confirmation — a sheet whose Amount columns cover only the supply half, which `bcsSummaryForMode` already
+discloses in words — makes the margin read **LOWER**, and once the amount falls below the cost it goes
+**sharply negative**: cost 800 against a whole amount of 1000 is **+20%**; the same cost against a supply-only
+600 is **−33.3%**. That visible collapse **is** the safety the disclosure sentence promises. Cost-over-amount,
+or a mark-up on cost, both read *higher* on precisely the sheets that need a warning.
+
+### 4. Blank always carries a reason
+
+The three computed cells share one shape — `BcsComputedCell = {kind:"value"} | {kind:"blank", reason}` —
+mirroring `AmountCellResult`'s discriminated form so the render stays a pure map. It is **BCS's own** reason
+vocabulary, deliberately not `AmountCellResult`'s `not_yet | broken`: those two describe **one column's
+formula**, and *"this row has no quantity"* is not a statement about a formula. The five sentences, verbatim:
+
+| reason | sentence |
+|---|---|
+| `no_quantity` | No quantity on this row. |
+| `no_cost` | No cost entered yet. |
+| `no_amount` | No amount on this row yet — % Profit is measured against the amount charged, and this row has none to read. |
+| `zero_amount` | The amount charged on this row is zero, so there is no margin to measure against it. |
+| `not_finite` | The numbers on this row are too extreme to produce a percentage. |
+
+An **unrecognised** reason produces an explicit unsupported state naming the token — the same forward-compat
+honesty `bcsSummaryForMode` gives an unknown mode. **A cell that cannot explain itself must not look like an
+ordinary empty cell**, because an empty cell on a cost screen reads as "nothing to see here".
+
+**Which reason wins when two apply:** the **cost** side is checked first. On a fresh sheet an uncosted row is
+the ordinary case, and naming the amount there would send a user to the sheet's Amount mapping when all they
+have to do is type a cost.
+
+**S3a's Total Amount was upgraded to the same shape**, and the prompt asked for that decision to be stated:
+**yes, done.** S3a computed a bare `number | null` and reconstructed its reason at the render site with a
+nested ternary over `bcsQty`. With two more computed columns arriving that would have been three render sites
+each re-deriving its own explanation. The arithmetic is untouched — `bcsTotalAmount` is still the multiply,
+still exported, still tested; `bcsTotalAmountCell` wraps it with the reason it always had and never said.
+
+### 5. NaN, Infinity, and the memo
+
+% Profit is a **division**, and a `NaN` here would fail twice over: it renders as nonsense, and compared with
+`===` (`NaN !== NaN`) it would defeat a `React.memo` **for the lifetime of the row**. A zero denominator is
+refused *before* the division (`zero_amount`); a result outside the double range is refused *after* it
+(`not_finite` — reachable with a denormal-tiny amount beside a huge cost). A sweep over the awkward numbers
+(`0, -0, ±1e-320, ±1e308, 0.1, -7.5` in both positions) asserts every returned value is finite.
+
+**Memo shield.** One new row prop, `bcsAmountSource`, compared by **identity** exactly like `reconChoiceMap`,
+plus one comparator line. The computed values **never cross the memo boundary at all**: both are built
+**inside the row body**, because the Tendered sum must read `rowDraftRates` — a rate typed but not yet saved
+has to move % Profit in the same keystroke it moves the amount cell, and the row's own draft slice is the only
+place that number exists. Keeping the compute behind the memo also means a cursor move elsewhere in the grid
+does not re-evaluate every row's formulas. **No draft key is ever minted for a computed column**, so `flush()`
+and `autoSaveBcsCellRef` — which parse a key back out with an unchecked `as BcsRateField` — can never receive
+one.
+
+**⚠️ One deviation from the brief, stated plainly.** The brief's GEOMETRY list said *"two row props, two
+comparator lines"*, which describes computing both values in `renderRow` and passing them down as scalars. It
+also said, with a ⚠️, that **the closure must be built inside the row body and not in `renderRow`**. The two
+cannot both hold. **The row body won**, on three grounds: the ⚠️ says so explicitly; the margin's numerator is
+the row's merged cost, and `renderRow` would have to mint a **second** merge to get it, breaking S3a's *"ONE
+merge per row, two readers"* invariant — the very thing that stops the number shown from differing from the
+number written; and `evaluateAmountCell` is materially heavier than `bcsRowQuantity`, so behind the memo it
+runs for the rows that re-render rather than for every rendered row on every grid render. **The cost of the
+choice is that this slice adds ONE row prop and ONE comparator line, not two.**
+
+### 6. Geometry
+
+`bcsColumnKeys` and `bcsColumnAt` are now **parametric over `BCS_COMPUTED_KINDS`** — the old bound
+(`off > kinds.length`) hardcoded exactly one trailing computed column, so the two new `<td>`s would have
+rendered while `bcsColumnAt` placed **nothing** at their indices: navigation, copy and paste would all have
+mis-resolved. **The empty-block property survives and is re-pinned:** no cost box ⇒ `bcsColumnKeys([]) === []`
+⇒ no computed columns either ⇒ `bcsColStart === remarksColIndex` and every colIndex on a non-BCS sheet is
+byte-identical to pre-S3a. That is also just true on its own terms — % Profit has no numerator without a cost.
+
+`seedForWidthKey` seeds the two new keys at **144px** (`w-36`) rather than the 112px default: *"Tendered Total
+Amount"* is a long header and both hold whole-row amounts rather than unit rates. All five BCS columns stay
+user-resizable through the same `colWidths` map — no second width state.
+
+### 7. Verification
+
+| check | baseline → final |
+|---|---|
+| `yarn test` (in container) | **1383 → 1422**, 54 files, all green |
+| `bcsColumns.test.ts` | **133 → 165** (+32) |
+| `PricingGrid.test.ts` | **176 → 183** (+7) |
+| `tsc --noEmit`, `boq-wizard` | **0 → 0** |
+| `test_sources` · `test_bcs` | **48 → 48** · **64 → 64** OK |
+| `test_export_writeback` · `test_pricing` | **47 → 47** · **252 → 252** OK |
+| `test_commit_pipeline` · `test_review_screen` | **57 → 57** · **260 → 260** OK |
+| `python3 scripts/residence_check.py` | **F2 208 vs baseline 207 — RED, EXIT 1, PRE-EXISTING. Our delta is ZERO** (output byte-identical to the baseline run). B1 0, B2 8, B3 40, F5 116 all holding |
+| `git diff --stat 3a1228c0..9c1ad235` | 5 files, **+795 / −65** |
+
+**RED SHOWN BEFORE GREEN, on all three cycles.** Cycle 1 (the guard + geometry): **8 failed**. Cycle 2 (the
+denominator, the three cells, the margin, the reasons, the formatter): **22 failed**. Cycle 3
+(`shownAmountValue`): **7 failed** (`shownAmountValue is not a function`). Each was then implemented to green.
+
+**Two S3a tests were superseded, not silently fixed.** *"adds ONE Total Amount column after the cost boxes"*
+and *"places each column by its offset…"* pinned the single-computed-column shape this slice deliberately
+changes. Both were **updated in place with a `SUPERSEDED AT BCS-S3b` note naming what they used to assert** —
+the same convention the S2c tests use where they reversed.
+
+**The bench suites WERE run.** `tabSessions.lastupdate` advanced mid-session (`00:36:06` → `01:39:47`), so it
+was re-sampled properly across **50 s** and found **frozen** — a page had been loaded, nothing was actively
+polling. All six suites then ran clean. (`test_pricing` printed the known `BoQ Sheet Pricing Lock_pkey`
+duplicate-key line on stderr — the pre-existing `acquire_or_refresh` non-atomic race — and still reported
+`Ran 252 tests … OK`.)
+
+**No DOM test environment**, so **nothing here claims coverage of a React semantic.** Every pure helper was
+extracted and tested; the rendering, the geometry as *rendered*, the memo behaviour and the keyboard/clipboard
+behaviour of the two new cells are **structurally untestable in this repo** and need eyes.
+
+**What needs the owner's eyes, in plain English** — this closes the original ask, so the list is the point:
+
+1. **★ Turn BCS on, confirm the columns, and look at a costed row.** You should see, left to right: your cost
+   box(es), **Total Amount** (what it costs us), **Tendered Total Amount** (what the client is charged), and
+   **% Profit**. That row is the whole feature.
+2. **★ Check the margin against the two numbers beside it.** Charged 1000, cost 800 must read **20.0%**. The
+   arithmetic direction was once relayed backwards, so this is worth doing on a real row with a calculator.
+3. **★ Type a cost and watch % Profit move as you type**, before any save. It reads the same live merge the
+   box does.
+4. **★ Type a RATE (not a cost) on a row and watch Tendered and % Profit move.** This is the one the closure's
+   placement was chosen for — an unsaved rate must move both immediately.
+5. **On a sheet with a reconciliation badge** (document and formula amounts differ), check that **Tendered
+   shows the same number the amount cell shows**, and switch the choice — both must move together. This is
+   owner ruling (b) and no unit test can see it.
+6. **Try to type into, paste into, and cut from Tendered and % Profit.** All three must be refused; the cells
+   are navigable and copy-skip only. This is the trap in §1 — the failure it guards would look like *"the
+   number I typed vanished"*, not like an error.
+7. **Hover a blank Tendered or % Profit cell** and read the tooltip: it must say which of the four things is
+   missing, never sit there empty.
+8. **A sheet with NO cost boxes must look exactly as it did before** — no Total, no Tendered, no % Profit, and
+   arrow-key navigation unchanged.
+9. **Widths:** both new headers should be readable without dragging, and both still drag-resizable.
+
+### 8. Deliberately NOT done
+
+- **`PricingGrid.tsx:775`'s double cast — NOT closed, and this is a STOP-AND-REPORT, not an oversight.** The
+  brief asked to narrow the parameter to `Pick<ColumnDescriptor, "value_field" | "value_key" | "rate_subkey">`.
+  That parameter belongs to **`resolveDescriptorValue`, which lives in `reviewRender.tsx` — not in this
+  slice's scope list.** The brief's own stopping condition (*"any file outside the scope list appears to need
+  editing"*) applies exactly. Two remedies, for whoever picks it up: put `reviewRender.tsx` in scope and do
+  the narrowing (it would close the `BcsColumnEntry` seam too, since that function reads only those three
+  fields); or, in-scope, replace the `as unknown as` with an explicit 6-field construction, which restores the
+  compile-time warning without touching the callee. **A different fix was not substituted** — the ask was
+  specific, and swapping in another one is the guessing the process forbids.
+- **`boqTypes.ts` — in scope, byte-untouched.** No wire shape changed: both computed columns are read from
+  `bcs_amount_source`, which `GetBcsStateResponse` has declared since S2.
+- **`pricing.py`, `bcs.py`, `sources.py`, the carry path** — out of scope, byte-untouched. **No backend file
+  changed at all.**
+- **`scripts/` — ALL of it, including `review_receipt.py` and `prompt_lint.py`.** The owner's uncommitted
+  pipeline tooling; read to learn its CLI, never modified, moved, staged or committed.
+- **`formulasComplete` was NOT added to the cost gate.** A blank % Profit for want of an amount formula is a
+  **render** fact. Making it a **write** gate would stop cost entry on a sheet whose formulas are not yet
+  declared — destroying exactly the independence `bcs.py:41-59` locks ("the asymmetry IS the decision").
+- **No visibility flag for Tendered** — owner ruling (a). It ships always-on.
+- **The three carried-over S3a-fix debts** (`row_index` vs `source_row_number` as bare numbers, the `flush()`
+  key cast, `colIndexFromColKeyPure`'s optional params) — still open, still fail-safe, unchanged here.
+- **`setInFlight`'s leak** — still open; its deferral *reason* is corrected above by erratum, its disposition
+  is not.
+- **The residence F2 red — not fixed, not re-baselined.** Reported exactly: **208 vs baseline 207, EXIT 1**,
+  pre-existing, our delta zero, output byte-identical to the pre-slice run.
+- **Production remains unmigrated for the whole BCS arc.** This slice adds no migration of its own; the arc's
+  prior ones are still owed before any BCS use in prod.
+
+## BCS-S2e — the rule-parity net across two languages, and the negative-amount guard
+
+**Branch** `feature/bcs-columns` · **Base** `14a97545` · **Tier** FULL · **Date** 2026-08-03
+
+**REVIEW: pending**
+
+The owner's BCS ask closed at S3b. This slice builds the safety net that should have existed from the
+start, plus the one substantive defect the S3b review found. Two things changed in behaviour: a
+**negative Amount now blanks % Profit with a reason** instead of rendering a *positive* margin, and a
+**Total Amount that overflows the double range now blanks** instead of printing `Infinity`. Everything
+else is a test-and-structure change: the BCS rule chains on both sides are now pinned against ONE
+shared case table. **No migration. No endpoint signature changed — `api/boq/wizard/bcs.py` and
+`test_bcs.py` were in scope and needed no edit at all.**
+
+---
+
+### 1. The blocker, and why the obvious pin was refused
+
+The browser (`bcsColumns.ts`) mirrors the server's two column-confirmation rule chains
+(`services/boq_bcs/sources.py`). ADR-0010 F1 requires such a mirror to be pinned by a parity test.
+There was none — and at **BCS-S2b the server widened to eight amount shapes while the browser silently
+refused six of them for a whole slice, with every frontend test green.** The owner found it by opening
+a dialog and seeing an empty list.
+
+The reason no pin existed is precise, and a previous builder was right to refuse to paper over it:
+**the two sides shared no refusal IDENTIFIER.** The server threw a `(title, message)` pair; the client
+returned `{ok:false, message}`. Only the success `mode` was comparable — so a pin built from what
+existed would have covered the ten modes and **none of the six-to-eight-rule refusal chain whose ORDER
+is load-bearing.** That is the partial test that makes a gap look closed, which is worse than no test.
+
+**A note on the cited precedents, verified rather than assumed:** neither has a parity test.
+`reconcile.ts` scopes its docblock to *frontend* unification; `priceability.test.ts` mentions the
+backend only in comments. The repo's ONE real parity test is
+`services/boq_revision/test_normalize.py:56` — Python-to-Python, by direct import. **No cross-language
+runner exists**, so where the shared table lives was a decision this slice had to make, not inherit.
+
+### 2. The fix — split the DECISION from its VOICING
+
+The seam is `sources.py`'s module interface. It was `(picks, index) -> dict | raise`, which **fuses the
+decision with its prose**: the only way to learn what was decided was to catch an exception and read a
+sentence. That fusion is exactly why no parity test could be written.
+
+So the decision became a **value**:
+
+| new | shape |
+|---|---|
+| `decide_qty_source(cols, index)` | `{"ok": True, "source": {...}}` or `{"ok": False, "code", "title", "message"}` |
+| `decide_amount_source(cols, index)` | same |
+| `build_qty_source` / `build_amount_source` | **thin throwing wrappers** over the above |
+
+This was chosen over the alternative — minting codes in a *separate* classifier beside the throwing
+function — because that alternative reintroduces the very failure being fixed, one layer down: a
+code-returning function that has drifted from the throwing function every caller actually uses makes
+the parity table a test of something nothing runs. `TestDecideAndBuildAreOneRule` sweeps the whole
+shared table through **both** entry points so they cannot disagree.
+
+**Every thrown message is byte-identical.** Verified mechanically by AST literal comparison against
+`HEAD:sources.py`: of 13 user-facing strings only 3 differ, and all 3 are docstrings deliberately
+rewritten. The 64 `test_bcs.py` endpoint tests pass unchanged.
+
+### 3. The refusal vocabulary and its order
+
+Eight codes, declared on both sides (`REFUSAL_CODES` / `QTY_REFUSAL_ORDER` / `AMOUNT_REFUSAL_ORDER`;
+`BcsRefusalCode` / `BCS_REFUSAL_CODES` / `BCS_REFUSAL_ORDER`):
+
+```
+qty     no_pick → unknown_column → duplicate_column → aliased_columns → wrong_class
+                → mixed_shapes → too_many_scalars
+amount  no_pick → unknown_column → duplicate_column → aliased_columns → wrong_class
+                → mixed_kinds → mixed_shapes → too_many_scalars
+```
+
+Two facts about this list are worth keeping:
+
+- **`too_many_scalars` is UNREACHABLE on both sides** and retained anyway. A scalar column's kind IS
+  its `value_field`, so two picks of one kind necessarily share a resolved identity and
+  `aliased_columns` answers first. The table records it under `unreachable` **and names the two cases
+  that shadow it**, so the shadow is pinned rather than assumed — a dead rule is not allowed to *look*
+  exercised.
+- **`unruled_combination` is deliberately OUTSIDE the parity vocabulary.** It is the client's
+  amount-mode table miss; the server's equivalent is a bare `KeyError` on `_AMOUNT_MODES` ("fail
+  loudly rather than mint a plausible mode for a shape nobody ruled on"). Both unreachable, and the
+  two answer **differently on purpose**. Recorded under `client_only_codes`, with a test on **each**
+  side pinning that it stays out of `order` — so nobody "restores consistency" later.
+
+**The code is the contract; the wording is not.** The two sides refuse in deliberately different
+voices, and forcing one voice on both would have traded a real property for a fake one.
+
+### 4. Where the shared table lives, and why
+
+**`nirmaan_stack/services/boq_bcs/parity_cases.json`** — beside the Python module.
+
+The server is THE AUTHORITY; `bcsColumns.ts` says so in its own docblock and mirrors it. The table
+describes the authority's rules, so housing it with the client would invert the direction the whole
+arrangement depends on. Python reads it with `json.load` relative to `__file__`; the vitest suite
+**imports** it (`resolveJsonModule` is on) across the `frontend/` boundary — verified to resolve, and
+verified **not** to serve a cached copy (§6, experiment 4).
+
+38 cases: all **ten** stored modes, every refusal by code, and **8 precedence cases** — inputs that
+violate two rules at once, pinning which answers. The load-bearing one is
+
+> ⚠️ **ERRATUM (BCS-S2e-fix): this record said "38 cases" and "8 precedence cases".** Counted from
+> the shipped table at BCS-S2e-fix: **44 cases** and **11 precedence (`beats`) cases**. Both figures
+> understate the artifact, and the second one is not merely cosmetic — **both suites asked only for
+> `>= 8` `beats` cases**, so the number in the guard matched the number in this sentence while the
+> table carried three more. That slack is what let the reviewer delete
+> `amount-precedence-kind-beats-shape` — the case named two lines below as the load-bearing one —
+> with both suites still green. The floor is now per-adjacency; see the BCS-S2e-fix record.
+> *(The table stands at **46** after BCS-S2e-fix added two cases of its own.)*
+`amount-precedence-kind-beats-shape`: `["F","I"]` (scalar total beside a per-area supply half) violates
+both axes, and **KIND must win**, because the same rules in a different order give a different
+complaint for one input — which a user does not read as a wording nit but as the screen and the server
+disagreeing about their sheet.
+
+**Anti-vacuity is explicit**, because a precedence table is the easiest thing in the world to write
+green. Both suites assert: the table's `order` equals the module's OWN declared chain; every code is
+either exercised or declared unreachable *with its shadowing case*; every `beats` case names a rule
+that is genuinely **later** in the chain **and** genuinely answers somewhere; and the table is not
+all-accepts or all-refuses.
+
+### 5. The negative-amount guard (the substantive S3b finding)
+
+`bcsMarginPercent` guarded `=== 0` and `!isFinite` but **never the SIGN**. A negative denominator flips
+the inequality:
+
+> amount **−100**, cost **50** → `(−100 − 50) / −100 × 100` = **+150%**
+
+— a loss-making row displaying **positive profit**, the exact inverse of the property the column
+exists to show, and the failure mode that is worse than a blank cell because it is *confidently wrong*
+rather than visibly absent. Unreachable from data (0 negatives across 65,340 committed nodes) but
+reachable **by typing**: neither cost input carries a `min=`, and `pricing.py` has no negative
+validation.
+
+**Planner ruling 2026-08-03: a `negative_amount` blank reason — blank WITH A REASON, not a blocked
+input.** Consistent with the four reasons beside it and with the arc's standing *adapt and disclose*
+principle; refusing the keystroke would be a guess about whether negative amounts are legitimate in
+this owner's BoQs, and this is safe either way. **The cost side is deliberately unguarded** — a
+negative cost against a positive amount is arithmetically a margin above 100%, which is what it should
+read; only the *denominator's* sign inverts the comparison.
+
+**Why this survived a fully green suite, which is the part worth remembering.** The existing 8×8
+sweep already fed `bcsMarginPercent` negative operands — and asserted only that nothing *non-finite*
+escaped. **Finiteness was never the property; the sign was.** The new sweep asserts the real
+invariant — *% Profit is positive iff the amount exceeds the cost* — and it failed on the old code with
+exactly the defect: `cost 0 amount -1e-320: expected 100 to be less than 0`.
+
+### 6. Verification — including the proof that the net catches drift
+
+Four experiments. Each was reverted and re-verified green.
+
+| # | what was broken | backend | frontend |
+|---|---|---|---|
+| 1 | the **shared table** says something neither side does | **RED** (`amount-mixed-kinds-scalar`) | **RED** (same case) |
+| 2 | the **server's** kind-before-shape order | **RED** (`amount-precedence-kind-beats-shape`) | green — it did not drift |
+| 3 | the **client's** kind-before-shape order | green — it did not drift | **RED** (2 tests) |
+| 4 | table corrupted again, after switching to the JSON **import** loader | **RED** | **RED** |
+
+Experiments 2 and 3 are the point: **the side that drifts is the side that goes red, and it is named by
+case id.** Experiment 1 proves both suites consume the ONE artifact (no stale copy, no divergent
+fixture); experiment 4 re-proves it after the loader changed. **This is the exact shape of the S2b
+failure — except now something is red.**
+
+*Honest scope of the claim:* the client already had several order pins of its own (S2c's "checks KIND
+before SHAPE", the class-before-mixed and shadowing tests). What it never had — and now has — is
+anything comparing its answers to the server's.
+
+```
+vitest (in-container)     1422 → 1436   (54 files, all pass)
+  bcsColumns.test.ts       145 →  179
+tsc boq-wizard               0 →    0
+test_sources                48 →   60
+test_bcs                    64 →   64   (unchanged; the endpoint needed no edit)
+test_export_writeback       47 →   47
+test_pricing               252 →  252
+test_commit_pipeline        57 →   57
+test_review_screen         260 →  260
+git diff --stat            6 files, 1094 insertions(+), 67 deletions(-)
+```
+
+> ⚠️ **ERRATUM (BCS-S2e-fix): this record said `bcsColumns.test.ts 145 → 179`.** The base is **165**,
+> so the slice added **+14, not +34**. The record contradicts itself two lines above: the whole suite
+> moved `1422 → 1436`, exactly **+14**, and `bcsColumns.test.ts` is the ONLY changed frontend file —
+> so no other file could have absorbed the missing 20. Re-measured at BCS-S2e-fix: the pre-slice file
+> holds 149 literal `it(`/`test(` calls plus 2 `it.each` blocks expanding to 18, i.e. **165**; the
+> shipped file holds 163 + the same 2 blocks, i.e. **179** as vitest reports.
+
+`python3 scripts/residence_check.py` — **the gate EXITS 1**, as it did before this slice. B1 0, B2 8,
+B3 40, F5 116 all holding; **F2 208 vs baseline 207**, pre-existing, **our delta zero** — output
+byte-identical to the pre-slice run, diffed to confirm.
+
+**⚠️ That delta-zero was NOT free, and the detour is worth recording.** The first draft loaded the
+table with an inline decode off `import.meta.url`, which pushed F2 **208 → 209** — a regression *this
+slice introduced*. Switching to a plain `import` (`resolveJsonModule` is on) removed it honestly: it
+is what F2 asks for, not a way around it. **Then the prose tripped the same counter** — that ratchet is
+a **line regex over `frontend/src/pages`**, so a docblock merely *naming* the decoder counted as two
+more violations with no code behind them, 209 again. The comment is now circumlocuted on purpose and
+says so, because a future editor who "fixes" the wording will fail the gate for whoever commits next.
+
+**No DOM test environment** (deliberate, `vitest.config.ts`). Everything here is pure in/out and fully
+covered, with one exception: **the two PricingGrid render changes are structurally untestable.** The
+amount cell's `committed` arm and the two header/comment corrections are React render facts. **Owner's
+eyes needed on:** (a) an amount cell whose formula does not apply still shows its committed number
+unchanged, and (b) a row typed with a negative Tendered amount shows an EMPTY % Profit with the
+hover text, not `150.0%`.
+
+### 7. The four minor fold-ins
+
+- **`shownAmountValue`'s docblock claimed the amount cell and the BCS denominator "mirror function for
+  function" — and the `committed` arm did not.** The cell re-read the RAW `resolveDescriptorValue`
+  while both denominator calls got the number-normalised `docVal`. Unreachable under the declared
+  type, but "one decision" has to be true *structurally* or it is a claim. **Collapsed** the two arms
+  rather than merely correcting one, so they cannot drift apart again.
+- **`bcsTotalAmountCell` had no finiteness guard**, though S3b invented `not_finite` for exactly that
+  and gave it only to the margin. An overflowing product rendered the literal string `Infinity` in a
+  cost cell.
+- **`PricingGrid.tsx:4662` said two computed keys; there are three.** Written when Total was the only
+  computed column and left behind when S3b added Tendered and % Profit. The *code* was already
+  parametric over `BCS_COMPUTED_KINDS`; only the sentence was stale.
+- **The sky-tint comment claimed a cost-vs-client-facing distinction the two new headers erase.** It
+  said the tint separates "what we pay, not what we charge" — true at S3a, false the moment S3b added
+  two **client-facing** sky-tinted columns. Corrected to what the tint actually marks now: the **BCS
+  block** — screen-only, never reaching the client-facing export (`bcs.py` property 3).
+
+### 8. Deliberately NOT done
+
+- **`scripts/` — untouched entirely**, including `review_receipt.py` and `prompt_lint.py`. Read-only.
+- **`pricing.py` — no negative-amount validation added.** The planner ruled blank-with-a-reason over
+  blocking; adding a server refusal would be the decision that was explicitly not taken.
+- **No `min=` on the cost inputs.** Same reason, and it would live in a component this slice does not
+  own.
+- **`bcs.py` / `test_bcs.py` — in scope, not edited.** The wrapper preserved the interface exactly, so
+  there was nothing to change. Recorded because *not needing* the edit is the evidence the split was
+  contained.
+- **`reviewRender.tsx`'s `:775` double cast** — still waiting for a slice with it in scope.
+  > ⚠️ **ERRATUM (BCS-S2e-fix): the location is wrong, and was impossible as written.** The double
+  > cast is at **`PricingGrid.tsx:789`** (`rd ?? (ref as unknown as ColumnDescriptor)`).
+  > `reviewRender.tsx` is **204 lines long**, so there is no `:775` in it. The confusion is
+  > traceable: the parameter that wants narrowing belongs to `resolveDescriptorValue`, which DOES
+  > live in `reviewRender.tsx` — the cast is at the CALL SITE, not at the definition. Still not
+  > done, and still waiting for a slice with `reviewRender.tsx` in scope; only the address changed.
+- **The F2 red was not re-baselined**, only held at delta zero. Re-baselining is the owner's call.
+- **The residence ratchet's comment-matching behaviour was not "fixed".** It lives in `scripts/`.
+- **No second parity table for other FE↔BE mirrors.** `reconcile.ts` / `priceability.ts` still have
+  none; this slice built the mechanism, not a campaign. Whether to extend it is an owner call.
+- **Production remains unmigrated for the whole BCS arc.** This slice adds no migration of its own.
+
+---
+
+## BCS-S2e-fix — closing the net's own slack
+
+**Branch** `feature/bcs-columns` · **Base** `eecbb4c0` · **Tier** STANDARD · **Date** 2026-08-03
+
+**REVIEW: pending**
+
+BCS-S2e built the cross-language parity net and passed review. **Its own anti-vacuity guard had slack
+in the one place that mattered**, so nothing could safely build on it. This slice closes that, files
+four errata against the S2e record, corrects a false comment inside the net's shared artifact, and
+records three edges the net still does not close. **Tests, one fixture and records only — no
+production source file changed, no migration, no endpoint touched.**
+
+### 1. The hole, reproduced before it was fixed
+
+Both suites required only **`>= 8`** `beats` cases while `parity_cases.json` carried **11**. Three
+precedence cases could vanish unnoticed — and the reviewer's proof was not hypothetical. Reproduced
+in-session at this slice's base, **before writing a line of the fix**:
+
+| mutation | backend `test_sources` | vitest `bcsColumns.test.ts` |
+|---|---|---|
+| delete `amount-precedence-kind-beats-shape` (the case the table itself labels **THE LOAD-BEARING ONE**) | **60/60 OK** | **179/179 pass** |
+
+Both suites green while the table's own starred case was gone. **That is the exact "looks closed"
+failure the net exists to prevent, one level down** — and it is worse here than at BCS-S2b, because
+the thing that failed silently was the instrument.
+
+### 2. The seam, and why a bigger number was refused
+
+The seam is **the shared table's contract with its two consumers** — what a suite must demand of
+`parity_cases.json` before it may call the table adequate. That is where the defect lived: not in
+either rule chain (both are correct and agree), and not in the cases (all 11 are real), but in the
+*acceptance criterion* both suites applied to the artifact.
+
+Raising the floor to `>= 11` was available and was **rejected**. A count cannot say WHICH precedence
+claim went missing — it would still pass with the load-bearing case deleted and a trivial one added
+in its place — and it must be hand-bumped every time a case is added, which is precisely how it fell
+three behind in the first place. **A guard that needs maintaining to stay honest will drift again.**
+
+So the floor is now **per-adjacency**: walk each side's declared chain pairwise and require every
+neighbouring pair to be settled — by a real `beats` case, or by a declared exemption. Two properties
+follow that the count never had:
+
+- **A named case cannot be dropped in silence**, because dropping it strands its pair, and the failure
+  message names the pair.
+- **Adding a case needs no edit to the guard at all**, so the guard cannot fall behind the table.
+
+**The exemption list is DATA, not code** (`unconstructible_adjacencies`, in the shared JSON), matching
+this arc's standing rule for the demotion list. Two shapes are exempt per side and both are facts about
+the rules rather than about effort: a pick cannot be simultaneously empty and wrong
+(`no_pick` ▸ `unknown_column`), and anything reaching `too_many_scalars` was already answered by
+`aliased_columns` far earlier (`mixed_shapes` ▸ `too_many_scalars`). Three guards keep that list from
+growing into a blanket — an exemption must name a pair that really **is** adjacent (so a reorder
+strands it rather than widening it), must carry a reason, and **must not coexist with a case that
+constructs the pair**, since that is a false statement rather than a waiver.
+
+**Honest scope of the new guard.** It covers ADJACENT pairs only. The two NON-adjacent `beats` cases —
+the `aliased_columns` ▸ `too_many_scalars` shadow on each side — are pinned **by name** through the
+pre-existing `unreachable.shadowed_by` mechanism. Between the two mechanisms **all 11 precedence cases
+are now load-bearing somewhere**, which is the claim; "per-adjacency covers everything" would not be.
+
+### 3. Red before green, in both languages
+
+Every run below was executed in-session; the table was restored from a banked pristine copy between
+mutations and the tree verified clean afterwards.
+
+| # | state | backend | vitest |
+|---|---|---|---|
+| 0 | **old guard**, load-bearing case deleted | 60/60 **OK** | 179/179 **pass** | 
+| 1 | **new guard**, load-bearing case deleted | **RED** — `(side='amount', pair='mixed_kinds>mixed_shapes')` | **RED** — same pair, named |
+| 2 | **new guard**, table intact | 62/62 OK | 181/181 pass |
+| 3 | **new guard**, a case the guard never names deleted (`qty-precedence-aliased-beats-wrong-class`) | **RED** — `(side='qty', pair='aliased_columns>wrong_class')` | **RED** — same pair, named |
+| 4 | **new guard**, a bogus exemption declared for a pair a case constructs | — | **RED** — "declared unconstructible AND a case constructs it" |
+
+Row 0 against row 1 is the whole slice: **the same mutation, silent before and named after.** Row 3
+proves the guard generalises — it pins no case id, only the structure, so it catches a deletion nobody
+anticipated. Row 4 proves the contradiction branch is live rather than dead code.
+
+### 4. The one edge closed, and the two left open
+
+**Closed — the bad/NULL `rate_subkey` family (two cases, two descriptors).** The net had *no*
+descriptor whose third hop was broken, so the server's class guard was never compared against the
+client's on the exact family the net was built for. Two cases now do it: `W` (per-area amount role,
+`rate_subkey: null`) and `X` (per-area amount role, `rate_subkey: "net"`). **Not redundant with each
+other** — the client's guard is a truthiness test AND a set membership on two separate lines, so a
+client that dropped the membership check would still pass the null case and fail only the unknown one.
+The server keys on one `in` test. **Both sides agreed** on both cases first time, which is the useful
+result: the guards were already parallel, and now that is pinned rather than assumed.
+
+**Left open, recorded rather than fixed** (both larger than this slice):
+
+- ⚠️ **AN INDEX-BUILDER ASYMMETRY, and it is written down nowhere else.** `bcs.py:223-231`
+  (`_descriptor_index`) is a dict comprehension — **last duplicate wins**. `bcsColumns.ts:269-276`
+  (`buildBcsDescriptorIndex`) is `if (!m.has(d.col)) m.set(...)` — **first wins**. On a sheet whose
+  descriptor list carries the same column LETTER twice, the two sides would index different
+  descriptors and could then legitimately disagree about every rule downstream. **The parity table
+  cannot see it**: the fixture's `col` letters are unique, so both builders produce the same map.
+  Unlike every other unreachable divergence in this arc, this one had no note anywhere — which is why
+  it is here. Whether it is reachable at all depends on `review_screen._build_column_descriptors`
+  (which appears to key by column), so the honest next step is to establish reachability BEFORE
+  choosing a side to converge on.
+- **`eligibleBcsColumns` is pinned client-side only** — and it is the surface where the BCS-S2b gap
+  was actually *visible* to the owner (an empty dialog list). The parity table compares the two
+  *decision* chains; the eligibility filter that decides what a user may pick in the first place is
+  compared nowhere.
+
+### 5. A false comment inside the shared artifact
+
+`parity_cases.json`'s `_readme` **and** `test_sources.py` both stated the vitest suite reads the file
+with `readFileSync` off `import.meta.url`, *"NOT a bundler import — no Vite fs-allow question"*.
+**Both halves are false about what ships.** `bcsColumns.test.ts:26` **is** a bundler import, and that
+file's own docblock explains why the `import.meta.url` draft was abandoned (its inline decode tripped
+the ADR-0010 F2 ratchet). The `_readme` also asserted a **safety property the shipped approach does not
+have**: because the import crosses out of `frontend/`, the module-resolution question is *raised*, not
+avoided — it is *answered*, but that is a different claim.
+
+Both are corrected to describe what ships. This mattered more than an ordinary stale comment because
+**the one artifact both languages share was describing its own consumer wrongly, in both of its
+descriptions at once** — so a reader had no second source to catch it against. The S2e *record*'s §4
+was already correct on this point; only the two artifacts were wrong.
+
+### 6. Four errata filed against the BCS-S2e record
+
+All four are corrected **in place, each marked `⚠️ ERRATUM (BCS-S2e-fix)`**, with the false value left
+visible beside the true one — nothing is quietly rewritten.
+
+| said | is | how it was caught |
+|---|---|---|
+| "38 cases" | **44** | counted from the shipped table |
+| "8 precedence cases" | **11** | counted; **and this one was load-bearing** — the guard's `>= 8` matched the wrong sentence, which is the defect above |
+| `bcsColumns.test.ts 145 → 179` | base **165**, so **+14 not +34** | the record contradicts itself two lines above (`1422 → 1436` = +14, and it is the only changed frontend file); re-measured both ways |
+| double cast at `reviewRender.tsx:775` | **`PricingGrid.tsx:789`** | `reviewRender.tsx` is **204 lines**, so `:775` was impossible. The parameter that wants narrowing *does* belong to `resolveDescriptorValue` in `reviewRender.tsx` — the cast is at the CALL SITE |
+
+**The planner's brief inherited the 145 figure**, so the third is a correction to the planner's error as
+much as the builder's.
+
+### 7. Recorded, not fixed: the S2e commit is typed `test(boq):`
+
+`fc77f436` is typed **`test(boq):`** but carries **two user-visible behaviour changes** — cells that
+rendered `+150.0%` (a loss displaying as profit) and `Infinity` now render blank with a reason.
+**History is NOT being rewritten.** It is recorded here so that anyone auditing behaviour changes by
+filtering for `fix(` knows to look inside a `test(` commit for these two.
+
+### 8. Verification
+
+```
+vitest (in-container)     1436 → 1438   (54 files, all pass)
+  bcsColumns.test.ts       179 →  181
+tsc boq-wizard               0 →    0
+test_sources                60 →   62
+test_bcs                    64 →   64
+test_export_writeback       47 →   47
+test_pricing               252 →  252
+test_commit_pipeline        57 →   57
+test_review_screen         260 →  260
+```
+
+`python3 scripts/residence_check.py` — **the gate EXITS 1**, exactly as it did before this slice.
+B1 **0**, B2 **8**, B3 **40**, F5 **116** all holding at baseline; **F2 208 vs baseline 207**,
+**pre-existing, our delta ZERO**. Verified structurally rather than by assertion: F2 is a line regex
+for `JSON.parse` over `frontend/src/pages`, and this slice's only frontend file
+(`bcsColumns.test.ts`) contains **0** matches both at `HEAD` and in the working copy. The S2e record's
+warning that *prose* can trip that counter was heeded — the new comments say "inline decode", never
+the call.
+
+**No DOM test environment** (deliberate, `vitest.config.ts`). Nothing here needs one: every change is
+a test, a JSON fixture, or a comment. **No owner's-eyes item.**
+
+### 9. Deliberately NOT done
+
+- **`scripts/` — untouched entirely**, including `review_receipt.py` and `prompt_lint.py`. Read-only,
+  and the owner's only copy.
+- **`sources.py` / `bcsColumns.ts` — no production change.** The net's CONTENT was right; only its
+  GUARD was loose. The two new `rate_subkey` cases confirmed the two class guards already agree.
+- **The `beats` count was DELETED, not raised**, on both sides. Recorded because deleting an assertion
+  normally deserves suspicion: it is replaced by a strictly stronger one, and rows 1/3 above are the
+  evidence that the replacement catches what the number could not.
+- **The index-builder asymmetry was not converged.** Reachability has to be established first, and
+  that means reading `review_screen._build_column_descriptors`, which is not in scope.
+- **`eligibleBcsColumns` parity was not built.** A second table, and a slice of its own.
+- **`PricingGrid.tsx:789`'s double cast** — still waiting for a slice with `reviewRender.tsx` in scope;
+  this slice only corrected its address.
+- **The F2 red was not re-baselined**, only held at delta zero. Still the owner's call.
+- **No commit was amended or re-typed.** §7 records the mistype instead.
+
+## PE-SPIN-1 — the pricing editor stops spinning forever on a failed load
+
+**Branch** `feature/bcs-columns` · **Base** `6890f4ba` · **Tier** FULL · **Date** 2026-08-03
+
+**REVIEW: pending**
+
+`SheetPricingPage` decided whether its own data was loading or failed by inspecting the SWR
+payload alone. SWR never reports failure that way, so on a real network error or a 500 the page
+showed a **permanent spinner and never an error** — users reported it as "the page is stuck".
+The derivation now reads SWR's real `error`, lives in a tested pure module, and all 23 gating
+sites route through it. What did NOT change: no backend file, no `PricingGrid` prop, no early
+return, no migration, and none of the BCS cost/margin wiring this page just gained.
+
+---
+
+### 1. The defect, exactly
+
+Two consts at `SheetPricingPage.tsx:1638-1639` were the whole of it:
+
+```
+pricedLoading = (data === undefined)
+pricedError   = (data === null)
+```
+
+`useFrappeGetCall` is `useSWR(key, () => call.get(method, params))`, and `call.get`
+(`frappe-js-sdk/lib/call/index.js:75-83`) resolves with `res.data` — the parsed HTTP body — and
+**throws** on a non-2xx. So SWR leaves `data` `undefined` on a first-load failure, or **retains
+the last good body** on a failed revalidation, and reports the failure on `error`. Nothing on the
+page read `error`.
+
+The failure therefore ran in **both** directions:
+
+| Situation | Old behaviour | Why it was bad |
+|---|---|---|
+| First load fails (network / 500) | `pricedLoading` true **forever** | Permanent spinner, no error, nothing to diagnose |
+| Revalidation fails (e.g. the `mutate()` after a rate save) | rows keep rendering as current | The failure was invisible; the grid silently lied |
+
+**⚠️ A CORRECTION TO THE BRIEF, established from source rather than assumed.** The slice was
+opened on the understanding that `pricedError` was "not entirely dead — Frappe returns
+`message: null` when an endpoint returns `None`, so it fires on *the server returned nothing*".
+**That is wrong, and the direction of the error matters.** `data` is the *whole body*, so a null
+return produces `{"message": null}` — an object, never `null`. `data === null` required the HTTP
+body itself to be literally `null`, which Frappe does not emit. `pricedError` was **entirely
+unreachable**, not partly reachable.
+
+The condition it was reaching for is real, but it sits one level down on `message`, and it was
+*also* unhandled: a null `message` fell through as "loaded" and rendered an **empty, editable
+grid**. So the old rule had three states collapsed into two, and got both of them wrong.
+
+### 2. The seam, and why it is there
+
+The seam is **the boundary between SWR's raw per-fetch signals and every gating decision on the
+page**. It already existed conceptually; it just had no name and no address — it was two inline
+ternaries in a component's JSX scope.
+
+That placement is the actual root cause, not a side note. **This repo has no DOM test
+environment** (deliberate, recorded in `vitest.config.ts`), so a derivation living inside a
+component body is *structurally* untestable here. The rule was invisible to every instrument the
+project owns, which is how a permanent spinner survived unexamined for months. Giving the seam a
+file (`pricingLoadState.ts`) is what makes it a thing tests can disagree with.
+
+The shape is **borrowed, not invented**: `bcsToggleState` (`bcsColumns.ts`, BCS-S2a) settled the
+same argument for the BCS control — *absence of knowledge is not knowledge of absence, and a
+stale payload behind a failed read is not current*. PE-SPIN-1 applies that ruling to the fetch the
+whole page gates on.
+
+### 3. What was built
+
+**`pricingLoadState.ts`** (new, pure, zero React imports) — `pricingLoadState(signals)` plus
+`activePricingLoadState({viewingHistory, live, history})`. Five states in precedence order:
+
+| Status | Condition | What the user gets |
+|---|---|---|
+| `stale` | `error` **and** usable content in hand | The grid **still renders**, below an amber strip saying it may be out of date, with Retry |
+| `error` | `error` and nothing worth showing | A destructive-bordered panel + **Try again** |
+| `loading` | no data, no error | The spinner — now meaning a load genuinely *in progress* |
+| `empty` | a response arrived with `message` null/absent | The `empty` wording, treated as a failure |
+| `ready` | payload, no error | The grid, **silently** (`message` is null) |
+
+> **ERRATUM (PE-SPIN-1-fix-the-two-survivors):** this record said the grid renders *"above an amber
+> strip"*. It is the other way round — the strip is rendered **before** the grid in source order
+> (`SheetPricingPage.tsx`, the `sheetLoad.isStale` block precedes the `sheetLoad.isUsable` block),
+> so the **strip sits above the grid**. Corrected in the row above. The behaviour was always right;
+> only the description was inverted.
+
+The interface stayed deliberately small: the four booleans (`isLoading` / `isFailed` / `isUsable`
+/ `isStale`) exist so **no call site re-derives** `status === "ready"` inline — that re-derivation
+is precisely how these distinctions collapse back into each other one site at a time, which is
+the warning `bcsToggleState` already carries. The five returned objects are **module-level
+singletons**, so the function is reference-stable per status and can never contribute a fresh
+object to a downstream memo.
+
+**`SheetPricingPage.tsx`** — `error` destructured on **both** sheet fetches (`get_priced_rows` and
+`get_version_priced_rows`; the history one also gains `mutate` so Retry re-runs the fetch actually
+on screen), and **all 23 sites** converted. The brief estimated ~17; the real number is 23, in
+five shapes:
+
+| Shape | Count | Change |
+|---|---|---|
+| Toolbar `disabled={pricedLoading \|\| pricedError \|\| …}` | 12 | → `!sheetLoad.isUsable` |
+| Banner/panel gates `!pricedLoading && !pricedError` | 5 | → `sheetLoad.isUsable` |
+| Render fork (spinner / error / grid) | 3 | Rewritten — see below |
+| `bcsSetupReason` + `bcsCostEntryReason` args | 2 | → `isLoading` / `isFailed` |
+| `suggestRatesReason` | 1 | Split: it answered **"Loading…"** to a *failed* load |
+
+That last one is the page-level lie repeated in a tooltip, and it is why "do every site" was the
+right instruction: a page that fails differently depending on which fetch broke is worse than one
+that fails uniformly, because it is unpredictable.
+
+### 4. The owner's reasoning — the part that must survive
+
+**(a) "Server returned nothing" reads as a FAILURE, not as an empty sheet.** `get_priced_rows` is
+annotated `-> dict` and always returns a payload for a committed sheet, so a null `message` means
+something upstream went wrong. Rendering an empty *editable* grid would invite a user to price a
+sheet whose rows we simply failed to read — absence of knowledge presenting as knowledge of
+absence, the exact failure this module exists to stop. It keeps its **own wording**, because "the
+network failed" and "this sheet may not be committed" send a person to different places. The
+retired copy ("Check that this sheet has been committed") was describing *this* case all along,
+so it was inherited here rather than deleted.
+
+**(b) `stale` exists so the fix does not trade one harm for another.** Without it there were only
+two options and both were wrong: *error wins* would let one transient failed `mutate()` — which
+fires after **every rate save** — destroy a live editing session; *data wins* would leave the
+failed-revalidation half of the bug exactly as it was. `stale` is the honest third thing: show
+the rows, keep the session, and say plainly they may be out of date. This is the same
+"unknown never impersonates loaded or loading" rule, applied where content already exists.
+
+**(c) The interface carries booleans, not just a status,** because a small interface is not the
+same as a *bare* one. Twelve sites need "is this usable"; making each of them spell out a
+comparison against the union would re-scatter the rule immediately.
+
+### 5. Verification
+
+| Check | Result |
+|---|---|
+| `yarn test` (in-container) | **1438 → 1451** (+13), files **54 → 55**, all pass |
+| Red-before-green | Shown: the module was absent (`Cannot find module './pricingLoadState'`), then 13/13 green |
+| `tsc --noEmit`, `boq-wizard` | **0** errors, unchanged |
+| `test_sources` | Ran **62** — OK |
+| `test_bcs` | Ran **64** — OK |
+| `test_export_writeback` | Ran **47** — OK |
+| `test_pricing` | Ran **252** — OK |
+| `test_commit_pipeline` | Ran **57** — OK |
+| `test_review_screen` | Ran **260** — OK |
+| `git diff --stat` | 3 files, +440 / −47 |
+
+`python3 scripts/residence_check.py` — B3 40/40 ✓, B1 0/0 ✓, B2 8/8 ✓, F5 116/116 ✓,
+**F2 208 vs baseline 207 ✗**. **The gate EXITS 1.** That red is **pre-existing and this slice's
+delta is exactly zero** — verified, not assumed: F2 counts lines matching `JSON.parse` under
+`frontend/src/pages`, and all three touched files contain **zero** (`SheetPricingPage.tsx` had
+zero at base `6890f4ba` and has zero now). Re-baselining remains the owner's call.
+
+**⚠️ WHAT NO TEST HERE COVERS.** The 13 new tests pin the **derivation**. They **cannot** observe
+the thing a user actually complained about — that the page now renders an error instead of
+spinning — because there is no DOM test environment, and a component's render is a React
+semantic. That half is **live-check only**:
+
+1. **Reproduce the original.** DevTools → Network → **Offline**, then open
+   `/upload-boq/hub/<boq>/pricing/<sheet>`. Before: spinner forever. Now: the error panel with
+   **Try again**.
+2. **Retry works.** Back to **Online**, click *Try again* → the grid loads.
+3. **The stale path.** Load the sheet normally, then go **Offline** and edit a rate (the save's
+   `mutate()` fails) → the grid **stays on screen** under the amber "may be out of date" strip.
+4. **Block one endpoint only.** DevTools → Network → block `*get_priced_rows*` → error panel;
+   confirm the toolbar buttons are disabled rather than live over absent data.
+5. **History mode.** Select an earlier version with the network blocked → the *history* fetch's
+   failure must surface (a healthy live fetch must not mask it).
+6. **No regression:** a normal load is **silent** — no strip, no banner, grid as before; and the
+   BCS cost columns / margin totals behave exactly as at `6890f4ba`.
+
+### 6. Recorded, deliberately NOT fixed
+
+- **The `setInFlight` leak** (`SheetPricingPage.tsx`, `handleBatchWrite`'s `finally`):
+  `setInFlight((n) => n - 1)` sits **after** the awaits, so a throwing `mutate()` skips it
+  forever — the save chip then sticks on *"Saving…"* for the rest of the session and the sibling
+  *"Saved N of M"* message is swallowed on the same path. Real user cost, **different defect
+  class** (a counter-lifetime bug, not a state-derivation one). Left untouched by instruction.
+
+  > **ERRATUM (PE-SPIN-1-fix-the-two-survivors):** the bullet above is accurate but **understates
+  > it on three counts**, and the understatement matters because it is what made this read as
+  > cosmetic.
+  >
+  > 1. The suppressed `setSaveError` swallows the **"Saved N of M"** partial-failure message —
+  >    **the only surface that names which cells failed.** Losing it is not a missing toast; it is
+  >    the loss of the sole report of a partial write.
+  > 2. `inFlight > 0` **outranks** `hasUnsaved` in `deriveSaveStatus`, so a **dirty** grid shows
+  >    *"Saving…"* instead of the amber unsaved warning for the rest of the session. The user is
+  >    told their work is being saved while it is not.
+  > 3. Its trigger is a **rejecting `mutate()`** — which is **exactly** what PE-SPIN-1 now surfaces
+  >    as the new amber stale strip. So after PE-SPIN-1 a failed paste-refresh shows **the strip
+  >    and a stuck chip together**: one control saying "may be out of date", another saying
+  >    "saving". The two defects are adjacent, not independent.
+  >
+  > Still **not fixed** — still a different defect class, and still out of scope at
+  > PE-SPIN-1-fix. Recorded here so the next reader sizes it correctly.
+- **`PricingGrid.tsx:789`'s double cast** — still waiting for a slice with `reviewRender.tsx` in
+  scope.
+- **`scripts/` — untouched entirely.** `residence_check.py` *can* rewrite
+  `scripts/residence_baseline.json` on a decrease, so its md5 was captured before and after the
+  run and confirmed identical. The irreplaceable untracked files (`review_receipt.py`,
+  `prompt_lint.py`) are never written by it.
+- **The F2 red was not re-baselined**, only held at delta zero.
+- **No other page was converted.** The same `data === undefined` convention very likely exists on
+  sibling pages; establishing where is a survey, not this slice.
+
+  > **ERRATUM (PE-SPIN-1-fix-the-two-survivors):** this record said *"No other **page** was
+  > converted"*, and a reader takes that to mean **this page is done**. **It was not.** Two more
+  > fetches on THIS SAME PAGE still carried the identical defect, and they survived because
+  > PE-SPIN-1 surveyed by **gating site** (finding 23) rather than by **fetch**:
+  >
+  > - **`get_committed_sheet_grid`** (`SheetPricingPage.tsx:747` at the time) did not destructure
+  >   `error`, and its consumer held the retired convention **verbatim** —
+  >   `isInitLoading={gridData === undefined}` / `initError={gridData === null ? … : null}`.
+  >   `SheetDataGrid` renders loading before error, so on a **grid-only sheet** (general specs,
+  >   Make Lists) a failed load **still span forever** — the very symptom PE-SPIN-1 was opened for.
+  > - **`get_cross_boq_carry_plan`** (`:435`) also dropped `error`, feeding
+  >   `loading: carryPlanData === undefined` to `carryButtonState`, so a failed plan fetch pinned
+  >   **"Carry rates from original"** in its loading state indefinitely.
+  >
+  > This is precisely the outcome §3 of this record warned against by name: *a page that fails
+  > differently depending on which fetch broke is worse than one that fails uniformly, because it
+  > is unpredictable.* PE-SPIN-1 argued that principle and then left the page in exactly that
+  > condition. Both are fixed at PE-SPIN-1-fix, which also records the **full fetch survey** this
+  > record could not offer. The sibling-**page** survey remains genuinely open.
+- **`PricingGrid`, `bcsColumns.ts`, every backend file and the carry path** — out of scope and
+  untouched.
+
+---
+
+## PE-SPIN-1-fix — the two fetches PE-SPIN-1 did not reach
+
+**Branch** `feature/bcs-columns` · **Base** `c6525d5b` · **Tier** STANDARD · **Date** 2026-08-03
+
+**REVIEW: pending**
+
+PE-SPIN-1 fixed a real bug and passed review, but it surveyed by **gating site** and so converted
+only the two *sheet* fetches. **Two more fetches on the same page still carried the identical
+defect**: a failed `get_committed_sheet_grid` span forever on a grid-only sheet, and a failed
+`get_cross_boq_carry_plan` pinned the carry button on *"Checking what can be carried…"*. Both now
+route through the same rule. This slice designed nothing new — `pricingLoadState.ts` already
+existed, tested and proven; the only genuinely new thing is that the rule's **wording** became a
+parameter, because "could not load this sheet's pricing rows" is a lie on a sheet that has none.
+
+What did NOT change: no backend file, no `SheetDataGrid` prop, no `PricingGrid` prop, no early
+return, no migration.
+
+---
+
+### 1. Why these two survived a slice that was looking for exactly them
+
+PE-SPIN-1 counted **23 gating sites** and converted all 23. That number is correct and it is also
+the reason it stopped: a gating site is reached from the *consumer* end, and both survivors are
+consumers of a **different fetch**. Nothing in "convert every site that reads `pricedLoading`"
+reaches a site that reads `gridData`.
+
+The consequence is the sharp part. PE-SPIN-1's own §3 argued:
+
+> *a page that fails differently depending on which fetch broke is worse than one that fails
+> uniformly, because it is unpredictable.*
+
+It then left the page in precisely that condition — three fetches honest, two not, on one screen.
+An erratum against §6 of that record is filed above, because its disclaimer *"No other **page** was
+converted"* reads as "this page is done".
+
+**The methodological correction is the durable output of this slice: survey by FETCH, not by gating
+site.** The full survey is §5.
+
+### 2. The two survivors, exactly
+
+**Survivor 1 — the grid-only sheet.** `get_committed_sheet_grid` did not destructure `error`, and
+its consumer held the retired convention **verbatim**:
+
+```
+isInitLoading={gridData === undefined}
+initError={gridData === null ? "Failed to load the sheet grid." : null}
+```
+
+`SheetDataGrid` checks `isInitLoading` **before** `initError`, so even had the error branch been
+reachable the spinner would have won. It was not reachable anyway — `data` is the whole HTTP body,
+so Frappe's `{"message": null}` is an object and a literal `null` body is never emitted. The blast
+radius is **grid-only sheets** (general specs, Make Lists) — a live path a user reaches by clicking
+a sheet tab, where a failed load simply span.
+
+**Survivor 2 — the carry button.** `get_cross_boq_carry_plan` also dropped `error`, and fed
+`loading: isRevisionSheet && carryPlanData === undefined` into the pure `carryButtonState`. On a
+failure `loading` never went false, so the button stayed disabled on
+*"Checking what can be carried from the original…"* for the rest of the session.
+
+### 3. The seam — the same one, widened, not moved
+
+The seam is unchanged: **the boundary between SWR's raw per-fetch signals and every gating decision
+on the page**, addressed by `pricingLoadState.ts`. This slice widened what crosses it.
+
+The one design question was **wording**. The states carried three hard-coded sentences naming
+"this sheet's pricing rows", which is actively misleading on a general-specs sheet. Three options:
+
+| Option | Why rejected / chosen |
+|---|---|
+| Reuse the sheet wording | **Rejected** — misdirects the reader on a sheet with no pricing rows |
+| Page-side inline strings at the two new sites | **Rejected** — re-creates the untestable inline shape that let the original defect live for months |
+| Wording as a parameter, rule shared | **Chosen** |
+
+So `loadStatus(signals)` is now the single exported precedence rule, and `makeLoadStates(messages)`
+builds one **frozen five-state table per fetch**. `pricingLoadState` / `gridLoadState` /
+`carryPlanLoadState` are one-line accessors over it.
+
+**⚠️ The singleton property was load-bearing and is preserved.** PE-SPIN-1 relied on the returned
+object being reference-stable per status, so it can sit beside memoized `PricingGrid` props without
+churning a downstream memo. Building a message set per call would have destroyed that silently —
+hence *one table per fetch, built at module load*, and a test that pins `gridLoadState(a) ===
+gridLoadState(b)` for two different errors. Adding a fourth fetch is a message set plus a one-liner.
+
+### 4. What was built
+
+**`pricingLoadState.ts`** — `LoadStateMessages`, `makeLoadStates`, `loadStatus` (exported so a test
+can assert the three fetches agree), `gridLoadState`, `carryPlanLoadState`. `pricingLoadState` and
+`activePricingLoadState` keep their exact prior behaviour; the sheet's three message constants are
+unchanged and now simply seed the sheet table.
+
+**`SheetPricingPage.tsx`** —
+
+| Site | Change |
+|---|---|
+| `get_committed_sheet_grid` | destructures its own `error` **and** `mutate` (Retry needs it) |
+| `SheetDataGrid` props | `isInitLoading={gridLoad.isLoading}` / `initError={gridLoad.isFailed ? gridLoad.message : null}` |
+| Above the grid | a **stale strip** + Retry, same shape as the sheet fetch's |
+| `get_cross_boq_carry_plan` | destructures its own `error` |
+| `carryButtonState` input | `loading: isRevisionSheet && carryPlanLoad.isLoading` |
+| Carry button `title` | `carryDisabledReason ?? carryState.reason` |
+
+**`SheetDataGrid.tsx` was NOT touched, and did not need to be** — it already takes exactly
+`isInitLoading` + `initError`; it was being **fed** dishonest values. That was the slice's declared
+stopping condition and it did not trigger. The stale strip is rendered **page-side** rather than
+inside the component for the same reason.
+
+**⚠️ THE ONE JUDGEMENT CALL, recorded because it is a deviation.** Making `loading` honest is only
+*half* of survivor 2. With `loading` false and no plan in hand, `carryButtonState` falls through to
+its `nothing` reason — **"Nothing left to carry from the original."** — whose own source comment
+calls it *"not a transient state"*. That would trade an eternal *"checking…"* for a **confident
+permanent falsehood**, which is worse: a user told there is nothing to carry stops looking.
+
+`carryButtonState` lives in `CrossBoqCarryDialog.tsx`, **out of scope**. So the honest wording is
+applied at the single place that renders it (the button's `title`), via `carryDisabledReason`, with
+a comment naming the proper fix. **If that file is ever opened, the right home is an `error` input
+on the pure helper beside `loading`** — this page-side override should then be deleted.
+
+### 5. THE FETCH SURVEY — the question PE-SPIN-1 did not ask
+
+Every SWR read on `SheetPricingPage.tsx`, at commit `a7a46299`. **19 reads.** The middle column is
+*does it destructure `error`*; the last is *does every consumer of its state read an honest signal*.
+
+| # | Fetch | `error`? | Consumers honest? |
+|---|---|---|---|
+| 1 | `get_priced_rows` | **yes** | **yes** — `activePricingLoadState` (PE-SPIN-1) |
+| 2 | `get_version_priced_rows` | **yes** | **yes** — same rule, history branch (PE-SPIN-1) |
+| 3 | `get_bcs_state` | **yes** (+ `isLoading`) | **yes** — BCS-S2a finding F1 |
+| 4 | **`get_committed_sheet_grid`** | **yes — THIS SLICE** | **yes — THIS SLICE** (survivor 1) |
+| 5 | **`get_cross_boq_carry_plan`** | **yes — THIS SLICE** | **yes — THIS SLICE** (survivor 2) |
+| 6 | `BOQs` doc (`useFrappeGetDoc`) | no — but uses SWR's **real** `isLoading` | **no — see below.** Terminates, but mislabels |
+| 7 | `get_committed_state` | no | degrades — see below |
+| 8 | `get_sheet_versions` | no | degrades quietly (dropdown lists fewer versions) |
+| 9 | `get_sheet_bcs_rates` | no | degrades quietly (cost cells read as empty) |
+| 10 | `get_sheet_categories_resolved` | no | **fails CLOSED** (see below) |
+| 11 | `get_version_sheet_categories` | no | degrades quietly (history categories blank) |
+| 12 | `list_engines` | no | degrades quietly (picker groups lose labels) |
+| 13 | `get_category_catalog` (child) | no | degrades quietly (`labelFor` falls back to the id) |
+| 14 | `get_classify_status` (child poll) | no | self-heals — 3s `refreshInterval` |
+| 15 | `get_suggest_status` (child poll) | no | self-heals — 3s `refreshInterval` |
+| 16 | `get_rate_category_config` | no | DEV-only (`RATE_HELPER_ENABLED`); yields `NoSuggestion` |
+| 17 | `get_rate_master_items` | no | DEV-only; yields `NoSuggestion` |
+| 18 | `get_active_suggestion_run` | no | DEV-only |
+| 19 | `get_suggestion_events` | no | DEV-only (used-state restore) |
+
+**The decisive check.** The defect's signature is the retired convention used *as a gate*. Grepping
+`SheetPricingPage.tsx` for `data === undefined` / `data === null` now returns **7 hits, all inside
+comments** explaining the retired rule — **zero live gates**. That, not the table alone, is the
+evidence the page is done.
+
+**#6 is the one genuinely imperfect entry, and it is NOT fixed.** The `BOQs` fetch uses SWR's real
+`isLoading`, so it **terminates** — there is no spinner defect. But on a *failed* fetch `isLoading`
+goes false with `boq` undefined, and the page renders **"BoQ not found — No record found for …"**.
+That conflates *the fetch failed* with *the record does not exist*, which sends the user to
+entirely the wrong place. It is a **wording/classification** defect, not the derivation defect this
+arc is about, and fixing it changes a distinct user-facing screen this slice was not authorised to
+touch. **Recorded, not fixed, and the honest next candidate.**
+
+**#7 and #10 are worth naming because their failure directions are opposite, and both are safe.**
+`get_committed_state` feeds `isGridOnly`, which is documented to fail to **FALSE**, so a data sheet
+never briefly renders as grid-only. `get_sheet_categories_resolved` failing leaves the category map
+empty, so every eligible row counts blank and the **category gate SHUTS** — rates go read-only with
+the amber banner. Fail-closed on a write gate is the correct direction; neither is a lie.
+
+### 6. Verification
+
+| Check | Result |
+|---|---|
+| `yarn test` (in-container) | **1451 → 1466** (+15), files **55 → 55**, all pass |
+| Red-before-green | Shown — 15 failed with `gridLoadState is not a function` (13 pre-existing passing), then 28/28 green |
+| `tsc --noEmit`, `boq-wizard` | **0** errors |
+| `test_sources` | Ran **62** — OK |
+| `test_bcs` | Ran **64** — OK |
+| `test_export_writeback` | Ran **47** — OK |
+| `test_pricing` | Ran **252** — OK |
+| `test_commit_pipeline` | Ran **57** — OK |
+| `test_review_screen` | Ran **260** — OK |
+| `git diff --stat` | 3 files, +318 / −19 |
+| No early return added | Verified — the only `return` in the diff is the word *"returns"* in a comment |
+| `PricingGrid` JSX byte-identical | Verified — block md5 `8f53c4d6…98b8` at base **and** at HEAD |
+
+`python3 scripts/residence_check.py` — B3 40/40 ✓, B1 0/0 ✓, B2 8/8 ✓, F5 116/116 ✓,
+**F2 208 vs baseline 207 ✗**. **The gate EXITS 1.** That red is **pre-existing and this slice's
+delta is exactly zero** — verified, not assumed: all three touched files contain **zero**
+`JSON.parse`, at base `c6525d5b` and at HEAD. `scripts/residence_baseline.json` md5 was captured
+before and after (`80720f5a…2984`, **identical**) — the script can rewrite it on a decrease, and
+did not.
+
+**⚠️ WHAT NO TEST HERE COVERS.** The 15 new tests pin the **derivation**. They cannot observe that
+a grid-only sheet now renders an error instead of spinning, because that is a React semantic and
+there is **no DOM test environment** in this repo (deliberate, `vitest.config.ts`). That half is
+**live-check only**:
+
+1. **Reproduce survivor 1.** Open a **grid-only** sheet (general specs / Make Lists) so the faithful
+   grid path renders. DevTools → Network → block `*get_committed_sheet_grid*`, reload. **Before:**
+   spinner forever. **Now:** *"Could not load this sheet's grid…"*.
+2. **Grid Retry.** Unblock, then reload — the grid loads. (There is no in-place Retry on the error
+   panel itself; `SheetDataGrid` renders `initError` as bare text — the strip's Retry covers the
+   stale case.)
+3. **Grid stale.** Load the grid-only sheet normally, then block the endpoint and trigger a
+   revalidation (switch browser tab away and back → SWR focus revalidation). The grid **stays** on
+   screen under the amber *"Showing the last grid that loaded…"* strip; **Retry** clears it.
+4. **Reproduce survivor 2.** Open a **revision** sheet (`origin === "revision"` with a `source_boq`)
+   so *"Carry rates from original"* is visible. Block `*get_cross_boq_carry_plan*`, reload. **Before:**
+   the button sits on *"Checking what can be carried from the original…"* forever. **Now:** hover
+   shows *"Couldn't check what can be carried from the original — the server could not be reached."*
+5. **Carry not falsely negative.** Confirm the tooltip is **not** *"Nothing left to carry from the
+   original."* — that is the confident-falsehood outcome §4 rejects.
+6. **No regression on the normal paths.** A healthy grid-only sheet is **silent** (no strip); a
+   healthy revision sheet's carry button still goes emerald/ready and the dialog still opens; a
+   normal data sheet is **byte-unchanged** (it does not touch either fetch).
+7. **Non-revision sheet.** The carry button stays **hidden** (not a disabled button with an error
+   tooltip) — the disabled carry-plan fetch must read as `loading`, never as a failure.
+
+### 7. Recorded, deliberately NOT fixed
+
+- **The `BOQs` doc fetch (survey #6)** — says *"BoQ not found"* on a *failed* fetch. Terminates, so
+  it is not the spinner defect; it is a mislabel. Distinct screen, not authorised here. **The
+  honest next candidate.**
+- **`carryButtonState` has no `error` input.** The page compensates in the `title`. The proper fix
+  needs `CrossBoqCarryDialog.tsx`, which was out of scope; **delete the page-side override when it
+  is done.**
+- **The `setInFlight` leak** — an erratum above now sizes it properly (it swallows the *"Saved N of
+  M"* partial-failure message, outranks `hasUnsaved`, and is triggered by the same rejecting
+  `mutate()` that raises the stale strip). Still a different defect class. Still not fixed.
+- **`PricingGrid.tsx:789`'s double cast** — still waiting for a slice with `reviewRender.tsx` in scope.
+- **`scripts/` — untouched entirely.** Baseline md5 captured before and after; identical.
+- **The F2 red was not re-baselined**, only held at delta zero. Owner's call.
+- **Sibling PAGES** — still a survey, still open. The `data === undefined` convention very likely
+  exists elsewhere; this slice establishes only that **this** page is now uniform.
+- **`SheetDataGrid.tsx`, `CrossBoqCarryDialog.tsx`, `PricingGrid.tsx`, `bcsColumns.ts`, every
+  backend file and the carry path** — out of scope and untouched.
+
+## BCS-S4 — two honesty gaps closed, then the margin view
+
+**Branch** `feature/bcs-columns` · **Base** `55945c16` · **Tier** FULL · **Date** 2026-08-03
+
+**REVIEW: pending**
+
+Two commits, deliberately readable apart. Commit 1 (`4d4363e0`) closes the fourth and last fetch on
+the pricing page that lied about its own state — the BCS cost rows, **this arc's own defect from
+BCS-S3a** — and renders `CARRY_PLAN_STATES.stale`, a state PE-SPIN-1-fix built and nothing ever
+showed. Commit 2 (`597a2c78`) adds the margin view: a separate flat, line-items-only presentation
+ordered by % Profit. **No backend file changed, no migration, no schema.** `bcsColumns.ts` — which
+owns what a margin *is* — was **not touched**; the margin arithmetic is reused, never re-derived.
+
+---
+
+### 1. Commit 1a — the lie, and it was ours
+
+`SheetPricingPage` read the BCS cost rows as `bcsRatesData?.message?.rows ?? []`. That `?? []` is
+not a degrade to *unknown*; it is a degrade to **a confident answer**. An empty rate map makes every
+cost box, every Total Amount and every % Profit on a **fully costed sheet** render blank — and,
+before this slice, still editable. A costed sheet and a sheet nobody had touched were pixel-identical
+behind a failed read.
+
+The two honest reactions to that screen are to **re-enter two hundred figures over costs that already
+exist**, or to **report the data as lost**. This is strictly worse than the permanent spinner
+PE-SPIN-1 closed: a spinner is *visibly unfinished*; this was **finished-looking and wrong**.
+
+The fix is the seam the module already names in its own header — *"IF YOU ADD A FETCH TO THIS PAGE,
+ADD IT HERE TOO"*:
+
+| Piece | Where |
+|---|---|
+| `BCS_RATES_STATES` + `bcsRatesLoadState` — the FOURTH message set on the ONE shared `loadStatus` rule | `pricingLoadState.ts` |
+| The read's own `error`, destructured (S3a took only `{data, mutate}`) | `SheetPricingPage.tsx` |
+| `bcsColumnsVisible = bcsBlockConfigured && bcsRatesLoad.isUsable` | `SheetPricingPage.tsx` |
+| `bcsRatesByExcelRow` built **only** from a usable payload | `SheetPricingPage.tsx` |
+| A destructive banner + Retry; a separate amber stale strip + Retry | `SheetPricingPage.tsx` |
+
+**⭑ THE DECISION THE BRIEF ASKED FOR, STATED: on a failed or empty costs read the cost block is
+WITHHELD ENTIRELY — not shown read-only.** Read-only was considered and rejected. It still leaves a
+row of empty cost boxes and two empty computed columns on screen, and *empty is the falsehood*: a
+reader cannot tell a cell blank because nothing was costed from one blank because we failed to read
+it. Absence of knowledge must render as **nothing plus a stated reason**, never as a blank the eye
+reads as zero. This is not a new rule — it is the S2a rule (*"an unknown BCS state must not render as
+an empty, editable cost cell"*) applied one layer out, from the SETUP fetch to the COSTS themselves.
+
+`isUsable` rather than `!isFailed` is deliberate: it is also false while the first read is in flight,
+so the block never flashes empty-then-fills — the identical lie in miniature.
+
+**`stale` keeps the block, editable.** The last good costs stay on screen behind the amber strip. The
+same trade the sheet and grid fetches already make: blanking a live costing session over one transient
+blip is its own harm, and the single-editor lock means the whole-row snapshot write has no concurrent
+writer to clobber.
+
+**`empty` here is NOT "nothing is costed".** An uncosted sheet answers `{rows: []}` — a real answer,
+`ready`, block renders blank and normal. `empty` is a **null `message`**: no answer at all. Collapsing
+those two back together *is* the original defect restated.
+
+### 2. Commit 1b — a state built and never shown
+
+`CARRY_PLAN_STATES.stale` shipped at PE-SPIN-1-fix and **nothing read `carryPlanLoad.isStale`**. It
+is reachable, and it is the quiet case: a failed *revalidation* leaves `data.message` populated with
+`error` set, so `isFailed` is false, the carry button stays **enabled**, and it offers to carry from
+a plan of **unknown age with no indication whatever**. The sheet and grid fetches each got an amber
+strip for exactly this; the carry button has no strip — its only surface is a tooltip — so the state
+was built and never rendered.
+
+**Rendered, not deleted.** New pure `withStaleNote(title, load)` composes a fetch's stale wording onto
+whatever text a control already shows. It fires **only** on `stale`: a hard failure already has its
+own voiced message on its own surface, and appending *"this may be out of date"* there would say it
+about data we are not holding; a healthy load stays silent. The page's `carryTitle` threads the
+existing copy through it, so **the healthy and hard-failed tooltips are byte-identical to before**.
+
+One incidental correction: the tooltip expression had to be hoisted out of the JSX, and
+`CarryButtonState.hidden` carries no `reason` — the old inline form type-checked only because the
+`carryState.kind !== "hidden" &&` guard narrowed it *in the same expression*. The hoisted version
+spells the three arms out.
+
+### 3. Commit 2 — the margin view
+
+**Seam: `displayRows`.** The page already owns a view-only transform of `rows` handed to the grid
+(filters, collapse). The margin view is another derivation at that same seam — flat, line-items-only,
+snapshot-ordered. Nothing about row identity, the save paths or the grid's colIndex geometry changes;
+only *which rows the grid is given and in what order*.
+
+| Piece | Where |
+|---|---|
+| `compareByMargin` · `buildMarginOrder` · `marginViewRows` · `buildSectionLabels` · `flipMarginSortDir` · `isMarginViewRow` | `marginView.ts` (new, pure leaf, 30 tests) |
+| `computeBcsRowCells` — the BCS composition extracted to module level | `PricingGrid.tsx` |
+| `PricingGridHandle.computeMargins(rows)` | `PricingGrid.tsx` |
+| `marginView` / `sectionByRowIndex` / `marginSortDir` / `onToggleMarginSort` props; flat depths; section line; % Profit header as sort control | `PricingGrid.tsx` |
+| `marginViewOpen` / `marginSortDir` / `marginOrder` state, the two sort moments, the ribbon pair | `SheetPricingPage.tsx` |
+
+**⭑ BLANKS SORT LAST IN BOTH DIRECTIONS.** The blank test sits **outside** the direction flip. The
+idiom this repo already uses — substitute a low sentinel (`InventoryReport`'s `?? -2` beneath its
+`-1` unknown) and let the comparator do the rest — gives blanks-last in *one* direction and
+blanks-**first** in the other, and descending is the one that breaks. Most rows have no margin until
+someone costs them, so a descending view whose blanks float up **opens on a screenful of nothing,
+exactly where the best margins are supposed to be.** There is no sentinel that fixes it: *"sorts
+below every number"* and *"sorts above every number"* are contradictory requirements for one
+substitute. The absence has to be handled as an absence. A **0%** and a **negative** margin are real
+values (they are the findings the view exists to surface); **NaN/Infinity are blanks** — a NaN
+reaching a comparator makes every comparison false and the order depend on input order.
+
+**⭑ THE ORDER IS A SNAPSHOT IN STATE, recomputed at exactly two moments: opening the view, and a
+% Profit header click.** Never in a render, an effect or a keystroke. Inside `PricingGrid` the cursor
+(`activeCell`) is **array-index addressed** into the `rows` prop, and clipboard multi-row selection is
+a **contiguous array range** over the same indices — so an order that moved while someone typed would
+slide a different row under the cursor and land the next character on it. **Values stay live** (the
+row objects are re-read every fetch and reordered by the held snapshot); only the *positions* freeze.
+
+**One composition, two readers.** `computeBcsRowCells` was extracted from the row render because the
+sort key and the % Profit column a user reads **must be the same number**, and two compositions is
+how they stop being. It stays behind the row memo for rendering; `computeMargins` calls the same
+function. Every operation inside it is still a `bcsColumns` export — the arithmetic did not move.
+
+**`computeMargins` is on the imperative handle, and takes its rows.** On the handle because the
+**drafts live in the grid** — a page-side re-implementation would sort on the last *saved* figures
+and disagree with the column. Taking its rows because the grid's own `rows` prop is the *displayed*
+set (filtered, collapsed, or already flattened) and the order must be decided over the whole sheet.
+Imperative rather than reactive by design: a subscribed margin feed would re-sort while someone types.
+
+**What the grid stops claiming in this view:** depth is forced flat (indentation asserts nesting under
+a parent that is elsewhere — and `computeDepths` would not even reproduce the tree's numbers, since
+the ancestors are absent from the row set, so its chain-walk hands a top-level line a depth of 1);
+chevrons are suppressed (`EMPTY_CHILDREN_BY_PARENT`); the section label carries the real context.
+
+**Collapse is switched OFF in the view, not applied.** A folded parent must not silently remove its
+line items from a margin review — that under-reports exactly the rows someone opened the view to
+find, and invisibly, because a flat list gives no clue a parent is folded. The `collapsed` set is
+preserved, so closing the view restores the tree. The row **filters** still compose (they are
+predicates; *"show unpriced + worst margin first"* is a sensible pair). Collapse-all is **disabled**
+with a reason rather than left live and inert.
+
+**Memo shield.** `PricingGrid` is `React.memo`'d with React's **default shallow** comparison. All four
+new props are identity-stable: two scalars, a Map that is module-level-empty when closed and
+per-fetch-memoized when open, and a `useCallback` over refs (`rowsRef` / `marginSortDirRef` /
+`sortMarginViewRef` — the grid's own undo/redo/applyRate precedent). The per-row addition is a
+**string** `section` compared **by value**, exactly like `skipColsCsv`; the section Map never reaches
+a memoized row (the P1 per-row-collection rule).
+
+### 4. The owner's reasoning — the part that must survive
+
+- **Flat view over a sorted tree (owner, 2026-08-02).** The grid is an N-deep hierarchy with
+  collapse/expand. A flat re-order makes collapsing a section hide rows from scattered places on
+  screen, while indentation implies nesting under a parent that is nowhere near. **A distinct view
+  over an incoherent tree.**
+- **Line items ONLY** — as briefed. A Preamble is excluded not for being unpriceable (it can be
+  qty-bearing and costable) but for being a **heading**: in a margin-ordered list it would sit among
+  lines from a different section entirely and mean nothing there.
+- **Default direction: ascending (worst first).** *Builder's call, owner-visible.* The view's job is
+  to find the rows losing money or making nothing; opening on the best margins puts the answer at the
+  far end. One state flip to reverse if the owner disagrees.
+- **Section label = the NEAREST described ancestor, not the root.** *Builder's call, owner-visible.*
+  In a BoQ the immediate preamble identifies a line (*"1.1 kV XLPE cabling"*) while the root is
+  usually the whole discipline and would be the same string on every row — context that distinguishes
+  nothing. **If the owner wants the top-level section instead, the change is the direction of the
+  walk in `buildSectionLabels` and nothing else.**
+- **Withhold-not-read-only on a failed costs read.** See §1. The strictly stronger option, and the
+  one consistent with the rule S2a already set.
+
+### 5. Verification
+
+| Check | Result |
+|---|---|
+| `yarn test` (in-container) | baseline **1466 / 55 files** → final **1507 / 56 files**, all pass |
+| ↳ `pricingLoadState.test.ts` | 28 → **39** |
+| ↳ `marginView.test.ts` (new) | **30** |
+| `tsc --noEmit`, `boq-wizard` errors | **0** → **0** |
+| `python3 scripts/residence_check.py` | **EXITS 1** — F2 `208 vs 207`, **pre-existing, delta zero**. B3 40/40, B1 0/0, B2 8/8, F5 116/116 all hold. `scripts/residence_baseline.json` md5 `80720f5a53276931d43648c0ff082984` **before and after** — unchanged, no auto-tighten |
+| `bench run-tests` (6 suites, nothing backend changed) | `boq_bcs.test_sources` **62** · `test_bcs` **64** · `test_export_writeback` **47** · `test_pricing` **252** · `test_commit_pipeline` **57** · `test_review_screen` **260** — all OK |
+| `git diff --stat` | commit 1: 3 files, +319/−10 · commit 2: 4 files, +957/−62 |
+
+**Red before green, both pure modules.** `pricingLoadState`: 18 failed / 21 passed
+(`bcsRatesLoadState is not a function`, `withStaleNote is not a function`) → 39/39.
+`marginView`: import failure, *no tests collected* → 30/30.
+
+**⚠ One correction during the loop, disclosed:** three `marginViewRows` expectations I wrote were
+**internally inconsistent with the append-the-unnamed rule asserted two tests above them**. The
+implementation was right; the tests were wrong. Corrected the expectations, not the code.
+
+**⚠ WHAT NO TEST HERE CAN SEE.** There is **no DOM test environment** in this repo (deliberate,
+`vitest.config.ts`). These tests pin the *derivations*: the load-state precedence, the comparator, the
+row set, the section labels. **They cannot observe** that the page withholds the cost block, that the
+banner renders, that the tooltip carries the stale note, that the grid renders flat, or that the
+cursor stays put across a sort. That half is live-check only:
+
+1. **Failed BCS costs read.** DevTools → Network → block request URL pattern
+   `*get_sheet_bcs_rates*` → reload a sheet with BCS on and costs entered. **Expect:** no cost
+   columns at all, a red banner *"Could not load this sheet's costs…"* + **Try again**. **Must NOT
+   see:** the cost columns present and empty. Unblock → Try again → the costs return.
+2. **Stale BCS costs.** Load the sheet healthy, *then* block the pattern, then trigger a refetch (save
+   a cost). **Expect:** costs still on screen, amber strip, boxes still editable.
+3. **Uncosted sheet is unaffected.** BCS on, nothing costed → block renders blank and normal, no banner.
+4. **Carry stale tooltip.** On a revision sheet, load healthy, block `*get_cross_boq_carry_plan*`,
+   trigger a revalidate. **Expect:** button still enabled, tooltip now ends *"…may be out of date —
+   the last check of the original failed."* Healthy tooltip unchanged.
+5. **Margin view.** Open on a costed sheet → flat, line items only, worst margin first, section line
+   above each description, no chevrons, no indent. Uncosted rows **at the bottom**. Click the
+   **% Profit** header → order reverses, **uncosted rows still at the bottom**.
+6. **Sort timing.** In the margin view, focus a cost cell, type, wait past the 1s autosave + refetch.
+   **Expect:** the row under the cursor does not move; the % Profit value updates. Then click the
+   header — the order changes only then.
+7. **Collapse interaction.** Collapse a section in the tree, open the margin view → its line items are
+   **present**; Collapse-all is disabled with a reason. Close the view → the collapse is restored.
+8. **Memo shield.** React DevTools Profiler, *"Why did this render?"* — typing in a cost box must
+   re-render **one** row, not the grid, with the margin view both open and closed.
+
+### 6. Deliberately NOT done
+
+- **`scripts/` — untouched entirely.** Baseline md5 captured before and after; identical. The **F2 red
+  was not re-baselined**, only held at delta zero. Owner's call.
+- **`bcsColumns.ts` — untouched.** It owns what a margin *is*. The margin view reuses it through
+  `computeBcsRowCells`; there is no second implementation of the arithmetic anywhere.
+- **Every backend file, and the carry path** — out of scope. No migration, no schema, nothing to run.
+- **`carryButtonState` still has no `error` input** (`CrossBoqCarryDialog.tsx` remains out of scope).
+  The page still compensates in the `title`, and now also composes the stale note there. **When that
+  file is finally opened, both page-side overrides should move into the pure helper and be deleted here.**
+- **The `setInFlight` leak** — unchanged, still a different defect class, still recorded.
+- **`PricingGrid.tsx:789`'s double cast** — still waiting for a slice with `reviewRender.tsx` in scope.
+- **The BOQs fetch's *"BoQ not found"* mislabel** — still the honest next candidate, still a distinct screen.
+- **Sibling PAGES** — still a survey, still open.
+- **No margin EXPORT, no margin totals, no jump-back-to-the-tree-row affordance.** Not asked for. The
+  view is a read-and-fix surface; rates and costs are edited in place through the unchanged save paths.
+- **The margin view does not appear in the version-history browser.** It keys on the live cost block,
+  which is not rendered while browsing an earlier version — so the toggle is simply disabled there by
+  the existing `bcsColumnsVisible` chain, with no new condition.
+
+  > **ERRATUM (BCS-S5-summary-margin): this record said the margin view does not appear in the
+  > version-history browser, and that no new condition was needed. Both halves were false.** The
+  > `bcsColumnsVisible` chain disables the toggle only for **opening** it —
+  > `!marginViewOpen && !bcsColumnsVisible` — so a view that was ALREADY OPEN rode into history with
+  > its cost columns and % Profit gone, and `marginViewRows` applied the LIVE version's `row_index`
+  > snapshot to the HISTORY version's rows. `marginViewOpen` was reset on the SHEET axis only; the
+  > `[selectedVersion]` effect reset `bcsCardOpen` and nothing else. Blast radius was narrow
+  > (history is read-only) but a silently mis-ordered review list is invisible to the reader.
+  > Three verifiers found this independently. **Closed at BCS-S5 commit 1** by two resets — the
+  > version axis in the existing `[selectedVersion]` effect, and a `bcsColumnsVisible`-false edge
+  > that also covers BCS being switched off, unconfirmed, or its costs read failing underneath an
+  > open view. The claim above is retained verbatim so the correction is legible against it.
+
+---
+
+## BCS-S5 — the S4 one-liners, then BCS in the summary
+
+**Branch** `feature/bcs-columns` · **Base** `f4fde3bb` · **Tier** FULL · **Date** 2026-08-03
+
+**REVIEW: pending**
+
+Two commits. Commit 1 (`ac454053`) closes what the BCS-S4 review found — chiefly that the margin
+view **survives a version switch**, which the S4 record claimed it could not. Commit 2 (`4af0241d`)
+puts **BCS Total Amount, Tendered Total Amount and % Profit per BoQ section** into the summary
+panel. **No backend file changed, no migration, no schema.** `bcsColumns.ts` — which owns what a
+margin *is* — was **not touched**; `PricingGrid.tsx` was not touched either.
+
+---
+
+### 1. Commit 1 — the view outlived the thing it was built on
+
+`marginViewOpen` was reset on the **sheet** axis only. The `[selectedVersion]` effect reset
+`bcsCardOpen` and nothing else, and the toggle's `disabled` guard —
+`!sheetLoad.isUsable || (!marginViewOpen && !bcsColumnsVisible)` — is a gate on **opening**, not on
+staying open. So an already-open margin view rode into version history, where the cost columns and
+% Profit are not rendered at all, and `marginViewRows` applied the **live version's `row_index`
+snapshot to the history version's rows**.
+
+That is the hazard the `[sheetName]` reset already names, one axis over: *an order is a list of
+`row_index` values belonging to ONE (sheet, version), and applying it anywhere else reorders rows by
+numbers that mean nothing there.* Three verifiers found it independently.
+
+**Blast radius is narrow — history is read-only — and that is exactly why it mattered enough to
+fix.** Nothing can be mis-saved through it; what it produces is a *silently* mis-ordered review
+list, on the one screen whose entire purpose is the order. There is no cell to check it against.
+
+Two resets, because they guard two different invariants and only one of them is about versions:
+
+| Reset | Guards |
+|---|---|
+| `setMarginViewOpen(false)` + `setMarginOrder(null)` in the existing `[selectedVersion]` effect | *the snapshot belongs to this version* |
+| the same pair on the **`bcsColumnsVisible` FALSE edge** (new effect) | *the columns the view is ordered by still exist* |
+
+The second is not redundant. `bcsColumnsVisible` also goes false when BCS is switched off, when its
+confirmation is cleared, and when the costs read fails on a revalidate — in each of those the view
+keeps rendering, ordered by a number no longer on screen, while the direction button still claims
+*"Lowest first"* and a click would silently produce **document order** (every margin now reads
+blank, and blanks hold document order in both directions). It is guarded on the false edge only, so
+the costs coming back is not a second, unrelated behaviour.
+
+### 2. Commit 1 — the four minors, and the two that could not be fixed here
+
+| # | Finding | Disposition |
+|---|---|---|
+| a | grid-side destructure default `marginSortDir = "desc"` contradicts the documented and page-side `"asc"` | **NOT FIXED — `PricingGrid.tsx` is out of scope.** Dead today (the page always passes the prop); inverted for any future caller. Carried below |
+| b | `?? []` survives at the BCS rates read | **KEPT, and now says why.** See below |
+| c | the empty-state banner says *"check that BCS is set up on this version"* but renders only when BCS demonstrably **is** set up | **NOT FIXED — the copy lives in `pricingLoadState.ts`, out of scope.** Carried below |
+| d | the S4 anchor-`<div>` decision was disclosed only in a source comment | **RECORDED**, §3 |
+| e | carried errata cite `PricingGrid.tsx:789`; this arc moved it | **CORRECTED to `:792`**, §6 |
+
+**On (b) — the `?? []` stays, and the reason is not the one it looks like.** It appears neutralised
+by the `isUsable` guard directly above it, and on the **failed** read it is: that path returns
+early. It is **not dead on the successful one.** `loadStatus` decides content on
+`data.message != null` **alone**, so a payload of `{message: {}}` — an envelope with no `rows` key —
+is classified `ready`, reaches the loop, and `for (const r of undefined)` **throws**, taking the
+page down. Removing it would trade a wrong number for a blank screen.
+
+⚠️ **The real gap is one level down and is NOT closed.** `hasContent` cannot tell an empty envelope
+from a real answer, so `{message: {}}` renders as a confidently **uncosted** sheet — the same class
+of lie S4 closed for the failed read, surviving on the malformed-success one. Closing it means
+tightening `loadStatus` / `hasContent` in `pricingLoadState.ts`. **Recorded rather than reached
+for**, because that file is not in this slice's scope.
+
+### 3. The S4 anchor-`<div>` decision, recorded at last (minor d)
+
+S4 gave `DescriptionAnchorInner` a `section` line for the margin view. The no-section branch was
+kept as the **bare span**, byte-identical to before:
+
+> *Wrapping unconditionally would insert a block element into the flex row on EVERY sheet in the
+> product for the sake of a view most of them never open.*
+
+**A product-wide DOM change on every sheet was contemplated and averted.** That belongs in the
+record, not only in a comment — it is the kind of decision a later reader would otherwise re-open
+as "why is this conditional?", and re-taking it the other way is a one-line change with a blast
+radius of every committed sheet in the system.
+
+### 4. Commit 2 — the two rules that govern the numbers
+
+**★ THE RATIO RULE.** A section's % Profit is **recomputed** from its **summed** cost and its
+**summed** tendered amount. Never averaged. Never summed.
+
+Averaging per-line percentages weights a ₹10 line at 90% exactly as heavily as a ₹10 lakh line at
+2%. That is not a small error, it is an unrelated number — and it is the worst available shape of
+wrong, because it lands in a plausible range and moves in a plausible direction while meaning
+nothing, on a screen someone prices from.
+
+It is pinned twice, at the unit and the integration layer, over a fixture built so the three
+candidate answers are far apart:
+
+| Section holding | weighted (correct) | mean | sum |
+|---|---|---|---|
+| cost 1 / tendered 10 (90%) **and** cost 980,000 / tendered 1,000,000 (2%) | **≈ 2.0009%** | 46% | 92% |
+
+**★ THE CONSISTENCY RULE.** The tendered figure **is** `pricingRollup`'s own numbers —
+`node.totals[col]` per section, `grandTotals[col]` for the project — never a second derivation. A
+separate path can diverge from the grid on formula resolution, on the document-vs-formula
+reconciliation choice and on draft state, and **the Tendered column exists precisely so the two are
+comparable on screen.** A summary that disagrees with the grid about the same section is worse than
+no summary.
+
+Both sides are **saved-only**: `rowOwnAmount` already resolves amounts with an empty draft map (the
+panel is a save-time view), so the cost side merges against `NO_BCS_DRAFTS` for the same reason. A
+drafted numerator over a saved denominator would be a margin belonging to neither moment.
+
+### 5. The seam, and what a blank section shows
+
+**The seam is `RollupResult`** — the interface `rollupByParent` presents to `SummaryPanel`. It is
+the right place because it is *already* the single definition of "what a section's total is", and
+the consistency rule requires the BCS numbers to **be** those numbers rather than a second walk.
+The BCS *arithmetic* is not put there: it lives in the new pure leaf `bcsRollup.ts`, unit-testable
+without the rollup's fixture machinery, and `sectionMarginPercent` **wraps**
+`bcsColumns.bcsMarginPercent` so the owner-settled direction and its zero / negative / non-finite
+denominator guards keep exactly one home. A section whose amounts sum **negative** is therefore
+refused rather than shown as a profit — the sign inversion `bcsMarginPercent` documents at length is
+reachable by *summation*, not only by typing.
+
+⚠️ **`bcs` is PARALLEL to `columns`, never part of it.** Every `RollupColumn` carries a real
+`ColumnDescriptor` and `columns` is built 1:1 from `amountDescs`, so there is **no seam for a column
+with no backing descriptor** — and a computed cost, a summed amount and a percentage have none. No
+synthetic descriptor was forced in; the three render **outside** the `columns.map` loop in header,
+body and grand row. Omitting the input leaves `bcs` null and every prior caller byte-identical.
+
+**WHAT A SECTION WITH NO COSTED LINES SHOWS — asked explicitly, answered explicitly.** Its BCS Total
+Amount cell is **EMPTY** and its % Profit cell is **EMPTY**, carrying the reason *"No cost entered
+yet."* as its `title`. It is **not** `0`, and **not** `0%`. `cost` is `number | null` for exactly
+this reason: rendering 0 would be a confident claim ("this section costs nothing") and 0% a second
+one ("we make nothing on it"), about a section where nothing is known. `fmtAmount` already
+distinguishes them — `null` → `""`, a genuine `0` → `"0"` — so a section costed **at** zero still
+reads `0` and a 100% margin, which is a real finding and stays visible. The same absent-vs-zero rule
+applies to the tendered side (`no_amount`), and it mirrors what `bcsRowAmount` and `bcsRowQuantity`
+already keep one level down.
+
+### 6. Verification
+
+| Check | Result |
+|---|---|
+| `yarn test` (in-container) | baseline **1507 / 56 files** → final **1537 / 57 files**, all pass |
+| ↳ `bcsRollup.test.ts` (new) | **23** |
+| ↳ `pricingRollup.test.ts` | 28 → **35** |
+| `tsc --noEmit`, `boq-wizard` errors | **0** → **0** |
+| `python3 scripts/residence_check.py` | **EXITS 1** — F2 `208 vs 207`, **pre-existing, delta zero** (identical to the pre-edit run). B3 40/40, B1 0/0, B2 8/8, F5 116/116 all hold. `scripts/residence_baseline.json` md5 `80720f5a53276931d43648c0ff082984` **before and after** — unchanged, no auto-tighten |
+| `bench run-tests` (6 suites, nothing backend changed) | `boq_bcs.test_sources` **62** · `test_bcs` **64** · `test_export_writeback` **47** · `test_pricing` **252** · `test_commit_pipeline` **57** · `test_review_screen` **260** — all OK |
+| `git diff --stat` | commit 1: 1 file, +44/−0 · commit 2: 6 files, +808/−7 |
+
+**Red before green — and an honest note about which layer got which.** `bcsRollup.test.ts` was
+written first and run first: *"Cannot find module './bcsRollup'"*, **no tests collected** → 23/23.
+The seven `pricingRollup` integration tests (B1–B7) were written **after** the wiring, which is the
+weaker order, so they were verified by **mutation** instead of assertion: replacing the
+recomputation with an average of the children's percentages fails `bcsRollup` T1 and `pricingRollup`
+**B2**, the latter reporting *"expected 46 to be close to 2.00088"* — 46 being exactly the forbidden
+mean. The mutation was then reverted and the suite re-confirmed green. The guard bites.
+
+**⚠ WHAT NO TEST HERE CAN SEE.** There is **no DOM test environment** in this repo (deliberate,
+`vitest.config.ts`). **Commit 1 is entirely React-effect semantics and is therefore structurally
+untestable — it added no tests at all, and that is the honest outcome, not an omission.** Commit 2's
+tests pin the arithmetic and the wiring; they cannot observe that the panel renders three columns,
+that the header aligns, or that the grand row lines up. Live checks:
+
+1. **The version-switch fix (commit 1's whole point).** Costed sheet, BCS on → open the margin view
+   → switch to an earlier version in the history browser. **Expect:** the view closes, the tree
+   returns, the toggle is disabled with its reason. **Must NOT see:** a flat list with no % Profit
+   column. Switch back to live → the toggle is live again and re-opens sorted.
+2. **BCS switched off under an open view.** Open the margin view → open the BCS card → *Turn BCS
+   off*. **Expect:** the view closes. **Must NOT see:** a flat list whose direction button still
+   reads "Lowest first".
+3. **Costs read fails under an open view.** Open the margin view → DevTools block
+   `*get_sheet_bcs_rates*` → trigger a refetch. **Expect:** the view closes and the red costs banner
+   appears.
+4. **The summary's three columns.** Costed sheet → **Summary**. **Expect:** BCS Total Amount,
+   Tendered Total Amount, % Profit to the RIGHT of every amount column, in header, every row and the
+   grand row; horizontal scroll intact; `colSpan` correct on the empty state.
+5. **★ The ratio, against the grid.** Pick a section with one small high-margin line and one large
+   low-margin line. **Expect:** the section's % Profit sits close to the LARGE line's, not midway
+   between the two. Hand-check `(tendered − cost) / tendered` from the two figures beside it.
+6. **Tendered agrees with the amount column.** For any section, the Tendered Total Amount must equal
+   the sum of the sheet's BCS-confirmed amount columns on that same row of the panel.
+7. **A blank section.** A section with nothing costed → BCS Total Amount **empty**, % Profit
+   **empty**, tooltip *"No cost entered yet."* **Must NOT see:** `0` or `0%`.
+8. **No BCS / version history.** A sheet with BCS off, and any sheet in history → the summary shows
+   its amount columns and **no** cost columns, exactly as before this slice.
+
+### 7. Deliberately NOT done
+
+- **`scripts/` — untouched entirely.** Baseline md5 captured before and after; identical. The **F2
+  red was not re-baselined**, only held at delta zero.
+- **`bcsColumns.ts` and `PricingGrid.tsx` — untouched.** The margin arithmetic and its
+  owner-settled direction are reused through `bcsMarginPercent`, never re-derived.
+- **Every backend file, and the carry path** — out of scope. No migration, no schema, nothing to run.
+- **Minor (a), `marginSortDir = "desc"` in `PricingGrid.tsx`** — **NOT FIXED**, the file is out of
+  scope. Harmless today because `SheetPricingPage` always passes the prop; a future caller that
+  omits it gets the documented default **inverted**. Needs a slice with `PricingGrid.tsx` in scope.
+- **Minor (c), the empty-state banner copy** — **NOT FIXED**, it lives in `pricingLoadState.ts`,
+  out of scope. `BCS_RATES_STATES.empty` tells the reader to *"check that BCS is set up on this
+  version"*, but `bcsCostsUnreadable` requires `bcsBlockConfigured`, i.e. BCS **on and ready** — so
+  the sentence renders only when BCS demonstrably **is** set up and sends the reader to look at the
+  one thing already known to be fine. Overriding the text at the render site was rejected: two
+  sources for one sentence is how they drift.
+- **The `hasContent` / `{message: {}}` gap** (§2) — same file, same reason. The honest next
+  candidate on this page.
+- **The `setInFlight` leak** — unchanged, still a different defect class, still recorded.
+- **`PricingGrid.tsx:792`'s double cast** — still waiting for a slice with `reviewRender.tsx` in
+  scope. **ERRATUM (BCS-S5-summary-margin): the carried errata and the four prior records cite
+  `PricingGrid.tsx:789`. This arc moved it to `:792`** (`rd ?? (ref as unknown as ColumnDescriptor)`);
+  `:789` is now the `return undefined` two lines above it. The finding is unchanged — only the line.
+- **The BOQs fetch's *"BoQ not found"* mislabel** — still a distinct screen.
+- **No per-section EXPORT, no colour scale on % Profit, no drill-through from a section to the
+  margin view.** Not asked for. The grid presents % Profit as plain right-aligned figures and a
+  second visual language for the same number in the panel above it would be its own confusion.
+- **`marginView.ts` was in scope and not edited.** Nothing this slice needed lived there.
+- **`assets/plan-record-template.md` does not exist in this repo** (searched by `find`). This record
+  mirrors the shape of the surrounding records, which is the de facto template.
+
+  > **Addendum (BCS-S6-carry-layer), not an erratum:** the sentence above is literally true and its
+  > conclusion is right, but the file *does* exist outside the repo, at
+  > `~/.claude/skills/nirmaan-stack-delivery-process/assets/plan-record-template.md` — found by
+  > `find ~/.claude`. BCS-S6 followed it. It codifies exactly what BCS-S5 inferred from the corpus
+  > (`##` record, `###` sections, one `·`-separated metadata line, Verification and
+  > Deliberately-NOT-done as the closers), so nothing about that record's shape was wrong. Recorded
+  > only so the next reader searches the right place instead of re-deriving the template a third time.
+
+---
+
+## BCS-S6-carry-layer — BCS costs become the fifth opt-in carry layer
+
+**Branch** `feature/bcs-columns` · **Base** `7b19f093` · **Tier** FULL · **Date** 2026-08-03
+
+Closes the last clause of the owner's carry ask: *"Carry Rate from original (versioned sheet in same
+BOQ, or revised upload) gets a new option to copy the BCS Section; precondition: BCS enabled on the
+destination sheet AND its formulas confirmed."* `bcs_costs` joins `committed_carry.LAYER_KEYS`, so
+ONE registration lights **both** carry surfaces.
+
+**NO migration.** `carried_from_boq` / `carried_from_version` / `carried_at` were provisioned on
+`BoQ Row BCS Rate` at BCS-S1 and marked *"UNUSED in S1"*. This is what uses them.
+
+What did NOT change: the BCS write path (`save_row_bcs_rates` is byte-untouched and is deliberately
+**not** called by the carry), the four existing layers, both carry endpoints' signatures, the rate
+carry, and every gate ordering. Two files were in scope and **not edited** — `CrossBoqCarryDialog.tsx`
+and `CopyForwardDialog.tsx` — because both already loop `CARRY_LAYER_KEYS`; that they needed nothing
+is the design working, and is recorded rather than left to look like an oversight.
+
+---
+
+### 1. The seam, and why it is the right one
+
+The seam is **`committed_carry.walk_layers`** — the single dispatch point both carry surfaces share
+(`cross_boq_carry._carry_ctx` / `_plan_layer_counts`, and `pricing._copy_forward_carry_ctx` /
+`_copy_forward_layer_preview`). Working here buys, for one registration: the plan/apply symmetry, the
+uniform six-bucket outcome shape, the D6 twin map, the opt-in wire coercion (`pricing.coerce_layers`),
+the transaction both carries already own, and **both** surfaces. A bespoke "carry the BCS section"
+action on either endpoint would have needed its own plan path, its own outcome shape, its own dialog
+wiring, and a second copy of all of it for the other seam.
+
+Seven registration sites, per the dispatch brief; all seven landed:
+
+| # | Site | File |
+|---|---|---|
+| 1 | `LAYER_KEYS` | `committed_carry.py` |
+| 2 | the `walk_layers` if/elif/else dispatch | `committed_carry.py` |
+| 3 | `CARRY_LAYER_KEYS` | `boqTypes.ts` |
+| 4 | `LAYER_LABEL` | `CarryLayers.tsx` |
+| 5 | the `layerHint` switch | `CarryLayers.tsx` |
+| 6 | `initialLayerChoices()` | `CarryLayers.tsx` |
+| 7 | hand-typed test tuples | `test_pricing.py`, `test_cross_boq_carry.py` |
+
+`summarizeSheetCarry`, `carryWriteBreakdown`, `armedLayerReplacements`, `buildLayersPayload` and
+`CarryLayersBlock` were free — all five iterate `CARRY_LAYER_KEYS`.
+
+### 2. `carry_bcs_cost_layer` — bespoke, and what it deliberately does not copy
+
+Mirrors `carry_category_layer`, **not** an `_ANNOT_LAYERS` entry. The reason is precise: that function
+is bespoke because it needed a **sheet-level guard slot**, and `_walk_annot_layer` has none. BCS needs
+exactly that slot — readiness is a fact about the destination *sheet*, not about a row.
+
+⚠️ It does **not** copy the category layer's per-discipline fan-out. A BCS identity is a 4-tuple —
+`(boq, sheet_name VERBATIM #152, excel_row, committed_version)`. No `col_letter`, no `discipline`, at
+most one current record per address. A discipline loop would iterate a dimension that does not exist.
+
+Two outcome buckets stay `0` for this layer, honestly:
+
+- `ineligible` — categories-only. There is **no** `node_type` restriction on a cost: `bcs.py`'s own
+  docstring records that a qty-less Preamble *is* costable, because `save_row_bcs_rates` deliberately
+  skips the priceability gate. Filtering here would contradict the write path.
+- `dropped` — colours-only. Row-addressed, so there is no column letter to lose.
+
+**Three writes resolve against the DESTINATION, not the source**, and each for its own reason:
+
+- `node` — a **per-version** pointer (its own field description says node names change on re-commit),
+  so carrying the source's would point a v2 cost row at a v1 node. `_dest_bcs_node_index` is the
+  batched form of `pricing._resolve_committed_cell`'s read, filtered identically (sheet docname +
+  `commit_version`).
+- `description` — the field's description calls it a **carry-forward MATCH GUARD** against the row the
+  cost sits on, so it must be *that* row's description. This is also what the rate carry writes on the
+  mirrored `BoQ Cell Pricing.description` (`cross_boq_carry` uses `dest_description`). Under the D6
+  match the two are normalize-equal anyway; taking the destination's stops a future *"the description
+  changed under this cost"* warning firing on nothing but whitespace.
+- `bcs_version` — `max(prior at the destination) + 1`, never the source's and never a hardcoded `1`
+  (a frozen prior can exist with no current).
+
+Carried verbatim: all three rate inputs independently (`combined_rate` is **not** a total of the two
+halves — owner-locked at BCS-S2b), `is_filled`, and `rate_source` — provenance of the *numbers*, which
+is a property of the values and survives a copy, as distinct from provenance of the *record*.
+
+### 3. `carry_bcs_rows` — why the carry does not reuse the endpoint
+
+⚠️ **The carry inserts directly and must never route through `bcs.save_row_bcs_rates`.** That endpoint
+is a **whole-row snapshot**: it coerces every absent rate to `0.0` and writes all three
+unconditionally. A source row holding only a combined rate, carried through it, would silently **zero**
+a supply/install pair the destination already held. `test_a_partial_carry_never_zeroes_a_rate_the_destination_already_held`
+constructs exactly that shape and measures it; `test_the_carry_does_not_route_through_the_whole_row_snapshot_writer`
+is the structural half.
+
+That second test reads the module through **`ast`, not a substring grep** — and that is a finding in
+its own right. Written first as `assertNotIn("save_row_bcs_rates", inspect.getsource(...))` it went
+**red against the module's own docstring stating the prohibition**. A substring tripwire fires on the
+comment warning against the thing, and the only way to keep it green is to delete the explanation. The
+`ast` form asks the real question (does executable code reference this name?) and leaves the prose
+alone. The sibling grep tripwire on `pricing.py` is safe as a substring only because `pricing.py`
+happens to name none of its tokens in prose either — worth knowing before the next one is written.
+
+**Provenance is keyword-REQUIRED** after a bare `*`, exactly as on `persist.carry_row_categories`: a
+`TypeError` at the call site, not a `None` discovered in the database later.
+
+⚠️ **`bcs_rated_at` is carried VERBATIM and stays OLDER than the carry**; `carried_at` is the fresh
+stamp. Instructed on the field itself (`boq_row_bcs_rate.json`), mirroring the `human_verdict_at`
+precedent. **HONEST CAVEAT:** no live reader tie-breaks on `bcs_rated_at` today, so this is
+forward-looking rather than load-bearing right now. Honoured and pinned anyway — the cheapest moment
+to get an age right is before anything depends on it.
+
+### 4. The silent skip, and the symmetry that makes it acceptable
+
+The guard runs **first** and is sheet-scoped. A destination that is not BCS-ready yields the zero
+outcome: nothing written, **no exception**, and the rest of the carry — rates included — proceeds.
+
+That is the most dangerous property of this layer, so both halves are stated plainly. Refusing the
+whole action instead would let one unconfigured cost section block a rate carry the user actually
+asked for. What makes the silence acceptable is that **the plan read runs the same guard**:
+`walk_layers` dispatches plan and apply through one function, so a not-ready sheet reports zeros to the
+dialog, `layerHasWork` is false, and the row renders **disabled** with *"Nothing to carry"*. Without
+that symmetry the user would tick a layer showing *"2 to copy"*, apply, and watch nothing happen with
+no explanation anywhere. The guard must never move behind the `apply` branch.
+
+Because a disabled row saying *"Nothing to carry"* is otherwise indistinguishable from *"the source
+had no costs"*, the hint **names the precondition**: *"Cost rates typed into the BCS section. Carries
+only where BCS is switched on and its columns are confirmed."* That sentence is the diagnosis, and it
+is why the hint is not decoration.
+
+### 5. The readiness relocation — forced by an import ring
+
+`bcs_is_ready` moved from `api/boq/wizard/bcs.py` to **`services/boq_bcs/readiness.py`**; `bcs.py`
+imports the name straight back, so `bcs.bcs_is_ready` still resolves and no caller changed.
+
+It had to move. The ring, verified at module level:
+
+```
+committed_carry -> bcs -> pricing -> committed_carry
+```
+
+`bcs.py:88` imports `pricing`; `pricing.py:45` imports `committed_carry`. Two pre-existing invariants
+name this, and both are quoted here because a naive import would have invalidated the first one
+**silently**:
+
+> `pricing.py:41-44` — *"WBC S2 (ADR-0014 Amendment F): the within-BoQ copy-forward adopts the SHARED
+> committed-tier row match + the SHARED layer-carry engine, so the two carry seams cannot drift. Safe
+> at module level in THIS direction only -- committed_carry imports no api module that reaches back
+> here, whereas cross_boq_carry imports `pricing`, so `pricing` must never import `cross_boq_carry`."*
+
+> `bcs.py:97-102` — *"api -> service, the ONE-WAY direction ADR-0010 B1 asks for: … `services/boq_bcs`
+> must never import back into `api/`."*
+
+The second mandates the service path **and** forbids `readiness.py` importing `pricing` — which is why
+`_coerce_int` is a deliberate three-line duplicate rather than an import, documented as such at the
+site. The precedent is exact: `committed_carry` already reaches classification state through
+`services/boq_category/persist.py`, never the sibling api module.
+
+**ONE definition, pinned by identity** (`assertIs(bcs.bcs_is_ready, readiness.bcs_is_ready)`) plus a
+source read that the api module has not re-added a local `def`. Two copies of a readiness rule would be
+bad anywhere; here they would sit either side of a carry and could disagree about the same sheet at
+exactly the moment it mattered — the plan offering a layer the apply then drops.
+
+### 6. The version-coercion trap — measured, and different from the prediction
+
+The dispatch brief warned that `bcs_is_ready` gets its coercion for free from
+`pricing._current_sheet_name` (`_coerce_int` on `commit_version`), while the obvious service-layer
+model — `persist.is_sheet_classification_frozen`, same doctype, same key — passes it **raw**; and
+predicted that copying the raw form would make the predicate *"silently return False"*.
+
+**That prediction is FALSE, and it was built and run rather than assumed.** `readiness.py` was first
+written in the raw form and measured:
+
+- A **numeric string** works fine either way. `bcs_is_ready(boq, sheet, "1")` returned `True`,
+  identical to the int — PostgreSQL casts the unknown-type literal `'1'` to bigint. Isolated run:
+  `test_a_string_committed_version_answers_exactly_as_the_int_does` — 1 test, **OK**, against the raw
+  form.
+- The **real** defect is worse than a silent `False`. A non-numeric version reaches PostgreSQL as
+  `invalid input syntax for type bigint: "not-a-number"`, raising `psycopg2.InvalidTextRepresentation`,
+  which **aborts the enclosing transaction** — `InFailedSqlTransaction: current transaction is aborted,
+  commands ignored until end of transaction block` — and took **4 further tests** down with it in the
+  same run (12 ran: 3 failures, 4 errors). On the carry path that transaction also holds the rate
+  writes, so a raw psycopg2 error would replace a named refusal and roll the whole carry back.
+
+Same fix, stronger reason. The coercion is preserved (including the named `frappe.ValidationError` the
+pre-relocation body raised, which is why `_coerce_int` was copied rather than replaced with a bare
+`int()`), and pinned by `TestReadinessVersionCoercion` — three tests, both string cases asserted
+**True**/**False** rather than merely equal, because two `False`s would agree vacuously.
+
+### 7. The `layerHint` claim — also falsified, in the safe direction
+
+The brief flagged site 5 as the one that gets forgotten: *"NOT type-enforced, no `default`. A missed
+case returns `undefined` SILENTLY at runtime."*
+
+**Measured and false.** Widening `CARRY_LAYER_KEYS` alone and running `tsc --noEmit` produced all three
+frontend sites as hard errors, including:
+
+```
+CarryLayers.tsx(45,14): error TS2741: Property 'bcs_costs' is missing in type ... [LAYER_LABEL]
+CarryLayers.tsx(72,4):  error TS2366: Function lacks ending return statement and return type
+                        does not include 'undefined'                              [layerHint]
+CarryLayers.tsx(99,3):  error TS2741: Property 'bcs_costs' is missing in type 'LayerChoices'
+                                                                        [initialLayerChoices]
+```
+
+TypeScript's exhaustiveness analysis over the literal union proves the endpoint reachable, and the
+explicit `: string` return annotation under `strict` then rejects it. A note to this effect is now on
+`layerHint` itself, **including the instruction not to add a `default:` branch "for safety"** — that
+would make the endpoint unreachable and switch the guard off, trading a compile error for exactly the
+silent `undefined` it was feared to have. The runtime symptom of a missing `LAYER_LABEL` entry was also
+observed during the red run: `LAYER_LABEL[key].toLowerCase()` throws a `TypeError` in
+`carryWriteBreakdown` — loud, not silent.
+
+The tests kept for this site guard what the compiler cannot: not that a branch *exists*, but that it
+says the right thing — specifically that it names the precondition.
+
+### 8. The owner's reasoning — the part that must survive
+
+- **Default OFF (R7).** `initialLayerChoices()` ticks categories and nothing else. The asymmetry is
+  not arbitrary: **ON is the exception, not the rule.** Categories are ON by an *explicit* owner
+  ruling; cost data has had no such ruling. Carried records arriving un-asked-for is half the defect
+  ADR-0014 Amendment D deleted this whole feature over, and an **internal cost rate** — what the job
+  costs *us* — is the last layer on which to relax that. The default lives ONLY in the client; an
+  omitted `layers` payload is still rates-only server-side, so a client that never learned about
+  `bcs_costs` keeps the pre-S6 behaviour exactly.
+- **Provenance mandatory (R6), keyword-required rather than checked.** Amendment D's objection had
+  two halves — un-asked-for *and* un-attributed — and both must stay answered or the original defect
+  returns. A stamp a caller *may* omit is a stamp that eventually *will* be omitted, so it is a
+  `TypeError` at the call site.
+- **Keep the carried `bcs_rated_at` old (R5).** The same reasoning that keeps `human_verdict_at` old
+  on a carried category: an age that is honestly older is what lets a decision made *on* this version
+  outrank an inherited one, with no precedence code anywhere. Recorded with its honest caveat above.
+- **Silent skip, not refusal (R3).** One unconfigured cost section must not block a rate carry the
+  user asked for. Acceptable only because the plan read shares the guard, so nothing is ever offered
+  that would be dropped.
+- **Insert directly, never through the endpoint (R4).** A whole-row snapshot writer on a partial
+  carry destroys destination data. The prohibition is a data-integrity ruling, not a style choice.
+
+### 9. Verification
+
+Every gate run in-session, in the dev container. Backend via the bench runner; **the full bench suite
+was deliberately not run** (a live browser session against `localhost` collides on the `tabSeries`
+naming lock), only the named modules plus the two regression neighbours.
+
+| Suite | Baseline | Final |
+|---|---|---|
+| `nirmaan_stack.api.boq.wizard.test_bcs` | 64 OK | **79 OK** |
+| `nirmaan_stack.api.boq.wizard.test_pricing` | 252 OK | **258 OK** |
+| `nirmaan_stack.api.boq.wizard.test_cross_boq_carry` | 68 OK | **70 OK** |
+| `nirmaan_stack.api.boq.wizard.test_committed_carry` (regression, out of scope) | 58 OK | **58 OK** |
+| `nirmaan_stack.services.boq_bcs.test_readiness` (**new**) | — | **12 OK** |
+| `nirmaan_stack.services.boq_bcs.test_sources` (regression, out of scope) | — | **62 OK** |
+| `yarn test` (vitest) | 1537 / 57 files | **1548 / 57 files** |
+
+`npx tsc --noEmit`: **3236 errors repo-wide before and after — an unchanged total, and `0` in
+`src/pages/boq-wizard` in both runs.** The repo-wide figure is long-standing pre-existing noise; the
+`boq-wizard` figure is the real gate, and the slice's delta is zero.
+
+**Red before green, per surface:**
+
+1. *Frontend.* Key widened alone → 3 `tsc` errors (§7). Tests written → **9 failed / 114 passed** in
+   `CrossBoqCarryDialog.test.ts`, failing on the missing label, the `undefined` hint and the missing
+   default. Sites 4/5/6 implemented → **173 passed** across both dialog suites.
+2. *Readiness service.* Suite written → `ModuleNotFoundError`. Raw-form experiment → 3 failures + 4
+   errors (§6). Real module + `bcs.py` re-export → **11/12**, the one remaining failure being the
+   Slice-B red (`committed_carry` did not yet import the service).
+3. *Carry layer.* `test_bcs` → **5 failures, 6 errors**; `test_pricing` → **1 failure, 3 errors**, all
+   on the absent `bcs_costs` key. Layer implemented → all green.
+
+One red was a **fixture defect, not a real red**, and is recorded because it would otherwise look like
+a passing test that had always passed: `test_omitting_layers_carries_rates_only_and_no_cost_lands`
+asserts pre-S6 behaviour and should have been green from the start, but reported `copied == 0` — the
+new fixture seeded no source *rate*. Fixed by seeding one, verified green **before** the layer was
+built, so the class exercises rates and costs riding one transaction together.
+
+`python3 scripts/residence_check.py` — **EXITS 1**, pre-existing:
+
+```
+✓ b3_workflow_state_writers    (B3): current=40  baseline=40
+✓ b1_pure_module_purity        (B1): current=0   baseline=0
+✓ b2_predicate_literal_scatter (B2): current=8   baseline=8
+✓ f5_raw_updatedoc_files       (F5): current=116 baseline=116
+✗ f2_inline_json_parse_pages   (F2): current=208 baseline=207  — 1 NEW violation
+```
+
+**The slice's F2 delta is zero, proved from the diff rather than asserted.** F2 counts `JSON.parse`
+lines under `frontend/src/pages` (`.ts`/`.tsx`); this slice's frontend diff adds **zero** such lines
+(`git diff -U0 -- frontend/src | grep '^+' | grep -c 'JSON.parse'` → `0`). The 208-vs-207 overshoot
+predates the slice and is left alone.
+
+`git status` at start and at end matched the pre-declared noise list exactly: **53 untracked paths, 0
+modified tracked files** at start; the same 53 plus the slice's own two new files, and 0 modified
+tracked files, after the commit. `scripts/` was never written to.
+
+**Commit** `1167a16d` — 10 files, +1228 / −39.
+
+### 10. Deliberately NOT done
+
+- **`services/boq_bcs/__init__.py` was NOT edited, and it now carries a false clause.** Its docstring
+  says of the package: *"Nothing here may import from `api/`, touch `frappe.db`, or read request
+  context."* That was written when the package held only `sources.py`, a pure rule builder.
+  `readiness.py` **must** read `frappe.db` — readiness is a fact about a stored `BoQ Sheet` row —
+  exactly as `services/boq_category/persist.py` does. The `api/` bar and the request-context bar both
+  still hold and are still load-bearing; **only the `frappe.db` clause is now false.** The file was not
+  in this slice's scope, so the contradiction is reported rather than fixed, and is restated at length
+  inside `readiness.py`'s own docstring so the next reader is not misled at the place it matters. It is
+  owed a one-line correction.
+- **No BCS-specific row matcher.** `committed_carry.committed_excel_row_match` /
+  `version_addressed_excel_row_match` are inherited free (R8). Writing one would have been a second
+  answer to "is this the same row?".
+- **No `_ANNOT_LAYERS` entry, and no `_AnnotLayer` spec built to reuse `_dest_current_map` /
+  `_dest_max_version_map`.** Faking a spec to borrow two helpers is the entry R1 forbids, wearing a
+  disguise — it would drag `payload` and `stamped_at_field` semantics along with it. Two small bespoke
+  helpers instead.
+- **No `revision_overlay` registration.** `test_committed_carry.py:206-211,343-349,720-726` is a
+  regression pin on a **deleted** feature that shares field names; registering there would have been a
+  write into a tombstone.
+- **No eligibility filter on the destination row.** Categories skip rows the revision no longer
+  classifies; BCS has no equivalent, because `save_row_bcs_rates` deliberately skips the priceability
+  gate and a qty-less Preamble *is* costable. Adding one would contradict the write path.
+- **No unreachable-node branch.** Every value in `ctx.twin` is by construction a destination node of
+  that sheet+version (the match is *built* from those rows), so a `_dest_bcs_node_index` miss cannot
+  happen; a defensive `unmatched` branch would be dead code, and — worse — would have to be built on
+  the plan path too or break the plan/apply symmetry §4 depends on.
+- **`CrossBoqCarryDialog.tsx` and `CopyForwardDialog.tsx` were in scope and not edited.** Both loop
+  `CARRY_LAYER_KEYS`; needing no change is the shared-module design working.
+- **`CopyForwardDialog.test.ts` and `test_committed_carry.py` were NOT in scope and were not touched.**
+  Both were checked against the widening first: the former's three `CARRY_LAYER_KEYS` loops all survive
+  a key that defaults OFF and whose hint names no destination; the latter's `_all()` helper builds its
+  choices from `LAYER_KEYS`, so the new layer simply runs and silently skips. Both re-run green.
+- **No UI for the precondition beyond the hint.** No "set up BCS first" link, no jump-to-config. The
+  disabled row plus the hint states the fact; a navigation affordance from inside a carry dialog was
+  not asked for.
+- **No `layerSkipNote` branch for `bcs_costs`.** `ineligible` and `dropped` are other layers' per-row
+  reasons. A BCS layer that carries nothing does so because the destination **sheet** is not ready —
+  a whole-sheet fact the disabled row and the hint already state. A per-row note would invent a reason.
+- **The `rate_source` provenance seam is still storage capacity only.** Nothing in this slice writes
+  anything but `Manual`; a carried row keeps whatever the source had.
+- **No browser E2E.** Structurally unavailable here — the repo has no DOM test environment by
+  deliberate choice (`vitest.config.ts`), and nothing in this slice turns on a React semantic in any
+  case: every frontend change is a pure helper or a literal, all covered by vitest. A live A/B remains
+  the honest check for the dialog's rendered row, and is **not** claimed as done.
+
+### 11. Errata, filed by BCS-S7-merge-prep
+
+Four corrections to the record above. They are marked rather than silently edited: a reviewer must be
+able to see what the record used to say.
+
+**ERRATUM (BCS-S7-merge-prep): this record was SILENT about a `git stash` incident during the slice,
+and its §9 cleanliness paragraph asserts a state story that a stash cycle is invisible to.**
+While probing the residence baseline, the S6 builder ran `git stash push` — the exact anti-pattern
+this repo has written down **twice**: once in this very document (the "never bare `git stash
+push`/`pop` for a baseline compare" write-up) and once as a standing rule, both recording that
+unrelated stashes on other branches get popped by mistake. **Four unrelated stashes were sitting
+below it.** The builder recovered cleanly and self-reported, and an independent reviewer has since
+verified all four intact with their original SHAs and committer dates — **nothing was lost.** It is
+filed here anyway, and the reason is the sentence it undermines: §9 says *"`git status` at start and
+at end matched the pre-declared noise list exactly"*, which is true and which **a stash cycle cannot
+disturb** — `git status` is structurally blind to the stash stack. A clean status is therefore not
+evidence that nothing happened to it, and a record whose only cleanliness claim is `git status` reads
+as a stronger guarantee than it is. **The correct alternative, and the one to use next time:**
+`git show HEAD:./path` to read a pristine copy of one file, or a separate worktree for anything
+wider. Neither touches the stash stack at all.
+
+**ERRATUM (BCS-S7-merge-prep): two source citations in §5 are stale, and one attribution in §10 names
+the wrong file.** Each was re-verified against the shipped source before being corrected here; the
+line numbers below are the ones that are true now.
+
+- §5 says *"`bcs.py:88` imports `pricing`"*. It is **`bcs.py:90`**; line 88 is a comment.
+- §5 quotes *"`bcs.py:97-102`"* for the api → service one-way rule. It is **`bcs.py:99-104`**.
+- §10 says *"No `revision_overlay` registration. `test_committed_carry.py:206-211,343-349,720-726` is
+  a regression pin on a deleted feature that shares field names"*. **The line ranges are right (each
+  off by one at the start) and the reasoning is right, but `revision_overlay` names none of them.**
+  Those ranges are `_carry_all` (the Amendment D shim, `:203-211`) and two
+  `TestCommitOverlayCarry`-family `test_summary_reports_provenance_only` cases. The symbol
+  `revision_overlay` does exist — but in a **different file**, `test_commit_pipeline.py`, where it is
+  a tombstone pin on the commit-pipeline payload key. So the concept was right and the file was
+  wrong. ⚠️ Worth noting for anyone re-checking this: the S7 brief asserted `revision_overlay` "does
+  not exist (grep returns nothing)". **That is false — grep returns four hits.** The defect was
+  narrower than the brief described.
+
+**POINTER (BCS-S7-merge-prep):** §6 discusses the version-coercion trap thoroughly and names
+`persist.is_sheet_classification_frozen` as "the obvious model" that passes the version **raw** — but
+does not record that **`committed_carry` calls both, on the same path, with the same value**. That
+asymmetry is measured and filed in the BCS-S7 record below. It is an omission, not a false claim, so
+§6 is left as written.
+
+---
+
+## BCS-S7-merge-prep — the docs the arc owed, the record corrections it owed, and three small fixes
+
+**Branch** `feature/bcs-columns` · **Base** `ef50c211` · **Tier** FULL · **Date** 2026-08-03
+
+The last slice of the BCS arc. Nothing here was invented: every item came from an independent review
+of BCS-S6 or from a merge-readiness sweep that found **one FAIL** — the arc's documentation
+obligation. Two commits, deliberately separable.
+
+Merge position, verified this session: **89 commits ahead of `develop`, 0 behind, merge-base IS
+`develop`'s tip** — a fast-forward is possible and `git merge-tree` is clean.
+
+---
+
+### 0. The one thing that was actually failing
+
+The plan doc was carrying this entire arc **alone**. `boq-frontend.md` had not been touched by any of
+the arc's commits; `boq-backend.md` contained **zero** BCS content (its one apparent hit was a false
+positive — `BCSG-.YY.-.#####` is the BoQ Committed Sheet **Grid**); and neither always-loaded
+`CLAUDE.md` carried a single one of the arc's invariants.
+
+That is not a tidiness problem. The plan doc is a per-slice narrative read by someone who already
+knows they are working on BCS. The domain docs and `CLAUDE.md` are what a person reads **before** they
+know what they are about to break. Three of this arc's invariants are of exactly that kind — invisible
+from the code, catastrophic to get wrong, and reachable by someone who never opens the plan doc.
+
+### 1. The seam, and why it is the right one
+
+**The seam is the documentation routing layer** — the CLAUDE.md ↔ domain-doc ↔ plan-doc split that the
+DOCS-UPDATE RULE defines and `guard_claude_md.py` enforces. The interface is *what a reader is handed
+before they touch the code*; the change is which facts sit behind it.
+
+Working here rather than in the code was the whole point, and it is a real design decision rather than
+a default. Each of the four `CLAUDE.md` additions is a fact that **cannot be derived by reading the
+file you are about to edit**:
+
+- the import-direction law is invisible from `bcs.py` (it is a property of a *ring* across four
+  modules, and the ring is only visible if you already suspect it);
+- the scope fence looks like a missing `and` in `save_cell_price` — the "fix" is one token long;
+- the export boundary holds *by construction*, and construction is precisely what a refactor
+  dissolves without noticing;
+- the name collision is invisible by definition, because the reader who hits it thinks they have
+  found the right section.
+
+**Placement followed the DOCS-UPDATE RULE strictly**, and the split is the seam doing its job: the
+four invariants (stable, load-bearing, timeless) went to `CLAUDE.md`; the as-built (doctypes, fields,
+endpoints, carry semantics) went to the domain docs; the per-slice narrative stayed here. Nothing was
+duplicated across the three.
+
+⚠️ **`guard_claude_md.py` never fired**, and that is reported as a fact rather than a boast: both
+CLAUDE.md edits were phrased timelessly from the start — no test counts, no hashes, no dates, no
+"Slice N" — because the hook's rule and the goal are the same rule. An invariant that needs a date to
+make sense is a changelog entry wearing an invariant's clothes.
+
+### 2. The residence manifest gap (A4)
+
+Root `CLAUDE.md` instructs every reader to *"consult the domain doc's `## Residence — concept → owner`
+manifest"* before creating a helper for an existing domain concept. **Exactly one such manifest
+existed** (`procurement.md`), so on the largest active feature in the app that instruction dead-ended.
+`boq_bcs` appeared in no manifest at all, even though the arc had registered `boq_bcs/sources.py` in
+`scripts/residence_check.py`'s `PURE_MODULES`.
+
+**Home chosen: `.claude/context/domain/boq-backend.md`, at the top, mirroring `procurement.md`.**
+The convention decided it rather than taste — `procurement.md`'s manifest ends with an explicit
+*"Template note: copy this section shape into other domain docs as they're touched"*, and it sits at
+the top of the domain doc, immediately after the title. Both were followed. The alternative (a manifest
+in `CLAUDE.md`) was rejected because the instruction itself points at the **domain doc**, so putting it
+anywhere else would leave the dead end in place while looking like it had been fixed.
+
+**Thirteen rows, and every owner was resolved to a real definition before its row was written.** The
+manifest carries that as an explicit rule (*"rows here are VERIFIED, not aspirational — do not add a
+row you have not opened the file for"*), because a residence manifest listing an owner that does not
+exist is worse than no manifest: it is a wrong answer delivered with authority. Two rows carry
+deliberate negatives — `readiness.py` must **not** join `PURE_MODULES` (it reads `frappe.db` by design
+and would redden the purity ratchet), and committed-tier amount recomputation has **no** owner on
+purpose.
+
+### 3. Group B — the record corrections
+
+Filed as marked errata on the BCS-S6 record (§11 above), not as silent edits. The reasoning behind
+each is there; what belongs here is why the first one was worth the space.
+
+**The stash incident is the principal finding, and the reason is not the stash.** Nothing was lost —
+four unrelated stashes, all verified intact afterwards by an independent reviewer, original SHAs and
+committer dates. The builder used the anti-pattern, noticed, recovered, and **self-reported**, which is
+the behaviour you want. What was wrong is that the durable record stayed silent while its own
+cleanliness paragraph rested on `git status` — and `git status` **cannot see the stash stack**. So the
+record's evidence was true, and was being read as covering something it structurally does not cover. A
+reader six months out would take "status matched at start and end" as "the tree was never disturbed".
+That is the correction: not the incident, the **inference the record invited**.
+
+### 4. The partial-cost overstatement — owner ruling: ship as-is, AND record it
+
+**A BoQ section with only SOME of its lines costed reports % Profit from a PARTIAL cost over a FULL
+tendered amount, and therefore reads FATTER than reality.**
+
+Mechanism, exactly (`bcsRollup.rollBcsSections`): an uncosted row's own cost resolves to `null`, and
+the running sum adds `own ?? 0` — so it contributes **0.0**. The has-costs flag, meanwhile, is an
+**OR** across the subtree (`costPresent = costPresent || agg.costPresent`), so **one** costed line
+among ten makes the entire section "costed", and that lone cost is then divided into the whole
+section's tendered amount. Pinned — not merely tolerated — by `bcsRollup.test.ts`'s `T5b`
+("ONE costed line among uncosted ones makes the section costed — the rest contribute 0"), which
+constructs a two-line section with one cost of 60 against a tendered 200 and asserts the margin reads
+**70%**.
+
+**Owner ruling (2026-08-03): ship as-is AND record it.** The record IS the deliverable here — "ship
+as-is" *without* the record is precisely the state the review flagged as the defect, so shipping
+quietly would have been the one outcome that failed the ruling while appearing to satisfy it.
+
+**Owner rationale, uncompressed.** The obvious alternative — blank any section that is not *fully*
+costed — is worse, and worse in the normal case rather than an edge case. A job is costed
+incrementally; the state "some lines done" is not an anomaly, it is Tuesday. Blanking the section
+during it would withhold the only figure the estimator has while the work is in progress, to protect
+them from a number they are already in the middle of changing. So the choice was between a figure that
+is optimistic while incomplete and no figure at all until complete, and the owner took the figure.
+
+**This is an accepted decision, not an open defect**, and it is recorded rather than merely accepted
+for one reason: a section-level margin that reads high is entirely **plausible**. There is nothing on
+screen to make a reader suspicious, and a reader who does not know this will trust it. Also filed in
+`boq-frontend.md`, where a person building on the rollup will meet it.
+
+### 5. The raw-vs-coerced asymmetry — measured, currently safe, deliberately not changed
+
+**On ONE carry path, the same value is passed two different ways**, roughly 490 lines apart in
+`committed_carry.py`:
+
+| Line | Call | Version handling |
+|---|---|---|
+| `:425` | `category_persist.is_sheet_classification_frozen(..., ctx.dest_version)` | **RAW** — `persist.py:42` filters on it directly |
+| `:918` | `bcs_is_ready(..., ctx.dest_version)` | **COERCED** — `readiness.py:115` runs `_coerce_int` |
+
+**It is not reachable today, and the reason is worth stating precisely rather than as "it's fine":**
+`_CarryCtx.dest_version` is annotated `int`, and both production builders source it from the
+`BoQ Sheet.commit_version` **Int** column (`cross_boq_carry.py:184` reads `dest_sheet_row.commit_version`;
+`pricing.py:2888` passes a `frappe.db.get_value` result). A non-numeric version cannot arrive through
+either.
+
+**It is recorded anyway because the raw form's failure is not local.** BCS-S6 measured it: a
+non-numeric version reaches PostgreSQL as `invalid input syntax for type bigint`, raising
+`InvalidTextRepresentation`, which **aborts the enclosing transaction** and takes every subsequent
+statement with it. On this path that transaction also holds the rate writes. So if a future caller
+ever supplies a version from somewhere other than the DB, the **raw** call at `:425` fires first and
+destroys the whole carry — and the coerced call at `:918`, which was hardened precisely against this,
+never gets the chance to behave well.
+
+**`persist.py` was NOT changed** — out of scope, and it is a `boq_category` decision rather than a BCS
+one. Reported, not reached for.
+
+⚠️ **A brief-vs-source divergence worth recording**, since this arc has had several: the S7 brief
+described these two calls as *"~12 lines apart"*. They are **~493 lines apart** (`:425` and `:918`).
+The line numbers themselves were correct.
+
+### 6. Group C — three small corrections
+
+**C1 — `services/boq_bcs/__init__.py` carried a FALSE clause, and now does not.** Its docstring said
+*"Nothing here may import from `api/`, touch `frappe.db`, or read request context."* BCS-S6 made the
+middle clause false by adding `readiness.py`, which **must** read `frappe.db` (readiness is a fact
+about a stored `BoQ Sheet` row), and reported the contradiction rather than fixing it — correctly, as
+the file was out of its scope. **Only the `frappe.db` clause was dropped.** The `api/` bar and the
+request-context bar are untouched and were made *more* emphatic, because they are the load-bearing
+half: `readiness.py` exists at all because importing the sibling api module closes a ring, so reaching
+back into `api/` from the service layer would re-close it from the other side. The correction also
+states the distinction the original sentence collapsed — **a DB read is not a dependency on `api/`** —
+and records that purity is **per-module, not per-package**: `sources.py` is registered in
+`PURE_MODULES` and `readiness.py` must never be, or the ratchet reddens on a module that is correct.
+
+**C2 — two structural tripwires in `test_readiness.py` were passing by punctuation luck.** They used
+substring greps that this same arc had already identified as a defect and replaced elsewhere with an
+`ast`-based check (`test_bcs`'s whole-row-snapshot-writer tripwire, whose docstring even warns *"worth
+knowing before the next one is written"* — these were the next ones). **Both were converted.**
+
+The fragility was not hypothetical, and was measured rather than argued:
+
+- `assertNotIn("def bcs_is_ready(", src)` — **`bcs.py:114` already contains the phrase
+  `def bcs_is_ready` in a COMMENT** (*"do NOT re-add a local `def bcs_is_ready` here"*). The assertion
+  is green **only because a backtick sits where the `(` would be.** Rewriting that comment as
+  `` `def bcs_is_ready()` `` — an entirely reasonable edit — turns the test red against a module that
+  is perfectly correct, and the cheapest way back to green is deleting the warning.
+- `assertIn("services.boq_bcs.readiness", src)` is worse, because it fails **OPEN**: delete the import,
+  leave any comment naming the path, and the tripwire stays green while the property is gone.
+
+The `ast` forms ask the real questions — *does this module DEFINE this name?* and *does this module
+IMPORT that module?* — and are **strictly stronger in both directions**: they cannot fire on prose, and
+they catch three cases the literal substring missed entirely (`async def`, unusual whitespace, and a
+definition nested inside a function). One honest limit is stated at the site: `_imported_modules`
+resolves **absolute** imports only, which covers everything in this package today but would miss a
+future relative import.
+
+**C3 — a comment in `SheetPricingPage.tsx` claimed something false, and was corrected to describe what
+the code does.** It said the Summary panel's cost gate was *"the identical condition that decides
+whether the grid shows a cost column at all. So the panel gains cost columns exactly when the grid has
+them."* It is not identical: the grid's block also requires `bcsKinds.length > 0`, and
+`bcsLiveRateKinds` returns `[]` for a sheet mapping no rate column, while `bcs_is_ready` never inspects
+rate columns at all. On such a sheet the panel shows three blank cost columns and the grid shows none.
+
+⚠️ **The gate was NOT "fixed" to make the claim true, and that constraint is deliberate.** It was the
+original recommendation; **the owner withdrew it.** He declined the browser sweep, and this repo has no
+DOM test environment (`vitest.config.ts`), so a render-gate change would ship **verified by nothing** —
+covered by no test that can see a render, and by no live check either. A comment correction is fully
+verifiable by reading. The divergence is documented at the site with the honest check named (a live A/B
+on a rate-column-less sheet) for whoever revisits it.
+
+### 7. The owner-authorised label rename (mid-slice addition)
+
+Delivered as its **own commit** so a label change is revertible without unpicking the docs work.
+
+Owner ruling: the sheet-view BCS columns read **`BCS Cost (Supply)`**, **`BCS Cost (Installation)`**,
+**`BCS Total Amount`**. His words: *"This is just a label correction."* It is — the three computed
+column KEYS (`bcs:total` / `bcs:tendered` / `bcs:margin`), every rate field name, and every payload key
+are untouched, so nothing a server reads moved.
+
+**The rename ENDED a real divergence rather than creating one.** `SummaryPanel` has read
+`BCS Total Amount` since BCS-S5, while the grid read a bare `Total Amount` — and `SummaryPanel`'s own
+comment claimed *"header text mirrors the grid's own column titles, so the same figure is called the
+same thing in both places."* That was false until now. The two agree after the rename, and the summary
+has no Supply/Install counterpart, so no new drift was introduced anywhere.
+
+⚠️ **One label was NOT renamed, and it is an open question rather than a decision.** The owner named two
+of the three input boxes; a **combined**-rate sheet gets a single box that still reads the unprefixed
+`Cost`. Prefixing it was not ruled on, so it was left alone and flagged in place. Pinning a string the
+owner never said would have laundered a guess into an assertion — the test deliberately pins only the
+two he dictated.
+
+### 8. Verification
+
+Every gate run in-session, in the dev container. ⚠️ **The full bench suite was deliberately NOT run** —
+a live browser session against `localhost` collides on the `tabSeries` naming lock — only the two named
+modules.
+
+| Suite | Baseline | Final |
+|---|---|---|
+| `nirmaan_stack.services.boq_bcs.test_readiness` | 12 OK | **12 OK** |
+| `nirmaan_stack.api.boq.wizard.test_bcs` | 79 OK | **79 OK** |
+| `yarn test` (frontend, 57 files) | 1548 | **1549** |
+
+`npx tsc --noEmit`: **3236 errors repo-wide before and after — unchanged — and `0` in
+`src/pages/boq-wizard` in both runs.** The repo-wide figure is long-standing pre-existing noise; the
+`boq-wizard` figure is the real gate and the slice's delta is zero.
+
+The readiness count is **12 before and after by design**: C2 replaced two assertions in place and added
+one anti-vacuity assertion inside an existing test. A count that did not move is the correct outcome
+for a hardening change, and is stated so it does not read as a suite that was never run.
+
+**Red before green.**
+
+1. *The label rename* had a genuine RED. The pin was written first and run:
+   `AssertionError: expected 'Cost (Supply)' to be 'BCS Cost (Supply)'` — 1 failed / 181 skipped. The
+   labels were then changed and the suite went to 182 passed.
+2. *C2 has no natural red* — a hardening change cannot fail against correct code, which is the whole
+   difficulty with structural tripwires. **Falsifiability was proven instead**, the way this arc has
+   done before: each converted assertion was run against synthetic module sources covering ten cases,
+   and every one behaved as claimed — silent on prose (both the real `bcs.py:114` shape *and* the
+   parenthesised rewrite that would break the old grep), firing on a real redefinition, on `async def`,
+   on odd whitespace, on a nested definition, on all three import forms including one hidden inside a
+   function, and — the presence-side check — **failing** on a module that only mentions the path in a
+   comment, where the substring form passes.
+3. *C1, C3 and every documentation change are comment/prose only.* No red is possible and none is
+   claimed; they are verifiable by reading, which is the point.
+
+`python3 scripts/residence_check.py` — **EXITS 1, pre-existing and pre-declared**:
+
+```
+✓ b3_workflow_state_writers    (B3): current=40  baseline=40
+✓ b1_pure_module_purity        (B1): current=0   baseline=0
+✓ b2_predicate_literal_scatter (B2): current=8   baseline=8
+✓ f5_raw_updatedoc_files       (F5): current=116 baseline=116
+✗ f2_inline_json_parse_pages   (F2): current=208 baseline=207  — 1 NEW violation
+```
+
+**The slice's F2 delta is zero, proved from the diff rather than asserted** (`git diff -U0 ef50c211 --
+frontend/src | grep '^+' | grep -c 'JSON.parse'` → `0`). `git status -- scripts/` was captured before
+and after the run and is **identical**, so the script did not rewrite `residence_baseline.json`.
+⚠️ `scripts/` holds another session's uncommitted work and was never written to.
+
+`git status`: **0 modified tracked files and 53 untracked paths at start**, all inside the pre-declared
+noise list; at end the same 53 untracked and 0 modified tracked after commit. (The brief said "~59
+untracked"; the true figure is 53, matching BCS-S6's record.)
+
+### 9. Deliberately NOT done
+
+- **The `combined` cost box label was not prefixed.** Owner named two of three; see §7.
+- **The Summary-vs-grid cost-gate divergence was not closed.** Owner withdrew the fix; see §6 (C3).
+- **`persist.is_sheet_classification_frozen` was not changed** to coerce its version. Out of scope, and
+  a `boq_category` decision; see §5.
+- **`{message: {}}` still renders as a confidently uncosted sheet.** A pre-existing gap one level down
+  in `pricingLoadState.ts` (`hasContent` cannot tell an empty envelope from a real answer), already
+  recorded at the site by an earlier slice. Not in scope, not fixed, restated here so it is not lost at
+  the merge boundary.
+- **`readiness.py` was NOT added to `scripts/residence_check.py` `PURE_MODULES`.** It reads
+  `frappe.db` by design and would redden the B1 ratchet. Recorded as a deliberate negative in the new
+  residence manifest so a future reader does not "restore consistency".
+- **No browser E2E.** Structurally unavailable (no DOM test environment, by deliberate repo choice) and
+  the owner declined the sweep. Nothing in this slice turns on a React semantic: the only rendered
+  change is three literal strings, and the only behavioural claim made about them is that they are the
+  strings the owner asked for, which a unit test pins directly.
+- **The plan doc was never read whole.** It is larger than one context window; the append followed the
+  `wc -l` → partial `Read` → single anchored `Edit` protocol.
+
+---
+
+## BCS-S13/S14 — the margin view removed; % Margin filtered and sorted from its own column header
+
+**Owner ruling 2026-08-07.** BCS-S4's margin VIEW is **deleted**. The two things people actually came to
+it for — *"show me the lines between 10% and 25%"* and *"worst margin first"* — now live as two controls
+on the **% Margin column header**, so the sheet answers margin questions **in place** and every other
+control (the tree, collapse, search, the row-type toggles) keeps meaning what it meant a moment ago.
+
+Final header layout (owner-specified, iterated twice):
+
+```
+[ƒ]  % Margin  [↑↓]  [▼funnel]
+```
+
+`ƒ` configures what the number **is** (a stored, per-sheet formula everyone sees). The label then reads
+as the column's name. The two **view** controls (mine only, this session only) group after it — arrow
+before funnel, cheapest action first: one click, instantly reversible, hides nothing, whereas the funnel
+opens a dialog and can empty the grid.
+
+### 1. What was deleted, and what came back
+
+| Deleted with the view | Fate |
+|---|---|
+| `buildSectionLabels` | **gone for good.** It existed because flattening destroyed the section context a tree shows by POSITION; an in-place sort that keeps every row can simply be switched off to get that context back. |
+| `marginViewRows` | replaced by `marginSortRows` — see the membership change below. |
+| `isMarginViewRow` | **gone from both halves** (see §2). |
+| `flipMarginSortDir` | replaced by the three-state `nextMarginSort`. |
+| `marginView` / `sectionByRowIndex` / `onToggleMarginSort` grid props, the row `section` prop, the ribbon toggle + direction button, `EMPTY_SECTIONS` | deleted. |
+| `compareByMargin`, `buildMarginOrder`, the decide-once/apply-later split, flat depths, chevron suppression | **came back, verbatim in substance** — relocated behind the header arrow. Their properties are unchanged by where the control lives. |
+
+**Working-tree state at pickup:** the slice began half-finished and **not compiling** — `PricingGrid.tsx`
+and `marginView.ts` had already had the view's machinery deleted while `SheetPricingPage.tsx` still
+imported it (5 TS2305/TS2724 errors). The pre-existing range filter was a row of inline `from`/`to` boxes
+in the toolbar, applied through a **separate filtering pass** parallel to the real filter system.
+
+### 2. ★ The membership change, twice, and why it is the load-bearing part
+
+`isMarginViewRow` (LINE ITEMS ONLY) was a **curation** rule for a list — *"a heading means nothing among
+the lines it introduces"*. Neither half could keep it:
+
+- **The filter.** The grid renders % Margin on **every** row that has one, and a qty-bearing Preamble
+  genuinely has a cost and a margin (the priceability gate's Preamble asymmetry). A Preamble displaying
+  15% would have **vanished from a 10–25% filter, on screen, beside line items that stayed** — a filter
+  whose result contradicts the column it filters. Membership is now the **margin alone**; nothing was
+  lost, because an absent margin is already excluded by `marginInRange`.
+- **The sort.** `marginSortRows`' output **IS the grid's row set**, so an unranked row is a row that
+  **silently disappears from the sheet** — and a sorted sheet is not a place anyone counts rows.
+  `buildMarginOrder` ranks every row; `marginSortRows` appends anything the snapshot does not name.
+
+### 3. Composition — one predicate, one stage
+
+The range is **a term of `passesViewFilter`**, not a stage after it: it ANDs with Show-unpriced /
+Check-Category / the row-type toggles for free, rides the same single `treeDisplayRows` pass, composes
+with collapse, and search inherits it through `searchUniverse`. `anyViewFilter` includes it. The **sort**
+is the one genuine stage (ordering cannot be a predicate), applied to the already-filtered set.
+
+Both are **snapshots held in state**, recomputed only on an explicit Apply / arrow click, both measured
+over **`rowsRef.current` — the whole sheet, never `displayRows`**:
+
+- a range measured over the filtered set would let each Apply narrow the last one irreversibly;
+- a rank built over the filtered set would leave every later re-admitted row **unranked**, pooling in
+  `marginSortRows`' appended tail in document order instead of margin order.
+
+Margins come from `gridRef.computeMargins` — where the **unsaved drafts** live — so a cost typed a second
+ago is in both, and the column can never disagree with them.
+
+### 4. Tree claims suppressed by the SORT only
+
+`marginSortDir !== null` (never the filter) drives: flat depths (`FLAT_DEPTHS`), withheld
+`childrenByParent`, suspended `collapseActive`, and a disabled Collapse-all with a tooltip saying why.
+**A filter only drops rows, so a surviving row's ancestry and its chevron are still true.** The
+`collapsed` set is preserved, so turning the sort off restores the tree exactly as it was.
+
+Three-state arrow `off → asc → desc → off`. **Off is reachable and that is not a convenience:** a BoQ's
+document order IS its structure, and since sorting suppresses the indent and the chevrons, a two-state
+arrow would make the hierarchy unavailable with no way back.
+
+### 5. ★ The trap the owner found, and the general fix
+
+A range matching **zero rows** emptied the grid — and `PricingGrid`'s `rows.length === 0` early return
+fires **before the header renders**, so it removed **the only control that could clear the filter**. The
+older filters escaped this because their toggles live in the toolbar, which keeps rendering. The message
+was also false: *"This committed sheet has no rows to price"* is a claim about the **sheet**, which was
+fine — the filter was hiding it.
+
+Fixed at the early return, which now distinguishes the two states and carries its own undo:
+
+- filters active → *"No rows match your filters"* + the applied range named + **Clear filters**
+- genuinely empty → the original message
+
+**`clearAllViewFilters` resets EVERY view filter**, not just the margin ones: whoever presses it is
+looking at an empty grid and cannot see *which* filter emptied it. **Collapse is deliberately excluded** —
+not a filter, and structurally unable to cause this (collapsing hides descendants, never roots).
+
+⚠️ **The early return must stay INSIDE `PricingGrid`** — never lifted into the page as a
+"render a panel instead of the grid" branch. That would **unmount** the grid, and the unsaved rate/cost
+drafts live in its state.
+
+⚠️ **The empty state names the range but does NOT blame it.** It must never say *"nothing has a % Margin
+between 10% and 25%"*: filters compose, rows in that band may exist and be hidden by Show-unpriced, and a
+confident claim about the DATA that is really a claim about ONE OF SEVERAL filters is the exact class of
+wrong this screen is careful about.
+
+`describeMarginRange` lives in `marginView.ts` so the funnel tooltip and the empty state cannot drift —
+two hand-written phrasings of the same numbers eventually disagree, and the empty state is precisely where
+someone reads carefully. Shaped to continue *"a % Margin …"* (`between 10% and 25%` / `of 10% or more` /
+`of 25% or less`), reversed bounds normalised to match `marginInRange`.
+
+### 6. Reset axes — both halves, every axis
+
+`clearMarginRange` (bounds **and** matched set — one without the other leaves a lit funnel filtering
+nothing, or rows hidden with no control admitting it) and `clearMarginSort` fire on **sheet switch**,
+**version switch**, and the **FALSE edge of `bcsColumnsVisible`**. That last one is more load-bearing than
+it ever was for the view: when % Margin stops rendering, the funnel and arrow go with it while the matched
+set keeps hiding rows and the held order keeps shuffling them.
+
+### 7. Dialog sizing (owner reports)
+
+- **`MarginFormulaBuilder`** overflowed the viewport and **took Save with it** — a dialog you can fill in
+  but cannot submit. Now `flex` column capped at `min(75vh, 28rem)` with header + footer **pinned** and
+  only the slots scrolling; the rule line `( 1 − COST ÷ AMOUNT ) × 100` stays pinned, because a slot whose
+  sentence has scrolled away is the exact confusion BCS-S11b's one-dialog ruling prevents. `min-h-0` on the
+  scroll child is load-bearing (flex children default to `min-height:auto` and refuse to shrink).
+  ⚠️ The cap is an **inline style**, not `max-h-[min(75vh,28rem)]`: a Tailwind arbitrary value exists only
+  if the JIT scanner finds that literal, so a class built that way is one refactor from silently producing
+  **no** max-height — failing invisibly, and looking exactly like the bug it fixes.
+- **`MarginRangeFilter`** was 320×220 for two inputs and three buttons. Three rows removed (redundant
+  subtitle; the FROM/TO label row → placeholders, with `aria-label` retained and *more* specific than the
+  visible label was; spinner arrows hidden). ~272×130.
+- **Compacted, not cut** in both: every control retained at its original hit target; only the space around
+  them shrank.
+
+### 8. Verification
+
+| Gate | Result |
+|---|---|
+| `tsc --noEmit` (boq-wizard) | clean |
+| `vitest run` (full suite) | **58 files / 1658 tests passed** |
+| `vite build` | ✓ built |
+
+`marginView.test.ts` re-pointed at the two places in-place behaviour differs from the view's, plus the
+recovered sort suites: blanks-last **in both directions** (the sentinel idiom gets descending backwards,
+and descending is the worse one — an uncosted sheet would open on a screenful of nothing where the best
+margins belong); `Infinity - Infinity → NaN` in `marginSortRows`' comparator (two unranked rows make a
+subtracting comparator engine-dependent — stable on one input, not on another); append-never-drop;
+membership-is-the-margin-not-the-node_type; `describeMarginRange` shapes, reversal, negatives/fractions.
+
+### 9. Deliberately NOT done
+
+- **No DOM/E2E test.** Structurally unavailable (no DOM environment, deliberate repo choice). Everything
+  rendered here — the header order, the empty state, the dialog caps — is a React/CSS semantic a unit test
+  **cannot** see. The pure rules are covered; **the rendered behaviour is owner-verified live only.**
+- **The sort glyphs are the boxed lucide arrows, not ▲ / ▼.** The owner asked for the margin view's plain
+  triangles and that edit was made, then **reverted outside the session**; left as found rather than
+  silently re-applied. Open.
+- **The funnel "shake when active" cue** was started (`tailwind.config.js` keyframes) and reverted by the
+  owner mid-change. Not in this commit.
+- **Headers-with-a-no-data-row** (the owner's alternative to replacing the grid) was not built: three
+  render paths, and the two-pane case leaves a `colSpan` row in the scrolling pane with a blank frozen
+  pane beside it — real risk for a state you only see when something has already gone wrong. Its benefit
+  (keeping the funnel reachable) is already covered by **Clear filters**.
+- **`marginView.ts` was not renamed** despite the view being gone: it would touch every import for no
+  behavioural gain, and the module docblock is what a reader lands on.
+- **The plan doc was never read whole.** `wc -l` → partial `Read` → single anchored `Edit`.

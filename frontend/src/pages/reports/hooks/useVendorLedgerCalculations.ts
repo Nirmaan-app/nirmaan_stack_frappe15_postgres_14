@@ -66,13 +66,13 @@ export const useVendorLedgerCalculations = (params: VendorLedgerParams = {}): Us
     }, 'all-vendors-with-opening-balances');
 
     const { data: purchaseOrders, isLoading: isLoadingPOs, error: errorPOs } = useFrappeGetDocList<ProcurementOrder>('Procurement Orders', {
-        fields: ['name', 'vendor', 'total_amount', 'invoice_data', 'creation'],
+        fields: ['name', 'vendor', 'total_amount', 'creation'],
         limit: 0
     }, 'all-pos-for-vendor-ledger');
 
     const { data: serviceRequests, isLoading: isLoadingSRs, error: errorSRs } = useFrappeGetDocList<ServiceRequests>('Service Requests', {
         // total_amount is fresh on every save (incl. GST when sr.gst === "true").
-        fields: ['name', 'vendor', 'gst', 'total_amount', 'invoice_data', 'creation'],
+        fields: ['name', 'vendor', 'gst', 'total_amount', 'creation'],
         limit: 0
     }, 'all-srs-for-vendor-ledger');
 

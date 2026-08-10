@@ -7,6 +7,12 @@ import { DCMIRReportType, POReportOption, SROption, ProjectReportType, ReportTyp
 import { getUrlStringParam } from '@/hooks/useServerDataTable';
 import { urlStateManager } from '@/utils/urlStateManager';
 import { cn } from '@/lib/utils';
+import {
+    MATERIAL_PROCUREMENT_PROFILES,
+    PROCUREMENT_PROFILES,
+    SERVICE_PROCUREMENT_PROFILES,
+    isProcurementProfile,
+} from "@/constants/roles";
 
 // Lazy load report components
 const ProjectReports = React.lazy(() => import('./components/ProjectReports'));
@@ -151,19 +157,19 @@ export default function ReportsContainer() {
     // Define available tabs based on role
     const tabs = useMemo(() => {
         const availableTabs: { label: string; value: string }[] = [];
-        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile", "Nirmaan Procurement Executive Profile"].includes(role)) {
+        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile", ...PROCUREMENT_PROFILES].includes(role)) {
             availableTabs.push({ label: "Projects", value: REPORTS_TABS.PROJECTS });
         }
         if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Lead Profile"].includes(role)) {
             availableTabs.push({ label: "Vendors", value: REPORTS_TABS.VENDORS });
         }
-        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Manager Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(role)) {
+        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Manager Profile", ...MATERIAL_PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(role)) {
             availableTabs.push({ label: "PO", value: REPORTS_TABS.PO });
         }
-        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(role)) {
+        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", ...SERVICE_PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(role)) {
             availableTabs.push({ label: "WO", value: REPORTS_TABS.SR });
         }
-        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Manager Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(role)) {
+        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Manager Profile", ...PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(role)) {
             availableTabs.push({ label: "DCs & MIRs", value: REPORTS_TABS.DCS_MIRS });
         }
         return availableTabs;
@@ -188,7 +194,7 @@ export default function ReportsContainer() {
 
     const currentReportOptions = useMemo(() => {
         if (activeTab === REPORTS_TABS.PROJECTS) {
-            if (role === "Nirmaan Project Manager Profile" || role === "Nirmaan Procurement Executive Profile") {
+            if (role === "Nirmaan Project Manager Profile" || isProcurementProfile(role)) {
                 return projectReportOptions.filter(option => option.value === 'Inventory Report');
             }
             return ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Lead Profile"].includes(role)
@@ -204,7 +210,7 @@ export default function ReportsContainer() {
                     ['Dispatched for 1 days', 'Dispatched (ITM)'].includes(option.value)
                 );
             }
-            if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(role)) {
+            if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", ...PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(role)) {
                 // Filter out 2B Reconcile Report for non-Admin/Accountant roles
                 return canSee2BReconcileReport
                     ? poReportOptions
@@ -212,7 +218,7 @@ export default function ReportsContainer() {
             }
             return [];
         } else if (activeTab === REPORTS_TABS.SR) {
-            if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(role)) {
+            if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", ...PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(role)) {
                 // Filter out 2B Reconcile Report for non-Admin/Accountant roles
                 return canSee2BReconcileReport
                     ? srReportOptions
@@ -220,7 +226,7 @@ export default function ReportsContainer() {
             }
             return [];
         } else if (activeTab === REPORTS_TABS.DCS_MIRS) {
-            if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Manager Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(role)) {
+            if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Manager Profile", ...PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(role)) {
                 return dcmirReportOptions;
             }
             return [];

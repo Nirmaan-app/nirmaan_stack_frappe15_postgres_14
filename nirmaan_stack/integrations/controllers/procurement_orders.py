@@ -148,7 +148,99 @@ def on_update(doc, method):
         cleanup_po_linked_docs(doc.name)
         frappe.delete_doc("Procurement Orders", doc.name)
 
+def _po_delete_blockers(doc):
+    """Reasons this PO must not be deleted. Empty list means it is safe to delete.
+
+    WHY THIS EXISTS — deleting a PO is irreversible, and `on_trash` below then
+    actively DESTROYS linked records: the PO's own `PO Adjustments` doc, the
+    `Project Payments` those adjustment rows point at, and its vendor-credit ledger
+    entries. That is fine for a PO nobody has transacted against. It is not fine for
+    one that other records' money points at, because the OTHER side is not cleaned
+    up and is left referring to a document that no longer exists.
+
+    The case that forced this guard (2026-07):
+
+        16-Jul 19:07  Rs.144.67 of overpaid credit transferred
+                      PO/011/00097/26-27  ->  PO/055/00106/26-27
+        17-Jul 12:26  the incoming payment PAY-00106-058 is deleted
+        17-Jul 12:27  PO/055/00106/26-27 is deleted -- 39 seconds later
+
+    Deleting the payment FIRST is what cleared Frappe's Dynamic Link check, which is
+    the only thing that had ever stood in the way. The SOURCE PO was left holding an
+    outgoing payment and an "RA PO PO/055/00106/26-27" Return term pointing at
+    nothing, and its adjustment ledger could never balance again — it sat payment-
+    locked until repaired by hand.
+
+    So the checks below deliberately do NOT rely on the live payment row surviving.
+    All three ask the same question a different way: does another record's money
+    point here?
+    """
+    DELIBERATELY_NOT_CHECKED = """
+    A PO simply HAVING `Project Payments` is not checked here, on purpose.
+
+    Frappe already blocks that: `Project Payments.document_name` is a Dynamic Link,
+    so a live payment row makes `delete_doc` fail on its own. Re-asserting it here
+    adds nothing and costs a great deal — measured on live data it would block 4,959
+    of 6,879 POs (72%) and 25 of the 54 POs currently in a cancellable state, i.e. it
+    would silently change what the Cancel button does. It would also bury the 37 + 38
+    POs that the two checks below actually identify inside a blanket rule nobody
+    could act on.
+
+    The hole this guard closes is the one that opens when the payment is deleted
+    FIRST — which is exactly the 39-second sequence above. Both checks below survive
+    that, because neither reads the payment row.
+    """
+
+    blockers = []
+
+    # Credit RECEIVED from another PO. Survives deletion of the incoming payment,
+    # which is precisely the hole the 17-Jul sequence went through.
+    credit_terms = frappe.get_all(
+        "PO Payment Terms",
+        filters={"parent": doc.name, "label": ["like", "Credit PO %"]},
+        fields=["label", "amount"],
+    )
+    for term in credit_terms:
+        blockers.append(
+            _("This PO holds credit transferred in from another PO ({0}, {1}). "
+              "Deleting it would strand that credit on the source PO.").format(
+                term.label, frappe.utils.fmt_money(term.amount, currency="INR")
+            )
+        )
+
+    # Another PO's adjustment ledger names this PO as where its credit went.
+    referencing = frappe.db.sql(
+        """SELECT a.po_id, i.amount
+           FROM "tabPO Adjustment Items" i
+           JOIN "tabPO Adjustments" a ON a.name = i.parent
+           WHERE i.target_po = %s""",
+        (doc.name,),
+        as_dict=True,
+    )
+    for ref in referencing:
+        blockers.append(
+            _("{0}'s adjustment ledger records {1} transferred to this PO.").format(
+                ref.po_id, frappe.utils.fmt_money(ref.amount, currency="INR")
+            )
+        )
+
+    return blockers
+
+
 def on_trash(doc, method):
+    # GUARD FIRST — before cleanup_po_linked_docs, which is destructive and cannot
+    # be undone. Covers every delete path: Desk, api.delete_custom_po_and_pr, and
+    # the status=="Cancelled" branch of on_update above.
+    blockers = _po_delete_blockers(doc)
+    if blockers:
+        # Plain text, no markup — same reason as the D1 refusal in revision_logic: the React
+        # app renders these in a text toast, where `<br>`/`&bull;` appear literally.
+        frappe.throw(
+            _("{0} cannot be deleted — money from other records points at it. {1} "
+              "Resolve or transfer this first.").format(doc.name, " ".join(blockers)),
+            title=_("PO has financial history"),
+        )
+
     # Clean up linked PO Revisions, PO Adjustments, and their Project Payments
     # (defense-in-depth — handle_cancel_po also does this before status change)
     cleanup_po_linked_docs(doc.name)

@@ -13,13 +13,22 @@
  * record old/new without reshaping this module.
  */
 import type { CellCoord } from "./PricingGrid";
-import type { RateCellSaveArgs, RemarkSaveArgs } from "./boqTypes";
+import type {
+  BcsRateField,
+  BcsRowRates,
+  BcsRowSaveArgs,
+  RateCellSaveArgs,
+  RemarkSaveArgs,
+} from "./boqTypes";
 
 // ── Kinds ────────────────────────────────────────────────────────────────────────
-/** The two copyable cell kinds. A clipboard cell is always one of these (or a SKIP hole). */
-export type ClipKind = "rate" | "remark";
-/** A target cell's kind. "other" = an anchor / amount / qty cell (never a clipboard target). */
-export type CellKind = "rate" | "remark" | "other";
+/** The copyable cell kinds. A clipboard cell is always one of these (or a SKIP hole).
+ *  BCS-S3a added "bcs" -- the per-row COST boxes (owner ruling: a cost box you cannot paste
+ *  into or undo, one column from a rate box where both work, is the asymmetry people trip over). */
+export type ClipKind = "rate" | "remark" | "bcs";
+/** A target cell's kind. "other" = an anchor / amount / qty cell -- and the computed BCS Total
+ *  Amount column, which is never a paste target. */
+export type CellKind = "rate" | "remark" | "bcs" | "other";
 
 // ── Clipboard payload ──────────────────────────────────────────────────────────────
 /** One copied cell: its kind + verbatim string value. `null` = a SKIP hole (a non-copyable
@@ -83,25 +92,71 @@ export function shapesMatch(
 
 // ── Paste/fill target classification ─────────────────────────────────────────────────
 /** The verdict for writing one clipboard cell into one target cell. */
-export type PasteVerdict = "WRITE" | "SKIP_CROSS_KIND" | "SKIP_NON_PRICEABLE";
+export type PasteVerdict =
+  | "WRITE"
+  | "SKIP_CROSS_KIND"
+  | "SKIP_NON_PRICEABLE"
+  | "SKIP_NOT_COSTABLE";
 
 /**
- * Classify a single paste/fill target. PURE -- the caller resolves `isRateWritable` from the
+ * Classify a single paste/fill target. PURE -- the caller resolves `isWritable` from the
  * concrete (row, descriptor, override) via the existing `isRateDescriptor(d) &&
  * isRateEditableRow(row, override)` (kept in PricingGrid so this module stays a type-only leaf).
  *   - kind mismatch (rate clipboard onto a non-rate target, or vice-versa) -> SKIP_CROSS_KIND;
  *   - rate -> rate but the target is not editable (non-priceable / formula gate) -> SKIP_NON_PRICEABLE;
+ *   - bcs -> bcs but the target cannot be costed (locked / BCS not set up) -> SKIP_NOT_COSTABLE;
  *   - otherwise -> WRITE. Remark -> remark is always WRITE (remark editability is the presence
  *     of the save callback, gated upstream by the caller before any write fires).
+ *
+ * ⚠️ THE TWO SKIPS ARE NOT INTERCHANGEABLE. A cost box is refused by the BCS gates, which
+ * `bcs.py:41-59` keeps DELIBERATELY independent of priceability -- so reporting a skipped cost
+ * cell as "not priceable" would name a gate that had nothing to do with it, and send the reader
+ * to fix a rule that is not in force.
  */
 export function classifyPasteTarget(
   clipKind: ClipKind,
   targetKind: CellKind,
-  isRateWritable: boolean,
+  isWritable: boolean,
 ): PasteVerdict {
   if (clipKind !== targetKind) return "SKIP_CROSS_KIND";
-  if (clipKind === "rate") return isRateWritable ? "WRITE" : "SKIP_NON_PRICEABLE";
+  if (clipKind === "rate") return isWritable ? "WRITE" : "SKIP_NON_PRICEABLE";
+  if (clipKind === "bcs") return isWritable ? "WRITE" : "SKIP_NOT_COSTABLE";
   return "WRITE";
+}
+
+/**
+ * ★ N COST CELLS -> ONE WHOLE-ROW SAVE PER ROW.
+ *
+ * `save_row_bcs_rates` is a whole-row snapshot write that zeroes any rate it is not given, so a
+ * paste spanning two cost columns must NOT fire twice for the same row -- the second call would
+ * overwrite the first with a 0 for the column the first had just written. This folds a gesture's
+ * per-CELL intents into one write per ROW, each starting from that row's own current
+ * draft-or-saved triple (`baseline`, supplied by the caller as `gatherBcsRowRates` over its live
+ * state) so untouched siblings survive.
+ *
+ * Order is FIRST-TOUCHED, and a later entry for the same field wins -- so a fill-down that
+ * passes over its own source row still ends on the intended value.
+ */
+export function foldBcsWrites(
+  entries: readonly {
+    excelRow: number;
+    field: BcsRateField;
+    value: number;
+    description?: string;
+  }[],
+  baseline: (excelRow: number) => BcsRowRates,
+): { kind: "bcs"; args: BcsRowSaveArgs }[] {
+  const byRow = new Map<number, BcsRowSaveArgs>();
+  for (const e of entries) {
+    let args = byRow.get(e.excelRow);
+    if (!args) {
+      args = { excelRow: e.excelRow, rates: { ...baseline(e.excelRow) } };
+      if (e.description !== undefined) args.description = e.description;
+      byRow.set(e.excelRow, args);
+    }
+    args.rates[e.field] = e.value;
+  }
+  return [...byRow.values()].map((args) => ({ kind: "bcs" as const, args }));
 }
 
 // ── Batch write contract (the Q5 finding -- ONE trailing mutate) ───────────────────────
@@ -112,7 +167,9 @@ export function classifyPasteTarget(
  */
 export type BatchWrite =
   | { kind: "rate"; cell: RateCellSaveArgs; rate: number }
-  | { kind: "remark"; args: RemarkSaveArgs };
+  | { kind: "remark"; args: RemarkSaveArgs }
+  // BCS-S3a: ONE per ROW (never per cell) -- see foldBcsWrites on why that is load-bearing.
+  | { kind: "bcs"; args: BcsRowSaveArgs };
 
 /** The result of a clipboard batch: how many writes landed + how many failed (mixed outcome
  *  is valid -- the page does ONE trailing mutate() regardless, never fakes atomicity). */

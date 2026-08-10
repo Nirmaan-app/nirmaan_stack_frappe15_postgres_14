@@ -56,7 +56,7 @@ import CreditsPage from "@/pages/credits/CreditsPage";
 //---New Vendors-AQ2 Page
 import VendorsAQ2 from "@/pages/vendors-wp-categories/vendors-aq2";
 import WorkPackages from "@/pages/work-packages";
-import { ProtectedRoute, UsersRoute, UserProfileRoute, InflowPaymentsRoute, NewProjectRoute, PricingRoute } from "@/utils/auth/ProtectedRoute";
+import { ProtectedRoute, UsersRoute, UserProfileRoute, InflowPaymentsRoute, NewProjectRoute, PricingRoute, OutflowImportRoute } from "@/utils/auth/ProtectedRoute";
 import { ProjectManager } from "../layout/dashboards/dashboard-pm";
 import InvoiceReconciliationContainer from "@/pages/tasks/invoices/InvoiceReconciliationContainer";
 import { NewProcurementRequestPage } from "@/pages/ProcurementRequests/NewPR/NewProcurementRequestPage";
@@ -74,6 +74,7 @@ import { MilestoneTab } from "@/pages/Manpower-and-WorkMilestones/MilestoneTab";
 import MilestoneDailySummary from "@/pages/Manpower-and-WorkMilestones/MilestoneDailySummary";
 import { DeliveryChallansAndMirs } from "@/pages/DeliveryChallansAndMirs";
 import { TDSRepositoryMaster } from "@/pages/tds/TDSRepositoryMaster";
+const TDSItemDetail = lazy(() => import("@/pages/tds/TDSItemDetail"));
 // --- End component imports ---
 
 // NEW COMMISSION REPORT PAGES
@@ -133,6 +134,8 @@ const WarehouseStockPage = lazy(() => import("@/pages/Warehouse/WarehouseStockPa
 const RequestFromWarehouse = lazy(() => import("@/pages/Warehouse/RequestFromWarehouse"));
 // TEMPORARY — Resolve Invoices admin tool (~1 week; delete this line + the route + the page when done)
 const ResolveInvoices = lazy(() => import("@/pages/temp/ResolveInvoices"));
+
+const RemindersPage = lazy(() => import("@/pages/Reminders/RemindersPage"));
 // Document Search
 
 export const appRoutes: RouteObject[] = [
@@ -154,6 +157,9 @@ export const appRoutes: RouteObject[] = [
 
           // Resolve Invoices — Admin tool (lazy → MUST be wrapped in Suspense, like every other lazy route)
           { path: "resolve-invoices", element: <Suspense fallback={null}><ResolveInvoices /></Suspense> },
+
+          // Reminders — compliance reminder schedules (lazy → Suspense-wrapped)
+          { path: "reminders", element: <Suspense fallback={null}><RemindersPage /></Suspense> },
 
           // --- PRs & Milestones Section ---
           {
@@ -720,6 +726,7 @@ export const appRoutes: RouteObject[] = [
           { path: "pmo-packages", element: <Navigate to="/packages-settings?tab=pmo-packages" replace /> },
           { path: "critical-po-categories", element: <Navigate to="/packages-settings?tab=critical-po-categories" replace /> },
           { path: "tds-repository", element: <TDSRepositoryMaster /> },
+          { path: "tds-repository/item/:id", element: <Suspense fallback={null}><TDSItemDetail /></Suspense> },
 
           // ======================================================
           // --- START: PMO DASHBOARD SECTION ---
@@ -805,6 +812,25 @@ export const appRoutes: RouteObject[] = [
             element: <PricingRoute />,
             children: [
               { index: true, lazy: () => import("@/pages/pricing/rate-master/RateMasterPage") },
+            ],
+          },
+
+          // Bulk Import Outflow -- ONE screen (slices X3 + X4): a master table of every staged
+          // transfer, with the summary of a chosen import above it and the upload in a dialog.
+          // Guarded to Accountant / Accountant Lead / Admin; the backend gate in
+          // api/outflow_import/permissions.py is the real boundary. Single top-level segment, which
+          // is what the sidebar's active-item matching keys on.
+          //
+          // ⚠️ BOTH ROUTES RENDER THE SAME PAGE, and ":id" is KEPT for exactly one reason: every
+          // link and bookmark written before X3 points at a batch. It now lands on the master table
+          // pre-scoped to that import rather than 404ing. The "new" route is GONE -- the upload is
+          // a dialog on the master screen, so there is nowhere for it to go.
+          {
+            path: "bulk-import-outflow",
+            element: <OutflowImportRoute />,
+            children: [
+              { index: true, lazy: () => import("@/pages/outflow-import/OutflowMasterPage") },
+              { path: ":id", lazy: () => import("@/pages/outflow-import/OutflowMasterPage") },
             ],
           },
 

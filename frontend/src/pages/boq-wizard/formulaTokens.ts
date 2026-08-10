@@ -6,8 +6,9 @@
  * operators, brackets) for easy insert / backspace / live preview. On SAVE the token list is
  * PARSED into the F1 token TREE (the AmountFormulaNode {op,operands}/{ref} shape) -- this is
  * the ONE place a parse happens, over a tiny unambiguous grammar (operands are pre-tokenized
- * descriptors; operators are + x ( ) ), NOT free text. NO numeric literals exist anywhere
- * (there is no number token), so literals are barred by construction.
+ * descriptors; operators are + - x / ( ) ), NOT free text. NO numeric literals exist anywhere
+ * (there is no number token), so literals are barred by construction -- which is also why
+ * there is no unary minus: `-A` would need a `0` to subtract from.
  *
  * Pure -- no React/DOM. The parser is the one risk spot in F3 and is unit-tested
  * (formulaTokens.test.ts). The cycle check (`wouldCreateCycle`) REUSES F2's evaluator (it
@@ -42,11 +43,15 @@ export interface ColumnToken {
   ref: AmountFormulaRef;
   label: string;
 }
-/** An operator: "+" (sum) or "*" (product; shown as x). */
+/** An operator: "+" (sum), "*" (product; shown as x), "-" (difference) or "/" (quotient). */
 export interface OpToken {
   kind: "op";
-  op: "+" | "*";
+  op: "+" | "*" | "-" | "/";
 }
+
+/** The ADDITIVE tier (loosest binding) and the MULTIPLICATIVE tier (tighter). */
+const ADDITIVE_OPS = new Set(["+", "-"]);
+const MULTIPLICATIVE_OPS = new Set(["*", "/"]);
 export interface LParenToken { kind: "lparen"; }
 export interface RParenToken { kind: "rparen"; }
 
@@ -62,14 +67,27 @@ export const ERR_EMPTY = "Add at least one column.";
 export const ERR_UNBALANCED = "Unbalanced brackets.";
 export const ERR_DANGLING = "An operator needs a column on each side.";
 
-// ── the parser (recursive descent; x binds tighter than +; brackets override) ──
+// ── the parser (recursive descent; x / binds tighter than + -; brackets override) ──
 //
 // Grammar:
-//   expr   = term   ( "+" term )*
-//   term   = factor ( "*" factor )*
+//   expr   = term   ( ("+"|"-") term )*
+//   term   = factor ( ("*"|"/") factor )*
 //   factor = column | "(" expr ")"
-// A single column -> a bare leaf. A "+" / "*" with >1 operand -> an n-ary operator node
-// (F2 folds n-ary operands). A dangling operator / empty group / unbalanced bracket -> error.
+// A single column -> a bare leaf. A dangling operator / empty group / unbalanced bracket ->
+// error.
+//
+// ⚠️ WHY A CHAIN IS NOT ALWAYS ONE N-ARY NODE (F5). Before `-` and `/` existed, a tier held
+// exactly one operator, so a whole chain folded into ONE n-ary node and nothing was lost --
+// `+` and `*` are associative, so `{op:"+", operands:[a,b,c]}` has only one reading. A MIXED
+// tier does not: `a - b + c` is `(a-b)+c` and emphatically not `a-(b+c)`, so it must become a
+// LEFT-ASSOCIATIVE chain of binary nodes. `foldChain` below does exactly one thing beyond
+// that: it keeps folding into the SAME n-ary node while the operator does not change, which is
+// what makes a pure `+` (or pure `*`) run produce the byte-identical tree it produced before
+// F5 -- no stored formula changes shape, no committed sheet's amounts move. That preservation
+// is pinned by test, not assumed.
+//
+// A same-op run of `-` / `/` is n-ary too, and correctly so: F2 folds `operands` left to right
+// from `operands[0]`, so `{op:"-", operands:[a,b,c]}` IS `((a-b)-c)`.
 
 class Cursor {
   i = 0;
@@ -101,24 +119,55 @@ function parseFactor(c: Cursor): AmountFormulaNode {
   throw new ParseError(ERR_DANGLING);
 }
 
-function parseTerm(c: Cursor): AmountFormulaNode {
-  const first = parseFactor(c);
-  const operands = [first];
-  while (c.peek()?.kind === "op" && (c.peek() as OpToken).op === "*") {
-    c.next();
-    operands.push(parseFactor(c));
+/**
+ * Fold one already-parsed operator chain -- `first`, then the (op, operand) pairs in source
+ * order -- into a tree, LEFT-ASSOCIATIVELY.
+ *
+ * A run of ONE operator collects into a single n-ary node; the operator CHANGING closes that
+ * node and makes it the left operand of the next one. `acc` is only ever extended in place
+ * when this function built it in this call (`accOp` is null until then), so a subtree handed
+ * up by parseFactor -- a bracketed group, say -- is never mutated.
+ */
+function foldChain(
+  first: AmountFormulaNode,
+  rest: ReadonlyArray<{ op: OpToken["op"]; operand: AmountFormulaNode }>,
+): AmountFormulaNode {
+  let acc = first;
+  let accOp: OpToken["op"] | null = null;
+  for (const { op, operand } of rest) {
+    if (accOp === op) {
+      (acc as { op: OpToken["op"]; operands: AmountFormulaNode[] }).operands.push(operand);
+      continue;
+    }
+    acc = { op, operands: [acc, operand] };
+    accOp = op;
   }
-  return operands.length === 1 ? first : { op: "*", operands };
+  return acc;
+}
+
+/** One precedence tier of the grammar, parameterised by its operator set + the tighter tier. */
+function parseTier(
+  c: Cursor,
+  ops: ReadonlySet<string>,
+  next: (c: Cursor) => AmountFormulaNode,
+): AmountFormulaNode {
+  const first = next(c);
+  const rest: Array<{ op: OpToken["op"]; operand: AmountFormulaNode }> = [];
+  for (;;) {
+    const t = c.peek();
+    if (t?.kind !== "op" || !ops.has(t.op)) break;
+    c.next();
+    rest.push({ op: t.op, operand: next(c) });
+  }
+  return rest.length === 0 ? first : foldChain(first, rest);
+}
+
+function parseTerm(c: Cursor): AmountFormulaNode {
+  return parseTier(c, MULTIPLICATIVE_OPS, parseFactor);
 }
 
 function parseExpr(c: Cursor): AmountFormulaNode {
-  const first = parseTerm(c);
-  const operands = [first];
-  while (c.peek()?.kind === "op" && (c.peek() as OpToken).op === "+") {
-    c.next();
-    operands.push(parseTerm(c));
-  }
-  return operands.length === 1 ? first : { op: "+", operands };
+  return parseTier(c, ADDITIVE_OPS, parseTerm);
 }
 
 /** Parse a token list into an AmountFormulaNode tree, or a structural error. */
@@ -162,37 +211,50 @@ export function refKey(ref: AmountFormulaRef): string {
 
 // ── tree -> tokens (hydrate the builder from an existing stored formula) ───────
 
+/** Binding strength: a bare column binds tightest, then x /, then + -. */
+const ATOM_PREC = 3;
+const OP_PREC: Record<OpToken["op"], number> = { "*": 2, "/": 2, "+": 1, "-": 1 };
+/** Operators for which a RIGHT operand of equal strength must be bracketed: `a - (b - c)` is
+ *  not `a - b - c`, and `a / (b / c)` is not `a / b / c`. `+` / `*` have no such hazard. */
+const RIGHT_ASSOC_HAZARD_OPS = new Set(["-", "/"]);
+
 /**
  * Flatten a stored tree back into a token list (so re-opening the builder shows the existing
- * formula). Inserts the MINIMAL brackets that preserve precedence: a "+" sub-node nested
- * inside a "*" is wrapped in parens; everything else is bare. `labelFor` resolves a ref to its
- * display label. Pure -- round-trip tested (parse(treeToTokens(t)) is semantically t).
+ * formula). Inserts the MINIMAL brackets that preserve the tree's own reading. `labelFor`
+ * resolves a ref to its display label. Pure -- round-trip tested.
+ *
+ * The rule, per operand of a node whose operator is O:
+ *   - the FIRST operand is bracketed only when it binds LOOSER than O (`(a + b) x c`);
+ *   - a LATER operand is bracketed when it binds looser, when its operator DIFFERS at the same
+ *     strength (`a + (b - c)`), or when O is `-` / `/`, where even the same operator changes
+ *     the answer (`a - (b - c)`).
+ *
+ * ⚠️ THE FIRST-OPERAND ASYMMETRY IS DELIBERATE (F5) and is what keeps the output MINIMAL: a
+ * left operand of equal strength needs no brackets precisely because the parser re-reads the
+ * chain left-associatively, so `a + b - c` parses back to the `(a+b)-c` it was printed from.
+ * Round-tripping is EXACT here, not merely semantic -- parse(treeToTokens(t)) reproduces `t`
+ * node for node, on the new operators as well as the old two.
  */
 export function treeToTokens(
   tree: AmountFormulaNode,
   labelFor: (ref: AmountFormulaRef) => string,
 ): FormulaToken[] {
-  const build = (n: AmountFormulaNode): { toks: FormulaToken[]; isSum: boolean } => {
+  const build = (n: AmountFormulaNode): { toks: FormulaToken[]; prec: number } => {
     if ("ref" in n) {
-      return { toks: [{ kind: "column", ref: n.ref, label: labelFor(n.ref) }], isSum: false };
+      return { toks: [{ kind: "column", ref: n.ref, label: labelFor(n.ref) }], prec: ATOM_PREC };
     }
-    if (n.op === "+") {
-      const toks: FormulaToken[] = [];
-      n.operands.forEach((o, i) => {
-        if (i) toks.push({ kind: "op", op: "+" });
-        toks.push(...build(o).toks);
-      });
-      return { toks, isSum: true };
-    }
-    // "*": wrap any sum operand in parens.
+    const prec = OP_PREC[n.op];
     const toks: FormulaToken[] = [];
     n.operands.forEach((o, i) => {
-      if (i) toks.push({ kind: "op", op: "*" });
+      if (i) toks.push({ kind: "op", op: n.op });
       const b = build(o);
-      if (b.isSum) toks.push({ kind: "lparen" }, ...b.toks, { kind: "rparen" });
+      const sameStrengthHazard =
+        b.prec === prec && (!("op" in o) || o.op !== n.op || RIGHT_ASSOC_HAZARD_OPS.has(n.op));
+      const needsParens = b.prec < prec || (i > 0 && sameStrengthHazard);
+      if (needsParens) toks.push({ kind: "lparen" }, ...b.toks, { kind: "rparen" });
       else toks.push(...b.toks);
     });
-    return { toks, isSum: false };
+    return { toks, prec };
   };
   return build(tree).toks;
 }

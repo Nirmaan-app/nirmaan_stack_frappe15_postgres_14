@@ -1,0 +1,1069 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Outflow Import — batch screen prototype (table)</title>
+<style>
+/* ═══════════════════════════════════════════════════════════════════════════
+   THE LEDGER DESK — table edition
+   A back-office reconciliation table. Dense, calm, keyboard-friendly.
+   Colour is rationed: the ONLY saturated thing on screen is the Outcome cell,
+   because that is the one column that wants a decision.
+
+   Built in the HOST APP's language, not a novel one: Inter, rose-600 primary
+   (--primary: 346.8 77.2% 49.8%), 8px radius, shadcn column-header menus and
+   funnel filter popovers as used by the Design Tracker table. A prototype in a
+   different typeface would be a lie about what ships. The one addition is a
+   tabular-numeral mono for money, dates and references.
+   ═══════════════════════════════════════════════════════════════════════ */
+:root {
+  --rose:#e11d48; --rose-soft:#fff1f3; --rose-line:#fbc7d0;
+  --amber:#b45309; --amber-soft:#fffbeb; --amber-line:#fde3a7;
+  --emerald:#047857; --emerald-soft:#ecfdf5; --emerald-line:#a7e8ca;
+  --slate:#64748b; --slate-soft:#f5f6f8;
+  --bg:#fbfbfc; --surface:#ffffff; --sink:#f4f5f7; --sink2:#eceef1;
+  --fg:#0f1115; --fg-2:#4a5259; --fg-3:#8b939c;
+  --line:#e6e8eb; --line-soft:#f0f1f4;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --shadow: 0 1px 2px rgba(15,17,21,.04);
+  --pop: 0 4px 12px rgba(15,17,21,.10), 0 12px 32px rgba(15,17,21,.10);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --rose:#fb7185; --rose-soft:#2c1219; --rose-line:#5c2430;
+    --amber:#e0b35c; --amber-soft:#2a2110; --amber-line:#54401a;
+    --emerald:#5ec79a; --emerald-soft:#0f2a20; --emerald-line:#1f5340;
+    --slate:#94a3b8; --slate-soft:#1b1e24;
+    --bg:#0e1014; --surface:#15181e; --sink:#1a1e25; --sink2:#222730;
+    --fg:#e9edf2; --fg-2:#a7b0bb; --fg-3:#6f7883;
+    --line:#282d35; --line-soft:#20242b;
+    --shadow:0 1px 2px rgba(0,0,0,.4);
+    --pop:0 4px 12px rgba(0,0,0,.5), 0 12px 32px rgba(0,0,0,.4);
+  }
+}
+*{box-sizing:border-box} html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.wrap{max-width:1440px;margin:0 auto;padding:0 22px 130px}
+
+.protobar{background:var(--fg);color:var(--bg);font-size:11.5px;letter-spacing:.09em;
+  text-transform:uppercase;font-weight:650;padding:7px 22px;text-align:center}
+.protobar span{opacity:.62;text-transform:none;letter-spacing:.01em;font-weight:500}
+
+/* ── header ────────────────────────────────────────────────────────────── */
+header.batch{padding:26px 0 0}
+.crumb{font-size:12.5px;color:var(--fg-3);margin-bottom:7px}
+.crumb a{color:var(--fg-3);text-decoration:none;border-bottom:1px solid var(--line)}
+.title-row{display:flex;align-items:baseline;gap:13px;flex-wrap:wrap}
+h1{font-size:24px;letter-spacing:-.022em;margin:0;font-weight:680}
+.period{font-family:var(--mono);font-size:12.5px;color:var(--fg-2);background:var(--sink);
+  border:1px solid var(--line);padding:3px 9px;border-radius:6px}
+.figures{display:flex;gap:32px;flex-wrap:wrap;margin:18px 0 4px}
+.fig .k{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-3);font-weight:650}
+.fig .v{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:19px;letter-spacing:-.02em;margin-top:1px}
+.fig .v small{font-size:12.5px;color:var(--fg-3);font-weight:400}
+
+/* the statement strip — the whole batch's shape in one glance */
+.strip{display:flex;gap:2px;height:20px;padding:3px;background:var(--sink);
+  border:1px solid var(--line);border-radius:7px;margin:16px 0 8px}
+.seg{flex:1 1 0;min-width:3px;border-radius:2px;cursor:pointer;border:0;padding:0;
+  transition:transform .13s ease,filter .13s ease}
+.seg:hover{transform:scaleY(1.3);filter:brightness(1.1)}
+.s-Matched{background:var(--rose)} .s-Unmatched{background:var(--rose);opacity:.4}
+.s-Mismatched{background:var(--amber)} .s-Pending{background:var(--line)}
+.s-Settled{background:var(--emerald)} .s-Skipped{background:var(--slate);opacity:.32}
+.strip-key{display:flex;gap:16px;flex-wrap:wrap;font-size:11.5px;color:var(--fg-3)}
+.strip-key i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+
+/* ── tabs ──────────────────────────────────────────────────────────────── */
+nav.tabs{display:flex;gap:2px;margin:22px 0 0;border-bottom:1px solid var(--line)}
+nav.tabs button{appearance:none;border:0;background:none;font:inherit;cursor:pointer;
+  padding:10px 15px 11px;font-weight:640;color:var(--fg-3);border-bottom:2px solid transparent;
+  margin-bottom:-1px;display:flex;align-items:center;gap:8px}
+nav.tabs button:hover{color:var(--fg)}
+nav.tabs button.on{color:var(--fg);border-bottom-color:var(--rose)}
+nav.tabs .count{font-family:var(--mono);font-size:11.5px;font-weight:600;background:var(--sink);
+  border:1px solid var(--line);padding:1px 7px;border-radius:999px;color:var(--fg-2)}
+nav.tabs button.on .count{background:var(--rose-soft);border-color:var(--rose-line);color:var(--rose)}
+
+/* ── toolbar ───────────────────────────────────────────────────────────── */
+.toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:16px 0 10px}
+.searchbox{position:relative;flex:0 1 380px;min-width:220px}
+.searchbox input{width:100%;font:inherit;font-size:13px;padding:7px 30px 7px 32px;border-radius:7px;
+  border:1px solid var(--line);background:var(--surface);color:var(--fg)}
+.searchbox input:focus{outline:2px solid var(--rose);outline-offset:-1px}
+.searchbox .mag{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--fg-3);font-size:13px}
+.searchbox .clr{position:absolute;right:6px;top:50%;transform:translateY(-50%);border:0;background:none;
+  cursor:pointer;color:var(--fg-3);font-size:15px;line-height:1;padding:3px}
+.tbtn{appearance:none;font:inherit;font-size:12.5px;font-weight:620;cursor:pointer;padding:6px 11px;
+  border-radius:7px;border:1px solid var(--line);background:var(--surface);color:var(--fg-2)}
+.tbtn:hover{border-color:var(--fg-3);color:var(--fg)}
+.tbtn.live{border-color:var(--rose);color:var(--rose);background:var(--rose-soft)}
+.spacer{flex:1}
+.hits{font-size:12.5px;color:var(--fg-3);font-family:var(--mono)}
+
+/* ── table ─────────────────────────────────────────────────────────────── */
+.tablewrap{border:1px solid var(--line);border-radius:9px;background:var(--surface);overflow:auto;box-shadow:var(--shadow)}
+table{border-collapse:separate;border-spacing:0;width:100%;min-width:1180px;table-layout:fixed}
+thead th{position:sticky;top:0;z-index:3;background:var(--sink);border-bottom:1px solid var(--line);
+  text-align:left;padding:0;white-space:nowrap}
+.th-in{display:flex;align-items:center;gap:2px;padding:7px 10px}
+.th-sort{appearance:none;border:0;background:none;font:inherit;font-size:11px;letter-spacing:.06em;
+  text-transform:uppercase;font-weight:700;color:var(--fg-2);cursor:pointer;padding:3px 5px;
+  border-radius:5px;display:flex;align-items:center;gap:5px}
+.th-sort:hover{background:var(--sink2);color:var(--fg)}
+.th-sort .car{font-size:9px;color:var(--fg-3)}
+.th-sort.sorted{color:var(--rose)} .th-sort.sorted .car{color:var(--rose)}
+.th-filt{appearance:none;border:0;background:none;cursor:pointer;color:var(--fg-3);padding:3px 4px;
+  border-radius:5px;font-size:11px;line-height:1}
+.th-filt:hover{background:var(--sink2);color:var(--fg)}
+.th-filt.on{color:var(--rose);background:var(--rose-soft)}
+
+tbody td{border-bottom:1px solid var(--line-soft);padding:9px 10px;vertical-align:top}
+tbody tr:last-child td{border-bottom:0}
+tbody tr:hover td{background:var(--sink)}
+tbody tr.sel td{background:var(--rose-soft)}
+td.num{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+td.mono{font-family:var(--mono);font-size:12px}
+/* Every text cell is single-line with an ellipsis and a title tooltip. In a
+   reconciliation table the row COUNT you can see at once matters more than any
+   one field being complete — wrapping turned 13 rows into three screens. */
+.benef{font-weight:620;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.benef .sub{display:block;font-family:var(--mono);font-size:11px;color:var(--fg-3);font-weight:400;
+  margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rem{color:var(--fg-2);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+tbody td{max-width:0}                 /* lets the ellipsis honour the column width */
+tbody td.num,tbody td.mono{max-width:none}
+.hl{background:#fde68a;color:#111;border-radius:2px}
+@media (prefers-color-scheme:dark){.hl{background:#7a5c12;color:#fff}}
+
+/* status pill */
+.pill{display:inline-block;font-size:11px;font-weight:680;padding:2px 9px;border-radius:999px;white-space:nowrap;
+  border:1px solid transparent}
+.p-Matched{background:var(--rose-soft);color:var(--rose);border-color:var(--rose-line)}
+.p-Unmatched{background:var(--sink2);color:var(--fg-2);border-color:var(--line)}
+.p-Mismatched{background:var(--amber-soft);color:var(--amber);border-color:var(--amber-line)}
+.p-Pending{background:var(--sink);color:var(--fg-3);border-color:var(--line)}
+.p-Settled{background:var(--emerald-soft);color:var(--emerald);border-color:var(--emerald-line)}
+.p-Skipped{background:var(--slate-soft);color:var(--slate);border-color:var(--line)}
+.p-Error{background:var(--rose);color:#fff}
+
+/* ── THE OUTCOME CELL ──────────────────────────────────────────────────────
+   The one saturated, unmistakably-interactive thing in the table. It is a
+   real button with a border, a hover lift and a chevron — the original
+   complaint was that a bare clickable row does not read as clickable, and a
+   hover tint alone was never going to fix that. */
+.outcome{appearance:none;font:inherit;text-align:left;cursor:pointer;width:100%;
+  display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:7px;
+  border:1px solid var(--line);background:var(--surface);color:var(--fg);
+  transition:border-color .12s ease,box-shadow .12s ease,transform .06s ease}
+.outcome:hover{border-color:var(--rose);box-shadow:0 2px 8px rgba(225,29,72,.14)}
+.outcome:active{transform:translateY(1px)}
+.outcome:focus-visible{outline:2px solid var(--rose);outline-offset:1px}
+.outcome .oi{font-size:13px;line-height:1;flex:none}
+.outcome .ob{flex:1;min-width:0}
+.outcome .ot{display:block;font-size:12.5px;font-weight:620;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.outcome .os{display:block;font-size:11px;color:var(--fg-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:1px}
+.outcome .chev{color:var(--fg-3);font-size:11px;flex:none}
+.outcome:hover .chev{color:var(--rose)}
+.o-Matched{border-color:var(--rose-line);background:var(--rose-soft)}
+.o-Matched .ot{color:var(--rose)}
+.o-Mismatched{border-color:var(--amber-line);background:var(--amber-soft)}
+.o-Mismatched .ot{color:var(--amber)}
+.o-Settled{border-color:var(--emerald-line);background:var(--emerald-soft)}
+.o-Settled .ot{color:var(--emerald)}
+
+/* checkbox */
+.cbx{appearance:none;width:15px;height:15px;border:1.5px solid var(--fg-3);border-radius:4px;
+  cursor:pointer;position:relative;background:var(--surface);flex:none;margin:2px 0 0}
+.cbx:checked{background:var(--rose);border-color:var(--rose)}
+.cbx:checked::after{content:"";position:absolute;left:4px;top:1px;width:4px;height:8px;
+  border:solid #fff;border-width:0 2px 2px 0;transform:rotate(42deg)}
+.cbx:disabled{opacity:.3;cursor:not-allowed}
+
+/* ── filter popover ────────────────────────────────────────────────────── */
+.pop{position:absolute;z-index:40;background:var(--surface);border:1px solid var(--line);
+  border-radius:9px;box-shadow:var(--pop);padding:9px;min-width:230px;max-width:300px}
+.pop .ph{font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;font-weight:700;
+  color:var(--fg-3);margin-bottom:7px}
+.pop input.f{width:100%;font:inherit;font-size:12.5px;padding:6px 9px;border-radius:6px;
+  border:1px solid var(--line);background:var(--surface);color:var(--fg)}
+.pop .opts{max-height:230px;overflow:auto;margin-top:7px;display:grid;gap:1px}
+.pop .opt{display:flex;align-items:center;gap:8px;padding:5px 7px;border-radius:5px;cursor:pointer;font-size:12.5px}
+.pop .opt:hover{background:var(--sink)}
+.pop .opt .cnt{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--fg-3)}
+.pop .pf{display:flex;gap:7px;margin-top:9px;padding-top:8px;border-top:1px solid var(--line-soft)}
+.pop .pf button{flex:1}
+
+/* ── bulk bar ──────────────────────────────────────────────────────────── */
+.bulk{position:fixed;left:50%;bottom:58px;transform:translateX(-50%) translateY(16px);z-index:35;
+  background:var(--fg);color:var(--bg);border-radius:10px;box-shadow:var(--pop);
+  display:flex;align-items:center;gap:14px;padding:10px 14px;opacity:0;pointer-events:none;
+  transition:opacity .18s ease,transform .18s ease}
+.bulk.on{opacity:1;pointer-events:auto;transform:translateX(-50%) translateY(0)}
+.bulk .n{font-family:var(--mono);font-weight:700}
+.bulk button{appearance:none;font:inherit;font-size:12.5px;font-weight:640;cursor:pointer;
+  padding:6px 12px;border-radius:6px;border:1px solid rgba(255,255,255,.28);
+  background:transparent;color:var(--bg)}
+.bulk button:hover{background:rgba(255,255,255,.12)}
+.bulk button.go{background:var(--rose);border-color:var(--rose);color:#fff}
+.bulk button:disabled{opacity:.34;cursor:not-allowed}
+.bulk .x{border:0;font-size:16px;padding:2px 6px;opacity:.6}
+
+/* ── dialog ────────────────────────────────────────────────────────────── */
+/* The DIALOG owns its own scrollbar: header and footer stay pinned and only the
+   body scrolls. Scrolling the scrim instead pushes the Confirm button off the
+   bottom of a long decision, which is the one control the dialog exists for. */
+.scrim{position:fixed;inset:0;z-index:50;background:rgba(15,17,21,.42);backdrop-filter:blur(2px);
+  display:none;align-items:center;justify-content:center;padding:34px 18px;overflow:hidden}
+.scrim.on{display:flex}
+.dlg{background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--pop);
+  width:min(760px,100%);max-height:calc(100vh - 68px);
+  display:flex;flex-direction:column;overflow:hidden;
+  animation:rise .18s cubic-bezier(.2,.7,.3,1)}
+@keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.dlg-h{flex:none;padding:17px 20px 15px;border-bottom:1px solid var(--line)}
+.dlg-h .top{display:flex;align-items:flex-start;gap:14px}
+.dlg-h h2{margin:0;font-size:17px;font-weight:680;letter-spacing:-.01em}
+.dlg-h .meta{font-family:var(--mono);font-size:11.5px;color:var(--fg-3);margin-top:4px}
+.dlg-h .amt{margin-left:auto;font-family:var(--mono);font-variant-numeric:tabular-nums;
+  font-size:21px;letter-spacing:-.02em;white-space:nowrap}
+.dlg-h .x{appearance:none;border:0;background:none;cursor:pointer;color:var(--fg-3);font-size:20px;
+  line-height:1;padding:2px 6px;border-radius:6px;flex:none}
+.dlg-h .x:hover{background:var(--sink);color:var(--fg)}
+.dlg-b{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:18px 20px}
+.dlg-f{flex:none;padding:13px 20px;border-top:1px solid var(--line);display:flex;align-items:center;gap:9px;background:var(--sink)}
+.dlg-f .push{flex:1}
+
+/* "why the system decided this" — plain English, never jargon */
+.crit{border:1px solid var(--line);border-radius:9px;background:var(--sink);padding:13px 15px;margin-bottom:17px}
+.crit.k-Matched{background:var(--rose-soft);border-color:var(--rose-line)}
+.crit.k-Mismatched{background:var(--amber-soft);border-color:var(--amber-line)}
+.crit.k-Settled{background:var(--emerald-soft);border-color:var(--emerald-line)}
+.crit .ch{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;font-weight:700;margin-bottom:6px;color:var(--fg-2)}
+.crit.k-Matched .ch{color:var(--rose)} .crit.k-Mismatched .ch{color:var(--amber)}
+.crit.k-Settled .ch{color:var(--emerald)}
+.crit p{margin:0 0 6px;font-size:13.5px}
+.crit ul{margin:7px 0 0;padding-left:17px;font-size:13px;color:var(--fg-2)}
+.crit li{margin:3px 0}
+.crit li b{color:var(--fg)}
+
+.secttl{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;font-weight:700;
+  color:var(--fg-3);margin:0 0 9px}
+.choice{display:flex;gap:11px;align-items:flex-start;padding:10px 12px;border-radius:8px;
+  cursor:pointer;border:1px solid var(--line);background:var(--surface);margin-bottom:7px}
+.choice:hover{border-color:var(--fg-3)}
+.choice.on{border-color:var(--rose);background:var(--rose-soft)}
+.choice .dot{width:14px;height:14px;border-radius:50%;border:1.5px solid var(--fg-3);margin-top:3px;flex:none;position:relative}
+.choice.on .dot{border-color:var(--rose)}
+.choice.on .dot::after{content:"";position:absolute;inset:2.5px;border-radius:50%;background:var(--rose)}
+.choice .txt{flex:1;min-width:0}
+.choice .lab{display:block;font-weight:620;font-size:13.5px}
+.choice .sub{display:block;font-size:12.5px;color:var(--fg-3);margin-top:2px}
+.choice.on .sub{color:var(--fg-2)}
+
+/* everything an option needs lives inside the option */
+.optbody{margin:11px 0 2px;padding-top:12px;border-top:1px dashed var(--rose-line)}
+.optbody .cap{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;font-weight:700;
+  color:var(--fg-3);margin-bottom:8px}
+.fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px 12px}
+.field{display:flex;flex-direction:column;gap:4px;min-width:0}
+.field.wide{grid-column:1/-1}
+.field label{font-size:11px;font-weight:650;color:var(--fg-2)}
+.field select,.field input{font:inherit;font-size:12.5px;padding:6px 9px;border-radius:6px;width:100%;
+  border:1px solid var(--line);background:var(--surface);color:var(--fg)}
+.field select:focus,.field input:focus{outline:2px solid var(--rose);outline-offset:-1px}
+.field input[readonly]{background:var(--sink);color:var(--fg-2);font-family:var(--mono);
+  border-style:dashed;cursor:not-allowed}
+.field .note{font-size:11px;color:var(--fg-3);font-weight:400}
+.seg2{display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;width:max-content}
+.seg2 button{appearance:none;border:0;background:var(--surface);font:inherit;font-size:12.5px;
+  font-weight:600;padding:6px 13px;cursor:pointer;color:var(--fg-2)}
+.seg2 button+button{border-left:1px solid var(--line)}
+.seg2 button.on{background:var(--rose);color:#fff}
+
+/* the record dropdown + the panel it loads */
+.reccard{margin-top:10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);padding:12px 14px}
+.reccard.empty{border-style:dashed;color:var(--fg-3);font-size:12.5px;text-align:center;padding:18px}
+.reccard .rid{font-family:var(--mono);font-weight:700;font-size:13px}
+.reccard .rgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:9px 14px;margin-top:10px}
+.reccard .rk{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3);font-weight:650}
+.reccard .rv{font-size:13px;margin-top:1px}
+.reccard .rv.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.reccard .match{margin-top:11px;padding-top:9px;border-top:1px dashed var(--line);font-size:12.5px}
+.reccard .ok{color:var(--emerald);font-weight:640}
+.reccard .no{color:var(--amber);font-weight:640}
+
+button.btn{appearance:none;font:inherit;font-size:13px;font-weight:620;cursor:pointer;padding:7px 14px;
+  border-radius:7px;border:1px solid var(--line);background:var(--surface);color:var(--fg)}
+button.btn:hover{border-color:var(--fg-3)}
+button.btn.primary{background:var(--rose);border-color:var(--rose);color:#fff}
+button.btn.primary:hover{filter:brightness(1.07)}
+button.btn.ghost{background:transparent;border-color:transparent;color:var(--fg-3)}
+button.btn.ghost:hover{color:var(--fg);background:var(--surface);border-color:var(--line)}
+button.btn:disabled{opacity:.45;cursor:not-allowed}
+
+/* ── keyboard rail ─────────────────────────────────────────────────────── */
+.rail{position:fixed;left:0;right:0;bottom:0;z-index:20;
+  background:color-mix(in srgb,var(--surface) 92%,transparent);backdrop-filter:blur(10px);
+  border-top:1px solid var(--line)}
+.rail-in{max-width:1440px;margin:0 auto;padding:9px 22px;display:flex;align-items:center;gap:18px;
+  flex-wrap:wrap;font-size:12.5px;color:var(--fg-3)}
+.rail kbd{font-family:var(--mono);font-size:11px;color:var(--fg-2);background:var(--sink);
+  border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:1px 6px;margin-right:5px}
+.rail .prog{margin-left:auto;display:flex;align-items:center;gap:10px}
+.rail .bar{width:140px;height:5px;border-radius:3px;background:var(--line);overflow:hidden}
+.rail .bar i{display:block;height:100%;background:var(--emerald);transition:width .35s cubic-bezier(.4,0,.2,1)}
+.rail .prog b{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--fg);font-weight:640}
+
+.toast{position:fixed;bottom:110px;left:50%;transform:translateX(-50%) translateY(14px);
+  background:var(--fg);color:var(--bg);font-size:13px;font-weight:560;padding:9px 17px;border-radius:7px;
+  box-shadow:var(--pop);opacity:0;pointer-events:none;transition:opacity .2s ease,transform .2s ease;z-index:60}
+.toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+.empty{padding:48px 20px;text-align:center;color:var(--fg-3);font-size:13.5px}
+</style>
+</head>
+<body>
+
+<div class="protobar">Prototype · not wired to a server
+  <span>— all figures and names below are synthetic</span></div>
+
+<div class="wrap">
+<header class="batch">
+  <div class="crumb"><a href="#">Outflow imports</a> &nbsp;›&nbsp; OFI-26-00008</div>
+  <div class="title-row">
+    <h1>cashfree_payouts_05aug.xlsx</h1>
+    <span class="period">30-Jul-2026 → 05-Aug-2026</span>
+  </div>
+  <div class="figures">
+    <div class="fig"><div class="k">Transfers</div><div class="v" id="figRows">—</div></div>
+    <div class="fig"><div class="k">Gross out</div><div class="v" id="figGross">—</div></div>
+    <div class="fig"><div class="k">Bank charges</div><div class="v">₹2,124</div></div>
+    <div class="fig"><div class="k">Decided</div><div class="v" id="figDone">—</div></div>
+  </div>
+  <div class="strip" id="strip"></div>
+  <div class="strip-key">
+    <span><i style="background:var(--rose)"></i>matched</span>
+    <span><i style="background:var(--rose);opacity:.4"></i>unmatched</span>
+    <span><i style="background:var(--amber)"></i>mismatched</span>
+    <span><i style="background:var(--line)"></i>not run</span>
+    <span><i style="background:var(--emerald)"></i>settled</span>
+    <span><i style="background:var(--slate);opacity:.32"></i>skipped</span>
+  </div>
+</header>
+
+<nav class="tabs" id="tabs">
+  <button data-tab="pending" class="on">Pending <span class="count" id="cPending">0</span></button>
+  <button data-tab="settled">Settled <span class="count" id="cSettled">0</span></button>
+  <button data-tab="skipped">Skipped <span class="count" id="cSkipped">0</span></button>
+</nav>
+
+<div class="toolbar">
+  <div class="searchbox">
+    <span class="mag">⌕</span>
+    <input id="q" placeholder="Search remarks, reference or beneficiary…" autocomplete="off">
+    <button class="clr" id="qclr" title="Clear" style="display:none">×</button>
+  </div>
+  <button class="tbtn" id="colsBtn">Columns</button>
+  <button class="tbtn" id="clearBtn" style="display:none">Clear filters</button>
+  <span class="spacer"></span>
+  <span class="hits" id="hits"></span>
+</div>
+
+<div class="tablewrap"><table id="tbl"><thead id="thead"></thead><tbody id="tbody"></tbody></table></div>
+</div>
+
+<div class="bulk" id="bulk">
+  <span class="n" id="bulkN">0</span><span>selected</span>
+  <button class="go" id="bulkConfirm">Confirm matched</button>
+  <button id="bulkSkip">Skip</button>
+  <button class="x" id="bulkClear" title="Clear selection">×</button>
+</div>
+
+<div class="rail"><div class="rail-in">
+  <span><kbd>/</kbd>search</span>
+  <span><kbd>↵</kbd>open outcome</span>
+  <span><kbd>Esc</kbd>close</span>
+  <div class="prog"><span>settled</span><div class="bar"><i id="progBar"></i></div><b id="progTxt"></b></div>
+</div></div>
+
+<div class="scrim" id="scrim"><div class="dlg" id="dlg" role="dialog" aria-modal="true"></div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════════════════
+   Synthetic data. Every vendor name, account and reference is invented — the
+   repository is public and real statements carry live beneficiary details.
+
+   ⚠️ SCOPE NOTE (owner instruction, 2026-08-06): only records in **Approved**
+   state are ever matched. A transfer against a Requested / CEO-Pending payment
+   is now simply **Unmatched** — the "matched but not approved" status and its
+   approval nudge are GONE. The one thing kept is the already-Paid duplicate
+   guard, which is a SKIP, not a match — without it a payment somebody already
+   ticked by hand would read as Unmatched and could be booked a second time.
+   ═══════════════════════════════════════════════════════════════════════ */
+const WON_PROJECTS = [
+  {id:'BENGALURU-PROJ-00066',nm:'Alorica',hold:false},
+  {id:'THRISSUR-PROJ-00105', nm:'Qburst',hold:false},
+  {id:'LUCKNOW-PROJ-00181',  nm:'SEBI Lucknow',hold:false},
+  {id:'RANGAREDDY-PROJ-00106',nm:'Veeva Hyderabad',hold:false},
+  {id:'KOLKATA-PROJ-00102',  nm:'Maersk Kolkata',hold:false},
+  {id:'BENGALURU-PROJ-00096',nm:'SKF Electronic City',hold:false},
+  {id:'BENGALURU-PROJ-00103',nm:'Paytm Bangalore',hold:true},
+];
+const TYPES_PROJECT = ['Staff Accommodation Rent','Labour Accommodation Rent','Labour Charges',
+  'Material Purchases','Material Transportation Charges','Manpower Rent','Scaffolding Rent',
+  'Loading & Unloading Charges','Travel Expenses (Bus)','Other Project Related Charges'];
+const TYPES_NONPROJECT = ['Office Maintenance','Electricity Expenses','Internet & Mobile Charges',
+  'Printing & Stationery','Postage & Courier','Professional Charges','Repair & Maintenance',
+  'Hotel Expenses','Bank Fees & Charges','Advertising & Marketing'];
+const VENDORS = ['— none —','Apex Fabrication Works','Meridian Air Systems','Northfield Electricals',
+  'Clearspan Interiors','Summit Plumbing Co','Greenline Waste Services'];
+
+const TARGETS = [
+  {id:'pay', lab:'Link to an approved Project Payment',     sub:'money against a PO or SR that is already approved'},
+  {id:'pex', lab:'Link to an approved Project Expense',     sub:'project spend with no PO behind it'},
+  {id:'npex',lab:'Link to an approved Non Project Expense', sub:'office and company overheads'},
+  {id:'new', lab:'Create a new expense',                    sub:'nothing to link to — record it here, already Paid'},
+];
+
+// Only APPROVED records are ever offered. Nothing earlier on the ladder appears.
+const POOLS = {
+  pay:[
+    {id:'PAY-00066-003',vendor:'Apex Fabrication Works',amt:235000,doc:'PO/077/00066/25-26',proj:'Alorica',on:'02-Aug-2026',st:'Approved'},
+    {id:'PAY-00074-118',vendor:'Meridian Air Systems',  amt:412500,doc:'PO/037/00102/26-27',proj:'Qburst',on:'02-Aug-2026',st:'Approved'},
+    {id:'PAY-00089-041',vendor:'Northfield Electricals',amt:88400, doc:'PO/060/00066/25-26',proj:'SEBI Lucknow',on:'01-Aug-2026',st:'Approved'},
+    {id:'PAY-00097-052',vendor:'Summit Plumbing Co',    amt:98000, doc:'PO/105/00066/25-26',proj:'Veeva Hyderabad',on:'31-Jul-2026',st:'Approved'},
+    {id:'PAY-00092-131',vendor:'Apex Fabrication Works',amt:64200, doc:'SR-00062-000676',   proj:'Maersk Kolkata',on:'30-Jul-2026',st:'Approved'},
+    {id:'PAY-00101-008',vendor:'Clearspan Interiors',   amt:26000, doc:'PO/014/00096/26-27',proj:'SKF Electronic City',on:'30-Jul-2026',st:'Approved'},
+  ],
+  pex:[
+    {id:'PEX-00066-0214',type:'Staff Accommodation Rent',amt:26000,proj:'Alorica',desc:'Site office partition — August',st:'Approved'},
+    {id:'PEX-00066-0219',type:'Labour Charges',amt:5000,proj:'Alorica',desc:'PG rent, site staff — July',st:'Approved'},
+    {id:'PEX-00105-0044',type:'Material Purchases',amt:98000,proj:'Qburst',desc:'Plumbing rough-in materials',st:'Approved'},
+    {id:'PEX-00102-0091',type:'Scaffolding Rent',amt:18750,proj:'Maersk Kolkata',desc:'Scaffold hire — week 31',st:'Approved'},
+  ],
+  npex:[
+    {id:'NPE-2026-0311',type:'Office Maintenance',amt:41200,desc:'HVAC servicing — head office',st:'Approved'},
+    {id:'NPE-2026-0344',type:'Repair & Maintenance',amt:12800,desc:'Garbage clearance — August',st:'Approved'},
+    {id:'NPE-2026-0350',type:'Hotel Expenses',amt:34500,desc:'Site visit — Kolkata, 2 nights',st:'Approved'},
+  ],
+};
+const recById = id => [...POOLS.pay,...POOLS.pex,...POOLS.npex].find(p=>p.id===id);
+const kindOf  = id => id.startsWith('PAY')?'pay':id.startsWith('PEX')?'pex':'npex';
+
+let ROWS = [
+  {id:'t1', date:'05-Aug-2026',time:'14:22',benef:'APEX FABRICATION WORKS',ac:'••••2783',ifsc:'HDFC0001234',
+   ref:'620919871893',amt:235000,rem:'PO/2026/0451 second milestone',status:'Matched',pick:'pay',linkSel:'PAY-00066-003',
+   crit:['The bank reference <b>620919871893</b> is not recorded on any payment yet.',
+         'One <b>approved</b> payment is for <b>exactly this amount</b>, to <b>the same vendor</b>, dated within three days.']},
+  {id:'t2', date:'05-Aug-2026',time:'14:23',benef:'MERIDIAN AIR SYSTEMS',ac:'••••6610',ifsc:'ICIC0000431',
+   ref:'620919871902',amt:412500,rem:'Ducting supply — running account',status:'Matched',pick:'pay',linkSel:'PAY-00074-118',
+   crit:['One <b>approved</b> payment is for <b>exactly this amount</b>, to <b>the same vendor</b>, dated within three days.']},
+  {id:'t3', date:'04-Aug-2026',time:'11:07',benef:'NORTHFIELD ELECTRICALS',ac:'••••0094',ifsc:'SBIN0009112',
+   ref:'620914552310',amt:88400,rem:'Cable pull — phase 2',status:'Matched',pick:'pay',linkSel:'PAY-00089-041',
+   crit:['One <b>approved</b> payment is for <b>exactly this amount</b>, to <b>the same vendor</b>, dated within three days.']},
+  {id:'t4', date:'04-Aug-2026',time:'09:41',benef:'CLEARSPAN INTERIORS',ac:'••••7725',ifsc:'UTIB0001108',
+   ref:'620913001884',amt:26000,rem:'Site office partition',status:'Matched',pick:'pex',linkSel:'PEX-00066-0214',
+   crit:['No approved payment matches.',
+         'One <b>approved project expense</b> is for <b>exactly this amount</b>, and the beneficiary name appears in its description.']},
+
+  {id:'t5', date:'04-Aug-2026',time:'16:55',benef:'VANTAGE COOLING SOLUTIONS',ac:'••••4430',ifsc:'HDFC0000771',
+   ref:'620911224466',amt:88000,rem:'Chiller commissioning advance',status:'Unmatched',
+   crit:['No <b>approved</b> record anywhere is for this amount.',
+         'Records that are still awaiting approval are <b>not searched</b> — they cannot be settled, so they are never offered.']},
+  {id:'t6', date:'03-Aug-2026',time:'12:18',benef:'IRONLEAF STEEL TRADERS',ac:'••••1902',ifsc:'KKBK0000523',
+   ref:'620909884411',amt:1450000,rem:'Structural steel — lot 3',status:'Unmatched',
+   crit:['No <b>approved</b> record anywhere is for this amount.']},
+  {id:'t7', date:'03-Aug-2026',time:'18:30',benef:'R. K.',ac:'••••2277',ifsc:'HDFC0004412',
+   ref:'620908771234',amt:5000,rem:'July PG rent — site staff',status:'Unmatched',pick:'new',
+   newDt:'pex',newType:'Staff Accommodation Rent',newProj:'BENGALURU-PROJ-00066',
+   crit:['No approved payment matches.',
+         'An approved project expense exists for this amount, but its description names a different site — so it is offered, not assumed.']},
+  {id:'t8', date:'02-Aug-2026',time:'15:44',benef:'GREENLINE WASTE SERVICES',ac:'••••8801',ifsc:'IDFB0080202',
+   ref:'620904662001',amt:12800,rem:'Garbage clearance — Aug',status:'Unmatched',pick:'new',newDt:'npex',newType:'Repair & Maintenance',
+   crit:['No approved payment matches.','An approved non-project expense exists for this amount — check it before creating a new one.']},
+  {id:'t9', date:'01-Aug-2026',time:'13:12',benef:'SUMMIT PLUMBING CO',ac:'••••5540',ifsc:'BARB0000912',
+   ref:'620901447788',amt:98000,rem:'Plumbing rough-in',status:'Unmatched',
+   crit:['No <b>approved</b> record is for exactly ₹98,000 to this vendor within the date window.',
+         'A transfer short by a round percentage usually means <b>TDS was withheld</b>. Those cannot be matched automatically in this version.']},
+
+  {id:'t10',date:'31-Jul-2026',time:'17:20',benef:'IRONLEAF STEEL TRADERS',ac:'••••1902',ifsc:'KKBK0000523',
+   ref:'742905000271',amt:310000,rem:'Consolidated transfer',status:'Mismatched',
+   crit:['This bank reference is already recorded on <b>PAY-00074-011</b>, which is marked Paid for <b>₹2,80,000</b>.',
+         '<b>₹30,000 more</b> left the account than that record claims. One transfer often covers several payments — only some may exist here.']},
+  {id:'t11',date:'31-Jul-2026',time:'09:58',benef:'MERIDIAN AIR SYSTEMS',ac:'••••6610',ifsc:'ICIC0000431',
+   ref:'620898112200',amt:232650,rem:'Ducting — final',status:'Mismatched',
+   crit:['This bank reference is already recorded on <b>PAY-00098-010</b>, which is marked Paid for <b>₹2,35,000</b>.',
+         'The bank paid <b>₹2,350 less</b> (1.00%). A deduction such as TDS looks exactly like this.']},
+
+  {id:'t12',date:'30-Jul-2026',time:'19:04',benef:'CASTLE STONE SUPPLIES',ac:'••••9016',ifsc:'PUNB0221000',
+   ref:'620891330077',amt:64200,rem:'Granite — balance',status:'Pending'},
+  {id:'t13',date:'30-Jul-2026',time:'19:05',benef:'BRIGHTPATH PAINTS',ac:'••••4177',ifsc:'CNRB0001880',
+   ref:'620891330099',amt:18750,rem:'Emulsion — 40 L',status:'Pending'},
+];
+
+const SETTLED = [
+  {id:'s1',date:'05-Aug-2026',time:'10:02',benef:'APEX FABRICATION WORKS',ac:'••••2783',ifsc:'HDFC0001234',
+   ref:'620918001122',amt:120000,rem:'PO/2026/0451 first milestone',status:'Settled',into:'PAY-00066-002',kind:'Project Payment'},
+  {id:'s2',date:'04-Aug-2026',time:'08:44',benef:'STONEBRIDGE HARDWARE',ac:'••••3301',ifsc:'SBIN0001122',
+   ref:'620912004411',amt:9400,rem:'Consumables — site',status:'Settled',into:'PEX-00071-0088',kind:'Project Expense'},
+  {id:'s3',date:'04-Aug-2026',time:'08:47',benef:'CIVIC POWER BOARD',ac:'••••7788',ifsc:'IDIB000C001',
+   ref:'620912004498',amt:41200,rem:'Electricity — head office',status:'Settled',into:'NPE-2026-0311',kind:'Non Project Expense'},
+];
+const SKIPPED = [
+  {id:'k1',date:'05-Aug-2026',time:'11:31',benef:'NORTHFIELD ELECTRICALS',ac:'••••0094',ifsc:'SBIN0009112',
+   ref:'620918442200',amt:76000,rem:'Cable pull — phase 1',status:'Skipped',
+   why:'Already recorded as Paid on PAY-00089-038. Someone ticked this one by hand.'},
+  {id:'k2',date:'04-Aug-2026',time:'13:00',benef:'HARBOUR LOGISTICS',ac:'••••3388',ifsc:'YESB0000188',
+   ref:'620911777001',amt:22000,rem:'Freight — consignment A',status:'Skipped',
+   why:'Transfer did not succeed at the bank (FAILED).'},
+  {id:'k3',date:'04-Aug-2026',time:'13:44',benef:'HARBOUR LOGISTICS',ac:'••••3388',ifsc:'YESB0000188',
+   ref:'620911777044',amt:22000,rem:'Freight — consignment A (retry)',status:'Skipped',
+   why:'Already imported in batch OFI-26-00007.'},
+  {id:'k4',date:'02-Aug-2026',time:'09:15',benef:'CLEARSPAN INTERIORS',ac:'••••7725',ifsc:'UTIB0001108',
+   ref:'620903118800',amt:3100,rem:'Sundries',status:'Skipped',
+   why:'Skipped by Priya — “personal reimbursement, not company spend”.'},
+];
+
+/* per-row editing state */
+ROWS.forEach(r=>{
+  r.linkSel = r.linkSel || null;
+  r.newForm = {ledger:r.newDt||'pex', project:r.newProj||WON_PROJECTS[0].id, vendor:'— none —',
+               type:r.newType||((r.newDt==='npex')?TYPES_NONPROJECT[0]:TYPES_PROJECT[0]), desc:r.rem||''};
+});
+
+const TOTAL = ROWS.length + SETTLED.length + SKIPPED.length;
+const GROSS = [...ROWS,...SETTLED,...SKIPPED].reduce((a,r)=>a+r.amt,0);
+const inr = n => '₹'+n.toLocaleString('en-IN');
+const el = h => { const d=document.createElement('div'); d.innerHTML=h.trim(); return d.firstElementChild; };
+const esc = s => String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* ── COLUMNS — one model drives headers, sorting, filtering and the body ───
+   Same shape as the app's DataTable config objects: an id, a header title, a
+   value getter, a filter kind. Headers and filtering can never drift because
+   they read the same definition. */
+const COLUMNS = [
+  {id:'date',   title:'Payment Date', get:r=>r.date, filter:'facet', cls:'mono', w:'126px'},
+  {id:'benef',  title:'Beneficiary',  get:r=>r.benef, filter:'facet', w:'210px'},
+  {id:'amt',    title:'Amount Paid',  get:r=>r.amt,  filter:'range', cls:'num', w:'138px'},
+  {id:'rem',    title:'Remarks',      get:r=>r.rem,  filter:'text', w:'220px'},
+  {id:'ref',    title:'Reference (UTR)', get:r=>r.ref, filter:'text', cls:'mono', w:'168px'},
+  {id:'status', title:'Status',       get:r=>r.status, filter:'facet', w:'126px'},
+  {id:'outcome',title:'Outcome',      get:r=>outcomeText(r).t, filter:'none', w:'300px'},
+  // available from the Columns menu, off by default
+  {id:'ac',     title:'Bank a/c',     get:r=>r.ac,   filter:'facet', cls:'mono', off:true, w:'96px'},
+  {id:'ifsc',   title:'IFSC',         get:r=>r.ifsc, filter:'facet', cls:'mono', off:true, w:'118px'},
+  {id:'time',   title:'Time',         get:r=>r.time, filter:'facet', cls:'mono', off:true, w:'76px'},
+];
+
+let tab='pending', sort={col:'date',dir:'desc'}, filters={}, query='', selected=new Set(), openDlg=null;
+let hidden = new Set(COLUMNS.filter(c=>c.off).map(c=>c.id));
+
+const dataFor = t => t==='pending' ? ROWS : t==='settled' ? SETTLED : SKIPPED;
+
+function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('on');
+  clearTimeout(t._x);t._x=setTimeout(()=>t.classList.remove('on'),2200);}
+
+/* ── the Outcome cell's content ───────────────────────────────────────── */
+function outcomeText(r){
+  switch(r.status){
+    case 'Matched': {
+      const rec = recById(r.linkSel);
+      return {t:`Settle ${r.linkSel}`, s:rec?`${rec.st} · ${inr(rec.amt)}${rec.vendor?' · '+rec.vendor:''}`:'', i:'◆'};
+    }
+    case 'Unmatched':
+      return r.pick==='new'
+        ? {t:'Create a new expense', s:'suggested — nothing to link to', i:'＋'}
+        : {t:'Nothing found — decide', s:'link a record, or create an expense', i:'?'};
+    case 'Mismatched':
+      return {t:'Amounts do not add up', s:'open to resolve', i:'≠'};
+    case 'Pending':
+      return {t:'Not run yet', s:'run the match on this transfer', i:'·'};
+    case 'Settled':
+      return {t:`Paid → ${r.into}`, s:r.kind, i:'✓'};
+    case 'Skipped':
+      return {t:'Nothing to do', s:r.why, i:'—'};
+    default: return {t:r.status, s:'', i:'·'};
+  }
+}
+
+/* ── filtering / sorting / search ─────────────────────────────────────── */
+function matchesQuery(r){
+  if (!query) return true;
+  const q = query.toLowerCase();
+  // search is scoped to remarks, reference and beneficiary — the three fields
+  // a person actually remembers a transfer by
+  return [r.rem, r.ref, r.benef, r.why||''].some(v => String(v||'').toLowerCase().includes(q));
+}
+function passesFilters(r){
+  return COLUMNS.every(c=>{
+    const f = filters[c.id]; if (!f) return true;
+    const v = c.get(r);
+    if (c.filter==='facet') return f.size===0 || f.has(String(v));
+    if (c.filter==='text')  return String(v||'').toLowerCase().includes(String(f).toLowerCase());
+    if (c.filter==='range') return (f.min==null || v>=f.min) && (f.max==null || v<=f.max);
+    return true;
+  });
+}
+function visibleRows(){
+  const out = dataFor(tab).filter(r=>matchesQuery(r) && passesFilters(r));
+  const c = COLUMNS.find(x=>x.id===sort.col);
+  if (c) out.sort((a,b)=>{
+    const av=c.get(a), bv=c.get(b);
+    let d = typeof av==='number' && typeof bv==='number' ? av-bv : String(av).localeCompare(String(bv));
+    if (c.id==='date') d = new Date(a.date) - new Date(b.date);
+    return sort.dir==='asc' ? d : -d;
+  });
+  return out;
+}
+function activeFilterCount(){ return Object.keys(filters).filter(k=>{
+  const f=filters[k]; return f && (f.size===undefined ? true : f.size>0); }).length; }
+
+function hi(text){
+  if (!query) return esc(text||'');
+  const s=String(text||''), i=s.toLowerCase().indexOf(query.toLowerCase());
+  if (i<0) return esc(s);
+  return esc(s.slice(0,i))+'<mark class="hl">'+esc(s.slice(i,i+query.length))+'</mark>'+esc(s.slice(i+query.length));
+}
+
+/* ── render ───────────────────────────────────────────────────────────── */
+const cols = () => COLUMNS.filter(c=>!hidden.has(c.id));
+
+function renderHead(){
+  const th = cols().map(c=>{
+    const f = filters[c.id];
+    const on = f && (f.size===undefined ? true : f.size>0);
+    return `<th ${c.w?`style="width:${c.w}"`:''}><div class="th-in">
+      <button class="th-sort ${sort.col===c.id?'sorted':''}" data-sort="${c.id}">
+        ${c.title}<span class="car">${sort.col===c.id?(sort.dir==='asc'?'▲':'▼'):'⇅'}</span></button>
+      ${c.filter==='none'?'':`<button class="th-filt ${on?'on':''}" data-filt="${c.id}" title="Filter">▼</button>`}
+    </div></th>`;
+  }).join('');
+  const anySel = tab==='pending';
+  document.getElementById('thead').innerHTML =
+    `<tr>${anySel?'<th style="width:34px"><div class="th-in"><input type="checkbox" class="cbx" id="selAll"></div></th>':''}${th}</tr>`;
+}
+
+function renderBody(){
+  const rows = visibleRows();
+  const showSel = tab==='pending';
+  document.getElementById('tbody').innerHTML = rows.length ? rows.map(r=>{
+    const tds = cols().map(c=>{
+      if (c.id==='outcome'){
+        const o = outcomeText(r);
+        return `<td style="width:${c.w}"><button class="outcome o-${r.status}" data-open="${r.id}">
+            <span class="oi">${o.i}</span>
+            <span class="ob"><span class="ot">${esc(o.t)}</span><span class="os">${esc(o.s||'')}</span></span>
+            <span class="chev">›</span></button></td>`;
+      }
+      if (c.id==='status') return `<td><span class="pill p-${r.status}">${r.status==='Pending'?'Pending match run':r.status}</span></td>`;
+      if (c.id==='benef')  return `<td><div class="benef">${hi(r.benef)}<span class="sub">a/c ${r.ac} · ${r.ifsc}</span></div></td>`;
+      if (c.id==='amt')    return `<td class="num">${inr(r.amt)}</td>`;
+      if (c.id==='rem')    return `<td><div class="rem" title="${esc(r.rem)}">${hi(r.rem)}</div></td>`;
+      if (c.id==='ref')    return `<td class="mono">${hi(r.ref)}</td>`;
+      if (c.id==='date')   return `<td class="mono">${r.date}</td>`;
+      return `<td class="${c.cls||''}">${esc(c.get(r)||'')}</td>`;
+    }).join('');
+    const cb = showSel ? `<td><input type="checkbox" class="cbx" data-sel="${r.id}" ${selected.has(r.id)?'checked':''}></td>` : '';
+    return `<tr class="${selected.has(r.id)?'sel':''}">${cb}${tds}</tr>`;
+  }).join('') : `<tr><td colspan="${cols().length+(showSel?1:0)}"><div class="empty">
+      ${query||activeFilterCount()?'No transfer matches this search or filter.':'Nothing here.'}</div></td></tr>`;
+
+  document.getElementById('hits').textContent =
+    `${rows.length} of ${dataFor(tab).length}` + (query||activeFilterCount()?' shown':'');
+  syncSelAll();
+}
+
+function syncSelAll(){
+  const all = document.getElementById('selAll');
+  if (!all) return;
+  const ids = visibleRows().map(r=>r.id);
+  all.checked = ids.length>0 && ids.every(i=>selected.has(i));
+}
+
+function renderStrip(){
+  const s=document.getElementById('strip'); s.innerHTML='';
+  [...ROWS,...SETTLED,...SKIPPED].forEach(r=>{
+    const b=document.createElement('button');
+    b.className='seg s-'+r.status; b.title=`${r.benef} · ${inr(r.amt)} · ${r.status}`;
+    b.onclick=()=>{ const t=r.status==='Settled'?'settled':r.status==='Skipped'?'skipped':'pending';
+      if(tab!==t){tab=t;syncTabs();render();} openDialog(r.id); };
+    s.appendChild(b);
+  });
+}
+
+function counts(){
+  document.getElementById('cPending').textContent = ROWS.length;
+  document.getElementById('cSettled').textContent = SETTLED.length;
+  document.getElementById('cSkipped').textContent = SKIPPED.length;
+  document.getElementById('figRows').innerHTML = TOTAL+' <small>· 2 failed</small>';
+  document.getElementById('figGross').textContent = inr(GROSS);
+  document.getElementById('figDone').innerHTML = (SETTLED.length+SKIPPED.length)+' <small>of '+TOTAL+'</small>';
+  document.getElementById('progTxt').textContent = SETTLED.length+' / '+TOTAL;
+  document.getElementById('progBar').style.width = Math.round(SETTLED.length/TOTAL*100)+'%';
+  document.getElementById('clearBtn').style.display = activeFilterCount()?'':'none';
+  document.getElementById('clearBtn').textContent = `Clear filters (${activeFilterCount()})`;
+  document.getElementById('qclr').style.display = query?'':'none';
+  const n = selected.size;
+  document.getElementById('bulk').classList.toggle('on', n>0);
+  document.getElementById('bulkN').textContent = n;
+  const conf = [...selected].map(id=>ROWS.find(r=>r.id===id)).filter(r=>r && confirmable(r));
+  const bc = document.getElementById('bulkConfirm');
+  bc.disabled = conf.length===0;
+  bc.textContent = conf.length ? `Confirm ${conf.length} decided` : 'Confirm decided';
+}
+function syncTabs(){ document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('on', b.dataset.tab===tab)); }
+function render(){ renderHead(); renderBody(); renderStrip(); counts(); }
+
+const confirmable = r => r.status!=='Pending' && (r.pick==='new' ? true : !!(r.pick && r.linkSel));
+
+/* ── the decision dialog ──────────────────────────────────────────────── */
+function recordCard(r, kind){
+  const rec = recById(r.linkSel);
+  if (!rec || kindOf(rec.id)!==kind)
+    return `<div class="reccard empty">Choose a record above to see its details.</div>`;
+  const same = rec.amt === r.amt;
+  const cells = kind==='pay'
+    ? [['Vendor',rec.vendor],['PO / SR number',rec.doc],['Project',rec.proj],
+       ['Approved on',rec.on],['Status',rec.st],['Amount',inr(rec.amt),true]]
+    : [['Type',rec.type],['Project',rec.proj||'—'],['Status',rec.st],
+       ['Description',rec.desc],['Amount',inr(rec.amt),true]];
+  return `<div class="reccard">
+    <span class="rid">${rec.id}</span>
+    <div class="rgrid">${cells.map(([k,v,m])=>`<div><div class="rk">${k}</div>
+      <div class="rv ${m?'mono':''}">${esc(v)}</div></div>`).join('')}</div>
+    <div class="match">${same
+      ? `<span class="ok">✓ Same amount as the bank transfer.</span>`
+      : `<span class="no">⚠ This record is ${inr(rec.amt)}; the bank sent ${inr(r.amt)} — a difference of ${inr(Math.abs(rec.amt-r.amt))}.</span>`}</div>
+  </div>`;
+}
+
+function newExpenseBody(r){
+  const f=r.newForm, types = f.ledger==='pex'?TYPES_PROJECT:TYPES_NONPROJECT;
+  const proj = f.ledger!=='pex' ? '' : `
+    <div class="field"><label for="d-proj">Project <span class="note">— Won tenders only</span></label>
+      <select id="d-proj" name="d-proj" data-field="project">
+        ${WON_PROJECTS.map(p=>`<option value="${p.id}" ${f.project===p.id?'selected':''} ${p.hold?'disabled':''}>
+          ${p.nm} · ${p.id}${p.hold?' — CEO Hold, expenses blocked':''}</option>`).join('')}
+      </select></div>
+    <div class="field"><label for="d-vend">Vendor <span class="note">— optional</span></label>
+      <select id="d-vend" name="d-vend" data-field="vendor">
+        ${VENDORS.map(v=>`<option ${f.vendor===v?'selected':''}>${v}</option>`).join('')}</select></div>`;
+  return `<div class="optbody">
+    <div class="cap">New expense — everything it needs</div>
+    <div class="seg2">
+      <button data-ledger="pex"  class="${f.ledger==='pex'?'on':''}">Project expense</button>
+      <button data-ledger="npex" class="${f.ledger==='npex'?'on':''}">Non-project expense</button></div>
+    <div class="fields" style="margin-top:12px">${proj}
+      <div class="field"><label for="d-type">Expense type</label>
+        <select id="d-type" name="d-type" data-field="type">
+          ${types.map(t=>`<option ${f.type===t?'selected':''}>${t}</option>`).join('')}</select></div>
+      <div class="field wide"><label for="d-desc">Description</label>
+        <input id="d-desc" name="d-desc" data-field="desc" value="${esc(f.desc)}" placeholder="What was this for?"></div>
+      <div class="field"><label for="d-amt">Amount <span class="note">— from the bank</span></label>
+        <input id="d-amt" name="d-amt" value="${inr(r.amt)}" readonly></div>
+      <div class="field"><label for="d-pd">Payment date</label>
+        <input id="d-pd" name="d-pd" value="${r.date}" readonly></div>
+      <div class="field"><label for="d-pr">Payment reference</label>
+        <input id="d-pr" name="d-pr" value="${r.ref}" readonly></div>
+    </div></div>`;
+}
+
+function linkBody(r, kind){
+  const pool = POOLS[kind]||[];
+  if (!pool.length) return `<div class="optbody"><div class="reccard empty">
+    No approved record of this kind is waiting for money right now.</div></div>`;
+  const sel = r.linkSel && kindOf(r.linkSel)===kind ? r.linkSel : '';
+  const label = kind==='pay' ? 'approved payment' : 'approved expense';
+  // exact-amount first: it is the one you are almost always after
+  const sorted = [...pool].sort((a,b)=>(b.amt===r.amt)-(a.amt===r.amt));
+  return `<div class="optbody">
+    <div class="cap">Choose the ${label} this transfer settles</div>
+    <div class="field"><label for="d-rec">Record</label>
+      <select id="d-rec" name="d-rec" data-record="${kind}">
+        <option value="" ${sel?'':'selected'}>— select a ${label} —</option>
+        ${sorted.map(p=>`<option value="${p.id}" ${sel===p.id?'selected':''}>
+          ${p.id} · ${inr(p.amt)}${p.amt===r.amt?' ✓ exact':''} · ${esc(p.vendor||p.type)}</option>`).join('')}
+      </select></div>
+    ${recordCard(r, kind)}</div>`;
+}
+
+function dialogHTML(r){
+  const readOnly = r.status==='Settled' || r.status==='Skipped';
+  const o = outcomeText(r);
+  const critList = (r.crit||[]).map(c=>`<li>${c}</li>`).join('');
+
+  const head = `<div class="dlg-h"><div class="top">
+      <div><h2>${esc(r.benef)}</h2>
+        <div class="meta">${r.date} ${r.time} · a/c ${r.ac} · ${r.ifsc} · ref ${r.ref}</div>
+        <div class="meta" style="margin-top:3px">“${esc(r.rem)}”</div></div>
+      <div class="amt">${inr(r.amt)}</div>
+      <button class="x" data-close title="Close">×</button>
+    </div></div>`;
+
+  if (readOnly) {
+    return head + `<div class="dlg-b">
+      <div class="crit k-${r.status}"><div class="ch">${r.status==='Settled'?'What happened':'Why this was skipped'}</div>
+        <p>${r.status==='Settled'
+            ? `Marked Paid against <b>${r.into}</b> (${r.kind}) and linked back to this transfer.`
+            : esc(r.why)}</p></div>
+      </div><div class="dlg-f"><span class="push"></span>
+      <button class="btn" data-close>Close</button></div>`;
+  }
+
+  if (r.status==='Pending') {
+    return head + `<div class="dlg-b">
+      <div class="crit"><div class="ch">Not run yet</div>
+        <p>Nothing has been looked up for this transfer. Run the match and it will land in one of the
+           other states.</p></div>
+      </div><div class="dlg-f">
+        <button class="btn primary" data-rerun>Run match on this transfer</button>
+        <span class="push"></span>
+        <button class="btn ghost" data-skip>Skip</button>
+        <button class="btn" data-close>Close</button></div>`;
+  }
+
+  const choices = TARGETS.map((tg,i)=>{
+    const on = r.pick===tg.id;
+    return `<div class="choice ${on?'on':''}" data-pick="${tg.id}">
+      <span class="dot"></span>
+      <span class="txt"><span class="lab">${tg.lab}</span><span class="sub">${tg.sub}</span>
+        ${on ? (tg.id==='new' ? newExpenseBody(r) : linkBody(r,tg.id)) : ''}</span>
+    </div>`;
+  }).join('');
+
+  const cta = !r.pick ? 'Choose an option'
+            : r.pick==='new' ? 'Create → Paid'
+            : r.linkSel ? 'Confirm → Paid' : 'Choose a record';
+
+  return head + `<div class="dlg-b">
+    <div class="crit k-${r.status}">
+      <div class="ch">${r.status==='Mismatched'?'What the system found':'Why the system suggests this'}</div>
+      ${r.status==='Mismatched'
+        ? `<p>This one needs you to decide — the numbers disagree, so nothing was assumed.</p>`
+        : `<p>${o.t==='Nothing found — decide' ? 'Nothing could be paired with this transfer.' : 'Here is the reasoning, in plain English.'}</p>`}
+      ${critList?`<ul>${critList}</ul>`:''}
+    </div>
+    <p class="secttl">What should this transfer settle?</p>
+    ${choices}
+    </div>
+    <div class="dlg-f">
+      <button class="btn ghost" data-rerun>Re-run match</button>
+      <span class="push"></span>
+      <button class="btn ghost" data-skip>Skip</button>
+      <button class="btn primary" data-confirm ${confirmable(r)?'':'disabled'}>${cta}</button>
+    </div>`;
+}
+
+function openDialog(id){
+  const r = [...ROWS,...SETTLED,...SKIPPED].find(x=>x.id===id);
+  if (!r) return;
+  openDlg = id;
+  document.getElementById('dlg').innerHTML = dialogHTML(r);
+  document.getElementById('scrim').classList.add('on');
+}
+function redrawDialog(){ if (openDlg) { const keep=openDlg; openDialog(keep); } }
+function closeDialog(){ openDlg=null; document.getElementById('scrim').classList.remove('on'); }
+
+/* ── actions ──────────────────────────────────────────────────────────── */
+function settle(r){
+  if (!r || !confirmable(r)) return;
+  const into = r.pick==='new'
+    ? (r.newForm.ledger==='npex' ? 'NPE-2026-0402' : 'PEX-00066-0221')
+    : r.linkSel;
+  const kind = r.pick==='new'
+    ? (r.newForm.ledger==='npex' ? 'Non Project Expense' : 'Project Expense')
+    : (kindOf(into)==='pay' ? 'Project Payment' : kindOf(into)==='pex' ? 'Project Expense' : 'Non Project Expense');
+  ROWS = ROWS.filter(x=>x!==r);
+  SETTLED.unshift({...r, status:'Settled', into, kind});
+  selected.delete(r.id);
+  toast(`${r.benef} → ${into} marked Paid`);
+}
+function skip(r){
+  if (!r) return;
+  ROWS = ROWS.filter(x=>x!==r);
+  SKIPPED.unshift({...r, status:'Skipped', why:'Skipped by you — a reason is required in the real screen.'});
+  selected.delete(r.id);
+}
+
+/* ── filter popover ───────────────────────────────────────────────────── */
+let popEl=null;
+function closePop(){ if(popEl){popEl.remove();popEl=null;} }
+function openPop(colId, anchor){
+  closePop();
+  const c = COLUMNS.find(x=>x.id===colId);
+  const data = dataFor(tab);
+  let inner='';
+  if (c.filter==='facet'){
+    const counts={};
+    data.forEach(r=>{const v=String(c.get(r)); counts[v]=(counts[v]||0)+1;});
+    const sel = filters[colId] || new Set();
+    inner = `<div class="ph">${c.title}</div>
+      <input class="f" placeholder="Search values…" data-facet-search>
+      <div class="opts">${Object.keys(counts).sort().map(v=>`
+        <label class="opt"><input type="checkbox" class="cbx" data-val="${esc(v)}" ${sel.has(v)?'checked':''}>
+          <span>${esc(v)}</span><span class="cnt">${counts[v]}</span></label>`).join('')}</div>`;
+  } else if (c.filter==='text'){
+    inner = `<div class="ph">${c.title} contains</div>
+      <input class="f" data-text value="${esc(filters[colId]||'')}" placeholder="Type to filter…">`;
+  } else {
+    const f = filters[colId]||{};
+    inner = `<div class="ph">${c.title} between</div>
+      <div style="display:flex;gap:7px">
+        <input class="f" data-min type="number" placeholder="min" value="${f.min??''}">
+        <input class="f" data-max type="number" placeholder="max" value="${f.max??''}"></div>`;
+  }
+  popEl = el(`<div class="pop">${inner}<div class="pf">
+      <button class="btn" data-pop-clear style="flex:1">Clear</button>
+      <button class="btn primary" data-pop-done style="flex:1">Done</button></div></div>`);
+  document.body.appendChild(popEl);
+  const b = anchor.getBoundingClientRect();
+  popEl.style.top  = (b.bottom + window.scrollY + 6) + 'px';
+  popEl.style.left = Math.min(b.left + window.scrollX, window.innerWidth - popEl.offsetWidth - 14) + 'px';
+  popEl.dataset.col = colId;
+  const first = popEl.querySelector('input.f'); if (first) first.focus();
+}
+
+/* ── events ───────────────────────────────────────────────────────────── */
+document.addEventListener('click', e=>{
+  if (!(e.target instanceof Element)) return;
+
+  // popover internals
+  if (popEl && popEl.contains(e.target)){
+    const colId = popEl.dataset.col, c = COLUMNS.find(x=>x.id===colId);
+    if (e.target.matches('[data-val]')){
+      const set = filters[colId] instanceof Set ? filters[colId] : new Set();
+      e.target.checked ? set.add(e.target.dataset.val) : set.delete(e.target.dataset.val);
+      set.size ? filters[colId]=set : delete filters[colId];
+      renderHead(); renderBody(); counts(); return;
+    }
+    if (e.target.closest('[data-pop-clear]')){ delete filters[colId]; closePop(); render(); return; }
+    if (e.target.closest('[data-pop-done]')){
+      if (c.filter==='text'){ const v=popEl.querySelector('[data-text]').value.trim();
+        v?filters[colId]=v:delete filters[colId]; }
+      if (c.filter==='range'){ const mn=popEl.querySelector('[data-min]').value, mx=popEl.querySelector('[data-max]').value;
+        (mn||mx) ? filters[colId]={min:mn===''?null:+mn, max:mx===''?null:+mx} : delete filters[colId]; }
+      closePop(); render(); return;
+    }
+    return;
+  }
+  closePop();
+
+  // dialog internals
+  const dlg = document.getElementById('dlg');
+  if (openDlg && dlg.contains(e.target)){
+    const r = [...ROWS,...SETTLED,...SKIPPED].find(x=>x.id===openDlg);
+    if (e.target.closest('[data-close]')) { closeDialog(); return; }
+    if (e.target.closest('[data-rerun]')) { toast('Re-running the match for this transfer…'); return; }
+    if (e.target.closest('[data-skip]'))  { skip(r); closeDialog(); render(); toast('Skipped'); return; }
+    if (e.target.closest('[data-confirm]')){ settle(r); closeDialog(); render(); return; }
+    const led = e.target.closest('[data-ledger]');
+    if (led){ r.newForm.ledger = led.dataset.ledger;
+      r.newForm.type = led.dataset.ledger==='npex'?TYPES_NONPROJECT[0]:TYPES_PROJECT[0];
+      redrawDialog(); return; }
+    // a click on a field inside an opened option must not re-fire the choice
+    if (e.target.closest('.optbody')) return;
+    const ch = e.target.closest('[data-pick]');
+    if (ch){
+      r.pick = ch.dataset.pick;
+      if (r.pick!=='new'){
+        const exact = (POOLS[r.pick]||[]).filter(p=>p.amt===r.amt);
+        r.linkSel = exact.length===1 ? exact[0].id : null;   // never guess between two
+      }
+      redrawDialog(); return;
+    }
+    return;
+  }
+  if (openDlg && e.target.closest('#scrim') && !dlg.contains(e.target)) { closeDialog(); return; }
+
+  // table + toolbar
+  const t = e.target;
+  if (t.closest('#tabs button')) { tab=t.closest('button').dataset.tab; selected.clear(); syncTabs(); render(); return; }
+  if (t.closest('[data-open]'))  { openDialog(t.closest('[data-open]').dataset.open); return; }
+  if (t.closest('[data-sort]'))  { const id=t.closest('[data-sort]').dataset.sort;
+    sort = sort.col===id ? {col:id,dir:sort.dir==='asc'?'desc':'asc'} : {col:id,dir:'asc'};
+    render(); return; }
+  if (t.closest('[data-filt]'))  { const b=t.closest('[data-filt]'); openPop(b.dataset.filt, b); return; }
+  // ⚠️ Selection must NEVER re-render the body. Rebuilding <tbody> replaces every
+  // checkbox element, so a second click lands on a detached node and is lost —
+  // and it would throw away scroll position and focus on every tick.
+  if (t.matches('[data-sel]')) {
+    t.checked ? selected.add(t.dataset.sel) : selected.delete(t.dataset.sel);
+    t.closest('tr').classList.toggle('sel', t.checked);
+    syncSelAll(); counts(); return;
+  }
+  if (t.matches('#selAll')) {
+    const ids = visibleRows().map(r=>r.id);
+    t.checked ? ids.forEach(i=>selected.add(i)) : ids.forEach(i=>selected.delete(i));
+    document.querySelectorAll('[data-sel]').forEach(cb=>{
+      cb.checked = selected.has(cb.dataset.sel);
+      cb.closest('tr').classList.toggle('sel', cb.checked);
+    });
+    counts(); return;
+  }
+  if (t.closest('#clearBtn'))    { filters={}; render(); return; }
+  if (t.closest('#qclr'))        { query=''; document.getElementById('q').value=''; render(); return; }
+  if (t.closest('#colsBtn'))     { openColsMenu(t.closest('#colsBtn')); return; }
+  if (t.closest('#bulkClear'))   { selected.clear(); render(); return; }
+  if (t.closest('#bulkConfirm')) {
+    const list=[...selected].map(id=>ROWS.find(r=>r.id===id)).filter(r=>r&&confirmable(r));
+    list.forEach(settle); toast(`${list.length} records marked Paid`); render(); return; }
+  if (t.closest('#bulkSkip'))    {
+    const list=[...selected].map(id=>ROWS.find(r=>r.id===id)).filter(Boolean);
+    list.forEach(skip); toast(`${list.length} skipped`); render(); return; }
+});
+
+function openColsMenu(anchor){
+  closePop();
+  popEl = el(`<div class="pop"><div class="ph">Columns</div><div class="opts">
+    ${COLUMNS.map(c=>`<label class="opt"><input type="checkbox" class="cbx" data-col="${c.id}"
+      ${hidden.has(c.id)?'':'checked'} ${c.id==='outcome'?'disabled':''}><span>${c.title}</span></label>`).join('')}
+    </div></div>`);
+  document.body.appendChild(popEl);
+  const b=anchor.getBoundingClientRect();
+  popEl.style.top=(b.bottom+window.scrollY+6)+'px';
+  popEl.style.left=Math.min(b.left+window.scrollX, window.innerWidth-popEl.offsetWidth-14)+'px';
+  popEl.addEventListener('change', ev=>{
+    const id=ev.target.dataset.col; if(!id) return;
+    ev.target.checked?hidden.delete(id):hidden.add(id);
+    render();
+  });
+}
+
+document.addEventListener('input', e=>{
+  if (!(e.target instanceof Element)) return;
+  if (e.target.id==='q'){ query=e.target.value.trim(); renderBody(); counts(); return; }
+  if (e.target.matches('[data-facet-search]') && popEl){
+    const q=e.target.value.toLowerCase();
+    popEl.querySelectorAll('.opt').forEach(o=>{
+      o.style.display = o.textContent.toLowerCase().includes(q) ? '' : 'none'; });
+    return;
+  }
+  const f = e.target.dataset && e.target.dataset.field;
+  if (f && openDlg){ const r=ROWS.find(x=>x.id===openDlg); if (r) r.newForm[f]=e.target.value; }
+});
+document.addEventListener('change', e=>{
+  if (!(e.target instanceof Element)) return;
+  const rec = e.target.dataset && e.target.dataset.record;
+  if (rec && openDlg){
+    const r = ROWS.find(x=>x.id===openDlg); if(!r) return;
+    r.linkSel = e.target.value || null; r.pick = rec; redrawDialog(); return;
+  }
+  const f = e.target.dataset && e.target.dataset.field;
+  if (f && openDlg){ const r=ROWS.find(x=>x.id===openDlg); if (r) r.newForm[f]=e.target.value; }
+});
+
+document.addEventListener('keydown', e=>{
+  if (e.key==='Escape'){ if(popEl){closePop();return;} if(openDlg){closeDialog();return;} }
+  if (e.key==='/' && !(e.target instanceof HTMLInputElement) && !(e.target instanceof HTMLSelectElement)){
+    e.preventDefault(); document.getElementById('q').focus();
+  }
+});
+
+render();
+</script>
+</body>
+</html>

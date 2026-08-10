@@ -68,9 +68,12 @@ const EditUserForm = ({ toggleEditSheet }: any) => {
     id ? `Nirmaan Users ${id}` : null
   );
 
+  // limit: 0 = every Role Profile. Without it Frappe applies its default page
+  // length of 20 and silently truncates -- see the same note in user-form.tsx.
   const { data: role_profile_list, isLoading: role_profile_list_loading, error: role_profile_list_error } = useFrappeGetDocList("Role Profile",
     {
       fields: ["*"],
+      limit: 0,
     },
     "Role Profile"
   );

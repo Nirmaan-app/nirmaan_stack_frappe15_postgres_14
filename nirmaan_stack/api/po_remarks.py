@@ -1,11 +1,14 @@
 import frappe
 from frappe import _
 
-# Role to subject mapping
+from nirmaan_stack.services.role_profiles import MATERIAL_PROCUREMENT_PROFILES
+
+# Role to subject mapping. Every procurement profile files under the same
+# subject, so this is built from MATERIAL_PROCUREMENT_PROFILES rather than listing them.
 ROLE_SUBJECT_MAP = {
     "Nirmaan Accountant Profile": "accountant_remark",
     "Nirmaan Accountant Lead Profile": "accountant_remark",
-    "Nirmaan Procurement Executive Profile": "procurement_remark",
+    **{profile: "procurement_remark" for profile in MATERIAL_PROCUREMENT_PROFILES},
     "Nirmaan Admin Profile": "admin_remark",
     "Nirmaan PMO Executive Profile": "admin_remark",
     "Nirmaan Project Lead Profile": "admin_remark",
