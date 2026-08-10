@@ -14,7 +14,14 @@
 // drift because they read the same definition -- the same reason the Rate Master viewer keeps a
 // unified `columns` array rather than a header list beside a predicate.
 
-import { OPEN_ROW_STATUSES, ROW_PENDING_MATCH } from "./outflowImportStatus";
+import {
+    OPEN_ROW_STATUSES,
+    ROW_MATCHED,
+    ROW_MISMATCHED,
+    ROW_PENDING_MATCH,
+    ROW_SETTLED,
+    rowStatusLabel,
+} from "./outflowImportStatus";
 import { paymentHref } from "@/pages/ProjectPayments/config/projectPaymentsTable.config";
 import type {
     OutflowImportRow,
@@ -148,6 +155,66 @@ export const SCOPE_FOR_TAB: Record<OutflowTab, OutflowScope> = {
     matched: "matched",
 };
 
+/** One number a tab is labelled with. `count` is `null` when the page has not answered yet. */
+export interface TabCountPart {
+    /** Stable React key, and the status this part counts when it counts one. */
+    key: string;
+    count: number | null;
+    /** Absent on a single-part tab: one number under a tab needs no word to tell it from another. */
+    label?: string;
+    /** Tone class. Absent means the neutral chip — see `OutflowRowsTable`'s status tones. */
+    tone?: string;
+}
+
+/**
+ * How a tab's count renders — ONE number, or the split when one number would mean two things.
+ *
+ * ⚠️ THE `matched` TAB IS THE WHOLE REASON THIS EXISTS, AND IT IS NOT A STYLING CHOICE. That tab
+ * holds `Matched` (OPEN — somebody still owes it a decision) beside `Settled` (TERMINAL — money
+ * written), because to a reviewer both mean "this transfer has a record". A single total cannot say
+ * which, and the failure is not symmetric: it reads as the terminal one. Live-observed on the first
+ * real statement — the tab read `863` while `settled_rows` was `0`, and it was understood as 863
+ * transfers finished. Nothing on that screen contradicted it; the "0 Settled" chip sat in a panel
+ * describing one import, four inches away and much quieter.
+ *
+ * The two other tabs each hold statuses that are all open, so their single number already means one
+ * thing and they stay a single number. THIS IS NOT AN OVERSIGHT TO TIDY UP LATER: splitting a tab
+ * whose parts are not meaningfully different would add noise and teach people to ignore the split
+ * on the one tab where it carries a fact.
+ *
+ * ⚠️ IT FALLS BACK TO THE SINGLE TOTAL when `statusCounts` is absent, and the fallback is load
+ * bearing rather than defensive. A client running against a server that predates `status_counts`
+ * gets exactly the old rendering instead of two zeroes — a tab confidently reporting `0 matched ·
+ * 0 settled` over a populated table would be a far worse lie than the one this function fixes.
+ */
+export function tabCountParts(
+    tab: OutflowTab,
+    tabCounts?: OutflowRowsPage["tab_counts"],
+    statusCounts?: OutflowRowsPage["status_counts"]
+): TabCountPart[] {
+    const scope = SCOPE_FOR_TAB[tab];
+    const total = tabCounts ? (tabCounts[scope] ?? null) : null;
+
+    if (tab !== "matched" || !statusCounts) {
+        return [{ key: scope, count: total }];
+    }
+
+    return [
+        {
+            key: ROW_MATCHED,
+            count: statusCounts[ROW_MATCHED] ?? 0,
+            label: "matched",
+            tone: "bg-sky-50 text-sky-700",
+        },
+        {
+            key: ROW_SETTLED,
+            count: statusCounts[ROW_SETTLED] ?? 0,
+            label: "settled",
+            tone: "bg-emerald-50 text-emerald-700",
+        },
+    ];
+}
+
 // ⚠️ `tabForStatus` WENT WITH THE SUMMARY'S CLICKABLE CHIPS (owner ruling 2026-08-10). Its only
 // caller mapped a clicked status figure to the tab that holds it; with the chips reduced to
 // figures there is nothing left that needs to answer "which tab does this status live in", and a
@@ -264,7 +331,18 @@ export const SERVER_SORT_COLUMNS: readonly string[] = [
 ];
 
 export interface MasterTableState {
-    tab: OutflowTab;
+    /**
+     * The tab a person clicked, in the SCREEN's vocabulary.
+     *
+     * ⚠️ OPTIONAL SINCE T2, AND `scope` WINS WHERE BOTH ARE GIVEN. Not every caller has a tab: the
+     * Skipped dialog is fixed to one scope for its whole life and has no tab strip to read it off.
+     * This is not two ways to say the same thing — a tab IMPLIES a scope through `SCOPE_FOR_TAB`,
+     * which stays the one mapping between the two vocabularies. A caller with no tab simply says
+     * the scope outright rather than inventing a tab it does not show.
+     */
+    tab?: OutflowTab;
+    /** The scope in the ENDPOINT's vocabulary, for a caller that has no tab. */
+    scope?: OutflowScope;
     query?: string;
     filters?: ColumnFilters;
     sort?: SortState;
@@ -277,6 +355,16 @@ export interface MasterTableState {
 
 export interface OutflowRowsQuery {
     scope: string;
+    /**
+     * Split `Skipped` into the two facts it hides: `true` = the bank refused it, `false` = it was
+     * skipped for any other reason, absent = both.
+     *
+     * ⚠️ IT EXISTS BECAUSE TWO CORRECT NUMBERS DISAGREED. The summary's Skipped chip reports 20 and
+     * the `skipped` scope returns 47, because a transfer the bank REFUSED is excluded from every
+     * figure the summary reports (owner ruling, option B) while still carrying `row_status`
+     * `Skipped`. Nothing could ask for one group or the other until this.
+     */
+    failed?: boolean;
     batch?: string;
     search?: string;
     facets?: Record<string, string[]>;
@@ -320,7 +408,7 @@ export const serverQuery = (state: MasterTableState): OutflowRowsQuery => {
     }
 
     const query: OutflowRowsQuery = {
-        scope: SCOPE_FOR_TAB[state.tab],
+        scope: state.scope ?? SCOPE_FOR_TAB[state.tab ?? DEFAULT_TAB],
         sort_by: SERVER_SORT_COLUMNS.includes(state.sort?.columnId ?? "")
             ? (state.sort!.columnId as string)
             : "added_on",
@@ -347,6 +435,14 @@ export const serverQuery = (state: MasterTableState): OutflowRowsQuery => {
         .join(" ");
     if (text && !search) query.search = text;
 
+    // ⚠️ A PSEUDO-COLUMN, handled here rather than in `_FACET_COLUMNS`, because the question is not
+    // "which values of a column" but "is this row on the excluded side of an owner ruling". The
+    // facet machinery answers with an IN list, which cannot express "anything that is not SUCCESS"
+    // without this screen learning the bank's whole vocabulary.
+    const bank = String(filters.failed ?? "").trim();
+    if (bank === "failed") query.failed = true;
+    if (bank === "recorded") query.failed = false;
+
     const amount = filters.amount as RangeFilter | undefined;
     if (amount?.min != null) query.amount_min = amount.min;
     if (amount?.max != null) query.amount_max = amount.max;
@@ -359,6 +455,8 @@ export const serverQuery = (state: MasterTableState): OutflowRowsQuery => {
 export interface SummaryTile {
     id: string;
     label: string;
+    /** Shown on hover, where a count needs a sentence to be honest. */
+    hint?: string;
     count: number;
     tone: string;
 }
@@ -389,6 +487,7 @@ export const summaryTiles = (totals: {
     skipped_rows: number;
     pending_rows: number;
     error_rows: number;
+    failed_rows?: number;
 }): SummaryTile[] => {
     const tiles: SummaryTile[] = [
         {
@@ -398,8 +497,12 @@ export const summaryTiles = (totals: {
             tone: "border-sky-200 bg-sky-50 text-sky-900",
         },
         {
+            // ⚠️ THE ID STAYS `mismatched` — it keys the chip and mirrors the stored status. Only
+            // the LABEL changed (see `rowStatusLabel`): 133 of 133 rows under this chip were the
+            // found-nothing case, so the word "Mismatched" sent readers hunting for a mismatch that
+            // was not there. The label is the one place to change it; the vocabulary is unmoved.
             id: "mismatched",
-            label: "Mismatched",
+            label: rowStatusLabel(ROW_MISMATCHED),
             count: totals.mismatched_rows,
             tone: "border-amber-200 bg-amber-50 text-amber-900",
         },
@@ -410,9 +513,28 @@ export const summaryTiles = (totals: {
             tone: "border-emerald-200 bg-emerald-50 text-emerald-900",
         },
         {
+            // ⚠️ THE ONE CHIP WHOSE COUNT IS NOT ITS `*_rows` FIGURE, and the exception is
+            // deliberate (owner, 2026-08-11). `skipped_rows` is 20 because a transfer the bank
+            // REFUSED is money that never left the account and is excluded from every figure the
+            // summary reports (option B). But `row_status` is `Skipped` on all 47, so the dialog
+            // this chip opens holds 47 — and a chip reading 20 that opens a list of 47 reads as a
+            // bug however right both numbers are.
+            //
+            // ⚠️ THE ACCEPTED COST, STATED SO IT IS NOT REDISCOVERED AS A DEFECT: the four chips now
+            // sum to more than "N successful transfers" by exactly the failed count. Invariant 13
+            // avoided that by keeping the chip at 20; the owner has taken the other side, on the
+            // grounds that the chip is a door and must be labelled with what is behind it. `hint`
+            // carries the split so the reader can reconcile it without arithmetic, and the panel's
+            // failed footnote still names the money.
+            //
+            // ⚠️ ONLY THE RENDERED COUNT MOVED. `derive_import_summary` is UNTOUCHED --
+            // `skipped_rows` is still 20 everywhere else, so nothing that computes with it shifted.
             id: "skipped",
             label: "Skipped",
-            count: totals.skipped_rows,
+            count: totals.skipped_rows + (totals.failed_rows ?? 0),
+            hint: totals.failed_rows
+                ? `${totals.skipped_rows} already recorded as Paid by hand · ${totals.failed_rows} refused by the bank, which are left out of every figure above`
+                : undefined,
             tone: "border-muted bg-muted/50 text-muted-foreground",
         },
     ];
@@ -483,7 +605,359 @@ export interface ConfirmableRow {
     amount_delta?: number;
     /** Whether confirming will REWRITE the record's amount (slice X1). */
     amount_changes?: boolean;
+    /**
+     * The order the record is against. ⚠️ NOT ALWAYS A PO — 602 `Procurement Orders` against 193
+     * `Service Requests` on the first real statement, and two of the three ledgers carry none at
+     * all. The type travels with the id because the id alone cannot say which it is.
+     */
+    order_doctype?: string | null;
+    order_name?: string | null;
+    /**
+     * WHY this record was pre-selected, when it was not simply the only approved candidate.
+     * Blank is the ordinary case and carries no doubt. See `SUGGESTION_RULE_LABELS`.
+     */
+    suggestion_rule?: string | null;
+    /** How the counterpart was FOUND — the matcher tier. See `MATCH_BASIS_LABELS`. */
+    match_basis?: string | null;
+    /** Whether the machine chose this record. Exactly "there is a suggestion". */
+    auto_matched?: boolean;
 }
+
+// --- how a record was pre-selected (mirrors services/outflow_import/disambiguate.RULE_LABELS) ----
+
+/**
+ * ⚠️ A MIRROR, AND THE BACKEND IS THE AUTHORITY — same standing as `outflowImportStatus.ts`.
+ * An id the server sends that is missing here renders as the raw id rather than as nothing, so a
+ * new rule shipped server-side degrades to something truthful instead of an empty chip that reads
+ * as "no rule" — the exact opposite of what it would mean.
+ */
+export const SUGGESTION_RULE_LABELS: Record<string, string> = {
+    sole: "Only candidate",
+    "stack-pairing": "Identical set, paired arbitrarily",
+    "project-in-remark": "Remark named the project",
+    "nearest-amount": "Nearest amount",
+    interchangeable: "Interchangeable records",
+};
+
+/**
+ * Rules where the machine chose between records that the evidence could NOT separate.
+ *
+ * ⚠️ THIS IS THE SET A REVIEWER SHOULD LOOK AT, and it is not the same as "a rule fired". Both
+ * members pick deterministically from things nothing distinguishes — `stack-pairing` zips identical
+ * transfers against identical records, `interchangeable` takes the first of a set that agrees on
+ * project and amount to the paise. `sole` had no choice to make; the other two acted on evidence.
+ * Grouping all five as "a rule" would bury the two that are arbitrary among three that are not.
+ */
+export const ARBITRARY_SUGGESTION_RULES: ReadonlySet<string> = new Set([
+    "stack-pairing",
+    "interchangeable",
+]);
+
+/** How the counterpart was FOUND — the matcher tier, as a person reads it. */
+export const MATCH_BASIS_LABELS: Record<string, string> = {
+    reference: "Bank reference matched",
+    "account+IFSC": "Vendor bank account",
+    "project in remark": "Amount + project in remark",
+};
+
+export const matchBasisLabel = (basis?: string | null): string => {
+    const id = (basis || "").trim();
+    if (!id) return "";
+    return MATCH_BASIS_LABELS[id] || id;
+};
+
+export const suggestionRuleLabel = (rule?: string | null): string => {
+    const id = (rule || "").trim();
+    if (!id) return "";
+    return SUGGESTION_RULE_LABELS[id] || id;
+};
+
+/**
+ * The order a record is against, as a person reads it.
+ *
+ * ⚠️ IT NEVER SAYS "PO" UNLESS IT IS ONE. A quarter of the payments on a real statement are against
+ * a Service Request, and the whole reason the type travels beside the id is that the id cannot say
+ * so — `SR-00097-000845` and `PO/082/00103/26-27` happen to look different, but nothing guarantees
+ * that, and a screen must not be reading id formats to decide what to call something.
+ */
+export const orderLabel = (row: {
+    order_doctype?: string | null;
+    order_name?: string | null;
+}): { kind: string; name: string } | null => {
+    const name = (row.order_name || "").trim();
+    if (!name) return null;
+    const doctype = (row.order_doctype || "").trim();
+    const kind =
+        doctype === "Procurement Orders"
+            ? "PO"
+            : doctype === "Service Requests"
+              ? "SR"
+              : doctype || "Order";
+    return { kind, name };
+};
+
+// --- the confirm rollup: vendor -> project -> transfer (slice S4) --------------------------------
+
+const NO_VENDOR = "(no vendor)";
+const NO_PROJECT = "(no project)";
+
+export interface ConfirmProjectNode {
+    key: string;
+    project: string;
+    rows: ConfirmableRow[];
+    value: number;
+}
+
+export interface ConfirmVendorNode {
+    key: string;
+    vendor: string;
+    projects: ConfirmProjectNode[];
+    /** Every row under this vendor, in project order. The selection algebra works on these. */
+    rows: ConfirmableRow[];
+    value: number;
+    /**
+     * ⚠️ THE COLLAPSE, AND IT IS DRIVEN BY MEASUREMENT RATHER THAN TASTE. 147 of 210 vendors on the
+     * first real statement sit on exactly ONE project, and 79 have exactly one transfer. A level
+     * that almost always holds a single child is not a rollup, it is a click — you expand a vendor,
+     * see one project, and expand again to reach the rows. When there is one project its name reads
+     * INLINE on the vendor row (`soleProject`) and the level is not rendered at all; when there are
+     * two or more it is rendered, because then it carries information.
+     */
+    soleProject: string | null;
+}
+
+const rowVendor = (row: ConfirmableRow): string =>
+    (row.vendor_name || "").trim() || NO_VENDOR;
+
+const rowProject = (row: ConfirmableRow): string =>
+    (row.project_name || "").trim() || NO_PROJECT;
+
+/**
+ * Group the ready rows into the tree the confirm dialog renders.
+ *
+ * ⚠️ THE VALUE AT EVERY LEVEL IS THE BANK'S AMOUNT, NEVER THE RECORD'S. What the button writes is
+ * the transfer — since X1 a confirm rewrites the record's figure to the bank's whenever they differ,
+ * so totalling the records would report the amount that is about to be replaced.
+ *
+ * Ordering is by value, largest first, at both levels: a reviewer scanning for what matters reads
+ * down, and money is what makes a branch matter. Ties break on the name so the order is stable
+ * across renders and refetches — the same guarantee `pair_stack` gives its sides, for the same
+ * reason: a branch that reshuffles under a half-made selection is a screen you cannot trust.
+ */
+export function buildConfirmTree(rows: ConfirmableRow[]): ConfirmVendorNode[] {
+    const byVendor = new Map<string, Map<string, ConfirmableRow[]>>();
+
+    for (const row of rows) {
+        const vendor = rowVendor(row);
+        const project = rowProject(row);
+        let projects = byVendor.get(vendor);
+        if (!projects) {
+            projects = new Map();
+            byVendor.set(vendor, projects);
+        }
+        const bucket = projects.get(project);
+        if (bucket) bucket.push(row);
+        else projects.set(project, [row]);
+    }
+
+    const sum = (list: ConfirmableRow[]) => list.reduce((n, r) => n + (r.amount || 0), 0);
+
+    const vendors: ConfirmVendorNode[] = [];
+    for (const [vendor, projects] of byVendor) {
+        const projectNodes: ConfirmProjectNode[] = [];
+        for (const [project, list] of projects) {
+            projectNodes.push({
+                key: `${vendor}\u0000${project}`,
+                project,
+                rows: list,
+                value: sum(list),
+            });
+        }
+        projectNodes.sort((a, b) => b.value - a.value || a.project.localeCompare(b.project));
+
+        const flat = projectNodes.flatMap((p) => p.rows);
+        vendors.push({
+            key: vendor,
+            vendor,
+            projects: projectNodes,
+            rows: flat,
+            value: sum(flat),
+            soleProject: projectNodes.length === 1 ? projectNodes[0].project : null,
+        });
+    }
+
+    vendors.sort((a, b) => b.value - a.value || a.vendor.localeCompare(b.vendor));
+    return vendors;
+}
+
+export type NodeSelection = "none" | "some" | "all";
+
+/**
+ * Checked, indeterminate, or unchecked — DERIVED from the leaves, never stored.
+ *
+ * ⚠️ A STORED PARENT STATE IS THE CLASSIC TREE BUG. It goes stale the moment a leaf changes by any
+ * route other than clicking that parent — a filter, a refetch, a single leaf toggled underneath it —
+ * and then a vendor reads "checked" while one of its transfers is not going to be confirmed. Here
+ * the parent has no state of its own to go stale.
+ */
+export function nodeSelectionState(
+    rows: ConfirmableRow[],
+    selected: ReadonlySet<string>
+): NodeSelection {
+    if (!rows.length) return "none";
+    let hits = 0;
+    for (const row of rows) if (selected.has(row.name)) hits += 1;
+    if (hits === 0) return "none";
+    return hits === rows.length ? "all" : "some";
+}
+
+/**
+ * Toggle every row under a node. Returns a NEW set.
+ *
+ * ⚠️ "SOME" TOGGLES TO ALL, NOT TO NONE. A half-selected branch that a reviewer clicks is one they
+ * are reaching toward, not away from; emptying it would throw away the picks they already made.
+ * ⚠️ IT ONLY EVER TOUCHES THE ROWS IT IS GIVEN, which is what makes filtering safe: the caller
+ * passes the VISIBLE rows of the node, so a select-all under a search can never quietly tick rows
+ * the search is hiding.
+ */
+export function toggleNode(
+    rows: ConfirmableRow[],
+    selected: ReadonlySet<string>
+): Set<string> {
+    const next = new Set(selected);
+    const state = nodeSelectionState(rows, selected);
+    if (state === "all") for (const row of rows) next.delete(row.name);
+    else for (const row of rows) next.add(row.name);
+    return next;
+}
+
+export interface ConfirmSummary {
+    transfers: number;
+    vendors: number;
+    projects: number;
+    value: number;
+    /** How many confirms will REWRITE an approved figure (X1). 312 of 807 on the real statement. */
+    amountsChanging: number;
+    /** Selected rows the current filter is not showing. */
+    hidden: number;
+}
+
+/**
+ * What pressing the button will actually do.
+ *
+ * ⚠️ IT COUNTS OVER THE SELECTION, NOT OVER THE VISIBLE TREE, and the two differ the moment anyone
+ * types in the search box. Selection is a set of row names and deliberately SURVIVES filtering — so
+ * without `hidden` a reviewer could filter to one vendor, read "12 transfers", and confirm 142.
+ *
+ * ⚠️ `amountsChanging` IS THE FIGURE THAT EXISTS NOWHERE ELSE ON THE SCREEN. Since X1 a confirm
+ * rewrites the record's amount whenever the bank disagrees; at this scale that is hundreds of silent
+ * corrections to approved figures. A reviewer authorising them is entitled to see how many.
+ */
+export function confirmSelectionSummary(
+    all: ConfirmableRow[],
+    visible: ConfirmableRow[],
+    selected: ReadonlySet<string>
+): ConfirmSummary {
+    const visibleNames = new Set(visible.map((r) => r.name));
+    const vendors = new Set<string>();
+    const projects = new Set<string>();
+    let transfers = 0;
+    let value = 0;
+    let amountsChanging = 0;
+    let hidden = 0;
+
+    for (const row of all) {
+        if (!selected.has(row.name)) continue;
+        transfers += 1;
+        value += row.amount || 0;
+        vendors.add(rowVendor(row));
+        projects.add(`${rowVendor(row)}\u0000${rowProject(row)}`);
+        if (row.amount_changes) amountsChanging += 1;
+        if (!visibleNames.has(row.name)) hidden += 1;
+    }
+
+    return {
+        transfers,
+        vendors: vendors.size,
+        projects: projects.size,
+        value,
+        amountsChanging,
+        hidden,
+    };
+}
+
+export interface ConfirmFilters {
+    search: string;
+    /** `""` = every ledger. */
+    ledger: string;
+    /** `""` = any, `"rule"` = picked by an Option B rule, `"sole"` = the only candidate. */
+    pickedBy: string;
+    /** Only rows whose confirm will rewrite an approved amount. */
+    changesOnly: boolean;
+}
+
+export const EMPTY_CONFIRM_FILTERS: ConfirmFilters = {
+    search: "",
+    ledger: "",
+    pickedBy: "",
+    changesOnly: false,
+};
+
+/**
+ * Which rows survive the search box and the facets.
+ *
+ * ⚠️ IT FILTERS ROWS, AND THE TREE IS REBUILT FROM WHAT SURVIVES. Filtering the TREE instead —
+ * keeping a vendor because its own name matched — would show a vendor node whose leaves do not
+ * match, and its "54 transfers" would then describe rows the dialog is not displaying. Rebuilding
+ * from the surviving rows makes every count on every node true by construction.
+ *
+ * The search spans what a person would actually type to find a branch: the vendor, the project, the
+ * order number, the record id, the beneficiary as the bank spelled it, and the bank reference.
+ */
+export function filterConfirmRows(
+    rows: ConfirmableRow[],
+    filters: ConfirmFilters
+): ConfirmableRow[] {
+    const needle = (filters.search || "").trim().toLowerCase();
+    const ledger = (filters.ledger || "").trim();
+    const pickedBy = (filters.pickedBy || "").trim();
+
+    return rows.filter((row) => {
+        if (ledger && (row.target_doctype || "") !== ledger) return false;
+
+        if (pickedBy) {
+            const rule = (row.suggestion_rule || "").trim();
+            // ⚠️ `sole` IS NOW A STORED VALUE, not the absence of one. Before T1 a blank meant both
+            // "only candidate" and "chosen by the stack pass", so this filter showed 112 arbitrary
+            // pairings under Only candidate.
+            if (pickedBy === "rule" && (!rule || rule === "sole")) return false;
+            if (pickedBy === "arbitrary" && !ARBITRARY_SUGGESTION_RULES.has(rule)) return false;
+            if (pickedBy !== "rule" && pickedBy !== "arbitrary" && rule !== pickedBy) return false;
+        }
+
+        if (filters.changesOnly && !row.amount_changes) return false;
+
+        if (!needle) return true;
+        const hay = [
+            row.vendor_name,
+            row.project_name,
+            row.order_name,
+            row.target_name,
+            row.beneficiary_name,
+            row.bank_reference_no,
+        ]
+            .map((v) => (v || "").toLowerCase())
+            .join(" ");
+        return hay.includes(needle);
+    });
+}
+
+/** How many active narrowings the confirm dialog is under, for the "clear" affordance. */
+export const confirmFilterCount = (filters: ConfirmFilters): number =>
+    (filters.search.trim() ? 1 : 0) +
+    (filters.ledger ? 1 : 0) +
+    (filters.pickedBy ? 1 : 0) +
+    (filters.changesOnly ? 1 : 0);
 
 export interface ConfirmOutcome {
     row: ConfirmableRow;
@@ -753,6 +1227,39 @@ export const proposeStackPairs = (stack: UnpairedStack): Record<string, string> 
     }
     return pairs;
 };
+
+/**
+ * The distinct projects a stack's approved records belong to, in first-seen order.
+ *
+ * ⚠️ THIS IS THE ONE FACT THAT SEPARATES A HARMLESS PAIRING FROM AN EXPENSIVE ONE, and until now
+ * nothing on the screen said it. A stack is transfers that are IDENTICAL to each other — same
+ * account, same exact amount — against approved records that are identical in the same way, so the
+ * bank statement contains NOTHING that says which transfer paid which record. When every record
+ * belongs to one project, that ambiguity costs nothing: whichever way round it goes, the same job
+ * is billed. When the records span several projects, the same arbitrary pairing bills the WRONG
+ * JOB, and it does so silently and permanently.
+ *
+ * Measured on the first real statement: of the 18 transfers the dialog can settle, 12 sit in a
+ * stack whose records span more than one project — the ₹9,000 set alone is 7 transfers against 8
+ * approved payments across 4 different projects. The dialog opens PRE-FILLED on a proposal, so the
+ * default is one click away from being accepted.
+ *
+ * ⚠️ A BLANK PROJECT IS NOT A PROJECT. `get_unpaired_stacks` sends `""` for a record with none —
+ * counting blanks as a distinct value would raise the warning on a set that is merely missing data,
+ * which is how a real signal gets trained away.
+ */
+export const stackProjectSpread = (stack: UnpairedStack): string[] => {
+    const seen: string[] = [];
+    for (const record of stack.records) {
+        const project = (record.project_name || "").trim();
+        if (project && !seen.includes(project)) seen.push(project);
+    }
+    return seen;
+};
+
+/** Does this stack's outcome depend on a choice nothing in the statement can settle? */
+export const stackIsCrossProject = (stack: UnpairedStack): boolean =>
+    stackProjectSpread(stack).length > 1;
 
 /**
  * A stack record's key, in the SAME `<doctype>|<name>` format the Link-payment table uses.

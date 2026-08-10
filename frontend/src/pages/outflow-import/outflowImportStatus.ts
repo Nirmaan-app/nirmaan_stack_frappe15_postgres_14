@@ -136,6 +136,36 @@ export const ROW_STATUS_TONE: Record<string, string> = {
 export const rowStatusTone = (status: string): string =>
     ROW_STATUS_TONE[status] || "bg-gray-100 text-gray-700";
 
+/**
+ * What a status is CALLED on screen, where that differs from what it is called in the database.
+ *
+ * ⚠️ DISPLAY ONLY. The stored value is untouched and `ROW_MISMATCHED` is still `"Mismatched"` — this
+ * maps a status to a phrase, it does not rename anything. Every comparison, filter, scope and
+ * endpoint argument keeps using the constants; a rename in the doctype would need a patch, and this
+ * needs none precisely because nothing about the data changes.
+ *
+ * ⚠️ `Mismatched` IS NAMED AFTER THE CAUSE THAT HAS NO ROWS. It carries TWO causes since `Unmatched`
+ * was merged into it: "the match ran and found nothing settleable", and "a record already recorded
+ * as Paid disagrees on amount beyond the rounding window". On the first real statement the split was
+ * 133 and ZERO — every one was the found-nothing case, and the word points at the other. A reviewer
+ * reading "Mismatched" looks for the mismatch, and there isn't one: nothing was found at all.
+ *
+ * ⚠️ THE LABEL IS `Not-Matched`, MATCHING THE TAB THAT HOLDS THESE ROWS (owner, 2026-08-11 —
+ * replacing a short-lived "Needs a record"). The tab and the status share a word without sharing a
+ * population: the tab also holds `Pending match run` and `Error`. That is deliberate rather than
+ * sloppy — a reviewer looking at a row marked Not-Matched should find it under the Not-Matched tab,
+ * which is the only relationship between the two that anyone actually uses.
+ *
+ * The MERGE is not reversed by any of this and must not be: the two causes are the same JOB, and the
+ * outcome note still tells them apart. This renames the label, not the vocabulary.
+ */
+export const ROW_STATUS_LABEL: Record<string, string> = {
+    [ROW_MISMATCHED]: "Not-Matched",
+};
+
+/** The status as a person should read it. Falls through to the stored value for the other five. */
+export const rowStatusLabel = (status: string): string => ROW_STATUS_LABEL[status] || status;
+
 // ⚠️ `ROW_FILTERS` IS DELETED. It was the chip strip of the PRE-V4 review screen, kept alive
 // through V0-V3 so that screen stayed green while the vocabulary under it changed. V4 replaced the
 // screen with the tabbed table and X3 deleted it outright, leaving these buckets with no caller --

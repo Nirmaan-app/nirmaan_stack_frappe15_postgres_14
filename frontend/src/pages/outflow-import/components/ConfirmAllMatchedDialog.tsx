@@ -1,12 +1,31 @@
 // src/pages/outflow-import/components/ConfirmAllMatchedDialog.tsx
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ArrowRight, CheckCircle2, Loader2, XCircle } from "lucide-react";
+import {
+    AlertTriangle,
+    ArrowRight,
+    CheckCircle2,
+    ChevronDown,
+    ChevronRight,
+    CornerDownRight,
+    Loader2,
+    Search,
+    X,
+    XCircle,
+} from "lucide-react";
 import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 import {
     Dialog,
     DialogContent,
@@ -19,11 +38,25 @@ import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 import {
+    EMPTY_CONFIRM_FILTERS,
+    buildConfirmTree,
+    confirmFilterCount,
     confirmFunnel,
+    confirmSelectionSummary,
     describeFrappeError,
+    filterConfirmRows,
     ledgerLabel,
+    nodeSelectionState,
+    ARBITRARY_SUGGESTION_RULES,
+    matchBasisLabel,
+    orderLabel,
+    suggestionRuleLabel,
+    toggleNode,
+    type ConfirmFilters,
+    type ConfirmVendorNode,
     type ConfirmableRow,
     type ConfirmOutcome,
+    type NodeSelection,
 } from "../outflowTableModel";
 
 interface Props {
@@ -72,7 +105,17 @@ interface Payload {
  * thing -- so the results panel reports them plainly instead of treating them as an error state.
  */
 export const ConfirmAllMatchedDialog = ({ batch, open, onOpenChange, onSettled }: Props) => {
-    const [skip, setSkip] = useState<ReadonlySet<string>>(new Set());
+    /**
+     * ⚠️ A POSITIVE SELECTION, NOT A SKIP LIST, AND THE SWAP WAS FORCED BY THE ROLLUP. A skip set
+     * answers "which of the visible rows did somebody untick", which is fine for a flat list where
+     * everything is visible. Under a tree with search and facets the question a parent checkbox has
+     * to answer is "how many of MY leaves are in", and a set of exclusions cannot answer it without
+     * knowing the full population at every node. It also survives filtering by construction, which
+     * is what `ConfirmSummary.hidden` exists to report.
+     */
+    const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+    const [filters, setFilters] = useState<ConfirmFilters>(EMPTY_CONFIRM_FILTERS);
+    const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
     const [running, setRunning] = useState(false);
     const [done, setDone] = useState(0);
     const [outcomes, setOutcomes] = useState<ConfirmOutcome[] | null>(null);
@@ -111,19 +154,53 @@ export const ConfirmAllMatchedDialog = ({ batch, open, onOpenChange, onSettled }
     // A dialog is reused; without this the second run opens showing the first one's results.
     useEffect(() => {
         if (open) return;
-        setSkip(new Set());
+        setSelected(new Set());
+        setFilters(EMPTY_CONFIRM_FILTERS);
+        setExpanded(new Set());
         setOutcomes(null);
         setDone(0);
         setRunning(false);
     }, [open]);
 
-    const chosen = useMemo(() => ready.filter((r) => !skip.has(r.name)), [ready, skip]);
-    const changing = useMemo(() => chosen.filter((r) => r.amount_changes), [chosen]);
+    /**
+     * Everything ready arrives TICKED (owner decision 2026-08-10).
+     *
+     * ⚠️ INCLUDING THE ROWS A RULE PICKED. Option B pre-selects a record on rows the matcher left
+     * ambiguous, and treating those as suspect by default would make the rules pointless -- the
+     * "Picked by" filter is the review path for them, not an unticked checkbox. M3 is provably
+     * harmless, M1 acts on evidence, and M2 is fenced to a single project.
+     *
+     * ⚠️ SEEDED ONCE PER PAYLOAD, KEYED ON THE ROW NAMES. A refetch that returns the same rows must
+     * not wipe a half-made selection; one that returns DIFFERENT rows is a different question and
+     * starts again. Keying on the identity of the list rather than on the fetch is what separates
+     * those two cases.
+     */
+    const readyKey = useMemo(() => ready.map((r) => r.name).join("|"), [ready]);
+    useEffect(() => {
+        if (!open || !readyKey) return;
+        setSelected(new Set(readyKey.split("|")));
+    }, [open, readyKey]);
 
-    const toggle = useCallback((name: string) => {
-        setSkip((prev) => {
+    const visible = useMemo(() => filterConfirmRows(ready, filters), [ready, filters]);
+    const tree = useMemo(() => buildConfirmTree(visible), [visible]);
+    const summary = useMemo(
+        () => confirmSelectionSummary(ready, visible, selected),
+        [ready, visible, selected]
+    );
+    const filterCount = confirmFilterCount(filters);
+
+    // The order the loop settles in: the SELECTION, not the visible tree. A filter narrows what is
+    // on screen; it never silently narrows what the button was going to write.
+    const chosen = useMemo(() => ready.filter((r) => selected.has(r.name)), [ready, selected]);
+
+    const toggleRows = useCallback((rows: ConfirmableRow[]) => {
+        setSelected((prev) => toggleNode(rows, prev));
+    }, []);
+
+    const toggleExpanded = useCallback((key: string) => {
+        setExpanded((prev) => {
             const next = new Set(prev);
-            next.has(name) ? next.delete(name) : next.add(name);
+            next.has(key) ? next.delete(key) : next.add(key);
             return next;
         });
     }, []);
@@ -166,10 +243,16 @@ export const ConfirmAllMatchedDialog = ({ batch, open, onOpenChange, onSettled }
 
     return (
         <Dialog open={open} onOpenChange={(next) => (running ? null : onOpenChange(next))}>
-            <DialogContent className="max-w-4xl">
+            <DialogContent className="max-w-5xl">
                 <DialogHeader>
                     <DialogTitle>
-                        {outcomes ? "Confirmation results" : `Confirm ${chosen.length} matched`}
+                        {/* ⚠️ NO NUMBER IN THE TITLE. It used to carry `chosen.length`, which
+                            moves with the selection -- so the heading read "Confirm 831 matched"
+                            directly above a line reading "833 ready to confirm", two live numbers a
+                            few pixels apart measuring different things. That is the exact shape of
+                            confusion this dialog was rebuilt to remove. The count belongs to the
+                            button, which is the thing that acts, and to the summary bar. */}
+                        {outcomes ? "Confirmation results" : "Confirm matched transfers"}
                     </DialogTitle>
                     <DialogDescription>
                         {outcomes
@@ -272,107 +355,135 @@ export const ConfirmAllMatchedDialog = ({ batch, open, onOpenChange, onSettled }
                             </p>
                         )}
 
+                        {/* ⚠️ SEARCH AND FACETS NARROW WHAT IS SHOWN, NEVER WHAT IS SELECTED. A
+                            filter that also deselected would make "Confirm 142" mean something
+                            different depending on what was typed in a box above it. The footer
+                            reports anything selected but off screen instead. */}
                         {ready.length > 0 && (
-                            <table className="w-full border-collapse text-sm">
-                                <thead className="sticky top-0 bg-muted/60 backdrop-blur">
-                                    <tr className="text-left">
-                                        <th className="w-8 px-2 py-1.5" />
-                                        <th className="px-2 py-1.5 text-xs uppercase tracking-wide text-muted-foreground">
-                                            Transfer
-                                        </th>
-                                        <th className="px-2 py-1.5 text-xs uppercase tracking-wide text-muted-foreground">
-                                            Settles
-                                        </th>
-                                        <th className="px-2 py-1.5 text-right text-xs uppercase tracking-wide text-muted-foreground">
-                                            Amount
-                                        </th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {ready.map((row) => (
-                                        <tr key={row.name} className="border-t align-top">
-                                            <td className="px-2 py-1.5">
-                                                <Checkbox
-                                                    checked={!skip.has(row.name)}
-                                                    disabled={running}
-                                                    onCheckedChange={() => toggle(row.name)}
-                                                    aria-label={`Confirm ${row.beneficiary_name}`}
-                                                />
-                                            </td>
-                                            <td className="px-2 py-1.5">
-                                                <div className="font-medium">
-                                                    {row.beneficiary_name || "—"}
-                                                </div>
-                                                <div className="text-xs text-muted-foreground">
-                                                    {row.added_on
-                                                        ? formatDate(row.added_on.split(/[ T]/)[0])
-                                                        : "—"}
-                                                    {row.remarks ? ` · ${row.remarks}` : ""}
-                                                </div>
-                                            </td>
-                                            <td className="px-2 py-1.5">
-                                                <div className="flex items-center gap-1.5">
-                                                    <Badge
-                                                        variant="outline"
-                                                        className="border-0 bg-muted text-[11px]"
-                                                    >
-                                                        {ledgerLabel(row.target_doctype ?? "")}
-                                                    </Badge>
-                                                    <span className="font-mono text-xs">
-                                                        {row.target_name}
-                                                    </span>
-                                                </div>
-                                                <div className="text-xs text-muted-foreground">
-                                                    {[row.vendor_name, row.project_name]
-                                                        .filter(Boolean)
-                                                        .join(" · ") || "—"}
-                                                </div>
-                                            </td>
-                                            <td className="px-2 py-1.5 text-right tabular-nums">
-                                                {/* ⚠️ THE DELTA IS SHOWN BEFORE THE CLICK, NOT AFTER
-                                                    (slice X1). Confirming REWRITES the record's
-                                                    amount to the bank's, so a row that will change
-                                                    an approved figure has to say so here.
-
-                                                    ⚠️ BOTH SIDES ARE FORMATTED TO THE PAISE, and
-                                                    the rounded formatter is WRONG here however
-                                                    tidy it looks. Nearly every correction this
-                                                    feature makes is sub-rupee -- 313 of them on
-                                                    the first real statement, all under a rupee --
-                                                    so rounding rendered the whole warning as
-                                                    "₹27,504 → ₹27,504": a change notice showing
-                                                    no change, on the one screen where the reviewer
-                                                    is being asked to authorise it. */}
-                                                {row.amount_changes ? (
-                                                    <div className="flex items-center justify-end gap-1 text-xs">
-                                                        <span className="text-muted-foreground line-through">
-                                                            {formatToIndianRupee(row.target_amount)}
-                                                        </span>
-                                                        <ArrowRight className="h-3 w-3 text-amber-600" />
-                                                        <span className="font-medium text-amber-700">
-                                                            {formatToIndianRupee(row.amount)}
-                                                        </span>
-                                                    </div>
-                                                ) : (
-                                                    <span>
-                                                        {formatToRoundedIndianRupee(row.amount)}
-                                                    </span>
-                                                )}
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
+                            <div className="flex w-full flex-wrap items-center gap-2">
+                                <div className="relative min-w-[180px] flex-1">
+                                    <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                                    <Input
+                                        className="h-8 pl-8"
+                                        placeholder="Vendor, project, order, reference…"
+                                        value={filters.search}
+                                        disabled={running}
+                                        onChange={(e) =>
+                                            setFilters((f) => ({ ...f, search: e.target.value }))
+                                        }
+                                    />
+                                </div>
+                                <Select
+                                    value={filters.ledger || "any"}
+                                    disabled={running}
+                                    onValueChange={(v) =>
+                                        setFilters((f) => ({ ...f, ledger: v === "any" ? "" : v }))
+                                    }
+                                >
+                                    <SelectTrigger className="h-8 w-[150px]">
+                                        <SelectValue placeholder="Ledger" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="any">Any ledger</SelectItem>
+                                        <SelectItem value="Project Payments">Payments</SelectItem>
+                                        <SelectItem value="Project Expenses">
+                                            Project expenses
+                                        </SelectItem>
+                                        <SelectItem value="Non Project Expenses">
+                                            Non-project expenses
+                                        </SelectItem>
+                                    </SelectContent>
+                                </Select>
+                                {/* The review path for the rows Option B pre-selected. They arrive
+                                    ticked like every other ready row; this is how you isolate them. */}
+                                <Select
+                                    value={filters.pickedBy || "any"}
+                                    disabled={running}
+                                    onValueChange={(v) =>
+                                        setFilters((f) => ({ ...f, pickedBy: v === "any" ? "" : v }))
+                                    }
+                                >
+                                    <SelectTrigger className="h-8 w-[176px]">
+                                        <SelectValue placeholder="Picked by" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="any">Picked by anything</SelectItem>
+                                        {/* ⚠️ THE ONE A REVIEWER SHOULD ACTUALLY OPEN. Both members
+                                            chose between records nothing distinguishes; the other
+                                            rules acted on evidence. Before T1 the arbitrary ones
+                                            hid under "Only candidate". */}
+                                        <SelectItem value="arbitrary">
+                                            Chosen arbitrarily
+                                        </SelectItem>
+                                        <SelectItem value="sole">Only candidate</SelectItem>
+                                        <SelectItem value="stack-pairing">
+                                            Identical set, paired arbitrarily
+                                        </SelectItem>
+                                        <SelectItem value="rule">Any rule</SelectItem>
+                                        <SelectItem value="project-in-remark">
+                                            Remark named the project
+                                        </SelectItem>
+                                        <SelectItem value="nearest-amount">Nearest amount</SelectItem>
+                                        <SelectItem value="interchangeable">
+                                            Interchangeable records
+                                        </SelectItem>
+                                    </SelectContent>
+                                </Select>
+                                <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                    <Checkbox
+                                        checked={filters.changesOnly}
+                                        disabled={running}
+                                        onCheckedChange={(v) =>
+                                            setFilters((f) => ({ ...f, changesOnly: Boolean(v) }))
+                                        }
+                                    />
+                                    Changes only
+                                </label>
+                                {filterCount > 0 && (
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-8"
+                                        disabled={running}
+                                        onClick={() => setFilters(EMPTY_CONFIRM_FILTERS)}
+                                    >
+                                        <X className="mr-1 h-3.5 w-3.5" />
+                                        Clear {filterCount}
+                                    </Button>
+                                )}
+                            </div>
                         )}
 
-                        {changing.length > 0 && (
+                        {ready.length > 0 && visible.length === 0 && (
+                            <p className="py-6 text-center text-sm text-muted-foreground">
+                                No transfers match these filters.
+                            </p>
+                        )}
+
+                        {tree.length > 0 && (
+                            <div className="rounded-md border">
+                                {tree.map((vendor) => (
+                                    <VendorBranch
+                                        key={vendor.key}
+                                        node={vendor}
+                                        selected={selected}
+                                        expanded={expanded}
+                                        running={running}
+                                        onToggleRows={toggleRows}
+                                        onToggleExpanded={toggleExpanded}
+                                    />
+                                ))}
+                            </div>
+                        )}
+
+                        {summary.amountsChanging > 0 && (
                             <p className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800">
                                 <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                                 <span>
-                                    {changing.length}{" "}
-                                    {changing.length === 1 ? "record" : "records"} will be updated to
-                                    the amount that actually left the bank. The change is recorded
-                                    against your name.
+                                    {summary.amountsChanging}{" "}
+                                    {summary.amountsChanging === 1 ? "record" : "records"} will be
+                                    updated to the amount that actually left the bank. The change is
+                                    recorded against your name.
                                 </span>
                             </p>
                         )}
@@ -433,28 +544,353 @@ export const ConfirmAllMatchedDialog = ({ batch, open, onOpenChange, onSettled }
                     </div>
                 )}
 
-                <DialogFooter>
-                    {outcomes ? (
-                        <Button onClick={() => onOpenChange(false)}>Close</Button>
-                    ) : (
-                        <>
-                            <Button
-                                variant="outline"
-                                disabled={running}
-                                onClick={() => onOpenChange(false)}
-                            >
-                                Cancel
-                            </Button>
-                            <Button disabled={!chosen.length || running} onClick={run}>
-                                {running && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                {running
-                                    ? `Confirming ${done} of ${chosen.length}…`
-                                    : `Confirm ${chosen.length}`}
-                            </Button>
-                        </>
+                <DialogFooter className="sm:flex-col sm:items-stretch sm:gap-3">
+                    {/* ⚠️ THE SUMMARY BAR IS A SAFETY CONTROL, NOT A FLOURISH. It states what
+                        pressing the button will WRITE, at all times -- and the figure that matters
+                        most is the one that appears nowhere else on the screen: how many approved
+                        amounts this rewrites. Since X1 a confirm changes the record's figure
+                        whenever the bank disagrees, and at this scale that is hundreds of silent
+                        corrections. `hidden` is the other half: selection survives filtering, so
+                        without it somebody could narrow to one vendor, read "12 transfers", and
+                        confirm 142. */}
+                    {!outcomes && ready.length > 0 && (
+                        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-t pt-3 text-xs text-muted-foreground">
+                            <span>
+                                <span className="font-medium tabular-nums text-foreground">
+                                    {summary.transfers}
+                                </span>{" "}
+                                {summary.transfers === 1 ? "transfer" : "transfers"} ·{" "}
+                                <span className="tabular-nums">{summary.vendors}</span>{" "}
+                                {summary.vendors === 1 ? "vendor" : "vendors"} ·{" "}
+                                <span className="tabular-nums">{summary.projects}</span>{" "}
+                                {summary.projects === 1 ? "project" : "projects"}
+                                {summary.amountsChanging > 0 && (
+                                    <>
+                                        {" · "}
+                                        <span className="font-medium text-amber-700">
+                                            {summary.amountsChanging} amounts will be rewritten
+                                        </span>
+                                    </>
+                                )}
+                                {summary.hidden > 0 && (
+                                    <>
+                                        {" · "}
+                                        <span className="text-foreground">
+                                            {summary.hidden} selected not shown by these filters
+                                        </span>
+                                    </>
+                                )}
+                            </span>
+                            <span className="font-medium tabular-nums text-foreground">
+                                {formatToRoundedIndianRupee(summary.value)}
+                            </span>
+                        </div>
                     )}
+
+                    <div className="flex justify-end gap-2">
+                        {outcomes ? (
+                            <Button onClick={() => onOpenChange(false)}>Close</Button>
+                        ) : (
+                            <>
+                                <Button
+                                    variant="outline"
+                                    disabled={running}
+                                    onClick={() => onOpenChange(false)}
+                                >
+                                    Cancel
+                                </Button>
+                                <Button disabled={!chosen.length || running} onClick={run}>
+                                    {running && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                    {running
+                                        ? `Confirming ${done} of ${chosen.length}…`
+                                        : `Confirm ${chosen.length} ${
+                                              chosen.length === 1 ? "transfer" : "transfers"
+                                          }`}
+                                </Button>
+                            </>
+                        )}
+                    </div>
                 </DialogFooter>
             </DialogContent>
         </Dialog>
     );
 };
+
+
+/**
+ * One vendor, and its projects beneath it.
+ *
+ * ⚠️ THE PROJECT LEVEL IS RENDERED ONLY WHEN IT HAS SOMETHING TO SAY. 147 of the 210 vendors on the
+ * first real statement sit on exactly one project, and 79 have a single transfer -- so a rigid three
+ * level tree would be two expands to reach one row, most of the time, past a middle level that only
+ * ever repeated what the vendor row already implied. When there is one project its name reads inline
+ * here (`soleProject`) and the leaves hang directly off the vendor.
+ */
+const VendorBranch = ({
+    node,
+    selected,
+    expanded,
+    running,
+    onToggleRows,
+    onToggleExpanded,
+}: {
+    node: ConfirmVendorNode;
+    selected: ReadonlySet<string>;
+    expanded: ReadonlySet<string>;
+    running: boolean;
+    onToggleRows: (rows: ConfirmableRow[]) => void;
+    onToggleExpanded: (key: string) => void;
+}) => {
+    const open = expanded.has(node.key);
+    const state = nodeSelectionState(node.rows, selected);
+    const flat = node.soleProject !== null;
+
+    return (
+        <div className="border-b last:border-b-0">
+            <div className="flex items-center gap-2 px-2 py-1.5 hover:bg-muted/40">
+                <TriCheckbox
+                    state={state}
+                    disabled={running}
+                    label={`Confirm every transfer for ${node.vendor}`}
+                    onToggle={() => onToggleRows(node.rows)}
+                />
+                <button
+                    type="button"
+                    className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+                    onClick={() => onToggleExpanded(node.key)}
+                >
+                    {open ? (
+                        <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    ) : (
+                        <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    )}
+                    <span className="truncate text-sm font-medium">{node.vendor}</span>
+                    {flat ? (
+                        <span className="truncate text-xs text-muted-foreground">
+                            · {node.soleProject}
+                        </span>
+                    ) : (
+                        <span className="shrink-0 text-xs text-muted-foreground">
+                            · {node.projects.length} projects
+                        </span>
+                    )}
+                </button>
+                <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                    {node.rows.length} {node.rows.length === 1 ? "transfer" : "transfers"}
+                </span>
+                <span className="w-28 shrink-0 text-right text-sm font-medium tabular-nums">
+                    {formatToRoundedIndianRupee(node.value)}
+                </span>
+            </div>
+
+            {open && flat && (
+                <div className="bg-muted/10">
+                    {node.rows.map((row) => (
+                        <LeafRow
+                            key={row.name}
+                            row={row}
+                            depth={1}
+                            checked={selected.has(row.name)}
+                            disabled={running}
+                            onToggle={() => onToggleRows([row])}
+                        />
+                    ))}
+                </div>
+            )}
+
+            {open &&
+                !flat &&
+                node.projects.map((project) => {
+                    const pOpen = expanded.has(project.key);
+                    return (
+                        <div key={project.key} className="bg-muted/10">
+                            <div className="flex items-center gap-2 py-1.5 pl-8 pr-2 hover:bg-muted/40">
+                                <TriCheckbox
+                                    state={nodeSelectionState(project.rows, selected)}
+                                    disabled={running}
+                                    label={`Confirm every transfer for ${node.vendor} on ${project.project}`}
+                                    onToggle={() => onToggleRows(project.rows)}
+                                />
+                                <button
+                                    type="button"
+                                    className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+                                    onClick={() => onToggleExpanded(project.key)}
+                                >
+                                    {pOpen ? (
+                                        <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                                    ) : (
+                                        <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                                    )}
+                                    <span className="truncate text-sm">{project.project}</span>
+                                </button>
+                                <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                                    {project.rows.length}
+                                </span>
+                                <span className="w-28 shrink-0 text-right text-sm tabular-nums">
+                                    {formatToRoundedIndianRupee(project.value)}
+                                </span>
+                            </div>
+                            {pOpen &&
+                                project.rows.map((row) => (
+                                    <LeafRow
+                                        key={row.name}
+                                        row={row}
+                                        depth={2}
+                                        checked={selected.has(row.name)}
+                                        disabled={running}
+                                        onToggle={() => onToggleRows([row])}
+                                    />
+                                ))}
+                        </div>
+                    );
+                })}
+        </div>
+    );
+};
+
+/**
+ * One transfer, with the record it settles indented underneath it.
+ *
+ * ⚠️ THE TRANSFER LEADS AND THE RECORD FOLLOWS, rather than sitting in columns beside it. The
+ * transfer is the FACT -- money left the bank -- and the record is the claim about it. Two lines say
+ * that; eight columns competing for the width of a dialog do not, and the one that loses is always
+ * the amount, which is the fact that decides whether the row can be settled at all. The same
+ * reasoning made the Link-payment table five columns rather than six.
+ */
+const LeafRow = ({
+    row,
+    depth,
+    checked,
+    disabled,
+    onToggle,
+}: {
+    row: ConfirmableRow;
+    depth: number;
+    checked: boolean;
+    disabled: boolean;
+    onToggle: () => void;
+}) => {
+    const order = orderLabel(row);
+    const rule = suggestionRuleLabel(row.suggestion_rule);
+    const basis = matchBasisLabel(row.match_basis);
+    // Amber for a pick nothing distinguished, sky for one made on evidence. Same tone language the
+    // rest of this screen uses: amber is "a person should look".
+    const arbitrary = ARBITRARY_SUGGESTION_RULES.has((row.suggestion_rule || "").trim());
+
+    return (
+        <div
+            className="flex items-start gap-2 border-t py-1.5 pr-2 hover:bg-muted/30"
+            style={{ paddingLeft: depth === 1 ? 34 : 58 }}
+        >
+            <Checkbox
+                className="mt-0.5"
+                checked={checked}
+                disabled={disabled}
+                onCheckedChange={onToggle}
+                aria-label={`Confirm ${row.beneficiary_name ?? row.name}`}
+            />
+            <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-baseline gap-x-2 text-sm">
+                    <span className="tabular-nums text-muted-foreground">
+                        {row.added_on ? formatDate(row.added_on.split(/[ T]/)[0]) : "—"}
+                    </span>
+                    <span className="truncate font-medium">{row.beneficiary_name || "—"}</span>
+                    {row.bank_reference_no && (
+                        <span className="font-mono text-[11px] text-muted-foreground">
+                            {row.bank_reference_no}
+                        </span>
+                    )}
+                </div>
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+                    <CornerDownRight className="h-3 w-3 shrink-0" />
+                    <Badge variant="outline" className="border-0 bg-muted text-[10px]">
+                        {ledgerLabel(row.target_doctype ?? "")}
+                    </Badge>
+                    <span className="font-mono">{row.target_name}</span>
+                    {/* ⚠️ NEVER LABELLED "PO" UNLESS IT IS ONE -- a quarter of the payments on a
+                        real statement are against a Service Request. */}
+                    {order && (
+                        <span className="font-mono">
+                            {order.kind} {order.name}
+                        </span>
+                    )}
+                    {/* Why this record was pre-selected, when it was not simply the only one. */}
+                    {basis && <span className="text-[11px]">{basis}</span>}
+                    {rule && rule !== "Only candidate" && (
+                        <Badge
+                            variant="outline"
+                            className={
+                                arbitrary
+                                    ? "border-amber-300 bg-amber-50 text-[10px] text-amber-800"
+                                    : "border-sky-200 bg-sky-50 text-[10px] text-sky-800"
+                            }
+                        >
+                            {rule}
+                        </Badge>
+                    )}
+                </div>
+            </div>
+            {/* ⚠️ BOTH SIDES TO THE PAISE. Nearly every correction this feature makes is sub-rupee,
+                so the rounded formatter turns the whole warning into "₹27,504 → ₹27,504": a change
+                notice showing no change, on the one screen where it is being authorised. */}
+            <div className="w-40 shrink-0 text-right tabular-nums">
+                {row.amount_changes ? (
+                    <div className="flex items-center justify-end gap-1 text-xs">
+                        <span className="text-muted-foreground line-through">
+                            {formatToIndianRupee(row.target_amount)}
+                        </span>
+                        <ArrowRight className="h-3 w-3 text-amber-600" />
+                        <span className="font-medium text-amber-700">
+                            {formatToIndianRupee(row.amount)}
+                        </span>
+                    </div>
+                ) : (
+                    <span className="text-sm">{formatToRoundedIndianRupee(row.amount)}</span>
+                )}
+            </div>
+        </div>
+    );
+};
+
+/**
+ * A checkbox with the third state a tree needs.
+ *
+ * ⚠️ THE SHARED `Checkbox` CANNOT SHOW "PARTIAL", AND ITS FAILURE MODE IS THE DANGEROUS DIRECTION.
+ * `components/ui/checkbox.tsx` renders a CheckIcon for the Radix Indicator, and Radix mounts that
+ * Indicator for `indeterminate` as well as for `checked` -- so a half-selected vendor renders with a
+ * TICK. It reads as "all of this branch is going in" at exactly the moment when some of it is not,
+ * on a screen whose button writes money.
+ *
+ * That file is shadcn-generated and must not be hand-edited (root CLAUDE.md), and widening it would
+ * change every checkbox in the app for one screen's need. So the third state is drawn HERE: the
+ * indicator's glyph is hidden while indeterminate and a dash is laid over the same box. Radix keeps
+ * ownership of the state, the keyboard behaviour and `aria-checked="mixed"` -- only the mark is ours.
+ */
+const TriCheckbox = ({
+    state,
+    disabled,
+    label,
+    onToggle,
+}: {
+    state: NodeSelection;
+    disabled: boolean;
+    label: string;
+    onToggle: () => void;
+}) => (
+    <span className="relative inline-flex h-4 w-4 shrink-0 items-center justify-center">
+        <Checkbox
+            className={
+                state === "some"
+                    ? "bg-primary text-primary-foreground [&_svg]:opacity-0"
+                    : undefined
+            }
+            checked={state === "all" ? true : state === "some" ? "indeterminate" : false}
+            disabled={disabled}
+            onCheckedChange={onToggle}
+            aria-label={label}
+        />
+        {state === "some" && (
+            <span className="pointer-events-none absolute h-[2px] w-2 rounded-sm bg-primary-foreground" />
+        )}
+    </span>
+);

@@ -29,6 +29,8 @@ interface Props {
     onSelect: (batch: string) => void;
     onConfirmAllMatched: () => void;
     onRunMatch: () => void;
+    /** Open the Skipped dialog. Absent for a panel with nothing to open. */
+    onShowSkipped?: () => void;
 }
 
 /**
@@ -59,6 +61,7 @@ export const ImportSummaryPanel = ({
     onSelect,
     onConfirmAllMatched,
     onRunMatch,
+    onShowSkipped,
 }: Props) => {
     const totals = summary?.totals;
 
@@ -153,7 +156,21 @@ export const ImportSummaryPanel = ({
 
                         <div className="flex flex-wrap items-center gap-2">
                             {summaryTiles(totals).map((tile) => (
-                                <StatusChip key={tile.id} tile={tile} />
+                                <StatusChip
+                                    key={tile.id}
+                                    tile={tile}
+                                    // ⚠️ ONE CHIP OPENS SOMETHING, AND ONLY ONE. The figures went
+                                    // read-only on 2026-08-10 because clicking one re-scoped a table
+                                    // spanning every import and moved the tab as a side effect. This
+                                    // is not that: Skipped rows have no tab at all, so the chip is
+                                    // the only route to them, and it opens a DIALOG rather than
+                                    // rewriting the filters behind it.
+                                    onOpen={
+                                        tile.id === "skipped" && tile.count > 0
+                                            ? onShowSkipped
+                                            : undefined
+                                    }
+                                />
                             ))}
                         </div>
 
@@ -178,34 +195,30 @@ export const ImportSummaryPanel = ({
                                 2026-08-10). They are filtered out of the master table's three
                                 tabs entirely, so if this line goes, a skipped transfer becomes
                                 invisible rather than merely out of the way. */}
-                            <span>
-                                {summary.auto_skipped_rows} auto-skipped ·{" "}
-                                {summary.manually_skipped_rows} skipped by hand
-                            </span>
-                            {/* ⚠️ THE ONLY PLACE A FAILED TRANSFER SURFACES AFTER IMPORT (owner
-                                ruling 2026-08-10, option B). It is excluded from every figure
-                                above -- Statement total, the counts, Decided % -- because it is
-                                money that never left the account. The row is still staged, so the
-                                evidence survives; this line is what keeps it findable. If it goes,
-                                option B silently becomes option A. */}
-                            {totals.failed_rows > 0 && (
-                                <span>
-                                    {totals.failed_rows} failed at the bank (
-                                    {formatToRoundedIndianRupee(totals.failed_value)}), excluded
-                                    from every figure above
-                                </span>
-                            )}
+                            {/* ⚠️ THE SKIPPED SPLIT AND THE FAILED-MONEY LINE WERE REMOVED HERE
+                                (owner, 2026-08-11), AND THE INVARIANT THEY SERVED IS INTACT.
+
+                                Invariant 13 said of the failed footnote: "If that line goes, option
+                                B silently becomes option A" — because it was the ONLY place a
+                                bank-refused transfer surfaced after import. That stopped being true
+                                earlier the same day: the Skipped chip now counts all 47 rather than
+                                20, and opens a dialog whose first control splits them into
+                                `All / Already paid / Bank refused` with the counts on it. The rows
+                                are reported in a place you can act on, not merely mentioned in a
+                                place you cannot.
+
+                                So this is a removal of DUPLICATION, not of the report. Anything that
+                                reverts the chip to 20 or drops the Skipped dialog must bring these
+                                lines back in the same change. */}
                         </div>
 
-                        {totals.ambiguous_rows > 0 && (
-                            <p className="text-xs text-muted-foreground">
-                                {totals.ambiguous_rows} matched{" "}
-                                {totals.ambiguous_rows === 1 ? "transfer" : "transfers"} found more
-                                than one approved record, so nothing was pre-selected — those need a
-                                choice and are not part of “Confirm {totals.confirmable_rows}
-                                &nbsp;matched”.
-                            </p>
-                        )}
+                        {/* ⚠️ THE AMBIGUITY LINE MOVED, IT DID NOT VANISH (owner, 2026-08-11).
+                            It explained why the Confirm button's number is smaller than the Matched
+                            chip. The confirm dialog now states that funnel itself — "19 matched in
+                            this import · 5 ready to confirm · 14 matched more than one record" — at
+                            the moment somebody is about to act on it, which is where an explanation
+                            for a number belongs. Saying it twice made the panel longer without
+                            making it clearer. */}
                     </>
                 )}
 
@@ -245,12 +258,39 @@ const Figure = ({
     </div>
 );
 
-/** A figure, not a control. See the panel docstring for why it stopped being a button. */
-const StatusChip = ({ tile }: { tile: SummaryTile }) => (
-    <span
-        className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs ${tile.tone}`}
-    >
-        <span className="font-medium tabular-nums">{tile.count}</span>
-        <span>{tile.label}</span>
-    </span>
-);
+/**
+ * A figure. See the panel docstring for why these stopped being filters.
+ *
+ * ⚠️ `onOpen` IS NOT A RETURN OF THE OLD CLICK. That one re-scoped the table below to the chip's
+ * status — a panel about ONE import silently rewriting the filters of a table spanning all of them,
+ * and moving the tab while it did. This opens a dialog and changes nothing behind it. A chip without
+ * `onOpen` renders exactly as it always has, as a `<span>`, so the read-only ones cannot acquire a
+ * focus ring or a pointer cursor by accident.
+ */
+const StatusChip = ({ tile, onOpen }: { tile: SummaryTile; onOpen?: () => void }) => {
+    const className = `flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs ${tile.tone}`;
+    // The split behind a count that is not simply its own status figure. See `summaryTiles`.
+    const title = tile.hint;
+    const body = (
+        <>
+            <span className="font-medium tabular-nums">{tile.count}</span>
+            <span>{tile.label}</span>
+        </>
+    );
+    if (!onOpen)
+        return (
+            <span className={className} title={title}>
+                {body}
+            </span>
+        );
+    return (
+        <button
+            type="button"
+            onClick={onOpen}
+            title={title ? `${title} — click to see them` : "Show the skipped transfers"}
+            className={`${className} underline-offset-2 transition-colors hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
+        >
+            {body}
+        </button>
+    );
+};

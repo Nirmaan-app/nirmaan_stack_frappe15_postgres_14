@@ -148,7 +148,25 @@ export interface OutflowRowsPage {
      * 2026-08-10); there is no skipped count here because there is no skipped tab, and the import
      * summary panel reports them instead.
      */
-    tab_counts: { all: number; not_matched: number; matched: number };
+    /**
+     * ⚠️ `skipped` IS A SCOPE WITH NO TAB (owner ruling). The three working scopes label the tab
+     * strip; `skipped` exists so the Skipped chip's dialog can ask for those rows by name, and it
+     * is deliberately absent from `SCOPE_FOR_TAB` — there is no tab to map to it.
+     */
+    tab_counts: { all: number; not_matched: number; matched: number; skipped: number };
+    /**
+     * The SAME population as `tab_counts`, broken down by status instead of by tab.
+     *
+     * ⚠️ IT EXISTS BECAUSE ONE TAB HOLDS TWO STATUSES. "Matched / Settled" pairs an OPEN status
+     * with a TERMINAL one, so its single number cannot say which — live-observed as 863 under a tab
+     * whose second word means finished, when nothing had been settled at all. The tab renders
+     * `863 matched · 0 settled` from this.
+     *
+     * ⚠️ RAW, AND IT INCLUDES `Skipped`, which no tab shows. This is a breakdown OF the population,
+     * not a fourth scope — never sum it expecting a tab's number. `tab_counts` stays the only thing
+     * derived from the scope statuses, and the only thing a tab may be labelled with wholesale.
+     */
+    status_counts: Record<string, number>;
 }
 
 /** One import, as the summary picker lists it. */
@@ -297,4 +315,45 @@ export interface OutflowUploadResult {
     overlaps_batch: string | null;
     warnings: string[];
     duplicate_transfer_ids: string[];
+}
+
+
+/**
+ * One approved-and-unpaid record, from any of the three ledgers, in one shape.
+ *
+ * ⚠️ `approved_on` AND `updated_on` ARE SEPARATE KEYS AND EXACTLY ONE IS EVER FILLED. Only
+ * `Project Payments` records an approval date — neither expense doctype has the field at all — so a
+ * single "approved" column would present a modification timestamp as an approval on every expense in
+ * the list (owner ruling 2026-08-06).
+ *
+ * ⚠️ `amount` MAY BE `null`, WHICH IS NOT ZERO. `Project Expenses.amount` is a Data column of
+ * numeric strings; a value that cannot be read as a number comes back null rather than taking the
+ * page down. A zero would be a claim that the record costs nothing.
+ */
+export interface ApprovedRecord {
+    target_doctype: string;
+    name: string;
+    amount: number | null;
+    status: string;
+    vendor_name: string;
+    project_name: string;
+    /** Payments only, and NOT always a PO — a quarter are Service Requests. */
+    order_doctype: string;
+    order_name: string;
+    /** Expenses only: the Expense Type. */
+    expense_type: string;
+    approved_on: string;
+    updated_on: string;
+}
+
+export interface ApprovedRecordsPage {
+    rows: ApprovedRecord[];
+    total: number;
+    value: number;
+    /** Per-ledger split. The three are not comparable, so one total would hide the shape. */
+    by_ledger: Record<string, { count: number; value: number }>;
+    limit: number;
+    offset: number;
+    ledger: string;
+    sortable: string[];
 }

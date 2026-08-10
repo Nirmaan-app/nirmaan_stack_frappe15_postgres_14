@@ -13,7 +13,7 @@ import type { OutflowImportRow } from "@/types/NirmaanStack/OutflowImportBatch";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
-import { rowStatusTone } from "../outflowImportStatus";
+import { rowStatusLabel, rowStatusTone } from "../outflowImportStatus";
 import {
     OUTFLOW_COLUMNS,
     SERVER_SORT_COLUMNS,
@@ -385,7 +385,14 @@ const FacetFilterBody = ({
                             )
                         }
                     />
-                    <span className="truncate">{value}</span>
+                    {/* ⚠️ THE LABEL IS TRANSLATED, THE VALUE IS NOT. The funnel filters on the
+                        STORED status, so `value` must stay raw in every handler above — only the
+                        word a person reads changes. A funnel offering "Mismatched" beside a table
+                        column and a summary chip both saying "Not-Matched" would look like a
+                        third status. */}
+                    <span className="truncate">
+                        {column.id === "row_status" ? rowStatusLabel(value) : value}
+                    </span>
                 </label>
             ))}
         </div>
@@ -505,9 +512,13 @@ const Cell = ({
             return <Highlight text={row.bank_reference_no} query={query} />;
 
         case "row_status":
+            // ⚠️ `rowStatusLabel`, NOT the raw value. `Mismatched` reads on screen as "Needs a
+            // record" — the stored status is unchanged, and every filter and scope still sends the
+            // stored string. Rendering the raw value here while the summary chip renders the phrase
+            // is exactly the drift this shared helper exists to stop.
             return (
                 <Badge variant="outline" className={`${rowStatusTone(row.row_status)} border-0`}>
-                    {row.row_status}
+                    {rowStatusLabel(row.row_status)}
                 </Badge>
             );
 

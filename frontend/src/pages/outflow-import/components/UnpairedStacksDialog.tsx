@@ -31,6 +31,8 @@ import {
     proposeStackPairs,
     stackLabel,
     stackPairsAreSubmittable,
+    stackIsCrossProject,
+    stackProjectSpread,
     stackRecordKey,
     stackSurplusNote,
     type UnpairedStack,
@@ -225,6 +227,16 @@ export const UnpairedStacksDialog = ({ open, onOpenChange, onSettled }: Props) =
                                         }`}
                                     >
                                         {stackLabel(s, formatToRoundedIndianRupee)}
+                                        {/* A dot, not a word: the chip strip is a picker, and the
+                                            full sentence waits inside the stack it belongs to. */}
+                                        {stackIsCrossProject(s) && (
+                                            <span
+                                                aria-hidden="true"
+                                                className="ml-1.5 text-amber-600"
+                                            >
+                                                ●
+                                            </span>
+                                        )}
                                     </button>
                                 ))}
                             </div>
@@ -248,6 +260,34 @@ export const UnpairedStacksDialog = ({ open, onOpenChange, onSettled }: Props) =
                             <p className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800">
                                 <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                                 <span>{stackSurplusNote(stack)}</span>
+                            </p>
+                        )}
+
+                        {/* ⚠️ THE WARNING THAT ONLY APPEARS WHEN IT MEANS SOMETHING. Every stack is
+                            ambiguous by construction -- identical transfers, identical records, and
+                            a bank statement that says nothing about which paid which. On a
+                            single-project stack that ambiguity is free: either way round bills the
+                            same job. When the records span projects, the SAME arbitrary pairing
+                            bills the WRONG job, silently and permanently.
+
+                            So this is deliberately NOT shown on every stack. A caution printed on
+                            the safe ones too is a caution people learn to click past, and the 6
+                            here are a mix -- 3 span projects, 3 do not. Naming the projects is the
+                            point: it turns "be careful" into something a reader can actually check
+                            against the remark on each transfer. */}
+                        {stackIsCrossProject(stack) && (
+                            <p className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-100/70 p-2.5 text-xs text-amber-900">
+                                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                                <span>
+                                    <strong className="font-semibold">
+                                        These records sit on {stackProjectSpread(stack).length}{" "}
+                                        different projects
+                                    </strong>{" "}
+                                    — {stackProjectSpread(stack).join(", ")}. The pairing below is a
+                                    proposal, not a finding: nothing in the statement says which
+                                    transfer paid which record. Check the project on each line before
+                                    settling, or a transfer will be booked against the wrong one.
+                                </span>
                             </p>
                         )}
 

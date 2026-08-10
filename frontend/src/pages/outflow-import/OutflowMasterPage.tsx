@@ -1,8 +1,8 @@
 // src/pages/outflow-import/OutflowMasterPage.tsx
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Columns3, Layers, Search, Upload, X } from "lucide-react";
+import { Columns3, Layers, Search, Upload, Wallet, X } from "lucide-react";
 import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
 import { TailSpin } from "react-loader-spinner";
 
@@ -14,13 +14,15 @@ import type {
     OutflowImportOption,
     OutflowImportRow,
     OutflowImportSummary,
-    OutflowRowsPage,
 } from "@/types/NirmaanStack/OutflowImportBatch";
 import { OPEN_ROW_STATUSES } from "./outflowImportStatus";
 import { ConfirmAllMatchedDialog } from "./components/ConfirmAllMatchedDialog";
 import { DecisionDialog } from "./components/DecisionDialog";
 import { ImportStatementDialog } from "./components/ImportStatementDialog";
 import { ImportSummaryPanel } from "./components/ImportSummaryPanel";
+import { useOutflowRows } from "./useOutflowRows";
+import { ApprovedRecordsPanel } from "./components/ApprovedRecordsPanel";
+import { SkippedRowsDialog } from "./components/SkippedRowsDialog";
 import { UnpairedStacksDialog } from "./components/UnpairedStacksDialog";
 import {
     ClearFiltersButton,
@@ -28,24 +30,19 @@ import {
     TablePagination,
 } from "./components/OutflowRowsTable";
 import {
-    DEFAULT_PAGE_SIZE,
-    DEFAULT_HIDDEN_COLUMNS,
     DEFAULT_TAB,
     OUTFLOW_COLUMNS,
     OUTFLOW_TABS,
-    SCOPE_FOR_TAB,
-    activeFilterCount,
     decidedRows,
     decisionOrigin,
     isConfirmable,
     seedDecisions,
-    serverQuery,
-    type ColumnFilters,
+    SCOPE_FOR_TAB,
     type DecisionOrigin,
     type OutflowTab,
     type RowDecision,
-    type SortState,
     describeFrappeError,
+    tabCountParts,
 } from "./outflowTableModel";
 
 /**
@@ -74,12 +71,15 @@ export const OutflowMasterPage = () => {
     const { id: deepLinkedBatch } = useParams<{ id: string }>();
 
     const [tab, setTab] = useState<OutflowTab>(DEFAULT_TAB);
-    const [query, setQuery] = useState("");
-    const [debouncedQuery, setDebouncedQuery] = useState("");
-    const [filters, setFilters] = useState<ColumnFilters>({});
-    const [sort, setSort] = useState<SortState>({ columnId: "added_on", direction: "desc" });
-    const [page, setPage] = useState(0);
-    const [hidden, setHidden] = useState<Set<string>>(new Set(DEFAULT_HIDDEN_COLUMNS));
+    /**
+     * The far-right view, which is NOT one of the three tabs.
+     *
+     * ⚠️ IT IS NOT AN `OutflowTab` AND MUST NOT BECOME ONE. The three tabs are three SCOPES over
+     * `Outflow Import Row`; this reads the three LEDGERS and has no import row anywhere in it. A
+     * fourth entry in `OUTFLOW_TABS` would put it through `SCOPE_FOR_TAB`, which has nothing to map
+     * it to, and would hand it a `tab_counts` number describing a different population entirely.
+     */
+    const [showingApproved, setShowingApproved] = useState(false);
     const [selected, setSelected] = useState<Set<string>>(new Set());
     const [decisions, setDecisions] = useState<ReadonlyMap<string, RowDecision>>(new Map());
     const [openRow, setOpenRow] = useState<OutflowImportRow | null>(null);
@@ -91,44 +91,20 @@ export const OutflowMasterPage = () => {
     const [importing, setImporting] = useState(false);
     const [confirmingAll, setConfirmingAll] = useState(false);
     const [resolvingStacks, setResolvingStacks] = useState(false);
+    const [showingSkipped, setShowingSkipped] = useState(false);
     const [selectedImport, setSelectedImport] = useState<string | undefined>(deepLinkedBatch);
 
-    // Typing must not fire a query per keystroke now that search is a round trip.
-    useEffect(() => {
-        const timer = setTimeout(() => setDebouncedQuery(query), 300);
-        return () => clearTimeout(timer);
-    }, [query]);
-
-    // Any change to what is being asked for resets to the first page. Without this, narrowing a
-    // filter while on page 4 shows an empty table that looks like "no results".
-    useEffect(() => {
-        setPage(0);
-    }, [tab, debouncedQuery, filters, sort, deepLinkedBatch]);
-
-    const rowsQuery = useMemo(
-        () =>
-            serverQuery({
-                tab,
-                query: debouncedQuery,
-                filters,
-                sort,
-                page,
-                batch: deepLinkedBatch,
-            }),
-        [tab, debouncedQuery, filters, sort, page, deepLinkedBatch]
-    );
-
-    const {
-        data: pageData,
-        isLoading: rowsLoading,
-        mutate: mutateRows,
-    } = useFrappeGetCall<{ message: OutflowRowsPage }>(
-        "nirmaan_stack.api.outflow_import.review.get_outflow_rows",
-        // The SDK keys its cache on the arguments, so a JSON-serialisable object is what makes each
-        // distinct query its own cache entry rather than one entry that keeps being overwritten.
-        { ...rowsQuery, facets: JSON.stringify(rowsQuery.facets ?? {}) },
-        `outflow-rows-${JSON.stringify(rowsQuery)}`
-    );
+    /**
+     * The table's whole query, and what came back.
+     *
+     * ⚠️ EXTRACTED AT T2 SO THE SKIPPED DIALOG COULD SHARE IT. Search, funnels, sort, paging and the
+     * facet fetch used to live here as loose state; two surfaces needing the same table meant either
+     * one hook or two engines behind one question, and the client filter engine was deleted at X3
+     * for being the second engine. Selection and decisions deliberately stayed here -- see the
+     * hook's docstring for why they are not the hook's to own.
+     */
+    const table = useOutflowRows({ scope: SCOPE_FOR_TAB[tab], batch: deepLinkedBatch });
+    const { rows, loading: rowsLoading, mutate: mutateRows } = table;
 
     const { data: importsData, mutate: mutateImports } = useFrappeGetCall<{
         message: OutflowImportOption[];
@@ -186,9 +162,6 @@ export const OutflowMasterPage = () => {
         "nirmaan_stack.api.outflow_import.expenses.create_expense"
     );
 
-    const rows = useMemo(() => pageData?.message?.rows ?? [], [pageData]);
-    const total = pageData?.message?.total ?? 0;
-    const tabCounts = pageData?.message?.tab_counts;
 
     /**
      * Adopt the match run's own picks as decisions, as soon as the rows land.
@@ -246,54 +219,6 @@ export const OutflowMasterPage = () => {
      *
      * Held in a ref-stable callback because the table passes it straight into an effect dep.
      */
-    const filtersRef = useRef(filters);
-    filtersRef.current = filters;
-    const scopeRef = useRef(rowsQuery.scope);
-    scopeRef.current = rowsQuery.scope;
-    const searchRef = useRef(debouncedQuery);
-    searchRef.current = debouncedQuery;
-
-    const loadFacetValues = useCallback(
-        async (columnId: string): Promise<string[]> => {
-            const others: ColumnFilters = { ...filtersRef.current };
-            delete others[columnId];
-            const query = serverQuery({
-                tab,
-                query: searchRef.current,
-                filters: others,
-                batch: deepLinkedBatch,
-            });
-            const params = new URLSearchParams({
-                column: columnId,
-                scope: scopeRef.current,
-            });
-            if (query.batch) params.set("batch", query.batch);
-            if (query.search) params.set("search", query.search);
-            if (query.amount_min != null) params.set("amount_min", String(query.amount_min));
-            if (query.amount_max != null) params.set("amount_max", String(query.amount_max));
-
-            const response = await fetch(
-                `/api/method/nirmaan_stack.api.outflow_import.review.get_outflow_facet_values?${params}`,
-                { headers: { Accept: "application/json" } }
-            );
-            if (!response.ok) throw new Error(`Could not load values (${response.status}).`);
-            return (await response.json())?.message?.values ?? [];
-        },
-        [tab, deepLinkedBatch]
-    );
-
-    const handleSort = useCallback((columnId: string) => {
-        setSort((prev) =>
-            prev.columnId === columnId
-                ? { columnId, direction: prev.direction === "asc" ? "desc" : "asc" }
-                : { columnId, direction: "asc" }
-        );
-    }, []);
-
-    const handleFilter = useCallback((columnId: string, value: ColumnFilters[string]) => {
-        setFilters((prev) => ({ ...prev, [columnId]: value }));
-    }, []);
-
     const toggleRow = useCallback((name: string) => {
         setSelected((prev) => {
             const next = new Set(prev);
@@ -434,8 +359,6 @@ export const OutflowMasterPage = () => {
         [refreshAll]
     );
 
-    const filterCount = activeFilterCount(filters);
-
     return (
         <div className="flex-1 space-y-4">
             <div className="flex flex-wrap items-center gap-2">
@@ -476,6 +399,7 @@ export const OutflowMasterPage = () => {
                 onSelect={setSelectedImport}
                 onConfirmAllMatched={() => setConfirmingAll(true)}
                 onRunMatch={handleMatch}
+                onShowSkipped={() => setShowingSkipped(true)}
             />
 
             {/* ⚠️ THE SCOPE OF THE TABLE, SAID OUT LOUD. The panel above describes ONE import and
@@ -484,22 +408,23 @@ export const OutflowMasterPage = () => {
                 two put a count labelled "matched" directly above a tab labelled "Matched", over
                 different populations, and nothing said so: the panel's button read 688 while the
                 tab read 893, and both were right. One line is cheaper than either number moving. */}
-            <p className="text-xs text-muted-foreground">
+            <p className={`text-xs text-muted-foreground ${showingApproved ? "hidden" : ""}`}>
                 {deepLinkedBatch
                     ? `Transactions in ${deepLinkedBatch}. The summary above describes the import selected there.`
                     : "Transactions across every import. The summary above describes one import only."}
             </p>
 
-            <div className="flex gap-2 border-b">
+            <div className="flex flex-wrap items-center gap-2 border-b">
                 {OUTFLOW_TABS.map((t) => (
                     <button
                         key={t.id}
                         onClick={() => {
                             setTab(t.id);
+                            setShowingApproved(false);
                             setSelected(new Set());
                         }}
                         className={`-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm transition-colors ${
-                            tab === t.id
+                            tab === t.id && !showingApproved
                                 ? "border-primary font-medium text-primary"
                                 : "border-transparent text-muted-foreground hover:text-foreground"
                         }`}
@@ -508,47 +433,87 @@ export const OutflowMasterPage = () => {
                         {/* ⚠️ THE COUNTS DESCRIBE THE CURRENT SEARCH, not the whole table. A search
                             matching four rows must not show "Settled 812" beside it.
 
-                            ⚠️ KEYED THROUGH `SCOPE_FOR_TAB`, never by the tab id. The endpoint
-                            returns its counts under the SCOPE names, and the two vocabularies
-                            differ on purpose -- the pre-retab code special-cased the one tab whose
-                            id and scope disagreed, which is a bug waiting for the second one. */}
-                        <span className="rounded-full bg-muted px-1.5 text-xs tabular-nums">
-                            {tabCounts?.[SCOPE_FOR_TAB[t.id]] ?? "—"}
-                        </span>
+                            ⚠️ THE `matched` TAB RENDERS TWO NUMBERS, and that is a correctness fix
+                            rather than decoration -- it holds an OPEN status beside a TERMINAL one,
+                            so one number there meant two things and was read as the terminal one
+                            (863 under "Matched / Settled" while nothing was settled). The split
+                            comes from the pure `tabCountParts`; the other two tabs are unchanged.
+
+                            ⚠️ KEYED THROUGH `SCOPE_FOR_TAB` inside that helper, never by the tab id.
+                            The endpoint returns its counts under the SCOPE names, and the two
+                            vocabularies differ on purpose -- the pre-retab code special-cased the
+                            one tab whose id and scope disagreed, which is a bug waiting for the
+                            second one. */}
+                        {tabCountParts(t.id, table.tabCounts, table.statusCounts).map((part) => (
+                            <span
+                                key={part.key}
+                                className={`rounded-full px-1.5 text-xs tabular-nums ${
+                                    part.tone ?? "bg-muted"
+                                }`}
+                            >
+                                {part.count ?? "—"}
+                                {part.label ? ` ${part.label}` : ""}
+                            </span>
+                        ))}
                     </button>
                 ))}
+
+                {/* ⚠️ A BUTTON, NOT A FOURTH TAB (owner, 2026-08-11), and the distinction is the
+                    whole reason it looks different. The three tabs to its left are three SCOPES over
+                    ONE population — `Outflow Import Row` — so their counts sit in a row precisely
+                    because they can be compared and subtracted. This opens a view over three OTHER
+                    doctypes with no import row in it at all. Rendering it as a tab put a control for
+                    a different population into a grammar that invites arithmetic against 996 / 145 /
+                    863, which is the exact confusion this whole clean-up started from.
+
+                    ⚠️ `ml-auto` IS LOAD-BEARING, not alignment taste: pushing it to the far right of
+                    the strip is what stops it reading as the next item in the sequence. */}
+                <Button
+                    variant={showingApproved ? "default" : "outline"}
+                    size="sm"
+                    className="ml-auto mb-1"
+                    aria-pressed={showingApproved}
+                    onClick={() => setShowingApproved((on) => !on)}
+                    title="Everything approved and not yet paid, across all three ledgers — not scoped to any import"
+                >
+                    <Wallet className="mr-2 h-4 w-4" />
+                    Approved Payments/Expenses
+                </Button>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
+            {showingApproved && <ApprovedRecordsPanel />}
+
+            <div className={showingApproved ? "hidden" : "flex flex-wrap items-center gap-2"}>
                 <div className="relative max-w-sm flex-1">
                     <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
                     <Input
                         className="h-8 pl-8 pr-8"
                         placeholder="Search remarks, reference or beneficiary…"
-                        value={query}
-                        onChange={(e) => setQuery(e.target.value)}
+                        value={table.search}
+                        onChange={(e) => table.setSearch(e.target.value)}
                     />
-                    {query && (
+                    {table.search && (
                         <button
                             type="button"
                             aria-label="Clear search"
                             className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground"
-                            onClick={() => setQuery("")}
+                            onClick={() => table.setSearch("")}
                         >
                             <X className="h-3.5 w-3.5" />
                         </button>
                     )}
                 </div>
 
-                <ColumnsMenu hidden={hidden} onToggle={setHidden} />
-                <ClearFiltersButton count={filterCount} onClear={() => setFilters({})} />
+                <ColumnsMenu hidden={table.hidden} onToggle={table.setHidden} />
+                <ClearFiltersButton count={table.filterCount} onClear={table.clearFilters} />
 
                 <span className="ml-auto text-xs text-muted-foreground">
-                    {total.toLocaleString()} {total === 1 ? "transfer" : "transfers"}
+                    {table.total.toLocaleString()} {table.total === 1 ? "transfer" : "transfers"}
                 </span>
             </div>
 
-            {rowsLoading && !rows.length ? (
+            {!showingApproved &&
+                (rowsLoading && !rows.length ? (
                 <div className="flex h-40 items-center justify-center">
                     <TailSpin color="#D03B45" height={30} width={30} />
                 </div>
@@ -556,30 +521,30 @@ export const OutflowMasterPage = () => {
                 <>
                     <OutflowRowsTable
                         rows={rows}
-                        loadFacetValues={loadFacetValues}
-                        query={debouncedQuery}
-                        filters={filters}
-                        sort={sort}
-                        hiddenColumns={hidden}
+                        loadFacetValues={table.loadFacetValues}
+                        query={table.search}
+                        filters={table.filters}
+                        sort={table.sort}
+                        hiddenColumns={table.hidden}
                         selected={selected}
                         decidedRowNames={decidedNames}
                         originByRow={originByRow}
                         selectableRowNames={selectableRowNames}
-                        onSort={handleSort}
-                        onFilter={handleFilter}
+                        onSort={table.toggleSort}
+                        onFilter={table.setFilter}
                         onToggleRow={toggleRow}
                         onToggleAll={toggleAll}
                         onOpenDecision={setOpenRow}
                     />
                     <TablePagination
-                        total={total}
-                        limit={rowsQuery.limit || DEFAULT_PAGE_SIZE}
-                        offset={rowsQuery.offset}
+                        total={table.total}
+                        limit={table.pageSize}
+                        offset={table.page * table.pageSize}
                         busy={rowsLoading}
-                        onPage={setPage}
+                        onPage={table.setPage}
                     />
-                </>
-            )}
+                    </>
+                ))}
 
             {/* ⚠️ REPORTS HOW MANY SELECTED ROWS ARE ACTUALLY DECIDED, not how many are ticked
                 (owner ruling). It never silently acts on a row nobody resolved, and it does not
@@ -589,7 +554,7 @@ export const OutflowMasterPage = () => {
                 ⚠️ NO LONGER GATED ON A TAB (2026-08-10 retab). Only open rows can be ticked at all
                 now -- the table enforces that per row -- so a non-empty selection means there is
                 something to confirm, whichever tab it was made on. */}
-            {selected.size > 0 && (
+            {!showingApproved && selected.size > 0 && (
                 <div className="sticky bottom-4 z-20 flex flex-wrap items-center gap-3 rounded-md border bg-background/95 p-3 shadow-lg backdrop-blur">
                     <span className="text-sm font-medium">{selected.size} selected</span>
                     <span className="text-xs text-muted-foreground">
@@ -623,6 +588,14 @@ export const OutflowMasterPage = () => {
                 open={confirmingAll}
                 onOpenChange={setConfirmingAll}
                 onSettled={refreshAll}
+            />
+
+            <SkippedRowsDialog
+                batch={selectedImport}
+                skippedRows={summary?.totals?.skipped_rows}
+                failedRows={summary?.totals?.failed_rows}
+                open={showingSkipped}
+                onOpenChange={setShowingSkipped}
             />
 
             <UnpairedStacksDialog

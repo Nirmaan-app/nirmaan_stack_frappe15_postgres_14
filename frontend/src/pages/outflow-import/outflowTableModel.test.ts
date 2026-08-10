@@ -20,6 +20,23 @@ import {
     stackLabel,
     stackPairsAreSubmittable,
     stackSurplusNote,
+    stackIsCrossProject,
+    stackProjectSpread,
+    tabCountParts,
+    matchBasisLabel,
+    ARBITRARY_SUGGESTION_RULES,
+    SUGGESTION_RULE_LABELS,
+    buildConfirmTree,
+    nodeSelectionState,
+    toggleNode,
+    confirmSelectionSummary,
+    filterConfirmRows,
+    confirmFilterCount,
+    EMPTY_CONFIRM_FILTERS,
+    orderLabel,
+    suggestionRuleLabel,
+    type ConfirmableRow,
+    type UnpairedStack,
     ledgerLabel,
     parseRecordKey,
     recordDateLabel,
@@ -1207,5 +1224,475 @@ describe("previewCounts", () => {
 
     it("never returns a negative successful count", () => {
         expect(previewCounts({ total_rows: 0, failed_rows: 5 }).successful).toBe(0);
+    });
+});
+
+// ------------------------------------------------------------------------------------------------
+// tabCountParts -- one tab holds two statuses, so one number there means two things
+// ------------------------------------------------------------------------------------------------
+
+describe("tabCountParts", () => {
+    // ⚠️ `skipped` IS A SCOPE WITH NO TAB. It rides `tab_counts` because every count derives from
+    // `_SCOPE_STATUSES`, and it must never appear in the tab strip -- pinned below.
+    const tabCounts = { all: 996, not_matched: 133, matched: 863, skipped: 47 };
+    const statusCounts = {
+        "Pending match run": 0,
+        Matched: 863,
+        Mismatched: 133,
+        Settled: 0,
+        Skipped: 47,
+        Error: 0,
+    };
+
+    it("gives the two single-status tabs one number, unchanged", () => {
+        expect(tabCountParts("all", tabCounts, statusCounts)).toEqual([{ key: "all", count: 996 }]);
+        expect(tabCountParts("notMatched", tabCounts, statusCounts)).toEqual([
+            { key: "not_matched", count: 133 },
+        ]);
+    });
+
+    it("splits the matched tab, because one number there reads as the terminal half", () => {
+        const parts = tabCountParts("matched", tabCounts, statusCounts);
+        expect(parts.map((p) => [p.label, p.count])).toEqual([
+            ["matched", 863],
+            ["settled", 0],
+        ]);
+    });
+
+    it("the split still adds up to the tab it labels", () => {
+        const parts = tabCountParts("matched", tabCounts, statusCounts);
+        expect(parts.reduce((n, p) => n + (p.count ?? 0), 0)).toBe(tabCounts.matched);
+    });
+
+    // The live shape that started this: 863 under a tab whose second word means finished, while
+    // nothing at all had been settled.
+    it("says zero settled rather than leaving it to be inferred", () => {
+        const parts = tabCountParts("matched", tabCounts, statusCounts);
+        expect(parts[1]).toMatchObject({ label: "settled", count: 0 });
+    });
+
+    it("falls back to the single total when the server sends no status counts", () => {
+        expect(tabCountParts("matched", tabCounts, undefined)).toEqual([
+            { key: "matched", count: 863 },
+        ]);
+    });
+
+    it("reports an unanswered page as null, never as zero", () => {
+        expect(tabCountParts("all", undefined, undefined)[0].count).toBeNull();
+    });
+
+    // ⚠️ THE OWNER RULING, PINNED IN THE ONE PLACE THE TWO VOCABULARIES MEET. Skipped rows have a
+    // scope so the dialog can ask for them by name; they must never acquire a tab.
+    it("no tab maps to the skipped scope", () => {
+        expect(Object.values(SCOPE_FOR_TAB)).not.toContain("skipped");
+    });
+
+    it("the tab strip never renders a skipped count", () => {
+        for (const tab of OUTFLOW_TABS) {
+            const parts = tabCountParts(tab.id, tabCounts, statusCounts);
+            expect(parts.map((p) => p.count)).not.toContain(tabCounts.skipped);
+        }
+    });
+});
+
+// ------------------------------------------------------------------------------------------------
+// stackProjectSpread -- the fact that separates a harmless pairing from an expensive one
+// ------------------------------------------------------------------------------------------------
+
+describe("stackProjectSpread", () => {
+    const stack = (projects: (string | undefined)[]): UnpairedStack => ({
+        account: "ACC",
+        amount: 9000,
+        beneficiary_name: "VK Air Conditioning",
+        surplus_transfers: 0,
+        surplus_records: 1,
+        transfers: [],
+        records: projects.map((project_name, i) => ({
+            target_doctype: "Project Payments" as const,
+            target_name: `PAY-${i}`,
+            amount: 9000,
+            status: "Approved",
+            vendor_name: "VK Air Conditioning",
+            project_name: project_name as string,
+        })),
+    });
+
+    it("is not cross-project when every record is on one job", () => {
+        const s = stack(["Paytm Bangalore", "Paytm Bangalore"]);
+        expect(stackProjectSpread(s)).toEqual(["Paytm Bangalore"]);
+        expect(stackIsCrossProject(s)).toBe(false);
+    });
+
+    it("lists every distinct project once, in first-seen order", () => {
+        const s = stack(["Alpha", "Beta", "Alpha", "Gamma"]);
+        expect(stackProjectSpread(s)).toEqual(["Alpha", "Beta", "Gamma"]);
+        expect(stackIsCrossProject(s)).toBe(true);
+    });
+
+    // A blank is missing data, not a second project. Counting it would raise the warning on a stack
+    // that is merely incomplete, which is how a real signal gets trained away.
+    it("treats a blank or whitespace project as no project at all", () => {
+        const s = stack(["Alpha", "", "   ", undefined]);
+        expect(stackProjectSpread(s)).toEqual(["Alpha"]);
+        expect(stackIsCrossProject(s)).toBe(false);
+    });
+
+    it("is not cross-project when nothing carries a project", () => {
+        expect(stackIsCrossProject(stack(["", ""]))).toBe(false);
+    });
+});
+
+
+// ------------------------------------------------------------------------------------------------
+// the confirm rollup (S4) -- vendor -> project -> transfer
+// ------------------------------------------------------------------------------------------------
+
+const cr = (over: Partial<ConfirmableRow> & { name: string }): ConfirmableRow => ({
+    amount: 1000,
+    target_doctype: "Project Payments",
+    target_name: `PAY-${over.name}`,
+    vendor_name: "Acme",
+    project_name: "Alpha",
+    ...over,
+});
+
+describe("buildConfirmTree", () => {
+    it("groups by vendor then project", () => {
+        const tree = buildConfirmTree([
+            cr({ name: "1", vendor_name: "Acme", project_name: "Alpha" }),
+            cr({ name: "2", vendor_name: "Acme", project_name: "Beta" }),
+            cr({ name: "3", vendor_name: "Bolt", project_name: "Alpha" }),
+        ]);
+        expect(tree.map((v) => v.vendor).sort()).toEqual(["Acme", "Bolt"]);
+        const acme = tree.find((v) => v.vendor === "Acme")!;
+        expect(acme.projects.map((p) => p.project).sort()).toEqual(["Alpha", "Beta"]);
+    });
+
+    // The measured shape: 147 of 210 vendors sit on exactly one project.
+    it("marks a single-project vendor so the level can read inline instead of expanding", () => {
+        const tree = buildConfirmTree([
+            cr({ name: "1", vendor_name: "Acme", project_name: "Alpha" }),
+            cr({ name: "2", vendor_name: "Acme", project_name: "Alpha" }),
+        ]);
+        expect(tree[0].soleProject).toBe("Alpha");
+    });
+
+    it("keeps the project level when it carries information", () => {
+        const tree = buildConfirmTree([
+            cr({ name: "1", vendor_name: "Acme", project_name: "Alpha" }),
+            cr({ name: "2", vendor_name: "Acme", project_name: "Beta" }),
+        ]);
+        expect(tree[0].soleProject).toBeNull();
+        expect(tree[0].projects).toHaveLength(2);
+    });
+
+    it("totals the BANK amount at every level, never the record's", () => {
+        const tree = buildConfirmTree([
+            cr({ name: "1", amount: 100, target_amount: 999 }),
+            cr({ name: "2", amount: 250, target_amount: 999 }),
+        ]);
+        expect(tree[0].value).toBe(350);
+        expect(tree[0].projects[0].value).toBe(350);
+    });
+
+    it("orders vendors by value, largest first", () => {
+        const tree = buildConfirmTree([
+            cr({ name: "1", vendor_name: "Small", amount: 10 }),
+            cr({ name: "2", vendor_name: "Big", amount: 900 }),
+        ]);
+        expect(tree.map((v) => v.vendor)).toEqual(["Big", "Small"]);
+    });
+
+    it("is stable across renders when two branches tie on value", () => {
+        const rows = [
+            cr({ name: "1", vendor_name: "Zeta", amount: 100 }),
+            cr({ name: "2", vendor_name: "Alpha", amount: 100 }),
+        ];
+        expect(buildConfirmTree(rows).map((v) => v.vendor)).toEqual(
+            buildConfirmTree([...rows].reverse()).map((v) => v.vendor)
+        );
+    });
+
+    // Non Project Expenses carry neither, and must still be reachable.
+    it("buckets a row with no vendor and no project rather than dropping it", () => {
+        const tree = buildConfirmTree([
+            cr({ name: "1", vendor_name: null, project_name: null }),
+        ]);
+        expect(tree).toHaveLength(1);
+        expect(tree[0].rows).toHaveLength(1);
+    });
+
+    it("a vendor's rows are every leaf beneath it", () => {
+        const tree = buildConfirmTree([
+            cr({ name: "1", project_name: "Alpha" }),
+            cr({ name: "2", project_name: "Beta" }),
+        ]);
+        expect(tree[0].rows.map((r) => r.name).sort()).toEqual(["1", "2"]);
+    });
+});
+
+describe("nodeSelectionState", () => {
+    const rows = [cr({ name: "1" }), cr({ name: "2" })];
+
+    it("reads none, some and all off the leaves", () => {
+        expect(nodeSelectionState(rows, new Set())).toBe("none");
+        expect(nodeSelectionState(rows, new Set(["1"]))).toBe("some");
+        expect(nodeSelectionState(rows, new Set(["1", "2"]))).toBe("all");
+    });
+
+    it("an empty node is not selected", () => {
+        expect(nodeSelectionState([], new Set(["1"]))).toBe("none");
+    });
+
+    // A parent with stored state goes stale the moment a leaf changes by any other route.
+    it("is derived, so a leaf toggled underneath changes the parent", () => {
+        const selected = new Set(["1", "2"]);
+        selected.delete("2");
+        expect(nodeSelectionState(rows, selected)).toBe("some");
+    });
+});
+
+describe("toggleNode", () => {
+    const rows = [cr({ name: "1" }), cr({ name: "2" })];
+
+    it("selects everything under an unselected node", () => {
+        expect([...toggleNode(rows, new Set())].sort()).toEqual(["1", "2"]);
+    });
+
+    it("clears everything under a fully selected node", () => {
+        expect([...toggleNode(rows, new Set(["1", "2"]))]).toEqual([]);
+    });
+
+    it("a half-selected node fills up rather than emptying", () => {
+        expect([...toggleNode(rows, new Set(["1"]))].sort()).toEqual(["1", "2"]);
+    });
+
+    it("never touches a row outside the node", () => {
+        const next = toggleNode(rows, new Set(["elsewhere"]));
+        expect(next.has("elsewhere")).toBe(true);
+    });
+
+    it("returns a new set rather than mutating", () => {
+        const before = new Set<string>();
+        toggleNode(rows, before);
+        expect(before.size).toBe(0);
+    });
+});
+
+describe("confirmSelectionSummary", () => {
+    const all = [
+        cr({ name: "1", vendor_name: "Acme", project_name: "Alpha", amount: 100, amount_changes: true }),
+        cr({ name: "2", vendor_name: "Acme", project_name: "Beta", amount: 200 }),
+        cr({ name: "3", vendor_name: "Bolt", project_name: "Alpha", amount: 300 }),
+    ];
+
+    it("counts transfers, vendors, projects and the bank value", () => {
+        const s = confirmSelectionSummary(all, all, new Set(["1", "2", "3"]));
+        expect(s).toMatchObject({ transfers: 3, vendors: 2, projects: 3, value: 600 });
+    });
+
+    it("counts the same project under two vendors separately", () => {
+        const s = confirmSelectionSummary(all, all, new Set(["1", "3"]));
+        expect(s.projects).toBe(2);
+    });
+
+    // The figure that exists nowhere else on the screen.
+    it("counts how many confirms will rewrite an approved amount", () => {
+        expect(confirmSelectionSummary(all, all, new Set(["1", "2"])).amountsChanging).toBe(1);
+    });
+
+    // Filter to one vendor, read "12 transfers", confirm 142.
+    it("reports selected rows the filter is hiding", () => {
+        const visible = [all[0]];
+        const s = confirmSelectionSummary(all, visible, new Set(["1", "2", "3"]));
+        expect(s.transfers).toBe(3);
+        expect(s.hidden).toBe(2);
+    });
+
+    it("nothing hidden when the selection is entirely on screen", () => {
+        expect(confirmSelectionSummary(all, all, new Set(["1"])).hidden).toBe(0);
+    });
+
+    it("an empty selection totals nothing", () => {
+        expect(confirmSelectionSummary(all, all, new Set())).toMatchObject({
+            transfers: 0,
+            value: 0,
+            hidden: 0,
+        });
+    });
+});
+
+describe("filterConfirmRows", () => {
+    const rows = [
+        // ⚠️ `sole` IS A STORED VALUE SINCE T1, not a blank. Blank now means "no suggestion" and
+        // nothing else — before that, this row and a stack-paired one were indistinguishable.
+        cr({ name: "1", vendor_name: "Rich Fasteners", project_name: "Alorica",
+             order_name: "PO/082/00103/26-27", suggestion_rule: "sole", amount_changes: true }),
+        cr({ name: "2", vendor_name: "Bolt", project_name: "Beta",
+             order_name: "SR-00097-000845", suggestion_rule: "interchangeable" }),
+        cr({ name: "3", vendor_name: "Bolt", project_name: "Beta",
+             target_doctype: "Project Expenses", suggestion_rule: "nearest-amount" }),
+    ];
+    const f = (over: Partial<typeof EMPTY_CONFIRM_FILTERS>) =>
+        filterConfirmRows(rows, { ...EMPTY_CONFIRM_FILTERS, ...over });
+
+    it("no filters keeps everything", () => {
+        expect(f({})).toHaveLength(3);
+    });
+
+    it("searches the vendor", () => {
+        expect(f({ search: "rich" }).map((r) => r.name)).toEqual(["1"]);
+    });
+
+    it("searches the order number", () => {
+        expect(f({ search: "00097" }).map((r) => r.name)).toEqual(["2"]);
+    });
+
+    it("searches the project", () => {
+        expect(f({ search: "alorica" }).map((r) => r.name)).toEqual(["1"]);
+    });
+
+    it("filters by ledger", () => {
+        expect(f({ ledger: "Project Expenses" }).map((r) => r.name)).toEqual(["3"]);
+    });
+
+    it("isolates rows a rule picked, and a sole match is not one", () => {
+        expect(f({ pickedBy: "rule" }).map((r) => r.name)).toEqual(["2", "3"]);
+    });
+
+    it("isolates rows that were simply the only candidate", () => {
+        expect(f({ pickedBy: "sole" }).map((r) => r.name)).toEqual(["1"]);
+    });
+
+    // ⚠️ THE SET WORTH OPENING, and the reason `rule` is not it. Both members chose between records
+    // nothing distinguished; `nearest-amount` acted on evidence and does not belong here.
+    it("isolates only the picks that were arbitrary", () => {
+        expect(f({ pickedBy: "arbitrary" }).map((r) => r.name)).toEqual(["2"]);
+    });
+
+    it("a stack pairing is arbitrary and is never filed as the only candidate", () => {
+        const stacked = [cr({ name: "9", suggestion_rule: "stack-pairing" })];
+        expect(filterConfirmRows(stacked, { ...EMPTY_CONFIRM_FILTERS, pickedBy: "sole" })).toEqual([]);
+        expect(
+            filterConfirmRows(stacked, { ...EMPTY_CONFIRM_FILTERS, pickedBy: "arbitrary" })
+        ).toHaveLength(1);
+    });
+
+    it("isolates one specific rule", () => {
+        expect(f({ pickedBy: "interchangeable" }).map((r) => r.name)).toEqual(["2"]);
+    });
+
+    it("isolates the confirms that will rewrite an amount", () => {
+        expect(f({ changesOnly: true }).map((r) => r.name)).toEqual(["1"]);
+    });
+
+    it("composes as AND across the facets", () => {
+        expect(f({ search: "bolt", pickedBy: "interchangeable" }).map((r) => r.name)).toEqual(["2"]);
+    });
+
+    it("counts the active narrowings", () => {
+        expect(confirmFilterCount(EMPTY_CONFIRM_FILTERS)).toBe(0);
+        expect(confirmFilterCount({ ...EMPTY_CONFIRM_FILTERS, search: " ", ledger: "x" })).toBe(1);
+    });
+
+    // Rebuilding the tree from surviving ROWS is what keeps every node count true.
+    it("a vendor whose own name matches is dropped when none of its rows do", () => {
+        const kept = filterConfirmRows(rows, {
+            ...EMPTY_CONFIRM_FILTERS,
+            search: "bolt",
+            ledger: "Project Payments",
+        });
+        expect(buildConfirmTree(kept).map((v) => v.vendor)).toEqual(["Bolt"]);
+        expect(buildConfirmTree(kept)[0].rows).toHaveLength(1);
+    });
+});
+
+describe("orderLabel", () => {
+    it("labels a Procurement Order PO", () => {
+        expect(orderLabel({ order_doctype: "Procurement Orders", order_name: "PO/1" }))
+            .toEqual({ kind: "PO", name: "PO/1" });
+    });
+
+    // A quarter of the payments on a real statement. Calling this a PO would be wrong.
+    it("labels a Service Request SR", () => {
+        expect(orderLabel({ order_doctype: "Service Requests", order_name: "SR-1" })?.kind)
+            .toBe("SR");
+    });
+
+    it("is absent when the record has no order at all", () => {
+        expect(orderLabel({ order_doctype: null, order_name: null })).toBeNull();
+        expect(orderLabel({ order_doctype: "Procurement Orders", order_name: "  " })).toBeNull();
+    });
+
+    it("never guesses from the id format when the type is unknown", () => {
+        expect(orderLabel({ order_doctype: "", order_name: "PO/1" })?.kind).toBe("Order");
+    });
+});
+
+describe("serverQuery — the skipped split", () => {
+    // ⚠️ TWO CORRECT NUMBERS THAT DISAGREED. The summary chip counted 20 skipped, the `skipped`
+    // scope returns 47, and the difference is the 27 the bank refused — excluded from every summary
+    // FIGURE by owner ruling while still carrying `row_status` Skipped.
+    it("asks for neither half by default", () => {
+        expect(serverQuery({ scope: "skipped" }).failed).toBeUndefined();
+    });
+
+    it("asks for the refused half", () => {
+        expect(serverQuery({ scope: "skipped", filters: { failed: "failed" } }).failed).toBe(true);
+    });
+
+    it("asks for everything else", () => {
+        expect(serverQuery({ scope: "skipped", filters: { failed: "recorded" } }).failed).toBe(false);
+    });
+
+    // `false` and "absent" are different questions; sending one for the other would silently drop
+    // the 27 from a list that exists to hold them.
+    it("an empty choice is absent, never false", () => {
+        expect(serverQuery({ scope: "skipped", filters: { failed: "" } }).failed).toBeUndefined();
+    });
+
+    it("counts as an active filter so the clear control appears", () => {
+        expect(activeFilterCount({ failed: "failed" })).toBe(1);
+        expect(activeFilterCount({ failed: "" })).toBe(0);
+    });
+});
+
+describe("matchBasisLabel", () => {
+    it("blank reads as nothing", () => {
+        expect(matchBasisLabel(null)).toBe("");
+    });
+
+    it("names the tiers", () => {
+        expect(matchBasisLabel("account+IFSC")).toBe("Vendor bank account");
+        expect(matchBasisLabel("project in remark")).toBe("Amount + project in remark");
+    });
+
+    it("falls back to the raw id for a tier this mirror has not learned", () => {
+        expect(matchBasisLabel("some-new-tier")).toBe("some-new-tier");
+    });
+});
+
+describe("suggestionRuleLabel", () => {
+    it("blank means the ordinary case and reads as nothing", () => {
+        expect(suggestionRuleLabel(null)).toBe("");
+        expect(suggestionRuleLabel("  ")).toBe("");
+    });
+
+    it("names the known rules", () => {
+        expect(suggestionRuleLabel("interchangeable")).toBe("Interchangeable records");
+        expect(suggestionRuleLabel("sole")).toBe("Only candidate");
+        expect(suggestionRuleLabel("stack-pairing")).toBe("Identical set, paired arbitrarily");
+    });
+
+    // Parity with services/outflow_import/disambiguate.RULE_LABELS -- the backend is the authority.
+    it("knows every rule the arbitrary set names", () => {
+        for (const rule of ARBITRARY_SUGGESTION_RULES) {
+            expect(SUGGESTION_RULE_LABELS[rule]).toBeTruthy();
+        }
+    });
+
+    // A rule shipped server-side that this mirror has not learned must not render as "no rule".
+    it("falls back to the raw id rather than to an empty chip", () => {
+        expect(suggestionRuleLabel("brand-new-rule")).toBe("brand-new-rule");
     });
 });
