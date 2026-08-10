@@ -942,6 +942,40 @@ Tests after all three commits: 270 pure python · `test_review` **71** · `test_
 tsc clean across `src/pages/outflow-import`. `residence_check.py` fails two rules (F5, F2)
 **identically at HEAD** — pre-existing, stale baseline, not from this work.
 
+### §H.10 — Chunk E: stacks (2026-08-10)
+
+Rules, mitigations and limits: domain doc §Stacks. What belongs here is what the work COST.
+
+Commit 4 (E1+E2+E4) — the pure module, the auto-pair pass, a fourth index + patch. Commit 5 (E3) —
+`get_unpaired_stacks` + the Resolve-stacks dialog.
+
+**Three fixture defects, all mine, all found by the tests rather than by review:**
+
+1. `pair_stack` ordered the RECORDS but took the transfers as given, leaning on
+   `group_into_stacks` having sorted them. A function whose whole contract is "same input, same
+   pairing" cannot delegate half of it to its caller. It sorts both sides itself now.
+2. ⚠️ **The fixture built stack rows from suffix `0001`, which the CSV REPEATS** (rows 1 and 12) to
+   exercise the in-file duplicate guard — so the `transfer_id` lookup returned the row SKIPPED at
+   upload and nothing could ever pair. **Second time this trap has bitten in two days** (the first
+   was the retab's skipped count). `_stack_row` now asserts the row staged as `Pending match run`.
+3. The unbalanced fixture was 2 transfers against 1 payment, which tested **nothing**: a single
+   candidate gives every row a sole suggestion from the per-row matcher, so the stack pass never saw
+   them. Now 3 against 2 — the smallest set for which `sole_suggestion` declines.
+
+**And one about the code, found the same way:** the first three test amounts were 7737.11 / .22 /
+.33, all inside the ±₹1 tier-1 window of each other, so every stack's candidate set held every
+stack's payments and nothing paired. That was the code behaving CORRECTLY — it is now pinned
+deliberately as `test_a_record_inside_the_tier_one_window_unbalances_the_stack`.
+
+**A test-ordering trap worth remembering:** `test_the_leftovers_endpoint_spans_imports` originally
+asserted on stack C, which is unbalanced only *until* the test that stages the batch balancing it —
+and that test sorts earlier. It builds and tears down its own cross-import member now. A test whose
+meaning depends on which tests ran before it is not testing what its name says.
+
+Tests: 295 pure python (+25 new `test_stacks`) · `test_review` **81** (+10) · `test_expenses` 29 ·
+`test_settle_payment` 21 · `test_upload` 25 · **1666** vitest (59 files) · tsc clean across
+`src/pages/outflow-import`. Fourth index verified present on localhost.
+
 ⚠️ **`_match_many` in `test_status.py` is the fixture that did not exist.** Every prior fixture built
 ONE payment group, so reading `payment_groups[0]` was indistinguishable from reading all of them and
 263 green tests said nothing. Any new candidate test must use it.
@@ -970,8 +1004,12 @@ regardless, because X5 has to display what it introduces.
 **Added by this arc:**
 - A **seventh** migrate obligation if X3 lands an index, plus a patch module for deployed databases.
 - An **eighth** from §H.9's status merge (`outflow_import_row.json`), plus a **second** patch module
-  (`merge_outflow_unmatched_status`). Both patches need their `patches.txt` lines from the
-  maintainer — neither ships its own.
+  (`merge_outflow_unmatched_status`).
+- A **third** patch module from §H.10 (`add_outflow_stack_index`, the fourth read index). **All
+  three patches need their `patches.txt` lines from the maintainer — none ships its own.** Note that
+  the two index patches both CALL the controller hook, so either one applies all four indexes; a
+  missed line on those two is survivable, which is the pay-off for never re-inlining an `add_index`.
+  The status-merge patch has no such backstop and must be wired.
 - A behaviour change to the CEO-Hold cashflow recompute on expense settles (§H.1) — it starts
   running, which it should always have done, and stops publishing realtime on that path.
 - The reversal of the "paise difference is not recorded" limit in the domain doc.

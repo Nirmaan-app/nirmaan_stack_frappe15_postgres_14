@@ -403,6 +403,135 @@ def _load_open_rows_for_keys(keys) -> list:
     )
 
 
+@frappe.whitelist()
+def get_unpaired_stacks(limit=25):
+    """The stacks a person still has to resolve: same vendor, same amount, counts do NOT match.
+
+    ⚠️ THIS IS THE LEFTOVER OF `_resolve_stacks`, AND ONLY THE LEFTOVER. A balanced stack is already
+    paired and needs no screen; what lands here is the shape no rule can settle -- 7 transfers
+    against 6 approved payments, where SOME transfer settles nothing and choosing which is a
+    judgement about money. Three such stacks survived on the owner's first real statement, and they
+    are the reason this endpoint exists rather than the pass simply reporting a number.
+
+    ⚠️ IT SPANS EVERY IMPORT, exactly as the pass does. A stack does not respect batch boundaries,
+    so scoping this to one would show a person half of their own problem.
+
+    It writes NOTHING. Resolving a stack goes through `settle_row`, one call per pair, so the lock,
+    the already-Paid guard and the X1 amount rewrite all apply unchanged -- and a failure on the
+    third pair leaves the first two written and the rest attemptable.
+    """
+    require_outflow_access()
+    limit = max(1, min(int(limit or 25), 100))
+
+    rows = _load_unstacked_open_rows()
+    if not rows:
+        return {"stacks": [], "total": 0}
+
+    staged = [_StagedRow(r) for r in rows]
+    # ⚠️ `_load_pools` IGNORES ITS `batch` ARGUMENT -- it filters by the ROWS it is given, never by
+    # the batch. Passing None is honest about that rather than inventing a batch this read has no
+    # business naming; a stack spans imports and there is no single batch to pass.
+    pools = _load_pools(staged, None)
+    by_name = {r["name"]: r for r in rows}
+
+    stacks = group_into_stacks(staged, lambda key, transfers: _stack_records(transfers[0], pools))
+    unpaired = [s for s in stacks if not s.is_balanced and s.records]
+
+    return {
+        "stacks": [_stack_payload(s, by_name) for s in unpaired[:limit]],
+        "total": len(unpaired),
+    }
+
+
+def _load_unstacked_open_rows() -> list:
+    """OPEN rows with no suggestion that share an (account, amount) with at least one other.
+
+    ⚠️ THE `HAVING COUNT(*) > 1` IS IN THE DATABASE, not in Python. A read that pulled every open
+    row and grouped them in a loop would get slower every month the feature is used, and ADR-0010
+    puts a count over many rows in the database. The subquery narrows to the handful of keys that
+    can possibly form a stack before a single row is materialised.
+
+    ⚠️ ROWS THAT ALREADY CARRY A SUGGESTION ARE EXCLUDED HERE, which is what makes this read agree
+    with `_resolve_stacks`. That pass skips them too -- a row the per-row matcher spoke for is not
+    ambiguous -- so counting them would show a person a stack the pass has a different view of.
+    """
+    status_ph = ", ".join(["%s"] * len(OPEN_ROW_STATUSES))
+    statuses = sorted(OPEN_ROW_STATUSES)
+
+    return frappe.db.sql(
+        f"""
+        SELECT r.name, r.transfer_id, r.added_on, r.amount, r.status_raw, r.beneficiary_name,
+               r.bank_account, r.ifsc, r.remarks, r.bank_reference_no, r.normalized_account,
+               r.normalized_reference, r.row_status, r.import_batch,
+               b.original_filename AS import_filename
+        FROM "tabOutflow Import Row" r
+        LEFT JOIN "tabOutflow Import Batch" b ON b.name = r.import_batch
+        WHERE r.row_status IN ({status_ph})
+          AND COALESCE(r.suggested_name, '') = ''
+          AND COALESCE(r.normalized_account, '') <> ''
+          AND (r.normalized_account, r.amount) IN (
+              SELECT normalized_account, amount
+              FROM "tabOutflow Import Row"
+              WHERE row_status IN ({status_ph})
+                AND COALESCE(suggested_name, '') = ''
+                AND COALESCE(normalized_account, '') <> ''
+              GROUP BY normalized_account, amount
+              HAVING COUNT(*) > 1
+          )
+        ORDER BY r.normalized_account, r.amount, r.added_on, r.name
+        """,
+        tuple(statuses) * 2,
+        as_dict=True,
+    )
+
+
+def _stack_payload(stack, by_name: dict) -> dict:
+    """One unpaired stack, as the screen reads it.
+
+    The records carry the facts a reviewer picks by -- vendor, project, status -- loaded through the
+    SAME `_targets_by_name` the confirm list uses, so the two screens can never describe one record
+    differently. Status is RE-READ rather than trusted from the match run: a payment ticked Paid by
+    hand since then must not be offered here as though it were still available.
+    """
+    details: dict = {}
+    for doctype in {t.doctype for t in stack.records}:
+        names = [t.name for t in stack.records if t.doctype == doctype]
+        details.update({(doctype, k): v for k, v in _targets_by_name(doctype, names).items()})
+
+    first = by_name.get(stack.transfers[0].name, {})
+    return {
+        "account": stack.key.account,
+        "amount": float(stack.key.amount),
+        "beneficiary_name": first.get("beneficiary_name") or "",
+        "surplus_transfers": stack.surplus_transfers,
+        "surplus_records": stack.surplus_records,
+        "transfers": [
+            {
+                "name": t.name,
+                "transfer_id": t.transfer_id,
+                "added_on": by_name.get(t.name, {}).get("added_on"),
+                "amount": float(t.amount),
+                "remarks": t.remarks,
+                "bank_reference_no": t.bank_reference_no,
+                "import_batch": by_name.get(t.name, {}).get("import_batch"),
+                "import_filename": by_name.get(t.name, {}).get("import_filename"),
+            }
+            for t in stack.transfers
+        ],
+        "records": [
+            {
+                "target_doctype": t.doctype,
+                "target_name": t.name,
+                "amount": float(normalize_amount(details.get((t.doctype, t.name), {}).get("amount", t.amount))),
+                "status": details.get((t.doctype, t.name), {}).get("status") or "",
+                "vendor_name": details.get((t.doctype, t.name), {}).get("vendor_name") or "",
+                "project_name": details.get((t.doctype, t.name), {}).get("project_name") or "",
+            }
+            for t in stack.records
+        ],
+    }
+
+
 def _sole_vendor(result):
     """Persist a resolved vendor ONLY when it is unambiguous.
 

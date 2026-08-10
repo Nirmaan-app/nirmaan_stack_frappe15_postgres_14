@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Columns3, Search, Upload, X } from "lucide-react";
+import { Columns3, Layers, Search, Upload, X } from "lucide-react";
 import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
 import { TailSpin } from "react-loader-spinner";
 
@@ -21,6 +21,7 @@ import { ConfirmAllMatchedDialog } from "./components/ConfirmAllMatchedDialog";
 import { DecisionDialog } from "./components/DecisionDialog";
 import { ImportStatementDialog } from "./components/ImportStatementDialog";
 import { ImportSummaryPanel } from "./components/ImportSummaryPanel";
+import { UnpairedStacksDialog } from "./components/UnpairedStacksDialog";
 import {
     ClearFiltersButton,
     OutflowRowsTable,
@@ -84,6 +85,7 @@ export const OutflowMasterPage = () => {
     const [busy, setBusy] = useState(false);
     const [importing, setImporting] = useState(false);
     const [confirmingAll, setConfirmingAll] = useState(false);
+    const [resolvingStacks, setResolvingStacks] = useState(false);
     const [selectedImport, setSelectedImport] = useState<string | undefined>(deepLinkedBatch);
 
     // Typing must not fire a query per keystroke now that search is a round trip.
@@ -126,6 +128,24 @@ export const OutflowMasterPage = () => {
     const { data: importsData, mutate: mutateImports } = useFrappeGetCall<{
         message: OutflowImportOption[];
     }>("nirmaan_stack.api.outflow_import.review.list_imports", {}, "outflow-imports");
+
+    /**
+     * How many stacks still need a person (chunk E3).
+     *
+     * ⚠️ FETCHED FOR THE COUNT ALONE, so the button can be ABSENT rather than disabled when there
+     * is nothing to resolve. A permanently visible "Resolve stacks (0)" would be one more control
+     * to learn and dismiss on every visit, and the case it serves is rare -- three stacks on a
+     * 1,043-row statement. It is a separate read from the table's because it spans every import
+     * and ignores every filter, which is exactly what the table's does not.
+     */
+    const { data: stacksData, mutate: mutateStacks } = useFrappeGetCall<{
+        message: { stacks: unknown[]; total: number };
+    }>(
+        "nirmaan_stack.api.outflow_import.review.get_unpaired_stacks",
+        {},
+        "outflow-unpaired-stacks-count"
+    );
+    const unpairedStacks = stacksData?.message?.total ?? 0;
 
     const imports = useMemo(() => importsData?.message ?? [], [importsData]);
 
@@ -209,8 +229,8 @@ export const OutflowMasterPage = () => {
     }, [rows, decisions]);
 
     const refreshAll = useCallback(async () => {
-        await Promise.all([mutateRows(), mutateSummary(), mutateImports()]);
-    }, [mutateRows, mutateSummary, mutateImports]);
+        await Promise.all([mutateRows(), mutateSummary(), mutateImports(), mutateStacks()]);
+    }, [mutateRows, mutateSummary, mutateImports, mutateStacks]);
 
     /**
      * The facet values one funnel offers, fetched when it opens.
@@ -406,6 +426,20 @@ export const OutflowMasterPage = () => {
                     </span>
                 )}
                 <div className="ml-auto flex gap-2">
+                    {/* ⚠️ ABSENT, NOT DISABLED, when there is nothing to resolve. The case is rare
+                        -- three stacks on a 1,043-row statement -- and a permanent "Resolve
+                        stacks (0)" would be one more control to learn and dismiss on every visit. */}
+                    {unpairedStacks > 0 && (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setResolvingStacks(true)}
+                        >
+                            <Layers className="mr-2 h-4 w-4" />
+                            Resolve {unpairedStacks}{" "}
+                            {unpairedStacks === 1 ? "stack" : "stacks"}
+                        </Button>
+                    )}
                     <Button size="sm" onClick={() => setImporting(true)}>
                         <Upload className="mr-2 h-4 w-4" />
                         Import statement
@@ -556,6 +590,12 @@ export const OutflowMasterPage = () => {
                 batch={selectedImport}
                 open={confirmingAll}
                 onOpenChange={setConfirmingAll}
+                onSettled={refreshAll}
+            />
+
+            <UnpairedStacksDialog
+                open={resolvingStacks}
+                onOpenChange={setResolvingStacks}
                 onSettled={refreshAll}
             />
 

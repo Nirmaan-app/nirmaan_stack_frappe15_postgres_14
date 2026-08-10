@@ -39,6 +39,7 @@ from nirmaan_stack.api.outflow_import.review import (
     get_outflow_facet_values,
     get_outflow_rows,
     get_row_candidates,
+    get_unpaired_stacks,
     match_batch,
     search_settleable_records,
     skip_row,
@@ -1460,6 +1461,77 @@ class TestStackAutoPairing(OutflowReviewFixture):
             frappe.db.delete("Project Payments", {"name": intruder})
             frappe.db.commit()
             match_batch(self.batch.name)
+
+    def test_the_leftovers_endpoint_reports_only_the_unbalanced_stacks(self):
+        """`get_unpaired_stacks` is the LEFTOVER of the pass and only the leftover. A balanced stack
+        is already paired and needs no screen; what a person has to resolve is the shape no rule can
+        settle -- more transfers than records, where SOME transfer settles nothing."""
+        match_batch(self.batch.name)
+        payload = get_unpaired_stacks()
+
+        keys = {(s["account"], round(s["amount"], 2)) for s in payload["stacks"]}
+        self.assertIn(
+            (self.stack_account, round(self.STACK_B_AMOUNT, 2)), keys,
+            "stack B is 3 transfers against 2 records and must be offered for resolution",
+        )
+        self.assertNotIn(
+            (self.stack_account, round(self.STACK_A_AMOUNT, 2)), keys,
+            "stack A paired itself and has nothing left for a person to decide",
+        )
+
+    def test_a_leftover_stack_states_its_surplus_and_carries_both_sides(self):
+        match_batch(self.batch.name)
+        stack = next(
+            s
+            for s in get_unpaired_stacks()["stacks"]
+            if round(s["amount"], 2) == round(self.STACK_B_AMOUNT, 2)
+        )
+        self.assertEqual(len(stack["transfers"]), 3)
+        self.assertEqual(len(stack["records"]), 2)
+        self.assertEqual(stack["surplus_transfers"], 1)
+        self.assertEqual(stack["surplus_records"], 0)
+        # The facts a reviewer picks a record by, from the SAME loader the confirm list uses.
+        for record in stack["records"]:
+            self.assertEqual(record["target_doctype"], "Project Payments")
+            self.assertEqual(record["status"], "Approved")
+
+    def test_the_leftovers_endpoint_spans_imports(self):
+        """A stack does not respect batch boundaries, so scoping this read to one import would show
+        a person half of their own problem.
+
+        ⚠️ IT BUILDS AND TEARS DOWN ITS OWN CROSS-IMPORT MEMBER rather than leaning on stack C.
+        The first version asserted on C, which is unbalanced only UNTIL
+        `test_a_stack_spanning_two_imports_...` stages the batch that balances it -- and that test
+        sorts earlier, so this one read an empty result and failed for a reason that had nothing to
+        do with the endpoint. A test whose meaning depends on which tests ran before it is not
+        testing what its name says.
+        """
+        second = _fresh_parse()
+        second_batch = _stage_batch(
+            second,
+            file_url="/private/files/test-statement.csv",
+            filename="test-statement.csv",
+            user="Administrator",
+        )
+        type(self).batches.append(second_batch.name)
+        extra = self._stack_row_in(second_batch.name, second, "0003", self.STACK_B_AMOUNT)
+        frappe.db.commit()
+        try:
+            match_batch(second_batch.name)
+            stack = next(
+                s
+                for s in get_unpaired_stacks()["stacks"]
+                if round(s["amount"], 2) == round(self.STACK_B_AMOUNT, 2)
+            )
+            batches = {t["import_batch"] for t in stack["transfers"]}
+            self.assertEqual(len(stack["transfers"]), 4)
+            self.assertEqual(len(batches), 2, "the stack must carry members from both imports")
+            self.assertEqual(stack["surplus_transfers"], 2)
+        finally:
+            # Return stack B to the 3-against-2 the later tests expect. Skipping is how a row
+            # leaves a stack, and it is what the pass itself honours.
+            frappe.db.set_value(ROW_DOCTYPE, extra, "row_status", "Skipped", update_modified=False)
+            frappe.db.commit()
 
     def test_the_pass_never_touches_a_settled_or_skipped_row(self):
         """`_load_open_rows_for_keys` filters on OPEN_ROW_STATUSES. A skipped row carrying the

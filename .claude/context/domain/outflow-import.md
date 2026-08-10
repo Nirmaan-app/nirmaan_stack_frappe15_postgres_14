@@ -41,6 +41,7 @@ pick one ad-hoc; ask.
 | What the screen ASKS for (X3) | `outflowTableModel.serverQuery` | build endpoint params at a call site. It owns the MEANING of a filter; SQL owns the application |
 | One import's aggregate (X2) | `services/outflow_import/status.py` (`derive_import_summary`, `StatusTally`) | count or sum an import anywhere else. The DB does the `GROUP BY`; this assembles |
 | Seeding decisions from the match run | `outflowTableModel.ts` (`suggestedDecision`, `seedDecisions`, `decisionOrigin`) | pre-select inside a component; the dialog used to, and it could only fire once a row was already open |
+| Grouping + pairing interchangeable transfers | `services/outflow_import/stacks.py` (`stack_key`, `group_into_stacks`, `pair_stack`, `stack_note`) | decide a stack's membership or its pairing anywhere else. `review._resolve_stacks` owns the DATABASE half and nothing more |
 | Access | `api/outflow_import/permissions.require_outflow_access` | gate an endpoint any other way |
 
 ---
@@ -391,13 +392,79 @@ have manufactured decisions nobody made. That reasoning outlives the feature and
 
 ---
 
+## Stacks — several interchangeable transfers, several interchangeable records (chunk E)
+
+A vendor with six approved payments of ₹9,000 and six transfers of ₹9,000. Row by row the matcher
+correctly refuses to pick one; for the SET there is exactly one sensible outcome. 58 rows were in
+that state on the first real statement.
+
+**Membership** is `(normalized_account, EXACT amount)`, and both halves are load-bearing:
+
+- **The account, never the beneficiary name.** A row with **no account is never stacked** — grouping
+  on amount alone would put two unrelated vendors who both happened to be paid ₹9,000 into one
+  stack, and a "balanced" stack of those auto-pairs strangers to each other's payments. It is the
+  worst failure this module could produce and it is one missing guard away.
+- **The amount is EXACT**, deliberately narrower than the ±₹1 window used everywhere else. A
+  tolerance window **is not an equivalence relation** (1.00/1.90/2.80 overlap pair-wise but do not
+  form a group), so grouping by one depends on iteration order. And there is nothing to absorb: the
+  window exists for bank rounding between a transfer and a RECORD.
+
+**Balanced stacks auto-pair (owner ruling 2026-08-10).** ⚠️ **This is an accepted risk, not a safe
+inference.** Six payments of one amount may sit on six DIFFERENT PROJECTS, and nothing in a bank
+statement says which transfer paid which. The owner took it against hand-pairing 58 rows a
+statement. Two mitigations are part of the ruling and must not be dropped as cosmetic:
+
+1. **Every auto-paired row says the pairing was arbitrary** and tells the reader to check the
+   project (`stacks.stack_note`). Pinned at both the pure and endpoint layers.
+2. **Pairing is deterministic** — transfers by `(added_on, name)`, records by `(doctype, name)`, then
+   zipped. Both keys end in a UNIQUE field, so no tie survives to be broken by query order. A
+   reshuffle between runs would move a suggestion out from under a reviewer mid-decision.
+   ⚠️ `pair_stack` re-sorts **both** sides itself rather than trusting `stack.transfers`; a function
+   whose contract is "same input, same pairing" cannot delegate half of it to its caller.
+
+**Unbalanced stacks pair NOTHING** — not even partially. With 7 transfers and 6 records, SOME
+transfer settles nothing, and choosing which is a judgement about money. They surface in
+`get_unpaired_stacks` → the **Resolve N stacks** dialog, which opens on a proposal, lets every row be
+re-pointed, states the surplus in words, refuses a record assigned twice, and writes through
+`settle_row` **one call per pair**. The button is **absent, not disabled**, when the count is 0.
+
+⚠️ **THE PASS WRITES ACROSS IMPORTS, and that is the point of it.** A stack does not respect batch
+boundaries, so matching batch B can change rows in batch A. Safe because it only ever fills a BLANK
+suggestion on an OPEN row, changes no status (so no other batch's rollup goes stale), and both
+batches compute the same pairing. Pinned by a test that matches a second import and asserts the
+first import's rows paired.
+
+⚠️ **A record is claimed once, globally.** `zip` covers one stack; an explicit claimed-set covers
+across stacks and against the per-row matcher. Without it two transfers get the same payment and the
+second confirm fails with `AlreadyPaidError` — the exact failure the candidate-collapse fix exists to
+prevent.
+
+⚠️ **A REAL LIMIT, pinned on purpose:** the stack key is an exact amount but the candidate set uses
+the ±₹1 tier-1 window, so a payment 50 paise away is a candidate **without being a member** — 3
+transfers, 4 records, unbalanced, nothing pairs. Correct, not a defect. Near-identical amounts fall
+through to a person, which is the right side to fail on.
+
+⚠️ **A FAN-OUT DISQUALIFIES A WHOLE STACK.** One transfer covering several payments is report-only
+(ruling Q4) and cannot be one end of a 1:1 pairing, so `_stack_records` returns nothing and the stack
+falls to a person untouched.
+
+---
+
 ## Known limits, accepted with numbers
 
 - **TDS payments will not match.** 709 of 7,421 Paid payments carry TDS (9.6%). `tds` is written at
   fulfil time, so an approved unpaid payment has a blank one and `amount − tds` has nothing to
   subtract. A tolerance pass (Q11) and a TDS box (Q6) are **next version**.
 - **No undo of a settle** from inside the import (Q9). Fix it in the payments screen.
-- **Fan-out is report-only** (Q4) — which is why the existing UTR guard is never challenged.
+- **Fan-out is report-only** (Q4) — which is why the existing UTR guard is never challenged. Chunk E
+  did NOT change this: a fan-out disqualifies its whole stack rather than being paired.
+- **N transfers summing to ONE record is not built** (analysed 2026-08-10, deferred by the owner).
+  It cannot reuse `settle_row`: transfer 1 of ₹2L against a ₹5L payment fails `AmountMismatchError`,
+  and transfers 2..N would fail `AlreadyPaidError`. It needs one new atomic write taking N rows, a
+  group id on the row (the per-row `suggested_*` pair cannot express a group), and a bounded search
+  — finding which transfers sum to a payment is subset-sum, where the danger is false positives,
+  not compute. `Project Payments.utr` is `varchar(140)`, so ~10 slash-joined references before
+  Frappe hard-fails.
 - ~~**The paise difference is not recorded.**~~ **REVERSED 2026-08-09 (slice X1).** It used to say:
   *"Settling an ₹18,678.69 payment from an ₹18,679.00 transfer leaves the payment at ₹18,678.69.
   Accepted explicitly."* The record now takes the **bank's** amount, in **both directions**, on all
