@@ -32,6 +32,8 @@ import {
   usePOAdjustment,
   type POAdjustmentDoc,
 } from "@/pages/POAdjustment/data/usePOAdjustmentQueries";
+import { canWriteOffAdjustment } from "@/pages/POAdjustment/data/usePOAdjustmentMutations";
+import { WriteOffDialog } from "@/pages/POAdjustment/WriteOffDialog";
 import { useUserData } from "@/hooks/useUserData";
 import { MATERIAL_PROCUREMENT_PROFILES } from "@/constants/roles";
 
@@ -97,8 +99,12 @@ export const PORevisionsAndAdjustments: React.FC<
 > = ({ poId }) => {
   const { data: revisions, isLoading: revisionsLoading } =
     useRevisionHistory(poId);
-  const { adjustment, isLoading: adjustmentLoading } = usePOAdjustment(poId);
-  const { role } = useUserData();
+  const {
+    adjustment,
+    isLoading: adjustmentLoading,
+    mutate: mutateAdjustment,
+  } = usePOAdjustment(poId);
+  const { role, user_id } = useUserData();
 
   const isRevisionAllowed = REVISION_ROLES.includes(role);
   const revisionList =
@@ -183,7 +189,11 @@ export const PORevisionsAndAdjustments: React.FC<
 
               {/* ── Payment Adjustments Sub-section ── */}
               {hasAdjustments && (
-                <AdjustmentsList adjustment={adjustment!} />
+                <AdjustmentsList
+                  adjustment={adjustment!}
+                  canWriteOff={canWriteOffAdjustment(role, user_id)}
+                  onWrittenOff={mutateAdjustment}
+                />
               )}
             </div>
           </AccordionContent>
@@ -641,9 +651,11 @@ const ManualEditNotice: React.FC<{ adjustment: POAdjustmentDoc }> = ({
   );
 };
 
-const AdjustmentsList: React.FC<{ adjustment: POAdjustmentDoc }> = ({
-  adjustment,
-}) => {
+const AdjustmentsList: React.FC<{
+  adjustment: POAdjustmentDoc;
+  canWriteOff: boolean;
+  onWrittenOff: () => void;
+}> = ({ adjustment, canWriteOff, onWrittenOff }) => {
   return (
     <div className="min-w-0">
       <div className="flex items-center gap-2 mb-3">
@@ -671,6 +683,15 @@ const AdjustmentsList: React.FC<{ adjustment: POAdjustmentDoc }> = ({
           >
             Done
           </Badge>
+        )}
+        {canWriteOff && Math.abs(adjustment.remaining_impact) >= 0.01 && (
+          <div className="ml-auto">
+            <WriteOffDialog
+              poId={adjustment.po_id}
+              remainingImpact={adjustment.remaining_impact}
+              onWrittenOff={onWrittenOff}
+            />
+          </div>
         )}
       </div>
 
