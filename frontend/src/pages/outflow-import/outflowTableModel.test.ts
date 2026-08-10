@@ -59,7 +59,10 @@ const row = (over: Partial<OutflowImportRow> = {}): OutflowImportRow =>
     }) as OutflowImportRow;
 
 describe("columns", () => {
-    it("carries the seven default columns in the owner's order", () => {
+    it("carries the default columns in the owner's order", () => {
+        // ⚠️ "Import" JOINED AT X3 and it only makes sense from X3 on: the batch screen showed one
+        // import, so naming it in every row would have been noise. The master table spans every
+        // import, and "which statement was this?" becomes a real question the moment it does.
         const shown = OUTFLOW_COLUMNS.filter((c) => !c.hiddenByDefault).map((c) => c.title);
         expect(shown).toEqual([
             "Payment Date",
@@ -69,6 +72,7 @@ describe("columns", () => {
             "Reference (UTR)",
             "Status",
             "Outcome",
+            "Import",
         ]);
     });
 

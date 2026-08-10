@@ -842,9 +842,15 @@ class TestTheMasterTableEndpoint(OutflowReviewFixture):
         second = self._page(scope="all", limit=3, offset=3)["rows"]
         self.assertFalse({r["name"] for r in first} & {r["name"] for r in second})
 
+    def _beneficiary_of(self, suffix):
+        """⚠️ Read from the ROW, not from `_rows_by_transfer_suffix` -- that helper selects a fixed
+        field list for the suggestion tests and does not carry the beneficiary."""
+        row = self._rows_by_transfer_suffix()[suffix]
+        return frappe.db.get_value(ROW_DOCTYPE, row["name"], "beneficiary_name") or ""
+
     def test_search_spans_the_fields_a_person_remembers_a_transfer_by(self):
         target = self._rows_by_transfer_suffix()["0001"]
-        found = self._page(scope="all", search=(target["beneficiary_name"] or "")[:6])["rows"]
+        found = self._page(scope="all", search=self._beneficiary_of("0001")[:6])["rows"]
         self.assertIn(target["name"], [r["name"] for r in found])
 
     def test_the_tab_counts_describe_the_CURRENT_search(self):
@@ -893,14 +899,11 @@ class TestTheMasterTableEndpoint(OutflowReviewFixture):
         self.assertGreater(len(values), 1)
 
     def test_a_facet_selection_narrows_the_page(self):
-        target = self._rows_by_transfer_suffix()["0001"]
-        page = self._page(
-            scope="all",
-            facets=json.dumps({"beneficiary_name": [target["beneficiary_name"]]}),
-        )
+        beneficiary = self._beneficiary_of("0001")
+        page = self._page(scope="all", facets=json.dumps({"beneficiary_name": [beneficiary]}))
         self.assertTrue(page["rows"])
         for row in page["rows"]:
-            self.assertEqual(row["beneficiary_name"], target["beneficiary_name"])
+            self.assertEqual(row["beneficiary_name"], beneficiary)
 
     def test_an_empty_facet_selection_is_no_filter_at_all(self):
         """Otherwise unticking the last value blanks the table instead of clearing the filter,
@@ -926,7 +929,16 @@ class TestTheMasterTableEndpoint(OutflowReviewFixture):
 
 
 class TestConfirmableRows(OutflowReviewFixture):
-    """`get_confirmable_rows` -- what "Confirm all matched" may and may not act on (slice X5)."""
+    """`get_confirmable_rows` -- what "Confirm all matched" may and may not act on (slice X5).
+
+    ⚠️ EVERY TEST HERE IS READ-ONLY, AND THE TWO THAT MUTATE LIVE IN THEIR OWN CLASS BELOW. The
+    fixture is per-CLASS, so a test that settles a row or rewrites a suggestion changes what its
+    alphabetically-later siblings see -- and unittest runs methods in alphabetical order, so
+    `test_a_settled_row...` ran FIRST and consumed the only confirmable row before three assertions
+    about it. The symptom was `0 != 1` on tests that were correct, which reads exactly like a broken
+    endpoint. `test_settle_payment`'s fixture docstring records the same trap; this is the cheap
+    version of its answer -- separate the mutators rather than rebuild the fixture per test.
+    """
 
     @classmethod
     def setUpClass(cls):
@@ -981,8 +993,21 @@ class TestConfirmableRows(OutflowReviewFixture):
                 row["amount_changes"], row["target_amount"] != row["amount"]
             )
 
+
+class TestConfirmableRowsUnderChange(OutflowReviewFixture):
+    """The two `get_confirmable_rows` cases that MUTATE, on a fixture of their own.
+
+    See the note on `TestConfirmableRows` for why they are not siblings of the read-only ones.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        match_batch(cls.batch.name)
+
     def test_a_settled_row_leaves_the_confirmable_set(self):
         payload = get_confirmable_rows(self.batch.name)
+        self.assertTrue(payload["ready"], "fixture precondition: something must be confirmable")
         target = payload["ready"][0]
         before = len(payload["ready"])
 

@@ -57,10 +57,18 @@ Two guarantees make that safe to say, and both are structural rather than promis
     `_lock_and_assert_payment_settleable` run FIRST and still refuse anything outside +-Rs 5. The
     rewrite corrects what is written; it never widens what may be written.
   * EVERY AMOUNT CHANGE IS AUDITED. All three doctypes carry `track_changes: 1`, and BOTH write
-    paths now go through `doc.save()`, so each change lands in the Version log with its user and
-    timestamp. ⚠️ THAT IS WHY THE EXPENSE PATH STOPPED USING `frappe.db.set_value` -- see
-    `settle_existing_expense`. `set_value` skips the document lifecycle entirely, so an amount
-    rewritten through it would be an unaudited edit to a financial figure.
+    paths now go through `doc.save(..., ignore_version=False)`, so each change lands in the Version
+    log with its user and timestamp. ⚠️ THAT IS WHY THE EXPENSE PATH STOPPED USING
+    `frappe.db.set_value` -- see `settle_existing_expense`. `set_value` skips the document lifecycle
+    entirely, so an amount rewritten through it would be an unaudited edit to a financial figure.
+
+    ⚠️ THE EXPLICIT `ignore_version=False` IS LOAD-BEARING AND WAS ADDED BECAUSE A TEST CAUGHT ITS
+    ABSENCE. Frappe defaults `ignore_version = frappe.flags.in_test`, so a bare `doc.save()` records
+    the Version in production and SILENTLY SKIPS IT under `bench run-tests` -- which meant the audit
+    this whole slice rests on was unprovable exactly where it was being asserted. Passing it
+    explicitly makes the guarantee STRUCTURAL rather than a default somebody else's flag can turn
+    off. The repo hit this once before, on the Rate Master write endpoints; the note there says the
+    same thing.
 """
 
 from __future__ import annotations
@@ -361,7 +369,7 @@ def settle_existing_expense(
         written = exact
 
     with _outflow_import_write():
-        doc.save(ignore_permissions=True)
+        doc.save(ignore_permissions=True, ignore_version=False)
 
     return SettleResult(
         doctype=target_doctype,
@@ -444,7 +452,7 @@ def settle_payment(row, target_name: str, actor: str) -> SettleResult:
     # never sees `doc`. It was exposed to that commit before X1; the doc flag could never have
     # reached it. See `_outflow_import_write`.
     with _outflow_import_write():
-        doc.save(ignore_permissions=True)
+        doc.save(ignore_permissions=True, ignore_version=False)
 
     _advance_po_latest_payment_date(doc, payment_date)
 
