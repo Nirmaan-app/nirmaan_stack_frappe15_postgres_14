@@ -1,27 +1,46 @@
 /**
- * RM-3 REAL "Pricing sheet" helper (replaces the U1 stub).
+ * RM-3 REAL "Pricing sheet" helper (replaces the U1 stub) -- EA-2 N-category.
  *
  * The server EXTRACTS attributes (per row, persisted in a run); this helper COMPUTES the rate
  * CLIENT-SIDE from the CURRENT master/config via the RM-2 interpreter -- the SINGLE compute source,
  * imported UNCHANGED from pages/pricing/rate-master. So a rate/param change flows in live without
  * re-running the AI (values always recompute; only the extracted attributes persist).
  *
- * It is a CLOSURE over the page's data (config + master items + the run's extraction-by-row), built
- * once per page and passed as the helper list to buildSuggestions / the panel. Nothing here persists.
+ * It is a CLOSURE over the page's data (the category configs + master items + the run's
+ * extraction-by-row), built once per page and passed as the helper list to buildSuggestions / the
+ * panel. Nothing here persists.
  *
- * Owner option (b): a CABLE row shows the cable pipelines AND the PAIRED termination side by side (a
- * display-only reference line); a TERMINATION row shows termination alone. BCS pipelines are NOT
- * surfaced in the helper (owner deferral). Attributes the AI could not read render EMPTY for the
- * pricer to complete -- completing them re-runs the interpreter live (honest partial).
+ * EA-2: the helper is N-CATEGORY. The config used for a row is resolved FROM THE ROW'S CATEGORY
+ * (`configsByCategory`, the registry's eleven). A row computes iff that category has an ELIGIBLE
+ * config (non-empty pipelines AND definitions) and the run carries the row. Groups render ONE per
+ * NON-BCS pipeline (pipeline ids containing "bcs" are never surfaced -- owner deferral), labelled
+ * from `config.pipeline_labels?.[id] ?? prettify(id)`. Honest states: blank-fill for an in-category
+ * row outside the run; "coming soon" ONLY for a category with no eligible config (LMS empty
+ * pipelines, point_wiring, panels, light_fixtures, or none).
+ *
+ * WIRING SPECIAL CASE (owner Decision 2, TEMPORARY -- EA-4 designs the generic pairing/assembly
+ * mechanism and wiring migrates onto it then): the `wiring_cabling` category keeps its paired
+ * Cable + Termination side-by-side display and its cable-vs-termination "primary pipeline" choice.
+ * Its group LABELS come from `pipeline_labels` (config data), so only the pairing BEHAVIOUR is
+ * special-cased, not the strings. Every OTHER category goes through the generic path.
  */
-import { runPipeline } from "@/pages/pricing/rate-master/ratePipelineInterpreter";
+import { derivedAttrOutcomes, moduleFitOutcome, NONE_SENTINEL, runPipeline } from "@/pages/pricing/rate-master/ratePipelineInterpreter";
+// CP2: `coerceForMatch` moved to the shared rate-master module (the single point where an attribute
+// value becomes a match key); this file imports it and no longer defines it.
+import { coerceForMatch, isDropdownAttributeType } from "@/pages/pricing/rate-master/rateMasterStructure";
+// DERIVED-ATTRIBUTE GATE: the `<name>_qty` half of derivation has ONE definition and this reuses
+// it rather than repeating it (see derivedAttrIds below).
+import { derivedQtyAttrs, derivedQtyValue } from "@/pages/pricing/rate-master/RateMasterDerivation";
 import type {
   AttributeDefinition,
   Pipeline,
+  PipelineResult,
   RateCategoryConfig,
   RateMasterItem,
 } from "@/pages/pricing/rate-master/rateMasterTypes";
+import { sortAttrNotes } from "./rateHelperTypes";
 import type {
+  AttrNote,
   ExtractionRow,
   HelperResult,
   RateHelper,
@@ -31,10 +50,11 @@ import type {
 } from "./rateHelperTypes";
 
 export const PRICING_SHEET_HELPER_ID = "pricing_sheet";
+const WIRING_CATEGORY_ID = "wiring_cabling";
 
-/** The rate-kinds the pricing-sheet helper can price for a wiring row (supply/install separately,
- * or a single combined column). Declared on every suggestion so a PARTIAL row (an attribute the AI
- * could not read) still badges -- the pricer opens the panel to complete it. */
+/** The rate-kinds the pricing-sheet helper can price. Declared on every in-run suggestion so a
+ * PARTIAL row (an attribute the AI could not read) still badges -- the pricer opens the panel to
+ * complete it. */
 const PRODUCIBLE_KINDS = ["supply_rate", "install_rate", "combined_rate"];
 
 /** VERSION KEYING (owner ruling): a stored run only shows when its committed_version equals the
@@ -65,8 +85,41 @@ export function buildExtractionByRow(
   return m;
 }
 
+/** A pipeline id is surfaced in the helper iff it is NOT a BCS pipeline (owner deferral). PURE. */
+export function isBcsPipelineId(id: string): boolean {
+  return id.toLowerCase().includes("bcs");
+}
+
+/** Group label for a pipeline: the config's `pipeline_labels` when present (config data), else a
+ * prettified id. PURE. */
+export function prettifyPipelineId(id: string): string {
+  return id.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+export function pipelineLabel(config: RateCategoryConfig, id: string): string {
+  return config.pipeline_labels?.[id] ?? prettifyPipelineId(id);
+}
+
+/** The non-BCS pipelines of a config, in declaration order. PURE. */
+export function nonBcsPipelines(config: RateCategoryConfig): Array<[string, Pipeline]> {
+  return Object.entries(config.pipelines ?? {}).filter(([id]) => !isBcsPipelineId(id));
+}
+
+/** A category participates in the helper iff its config has BOTH non-empty pipelines AND non-empty
+ * attribute definitions (an empty-pipelines DATA-ONLY config -- e.g. lighting_mgmt_system -- is not
+ * eligible; it shows "coming soon"). PURE. */
+export function isEligibleConfig(config: RateCategoryConfig | null | undefined): boolean {
+  return (
+    !!config &&
+    Object.keys(config.pipelines ?? {}).length > 0 &&
+    (config.attribute_definitions ?? []).length > 0
+  );
+}
+
 interface Deps {
-  config: RateCategoryConfig;
+  /** Legacy single-category form (RM-3 tests): the ONE config this helper serves. */
+  config?: RateCategoryConfig;
+  /** EA-2 N-category form (the page): resolve the config FROM the row's category. */
+  configsByCategory?: Map<string, RateCategoryConfig>;
   items: RateMasterItem[];
   /** excel_row -> the run's extraction for that row. */
   extractionByRow: Map<number, ExtractionRow>;
@@ -82,76 +135,344 @@ function selectableDefs(config: RateCategoryConfig): AttributeDefinition[] {
   return (config.attribute_definitions ?? []).filter((d) => d.selector !== false);
 }
 
-/** Coerce a stringy attribute value to what the interpreter matches on (number for number attrs). */
-function coerceForMatch(def: AttributeDefinition, raw: string | number | null): string | number | null {
-  if (raw === null || raw === undefined || raw === "") return null;
-  if (def.type === "number") {
-    const n = typeof raw === "number" ? raw : Number(raw);
-    return Number.isFinite(n) ? n : null;
+/** EA-4a: the panel options for a choice def. A def may resolve its allowed values FROM the live
+ * master (`values_from`) rather than a static `values` list -- point_wiring's switch/socket/plate
+ * selects, keyed by family. Resolve them here from `items` (the discipline set the page passes),
+ * the SAME live read the backend injects into the extraction prompt AND the RateMaster Derivation
+ * screen uses -- so an AI-extracted item that is NOT in `values` (there is none) still has a matching
+ * option and DISPLAYS, and a partial row can be completed from the catalog. PURE. */
+export function attributeOptions(def: AttributeDefinition, items: RateMasterItem[]): string[] {
+  const vf = def.values_from;
+  const base: string[] = [];
+  if (!vf) {
+    base.push(...(def.values ?? []).map((v) => String(v)));
+  } else {
+    const seen = new Set<string>();
+    for (const it of items) {
+      if (it.kind !== vf.kind) continue;
+      const a = it.attributes ?? {};
+      if (!Object.entries(vf.where ?? {}).every(([k, v]) => a[k] === v)) continue;
+      const raw = a[vf.attr];
+      const val = typeof raw === "string" ? raw.trim() : raw;
+      if (val !== undefined && val !== null && val !== "" && !seen.has(String(val))) {
+        seen.add(String(val));
+        base.push(String(val));
+      }
+    }
   }
-  return String(raw);
+  // EA-4a-r: an allow_none def offers the "None" sentinel (positive absence) at the TOP of the list.
+  return def.allow_none ? [NONE_SENTINEL, ...base] : base;
 }
 
-/** Map a pipeline output key -> the sheet rate-kind it fills. */
+/**
+ * The attribute ids this config COMPUTES rather than accepts as user input.
+ *
+ * ⚠️ A DERIVED ATTRIBUTE IS NEVER "MISSING INPUT". Leaving one blank means the pricer did not state
+ * it, not that the row is incomplete -- the pipeline derives it. Counting one as missing refuses a
+ * row the pipeline can price perfectly well, which is exactly what happened: `module_fit`'s ladders
+ * BIND `plate_item`, the helper counted it as required, and 26 rows across switches_sockets and
+ * point_wiring showed "Complete the missing attributes to price" while the pipeline computed
+ * 380/80, 500/100, 290/60 and 1238/667.4 for them.
+ *
+ * TWO derivation mechanisms, ONE definition of each -- this composes, it does NOT re-implement:
+ *   1. `derivedQtyAttrs` (the blanker slice) -- a component taking `qty: {from_fit}` supersedes its
+ *      `<name>_qty` attribute. REUSED verbatim; the risk of two copies drifting (#179, three
+ *      coercion sites that agreed until they did not) is why this imports rather than repeats it.
+ *   2. `module_fit` LADDER BINDS -- `ladders[].bind` names the attribute the fitted rung binds to.
+ *      This half is new and lives here only.
+ *
+ * ⚠️ `bind` IS NOT `floor_from`, and one attribute is BOTH. `plate_item` is its own ladder's
+ * `floor_from` (a STATED plate is a floor -- the take-the-larger rule) AND its `bind` (the fitted
+ * rung). **Being a bind WINS**: the pipeline can always compute the value, so a blank one is "no
+ * floor stated", never "input missing". A `floor_from` attribute that is NOT also a bind stays a
+ * genuine input and still blocks when blank.
+ *
+ * ⚠️ READ FROM CONFIG, never hardcoded by id. `plate_item` / `box_item` are today's binds; a future
+ * ladder may bind anything, and a category with no `module_fit` is byte-unaffected. PURE.
+ */
+/**
+ * PURE. The attribute a `module_fit` `blanks` block ARBITRATES on -- the blanker quantity the row
+ * states, which the step weighs against the plate's spare capacity.
+ *
+ * ⚠️ THIS IS WHY THAT FIELD IS NOT READ-ONLY DESPITE LOOKING SUPERSEDED. Its component still takes
+ * `qty: {from_fit}`, so `derivedQtyAttrs` -- which keys purely on that shape -- reports it as fully
+ * superseded, and branch 1 of `applyDerivedDisplay` would lock it. But `module_fit` now READS the
+ * attribute, so it IS an input: the pipeline arbitrates between it and the computed spare, and an
+ * edit genuinely reaches the price. A locked field would be the lie the read-only contract exists to
+ * prevent, only pointing the other way.
+ *
+ * ⚠️ READ FROM CONFIG, never by attribute id. A config with no `qty_attr` is byte-unaffected and its
+ * quantity stays read-only exactly as before. PURE.
+ */
+export function blanksQtyAttr(config: RateCategoryConfig): string | undefined {
+  for (const pl of Object.values(config.pipelines ?? {})) {
+    for (const raw of pl.steps ?? []) {
+      const s = raw as { step?: string; params?: { blanks?: { qty_attr?: unknown } } };
+      const qa = s.params?.blanks?.qty_attr;
+      if (s.step === "module_fit" && typeof qa === "string" && qa) return qa;
+    }
+  }
+  return undefined;
+}
+
+export function derivedAttrIds(config: RateCategoryConfig): Set<string> {
+  const out = new Set<string>(derivedQtyAttrs(config).keys());
+  for (const pl of Object.values(config.pipelines ?? {})) {
+    for (const raw of pl.steps ?? []) {
+      const s = raw as {
+        step?: string;
+        params?: { ladders?: Array<{ bind?: unknown }>; result_attr?: unknown };
+      };
+      if (s.step === "module_fit") {
+        for (const ladder of s.params?.ladders ?? []) {
+          if (typeof ladder.bind === "string" && ladder.bind) out.add(ladder.bind);
+        }
+      } else if (s.step === "derive_attribute") {
+        // THE THIRD MECHANISM. A `derive_attribute` COMPUTES its target attribute from other
+        // attributes, so a blank one means "the row did not state it", never "the row is incomplete".
+        //
+        // ⚠️ This is NOT cosmetic. point_wiring's `circuit_length_m` used to arrive pre-filled by an
+        // `extraction_defaults` entry of 15; removing that default (which is what makes the derivation
+        // reachable at all -- an injected value is a STATED value and would win forever) leaves the
+        // field blank on every future row. Without this branch the missing-attribute gate below fires
+        // and the row prices NOTHING while the pipeline can compute the length perfectly well.
+        //
+        // Same shape as the two mechanisms above, and the same lesson for the THIRD time: a no-op
+        // measured before a dependency lands is not a no-op afterwards.
+        if (typeof s.params?.result_attr === "string" && s.params.result_attr) {
+          out.add(s.params.result_attr);
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * DERIVED DISPLAY -- give every DERIVED attribute the value the pipeline actually computed.
+ *
+ * ⚠️ THE SCREEN IS THE AUTHORITY. The derived-attribute GATE (above) stopped these attributes
+ * refusing a row, but the FIELD went on rendering a blank in a red border while the pipeline priced
+ * a 3M plate behind it -- so the form still told the pricer the row was incomplete, and the blanker
+ * quantity still showed the extraction's stated 1 where the bill charges 0. This function is the
+ * other half: it does not change one number, it says which one was used.
+ *
+ * TWO derivation mechanisms, and they behave DIFFERENTLY on purpose -- both read from CONFIG:
+ *
+ *   1. FULLY SUPERSEDED (`derivedQtyAttrs`, the blanker quantity). The component takes
+ *      `qty: {from_fit}`, so the pipeline NEVER reads the attribute. The computed value therefore
+ *      ALWAYS wins and the field is READ-ONLY -- making it editable would be a new lie, since an
+ *      edit could not reach the price. Its value is read with `derivedQtyValue`, the SAME reader the
+ *      Rate Master Derivation screen uses, so the two screens can never show different blank counts.
+ *
+ *   2. A `module_fit` LADDER BIND (the face plate). A stated value IS read -- as the FLOOR of
+ *      take-the-larger -- so the field stays EDITABLE and a stated value keeps the screen. The
+ *      computed label fills it only when the row states nothing. When take-the-larger UPGRADED a
+ *      too-small entry, the numbers ride along so the panel can warn instead of appearing to
+ *      swallow the edit.
+ *
+ * ⚠️ NOTHING is written back into `selected` (it is not even in scope here) -- these fields are
+ * DISPLAY, and `value` still means "what the row supplied". PURE: returns a new array.
+ */
+export function applyDerivedDisplay(
+  attrs: WorkingsAttribute[],
+  config: RateCategoryConfig,
+  results: PipelineResult[],
+): WorkingsAttribute[] {
+  // The ONE derived predicate (both mechanisms) -- reused, never re-implemented (#179).
+  const derivedIds = derivedAttrIds(config);
+  const supersededQty = derivedQtyAttrs(config);
+  const fit = moduleFitOutcome(results);
+  const byBind = new Map((fit?.ladders ?? []).map((l) => [l.bind, l]));
+  // The THIRD mechanism's values, read through the interpreter's ONE reader -- never by parsing the
+  // trace prose and never by re-deriving the arithmetic (#179).
+  const computedAttrs = derivedAttrOutcomes(results);
+
+  const arbitratedQty = blanksQtyAttr(config);
+
+  return attrs.map((a) => {
+    if (!derivedIds.has(a.id)) return a;
+
+    // 0. THE ARBITRATED QUANTITY (the blanker count). Checked FIRST, because the superseded branch
+    //    below would lock it -- and it is not superseded: `module_fit` reads it and weighs it against
+    //    the plate's spare capacity, so an edit reaches the price. SEEDED-BUT-EDITABLE, the state the
+    //    face plate already uses: `derived` + a `derivedValue`, and `readOnly` deliberately unset, so
+    //    a stated value keeps the screen and a blank one shows what the pipeline computed.
+    if (arbitratedQty && a.id === arbitratedQty) {
+      const b = fit?.blanks;
+      // Nothing was counted (a "None" plate, or nothing on the plate at all). An uncomputed count
+      // renders EMPTY, never 0 -- "no plate to fill" is a different statement from "zero needed".
+      if (!b) return { ...a, derived: true };
+      const notes: AttrNote[] = [];
+      if (b.stated !== undefined) {
+        // CORRECTED vs HONOURED -- the two say opposite things and are mutually exclusive by
+        // construction (a stated count is either above the spare or below it, never both).
+        if (b.capped) notes.push({ kind: "capped", stated: b.stated, spare: b.spare });
+        else if (b.uncovered > 0) {
+          notes.push({ kind: "uncovered", stated: b.stated, spare: b.spare, uncovered: b.uncovered });
+        }
+      }
+      return {
+        ...a,
+        derived: true,
+        derivedValue: String(b.effective),
+        ...(notes.length ? { notes: sortAttrNotes(notes) } : {}),
+      };
+    }
+
+    const superseded = supersededQty.get(a.id);
+    if (superseded) {
+      // An UNCOMPUTED value renders EMPTY, never 0: with a "None" plate there are no blanks at all,
+      // and a 0 would claim "zero needed" instead of "not applicable" (owner-locked).
+      const v = derivedQtyValue(results, superseded.ctxKey);
+      return {
+        ...a,
+        derived: true,
+        readOnly: true,
+        ...(v === undefined ? {} : { derivedValue: String(v) }),
+      };
+    }
+
+    const ladder = byBind.get(a.id);
+    if (!ladder) {
+      // 3. A `derive_attribute` TARGET (the circuit length). Like the ladder bind and UNLIKE the
+      //    blanker quantity, a stated value IS read -- it wins outright, with no floor and no warning
+      //    -- so the field stays EDITABLE and only fills in when the row states nothing. `readOnly`
+      //    must never be set here: that would promise the pricer an effect their edit cannot have,
+      //    when in fact their edit is the one thing that always wins.
+      const computed = computedAttrs.get(a.id);
+      if (computed) {
+        return {
+          ...a,
+          derived: true,
+          // A STATED value publishes no display value -- `attrDisplayValue` shows the row's own entry,
+          // which is what actually prices. Nothing was computed, and claiming otherwise would be a lie.
+          ...(computed.value === null ? {} : { derivedValue: String(computed.value) }),
+        };
+      }
+      return { ...a, derived: true }; // derived by config, but nothing fitted/computed this run
+    }
+    return {
+      ...a,
+      derived: true,
+      // POSITIVELY ABSENT (a "None" plate, or nothing to fit at all) publishes NO display value --
+      // the field renders empty rather than inventing a size for a plate that does not exist.
+      ...(ladder.absent || ladder.label === null ? {} : { derivedValue: ladder.label }),
+      ...(ladder.upgraded && ladder.label
+        ? {
+            notes: [
+              {
+                kind: "upgrade" as const,
+                stated: ladder.upgraded.stated,
+                statedHolds: ladder.upgraded.statedHolds,
+                occupied: ladder.upgraded.occupied,
+                using: ladder.label,
+              },
+            ],
+          }
+        : {}),
+    };
+  });
+}
+
+/** Map a pipeline output key -> the sheet rate-kind it fills. EA-4a: the assembly categories name their
+ * outputs `supply` / `install` (no per-unit suffix), so match those EXACTLY as well as the legacy
+ * `supply_*` / `install_*` (conduit/wiring per-mtr, switches per-set). */
 function kindForOutput(output: string): string | null {
-  if (output.startsWith("supply_")) return "supply_rate";
-  if (output.startsWith("install_")) return "install_rate";
+  if (output === "supply" || output.startsWith("supply_")) return "supply_rate";
+  if (output === "install" || output.startsWith("install_")) return "install_rate";
   return null;
 }
 
 export function makePricingSheetHelper(deps: Deps): RateHelper {
-  const { config, items, extractionByRow } = deps;
-  const defs = selectableDefs(config);
-  const pipelines = config.pipelines ?? {};
+  const { config, configsByCategory, items, extractionByRow } = deps;
+
+  /** Resolve the config for a row's category. N-category: look it up in the map. Legacy single-config:
+   * serve it ONLY for its own category (a different / null category -> none -> coming soon). */
+  function resolveConfig(category: string | null): RateCategoryConfig | null {
+    if (configsByCategory) return (category && configsByCategory.get(category)) || null;
+    if (config && category && config.category_id === category) return config;
+    return null;
+  }
 
   function compute(ctx: RateHelperRowContext, overrides?: Record<string, string>): HelperResult {
     const ext = extractionByRow.get(ctx.excelRow);
     const inRun = !!ext;
 
-    // CATEGORY-SCOPED attributes (owner): the fields shown are the row's CATEGORY's attributes, not
-    // a fixed set. This helper defines exactly ONE category (config.category_id); a row of any other
-    // category -- or none yet -- has no attribute set defined, so we show a "coming soon" note rather
-    // than the wrong (wiring) fields. An in-run row is always this category by construction, so the
-    // gate only guards the manual (not-in-run) path. A second category = a second config, later.
-    if (!inRun && ctx.category !== config.category_id) {
+    // CATEGORY-SCOPED (owner): the fields shown are the row's CATEGORY's attributes. A row whose
+    // category has no ELIGIBLE config (unknown category, or a DATA-ONLY empty-pipelines config such
+    // as lighting_mgmt_system) shows a "coming soon" note rather than the wrong fields. An in-run row
+    // always resolves to its own eligible category by construction.
+    const cfg = resolveConfig(ctx.category);
+    if (!isEligibleConfig(cfg)) {
       return {
         kind: "none",
         reason: "Rate attributes for this category haven't been defined yet — coming soon.",
       };
     }
+    const category = cfg!;
+    const defs = selectableDefs(category);
 
-    // MANUAL FILL (owner request): a row of THIS category that is NOT in the run is still priceable
-    // by hand. We proceed with an EMPTY extraction so the panel shows blank, editable attribute
-    // fields; filling them re-runs the SAME interpreter live. Such a row NEVER mints a badge
-    // (producibleKinds omitted below) -- it is reached only via the always-on cell opener, so it
-    // stays "badge-less" until used.
+    // EA-4a-r: which defs are DISABLED because an allow_none controller is set to "None" (positive
+    // absence) -- e.g. plate_item="None" disables plate_qty AND back_box. A controller can disable a def
+    // that appears BEFORE it in the list (wire2_thickness_sqmm controls wire2_core), so resolve in a
+    // pre-pass. A disabled target is greyed + cleared and is NOT treated as an unknown (never blocks).
+    const valueOfDef = (d: AttributeDefinition): string | number | null => {
+      const ov = overrides?.[d.id];
+      const raw = ov !== undefined ? ov : ext?.attributes[d.id]?.value ?? null;
+      return coerceForMatch(d, raw as string | number | null);
+    };
+    const disabledByNone = new Set<string>();
+    for (const d of defs) {
+      if (d.allow_none && d.disables_when_none && valueOfDef(d) === NONE_SENTINEL) {
+        for (const t of d.disables_when_none) disabledByNone.add(t);
+      }
+    }
 
     // Build the workings attributes (pre-filled from extraction, overridable) + the selected map.
     const workingsAttrs: WorkingsAttribute[] = [];
     const selected: Record<string, string | number> = {};
+    const defaulted: string[] = []; // EA-4a: attrs the extraction filled from a config default
+    // The attributes THIS config computes rather than accepts -- a blank one is not missing input.
+    const derived = derivedAttrIds(category);
     let missing = false;
     for (const d of defs) {
       const cell = ext?.attributes[d.id];
       const overridden = overrides?.[d.id];
-      const rawValue = overridden !== undefined ? overridden : cell?.value ?? null;
+      const disabled = disabledByNone.has(d.id);
+      const rawValue = disabled ? null : overridden !== undefined ? overridden : cell?.value ?? null;
       const coerced = coerceForMatch(d, rawValue as string | number | null);
-      if (coerced === null) missing = true;
+      // A disabled target is POSITIVELY absent (its controller is None) -- clear it, do NOT flag missing.
+      // A DERIVED attribute (a module_fit ladder bind, or a superseded `<name>_qty`) is likewise not
+      // missing input: blank means "not stated", and the pipeline computes it. A stated value is
+      // still passed through in `selected`, where the ladder reads it as its FLOOR.
+      if (coerced === null) { if (!disabled && !derived.has(d.id)) missing = true; }
       else selected[d.id] = coerced;
+      // A defaulted attribute is one the model filled from the config default (no positive text
+      // identification); the pricer should see WHICH values came from a default, not read (EA-4a). An
+      // override (the pricer typed it) clears the defaulted mark.
+      // U2: `defaulted` is now DECLARED on ExtractedAttr, so the undeclared cast is gone. The SAME
+      // condition drives both surfaces -- the prose trace line below AND the per-attribute flag the
+      // panel tints -- so the two can never disagree about which values came from a default.
+      const isDefaulted =
+        !disabled && overridden === undefined && coerced !== null && cell?.defaulted === true;
+      if (isDefaulted) {
+        defaulted.push(`${d.label}=${coerced}`);
+      }
       workingsAttrs.push({
         id: d.id,
         label: d.label,
-        options: d.type === "choice" ? (d.values ?? []).map(String) : undefined,
+        // CP2: a `number_choice` renders the SAME dropdown as a `choice` (one predicate, shared with
+        // the Derivation screen) -- only the coercion above differs, and that is the whole point.
+        options: isDropdownAttributeType(d.type) ? attributeOptions(d, items) : undefined,
         value: coerced === null ? "" : String(coerced),
-        confidence: cell?.confidence,
-        corroborated: cell?.corroborated,
+        confidence: disabled ? undefined : cell?.confidence,
+        corroborated: disabled ? undefined : cell?.corroborated,
+        disabled: disabled || undefined,
+        allowNone: d.allow_none || undefined,
+        defaulted: isDefaulted || undefined,
       });
     }
-
-    const termination = isTerminationRow(ctx.description);
-    const attrLine = workingsAttrs
-      .filter((a) => a.value !== "")
-      .map((a) => `${a.label} = ${a.value}`)
-      .join(", ");
 
     // Honest partial: an attribute the AI could not read (in-run) OR a manual row (not in the run)
     // -> keep attributes editable, no value. An IN-RUN partial still BADGES (producibleKinds) so the
@@ -164,9 +485,13 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
         ...(inRun ? { producibleKinds: PRODUCIBLE_KINDS } : {}),
         basis: inRun
           ? "Complete the missing attributes to price"
-          : "Fill the cable attributes to price this row",
+          : "Fill the attributes to price this row",
         workings: {
-          attributes: workingsAttrs,
+          // DERIVED DISPLAY: no pipeline runs on this path, so there is no computed value to show --
+          // but the derived attributes must still not be flagged as the thing that is missing. The
+          // red borders that remain are the GENUINE missing inputs, which is exactly the narrowing
+          // this slice is: fewer fields flagged, and every one that still is, really is.
+          attributes: applyDerivedDisplay(workingsAttrs, category, []),
           matchedRows: [],
           derivation: [
             inRun
@@ -178,97 +503,193 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
       };
     }
 
-    // Primary pipeline for this row (BCS deferred -- never surfaced).
-    const primaryId = termination ? "termination_boq" : "cable_boq";
-    const primary = pipelines[primaryId] as Pipeline | undefined;
-    if (!primary) {
-      return { kind: "none", reason: `No ${primaryId} pipeline in the config` };
+    const attrLine = workingsAttrs
+      .filter((a) => a.value !== "")
+      .map((a) => `${a.label} = ${a.value}`)
+      .join(", ");
+
+    // WIRING SPECIAL CASE (owner Decision 2, temporary): paired Cable + Termination display and the
+    // cable-vs-termination primary choice. Group labels come from config.pipeline_labels.
+    if (category.category_id === WIRING_CATEGORY_ID) {
+      return computeWiring(category, items, selected, ctx, workingsAttrs, attrLine);
     }
-    const result = runPipeline(primaryId, primary, items, selected);
+
+    // GENERIC PATH: run every NON-BCS pipeline; each is one group (labelled from config data / a
+    // prettified id). Values (the appliable supply/install/combined) come from the FIRST non-BCS
+    // pipeline (the category's primary), so a single-pipeline category prices exactly that pipeline.
+    const surfaced = nonBcsPipelines(category);
+    if (surfaced.length === 0) {
+      return { kind: "none", reason: `No priceable pipeline in the ${category.category_id} config` };
+    }
     const values: Record<string, number> = {};
-    const derivation: string[] = [];
-    const matchedRows: string[] = [];
-
-    if (result.status === "ok") {
-      for (const o of result.outputs) {
-        const kind = kindForOutput(o);
-        if (kind) values[kind] = result.finals[o];
-        derivation.push(`${o} = ${result.finals[o]}`);
-      }
-      // A sheet may carry a single COMBINED rate column instead of separate supply/install. The
-      // combined rate = supply + install (the total per-unit rate), so it always has a value when
-      // both are present.
-      if (typeof values.supply_rate === "number" && typeof values.install_rate === "number") {
-        values.combined_rate = values.supply_rate + values.install_rate;
-        derivation.push(`combined_rate = supply + install = ${values.combined_rate}`);
-      }
-      matchedRows.push(
-        `Matched ${termination ? "termination" : "cable"} rate row for ${attrLine}.`,
-      );
-    } else if (result.status === "no_match") {
-      derivation.push(`No ${termination ? "termination" : "cable"} rate row matches ${attrLine}.`);
-    } else {
-      derivation.push(`Pipeline '${primaryId}' has an unsupported step.`);
-    }
-
-    // RM-3a GROUPED WORKINGS (owner option (b), made visually distinct): on a CABLE row the panel
-    // shows the Cable pipeline AND the paired Termination as TWO separate LABELLED blocks, each with
-    // its own derivation + own final values. A TERMINATION row keeps a SINGLE flat block (no
-    // `sections`) -- backward-shaped, byte-identical to pre-RM-3a. The groups are DISPLAY-ONLY; the
-    // applied value still comes from `values` (Suggestion.values), never a group's finals. The flat
-    // `derivation`/`matchedRows` still carry the CABLE lines (the paired line moved into its group).
-    let sections: WorkingsGroup[] | undefined;
-    if (!termination) {
-      const cableFinals: Record<string, number> = {};
-      if (result.status === "ok") {
-        for (const o of result.outputs) cableFinals[o] = result.finals[o];
-        if (typeof values.combined_rate === "number") cableFinals.combined_per_mtr = values.combined_rate;
-      }
-      const cableGroup: WorkingsGroup = {
-        label: "Cable — per Mtr",
-        derivation: [...derivation],
-        finals: cableFinals,
-        matchedRows: [...matchedRows],
-      };
-      const termGroup: WorkingsGroup = {
-        label: "Termination — per Set",
-        derivation: [],
-        finals: {},
-      };
-      const term = pipelines["termination_boq"] as Pipeline | undefined;
-      if (term) {
-        const tr = runPipeline("termination_boq", term, items, selected);
-        if (tr.status === "ok") {
-          for (const o of tr.outputs) {
-            termGroup.finals[o] = tr.finals[o];
-            termGroup.derivation.push(`${o} = ${tr.finals[o]}`);
-          }
-        } else {
-          termGroup.derivation.push("No matching termination rate row.");
+    const sections: WorkingsGroup[] = [];
+    const flatDerivation: string[] = [];
+    const flatMatched: string[] = [];
+    // DERIVED DISPLAY: keep every result so the derived attributes can be filled from what the
+    // pipelines actually computed (a category may split supply/install across pipelines).
+    const pipelineResults: PipelineResult[] = [];
+    surfaced.forEach(([pid, pl], idx) => {
+      const res = runPipeline(pid, pl as Pipeline, items, selected);
+      pipelineResults.push(res);
+      const finals: Record<string, number> = {};
+      const derivation: string[] = [];
+      const matchedRows: string[] = [];
+      if (res.status === "ok") {
+        for (const o of res.outputs) {
+          finals[o] = res.finals[o];
+          derivation.push(`${o} = ${res.finals[o]}`);
+          // EA-4a: a category may split supply + install across SEPARATE pipelines (point_wiring's
+          // pw_boq_supply / pw_boq_install, cabletray). Take each rate-kind from the FIRST pipeline
+          // that produces it -- a single combined pipeline (conduit) still fills both from its one pass.
+          const kind = kindForOutput(o);
+          if (kind && values[kind] === undefined) values[kind] = res.finals[o];
         }
+        // EA-4a: the assembly categories expose their per-component build-up as the step traces; surface
+        // each component line (name = value) in the group so the pricer sees the bill, not just the total.
+        for (const st of res.steps) {
+          if (st.produced && st.refItem) matchedRows.push(`${st.produced.key}: ${st.refItem} = ${st.produced.value}`);
+        }
+        flatMatched.push(`Matched ${pid} for ${attrLine}.`);
+      } else if (res.status === "no_match") {
+        derivation.push(`No ${pid} rate row matches ${attrLine}.`);
       } else {
-        termGroup.derivation.push("No termination pipeline in the config.");
+        derivation.push(`Pipeline '${pid}' has an unsupported step.`);
       }
-      sections = [cableGroup, termGroup];
+      if (idx === 0) flatDerivation.push(...derivation);
+      sections.push({ label: pipelineLabel(category, pid), derivation, finals, ...(matchedRows.length ? { matchedRows } : {}) });
+    });
+    // Combine AFTER scanning every pipeline -- supply + install may come from different pipelines
+    // (point_wiring / cabletray). A single combined pipeline (conduit) also lands here; the combined
+    // line is added to its one group so its in-group display is unchanged.
+    if (typeof values.supply_rate === "number" && typeof values.install_rate === "number") {
+      values.combined_rate = values.supply_rate + values.install_rate;
+      const combinedLine = `combined_rate = supply + install = ${values.combined_rate}`;
+      flatDerivation.push(combinedLine);
+      if (sections.length === 1) sections[0].derivation.push(combinedLine);
+    }
+    // EA-4a: surface the attributes that came from a config default (not positively read from the text)
+    // so the pricer sees, and can correct, every defaulted value before using the rate.
+    if (defaulted.length) {
+      flatDerivation.push(`(defaulted -- no positive text identification): ${defaulted.join(", ")}`);
     }
 
     return {
       kind: "suggestion",
       values,
       producibleKinds: PRODUCIBLE_KINDS,
-      basis:
-        result.status === "ok"
-          ? `Rate master: wiring_cabling @ ${attrLine}`
-          : "no match for these attributes",
+      basis: Object.keys(values).length
+        ? `Rate master: ${category.category_id} @ ${attrLine}`
+        : "no match for these attributes",
       workings: {
-        attributes: workingsAttrs,
-        matchedRows,
-        derivation,
+        attributes: applyDerivedDisplay(workingsAttrs, category, pipelineResults),
+        matchedRows: flatMatched,
+        derivation: flatDerivation,
         finalValues: { ...values },
-        ...(sections ? { sections } : {}),
+        sections,
       },
     };
   }
 
   return { id: PRICING_SHEET_HELPER_ID, label: "Pricing sheet", compute };
+}
+
+/** The wiring paired Cable + Termination computation (owner Decision 2, temporary). Extracted so the
+ * generic path stays clean. Group labels come from the config's pipeline_labels. */
+function computeWiring(
+  config: RateCategoryConfig,
+  items: RateMasterItem[],
+  selected: Record<string, string | number>,
+  ctx: RateHelperRowContext,
+  workingsAttrs: WorkingsAttribute[],
+  attrLine: string,
+): HelperResult {
+  const pipelines = config.pipelines ?? {};
+  const termination = isTerminationRow(ctx.description);
+
+  const primaryId = termination ? "termination_boq" : "cable_boq";
+  const primary = pipelines[primaryId] as Pipeline | undefined;
+  if (!primary) {
+    return { kind: "none", reason: `No ${primaryId} pipeline in the config` };
+  }
+  const result = runPipeline(primaryId, primary, items, selected);
+  // DERIVED DISPLAY: wiring declares no derived attribute today (no module_fit, no {from_fit} qty),
+  // so this is a no-op here -- but it is applied on BOTH paths so the rule lives in the contract and
+  // not in which branch happened to be edited. `applyDerivedDisplay` reads the config, so a wiring
+  // config that ever gained one would be covered with no further change.
+  const pipelineResults: PipelineResult[] = [result];
+  const values: Record<string, number> = {};
+  const derivation: string[] = [];
+  const matchedRows: string[] = [];
+
+  if (result.status === "ok") {
+    for (const o of result.outputs) {
+      const kind = kindForOutput(o);
+      if (kind) values[kind] = result.finals[o];
+      derivation.push(`${o} = ${result.finals[o]}`);
+    }
+    if (typeof values.supply_rate === "number" && typeof values.install_rate === "number") {
+      values.combined_rate = values.supply_rate + values.install_rate;
+      derivation.push(`combined_rate = supply + install = ${values.combined_rate}`);
+    }
+    matchedRows.push(`Matched ${termination ? "termination" : "cable"} rate row for ${attrLine}.`);
+  } else if (result.status === "no_match") {
+    derivation.push(`No ${termination ? "termination" : "cable"} rate row matches ${attrLine}.`);
+  } else {
+    derivation.push(`Pipeline '${primaryId}' has an unsupported step.`);
+  }
+
+  // A CABLE row shows the Cable pipeline AND the paired Termination as TWO labelled blocks; a
+  // TERMINATION row keeps a SINGLE flat block (no `sections`, backward-shaped). Labels are config data.
+  let sections: WorkingsGroup[] | undefined;
+  if (!termination) {
+    const cableFinals: Record<string, number> = {};
+    if (result.status === "ok") {
+      for (const o of result.outputs) cableFinals[o] = result.finals[o];
+      if (typeof values.combined_rate === "number") cableFinals.combined_per_mtr = values.combined_rate;
+    }
+    const cableGroup: WorkingsGroup = {
+      label: pipelineLabel(config, "cable_boq"),
+      derivation: [...derivation],
+      finals: cableFinals,
+      matchedRows: [...matchedRows],
+    };
+    const termGroup: WorkingsGroup = {
+      label: pipelineLabel(config, "termination_boq"),
+      derivation: [],
+      finals: {},
+    };
+    const term = pipelines["termination_boq"] as Pipeline | undefined;
+    if (term) {
+      const tr = runPipeline("termination_boq", term, items, selected);
+      pipelineResults.push(tr);
+      if (tr.status === "ok") {
+        for (const o of tr.outputs) {
+          termGroup.finals[o] = tr.finals[o];
+          termGroup.derivation.push(`${o} = ${tr.finals[o]}`);
+        }
+      } else {
+        termGroup.derivation.push("No matching termination rate row.");
+      }
+    } else {
+      termGroup.derivation.push("No termination pipeline in the config.");
+    }
+    sections = [cableGroup, termGroup];
+  }
+
+  return {
+    kind: "suggestion",
+    values,
+    producibleKinds: PRODUCIBLE_KINDS,
+    basis:
+      result.status === "ok"
+        ? `Rate master: ${config.category_id} @ ${attrLine}`
+        : "no match for these attributes",
+    workings: {
+      attributes: applyDerivedDisplay(workingsAttrs, config, pipelineResults),
+      matchedRows,
+      derivation,
+      finalValues: { ...values },
+      ...(sections ? { sections } : {}),
+    },
+  };
 }

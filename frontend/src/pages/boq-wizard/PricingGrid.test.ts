@@ -19,9 +19,14 @@ import {
   orderCommittedSheets,
   isGridOnlySheet,
   isPriceableType,
+  classificationVisible,
   isMasterSetBlank,
   countMasterSetBlankRows,
   isCategoryGateOpen,
+  toggleRowSelection,
+  pruneSelectionToEligible,
+  passesTickedFilter,
+  suggestConfirmCopy,
   buildOptimisticVerdict,
   colorClassForToken,
   swatchClassForToken,
@@ -48,7 +53,12 @@ import {
   descriptionWidthSeeds,
   colIndexFromColKeyPure,
   descriptionWidthKey,
+  bcsCellKey,
+  bcsDraftsForRow,
+  batchDraftsToDrop,
+  shownAmountValue,
 } from "./PricingGrid";
+import { BCS_RATE_FIELDS, mergeBcsRowValues } from "./bcsColumns";
 import type { DescriptionColumn } from "./reviewRender";
 import type {
   AmountFormulaNode,
@@ -1413,5 +1423,341 @@ describe("MC-5 description fan-out geometry", () => {
       expect(dcs).toBe(DESCRIPTOR_COL_START);
       expect(colIndexFromColKeyPure("a4", anchorKeys, ["d:E"], dcs, 7)).toBe(4);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// UI SLICE (U1) PINS -- the THREE existing view-filter clauses, asserted against the UNCHANGED
+// code and proven green BEFORE the header filters are added as a FOURTH clause.
+//
+// `passesViewFilter` (SheetPricingPage) is a per-render closure and is not exported, so the pins
+// bite on the EXPORTED predicates it composes plus a local reconstruction of the composition. The
+// invariant U1 must not break: each axis is INDEPENDENT, they compose with AND, and an axis that
+// is switched OFF is a pass-through (it must never mean "hide everything").
+// ---------------------------------------------------------------------------------------------
+describe("U1 pins -- the three existing view-filter clauses", () => {
+  const ALL_ON = { showSpacers: true, showNotes: true, showSubtotals: true };
+  const row = (nodeType: string, cls: string | null) =>
+    ({ node_type: nodeType, effective_classification: cls, source_row_number: 1 }) as never;
+
+  // Clause 3 -- row type.
+  it("row-type: each toggle hides ONLY its own classification, and nothing else", () => {
+    expect(classificationVisible("spacer", { ...ALL_ON, showSpacers: false })).toBe(false);
+    expect(classificationVisible("note", { ...ALL_ON, showSpacers: false })).toBe(true);
+    expect(classificationVisible("subtotal_marker", { ...ALL_ON, showSpacers: false })).toBe(true);
+    expect(classificationVisible("line_item", { ...ALL_ON, showSpacers: false })).toBe(true);
+  });
+
+  it("row-type: ALL toggles on is a pass-through -- never hides anything", () => {
+    for (const cls of ["spacer", "note", "subtotal_marker", "line_item", "preamble", null]) {
+      expect(classificationVisible(cls, ALL_ON)).toBe(true);
+    }
+  });
+
+  // Clause 2 -- check-category, via the ONE shared blank predicate.
+  it("check-category: keys on the SHARED isMasterSetBlank predicate (eligible AND empty)", () => {
+    expect(isMasterSetBlank(row("Line Item", null), undefined)).toBe(true);
+    expect(isMasterSetBlank(row("Other", null), undefined)).toBe(false); // not eligible
+    expect(
+      isMasterSetBlank(row("Line Item", null), { effective_category_id: "wiring_cabling" } as never),
+    ).toBe(false); // has a category
+  });
+
+  // The COMPOSITION itself: AND across axes, off = pass-through.
+  it("composition: the three clauses AND together, and every axis OFF keeps every row", () => {
+    const passes = (
+      r: { node_type: string; effective_classification: string | null },
+      opts: { showOnlyUnpriced: boolean; showNeedsReview: boolean; toggles: typeof ALL_ON },
+      unpriced: boolean,
+      cat: unknown,
+    ) =>
+      (!opts.showOnlyUnpriced || unpriced) &&
+      (!opts.showNeedsReview || isMasterSetBlank(r as never, cat as never)) &&
+      classificationVisible(r.effective_classification, opts.toggles);
+
+    const r = { node_type: "Line Item", effective_classification: "line_item" };
+    const allOff = { showOnlyUnpriced: false, showNeedsReview: false, toggles: ALL_ON };
+    expect(passes(r, allOff, false, { effective_category_id: "x" })).toBe(true);
+    // one axis on and failing -> excluded
+    expect(passes(r, { ...allOff, showNeedsReview: true }, false, { effective_category_id: "x" })).toBe(false);
+    // two axes on, both passing -> included
+    expect(passes(r, { ...allOff, showOnlyUnpriced: true, showNeedsReview: true }, true, undefined)).toBe(true);
+  });
+});
+
+// ── SELECTED-ROW runs: selection helpers + the confirmation copy ─────────────────────
+//
+// Plain-English coverage. toggleRowSelection is the ONE way a tick changes the selection, so it
+// must be immutable (the grid derives per-row booleans from the reference). pruneSelectionToEligible
+// is what keeps the confirmation's count honest after a re-classify drops a row out of the
+// population -- the server REJECTS such a selection outright rather than narrowing it silently.
+// suggestConfirmCopy is the wording itself: the whole-sheet branch MUST carry the overwrite warning,
+// because that sentence is what a stray click needs to run into.
+
+describe("toggleRowSelection (immutable, keyed by durable excel row)", () => {
+  it("adds a row that is not selected", () => {
+    const out = toggleRowSelection(new Set([16]), 41);
+    expect([...out].sort((a, b) => a - b)).toEqual([16, 41]);
+  });
+
+  it("removes a row that is selected", () => {
+    expect([...toggleRowSelection(new Set([16, 41]), 16)]).toEqual([41]);
+  });
+
+  it("NEVER mutates the input set (the grid compares references)", () => {
+    const before = new Set([16]);
+    const out = toggleRowSelection(before, 41);
+    expect([...before]).toEqual([16]);
+    expect(out).not.toBe(before);
+  });
+
+  it("round-trips: tick then untick returns an equivalent (not identical) empty set", () => {
+    const once = toggleRowSelection(new Set<number>(), 28);
+    expect([...toggleRowSelection(once, 28)]).toEqual([]);
+  });
+});
+
+describe("pruneSelectionToEligible (drops ticks the run would reject)", () => {
+  it("drops a row that is no longer eligible", () => {
+    const out = pruneSelectionToEligible(new Set([16, 99]), new Set([16, 41]));
+    expect([...out]).toEqual([16]);
+  });
+
+  it("returns the SAME reference when nothing was dropped (cannot churn the grid or loop)", () => {
+    const sel = new Set([16, 41]);
+    expect(pruneSelectionToEligible(sel, new Set([16, 41, 99]))).toBe(sel);
+  });
+
+  it("an empty eligible set drops everything", () => {
+    expect([...pruneSelectionToEligible(new Set([16]), new Set<number>())]).toEqual([]);
+  });
+
+  it("an empty selection is returned as-is", () => {
+    const sel = new Set<number>();
+    expect(pruneSelectionToEligible(sel, new Set([16]))).toBe(sel);
+  });
+});
+
+describe("suggestConfirmCopy (the confirmation before ANY AI call)", () => {
+  it("SELECTED branch: names the count and promises the other rows are carried forward", () => {
+    const c = suggestConfirmCopy(4, 94);
+    expect(c.wholeSheet).toBe(false);
+    expect(c.title).toBe("Suggest rates for 4 selected rows?");
+    expect(c.body).toContain("carried forward unchanged");
+    expect(c.confirmLabel).toBe("Run 4 rows");
+    // NEGATIVE: a selected-row run has no overwrite consequence, so it must NOT warn about one
+    expect(c.warning).toBe("");
+  });
+
+  it("SELECTED branch: singular wording for exactly one row", () => {
+    const c = suggestConfirmCopy(1, 94);
+    expect(c.title).toBe("Suggest rates for 1 selected row?");
+    expect(c.confirmLabel).toBe("Run 1 row");
+  });
+
+  it("WHOLE-SHEET branch: names the row count AND carries the overwrite warning", () => {
+    const c = suggestConfirmCopy(0, 94);
+    expect(c.wholeSheet).toBe(true);
+    expect(c.title).toBe("Re-extract the whole sheet (94 rows)?");
+    expect(c.body).toContain("94 eligible rows");
+    // THE product requirement: the sentence a stray click must run into
+    expect(c.warning).toContain("OVERWRITES");
+    expect(c.warning).toContain("already correct");
+    // and it must point at the cheaper alternative
+    expect(c.warning).toContain("tick them");
+    expect(c.confirmLabel).toBe("Re-extract all 94 rows");
+  });
+
+  it("the two branches are distinguishable by `wholeSheet` alone (drives destructive styling)", () => {
+    expect(suggestConfirmCopy(0, 10).wholeSheet).toBe(true);
+    expect(suggestConfirmCopy(1, 10).wholeSheet).toBe(false);
+  });
+});
+
+// ── SELROW filter: "show only ticked rows" ────────────────────────────────────────────
+//
+// Plain-English coverage. The toggle narrows the grid to the ticked rows so a selection can be
+// checked before any spend. It READS the page's one selection set, so unticking while filtered
+// drops the row immediately with no special case. OFF -- or nothing ticked -- is a PASS-THROUGH,
+// never "hide everything": an empty grid with no explanation is the worse failure.
+
+describe("passesTickedFilter (toggle, not a value list)", () => {
+  const sel = new Set([16, 41]);
+
+  it("OFF is a pass-through for every row", () => {
+    expect(passesTickedFilter(false, sel, 16)).toBe(true);
+    expect(passesTickedFilter(false, sel, 99)).toBe(true);
+  });
+
+  it("ON keeps ticked rows and drops the rest", () => {
+    expect(passesTickedFilter(true, sel, 16)).toBe(true);
+    expect(passesTickedFilter(true, sel, 41)).toBe(true);
+    expect(passesTickedFilter(true, sel, 99)).toBe(false);
+  });
+
+  it("ON with an EMPTY selection is a PASS-THROUGH, never an empty grid", () => {
+    // the accidental state: the user unticks the last row while the filter is on
+    expect(passesTickedFilter(true, new Set<number>(), 16)).toBe(true);
+    expect(passesTickedFilter(true, new Set<number>(), 99)).toBe(true);
+  });
+
+  it("UNTICKING WHILE FILTERED drops the row immediately (it reads the live set)", () => {
+    const before = new Set([16, 41]);
+    expect(passesTickedFilter(true, before, 16)).toBe(true);
+    const after = toggleRowSelection(before, 16); // untick 16
+    expect(passesTickedFilter(true, after, 16)).toBe(false);
+    expect(passesTickedFilter(true, after, 41)).toBe(true);
+  });
+
+  it("composes as an AND clause: it only ever REMOVES rows, never adds one back", () => {
+    const rows = [10, 16, 28, 41];
+    const visible = rows.filter((r) => passesTickedFilter(true, sel, r));
+    expect(visible).toEqual([16, 41]);
+    const off = rows.filter((r) => passesTickedFilter(false, sel, r));
+    expect(off).toEqual(rows);
+  });
+});
+
+// ── BCS-S3a-fix: THE KEY-SPACE SEAM ─────────────────────────────────────────────
+//
+// ★ THIS IS THE TEST THAT WOULD HAVE CAUGHT THE S3a DEFECT, AND THE REASON IT EXISTS HERE.
+//
+// Two passing tests pinned two INCOMPATIBLE key spaces and never met:
+//   * `groupDraftsByRow` keeps FULL `${row_index}:${field}` keys  (pinned above, still green);
+//   * `mergeBcsRowValues` reads BARE `BcsRateField` keys          (pinned in bcsColumns.test.ts).
+// Both were correct. Both stayed green. `PricingGrid` passed a full-key slice into the bare-key
+// reader behind an `as` cast, every lookup missed, and the controlled cost <Input> reverted on
+// every keystroke -- so the 1 s debounce could commit a number the user never typed.
+//
+// ⚠️ THE POINT OF THESE TESTS IS THAT THEY CROSS THE SEAM WITH A **REAL** `groupDraftsByRow`
+// SLICE. A hand-written bare-key literal is exactly what let the defect through: it agrees with
+// whichever side wrote it and can never disagree with the other. Do not "simplify" these to
+// object literals.
+describe("BCS draft key space -- where PricingGrid's drafts cross into bcsColumns", () => {
+  const key = bcsCellKey(12, "supply_rate");
+
+  it("THE REGRESSION: a REAL groupDraftsByRow slice reads through mergeBcsRowValues", () => {
+    const slice = groupDraftsByRow({ [key]: "150" }, new Map()).get(12)!;
+    const merged = mergeBcsRowValues(null, bcsDraftsForRow(12, slice));
+    expect(merged.supply_rate).toBe("150"); // was `null` before the fix
+  });
+
+  it("THE NEGATIVE: the two key spaces genuinely do not overlap (why the cast was fatal)", () => {
+    const slice = groupDraftsByRow({ [key]: "150" }, new Map()).get(12)!;
+    expect(slice["supply_rate"]).toBeUndefined(); // the bare-key read the cast promised
+    expect(slice[key]).toBe("150"); // the only key actually present
+  });
+
+  it("the draft WINS over the stored value -- what makes a keystroke visible at all", () => {
+    const slice = groupDraftsByRow({ [key]: "150" }, new Map()).get(12)!;
+    const merged = mergeBcsRowValues(
+      { supply_rate: 99, install_rate: 7, combined_rate: 0 },
+      bcsDraftsForRow(12, slice),
+    );
+    expect(merged.supply_rate).toBe("150"); // the draft
+    expect(merged.install_rate).toBe("7"); // the untouched sibling, from storage
+  });
+
+  it("a partially-typed decimal survives the crossing (the box must not fight the user)", () => {
+    const slice = groupDraftsByRow({ [bcsCellKey(4, "combined_rate")]: "12." }, new Map()).get(4)!;
+    expect(mergeBcsRowValues(null, bcsDraftsForRow(4, slice)).combined_rate).toBe("12.");
+  });
+
+  it("an EMPTIED box crosses as \"\", not as absent -- \"\" saves as 0, absent keeps the old value", () => {
+    const slice = groupDraftsByRow({ [key]: "" }, new Map()).get(12)!;
+    expect(bcsDraftsForRow(12, slice).get("supply_rate")).toBe("");
+    expect(mergeBcsRowValues({ supply_rate: 99 }, bcsDraftsForRow(12, slice)).supply_rate).toBe("");
+  });
+
+  it("reads only THIS row -- another row's drafts cannot leak into this row's merge", () => {
+    const drafts = { [bcsCellKey(12, "supply_rate")]: "150", [bcsCellKey(13, "supply_rate")]: "999" };
+    expect(bcsDraftsForRow(13, drafts).get("supply_rate")).toBe("999");
+    // The whole map and one row's slice are interchangeable inputs -- both are full-key.
+    const slice12 = groupDraftsByRow(drafts, new Map()).get(12)!;
+    expect(bcsDraftsForRow(12, slice12)).toEqual(bcsDraftsForRow(12, drafts));
+  });
+
+  it("no drafts -> an EMPTY map, so mergeBcsRowValues falls through to stored / null", () => {
+    expect(bcsDraftsForRow(12, {}).size).toBe(0);
+    expect(mergeBcsRowValues(null, bcsDraftsForRow(12, {})).supply_rate).toBeNull();
+    expect(mergeBcsRowValues({ supply_rate: 5 }, bcsDraftsForRow(12, {})).supply_rate).toBe("5");
+  });
+
+  it("a rate draft in the SAME row cannot be mistaken for a cost draft", () => {
+    // cellKey is `${row_index}:${col}` -- the same shape, a different vocabulary. A rate draft
+    // on column "E" must never resolve as a BCS field.
+    const merged = mergeBcsRowValues(null, bcsDraftsForRow(12, { "12:E": "42" }));
+    expect(merged.supply_rate).toBeNull();
+    expect(merged.install_rate).toBeNull();
+    expect(merged.combined_rate).toBeNull();
+  });
+
+  it("covers EVERY canonical stored field -- a fourth rate could not be dropped in translation", () => {
+    const drafts: Record<string, string> = {};
+    for (const f of BCS_RATE_FIELDS) drafts[bcsCellKey(12, f)] = "1";
+    expect([...bcsDraftsForRow(12, drafts).keys()].sort()).toEqual([...BCS_RATE_FIELDS].sort());
+  });
+});
+
+// ── BCS-S3b: THE FIGURE ON SCREEN ───────────────────────────────────────────────
+//
+// ⚠️ OWNER RULING, load-bearing. % Margin divides by the number the user can SEE. The Tendered
+// Total Amount column exists to put that denominator on screen beside the margin, so the two
+// must come from one decision -- and that decision was, until this slice, inline in the amount
+// <td>'s render. `shownAmountValue` is that decision extracted whole: the amount cell and the
+// Tendered sum now call the SAME function, so they cannot disagree about what the row charges.
+//
+// The reconciliation choice is the case that makes this real: on a diverging cell the screen
+// shows the DOCUMENT amount by default, not the formula's. A denominator that quietly used the
+// formula value there would produce a margin the sheet visibly contradicts.
+describe("shownAmountValue -- the ONE 'what does this amount cell show?' decision", () => {
+  it("shows the formula value when nothing diverges", () => {
+    expect(shownAmountValue({ kind: "value", value: 1500 }, 1500, undefined)).toBe(1500);
+  });
+
+  it("shows the DOCUMENT amount on an unresolved divergence -- the D1 default", () => {
+    // The screen shows 1200 (the document); the margin must divide by 1200, not by 1500.
+    expect(shownAmountValue({ kind: "value", value: 1500 }, 1200, undefined)).toBe(1200);
+  });
+
+  it("shows the DOCUMENT amount when the user chose keep_document", () => {
+    expect(shownAmountValue({ kind: "value", value: 1500 }, 1200, "keep_document")).toBe(1200);
+  });
+
+  it("shows the FORMULA value when the user chose take_formula", () => {
+    expect(shownAmountValue({ kind: "value", value: 1500 }, 1200, "take_formula")).toBe(1500);
+  });
+
+  it("shows the FORMULA value on a doc-0 cell, silently -- the DOC-0 amendment", () => {
+    // We upload UNPRICED BoQs, so almost every committed amount is 0. resolveDivergence treats
+    // that as an absent value, not a client-stated price of zero.
+    expect(shownAmountValue({ kind: "value", value: 1500 }, 0, undefined)).toBe(1500);
+  });
+
+  it("shows the COMMITTED amount when no formula applies", () => {
+    expect(shownAmountValue({ kind: "committed" }, 900, undefined)).toBe(900);
+    expect(shownAmountValue({ kind: "committed" }, null, undefined)).toBeNull();
+  });
+
+  it("is BLANK when the cell is blank, for either reason", () => {
+    // A cell that cannot resolve contributes NOTHING to the denominator -- it must never fall
+    // back to the committed value, which is exactly the number the formula was overriding.
+    expect(shownAmountValue({ kind: "blank", reason: "not_yet" }, 900, undefined)).toBeNull();
+    expect(shownAmountValue({ kind: "blank", reason: "broken" }, 900, undefined)).toBeNull();
+  });
+});
+
+// ── BCS-S3a-fix, defect 2: the batch (paste) draft lifecycle ────────────────────
+describe("batchDraftsToDrop -- the two draft layers do NOT settle alike", () => {
+  it("drops BOTH layers when the batch fulfils (the refetch landed)", () => {
+    expect(batchDraftsToDrop("fulfilled")).toEqual({ rates: true, bcs: true });
+  });
+
+  it("KEEPS the cost drafts when the batch REJECTS -- the S3a defect", () => {
+    expect(batchDraftsToDrop("rejected").bcs).toBe(false);
+  });
+
+  it("still drops the RATE drafts on a rejection (pre-S3a behaviour, deliberately unchanged)", () => {
+    expect(batchDraftsToDrop("rejected").rates).toBe(true);
   });
 });

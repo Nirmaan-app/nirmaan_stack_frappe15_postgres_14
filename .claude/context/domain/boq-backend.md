@@ -9,6 +9,32 @@
 
 ---
 
+## Residence — concept → owner (ADR-0010)
+
+This manifest names the **one owning module** for each BoQ backend concept (per [ADR-0010](../../../docs/adr/0010-module-residence-rules.md)). It exists because root `CLAUDE.md` tells every reader to *"consult the domain doc's `## Residence — concept → owner` manifest"* before creating a helper for an existing concept — and until now BoQ had no such manifest to consult, so that instruction dead-ended on the largest active feature in the app. Shape copied from `procurement.md`, per its own template note.
+
+**No-new-scatter rule:** an edit touching one of these concepts must route through its owner — or at minimum must not create a *new* copy of the rule/shape/state. An **UNASSIGNED** owner means no single home exists yet: do **not** pick one ad-hoc; ask.
+
+⚠️ **Rows here are VERIFIED, not aspirational** — every owner below was resolved to a real definition when the row was written. Do not add a row you have not opened the file for.
+
+| Concept | Owner (module) | Nothing else may… |
+|---|---|---|
+| **BCS readiness** — "may a BCS cost be written on this committed sheet+version?" | `services/boq_bcs/readiness.py` (`bcs_is_ready`); `api/boq/wizard/bcs.py` **re-exports** it | define a second copy, or reach it by importing the api module — that closes `committed_carry -> bcs -> pricing -> committed_carry`. Pinned by identity **and** by an import-graph test |
+| **BCS column-confirmation rules** — what a valid quantity source is, what the amount denominator is, which combinations are refused | `services/boq_bcs/sources.py` (`build_qty_source` / `build_amount_source`) — a **pure** module, registered in `scripts/residence_check.py` `PURE_MODULES` | re-decide any of the three inside an endpoint. ⚠️ Do **not** register `readiness.py` alongside it: that module reads `frappe.db` by design and would fail the purity ratchet |
+| **Classification freeze state** | `services/boq_category/persist.py` (`is_sheet_classification_frozen`) — THE single frozen-reader | read `classification_frozen` off `BoQ Sheet` directly, or OR it into the pricing lock (pricing stays live under a classification freeze) |
+| **Effective category for a row across engines** (the multi-engine ladder) | `services/boq_category/persist.py` (`resolve_row_ladder`) | re-implement the human > auto > confidence precedence at a call site |
+| **Blank-category eligible count** (gate, banner, freeze summary, stamp inverse) | `services/boq_category/persist.py` (`blank_category_eligible_rows`, `population=` selects the set) | count blanks independently — the gate and the number on screen must come from ONE function or they can disagree |
+| **Committed-node qty-bearing test** | `services/boq_category/persist.py` (`node_is_qty_bearing` / `is_nonzero_qty`) | re-derive it in an endpoint. The client `isRowQtyBearing` is a DELIBERATE cross-language duplicate, not a second owner |
+| **Category gate condition** (may a rate be written at all?) | `api/boq/wizard/pricing.py` (`_categories_gate_ok`) — one condition, each call site keeping its own voiced message | invent a second condition. ⚠️ The cross-BoQ revision carry is deliberately **NOT** gated on it (ADR-0014 Amendment E) — that omission is load-bearing, not an oversight |
+| **Mandatory amount-formula completeness** | `api/boq/wizard/pricing.py` (`_sheet_formulas_complete`) | bypass it via the priceability override — the formula gate is ABSOLUTE and outranks it |
+| **Layer-carry dispatch** (plan **and** apply, both carry surfaces) | `api/boq/wizard/committed_carry.py` (`walk_layers`) | add a bespoke "carry X" action on either endpoint. One registration must light both surfaces, or the plan read and the apply can disagree |
+| **"Is this the same row?" across committed versions/BoQs** | `api/boq/wizard/committed_carry.py` (`committed_excel_row_match` / `version_addressed_excel_row_match`) | write a per-layer row matcher — that is a second answer to one question |
+| **Single-editor pricing lock** | `api/boq/wizard/pricing_lock.py` (`acquire_or_refresh`) | invent a second lock. A lock reject must mutate NOTHING |
+| **The joined `description` + `description_parts_raw` shape** | `services/boq_parser/classifier.py` (`_description_columns` / `_description_parts`) — owner-locked | re-join description columns anywhere else, or assume a single description column |
+| **Committed-tier amount / parent-rate recomputation** | **NONE, deliberately** — the committed controllers are CAPTURE-ONLY; the future tendering module owns calculations | re-add `amount = qty x rate` or a parent-rate overwrite to a committed controller |
+
+---
+
 ## Recent slice changelog (relocated header)
 
 **`make_model` fieldtype Data→Text on `BOQ Nodes` + `BoQ Review Row` (2026-07-01, committed on develop — sanctioned-exception schema fix per root CLAUDE.md "Don't Touch"):** the running DB DocField was already `Text` and both columns already `text` (a prior out-of-band Desk change), while the committed JSON still said `Data`. Frappe developer-mode auto-export surfaced this divergence during an unrelated session (it also injected timestamp/trailing-newline noise). Resolved by committing the **minimal 1-line fieldtype diff** on each doctype JSON (auto-export noise stripped), aligning the committed code to the already-migrated runtime. Verified: both columns `text` via `information_schema` + clean `reload-doctype` — **no full `bench migrate` needed** (DB already migrated). This is the required "explicitly noted here" record for the CLAUDE.md sanctioned exception (post context-split, per-instance records live here, not in CLAUDE.md). NOT part of the BoQ review-refinements work — incidental cleanup captured while merging that work to develop.
@@ -1257,3 +1283,559 @@ of typed quantities.
 
 `test_template_select` 22 → **29** (3 pure `zeroed_qty_by_area` + 6 endpoint: single row, cascade,
 per-area keys preserved, re-select does not restore, SELECT never clears, no provenance stamp).
+
+---
+
+## SR-1 -- suggest-run resilience (checkpointing, resume, halt classification, tolerant parse)
+
+**The defect.** A suggest run was ALL-OR-NOTHING: `_suggest_worker` wrote the `BoQ Rate Suggestion Run` doc
+exactly ONCE, at terminal success. A batch failure raised through `run_extraction`, hit the worker's bare
+`except`, did `frappe.db.rollback()`, and produced `{"status":"error","error_code":"suggest_failed"}` -- so
+batches 1..N-1 (their rows AND their AI spend) were discarded. Two production runs died this way; the Error Log
+of 2026-07-31 holds both, at the pre-SR-1 line numbers: a `BadRequestError 400 ... usage limits` and a
+`JSONDecodeError('Extra data: line 1 column 845 (char 844)')`.
+
+### The run doc IS the partial store
+
+Not Redis -- the Redis marker's 1-hour TTL is the wrong lifetime, and it is cleared unconditionally at the end
+of the worker. Three new fields on `BoQ Rate Suggestion Run`:
+
+| Field | Role |
+|---|---|
+| `status` (Select) | `running` \| `partial` \| `complete` \| `failed`. The run LIFECYCLE. **Distinct from `ai_status`, which keeps its own `ran`/`disabled`/`no_key` vocabulary -- deliberately NOT widened, because the doctype and the frontend both treat it as a contract.** |
+| `attempted_rows` (JSON) | The per-row DONE-MARKER: the `excel_row`s actually attempted. |
+| `halt_reason` (Small Text) | Why a partial stopped, in plain language. Persisted so it survives a reload and can drive the resume affordance -- the opaque `suggest_failed` could not. |
+
+`status` carries `"default": "complete"`, so PostgreSQL's `ADD COLUMN ... DEFAULT` backfills every pre-SR-1 row
+on migrate and **an old run can never retroactively lock Use**. No patch was needed. The worker always sets
+`status` explicitly, so the default never applies to a new run.
+
+**`attempted_rows` is the load-bearing idea.** A row with blank attributes is byte-identical whether it was
+never asked, asked-and-the-AI-returned-null, or produced by the fail-closed path (`_blank_row`). A resume that
+keyed off "are the attributes blank" would silently re-ask honest nulls and, worse, could treat un-asked rows
+as done. So the done-marker is recorded explicitly, and **only after a batch RETURNS**:
+
+```python
+# services/boq_rate_master/extraction.py
+batch_out = _extract_batch(...)                        # raises ExtractionHalted on failure
+ai_out.update(batch_out)
+attempted.update(r["excel_row"] for r in batch)        # unreachable if the batch failed
+```
+
+A FAILED batch's rows are therefore NEVER marked attempted -- they stay pending for the resume. This is the
+single invariant the whole resume rests on.
+
+### Checkpointing
+
+`run_extraction` gained `checkpoint_cb` + `skip_rows`, following the EXISTING `progress_cb` injection pattern
+(the worker owns persistence; the service layer still performs no `frappe.db` writes of its own). The callback
+fires after every completed batch and the worker commits immediately.
+
+Writes use `frappe.db.set_value(update_modified=False)`, never `doc.save`. Two independent reasons: this
+doctype is `track_changes: 0` so there is no Version audit to bypass (unlike the RM-4a editing endpoints, where
+`set_value` is FORBIDDEN precisely because it would skip the audit); and the doctype has **list-valued JSON**
+fields, which hit the documented `doc.save()`/`delete_doc` wall -- confirmed live during the SR-1 cert cleanup,
+where `delete_doc` threw `Value for Results cannot be a list`.
+
+### The three owner rulings
+
+- **R-SUPERSEDE** -- a partial NEVER supersedes a prior COMPLETE run. The doc is created `active=0` and stays
+  there while running/partial; `active` flips to 1 ONLY at `status=complete`, and only then is the prior active
+  run deactivated. So a halted run leaves the editor reading the last good run. Because a partial is `active=0`
+  it is invisible to `get_active_suggestion_run`'s active-only filter, which is why that endpoint now ALSO
+  returns the newest resumable partial under a separate `partial_run` key (additive; `run` is unchanged).
+- **R-RESUME-SAME-RUN** -- `start_suggest(resume_run_id=...)` continues the SAME doc and `run_id`; it never
+  spawns a second run. `_validate_resume_target` refuses anything that is not a live `partial` of THIS sheet at
+  the CURRENT committed version (the version keying matters: rows may have changed under an older partial).
+  The "already in progress" guard and the full D8 gate are re-checked on resume exactly as for a fresh run.
+- **R-USE-GATE** -- "Use this value" requires `status=complete`. Structurally this is already true (a partial
+  is `active=0`, so the page never adopts it as `suggestRun`); the client check is the explicit second half,
+  and it re-opens the run modal rather than dropping the click silently.
+
+### Terminal vs transient (`ExtractionHalted`)
+
+A terminal error (usage limit / auth / invalid-request) will not clear in six seconds, so retrying it burns two
+guaranteed-failed calls and delays the partial save. It now raises immediately as a distinguishable
+`ExtractionHalted`; the batch loop catches it, BREAKS, and falls through to the SAME results assembly the
+complete path uses (which already tolerated a partial `ai_out`). An exhausted transient halts the same way
+rather than crashing, so its completed batches are kept too.
+
+**THE DEFAULT DIRECTION IS LOAD-BEARING, and this is the lesson of the slice.** The first implementation
+classified UNRECOGNISED errors as terminal. A truncated AI reply raises `ValueError` from the parser --
+unrecognised -- so it fast-failed instantly where pre-SR-1 it retried 3x. That is *worse* than the behaviour
+being replaced, and the user-facing text blamed the provider for a local parse failure. The unit tests missed
+it because they only ever raised errors with explicitly terminal or explicitly transient text. **The browser
+cert caught it on real data.** The fix is a POSITIVE-terminal test (`_TERMINAL_MARKERS`); anything unrecognised
+keeps the pre-SR-1 retry behaviour. Pinned by `test_19` (a truncated reply is retried 3x with 3 sleeps, and the
+reason must not say "rejected") and `test_20` (the classifier contract directly).
+
+The transient vocabulary ADOPTS `boq_ai_assist._TRANSIENT_MARKERS` rather than minting a second one; the import
+is LAZY because `boq_ai_assist` calls `frappe.logger("boq_ai")` at module load (the documented reason the raw
+unittest runner fails on it), so a module-scope import would extend that constraint to every importer.
+
+**Operator logging:** handling a halt gracefully removed the only record of WHY. A `frappe.log_error` on halt
+now carries the provider's own error text, `terminal=True/False`, and the attempted-vs-population counts. That
+log is what exposed the regression above.
+
+### The tolerant parser (`services/boq_category/ai_voter._extract_json_array`)
+
+The naive first-`[` .. last-`]` slice fed `json.loads` a span that could contain MORE than one JSON value,
+which is what produced `Extra data: line 1 column 845`. It now scans for the first BALANCED array span
+(string-aware, so brackets and escaped quotes inside string values do not affect depth) and ignores anything
+trailing it.
+
+**Strictly more permissive -- it never rejects what it accepted before:** array-with-prose, multi-element order,
+and the HV-2 bare-object-wrapped-as-one-element-list all still parse. It still RAISES on genuine garbage
+("error-swallowing is the harness's job, never the voter's"), and a TRUNCATED array raises rather than falling
+through to the bare-object path -- otherwise a cut-off reply would silently yield only its first element, which
+is far worse than a loud failure.
+
+**Shared by three production consumers BY DESIGN:** the classifier voter (definition site), the certified
+harness (by import identity -- the `assertIs` pin guarantees there is never a second copy), and rate
+extraction. `test_classify` 77 pass after the change, so classification is undisturbed. ⚠️ The same-named
+`_extract_json_array` at `services/boq_ai_assist.py:431` is a DIFFERENT function returning a `str` -- untouched,
+and must not be confused with this one.
+
+### Cert dispositions (owner, 2026-08-02)
+
+- **A real run to `status=complete` -- WAIVED.** One batch on `BOQ-26-00106 / ELECTRICAL BOQ` returns a
+  truncated reply every time; the reply appears to exceed `_AI_MAX_TOKENS = 8000` (EA-4d composite
+  decomposition emits far larger per-row payloads than the 20-row batch was sized for). PROVEN PRE-EXISTING
+  (same sheet, same failure, Error Log 2026-07-31, before SR-1). **Carried to SR-2; batch size and
+  `_AI_MAX_TOKENS` deliberately untouched.**
+- **Use + undo rupee-verified -- ACCEPTED AS MET IN SUBSTANCE.** SR-1 gates an untouched write path; both sides
+  of the gate are verified (enabled on a complete run, locked on a partial).
+
+### `attempted_count` display -- KNOWN DEFECT, carried to SR-2
+
+The cert modal read "155 of 144 rows". Investigated read-only and settled as **BENIGN (display only)**:
+
+- The cert seeded a SYNTHETIC partial with `attempted_rows = list(range(1, 41))`. The sheet's population is
+  144 rows with `min excel_row = 59` -- `population rows <= 40` is EMPTY -- so all 40 seeded entries lie
+  outside the population. That is the constant `attempted - results == 40` at every checkpoint (109/69, 129/89,
+  133/93, 155/115), and `155 = 40 + 115`.
+- **No duplicates exist**: `acc_attempted` is a Python `set` and the write is a full REPLACE
+  (`json.dumps(sorted(acc_attempted))`), not an append, so a retried batch cannot mark twice.
+- **In production the display cannot occur at all**, because `attempted` only ever receives rows drawn from the
+  population, so `attempted ⊆ population`.
+- Hardening for SR-2: intersect with the population before display.
+
+Resume is unaffected: it is a SET DIFFERENCE on row identity
+(`rows = [r for r in all_rows if r["excel_row"] not in skip]`), and completeness is
+`not (population - acc_attempted)` -- also a set difference, so out-of-population entries can never make a run
+read complete.
+
+### Test coverage map
+
+| Behaviour | Test |
+|---|---|
+| Mid-run failure persists earlier batches; partial/active=0; prior complete stays live; clear halt reason | `test_13` |
+| Resume fills only pending rows, same run_id/doc, then supersedes | `test_14` |
+| Usage limit fast-fails (2 calls, `time.sleep` never called) | `test_15` |
+| NEG control: a 529 still retries 3x with 3 sleeps | `test_16` |
+| Done-marker is not inferred from blank attributes | `test_17` |
+| NEG: resume refuses unknown / complete / wrong-version targets | `test_18` |
+| REGRESSION: an unrecognised error (truncated reply) still retries | `test_19` |
+| Terminal markers are positively identified only | `test_20` |
+| Trailing data parses; truncated raises; garbage raises; prose/bare-object/order preserved; harness identity pin | `test_hv2_voter_harness` TestTolerantParse (15) |
+
+`test_rate_suggest` 12 -> **20**; `test_hv2_voter_harness` 14 -> **29**.
+Unchanged: `test_rate_master` 32, `test_pricing` 230, `test_classify` 77, `test_row_category` 29,
+vitest 1229, build exit 0.
+
+**Declared gap:** the frontend `deriveSuggestModalPhase` "partial" branch has no vitest pin -- a pin needs a NEW
+test file, which was outside the slice's exclusive FILES IN SCOPE. Recommended follow-up.
+
+
+---
+
+## EA-6a slice 1 -- note re-parenting (backend as-built, 2026-08-04)
+
+**`services/boq_parser/hierarchy.py`** -- a NOTE attaches to the **nearest PREAMBLE OR LINE ITEM above it**
+(was: always the nearest preamble on the stack). Flag `NOTE_PARENT_NEAREST_ROW_ENABLED` (default `True`).
+
+```python
+candidates = [i for i in (_top_non_none(stack), last_line_item_index, level0_ancestor) if i is not None]
+target = max(candidates) if candidates else None
+attached_to_index = note_parent_index = target
+```
+
+- **`last_line_item_index` is READ ONLY in the note branch.** The LINE_ITEM branch RECORDS it in one line
+  after `resolved.append`; nothing else reads it. Line-item / preamble / subtotal parenting and level logic
+  is **byte-unchanged** (measured: 5 fixtures, identical `parent_index` / `level` / `path` flag-off vs on).
+- **`level0_ancestor` is a FULL CANDIDATE, not a fallback.** A level-0 section header IS a PREAMBLE
+  (`classifier._promote_section_header` sets `classification = PREAMBLE`); it is merely never pushed onto the
+  stack, so `_top_non_none(stack)` cannot see it. The `else level0_ancestor` fallback form is **WRONG** --
+  measured **42 real mis-attachments** to a stale line item preceding the header.
+- **Reset: SUBTOTAL_MARKER ONLY**, in lockstep with `stack.clear()`. Root-preamble / any-preamble resets are
+  **provable no-ops** (a later preamble is by construction nearer) -- do not add them.
+- Notes keep `path=None` and carry **no level**; the demotion pass is path-based and therefore sees
+  byte-identical input (209 demotions across 5 fixtures, zero drift).
+- `attached_to_index == parent_index` now holds for **every** note (both `None` in the master-bucket case),
+  removing the pre-existing Bug-24 divergence for free. The post-walk `notes_to_attach` loop keys on the SAME
+  `target`, so pointer and text can never diverge.
+- Master-bucket else-arm (nothing at all above the note) is **byte-unchanged**.
+
+**Prompt/rules alignment.** `prompts/boq_composite_decomposition_prompt.md` names the row own notes in three
+clauses (source list, breaker enumeration, CURVE/UPS trigger) -- read from disk per request, so live on edit.
+R3 reworded in the new asset `data/rate_master_electrical_all_v18.json` (one JSON leaf differs from v17;
+v17 untouched) and applied LIVE via the audited RM-4b `update_rate_config` (`Version` 4 -> 5).
+**Asset pin (current): the E-ALL asset is now `data/rate_master_electrical_all_v22.json`**
+(sha256 prefix `f1344c1853614d75`, 795 items / 12 configs), minted at slice 1b for point_wiring's
+blanker + the back_box dependency fix (v21 was slice 1a's `switches_sockets` rebuild). v18 above is the historical record of THAT cycle, not the
+current pointer. `loader.DEFAULT_DATA_FILE` still points at the WIRING asset, so E-ALL loads by path.
+
+⚠ **The live estimator rules come from the `BoQ Rate Category Config` DB row, NOT the JSON asset**
+(`extraction._load_active_configs`). Editing the asset alone is **inert at runtime** -- a trap that cost a
+whole verify-first pass. The asset is the record; the config row is what the model reads.
+
+⚠ **The R3 reword changed NOTHING.** C2 ran a before/after pair on the same re-parsed rows: extractions were
+**byte-identical** (row 16 -> `40A RCBO 30mA (DP)` under BOTH wordings). **The notes arriving is the fix**;
+the reword only removes ambiguity.
+
+**Cert:** C1 PASS (re-parse -> commit v3, 249 nodes; classify 164 rows) · C2 byte-identical · C3 PASS (real
+ELCB -> MCB + RCCB) · C4 PASS (capture-as-sent; instrumentation hash-verified removed) · C5 PASS (00066, 146
+rows, row 430 unchanged) · C6 PASS (209 demotions, zero drift). Browser B1/B3/B4/B5 PASS on screen
+(20,550 / 22,080 / 22,600), B2 partial, B4 negative half backend-verified.
+
+**Tests:** whole `boq_parser` suite **625, OK**. One pre-existing assertion updated by owner ruling
+(`test_note_after_level0_subhead_attaches_to_the_anchor`) -- it pinned the divergence the fix removes; the
+three genuine top-of-BoQ master-bucket assertions are unchanged and green.
+
+---
+
+## BCS — the per-row internal COST layer (backend as-built, branch `feature/bcs-columns`)
+
+Per-slice narrative for the whole BCS arc (S1 → S6) lives in the plan doc. This section is the
+**backend reference**: what exists, what its rules are, and which of them are owner-locked. Frontend
+surfaces are in `boq-frontend.md`.
+
+⚠️ **NAME COLLISION.** "BCS" here is the BoQ cost layer. "BCS" in the **BoQ Rate Master** material
+(root `CLAUDE.md`, `frontend/CLAUDE.md`) is a *derivation pipeline* — discounted product cost plus
+wastage, no install. Unrelated concept, same three letters. The acronym is **never expanded anywhere
+in the codebase**; do not invent an expansion for it.
+
+### What BCS is
+
+The cost side of a committed BoQ sheet: hand-typed cost rates per row representing what the work
+costs **us**, sitting against the BoQ amount we charge the **client**. From those inputs the screen
+computes *BCS Total Amount* (quantity × cost) and *% Margin*.
+
+**Three cost inputs are stored, and which of them a sheet uses is the SCREEN's decision, not the
+backend's** (owner ruling): a sheet that splits its quote carries a Supply Rate and an Installation
+Rate; a sheet quoting one undifferentiated figure carries a Combined Rate instead. The third field
+exists so a combined-rate sheet's cost has an honest home rather than riding in a field named
+"supply". ⚠️ **`combined_rate` is NOT a total of the other two — never sum it with them, never derive
+it from them.** The frontend enforces this structurally: the live-kinds rule returns the halves OR
+the combined, never both, so the forbidden sum is not expressible downstream.
+
+### Storage
+
+**`BoQ Row BCS Rate`** — standalone (`istable=0`), `track_changes: 1`, autoname `BBCS-.YY.-.#####`.
+
+- **Identity is PER-ROW: `(boq, sheet_name` VERBATIM #152`, excel_row, committed_version)`.**
+  ⚠️ **There is deliberately NO `col_letter`** — the BCS columns are screen-only and have no Excel
+  origin. This is not an omission to be "completed": it is what keeps BCS structurally unable to
+  reach the client-facing export (below), and it is why the carry needs no per-column fan-out.
+- **Lifecycle is freeze-and-supersede** (`bcs_version` / `is_current` / `bcs_rated_at`), mirroring
+  `BoQ Cell Pricing` exactly. A cost row is never overwritten in place.
+- Semantic (non-identity) fields: `node` — a **per-version** pointer, re-resolved rather than
+  carried; `description` — a carry-forward **match guard**, not part of the key.
+- Values: `supply_rate` / `install_rate` / `combined_rate` (Currency) + `is_filled` (the layer's own
+  filled-state — committed node rates read `0.0`, not blank).
+- Provenance: `rate_source` (a Select; **storage capacity only today** — nothing writes anything but
+  `Manual`).
+- Carry provenance: `carried_from_boq` / `carried_from_version` / `carried_at`, provisioned unused at
+  S1 and consumed by the carry layer at S6.
+
+**`BoQ Sheet` gains five BCS data fields** (plus a section break): `bcs_enabled` (Check — the
+per-sheet, per-committed-version switch), `bcs_qty_source` + `bcs_amount_source` (JSON — the
+CONFIRMED column sources, stored as re-resolvable dicts rather than re-guessed), and
+`bcs_confirmed_by` / `bcs_confirmed_at` (who last confirmed the two columns, and when).
+
+### Endpoints — `api/boq/wizard/bcs.py`
+
+| Endpoint | Kind |
+|---|---|
+| `set_bcs_enabled` | whitelisted POST |
+| `confirm_bcs_columns` | whitelisted POST |
+| `get_bcs_state` | whitelisted, GET-capable |
+| `get_sheet_bcs_rates` | whitelisted, GET-capable |
+| `save_row_bcs_rates` | whitelisted POST |
+| `bcs_is_ready` | **not an endpoint** — the shared predicate, re-exported from the service layer |
+
+### ⚠️ Three owner-locked properties — the reason this is its own module
+
+**1. ONLY THE INPUT RATES PERSIST.** Total Amount and % Margin are ALWAYS computed downstream from
+the stored rates plus the sheet's confirmed quantity/amount columns. A stored copy could disagree
+with the live sheet, so there is deliberately **no column for either**.
+
+**2. THE READINESS GATE GUARDS BCS WRITES ONLY.** It is **NOT** ANDed into `save_cell_price`'s rate
+gate: an unconfirmed BCS section leaves ordinary client-facing pricing fully editable. **The failure
+mode is what makes this load-bearing — getting it wrong silently freezes client pricing in
+production**, every rate cell read-only for a reason nobody on the screen can see. A test greps
+`pricing.py` to keep the separation true.
+
+`save_row_bcs_rates` runs exactly four gates —
+
+    committed cell exists -> sheet not deliberately locked -> BCS readiness -> single-editor lock
+
+— and **SKIPS, on purpose**, the three that guard a CLIENT rate: the mandatory amount-formula gate,
+the ASYMMETRIC priceability gate (so **a qty-less Preamble IS costable**), and the category gate.
+Cost is a separate axis with its own two-column confirmation; someone must be able to cost a job
+while amount formulas are still being declared and rows are still being categorised. **The asymmetry
+IS the decision — do not add any of the three "to restore consistency".** Each skip is pinned by its
+own test.
+
+**3. BCS NEVER REACHES `export_priced_workbook`.** That export is handed to the CLIENT, so a BCS
+value in it leaks what the job costs us — **cost, every BCS-derived total, and the margin alike**.
+The exclusion holds **by construction**: the export reads `BoQ Cell Pricing` and names three fields
+explicitly (`excel_row`, `col_letter`, `rate`), while BCS lives in its own doctype with no
+`col_letter` at all. Pinned by a standing guard in `test_export_writeback.py`, which is
+**anti-vacuous by design** — it first asserts the BCS rows genuinely exist for the exported sheets,
+so a pass can never mean "there was nothing to leak".
+
+⚠️ **A NEW STORED COST FIELD MUST BE SEEDED INTO THAT GUARD'S FIXTURE.** This has already gone wrong
+once: when storage widened to a third field, the guard kept seeding only the two halves, so on the
+whole axis the widening opened it was passing because there was nothing there to leak — and a
+combined-rate sheet uses that field and *only* that field, so its cost could have reached a client
+workbook with the guard green.
+
+### The readiness predicate lives in `services/`, and it had to
+
+`bcs_is_ready(boq_name, sheet_name, committed_version) -> bool` — BCS enabled for this sheet+version
+AND both columns confirmed. A pure read; never mutates; never throws for a missing sheet (an
+uncommitted or re-committed-away version is simply *not ready*).
+
+It sits in **`services/boq_bcs/readiness.py`**, not in `api/`, because reaching it from the carry
+engine closes a ring verified at module level:
+
+```
+committed_carry -> bcs -> pricing -> committed_carry
+```
+
+`bcs.py` imports `pricing`; `pricing.py` imports `committed_carry`. **No placement anywhere inside
+`api/` avoids it** — `cross_boq_carry` imports both and `commit_pipeline` is a third dependent — so
+the predicate moved DOWN to the layer both sides may import (`api -> service` is the one legal
+direction). `bcs.py` imports the name straight back, so `bcs.bcs_is_ready` still resolves and no
+caller changed. Precedent is exact: `committed_carry` already reaches classification state through
+`services/boq_category/persist.py`, never the sibling api module.
+
+⚠️ **`committed_version` IS COERCED here, and that must not be "simplified" away.** The obvious model
+for a service-layer predicate over `BoQ Sheet` is `persist.is_sheet_classification_frozen`, which
+filters the same doctype on the same key but passes the version **RAW**. Measured, both halves:
+
+- a **numeric string** is fine either way — PostgreSQL casts the unknown-type literal to bigint, so
+  the raw form answers identically;
+- a **non-numeric** version is where the raw form fails, and it fails far worse than silently:
+  PostgreSQL raises `invalid input syntax for type bigint`, which **aborts the enclosing
+  transaction** and takes every later statement with it. On the carry path that transaction also
+  holds the rate writes, so a raw driver error replaces a named refusal and rolls the whole carry
+  back.
+
+That matters more here than at most call sites because this predicate's failure mode is a **silent
+skip** (below). `_coerce_int` is a deliberate three-line duplicate of `pricing._coerce_int` — copied
+rather than imported because importing would re-close the ring, and copied rather than replaced with
+a bare `int()` because that would change *which exception* a malformed version raises.
+
+⚠️ **RAW-vs-COERCED ASYMMETRY ON ONE PATH (documented, currently safe, deliberately not "fixed").**
+`committed_carry` calls `persist.is_sheet_classification_frozen(..., ctx.dest_version)` **raw** and
+`bcs_is_ready(..., ctx.dest_version)` **coerced** — the same value, on the same carry path. It is
+unreachable today: `_CarryCtx.dest_version` is annotated `int`, and both production builders read it
+from the `BoQ Sheet.commit_version` **Int** column. It is recorded because the raw shape's failure is
+transaction-aborting rather than local, so if a future caller ever supplies a non-DB version, the
+first of those two calls destroys the carry. Changing `persist.py` is a `boq_category` decision, not
+a BCS one.
+
+### The carry layer — `bcs_costs`, the fifth opt-in layer
+
+`bcs_costs` joins `committed_carry.LAYER_KEYS`, so **one registration lights both carry surfaces**
+(the cross-BoQ revision carry and the within-BoQ copy-forward). No migration — the three carry
+provenance fields were provisioned at S1.
+
+- **`carry_bcs_cost_layer` mirrors `carry_category_layer`, not an `_ANNOT_LAYERS` entry**, because it
+  needs a **sheet-level guard slot** and the generic annotation walker has none. It does **not** copy
+  the category layer's per-discipline fan-out: a BCS identity has no `discipline` dimension.
+- **Three writes resolve against the DESTINATION**: `node` (a per-version pointer — carrying the
+  source's would point a new cost row at an old node), `description` (it is the match guard *for the
+  row the cost sits on*), and `bcs_version` (`max(prior at destination) + 1`, never the source's and
+  never a hardcoded `1` — a frozen prior can exist with no current).
+- **Carried verbatim**: all three rate inputs independently, `is_filled`, and `rate_source` —
+  provenance of the *numbers*, which survives a copy, as distinct from provenance of the *record*.
+- ⚠️ **`bcs_rated_at` is carried VERBATIM and stays OLDER than the carry**; `carried_at` is the fresh
+  stamp. Mirrors the `human_verdict_at` precedent. HONEST CAVEAT: no live reader tie-breaks on
+  `bcs_rated_at` today, so this is forward-looking rather than load-bearing right now.
+- **Provenance is keyword-REQUIRED** (after a bare `*`, no defaults) — an unstamped carried record is
+  a `TypeError` at the call site, not a `None` discovered in the database later.
+- ⚠️ **THE CARRY MUST NEVER ROUTE THROUGH `save_row_bcs_rates`.** That endpoint is a **whole-row
+  snapshot**: it coerces every absent rate to `0.0` and writes all three unconditionally, so a source
+  row holding only a combined rate, carried through it, would silently **zero** a supply/install pair
+  the destination already held. This is a data-integrity ruling, not a style choice; it is pinned
+  both behaviourally and structurally.
+- **THE SILENT SKIP (owner ruling).** The readiness guard runs **first** and is sheet-scoped. A
+  destination that is not BCS-ready yields the zero outcome: nothing written, **no exception**, and
+  the rest of the carry — rates included — proceeds. Refusing the whole action instead would let one
+  unconfigured cost section block a rate carry the user actually asked for. **What makes the silence
+  acceptable is that the plan read runs the same guard** through the same dispatch, so a not-ready
+  sheet reports zeros, the layer renders disabled, and nothing is ever offered that would be dropped.
+  **The guard must never move behind the `apply` branch.**
+- **Default OFF in the client, never in the server.** An omitted `layers` payload is rates-only, so a
+  client that never learned about `bcs_costs` keeps the earlier behaviour exactly. ON is the
+  exception, not the rule, and an internal cost rate is the last layer on which to relax that.
+
+### BCS-S9 — BCS Total Amount as a formula TARGET, and what it cost the export boundary
+
+`BCS Total Amount`'s rule (`quantity × summed cost boxes`) was hardcoded in the frontend, so it
+could be neither seen nor varied per sheet. It is now a declarable formula.
+
+- **NO NEW SCHEMA.** It reuses `BoQ Cell Amount Formula` with `target_value_field = "bcs_total"`
+  (`pricing._BCS_TOTAL_TARGET` / `_BCS_TARGET_FIELDS`). No doctype change, no migrate, and it
+  rides the `column_formulas` payload + `save_amount_formula` that already existed.
+- **`save_amount_formula` branches for it:** a BCS target SKIPS the committed-column match (BCS
+  Total is screen-only — requiring a column would reject every BCS formula), refuses a non-null
+  `target_value_key` / `target_rate_subkey` (no area or kind axis), and **forces `target_col` to
+  NULL**.
+- **New operand vocabulary** `_BCS_OPERAND_FIELDS` = `bcs_supply` / `bcs_install` /
+  `bcs_combined` / `bcs_qty`. None resolves through `column_role_map` — the first three come from
+  the row's `BoQ Row BCS Rate`, the last from the sheet's confirmed BCS quantity source.
+
+⚠️ **THIS IS WHERE THE EXPORT BOUNDARY STOPPED BEING STRUCTURAL. READ BEFORE TOUCHING EITHER SET.**
+
+Property 3 above says BCS never reaches `export_priced_workbook`, and that the exclusion holds
+**by construction** — BCS lived in its own doctype, so the formula layer had no way to *name* a
+cost. **S9 gives the shared formula vocabulary BCS operands, so construction no longer does the
+work on its own.** Two DIRECTIONAL rules in `_validate_formula_operands` now do it:
+
+    a bcs_total target may use ONLY _BCS_OPERAND_FIELDS  -- it cannot reach into sheet data;
+    an amount  target may use NONE of them               -- cost cannot reach a client column.
+
+**The second is the one that matters, and it is not theoretical.** An amount column's computed
+VALUE is what the export writes, so a cost operand inside a client amount formula would leak the
+cost as a **NUMBER** — invisible to any audit of the export's field list, which is exactly the
+audit the old by-construction argument rested on. Both directions run on EVERY save (the amount
+side too, though nothing on that side changed) and are pinned by their own tests. **Do not relax
+either "for symmetry".**
+
+Because enforcement replaced construction, the export carries a **SECOND, INDEPENDENT STOP**:
+`export_template_workbook.resolve_target_col` returns `None` unconditionally for a target in
+`_INTERNAL_ONLY_TARGETS`, **before** either resolution path — so even a record whose `target_col`
+somehow survived non-null cannot be placed. One enforcement point for a leak of this kind is not
+enough; keep both.
+
+### BCS-S10 / S11 — the % Margin operands became formula targets too
+
+`% Margin = (1 − cost / amount) × 100`. Both operands are now declarable; **the RATIO is not.**
+
+| Target | Means | May name |
+|---|---|---|
+| `bcs_total` | BCS Total Amount | `_BCS_OPERAND_FIELDS` — the cost boxes, plus the sheet's qty columns |
+| `boq_total` (S10) | the margin's DENOMINATOR ("BOQ Total") | `_BOQ_OPERAND_FIELDS` = the sheet's Amount columns |
+| `bcs_margin_cost` (S11) | the margin's NUMERATOR | `_MARGIN_COST_OPERAND_FIELDS` = BCS operands **+ `bcs_total`** |
+
+`_TARGET_OPERAND_WHITELIST` is the one table driving `_validate_formula_operands`; every other
+(amount) target may name none of the BCS fields. All three are in `_BCS_TARGET_FIELDS` (screen-only
+→ `target_col` forced NULL) and in the export's `_INTERNAL_ONLY_TARGETS`.
+
+⚠️ **`bcs_total` IS BOTH A TARGET AND AN OPERAND, deliberately.** Choosing "BCS Total Amount" as the
+margin's cost must mean *whatever that column currently computes*, not a frozen copy of the rule it
+had when the margin was configured — so the numerator resolves it live, through its own formula.
+
+⚠️ **THE RATIO'S SHAPE STAYS IN CODE, AND NOT OUT OF CAUTION — IT IS INEXPRESSIBLE.** `(1 − … / …)
+× 100` needs the literals `1` and `100`, and `_validate_formula_structure` rejects a `literal` node
+outright ("Numeric literals are not allowed in a formula") — a rule that exists so nobody writes
+`Total Quantity × 450` in place of a rate reference. Keeping the wrapper in code is also what keeps
+`bcsMarginPercent`'s three guards unbypassable: zero denominator, non-finite, and a **NEGATIVE**
+denominator, which flips the inequality so −100 charged against 50 cost computes as **+150%** — a
+loss displayed as a profit. **Do not add a `bcs_margin` target.**
+
+### ⚠️ BCS-S12b — the two-operand-set bug, and what it says about the backend suite
+
+**S12 folded the sheet's qty value_fields into `_BCS_OPERAND_FIELDS`, the single set BOTH
+directional rules read. The leak rule then refused `qty_total` on an AMOUNT target as though it
+were internal cost — so `Total Quantity × Rate`, the canonical amount formula, became unsaveable
+on every sheet, with an error message about BCS cost that had nothing to do with what the user
+had built.** There are now two sets and they must stay two:
+
+- `_BCS_ONLY_OPERAND_FIELDS` — what an AMOUNT target may NEVER name (the internal cost figures);
+- `_BCS_OPERAND_FIELDS` — what a BCS target MAY name: the above **plus** the qty columns.
+
+The two rules point in opposite directions, so they cannot share a set.
+
+⚠️ **NOTHING ON THE FRONTEND CAUGHT THIS**, and nothing could: 1356 vitest tests and a clean
+`tsc` stayed green throughout, because the rule lives server-side. It surfaced the moment the
+backend suite ran, as a `setUpClass` error — which had also been **masking 15 further tests**
+(64 ran, 79 after the fix). Treat a `setUpClass` error as a suite-wide outage, not one failure.
+
+⚠️ **THE BACKEND SUITE HAD BEEN UNRUNNABLE FOR THE WHOLE ARC** — `import anthropic` failed at
+module load (the package is a declared dependency in `pyproject.toml`; the container simply
+lacked it). Every slice from F5 to S12 was written against a frontend suite alone. If the import
+breaks again, fix it before writing code, not after.
+
+### BCS-S12 — the two column pickers were removed, and readiness relaxed WITH them
+
+Owner ruling 2026-08-07. The BCS dialog is now a switch: *Turn BCS on* / *Turn BCS off* / Cancel.
+Which quantity and which amount a sheet measures against is chosen in the two formula dialogs,
+which name the sheet's REAL columns (with Excel letters) instead of a separate confirmation.
+
+⚠️ **`bcs_is_ready` IS NOW JUST `bcs_enabled`, AND THE TWO CHANGES MUST NEVER BE SEPARATED.**
+`save_row_bcs_rates` refuses every cost write while readiness is false. With no UI writing
+`bcs_qty_source` / `bcs_amount_source`, re-adding the confirmation requirement would make readiness
+permanently FALSE — BCS would switch on and stay silently read-only forever, with no message
+anywhere saying why. Re-adding the condition requires re-adding the pickers in the same edit.
+
+- `_QTY_VALUE_FIELDS` (`qty_total` / `qty_by_area`) joined `_BCS_OPERAND_FIELDS`, so a BCS formula
+  names the sheet's real quantity column. **`bcs_qty` is RETAINED** — formulas stored before S12
+  still resolve through the old confirmation.
+- **`confirm_bcs_columns` still exists and both JSON fields are still stored and read** (as the
+  built-in defaults' seed on pre-S12 sheets). Nothing is orphaned and no sheet's numbers moved.
+  `services/boq_bcs/sources.py` + `parity_cases.json` therefore stay live — do not delete them as
+  dead code; the endpoint is still their caller.
+
+### F5 — the operator vocabulary widened to `+ − × ÷`
+
+`_FORMULA_OPS` (was `{"+", "*"}`). ⚠️ **Operand ORDER became load-bearing:** `+`/`*` are
+commutative so nothing downstream ever had reason not to reorder an `operands` list, but for
+`-`/`/` the list order IS the arithmetic (`{"op":"-","operands":[a,b,c]}` means `((a−b)−c)`). Any
+future pass over a stored tree must preserve it. `_validate_formula_structure` stays STRUCTURAL —
+it does not fold operands, so a **zero divisor is not its business**; that is the frontend
+evaluator's refusal, exactly as cycle detection has always been F2's rather than F1's.
+
+⚠️ **`export_template_workbook._OP_INFIX` MUST STAY IN STEP WITH `_FORMULA_OPS`.** An operator
+missing from that map makes `ast_to_excel` return `None`, which fails SAFE (a blank amount cell)
+but **silently drops a formula the sheet really has**. This was missed in the F5 plan and caught
+only while building. Left-associativity needs no special handling there — `ast_to_excel` wraps
+every operator node in its own parentheses, so `(A5-B5-C5)` and `(A5-(B5+C5))` both read in Excel
+exactly as the evaluator folds them.
+
+⚠️ **THREE TESTS USED `"-"` AS THEIR EXAMPLE OF AN *UNSUPPORTED* OPERATOR** (the frontend
+evaluator, `test_pricing`, `test_export_writeback`) and all three had to move to `"^"`. Note the
+`test_export_writeback` one in particular: it asserted `ast_to_excel({"op": "/", "operands": []})`
+is `None`, which would have **kept passing for the wrong reason** after `/` was promoted — the
+empty operands list, not the operator, was doing the work. It now covers both arms.
+
+### The `ast`-not-grep tripwire rule got its second proof (BCS-S12b)
+
+`test_bcs_module_never_touches_the_client_facing_rate_gate` was a substring grep, and it went red
+against a **comment** in `pricing.py` that merely named the BCS doctype while explaining where
+cost operands come from — exactly the failure this doc predicted ("it fires on the comment warning
+against the thing, and the only way back to green is to delete the explanation").
+
+It is now `ast`-based and asks the real questions: does pricing.py IMPORT the bcs module, does it
+NAME `bcs_is_ready` / `_guard_bcs_ready`, does it address `"BoQ Row BCS Rate"` as a string
+constant in CODE. Comments are invisible to it in both directions.
+
+⚠️ **Its scope also had to NARROW.** Since S9 pricing.py legitimately knows the BCS formula target
+tokens and their operand vocabulary — knowing a target name is not calling the readiness gate. A
+blanket "no BCS strings anywhere in pricing.py" would forbid the formula layer the owner asked for.
+
+### Structural tripwires guarding all of the above
+
+Three of this layer's properties are held by tests that read **source structure**, not behaviour.
+
+⚠️ **They read the module through `ast`, never a substring grep, and that distinction is earned.**
+Written first as `assertNotIn(...)`, such a tripwire goes **red against the module's own docstring
+stating the prohibition** — it fires on the comment warning against the thing, and the only way back
+to green is to delete the explanation. A presence-side grep is worse still: it fails **open**, since
+a comment naming the path satisfies it while the import it guards is gone. The `ast` form asks the
+real questions — *does this module DEFINE this name?*, *does this module IMPORT that module?* — and
+leaves prose alone in both directions. **Write the next one this way from the start.**

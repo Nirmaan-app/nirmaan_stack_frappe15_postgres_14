@@ -49,6 +49,7 @@ import {
 import { cn } from "@/lib/utils";
 import SITEURL from "@/constants/siteURL";
 import { NonProjectExpenses } from "@/types/NirmaanStack/NonProjectExpenses";
+import { isProcurementProfile } from "@/constants/roles";
 
 export interface GetNonProjectExpenseColumnsOptions {
   statusTab: string;
@@ -87,7 +88,7 @@ export const getNonProjectExpenseColumns = ({
   const isAccountant =
     role === "Nirmaan Accountant Profile" ||
     role === "Nirmaan Accountant Lead Profile";
-  const isProcurement = role === "Nirmaan Procurement Executive Profile";
+  const isProcurement = isProcurementProfile(role);
   const isHR = role === "Nirmaan HR Executive Profile";
 
   // Action-level permissions

@@ -32,7 +32,7 @@ function ref(
 function leaf(r: AmountFormulaRef): AmountFormulaNode {
   return { ref: r };
 }
-function op(o: "+" | "*", ...operands: AmountFormulaNode[]): AmountFormulaNode {
+function op(o: "+" | "*" | "-" | "/", ...operands: AmountFormulaNode[]): AmountFormulaNode {
   return { op: o, operands };
 }
 function cf(
@@ -297,9 +297,13 @@ describe("malformed tree -> broken; never throws on bad data", () => {
     expect(evaluateAmountColumn(SCALAR_AMOUNT_TOTAL, set, mkLookup({}))).toMatchObject({ ok: false, reason: "broken" });
   });
 
-  it("a bad operator (not + or *) -> broken", () => {
+  it("a bad operator (outside + - * /) -> broken", () => {
+    // The example here was "-" until F5 made it a real operator. Note what that means: this
+    // test would have FLIPPED TO GREEN-FOR-THE-WRONG-REASON only if "-" had stayed unsupported
+    // -- instead it failed loudly on the widening, which is exactly what it should do. "^" is
+    // outside the vocabulary and stays outside it.
     const set = [cf("amount_total", null, null,
-      { op: "-", operands: [leaf(ref("qty_total"))] } as unknown as AmountFormulaNode)];
+      { op: "^", operands: [leaf(ref("qty_total"))] } as unknown as AmountFormulaNode)];
     const lk = mkLookup({ "qty_total|null|null": 5 });
     expect(evaluateAmountColumn(SCALAR_AMOUNT_TOTAL, set, lk)).toMatchObject({ ok: false, reason: "broken" });
   });
@@ -346,5 +350,195 @@ describe("helpers", () => {
     const lk = mkLookup({ "qty_by_area|null|null": 0 }); // a default (value_key null) target rarely evaluated directly
     const out = evaluateAllColumns(set, lk);
     expect(out.has(columnKey(ref("amount_by_area", null, "total")))).toBe(true);
+  });
+});
+
+// ── F5: subtraction + division ────────────────────────────────────────────────
+//
+// The two operators that broke the identity-seed fold. `+` (seed 0) and `*` (seed 1) are
+// order-blind; `-` and `/` seed from operands[0] and are not, so the tests below assert the
+// DIRECTION of the arithmetic as hard as its result -- `a - b` and `b - a` are both plausible
+// numbers and only one of them is the formula the user built.
+describe("F5 -- subtraction", () => {
+  const qty = ref("qty_total");
+  const sup = ref("rate_supply");
+  const ins = ref("rate_install");
+
+  it("folds LEFT TO RIGHT from the first operand: a - b", () => {
+    const set = [cf("amount_total", null, null, op("-", leaf(sup), leaf(ins)))];
+    const r = evaluateAmountColumn(SCALAR_AMOUNT_TOTAL, set, mkLookup({
+      "rate_supply|null|null": 100,
+      "rate_install|null|null": 30,
+    }));
+    expect(r).toEqual({ ok: true, value: 70 });
+  });
+
+  it("operand ORDER is the semantics -- reversing it reverses the answer", () => {
+    const lookup = mkLookup({ "rate_supply|null|null": 100, "rate_install|null|null": 30 });
+    const fwd = evaluateAmountColumn(
+      SCALAR_AMOUNT_TOTAL,
+      [cf("amount_total", null, null, op("-", leaf(sup), leaf(ins)))],
+      lookup,
+    );
+    const rev = evaluateAmountColumn(
+      SCALAR_AMOUNT_TOTAL,
+      [cf("amount_total", null, null, op("-", leaf(ins), leaf(sup)))],
+      lookup,
+    );
+    expect(fwd).toEqual({ ok: true, value: 70 });
+    expect(rev).toEqual({ ok: true, value: -70 });
+  });
+
+  it("an n-ary difference is ((a - b) - c), not a - (b - c)", () => {
+    const set = [cf("amount_total", null, null, op("-", leaf(qty), leaf(sup), leaf(ins)))];
+    const r = evaluateAmountColumn(SCALAR_AMOUNT_TOTAL, set, mkLookup({
+      "qty_total|null|null": 100,
+      "rate_supply|null|null": 30,
+      "rate_install|null|null": 20,
+    }));
+    // ((100 - 30) - 20) = 50.  a - (b - c) would be 90.
+    expect(r).toEqual({ ok: true, value: 50 });
+  });
+
+  it("a negative result is a REAL value, not a failure", () => {
+    const set = [cf("amount_total", null, null, op("-", leaf(sup), leaf(ins)))];
+    const r = evaluateAmountColumn(SCALAR_AMOUNT_TOTAL, set, mkLookup({
+      "rate_supply|null|null": 10,
+      "rate_install|null|null": 25,
+    }));
+    expect(r).toEqual({ ok: true, value: -15 });
+  });
+
+  it("the fail-safe holds: a missing operand blanks the whole difference (never treated as 0)", () => {
+    const set = [cf("amount_total", null, null, op("-", leaf(sup), leaf(ins)))];
+    const r = evaluateAmountColumn(SCALAR_AMOUNT_TOTAL, set, mkLookup({
+      "rate_supply|null|null": 100,
+    }));
+    expect(r).toEqual({ ok: false, reason: "not_yet" });
+  });
+
+  it("a real 0 subtrahend is a real value", () => {
+    const set = [cf("amount_total", null, null, op("-", leaf(sup), leaf(ins)))];
+    const r = evaluateAmountColumn(SCALAR_AMOUNT_TOTAL, set, mkLookup({
+      "rate_supply|null|null": 100,
+      "rate_install|null|null": 0,
+    }));
+    expect(r).toEqual({ ok: true, value: 100 });
+  });
+});
+
+describe("F5 -- division", () => {
+  const qty = ref("qty_total");
+  const sup = ref("rate_supply");
+  const ins = ref("rate_install");
+
+  it("folds LEFT TO RIGHT from the first operand: a / b", () => {
+    const set = [cf("amount_total", null, null, op("/", leaf(sup), leaf(ins)))];
+    const r = evaluateAmountColumn(SCALAR_AMOUNT_TOTAL, set, mkLookup({
+      "rate_supply|null|null": 100,
+      "rate_install|null|null": 4,
+    }));
+    expect(r).toEqual({ ok: true, value: 25 });
+  });
+
+  it("an n-ary quotient is ((a / b) / c)", () => {
+    const set = [cf("amount_total", null, null, op("/", leaf(qty), leaf(sup), leaf(ins)))];
+    const r = evaluateAmountColumn(SCALAR_AMOUNT_TOTAL, set, mkLookup({
+      "qty_total|null|null": 100,
+      "rate_supply|null|null": 5,
+      "rate_install|null|null": 2,
+    }));
+    // ((100 / 5) / 2) = 10.  a / (b / c) would be 40.
+    expect(r).toEqual({ ok: true, value: 10 });
+  });
+
+  // A DISPLAYED "Infinity" on a document handed to a client is the exact failure the fail-safe
+  // exists to prevent, so the division is refused BEFORE it happens.
+  it("a ZERO divisor is refused as broken -- never Infinity, never NaN", () => {
+    const set = [cf("amount_total", null, null, op("/", leaf(sup), leaf(ins)))];
+    const r = evaluateAmountColumn(SCALAR_AMOUNT_TOTAL, set, mkLookup({
+      "rate_supply|null|null": 100,
+      "rate_install|null|null": 0,
+    }));
+    expect(r.ok).toBe(false);
+    expect(r).toMatchObject({ reason: "broken", detail: "divide-by-zero" });
+  });
+
+  it("0 / n is a perfectly good 0 -- only the DIVISOR's zero is refused", () => {
+    const set = [cf("amount_total", null, null, op("/", leaf(sup), leaf(ins)))];
+    const r = evaluateAmountColumn(SCALAR_AMOUNT_TOTAL, set, mkLookup({
+      "rate_supply|null|null": 0,
+      "rate_install|null|null": 5,
+    }));
+    expect(r).toEqual({ ok: true, value: 0 });
+  });
+
+  it("a divisor too small to survive the division is refused too (never Infinity)", () => {
+    const set = [cf("amount_total", null, null, op("/", leaf(sup), leaf(ins)))];
+    const r = evaluateAmountColumn(SCALAR_AMOUNT_TOTAL, set, mkLookup({
+      "rate_supply|null|null": 1e308,
+      "rate_install|null|null": 5e-324,
+    }));
+    expect(r.ok).toBe(false);
+    expect(r).toMatchObject({ reason: "broken", detail: "not-finite" });
+  });
+
+  it("an ABSENT divisor is not_yet, not broken -- absence is not a zero", () => {
+    const set = [cf("amount_total", null, null, op("/", leaf(sup), leaf(ins)))];
+    const r = evaluateAmountColumn(SCALAR_AMOUNT_TOTAL, set, mkLookup({
+      "rate_supply|null|null": 100,
+    }));
+    expect(r).toEqual({ ok: false, reason: "not_yet" });
+  });
+
+  it("a zero divisor BEATS a co-occurring not_yet, like every other broken", () => {
+    const set = [
+      cf("amount_total", null, null, op("-", op("/", leaf(sup), leaf(ins)), leaf(qty))),
+    ];
+    const r = evaluateAmountColumn(SCALAR_AMOUNT_TOTAL, set, mkLookup({
+      "rate_supply|null|null": 100,
+      "rate_install|null|null": 0,
+      // qty_total absent -> not_yet
+    }));
+    expect(r).toMatchObject({ ok: false, reason: "broken" });
+  });
+});
+
+// The preservation promise, on the evaluator side: the identity seed for + and * is untouched,
+// so every formula stored before F5 computes the number it always computed.
+describe("F5 -- pre-F5 arithmetic is unchanged", () => {
+  const qty = ref("qty_total");
+  const sup = ref("rate_supply");
+  const ins = ref("rate_install");
+
+  it("qty x rate still multiplies", () => {
+    const set = [cf("amount_total", null, null, op("*", leaf(qty), leaf(sup)))];
+    const r = evaluateAmountColumn(SCALAR_AMOUNT_TOTAL, set, mkLookup({
+      "qty_total|null|null": 12,
+      "rate_supply|null|null": 5,
+    }));
+    expect(r).toEqual({ ok: true, value: 60 });
+  });
+
+  it("an n-ary sum still sums from 0", () => {
+    const set = [cf("amount_total", null, null, op("+", leaf(qty), leaf(sup), leaf(ins)))];
+    const r = evaluateAmountColumn(SCALAR_AMOUNT_TOTAL, set, mkLookup({
+      "qty_total|null|null": 1,
+      "rate_supply|null|null": 2,
+      "rate_install|null|null": 3,
+    }));
+    expect(r).toEqual({ ok: true, value: 6 });
+  });
+
+  it("qty x (supply + install) still nests", () => {
+    const set = [
+      cf("amount_total", null, null, op("*", leaf(qty), op("+", leaf(sup), leaf(ins)))),
+    ];
+    const r = evaluateAmountColumn(SCALAR_AMOUNT_TOTAL, set, mkLookup({
+      "qty_total|null|null": 10,
+      "rate_supply|null|null": 3,
+      "rate_install|null|null": 2,
+    }));
+    expect(r).toEqual({ ok: true, value: 50 });
   });
 });

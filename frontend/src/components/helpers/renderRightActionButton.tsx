@@ -13,6 +13,7 @@ import { useNavigate } from "react-router-dom";
 import { Badge } from "../ui/badge";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { canManageTendering } from "@/pages/projects/tendering/tenderingAuth";
+import { PROCUREMENT_PROFILES } from "@/constants/roles";
 
 interface RenderActionButtonProps {
   locationPath: string;
@@ -73,7 +74,7 @@ export const RenderRightActionButton = ({
     );
   } else if (locationPath === "/prs&milestones/procurement-requests" && selectedProject) {
     return (
-      ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile"].includes(role) || user_id === "Administrator" ? (
+      ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", ...PROCUREMENT_PROFILES].includes(role) || user_id === "Administrator" ? (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button className="sm:mr-4 mr-2">
@@ -163,12 +164,12 @@ export const RenderRightActionButton = ({
       </Button>
     );
   } else if (locationPath === "/reminders") {
-    // Only roles that can create a Reminder Schedule get the button (matches the
-    // doctype's create permission: Admin / PMO / Accountant Lead). Accountant is
-    // read-only, so they see the table but not this button.
+    // Reminders are Admin-only to manage (owner ruling): Add, Edit and Delete all share
+    // one gate. Every other role with sidebar access sees the table read-only.
+    // MUST stay in step with `canManage` in pages/Reminders/RemindersPage.tsx and with
+    // the server's `_require_reminder_editor` (api/reminders/write.py).
     const canCreateReminder =
-      user_id === "Administrator" ||
-      ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Lead Profile"].includes(role);
+      user_id === "Administrator" || role === "Nirmaan Admin Profile";
     if (!canCreateReminder) return null;
     return (
       <Button

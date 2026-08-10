@@ -33,6 +33,7 @@ import {
   RemarkSubject,
   SRRemarkData,
 } from "../hooks/useSRRemarks";
+import { SERVICE_PROCUREMENT_PROFILES } from "@/constants/roles";
 
 interface SRCommentsProps {
   srId: string;
@@ -99,7 +100,7 @@ export const SRComments: React.FC<SRCommentsProps> = ({ srId, refreshTrigger }) 
       "Nirmaan PMO Executive Profile",
       "Nirmaan Accountant Profile",
       "Nirmaan Accountant Lead Profile",
-      "Nirmaan Procurement Executive Profile",
+      ...SERVICE_PROCUREMENT_PROFILES,
       "Nirmaan Project Lead Profile",
     ];
     return allowedRoles.includes(role || "");

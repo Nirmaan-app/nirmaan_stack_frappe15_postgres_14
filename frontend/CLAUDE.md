@@ -353,6 +353,19 @@ All BoQ wizard / pricing frontend code lives in `src/pages/boq-wizard/`. This se
   `formulaTokens.ts` (author; click-to-insert, NO literals) + `PricingGrid.evaluateAmountCell` (compute;
   formula-wins-else-pairing, draft-aware, fail-safe BLANK on any missing operand — never a stale number).
   `pricingRollup.ts` / `SummaryPanel.tsx` are formula-aware too.
+- **The operator vocabulary is `+ − × ÷` (F5), and the last two are NOT like the first two.** `+`/`*` are
+  commutative and associative, so an n-ary node's operand ORDER carries no meaning; `-`/`/` fold LEFT TO
+  RIGHT from `operands[0]`, so **the list order IS the arithmetic** (`{op:"-",operands:[a,b,c]}` means
+  `((a−b)−c)`). Any pass over a stored tree must preserve operand order. A MIXED tier parses
+  left-associatively into a binary chain, while a run of ONE operator stays n-ary — that split is what
+  keeps every pre-F5 formula's tree **byte-identical** (pinned by test; a re-shaped tree would move
+  committed sheets' amounts). ⚠️ **A ZERO DIVISOR IS REFUSED BEFORE THE DIVISION** and reported `broken`
+  ("check formula") — never `Infinity` on a tender document; `not_yet` would be wrong, since that reason
+  means a value is ABSENT and a real 0 is present. **`amountFormula.foldOperands` is the ONE
+  implementation** of all four operators (the BCS Total formula folds through it too) — do not write a
+  second. ⚠️ Adding an operator means extending `AmountFormulaBuilder.OP_GLYPH` (a total map, deliberately
+  not a ternary) **and** `pricing._FORMULA_OPS` **and** `export_template_workbook._OP_INFIX` — an operator
+  missing from that last one exports as a BLANK cell, silently dropping the formula.
 - **`reconcile.ts` is a PURE LEAF** (imports only types): the SHARED `amountsEqual` epsilon + `resolveDivergence`
   (D1 = DOCUMENT default). It exists so PricingGrid / priceability / pricingRollup share one comparison with NO cycle
   (PricingGrid must NOT import pricingRollup). Divergence fires only on `cell.kind === "value"`.
@@ -657,6 +670,389 @@ All BoQ wizard / pricing frontend code lives in `src/pages/boq-wizard/`. This se
   memo shield holds; classic stays byte-identical). Same shape as the page-owned CategoryVerdictPicker's IO close. The
   grid-level `shouldCloseOverlay` mounted-set effect stays only as the remark BACKSTOP. Closing discards any unsaved draft
   (owner-accepted). EXEMPT: a popover in the STICKY `<th>` header (AmountFormulaBuilder) never scrolls off -> no observer.
+- **BCS -- the INTERNAL cost block inside the pricing editor** (`bcsColumns.ts` pure leaf + `bcsRollup.ts` +
+  `marginView.ts` + `BcsColumnsDialog.tsx` + `MarginRangeFilter.tsx`; the block itself renders inside
+  `PricingGrid`/`SummaryPanel`, no new
+  route). Full frontend as-built in `frontend/.claude/context/domain/boq-frontend.md`; storage, endpoints and the
+  carry layer in `.claude/context/domain/boq-backend.md`. ⚠️ **NAME COLLISION: "BCS" in the Rate Master section
+  below is a derivation pipeline -- an unrelated concept sharing three letters.** The acronym is never expanded
+  anywhere in the codebase; do not invent an expansion. The load-bearing invariants:
+  - **WHICH cost boxes a sheet gets is derived from the sheet's OWN rate columns** (`bcsLiveRateKinds`, owner
+    ruling): no Supply rate column -> no Supply box; a combined-rate sheet gets ONE box; no rate column at all ->
+    no block. ⚠️ **THE HALVES WIN OVER A COMBINED RATE MAPPED BESIDE THEM.** The backend forbids summing
+    `combined_rate` with the two halves, so the live set must never hold both or the total double-counts -- which
+    makes the prohibition **STRUCTURAL**: the arithmetic downstream cannot express the forbidden sum, because the
+    set it is given never contains both. A NARROWING, never a widening.
+  - **Column headers are an owner ruling, pinned by test:** `BCS Cost (Supply)` · `BCS Cost (Installation)` ·
+    `BCS Total Amount`. The prefix marks which side of the sheet a figure belongs to (BCS = what it costs US;
+    everything else = what we charge the CLIENT), which matters because the two blocks scroll apart on a wide
+    sheet. The mirror to the parser's `Rate (Install)` role label is deliberately NOT word-for-word -- do not
+    shorten `Installation` back to match it.
+  - **THE BLOCK IS FOUR COLUMNS (BCS-S8, owner 2026-08-07):** the two cost boxes · `BCS Total Amount` ·
+    `% Margin`. ⚠️ **`Tendered Total Amount` was REMOVED, reversing S3b's "ALWAYS SHOWN (owner ruling)" --
+    but ONLY the column. `bcsRowAmount` / `bcsTenderedAmountCell` / `BcsSectionTotals.tendered` still
+    compute it, because it is the margin's DIVISOR; deleting them blanks every % Margin on every sheet.**
+    Cost: the denominator is no longer verifiable by eye (the rule that % Margin divides by the figure SHOWN
+    still holds in code, but nothing on screen proves it). ⚠️ `isBcsInputColumn` answers "is this NOT a
+    computed kind?", so REMOVING a token from `BCS_COMPUTED_KINDS` makes it **typeable**, not inert --
+    anything dropped from that list must leave the `BcsComputedKind` union in the SAME edit.
+  - **`% Profit` is now `% Margin` (owner 2026-08-07) -- A RENAME, NOT A MATHS CHANGE.** The owner's
+    `(1 − BCS/BOQ) × 100` and the implemented `((amount − cost) / amount) × 100` are the same expression
+    rearranged; the identity is pinned by test. ⚠️ That test ALSO pins the misread grouping as WRONG:
+    `1 − (c/a) × 100` returns **−59** where the answer is **+40**. Do not "implement the owner's formula
+    literally". `bcsMarginPercent`'s guards (zero denominator, NEGATIVE denominator, non-finite) are
+    load-bearing -- rewriting it into the `1 − c/a` shape would compute the same thing while risking them.
+  - **`% Margin` HAS ITS OWN ƒ TOO (S10/S11), and it is ONE dialog with TWO slots** --
+    `MarginFormulaBuilder`, rendering `( 1 − COST ÷ AMOUNT ) × 100` with both operands live inside
+    it. ⚠️ S11 first shipped this as TWO badges and the owner rejected it: they are two halves of
+    one rule, and splitting them made the rule invisible. **The wrapper is rendered, NOT editable,
+    and that is STRUCTURAL** -- `1` and `100` are numeric literals, which this system has no token
+    for and the server rejects; keeping it in code is also what keeps `bcsMarginPercent`'s guards
+    (zero / non-finite / NEGATIVE denominator, the last of which would show a loss as +150%)
+    unbypassable. Targets `bcs_margin_cost` + `boq_total`; `rollBcsSections` takes a per-row
+    `ownTendered` override so the Summary panel follows a formula too. ⚠️ **Total Quantity must
+    stay reachable from the COST side** -- BCS Total is a ROW total while the cost boxes are
+    PER-UNIT rates, so without it the only reachable formula was dimensionally wrong.
+  - ⭐ **THE CHIP-NAMING RULE: a palette chip must read EXACTLY as its column reads in the grid.**
+    Broken twice in one session, both times found by the owner (`Amount (Total)` was a ROLE label;
+    `BCS Total` vs the header's `BCS Total Amount`). Sheet-column chips carry the **Excel letter**
+    (`G — Amount (Supply)`) -- the one label both surfaces share; BCS chips carry none, because
+    they have no Excel column and that absence is meaningful. **A chip nobody can locate in the
+    grid reads as a figure that does not exist.**
+  - **The % Margin column header OWNS the margin view controls (BCS-S13/S14, owner 2026-08-07).**
+    Layout is `[ƒ] % Margin [↑↓] [▼funnel]`. ⚠️ **BCS-S4's separate flat "margin VIEW" is DELETED** --
+    with its toolbar toggle, its header-as-sort-control, and `buildSectionLabels` (which existed only
+    because flattening destroyed the section context a tree shows by POSITION). Do not rebuild it;
+    a ranked overview is a rebuild, not an un-deletion.
+    - **The RANGE is a TERM of `passesViewFilter`, never a separate pass** -- so it ANDs with
+      Show-unpriced / Check-Category / the row-type toggles for free and search inherits it. The
+      **SORT** is the one genuine stage after it (ordering cannot be a predicate).
+    - **Both are SNAPSHOTS measured over the WHOLE sheet (`rowsRef.current`), never `displayRows`.**
+      A range measured over the filtered set narrows irreversibly on each Apply; a rank built over it
+      leaves later re-admitted rows unranked in the appended tail. Recomputed on an explicit
+      Apply/arrow click ONLY -- `activeCell` is array-index addressed, so a live re-derivation would
+      slide a different row under the cursor mid-keystroke.
+    - ⚠️ **MEMBERSHIP IS THE MARGIN, NEVER `node_type`.** `isMarginViewRow` (line-items-only) was the
+      VIEW's curation rule and could not survive either half: the grid renders % Margin on every row
+      that has one, so a qty-bearing Preamble showing 15% would vanish from a 10-25% filter beside
+      line items that stayed; and `marginSortRows`' output IS the grid's row set, so an unranked row
+      silently disappears from the sheet. Rows with no margin are already excluded by `marginInRange`.
+    - **Only the SORT suppresses tree claims** (flat depths, withheld `childrenByParent`, suspended
+      collapse) -- a filter merely drops rows, so a survivor's ancestry and chevron stay true. The
+      arrow is THREE-state (`off → asc → desc → off`); **off must stay reachable**, or the suppressed
+      hierarchy has no way back.
+    - ⚠️ **A CONTROL THAT CAN HIDE ITSELF NEEDS AN ESCAPE HATCH.** `PricingGrid`'s `rows.length === 0`
+      early return fires BEFORE the header, so a range matching nothing removed the only control that
+      could clear it. The empty state must therefore tell "empty sheet" from "your filters emptied it",
+      name the applied range **without blaming it** (filters compose -- claiming "nothing has a margin
+      in that band" may be false), and offer **Clear filters** resetting EVERY view filter. It must
+      stay an early return INSIDE the grid: lifting it into the page unmounts `PricingGrid` and
+      discards the unsaved drafts held in its state.
+  - **The BCS dialog is ONLY a switch (S12):** on/off + Cancel; both column pickers gone.
+    ⚠️ **Readiness dropped to `bcs_enabled` in the SAME change and the two are inseparable** --
+    re-adding the confirmation requirement without the pickers makes BCS switch on and stay
+    permanently read-only. The ribbon chip and the "BCS needs columns" banner were removed with
+    them (a banner that cannot fire is worse than none). ⚠️ **Enabling no longer opens the card**
+    -- that line was correct only while the card held the pickers.
+  - **`BCS Total Amount` is an EDITABLE FORMULA (BCS-S9, green ƒ on its header).** Stored in the EXISTING
+    `BoQ Cell Amount Formula` as `target_value_field = "bcs_total"` -- **no schema change, no migrate**, and
+    it rides the `column_formulas` payload + `onSaveFormula` that already existed. **`bcsColumns.bcsTotalCell`
+    is the ONE function that answers "this row's BCS total"** -- `PricingGrid` and `pricingRollup` computed it
+    separately before S9, which was survivable only while the rule was a constant; as per-sheet DATA two
+    copies would show different numbers in the grid and the Summary panel. Absent formula ⇒ the built-in
+    `(cost boxes) × quantity`, byte-identical to pre-S9. The operand vocabulary (`bcs_supply` / `bcs_install`
+    / `bcs_combined` / `bcs_qty`) is DISJOINT from the sheet's columns; the palette derives from
+    `bcsLiveRateKinds`, so it can never offer a box the sheet lacks. ⚠️ **The builder's palette group
+    headings must stay DERIVED (`paletteGroupOrder`), never a fixed list** -- a hardcoded
+    `["Quantity","Rate","Amount"]` silently dropped the BCS cost chips at render with no error and no empty
+    state, and only the owner caught it.
+  - **A BLANK IS NEVER A 0, and every blank knows WHY** (`BcsComputedCell` = value | blank+reason, surfaced as the
+    cell `title`). A `0` is a claim ("this costs nothing"); an absence is not. An unrecognised reason renders as an
+    explicit UNSUPPORTED state, never a silent blank. ⭐ **% Margin is never NaN, never Infinity, and NEVER A
+    PROFIT ON A LOSS** -- a NEGATIVE denominator flips the inequality (amount -100 vs cost 50 computes +150%), so
+    a loss-making row would display positive profit: confidently wrong, which is worse than visibly absent. It is
+    a **blank with a reason, not a blocked keystroke** (do not convert it into a validation); the COST side is
+    deliberately unguarded, since only the denominator's sign inverts the comparison.
+  - ⚠️ **`mergeBcsRowValues` takes a `ReadonlyMap` ON PURPOSE -- never "simplify" it to an object.** The grid's cost
+    drafts are keyed `` `${row_index}:${field}` `` while the merge reads BARE field keys; as plain objects the two
+    are structurally assignable, so passing the wrong key space COMPILES CLEANLY, finds nothing, and reverts a
+    controlled cost input on every keystroke while the debounce saves a number nobody typed. A `Record` is not
+    assignable to a `Map`, so the mistake is now a compile error.
+  - **The `bcs_costs` carry layer defaults OFF, and the default lives ONLY in the client** -- an omitted `layers`
+    payload is rates-only server-side. ON is the exception, not the rule, and an internal cost rate is the last
+    layer on which to relax "nothing arrives un-asked-for".
+
+- **Header column filters + the Row Type label (UI slice, owner-locked).** The pricing grid's Row Type
+  and Category headers each carry a funnel (`boq-wizard/GridColumnFilter.tsx`) opening a type-to-search
+  checkbox popover. Load-bearing invariants:
+  - **FILTER STATE IS PAGE-LEVEL AND ACTS ON THE ROW SET, NEVER ON A ROW.** It is a FOURTH clause in
+    `SheetPricingPage.passesViewFilter`, beside the three existing view filters. The grid gets only the
+    option list, the current selection and a callback -- six PER-GRID props, NONE in
+    `pricingRowPropsAreEqual`. **The popover's type-to-search box is LOCAL to the popover and must never
+    be lifted to the page**; that is what keeps a keystroke from re-rendering the grid. The
+    module-level `EMPTY_FILTER_SET` / `EMPTY_FILTER_OPTIONS` destructuring defaults exist so a default
+    cannot mint a new identity per render and defeat the `PricingGrid` memo -- do not inline `new Set()`.
+  - **FILTER ON THE LABEL, MATCH ON THE ID.** An option is `{id, label}`: display/sort/search use the
+    label (agreeing with the Category cell's `labelFor`), the predicate compares ids. Selections are
+    ALWAYS sets of ids, so editing a catalog label cannot silently break a live filter.
+  - **`isMasterSetBlank` is THE single blank predicate and now drives FIVE surfaces** -- the server
+    gate/count, the grid's amber Category fill, the Check-Category view filter, the page's live blank
+    count, and the Category filter's **"(Blanks)"** entry. Never write a sixth definition. An empty
+    selection is a PASS-THROUGH (never "hide everything"); AND across columns, OR within a column.
+  - **The funnel trigger's `h-4` + `leading-none` is LOAD-BEARING, not styling.** In FROZEN (two-pane)
+    mode the Row Type header lives in the frozen table and Category in the scrolling table; an
+    unpinned trigger height let the active-state count badge grow the frozen header row, offsetting
+    that pane's body so the two grids visibly stopped lining up. Any affordance added to a header cell
+    in EITHER pane must be height-neutral across all of its states.
+  - **`GridColumnFilter` deliberately DUPLICATES `RateMasterDataViewer`'s `ColumnFilter` rather than
+    importing it** (owner ruling): exporting would couple two independent modules, and the two already
+    diverge. Do not "de-duplicate" them.
+- **A COMPLETION MESSAGE REPORTS WHAT RAN, NEVER THE POPULATION (owner-locked).** The suggest-run
+  modal read `summary.results.length` — the whole DOCUMENT (carried + newly extracted) — so a
+  scoped run announced the population and a partial run read as a full one. The pass's own scope
+  rides the terminal payload; the message is built by a PURE, unit-pinned function so each run
+  shape's wording is testable without spending an AI call. **"carried forward unchanged" and "not
+  reached" are NEVER folded together** — they mean different things to someone deciding what to
+  check — and a count that does not apply is OMITTED, never printed as zero. Where the payload
+  cannot support a split, the message says what IS known rather than inventing a number — that is
+  the fallback, not the target. **The COUNT A MESSAGE NEEDS MUST COME FROM THE PASS, NOT THE
+  DOCUMENT:** a run document accumulates carried rows, so a document-level "attempted" figure
+  answers "what does this document hold", never "what did this pass do", and subtracting it from
+  the population reads as zero-missed exactly when rows were left unfinished. Where both numbers
+  exist, take the per-pass one and derive carried-forward and not-reached from it. **Never name a single category in this message** — the population spans
+  many, and the old "wiring rows" label was a leftover from when the feature handled only cables.
+- **VIEW FILTERS COMPOSE IN EXACTLY ONE PLACE AND ALWAYS AND (owner-locked).** Every view filter is
+  a clause in `SheetPricingPage.passesViewFilter` — never a second pipeline. **A new clause must
+  ALSO be added to `anyViewFilter`**, because `displayRows` has a `!anyViewFilter` FAST PATH that
+  returns the unfiltered rows: a clause added without it compiles, passes its unit tests, and
+  silently does nothing. Its inputs must join the `displayRows` dependency array for the same
+  reason. **An EMPTY selection is a PASS-THROUGH, never "hide everything".**
+- **A FILTER MUST NEVER HIDE EVERY ROW WITHOUT SAYING WHY.** The ticked-rows toggle carries BOTH
+  guards deliberately: the predicate passes everything through when nothing is ticked, AND the
+  control is DISABLED with a tooltip saying what to do first. The accidental state (untick the last
+  row while filtered) therefore restores the full sheet instead of emptying the grid.
+- **THE TICKED-ROWS FILTER IS A TOGGLE, NOT A VALUE LIST, AND IT READS THE SELECTION SET.**
+  `GridColumnFilter` is built entirely around distinct-VALUE lists (options array, `Set<string>`,
+  type-to-search, membership matching); a thousand row numbers would be a useless list, and bending
+  it would put a search box over two pseudo-options and express a boolean as a set of sentinels. The
+  toggle READS the page's ONE selection set and never duplicates it — which is also what makes
+  unticking while filtered drop the row immediately, with no special case. Only the toggle's own
+  pressed state reaches the grid, and it stays OUT of `pricingRowPropsAreEqual`.
+- **THE TICK BOX FOLLOWS THE RUN'S ELIGIBILITY, NEVER THE BADGE SET (owner-locked).** FOUR
+  definitions of "eligible" live in this screen and they disagree: the priceable MASTER SET
+  (`isPriceableType`), priceability's priceable LINE (qty in a rate-column area), the RATE-EDITABLE
+  set the badges and the faint opener render on (`isRateEditableRow`), and the suggest RUN's own
+  population (`assemble_population` — rate-editable AND a non-blank resolved category AND that
+  category having an eligible rate config). **The set is surfaced BY THE SERVER**
+  (`get_active_suggestion_run().eligible_rows`) and must never be re-derived client-side: a copy
+  would be a FIFTH definition, free to drift, and the drift presents as ticks the run silently
+  ignores. Ticking on the badge set would offer rows the run drops.
+- **SELECTION STATE IS PAGE-LEVEL AND ONLY BOOLEANS REACH THE MEMOIZED ROW.** The row receives
+  `tickable` + `selected` (per-row booleans, compared by value in `pricingRowPropsAreEqual`) plus a
+  reference-stable `onToggleTick` — **never the selection Set and NEVER a count**; a count changes
+  on every tick and would re-render every row. This is the `openRemark` shape. The COUNT the
+  confirmation quotes stays page-local and is never passed down. Selection is keyed by the DURABLE
+  `source_row_number`, never the window array index (virtualized recycling remaps indices), and it
+  is per-sheet + session-only.
+- **THE "SUGGEST RATES" BUTTON IS REPURPOSED, NOT DUPLICATED, AND ALWAYS CONFIRMS BEFORE AN AI
+  CALL.** Ticks present -> run those; none -> the whole sheet. **The whole-sheet WORDING is the
+  product, more than the count**: it must warn that re-running OVERWRITES rows that are already
+  correct and point at the tick alternative, and its action renders DESTRUCTIVELY so a stray click
+  cannot launch a full re-extraction. The copy lives in the pure `suggestConfirmCopy` so both
+  branches are unit-testable; the selected-row branch carries NO warning because it has no such
+  consequence.
+- **The rate-helper panel's three-way attribute state (owner-locked).** `ExtractedAttr` and
+  `WorkingsAttribute` both declare `defaulted?: boolean` (it always arrived on the wire; it is no longer
+  read through a cast), and the pure `isAttrBlank` / `isAttrDefaulted` in `rateHelperTypes.ts` are the
+  ONE definition of the render rule: **BLANK (`value === ""`) -> red border; DEFAULTED -> the amber
+  attention token; POSITIVELY ABSENT (the `"None"` sentinel, or `disabled` because its controller is
+  None) -> NEITHER.** `"None"` is a DECISION, not a gap, and must never render as missing. ONE condition
+  in `pricingSheetHelper` drives both the structural flag and the prose derivation line, so they cannot
+  disagree; the prose line is a separate surface and is KEPT. Neither highlight holds state -- a human
+  override recomputes the helper, which clears the mark at source, so a highlight can never outlive the
+  correction.
+- **User-facing text says "Row Type"; every field stays `classification` (U3, owner-locked).** The
+  rename is WORDING, not a migration: `classification` / `human_classification` /
+  `effective_classification` / `new_classification`, the AI prompt constants, the review CSV export
+  headers, and `data-colkey="a3"` are all UNCHANGED. Strings naming the CATEGORY-CLASSIFICATION RUN
+  (the classify modal, the Freeze/Unfreeze Classification family) are a DIFFERENT concept that shares
+  the word and must NOT be renamed. Both screens render the ONE shared constant
+  `reviewRender.ROW_TYPE_LABEL` (and the derived `ROW_TYPE_FILTER_LABEL`), which is what makes a
+  half-rename structurally impossible rather than merely caught; `reviewRender.test.ts` pins it.
+- **An `attribute_definitions[].default` is NOT display-only -- it reaches the AI.**
+  `extraction.build_attribute_defs` copies it into the per-attribute definitions sent to the model, and
+  it also seeds the Rate Master Derivation screen ahead of the goldens fallback. It is DISTINCT from the
+  top-level `extraction_defaults` map. Treat adding one as a behavioural change, and prove the
+  whole-config RM-4b round-trip -- the loader does not validate, only `update_rate_config` does.
+- **`coerceForMatch` lives in `rateMasterStructure.ts` and is THE single point where an attribute
+  value becomes a match key.** It is not a page helper: `matchMasterRow` compares with `===`, so the
+  JS type produced here decides whether a catalog row is found at all. Two shared predicates, one
+  definition each, carry the two type axes -- `isNumericAttributeType` (`number` | `number_choice`)
+  and `isDropdownAttributeType` (`choice` | `number_choice`) -- and BOTH rendering surfaces (the
+  pricing-editor panel's `options`, the Rate Master Derivation configurator) read them rather than
+  testing the type string. An unknown / future type answers NO to both and degrades to a plain
+  String input. The Derivation screen keeps its OWN `coerceSelected` because that form clears to
+  `""` ("the field is empty") where the match coercion yields `null`; only the TYPE decision is
+  shared.
+- **A PANEL OVERRIDE BELONGS TO ONE ROW AND NEVER SURVIVES A ROW CHANGE (owner-locked).**
+  `RateHelperPanel` is ONE mounted component that swaps `excelRow`, and its edit maps were keyed by
+  HELPER ID alone — with a single helper (`pricing_sheet`) serving EVERY category, an override typed
+  on one row rode along to the next and reached any category declaring an attribute of the same id.
+  **The row is carried INSIDE the state and checked on READ (`overridesForRow`), never cleared by an
+  effect:** an effect leaves a window — the render after the row changes but before it runs still
+  computes with the old row's edits — and **"Use this value" writes a rate PERMANENTLY**, so a click
+  in that window banks a number computed from another row. Any new panel-session state (a final-value
+  override, a future per-attribute note) must be row-scoped the same way.
+- **AN ATTRIBUTE THE PIPELINE DERIVES IS NEVER MISSING USER INPUT (owner-locked).** The helper's
+  missing-attribute gate must exempt every attribute the config COMPUTES: a blank one means "not
+  stated", not "row incomplete". Two mechanisms make an attribute derived — a component taking
+  `qty: {from_fit}` supersedes its `<name>_qty`, and a `module_fit` **ladder BIND** names the
+  attribute the fitted rung binds to — and `derivedAttrIds` is the ONE predicate over both (it
+  reuses `derivedQtyAttrs` rather than repeating it; #179 is why). **⚠️ `bind` IS NOT `floor_from`,
+  and one attribute can be BOTH:** `plate_item` is its own ladder's floor (a stated plate is a
+  FLOOR, the take-the-larger rule) AND its bind. **Being a bind WINS** — the pipeline can always
+  compute it — while a `floor_from` that is not a bind stays a genuine input and must still block.
+  A stated derived value is still passed to the pipeline, where the ladder reads it as the floor.
+  **Read the derived set FROM CONFIG, never by hardcoded attribute id.**
+- **A NO-OP MEASURED BEFORE A DEPENDENCY LANDS IS NOT A NO-OP AFTERWARDS.** This gate fix was
+  dropped once as a measured no-op, correctly: the only derived attribute then was never blank.
+  Wiring `module_fit` into a category later made another attribute derived, and the dropped fix
+  became a live defect. A decision resting on a measurement inherits that measurement's expiry date.
+- **A DERIVED ATTRIBUTE DISPLAYS ITS COMPUTED VALUE AND IS NEVER FLAGGED AS MISSING
+  (owner-locked).** Exempting it from the helper's missing-attribute gate stopped it REFUSING a
+  row; it did not make the field show anything, so the form still rendered a blank in a red border
+  while the pipeline priced a plate behind it. **The screen is the authority** -- "the arithmetic
+  underneath is correct" describes that defect rather than defending it. `isAttrBlank` is the ONE
+  predicate carrying the exemption, so the gate and the red border cannot disagree about the same
+  field. **The computed value is carried in `derivedValue`, NEVER written into `value`**: `value`
+  means "what the row supplied", and collapsing the two makes a computed number indistinguishable
+  from a stated one to every later reader.
+- **THE FACE PLATE STAYS EDITABLE, AND A TOO-SMALL ENTRY WARNS RATHER THAN BEING SILENTLY
+  OVERRIDDEN (owner-locked).** A stated value keeps the screen and still feeds the pipeline as the
+  take-the-larger FLOOR. When the computation overrides it, the panel must SAY so, naming the
+  stated capacity, the contents and the size actually priced -- a silent override is
+  indistinguishable from a field that ignores the user. **The warning belongs IN THE PANEL, not
+  only in the derivation trace**: the trace is a separate surface a pricer may never open.
+- **THE BLANKER QUANTITY IS COMPUTED-ONLY AND READ-ONLY -- the NAMED EXCEPTION (owner-locked).**
+  Its component takes `qty: {from_fit}`, so the pipeline never reads the attribute; an editable
+  field would promise an effect it cannot have. **A ladder BIND is the opposite case and must stay
+  editable** -- its stated value IS read, as the floor. The two are told apart FROM CONFIG
+  (`derivedQtyAttrs` = fully superseded, a `module_fit` ladder bind = still an input), never by
+  attribute id.
+- **THE PRICING PANEL AND THE RATE MASTER DERIVATION SCREEN ASK DIFFERENT QUESTIONS ABOUT THE SAME
+  FIELD, and are kept apart BY CONSTRUCTION (owner-locked).** On Derivation, `plate_item` is the
+  stated FLOOR a user sets; in the panel it is "what did the assembly come to?". Derivation reads
+  `derivedQtyAttrs` (the superseded-qty half only) and the panel reads `derivedAttrIds` (both
+  halves), so collapsing the two predicates would freeze a field that is genuinely editable there.
+  Pinned by test -- do not "unify" them.
+- **A `module_fit` STEP PUBLISHES ITS OUTCOME AS STRUCTURED DATA (`StepTrace.moduleFit`), and a
+  consumer must READ IT rather than parse the trace prose or re-derive the fit.** The prose
+  `matchedCondition` is a human sentence that gets reworded; making it a parsing contract fails
+  SILENTLY. Re-deriving the fit would be another copy of the catalog-resolved, take-the-larger
+  module rule -- the drift #179 exists to prevent. The field is ADDITIVE AND OPTIONAL (absent on
+  every other step, and on a `module_fit` that bailed -- nothing fitted, nothing claimed), and it
+  is written ALONGSIDE the prose at the identical points so the two can never disagree.
+- **THE PRICING-EDITOR ROW COUNT IS THE GATE FOR ANYTHING THE GOLDENS BYPASS.** Goldens call
+  `runPipeline` directly and never touch the helper's gate or `coerceForMatch`, so a change there
+  can leave all 26 green while the editor prices nothing. Measure rows-producing-a-value per
+  category, before and after.
+- **AN ATTRIBUTE VALUE IS COERCED IN SEVERAL PLACES, AND A NEW TYPE MUST BE TAUGHT TO EVERY ONE.**
+  Three of them decide whether a value can ever match: the frontend MATCH path
+  (`rateMasterStructure.coerceForMatch`, value -> catalog match key), the SERVER EXTRACTION path
+  (`extraction._coerce_value`, model reply -> stored value), and the MASTER-ITEM EDITOR
+  (`RateMasterDataViewer.coerceAttributeForStorage`, typed value -> the item's stored `attributes`).
+  A fourth, the config validator, decides what may be authored at all. **`number_choice` is NUMERIC
+  at every site, never a string** — an item row written with `"1"` where every other row carries `1`
+  can never be matched, and nothing errors. All sites key on the ONE shared predicate
+  `isNumericAttributeType` / `isDropdownAttributeType` so they cannot drift apart. **This defect was
+  missed THREE times — the frontend twin, the server twin, then the editor — so a coercion change
+  means sweeping the whole stack, both halves, before believing the list is complete.**
+- **`coerceForMatch` IS NOT THE ONLY COERCION — the server has its own, and a new attribute type
+  must be taught to BOTH.** The frontend turns a value into a catalog match key; the backend
+  (`services/boq_rate_master/extraction.py::_coerce_value`) turns the model's reply into the stored
+  value, and a type it does not know falls through to STRING semantics and is nulled against a
+  numeric domain. `number_choice` compares NUMERICALLY at both sites — never by string — while still
+  enforcing domain membership. Teaching only this side is what broke production once; **sweep both
+  halves of the stack whenever a coercion changes.**
+- **A DROPDOWN over a numeric catalog column must be `number_choice`, never `choice` (owner-locked).**
+  A `choice` emits the string `"3"` against a stored `3` and silently matches nothing. Making the
+  matcher numeric-aware was rejected -- it changes every category's matching and fails as a WRONG
+  match rather than a visible one. **The goldens cannot catch this class of break**: they call
+  `runPipeline` directly and never touch `coerceForMatch`, so a coercion change has to be proven
+  through the pricing-editor path (the count of rows actually producing a value), not by a green
+  suite.
+- **A COMPUTED ATTRIBUTE VALUE MUST REACH THE SELECTION -- `circuit_fit` and `resolveQty` read
+  there and never consult `ctx` (owner-locked).** `circuit_fit` takes its length from
+  `selected[length_attr]` and a component's `{from_attr}` quantity from `selected[qty.from_attr]`,
+  while every other step writes into `ctx`, and `scale` cannot bridge it (it is a RATE scaler needing
+  an existing finite `ctx` rate as its target). The `derive_attribute` step crosses the gap by writing
+  into a **run-local overlay copy of the selection** inside `runPipeline`, so every existing read site
+  sees it and **the caller's object is never mutated** -- `value` must keep meaning "what the user or
+  extraction supplied". **Do NOT instead widen the readers to fall back to `ctx`**: they are shared by
+  all 13 categories, and a `ctx` key colliding with an attribute id would silently re-price a shipped
+  row. A pipeline with no `derive_attribute` step is byte-identical.
+- **A STATED value ALWAYS WINS over a computed one for this attribute -- NO floor, NO warning
+  (owner-locked).** DELIBERATELY unlike the plate's take-the-larger: the STATED value is kept whether
+  it is larger or smaller than the computation, and nothing warns. It is checked BEFORE the source
+  attributes are read, so a stated length prices even when the input the rule would have used is
+  unreadable. The field therefore behaves like a LADDER BIND, not like the blanker quantity -- it must
+  stay **EDITABLE** (`readOnly` false) on every surface.
+- **A `derive_attribute`'s FORMULA, SOURCE attributes and TARGET attribute are all CONFIG, never
+  hardcoded** (the `module_fit` `terms` precedent). A missing / blank / non-numeric / `"None"` source
+  is an HONEST NO-COMPUTE naming the attribute -- never a zero, never a guess -- and a MALFORMED step
+  keeps its own distinct refusal. It publishes `StepTrace.derivedAttr` as STRUCTURED DATA with ONE
+  reader, `derivedAttrOutcomes` -- the `moduleFit` precedent: never parse the trace prose, never
+  re-derive the arithmetic.
+- **THE CIRCUIT LENGTH IS COMPUTED FROM THE POINT COUNT, AND A STATED LENGTH ALWAYS WINS -- NO FLOOR,
+  NO WARNING (owner-locked).** `circuit_length_m = 15 + (points - 1) x 5`, as a `derive_attribute` step
+  that must sit **FIRST in every pipeline** (both `circuit_fit` and the wire components read the length
+  off the selection). **⚠️ `circuit_length_m` must NEVER carry an `extraction_defaults` entry** -- an
+  injected value is a STATED value, so it would win on every row forever and make the derivation inert
+  while every test stayed green.
+- **`points` is the number of points a LINE COVERS, never the number of such lines in the bill
+  (owner-locked).** The sheet's `qty` is INVERSELY shaped, so reading it as the point count inverts the
+  correction on exactly the rows that matter most. EXTRACTED, not derived; a plain `number` (a point
+  count has no catalog domain, so `number_choice` would be wrong).
+- **`derivedAttrIds` collects THREE mechanisms, and a `derive_attribute`'s `result_attr` is the third**
+  (beside a `{from_fit}` superseded qty and a `module_fit` ladder bind) -- read FROM CONFIG, never by
+  id. It is the LADDER-BIND case, not the read-only blanker quantity: a stated value IS read and wins
+  outright, so the field stays **EDITABLE** and `readOnly` is never set. **The gate NARROWS, it does not
+  open** -- a genuinely absent input, including the SOURCE attribute the formula reads, still blocks.
+- **⚠️ ADDING A REQUIRED EXTRACTED ATTRIBUTE INVALIDATES EVERY PRE-EXISTING EXTRACTION OF THAT
+  CATEGORY, so the ASSET APPLY and the RE-EXTRACTION ARE ONE ATOMIC OPERATION (owner-locked).** A run
+  that predates the attribute carries it on no row, the missing-attribute gate blocks, and the category
+  prices NOTHING in between. `extraction_defaults` does not help -- defaults are baked in at EXTRACTION
+  time, not applied when reading an older run. **Every test surface stays green while the category
+  prices 0**, so the editor-path row count over live data is the only gate that can see it.
+- **A category's `values_from.where` pins the family ITS OWN component refs price, not the union
+  across families.** The resulting core x thickness grid is deliberately NOT rectangular -- a pair
+  the catalog does not carry is an honest no-match, and constraining one dropdown by another's
+  selection is the dependent-`where` mechanism cables are deferred for.
+- **A `<Select>` MUST NEVER BE BOUND TO A VALUE IT CANNOT OFFER (owner-locked).** A control whose
+  `value` is absent from its own option list is a TRAPDOOR: it displays nothing, and one interaction
+  overwrites the value with something the list CAN represent -- irreversibly, because the original was
+  never on offer. Where the options enumerate a declared union, DERIVE them from an exhaustive
+  `Record<Union, true>` presence map rather than hand-listing them in the JSX, so a new union member
+  becomes a COMPILE ERROR instead of a silent omission. This is not a styling rule: the type picker on
+  the Rate Master Pipelines tab hand-listed two of the three attribute types, and the four live
+  `number_choice` definitions rendered blank against it. **A placeholder is NOT a fix** -- it makes the
+  gap look intentional while leaving the overwrite reachable.
+- **AN ATTRIBUTE'S TYPE MUST NOT BE LOSABLE BY A SINGLE INTERACTION (owner-locked).** `coerceForMatch`
+  keys the catalog match on the TYPE, so a wrong type matches NOTHING, silently -- and the server
+  accepts it (`_validate_config` only requires a dropdown type to carry `values` OR `values_from`; it
+  never checks the type against the source column's). **The editor may only change what it can express
+  end to end:** a definition whose values come from `values_from` has its type ENTANGLED with a source
+  column the editor can neither see nor set, so that type is READ-ONLY there. A static-`values` or plain
+  number definition keeps its full reach. Reopening the lock is the authoring slice's job -- authoring a
+  `values_from` means authoring its source column first, and only then is the type safely settable.
+- **THE ATTRIBUTE TABLE MUST SHOW WHERE A DEFINITION'S VALUES COME FROM, not only a static list it may
+  not carry (owner-locked).** Rendering `d.values` alone reads as EMPTY on every `values_from`
+  definition, and empty is a WRONG picture rather than an incomplete one -- a catalog-resolved dropdown
+  with a None sentinel and dependent fields showed as a blank cell. Name the source (`<kind>.<attr>`),
+  keep the `where` PAIRS (the pair is what distinguishes two otherwise identical specs), and mark
+  None-ability. **Do NOT resolve the values there:** the resolution already exists in three places
+  (server extraction, the Derivation tab, the pricing helper), and a fourth copy is the drift this
+  codebase keeps paying for. Describe the spec; do not execute it.
 
 ### Review screen (`ReviewTree.tsx`) -- load-bearing invariants
 
@@ -939,6 +1335,14 @@ in the plan doc.
   lazy + `export { RateMasterPage as Component }`. `rateMasterRegistry.ts` is registry-shaped like
   `pricingWorkbooks.ts` (Electrical today); the sidebar registration is the SAME four registry-driven
   touches the pricing workbooks use (role-gated item, `allKeys`, `groupMappings`, flat-label Set).
+- **⚠️ THE CATEGORY PICKER IS REGISTRY-DRIVEN, NOT CONFIG-DRIVEN, so RETIRING a category means removing
+  its `rateMasterRegistry.ts` line in the SAME change (owner-locked).** The list on screen comes from the
+  registry, never from which configs are active — retire the config alone and the category is still
+  offered, and choosing it renders "No active config found for …". **And retirement itself is
+  `retired_category_ids` in the asset, NEVER omission**: a category merely dropped from an asset is
+  outside the `replace=True` supersede scope and stays ORPHAN-ACTIVE. There is no delete path in the
+  loader or any admin endpoint — this module is freeze-and-supersede, so "remove a category" is always
+  "retire it + drop its registry line".
 - **`ratePipelineInterpreter.ts` is THE single compute source (owner-locked) -- a PURE TS module with NO
   React imports.** It executes the stored pipeline step vocabulary (`match_master_row`,
   `apply_effective_multiplier` with conditions, `scale`, `component`, `component_band`, `sum_components`,
@@ -951,6 +1355,17 @@ in the plan doc.
   definition, the rate fields present, unit, source) -- never a hardcoded column list.
 - **Unknown step type = an explicit "unsupported" state, never a silent skip** (forward-compat honesty for
   future step types). A combination with no master row renders an honest no-match with zero computed values.
+- **`runPipeline` NEVER throws on data shape (EA-DIFF Option C, owner-locked):** the step loop is wrapped so a
+  data-shape formula throw (an unbound identifier / malformed expression -- e.g. a `scale` step carrying
+  `conditions`, a shape only `component` binds) DEGRADES to the honest `unsupported` status for that pipeline;
+  the Derivation tab AND the pricing helper render the honest state and NEVER hit the React error boundary. A
+  well-formed pipeline is byte-unaffected. Contract enforcement, not new vocabulary.
+- **Data-Viewer empty-scope rule (EA-DIFF, owner ADDENDUM):** a category whose resolved kind set is EMPTY
+  (declared `item_kinds:[]` AND no pipeline-derivable kind -- `point_wiring`, the first kind-less category)
+  renders an HONEST EMPTY STATE (0 items, no kind chips, no Add-row, a "no data rows of its own" note) via the
+  pure `rateMasterStructure.isCategoryDataScopeEmpty(config)`. It MUST NEVER fall through to the discipline-wide
+  all-items list (the pre-EA-DIFF `: items` fallback surfaced all rows with mixed columns). LMS
+  (`item_kinds:["lms_item"]`, empty pipelines) resolves a kind -> UNCHANGED.
 - **BCS pipelines ARE shown here** (internal transparency surface); only the pricer-facing helper defers BCS.
 - **The viewer search is CASE-SENSITIVE across all displayed cell values** -- the data is canonical
   UPPERCASE, so a mixed-case query intentionally finds nothing (mirrors the RM ethos: no case-insensitive
@@ -978,6 +1393,22 @@ in the plan doc.
   filtering never drift. Composition: **AND across columns, OR within a column**; a global `Clear filters (N)`
   control shows the active-column count and resets. Purely CLIENT-SIDE over the already-loaded active items
   -- no new query, no backend change, read-only (composes cleanly with the RM-4a admin editing above).
+- **Data Viewer is CATEGORY-SCOPED (`RateMasterDataViewer.tsx`, owner-locked).** The tab shows ONLY the
+  selected category's items + columns. The category's kinds come from `categoryItemKinds(config)`
+  (`rateMasterStructure.ts`, pure + vitested): the config's declared `item_kinds` if present, ELSE derived
+  from the pipelines' `match_master_row` params (the legacy wiring config predates item_kinds ->
+  {cable, termination}). `scopedItems = items.filter(kind in categoryKinds)` drives every derivation (rate
+  columns first-seen over ITS items, kind chips, filters, the count badge). The KIND column + chips render
+  ONLY when the category spans >1 kind. **A top-level `item_kinds` config key is accepted by the RM-4b
+  `_validate_config` allowlist** (else editing an E-ALL config would break). **Actions column is FIRST and
+  `sticky left-0`** (visible at any H-scroll); admin hide-not-disable is unchanged -- a non-admin renders NO
+  actions column (no ghost gutter). **The always-visible horizontal scrollbar is the RM-3b PROXY pattern**
+  (from `PricingGrid.tsx`, now the STANDING single-bar rule for ALL wide tables): the real scroller
+  suppresses its native H-bar (a `*-hidehbar` webkit CSS class, X-scroll capability kept) and a sticky-bottom
+  proxy mirrors its `scrollLeft` two-way, with the proxy's visible width == the scroller's `clientWidth`
+  (V-bar leak accounted) and a spacer == `scrollWidth`, both live-measured via a ResizeObserver;
+  `border-t`-only on the proxy so proxyMax == scrollerMax. The Add-row form is likewise category-scoped (its
+  attribute definitions + rate keys + kind preselected read-only for one kind, a select for several).
 - **RM-4b structure editor -- the THIRD tab "Pipelines" (`RateMasterPipelines.tsx` + `rateMasterStructure.ts`).**
   LIFTS the RM-4a param-values-only line: add/remove params, steps, conditions, and attribute definitions.
   READ-ONLY structural view for everyone (attribute-definitions table + each pipeline as its ordered step
@@ -995,6 +1426,202 @@ in the plan doc.
   authority); the refetch flows the new structure into the Derivation + Data tabs and the pricing helper
   with no code + no AI re-run (persistence split). **Goldens are CONFIG DATA** seeded via the endpoint; the
   vitest golden files stay independent pins. Full as-built + cert: plan doc "Build slice RM-4b".
+- **Interpreter step vocabulary (owner-locked, MINIMAL; full detail in the plan doc's "Build slice EA-1").**
+  The pure `ratePipelineInterpreter.ts` is the SINGLE compute source; there is NO loose-formula
+  generalization (that is how silently-wrong sneaks in) — the stored configs normalize every formula to
+  `base` = the step's target value + EXACT param names. Beyond the wiring set it supports: `component_band`
+  STRING-EQUALITY bands (`chooseBand`; band_on read from the matched item, falling back to the selection)
+  alongside the legacy numeric comparator bands; a `scale` value-from-attribute multiply (a `*_from_attr`
+  param binds the selected attribute — missing/non-numeric → HONEST `no_match`, never a zero default);
+  `match_master_row` on the stored-vs-selected INTERSECTION (a row matches on the keys it carries, exact
+  where they overlap — wiring is byte-unchanged); a conditional `component` (params via attribute
+  conditions on the SELECTION, formula may be param-only — unmatched → HONEST no-compute, never a zero
+  adder). **A `component` may carry BOTH a `target` (base bound from the matched row) AND `conditions`
+  (params from the selection) in one step** — e.g. the tray `cover` (`base*factor`); this shape needed no
+  interpreter change. **EA-2b — the CORRECTED cable-tray config is FOUR pipelines** (`tray_boq_supply` /
+  `tray_boq_install` / `tray_bcs` / `tray_bcs_install`): conditional-`component` adders (cover /
+  ceiling-accessories 106 / refill 180 / cutting 200) + a **width-table install match** (kind
+  `tray_install_rate`, ×4). The old single `tray_boq` (install = supply ×0.2, golden 280/60) was WRONG and
+  is DELETED; the oracle goldens t1/t2/t3 (431/120/297/0, 415/120/286, 410/200) are the standing pins (the
+  dead 280/60 interpreter-test fixture was replaced). **EA-2c — `component_ref` (a NEW interpreter step):
+  base from a SEPARATELY-REFERENCED master row** matched by `ref.kind` AND every `ref.attributes` (exact
+  canonical, this discipline); UNIQUE resolution (zero OR multiple -> HONEST no-compute); the referenced
+  row's `target` binds as `base`, conditions/params/formula per the component contract; the trace names the
+  referenced row (`StepTrace.refItem`, rendered by `detailFor`). First-class vocabulary member
+  (STEP_VOCABULARY + blankStep + the server validator). **Owner: the earthing adder ADDS A BUS BAR (the
+  existing Bus bar earthing_item row), NOT an earth chamber** (the chamber attempt was reverted; asset
+  skipped v8, v7->v9). ONE ROW, TWO ROLES: the Bus bar row prices both as a selectable item AND as the
+  adder; an edit flows into both. **component_ref is the ASSEMBLY PRIMITIVE's simplest form.** **EA-4a
+  SHIPPED the assembly engine (owner-locked, `ratePipelineInterpreter.ts`):** `circuit_fit` (sizes conduit +
+  counts circuits, binds `fitted_size`/`circuits`/`conduit_qty`) and `component_ref` extended (ref attrs
+  literal | `@attr` | `@fitted_size`; `rate_stages [{mult,round?:up0|up-1}]` with PER-STAGE rounding; `qty` =
+  number | `{from_attr}` | `{from_fit}` | `{if_attr,then,else}`; UNIQUE resolution else honest no-compute;
+  Option-C never-throws). **PER-STAGE rounding is faithful + INTENTIONAL** (install switch `ceil(list*0.3625)`
+  THEN `*0.2` UNROUNDED — pw1 `155*0.2=31`, pw2 White `131*0.2=26.2`); never collapse to one final round.
+  **`point_wiring` is LIVE**; goldens **pw1 1869/735/1370** + **pw2 1823/722.2/1342** (MS→3 circuits;
+  fractional 722.2) are config data + standing pins, and a golden's attrs are an ATOMIC SET. **`values_from`
+  is resolved in the editor helper too (owner Option 1):** `pricingSheetHelper.attributeOptions` (pure,
+  exported) mirrors the Derivation resolution — options from the live master by `kind` + `where` — so an
+  AI-extracted item with no static `values` DISPLAYS in the panel select and a partial row completes from the
+  catalog (the switch/socket/plate dropdowns were empty before). **EA-4a-r SHIPPED the NONE mechanism
+  (owner-locked):** the sentinel string `"None"` (`NONE_SENTINEL`, exported from `ratePipelineInterpreter`) is
+  POSITIVE ABSENCE, distinct from blank=unknown -> that component line is an EXPLICIT ZERO. A `component_ref`
+  `none_skips` zeroes a line whose ref binds an `@attr`=="None" (fired before the ref lookup; back_box binds
+  @plate_item, so plate=None zeroes it too); `circuit_fit.optional_wire_when_none` drops that wire from the dia
+  (single-wire fit). **The affordance is GENERIC + input-appropriate:** a CHOICE allow_none def offers "None" at
+  the top of its select (`optionsFor`/`attributeOptions`); a NUMBER allow_none def offers a "None" CHECKBOX
+  beside the numeric input (checked -> sentinel + input greys/clears) -- both in RateMaster Derivation AND the
+  editor panel; `WorkingsAttribute` gained `disabled` + `allowNone`. `coerceForMatch` PRESERVES "None" for an
+  allow_none def (number included). Selecting None greys+clears the `disables_when_none` targets. Goldens: pw3
+  (socket="None") -> supply 1682; single-wire (wire2="None") -> 1362. **A switch-only light point (socket_item
+  null, no None set) is an HONEST NON-COMPUTE — became priceable via the None sentinel at EA-4a-r.** **EA-4b
+  SHIPPED switches_point + the industrial_sockets paired-MCB (DATA-ONLY, no interpreter change):**
+  `switches_point` = a 6-line switch/socket/plate/box assembly (TWO None-able socket slots, distinct from
+  point_wiring; golden sp1 2320/470/1600; a new registry line "Switches Point"); `industrial_sockets` gained a
+  CROSS-CATEGORY `paired_mcb` `component_ref` (ref.kind `db_switchgear_item`) gated by a `qty if_attr`
+  interlocked rule, with `extraction_defaults={paired_mcb:"None"}` so a socket-only row prices (absent=unknown
+  ->no_match; "None"=positive-absence->0). Tray ceiling-accessories = a CONFIRMED FIXED 106 scalar. **switches_point
+  has ZERO production coverage until the Electrical CLASSIFIER emits it (rows resolve to switches_sockets today) --
+  a classifier-vocab gap like popup_boxes/LMS; industrial_sockets IS emitted.** **EA-4c SHIPPED the DB build-up +
+  the `lookup_or_ratio` interpreter step (owner-ruled ONE new capability):** the build-up is FIVE FIXED None-able
+  MCB slots (sheet I10:I14) + a `db_shell` slot (allow_none -- **MCB-only, shell None, is a REAL product = the
+  sheet's `IF(J9=0)` branch**) + enclosure, summed x0.495/x0.3 -- supply+bcs are EXISTING vocabulary
+  (`component_ref none_skips` cross-kind to the NEW `db_shell` kind), so the old "variable-length list + list
+  extraction extension" prediction was WRONG (the scalar payload carries the fixed slots, no extension). **`lookup_or_ratio`**
+  (in `ratePipelineInterpreter.ts`; `LookupOrRatioStep` in `rateMasterTypes.ts`; `STEP_VOCABULARY` in
+  `rateMasterStructure.ts`) is the sheet's EXACT IFERROR three-way install: shell absent (`when_shell_absent.attr=="None"`)
+  -> `ROUNDUP(ratio.of x mult)`; else the unique install-table lookup (`kind`+`item`==`@attr`) resolves -> `ROUNDUP(matched[target] x mult)`
+  [table-hit]; lookup MISS -> the ratio fallback. Uncomputed `ratio.of` -> honest no_match; malformed shape NEVER throws
+  (Option C -> `unsupported`); the trace NAMES the branch. Goldens dbu1 (VTPN fallback 24360/**3660**/14760) / dbu2 (TPN 8WAY
+  table-hit install **1500**) / dbu3 (MCB-only shell None 23840/**3580**/14450) -- all live-verified in the Derivation. **This
+  CLOSES the assembly-category arc.** A discarded v16b data-only attempt (shell REQUIRED, no none_skips) was reverted for the
+  owner ruling that MCB-only is real. **EA-4d (owner-locked) SPLIT the `lookup_or_ratio` rounding: `round_lookup`
+  (the install-table-hit branch) + `round_ratio` (the shell-absent + IFERROR-fallback ratio branches) round
+  SEPARATELY; the legacy single `round` stays the fallback for both (backwards-compat).** v17's step sets
+  `round_lookup: null` -> the table-hit is UNROUNDED `matched[target] x mult` (sheet-faithful), while
+  `round_ratio: -1` rounds the ratio branches to tens. This corrected the EA-4c drift: **dbu4 TPN-6WAY table-hit
+  install `850 x 1.5` = 1275 UNROUNDED** (was over-rounded to 1280); goldens are now dbu1 (fallback 24360/3660/
+  14760) / dbu2 (TPN-8WAY table-hit 1500) / **dbu4 (TPN-6WAY 1275)**, d1/d2/dbu3-single-item removed. **The wiring + point_wiring + switches_sockets + DB-build-up goldens are the standing regression pins for every addition** (`switches_point` was RETIRED 2026-08-08; its `sp1` golden went with it). The Rate Master
+  category selector is REGISTRY-driven (`rateMasterRegistry.ts` lists all eleven Electrical categories),
+  NOT config-read. **`module_fit` (owner-locked) computes a row's MODULE COUNT in the PIPELINE, never by
+  the model** — a model-selected plate leaves NO trace, and the trace is the point: the step emits the
+  arithmetic AND the ladder hop on one line, because a price must show its working. **Its weighted sum is
+  CONFIG (weights AND attribute ids), never hardcoded** — `switches_sockets` has TWO socket slots and
+  `point_wiring` has one, so a fixed two-attribute formula is not portable. **Its ladders derive from the
+  CATALOG, never from a params array** (a ladder spec names a `kind` + a `where` family and carries no size
+  list, so adding/retiring a plate size needs no config edit): EXACT if the catalog carries the size, else
+  the **NEXT HIGHER**, never a lower one. **`"1M & 2M"` is ONE item covering TWO sizes** (every integer in a
+  rung's label is a covered size), so a computed 1 and a computed 2 both match it on the ordinary exact
+  path. Above the ladder's top is an HONEST NO-COMPUTE, NEVER clamped to the largest rung (a DELIBERATE
+  divergence from `circuit_fit`, which falls back to its largest size but then re-checks `circuits <= 0`;
+  `module_fit` has no second gate). A ladder's fitted LABEL binds for a later `component_ref` `"@<bind>"`
+  exactly as `circuit_fit` binds `fitted_size`; label bindings live in their OWN scope resolved ahead of
+  the selection, and every pipeline without a `module_fit` stays byte-identical.
+  **TAKE-THE-LARGER (owner-locked; REPLACES the earlier stated-wins rule):** a ladder's `floor_from` names
+  the attribute whose stated count is a **FLOOR, never a ceiling** — the plate priced is
+  `max(stated, computed)`, so a stated plate too small for its contents is **UPGRADED** rather than
+  refusing the row (a BoQ typo must not kill a line), and a stated plate bigger than needed is bought.
+  **An UPGRADE MUST ALWAYS BE VISIBLE in the trace.** **Blanks derive from the plate ACTUALLY SELECTED and
+  CLAMP AT ZERO**, never negative and never a refusal; the clamp is named in the trace too.
+  **The BACK BOX takes the SELECTED plate's module COUNT re-fitted on its OWN (shorter) ladder — NEVER the
+  plate's label:** no 9M/16M back box exists, so a 9M plate pairs with a **12M** box and 16M with **18M**,
+  and copying the label made the WHOLE ROW unpriceable (a live defect before slice 2 part 2). A `"None"`
+  plate keeps the plate line at ZERO while only the BOX takes the computed count — a box may exist with no
+  face plate.
+  **A ZERO module count with `back_box = Yes` FITS A 3M BOX — the STATE-A fallback (owner-locked).** A
+  light point on an MCB has no switch and no socket, so nothing fits any ladder and the box vanished with
+  the plate; a light point still needs a junction box. A ladder may declare `on_zero_modules`, read ONLY
+  on the zero-count path. **It names a module COUNT, never a catalog label** — the catalog still supplies
+  the rung. **The PLATE ladder must never declare it**, and **STATE B (`plate_item: "None"` with a
+  NON-ZERO count) is OUT OF SCOPE and structurally unreachable** — `on_none: "computed"` already boxes
+  those rows correctly and a wider reading would DOWNGRADE them. **It does NOT re-gate on `back_box`**:
+  the component's own `qty: {if_attr: {back_box: "Yes"}}` is where that question is already answered.
+  **WIRE INSTALL STEPS IN THREES; SUPPLY AND BCS STAY LINEAR (owner-locked).** The install multiplier is
+  `ceil(runs / divisor)` — three runs is three times the WIRE but one unit of LABOUR. **The divisor is
+  CONFIG, never hardcoded**: a rate stage carries `mult_step_divisor`, a `scale` param carries
+  `<ident>_step_divisor`, and both resolve through the ONE exported `stepFactor` so they cannot drift.
+  **ABSENT ⇒ the raw factor, byte-identical.** It never softens either site's existing no-compute rule
+  (`scale` still hard-fails on a missing source attribute; a rate stage still resolves absence to 1 via
+  `absentMeansOne`, which the point_wiring goldens depend on) and can never yield 0. **`ceil(n/3)` needed
+  NEW interpreter work** — `tokenize` accepts `+ - * /` and `parseFactor` has no call syntax, so an
+  identifier followed by `(` throws; every existing rounding rounds a product, never a factor.
+  **⚠️ TERMINATION INSTALL INHERITS RUNS THROUGH `install_as_ratio` AND MUST NEVER CARRY ITS OWN
+  MULTIPLIER (owner-locked).** `install_as_ratio` sits AFTER the supply `scale` and reads the
+  already-multiplied supply, so the inheritance IS the multiplier; a second one would be runs-SQUARED
+  (pinned by the `"never squared"` test). Its position and its trailing `roundup(-1)` are equally
+  load-bearing — reordering would move where the rounding lands. Leave all three alone.
+  **⚠️ A `scale` step's `matchedCondition` is NOT RENDERED by the Derivation tab.** `RateMasterDerivation`
+  shows the param chips for any step carrying `params` and only falls through to `detailFor` when there
+  are none, so a note attached to a step WITH params is computed and never seen. The step function's
+  working is therefore visible on a `component_ref` (point_wiring wire install, where it rides the
+  existing `rate N x qty M` string) but NOT on the `scale` site (wiring_cabling cable install). Live-verified.
+  **THE BLANKER'S COLOUR FOLLOWS THE ASSEMBLY and is NEVER hardcoded (owner-locked).** The blank
+  component's ref binds `colour: "@colour"` like every other component, so a Grey assembly prices the
+  Grey blanker and a White one the White blanker — a REAL price difference, not cosmetic. A hardcoded
+  colour does NOT fail at runtime; it silently prices the wrong catalog row, which is why the guard is
+  a PIN (the price path, never the colour string) rather than a code check. `1M Blanker` is the only
+  blanker in the catalog, so the colour is the sole free variable on that line.
+- **⚠️ SUPERSEDED — `blank_qty` IS EDITABLE AGAIN, SEEDED WITH THE COMPUTED COUNT (owner-locked).** The
+  read-only ruling below is REVERSED: the blanker is no longer selected by extraction, and
+  `module_fit` now READS the quantity and arbitrates it against the plate's SPARE capacity, so an edit
+  genuinely reaches the price and a locked field would be the lie the read-only contract exists to
+  prevent, pointing the other way. **An over-count is CORRECTED to the spare (never the plate's total);
+  an under-count is HONOURED** — two notes, deliberately opposite in meaning, and the asymmetry must not
+  be flattened. The field reuses the FACE PLATE's seeded-but-editable state (`derived` + `derivedValue`,
+  `readOnly` never set); nothing new was invented for it. **Which attribute is arbitrated is READ FROM
+  CONFIG** (`blanksQtyAttr`, the `blanks.qty_attr` key), never by id — a config without it keeps the
+  fully-superseded read-only behaviour below, byte-identically. **THE TWO SCREENS STAY APART:** the Rate
+  Master Derivation screen still reads `derivedQtyAttrs` (the superseded-qty half only), which keys on
+  the component's unchanged `{from_fit}` shape, so its answer for `blank_qty` is the same before and
+  after; do not unify the predicates.
+- **⚠️ AN ATTRIBUTE'S `disables_when_none` CAN VETO A FIELD THAT MATTERS MORE THAN IT DOES.** Once
+  `blank_item` became inert as a pricing input it still carried `disables_when_none: ["blank_qty"]`,
+  so on every row where extraction answered `"None"` a DEAD dropdown greyed out the newly EDITABLE
+  quantity. **No test could see it** — it is a rendering consequence of config and there is no DOM test
+  environment. When an attribute stops driving the price, check what it still DISABLES.
+- **A field's warnings are a LIST, not a slot (`notes?: AttrNote[]`).** The single `upgrade?` slot
+  implied OVERRIDE in three places at once — its name, its ladder-shaped payload, and the `— using X`
+  tail of its sentence — so a note meaning *we used your number, here is the consequence* could not be
+  expressed without reading as a correction. Each kind words itself through the one `attrNoteText`;
+  the `upgrade` case DELEGATES to the still-exported `upgradeWarningText` so the shipped wording stays
+  byte-identical BY CONSTRUCTION rather than by copy. **Render order is DECLARED** (`ATTR_NOTE_ORDER`
+  + a stable `sortAttrNotes`): size before count, because an upgrade changes WHICH rung is bought and
+  the quantity notes change how many fillers go in it.
+- **`blank_qty` is DERIVED and READ-ONLY — the COMPUTED count always wins and a stated one is ignored
+  (owner-locked; SUPERSEDED above — retained because the MECHANISM it describes still governs any
+  config that does not declare `blanks.qty_attr`).** The blank line takes `qty: {from_fit: "blank_count"}`, so the attribute is no
+  longer an input and must not render as one. **The derived-ness is READ FROM THE EXISTING CONFIG, not
+  a new key and never hardcoded by attribute id:** a component taking `{from_fit}` has SUPERSEDED its
+  `<name>_qty` attribute, while one taking `{from_attr}` still reads it — so a config declaring the
+  `{from_attr}` shape opts out AUTOMATICALLY and keeps that field editable, and hardcoding by id would
+  freeze it for every config including one that genuinely reads it. (That case was live on
+  `switches_point` until it was retired 2026-08-08; the RULE does not depend on an example existing.) An attribute read as an input ANYWHERE is never
+  derived. **⚠️ A DERIVED DISPLAY MUST NEVER BE WRITTEN BACK INTO THE FORM'S STATE** — `selected`
+  means "what the user or extraction supplied", and writing a computed value into it makes the two
+  indistinguishable to every later reader. Display it from the pipeline results and leave the state
+  alone; because the screen already recomputes every pipeline on every attribute change, live updating
+  needs no extra machinery. An uncomputed value renders EMPTY, never 0 — with a None plate there are
+  no blanks at all, and 0 would claim "zero needed" instead of "not applicable". **EA-2: the pricing-sheet helper (`pricingSheetHelper.ts`) is N-CATEGORY** — it resolves
+  the config PER row category (`configsByCategory`, fetched by a child `RateConfigFetcher` for all 11
+  registry categories in `SheetPricingPage.tsx`); a category with no ELIGIBLE config (pipelines + defs, so
+  an empty-pipelines LMS is excluded) returns the `{kind:"none", "…coming soon."}` guard. Groups render ONE
+  per NON-BCS pipeline (ids containing "bcs" NEVER surface), labelled `config.pipeline_labels?.[id]` (config
+  data) else `prettifyPipelineId(id)`; `values` come from the FIRST non-BCS pipeline. **The `wiring_cabling`
+  paired Cable+Termination display stays a TEMPORARY named-category special-case (owner Decision 2) — EA-4
+  designs the generic pairing/assembly mechanism and wiring migrates then; do NOT extend it.** The helper
+  Deps accept EITHER a single `config` (legacy RM-3 tests) OR `configsByCategory`; keep the memo shield
+  (every grid input identity-stable). **HONEST-PARTIAL (owner-locked):** a `scale` step whose target rate is missing
+  (`null`/`NaN`) SKIPS that output (it stays absent, renders `-`), NEVER inventing a 0; the pipeline's other
+  outputs still compute — so a source row carrying supply but not install (or vice-versa; the misc CEIG /
+  AS Built rows) prices only what exists. **Empty-pipelines configs render honestly with ZERO frontend
+  changes:** a config with `pipelines: {}` (a DATA-ONLY category such as `lighting_mgmt_system`, authored
+  in-system later) shows its data + attribute definitions on the Data / Derivation / Pipelines tabs and the
+  preview gate with no derivation output and no crash. **EA-2 SHIPPED the authoring path:** the Pipelines-tab
+  edit mode has an **Add-pipeline** control (validated id + output keys -> a validator-minimal pipeline via
+  `blankPipeline`, seeded with `match_master_row`), so a NEW pipeline can be authored into an empty config;
+  the RM-4b `distinctNumberValues` datalist makes number attributes (e.g. module_count) a free numeric input
+  in the Derivation tab; and the Data-Viewer header row is sticky-top (a scoped `<style>` forces `top:0`
+  because a global Ant Design table reset overrides Tailwind's `top-0`).
 
 ## Important Notes
 

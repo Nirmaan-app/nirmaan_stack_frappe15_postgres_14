@@ -1,7 +1,7 @@
 {
  "source_workbook": "Electrical_pricing_-_28_Jul_2026.xlsx",
  "extracted_at": "2026-07-28",
- "extraction_provenance": "formulas decoded from ALL ITEM WISE RATE S4/T4/S5/T5/S6/S7 + the Wiring & cabling / Termination assumption blocks (chat session 2026-07-28); v2: attribute casing normalized to canonical uppercase (owner ruling 2026-07-28); v3: data-only revision from the 28-Jul benchmark workbook (56 unarmoured-copper install fills + 2 corrections; pipelines verified UNCHANGED by formula diff)",
+ "extraction_provenance": "formulas decoded from ALL ITEM WISE RATE S4/T4/S5/T5/S6/S7 + the Wiring & cabling / Termination assumption blocks (chat session 2026-07-28); v2: attribute casing normalized to canonical uppercase (owner ruling 2026-07-28); v3: data-only revision from the 28-Jul benchmark workbook (56 unarmoured-copper install fills + 2 corrections; pipelines verified UNCHANGED by formula diff) | ext-b 2026-08-05: added the `runs` attribute (number, default 1), an extraction_defaults block (core and runs both 1) and rule R10; and a `scale` runs multiplier at FIVE output points across the four pipelines, each attached AFTER that output's roundup. OWNER RULING: termination INSTALL is NOT multiplied -- install_as_ratio derives it from the already-multiplied supply, so a second multiplier would make it runs-squared. Cable install IS multiplied (it scales the raw install_base rate, not supply). ITEMS UNCHANGED. Edited in place rather than minted as v4 because loader.DEFAULT_DATA_FILE is version-pinned to this filename and loader.py is out of scope for this slice.",
  "items": [
   {
    "kind": "cable",
@@ -11502,6 +11502,12 @@
     "type": "number"
    },
    {
+    "id": "runs",
+    "label": "Runs",
+    "type": "number",
+    "default": 1
+   },
+   {
     "id": "thickness_sqmm",
     "label": "Thickness (sqmm)",
     "type": "number"
@@ -11517,6 +11523,10 @@
     "note": "day-one dimension; becomes a selector when multi-brand data loads"
    }
   ],
+  "pipeline_labels": {
+   "cable_boq": "Cable — per Mtr",
+   "termination_boq": "Termination — per Set"
+  },
   "pipelines": {
    "cable_boq": {
     "output": [
@@ -11568,6 +11578,16 @@
      },
      {
       "step": "scale",
+      "target": "supply_per_mtr",
+      "result": "supply_per_mtr",
+      "params": {
+       "runs_from_attr": "runs"
+      },
+      "formula": "base*runs",
+      "explain": "parallel runs multiply the rounded per-metre supply rate"
+     },
+     {
+      "step": "scale",
       "target": "install_base_per_mtr",
       "result": "install_per_mtr",
       "params": {
@@ -11582,6 +11602,17 @@
       "params": {
        "digits": 0
       }
+     },
+     {
+      "step": "scale",
+      "target": "install_per_mtr",
+      "result": "install_per_mtr",
+      "params": {
+       "runs_from_attr": "runs",
+       "runs_step_divisor": 3
+      },
+      "formula": "base*runs",
+      "explain": "cable install scales the raw install_base rate, NOT supply, so it needs its own runs multiplier"
      }
     ]
    },
@@ -11637,6 +11668,16 @@
       "params": {
        "digits": -1
       }
+     },
+     {
+      "step": "scale",
+      "target": "supply_per_set",
+      "result": "supply_per_set",
+      "params": {
+       "runs_from_attr": "runs"
+      },
+      "formula": "base*runs",
+      "explain": "parallel runs multiply the rounded per-set supply; install_as_ratio below then INHERITS runs, so install is NOT multiplied again"
      },
      {
       "step": "install_as_ratio",
@@ -11700,6 +11741,16 @@
       "params": {
        "digits": 0
       }
+     },
+     {
+      "step": "scale",
+      "target": "bcs_supply_per_mtr",
+      "result": "bcs_supply_per_mtr",
+      "params": {
+       "runs_from_attr": "runs"
+      },
+      "formula": "base*runs",
+      "explain": "parallel runs multiply the rounded per-metre BCS rate"
      }
     ]
    },
@@ -11752,11 +11803,139 @@
       "params": {
        "digits": -1
       }
+     },
+     {
+      "step": "scale",
+      "target": "bcs_supply_per_set",
+      "result": "bcs_supply_per_set",
+      "params": {
+       "runs_from_attr": "runs"
+      },
+      "formula": "base*runs",
+      "explain": "parallel runs multiply the rounded per-set BCS rate"
      }
     ]
    }
   },
   "bcs_surfacing": "imported and derivable; NOT surfaced in the helper until the BCS module (owner deferral 2026-07-28)",
-  "normalization_rule": "owner 2026-07-28: attribute values are CANONICAL UPPERCASE, normalized at import time (the loader uppercases material/insulation on ingest so messy future workbook exports self-clean); matching is EXACT on canonical values \u2014 no case-insensitive runtime matching"
+  "normalization_rule": "owner 2026-07-28: attribute values are CANONICAL UPPERCASE, normalized at import time (the loader uppercases material/insulation on ingest so messy future workbook exports self-clean); matching is EXACT on canonical values — no case-insensitive runtime matching",
+  "extraction_defaults": {
+   "runs": 1.0,
+   "core": 1.0
+  },
+  "rules": [
+   {
+    "id": "R10",
+    "label": "Cable runs are recorded separately from cores",
+    "applies_to": "runs",
+    "guidance": "A cable line may state a number of parallel runs as well as a core count. Notation such as 2R x 4C x 25 sqmm means two runs of four-core 25 sqmm cable - record 2 as runs and 4 as core. Runs and cores are separate values for cables and must never be multiplied together: the core count identifies which cable in the catalog, and the run count multiplies its price. If a run count is not stated anywhere in the context supplied for the row, record 1. If a core count is not stated, record 1."
+   }
+  ],
+  "goldens": [
+   {
+    "id": "g1",
+    "attrs": {
+     "material": "COPPER",
+     "insulation": "UNARMOURED",
+     "core": 1,
+     "thickness_sqmm": 6,
+     "runs": 1
+    },
+    "expect": {
+     "cable_boq": {
+      "supply_per_mtr": 120,
+      "install_per_mtr": 20
+     },
+     "termination_boq": {
+      "supply_per_set": 80,
+      "install_per_set": 20
+     },
+     "cable_bcs": {
+      "bcs_supply_per_mtr": 87
+     }
+    }
+   },
+   {
+    "id": "g2",
+    "attrs": {
+     "material": "COPPER",
+     "insulation": "ARMOURED",
+     "core": 3,
+     "thickness_sqmm": 2.5,
+     "runs": 1
+    },
+    "expect": {
+     "cable_boq": {
+      "supply_per_mtr": 200,
+      "install_per_mtr": 28
+     },
+     "termination_boq": {
+      "supply_per_set": 70,
+      "install_per_set": 20
+     },
+     "cable_bcs": {
+      "bcs_supply_per_mtr": 150
+     }
+    }
+   },
+   {
+    "id": "g3",
+    "attrs": {
+     "material": "ALUMINIUM",
+     "insulation": "ARMOURED",
+     "core": 4,
+     "thickness_sqmm": 16,
+     "runs": 1
+    },
+    "expect": {
+     "cable_boq": {
+      "supply_per_mtr": 210,
+      "install_per_mtr": 44
+     },
+     "termination_boq": {
+      "supply_per_set": 130,
+      "install_per_set": 40
+     },
+     "cable_bcs": {
+      "bcs_supply_per_mtr": 160
+     }
+    }
+   },
+   {
+    "id": "g4",
+    "attrs": {
+     "material": "COPPER",
+     "insulation": "ARMOURED",
+     "core": 3,
+     "thickness_sqmm": 50,
+     "runs": 1
+    },
+    "expect": {
+     "termination_boq": {
+      "supply_per_set": 940,
+      "install_per_set": 240
+     }
+    }
+   },
+   {
+    "id": "g5",
+    "attrs": {
+     "material": "COPPER",
+     "insulation": "UNARMOURED",
+     "core": 3,
+     "thickness_sqmm": 10,
+     "runs": 1
+    },
+    "expect": {
+     "cable_boq": {
+      "supply_per_mtr": 630,
+      "install_per_mtr": 40
+     },
+     "cable_bcs": {
+      "bcs_supply_per_mtr": 469
+     }
+    }
+   }
+  ]
  }
 }

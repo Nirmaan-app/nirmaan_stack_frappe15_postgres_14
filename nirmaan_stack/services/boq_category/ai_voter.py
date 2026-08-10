@@ -63,23 +63,79 @@ def _parse_prompt_version(text):
     return m.group(1) if m else ""
 
 
+def _balanced_span(text, start, open_ch, close_ch):
+    """The end index (exclusive) of the balanced open_ch..close_ch span beginning at `start`, or
+    None when it never closes (a TRUNCATED reply). String-aware: brackets inside a JSON string
+    literal, and backslash-escaped quotes, do not affect the depth count."""
+    depth = 0
+    in_str = False
+    escaped = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_str:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == open_ch:
+            depth += 1
+        elif ch == close_ch:
+            depth -= 1
+            if depth == 0:
+                return i + 1
+    return None
+
+
 def _extract_json_array(text):
-    s = text.find("[")
-    e = text.rfind("]")
-    if s != -1 and e != -1 and e >= s:
-        return json.loads(text[s : e + 1])
-    # Single-row batch (eligible % 20 == 1): the model may return a bare JSON
-    # object instead of a one-element array. Tolerate exactly that shape by
-    # wrapping it -- parse-shape only; id/category validation stays downstream,
-    # unchanged. A genuinely non-JSON reply (no braces) still raises loudly below,
-    # exactly as before, and a brace substring that is not valid JSON still raises
-    # from json.loads -- errors are never swallowed here.
+    """Pull the row array out of an AI reply. STRICTLY MORE PERMISSIVE than a naive
+    first-'[' .. last-']' slice: it takes the first BALANCED array span and ignores anything
+    trailing it, so a reply that appends a second array or prose after the payload parses instead
+    of dying on json.loads' "Extra data: line 1 column N". Everything the old form accepted is
+    still accepted (array with prose around it, multi-element order preserved, and the HV-2
+    single-row bare object).
+
+    It never swallows a real failure -- error-swallowing is the harness's job, never the voter's:
+      * a '[' that never closes (a TRUNCATED / cut-off reply) RAISES, and deliberately does NOT
+        fall back to the bare-object path -- otherwise a truncated array would silently yield only
+        its first element, which is far worse than a loud failure;
+      * a balanced span that is not valid JSON RAISES from json.loads;
+      * a reply with no JSON at all RAISES.
+    """
+    saw_open_bracket = False
+    i = text.find("[")
+    while i != -1:
+        saw_open_bracket = True
+        end = _balanced_span(text, i, "[", "]")
+        if end is None:
+            # Opened but never closed -> truncated reply. Loud failure, no object fallback.
+            raise ValueError("truncated (unbalanced) JSON array in AI response")
+        try:
+            parsed = json.loads(text[i:end])
+        except ValueError:
+            # This '[' was not the payload (e.g. a bracket inside prose). Try the next one.
+            i = text.find("[", i + 1)
+            continue
+        if isinstance(parsed, list):
+            return parsed
+        i = text.find("[", i + 1)
+
+    # Single-row batch (eligible % 20 == 1): the model may return a bare JSON object instead of a
+    # one-element array. Tolerate exactly that shape by wrapping it -- parse-shape only;
+    # id/category validation stays downstream, unchanged. Reached only when NO usable array was
+    # found; a brace substring that is not valid JSON still raises from json.loads.
     obj_s = text.find("{")
     obj_e = text.rfind("}")
     if obj_s != -1 and obj_e != -1 and obj_e >= obj_s:
         obj = json.loads(text[obj_s : obj_e + 1])
         if isinstance(obj, dict):
             return [obj]
+    if saw_open_bracket:
+        raise ValueError("no parseable JSON array in AI response")
     raise ValueError("no JSON array in AI response")
 
 

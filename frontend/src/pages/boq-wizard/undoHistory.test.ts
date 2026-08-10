@@ -11,6 +11,7 @@ import {
   canRedo,
   invert,
   HISTORY_MAX,
+  type BcsDelta,
   type HistoryEntry,
   type RateDelta,
 } from "./undoHistory";
@@ -149,5 +150,57 @@ describe("undo/redo composition (the grid's cross-push, modeled here)", () => {
     expect(canUndo(h)).toBe(true);
     expect(canRedo(h)).toBe(false);
     expect(h.undo[0].deltas[0].newRate).toBe(5);
+  });
+});
+
+// ── BCS-S3a: cost deltas ride the SAME stack ────────────────────────────────────
+// Owner ruling 2026-08-02: paste AND undo both work on the cost boxes. "A cost box you cannot
+// paste into or undo, one column from a rate box where both work, is the asymmetry people trip
+// over." A gesture may touch rates and costs together, so ONE entry carries both lists.
+describe("bcsDeltas", () => {
+  const bcs = (oldValue: number, newValue: number, field: BcsDelta["field"] = "supply_rate"): BcsDelta => ({
+    excelRow: 7,
+    field,
+    draftKey: `3:${field}`,
+    oldValue,
+    newValue,
+  });
+
+  it("makes an entry with ONLY cost deltas a real entry, not an empty one", () => {
+    const h = pushEntry(emptyHistory(), { deltas: [], bcsDeltas: [bcs(0, 100)] });
+    expect(h.undo).toHaveLength(1);
+    expect(canUndo(h)).toBe(true);
+  });
+
+  it("still drops a gesture that wrote nothing at all", () => {
+    const h0 = emptyHistory();
+    expect(pushEntry(h0, { deltas: [], bcsDeltas: [] })).toBe(h0);
+    expect(pushEntry(h0, { deltas: [] })).toBe(h0);
+  });
+
+  it("keeps a mixed rate+cost gesture as ONE entry", () => {
+    const h = pushEntry(emptyHistory(), { deltas: [delta(0, 5)], bcsDeltas: [bcs(0, 100)] });
+    expect(h.undo).toHaveLength(1);
+    expect(h.undo[0].deltas).toHaveLength(1);
+    expect(h.undo[0].bcsDeltas).toHaveLength(1);
+  });
+
+  it("inverts cost deltas alongside the rate ones, leaving the original untouched", () => {
+    const e: HistoryEntry = { deltas: [delta(3, 9)], bcsDeltas: [bcs(10, 20), bcs(0, 5, "install_rate")] };
+    const inv = invert(e);
+    expect(inv.deltas[0]).toMatchObject({ oldRate: 9, newRate: 3 });
+    expect(inv.bcsDeltas![0]).toMatchObject({ oldValue: 20, newValue: 10 });
+    expect(inv.bcsDeltas![1]).toMatchObject({ oldValue: 5, newValue: 0, field: "install_rate" });
+    expect(e.bcsDeltas![0]).toMatchObject({ oldValue: 10, newValue: 20 }); // original intact
+  });
+
+  it("round-trips a mixed entry: invert(invert(e)) === e by value", () => {
+    const e: HistoryEntry = { deltas: [delta(3, 9)], bcsDeltas: [bcs(10, 20)] };
+    expect(invert(invert(e))).toEqual(e);
+  });
+
+  it("leaves a rate-only entry's shape byte-identical -- no empty bcsDeltas array minted", () => {
+    const e = entry(delta(3, 9));
+    expect(invert(e).bcsDeltas).toBeUndefined();
   });
 });

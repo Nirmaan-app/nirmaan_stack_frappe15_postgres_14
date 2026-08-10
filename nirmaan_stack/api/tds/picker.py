@@ -2,36 +2,36 @@ import frappe
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Why this module exists (Phase 2 — group-driven project consumption, ADR-0003):
+# Why this module exists (Phase 2 — group-driven project consumption, ADR-0003;
+# amended by ADR-0004):
 #
 # A project consumes TDS by picking a **TDS Item (group) + Make**. The picker
-# must fuzzy-match the typed query against BOTH the group name (`TDS Items.
-# tds_item_name`) AND the member rows' item code / item name in the child table
-# `TDS Items Child Table`. A member-item hit must resolve to its PARENT TDS Item,
-# and — because membership is many-to-many — the SAME query can surface one group
-# multiple times via different members; results are deduped by `tds_item` id.
+# fuzzy-matches the typed query against the group name (`TDS Items.
+# tds_item_name`). Member-SKU matching is ARCHIVED behind the default-off
+# `include_member_matches` flag — a stakeholder ruling, not a capability loss.
 #
-# `TDS Items Child Table` is an `istable` child doctype with NO DocPerm rows.
-# Listing it through the permission-aware path (`frappe.client.get_list`, which
-# `useFrappeGetDocList` calls) raises PermissionError for every NON-superuser —
-# only the Administrator superuser sees rows. So we read the child rows (and, for
-# consistency, the master/repository rows) with `frappe.get_all`, which ignores
-# perms. This is the codebase's documented child-table pattern, identical to
-# `api/tds/members.py`, where this exact bug was already diagnosed and fixed.
+# ADR-0004 changed the member model underneath: membership is N:1 owned by the
+# Item (`Items.linked_tds_item`), so a member hit resolves to exactly ONE group
+# and the old M:N dedupe is unnecessary. Nothing here reads
+# `TDS Items Child Table` any more (retired as a writer, left dormant).
+#
+# Reads use `frappe.get_all` (permission-ignoring) — the codebase's documented
+# custom-API read pattern, identical to `api/tds/members.py` and
+# `api/tds/linking.py`.
 #
 # All reads are batched to avoid N+1: matching groups are gathered first, then a
 # single get_all over `TDS Repository` filtered by `tds_item IN [...]` attaches
-# the makes-with-datasheet, and a single get_all over the child table attaches
-# the member that caused each member-hit. Dicts are assembled in Python.
+# the makes-with-datasheet. Dicts are assembled in Python.
 #
 # PostgreSQL backend: no raw SQL is used here (frappe.get_all + filters cover
 # everything); if any is added later, double-quote table names
-# ("tabTDS Items Child Table") and the reserved word "user".
+# ("tabTDS Repository") and the reserved word "user".
 # ─────────────────────────────────────────────────────────────────────────────
 
 GROUP_DOCTYPE = "TDS Items"
-CHILD_DOCTYPE = "TDS Items Child Table"
 ENTRY_DOCTYPE = "TDS Repository"
+ITEMS_DOCTYPE = "Items"
+LINK_FIELD = "linked_tds_item"  # Items.linked_tds_item → TDS Items (ADR-0004)
 
 DEFAULT_LIMIT = 50
 
@@ -94,21 +94,70 @@ def get_tds_item_makes(tds_item: str):
 
 
 @frappe.whitelist()
-def search_tds_items(query: str = "", work_package: str = None, limit: int = 50):
-	"""Group-driven TDS picker search.
+def get_tds_work_packages():
+	"""Work packages that actually HAVE TDS Items, with their group counts.
 
-	Matches `query` (case-insensitive substring) against BOTH the TDS Items group
-	name (`tds_item_name`) AND the member rows' `item` / `item_name` in the
-	`istable` child `TDS Items Child Table`. A member-item hit resolves to its
-	PARENT TDS Item group. Because membership is many-to-many, results are deduped
-	by `tds_item` id; each result carries a `matched_member` hint (the member that
-	caused a member-hit, or null when matched on the group name itself).
+	Sourced from `TDS Items` ITSELF — deliberately NOT from a work-package
+	doctype. Two reasons, both load-bearing:
+
+	  1. Every option is guaranteed to return results. A doctype-sourced list
+	     offers work packages with zero groups, so picking one yields an empty
+	     picker with no explanation.
+	  2. The ids are exactly the values `search_tds_items(work_package=...)`
+	     filters on. `TDS Items.work_package` links to **Procurement Packages**
+	     (14 rows), NOT the similarly-named `Work Packages` doctype (11 rows) —
+	     they overlap because both autoname on `work_package_name`, which is why
+	     the mismatch is easy to miss. Deriving from the data sidesteps the
+	     question entirely.
+
+	`group_count` lets the caller label each option, so a user can see whether a
+	package's list is small enough to browse before selecting it.
+
+	PostgreSQL: table identifier is double-quoted per the app's raw-SQL rule.
+
+	Returns: [{"work_package": "HVAC System", "group_count": 131}, ...]
+	         ordered by work package name.
+	"""
+	return frappe.db.sql(
+		"""
+		SELECT work_package, COUNT(*) AS group_count
+		FROM "tabTDS Items"
+		WHERE work_package IS NOT NULL AND work_package <> ''
+		GROUP BY work_package
+		ORDER BY work_package ASC
+		""",
+		as_dict=True,
+	)
+
+
+@frappe.whitelist()
+def search_tds_items(
+	query: str = "",
+	work_package: str = None,
+	limit: int = 50,
+	include_member_matches: bool = False,
+):
+	"""Group-driven TDS picker search — GROUP NAME ONLY by default (ADR-0004).
+
+	Matches `query` (case-insensitive substring) against the TDS Items group name
+	(`tds_item_name`). Stakeholders asked for group-name-only search, so the
+	member-SKU search path is OFF by default and archived behind
+	`include_member_matches` — kept working (and ported to the N:1 model) so it
+	can be revived without re-deriving it, but no caller passes it today.
+
+	ADR-0004 also COLLAPSED the old member fan-out: membership is now N:1 (an item
+	belongs to exactly ONE group via `Items.linked_tds_item`), so a member hit can
+	surface at most one parent group and the M:N dedupe that used to be necessary
+	is gone.
 
 	Args:
 	    query: search text. Empty/whitespace → returns the first `limit` groups
 	           (optionally WP-filtered), with `matched_member` null.
 	    work_package: optional WP filter — restricts results to that work package.
-	    limit: max number of groups to return (defaults to 50).
+	    limit: max number of groups to return (defaults to 50). **Pass 0 (or any
+	           value <= 0) for UNLIMITED** — the project picker does this so it can
+	           load the whole set once and filter client-side.
+	    include_member_matches: opt back into member-SKU matching (default False).
 
 	Returns a list of result objects:
 	    {
@@ -127,12 +176,16 @@ def search_tds_items(query: str = "", work_package: str = None, limit: int = 50)
 	then groups surfaced only via a member hit. The frontend layers fuzzy ranking
 	on top of this.
 	"""
+	# `limit <= 0` means UNLIMITED (mirrors Frappe's own `limit_page_length=0`).
+	# It used to be coerced back to DEFAULT_LIMIT, which made an uncapped fetch
+	# impossible: callers asking for everything silently got 50. The project
+	# picker now loads the whole (optionally WP-scoped) set once and filters
+	# client-side, so it needs a real "no cap".
 	try:
 		limit = int(limit)
 	except (TypeError, ValueError):
 		limit = DEFAULT_LIMIT
-	if limit <= 0:
-		limit = DEFAULT_LIMIT
+	unlimited = limit <= 0
 
 	q = (query or "").strip()
 	q_lower = q.lower()
@@ -152,7 +205,8 @@ def search_tds_items(query: str = "", work_package: str = None, limit: int = 50)
 		fields=["name", "tds_item_name", "work_package"],
 		order_by="tds_item_name asc",
 		# Pull a generous slice; we trim to `limit` after merging member hits.
-		limit_page_length=0 if q else limit,
+		# A typed query OR an unlimited request reads the whole matching set.
+		limit_page_length=0 if (q or unlimited) else limit,
 	)
 
 	# ordered dict of tds_item id -> result skeleton (preserves name-first order)
@@ -165,39 +219,41 @@ def search_tds_items(query: str = "", work_package: str = None, limit: int = 50)
 			"matched_member": None,
 		}
 
-	# ── 2. Member matches: child rows whose item code / name contains query ────
-	# Resolve each hit to its PARENT TDS Item (M:N → same group may appear via
-	# several members; dedupe by parent, keep the first member as the hint).
-	if q:
+	# ── 2. Member matches — ARCHIVED, opt-in only (ADR-0004) ───────────────────
+	# Ported to N:1: members are `Items WHERE linked_tds_item IS SET`, so a hit
+	# resolves to its ONE group via the item's own `linked_tds_item` — no child
+	# table, and no M:N dedupe (an item cannot surface two parents any more).
+	# Default-off per the stakeholder ruling that the picker searches group names.
+	if q and include_member_matches:
 		member_rows = []
-		# child rows where the linked Items SKU id contains the query…
+		# items whose SKU id contains the query…
 		member_rows += frappe.get_all(
-			CHILD_DOCTYPE,
-			filters={"parenttype": GROUP_DOCTYPE, "item": ["like", f"%{q}%"]},
-			fields=["parent", "item", "item_name"],
+			ITEMS_DOCTYPE,
+			filters={LINK_FIELD: ["is", "set"], "name": ["like", f"%{q}%"]},
+			fields=["name", "item_name", LINK_FIELD],
 			limit_page_length=0,
 		)
 		# …or whose human item name contains the query.
 		member_rows += frappe.get_all(
-			CHILD_DOCTYPE,
-			filters={"parenttype": GROUP_DOCTYPE, "item_name": ["like", f"%{q}%"]},
-			fields=["parent", "item", "item_name"],
+			ITEMS_DOCTYPE,
+			filters={LINK_FIELD: ["is", "set"], "item_name": ["like", f"%{q}%"]},
+			fields=["name", "item_name", LINK_FIELD],
 			limit_page_length=0,
 		)
 
-		# Parents surfaced only via a member hit (not already a name match).
-		member_only_parents = {}  # parent -> first matching member hint
+		# Groups surfaced only via a member hit (not already a name match).
+		member_only_parents = {}  # group -> first matching member hint
 		for r in member_rows:
-			if not r.parent:
+			parent = r.get(LINK_FIELD)
+			if not parent:
 				continue
-			if r.parent in results:
+			if parent in results:
 				# Group already surfaced by its name; keep matched_member null
-				# (name match is the stronger, more intuitive signal). If it was
-				# null and we want a hint, only set it when there was no name hit.
+				# (a name match is the stronger, more intuitive signal).
 				continue
-			if r.parent not in member_only_parents:
-				member_only_parents[r.parent] = {
-					"item": r.item,
+			if parent not in member_only_parents:
+				member_only_parents[parent] = {
+					"item": r.name,
 					"item_name": r.item_name,
 				}
 
@@ -222,7 +278,7 @@ def search_tds_items(query: str = "", work_package: str = None, limit: int = 50)
 				}
 
 	# ── 3. Trim to limit (name matches first, then member-only) ────────────────
-	ordered_ids = list(results.keys())[:limit]
+	ordered_ids = list(results.keys()) if unlimited else list(results.keys())[:limit]
 
 	# ── 4. Attach makes-with-datasheet in one batched query ────────────────────
 	makes_map = _makes_by_group(ordered_ids)

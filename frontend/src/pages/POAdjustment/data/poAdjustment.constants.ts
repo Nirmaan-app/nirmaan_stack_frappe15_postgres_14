@@ -24,4 +24,9 @@ export const PO_ADJUSTMENT_APIS = {
     "nirmaan_stack.api.po_adjustments.adjustment_logic.get_vendor_adjustment_credit",
   applyVendorCredit:
     "nirmaan_stack.api.po_adjustments.adjustment_logic.apply_vendor_credit_to_po",
+  writeOff:
+    "nirmaan_stack.api.po_adjustments.adjustment_logic.write_off_adjustment",
 } as const;
+
+/** Server-side cap on a write-off reason (`WRITE_OFF_REASON_MAX_LEN`). */
+export const WRITE_OFF_REASON_MAX_LEN = 250;

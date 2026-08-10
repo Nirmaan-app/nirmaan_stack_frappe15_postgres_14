@@ -111,7 +111,7 @@ const InvoiceAmountCell: React.FC<{ item: InvoiceItem }> = ({ item }) => {
     return (
         <>
             <div
-                className="font-medium text-green-600 underline underline-offset-2 cursor-pointer hover:text-green-700"
+                className="font-medium text-green-600 underline underline-offset-2 cursor-pointer hover:text-green-700 whitespace-nowrap"
                 onClick={(e) => { e.stopPropagation(); setOpen(true); }}
                 title="View invoice items"
             >
@@ -309,8 +309,10 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId, vendorName }) 
                 cell: ({ row }) => {
                     const userId = row.original.modified_by;
                     if (!userId) return <span className="text-gray-400">-</span>;
+                    // Falls back to the raw user id (an email) when no Nirmaan Users doc matches —
+                    // truncate so a long unbreakable email can't spill into the Invoice Amount column.
                     const fullName = getUserFullName(userId);
-                    return <div className="font-medium">{fullName}</div>;
+                    return <div className="font-medium truncate" title={fullName}>{fullName}</div>;
                 },
                 filterFn: (row, id, value) => value.includes(row.getValue(id)),
                 meta: {

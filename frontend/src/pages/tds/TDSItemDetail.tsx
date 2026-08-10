@@ -23,9 +23,10 @@
 import React, { useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
+    useFrappeGetCall,
     useFrappeGetDoc,
     useFrappeGetDocList,
-    useFrappeUpdateDoc,
+    useFrappePostCall,
     useFrappeDeleteDoc,
 } from "frappe-react-sdk";
 import {
@@ -78,6 +79,7 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { toast } from "@/components/ui/use-toast";
+import { getFrappeError } from "@/utils/frappeErrors";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { DataTableFacetedFilter } from "@/components/data-table/data-table-faceted-filter";
 import { fuzzyFilter } from "@/components/data-table/data-table-models";
@@ -89,6 +91,10 @@ import { MultiAddMembersDialog } from "./components/MultiAddMembersDialog";
 import { StatusBadge, AttachmentCell } from "./components/cells";
 import { TDSItem, TDSItemMember } from "@/types/NirmaanStack/TDSItem";
 import { TDSRepository } from "@/types/NirmaanStack/TDSRepository";
+
+/** Frappe's link errors arrive with `<a href>` markup inside `_server_messages`;
+ *  a toast renders text, so the tags have to come off before display. */
+const stripHtml = (s: string) => (s || "").replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
 
 // ─── Small client-side table helper ──────────────────────────────────────────
 // Both detail tables share this shell: a search Input + a faceted Status/Category
@@ -240,13 +246,26 @@ export const TDSItemDetail: React.FC = () => {
         id ? undefined : null
     );
 
-    const members: TDSItemMember[] = doc?.members || [];
+    // ADR-0004: members are DERIVED — `Items WHERE linked_tds_item = <group>` —
+    // not read off `doc.members` (that child table is retired as a writer and
+    // left dormant; reading it here would show a frozen snapshot of the old
+    // model). `get_tds_item_members` returns the same {item, item_name, category}
+    // shape, so everything downstream is unchanged.
+    const {
+        data: memberRows,
+        mutate: mutateMembers,
+    } = useFrappeGetCall<{ message: TDSItemMember[] }>(
+        "nirmaan_stack.api.tds.members.get_tds_item_members",
+        { tds_item: id ?? "" },
+        id ? undefined : null
+    );
+
+    const members: TDSItemMember[] = memberRows?.message || [];
     const memberCount = members.length;
     const entryCount = entries?.length ?? 0;
     const isCustom = memberCount === 0;
 
     // ---- Mutations ----
-    const { updateDoc, loading: savingMembers } = useFrappeUpdateDoc();
     const { deleteDoc, loading: deletingEntry } = useFrappeDeleteDoc();
     const { deleteDoc: deleteTdsItem, loading: deletingItem } = useFrappeDeleteDoc();
 
@@ -268,19 +287,61 @@ export const TDSItemDetail: React.FC = () => {
     const [entriesSorting, setEntriesSorting] = useState<SortingState>([]);
     const [entriesColumnFilters, setEntriesColumnFilters] = useState<ColumnFiltersState>([]);
 
-    // ---- Member persistence ----
-    // Persist members by sending the FULL list of {item} rows. Sending only the
-    // item link is enough — item_name/category are fetched server-side from the
-    // Items master (fetch_from on the TDS Items Child Table).
-    const persistMembers = async (nextItems: string[]) => {
-        if (!id) return;
+    // ---- Member persistence (ADR-0004: writes land on `Items.linked_tds_item`) ----
+    // This page and the Items-side edit form are TWO WRITERS over ONE store, so
+    // "add member" is really "point these items at this group" and can MOVE an
+    // item out of another group. `set_items_tds_link` reports each such move in
+    // `reassigned`, and the WP invariant it enforces means some staged items can
+    // be refused while others succeed — hence the partial-outcome reporting.
+    const { call: setItemsTdsLink, loading: linkingMembers } = useFrappePostCall<{
+        message: {
+            updated: string[];
+            reassigned: { item: string; item_name: string; from_group_name: string }[];
+            errors: { item: string; reason: string }[];
+        };
+    }>("nirmaan_stack.api.tds.linking.set_items_tds_link");
+
+    const { call: clearItemsTdsLink, loading: clearingMember } = useFrappePostCall<{
+        message: { cleared: string[]; errors: { item: string; reason: string }[] };
+    }>("nirmaan_stack.api.tds.linking.clear_items_tds_link");
+
+    const savingMembers = linkingMembers || clearingMember;
+
+    const handleAddMembers = async (newItemIds: string[]) => {
+        if (!id || !newItemIds.length) return;
         try {
-            await updateDoc("TDS Items", id, {
-                members: nextItems.map((item) => ({ item })),
+            const res = await setItemsTdsLink({
+                item_ids: JSON.stringify(newItemIds),
+                tds_item: id,
             });
+            const { updated = [], reassigned = [], errors = [] } = res?.message || {};
+
+            mutateMembers();
             mutateDoc();
+
+            if (errors.length) {
+                toast({
+                    title: updated.length ? "Partly added" : "Could not add",
+                    description:
+                        `${updated.length} added. ${errors.length} refused: ` +
+                        errors.map((e) => `${e.item} (${e.reason})`).join("; "),
+                    variant: "destructive",
+                });
+            } else if (reassigned.length) {
+                toast({
+                    title: `${updated.length} item(s) added`,
+                    description:
+                        `Moved from another group: ` +
+                        reassigned
+                            .map((r) => `${r.item_name || r.item} (was in ${r.from_group_name})`)
+                            .join("; "),
+                    variant: "success",
+                });
+            } else {
+                toast({ title: `${updated.length} item(s) added`, variant: "success" });
+            }
         } catch (e: any) {
-            console.error("Error updating members:", e);
+            console.error("Error linking members:", e);
             toast({
                 title: "Error",
                 description: e?.message || "Failed to update members",
@@ -289,10 +350,22 @@ export const TDSItemDetail: React.FC = () => {
         }
     };
 
+    // Removing a member CLEARS the item's link — under N:1 that is the whole
+    // operation; the item simply belongs to no group until it is re-tagged.
     const handleRemoveMember = async (item: string) => {
-        const next = members.map((m) => m.item).filter((i) => i !== item);
-        await persistMembers(next);
-        toast({ title: "Member removed", variant: "success" });
+        try {
+            await clearItemsTdsLink({ item_ids: JSON.stringify([item]) });
+            mutateMembers();
+            mutateDoc();
+            toast({ title: "Member removed", variant: "success" });
+        } catch (e: any) {
+            console.error("Error removing member:", e);
+            toast({
+                title: "Error",
+                description: e?.message || "Failed to remove member",
+                variant: "destructive",
+            });
+        }
     };
 
     const handleDeleteEntry = async () => {
@@ -313,17 +386,59 @@ export const TDSItemDetail: React.FC = () => {
         }
     };
 
+    /**
+     * Delete the group, unlinking its member SKUs first.
+     *
+     * Frappe refuses to delete a doc that is still the target of a Link field, so
+     * a group with members fails with `LinkExistsError` ("Cannot delete or cancel
+     * because TDS Items X is linked with Items Y"). That message is accurate but
+     * useless here: membership is N:1, so the ONLY way to delete a group is to
+     * clear `linked_tds_item` on every member first, and the user cannot be
+     * expected to remove eight items one by one to discover that.
+     *
+     * Unlinking is NOT destructive to the items — they simply belong to no TDS
+     * Item afterwards, exactly as "Remove member" already does. Repository
+     * Entries are a different matter and still hard-block the button.
+     */
     const handleDeleteTdsItem = async () => {
         if (!id) return;
         try {
+            if (members.length > 0) {
+                const res = await clearItemsTdsLink({
+                    item_ids: JSON.stringify(members.map((m) => m.item)),
+                });
+                const errors = res?.message?.errors || [];
+                if (errors.length) {
+                    // Stop rather than attempt a delete that will fail anyway.
+                    toast({
+                        title: "Could not unlink every item",
+                        description:
+                            `${errors.length} item(s) could not be unlinked, so the TDS Item was not ` +
+                            `deleted: ` + errors.map((e) => `${e.item} (${e.reason})`).join("; "),
+                        variant: "destructive",
+                    });
+                    setIsDeleteItemOpen(false);
+                    return;
+                }
+            }
+
             await deleteTdsItem("TDS Items", id);
-            toast({ title: "Success", description: "TDS Item deleted successfully", variant: "success" });
+            toast({
+                title: "TDS Item deleted",
+                description: members.length
+                    ? `${members.length} item(s) were unlinked and now belong to no TDS Item.`
+                    : undefined,
+                variant: "success",
+            });
             navigate("/tds-repository");
         } catch (e: any) {
             console.error("Error deleting TDS Item:", e);
+            // Frappe's real reason rides `_server_messages`, and for a link error
+            // it arrives with `<a href>` markup that would render as raw tags in
+            // a toast — so unwrap it, then strip the tags.
             toast({
-                title: "Error",
-                description: e?.message || "Failed to delete TDS Item",
+                title: "Could not delete TDS Item",
+                description: stripHtml(getFrappeError(e)),
                 variant: "destructive",
             });
             setIsDeleteItemOpen(false);
@@ -527,7 +642,15 @@ export const TDSItemDetail: React.FC = () => {
         );
     }
 
+    // Repository Entries hard-block deletion: they hold the signed datasheets, so
+    // they are never removed automatically. Linked Item SKUs do NOT block —
+    // `handleDeleteTdsItem` unlinks those for you, because under N:1 membership
+    // that is the only way a group can be deleted at all.
     const deleteBlocked = entryCount > 0;
+    const deleteBlockedReason =
+        `This TDS Item has ${entryCount} repository ` +
+        `entr${entryCount === 1 ? "y" : "ies"}. Remove all Repository Entries first, ` +
+        `then delete the TDS Item.`;
     const memberColumnCount = memberColumns.length;
     const entryColumnCount = entryColumns.length;
 
@@ -579,8 +702,15 @@ export const TDSItemDetail: React.FC = () => {
                                 <TooltipProvider>
                                     <Tooltip>
                                         <TooltipTrigger asChild>
-                                            {/* span wrapper so the tooltip shows even while the button is disabled */}
-                                            <span tabIndex={deleteBlocked ? 0 : undefined}>
+                                            {/* Span wrapper is REQUIRED for the tooltip: shadcn's
+                                                Button sets `disabled:pointer-events-none`, so a
+                                                disabled button receives no mouse events — they fall
+                                                through to this wrapper, which is the tooltip
+                                                trigger. */}
+                                            <span
+                                                tabIndex={deleteBlocked ? 0 : undefined}
+                                                className={deleteBlocked ? "cursor-not-allowed" : undefined}
+                                            >
                                                 <Button
                                                     variant="outline"
                                                     className="gap-2 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
@@ -592,8 +722,8 @@ export const TDSItemDetail: React.FC = () => {
                                             </span>
                                         </TooltipTrigger>
                                         {deleteBlocked && (
-                                            <TooltipContent>
-                                                <p>Remove all entries first.</p>
+                                            <TooltipContent className="max-w-[300px]">
+                                                <p>{deleteBlockedReason}</p>
                                             </TooltipContent>
                                         )}
                                     </Tooltip>
@@ -734,11 +864,14 @@ export const TDSItemDetail: React.FC = () => {
                         open={isAddMembersOpen}
                         onOpenChange={setIsAddMembersOpen}
                         workPackage={doc.work_package}
+                        // Destination name for the move confirmation — it has to
+                        // name where an item is going, not only what it leaves.
+                        groupName={doc.tds_item_name || doc.name}
                         existingItems={members.map((m) => m.item)}
-                        onCommit={async (newIds) => {
-                            await persistMembers([...members.map((m) => m.item), ...newIds]);
-                            toast({ title: "Members added", variant: "success" });
-                        }}
+                        // `handleAddMembers` owns its own toasts — it has to report
+                        // partial outcomes (WP-refused items, cross-group moves) that
+                        // a blanket "Members added" would paper over.
+                        onCommit={handleAddMembers}
                     />
 
                     <AddTDSEntryDialog
@@ -802,6 +935,21 @@ export const TDSItemDetail: React.FC = () => {
                                     This action cannot be undone.
                                 </AlertDialogDescription>
                             </AlertDialogHeader>
+
+                            {/* Frappe cannot delete a doc that is still a Link target, so the
+                                members must be unlinked first. Say so BEFORE it happens —
+                                unlinking is a real change to those items, even though it is
+                                the same non-destructive clear that "Remove member" does. */}
+                            {memberCount > 0 && (
+                                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                                    <span className="font-semibold">
+                                        {memberCount} linked item{memberCount === 1 ? "" : "s"} will be
+                                        unlinked first.
+                                    </span>{" "}
+                                    They are not deleted — each one simply belongs to no TDS Item
+                                    afterwards, and can be added to another one at any time.
+                                </div>
+                            )}
                             <AlertDialogFooter>
                                 <AlertDialogCancel>Cancel</AlertDialogCancel>
                                 <AlertDialogAction

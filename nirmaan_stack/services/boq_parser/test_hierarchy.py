@@ -205,6 +205,43 @@ class TestHierarchyResolver(unittest.TestCase):
         self.assertIsNone(result.rows[0].attached_to_index)
         self.assertEqual(result.rows[1].attached_notes, [])
 
+    def test_notes_split_across_a_line_item_keep_document_order_on_each_owner(self):
+        """EA-6a slice 1: notes before a line item stay on the preamble, notes after it move
+        to the line item -- and each owner's list preserves DOCUMENT ORDER.
+
+        Order is load-bearing downstream: context_builder._notes_text joins attached_notes with
+        ' | ', and a DB schedule read as 'Main incomer ... | Sub incomer ... | Outgoing ...' is
+        order-significant to the composite-decomposition prompt.
+        """
+        rows = [
+            _make_preamble(0, "1.0"),
+            _make_note(1, "Section note A"),
+            _make_note(2, "Section note B"),
+            _make_line_item(3, "a."),
+            _make_note(4, "Main incomer - 40A, TPN, MCB 1No."),
+            _make_note(5, "Sub incomer - 40A, DP, RCBO,30mA- 3No."),
+            _make_note(6, "Outgoing - 10/16A, SP, MCB - 18 No's"),
+        ]
+        result = resolve_hierarchy(rows, _basic_sheet(), _gs())
+        self.assertEqual(
+            result.rows[0].attached_notes,
+            ["Section note A", "Section note B"],
+            "notes above the line item stay on the preamble, in order",
+        )
+        self.assertEqual(
+            result.rows[3].attached_notes,
+            [
+                "Main incomer - 40A, TPN, MCB 1No.",
+                "Sub incomer - 40A, DP, RCBO,30mA- 3No.",
+                "Outgoing - 10/16A, SP, MCB - 18 No's",
+            ],
+            "notes below the line item move to it, in order",
+        )
+        for note_idx in (4, 5, 6):
+            self.assertEqual(result.rows[note_idx].attached_to_index, 3)
+            self.assertEqual(result.rows[note_idx].parent_index, 3)
+        self.assertEqual(result.master_preamble_notes, [])
+
     def test_multiple_notes_attached_to_same_preamble_in_order(self):
         """Three consecutive notes all attach to the same preamble, in order."""
         rows = [

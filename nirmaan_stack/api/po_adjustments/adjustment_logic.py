@@ -17,11 +17,58 @@ from ._payment_utils import (
     _lock_and_assert_dest_capacity,
 )
 from nirmaan_stack.api.vendor_credit import recalculate_vendor_credit
+from nirmaan_stack.services.po_credit import usable_credit
+
+
+def _last_ledger_edit(adj_name):
+    """Who last hand-edited this adjustment's balance or its audit rows, and when.
+
+    Reads the `Version` log, which exists for this doctype only because
+    `track_changes: 1` was enabled (2026-08-11). Edits made BEFORE that are
+    invisible — two of them are known — so `None` here means "we cannot say who",
+    NOT "nobody edited it". The caller must word the notice accordingly.
+
+    Only called when the ledger is already known to be out of sync, so the extra
+    read costs nothing on the healthy path.
+    """
+    versions = frappe.get_all(
+        "Version",
+        filters={"ref_doctype": "PO Adjustments", "docname": adj_name},
+        fields=["owner", "creation", "data"],
+        order_by="creation desc",
+        limit=20,
+    )
+    for v in versions:
+        try:
+            data = json.loads(v.data or "{}")
+        except ValueError:
+            continue
+        touched = any(
+            c and c[0] in ("remaining_impact", "status") for c in data.get("changed", [])
+        ) or any(
+            e and e[0] == "adjustment_items"
+            for key in ("added", "removed", "row_changed")
+            for e in data.get(key, [])
+        )
+        if touched:
+            return {
+                "by": frappe.utils.get_fullname(v.owner) or v.owner,
+                "at": str(v.creation),
+            }
+    return None
 
 
 @frappe.whitelist()
 def get_po_adjustment(po_id):
-    """Returns the PO Adjustment doc with children for a given PO, or None."""
+    """Returns the PO Adjustment doc with children for a given PO, or None.
+
+    Additively surfaces whether the stored `remaining_impact` still agrees with the
+    doc's own audit rows. The field is deliberately left hand-editable for
+    emergencies (owner ruling 2026-08-11), so a disagreement is a legitimate state,
+    not corruption — but it must never be invisible, which is exactly how two POs
+    ended up locked on numbers nobody could account for. Report, do not correct:
+    recomputing here would silently undo the emergency edit.
+    """
     adj_name = frappe.db.get_value("PO Adjustments", {"po_id": po_id}, "name")
     if not adj_name:
         return None
@@ -32,6 +79,12 @@ def get_po_adjustment(po_id):
     for item in doc.get("adjustment_items", []):
         owner = item.get("owner")
         item["created_by"] = frappe.utils.get_fullname(owner) if owner else None
+
+    computed = flt(sum(flt(i.get("amount")) for i in doc.get("adjustment_items", [])), 2)
+    in_sync = abs(flt(doc.get("remaining_impact")) - computed) <= 0.02
+    doc["computed_from_children"] = computed
+    doc["ledger_in_sync"] = in_sync
+    doc["manual_edit"] = None if in_sync else _last_ledger_edit(adj_name)
     return doc
 
 
@@ -212,6 +265,98 @@ def execute_adjustment(po_id, adjustments_json):
         frappe.throw(_("Adjustment failed: {0}").format(str(e)))
 
 
+WRITE_OFF_ENTRY_TYPE = "Write Off"
+WRITE_OFF_REASON_MAX_LEN = 250
+
+
+@frappe.whitelist(methods=["POST"])
+def write_off_adjustment(po_id, amount, reason):
+    """Close out an adjustment balance that does NOT correspond to money — admin only.
+
+    THE GAP THIS FILLS. Until now the only ways to resolve a balance were Against-PO, Adhoc
+    expense and Vendor Refund, and all three CREATE a `Project Payments` row. When the
+    balance is a bookkeeping artefact rather than money, every one of them is a lie: they
+    book a transfer, an expense or a refund that never happened, and they move `amount_paid`.
+
+    So people went into Desk instead and hand-edited `remaining_impact` — which is exactly
+    how PO/011/00097/26-27 ended up stuck at +144.00 while its own rows summed to −144.67,
+    with an audit row deleted and no Version log to show who did it. The absence of an honest
+    button is what produced the dishonest edit.
+
+    A write-off therefore creates NO payment. It appends one signed ledger entry, and that is
+    all. Deliberately, it does not touch `amount_paid`: nothing moved, and a recompute there
+    would disturb the 27 negative payments held in `Approved` (owner ruling).
+
+    ADMIN ONLY, on the IMPORTED `pricing._is_nirmaan_admin` — never a re-minted copy.
+    `reason` is REQUIRED: this writes off money, and the whole point is that the next person
+    can see who decided that and why.
+    """
+    from nirmaan_stack.api.boq.wizard.pricing import _is_nirmaan_admin
+
+    if not _is_nirmaan_admin(frappe.session.user):
+        raise frappe.PermissionError(
+            _("Only a Nirmaan Admin can write off a payment adjustment.")
+        )
+
+    reason = frappe.utils.cstr(reason or "").strip()
+    if not reason:
+        frappe.throw(_("A reason is required to write off an adjustment."))
+    reason = reason[:WRITE_OFF_REASON_MAX_LEN]
+
+    adj_name = frappe.db.get_value("PO Adjustments", {"po_id": po_id}, "name")
+    if not adj_name:
+        frappe.throw(_("No PO Adjustment found for PO {0}").format(po_id))
+
+    adj_doc = frappe.get_doc("PO Adjustments", adj_name)
+    remaining = flt(adj_doc.remaining_impact, 2)
+    if abs(remaining) < 0.01:
+        frappe.throw(_("{0} has nothing left to write off.").format(po_id))
+
+    magnitude = abs(flt(amount, 2))
+    if magnitude < 0.01:
+        frappe.throw(_("Write-off amount must be greater than zero."))
+    if magnitude > abs(remaining) + 0.01:
+        frappe.throw(
+            _("Cannot write off {0} — only {1} is outstanding on {2}.").format(
+                frappe.utils.fmt_money(magnitude, currency="INR"),
+                frappe.utils.fmt_money(abs(remaining), currency="INR"),
+                po_id,
+            )
+        )
+
+    # The SIGN is derived from the balance, never taken from the caller: a write-off always
+    # moves the ledger TOWARD zero. A negative balance (claimed credit) is cancelled by a
+    # positive entry and vice versa, so no caller can push a balance further from zero.
+    signed = magnitude if remaining < 0 else -magnitude
+
+    adj_doc.append("adjustment_items", {
+        "entry_type": WRITE_OFF_ENTRY_TYPE,
+        "amount": flt(signed, 2),
+        "description": _("Written off by {0}: {1}").format(
+            frappe.utils.get_fullname(frappe.session.user) or frappe.session.user, reason
+        )[:140],
+        "timestamp": nowdate(),
+    })
+    adj_doc.recalculate_remaining_impact()
+
+    frappe.db.commit()
+    frappe.publish_realtime(
+        event="po:payment_adjustment",
+        message={
+            "po_id": po_id,
+            "adjustment_id": adj_doc.name,
+            "status": adj_doc.status,
+            "written_off": flt(signed, 2),
+        },
+    )
+    return {
+        "status": "success",
+        "adjustment": adj_doc.name,
+        "written_off": flt(signed, 2),
+        "remaining_impact": flt(adj_doc.remaining_impact, 2),
+    }
+
+
 @frappe.whitelist()
 def get_adjustment_candidate_pos(vendor, current_po):
     """
@@ -286,13 +431,22 @@ def get_vendor_adjustment_credit(vendor, exclude_po=None):
         if adj.po_id in pending_rev_pos:
             continue
         po = frappe.db.get_value(
-            "Procurement Orders", adj.po_id, ["project_name", "status"], as_dict=True
+            "Procurement Orders", adj.po_id,
+            ["project_name", "status", "amount_paid", "total_amount"], as_dict=True
         ) or {}
+        # D2 cap — the pool must offer only what each source actually overpaid, or the
+        # picker invites someone to spend a phantom and `_lock_and_assert_source_credit`
+        # rejects it at apply time. Same function on both sides, so they cannot disagree.
+        available = flt(
+            usable_credit(adj.remaining_impact, po.get("amount_paid"), po.get("total_amount")), 2
+        )
+        if available <= 0:
+            continue
         sources.append({
             "po_id": adj.po_id,
             "project": adj.project,
             "project_name": po.get("project_name"),
-            "available": flt(-flt(adj.remaining_impact), 2),
+            "available": available,
             "status": po.get("status"),
         })
 

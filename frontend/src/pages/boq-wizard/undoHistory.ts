@@ -6,11 +6,16 @@
  * the concrete cells; this module owns the stack arithmetic (push / pop / cap / invert) and the
  * ONE-GESTURE-ONE-ENTRY invariant: a fill-down of 80 rows is ONE undo entry, not 80.
  *
- * SCOPE: RATE deltas only (remark / colour / reconciliation / lock / version-switch are NOT
- * undoable -- a mixed gesture records only its rate deltas). Session-only, in-memory; the grid
+ * SCOPE: RATE and BCS COST deltas (remark / colour / reconciliation / lock / version-switch are
+ * NOT undoable -- a mixed gesture records only those two). Session-only, in-memory; the grid
  * clears history for free on the sheet/version remount.
+ *
+ * BCS-S3a widened the scope by owner ruling (2026-08-02): "a cost box you cannot paste into or
+ * undo, one column from a rate box where both work, is the asymmetry people trip over". One
+ * gesture can touch both layers, so ONE entry carries both lists and inverts them together --
+ * splitting them into two stacks would let a single Ctrl+Z undo half of one action.
  */
-import type { RateCellSaveArgs } from "./boqTypes";
+import type { BcsRateField, RateCellSaveArgs } from "./boqTypes";
 
 /** Depth of the undo ring buffer (oldest entries drop past this on a new push). */
 export const HISTORY_MAX = 50;
@@ -28,9 +33,32 @@ export interface RateDelta {
   newRate: number;
 }
 
-/** One user gesture = an array of rate deltas (single-cell edit = 1; paste/fill/cut = N). */
+/**
+ * One BCS cost change inside a gesture (BCS-S3a). Addressed by the row's EXCEL row + the stored
+ * FIELD, because BCS identity is per-row with no col_letter at all; `draftKey` is the grid's
+ * optimistic key for that box. old/new are the numeric values BEFORE/AFTER.
+ *
+ * ⚠️ A delta is still per-FIELD, not per-row, even though the WRITE is per-row: two boxes of one
+ * row changed in one gesture are two deltas that the replay folds back into one save
+ * (`clipboard.foldBcsWrites`). Recording them folded would lose which box the user actually
+ * touched, and an undo would then overwrite a sibling the gesture never wrote.
+ */
+export interface BcsDelta {
+  excelRow: number;
+  field: BcsRateField;
+  draftKey: string;
+  oldValue: number;
+  newValue: number;
+  /** row.description -- carried so a replay can send the same save args (optional). */
+  description?: string;
+}
+
+/** One user gesture = its rate deltas and/or its BCS cost deltas (single-cell edit = 1;
+ *  paste/fill/cut = N). `bcsDeltas` is ABSENT on a rate-only gesture -- never an empty array --
+ *  so a pre-S3a entry's shape is byte-unchanged. */
 export interface HistoryEntry {
   deltas: RateDelta[];
+  bcsDeltas?: BcsDelta[];
 }
 
 /** The two stacks. `undo` is past gestures (newest last); `redo` is undone gestures. */
@@ -59,7 +87,8 @@ export function canRedo(state: HistoryState): boolean {
  * unchanged so an empty gesture never occupies a slot. Pure -- returns a NEW state.
  */
 export function pushEntry(state: HistoryState, entry: HistoryEntry, max = HISTORY_MAX): HistoryState {
-  if (entry.deltas.length === 0) return state;
+  // "Wrote nothing" now means BOTH lists are empty -- a cost-only gesture is a real gesture.
+  if (entry.deltas.length === 0 && (entry.bcsDeltas?.length ?? 0) === 0) return state;
   const undo = [...state.undo, entry];
   if (undo.length > max) undo.splice(0, undo.length - max); // drop oldest to fit the ring
   return { undo, redo: [] };
@@ -96,7 +125,17 @@ export function popRedo(state: HistoryState): { entry: HistoryEntry; state: Hist
  * Pure -- unit-tested.
  */
 export function invert(entry: HistoryEntry): HistoryEntry {
-  return {
+  const out: HistoryEntry = {
     deltas: entry.deltas.map((d) => ({ ...d, oldRate: d.newRate, newRate: d.oldRate })),
   };
+  // Only when there ARE cost deltas -- a rate-only entry must not grow an empty array, or
+  // invert(invert(e)) would stop round-tripping by value.
+  if (entry.bcsDeltas) {
+    out.bcsDeltas = entry.bcsDeltas.map((d) => ({
+      ...d,
+      oldValue: d.newValue,
+      newValue: d.oldValue,
+    }));
+  }
+  return out;
 }

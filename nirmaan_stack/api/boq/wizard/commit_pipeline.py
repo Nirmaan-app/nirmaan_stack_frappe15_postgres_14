@@ -78,7 +78,7 @@ import openpyxl
 from nirmaan_stack.api.boq.wizard.commit_gate import compute_committable_sheets
 from nirmaan_stack.api.boq.wizard import committed_carry
 from nirmaan_stack.api.boq.wizard import directional_guard
-from nirmaan_stack.api.boq.wizard.review_screen import resolve_effective
+from nirmaan_stack.api.boq.wizard.review_screen import _NOTE_CLS, resolve_effective
 from nirmaan_stack.api.boq.wizard.sheet_preview import (
     _extract_grid_rows,
     _fetch_boq_file_to_tempfile,
@@ -879,6 +879,10 @@ def _commit_node_tree(
         node_rows.append((d, eff))
         eff_parent_by_idx[d["row_index"]] = eff["effective_parent_index"]
 
+    # EA-6a slice 2 (C3): attached_notes is DERIVED from the effective tree -- the AUTHORITY.
+    # Same helper the C4 reconciliation calls, from the same node_rows.
+    derived_attached_notes = _derive_attached_notes(node_rows)
+
     # Levels: derive every node's level from the WHOLE sheet's effective tree (ADR-0009:
     # level = nesting depth -- preamble >=1, non-preamble level-less None). Re-parenting a preamble in
     # review cascades the derived level of that row AND every descendant. The commit stays
@@ -921,7 +925,10 @@ def _commit_node_tree(
     for d, _eff in node_rows:
         name = name_by_idx[d["row_index"]]
         updates: dict[str, str] = {}
-        att = d.get("attached_notes")
+        # EA-6a slice 2 (C3): the DERIVED list, not the review row's copy. A node with no
+        # derived notes is left untouched -- pass 1 inserted it with attached_notes null, so
+        # "no notes" persists as null exactly as before (never a stale carried value).
+        att = derived_attached_notes.get(d["row_index"])
         if att:
             updates["attached_notes"] = json.dumps(att)
         elog = d.get("edit_log")
@@ -1198,6 +1205,43 @@ def _node_type_for(cls: str) -> str:
     return "Other"
 
 
+def _derive_attached_notes(node_rows: list) -> dict:
+    """EA-6a slice 2 (C3): attached_notes DERIVED from the effective tree -- THE AUTHORITY.
+
+    {effective_parent_row_index: [note text, ...]} in row_index order.
+
+    WHY DERIVE RATHER THAN CARRY: the review row's own attached_notes copy is written by the
+    parser and kept in step by the C1 edit-time rebuild, but nothing can guarantee it for
+    every path that has ever touched a row (a classification flip, a row parsed before EA-6a,
+    a re-parent made before this slice shipped). The effective tree is the single thing the
+    commit already trusts for parenting and levels, so attachment now reads from the same
+    source -- which is what makes re-commit SELF-HEAL a sheet's notes (owner decision D5:
+    forward-only, no backfill).
+
+    ORDER IS LOAD-BEARING: hierarchy._notes_text pipe-joins the list and the parser pins it.
+    A note with NO effective parent is a MASTER-BUCKET note: it lands in no parent's list,
+    exactly as the parser's master_preamble_notes behaviour -- byte-unchanged.
+
+    Called by BOTH the pass-3 write and the C4 reconciliation, from the SAME `node_rows`, so
+    the written value and the asserted value are identical by construction rather than by
+    two matching implementations.
+    """
+    by_parent: dict = {}
+    for d, eff in node_rows:
+        if eff["effective_classification"] != _NOTE_CLS:
+            continue
+        parent_idx = eff["effective_parent_index"]
+        if parent_idx is None:
+            continue  # master bucket -- attaches to no node
+        by_parent.setdefault(parent_idx, []).append(
+            (d["row_index"], d.get("description") or "")
+        )
+    return {
+        p: [text for _ri, text in sorted(pairs, key=lambda t: t[0])]
+        for p, pairs in by_parent.items()
+    }
+
+
 def _reconcile_node_tree(
     sheet_name: str,
     boq_sheet_name: str,
@@ -1232,6 +1276,12 @@ def _reconcile_node_tree(
             f"node(s) but {stored_count} were committed.",
             title="Commit reconciliation failed",
         )
+
+    # EA-6a slice 2 (C4): the DERIVED attachment map, recomputed here from the SAME node_rows
+    # the pass-3 write used. Deriving rather than receiving it keeps _reconcile_node_tree's
+    # SIGNATURE unchanged -- five existing tests monkeypatch this function with 7-positional
+    # stubs, and widening it would have forced churn on test doubles for no benefit.
+    _derived_by_idx = _derive_attached_notes(node_rows)
 
     read_fields = [
         "code", "sort_order", "source_row_number", "description", "unit", "make_model",
@@ -1296,7 +1346,25 @@ def _reconcile_node_tree(
 
         # JSON carried fields (empty {}/[]/None all normalize to absent).
         _jsn("append_notes_raw", d.get("append_notes_raw"))
-        _jsn("attached_notes", d.get("attached_notes"))
+        # EA-6a slice 2 (C4): RE-POINTED to the DERIVED value -- CALL SITE ONLY. The shared
+        # _jsn helper is untouched (it guards append_notes_raw / edit_log /
+        # description_parts_raw too). The assertion's real job is unchanged and still done:
+        # it proves the pass-3 deferred list-JSON set_value(json.dumps(...)) actually landed,
+        # which is the documented list-valued-JSON wall. Only its EXPECTATION moved from the
+        # carried copy to the derived truth.
+        _derived_notes = _derived_by_idx.get(d["row_index"])
+        _jsn("attached_notes", _derived_notes)
+        # A review-row copy that disagrees with the derived truth is a DISPLAY-TIER drift,
+        # NOT a commit failure (owner decision D2): the node just committed is correct, and
+        # failing the commit would punish the user for stale display data the derivation has
+        # already fixed. Log it so the drift is visible and attributable.
+        if not _json_eq(d.get("attached_notes"), _derived_notes):
+            frappe.logger("boq_commit").warning(
+                "EA-6a attached_notes drift (display-tier, commit unaffected): "
+                f"boq_sheet={boq_sheet_name} sheet={sheet_name!r} "
+                f"row_index={d.get('row_index')} source_row={d.get('source_row_number')} "
+                f"review_row={d.get('attached_notes')!r} derived={_derived_notes!r}"
+            )
         _jsn("edit_log", d.get("edit_log"))
         _jsn("description_parts_raw", d.get("description_parts_raw"))
 

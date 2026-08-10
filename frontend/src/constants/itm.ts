@@ -1,10 +1,12 @@
 /**
  * Roles allowed to create Internal Transfer Memos (from Inventory Item-Wise CTA).
  */
+import { MATERIAL_PROCUREMENT_PROFILES } from "@/constants/roles";
+
 export const ITM_CREATE_ROLES: readonly string[] = [
   "Nirmaan Admin Profile",
   "Nirmaan PMO Executive Profile",
-  "Nirmaan Procurement Executive Profile",
+  ...MATERIAL_PROCUREMENT_PROFILES,
 ] as const;
 
 /**
@@ -23,7 +25,7 @@ export const ITM_APPROVE_ROLES: readonly string[] = [
 export const ITM_DELETE_ROLES: readonly string[] = [
   "Nirmaan Admin Profile",
   "Nirmaan PMO Executive Profile",
-  "Nirmaan Procurement Executive Profile",
+  ...MATERIAL_PROCUREMENT_PROFILES,
 ] as const;
 
 /**
@@ -31,7 +33,7 @@ export const ITM_DELETE_ROLES: readonly string[] = [
  */
 export const ITM_DISPATCH_ROLES: readonly string[] = [
   "Nirmaan Admin Profile",
-  "Nirmaan Procurement Executive Profile",
+  ...MATERIAL_PROCUREMENT_PROFILES,
 ] as const;
 
 /**
@@ -40,7 +42,7 @@ export const ITM_DISPATCH_ROLES: readonly string[] = [
 export const ITM_VIEW_ROLES: readonly string[] = [
   "Nirmaan Admin Profile",
   "Nirmaan PMO Executive Profile",
-  "Nirmaan Procurement Executive Profile",
+  ...MATERIAL_PROCUREMENT_PROFILES,
   "Nirmaan Project Lead Profile",
   "Nirmaan Project Manager Profile",
 ] as const;

@@ -18,6 +18,16 @@ interface AdjustmentItem {
   created_by?: string;
 }
 
+/**
+ * Who last hand-edited an adjustment's balance or its audit rows.
+ * `null` means the Version log has no record — the edit predates `track_changes`
+ * being enabled on PO Adjustments (2026-08-11). It does NOT mean nobody edited it.
+ */
+export interface AdjustmentManualEdit {
+  by: string;
+  at: string;
+}
+
 export interface POAdjustmentDoc {
   name: string;
   po_id: string;
@@ -26,6 +36,20 @@ export interface POAdjustmentDoc {
   status: "Pending" | "Done";
   remaining_impact: number;
   adjustment_items: AdjustmentItem[];
+  /**
+   * Ledger-integrity trio, surfaced additively by `get_po_adjustment`.
+   *
+   * `remaining_impact` is deliberately left hand-editable for emergencies (owner
+   * ruling 2026-08-11), so a mismatch with the audit rows is a legitimate state,
+   * not corruption — but it must never be SILENT. Two POs sat payment-locked for
+   * weeks on numbers nobody could account for, because a Desk edit left no trace.
+   *
+   * Optional so a client running against an older backend still type-checks; treat
+   * `undefined` as "unknown", never as "in sync".
+   */
+  computed_from_children?: number;
+  ledger_in_sync?: boolean;
+  manual_edit?: AdjustmentManualEdit | null;
 }
 
 interface CandidatePO {

@@ -41,6 +41,12 @@
   "category_override_by",
   "category_override_at",
   "category_override_reason",
+  "bcs_section",
+  "bcs_enabled",
+  "bcs_qty_source",
+  "bcs_amount_source",
+  "bcs_confirmed_by",
+  "bcs_confirmed_at",
   "revision_provenance_section",
   "source_boq",
   "source_commit_version",
@@ -272,6 +278,44 @@
    "label": "Category Override Reason"
   },
   {
+   "fieldname": "bcs_section",
+   "fieldtype": "Section Break",
+   "label": "BCS (Cost & Margin)"
+  },
+  {
+   "default": "0",
+   "description": "Per-sheet, per-committed-version switch for the BCS cost section of the pricing editor (slice BCS-S1). BCS is the COST side: hand-typed cost rates per row (stored on BoQ Row BCS Rate) representing what the work costs US, against the BoQ amount we charge the CLIENT. THREE rate fields exist -- supply_rate, install_rate and combined_rate -- and WHICH of them a sheet uses is the SCREEN's decision, not this flag's (BCS-S2b, owner ruling 2026-08-02): a sheet that splits its quote carries a Supply Rate and an Installation Rate, while a sheet quoting ONE undifferentiated figure carries a Combined Rate instead. combined_rate is NOT a total of the other two -- never sum it with them, never derive it from them. Enabling alone is NOT enough to write a BCS rate -- the two columns below must also be confirmed; the shared readiness predicate is bcs.bcs_is_ready. THIS GATE GUARDS BCS CELLS ONLY (owner-locked): it is deliberately NOT ANDed into save_cell_price's rate gate, so ordinary client-facing pricing stays fully editable on a sheet where BCS was never enabled. Set via frappe.db.set_value (NOT doc.save -- the list-valued area_dimensions JSON throws on a full save). Re-commit INVALIDATES: a new commit_version inserts a fresh BoQ Sheet row that defaults bcs_enabled=0.",
+   "fieldname": "bcs_enabled",
+   "fieldtype": "Check",
+   "label": "BCS Enabled"
+  },
+  {
+   "description": "The CONFIRMED quantity source for this sheet's BCS Total Amount, stored so it can be RE-RESOLVED later rather than re-guessed. A DICT (never a bare list -- a list-valued JSON field throws in get_valid_dict on a full save): {mode, columns:[{col, role, area, value_field, value_key}]}. mode is 'qty_total' when the sheet maps a scalar Total Quantity column, or 'qty_by_area' when it maps quantity PER AREA and the total is the SUM of that set. Each entry carries the full descriptor identity, so a reader resolves the value without re-deriving it from column_role_map. Validated at confirm time against the sheet's REAL column_descriptors (bcs.confirm_bcs_columns) -- a column the sheet does not have is REFUSED, not stored, and a scalar total may not be mixed with its own per-area parts (that would double-count). NULL until confirmed.",
+   "fieldname": "bcs_qty_source",
+   "fieldtype": "JSON",
+   "label": "BCS Quantity Source"
+  },
+  {
+   "description": "The CONFIRMED amount SOURCE for this sheet's BCS % Profit denominator. Same re-resolvable DICT shape as bcs_qty_source: {mode, columns:[{col, role, area, value_field, value_key, rate_subkey}]}, with ONE OR MORE entries. It records WHAT WE CHARGE THE CLIENT, against which the BCS cost rates are the margin. rate_subkey is load-bearing on a PER-AREA amount, which is a THREE-hop resolve (amount_by_area[area][kind]); it is None on the two-hop shapes. THE AMOUNT VARIES ALONG TWO AXES: SHAPE (one scalar column, or N per-area columns whose SUM is the figure) and KIND (the combined total, or the supply / installation HALVES). That gives EIGHT accepted modes, enumerated in services/boq_bcs/sources.py _AMOUNT_MODES -- amount_total, amount_supply_plus_install, amount_supply_only, amount_install_only, and the four amount_by_area* twins. A single entry is ONE of the eight, not the shape of the field. BCS-S2b widened the KIND axis (owner ruling 2026-08-02) because most real sheets carry no single 'Amount (Total)' column at all, so refusing the halves left the confirmation card's Amount list EMPTY on most sheets. ADAPT AND DISCLOSE, DO NOT REFUSE: a sheet carrying only ONE half is ACCEPTED, and the stored mode states the formula actually in force so the screen can say it out loud. Validated at confirm time against the sheet's REAL column_descriptors; REFUSED and nothing stored for a column the sheet does not have, two picks resolving to the same value, a mapped column of the wrong class (a rate or a quantity column), a TOTAL picked beside a half (the total already contains it), or scalar amounts mixed with per-area ones. NULL until confirmed.",
+   "fieldname": "bcs_amount_source",
+   "fieldtype": "JSON",
+   "label": "BCS Amount Source"
+  },
+  {
+   "description": "The user who last confirmed the two BCS columns (frappe.session.user). Typed Data + read_only to mirror locked_by / frozen_by / category_override_by. NULL until confirmed.",
+   "fieldname": "bcs_confirmed_by",
+   "fieldtype": "Data",
+   "label": "BCS Confirmed By",
+   "read_only": 1
+  },
+  {
+   "description": "When the two BCS columns were last confirmed (now_datetime()). NULL until confirmed. A re-confirmation overwrites both this and bcs_confirmed_by -- the pair always describes the CURRENT confirmation, never the first one.",
+   "fieldname": "bcs_confirmed_at",
+   "fieldtype": "Datetime",
+   "label": "BCS Confirmed At",
+   "read_only": 1
+  },
+  {
    "fieldname": "revision_provenance_section",
    "fieldtype": "Section Break",
    "label": "Revision Provenance"
@@ -301,7 +345,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-28 00:00:00.000000",
+ "modified": "2026-08-02 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "BoQ Sheet",

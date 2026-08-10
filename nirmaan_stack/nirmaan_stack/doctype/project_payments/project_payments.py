@@ -122,7 +122,24 @@ class ProjectPayments(Document):
 		try:
 			frappe.db.set_value(self.document_type, self.document_name, "amount_paid", total_paid)
 			# print(f"DEBUGGPS: Updated amount_paid for {self.document_type} {self.document_name} to {total_paid}")
-			frappe.db.commit()
+
+			# ⚠️ THE COMMIT IS SKIPPED FOR THE OUTFLOW IMPORT, AND ONLY FOR IT.
+			#
+			# Committing INSIDE a save destroys any savepoint the caller is holding. Bulk Import
+			# Outflow settles a bank statement row by row, each row inside its own savepoint so
+			# that row 3 failing leaves rows 1-2 written and rows 4+ still attempted -- "Confirm 8"
+			# must never leave four written and four not. This commit would end that isolation on
+			# the first row.
+			#
+			# The recompute itself still runs, so `amount_paid` is written exactly once and lands
+			# in the SAME transaction as the payment, the match record and the import row -- which
+			# is stronger than the normal path, not weaker: if the settlement rolls back, so does
+			# the total. The import's endpoint commits all of it together.
+			#
+			# Every other caller is byte-identical to before. Same shape as `from_adjustment`
+			# above, which exists because PO Revision hit this exact problem.
+			if not self.flags.get("from_outflow_import"):
+				frappe.db.commit()
 		except Exception as e:
 			frappe.log_error(
                 message=f"Failed to update amount_paid for {self.document_type} {self.document_name}. Error: {str(e)}",

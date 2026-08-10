@@ -39,7 +39,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { getFrappeError } from "@/utils/frappeErrors";
-import { ClassificationPill, CLS_LABELS } from "./reviewRender";
+import { ClassificationPill, CLS_LABELS, ROW_TYPE_LABEL } from "./reviewRender";
 import { fuzzyDescriptionMatchSet } from "./boqDescriptionSearch";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -554,20 +554,20 @@ export function TemplateRowsEditor({ template, sheetName, canEdit }: TemplateRow
             </DialogTitle>
             <DialogDescription>
               {formMode?.kind === "edit"
-                ? "Change this row's classification, content, or parent."
+                ? `Change this row's ${ROW_TYPE_LABEL.toLowerCase()}, content, or parent.`
                 : "A new row is inserted with renumber-on-insert; every following row shifts down."}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
             <div className="space-y-1.5">
-              <Label htmlFor="tpl-row-cls">Classification</Label>
+              <Label htmlFor="tpl-row-cls">{ROW_TYPE_LABEL}</Label>
               <Select
                 value={form.classification}
                 onValueChange={(v) => setForm((f) => ({ ...f, classification: v }))}
               >
                 <SelectTrigger id="tpl-row-cls">
-                  <SelectValue placeholder="Select a classification" />
+                  <SelectValue placeholder={`Select a ${ROW_TYPE_LABEL.toLowerCase()}`} />
                 </SelectTrigger>
                 <SelectContent>
                   {classificationChoices.map((o) => (

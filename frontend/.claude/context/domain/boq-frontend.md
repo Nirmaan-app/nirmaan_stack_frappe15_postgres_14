@@ -2231,3 +2231,322 @@ typed quantities that silently return if the group is re-selected).
 - `test_template_select` 22 → **29** (3 pure + 6 endpoint, incl. the no-provenance and
   re-select-does-not-restore guarantees). Live-verified: typed 42 → deselect → `qty_total` 0,
   `qty_by_area` `{Area1:0,B2:0,B3:0}`, cell read-only, row out of the nav matrix.
+
+---
+
+## BCS — the internal COST layer, frontend (branch `feature/bcs-columns`)
+
+Per-slice narrative for the whole arc lives in the plan doc; backend storage, endpoints, the
+readiness predicate and the carry layer are in `boq-backend.md`. **This section is the frontend
+reference.** Everything BCS renders lives inside the existing pricing editor — there is no new page
+and no new route.
+
+⚠️ **NAME COLLISION.** "BCS" here is the BoQ cost layer. "BCS" in the **Rate Master** conventions
+(`frontend/CLAUDE.md`) is a derivation pipeline. Unrelated concepts, same three letters; the acronym
+is never expanded anywhere in the codebase and should not be given an invented expansion.
+
+### The modules, and the one-way dependency
+
+| Module | Role |
+|---|---|
+| `bcsColumns.ts` | **the pure leaf** — eligibility, the confirmation rules' client mirror, refusal codes + ordering, labels, the draft/stored merge, and every computed cell |
+| `bcsRollup.ts` | pure — the per-SECTION cost/tendered/margin rollup |
+| `marginView.ts` | pure — the % Margin RANGE FILTER + IN-PLACE SORT (BCS-S13/S14). ⚠️ Named for the flat margin VIEW it used to serve, which the owner deleted 2026-08-07; the name was kept to avoid touching every import. |
+| `MarginRangeFilter.tsx` | the funnel in the % Margin header — the range dialog |
+| `BcsColumnsDialog.tsx` | the enable + two-column confirmation card |
+| `PricingGrid.tsx` | the cost block itself (input boxes + three computed columns) |
+| `SummaryPanel.tsx` | the section cost axis |
+| `SheetPricingPage.tsx` | all page state, gating and writes |
+| `CarryLayers.tsx` / `boqTypes.ts` | the `bcs_costs` carry layer registration |
+
+`bcsColumns.ts` imports only types. `PricingGrid` imports **it**, never the reverse — the same
+one-way rule `priceability.ts` already keeps.
+
+### The cost block in the grid
+
+Rendered only when `bcsKinds.length > 0`. Left to right the block is the whole question BCS exists
+to answer: **what this row costs us, what we charge for it, and the margin between the two.**
+
+- **Which input boxes a sheet gets is derived from the sheet's OWN rate columns** (`bcsLiveRateKinds`,
+  owner ruling): no Supply rate column means no Supply box; a combined-rate sheet gets ONE
+  undifferentiated box; a sheet with no rate column at all gets none.
+  ⚠️ **THE HALVES WIN OVER A COMBINED RATE MAPPED BESIDE THEM, and that is a ruling, not a detail.**
+  The backend forbids summing `combined_rate` with the two halves, so the live set must never contain
+  both or the total double-counts. **This makes the prohibition STRUCTURAL** — the arithmetic
+  downstream cannot express the forbidden sum, because the set it is handed never holds both. It is a
+  NARROWING, never a widening; reversing it is a one-function change.
+- ⚠️ **THE BLOCK IS NOW FOUR COLUMNS, NOT FIVE (BCS-S8, owner ruling 2026-08-07):**
+  `BCS Cost (Supply)` · `BCS Cost (Installation)` · `BCS Total Amount` · `% Margin`.
+  **`Tendered Total Amount` WAS REMOVED**, reversing BCS-S3b's "ALWAYS SHOWN (owner ruling)".
+  **The NUMBER did not go — only its column.** `bcsRowAmount` / `bcsTenderedAmountCell` still run
+  on every row and still feed `bcsMarginPercent`; `BcsSectionTotals.tendered` still feeds
+  `sectionMarginPercent`. Do NOT "finish the removal" by deleting them — the margin would lose its
+  divisor and every % Margin on every sheet would blank. Removed from the Summary panel in the same
+  edit: the same figure under the same heading, so leaving it there would have shown a column the
+  grid beneath it no longer has.
+  ⚠️ **WHAT THE REMOVAL COST, recorded because it is not nothing.** The column existed to put the
+  denominator ON SCREEN beside the margin — S3b's rule is that % Margin divides by THE FIGURE
+  SHOWN, and the column was how a reader could see that it did. The rule still holds in code (one
+  `shownAmountValue`, reconciliation and all); it is simply **no longer verifiable by eye**. The
+  owner was told this at the time and removed it anyway.
+  ⚠️ **`isBcsInputColumn` MAKES REMOVAL THE DANGEROUS DIRECTION.** It answers *"is this NOT a
+  computed kind?"*, so a token dropped from `BCS_COMPUTED_KINDS` becomes **TYPEABLE**, not inert.
+  `"tendered"` is safe only because it left the `BcsComputedKind` union in the same edit — the
+  TYPE closes the hole, not the function. Anything removed from that list in future must leave the
+  union too.
+- **`% Profit` WAS RENAMED `% Margin` (owner ruling 2026-08-07)** — 100 occurrences across 15 files.
+  **A RENAME ONLY: the arithmetic is byte-unchanged.** The owner specified
+  `% Margin = (1 − BCS/BOQ) × 100`; the implementation computes `((amount − cost) / amount) × 100`,
+  which is the same expression rearranged (`(1 − c/a) = ((a − c)/a)`). Pinned by
+  `bcsColumns.test.ts`'s identity suite across 7 pairs. ⚠️ That suite ALSO pins the **misread**
+  grouping as wrong: written without the outer bracket, `1 − (c/a) × 100` returns **−59** where the
+  answer is **+40** — a different sign AND magnitude, not a rounding difference. If anyone ever
+  "implements the owner's formula literally", that test is what stops it. Internal identifiers
+  (`bcsMarginPercent`, `marginView`, `BCS_MARGIN_COL_KEY`) always said *margin*, so the rename is
+  the first time the code and the screen agree.
+- **Column headers (owner ruling):** `BCS Cost (Supply)`, `BCS Cost (Installation)`, `BCS Total
+  Amount`. The `BCS ` prefix marks which side of the sheet a figure belongs to — everything named BCS
+  is what the work costs us, everything else is what we charge the client — which matters because on
+  a wide sheet the two blocks scroll apart. Pinned by test. ⚠️ The mirror to the parser's role labels
+  is deliberately **not** word-for-word (`Rate (Install)` vs `BCS Cost (Installation)`): the owner
+  chose the longer word for the header, and the role vocabulary is the parser's. Do not shorten it
+  back. ⚠️ A **combined**-rate sheet's single box still reads the unprefixed `Cost` — the owner named
+  two of the three boxes, so that one is an **open question**, not a decision.
+- **The sky tint marks THE BCS BLOCK, not "internal".** It once meant "what we pay, not what we
+  charge", and stopped meaning that when the client-facing Tendered and % Profit columns joined the
+  block. What it marks now is one contiguous, **screen-only** section that is not part of the sheet's
+  own columns and never reaches the client export. The internal-vs-client distinction lives in the
+  per-column `title` text, where it can be said per column.
+- **The three computed columns are never stored, never typeable, and never a paste target.**
+
+### ⚠️ Blank is never zero, and every blank knows why
+
+`BcsComputedCell` is a discriminated `{kind:"value"} | {kind:"blank", reason}` with six reasons
+(`no_quantity`, `no_cost`, `no_amount`, `zero_amount`, `negative_amount`, `not_finite`), surfaced as
+the cell's `title`. **A 0 is a claim; an absence is not** — an uncosted row showing a Total Amount of
+`0`, or a section showing `0%` profit, asserts "this costs nothing" / "we make nothing on it" about
+something nobody has costed. An **unrecognised** reason renders as an explicit *unsupported* state,
+never a silent blank, because an empty cell on a cost screen reads as "nothing to see here".
+
+**% Margin is NEVER `NaN` and NEVER `Infinity`** — a zero denominator is refused before the division
+and an out-of-range result after it. Both matter twice: a displayed `NaN` is nonsense, and a `NaN`
+compared with `===` would defeat a `React.memo` for the lifetime of the row.
+
+⭐ **AND NEVER A PROFIT ON A LOSS.** A **negative** denominator flips the inequality — an amount of
+−100 against a cost of 50 computes as **+150%**, so a loss-making row would display positive profit,
+the exact inverse of what the column exists to show and the one failure mode worse than a blank,
+because it is confidently wrong rather than visibly absent. Measured unreachable from data (zero
+negative amounts across the committed corpus) but reachable **by typing**, since no cost input
+carries a `min=`. ⚠️ It is a **blank with a reason, not a blocked keystroke** — refusing the input
+would be a guess about whether negative amounts are legitimate in this owner's BoQs. Do not convert
+it into a validation. **The cost side is deliberately unguarded**: a negative cost against a positive
+amount is arithmetically a margin above 100%, which is what it should read; only the denominator's
+sign inverts the comparison.
+
+⚠️ **% Margin divides by THE FIGURE THAT WOULD BE ON SCREEN (owner ruling).** The denominator sums
+the CONFIRMED Amount columns (`bcs_amount_source` — the "BOQ Total" in the owner's vocabulary) via
+`shownAmountValue`, the same function the amount `<td>`s use, so it resolves each column's formula
+AND its document-vs-formula reconciliation choice. On a diverging cell the screen shows the DOCUMENT
+amount by default, so a second copy that skipped reconciliation would silently divide by a number
+that is not the one printed elsewhere in the row.
+
+⚠️ **AS OF BCS-S8 THAT SUM HAS NO COLUMN OF ITS OWN** — this paragraph used to say "the Tendered
+Total Amount column sums the confirmed Amount columns … so the denominator and the amount `<td>`
+beside it come from one function", and the column it named is gone. The rule survives EXACTLY as
+stated (one function, reconciliation and all); what died is the *check*. The denominator is no
+longer displayed anywhere, so "divides by the figure on screen" is now a promise the screen cannot
+corroborate. Keep the single-function property — it is the only thing left holding this up.
+
+### ⚠️ The known partial-cost overstatement (owner-accepted — ship as-is, recorded)
+
+**A section with only SOME of its lines costed reports % Margin from a PARTIAL cost over a FULL
+tendered amount, and therefore reads FATTER than reality.** Mechanism: in `bcsRollup.rollBcsSections`
+an uncosted row contributes `0.0` to the section's cost sum, while the has-costs flag is an **OR**
+across the subtree — so one costed line among ten makes the whole section "costed", and its lone cost
+is divided into the whole section's tendered amount. Pinned (not merely tolerated) by
+`bcsRollup.test.ts`'s `T5b`, which asserts exactly this shape and its inflated margin.
+
+This is an **accepted owner decision, not an open defect** — the alternative (blanking any section
+that is not fully costed) hides real information during the normal state of a job being costed. It is
+recorded because a section-level margin that reads high is *plausible*, and a reader who does not
+know this will trust it.
+
+### State, gating and the memo shield
+
+- **`bcsToggleState` has THREE states — `unknown` / `off` / `on` — not two.** "We have no payload
+  yet" is not "BCS is off", and collapsing them makes a loading screen assert a fact.
+- **`bcsColumnsVisible = bcsBlockConfigured && bcsRatesLoad.isUsable`.** The `isUsable` half is
+  load-bearing: an empty map on a FAILED read would turn "we do not know this sheet's costs" into
+  "this sheet has no costs".
+  ⚠️ **It is NOT the same condition the grid's block uses** — the grid also requires
+  `bcsKinds.length > 0`, and the Summary panel has no such term, so a BCS-ready sheet that maps no
+  rate column shows three blank cost columns in the panel and none in the grid. Aligned in practice
+  only because such a sheet is not one anyone prices. Not "fixed", deliberately: it is a render-gate
+  change in a repo with **no DOM test environment**, so it would ship verified by nothing.
+- **The % Margin filter and sort must not outlive the costs they are built on** — both clear on the
+  FALSE edge of `bcsColumnsVisible` (BCS switched off, confirmation cleared, version changed, costs
+  read failed), and on a sheet or version switch. ⚠️ **This is MORE load-bearing than it was for the
+  BCS-S4 margin view it replaced** (owner ruling 2026-08-07): the view kept a lit toolbar button and
+  a direction label, whereas the funnel and the arrow live IN the % Margin header — so when that
+  column stops rendering they vanish while the matched set keeps hiding rows and the held order keeps
+  shuffling them, leaving a sheet quietly missing most of its lines, in an order nobody chose, with
+  every visible control saying nothing is applied.
+- ⚠️ **A CONTROL THAT CAN HIDE ITSELF NEEDS AN ESCAPE HATCH.** `PricingGrid`'s `rows.length === 0`
+  early return fires **before the header renders**, so a range matching nothing removed the only
+  control that could clear it (owner-found). The empty state therefore distinguishes "this sheet is
+  empty" from "your filters emptied it", names the applied range, and offers **Clear filters** →
+  `clearAllViewFilters`, which resets EVERY view filter (whoever presses it cannot see *which* filter
+  emptied the grid). **Collapse is excluded** — not a filter, and structurally unable to cause this.
+  The early return must stay INSIDE the grid: lifting it into the page would unmount `PricingGrid`
+  and discard the unsaved rate/cost drafts held in its state.
+- ⚠️ **THE `ReadonlyMap` IN `mergeBcsRowValues` IS THE POINT — do not "simplify" it to an object.**
+  The grid's cost drafts live in a `Record<string,string>` keyed `` `${row_index}:${field}` `` while
+  the merge reads **bare** field keys. As a plain object parameter the two are structurally
+  assignable — an all-optional target accepts any string-indexed source — so handing over the wrong
+  key space **compiles cleanly, finds nothing**, and (this shipped once) reverts a controlled cost
+  input on every keystroke while the debounce saves a number nobody typed. `tsc` reported nothing. A
+  `Record` is not assignable to a `Map`, so the mistake is now a compile error.
+- **Memo shield (the P1 per-row rule) holds throughout**: the grid receives BCS drafts per-row as its
+  own slice, never the shared draft object; grid-level BCS props flip identically for all rows. No
+  BCS surface added a per-row prop that changes on a keystroke.
+
+### BCS-S9 — BCS Total Amount became an EDITABLE FORMULA (green ƒ, owner ruling 2026-08-07)
+
+The rule `quantity × (summed cost boxes)` was hardcoded at **two** call sites, so it could be
+neither seen nor varied per sheet. It is now a formula behind the same green ƒ badge an amount
+column carries, on the `BCS Total Amount` header.
+
+- **Storage is the EXISTING `BoQ Cell Amount Formula`** with `target_value_field = "bcs_total"` —
+  **no schema change, no migrate**. It therefore rides the `column_formulas` payload
+  `get_priced_rows` already returns and saves through the `onSaveFormula` that already existed:
+  **no new endpoint, no new fetch, and — because the grid and the rollup are both already handed
+  `columnFormulas` — no new prop threaded through the row memo.** `pickBcsTotalFormula` is the one
+  reader.
+- ⚠️ **ONE FUNCTION OWNS "THIS ROW'S BCS TOTAL": `bcsColumns.bcsTotalCell`.** `PricingGrid
+  .computeBcsRowCells` and `pricingRollup` each computed it independently before S9 — survivable
+  only while the rule was a CONSTANT. The moment it became per-sheet DATA, two copies meant an
+  edited formula would show one number in the grid and a different one in the Summary panel above
+  it. Both now come through this function. **Do not add a third.**
+- **`tree === null` ⇒ the built-in rule**, byte-identical to pre-S9, which is what keeps every
+  existing sheet's totals exactly where they were. `defaultBcsTotalFormula` is the SEED the builder
+  opens on, so "no stored formula" never reads as "no rule". Pinned: seeded result `===` built-in
+  result across every kind shape.
+- **The operand vocabulary is DISJOINT from the sheet's** (`bcs_supply` / `bcs_install` /
+  `bcs_combined` / `bcs_qty`) — none is a committed column. The palette comes from
+  `bcsOperandRefs(bcsKinds)`, so it can never offer a cost box the sheet does not have. A
+  combined-rate sheet's seed is ONE leaf × qty, so `bcs.py:16`'s "never sum combined with the
+  halves" stays structurally inexpressible.
+- **Blank still knows why on the formula path** — the reason is chosen from WHICH operand was
+  missing (`no_cost` / `no_quantity`), not flattened to one generic empty.
+- ⚠️ **AND THE BUG THIS SHIPPED WITH, because the failure mode is the lesson.** The palette's group
+  headings were a hardcoded `["Quantity","Rate","Amount"]` INLINE at the render site. The BCS cost
+  chips carried a fourth group, were built into the palette array correctly, and were then **dropped
+  on the floor at render** — the builder opened offering only Total Quantity, with no way to name a
+  cost at all. **Nothing failed**: no type error, no empty-palette message (the array was not
+  empty), just two silently missing buttons. Found by the owner, not by the suite. Fixed by deriving
+  the order from the palette (`paletteGroupOrder`, pure + exported + 6 tests) — **extracting it was
+  the point**, since this repo has no DOM environment and a helper left inline would have stayed as
+  untestable as the bug it caused. Same failure class as the operator-glyph ternary in F5. The BCS
+  cost group is labelled **`BCS Rate`** (owner).
+
+### BCS-S10 / S11 / S11b — % Margin got a ƒ, with TWO slots in ONE dialog
+
+`MarginFormulaBuilder.tsx` — one green ƒ on the % Margin header opening one popover that renders
+the whole rule with both operands live inside it:
+
+    ( 1 −  [COST]  ÷  [AMOUNT] )  ×  100
+
+- ⚠️ **S11 FIRST SHIPPED THIS AS TWO SEPARATE BADGES, one per operand, and the owner rejected it
+  immediately and correctly**: they are not two formulas but two halves of one rule, and splitting
+  them made the rule invisible — you could edit a denominator without ever seeing what it was the
+  denominator OF. **Do not split them again.**
+- **The wrapper is RENDERED, not editable, and that is structural.** `1` and `100` are numeric
+  literals; this builder has no literal token and the server rejects one. So the wrapper lives in
+  `bcsMarginPercent` — which is also where the three guards live (zero denominator, non-finite,
+  and the NEGATIVE denominator that would otherwise show a loss as **+150%**). Keeping it in code
+  is what makes those unbypassable whatever either slot is set to.
+- **Defaults reproduce today's numbers exactly**: cost seeds to `BCS Total Amount`, amount seeds
+  to the confirmed Amount columns summed. Pinned by test.
+- **`bcsColumns.boqTotalAmount` / `marginCostCell` are the ONE answer each**, and
+  `rollBcsSections` takes an optional per-row `ownTendered` override so the Summary panel follows
+  a formula too. ⚠️ Without that override the section denominator would keep summing per-COLUMN
+  totals while the grid used the formula — the two-surfaces-disagree failure, on the other axis.
+- **Reset vs Remove:** Reset re-seeds the boxes (local, nothing saved); **Remove deletes the
+  stored formulas** so the sheet returns to "nothing declared". Identical numbers, different
+  provenance — Remove is what lets a later reader tell "nobody configured this" from "someone
+  configured it and chose the default". ⚠️ The two saves are **sequential, not atomic**; on
+  failure the dialog stays OPEN with both trees intact rather than closing over a half-applied
+  change.
+- ⚠️ **S11b — TOTAL QUANTITY HAD TO BE REACHABLE FROM THE COST SIDE, and omitting it was a real
+  defect.** BCS Total Amount is a ROW total (`cost × quantity`); the cost boxes are PER-UNIT
+  rates. Offering the boxes without a quantity meant the only reachable formula divided a
+  per-unit rate by BOQ Total, a whole-row amount — dimensionally wrong, and wrong in a way that
+  still renders a plausible percentage.
+
+### ⭐ THE CHIP-NAMING RULE (owner-driven, 2026-08-07)
+
+**A palette chip must read exactly as the column it refers to reads in the grid.** Broken twice in
+one session, the same way both times, and both times the owner found it:
+
+- `Amount (Total)` — a ROLE label from `ROLE_LABELS`, while the grid header shows the sheet's own
+  Excel text. Fixed by putting the **column letter** on every sheet-column chip (`G — Amount
+  (Supply)`), the one label both surfaces already share.
+- `BCS Total` — while the header says `BCS Total Amount`.
+
+**A chip nobody can locate in the grid is worse than no chip: it reads as a figure that does not
+exist**, which is precisely what both reports said. BCS chips carry no letter, deliberately —
+they are screen-only figures with no Excel column, and that absence is meaningful.
+
+### ⭐ BCS-S12b — a RETIRED operand must keep its NAME
+
+Retiring `bcs_qty` from the palettes (the formula names the sheet's real quantity column now)
+took its LABEL with it, so a formula stored earlier hydrated showing a chip reading literally
+**`bcs_qty`**. The formula still computed correctly; it had simply lost its words.
+
+The operand entry type gained `hidden?: boolean` — **LABEL-ONLY**: resolvable by `labelFor` when
+hydrating, filtered out of the rendered chips. `PricingGrid.LEGACY_QTY_LABEL_ENTRY` is the first
+one. This is now a general rule: **an operand that leaves a palette must keep a hidden label
+entry, or every formula already using it starts speaking in field names.**
+
+⚠️ **THE FIX SHIPPED HALF-APPLIED FIRST.** It was added to `marginCostPalette` and not to
+`bcsOperandPalette` — the two are built a few lines apart, and a scripted edit matched only the
+first occurrence. The owner had to report the same chip twice. **Both palettes take the legacy
+entry; grep for every call site before calling a palette fix done.**
+
+### BCS-S12b — the BOQ Total seed with no confirmation
+
+`defaultBoqTotalFormula(source, descriptors)` now derives from the sheet when nothing is
+confirmed: a pre-S12 confirmation still wins, else a scalar `amount_total` **on its own**, else
+the two halves summed, else the per-area amounts summed.
+
+⚠️ **A SCALAR TOTAL IS NEVER SUMMED WITH THE HALVES** — the same rule `sources.py` enforced for
+the confirmation this replaces ("a TOTAL already CONTAINS its halves"). Summing all three counts
+every amount twice and **halves every margin**, which still renders a plausible percentage.
+
+### BCS-S12 — the BCS dialog is now only a switch
+
+`BcsColumnsDialog` lost both column pickers (owner ruling 2026-08-07); it renders *Turn BCS on* or
+*Turn BCS off* plus Cancel, and points at the two ƒ dialogs for the choices that moved.
+
+- ⚠️ **Readiness dropped to `bcs_enabled` in the SAME change, and the two are inseparable** — with
+  no UI writing the confirmations, keeping the old condition would have made BCS switch on and
+  stay permanently read-only. See `boq-backend.md` § BCS-S12.
+- **Two surfaces were removed because they could no longer mean anything**: the ribbon chip
+  (`Qty D · Amount G+H`) reported confirmations nobody makes any more, and the amber "BCS needs
+  columns" banner can never fire once readiness IS enablement. **A banner that cannot fire is
+  worse than none — a reader trusts that its absence means something.**
+- ⚠️ **THE ENABLE PATH NO LONGER OPENS THE CARD.** It used to, correctly: the card carried the
+  pickers, so enabling without them left a sheet that looked on but refused every cost write. S12
+  turned that same line into a dialog appearing unasked and offering to undo what you just did
+  (owner-reported). Off + click = turn on, stop. On + click = open the card. Do not reinstate it.
+
+### The carry layer, frontend
+
+`bcs_costs` is one entry in `CARRY_LAYER_KEYS`, so the dialog's "Also carry" block, its counts, its
+overwrite pairs and its payload builder all picked it up **free** — everything iterates the key list.
+⚠️ **It defaults OFF**, and that asymmetry is not arbitrary: categories are ON by an explicit owner
+ruling and cost data has had no such ruling, so **ON is the exception, not the rule**. Carried records
+arriving un-asked-for is half the defect that once deleted this whole feature, and an internal cost
+rate — what the job costs *us* — is the last layer on which to relax it. ⚠️ **The default lives ONLY
+in the client**; an omitted `layers` payload is rates-only server-side, so a client that never learned
+about `bcs_costs` keeps the earlier behaviour exactly. Never push the default into the server.

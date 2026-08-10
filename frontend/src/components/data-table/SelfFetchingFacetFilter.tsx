@@ -3,7 +3,7 @@ import { Column, ColumnFiltersState } from "@tanstack/react-table";
 
 import { useFacetValues } from "@/hooks/useFacetValues";
 import { DataTableFacetedFilter } from "./data-table-faceted-filter";
-import { FacetDeclaration, FacetOverride } from "./facetConfig";
+import { FacetDeclaration, FacetOverride, NOT_SET_FACET_VALUE } from "./facetConfig";
 
 // Stable module-level empties so a decoupled facet / an override-less facet does not hand
 // useFacetValues a fresh [] ref every render (which would churn its filter memo).
@@ -55,14 +55,27 @@ export function SelfFetchingFacetFilter({
     selectedSearchField: decoupled ? "name" : selectedSearchField,
     additionalFilters: override?.additionalFilters ?? EMPTY_ADDITIONAL,
     requirePendingItems: facet.requirePendingItems ?? false,
+    includeBlankBucket: facet.includeBlankBucket ?? false,
     enabled: openedOnce, // sticky-live lazy gate — flips true on first open, stays true
   });
+
+  // The backend returns the blank bucket with the raw sentinel as its label (naming the
+  // empty state is a UI concern — "Not Linked" here, "Unassigned" elsewhere). Swap in the
+  // declared label for DISPLAY only; the option's `value` stays the sentinel, which is what
+  // travels back as the filter and what the backend rewrites to `is not set`.
+  const options = React.useMemo(() => {
+    if (!facet.includeBlankBucket) return facetOptions;
+    const blankLabel = facet.blankLabel ?? "Not Set";
+    return facetOptions.map((o) =>
+      o.value === NOT_SET_FACET_VALUE ? { ...o, label: blankLabel } : o
+    );
+  }, [facetOptions, facet.includeBlankBucket, facet.blankLabel]);
 
   return (
     <DataTableFacetedFilter
       column={column}
       title={facet.title}
-      options={facetOptions}
+      options={options}
       isLoading={isLoading}
       onOpenChange={(open) => {
         if (open) setOpenedOnce(true);

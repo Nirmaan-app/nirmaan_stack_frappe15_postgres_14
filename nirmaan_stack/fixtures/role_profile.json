@@ -421,5 +421,35 @@
     "role": "Nirmaan Procurement Lead"
    }
   ]
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Role Profile",
+  "modified": "2026-08-11 03:27:15.046670",
+  "name": "Nirmaan Material Procurement Executive Profile",
+  "role_profile": "Nirmaan Material Procurement Executive Profile",
+  "roles": [
+   {
+    "parent": "Nirmaan Material Procurement Executive Profile",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Nirmaan Procurement Executive"
+   }
+  ]
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Role Profile",
+  "modified": "2026-08-11 03:27:15.357142",
+  "name": "Nirmaan Service Procurement Executive Profile",
+  "role_profile": "Nirmaan Service Procurement Executive Profile",
+  "roles": [
+   {
+    "parent": "Nirmaan Service Procurement Executive Profile",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Nirmaan Procurement Executive"
+   }
+  ]
  }
 ]

@@ -171,9 +171,16 @@ doc_events = {
 		"on_update": "nirmaan_stack.nirmaan_stack.doctype.vendor_category.vendor_category.update_vendor_category",
         "on_trash": "nirmaan_stack.nirmaan_stack.doctype.vendor_category.vendor_category.delete_vendor_category"
     },
+    # `on_update` / `after_delete` maintain the `members` DISPLAY MIRROR on
+    # `TDS Items` (owner decision 2026-08-04). `Items.linked_tds_item` stays the
+    # source of truth and is what every read derives from; the child table is
+    # rebuilt from it only so the Desk `Members` grid is not empty. The rationale,
+    # and why the ADR-0004 retirement of this same hook is being reversed, is in
+    # `integrations/controllers/items.py`.
     "Items": {
         "after_insert": "nirmaan_stack.integrations.controllers.items.after_insert",
-        "on_update": "nirmaan_stack.integrations.controllers.items.on_update"
+        "on_update": "nirmaan_stack.integrations.controllers.items.on_update",
+        "after_delete": "nirmaan_stack.integrations.controllers.items.after_delete"
     },
     "Project TDS Item List": {
         "before_save": "nirmaan_stack.integrations.controllers.project_tds_item_list.before_save"

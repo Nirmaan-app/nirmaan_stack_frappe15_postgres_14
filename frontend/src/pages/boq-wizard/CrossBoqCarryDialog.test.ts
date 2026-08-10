@@ -882,6 +882,91 @@ describe("the destination noun on the CROSS-BoQ surface (R9)", () => {
   });
 });
 
+// ── BCS-S6: the FIFTH layer, `bcs_costs` ──────────────────────────────────────────
+// The owner's ask: "Carry Rate from original gets a new option to copy the BCS Section;
+// precondition: BCS enabled on the destination sheet AND its formulas confirmed."
+//
+// Registration is a SEVEN-SITE change and three of those sites are here in the client. Sites 4
+// (LAYER_LABEL) and 6 (initialLayerChoices) are object literals typed `Record<CarryLayerKey, ...>`,
+// so tsc catches an omission; site 5 (`layerHint`) is a switch, and the dispatch brief asserted it
+// was NOT type-enforced and would return `undefined` silently.
+//
+// ⚠️ MEASURED AT BCS-S6 AND FALSE: `tsc --noEmit` on the key-widening alone emitted
+//   CarryLayers.tsx(72,4): error TS2366: Function lacks ending return statement and return type
+//   does not include 'undefined'
+// TypeScript's exhaustiveness analysis over the literal union plus the explicit `: string` return
+// annotation under `strict` makes a missing case a HARD COMPILE ERROR. The tests below therefore
+// guard something the compiler cannot: not that a branch EXISTS, but that it says the right thing --
+// in particular that it names the precondition, because a disabled row with no explanation is the
+// whole failure mode of a layer that silently skips.
+describe("the bcs_costs layer (BCS-S6)", () => {
+  it("is registered in CARRY_LAYER_KEYS, LAST -- render order is this array's order", () => {
+    expect(CARRY_LAYER_KEYS).toContain("bcs_costs");
+    expect(CARRY_LAYER_KEYS[CARRY_LAYER_KEYS.length - 1]).toBe("bcs_costs");
+  });
+
+  it("carries a real display label", () => {
+    expect(LAYER_LABEL.bcs_costs).toBe("BCS costs");
+  });
+
+  it("returns a real hint -- the site the brief expected to fail silently", () => {
+    const hint = layerHint("bcs_costs");
+    expect(hint).toBeTypeOf("string");
+    expect(hint.length).toBeGreaterThan(0);
+  });
+
+  it("names the precondition in the hint, because a not-ready sheet SILENTLY carries nothing", () => {
+    expect(layerHint("bcs_costs")).toBe(
+      "Cost rates typed into the BCS section. Carries only where BCS is switched on and its " +
+        "columns are confirmed.",
+    );
+  });
+
+  it("says the same thing on both surfaces -- the hint names no destination", () => {
+    expect(layerHint("bcs_costs", CARRY_DESTINATION_CROSS_BOQ)).toBe(layerHint("bcs_costs"));
+    expect(layerHint("bcs_costs", "anything at all")).toBe(layerHint("bcs_costs"));
+  });
+
+  it("defaults OFF -- cost data has had no owner ruling making it opt-out (R7)", () => {
+    expect(initialLayerChoices().bcs_costs).toEqual({ carry: false, overwrite: false });
+  });
+
+  it("posts nothing under the defaults, so an untouched dialog carries no costs", () => {
+    expect(buildLayersPayload(initialLayerChoices())).toEqual({
+      categories: { carry: true, overwrite: false },
+    });
+  });
+
+  it("rides the shared write-count arithmetic once ticked", () => {
+    const s = layered({ bcs_costs: outcome({ carried: 40, kept: 6 }) });
+    const ticked = choices({ bcs_costs: { carry: true, overwrite: false } });
+    // categories defaults ON but this sheet plans none, so the figure is the BCS layer alone.
+    expect(carryWriteCount(0, s, ticked)).toBe(40);
+    expect(carrySelectionSummary(0, s, ticked)).toBe("40 bcs costs");
+    // Arming Overwrite folds the already-set destination rows in, exactly like every other layer.
+    expect(carryWriteCount(0, s, choices({ bcs_costs: { carry: true, overwrite: true } }))).toBe(46);
+  });
+
+  it("opens the apply gate on its own -- a costs-only carry is a real carry (R15)", () => {
+    const s = layered({ bcs_costs: outcome({ carried: 12 }) });
+    expect(carryWriteCount(0, s, choices({ bcs_costs: { carry: true, overwrite: false } }))).toBe(12);
+    expect(carryWriteCount(0, s, initialLayerChoices())).toBe(0); // unticked -> gate shut
+  });
+
+  it("contributes nothing while unticked, however its outcome reads", () => {
+    const s = layered({ bcs_costs: outcome({ carried: 99, kept: 99 }) });
+    expect(carryWriteCount(0, s, initialLayerChoices())).toBe(0);
+    expect(carrySelectionSummary(0, s, initialLayerChoices())).toBe("");
+  });
+
+  it("has NO layer-specific skip note -- its skips are sheet-level, not per-row", () => {
+    // `ineligible` is categories-only and `dropped` is colours-only. A BCS layer that carries
+    // nothing does so because the DESTINATION SHEET is not BCS-ready, which is a whole-sheet fact
+    // the disabled row + the hint already state; a per-row note here would invent a reason.
+    expect(layerSkipNote("bcs_costs", outcome({ ineligible: 5, dropped: 5 }))).toBe("");
+  });
+});
+
 // ── WBC-S3a / R11: the whole-BoQ button's count ────────────────────────────────────
 // The hub path offers no layer choice, so its button's number is purely rates -- but it must still
 // be WRITES rather than the raw selection, for exactly the reason the single-sheet line was fixed.

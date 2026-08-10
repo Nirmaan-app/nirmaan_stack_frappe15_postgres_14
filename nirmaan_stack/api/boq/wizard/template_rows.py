@@ -362,7 +362,9 @@ def delete_review_row(boq_name: str = None, sheet_name: str = None, row_index=No
         new_idx = old_idx - 1 if old_idx > deleted_index else old_idx
         new_parent = _delete_remap(r.parent_index, deleted_index, grandparent)
         new_human_parent = _delete_remap(r.human_parent, deleted_index, grandparent)
-        new_attached = _delete_remap_attached(r.attached_to_index, deleted_index)
+        # EA-6a slice 2 (C2a): the attachment pointer now RE-POINTS to the grandparent in
+        # lockstep with parent_index/human_parent, instead of detaching.
+        new_attached = _delete_remap_attached(r.attached_to_index, deleted_index, grandparent)
         changed = {}
         if new_idx != old_idx:
             changed["row_index"] = new_idx
@@ -374,6 +376,19 @@ def delete_review_row(boq_name: str = None, sheet_name: str = None, row_index=No
             changed["attached_to_index"] = new_attached
         if changed:
             frappe.db.set_value("BoQ Review Row", r.name, changed)
+
+    # EA-6a slice 2 (C2b): the TEXT must follow the pointer. The deleted row's own blob died
+    # with the row, and its notes' pointers have just re-pointed to the grandparent -- so the
+    # grandparent's blob is recomputed from the rows now pointing at it (row_index order).
+    # Runs AFTER the remap loop so it reads the post-shift keyspace. `grandparent` is a
+    # PRE-delete row_index, so apply the same -1 shift the loop applied to pointers.
+    if grandparent is not None and grandparent >= 0:
+        _gp_after_shift = grandparent - 1 if grandparent > deleted_index else grandparent
+        review_screen.rebuild_attached_notes_blobs(
+            "BoQ Review Row",
+            {"boq": boq_name, "sheet_name": sheet_name},  # sheet_name VERBATIM (#152)
+            (_gp_after_shift,),
+        )
 
     # --- Self-heal source_row_number ("Excel Row") for the WHOLE sheet -------------------
     # The reverse-renumber above shifts row_index but never touches source_row_number, so a

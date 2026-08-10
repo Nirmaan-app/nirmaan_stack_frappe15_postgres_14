@@ -204,12 +204,164 @@ def _guard_suggest_gate(boq, sheet_name, committed_version):
         frappe.throw("Every eligible row needs a category first.", title="Category gate")
 
 
+# ══════════════════════════════════════════════════════════════════════════════════════
+# SELECTED-ROW RUNS (only_rows) -- scope the PROCESSING, never the population.
+#
+# ⚠️ THE INVERSION, recorded so it is never re-derived the short way. The natural
+# implementation -- narrowing assemble_population to the ticked rows -- is the DESTRUCTIVE
+# one: population_rows then equals the ticked set, `complete` evaluates True, `active` flips
+# to 1, the prior run is deactivated, and the new active run contains ONLY those rows. Every
+# unselected row silently loses its extraction, its badge and its "Use this value". The other
+# naive shape (filter the processed rows but leave the population whole) ends status=partial /
+# active=0, is never adopted by the editor, and offers a "Resume" that would re-extract the
+# whole sheet -- exactly what this feature exists to prevent.
+#
+# The correct shape, and the only one implemented here:
+#   * assemble_population is UNTOUCHED -- population_rows is ALWAYS the whole sheet, so it
+#     stays the completeness yardstick (extraction.run_extraction:1041 relies on this).
+#   * run_extraction gains an `only_rows` PROCESSING filter (positive polarity).
+#   * the run doc is a NEW document SEEDED with the prior active run's untouched rows, carried
+#     across byte-identically, so `complete` is reached honestly and the supersede is safe.
+# ══════════════════════════════════════════════════════════════════════════════════════
+
+
+def normalize_only_rows(raw):
+    """`only_rows` -> a sorted list of unique ints, or None when ABSENT/EMPTY.
+
+    POSITIVE POLARITY, deliberately: a tick box says "DO THESE". `skip_rows` (the SR-1 resume
+    lever) says "don't do these" and is derived server-side from a done-marker; inverting a tick
+    set on the client would force the client to reproduce the server's population definition,
+    which is precisely the fifth-definition drift this slice avoids.
+
+    An ABSENT or EMPTY value returns None, which every downstream branch reads as "whole sheet",
+    so the unscoped path stays byte-identical to pre-slice behaviour. Accepts a JSON string (the
+    shape frappe-react-sdk posts), a list, or a single scalar. A non-integer member is a hard
+    error -- silently dropping one would run fewer rows than the confirmation named. Pure.
+    """
+    if raw is None or raw == "":
+        return None
+    # Only a STRING is JSON. _parse_json would hand a bare int straight to json.loads and raise a
+    # TypeError instead of the named "not a row number" error this function promises.
+    value = _parse_json(raw, None) if isinstance(raw, str) else raw
+    if value is None or value == "" or (isinstance(value, (list, tuple, set)) and not value):
+        return None
+    if not isinstance(value, (list, tuple, set)):
+        value = [value]
+    out = set()
+    for item in value:
+        try:
+            out.add(int(item))
+        except (TypeError, ValueError):
+            frappe.throw(
+                f"Selected row '{item}' is not a row number.", title="Bad selection"
+            )
+    return sorted(out) or None
+
+
+def _population_rows(boq, sheet_name):
+    """The excel_row set the suggest run ACCEPTS -- assemble_population's own output, read (never
+    re-derived). This is the ONE server definition the tick boxes follow; the editor's badge set
+    (rate-editable) is deliberately WIDER and must never be used for selection."""
+    _cv, rows = extraction.assemble_population(boq, sheet_name)
+    return {int(r["excel_row"]) for r in rows}
+
+
+def _carry_source_run(boq, sheet_name, committed_version):
+    """The run a SCOPED pass carries its untouched rows forward from: the sheet's single active
+    run, pinned to the CURRENT committed version and genuinely COMPLETE. Returns the row dict or
+    None.
+
+    Version-pinned for the same reason the resume is: a run made against an earlier committed
+    version describes rows that may since have changed, so carrying it forward would launder stale
+    values into a document that claims to describe the current sheet."""
+    rows = frappe.get_all(
+        RUN_DOCTYPE,
+        filters={"boq": boq, "sheet_name": sheet_name, "active": 1},
+        fields=["name", "run_id", "status", "committed_version", "results", "attempted_rows"],
+        order_by="creation desc",
+        limit=1,
+    )
+    if not rows:
+        return None
+    run = rows[0]
+    if run.get("committed_version") != committed_version:
+        return None
+    if (run.get("status") or "complete") != "complete":
+        return None
+    return run
+
+
+def _guard_only_rows(boq, sheet_name, cv, only, resume_run_id):
+    """Everything a SELECTED-ROW run must satisfy before a single token is spent. Throws with a
+    named, actionable message on each failure; returns nothing.
+
+    REJECT, not ignore (owner choice, recorded): a row the client sends that is not in the real
+    population means the client's eligible set is STALE -- someone re-classified, or the category
+    gate moved -- and the confirmation the user just accepted named a count that is no longer
+    true. Running the survivors would honour a number nobody agreed to. Refusing is loud,
+    cheap and recoverable (reload, re-tick); silently dropping is the failure mode this whole
+    slice exists to remove."""
+    if resume_run_id:
+        frappe.throw(
+            "A resume continues a halted run's own pending rows, so it cannot also take a row "
+            "selection. Resume the partial run, or start a fresh selected-row run.",
+            title="Resume and selection are exclusive",
+        )
+
+    # AI must be ON. A scoped pass with AI off returns BLANK attributes for every selected row
+    # (extraction fails closed) AND would stamp ai_status="disabled" onto a document whose carried
+    # rows were extracted with AI on -- mislabelling the whole document. Refuse before that.
+    from nirmaan_stack.api.boq.wizard.ai_settings import (
+        get_boq_ai_api_key,
+        get_boq_ai_settings,
+    )
+
+    if not get_boq_ai_settings().get("enabled") or not get_boq_ai_api_key():
+        frappe.throw(
+            "AI extraction is off, so a selected-row run would blank the rows you picked. "
+            "Turn AI on in Settings first.",
+            title="AI is off",
+        )
+
+    if not _carry_source_run(boq, sheet_name, cv):
+        frappe.throw(
+            "There is no completed suggestion run for this sheet to carry the untouched rows "
+            "forward from. Run the whole sheet once first, then re-run individual rows.",
+            title="Nothing to carry forward",
+        )
+
+    population = _population_rows(boq, sheet_name)
+    unknown = sorted(set(only) - population)
+    if unknown:
+        shown = ", ".join(str(x) for x in unknown[:10])
+        more = f" (and {len(unknown) - 10} more)" if len(unknown) > 10 else ""
+        frappe.throw(
+            f"These rows are not part of this sheet's suggestion population: {shown}{more}. "
+            "The sheet may have been re-classified since you picked them -- reload and try again.",
+            title="Rows not eligible",
+        )
+
+
 # ── Run skeleton ────────────────────────────────────────────────────────────────────
 @frappe.whitelist(methods=["POST"])
-def start_suggest(boq=None, sheet_name=None):
+def start_suggest(boq=None, sheet_name=None, resume_run_id=None, only_rows=None):
     """Enqueue a background rate-suggestion (attribute extraction) run for one committed sheet.
     Returns immediately. Re-checks the D8 gate server-side. URL:
-    /api/method/nirmaan_stack.api.boq.rate_master.start_suggest"""
+    /api/method/nirmaan_stack.api.boq.rate_master.start_suggest
+
+    SR-1 resume: pass `resume_run_id` to CONTINUE an existing partial run instead of starting a new
+    one. The resume fills only the rows that run has not attempted and completes the SAME run doc
+    (same run_id) -- it never spawns a second run. The D8 gate and the committed-version keying are
+    re-checked here exactly as for a fresh run, so a partial whose sheet has since been re-committed
+    is refused rather than resumed against rows that may have changed.
+
+    SELECTED-ROW runs: pass `only_rows` (a list of excel row numbers, or its JSON string) to
+    re-extract JUST those rows. Every other row is carried forward BYTE-IDENTICALLY from the
+    sheet's current active run into a NEW document -- see _open_run_doc. ABSENT or EMPTY
+    `only_rows` behaves exactly as before this slice: a whole-sheet run, no carry-forward, no
+    extra query. `only_rows` is validated against assemble_population here and REJECTED (never
+    silently narrowed) if it names a row the run does not accept.
+    """
     _require_login()
     if not boq:
         frappe.throw("boq is required.", title="Missing field: boq")
@@ -222,6 +374,15 @@ def start_suggest(boq=None, sheet_name=None):
     if cv is None:
         frappe.throw(f"No current committed sheet '{sheet_name}' for this BoQ.", title="Sheet not committed")
     _guard_suggest_gate(boq, sheet_name, cv)
+
+    # Normalise FIRST: an empty selection is indistinguishable from none, and both mean
+    # "whole sheet" -- so the guards below never run on the unscoped path (G6).
+    only = normalize_only_rows(only_rows)
+    if only is not None:
+        _guard_only_rows(boq, sheet_name, cv, only, resume_run_id)
+
+    if resume_run_id:
+        _validate_resume_target(boq, sheet_name, cv, resume_run_id)
 
     marker = _s_get_marker(boq, sheet_name)
     if marker and _s_maybe_self_heal(boq, sheet_name, marker) == "running":
@@ -240,14 +401,271 @@ def start_suggest(boq=None, sheet_name=None):
         user=user,
         boq=boq,
         sheet_name=sheet_name,
+        resume_run_id=resume_run_id,
+        only_rows=only,
     )
     frappe.cache().delete_value(_s_status_key(boq, sheet_name))
     _s_set_marker(boq, sheet_name, raw_job_id, user)
     frappe.db.commit()
-    return {"status": "queued", "job_id": raw_job_id}
+    return {
+        "status": "queued",
+        "job_id": raw_job_id,
+        "resumed_run_id": resume_run_id or None,
+        # Echo the ACCEPTED selection so the caller can prove the server agreed with its ticks.
+        "only_rows": only,
+        "scoped_row_count": len(only) if only is not None else None,
+    }
 
 
-def _suggest_worker(boq=None, sheet_name=None, user=None):
+def _validate_resume_target(boq, sheet_name, cv, resume_run_id):
+    """A resume target must exist, belong to THIS sheet, still be partial, and be pinned to the
+    sheet's CURRENT committed version. Anything else throws -- a resume must never write into a
+    completed run, another sheet's run, or a version whose rows may have changed underneath it."""
+    rows = frappe.get_all(
+        RUN_DOCTYPE,
+        filters={"boq": boq, "sheet_name": sheet_name, "run_id": resume_run_id},
+        fields=["name", "status", "committed_version"],
+        limit=1,
+    )
+    if not rows:
+        frappe.throw(
+            f"No suggestion run '{resume_run_id}' found for this sheet.", title="Run not found"
+        )
+    run = rows[0]
+    if (run.get("status") or "") != "partial":
+        frappe.throw(
+            f"That suggestion run is '{run.get('status') or 'unknown'}', not a partial run, so there is nothing to resume.",
+            title="Not resumable",
+        )
+    if run.get("committed_version") != cv:
+        frappe.throw(
+            "That partial run was made against an earlier committed version of this sheet. "
+            "Start a fresh suggestion run instead.",
+            title="Version moved on",
+        )
+
+
+# ── SR-1 run-doc lifecycle (the run doc IS the partial store) ───────────────────────
+# Writes here use frappe.db.set_value(update_modified=False) rather than doc.save. That is safe
+# and intentional for THIS doctype: BoQ Rate Suggestion Run is track_changes:0, so there is no
+# Version audit to bypass (unlike the rate-master editing endpoints, where set_value is FORBIDDEN
+# precisely because it would skip the audit). set_value also keeps a per-batch checkpoint cheap.
+def _open_run_doc(boq, sheet_name, cv, job_id, user, resume_run_id, only_rows=None):
+    """Resolve the run doc a pass will write into: either the partial being RESUMED (same doc, same
+    run_id -- never a second doc) or a freshly created one at status=running / active=0.
+
+    Returns (run_name, run_id, prior_results, prior_attempted, scope).
+
+    ⚠️ THE SCOPE IS RESOLVED HERE, AND ONLY HERE. `only_rows` is a REQUEST parameter: it dies with
+    the request, so before it was persisted a resume had no idea the run had ever been scoped and
+    silently fell back to the population. `scope` is therefore:
+        a FRESH run   -> `only_rows` (persisted to `scope_rows` for the resume that may follow)
+        a RESUME      -> whatever `scope_rows` holds on the document being resumed
+        whole-sheet   -> None, in both cases, and everything downstream is byte-identical to before
+    `scope_rows` holds the rows STILL TO DO and shrinks as the run progresses, so the resume's work
+    set and any pending count read the SAME value.
+
+    ⚠️ CARRY-FORWARD (owner-ruled): a SELECTED-ROW pass (`only_rows`) seeds the NEW document with
+    the sheet's current active run's rows, so the rows it does not touch survive into the document
+    that supersedes it. NOTHING IS EDITED IN PLACE. The owner's reasoning, recorded so it is not
+    re-litigated: a merged run's `run_at` and `ai_status` stop describing the rows and start
+    describing the last touch, and the previous values are destroyed -- while this arc has
+    repeatedly depended on comparing a row's before against its after. The rest of the module
+    already works this way (committed sheets, category assignments, config revisions all supersede
+    rather than mutate).
+
+    ⚠️ BYTE-IDENTITY, not "still present". The carried rows are handed on as the EXACT objects
+    parsed out of the prior document and are never re-derived -- `_corroborate` / `_row_result`
+    run only for rows the pass actually extracts. Because the `results` column is postgres `json`
+    (NOT `jsonb`, so submitted text is stored verbatim), every writer uses `json.dumps` with
+    default separators, Python preserves parsed key order, and every write re-emits the array
+    `sorted(...)` by excel_row, an untouched row's serialised text -- values, `confidence`,
+    `corroborated` and critically `defaulted` -- comes out character-for-character identical.
+
+    ⚠️ Carry-forward is scoped to `only_rows` DELIBERATELY. A whole-sheet run has no untouched
+    rows to carry, and seeding one would change today's partial semantics (a halted whole-sheet
+    run would silently inherit the old run's rows instead of reporting them pending). Absent
+    `only_rows` this function is byte-identical to pre-slice behaviour."""
+    if resume_run_id:
+        rows = frappe.get_all(
+            RUN_DOCTYPE,
+            filters={"boq": boq, "sheet_name": sheet_name, "run_id": resume_run_id},
+            fields=["name", "results", "attempted_rows", "scope_rows"],
+            limit=1,
+        )
+        if rows:
+            run = rows[0]
+            frappe.db.set_value(
+                RUN_DOCTYPE, run["name"],
+                {"status": "running", "halt_reason": None},
+                update_modified=False,
+            )
+            frappe.db.commit()
+            # The resumed run's OWN scope. NULL/absent -> None -> a whole-sheet resume, which is
+            # exactly the pre-slice path. A stored list (even an empty one) means SCOPED, and an
+            # empty one must NOT collapse to None -- that would be the very fallback being fixed.
+            stored_scope = _parse_json(run.get("scope_rows"), None)
+            resumed_scope = (
+                {int(x) for x in stored_scope} if isinstance(stored_scope, list) else None
+            )
+            return (
+                run["name"], resume_run_id,
+                _parse_json(run.get("results"), []),
+                _parse_json(run.get("attempted_rows"), []),
+                resumed_scope,
+            )
+        # The target vanished between the endpoint's validation and here -- fall through and start
+        # a fresh run rather than losing the request entirely.
+
+    # CARRY-FORWARD seed (selected-row runs only). Seeded AT INSERT so the document is never a
+    # lie about what it holds: if this pass dies before its first checkpoint, the doc already
+    # carries the rows it inherited (and stays active=0, so the prior run keeps serving the editor).
+    carried_results, carried_attempted = [], []
+    if only_rows:
+        source = _carry_source_run(boq, sheet_name, cv)
+        if source:
+            carried_results = _parse_json(source.get("results"), [])
+            carried_attempted = _parse_json(source.get("attempted_rows"), [])
+
+    run_id = resume_run_id or job_id or frappe.generate_hash(length=32)
+    doc = frappe.new_doc(RUN_DOCTYPE)
+    doc.boq = boq
+    doc.sheet_name = sheet_name  # VERBATIM (#152)
+    doc.committed_version = cv
+    doc.run_id = run_id
+    doc.status = "running"
+    doc.ai_status = ""
+    doc.results = serialize_run_results(carried_results) if carried_results else "[]"
+    doc.attempted_rows = json.dumps(sorted(int(x) for x in carried_attempted)) if carried_attempted else "[]"
+    # Persist the scope up front, so a halt at ANY point leaves a resumable record of it. NULL on a
+    # whole-sheet run -- the column simply stays empty, exactly as for every pre-existing document.
+    doc.scope_rows = json.dumps(sorted(int(x) for x in only_rows)) if only_rows else None
+    doc.run_by = user
+    doc.active = 0  # never supersede a prior COMPLETE run until this one completes
+    doc.insert(ignore_permissions=True)
+    frappe.db.commit()
+    fresh_scope = {int(x) for x in only_rows} if only_rows else None
+    return doc.name, run_id, carried_results, carried_attempted, fresh_scope
+
+
+def serialize_run_results(rows):
+    """THE single serialisation of a run's `results` array. Every writer goes through it.
+
+    ⚠️ THIS FUNCTION IS THE BYTE-IDENTITY GUARANTEE, so its three properties are load-bearing and
+    none may be "tidied":
+      1. `json.dumps` with DEFAULT separators -- adding indent= or sort_keys= would re-emit every
+         untouched row with the same VALUES but different TEXT, passing a "still present" check
+         and failing byte-identity silently.
+      2. sorted by excel_row -- so a carried row lands in the same position it occupied before, and
+         a merge can never reorder the array.
+      3. the row dicts are passed through UNTOUCHED -- never rebuilt, never re-derived. Python
+         preserves the key order json.loads produced, so a parsed-then-redumped row emits its keys
+         in the original order, floats round-trip through shortest-repr exactly, and the optional
+         `defaulted` flag rides along inside the attribute cell it belongs to.
+    The `results` column is postgres `json` (NOT `jsonb`), so the submitted text is stored verbatim
+    and these three properties survive the round trip to disk. Pure -- unit-tested."""
+    return json.dumps(sorted(rows, key=lambda r: int(r["excel_row"])))
+
+
+def _write_run_progress(run_name, acc_results, acc_attempted, scope_pending=None):
+    """One checkpoint: the rows so far + the done-marker, committed immediately.
+
+    `scope_pending` is the scoped rows STILL TO DO after this batch (None on a whole-sheet run, which
+    leaves `scope_rows` untouched -- a whole-sheet run never writes that column at all). Writing it
+    per batch is what makes a halt at ANY point resumable to exactly the right remainder."""
+    values = {
+        "results": serialize_run_results(acc_results.values()),
+        "attempted_rows": json.dumps(sorted(acc_attempted)),
+    }
+    if scope_pending is not None:
+        values["scope_rows"] = json.dumps(sorted(scope_pending))
+    frappe.db.set_value(RUN_DOCTYPE, run_name, values, update_modified=False)
+    frappe.db.commit()
+
+
+def _finalise_run(run_name, cv, ai_status, merged, acc_attempted, complete, halt_reason,
+                  boq, sheet_name, scope_pending=None):
+    """Terminal state for a pass. COMPLETE flips active=1 and supersedes the prior active run --
+    that is the ONLY moment a run becomes the live one. A PARTIAL stays active=0, so the previously
+    completed run remains what the editor reads.
+
+    WHAT THE RUN-LEVEL FIELDS MEAN ON A SELECTED-ROW (partial-scope) RUN -- stated because a
+    carry-forward document holds rows from more than one pass, and a field that quietly changed
+    subject would be the silent regression this slice exists to prevent:
+
+      * `run_at`   -- when THIS DOCUMENT's pass finished. It describes the document, NOT every row
+                      in it: carried rows were extracted earlier, by the document this one
+                      superseded. That prior document is retained (active=0) with its own run_at
+                      intact, so the older timestamp is never destroyed -- which is exactly why the
+                      owner ruled for a new document over an in-place merge.
+      * `ai_status`-- the status of THIS pass's AI calls. It is honest for the rows this pass
+                      extracted and says nothing about carried rows. A scoped run can only reach
+                      here with AI ON (_guard_only_rows refuses otherwise), so it cannot stamp
+                      "disabled" over a document whose carried rows were extracted with AI on.
+      * `attempted_rows` -- the rows this DOCUMENT has results for (carried + newly extracted),
+                      never "the rows this pass touched". That is the meaning both consumers
+                      already require: the completeness test below, and the resume's skip set."""
+    values = {
+        "committed_version": cv,
+        "ai_status": ai_status,
+        "results": serialize_run_results(merged),
+        "attempted_rows": json.dumps(sorted(acc_attempted)),
+        "status": "complete" if complete else "partial",
+        "halt_reason": None if complete else halt_reason,
+    }
+    # The scope a RESUME would honour. None on a whole-sheet run -> the column is never written, so
+    # every whole-sheet document keeps exactly the shape it had before this slice.
+    if scope_pending is not None:
+        values["scope_rows"] = json.dumps(sorted(scope_pending))
+    if complete:
+        values["active"] = 1
+        values["run_at"] = frappe.utils.now()
+        for prior in frappe.get_all(
+            RUN_DOCTYPE,
+            filters={"boq": boq, "sheet_name": sheet_name, "active": 1},
+            pluck="name",
+        ):
+            if prior != run_name:
+                frappe.db.set_value(RUN_DOCTYPE, prior, "active", 0, update_modified=False)
+    frappe.db.set_value(RUN_DOCTYPE, run_name, values, update_modified=False)
+
+
+def pass_attempted_count(env):
+    """How many rows THIS PASS attempted -- read from the envelope, never from the run document.
+
+    ⚠️ THE DISTINCTION THIS EXISTS FOR. The payload's `attempted_count` is DOCUMENT-level
+    (`len(acc_attempted)`): on a SCOPED run it is seeded with the carried run's rows, so it counts
+    every row the document has results for. That is the right number for the completeness test and
+    for the resume's skip set, and the WRONG number for "how much did this pass actually do" --
+    on a halted scoped run `population - attempted` is 0, which reads as "nothing missed" when
+    rows were in fact left unfinished.
+
+    `env["attempted_rows"]` is this pass's own set (run_extraction builds it from the batches that
+    returned), which is what makes the halted-scoped three-way split derivable:
+        re-extracted    = this count
+        carried forward = document rows - this count
+        not reached     = the scope - this count
+
+    "Attempted" is deliberate, and matches what `attempted_count` already means on the whole-sheet
+    halt path: a row whose batch RETURNED counts even if the model answered null for it -- we asked.
+    Only a row whose batch never completed stays pending.
+
+    NOTE the fail-closed paths (AI disabled / no key) report every row as attempted, because they
+    return a blank row for each. That is unchanged behaviour and cannot reach a SCOPED run at all --
+    `_guard_only_rows` refuses one while AI is off. Pure -- unit-tested."""
+    return len(env.get("attempted_rows") or [])
+
+
+def _mark_run_failed(run_name, halt_reason):
+    """An unexpected failure. The run KEEPS its checkpointed rows (active stays 0)."""
+    frappe.db.set_value(
+        RUN_DOCTYPE, run_name,
+        {"status": "failed", "halt_reason": halt_reason},
+        update_modified=False,
+    )
+
+
+def _suggest_worker(boq=None, sheet_name=None, user=None, resume_run_id=None, only_rows=None):
     """Background worker: run extraction, WRITE the Suggestion Run doc (prior active -> active=0) at
     terminal SUCCESS, commit BEFORE publish, record + publish the terminal payload. On failure,
     records a terminal error payload and clears the marker (never left stuck)."""
@@ -264,47 +682,135 @@ def _suggest_worker(boq=None, sheet_name=None, user=None):
             **({"user": user} if user else {}),
         )
 
+    run_name = None
+    run_id = None
     try:
-        env = extraction.run_extraction(boq, sheet_name, progress_cb=_progress)
+        cv = _resolve_committed_version(boq, sheet_name)
+        # SR-1: the RUN DOC IS THE PARTIAL STORE. Resolve (resume) or create it UP FRONT at
+        # status=running / active=0, so every checkpoint has somewhere durable to land. active=0
+        # is load-bearing: a running or partial run must NEVER supersede a prior COMPLETE run --
+        # get_active_suggestion_run keeps returning the good one until this one truly completes.
+        run_name, run_id, prior_results, prior_attempted, scope = _open_run_doc(
+            boq, sheet_name, cv, job_id, user, resume_run_id, only_rows=only_rows
+        )
+
+        acc_results = {int(r["excel_row"]): r for r in prior_results}
+        acc_attempted = set(prior_attempted)
+
+        # SELECTED-ROW scoping. `scope` is the positive set this pass must process.
+        #
+        # ⚠️ The skip set must EXCLUDE the scope, or nothing runs. On a scoped pass acc_attempted
+        # is seeded with the CARRIED run's attempted rows -- which already contains the selected
+        # rows, because the carry source is a COMPLETE run. Passing it straight through as
+        # skip_rows (the pre-slice behaviour) would skip precisely the rows the user ticked.
+        # Subtracting the scope is what makes "re-run these" mean re-run rather than no-op.
+        #
+        # A RESUME of a halted scoped run passes no scope and needs no special case: its
+        # acc_attempted holds the carried rows plus whatever the halted pass finished, so
+        # population - attempted resolves to exactly the selected rows still pending.
+        # `scope` now comes from _open_run_doc: `only_rows` on a fresh run, the PERSISTED scope on a
+        # resume, None for whole-sheet in both cases. It is NOT re-derived from `only_rows` here --
+        # that is precisely what made a resume forget it had ever been scoped.
+        pending_skip = (acc_attempted - scope) if scope is not None else acc_attempted
+
+        def _checkpoint(row_results, attempted_now):
+            """Persist one completed batch. This is the whole point of SR-1: the work survives a
+            later halt, a crash, or the RQ job timeout."""
+            for row in row_results:
+                acc_results[int(row["excel_row"])] = row
+            acc_attempted.update(int(x) for x in attempted_now)
+            # SCOPE SHRINK: what remains of this run's scope after the batch. None on a whole-sheet
+            # run, which leaves scope_rows untouched (byte-identical to before this slice).
+            _write_run_progress(
+                run_name, acc_results, acc_attempted,
+                scope_pending=(scope - {int(x) for x in attempted_now}) if scope is not None else None,
+            )
+
+        env = extraction.run_extraction(
+            boq, sheet_name,
+            progress_cb=_progress,
+            checkpoint_cb=_checkpoint,
+            skip_rows=sorted(pending_skip),
+            only_rows=sorted(scope) if scope is not None else None,
+        )
         cv = env["committed_version"]
         ai_status = env["ai_status"]
-        run_id = job_id or frappe.generate_hash(length=32)
 
-        # Freeze-and-supersede: deactivate the prior active run(s) for this sheet, then insert.
-        for prior in frappe.get_all(
-            RUN_DOCTYPE, filters={"boq": boq, "sheet_name": sheet_name, "active": 1}, pluck="name"
-        ):
-            frappe.db.set_value(RUN_DOCTYPE, prior, "active", 0, update_modified=False)
-        run = frappe.new_doc(RUN_DOCTYPE)
-        run.boq = boq
-        run.sheet_name = sheet_name  # VERBATIM (#152)
-        run.committed_version = cv
-        run.run_id = run_id
-        run.ai_status = ai_status
-        run.results = json.dumps(env["results"])
-        run.run_by = user
-        run.run_at = frappe.utils.now()
-        run.active = 1
-        run.insert(ignore_permissions=True)
+        # Fold in whatever the envelope reports (covers the fail-closed paths, which do not
+        # checkpoint because they never enter the batch loop).
+        for row in env["results"]:
+            acc_results[int(row["excel_row"])] = row
+        acc_attempted.update(int(x) for x in env.get("attempted_rows") or [])
+
+        # `complete` DEFAULTS TO TRUE for an envelope that predates SR-1's additive keys, so any
+        # caller (or test double) still producing the old shape keeps the old terminal-success
+        # behaviour rather than being silently downgraded to a partial. run_extraction itself
+        # always sets it explicitly.
+        population = {int(x) for x in env.get("population_rows") or []}
+        complete = bool(env.get("complete", True)) and not (population - acc_attempted)
+        merged = [acc_results[k] for k in sorted(acc_results)]
+
+        _finalise_run(
+            run_name, cv, ai_status, merged, acc_attempted,
+            complete=complete, halt_reason=env.get("halt_reason"), boq=boq, sheet_name=sheet_name,
+            scope_pending=(
+                scope - {int(x) for x in env.get("attempted_rows") or []}
+            ) if scope is not None else None,
+        )
+        if not complete:
+            # A graceful halt must still leave an OPERATOR trail. The pricer sees halt_reason; this
+            # records the provider's own error text, which would otherwise be lost precisely because
+            # the halt is handled instead of raised.
+            frappe.log_error(
+                title="BoQ suggest run halted (partial saved)",
+                message=(
+                    f"boq={boq} sheet={sheet_name} run_id={run_id}\n"
+                    f"terminal={env.get('halt_terminal')}\n"
+                    f"reason={env.get('halt_reason')}\n"
+                    f"detail={env.get('halt_detail')}\n"
+                    f"attempted={len(acc_attempted)} of population={len(population)}"
+                ),
+            )
 
         frappe.db.commit()  # commit BEFORE publish (CLAUDE.md rule)
         payload = {
-            "status": "success",
+            "status": "success" if complete else "partial",
             "boq": boq,
             "sheet_name": sheet_name,
             "committed_version": cv,
             "run_id": run_id,
             "ai_status": ai_status,
-            "results": env["results"],
+            "run_status": "complete" if complete else "partial",
+            "results": merged,
+            "attempted_count": len(acc_attempted),
+            "population_count": len(population) or len(acc_attempted),
+            "halt_reason": env.get("halt_reason"),
+            # How many rows THIS pass was scoped to (None on a whole-sheet run), so the editor can
+            # report "4 rows re-extracted" rather than implying the whole sheet was re-rolled.
+            "scoped_row_count": len(scope) if scope is not None else None,
+            # How many rows THIS pass attempted. ADDITIVE and PURELY INFORMATIONAL -- nothing on the
+            # server reads it; it exists so a HALTED SCOPED run can report all three counts instead
+            # of degrading to "the split is unknown". See pass_attempted_count for why the
+            # document-level `attempted_count` cannot answer that question.
+            "pass_attempted_count": pass_attempted_count(env),
         }
     except Exception:
-        frappe.db.rollback()
+        # NOTE: deliberately NO frappe.db.rollback() here. Every checkpoint was committed as it was
+        # taken, and rolling back would throw away exactly the work SR-1 exists to preserve. The run
+        # is marked failed but keeps its rows, so it stays resumable.
         frappe.log_error(title="BoQ suggest worker failed", message=frappe.get_traceback())
+        halt_reason = "The suggestion run stopped unexpectedly. Anything already extracted was kept."
+        if run_name:
+            _mark_run_failed(run_name, halt_reason)
+            frappe.db.commit()
         payload = {
             "status": "error",
             "boq": boq,
             "sheet_name": sheet_name,
             "error_code": "suggest_failed",
+            "run_id": run_id,
+            "run_status": "failed",
+            "halt_reason": halt_reason,
         }
     frappe.cache().set_value(_s_status_key(boq, sheet_name), payload, expires_in_sec=_S_STATUS_TTL_SEC)
     _s_clear_marker(boq, sheet_name)
@@ -351,15 +857,57 @@ def get_active_suggestion_run(boq=None, sheet_name=None):
     rows = frappe.get_all(
         RUN_DOCTYPE,
         filters={"boq": boq, "sheet_name": sheet_name, "active": 1},
-        fields=["run_id", "committed_version", "ai_status", "results", "run_at"],
+        fields=["run_id", "committed_version", "ai_status", "results", "run_at", "status"],
         order_by="creation desc",
         limit=1,
     )
-    if not rows:
-        return {"run": None}
-    r = rows[0]
-    r["results"] = _parse_json(r.get("results"), [])
-    return {"run": r}
+    out = {"run": None, "partial_run": None}
+    if rows:
+        r = rows[0]
+        r["results"] = _parse_json(r.get("results"), [])
+        # Pre-SR-1 rows migrate to "complete"; treat any blank as complete so an old run can never
+        # retroactively lock "Use this value".
+        r["status"] = (r.get("status") or "complete")
+        out["run"] = r
+
+    # SR-1: the newest RESUMABLE partial, surfaced ALONGSIDE (never instead of) the active run --
+    # a partial is active=0 by design, so without this the editor could not offer a resume.
+    partials = frappe.get_all(
+        RUN_DOCTYPE,
+        filters={"boq": boq, "sheet_name": sheet_name, "status": "partial"},
+        fields=["run_id", "committed_version", "status", "attempted_rows", "halt_reason", "results",
+                "scope_rows"],
+        order_by="creation desc",
+        limit=1,
+    )
+    if partials:
+        p = partials[0]
+        p["attempted_count"] = len(_parse_json(p.get("attempted_rows"), []))
+        p["results"] = _parse_json(p.get("results"), [])
+        p.pop("attempted_rows", None)
+        # ONE SOURCE (the defect being fixed): the number any resume affordance quotes must be the
+        # SAME value the worker will process, not a second computation over different data. Both
+        # read `scope_rows`. NULL -> a whole-sheet partial, where "what a resume will do" is still
+        # population - attempted and there is no scope to quote.
+        stored_scope = _parse_json(p.get("scope_rows"), None)
+        p["scope_pending"] = sorted(int(x) for x in stored_scope) if isinstance(stored_scope, list) else None
+        p["scope_pending_count"] = len(p["scope_pending"]) if p["scope_pending"] is not None else None
+        p.pop("scope_rows", None)
+        out["partial_run"] = p
+
+    # SELECTED-ROW runs: the excel rows this sheet's suggest run ACCEPTS, so the editor can offer a
+    # tick box on exactly those and nowhere else.
+    #
+    # ⚠️ IT COMES FROM THE SERVER BECAUSE FOUR DEFINITIONS OF "ELIGIBLE" EXIST and they disagree by
+    # real numbers: the priceable master set (node_type in {Line Item, Preamble}), priceability's
+    # priceable LINE (qty in a rate-column area), the rate-editable set the badges render on (Line
+    # Item always + qty-bearing Preamble), and THIS one -- rate-editable AND a non-blank resolved
+    # category AND that category having an eligible rate config. On the reference sheet those are
+    # 164 / 139 / 94. A client-side copy would be a fifth definition, free to drift from the run's
+    # actual acceptance the first time eligibility changes -- and the drift would present as ticks
+    # the run silently ignores. Additive key; a client that ignores it is unaffected.
+    out["eligible_rows"] = sorted(_population_rows(boq, sheet_name))
+    return out
 
 
 @frappe.whitelist(methods=["POST"])
@@ -709,11 +1257,63 @@ def deactivate_rate_master_item(name=None):
 # finals per pipeline); the frontend preview gate computes them against a draft before save.
 _KNOWN_STEP_TYPES = {
     "match_master_row", "apply_effective_multiplier", "scale", "roundup",
-    "component", "component_band", "sum_components", "install_as_ratio",
+    "component", "component_ref", "component_band", "sum_components", "install_as_ratio",
+    # EA-4a: the assembly engine's conduit-sizing step (component_ref is EXTENDED in place, so it stays
+    # the same step type -- only circuit_fit is a new type).
+    "circuit_fit",
+    # EA-4c: the DB build-up install -- the sheet's exact IFERROR three-way (shell absent -> supply ratio;
+    # shell in the install table -> table rate x mult; else fallback to the supply ratio). PASS-THROUGH:
+    # no deep structural validation (the pure interpreter's Option-C degrades a malformed shape to the
+    # honest `unsupported`); its @attr (db_shell_item) is already reference-guarded via the component_ref
+    # supply steps that bind it.
+    "lookup_or_ratio",
+    # SLICE 2: computes a module count from a PARAMETERISED weighted sum over stated quantities and
+    # resolves it against ladders derived FROM THE CATALOG (exact size, else the next higher one).
+    # FULLY validated below -- every attribute id it names is reference-guarded, because an unguarded
+    # typo would silently no-compute every row of the category rather than failing at save.
+    "module_fit",
+    # CIRCUIT LENGTH part 1: computes an ATTRIBUTE value (formula + source attrs + target attr all from
+    # CONFIG) into the SELECTION, which is where circuit_fit's length_attr and a component's
+    # {from_attr} quantity read -- ctx, where every other step writes, is invisible to both. FULLY
+    # validated below, and BOTH its source attrs AND its result_attr are reference-guarded: a typo in
+    # the target would silently never find a stated value to defer to, which is the quietest possible
+    # way to get a wrong price.
+    "derive_attribute",
 }
 _KNOWN_CONFIG_KEYS = {
     "discipline", "category_id", "category_display", "pairing_rule",
     "attribute_definitions", "pipelines", "bcs_surfacing", "normalization_rule", "goldens",
+    "item_kinds",  # EA-1c: the category's master-item kinds (Data-tab scoping); pass-through, not validated
+    # EA-2 pass-through keys (stored VERBATIM, NOT structurally validated -- exactly like item_kinds).
+    # An item-identity config carries identity_attribute_id + matching_mode + notes, and the helper
+    # reads pipeline_labels; the RM-4b editor resubmits the WHOLE config, so these must be accepted or
+    # editing/authoring an EA-2 config would be rejected as an unknown key.
+    "identity_attribute_id", "matching_mode", "notes", "pipeline_labels",
+    # EA-DIFF: synonyms = {attr_id: {variant: canonical}} (e.g. conduit_type GI->MS). Pass-through;
+    # consumed by the extraction injection + coercion, never structurally validated here.
+    "synonyms",
+    # EA-4a: extraction_defaults = {attr_id: default | {default, text_overrides}}. Pass-through; consumed
+    # by the extraction prompt injection (defaults + the raceway text-override), never validated here.
+    "extraction_defaults",
+    # EA-4a-r: extraction_none_guidance = optional per-config wording for the "None" (positive-absence)
+    # prompt line. Pass-through; consumed by the extraction injection, never structurally validated here.
+    "extraction_none_guidance",
+    # EA-4d: composite_slots ({shell, repeatable {prefix,count,...}, fixed[]}) + decomposition_rules
+    # ({curve, amp, partial_pricing}) drive the composite-decomposition extraction mode. Pass-through;
+    # consumed by extraction.build_slot_spec + the decomposition prompt injection, never structurally
+    # validated here (so a composite config round-trips through the RM-4b whole-config editor).
+    "composite_slots", "decomposition_rules",
+    # EA-4 ext-a: rules = [{id, label, applies_to, guidance}] -- owner-authored estimator guidance
+    # injected into the extraction prompt for EVERY category (never gated on matching_mode) and
+    # rendered read-only on the Derivation tab. Pass-through, exactly like item_kinds: stored
+    # VERBATIM and never structurally validated here.
+    #
+    # THIS ENTRY IS LOAD-BEARING, not decorative. _validate_config REJECTS any unknown top-level
+    # key, and RM-4b resubmits the WHOLE config -- so without "rules" here, adding the key would
+    # make every subsequent whole-config save of that category fail. The loader does NOT validate
+    # (this function has exactly one caller, update_rate_config), so an unregistered key imports
+    # cleanly and only breaks later, at the editor. Same trap the EA-2 pass-through keys document.
+    "rules",
 }
 _BAND_WHEN_RE = re.compile(r"^(<=|>=|<|>)\s*-?\d+(\.\d+)?$")
 
@@ -729,10 +1329,50 @@ def _vthrow(msg):
     frappe.throw(msg, title="Invalid config")
 
 
+_FROM_ATTR_SUFFIX = "_from_attr"
+# RULING 2 (owner 2026-08-09): the `scale`-param half of the step function. Mirrors the interpreter's
+# STEP_DIVISOR_SUFFIX -- keep the two strings identical or a config saves here and does nothing there.
+_STEP_DIVISOR_SUFFIX = "_step_divisor"
+
+
 def _validate_params(params, where):
+    """EA-4 ext-a: two narrowly-scoped relaxations, both making this validator agree with what the
+    interpreter is EXPLICITLY built to execute (ratePipelineInterpreter.ts `s.params ?? {}`) and with
+    what the shipped asset already contains. Discovered because cabletray_raceway / popup_boxes could
+    not be saved through RM-4b AT ALL.
+
+    (1) params is OPTIONAL. A conditional `component` carries its params PER CONDITION, so it has no
+        top-level block at all -- that is the whole point of the shape, not an omission.
+    (2) a `*_from_attr` param binds an ATTRIBUTE ID, so it is necessarily a string (EA-1's
+        value-from-attribute shape, e.g. popup_boxes `module_count_from_attr: "module_count"`).
+        The exemption is scoped to that SUFFIX ONLY -- any other param carrying a string is still an
+        error, so a genuine typo is still caught.
+    """
+    if params is None:
+        return
     if not isinstance(params, dict):
         _vthrow(f"{where}: params must be an object.")
     for k, v in params.items():
+        if isinstance(k, str) and k.endswith(_FROM_ATTR_SUFFIX):
+            if not isinstance(v, str) or not v.strip():
+                _vthrow(
+                    f"{where}: parameter '{k}' must be a non-empty attribute id (a string)."
+                )
+            continue
+        # RULING 2: `<ident>_step_divisor` pairs with `<ident>_from_attr` and turns that binding into
+        # the STEP FUNCTION (ceil(raw / divisor)). It is a NUMBER, so the generic rule below would
+        # already accept it -- but only a POSITIVE one does anything: the interpreter treats zero or
+        # negative as "no divisor" and binds the raw value, so a typo would silently ship a linear
+        # multiplier wearing a stepped config. Both halves are checked here.
+        if isinstance(k, str) and k.endswith(_STEP_DIVISOR_SUFFIX):
+            if not _is_finite_number(v) or v <= 0:
+                _vthrow(f"{where}: parameter '{k}' must be a positive finite number (a step divisor).")
+            partner = f"{k[: -len(_STEP_DIVISOR_SUFFIX)]}{_FROM_ATTR_SUFFIX}"
+            if partner not in params:
+                _vthrow(
+                    f"{where}: parameter '{k}' needs its '{partner}' partner; on its own it does nothing."
+                )
+            continue
         if not _is_finite_number(v):
             _vthrow(f"{where}: parameter '{k}' must be a finite number.")
 
@@ -763,15 +1403,40 @@ def _validate_config(cfg):
         def_ids.add(did)
         if not isinstance(d.get("label"), str) or not d.get("label"):
             _vthrow(f"attribute definition '{did}' needs a label.")
-        if d.get("type") not in ("choice", "number"):
-            _vthrow(f"attribute definition '{did}' type must be 'choice' or 'number'.")
-        if d.get("type") == "choice" and (not isinstance(d.get("values"), list) or not d.get("values")):
-            _vthrow(f"choice attribute '{did}' needs a non-empty values list.")
+        # CP2: `number_choice` is the THIRD type -- a DROPDOWN that produces a NUMBER. It exists
+        # because item matching is strict identity, so a dropdown over a numeric catalog column
+        # (cable cores, thickness) must not emit the string "3" against a stored 3.
+        if d.get("type") not in ("choice", "number", "number_choice"):
+            _vthrow(
+                f"attribute definition '{did}' type must be 'choice', 'number' or 'number_choice'."
+            )
+        # EA-4a: a choice may declare `values_from` (allowed values resolved from the live master at
+        # extraction time) INSTEAD of a static `values` list -- point_wiring's switch/socket/plate selects.
+        # CP2: a number_choice is a dropdown too, so it carries the SAME requirement -- a picker with
+        # neither a values list nor a values_from source would render empty and price nothing.
+        if (
+            d.get("type") in ("choice", "number_choice")
+            and not d.get("values_from")
+            and (not isinstance(d.get("values"), list) or not d.get("values"))
+        ):
+            _vthrow(
+                f"{d.get('type')} attribute '{did}' needs a non-empty values list (or values_from)."
+            )
+        # EA-4a-r: allow_none (bool) marks a POSITIVELY-ABSENT-capable component; disables_when_none is the
+        # list of dependent attr ids greyed/cleared when it is set to "None" (pass-through, shape-checked).
+        if "allow_none" in d and not isinstance(d.get("allow_none"), bool):
+            _vthrow(f"attribute '{did}' allow_none must be true/false.")
+        dwn = d.get("disables_when_none")
+        if dwn is not None and (not isinstance(dwn, list) or not all(isinstance(x, str) and x for x in dwn)):
+            _vthrow(f"attribute '{did}' disables_when_none must be a list of attribute ids.")
 
     # pipelines ------------------------------------------------------------------------------
+    # EA-2: an EMPTY pipelines dict is ACCEPTED -- a DATA-ONLY config (definitions + items, no
+    # derivation yet), the owner's in-system authoring path (e.g. lighting_mgmt_system). A NON-empty
+    # pipelines object is still validated fully, pipeline by pipeline, below.
     pipelines = cfg.get("pipelines")
-    if not isinstance(pipelines, dict) or not pipelines:
-        _vthrow("pipelines must be a non-empty object.")
+    if not isinstance(pipelines, dict):
+        _vthrow("pipelines must be an object.")
     referenced = {}  # attr id -> [locations] (for the reference guard's named error)
 
     def _ref(attr, loc):
@@ -829,10 +1494,103 @@ def _validate_config(cfg):
                 if not isinstance(params, dict) or not _is_finite_number(params.get("digits")):
                     _vthrow(f"{where}: roundup needs params.digits (a finite number).")
             elif st == "component":
-                for key in ("name", "target", "formula"):
+                # EA-4 ext-a: `target` is OPTIONAL -- a conditional component whose formula is
+                # param-only reads no price off the matched row (e.g. the tray's ceiling_accessories,
+                # formula "accessories_per_mtr"). The interpreter already treats it as optional
+                # (`if (s.target !== undefined)`); this validator was stricter than its own executor.
+                # Present-but-blank is still an error, so a real typo is still caught.
+                for key in ("name", "formula"):
                     if not isinstance(s.get(key), str) or not s.get(key):
                         _vthrow(f"{where}: component needs a string '{key}'.")
+                if "target" in s and (not isinstance(s.get("target"), str) or not s.get("target")):
+                    _vthrow(f"{where}: component 'target', when present, must be a non-empty string.")
                 _validate_params(s.get("params"), where)
+            elif st == "component_ref":
+                # EA-2c legacy: base from a referenced row (ref.kind + optional ref.attributes) priced by
+                # `formula`. EA-4a assembly: ref attrs INLINE (values literal | "@attr" | "@fitted_size"),
+                # priced by rate_stages x qty (no formula). name + target always required; formula required
+                # ONLY for the legacy shape.
+                is_assembly = s.get("rate_stages") is not None or s.get("qty") is not None
+                required = ("name", "target") if is_assembly else ("name", "target", "formula")
+                for key in required:
+                    if not isinstance(s.get(key), str) or not s.get(key):
+                        _vthrow(f"{where}: component_ref needs a string '{key}'.")
+                if is_assembly:
+                    rs = s.get("rate_stages")
+                    if rs is not None:
+                        if not isinstance(rs, list):
+                            _vthrow(f"{where}: component_ref rate_stages must be a list.")
+                        for ri, stage in enumerate(rs):
+                            if not isinstance(stage, dict) or not _is_finite_number(stage.get("mult")):
+                                _vthrow(f"{where}: rate_stages[{ri}] needs a finite 'mult'.")
+                            if stage.get("round") is not None and stage.get("round") not in ("up0", "up-1"):
+                                _vthrow(f"{where}: rate_stages[{ri}].round must be 'up0' or 'up-1'.")
+                            # point_wiring RUNS: an OPTIONAL attribute-bound factor folded in before this
+                            # stage's rounding. REFERENCE-GUARDED so a typo'd id cannot pass silently
+                            # (absent means 1 at runtime, so an unguarded typo would read as "no runs").
+                            mfa = stage.get("mult_from_attr")
+                            if mfa is not None:
+                                if not isinstance(mfa, str) or not mfa:
+                                    _vthrow(f"{where}: rate_stages[{ri}].mult_from_attr must be an attribute id.")
+                                _ref(mfa, f"{where} (rate_stages[{ri}].mult_from_attr)")
+                            # RULING 2 (owner 2026-08-09): THE STEP FUNCTION. The mult_from_attr factor
+                            # becomes ceil(raw / divisor) -- wire install steps in threes while supply
+                            # and BCS stay linear. It names a NUMBER (no attribute to _ref); its partner
+                            # mult_from_attr is guarded just above. A non-positive divisor is REJECTED:
+                            # the interpreter reads it as "no divisor" and multiplies linearly, so
+                            # accepting it would ship a stage that looks stepped and is not.
+                            msd = stage.get("mult_step_divisor")
+                            if msd is not None:
+                                if not _is_finite_number(msd) or msd <= 0:
+                                    _vthrow(
+                                        f"{where}: rate_stages[{ri}].mult_step_divisor must be a positive finite number."
+                                    )
+                                if mfa is None:
+                                    # A divisor with nothing to divide is inert -- absentMeansOne makes the
+                                    # factor 1 and ceil(1/d) is 1. Catch the orphan at save, not at runtime.
+                                    _vthrow(
+                                        f"{where}: rate_stages[{ri}].mult_step_divisor needs a "
+                                        "'mult_from_attr' to step; on its own it does nothing."
+                                    )
+                    q = s.get("qty")
+                    if q is not None and not (
+                        _is_finite_number(q)
+                        or (isinstance(q, dict) and ("from_attr" in q or "from_fit" in q or "if_attr" in q))
+                    ):
+                        _vthrow(f"{where}: component_ref qty must be a number or a from_attr/from_fit/if_attr object.")
+                    # EA-4a-r: none_skips (bool) -> a ref @attr resolving to "None" makes this an explicit zero.
+                    if "none_skips" in s and not isinstance(s.get("none_skips"), bool):
+                        _vthrow(f"{where}: component_ref none_skips must be true/false.")
+                ref = s.get("ref")
+                if not isinstance(ref, dict) or not isinstance(ref.get("kind"), str) or not ref.get("kind"):
+                    _vthrow(f"{where}: component_ref needs ref.kind (a string).")
+                ref_attrs = ref.get("attributes")
+                if ref_attrs is not None:
+                    if not isinstance(ref_attrs, dict):
+                        _vthrow(f"{where}: component_ref ref.attributes must be an object of attribute = value.")
+                    for ak, av in ref_attrs.items():
+                        if isinstance(av, (dict, list)):
+                            _vthrow(f"{where}: component_ref ref.attributes['{ak}'] must be an exact value.")
+                if s.get("params") is not None:
+                    _validate_params(s.get("params"), where)
+                conds = s.get("conditions")
+                if conds is not None:
+                    if not isinstance(conds, list):
+                        _vthrow(f"{where}: component_ref conditions must be a list.")
+                    for ci, c in enumerate(conds):
+                        if not isinstance(c, dict):
+                            _vthrow(f"{where} condition {ci}: must be an object.")
+                        when = c.get("when")
+                        if not isinstance(when, dict) or not when:
+                            _vthrow(f"{where} condition {ci}: 'when' must be a non-empty object of attribute = value.")
+                        for wk, wv in when.items():
+                            if isinstance(wv, (dict, list)):
+                                _vthrow(
+                                    f"{where} condition {ci}: predicate '{wk}' must be an exact value "
+                                    "(attribute = value); range/in predicates are not executable."
+                                )
+                            _ref(wk, f"{where} condition {ci}")
+                        _validate_params(c.get("params"), f"{where} condition {ci}")
             elif st == "component_band":
                 for key in ("name", "band_on", "formula"):
                     if not isinstance(s.get(key), str) or not s.get(key):
@@ -858,6 +1616,221 @@ def _validate_config(cfg):
                 params = s.get("params")
                 if not isinstance(params, dict) or not _is_finite_number(params.get("ratio")):
                     _vthrow(f"{where}: install_as_ratio needs params.ratio (a finite number).")
+            elif st == "circuit_fit":
+                # EA-4a: sizes the conduit + counts circuits. params.wire_specs reference attribute ids
+                # (each a [core_attr, thickness_attr] pair) -> the reference guard covers them; length_attr
+                # + conduit_type_attr likewise. sizes/usable are finite-number tables (structure, not attrs).
+                p = s.get("params")
+                if not isinstance(p, dict):
+                    _vthrow(f"{where}: circuit_fit needs a params object.")
+                if not isinstance(p.get("sizes"), list) or not all(_is_finite_number(x) for x in p.get("sizes") or []):
+                    _vthrow(f"{where}: circuit_fit params.sizes must be a list of finite numbers.")
+                if not isinstance(p.get("usable"), dict):
+                    _vthrow(f"{where}: circuit_fit params.usable must be an object of conduit_type -> fractions.")
+                for ct, fracs in p["usable"].items():
+                    if not isinstance(fracs, list) or not all(_is_finite_number(x) for x in fracs):
+                        _vthrow(f"{where}: circuit_fit usable['{ct}'] must be a list of finite numbers.")
+                specs = p.get("wire_specs")
+                if not isinstance(specs, list) or not specs:
+                    _vthrow(f"{where}: circuit_fit needs a non-empty wire_specs list.")
+                for wi, pair in enumerate(specs):
+                    # point_wiring RUNS: an OPTIONAL third element names a parallel-runs attribute
+                    # (conduit sizing becomes cores x runs). 2 stays valid -- every pre-existing config
+                    # uses it and absence means 1 at runtime.
+                    if (
+                        not isinstance(pair, list)
+                        or len(pair) not in (2, 3)
+                        or not all(isinstance(x, str) and x for x in pair)
+                    ):
+                        _vthrow(
+                            f"{where}: circuit_fit wire_specs[{wi}] must be a "
+                            f"[core_attr, thickness_attr] pair, optionally with a third runs_attr."
+                        )
+                    for el in pair:
+                        _ref(el, f"{where} (wire_specs)")
+                for key in ("length_attr", "conduit_type_attr"):
+                    if not isinstance(p.get(key), str) or not p.get(key):
+                        _vthrow(f"{where}: circuit_fit needs a string '{key}'.")
+                    _ref(p[key], f"{where} ({key})")
+                if not isinstance(s.get("binds"), list) or not all(isinstance(b, str) and b for b in s.get("binds") or []):
+                    _vthrow(f"{where}: circuit_fit needs a 'binds' list of strings.")
+                # EA-4a-r: optional_wire_when_none names the thickness attr of an OPTIONAL wire (omitted from
+                # the dia when it is "None"). Reference-guard it like the other attr keys.
+                own = p.get("optional_wire_when_none")
+                if own is not None:
+                    if not isinstance(own, str) or not own:
+                        _vthrow(f"{where}: circuit_fit optional_wire_when_none must be an attribute id.")
+                    _ref(own, f"{where} (optional_wire_when_none)")
+            elif st == "module_fit":
+                # SLICE 2. params.terms is the PARAMETERISED weighted sum (one term per quantity slot;
+                # weights AND attribute ids are config, so the same step serves switches_sockets' TWO
+                # socket slots and point_wiring's one). params.ladders each name a CATALOG family --
+                # there is deliberately no size list to validate, because the ladder is derived from
+                # the master rows, never from params. Every attribute id is _ref-guarded.
+                p = s.get("params")
+                if not isinstance(p, dict):
+                    _vthrow(f"{where}: module_fit needs a params object.")
+                terms = p.get("terms")
+                if not isinstance(terms, list) or not terms:
+                    _vthrow(f"{where}: module_fit needs a non-empty params.terms list.")
+                for ti, t in enumerate(terms):
+                    if not isinstance(t, dict):
+                        _vthrow(f"{where}: module_fit terms[{ti}] must be an object.")
+                    tattr = t.get("attr")
+                    if not isinstance(tattr, str) or not tattr:
+                        _vthrow(f"{where}: module_fit terms[{ti}] needs an 'attr' (an attribute id).")
+                    _ref(tattr, f"{where} (terms[{ti}].attr)")
+                    if not _is_finite_number(t.get("weight")):
+                        _vthrow(f"{where}: module_fit terms[{ti}] needs a finite 'weight'.")
+                    nw = t.get("none_when")
+                    if nw is not None:
+                        if not isinstance(nw, str) or not nw:
+                            _vthrow(f"{where}: module_fit terms[{ti}].none_when must be an attribute id.")
+                        _ref(nw, f"{where} (terms[{ti}].none_when)")
+                ladders = p.get("ladders")
+                if not isinstance(ladders, list) or not ladders:
+                    _vthrow(f"{where}: module_fit needs a non-empty params.ladders list.")
+                binds = set()
+                for li, lad in enumerate(ladders):
+                    if not isinstance(lad, dict):
+                        _vthrow(f"{where}: module_fit ladders[{li}] must be an object.")
+                    for key in ("kind", "bind"):
+                        if not isinstance(lad.get(key), str) or not lad.get(key):
+                            _vthrow(f"{where}: module_fit ladders[{li}] needs a string '{key}'.")
+                    if lad["bind"] in binds:
+                        _vthrow(f"{where}: module_fit ladders[{li}] repeats the bind '{lad['bind']}'.")
+                    binds.add(lad["bind"])
+                    lw = lad.get("where")
+                    if lw is not None:
+                        if not isinstance(lw, dict):
+                            _vthrow(f"{where}: module_fit ladders[{li}].where must be an object of attribute = value.")
+                        for wk, wv in lw.items():
+                            if isinstance(wv, (dict, list)):
+                                _vthrow(f"{where}: module_fit ladders[{li}].where['{wk}'] must be an exact value.")
+                    for key in ("label_attr", "bind_modules"):
+                        if lad.get(key) is not None and (not isinstance(lad.get(key), str) or not lad.get(key)):
+                            _vthrow(f"{where}: module_fit ladders[{li}].{key}, when present, must be a non-empty string.")
+                    # SLICE 2 part 2: floor_from names an ATTRIBUTE (the stated value this ladder
+                    # fills the silence around), so it is REFERENCE-GUARDED like every other
+                    # attribute id -- a typo would silently read as "nothing stated" and let the
+                    # computed size override a stated plate, which is the one thing the rule forbids.
+                    ff = lad.get("floor_from")
+                    if ff is not None:
+                        if not isinstance(ff, str) or not ff:
+                            _vthrow(f"{where}: module_fit ladders[{li}].floor_from must be an attribute id.")
+                        _ref(ff, f"{where} (ladders[{li}].floor_from)")
+                    on_none = lad.get("on_none")
+                    if on_none is not None and on_none not in ("computed", "none"):
+                        _vthrow(
+                            f"{where}: module_fit ladders[{li}].on_none must be 'computed' or 'none'."
+                        )
+                    # RULING 1 (owner 2026-08-09): the module COUNT this ladder falls back to when the
+                    # computed count is ZERO (the back box's 3). It names a NUMBER, never a catalog
+                    # label -- the ladder stays catalog-derived -- so there is no attribute to _ref.
+                    # A non-positive value is REJECTED rather than tolerated: the interpreter treats it
+                    # as "no fallback declared", so accepting it here would let a typo look configured
+                    # while doing nothing at all.
+                    ozm = lad.get("on_zero_modules")
+                    if ozm is not None and (not _is_finite_number(ozm) or ozm <= 0):
+                        _vthrow(
+                            f"{where}: module_fit ladders[{li}].on_zero_modules, when present, "
+                            "must be a positive finite number (a module count)."
+                        )
+                blanks = p.get("blanks")
+                if blanks is not None:
+                    if not isinstance(blanks, dict):
+                        _vthrow(f"{where}: module_fit blanks must be an object.")
+                    for key in ("bind", "from_ladder"):
+                        if not isinstance(blanks.get(key), str) or not blanks.get(key):
+                            _vthrow(f"{where}: module_fit blanks needs a string '{key}'.")
+                    if blanks["from_ladder"] not in binds:
+                        # A blank count keyed to a ladder that does not exist would compute nothing --
+                        # catch it here rather than as a silent runtime no-compute.
+                        _vthrow(
+                            f"{where}: module_fit blanks.from_ladder '{blanks['from_ladder']}' "
+                            f"names no ladder (declared: {', '.join(sorted(binds))})."
+                        )
+                    sa = blanks.get("stated_attr")
+                    if sa is not None:
+                        if not isinstance(sa, str) or not sa:
+                            _vthrow(f"{where}: module_fit blanks.stated_attr must be an attribute id.")
+                        _ref(sa, f"{where} (blanks.stated_attr)")
+                    # THE ARBITRATED QUANTITY. Names the attribute holding the blank count the row
+                    # states; module_fit weighs it against the plate's spare capacity. It IS an
+                    # attribute id, so it is _ref-guarded -- a typo here would silently stop the step
+                    # ever finding a stated value to arbitrate on, which is quieter than a no-compute
+                    # and worse (the same reasoning as derive_attribute's result_attr).
+                    qa = blanks.get("qty_attr")
+                    if qa is not None:
+                        if not isinstance(qa, str) or not qa:
+                            _vthrow(f"{where}: module_fit blanks.qty_attr must be an attribute id.")
+                        _ref(qa, f"{where} (blanks.qty_attr)")
+                    # THE ITEM BIND. `bind_item` is a fitLabels KEY, not an attribute id, so it is NOT
+                    # _ref-guarded -- exactly like a ladder's `bind`, which names the scope a later
+                    # component_ref reads with "@<key>". `item_when_positive` is a CATALOG ITEM NAME.
+                    bi = blanks.get("bind_item")
+                    iwp = blanks.get("item_when_positive")
+                    for key, val in (("bind_item", bi), ("item_when_positive", iwp)):
+                        if val is not None and (not isinstance(val, str) or not val):
+                            _vthrow(
+                                f"{where}: module_fit blanks.{key}, when present, "
+                                f"must be a non-empty string."
+                            )
+                    # BOTH OR NEITHER. A bind_item with no item_when_positive has nothing to bind on a
+                    # positive count (the interpreter refuses the row rather than silently pricing
+                    # zero); an item_when_positive with no bind_item is dead config that reads as
+                    # though it does something. Catch both here rather than at runtime.
+                    if (bi is None) != (iwp is None):
+                        _vthrow(
+                            f"{where}: module_fit blanks needs 'bind_item' and 'item_when_positive' "
+                            f"together -- one without the other binds nothing."
+                        )
+            elif st == "derive_attribute":
+                # CIRCUIT LENGTH part 1. params.terms binds formula identifiers to ATTRIBUTE ids and
+                # params.constants holds the rule's fixed numbers -- so the formula, its inputs AND its
+                # target are all config, never hardcoded (the module_fit terms precedent). EVERY
+                # attribute id here is _ref-guarded, result_attr included: an unguarded typo in the
+                # target would silently stop the step ever finding a stated value to defer to.
+                p = s.get("params")
+                if not isinstance(p, dict):
+                    _vthrow(f"{where}: derive_attribute needs a params object.")
+                ra = p.get("result_attr")
+                if not isinstance(ra, str) or not ra:
+                    _vthrow(f"{where}: derive_attribute needs a string 'result_attr' (an attribute id).")
+                _ref(ra, f"{where} (result_attr)")
+                if not isinstance(p.get("formula"), str) or not p.get("formula"):
+                    _vthrow(f"{where}: derive_attribute needs a non-empty string 'formula'.")
+                terms = p.get("terms")
+                if not isinstance(terms, list) or not terms:
+                    _vthrow(f"{where}: derive_attribute needs a non-empty params.terms list.")
+                idents = set()
+                for ti, t in enumerate(terms):
+                    if not isinstance(t, dict):
+                        _vthrow(f"{where}: derive_attribute terms[{ti}] must be an object.")
+                    for key in ("ident", "attr"):
+                        if not isinstance(t.get(key), str) or not t.get(key):
+                            _vthrow(f"{where}: derive_attribute terms[{ti}] needs a string '{key}'.")
+                    if t["ident"] in idents:
+                        # Two terms binding the SAME identifier means one silently wins -- so the
+                        # formula would read an input the author did not choose.
+                        _vthrow(f"{where}: derive_attribute terms[{ti}] repeats the ident '{t['ident']}'.")
+                    idents.add(t["ident"])
+                    _ref(t["attr"], f"{where} (terms[{ti}].attr)")
+                consts = p.get("constants")
+                if consts is not None:
+                    if not isinstance(consts, dict):
+                        _vthrow(f"{where}: derive_attribute constants must be an object.")
+                    for ck, cv in consts.items():
+                        if ck in idents:
+                            # A constant sharing a term's identifier makes the formula ambiguous.
+                            _vthrow(
+                                f"{where}: derive_attribute constant '{ck}' collides with a term ident."
+                            )
+                        if not _is_finite_number(cv):
+                            _vthrow(f"{where}: derive_attribute constant '{ck}' must be a finite number.")
+                unit = p.get("unit")
+                if unit is not None and (not isinstance(unit, str) or not unit):
+                    _vthrow(f"{where}: derive_attribute unit, when present, must be a non-empty string.")
 
     # REFERENCE GUARD: every attr a pipeline references must be defined (names where each is used) ----
     missing = {a: locs for a, locs in referenced.items() if a not in def_ids}

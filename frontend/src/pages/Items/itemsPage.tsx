@@ -2,7 +2,6 @@ import { useMemo } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
 import { useFrappeGetDocList } from "frappe-react-sdk";
-import { useToast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
 
 import { DataTable } from "@/components/data-table/new-data-table";
@@ -32,7 +31,6 @@ import {
 import { useDialogStore } from "@/zustand/useDialogStore";
 
 export default function ItemsPage() {
-  const { toast } = useToast();
   const userData = useUserData();
 
   const { newItemDialog, toggleNewItemDialog } = useDialogStore();
@@ -57,6 +55,29 @@ export default function ItemsPage() {
     "category_list_for_item_page_ui"
   );
 
+  // Label map for the Linked TDS Item column + export: group id -> group name.
+  // `TDS Items` has no title field, so the facet/cell would otherwise show raw
+  // TDS-ITEM-xxxxx ids.
+  const { data: tdsItemList } = useFrappeGetDocList<{
+    name: string;
+    tds_item_name?: string;
+  }>(
+    "TDS Items",
+    {
+      fields: ["name", "tds_item_name"],
+      limit: 0,
+    },
+    "tds_items_label_map_for_item_page"
+  );
+
+  const tdsItemLabelMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    (tdsItemList || []).forEach((t) => {
+      map[t.name] = t.tds_item_name || t.name;
+    });
+    return map;
+  }, [tdsItemList]);
+
   const columns = useMemo<ColumnDef<ItemsType>[]>(() => {
     const baseColumns: ColumnDef<ItemsType>[] = [
       {
@@ -71,7 +92,7 @@ export default function ItemsPage() {
           >
             {" "}
             {/* Adjust route */}
-            {row.getValue("name").slice(-6)}
+            {row.original.name.slice(-6)}
           </Link>
         ),
         size: 150,
@@ -136,6 +157,42 @@ export default function ItemsPage() {
               ? `${catName} (${catDetail.work_package?.slice(0, 4).toUpperCase() || "N/A"
               })`
               : catName;
+          },
+        },
+      },
+      {
+        accessorKey: "linked_tds_item",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Linked TDS Item" />
+        ),
+        cell: ({ row }) => {
+          const linkedId = row.getValue<string>("linked_tds_item");
+          // TDS Items has no title field, so the raw id (TDS-ITEM-xxxxx) must be
+          // resolved to the human-readable group name client-side.
+          const groupName = linkedId ? tdsItemLabelMap[linkedId] || linkedId : null;
+          return (
+            <div className={cn("font-medium", !groupName && "text-muted-foreground")}>
+              {groupName || "—"}
+            </div>
+          );
+        },
+        enableColumnFilter: true,
+        size: 220,
+        meta: {
+          // `includeBlankBucket` surfaces the "Not Linked" option — without it an
+          // unlinked item is invisible to this facet (every facet query branch
+          // filters out NULL/''), and "show me what still needs a TDS group" — the
+          // whole point of this column — would be unexpressible.
+          facet: {
+            field: "linked_tds_item",
+            title: "Linked TDS Item",
+            includeBlankBucket: true,
+            blankLabel: "Not Linked",
+          } satisfies FacetDeclaration,
+          exportHeaderName: "Linked TDS Item",
+          exportValue: (row: ItemsType) => {
+            const linkedId = row.linked_tds_item;
+            return linkedId ? tdsItemLabelMap[linkedId] || linkedId : "";
           },
         },
       },
@@ -226,7 +283,7 @@ export default function ItemsPage() {
     }
 
     return baseColumns;
-  }, [categoryList, canManageItems]); // Dependency on categoryList and role
+  }, [categoryList, canManageItems, tdsItemLabelMap]); // categoryList, role, TDS group labels
 
   const {
     table,
@@ -304,6 +361,10 @@ export default function ItemsPage() {
             isOpen={isEditDialogOpen}
             onOpenChange={setIsEditDialogOpen}
             onItemUpdated={refetchTable}
+            // ADR-0004: the Items-side link field is Admin + PMO Executive, which
+            // `canManageItems` already is. Client gating is UX; `Items.validate`
+            // and `api/tds/linking.py` are the enforcement boundary.
+            canLinkTds={canManageItems}
           />
         </>
       )}

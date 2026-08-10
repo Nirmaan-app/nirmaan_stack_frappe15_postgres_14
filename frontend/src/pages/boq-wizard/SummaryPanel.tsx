@@ -29,7 +29,14 @@
 import { useMemo, useState } from "react";
 import { ChevronRight, AlertTriangle, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { rollupByParent, defaultCollapsedSet, type RollupNode } from "./pricingRollup";
+import {
+  rollupByParent,
+  defaultCollapsedSet,
+  type BcsRollupInput,
+  type RollupNode,
+} from "./pricingRollup";
+import { bcsBlankReasonText, formatBcsMargin, type BcsComputedCell } from "./bcsColumns";
+import type { BcsSectionTotals } from "./bcsRollup";
 import type {
   ColumnDescriptor,
   ColumnFormula,
@@ -44,6 +51,19 @@ const ITEM_W = "w-[320px]";
 // Per-amount-column width.
 const COL_W = "w-28 min-w-[112px]";
 
+// ── BCS-S5: the per-section cost columns ──────────────────────────────────────
+// Header text mirrors the grid's own column titles, so the same figure is called the same thing
+// in both places -- which is why dropping Tendered Total Amount from the grid at BCS-S8 (owner
+// ruling 2026-08-07) had to drop it HERE TOO. Leaving it would have put a column in the summary
+// that the grid beneath it no longer has, under a heading the owner asked to remove.
+//
+// `BcsSectionTotals.tendered` is still computed and still feeds `sectionMarginPercent` -- the
+// section margin's denominator is unchanged. Only the column is gone.
+const BCS_HEADERS: ReadonlyArray<{ label: string; title: string }> = [
+  { label: "BCS Total Amount", title: "BCS Total Amount — this section's cost (quantity × the cost entered), rolled up" },
+  { label: "% Margin", title: "% Margin — recomputed from this section's SUMMED cost and SUMMED amount charged, never an average of its lines" },
+];
+
 // The only classifications shown as panel rows -- the priceable/qty-bearing types
 // (design v1.6 §6). classification is the lowercase taxonomy (effective_classification).
 const SHOWN_CLASSIFICATIONS = new Set(["preamble", "line_item"]);
@@ -53,6 +73,38 @@ function fmtAmount(n: number | null | undefined): string {
   if (n === null || n === undefined) return "";
   if (n === 0) return "0";
   return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
+/**
+ * BCS-S5: one row's three BCS cells, rendered OUTSIDE the `columns.map` loop.
+ *
+ * ⚠️ A BLANK IS NEVER A 0 HERE, and the reason is carried in the `title` -- the same rule the
+ * grid's computed cells keep. A section nobody has costed shows an EMPTY cost cell and an EMPTY
+ * % Margin; rendering 0 / 0% would be a confident claim ("this section costs nothing", "we make
+ * nothing on it") about a section where nothing is known. `fmtAmount` already distinguishes the
+ * two: null -> "", a genuine 0 -> "0".
+ *
+ * No colour scale, deliberately: the grid presents % Margin as plain right-aligned figures, and a
+ * second visual language for the same number in the panel above it would be its own confusion.
+ */
+function bcsCells(totals: BcsSectionTotals | undefined, keyPrefix: string, cls: string) {
+  const marginCell: BcsComputedCell = totals?.margin ?? { kind: "blank", reason: "no_cost" };
+  return (
+    <>
+      <td key={`${keyPrefix}-cost`} className={cls}>
+        {fmtAmount(totals?.cost ?? null)}
+      </td>
+      {/* BCS-S8: the tendered `<td>` was removed here. `totals.tendered` is deliberately still
+          populated -- `sectionMarginPercent` divides by it. */}
+      <td
+        key={`${keyPrefix}-margin`}
+        className={cls}
+        title={marginCell.kind === "blank" ? bcsBlankReasonText(marginCell.reason) : undefined}
+      >
+        {marginCell.kind === "value" ? formatBcsMargin(marginCell.value) : null}
+      </td>
+    </>
+  );
 }
 
 interface FlatRow {
@@ -96,14 +148,17 @@ interface SummaryPanelProps {
   /** Cluster B: per-cell reconciliation choices -- the rollup resolves the CHOSEN value
    *  (document-default), so the Summary totals match what the grid cells show. */
   reconChoices: ReconciliationChoiceRef[];
+  /** BCS-S5: the cost axis. ABSENT / null = BCS is not set up on the version being viewed, and the
+   *  panel renders exactly as it did before this slice -- no cost columns, nothing else changed. */
+  bcs?: BcsRollupInput | null;
   sheetName: string;
   onClose: () => void;
 }
 
-const SummaryPanel = ({ rows, columnDescriptors, columnFormulas, reconChoices, sheetName, onClose }: SummaryPanelProps) => {
-  const { columns, roots, grandTotals, integrityErrors } = useMemo(
-    () => rollupByParent(rows, columnDescriptors, columnFormulas, reconChoices),
-    [rows, columnDescriptors, columnFormulas, reconChoices],
+const SummaryPanel = ({ rows, columnDescriptors, columnFormulas, reconChoices, bcs, sheetName, onClose }: SummaryPanelProps) => {
+  const { columns, roots, grandTotals, integrityErrors, bcs: bcsRollup } = useMemo(
+    () => rollupByParent(rows, columnDescriptors, columnFormulas, reconChoices, bcs),
+    [rows, columnDescriptors, columnFormulas, reconChoices, bcs],
   );
 
   // Default view = expanded down to the shallowest preamble tier (computed from data).
@@ -226,13 +281,28 @@ const SummaryPanel = ({ rows, columnDescriptors, columnFormulas, reconChoices, s
                     {c.label}
                   </th>
                 ))}
+                {/* BCS-S5: the three cost columns, rendered OUTSIDE the columns.map loop. They
+                    have no backing ColumnDescriptor, so they are NOT members of `columns`. */}
+                {bcsRollup &&
+                  BCS_HEADERS.map((h) => (
+                    <th
+                      key={h.label}
+                      className={cn(
+                        "px-2 py-2 text-right font-medium text-muted-foreground border-l border-border whitespace-nowrap sticky top-0 z-20 bg-muted",
+                        COL_W,
+                      )}
+                      title={h.title}
+                    >
+                      {h.label}
+                    </th>
+                  ))}
               </tr>
             </thead>
             <tbody>
               {visible.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={1 + columns.length}
+                    colSpan={1 + columns.length + (bcsRollup ? BCS_HEADERS.length : 0)}
                     className="px-2 py-6 text-center text-sm text-muted-foreground"
                   >
                     No priceable rows to summarize.
@@ -294,6 +364,15 @@ const SummaryPanel = ({ rows, columnDescriptors, columnFormulas, reconChoices, s
                           {fmtAmount(node.totals[c.col])}
                         </td>
                       ))}
+                      {bcsRollup &&
+                        bcsCells(
+                          bcsRollup.byRowIndex.get(node.rowIndex),
+                          `bcs-${node.rowIndex}`,
+                          cn(
+                            "px-2 py-1.5 text-right align-top border-l border-border tabular-nums",
+                            COL_W,
+                          ),
+                        )}
                     </tr>
                   );
                 })
@@ -318,6 +397,15 @@ const SummaryPanel = ({ rows, columnDescriptors, columnFormulas, reconChoices, s
                     {fmtAmount(grandTotals[c.col])}
                   </td>
                 ))}
+                {/* The project's BCS row. Its % Margin is recomputed from the WHOLE sheet's summed
+                    cost and summed amount -- it is emphatically not the average of the sections
+                    above it, which is exactly the number a reader might assume it to be. */}
+                {bcsRollup &&
+                  bcsCells(
+                    bcsRollup.grand,
+                    "bcs-grand",
+                    cn("px-2 py-2 text-right border-l border-border tabular-nums", COL_W),
+                  )}
               </tr>
             </tfoot>
           </table>

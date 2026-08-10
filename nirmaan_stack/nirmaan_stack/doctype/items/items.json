@@ -17,7 +17,8 @@
   "order_category",
   "item_status",
   "item_links_section",
-  "category"
+  "category",
+  "linked_tds_item"
  ],
  "fields": [
   {
@@ -70,6 +71,13 @@
    "options": "Category",
    "reqd": 1,
    "search_index": 1
+  },
+  {
+   "description": "The item's ONE TDS datasheet group (ADR-0004). This is the SOLE store of TDS membership: a group's members are derived live as Items where linked_tds_item = <group>. The item's work package (category -> Category.work_package) must match the group's work_package - enforced in Items.validate.",
+   "fieldname": "linked_tds_item",
+   "fieldtype": "Link",
+   "label": "Linked TDS Item",
+   "options": "TDS Items"
   },
   {
    "fieldname": "image_url",

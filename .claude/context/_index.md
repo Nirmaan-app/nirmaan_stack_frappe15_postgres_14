@@ -19,6 +19,7 @@ Quick navigation to detailed documentation. Read only when working on related ta
 | [domain/expenses.md](domain/expenses.md) | Expenses | Expense doctypes, approval flow, project scoping |
 | [domain/invoice-autofill.md](domain/invoice-autofill.md) | Invoice autofill | Invoice field autofill behaviour |
 | [domain/invoice-qty.md](domain/invoice-qty.md) | Invoice quantities | Invoiced-quantity derivation and reconciliation |
+| [domain/outflow-import.md](domain/outflow-import.md) | Bulk Import Outflow | Bank-statement import that settles Approved→Paid across the three ledgers: matcher, status deriver, tolerance, decision screen |
 
 ### Frontend Context (in `frontend/.claude/context/`)
 

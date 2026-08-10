@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Trash2 } from "lucide-react";
+import { useFrappeGetCall } from "frappe-react-sdk";
 
 import {
     Dialog,
@@ -9,6 +10,16 @@ import {
     DialogDescription,
     DialogFooter,
 } from "@/components/ui/dialog";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { FuzzySearchSelect } from "@/components/ui/fuzzy-search-select";
 import { useTDSItemOptions } from "../hooks/useTDSItemOptions";
@@ -41,6 +52,14 @@ interface StagedRow {
     category: string;
     /** human-readable category name for display. */
     categoryName: string;
+    /**
+     * ADR-0004: the group this SKU currently belongs to, if any. Membership is
+     * N:1, so staging an already-linked item MOVES it out of that group. Carried
+     * on the staged row so the warning survives from pick to commit.
+     */
+    linkedGroupName?: string;
+    /** That group's ID — names alone are not unique enough to identify a group. */
+    linkedGroupId?: string;
 }
 
 export interface MultiAddMembersDialogProps {
@@ -48,21 +67,36 @@ export interface MultiAddMembersDialogProps {
     onOpenChange: (open: boolean) => void;
     /** The TDS Item's Work Package — scopes the picker to its Items SKUs. */
     workPackage: string;
+    /**
+     * This TDS Item's display name — the DESTINATION shown in the move
+     * confirmation. Without it the confirmation can only say what an item is
+     * taken FROM, which reads as pure loss and is what made the first version
+     * of that copy confusing.
+     */
+    groupName?: string;
     /** Item ids already members of the group — excluded from the picker. */
     existingItems: string[];
     /** Parent persists the staged ids; the dialog just returns them. */
     onCommit: (newItemIds: string[]) => Promise<void> | void;
 }
 
+/** "Y Strainer (TDS-ITEM-00351)" — kept identical to AddTDSItemWizard's groupRef;
+ *  these two pickers must read the same or one of them starts lying. */
+const groupRef = (name?: string, id?: string) =>
+    name ? (id ? `${name} (${id})` : name) : id || "";
+
 export const MultiAddMembersDialog: React.FC<MultiAddMembersDialogProps> = ({
     open,
     onOpenChange,
     workPackage,
+    groupName,
     existingItems,
     onCommit,
 }) => {
     const [staged, setStaged] = useState<StagedRow[]>([]);
     const [committing, setCommitting] = useState(false);
+    // Last-stop confirmation when the commit would TAKE members from other groups.
+    const [showMoveConfirm, setShowMoveConfirm] = useState(false);
 
     // `itemOptionsForWP` lists every Items SKU under the Work Package across all
     // its categories (we pass no `selectedCategory`) — exactly the cross-category
@@ -74,8 +108,24 @@ export const MultiAddMembersDialog: React.FC<MultiAddMembersDialogProps> = ({
         if (!open) {
             setStaged([]);
             setCommitting(false);
+            setShowMoveConfirm(false);
         }
     }, [open]);
+
+    // ADR-0004: current linkage for every SKU in this Work Package, fetched ONCE
+    // (batched, not per option) so each picker row can show whether adding it
+    // would MOVE it out of another group. "No silent member theft" — and this is
+    // the surface where it would otherwise be silent, because the picker does not
+    // filter out items that already belong somewhere.
+    const { data: linkageData } = useFrappeGetCall<{
+        message: Record<string, { linked_tds_item: string; group_name: string }>;
+    }>(
+        "nirmaan_stack.api.tds.linking.get_items_linkage",
+        { work_package: workPackage },
+        open && workPackage ? `tds_linkage_for_wp_${workPackage}` : null
+    );
+
+    const linkageByItem = linkageData?.message || {};
 
     // Picker options = WP items minus existing members minus already-staged ids.
     // Annotate showCategory when the same item_name appears under multiple
@@ -97,8 +147,10 @@ export const MultiAddMembersDialog: React.FC<MultiAddMembersDialogProps> = ({
                 category: item.category,
                 categoryName: item.categoryName,
                 showCategory: (nameCounts.get(item.label) || 0) > 1,
+                linkedGroupName: linkageByItem[item.value]?.group_name || "",
+                linkedGroupId: linkageByItem[item.value]?.linked_tds_item || "",
             }));
-    }, [itemOptionsForWP, existingItems, staged]);
+    }, [itemOptionsForWP, existingItems, staged, linkageByItem]);
 
     const handleStage = (opt: any) => {
         if (!opt?.value) return;
@@ -112,6 +164,8 @@ export const MultiAddMembersDialog: React.FC<MultiAddMembersDialogProps> = ({
                 label: opt.label,
                 category: opt.category,
                 categoryName: opt.categoryName,
+                linkedGroupName: opt.linkedGroupName || "",
+                linkedGroupId: opt.linkedGroupId || "",
             },
         ]);
     };
@@ -120,8 +174,33 @@ export const MultiAddMembersDialog: React.FC<MultiAddMembersDialogProps> = ({
         setStaged((prev) => prev.filter((s) => s.value !== value));
     };
 
+    // Same exposure as the create wizard: an already-linked SKU is MOVED, not
+    // copied, and the write leaves no audit trail. Confirm before taking members
+    // from other groups. Kept in step with AddTDSItemWizard's move confirmation.
+    const movingRows = useMemo(() => staged.filter((s) => s.linkedGroupName), [staged]);
+    const destGroupName = groupName?.trim() || "this TDS Item";
+    // One mover => there is a single source to name. Several => sources differ,
+    // so the sentence stays general and the per-row from -> to list carries it.
+    const singleFromGroup =
+        movingRows.length === 1
+            ? groupRef(movingRows[0].linkedGroupName, movingRows[0].linkedGroupId)
+            : "";
+
     const handleCommit = async () => {
         if (staged.length === 0) return;
+        if (movingRows.length > 0) {
+            setShowMoveConfirm(true);
+            return;
+        }
+        await performCommit();
+    };
+
+    const confirmAndCommit = async () => {
+        setShowMoveConfirm(false);
+        await performCommit();
+    };
+
+    const performCommit = async () => {
         try {
             setCommitting(true);
             await onCommit(staged.map((s) => s.value));
@@ -173,6 +252,12 @@ export const MultiAddMembersDialog: React.FC<MultiAddMembersDialogProps> = ({
                                             ({option.categoryName})
                                         </span>
                                     )}
+                                    {/* ADR-0004: N:1 membership — adding this MOVES it. */}
+                                    {option.linkedGroupName && (
+                                        <span className="text-amber-600 ml-1 text-xs">
+                                            · linked to {groupRef(option.linkedGroupName, option.linkedGroupId)}
+                                        </span>
+                                    )}
                                 </span>
                             )}
                         />
@@ -202,6 +287,13 @@ export const MultiAddMembersDialog: React.FC<MultiAddMembersDialogProps> = ({
                                         <span className="text-xs text-gray-400 font-mono truncate">
                                             {s.value}
                                         </span>
+                                        {/* The move warning has to survive from pick to
+                                            commit — this is the last screen before it. */}
+                                        {s.linkedGroupName && (
+                                            <span className="text-xs text-amber-600 truncate">
+                                                will move out of {groupRef(s.linkedGroupName, s.linkedGroupId)}
+                                            </span>
+                                        )}
                                     </div>
                                     <span className="text-gray-600 truncate">{s.categoryName}</span>
                                     <Button
@@ -239,6 +331,62 @@ export const MultiAddMembersDialog: React.FC<MultiAddMembersDialogProps> = ({
                     </Button>
                 </DialogFooter>
             </DialogContent>
+
+            {/* Move confirmation — sibling of DialogContent so it portals above
+                this dialog. Mirrors AddTDSItemWizard's; keep the two in step. */}
+            <AlertDialog open={showMoveConfirm} onOpenChange={setShowMoveConfirm}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>
+                            {movingRows.length} item{movingRows.length === 1 ? "" : "s"} will change TDS Item
+                        </AlertDialogTitle>
+                        {/* Say what CONTINUING does, in one line, naming the destination. */}
+                        <AlertDialogDescription>
+                            If you continue, {movingRows.length === 1 ? "this item is" : "these items are"}{" "}
+                            removed from{" "}
+                            <span className="font-semibold text-red-600">
+                                {singleFromGroup || "their current TDS Item"}
+                            </span>{" "}
+                            and added to{" "}
+                            <span className="font-semibold text-green-700">{destGroupName}</span>
+                            . An item can belong to only one TDS Item.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+
+                    <div className="max-h-[240px] overflow-y-auto rounded-lg border divide-y">
+                        {movingRows.map((s) => (
+                            <div key={s.value} className="px-3 py-2 text-sm">
+                                <div className="font-medium truncate">{s.label}</div>
+                                <div className="flex items-center gap-1.5 text-xs mt-0.5">
+                                    <span className="text-red-600 truncate">
+                                        {groupRef(s.linkedGroupName, s.linkedGroupId)}
+                                    </span>
+                                    <span className="text-gray-400 shrink-0">→</span>
+                                    <span className="font-medium text-green-700 truncate">
+                                        {destGroupName}
+                                    </span>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={committing}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={(e) => {
+                                e.preventDefault();
+                                confirmAndCommit();
+                            }}
+                            disabled={committing}
+                            className="bg-[#dc2626] hover:bg-[#b91c1c]"
+                        >
+                            {committing
+                                ? "Adding..."
+                                : `Yes, move ${movingRows.length === 1 ? "it" : "them"}`}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </Dialog>
     );
 };

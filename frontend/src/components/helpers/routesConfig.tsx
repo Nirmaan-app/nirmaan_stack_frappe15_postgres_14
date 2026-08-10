@@ -56,7 +56,7 @@ import CreditsPage from "@/pages/credits/CreditsPage";
 //---New Vendors-AQ2 Page
 import VendorsAQ2 from "@/pages/vendors-wp-categories/vendors-aq2";
 import WorkPackages from "@/pages/work-packages";
-import { ProtectedRoute, UsersRoute, UserProfileRoute, InflowPaymentsRoute, NewProjectRoute, PricingRoute } from "@/utils/auth/ProtectedRoute";
+import { ProtectedRoute, UsersRoute, UserProfileRoute, InflowPaymentsRoute, NewProjectRoute, PricingRoute, OutflowImportRoute } from "@/utils/auth/ProtectedRoute";
 import { ProjectManager } from "../layout/dashboards/dashboard-pm";
 import InvoiceReconciliationContainer from "@/pages/tasks/invoices/InvoiceReconciliationContainer";
 import { NewProcurementRequestPage } from "@/pages/ProcurementRequests/NewPR/NewProcurementRequestPage";
@@ -812,6 +812,25 @@ export const appRoutes: RouteObject[] = [
             element: <PricingRoute />,
             children: [
               { index: true, lazy: () => import("@/pages/pricing/rate-master/RateMasterPage") },
+            ],
+          },
+
+          // Bulk Import Outflow -- ONE screen (slices X3 + X4): a master table of every staged
+          // transfer, with the summary of a chosen import above it and the upload in a dialog.
+          // Guarded to Accountant / Accountant Lead / Admin; the backend gate in
+          // api/outflow_import/permissions.py is the real boundary. Single top-level segment, which
+          // is what the sidebar's active-item matching keys on.
+          //
+          // ⚠️ BOTH ROUTES RENDER THE SAME PAGE, and ":id" is KEPT for exactly one reason: every
+          // link and bookmark written before X3 points at a batch. It now lands on the master table
+          // pre-scoped to that import rather than 404ing. The "new" route is GONE -- the upload is
+          // a dialog on the master screen, so there is nowhere for it to go.
+          {
+            path: "bulk-import-outflow",
+            element: <OutflowImportRoute />,
+            children: [
+              { index: true, lazy: () => import("@/pages/outflow-import/OutflowMasterPage") },
+              { path: ":id", lazy: () => import("@/pages/outflow-import/OutflowMasterPage") },
             ],
           },
 

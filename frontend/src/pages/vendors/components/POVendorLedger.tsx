@@ -6,7 +6,7 @@ import { useUpdateVendorDoc } from '../data/useVendorMutations';
 import Fuse from 'fuse.js';
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { Button } from '@/components/ui/button';
-import { FileUp } from 'lucide-react';
+import { Info, FileUp } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/components/ui/use-toast';
 import { AlertDestructive } from '@/components/layout/alert-banner/error-alert';
@@ -26,6 +26,7 @@ interface ApiTransaction {
     details: string;
     amount: number; // in rupees
     payment: number; // in rupees
+    is_inactive?: boolean; // true when the linked PO's status is "Inactive"
 }
 
 type LedgerTab = 'poLedger' | 'srLedger' | 'invoicesLedger';
@@ -132,7 +133,12 @@ export const POVendorLedger: React.FC<{ vendorId: string }> = ({ vendorId }) => 
         let runningBalance = Number(activeOpeningBalance);
         return items.map((entry): LedgerEntry => {
             runningBalance += entry.amount - entry.payment;
-            return { ...entry, transactionType: entry.type as LedgerEntry['transactionType'], balance: runningBalance };
+            return {
+                ...entry,
+                transactionType: entry.type as LedgerEntry['transactionType'],
+                balance: runningBalance,
+                isInactive: !!entry.is_inactive,
+            };
         });
 
     }, [flatTransactionsFromApi, activeSubTab, activeOpeningBalance, dateFilter, searchTerm, projectFilter]);
@@ -149,6 +155,12 @@ export const POVendorLedger: React.FC<{ vendorId: string }> = ({ vendorId }) => 
     }, [processedItems]);
 
     const endBalance = processedItems.length > 0 ? processedItems[processedItems.length - 1].balance : activeOpeningBalance;
+
+    // Drives the red-tint legend: only explain the colour when a tinted row is present.
+    const hasInactiveRows = useMemo(
+        () => processedItems.some((item) => item.isInactive),
+        [processedItems]
+    );
 
     const handleExportCsv = useCallback(() => {
         const exportColumns = [
@@ -214,6 +226,24 @@ export const POVendorLedger: React.FC<{ vendorId: string }> = ({ vendorId }) => 
                     />
                 </div>
             </div>
+
+            {/* Legend for the red row tint — rendered ONLY when a tinted row is actually
+                on screen. Inactive POs are rare (9 across 8 vendors in live data), so an
+                always-on legend would explain a colour most vendors never show. */}
+            {/* A plain info glyph: this is an explanatory note, not a warning or an error,
+                and unlike a bordered swatch it cannot be mistaken for a control. */}
+            {hasInactiveRows && (
+                <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                    <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    <span>
+                        Rows shown with a{" "}
+                        <span className="rounded-[3px] bg-red-50 px-1.5 py-0.5 font-medium text-red-700 dark:bg-red-950/40 dark:text-red-400">
+                            red background
+                        </span>{" "}
+                        belong to an Inactive PO.
+                    </span>
+                </div>
+            )}
 
             <VirtualizedLedgerTable
                 items={processedItems}

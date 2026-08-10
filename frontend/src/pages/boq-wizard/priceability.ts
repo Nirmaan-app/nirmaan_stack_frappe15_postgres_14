@@ -34,7 +34,7 @@ import {
   lookupOperandValue,
 } from "./PricingGrid";
 import { pickFormula } from "./amountFormula";
-import { resolveDescriptorValue } from "./reviewRender";
+import { resolveDescriptorValue, ROW_TYPE_LABEL } from "./reviewRender";
 import { buildReconChoiceMap, reconChoiceKey, resolveDivergence } from "./reconcile";
 import type {
   AmountFormulaRef,
@@ -347,7 +347,7 @@ export function buildFlagEntries(
       out.push({
         ...base,
         kind: "qty_anomaly",
-        text: "Quantity on a non-priceable row type -- check the classification.",
+        text: `Quantity on a non-priceable row type -- check the ${ROW_TYPE_LABEL.toLowerCase()}.`,
       });
     }
     if (f.broken) {

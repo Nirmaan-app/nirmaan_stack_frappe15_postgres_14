@@ -73,14 +73,32 @@ def _insert_shift_attached(pointer, insertion_index: int) -> int:
     return pointer + 1 if pointer >= insertion_index else pointer
 
 
-def _delete_remap_attached(pointer, deleted_index: int) -> int:
-    """Remap attached_to_index through a DELETE. 0 sentinel (see _insert_shift_attached):
-    a note whose attached preamble was the deleted row DETACHES (-> 0); positive pointers
-    above the deleted row shift -1; 0 / None untouched."""
+def _delete_remap_attached(pointer, deleted_index: int, grandparent: int) -> int:
+    """Remap attached_to_index through a DELETE, MIRRORING _delete_remap's re-point.
+
+    EA-6a slice 2 (C2a): this used to DETACH (-> 0) when the attached row was deleted, while
+    _delete_remap RE-POINTED the same row's parent pointer to the grandparent. That asymmetry
+    is exactly the pointer/text split slice 2 exists to remove -- the note's parent survived
+    the delete while its attachment did not. Both pointers now re-point together.
+
+    THE TWO SENTINEL SPACES STILL DIFFER and are NOT unified here (owner decision: keep
+    attached_to_index in its own space):
+      - `grandparent` arrives in the -1 space (-1 = the deleted row was itself a root).
+      - this function returns the 0 space (0 = not attached).
+    So a -1 grandparent maps to 0: a note whose parent chain ran out has nothing to attach to,
+    which is the same outcome the old detach produced -- for that case only.
+
+    KNOWN LIMIT (documented, deliberately NOT fixed): a grandparent of row_index 0 also
+    returns 0, which reads as "not attached". The committed blob is DERIVED from the effective
+    tree at commit (EA-6a slice 2 C3), so this legacy ambiguity is display-tier only and can
+    never reach the AI engines."""
     if not pointer or pointer <= 0:
         return pointer  # not attached
     if pointer == deleted_index:
-        return 0  # attached row deleted -> detach
+        if grandparent is None or grandparent < 0:
+            return 0  # deleted row was a root -> nothing left to attach to
+        pointer = grandparent  # re-point, mirroring _delete_remap
+    # Rows after the deleted one shifted down by one; correct any pointer into that range.
     return pointer - 1 if pointer > deleted_index else pointer
 
 

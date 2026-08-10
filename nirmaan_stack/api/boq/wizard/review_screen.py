@@ -64,6 +64,12 @@ _ASSIGNABLE_CLASSIFICATIONS: frozenset[str] = frozenset({
     "line_item", "preamble", "note", "spacer",
 })
 
+# EA-6a slice 2. The note class is deliberately declared HERE and not added to
+# commit_validation's taxonomy block: that module owns the classes the COMMIT branches on
+# (priceable vs grid-only), and "note" is neither -- it is the class whose ATTACHMENT this
+# slice governs. commit_pipeline imports it from here alongside resolve_effective.
+_NOTE_CLS: str = "note"
+
 _HUMAN_FIELDS: frozenset[str] = frozenset({"human_classification", "human_parent"})
 _VALUE_FIELDS: frozenset[str] = frozenset({
     "qty_total",
@@ -866,6 +872,108 @@ def _template_line_item_qty_gap(row: dict) -> bool:
     return False
 
 
+# EA-6a slice 2: the columns rebuild_attached_notes_blobs reads, per doctype. BoQ Template Row
+# has NO human override layer (no human_parent / human_is_root / human_classification columns),
+# and frappe.db.get_all raises on an unknown field -- so the two lists cannot be merged.
+# resolve_effective tolerates the absent keys and falls through to the parser layer.
+_ATTACH_ROW_FIELDS: dict = {
+    "BoQ Review Row": [
+        "name", "row_index", "description", "classification", "human_classification",
+        "parent_index", "human_parent", "human_is_root",
+    ],
+    "BoQ Template Row": [
+        "name", "row_index", "description", "classification", "parent_index",
+    ],
+}
+
+
+def rebuild_attached_notes_blobs(
+    doctype: str,
+    base_filters: dict,
+    parent_indexes,
+    overlay: dict = None,
+) -> dict:
+    """Recompute `attached_notes` on the named parent rows from the rows pointing at them.
+
+    EA-6a slice 2 (C1 / C2b). THE REVIEW-TIER BLOB IS DISPLAY DATA; the authority is the
+    DERIVED value computed at commit (commit_pipeline C3). This helper keeps the display tier
+    honest so a reviewer sees their re-parent immediately, and so the C4 warning stays quiet
+    on rows nobody has desynchronised.
+
+    IT KEYS ON THE EFFECTIVE PARENT + EFFECTIVE CLASSIFICATION -- deliberately the SAME two
+    things `commit_pipeline._derive_attached_notes` keys on, so the display tier and the
+    authoritative commit tier agree BY CONSTRUCTION rather than by two implementations that
+    happen to match.
+
+    IT DOES **NOT** KEY ON `attached_to_index`, and that is load-bearing. That field's 0 means
+    "not attached", so a note whose parent is `row_index` **0** is indistinguishable from an
+    unattached one -- keying on it silently DROPPED the text of every note parented to row 0
+    (caught by test_relabel_into_note_joins_the_parents_blob). `attached_to_index` is still
+    written and returned as display metadata; it is simply not the source of truth here. The
+    documented sentinel limit therefore affects the POINTER only, never the text.
+
+    ORDER IS LOAD-BEARING: within one parent the notes are emitted in row_index order, because
+    hierarchy._notes_text pipe-joins the list and the parser pins that order.
+
+    Doctype-parametric via _ATTACH_ROW_FIELDS: `BoQ Review Row` carries the human override
+    layer, `BoQ Template Row` does not. resolve_effective tolerates the missing human_* keys
+    (absent -> None -> falls through to the parser layer), so ONE resolution serves both.
+
+    Args:
+      doctype:       "BoQ Review Row" or "BoQ Template Row".
+      base_filters:  sheet scoping, e.g. {"boq": ..., "sheet_name": ...} (sheet_name VERBATIM, #152).
+      parent_indexes: iterable of row_index values whose blob must be recomputed. None entries
+                     are skipped (a master-bucket note has no parent row to write).
+      overlay:       {row_index: {"parent": int|None, "is_note": bool, "description": str}} --
+                     IN-MEMORY state not yet saved (the row currently being edited). Its
+                     entries REPLACE whatever the DB says for those row_index values.
+
+    Writes with frappe.db.set_value(json.dumps(...)): a targeted column write, which is the
+    documented way past the list-valued-JSON `doc.save()` wall for these fields.
+
+    Returns {parent_index: [note text, ...]} for the parents it wrote (test-friendly).
+    """
+    targets = {p for p in (parent_indexes or []) if p is not None}
+    if not targets:
+        return {}
+
+    rows = frappe.db.get_all(
+        doctype,
+        filters=dict(base_filters),
+        fields=_ATTACH_ROW_FIELDS[doctype],
+        order_by="row_index asc",
+    )
+
+    overlay = overlay or {}
+    by_parent: dict = {t: [] for t in targets}
+    for r in rows:
+        ri = r.get("row_index")
+        ov = overlay.get(ri)
+        if ov:
+            is_note, parent = ov["is_note"], ov["parent"]
+            desc = ov["description"] or ""
+        else:
+            eff = resolve_effective(r)
+            is_note = eff["effective_classification"] == _NOTE_CLS
+            parent = eff["effective_parent_index"]
+            desc = r.get("description") or ""
+        # Only a NOTE contributes text, and only to a parent we were asked to rebuild.
+        # `parent` is in the -1/None space here, so 0 is a REAL parent -- no sentinel clash.
+        if is_note and parent is not None and parent in by_parent:
+            by_parent[parent].append(desc)
+
+    # Resolve each target row_index to its docname, then write the recomputed blob.
+    name_by_index = {r.get("row_index"): r.get("name") for r in rows}
+    for parent_index, notes in by_parent.items():
+        name = name_by_index.get(parent_index)
+        if not name:
+            continue  # parent row no longer exists (e.g. it was the deleted row)
+        frappe.db.set_value(
+            doctype, name, "attached_notes", json.dumps(notes), update_modified=False
+        )
+    return by_parent
+
+
 def _apply_and_save_row_edit(
     doc,
     boq_name: str,
@@ -914,6 +1022,9 @@ def _apply_and_save_row_edit(
     if user is None:
         user = frappe.session.user
     area_provided = area is not None and area != ""
+    # EA-6a slice 2: pre-edit effective snapshot for the attachment hook. Stays None for the
+    # per-area path and every non-structural field, which is what switches the hook off.
+    _eff_before_attach = None
 
     # --- Capture from-value (EFFECTIVE value before edit) + apply the edit ---
 
@@ -985,10 +1096,17 @@ def _apply_and_save_row_edit(
         to_val = new_val
     else:
         # --- Flat-field path (capture from-value, then apply) ---
+        # EA-6a slice 2: the attachment hook below needs BOTH the pre-edit classification and
+        # the pre-edit parent (a re-LABEL changes the class while the parent stays put, and a
+        # re-PARENT the reverse), so snapshot the whole effective dict rather than just the
+        # one value from_val needs. Only for the two human structural fields; every other
+        # field leaves it None and the hook is skipped entirely.
         if field == "human_classification":
-            from_val = resolve_effective(doc)["effective_classification"]
+            _eff_before_attach = resolve_effective(doc)
+            from_val = _eff_before_attach["effective_classification"]
         elif field == "human_parent":
-            from_val = resolve_effective(doc)["effective_parent_index"]
+            _eff_before_attach = resolve_effective(doc)
+            from_val = _eff_before_attach["effective_parent_index"]
         else:
             from_val = getattr(doc, field, None)
 
@@ -1184,6 +1302,71 @@ def _apply_and_save_row_edit(
             doc.revision_reviewed = 1
             doc.revision_reviewed_by = user
             doc.revision_reviewed_at = frappe.utils.now()
+
+    # ------------------------------------------------------------------------------
+    # EA-6a slice 2 (C1): NOTE ATTACHMENT FOLLOWS THE REVIEWER'S RE-PARENT.
+    #
+    # THE DEFECT THIS CLOSES: re-parenting a note moved only its parent. Its
+    # attached_to_index and -- the part that reached the AI engines -- the note TEXT stayed
+    # on the OLD parent's attached_notes blob, so a reviewer's correction was silently
+    # discarded downstream.
+    #
+    # This is the ONE chokepoint for all seven human_parent endpoints (save_review_edit,
+    # save_review_restructure, revert_to_parser, accept/revert x ai + gemini), so hooking it
+    # here covers every one by construction -- including revert_to_parser, which clears the
+    # override and therefore lands the note back on the PARSER parent's blob with no
+    # special-casing.
+    #
+    # TWO TRIGGERS (C1 + C6). Owner ruling E2 -- a re-LABEL is "not a rare case":
+    #   C1  human_parent   -- a row that IS a note moves to a different parent.
+    #   C6a human_classification -- a row BECOMES a note: its text joins its parent's blob.
+    #   C6b human_classification -- a row STOPS being a note: its text leaves the old blob.
+    # A classification change that never touches "note" on either side rebuilds NOTHING.
+    #
+    # Both are the SAME operation viewed from different sides -- "which parent's blob should
+    # contain this row's text, before and after?" -- which is why one trigger expression and
+    # one rebuild call serve both rather than two parallel branches.
+    # ------------------------------------------------------------------------------
+    if _eff_before_attach is not None:
+        _eff_after = resolve_effective(doc)
+        _was_note = _eff_before_attach["effective_classification"] == _NOTE_CLS
+        _is_note = _eff_after["effective_classification"] == _NOTE_CLS
+        _old_parent = _eff_before_attach["effective_parent_index"]
+        _new_parent = _eff_after["effective_parent_index"]
+
+        # ONE trigger covers BOTH shapes (C1 re-parent, C6 re-label). The row must be a note
+        # on at least one side of the edit AND something that decides attachment must have
+        # actually moved -- so a no-op re-parent, and any classification change that never
+        # touches "note" (line_item <-> preamble <-> spacer), rebuild NOTHING.
+        _attachment_moved = (_was_note != _is_note) or (_old_parent != _new_parent)
+        if (_was_note or _is_note) and _attachment_moved:
+            # Keep attached_to_index in its OWN sentinel space (0 = unattached); do NOT unify
+            # it with the -1 space. A root/cleared parent unattaches, and so does a row that
+            # has just STOPPED being a note (C6b) -- it owns no attachment any more.
+            doc.attached_to_index = (
+                _new_parent if (_is_note and _new_parent is not None) else 0
+            )
+            # Rebuild only the blobs that can have changed: the parent the row was attached
+            # to while it WAS a note, and the parent it is attached to now that it IS one.
+            # A side the row was not a note on contributes nothing and is skipped.
+            _touched = []
+            if _was_note:
+                _touched.append(_old_parent)
+            if _is_note:
+                _touched.append(_new_parent)
+            rebuild_attached_notes_blobs(
+                "BoQ Review Row",
+                {"boq": boq_name, "sheet_name": sheet_name},  # sheet_name VERBATIM (#152)
+                _touched,
+                # This doc is not saved yet, so the DB still holds its OLD state.
+                overlay={
+                    doc.row_index: {
+                        "is_note": _is_note,
+                        "parent": _new_parent,
+                        "description": doc.description,
+                    }
+                },
+            )
 
     # Defect 1 fix: frappe.get_doc() loads JSON list fields as Python lists.
     # Frappe's get_valid_dict rejects Python lists for JSON fieldtype on save.

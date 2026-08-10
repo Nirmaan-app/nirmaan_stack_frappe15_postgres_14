@@ -1,0 +1,175 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "OFM-.YY.-.######",
+ "creation": "2026-08-06 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "identity_section",
+  "import_row",
+  "import_batch",
+  "transfer_id",
+  "target_section",
+  "target_doctype",
+  "target_name",
+  "target_amount",
+  "classification_section",
+  "match_kind",
+  "match_basis",
+  "provenance_section",
+  "matched_at",
+  "matched_by"
+ ],
+ "fields": [
+  {
+   "fieldname": "identity_section",
+   "fieldtype": "Section Break",
+   "label": "Identity"
+  },
+  {
+   "description": "The bank row this match belongs to.",
+   "fieldname": "import_row",
+   "fieldtype": "Link",
+   "label": "Import Row",
+   "options": "Outflow Import Row",
+   "reqd": 1
+  },
+  {
+   "description": "Denormalised from the row so a batch's whole match set reads in one query.",
+   "fieldname": "import_batch",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Import Batch",
+   "options": "Outflow Import Batch",
+   "reqd": 1
+  },
+  {
+   "description": "Denormalised from the row. Half of the unique constraint that makes settlement idempotent across batches.",
+   "fieldname": "transfer_id",
+   "fieldtype": "Data",
+   "label": "Transfer Id",
+   "reqd": 1
+  },
+  {
+   "fieldname": "target_section",
+   "fieldtype": "Section Break",
+   "label": "Target"
+  },
+  {
+   "description": "The matched record's doctype: Project Payments (read-only reconciliation) or Project Expenses / Non Project Expenses (settlement).",
+   "fieldname": "target_doctype",
+   "fieldtype": "Link",
+   "label": "Target Doctype",
+   "options": "DocType",
+   "reqd": 1
+  },
+  {
+   "description": "The matched record.",
+   "fieldname": "target_name",
+   "fieldtype": "Dynamic Link",
+   "in_list_view": 1,
+   "label": "Target",
+   "options": "target_doctype",
+   "reqd": 1
+  },
+  {
+   "description": "The target's own amount at match time. Kept so a fan-out group's sum can be compared against the bank amount without re-reading every target.",
+   "fieldname": "target_amount",
+   "fieldtype": "Currency",
+   "label": "Target Amount"
+  },
+  {
+   "fieldname": "classification_section",
+   "fieldtype": "Section Break",
+   "label": "Classification"
+  },
+  {
+   "default": "Settled",
+   "description": "Always Settled. This table records SETTLEMENTS ONLY -- a row here means money was written: a payment or expense marked Paid, or an expense created at Paid. The v2 kind 'Reconciled' (matched, nothing written) was retired at the v3 reversal, because a suggestion and a settlement addressing the same record would contend for the (transfer_id, target_doctype, target_name) unique constraint -- which IS this feature's idempotency guarantee. The field is kept as a Select rather than dropped so the intent stays legible and a future write kind has somewhere to go.",
+   "fieldname": "match_kind",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Match Kind",
+   "options": "Settled",
+   "reqd": 1
+  },
+  {
+   "description": "How the match was found. Bank reference = the strong key (normalized bank_reference_no equals the target's normalized utr). Vendor+amount+date = the weak second pass, needed because 12.6% of Paid payments carry a UTR that is not a bank reference. Manual = a person chose the target outright.",
+   "fieldname": "match_basis",
+   "fieldtype": "Select",
+   "label": "Match Basis",
+   "options": "Bank reference\nVendor+amount+date\nManual",
+   "reqd": 1
+  },
+  {
+   "fieldname": "provenance_section",
+   "fieldtype": "Section Break",
+   "label": "Provenance"
+  },
+  {
+   "description": "When the match was recorded.",
+   "fieldname": "matched_at",
+   "fieldtype": "Datetime",
+   "label": "Matched At",
+   "read_only": 1
+  },
+  {
+   "description": "Who confirmed the match (frappe.session.user). Data, not Link, per the house convention for actor fields.",
+   "fieldname": "matched_by",
+   "fieldtype": "Data",
+   "label": "Matched By",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 0,
+ "links": [],
+ "modified": "2026-08-06 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Outflow Row Match",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Accountant",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Accountant Lead",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

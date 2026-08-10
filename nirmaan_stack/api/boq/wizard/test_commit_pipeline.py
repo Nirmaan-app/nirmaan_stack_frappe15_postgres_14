@@ -551,14 +551,29 @@ class TestCommitPipeline(FrappeTestCase):
         self.assertTrue(n.commit_provenance_id)  # minted, non-empty
         self.assertEqual(n.is_synthetic, 1)      # carried verbatim (insurance field)
 
-    def test_human_layer_and_notes_carried_as_provenance(self):
-        """human_classification/human_parent/human_is_root + attached_notes + edit_log +
-        append_notes_raw + row_notes carried verbatim (provenance-only)."""
+    def test_human_layer_and_row_provenance_carried_verbatim(self):
+        """human_classification/human_parent/human_is_root + edit_log + append_notes_raw +
+        row_notes carried verbatim (provenance-only).
+
+        RENAMED + NARROWED at EA-6a slice 2 (owner ruling E1, option C). This test used to be
+        called ..._and_notes_carried_as_provenance and also asserted that the review row's
+        `attached_notes` copy was CARRIED onto the node. That is no longer true and is no
+        longer desirable: committed `attached_notes` is DERIVED from the effective tree at
+        commit (C3), so a note's text follows the reviewer's re-parent instead of being frozen
+        at whatever the parser first wrote. Seeding a blob on a line_item with NO note rows --
+        which is exactly what this fixture does -- now correctly derives to nothing.
+
+        `attached_notes` coverage moved WHOLESALE to the C3/C4 tests
+        (TestDerivedAttachedNotes) under names that say what they pin. Nothing was lost: the
+        FIVE assertions below are untouched and still pin the verbatim-carry contract for every
+        field that IS still carried. (The original had six; exactly one -- attached_notes --
+        was removed.)
+        """
         self._seed_review_row(
             "HVAC", 0, "line_item", description="Item", sl_no_value="1", qty_total=1.0,
             human_classification="line_item", human_parent=-1, human_is_root=0,
             row_notes="a row note", append_notes_raw={"Z": "extra"},
-            attached_notes=["n1", "n2"], edit_log=[{"field": "qty_total", "from": 1, "to": 2}],
+            edit_log=[{"field": "qty_total", "from": 1, "to": 2}],
         )
         res = self._commit("HVAC", "finalized")
         nm = self._nodes_for_sheet(res["boq_sheet_name"])[0].name
@@ -567,7 +582,6 @@ class TestCommitPipeline(FrappeTestCase):
         self.assertEqual(node.human_is_root, 0)
         self.assertEqual(node.notes, "a row note")
         self.assertEqual(self._pj(node.append_notes_raw), {"Z": "extra"})
-        self.assertEqual(self._pj(node.attached_notes), ["n1", "n2"])
         self.assertEqual(self._pj(node.edit_log), [{"field": "qty_total", "from": 1, "to": 2}])
 
     # -- MC-2: description_parts_raw threads draft row -> committed BOQ Nodes -----
@@ -1074,6 +1088,174 @@ class TestCommitPipeline(FrappeTestCase):
         r2 = self._commit("HVAC", "finalized")  # must NOT raise (re-commit, v2)
         self.assertEqual(r1["commit_version"], 1)
         self.assertEqual(r2["commit_version"], 2)
+
+    # ------------------------------------------------------------------ #
+    # EA-6a slice 2 (C3/C4) -- committed attached_notes is DERIVED
+    # ------------------------------------------------------------------ #
+
+    def _notes_on(self, boq_sheet_name, description):
+        """The committed attached_notes of the node whose description matches."""
+        for n in self._nodes_for_sheet(boq_sheet_name):
+            if n.description == description:
+                return self._pj(frappe.get_doc(_NODE, n.name).attached_notes)
+        raise AssertionError(f"no committed node described {description!r}")
+
+    def test_c3_attached_notes_derived_from_the_effective_tree(self):
+        """C3 POSITIVE: the committed blob is built from the note rows' EFFECTIVE parents.
+
+        Two notes sit under the line item by parser parent_index. Neither review row carries
+        an attached_notes copy at all -- the derivation alone must produce the blob, which is
+        what proves it is not reading the carried field.
+        """
+        self._seed_review_row("HVAC", 0, "preamble", description="SECTION", sl_no_value="A")
+        self._seed_review_row("HVAC", 1, "line_item", description="cable", sl_no_value="1",
+                              parent_index=0, qty_total=1.0)
+        self._seed_review_row("HVAC", 2, "note", description="spec alpha", parent_index=1)
+        self._seed_review_row("HVAC", 3, "note", description="spec beta", parent_index=1)
+        res = self._commit("HVAC", "finalized")
+        self.assertEqual(self._notes_on(res["boq_sheet_name"], "cable"),
+                         ["spec alpha", "spec beta"])
+        self.assertIsNone(self._notes_on(res["boq_sheet_name"], "SECTION"),
+                          "a row with no notes beneath it must stay null, never []")
+
+    def test_c3_derived_blob_follows_a_human_reparent_and_c4_passes(self):
+        """C3+C4 POSITIVE -- THE WHOLE POINT OF THE SLICE.
+
+        The note's parser parent is the first line item; a reviewer's human_parent override
+        moves it to the second. The COMMITTED blob must follow the override, and the C4
+        reconciliation (which now asserts the derived value) must PASS -- a commit that
+        raised here would mean the assertion and the write disagree.
+        """
+        self._seed_review_row("HVAC", 0, "line_item", description="cable", sl_no_value="1",
+                              qty_total=1.0)
+        self._seed_review_row("HVAC", 1, "line_item", description="conduit", sl_no_value="2",
+                              qty_total=1.0)
+        self._seed_review_row("HVAC", 2, "note", description="moved spec",
+                              parent_index=0, human_parent=1)
+        res = self._commit("HVAC", "finalized")  # no raise == C4 passed
+        self.assertEqual(self._notes_on(res["boq_sheet_name"], "conduit"), ["moved spec"],
+                         "the blob must follow the reviewer's re-parent")
+        self.assertIsNone(self._notes_on(res["boq_sheet_name"], "cable"),
+                          "and must LEAVE the parser parent")
+
+    def test_c3_stale_review_row_copy_is_ignored_and_the_derived_value_wins(self):
+        """C3 POSITIVE (the self-heal, owner decision D5 -- forward-only, no backfill).
+
+        The line item carries a STALE carried blob naming a note that is not attached to it,
+        while the real note row points elsewhere. Re-committing must publish the DERIVED
+        truth and discard the stale copy entirely -- this is the mechanism that makes
+        "no backfill" safe: a historical sheet heals the next time it is committed.
+        """
+        self._seed_review_row("HVAC", 0, "line_item", description="cable", sl_no_value="1",
+                              qty_total=1.0, attached_notes=["STALE - never derived"])
+        self._seed_review_row("HVAC", 1, "line_item", description="conduit", sl_no_value="2",
+                              qty_total=1.0)
+        self._seed_review_row("HVAC", 2, "note", description="real spec", parent_index=1)
+        res = self._commit("HVAC", "finalized")
+        self.assertIsNone(self._notes_on(res["boq_sheet_name"], "cable"),
+                          "the stale carried copy must NOT reach the committed node")
+        self.assertEqual(self._notes_on(res["boq_sheet_name"], "conduit"), ["real spec"])
+
+    def test_c4_logs_a_warning_on_drift_without_failing_the_commit(self):
+        """C4 POSITIVE (owner decision D2): drift WARNS, it never fails the commit.
+
+        Same stale-copy shape as above. The commit must SUCCEED and exactly one warning must
+        name the drifted row. Failing the commit here would punish the user for stale display
+        data the derivation has already corrected.
+        """
+        self._seed_review_row("HVAC", 0, "line_item", description="cable", sl_no_value="1",
+                              qty_total=1.0, attached_notes=["STALE - never derived"])
+        self._seed_review_row("HVAC", 1, "note", description="real spec", parent_index=0)
+
+        captured = []
+
+        class _Spy:
+            @staticmethod
+            def warning(msg):
+                captured.append(msg)
+
+        _real_logger = commit_pipeline.frappe.logger
+        try:
+            commit_pipeline.frappe.logger = lambda *a, **k: _Spy()
+            res = self._commit("HVAC", "finalized")   # must NOT raise
+        finally:
+            commit_pipeline.frappe.logger = _real_logger
+
+        # The derived truth still lands, drift or no drift.
+        self.assertEqual(self._notes_on(res["boq_sheet_name"], "cable"), ["real spec"])
+        drift = [m for m in captured if "attached_notes drift" in m]
+        self.assertEqual(len(drift), 1, f"expected exactly one drift warning, got {captured!r}")
+        self.assertIn("row_index=0", drift[0])
+        self.assertIn("STALE - never derived", drift[0], "the warning must name both values")
+
+    def test_c4_stays_silent_when_the_review_row_agrees(self):
+        """C4 NEGATIVE: a sheet whose copies already agree logs NOTHING.
+
+        Without this, a warning that fired unconditionally would look identical to a
+        correctly-quiet one and the signal would be worthless.
+        """
+        self._seed_review_row("HVAC", 0, "line_item", description="cable", sl_no_value="1",
+                              qty_total=1.0, attached_notes=["spec alpha"])
+        self._seed_review_row("HVAC", 1, "note", description="spec alpha", parent_index=0)
+
+        captured = []
+
+        class _Spy:
+            @staticmethod
+            def warning(msg):
+                captured.append(msg)
+
+        _real_logger = commit_pipeline.frappe.logger
+        try:
+            commit_pipeline.frappe.logger = lambda *a, **k: _Spy()
+            self._commit("HVAC", "finalized")
+        finally:
+            commit_pipeline.frappe.logger = _real_logger
+
+        self.assertEqual([m for m in captured if "attached_notes drift" in m], [])
+
+    def test_c3_master_bucket_note_reaches_no_node(self):
+        """C3 NEGATIVE / backwards-compat: a note with NO effective parent attaches nowhere.
+
+        This is the parser's master_preamble_notes behaviour and it must stay byte-unchanged:
+        the note still commits as its own Other node, but no node's blob gains its text.
+        """
+        self._seed_review_row("HVAC", 0, "line_item", description="cable", sl_no_value="1",
+                              qty_total=1.0)
+        self._seed_review_row("HVAC", 1, "note", description="general bucket note")  # root
+        res = self._commit("HVAC", "finalized")
+        self.assertIsNone(self._notes_on(res["boq_sheet_name"], "cable"))
+        nodes = self._nodes_for_sheet(res["boq_sheet_name"])
+        note_nodes = [n for n in nodes if n.row_class == "note"]
+        self.assertEqual(len(note_nodes), 1, "the note itself still commits as a node")
+        self.assertIsNone(self._pj(frappe.get_doc(_NODE, note_nodes[0].name).attached_notes))
+
+    def test_c3_note_parented_under_a_note_nests_the_text_EDGE(self):
+        """C3 EDGE PIN (Task 3d) -- REPORTED BEHAVIOUR, not a designed feature.
+
+        A reviewer can parent a note under another note (nothing forbids it, and after a
+        re-label a row that already carried notes can itself become one). The derivation keys
+        PURELY on the effective parent and applies NO classification filter to that parent, so
+        the inner note's text lands in the OUTER note's blob, and the outer note's text still
+        lands in ITS parent's blob.
+
+        That is well-defined and self-consistent -- but it means a node of node_type "Other"
+        can carry attached_notes. The parser can never produce this shape (consecutive notes
+        are FLAT -- they all attach to the same target, never to each other), so it arises
+        only from a reviewer action. Pinned here so the behaviour is deliberate and visible
+        rather than discovered later.
+        """
+        self._seed_review_row("HVAC", 0, "line_item", description="cable", sl_no_value="1",
+                              qty_total=1.0)
+        self._seed_review_row("HVAC", 1, "note", description="outer note", parent_index=0)
+        self._seed_review_row("HVAC", 2, "note", description="inner note", parent_index=1)
+        res = self._commit("HVAC", "finalized")
+        self.assertEqual(self._notes_on(res["boq_sheet_name"], "outer note"), ["inner note"],
+                         "a note CAN carry attached_notes -- derivation ignores parent class")
+        self.assertEqual(self._notes_on(res["boq_sheet_name"], "cable"), ["outer note"],
+                         "and the outer note still attaches to its own parent")
+
+
 
 
 class TestCommitBoqPartialFailure(FrappeTestCase):
