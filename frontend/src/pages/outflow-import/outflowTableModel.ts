@@ -83,7 +83,10 @@ export const OUTFLOW_COLUMNS: OutflowColumn[] = [
     { id: "row_status", title: "Status", get: (r) => r.row_status ?? "", filter: "facet", width: "130px" },
     // The Outcome cell is a BUTTON, not text, so it neither sorts nor filters -- there is nothing
     // meaningful to order "open this dialog" by.
-    { id: "outcome", title: "Outcome", get: (r) => r.outcome_note ?? r.skip_reason ?? "", filter: "none", width: "320px" },
+    // ⚠️ NARROWED FROM 320px (owner, 2026-08-10) once the outcome NOTE moved out of the button and
+    // onto its own line. The old width existed to fit a sentence inside a control; the control now
+    // holds a verb, and 320px of it was whitespace on every terminal row.
+    { id: "outcome", title: "Outcome", get: (r) => r.outcome_note ?? r.skip_reason ?? "", filter: "none", width: "220px" },
     // ⚠️ NEW AT X3, AND IT ONLY MAKES SENSE FROM X3 ON. The batch screen showed one import, so
     // naming it in every row would have been noise. The master table spans every import, and
     // "which statement did this come from" becomes a real question the moment it does.
@@ -488,6 +491,214 @@ export interface ConfirmOutcome {
     error?: string;
 }
 
+/**
+ * The three buckets `review.get_confirmable_rows` returns, reconciled into what the dialog says.
+ *
+ * ⚠️ THIS EXISTS BECAUSE TWO SCREENS REPORTED DIFFERENT NUMBERS WITH NOTHING EXPLAINING THE GAP.
+ * The summary panel's button reads `confirmable_rows`, which counts `Matched` rows carrying a
+ * suggestion WITHOUT checking that the suggested record still exists. The dialog checks. So a row
+ * whose record was deleted since the match ran is inside the button's count and outside the
+ * dialog's list, and the two disagreed silently -- 688 on one, fewer on the other.
+ *
+ * The fix is not to force them equal; they measure different things and should not be. It is to
+ * make the funnel STATEABLE, which is what this returns.
+ */
+export interface ConfirmFunnel {
+    /** `Matched` rows in this import -- the widest number the dialog talks about. */
+    matched: number;
+    /** What the summary panel's button counts: rows carrying a suggestion. `ready + stale`. */
+    confirmable: number;
+    /** Rows whose suggested record resolves and can be confirmed right now. */
+    ready: number;
+    /** Rows the matcher found SEVERAL records for, so it deliberately picked none. */
+    needsYou: number;
+    /** Rows whose suggested record has been deleted since the match ran. */
+    stale: number;
+}
+
+export const confirmFunnel = (payload?: {
+    matched_rows?: number;
+    ready?: unknown[];
+    needs_you?: unknown[];
+    stale?: unknown[];
+}): ConfirmFunnel => {
+    const ready = payload?.ready?.length ?? 0;
+    const needsYou = payload?.needs_you?.length ?? 0;
+    const stale = payload?.stale?.length ?? 0;
+    return {
+        // Fall back to the sum rather than 0 when the server predates `matched_rows`: an absent
+        // total should read as "all of them", never as "there are none".
+        matched: payload?.matched_rows ?? ready + needsYou + stale,
+        confirmable: ready + stale,
+        ready,
+        needsYou,
+        stale,
+    };
+};
+
+// --- error messages ------------------------------------------------------------------------------
+
+/**
+ * The real reason a Frappe call failed, dug out of the envelope it arrives in.
+ *
+ * ⚠️ `err.message` IS USUALLY THE USELESS ONE. Frappe answers a `frappe.throw` with HTTP 417 and a
+ * body whose `message` is the literal string **"There was an error."** -- the actual sentence, the
+ * one the endpoint wrote, is inside `_server_messages`: a JSON array of JSON strings, each an object
+ * with `message` and often `title`. Every call site in this feature read `err?.message`, so every
+ * failure in the confirm dialog rendered as "There was an error." and a live 1-row confirm failure
+ * could not be diagnosed from the screen at all (2026-08-10, browser walk).
+ *
+ * Order is deliberate, most specific first:
+ *   1. `_server_messages`  -- what the endpoint deliberately said. Titles included when they add
+ *      something the message does not already say.
+ *   2. `exception`         -- an UNCAUGHT error. Nobody wrote this for a reader, but the exception
+ *      class and its text beat a generic string, and this is the case where a stack trace is
+ *      waiting in the Error Log for whoever reads this.
+ *   3. `message`           -- only when it is not the generic placeholder.
+ *   4. the HTTP status     -- last resort, and it still says something (417 vs 403 vs 500 tells a
+ *      reader whether to look at the rule, the permission, or the log).
+ *
+ * Returns a single line. `fallback` names the ACTION for the case where the envelope is empty, so
+ * the reader at least knows what failed rather than only that something did.
+ */
+export const describeFrappeError = (err: unknown, fallback = "The request failed."): string => {
+    const e = (err ?? {}) as Record<string, any>;
+
+    const serverMessages = parseServerMessages(e._server_messages);
+    if (serverMessages.length) return serverMessages.join(" ");
+
+    const exception = typeof e.exception === "string" ? e.exception.trim() : "";
+    if (exception) {
+        // `frappe.exceptions.ValidationError: the real text` -- keep the class, it is the only
+        // signal of WHICH rule fired when the text is terse.
+        const [, cls, text] = exception.match(/^([\w.]+Error):\s*([\s\S]+)$/) ?? [];
+        if (cls && text) return `${cls.split(".").pop()}: ${collapse(text)}`;
+        return collapse(exception);
+    }
+
+    const message = typeof e.message === "string" ? e.message.trim() : "";
+    if (message && message !== GENERIC_FRAPPE_MESSAGE) return collapse(message);
+
+    const status = e.httpStatus ? ` (HTTP ${e.httpStatus}${e.httpStatusText ? ` ${e.httpStatusText}` : ""})` : "";
+    return `${fallback}${status}`;
+};
+
+/** Frappe's placeholder for "a `frappe.throw` happened, look in `_server_messages`". */
+const GENERIC_FRAPPE_MESSAGE = "There was an error.";
+
+const collapse = (text: string) => text.replace(/\s+/g, " ").trim();
+
+/**
+ * `_server_messages` is a JSON array of JSON STRINGS -- double-encoded, and each element may be a
+ * bare string rather than an object. Every branch below has been seen in this app.
+ */
+const parseServerMessages = (raw: unknown): string[] => {
+    if (typeof raw !== "string" || !raw.trim()) return [];
+    let list: unknown;
+    try {
+        list = JSON.parse(raw);
+    } catch {
+        return [];
+    }
+    if (!Array.isArray(list)) return [];
+
+    return list
+        .map((entry) => {
+            let item: any = entry;
+            if (typeof item === "string") {
+                try {
+                    item = JSON.parse(item);
+                } catch {
+                    return collapse(stripTags(item));
+                }
+            }
+            if (item && typeof item === "object") {
+                const message = collapse(stripTags(String(item.message ?? "")));
+                const title = collapse(stripTags(String(item.title ?? "")));
+                if (!message) return title;
+                // A title that merely repeats the message adds nothing; one that classifies it
+                // ("Already settled", "Amounts differ") is often the most useful word on screen.
+                return title && !message.toLowerCase().startsWith(title.toLowerCase())
+                    ? `${title}: ${message}`
+                    : message;
+            }
+            return "";
+        })
+        .filter(Boolean);
+};
+
+/** Frappe messages carry HTML (`<br>`, `<b>`); these render as text, not markup. */
+const stripTags = (text: string) => text.replace(/<[^>]*>/g, " ");
+
+// --- the import preview (slice X4) ---------------------------------------------------------------
+
+/**
+ * What actually left the bank, as a bank statement's own summary block states it.
+ *
+ * ⚠️ THE TWO FIGURES FOOT, AND SHOWING THEM SEPARATELY WITHOUT THE TOTAL HID THAT. `gross` is the
+ * beneficiary money on SUCCESSFUL transfers; `charges` is the gateway fee and its tax across EVERY
+ * transfer, because the bank takes its fee whatever the transfer's outcome (see `parser.py`). Their
+ * sum is the debit the accountant reconciles against the account, and it was the one number this
+ * dialog never showed.
+ *
+ * ⚠️ FAILED TRANSFERS ARE ALREADY OUT OF `gross` -- the server excludes them at parse time, and has
+ * since before the 2026-08-10 ruling that took them out of the post-import figures too. Do NOT
+ * subtract them again here; that would deduct the same money twice.
+ */
+export interface StatementDebit {
+    gross: number;
+    charges: number;
+    total: number;
+}
+
+export const statementDebit = (preview: {
+    gross_amount?: number;
+    charges_amount?: number;
+}): StatementDebit => {
+    const gross = preview.gross_amount ?? 0;
+    const charges = preview.charges_amount ?? 0;
+    return { gross, charges, total: gross + charges };
+};
+
+/**
+ * The transfer counts the preview states, with the two exclusions named separately.
+ *
+ * ⚠️ THERE IS DELIBERATELY NO COMBINED "how many will I actually work on" FIGURE. The two
+ * exclusions -- failed at the bank, already in an earlier import -- are counted on different axes
+ * and can OVERLAP: a transfer that failed may also be a duplicate. The server reports each axis
+ * alone, so any client-side combination would be a guess (`total - failed - duplicates`
+ * double-subtracts the overlap; `min(new, successful)` is a bound, not a count).
+ *
+ * Naming a guess as a count is how a confirm button ends up promising a number the import then
+ * misses. Both exclusions are shown; the arithmetic is left to the reader, who can see both.
+ */
+export interface PreviewCounts {
+    total: number;
+    successful: number;
+    failed: number;
+    duplicates: number;
+    /** New on the DUPLICATE axis only -- the server's own figure, which the confirm button uses. */
+    newRows: number;
+}
+
+export const previewCounts = (preview: {
+    total_rows?: number;
+    successful_rows?: number;
+    failed_rows?: number;
+    duplicate_rows?: number;
+    new_rows?: number;
+}): PreviewCounts => {
+    const total = preview.total_rows ?? 0;
+    const failed = preview.failed_rows ?? 0;
+    return {
+        total,
+        successful: preview.successful_rows ?? Math.max(total - failed, 0),
+        failed,
+        duplicates: preview.duplicate_rows ?? 0,
+        newRows: preview.new_rows ?? total,
+    };
+};
+
 // --- unpaired stacks (chunk E3) ------------------------------------------------------------------
 
 /** One transfer inside an unpaired stack, as `review.get_unpaired_stacks` returns it. */
@@ -882,6 +1093,48 @@ export interface CandidateLike {
      */
     suggested?: boolean;
 }
+
+/**
+ * Why confirming this pick would be REFUSED by the server, or `null` if it would not.
+ *
+ * ⚠️ IT GATES ON THE SERVER'S OWN `suggested` FLAG, NEVER ON A CLIENT COPY OF THE TOLERANCE. See
+ * `CandidateLike.suggested` above: both windows live in `services/outflow_import/amounts.py`, they
+ * have changed twice, and a number duplicated here would drift into a screen that blocks a record
+ * the server would have accepted -- the same class of defect as one that offers a record the server
+ * then refuses, in the other direction.
+ *
+ * ⚠️ IT FAILS OPEN. `suggested` ABSENT (undefined) is "the server did not say", which must NOT
+ * block: an older payload or a record shape that never carried the flag would otherwise become
+ * unconfirmable, and a screen that silently refuses to settle a valid record is worse than one that
+ * lets the server refuse it out loud. Only an explicit `false` blocks.
+ *
+ * The screen uses this to EXPLAIN rather than to enforce -- the write guard in `settle.py` is the
+ * boundary. What it prevents is the shape the owner reported: a Confirm button that is enabled,
+ * posts, is refused, and shows nothing, which reads as a broken front end rather than a rule.
+ */
+export interface SettleBlock {
+    kind: "amount_outside_window";
+    recordName: string;
+    recordAmount: number;
+    bankAmount: number;
+    /** Signed: record minus bank. Negative means the bank moved MORE than the record is for. */
+    difference: number;
+}
+
+export const settleBlocker = (
+    record: { name: string; amount: number; suggested?: boolean } | null | undefined,
+    bankAmount: number
+): SettleBlock | null => {
+    if (!record) return null;
+    if (record.suggested !== false) return null;
+    return {
+        kind: "amount_outside_window",
+        recordName: record.name,
+        recordAmount: Number(record.amount),
+        bankAmount: Number(bankAmount),
+        difference: Number(record.amount) - Number(bankAmount),
+    };
+};
 
 /** Suggested records first, then closest by amount. */
 export const orderBySuggestion = <T extends CandidateLike>(

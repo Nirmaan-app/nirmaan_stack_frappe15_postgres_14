@@ -18,7 +18,13 @@ import {
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
-import { ledgerLabel, type ConfirmableRow, type ConfirmOutcome } from "../outflowTableModel";
+import {
+    confirmFunnel,
+    describeFrappeError,
+    ledgerLabel,
+    type ConfirmableRow,
+    type ConfirmOutcome,
+} from "../outflowTableModel";
 
 interface Props {
     batch?: string;
@@ -30,7 +36,19 @@ interface Props {
 interface Payload {
     batch: string;
     ready: ConfirmableRow[];
+    /** Matched SEVERAL approved records, so the matcher deliberately picked none. */
     needs_you: ConfirmableRow[];
+    /**
+     * Had a pick, whose record has since been deleted.
+     *
+     * ⚠️ SEPARATE FROM `needs_you` BECAUSE THE SUMMARY PANEL COUNTS THESE AND THIS LIST CANNOT ACT
+     * ON THEM. `confirmable_rows` -- the number on the panel's button -- counts matched rows
+     * carrying a suggestion without checking the suggestion resolves; this endpoint checks. Folded
+     * together, the gap between the button and the list was unexplainable from the screen.
+     */
+    stale: ConfirmableRow[];
+    /** Every `Matched` row in this import: `ready + stale + needs_you`. */
+    matched_rows: number;
     ready_value: number;
 }
 
@@ -87,6 +105,8 @@ export const ConfirmAllMatchedDialog = ({ batch, open, onOpenChange, onSettled }
 
     const ready = useMemo(() => data?.message?.ready ?? [], [data]);
     const needsYou = useMemo(() => data?.message?.needs_you ?? [], [data]);
+    const stale = useMemo(() => data?.message?.stale ?? [], [data]);
+    const funnel = useMemo(() => confirmFunnel(data?.message), [data]);
 
     // A dialog is reused; without this the second run opens showing the first one's results.
     useEffect(() => {
@@ -122,7 +142,17 @@ export const ConfirmAllMatchedDialog = ({ batch, open, onOpenChange, onSettled }
                 });
                 results.push({ row, ok: true });
             } catch (err: any) {
-                results.push({ row, ok: false, error: err?.message || "Could not settle." });
+                // ⚠️ NOT `err.message` -- see `describeFrappeError`. Frappe answers a `frappe.throw`
+                // with the literal "There was an error.", so every refusal in this dialog used to
+                // render identically and none of them could be acted on.
+                results.push({
+                    row,
+                    ok: false,
+                    error: describeFrappeError(
+                        err,
+                        `Could not settle ${row.target_name ?? "this record"}.`
+                    ),
+                });
             }
             setDone((n) => n + 1);
         }
@@ -174,22 +204,34 @@ export const ConfirmAllMatchedDialog = ({ batch, open, onOpenChange, onSettled }
                                 key={outcome.row.name}
                                 className="rounded-md border border-destructive/30 bg-destructive/5 p-2 text-sm"
                             >
-                                <div className="flex items-center gap-2">
+                                {/* Enough to FIND the row again without reading the table: who was
+                                    paid, what it settles, and how much. A reason with no subject
+                                    sends the reader hunting. */}
+                                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                                     <XCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />
                                     <span className="font-medium">
                                         {outcome.row.beneficiary_name}
                                     </span>
+                                    <span className="tabular-nums text-xs text-muted-foreground">
+                                        {formatToRoundedIndianRupee(outcome.row.amount)}
+                                    </span>
                                     <span className="font-mono text-xs text-muted-foreground">
                                         {outcome.row.target_name}
                                     </span>
+                                    {outcome.row.bank_reference_no && (
+                                        <span className="font-mono text-xs text-muted-foreground">
+                                            UTR {outcome.row.bank_reference_no}
+                                        </span>
+                                    )}
                                 </div>
                                 <p className="pl-5 text-xs text-destructive">{outcome.error}</p>
                             </div>
                         ))}
                         {failed.length > 0 && (
                             <p className="text-xs text-muted-foreground">
-                                These are usually rows somebody settled by hand since the match ran.
-                                Re-run the match to see where they stand now.
+                                Each line above is the reason the server gave. The commonest is a row
+                                somebody settled by hand since the match ran — re-run the match to see
+                                where those stand now.
                             </p>
                         )}
                     </div>
@@ -197,6 +239,33 @@ export const ConfirmAllMatchedDialog = ({ batch, open, onOpenChange, onSettled }
 
                 {!showResults && !isLoading && (
                     <div className="max-h-[50vh] space-y-4 overflow-y-auto">
+                        {/* ⚠️ THE FUNNEL, STATED. The summary panel's button counts every matched
+                            row carrying a suggestion; this dialog can only act on the ones whose
+                            record still resolves. Those two numbers are allowed to differ -- they
+                            measure different things -- but they were differing SILENTLY, so the
+                            button promised more than the list showed and nothing on either screen
+                            said why. This line is the account.
+
+                            It renders only when the numbers actually diverge: on a clean import
+                            every matched row is ready, and restating that would be noise. */}
+                        {funnel.ready !== funnel.matched && (
+                            <p className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
+                                <span className="font-medium text-foreground">
+                                    {funnel.matched} matched
+                                </span>{" "}
+                                in this import ·{" "}
+                                <span className="font-medium text-foreground">
+                                    {funnel.ready} ready to confirm
+                                </span>
+                                {funnel.needsYou > 0 && (
+                                    <> · {funnel.needsYou} matched more than one record</>
+                                )}
+                                {funnel.stale > 0 && (
+                                    <> · {funnel.stale} point at a record that no longer exists</>
+                                )}
+                            </p>
+                        )}
+
                         {ready.length === 0 && (
                             <p className="py-6 text-center text-sm text-muted-foreground">
                                 Nothing is ready to confirm in this import.
@@ -330,6 +399,34 @@ export const ConfirmAllMatchedDialog = ({ batch, open, onOpenChange, onSettled }
                                     {needsYou.length > 8 && (
                                         <li>and {needsYou.length - 8} more</li>
                                     )}
+                                </ul>
+                            </div>
+                        )}
+
+                        {/* ⚠️ THE ROWS THE BUTTON COUNTED AND THIS LIST CANNOT ACT ON. The match run
+                            picked a record for each of these and that record has since been
+                            deleted, so they are inside the summary panel's `confirmable_rows` and
+                            outside `ready`. They used to be folded in with "matched more than one
+                            record", which is a different problem with a different fix -- and which
+                            made the two screens' numbers impossible to reconcile from the screen. */}
+                        {stale.length > 0 && (
+                            <div className="rounded-md border border-amber-200 bg-amber-50/50 p-3">
+                                <p className="text-sm font-medium text-amber-900">
+                                    {stale.length} point at a record that no longer exists
+                                </p>
+                                <p className="mb-2 text-xs text-amber-800">
+                                    The match run picked a record for each of these and it has since
+                                    been deleted. Re-run the match to look again, or open each one
+                                    from the table.
+                                </p>
+                                <ul className="space-y-0.5 text-xs text-amber-800">
+                                    {stale.slice(0, 8).map((row) => (
+                                        <li key={row.name} className="truncate">
+                                            {row.beneficiary_name} ·{" "}
+                                            {formatToRoundedIndianRupee(row.amount)}
+                                        </li>
+                                    ))}
+                                    {stale.length > 8 && <li>and {stale.length - 8} more</li>}
                                 </ul>
                             </div>
                         )}

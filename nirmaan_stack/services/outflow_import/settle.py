@@ -215,6 +215,41 @@ def _outflow_import_write():
         frappe.flags.outflow_import_settling = previous
 
 
+# Every one of the three ledgers happens to spell it the same way. Named once so a fourth ledger
+# that does not is a change in one place rather than a grep.
+PAYMENT_ATTACHMENT_FIELD = "payment_attachment"
+
+
+def apply_statement_attachment(doc, statement_file_url: str | None) -> bool:
+    """Point the record's `payment_attachment` at the bank statement it was settled from.
+
+    Returns whether it wrote. Call BEFORE `doc.save()` -- it mutates the document and nothing else,
+    so the attachment rides the same save, the same audit Version and the same savepoint as the
+    settlement itself. A separate write afterwards could survive a rolled-back settlement.
+
+    ⚠️ IT ONLY EVER WRITES INTO A BLANK (owner ruling 2026-08-10), and this is the same rule the
+    `utr` write follows two functions down for the same reason. `payment_attachment` is where an
+    accountant puts the proof of THIS payment -- a signed receipt, a screenshot of the transfer.
+    Overwriting that with a 1,000-row statement would destroy specific evidence and replace it with
+    general evidence, on a field nobody asked us to touch. A record that already has a proof keeps
+    it; the statement is still reachable from the import.
+
+    ⚠️ THE FILE IS PRIVATE AND ATTACHED TO THE IMPORT BATCH, NOT TO THIS RECORD. Copying the URL
+    copies a link, not a permission. `expenses._link_statement_file_to_target` creates the second
+    `File` row that makes it openable from here -- deliberately AFTER the commit, because a `File`
+    insert wakes the cloud-attachment hook and that hook commits, which inside the caller's
+    savepoint would make the per-row rollback a silent no-op. See the call site.
+    """
+    if not statement_file_url:
+        return False
+    if not doc.meta.has_field(PAYMENT_ATTACHMENT_FIELD):
+        return False
+    if (doc.get(PAYMENT_ATTACHMENT_FIELD) or "").strip():
+        return False
+    doc.set(PAYMENT_ATTACHMENT_FIELD, statement_file_url)
+    return True
+
+
 def format_amount_for(doctype: str, amount: Decimal):
     """Format money the way the target doctype actually stores it.
 
@@ -301,6 +336,7 @@ def settle_existing_expense(
     target_doctype: str,
     target_name: str,
     actor: str,
+    statement_file_url: str | None = None,
 ) -> SettleResult:
     """Mark an already-approved expense `Paid` from a bank row.
 
@@ -368,6 +404,8 @@ def settle_existing_expense(
         doc.amount = format_amount_for(target_doctype, exact)
         written = exact
 
+    apply_statement_attachment(doc, statement_file_url)
+
     with _outflow_import_write():
         doc.save(ignore_permissions=True, ignore_version=False)
 
@@ -380,7 +418,9 @@ def settle_existing_expense(
     )
 
 
-def settle_payment(row, target_name: str, actor: str) -> SettleResult:
+def settle_payment(
+    row, target_name: str, actor: str, statement_file_url: str | None = None
+) -> SettleResult:
     """Mark an already-APPROVED `Project Payments` record `Paid` from a bank row (slice V2).
 
     ⚠️ THIS IS THE HALF v2 DELETED. v2's spine was "the payment branch never writes"; the owner
@@ -443,6 +483,8 @@ def settle_payment(row, target_name: str, actor: str) -> SettleResult:
     if exact is not None:
         doc.amount = format_amount_for(PAYMENT_DOCTYPE, exact)
         written = exact
+
+    apply_statement_attachment(doc, statement_file_url)
 
     # ⚠️ SET BEFORE SAVE -- the hooks read it during the save, not after. This is what keeps the
     # per-row savepoint intact; see the comments at both hook sites.
@@ -568,6 +610,7 @@ def create_expense_from_row(
     description: str | None = None,
     vendor: str | None = None,
     comment: str | None = None,
+    statement_file_url: str | None = None,
 ) -> SettleResult:
     """Create a new expense, already `Paid`, from a bank row that matched nothing.
 
@@ -615,6 +658,10 @@ def create_expense_from_row(
         doc.projects = project
         doc.vendor = vendor or None
         doc.payment_by = actor
+
+    # A brand-new expense has no proof of its own, so the blank-only rule always lets this land --
+    # which is the point: a record created FROM a statement should carry that statement.
+    apply_statement_attachment(doc, statement_file_url)
 
     doc.insert(ignore_permissions=True)
     return SettleResult(doctype=doctype, name=doc.name, amount=amount, created=True)

@@ -43,6 +43,7 @@ from nirmaan_stack.services.outflow_import.ledgers import (
     settleable_statuses,
 )
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
+from nirmaan_stack.services.outflow_import.parser import BANK_SUCCESS_STATUS
 from nirmaan_stack.services.outflow_import.stacks import (
     Stack,
     group_into_stacks,
@@ -1324,6 +1325,19 @@ def get_confirmable_rows(batch: str):
     those rows have nothing to confirm them AGAINST. They come back in `needs_you`: listed, linked,
     and never auto-confirmable.
 
+    ⚠️ THE RETURN IS A FUNNEL, IN THREE BUCKETS, AND THE THIRD EXISTS BECAUSE TWO SCREENS DISAGREED.
+    The summary panel's button reads `confirmable_rows` from `get_import_summary`, which counts
+    `Matched` rows carrying a `suggested_name` -- it never checks that the name still resolves to a
+    live record. This endpoint does check. So a row whose suggested record has since been deleted was
+    counted by the button and silently absent from the dialog, and nothing on either screen accounted
+    for the difference. `stale` is that set, named:
+
+        matched_rows = len(ready) + len(stale) + len(needs_you)
+        confirmable_rows (the button) = len(ready) + len(stale)
+
+    Splitting it does NOT make the two numbers equal -- they measure different things and should not
+    be forced to -- it makes the gap between them visible and explainable on the dialog itself.
+
     ⚠️ EVERY READY ROW CARRIES ITS AMOUNT DELTA, and that is not decoration. Since X1 a settle
     REWRITES the record's amount to the bank's whenever they differ, so confirming forty rows can
     silently change forty approved figures. The person clicking is entitled to see
@@ -1362,7 +1376,7 @@ def get_confirmable_rows(batch: str):
         for name, detail in _targets_by_name(doctype, names).items():
             targets[(doctype, name)] = detail
 
-    ready, needs_you = [], []
+    ready, needs_you, stale = [], [], []
     for row in rows:
         doctype = (row.get("suggested_doctype") or "").strip()
         name = (row.get("suggested_name") or "").strip()
@@ -1379,9 +1393,16 @@ def get_confirmable_rows(batch: str):
 
         detail = targets.get((doctype, name)) if doctype and name else None
         if not detail:
-            # No suggestion, or one pointing at a record that has since gone. Both mean the same
-            # thing to this screen: a person has to open it.
-            needs_you.append(base)
+            # ⚠️ TWO CAUSES THAT USED TO SHARE A BUCKET, AND SPLITTING THEM IS WHAT MAKES THE
+            # NUMBERS ADD UP. "The matcher found several records and deliberately picked none" and
+            # "the one record it picked has since been deleted" both end here, but only the SECOND
+            # is counted by the summary panel's `confirmable_rows` -- which counts rows carrying a
+            # `suggested_name`, without checking that the name still resolves.
+            #
+            # Collapsed, the button offered "Confirm 688" and the dialog listed fewer, with nothing
+            # on screen accounting for the gap. Kept apart, `len(ready) + len(stale)` IS that 688,
+            # and the dialog can show where the rest went.
+            (stale if (doctype and name) else needs_you).append(base)
             continue
 
         record_amount = normalize_amount(detail.get("amount"))
@@ -1404,6 +1425,13 @@ def get_confirmable_rows(batch: str):
         "batch": batch,
         "ready": ready,
         "needs_you": needs_you,
+        # Rows the match run picked a record for, whose record no longer resolves. See the split
+        # above: these are inside the summary panel's `confirmable_rows` and outside `ready`, and
+        # naming them is what lets the dialog account for the difference instead of hiding it.
+        "stale": stale,
+        # The whole funnel in one payload, so the dialog states it rather than the reader inferring
+        # it from three list lengths: matched -> (ready + stale) confirmable -> ready actionable.
+        "matched_rows": len(rows),
         "ready_value": float(sum(normalize_amount(r["amount"]) for r in ready)),
     }
 
@@ -1553,9 +1581,19 @@ def get_import_summary(batch: str):
     require_outflow_access()
     _assert_batch(batch)
 
+    # ⚠️ GROUPED BY `(row_status, failed)`, NOT BY STATUS ALONE. A transfer the bank rejected is
+    # `Skipped` -- and so is a duplicate, and so is a payment ticked Paid by hand. The owner ruled
+    # (2026-08-10, option B) that only the first leaves every figure this summary reports, so the
+    # split has to happen here, in the aggregate, rather than by subtracting a second query later.
+    #
+    # ⚠️ `BANK_SUCCESS_STATUS` IS BOUND, NOT SPELLED OUT. The literal lives in `parser.py` beside
+    # `is_success_status`, which is what the parse path uses; writing `'SUCCESS'` into this SQL
+    # would be a second definition of "successful" that stays right only until one of them learns
+    # about a status word the other has not.
     grouped = frappe.db.sql(
         """
         SELECT row_status                                        AS status,
+               UPPER(TRIM(COALESCE(status_raw, ''))) <> %s        AS failed,
                COUNT(*)                                          AS count,
                COALESCE(SUM(amount), 0)                          AS value,
                COALESCE(SUM(CASE WHEN COALESCE(suggested_name, '') <> ''
@@ -1566,9 +1604,9 @@ def get_import_summary(batch: str):
                                  THEN 1 ELSE 0 END), 0)          AS undecided_by_a_person
         FROM "tabOutflow Import Row"
         WHERE import_batch = %s
-        GROUP BY row_status
+        GROUP BY row_status, UPPER(TRIM(COALESCE(status_raw, ''))) <> %s
         """,
-        (batch,),
+        (BANK_SUCCESS_STATUS, batch, BANK_SUCCESS_STATUS),
         as_dict=True,
     )
 
@@ -1579,14 +1617,20 @@ def get_import_summary(batch: str):
             value=normalize_amount(g["value"]),
             with_suggestion=int(g["with_suggestion"] or 0),
             suggested_value=normalize_amount(g["suggested_value"]),
+            failed=bool(g["failed"]),
         )
         for g in grouped
     )
 
+    # ⚠️ FAILED GROUPS ARE EXCLUDED HERE TOO, AND THEY HAVE TO BE. `manually_skipped_rows` below is
+    # `skipped_rows - auto_skipped`, and `skipped_rows` no longer counts failed transfers -- so
+    # leaving them in this sum would subtract rows the minuend does not contain and report a
+    # manual-skip count that is too low, or `max(..., 0)` masking a negative. Both figures must
+    # count the same population.
     auto_skipped = sum(
         int(g["undecided_by_a_person"] or 0)
         for g in grouped
-        if (g["status"] or "") == ROW_SKIPPED
+        if (g["status"] or "") == ROW_SKIPPED and not g["failed"]
     )
 
     meta = frappe.db.get_value(

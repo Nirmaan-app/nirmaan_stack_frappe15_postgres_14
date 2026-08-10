@@ -34,6 +34,7 @@ import {
     stackRecordKey,
     stackSurplusNote,
     type UnpairedStack,
+    describeFrappeError,
 } from "../outflowTableModel";
 
 interface Props {
@@ -140,7 +141,7 @@ export const UnpairedStacksDialog = ({ open, onOpenChange, onSettled }: Props) =
                     transfer: pair.transfer.transfer_id,
                     record: pair.name,
                     ok: false,
-                    error: err?.message || "Could not settle.",
+                    error: describeFrappeError(err, "Could not settle this transfer."),
                 });
             }
         }

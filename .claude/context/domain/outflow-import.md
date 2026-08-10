@@ -229,6 +229,61 @@ used to catch now arrive `Mismatched` and are linked by hand. Owner's call, made
     the payment path had been exposed to that same commit since V2 (X1 closes it, does not open it),
     and **settling an expense never moved the CEO-Hold gap at all before X1**, because `set_value`
     fires no hooks.
+13. **A FAILED transfer is excluded from every figure the import summary reports** (owner ruling
+    2026-08-10, "option B", chosen over dropping the row entirely). It is money the bank refused to
+    move: counting it in `total_value` overstates the statement by exactly the amount that never
+    left the account, and counting it in `total_rows` makes `decided_percent` a percentage of work
+    that does not exist. ⚠️ **THE ROW IS STILL STAGED** — that is the whole of what option B chose
+    over option A, and the evidence that the bank rejected a transfer survives on it. What was
+    removed is its effect on the numbers, never its existence.
+    - The split happens in the **aggregate**: `get_import_summary` groups by `(row_status, failed)`,
+      because `Skipped` covers three different facts (failed at the bank, a duplicate, a payment
+      hand-ticked Paid) and only the first leaves the figures.
+    - ⚠️ **`StatusTally.failed` tallies are excluded from `by_status` TOO**, so
+      `sum(by_status counts) == total_rows` still holds. Dropping them from the total while leaving
+      them in `by_status` would make the Skipped chip and the Statement total disagree by the failed
+      count — one visible number contradicting another on the same panel.
+    - ⚠️ **`auto_skipped` excludes them on the same terms**, or `manually_skipped_rows`
+      (`skipped_rows - auto_skipped`) subtracts rows its minuend no longer contains.
+    - `status.py` stays ignorant of the bank's vocabulary. The single definition of "successful" is
+      `parser.is_success_status` / `parser.BANK_SUCCESS_STATUS`, which the SQL **binds** rather than
+      spelling `'SUCCESS'` a second time. `RawRow.is_success` calls the same function.
+    - **`gross_amount` already excluded failed rows at parse time and always had** — do NOT subtract
+      them again anywhere downstream, or the same money is deducted twice.
+    - Reported only as `failed_rows` / `failed_value`, which the summary panel renders as a
+      footnote. ⚠️ **If that line goes, option B silently becomes option A.**
+14. **`get_confirmable_rows` returns THREE buckets, and the third exists because two screens
+    disagreed.** The summary panel's button reads `confirmable_rows` from `get_import_summary`,
+    which counts `Matched` rows carrying a `suggested_name` **without checking the name still
+    resolves**; the dialog checks. A row whose suggested record was deleted since the match ran was
+    therefore inside the button's count and silently absent from the dialog — live-observed as
+    *"button 688, table 893"*, where both numbers were right and nothing on screen reconciled them.
+    - `matched_rows = ready + stale + needs_you`; `confirmable_rows (the button) = ready + stale`.
+    - `needs_you` = the matcher found SEVERAL records and deliberately picked none. `stale` = it
+      picked one and that record is gone. **Different problems, different fixes** — folded together,
+      the gap was unexplainable from the screen.
+    - ⚠️ **The fix is NOT to make the two numbers equal.** They measure different things and should
+      not be forced to agree; the fix is that the funnel is now stateable, and the dialog states it.
+15. **The settled record takes the statement as its `payment_attachment`, into a BLANK ONLY** (owner
+    ruling 2026-08-10). All three ledgers spell the field the same way; the write is
+    `settle.apply_statement_attachment`, called **before** `doc.save()` so the attachment rides the
+    same save, the same audit Version and the same savepoint as the settlement — a write afterwards
+    could survive a rolled-back settle.
+    - ⚠️ **Blank-only is the same rule the `utr` write follows** (Q5b), for the same reason:
+      `payment_attachment` is where an accountant puts the proof of THIS payment. Replacing that
+      with a thousand-row statement swaps specific evidence for general evidence on a field nobody
+      asked us to touch. A record that already has a proof keeps it.
+    - ⚠️ **Copying the URL copies a link, not a permission.** The statement is `is_private=1` and
+      attached to the *import batch*; Frappe authorises a private file through the document it is
+      attached to. `expenses._link_statement_file_to_target` creates the second `File` row that
+      makes it openable from the payment or expense.
+    - ⚠️ **That `File` insert runs AFTER the commit and outside the savepoint, and must never
+      raise.** A `File` insert wakes the cloud-attachment hook, which commits inside the request —
+      inside the caller's savepoint that would make the per-row rollback a silent no-op. And by the
+      time it runs the money is already written, so failing the request would report a successful
+      settlement as an error and invite a retry against a record that is already Paid. It logs and
+      swallows; the degraded outcome is "the attachment may 403", which is far smaller.
+    - A newly created expense always takes it — a record born from a statement should carry it.
 
 ---
 

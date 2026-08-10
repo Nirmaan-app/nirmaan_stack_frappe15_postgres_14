@@ -980,6 +980,161 @@ Tests: 295 pure python (+25 new `test_stacks`) · `test_review` **81** (+10) · 
 ONE payment group, so reading `payment_groups[0]` was indistinguishable from reading all of them and
 263 green tests said nothing. Any new candidate test must use it.
 
+### §H.11 — The polish pass (2026-08-10, owner-directed)
+
+> Lands on top of §H.10 (chunk E, stacks), which was committed by a concurrent session while this
+> pass was in flight. Nothing here touches `stacks.py` or the stack endpoints.
+
+Four asks, one commit-sized change. No migrate. Tests: **295** pure python · `test_review` **84** ·
+`test_expenses` **31** · `test_settle_payment` **24** · `test_upload` **25** · **1675** vitest
+(59 files) · tsc clean across `src/pages/outflow-import`. `residence_check.py` fails F5 (119) and
+F2 (213) — **the exact numbers the previous session verified at pristine HEAD**, so this work added
+none.
+
+**1. Failed transfers leave every figure (owner: option B, not option A).**
+Full rules in the domain doc, invariant 13. The owner chose to KEEP staging the row and remove its
+effect on the numbers, rather than never staging it. Two findings worth recording because they
+shaped the work:
+
+- **`gross_amount` already excluded failed transfers and always had** (`parser.py`, documented). So
+  half of the ask was a LABEL change — "Gross out" → "Gross Outflow" — with no arithmetic behind it.
+  What was actually wrong was *after* import: the summary panel's Statement total summed every
+  status, so the failed money was on screen the whole time, just not in the table.
+- The single definition of "successful" had to become one. It was a property on `RawRow`; the
+  summary needed the same test against rows read back out of the database, and a second
+  `== 'SUCCESS'` in that SQL is the shape where one side later learns about `REVERSED` and the other
+  does not. `parser.is_success_status` / `BANK_SUCCESS_STATUS` is now that one place, and the query
+  **binds** the literal.
+
+**2. The 688-vs-893 reconciliation.** The owner reported the confirm dialog showing 688 and the
+table showing 893. Both were right; four separate things stack up between them, and only the last
+was a defect:
+
+| | Cause | Verdict |
+|---|---|---|
+| 1 | The table spans EVERY import; the button describes ONE | by design (X3) |
+| 2 | The tab counts `Settled` too, which is not confirmable | by design (the retab) |
+| 3 | `Matched` ≠ has a suggestion — ambiguous rows carry none | by design (invariant 0) |
+| 4 | The button counts a suggestion; the dialog checks it still RESOLVES | **the defect** |
+
+Fixed by naming the fourth: `get_confirmable_rows` now returns a `stale` bucket, so
+`ready + stale == confirmable_rows` and the dialog can state the whole funnel. **The two numbers are
+deliberately NOT forced equal** — see invariant 14. Causes 1–3 got one line of copy above the tab
+strip saying which population the table describes, because the honest fix for "two correct numbers
+labelled the same word" is labelling, not arithmetic.
+
+**3. The statement lands on what it settled.** `payment_attachment`, blank-only, all three ledgers
+plus newly created expenses. Invariant 15 has the rules; the two that are easy to get wrong are the
+write going in BEFORE `doc.save()` (so it shares the savepoint) and the `File` row going in AFTER
+the commit (so the cloud hook's commit cannot corrupt one).
+
+**4. The import dialog.** `max-w-2xl` → `max-w-3xl`; every label and value `whitespace-nowrap`;
+dates through `formatDate` (`dd-MMM-yyyy`, the app-wide rule) instead of raw ISO. The summary block
+was rebuilt as two columns — *In this file* (period, transfers, successful, failed-and-excluded,
+already-imported) and *Left the bank*, which **foots**: Gross Outflow + Bank charges, a rule, then
+**Total debited**. That total is the number the accountant reconciles against the account and the
+dialog had never shown it; gross and charges were sitting there as two unrelated figures when they
+sum to a real fact.
+
+⚠️ **`previewCounts` deliberately exposes NO combined "how many will I work on" figure.** The two
+exclusions are on different axes and can OVERLAP — a failed transfer may also be a duplicate — so
+`total - failed - duplicates` double-subtracts and `min(new, successful)` is a bound, not a count.
+Naming a guess as a count is how a confirm button ends up promising a number the import misses.
+
+**5. The Outcome column** (owner, mid-pass): 320px → 220px, and the note moved OUT of the button
+onto its own line above it. A control wrapped around a whole sentence stops reading as a control —
+it reads as a bordered paragraph, which was the complaint. The button now holds a verb
+(Confirm / Choose / Review) and a chevron, and is filled (`bg-secondary`) rather than
+`bg-background`, which on a white table left a hairline border as the only thing distinguishing it
+from the cell around it.
+
+**Three api tests changed, and all three were describing the old behaviour:**
+`test_the_status_counts_sum_to_the_total` pinned `len(self.parsed.rows)` (now `success_count`);
+`test_the_money_agrees_with_the_rows_it_describes` pinned the summary equal to the row sum (the two
+now describe different populations ON PURPOSE, so the assertion names the difference rather than
+adding the failed money back); and `test_a_suggestion_pointing_at_a_vanished_record_becomes_needs_you`
+asserted the collapse this pass split apart — renamed to `..._becomes_stale`.
+
+**6. Verbose errors — a browser walk found the confirm dialog saying "There was an error."** and
+nothing else, on a real 1-row confirm failure. That string is FRAPPE'S, not ours: a `frappe.throw`
+comes back as HTTP 417 with `message: "There was an error."` and the real sentence inside
+`_server_messages` (a JSON array of JSON strings). **All six call sites in this feature read
+`err?.message`**, so every refusal in the product rendered identically and none could be acted on.
+
+One shared pure `describeFrappeError` now digs out, in order: `_server_messages` (titles included
+when they add something) → `exception` (class + text) → `message` (only when not the placeholder) →
+the HTTP status. All six sites use it, including `ImportStatementDialog`'s raw-`fetch` path, whose
+local parser read only `list[0].message` and dropped titles, later messages and the exception
+fallback. The confirm dialog's failure rows also gained amount + UTR, so a reason has a subject.
+
+**7. The Outcome column, properly.** The 320px → 220px change alone did NOTHING, and the reason is
+worth keeping: **this table is AUTO-LAYOUT, so `<th style={{width}}>` is only a hint** — the browser
+widens any column whose content demands it, and `truncate` cannot help because with nothing bounding
+it the cell simply grows and there is never overflow to cut. The cap has to be on the CELL CONTENT
+(`OUTCOME_CELL_WIDTH`), which is also what makes the `truncate` do anything. Full text on `title`.
+
+**8. The silent Confirm — the defect behind "it looks like a bug in the frontend".** Picking a
+record ₹2,19,000 from the transfer left Confirm → Paid fully enabled; clicking it did NOTHING
+visible. **Two independent causes, and both had to go:**
+
+- **`handleConfirmOne` had no `catch`.** The settle rejected, nothing caught it, the dialog just sat
+  there. The BULK path had reported its failures since V4; this single-row path never had. It now
+  catches and renders the server's sentence **in the dialog footer, beside the button that caused
+  it** — not a toast, which is how the refusal went unseen in the first place. It clears when the
+  pick changes, so it can never describe an abandoned choice.
+- **Nothing said the pick was going to be refused.** The new pure `settleBlocker` + an AlertDialog
+  (`AmountOutsideWindowDialog`) say it before anything is posted: the gap, the rule, **"Nothing has
+  been recorded, and nothing will be"**, and the two ways forward.
+
+⚠️ **THE CHECK RUNS ON THE CLICK, NOT ON `disabled`.** Disabling the button would have restored the
+other half of the same complaint — a dead control with no explanation. A click that opens a dialog
+SAYING why answers the question at the moment it is asked. **There is deliberately no "try anyway":**
+the server refuses this pick with certainty, so an override would offer a guaranteed failure.
+
+⚠️ **`settleBlocker` GATES ON THE SERVER'S OWN `suggested` FLAG, NEVER A CLIENT COPY OF THE
+TOLERANCE** — the invariant `CandidateLike.suggested` already documents (both windows live in
+`amounts.py` and have changed twice). **And it FAILS OPEN:** `suggested` absent is "the server did
+not say" and must not block, or an older payload makes a valid record unconfirmable with no
+override. Only an explicit `false` blocks. Pinned by test.
+
+**9. Sidebar order (owner):** `Bulk Import Outflow` moved ABOVE `Project Payments`. The block moved
+whole — its role gate, comment and icon are unchanged — so the four registry-driven touches
+(`allKeys`, `groupMappings`, the flat-label Set, the route) needed nothing.
+
+### The browser walk (2026-08-10)
+
+Run against a refreshed database holding one real import, `OFI-26-00081` (26 rows, `05-06-aug.csv`).
+
+**Confirmed live:**
+- **The failed-transfer exclusion caught a real overstatement.** That import carries one failed
+  transfer of **₹4,52,002**. Statement total read **₹24,78,291** before and **₹20,26,289** after; the
+  footnote renders as *"1 failed at the bank (₹4,52,002), excluded from every figure above"*.
+  `sum(by_status) == total_rows` and `total + failed == staged rows` both hold on this data.
+- Outcome column narrow, note truncated, button reads as a button — and the table now fits without
+  horizontal scroll, which it did not before.
+- `payment_attachment` lands on a settled payment: `PAY-00107-024` carries the statement's URL.
+- The import dialog's period renders `dd-MMM-yyyy`.
+
+**NOT confirmed, and stated as such:**
+- ⚠️ **The original confirm failure could not be reproduced.** It was live-observed once
+  (*"0 settled · 1 could not be"*), and the SAME row then settled cleanly through `settle_row`
+  server-side with identical inputs, leaving no Error Log. The cause is UNKNOWN. What changed is
+  that the next occurrence will name itself.
+- ⚠️ **`_link_statement_file_to_target` did not fire on that settle** — no second `File` row, no
+  logged failure. Called directly against the same URL and record it works and creates the row, so
+  the function is sound and the 403 mitigation is real; why it was skipped on that one run is
+  undetermined. **Confirm on the next real settle before trusting it.**
+- The confirm funnel (`ready` / `stale` / `needs_you`) never rendered: this import has at most one
+  matched row, so `ready === matched` and the line correctly stays hidden. Covered by tests only.
+- ⚠️ **`frappe.db.exists` / `get_all` on a `file_url` CONTAINING `&` and `=` breaks Frappe's query
+  builder** (`psycopg2.errors.SyntaxError`) — the GCP attachment hook rewrites `source_file` into
+  exactly that shape. Parameterised raw SQL is unaffected. Noted for anyone querying File by URL.
+
+⚠️ **One api-suite run collapsed mid-pass with `relation "tabOutflow Import Batch" does not exist`
+across all four suites, then passed cleanly on a re-run with no code change.** The live tables were
+present throughout (checked directly). A concurrent DB operation is the only explanation that fits;
+recorded so the next person who sees it re-runs before believing it.
+
 ### §H.6 — Order, and what each slice costs
 
 | Slice | Depends on | Migrate | Verifiable here? |

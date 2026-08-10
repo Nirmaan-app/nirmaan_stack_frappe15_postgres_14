@@ -729,7 +729,44 @@ class TestImportSummaryEndpoint(OutflowReviewFixture):
         summary = get_import_summary(self.batch.name)["totals"]
         counted = sum(b["count"] for b in summary["by_status"].values())
         self.assertEqual(counted, summary["total_rows"])
-        self.assertEqual(summary["total_rows"], len(self.parsed.rows))
+        # ⚠️ THE SUCCESSFUL ROWS, NOT EVERY ROW (owner ruling 2026-08-10, option B). A transfer the
+        # bank rejected is excluded from every figure this summary reports, so pinning against
+        # `len(self.parsed.rows)` would now be pinning against the population the summary
+        # deliberately stopped describing. The fixture carries one FAILED transfer, which is what
+        # makes this assertion mean anything at all.
+        self.assertEqual(summary["total_rows"], self.parsed.success_count)
+        self.assertEqual(
+            summary["failed_rows"], len(self.parsed.rows) - self.parsed.success_count
+        )
+
+    def test_a_failed_transfer_is_reported_but_never_counted(self):
+        """The whole of option B: the row still exists, and no figure includes it.
+
+        A failed transfer is money the bank refused to move. Counting it in `total_value`
+        overstates the statement by exactly the amount that never left the account, and counting it
+        in `total_rows` makes `decided_percent` a percentage of work that does not exist. It comes
+        back only as `failed_rows` / `failed_value`, which the panel renders as a footnote.
+        """
+        summary = get_import_summary(self.batch.name)["totals"]
+        failed = [r for r in self.parsed.rows if not r.is_success]
+        self.assertTrue(failed, "the fixture must carry a failed transfer or this proves nothing")
+
+        self.assertEqual(summary["failed_rows"], len(failed))
+        self.assertAlmostEqual(
+            summary["failed_value"], float(sum(r.amount for r in failed)), places=2
+        )
+
+        # The row was staged -- option B keeps the evidence -- it is only the figures it left.
+        staged = get_batch_rows(self.batch.name)["rows"]
+        self.assertIn(failed[0].transfer_id, [r["transfer_id"] for r in staged])
+
+        # And the figure it left is the one that would have been overstated: the statement total is
+        # the successful money exactly, with the rejected transfer nowhere inside it.
+        self.assertAlmostEqual(
+            summary["total_value"],
+            float(sum(r.amount for r in self.parsed.rows if r.is_success)),
+            places=2,
+        )
 
     def test_open_and_decided_partition_the_import(self):
         """The two halves the screen shows as "still to do" and "done". If they ever stop summing to
@@ -740,11 +777,21 @@ class TestImportSummaryEndpoint(OutflowReviewFixture):
     def test_the_money_agrees_with_the_rows_it_describes(self):
         """Pinned against `get_batch_rows`, which is the other read of the same data. The summary is
         an aggregate the screen shows ABOVE that table; the two disagreeing would be worse than
-        either being absent."""
+        either being absent.
+
+        ⚠️ THE FAILED ROWS ARE SUBTRACTED FROM THE ROW SIDE, NOT ADDED BACK TO THE SUMMARY. Since
+        the 2026-08-10 option-B ruling the two reads describe DIFFERENT populations on purpose:
+        `get_batch_rows` returns every staged row, because a reviewer looking for the rejected
+        transfer must be able to find it, while the summary reports only money that moved. The
+        assertion has to name that difference explicitly -- pinning the two totals equal again would
+        be pinning the overstatement this ruling removed.
+        """
         summary = get_import_summary(self.batch.name)["totals"]
         rows = get_batch_rows(self.batch.name)["rows"]
         self.assertAlmostEqual(
-            summary["total_value"], sum(r["amount"] for r in rows), places=2
+            summary["total_value"] + summary["failed_value"],
+            sum(r["amount"] for r in rows),
+            places=2,
         )
 
     def test_confirmable_never_exceeds_matched_and_ambiguous_is_the_rest(self):
@@ -1064,9 +1111,17 @@ class TestConfirmableRowsUnderChange(OutflowReviewFixture):
 
         self.assertEqual(len(get_confirmable_rows(self.batch.name)["ready"]), before - 1)
 
-    def test_a_suggestion_pointing_at_a_vanished_record_becomes_needs_you(self):
+    def test_a_suggestion_pointing_at_a_vanished_record_becomes_stale(self):
         """Not an error and not a silent drop: the row still needs somebody, and saying so is the
-        only outcome that gets it looked at."""
+        only outcome that gets it looked at.
+
+        ⚠️ IT IS `stale`, NOT `needs_you`, AND THE SPLIT IS THE POINT. Both mean "a person has to
+        open this", so they shared a bucket until the summary panel's button and this dialog were
+        found reporting different numbers with nothing accounting for the gap. The button counts
+        `Matched` rows carrying a `suggested_name` and never checks the name resolves; this endpoint
+        does. A row like the one below is therefore INSIDE the button's count and outside `ready` --
+        so it has to be nameable, or the difference stays unexplainable on screen.
+        """
         rows = self._rows_by_transfer_suffix()
         row = rows["0003"]
         frappe.db.set_value(
@@ -1079,8 +1134,36 @@ class TestConfirmableRowsUnderChange(OutflowReviewFixture):
         frappe.db.commit()
 
         payload = get_confirmable_rows(self.batch.name)
-        self.assertIn(row["name"], [r["name"] for r in payload["needs_you"]])
+        self.assertIn(row["name"], [r["name"] for r in payload["stale"]])
         self.assertNotIn(row["name"], [r["name"] for r in payload["ready"]])
+        self.assertNotIn(row["name"], [r["name"] for r in payload["needs_you"]])
+
+    def test_the_three_buckets_partition_the_matched_rows(self):
+        """The funnel the dialog states, as an invariant.
+
+        `matched_rows = ready + stale + needs_you` is what lets the dialog explain why the button
+        said one number and the list shows another. If the three ever stop partitioning, a matched
+        row has fallen out of every bucket and is silently unconfirmable.
+        """
+        payload = get_confirmable_rows(self.batch.name)
+        self.assertEqual(
+            len(payload["ready"]) + len(payload["stale"]) + len(payload["needs_you"]),
+            payload["matched_rows"],
+        )
+
+    def test_confirmable_on_the_button_equals_ready_plus_stale(self):
+        """The two screens, reconciled -- the defect this split was written for.
+
+        The summary panel's button reads `confirmable_rows`; this dialog lists `ready`. They are
+        allowed to differ, and they SHOULD when a suggested record has been deleted since the match
+        ran. What is not allowed is for the difference to be unaccounted for, and `stale` is the
+        account.
+        """
+        summary = get_import_summary(self.batch.name)["totals"]
+        payload = get_confirmable_rows(self.batch.name)
+        self.assertEqual(
+            len(payload["ready"]) + len(payload["stale"]), summary["confirmable_rows"]
+        )
 
 
 class TestTheTierLadderEndToEnd(OutflowReviewFixture):

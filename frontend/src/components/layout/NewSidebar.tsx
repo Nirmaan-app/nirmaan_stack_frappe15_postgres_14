@@ -511,6 +511,19 @@ export function NewSidebar() {
     //       },
     //     ]
     //   : []),
+    // Bulk Import Outflow (S3). Owner ruling: Accountant / Accountant Lead / Admin.
+    // The `user_id == "Administrator"` disjunct is NOT redundant -- this component skips the
+    // Nirmaan Users fetch for Administrator, so `role` is null there (unlike useUserData(),
+    // which fakes it to "Nirmaan Admin Profile"). Every entry in this file carries it.
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile"].includes(role as string)
+      ? [
+        {
+          key: '/bulk-import-outflow',
+          icon: Landmark,
+          label: 'Bulk Import Outflow',
+        },
+      ]
+      : []),
     ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile"].includes(role as string)
       ? [
         {
@@ -566,19 +579,6 @@ export function NewSidebar() {
           key: '/project-invoices',
           icon: FileUp,
           label: 'Project Invoices',
-        },
-      ]
-      : []),
-    // Bulk Import Outflow (S3). Owner ruling: Accountant / Accountant Lead / Admin.
-    // The `user_id == "Administrator"` disjunct is NOT redundant -- this component skips the
-    // Nirmaan Users fetch for Administrator, so `role` is null there (unlike useUserData(),
-    // which fakes it to "Nirmaan Admin Profile"). Every entry in this file carries it.
-    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile"].includes(role as string)
-      ? [
-        {
-          key: '/bulk-import-outflow',
-          icon: Landmark,
-          label: 'Bulk Import Outflow',
         },
       ]
       : []),

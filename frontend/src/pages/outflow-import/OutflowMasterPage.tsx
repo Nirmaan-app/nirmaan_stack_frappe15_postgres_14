@@ -45,6 +45,7 @@ import {
     type OutflowTab,
     type RowDecision,
     type SortState,
+    describeFrappeError,
 } from "./outflowTableModel";
 
 /**
@@ -83,6 +84,10 @@ export const OutflowMasterPage = () => {
     const [decisions, setDecisions] = useState<ReadonlyMap<string, RowDecision>>(new Map());
     const [openRow, setOpenRow] = useState<OutflowImportRow | null>(null);
     const [busy, setBusy] = useState(false);
+    // The server's refusal for a SINGLE-row confirm. Rendered inside the decision dialog, where
+    // the click happened -- a toast would be gone before the reviewer looked up from the record
+    // list they are about to correct.
+    const [confirmError, setConfirmError] = useState<string | null>(null);
     const [importing, setImporting] = useState(false);
     const [confirmingAll, setConfirmingAll] = useState(false);
     const [resolvingStacks, setResolvingStacks] = useState(false);
@@ -306,6 +311,10 @@ export const OutflowMasterPage = () => {
         });
     }, []);
 
+    // ⚠️ STABLE. The decision dialog feeds this into a `useCallback` that a child effect depends
+    // on; a fresh arrow every render would re-fire that effect on every render of the page.
+    const dismissConfirmError = useCallback(() => setConfirmError(null), []);
+
     const setDecision = useCallback((name: string, decision: RowDecision) => {
         setDecisions((prev) => new Map(prev).set(name, decision));
     }, []);
@@ -342,10 +351,18 @@ export const OutflowMasterPage = () => {
         // decision has no target to write against.
         if (!decision || !isConfirmable(openRow, decision)) return;
         setBusy(true);
+        setConfirmError(null);
         try {
             await settleOne(openRow, decision);
             setOpenRow(null);
             await refreshAll();
+        } catch (err: any) {
+            // ⚠️ THIS `catch` IS THE DEFECT THE OWNER REPORTED, AND ITS ABSENCE WAS THE WHOLE BUG.
+            // A refused settle rejected the promise, nothing caught it, and the dialog just sat
+            // there -- so a deliberate server rule ("this record is 2,19,000 away from the
+            // transfer") was indistinguishable from a dead button. The BULK path had always
+            // reported its failures; this single-row path never did.
+            setConfirmError(describeFrappeError(err, "The settle failed."));
         } finally {
             setBusy(false);
         }
@@ -371,7 +388,10 @@ export const OutflowMasterPage = () => {
                         return next;
                     });
                 } catch (err: any) {
-                    failures.push(`${row.beneficiary_name}: ${err?.message || "failed"}`);
+                    // The server's own sentence, not Frappe's "There was an error." envelope.
+                    failures.push(
+                        `${row.beneficiary_name}: ${describeFrappeError(err, "the settle failed")}`
+                    );
                 }
             }
         } finally {
@@ -457,6 +477,18 @@ export const OutflowMasterPage = () => {
                 onConfirmAllMatched={() => setConfirmingAll(true)}
                 onRunMatch={handleMatch}
             />
+
+            {/* ⚠️ THE SCOPE OF THE TABLE, SAID OUT LOUD. The panel above describes ONE import and
+                the table below spans every one -- deliberate, and the reason this screen answers
+                both "how did that statement go?" and "what do I still owe a decision on?". But the
+                two put a count labelled "matched" directly above a tab labelled "Matched", over
+                different populations, and nothing said so: the panel's button read 688 while the
+                tab read 893, and both were right. One line is cheaper than either number moving. */}
+            <p className="text-xs text-muted-foreground">
+                {deepLinkedBatch
+                    ? `Transactions in ${deepLinkedBatch}. The summary above describes the import selected there.`
+                    : "Transactions across every import. The summary above describes one import only."}
+            </p>
 
             <div className="flex gap-2 border-b">
                 {OUTFLOW_TABS.map((t) => (
@@ -608,8 +640,13 @@ export const OutflowMasterPage = () => {
                     if (openRow) await handleSkip(openRow, reason);
                 }}
                 onRerun={handleMatch}
-                onClose={() => setOpenRow(null)}
+                onClose={() => {
+                    setOpenRow(null);
+                    setConfirmError(null);
+                }}
                 busy={busy}
+                error={confirmError}
+                onDismissError={dismissConfirmError}
             />
         </div>
     );

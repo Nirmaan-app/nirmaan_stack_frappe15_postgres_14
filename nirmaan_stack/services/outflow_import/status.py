@@ -534,6 +534,13 @@ class StatusTally:
     row count would invent a number: three matched rows of Rs 10, Rs 10 and Rs 90,000 where only the
     last is confirmable are not "two thirds of the value". The query sums the subset directly, which
     costs one more `CASE` in a query that was already grouping.
+
+    ⚠️ `failed` SPLITS A GROUP THAT `row_status` CANNOT. A transfer the bank rejected is `Skipped`,
+    and so is a duplicate, and so is a payment somebody ticked Paid by hand -- three different facts
+    under one status. Only the first is money that NEVER LEFT THE ACCOUNT, and the owner ruled it out
+    of every figure this summary reports. The query therefore groups by `(row_status, failed)` and
+    hands over two tallies for one status where both kinds exist. This module stays ignorant of the
+    bank's vocabulary: `parser.is_success_status` decides, in the query.
     """
 
     status: str
@@ -541,6 +548,7 @@ class StatusTally:
     value: Decimal = Decimal("0")
     with_suggestion: int = 0
     suggested_value: Decimal = Decimal("0")
+    failed: bool = False
 
 
 def derive_import_summary(tallies: Iterable[StatusTally]) -> dict:
@@ -561,6 +569,21 @@ def derive_import_summary(tallies: Iterable[StatusTally]) -> dict:
     ⚠️ AN UNKNOWN STATUS IS CARRIED, NOT DROPPED. It counts toward the totals and appears in
     `by_status` under its own name. Rows staged under v2 hold retired values, and a summary that
     quietly omitted them would report a total smaller than the import.
+
+    ⚠️ A FAILED TRANSFER IS EXCLUDED FROM EVERY FIGURE HERE (owner ruling 2026-08-10, option B). It
+    is money the bank refused to move, so counting it in `total_value` overstates the statement by
+    exactly the amount that never left the account -- and counting it in `total_rows` makes
+    `decided_percent` a percentage of work that does not exist. It comes back ONLY as
+    `failed_rows` / `failed_value`, which the panel renders as a footnote.
+
+    THE ROW IS STILL STAGED, and that is the whole of what option B chose over option A: the
+    evidence that the bank rejected a transfer survives on the row, where a reviewer who goes
+    looking can find it. What was removed is its effect on the numbers, not its existence.
+
+    ⚠️ THESE TALLIES ARE EXCLUDED BEFORE `by_status` TOO, so `sum(by_status counts) == total_rows`
+    still holds. Leaving them in `by_status` while dropping them from the total would make the
+    Skipped chip and the Statement total disagree by the failed count -- one visible number
+    contradicting another on the same panel, which is worse than either choice made consistently.
     """
     by_status: dict[str, dict] = {
         status: {"count": 0, "value": Decimal("0")} for status in ROW_STATUSES
@@ -571,7 +594,14 @@ def derive_import_summary(tallies: Iterable[StatusTally]) -> dict:
     total_rows = 0
     total_value = Decimal("0")
 
+    failed_rows = 0
+    failed_value = Decimal("0")
+
     for tally in tallies:
+        if tally.failed:
+            failed_rows += tally.count
+            failed_value += tally.value
+            continue
         bucket = by_status.setdefault(
             tally.status, {"count": 0, "value": Decimal("0")}
         )
@@ -609,6 +639,12 @@ def derive_import_summary(tallies: Iterable[StatusTally]) -> dict:
         "settled_value": value(ROW_SETTLED),
         "skipped_rows": rows(ROW_SKIPPED),
         "skipped_value": value(ROW_SKIPPED),
+        # ⚠️ REPORTED BESIDE THE TOTALS, NOT INSIDE THEM. A failed transfer is excluded from every
+        # figure above; these two are the only place it is visible after import, and they are what
+        # stops option B from becoming option A by accident. If the panel ever drops this line, a
+        # rejected transfer stops being merely out of the way and becomes invisible.
+        "failed_rows": failed_rows,
+        "failed_value": failed_value,
         "matched_rows": rows(ROW_MATCHED),
         "matched_value": value(ROW_MATCHED),
         # ⚠️ `unmatched_rows` / `unmatched_value` ARE GONE WITH THE STATUS (owner ruling

@@ -501,5 +501,69 @@ class TestDoubleSettleIsRefused(PaymentSettlementFixture):
         self.assertEqual(frappe.db.count(MATCH_DOCTYPE, {"import_row": row.name}), 1)
 
 
+class TestTheStatementIsAttachedToWhatItSettled(PaymentSettlementFixture):
+    """The settled payment carries the statement it was settled from (owner ruling 2026-08-10).
+
+    ⚠️ THE FIXTURE'S `source_file` IS WHAT MAKES THIS TESTABLE AT ALL. `_stage_batch` is called with
+    `file_url="/private/files/test-statement.csv"`, so the batch has something to copy. A fixture
+    that staged without one would let every assertion here pass vacuously -- there would be nothing
+    to attach, and "no attachment written" is exactly what the blank case looks like.
+    """
+
+    STATEMENT = "/private/files/test-statement.csv"
+
+    def test_a_blank_payment_attachment_takes_the_statement(self):
+        row = self._import_row("0001")
+        payment = self.planted["0001"]
+        self.assertFalse(frappe.db.get_value(PAYMENT, payment, "payment_attachment"))
+
+        settle_row(row.name, PAYMENT, payment)
+
+        self.assertEqual(
+            frappe.db.get_value(PAYMENT, payment, "payment_attachment"), self.STATEMENT
+        )
+
+    def test_an_existing_payment_attachment_is_never_overwritten(self):
+        """The blank-only rule, which is the whole of the owner's ruling on this write.
+
+        `payment_attachment` is where an accountant puts the proof of THIS payment -- a signed
+        receipt, a screenshot of the transfer. Replacing that with a thousand-row statement swaps
+        specific evidence for general evidence, on a field nobody asked us to touch.
+        """
+        row = self._import_row("0003")
+        payment = self.planted["0003"]
+        proof = "/private/files/the-real-receipt.pdf"
+        frappe.db.set_value(PAYMENT, payment, "payment_attachment", proof, update_modified=False)
+        frappe.db.commit()
+
+        settle_row(row.name, PAYMENT, payment)
+
+        self.assertEqual(frappe.db.get_value(PAYMENT, payment, "payment_attachment"), proof)
+        # And the settlement itself still happened -- the attachment rule must never gate the money.
+        self.assertEqual(frappe.db.get_value(PAYMENT, payment, "status"), "Paid")
+
+    def test_the_attachment_rides_the_same_save_as_the_settlement(self):
+        """One write, one Version, one savepoint.
+
+        The attachment is set on the document BEFORE `doc.save()` rather than written afterwards,
+        so a settlement that rolls back cannot leave an attachment pointing at a payment it never
+        settled. Asserting it lands in the same audit entry as the status flip is the cheapest
+        available proof that it was not a second write.
+        """
+        row = self._import_row("0004")
+        payment = self.planted["0004"]
+        settle_row(row.name, PAYMENT, payment)
+
+        versions = frappe.get_all(
+            "Version",
+            filters={"ref_doctype": PAYMENT, "docname": payment},
+            fields=["data"],
+        )
+        self.assertTrue(versions, "the settle must be audited at all")
+        changed = "\n".join(v["data"] or "" for v in versions)
+        self.assertIn("payment_attachment", changed)
+        self.assertIn("status", changed)
+
+
 if __name__ == "__main__":
     unittest.main()

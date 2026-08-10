@@ -61,7 +61,28 @@ __all__ = [
     "StatementFormatError",
     "parse_statement",
     "SUPPORTED_SOURCES",
+    "BANK_SUCCESS_STATUS",
+    "is_success_status",
 ]
+
+# The one word the gateway uses for money that actually left the account. Everything else -- FAILED,
+# PENDING, REVERSED -- is a transfer that did not happen.
+BANK_SUCCESS_STATUS = "SUCCESS"
+
+
+def is_success_status(status_raw: str | None) -> bool:
+    """Did this transfer actually move money?
+
+    ⚠️ THE SINGLE DEFINITION OF "SUCCESSFUL", AND IT HAD TO BECOME ONE. It was a property on `RawRow`
+    and nothing else needed it -- until the import summary had to exclude failed transfers from every
+    figure it reports, which happens long after parsing, against rows read back out of the database.
+    A second copy of `== "SUCCESS"` in that query is the shape where one side later learns about
+    `REVERSED` and the other does not, and the two disagree about the same statement.
+
+    `review.get_import_summary` binds `BANK_SUCCESS_STATUS` into its `GROUP BY` for exactly this
+    reason: the SQL and this function compare against the same literal, from here.
+    """
+    return (status_raw or "").strip().upper() == BANK_SUCCESS_STATUS
 
 
 class StatementFormatError(ValueError):
@@ -102,7 +123,7 @@ class RawRow:
 
     @property
     def is_success(self) -> bool:
-        return self.status_raw.strip().upper() == "SUCCESS"
+        return is_success_status(self.status_raw)
 
     @property
     def added_on_date(self) -> date | None:

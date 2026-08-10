@@ -94,14 +94,23 @@ def settle_row(row: str, target_doctype: str, target_name: str):
     """
     actor = require_outflow_access()
     staged, doc = _load_settleable_row(row)
+    statement_file_url = _statement_file_url(doc["import_batch"])
 
     savepoint = f"ofi_settle_{frappe.generate_hash(length=10)}"
     frappe.db.savepoint(savepoint)
     try:
         if target_doctype == PAYMENT_DOCTYPE:
-            result = settle_payment(staged, target_name, actor)
+            result = settle_payment(
+                staged, target_name, actor, statement_file_url=statement_file_url
+            )
         else:
-            result = settle_existing_expense(staged, target_doctype, target_name, actor)
+            result = settle_existing_expense(
+                staged,
+                target_doctype,
+                target_name,
+                actor,
+                statement_file_url=statement_file_url,
+            )
         _record_settlement(staged, doc, result, actor)
     except Exception:
         # Roll back to the savepoint rather than the whole request: the caller gets the real error
@@ -118,6 +127,7 @@ def settle_row(row: str, target_doctype: str, target_name: str):
 
     statuses = _refresh_batch_rollup(doc["import_batch"])
     frappe.db.commit()
+    _link_statement_file_to_target(statement_file_url, result)
     return _summary(row, result, doc["import_batch"], statuses)
 
 
@@ -154,6 +164,7 @@ def create_expense(
     """
     actor = require_outflow_access()
     staged, doc = _load_settleable_row(row)
+    statement_file_url = _statement_file_url(doc["import_batch"])
 
     savepoint = f"ofi_create_{frappe.generate_hash(length=10)}"
     frappe.db.savepoint(savepoint)
@@ -169,6 +180,7 @@ def create_expense(
             # Visible provenance on the expense itself. The Outflow Row Match record is the durable
             # link, but nobody opening an expense form sees that -- this line is what tells them.
             comment=comment or f"Imported from {doc['import_batch']}",
+            statement_file_url=statement_file_url,
         )
         _record_settlement(staged, doc, result, actor)
     except Exception:
@@ -178,6 +190,7 @@ def create_expense(
 
     statuses = _refresh_batch_rollup(doc["import_batch"])
     frappe.db.commit()
+    _link_statement_file_to_target(statement_file_url, result)
     return _summary(row, result, doc["import_batch"], statuses)
 
 
@@ -195,6 +208,68 @@ def get_expense_types(doctype: str):
 
 
 # --- helpers -----------------------------------------------------------------------------------
+
+
+def _statement_file_url(batch: str) -> str | None:
+    """The uploaded statement's file URL, for the settled record's `payment_attachment`.
+
+    One cheap read per settlement rather than one per import held in memory: "Confirm 40" is 40
+    calls to `settle_row`, each its own request, so there is no batch-level place to cache it.
+    """
+    return frappe.db.get_value(BATCH_DOCTYPE, batch, "source_file") or None
+
+
+def _link_statement_file_to_target(statement_file_url: str | None, result) -> None:
+    """Give the settled record its own `File` row for the statement, so the link actually opens.
+
+    ⚠️ COPYING A URL COPIES A LINK, NOT A PERMISSION. The statement is uploaded `is_private=1` and
+    attached to the `Outflow Import Batch`; Frappe authorises a private file through the document it
+    is attached to. Without a second `File` row pointing at the same URL from the payment or expense,
+    somebody who may read that record but not the import batch clicks the attachment we just set and
+    gets a 403 -- an attachment that is visibly there and refuses to open.
+
+    ⚠️ AFTER THE COMMIT, ON PURPOSE, AND NOT INSIDE THE CALLER'S SAVEPOINT. A `File` insert fires the
+    `frappe_gcp_attachment` `after_insert` hook, which uploads and calls `frappe.db.commit()` inside
+    this request. A commit within the savepoint would make the per-row rollback a silent no-op --
+    the exact hazard `api/outflow_import/upload.py` documents at length -- so this runs once the
+    settlement is already durable and there is no longer a savepoint to corrupt.
+
+    ⚠️ IT MUST NEVER RAISE. The money is written and the row is `Settled` by the time we get here;
+    failing the request now would report a settlement that actually succeeded as an error, and the
+    caller would retry it against a record that is already Paid. A missing `File` row degrades to
+    "the attachment may 403", which is the smaller failure by a wide margin.
+    """
+    if not statement_file_url:
+        return
+    try:
+        exists = frappe.db.exists(
+            "File",
+            {
+                "file_url": statement_file_url,
+                "attached_to_doctype": result.doctype,
+                "attached_to_name": result.name,
+            },
+        )
+        if exists:
+            return
+        frappe.get_doc(
+            {
+                "doctype": "File",
+                "file_url": statement_file_url,
+                "file_name": statement_file_url.rsplit("/", 1)[-1],
+                "attached_to_doctype": result.doctype,
+                "attached_to_name": result.name,
+                "attached_to_field": "payment_attachment",
+                "is_private": 1,
+            }
+        ).insert(ignore_permissions=True)
+        frappe.db.commit()
+    except Exception:
+        frappe.log_error(
+            title="Outflow import: could not link statement file",
+            message=f"{result.doctype} {result.name} -> {statement_file_url}\n\n"
+            + frappe.get_traceback(),
+        )
 
 
 def _load_settleable_row(row: str):

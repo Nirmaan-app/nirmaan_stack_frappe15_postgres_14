@@ -119,10 +119,15 @@ export const ImportSummaryPanel = ({
                 {summary && totals && (
                     <>
                         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                            {/* The sub-label says "successful" only when some transfer was not,
+                                so the word earns its place instead of being noise on the ~95% of
+                                imports where the bank moved everything. */}
                             <Figure
                                 label="Statement total"
                                 value={formatToRoundedIndianRupee(totals.total_value)}
-                                sub={`${totals.total_rows} transfer${totals.total_rows === 1 ? "" : "s"}`}
+                                sub={`${totals.total_rows} ${
+                                    totals.failed_rows > 0 ? "successful " : ""
+                                }transfer${totals.total_rows === 1 ? "" : "s"}`}
                             />
                             <Figure
                                 label="Settled"
@@ -177,6 +182,19 @@ export const ImportSummaryPanel = ({
                                 {summary.auto_skipped_rows} auto-skipped ·{" "}
                                 {summary.manually_skipped_rows} skipped by hand
                             </span>
+                            {/* ⚠️ THE ONLY PLACE A FAILED TRANSFER SURFACES AFTER IMPORT (owner
+                                ruling 2026-08-10, option B). It is excluded from every figure
+                                above -- Statement total, the counts, Decided % -- because it is
+                                money that never left the account. The row is still staged, so the
+                                evidence survives; this line is what keeps it findable. If it goes,
+                                option B silently becomes option A. */}
+                            {totals.failed_rows > 0 && (
+                                <span>
+                                    {totals.failed_rows} failed at the bank (
+                                    {formatToRoundedIndianRupee(totals.failed_value)}), excluded
+                                    from every figure above
+                                </span>
+                            )}
                         </div>
 
                         {totals.ambiguous_rows > 0 && (

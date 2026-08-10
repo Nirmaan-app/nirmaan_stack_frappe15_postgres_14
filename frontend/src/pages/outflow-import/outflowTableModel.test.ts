@@ -10,6 +10,11 @@ import {
     activeFilterCount,
     amountVerdict,
     assignedStackPairs,
+    confirmFunnel,
+    describeFrappeError,
+    settleBlocker,
+    previewCounts,
+    statementDebit,
     duplicateStackAssignments,
     proposeStackPairs,
     stackLabel,
@@ -986,5 +991,221 @@ describe("the settleable-record table model", () => {
         for (const column of RECORD_COLUMNS) {
             expect(column.width).toMatch(/^\d+px$/);
         }
+    });
+});
+
+describe("confirmFunnel", () => {
+    const rows = (n: number) => Array.from({ length: n }, (_, i) => ({ name: `r${i}` }));
+
+    it("reports what the summary panel's button counts as ready plus stale", () => {
+        // The defect this exists for: the button read 688 and the dialog listed fewer, with nothing
+        // accounting for the gap. `confirmable` is the button's number, reconstructed here.
+        const funnel = confirmFunnel({
+            matched_rows: 10,
+            ready: rows(6),
+            stale: rows(2),
+            needs_you: rows(2),
+        });
+        expect(funnel.confirmable).toBe(8);
+        expect(funnel.ready).toBe(6);
+        expect(funnel.stale).toBe(2);
+        expect(funnel.needsYou).toBe(2);
+    });
+
+    it("keeps the three buckets partitioning the matched rows", () => {
+        const funnel = confirmFunnel({
+            matched_rows: 10,
+            ready: rows(6),
+            stale: rows(2),
+            needs_you: rows(2),
+        });
+        expect(funnel.ready + funnel.stale + funnel.needsYou).toBe(funnel.matched);
+    });
+
+    it("falls back to the sum when the server sends no matched total", () => {
+        // An absent total must read as "all of them", never as "there are none" -- a 0 here would
+        // make the dialog claim nothing matched while listing rows underneath it.
+        const funnel = confirmFunnel({ ready: rows(3), stale: rows(1), needs_you: rows(1) });
+        expect(funnel.matched).toBe(5);
+    });
+
+    it("is all zeroes on an absent payload rather than throwing", () => {
+        expect(confirmFunnel(undefined)).toEqual({
+            matched: 0,
+            confirmable: 0,
+            ready: 0,
+            needsYou: 0,
+            stale: 0,
+        });
+    });
+});
+
+describe("settleBlocker", () => {
+    it("blocks a record the server marked unsettleable, and reports the gap", () => {
+        const block = settleBlocker(
+            { name: "i87sop52n3", amount: 26000, suggested: false },
+            245000
+        );
+        expect(block).toEqual({
+            kind: "amount_outside_window",
+            recordName: "i87sop52n3",
+            recordAmount: 26000,
+            bankAmount: 245000,
+            difference: -219000,
+        });
+    });
+
+    it("keeps the difference SIGNED, so an overpayment is distinguishable", () => {
+        // Negative = the bank moved MORE than the record is for. The dialog shows the magnitude,
+        // but the sign is the difference between "we underpaid" and "we overpaid" for anyone who
+        // later reads this value.
+        expect(settleBlocker({ name: "P", amount: 100, suggested: false }, 90)!.difference).toBe(10);
+        expect(settleBlocker({ name: "P", amount: 90, suggested: false }, 100)!.difference).toBe(-10);
+    });
+
+    it("does not block a record the server accepts", () => {
+        expect(settleBlocker({ name: "PAY-1", amount: 86553, suggested: true }, 86553)).toBeNull();
+    });
+
+    it("FAILS OPEN when the server did not send the flag", () => {
+        // ⚠️ THE LOAD-BEARING CASE. `suggested` absent means "the server did not say", and blocking
+        // on that would make a valid record unconfirmable from the screen with no way to override --
+        // strictly worse than letting the server refuse it out loud. Only an explicit `false` blocks.
+        expect(settleBlocker({ name: "PAY-1", amount: 100 }, 999999)).toBeNull();
+        expect(settleBlocker({ name: "PAY-1", amount: 100, suggested: undefined }, 1)).toBeNull();
+    });
+
+    it("does not block when nothing is picked", () => {
+        expect(settleBlocker(null, 1000)).toBeNull();
+        expect(settleBlocker(undefined, 1000)).toBeNull();
+    });
+});
+
+describe("describeFrappeError", () => {
+    const serverMessages = (...items: object[]) =>
+        JSON.stringify(items.map((i) => JSON.stringify(i)));
+
+    it("prefers the server's own sentence over Frappe's generic envelope", () => {
+        // THE DEFECT THIS EXISTS FOR. Frappe answers a `frappe.throw` with HTTP 417 and
+        // `message: "There was an error."`; every call site read `.message`, so a live confirm
+        // failure rendered as that string and could not be diagnosed from the screen at all.
+        const err = {
+            httpStatus: 417,
+            message: "There was an error.",
+            _server_messages: serverMessages({
+                title: "Already settled",
+                message: "PAY-00107-024 was already marked Paid. Refresh to see who settled it.",
+            }),
+        };
+        expect(describeFrappeError(err)).toBe(
+            "Already settled: PAY-00107-024 was already marked Paid. Refresh to see who settled it."
+        );
+    });
+
+    it("never returns the generic placeholder on its own", () => {
+        expect(describeFrappeError({ message: "There was an error." }, "Could not settle.")).toBe(
+            "Could not settle."
+        );
+    });
+
+    it("drops a title that only repeats the message", () => {
+        const err = {
+            _server_messages: serverMessages({
+                title: "Not permitted",
+                message: "Not permitted: this module is limited to Accountants and Admins.",
+            }),
+        };
+        expect(describeFrappeError(err)).toBe(
+            "Not permitted: this module is limited to Accountants and Admins."
+        );
+    });
+
+    it("joins several server messages rather than showing only the first", () => {
+        const err = {
+            _server_messages: serverMessages({ message: "First." }, { message: "Second." }),
+        };
+        expect(describeFrappeError(err)).toBe("First. Second.");
+    });
+
+    it("strips the HTML Frappe puts in its messages", () => {
+        const err = { _server_messages: serverMessages({ message: "Row <b>3</b><br>failed." }) };
+        expect(describeFrappeError(err)).toBe("Row 3 failed.");
+    });
+
+    it("falls back to the exception class and text when nothing was thrown deliberately", () => {
+        // An UNCAUGHT error. Nobody wrote it for a reader, but the class beats a generic string and
+        // tells them a stack trace is waiting in the Error Log.
+        const err = {
+            message: "There was an error.",
+            exception: "frappe.exceptions.ValidationError: Amounts differ by 412.00",
+        };
+        expect(describeFrappeError(err)).toBe("ValidationError: Amounts differ by 412.00");
+    });
+
+    it("keeps a real message that is not the placeholder", () => {
+        expect(describeFrappeError(new Error("Network request failed"))).toBe(
+            "Network request failed"
+        );
+    });
+
+    it("names the HTTP status when the envelope is empty", () => {
+        // Still says something: 417 vs 403 vs 500 tells a reader whether to look at the rule, the
+        // permission, or the log.
+        expect(
+            describeFrappeError({ httpStatus: 403, httpStatusText: "FORBIDDEN" }, "Could not settle.")
+        ).toBe("Could not settle. (HTTP 403 FORBIDDEN)");
+    });
+
+    it("survives junk instead of throwing on top of the error it is describing", () => {
+        expect(describeFrappeError(undefined, "Could not settle.")).toBe("Could not settle.");
+        expect(describeFrappeError({ _server_messages: "not json" }, "Could not settle.")).toBe(
+            "Could not settle."
+        );
+        expect(describeFrappeError({ _server_messages: "[\"plain string\"]" })).toBe("plain string");
+    });
+});
+
+describe("statementDebit", () => {
+    it("foots gross and charges into the total that left the account", () => {
+        expect(statementDebit({ gross_amount: 2_10_95_243, charges_amount: 4_720 })).toEqual({
+            gross: 2_10_95_243,
+            charges: 4_720,
+            total: 2_10_99_963,
+        });
+    });
+
+    it("treats a missing figure as zero, never as NaN", () => {
+        // A NaN reaches the screen as "₹NaN" on a money figure, which is worse than a wrong number
+        // because it looks like the feature is broken rather than the data being absent.
+        expect(statementDebit({}).total).toBe(0);
+        expect(statementDebit({ gross_amount: 100 }).total).toBe(100);
+    });
+});
+
+describe("previewCounts", () => {
+    it("keeps the two exclusions on separate axes", () => {
+        const counts = previewCounts({
+            total_rows: 1043,
+            successful_rows: 1016,
+            failed_rows: 27,
+            duplicate_rows: 20,
+            new_rows: 1023,
+        });
+        expect(counts).toEqual({
+            total: 1043,
+            successful: 1016,
+            failed: 27,
+            duplicates: 20,
+            newRows: 1023,
+        });
+    });
+
+    it("derives successful from the failed count when the server omits it", () => {
+        const counts = previewCounts({ total_rows: 10, failed_rows: 3 });
+        expect(counts.successful).toBe(7);
+    });
+
+    it("never returns a negative successful count", () => {
+        expect(previewCounts({ total_rows: 0, failed_rows: 5 }).successful).toBe(0);
     });
 });

@@ -1,6 +1,6 @@
 // src/pages/outflow-import/components/ImportStatementDialog.tsx
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, CheckCircle2, FileSpreadsheet, Loader2, Upload } from "lucide-react";
 import { useFrappePostCall } from "frappe-react-sdk";
 
@@ -24,7 +24,10 @@ import {
     OutflowPreviewResult,
     OutflowUploadResult,
 } from "@/types/NirmaanStack/OutflowImportBatch";
+import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+
+import { describeFrappeError, previewCounts, statementDebit } from "../outflowTableModel";
 
 const PREVIEW_URL =
     "/api/method/nirmaan_stack.api.outflow_import.upload.preview_outflow_statement";
@@ -158,7 +161,7 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported }: Props)
             }
             setPreview(message);
         } catch (err: any) {
-            setError(err?.message || "Could not read this statement.");
+            setError(describeFrappeError(err, "Could not read this statement."));
         } finally {
             setIsBusy(null);
         }
@@ -180,7 +183,7 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported }: Props)
             setStaged(message);
             batch = message.batch;
         } catch (err: any) {
-            setError(err?.message || "Upload failed.");
+            setError(describeFrappeError(err, "The upload failed."));
             setIsBusy(null);
             return;
         }
@@ -193,9 +196,10 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported }: Props)
             await runMatch({ batch });
         } catch (err: any) {
             setError(
-                `The statement was imported, but matching it failed: ${
-                    err?.message || "unknown error"
-                }. Use “Re-run match” on the summary.`
+                `The statement was imported, but matching it failed: ${describeFrappeError(
+                    err,
+                    "no reason was returned"
+                )} Use “Re-run match” on the summary.`
             );
             setIsBusy(null);
             onImported(batch);
@@ -210,7 +214,12 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported }: Props)
 
     return (
         <Dialog open={open} onOpenChange={(next) => (working ? null : onOpenChange(next))}>
-            <DialogContent className="max-w-2xl">
+            {/* ⚠️ WIDE ENOUGH THAT NO FIGURE WRAPS (owner ruling 2026-08-10). The summary sets a
+                label against a right-aligned value on one line, and a wrapped period or a wrapped
+                rupee figure is the difference between a block that reads as a statement and one
+                that reads as broken. Every label and value below carries `whitespace-nowrap`; this
+                width is what stops that turning into overflow instead. */}
+            <DialogContent className="max-w-3xl">
                 <DialogHeader>
                     <DialogTitle>Import a bank statement</DialogTitle>
                     <DialogDescription>
@@ -329,35 +338,83 @@ const StatementPreview = ({
     phase: "preview" | "upload" | "match" | null;
     onConfirm: () => void;
     onChooseAnother: () => void;
-}) => (
-    <div className="space-y-3 rounded-md border bg-muted/30 p-4">
-        <div className="grid gap-x-8 gap-y-2 sm:grid-cols-2">
-            <PreviewFigure
-                label="Period detected"
-                value={
-                    preview.period_from
-                        ? preview.period_to && preview.period_to !== preview.period_from
-                            ? `${preview.period_from} to ${preview.period_to}`
-                            : preview.period_from
-                        : "not dated"
-                }
-            />
-            <PreviewFigure
-                label="Transfers"
-                value={
-                    preview.failed_rows > 0
-                        ? `${preview.total_rows} (${preview.successful_rows} successful, ${preview.failed_rows} failed)`
-                        : String(preview.total_rows)
-                }
-            />
-            <PreviewFigure
-                label="Gross out"
-                value={formatToRoundedIndianRupee(preview.gross_amount)}
-            />
-            <PreviewFigure
-                label="Bank charges"
-                value={formatToRoundedIndianRupee(preview.charges_amount)}
-            />
+}) => {
+    const counts = previewCounts(preview);
+    const debit = statementDebit(preview);
+    return (
+    <div className="space-y-4 rounded-md border bg-muted/30 p-4">
+        {/* Two columns, two questions: what is IN this file, and what LEFT the bank. They are
+            different kinds of fact and the reviewer checks them against different things -- the
+            counts against the export they downloaded, the money against the account. */}
+        <div className="grid gap-x-10 gap-y-5 sm:grid-cols-2">
+            <section className="space-y-1.5">
+                <SectionLabel>In this file</SectionLabel>
+                {/* ⚠️ `dd-MMM-yyyy` VIA `formatDate`, THE APP-WIDE RULE (frontend/CLAUDE.md). The
+                    server sends the period as ISO (`2026-05-02`) because that is what a date column
+                    holds; every screen in this app renders `02-May-2026`, and a dialog that shows
+                    the raw ISO is the one place an accountant has to re-read a date to be sure
+                    which way round it is. */}
+                <PreviewFigure
+                    label="Period"
+                    value={
+                        preview.period_from
+                            ? preview.period_to && preview.period_to !== preview.period_from
+                                ? `${formatDate(preview.period_from)} to ${formatDate(preview.period_to)}`
+                                : formatDate(preview.period_from)
+                            : "not dated"
+                    }
+                />
+                <PreviewFigure label="Transfers" value={String(counts.total)} />
+                <PreviewFigure label="Successful" value={String(counts.successful)} />
+                {/* ⚠️ SHOWN ONLY WHEN THERE ARE ANY, AND CALLED OUT AS EXCLUDED. A failed transfer
+                    is money the bank refused to move: it is already out of Gross Outflow, and
+                    after import it is out of every figure the summary panel reports. Saying so
+                    here is what stops the counts below looking like they do not add up. */}
+                {counts.failed > 0 && (
+                    <PreviewFigure
+                        label="Failed at the bank"
+                        value={`${counts.failed} — excluded`}
+                        tone="muted"
+                    />
+                )}
+                {counts.duplicates > 0 && (
+                    <PreviewFigure
+                        label="Already imported"
+                        value={`${counts.duplicates} — will be skipped`}
+                        tone="amber"
+                    />
+                )}
+            </section>
+
+            {/* ⚠️ THE MONEY COLUMN FOOTS, THE WAY A BANK STATEMENT'S OWN SUMMARY BLOCK DOES, and
+                that rule above the total is the point of this block. Gross and charges were shown
+                as two unrelated figures; they are not. The bank takes its fee whatever a transfer's
+                outcome, so their SUM is the debit the accountant reconciles against the account --
+                the one number this dialog never showed. */}
+            <section className="space-y-1.5">
+                <SectionLabel>Left the bank</SectionLabel>
+                <PreviewFigure
+                    label="Gross Outflow"
+                    value={formatToRoundedIndianRupee(debit.gross)}
+                />
+                <PreviewFigure
+                    label="Bank charges"
+                    value={formatToRoundedIndianRupee(debit.charges)}
+                />
+                <div className="mt-1 border-t pt-1.5">
+                    <PreviewFigure
+                        label="Total debited"
+                        value={formatToRoundedIndianRupee(debit.total)}
+                        emphasis
+                    />
+                </div>
+                {counts.failed > 0 && (
+                    <p className="pt-0.5 text-xs text-muted-foreground">
+                        Gross Outflow excludes the {counts.failed} failed{" "}
+                        {counts.failed === 1 ? "transfer" : "transfers"}.
+                    </p>
+                )}
+            </section>
         </div>
 
         {preview.duplicate_message && (
@@ -408,12 +465,49 @@ const StatementPreview = ({
             )}
         </div>
     </div>
+    );
+};
+
+const SectionLabel = ({ children }: { children: ReactNode }) => (
+    <div className="whitespace-nowrap text-xs uppercase tracking-wide text-muted-foreground">
+        {children}
+    </div>
 );
 
-const PreviewFigure = ({ label, value }: { label: string; value: string }) => (
-    <div className="flex items-baseline justify-between gap-4 text-sm">
-        <span className="text-muted-foreground">{label}</span>
-        <span className="font-medium tabular-nums">{value}</span>
+/**
+ * One label against one right-aligned value, on ONE line.
+ *
+ * ⚠️ BOTH SIDES ARE `whitespace-nowrap` (owner ruling 2026-08-10). A wrapped label and a wrapped
+ * rupee figure were what made this block read as broken -- and `justify-between` hides the problem
+ * until the value is long, which is exactly when the reviewer is reading it most carefully. The
+ * dialog is `max-w-3xl` so nowrap stays a layout rule rather than turning into overflow.
+ */
+const PreviewFigure = ({
+    label,
+    value,
+    tone,
+    emphasis,
+}: {
+    label: string;
+    value: string;
+    tone?: "muted" | "amber";
+    emphasis?: boolean;
+}) => (
+    <div className="flex items-baseline justify-between gap-6 text-sm">
+        <span
+            className={`whitespace-nowrap ${
+                tone === "amber" ? "text-amber-700" : "text-muted-foreground"
+            }`}
+        >
+            {label}
+        </span>
+        <span
+            className={`whitespace-nowrap tabular-nums ${
+                emphasis ? "text-base font-semibold" : "font-medium"
+            } ${tone === "amber" ? "text-amber-700" : tone === "muted" ? "text-muted-foreground" : ""}`}
+        >
+            {value}
+        </span>
     </div>
 );
 
@@ -458,15 +552,21 @@ const StagedSummary = ({
     </div>
 );
 
-/** Frappe returns its throw message inside `_server_messages`, a JSON array of JSON strings. */
+/**
+ * The real reason a RAW-FETCH upload failed.
+ *
+ * ⚠️ THIS PATH IS A BARE `fetch`, NOT THE SDK, so it holds the response BODY as text rather than a
+ * thrown error object -- which is why it cannot simply call `describeFrappeError` on an exception.
+ * It parses the body and then hands the parsed envelope to that same shared helper, so both paths
+ * produce the same sentence for the same server refusal. Do NOT let the two drift back apart: the
+ * previous local version read only `list[0].message` and dropped titles, later messages, and the
+ * exception fallback entirely.
+ */
 function extractServerMessage(payload: string): string | null {
     try {
         const parsed = JSON.parse(payload);
-        const messages = parsed?._server_messages;
-        if (!messages) return parsed?.exception || null;
-        const list = JSON.parse(messages) as string[];
-        const first = JSON.parse(list[0]);
-        return first?.message || null;
+        const described = describeFrappeError(parsed, "");
+        return described || null;
     } catch {
         return null;
     }

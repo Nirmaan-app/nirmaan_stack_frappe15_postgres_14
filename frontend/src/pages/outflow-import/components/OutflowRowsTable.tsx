@@ -545,6 +545,12 @@ const Cell = ({
  * not fix that: in a dense financial table a row that highlights on hover reads as a highlight,
  * not a button. This is the one saturated, unmistakably interactive element in the row.
  */
+/**
+ * Kept in step with the `outcome` column's declared `width` (220px) minus the cell's own px-2
+ * padding on each side. The column's width is the hint; this is the enforcement.
+ */
+const OUTCOME_CELL_WIDTH = "w-[204px]";
+
 const OutcomeButton = ({
     row,
     decided,
@@ -562,8 +568,10 @@ const OutcomeButton = ({
 
     if (terminal) {
         return (
-            <div className="space-y-1">
-                <span className="block text-xs text-muted-foreground">{note || "—"}</span>
+            <div className={`${OUTCOME_CELL_WIDTH} space-y-1`}>
+                <span className="block truncate text-xs text-muted-foreground" title={note}>
+                    {note || "—"}
+                </span>
                 {links.map((link) => (
                     <RecordLink key={`${link.href}-${link.label}`} link={link} />
                 ))}
@@ -571,43 +579,63 @@ const OutcomeButton = ({
         );
     }
 
-    return (
-        <div className="flex items-start gap-1.5">
-            <button
-                type="button"
-                onClick={() => onOpenDecision(row)}
-                className={`flex min-w-0 flex-1 items-center justify-between gap-2 rounded-md border px-2.5 py-1.5 text-left text-xs shadow-sm transition-all hover:-translate-y-px hover:shadow ${
-                    decided
-                        ? "border-emerald-300 bg-emerald-50 text-emerald-900"
-                        : "border-muted-foreground/30 bg-background"
-                }`}
-            >
-                {/* ⚠️ THE SUGGESTED CASE NAMES THE RECORD, and that is the difference between a claim
-                    and a fact a reviewer can check. "Ready to confirm" on its own asks someone to
-                    trust the software; naming PAY-00105-038 lets them tick the box without opening
-                    anything, which is the entire point of pre-selecting. */}
-                <span className="min-w-0 flex-1 truncate">
-                    {origin === "suggested" ? (
-                        <>
-                            Matched <span className="font-mono">{row.suggested_name}</span> — tick to
-                            confirm
-                        </>
-                    ) : decided ? (
-                        "Decided — ready to confirm"
-                    ) : (
-                        note || "Choose what this settled"
-                    )}
-                </span>
-                <ChevronRight className="h-3.5 w-3.5 shrink-0 opacity-60" />
-            </button>
+    // ⚠️ THE WIDTH IS ENFORCED ON THE CELL CONTENT, NOT BY THE COLUMN'S `width` (owner, 2026-08-10).
+    // This table is AUTO-LAYOUT, so `<th style={{width}}>` is only a HINT -- the browser widens any
+    // column whose content demands it, and this cell's content is a whole sentence. `truncate` alone
+    // cannot help either: with nothing bounding it, the cell grows and there is never any overflow
+    // to cut. A fixed width on the content is what actually caps the column, and it is what makes
+    // the `truncate` above do anything at all. The full sentence stays reachable on the `title`.
+    // ⚠️ THE NOTE SITS ABOVE THE BUTTON, NOT INSIDE IT (owner, 2026-08-10). A control wrapped
+    // around a whole sentence stops reading as a control -- it reads as a bordered paragraph, which
+    // is exactly the complaint. Splitting them lets the button hold a VERB, which is what makes it
+    // recognisable at a glance, and lets the column be narrow because the prose is no longer
+    // competing with a border for the same width.
+    //
+    // ⚠️ THE SUGGESTED CASE STILL NAMES THE RECORD, and that is the difference between a claim and
+    // a fact a reviewer can check. "Ready to confirm" on its own asks someone to trust the
+    // software; naming PAY-00105-038 lets them tick the box without opening anything, which is the
+    // entire point of pre-selecting. It moved lines; it did not go.
+    const label = decided ? "Review" : origin === "suggested" ? "Confirm" : "Choose";
 
-            {/* ⚠️ BESIDE THE BUTTON, NEVER INSIDE IT. An <a> nested in a <button> is invalid HTML,
-                and the click target would be ambiguous: the button opens the decision dialog, the
-                link navigates away from the batch. Two actions, two elements. */}
-            {origin === "suggested" &&
-                links.map((link) => (
-                    <RecordLink key={`${link.href}-${link.label}`} link={link} iconOnly />
-                ))}
+    return (
+        <div className={`${OUTCOME_CELL_WIDTH} space-y-1`}>
+            <p className="truncate text-xs text-muted-foreground" title={note || undefined}>
+                {origin === "suggested" ? (
+                    <>
+                        Matched <span className="font-mono">{row.suggested_name}</span>
+                    </>
+                ) : decided ? (
+                    "Decided"
+                ) : (
+                    note || "Nothing matched yet"
+                )}
+            </p>
+
+            <div className="flex items-center gap-1.5">
+                {/* A filled, bordered control with a verb and a chevron. The previous version was
+                    `bg-background` on a white table, so the only thing distinguishing it from the
+                    cell around it was a hairline border -- invisible in a dense financial grid. */}
+                <button
+                    type="button"
+                    onClick={() => onOpenDecision(row)}
+                    className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-medium shadow-sm transition-colors ${
+                        decided
+                            ? "border-emerald-300 bg-emerald-100 text-emerald-900 hover:bg-emerald-200"
+                            : "border-input bg-secondary text-secondary-foreground hover:bg-accent hover:text-accent-foreground"
+                    }`}
+                >
+                    {label}
+                    <ChevronRight className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                </button>
+
+                {/* ⚠️ BESIDE THE BUTTON, NEVER INSIDE IT. An <a> nested in a <button> is invalid
+                    HTML, and the click target would be ambiguous: the button opens the decision
+                    dialog, the link navigates away from the batch. Two actions, two elements. */}
+                {origin === "suggested" &&
+                    links.map((link) => (
+                        <RecordLink key={`${link.href}-${link.label}`} link={link} iconOnly />
+                    ))}
+            </div>
         </div>
     );
 };

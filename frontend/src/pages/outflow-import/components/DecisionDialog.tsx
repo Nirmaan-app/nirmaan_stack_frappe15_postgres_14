@@ -1,10 +1,19 @@
 // src/pages/outflow-import/components/DecisionDialog.tsx
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useFrappeGetCall, useFrappeGetDocList } from "frappe-react-sdk";
 import { AlertTriangle, Check, ExternalLink, Loader2, X } from "lucide-react";
 
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -27,8 +36,10 @@ import {
     parseRecordKey,
     recordKey,
     settlementLink,
+    settleBlocker,
     type DecisionTarget,
     type RowDecision,
+    type SettleBlock,
     type SettleableRecord,
 } from "../outflowTableModel";
 import { ROW_MISMATCHED } from "../outflowImportStatus";
@@ -77,6 +88,9 @@ interface Props {
     onRerun: () => Promise<void> | void;
     onClose: () => void;
     busy?: boolean;
+    /** The server's refusal for this row, if the last confirm was refused. */
+    error?: string | null;
+    onDismissError?: () => void;
 }
 
 /**
@@ -109,13 +123,54 @@ export const DecisionDialog = ({
     onRerun,
     onClose,
     busy = false,
+    error = null,
+    onDismissError,
 }: Props) => {
     const [skipReason, setSkipReason] = useState("");
     const [skipping, setSkipping] = useState(false);
+    const [picked, setPicked] = useState<SettleableRecord | null>(null);
+    const [blocked, setBlocked] = useState<SettleBlock | null>(null);
 
     useEffect(() => {
         setSkipReason("");
+        setPicked(null);
+        setBlocked(null);
     }, [row?.name]);
+
+    // Reference-stable, or the effect in `LinkPaymentSection` that reports the selection would
+    // re-fire on every render of this dialog.
+    //
+    // Changing the pick CLEARS the last refusal: that message names a record, so leaving it up
+    // beside a different one would be describing a choice the reviewer has already abandoned.
+    const handleSelectedRecordChange = useCallback(
+        (record: SettleableRecord | null) => {
+            setPicked(record);
+            onDismissError?.();
+        },
+        [onDismissError]
+    );
+
+    /**
+     * ⚠️ THE CHECK RUNS ON THE CLICK, NOT ON THE BUTTON'S `disabled`, AND THAT IS THE POINT.
+     *
+     * The owner's report was that picking a record ₹2,19,000 away from the transfer left Confirm
+     * looking perfectly clickable, and clicking it did nothing at all -- which reads as a broken
+     * front end. Two separate things caused that and both are fixed: the page swallowed the
+     * server's refusal (see `handleConfirmOne`), and nothing on this screen said the pick was going
+     * to be refused.
+     *
+     * Disabling the button instead would have restored the OTHER half of the same complaint: a dead
+     * control with no explanation. A click that opens a dialog SAYING why is the honest shape --
+     * the reviewer gets an answer at the moment they ask the question.
+     */
+    const handleConfirmClick = useCallback(() => {
+        const block = settleBlocker(picked, row?.amount ?? 0);
+        if (block) {
+            setBlocked(block);
+            return;
+        }
+        onConfirm();
+    }, [picked, row?.amount, onConfirm]);
 
     if (!row) return null;
 
@@ -159,6 +214,7 @@ export const DecisionDialog = ({
                         decision={decision}
                         onChange={onChange}
                         dimmed={decision?.target === "new"}
+                        onSelectedRecordChange={handleSelectedRecordChange}
                     />
 
                     {SHOW_CREATE_NEW_EXPENSE && (
@@ -170,6 +226,20 @@ export const DecisionDialog = ({
                         />
                     )}
                 </div>
+
+                {/* ⚠️ IN THE FOOTER, BESIDE THE BUTTON THAT CAUSED IT -- not a toast. The reviewer
+                    is looking at the record list they are about to correct; a message that fades
+                    from the corner of the screen is how the refusal went unseen in the first place.
+                    It clears when they change the pick, so it can never describe a stale choice. */}
+                {error && (
+                    <div className="flex items-start gap-2 border-t border-destructive/30 bg-destructive/5 px-6 py-3 text-sm text-destructive">
+                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                        <div className="min-w-0 flex-1">
+                            <p className="font-medium">This transfer was not recorded.</p>
+                            <p className="text-xs">{error}</p>
+                        </div>
+                    </div>
+                )}
 
                 <footer className="flex flex-wrap items-center gap-2 border-t bg-muted/30 px-6 py-3">
                     <Button variant="ghost" size="sm" onClick={() => onRerun()} disabled={busy}>
@@ -217,7 +287,7 @@ export const DecisionDialog = ({
                                 settle with an undefined doctype. */}
                             <Button
                                 size="sm"
-                                onClick={() => onConfirm()}
+                                onClick={handleConfirmClick}
                                 disabled={busy || !isConfirmable(row, decision)}
                             >
                                 {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
@@ -227,9 +297,82 @@ export const DecisionDialog = ({
                     )}
                 </footer>
             </DialogContent>
+
+            <AmountOutsideWindowDialog
+                block={blocked}
+                onClose={() => setBlocked(null)}
+            />
         </Dialog>
     );
 };
+
+/**
+ * Why this pick will not be recorded, said before anything is posted.
+ *
+ * ⚠️ ITS WHOLE JOB IS TO STOP A RULE READING AS A FAULT. The write guard in `settle.py` refuses a
+ * record whose amount is outside the settle window, and it always has. What the reviewer saw was a
+ * live control that did nothing -- so the honest failure of a deliberate rule was indistinguishable
+ * from a broken button. Every line below is chosen against that: it names the rule, states plainly
+ * that NOTHING has been written, and gives the two real ways forward.
+ *
+ * ⚠️ THERE IS NO "TRY ANYWAY". The server will refuse this pick with certainty, so an override would
+ * offer a guaranteed failure -- which is the same defect again, one screen later.
+ *
+ * ⚠️ IT DOES NOT NAME THE WINDOW'S VALUE. That number lives in `services/outflow_import/amounts.py`
+ * and has changed twice; printing it here would be a second copy that drifts, and the reviewer does
+ * not need it -- they need to know THIS pick is too far apart, which the difference already says.
+ */
+const AmountOutsideWindowDialog = ({
+    block,
+    onClose,
+}: {
+    block: SettleBlock | null;
+    onClose: () => void;
+}) => (
+    <AlertDialog open={Boolean(block)} onOpenChange={(open) => !open && onClose()}>
+        <AlertDialogContent>
+            <AlertDialogHeader>
+                <AlertDialogTitle>This record cannot be settled here</AlertDialogTitle>
+                <AlertDialogDescription asChild>
+                    <div className="space-y-3 text-sm">
+                        <p>
+                            <span className="font-mono">{block?.recordName}</span> is for{" "}
+                            <span className="font-medium tabular-nums">
+                                {formatToIndianRupee(block?.recordAmount ?? 0)}
+                            </span>
+                            , but{" "}
+                            <span className="font-medium tabular-nums">
+                                {formatToIndianRupee(block?.bankAmount ?? 0)}
+                            </span>{" "}
+                            left the bank — a difference of{" "}
+                            <span className="font-medium tabular-nums">
+                                {formatToIndianRupee(Math.abs(block?.difference ?? 0))}
+                            </span>
+                            .
+                        </p>
+                        <p>
+                            An import may only settle a record whose amount matches the transfer,
+                            give or take bank rounding. This gap is far larger than that, so the
+                            server would refuse it.
+                        </p>
+                        {/* The reassurance is the point of the whole dialog. */}
+                        <p className="font-medium text-foreground">
+                            Nothing has been recorded, and nothing will be.
+                        </p>
+                        <p className="text-muted-foreground">
+                            A deduction such as TDS looks exactly like this — settle those in the
+                            payments screen. Otherwise pick the record that matches this transfer,
+                            or record it as a new expense.
+                        </p>
+                    </div>
+                </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+                <AlertDialogAction onClick={onClose}>Choose another record</AlertDialogAction>
+            </AlertDialogFooter>
+        </AlertDialogContent>
+    </AlertDialog>
+);
 
 /**
  * Why the system suggests this, in plain English (owner ruling).
@@ -287,11 +430,15 @@ const LinkPaymentSection = ({
     decision,
     onChange,
     dimmed,
+    onSelectedRecordChange,
 }: {
     row: OutflowImportRow;
     decision: RowDecision | undefined;
     onChange: (decision: RowDecision) => void;
     dimmed: boolean;
+    // Passed straight through to `RecordPicker`, which is where the candidate list -- and so the
+    // server's `suggested` flag -- actually lives.
+    onSelectedRecordChange: (record: SettleableRecord | null) => void;
 }) => (
     <div className={`rounded-md border border-muted-foreground/20 ${dimmed ? "opacity-40" : ""}`}>
         <div className="px-3 py-2.5">
@@ -301,7 +448,12 @@ const LinkPaymentSection = ({
             </p>
         </div>
         <div className="border-t px-3 py-3">
-            <RecordPicker row={row} decision={decision ?? {}} onChange={onChange} />
+            <RecordPicker
+                row={row}
+                decision={decision ?? {}}
+                onChange={onChange}
+                onSelectedRecordChange={onSelectedRecordChange}
+            />
         </div>
     </div>
 );
@@ -388,10 +540,12 @@ const RecordPicker = ({
     row,
     decision,
     onChange,
+    onSelectedRecordChange,
 }: {
     row: OutflowImportRow;
     decision: RowDecision;
     onChange: (decision: RowDecision) => void;
+    onSelectedRecordChange: (record: SettleableRecord | null) => void;
 }) => {
     const [search, setSearch] = useState("");
 
@@ -413,6 +567,15 @@ const RecordPicker = ({
     const selected = options.find(
         (o) => o.name === decision.linkTo && o.target_doctype === decision.target
     );
+
+    // ⚠️ REPORTED UPWARD BECAUSE THE FOOTER HAS TO KNOW WHAT WAS PICKED. The candidate list, and
+    // therefore the server's `suggested` flag, lives only in here -- the page's `RowDecision`
+    // carries a doctype and a NAME and nothing about the record's amount. Without this the Confirm
+    // button cannot tell a settleable pick from one the server will refuse, which is exactly how it
+    // came to post, be refused, and show nothing.
+    useEffect(() => {
+        onSelectedRecordChange(selected ?? null);
+    }, [selected, onSelectedRecordChange]);
 
     return (
         <div className="space-y-3">

@@ -200,6 +200,17 @@ export interface OutflowImportSummary {
         confirmable_value: number;
         /** `Matched` rows with SEVERAL candidates and therefore no pick. Never auto-confirmable. */
         ambiguous_rows: number;
+        /**
+         * Transfers the bank REFUSED to move -- reported here and counted in nothing else.
+         *
+         * ⚠️ EVERY OTHER FIGURE IN THIS OBJECT EXCLUDES THEM (owner ruling 2026-08-10, option B).
+         * A failed transfer is money that never left the account, so counting it in `total_value`
+         * overstates the statement and counting it in `total_rows` makes `decided_percent` a
+         * percentage of work that does not exist. The row is still staged -- the evidence survives
+         * -- and these two fields are the only place it surfaces after import.
+         */
+        failed_rows: number;
+        failed_value: number;
     };
     auto_skipped_rows: number;
     manually_skipped_rows: number;

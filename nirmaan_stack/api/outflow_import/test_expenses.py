@@ -529,6 +529,41 @@ class TestExpenseTypeScoping(SettlementFixture):
             self.assertTrue(frappe.db.get_value("Expense Type", name, "non_project"))
 
 
+class TestTheStatementIsAttachedToWhatItSettled(SettlementFixture):
+    """The expense side of the 2026-08-10 attachment ruling.
+
+    The rule itself -- blank-only, never overwrite -- is proven exhaustively on the payment path in
+    `test_settle_payment`, against the same shared `apply_statement_attachment`. What these two
+    cases prove is the WIRING on this side: that `expenses.settle_row` and `expenses.create_expense`
+    both resolve the batch's `source_file` and hand it down. A rule that is right and never passed
+    an argument writes nothing at all.
+    """
+
+    STATEMENT = "/private/files/test-statement.csv"
+
+    def test_a_settled_expense_takes_the_statement(self):
+        row = self._next_settleable_row()
+        expense = self._make_expense(PROJECT_EXPENSE, row["amount"])
+        settle_expense(row["name"], PROJECT_EXPENSE, expense)
+        self.assertEqual(
+            frappe.db.get_value(PROJECT_EXPENSE, expense, "payment_attachment"),
+            self.STATEMENT,
+        )
+
+    def test_a_created_expense_is_born_carrying_the_statement(self):
+        """A brand-new expense has no proof of its own, so the blank-only rule always lets this
+        land -- which is the point: a record created FROM a statement should carry that statement."""
+        row = self._next_settleable_row()
+        result = create_expense(
+            row["name"], PROJECT_EXPENSE, self.project_type, project=self.project
+        )
+        name = result["settled"]["name"]
+        self.project_expenses.append(name)
+        self.assertEqual(
+            frappe.db.get_value(PROJECT_EXPENSE, name, "payment_attachment"), self.STATEMENT
+        )
+
+
 class TestFormatAmountFor(unittest.TestCase):
     def test_project_expenses_get_a_bare_string(self):
         self.assertEqual(format_amount_for(PROJECT_EXPENSE, Decimal("5000")), "5000")
