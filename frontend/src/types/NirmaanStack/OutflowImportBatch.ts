@@ -45,12 +45,12 @@ export interface OutflowImportBatch {
     uploaded_at?: string;
 
     /**
-     * Set when someone closed the batch with rows still undecided.
+     * Set when someone closed the batch, back when closing existed.
      *
-     * ⚠️ v3: this no longer changes the derived status. "Completed with exceptions" is retired, so
-     * a batch closed with work outstanding reads "Partially Settled" and the three tabs show which
-     * rows are outstanding. Closing is bookkeeping, not a freeze: abandoned rows keep their status
-     * and can still be settled.
+     * ⚠️ HISTORICAL ONLY (owner ruling 2026-08-10). The Close Import action is gone: it wrote these
+     * three fields and nothing read them, and once an import stopped being a place to visit,
+     * "closing" one marked nothing as finished with. Retained on the doctype so the history of
+     * batches closed before then survives; no endpoint writes them and no endpoint returns them.
      */
     closed_at?: string;
     closed_by?: string;
@@ -154,7 +154,6 @@ export interface OutflowImportOption {
     total_rows?: number;
     uploaded_at?: string;
     uploaded_by?: string;
-    closed_at?: string | null;
 }
 
 /** `review.get_import_summary` (slice X2). Every money figure crosses the wire as a number. */
@@ -165,8 +164,6 @@ export interface OutflowImportSummary {
         gross_amount?: number;
         charges_amount?: number;
         overlaps_batch?: string | null;
-        closed_by?: string | null;
-        close_reason?: string | null;
     };
     totals: {
         total_rows: number;

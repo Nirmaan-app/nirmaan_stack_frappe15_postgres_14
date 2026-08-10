@@ -3,7 +3,7 @@
 import { AlertTriangle, Check } from "lucide-react";
 
 import { formatDate } from "@/utils/FormatDate";
-import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 import {
     RECORD_COLUMNS,
@@ -205,7 +205,10 @@ const AmountMark = ({
             </span>
         );
     }
-    const gap = formatToRoundedIndianRupee(Math.abs(difference));
+    // ⚠️ TO THE PAISE. The rounded formatter ceils, so the COMMON gap here -- the bank rounding a
+    // paise amount -- rendered as "off by ₹1" for 31 paise: a wrong number, in the cell whose whole
+    // job is to say how far apart the two amounts are.
+    const gap = formatToIndianRupee(Math.abs(difference));
     if (suggested) {
         return (
             <span

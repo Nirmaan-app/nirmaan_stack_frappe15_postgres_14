@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Columns3, Lock, Search, Unlock, Upload, X } from "lucide-react";
+import { Columns3, Search, Upload, X } from "lucide-react";
 import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
 import { TailSpin } from "react-loader-spinner";
 
@@ -16,9 +16,6 @@ import type {
     OutflowImportSummary,
     OutflowRowsPage,
 } from "@/types/NirmaanStack/OutflowImportBatch";
-import { formatDate } from "@/utils/FormatDate";
-
-import { CloseBatchDialog } from "./components/CloseBatchDialog";
 import { ConfirmAllMatchedDialog } from "./components/ConfirmAllMatchedDialog";
 import { DecisionDialog } from "./components/DecisionDialog";
 import { ImportStatementDialog } from "./components/ImportStatementDialog";
@@ -39,7 +36,6 @@ import {
     isConfirmable,
     seedDecisions,
     serverQuery,
-    tabForStatus,
     type ColumnFilters,
     type DecisionOrigin,
     type OutflowTab,
@@ -85,7 +81,6 @@ export const OutflowMasterPage = () => {
     const [busy, setBusy] = useState(false);
     const [importing, setImporting] = useState(false);
     const [confirmingAll, setConfirmingAll] = useState(false);
-    const [closing, setClosing] = useState(false);
     const [selectedImport, setSelectedImport] = useState<string | undefined>(deepLinkedBatch);
 
     // Typing must not fire a query per keystroke now that search is a round trip.
@@ -161,12 +156,6 @@ export const OutflowMasterPage = () => {
     );
     const { call: callCreate } = useFrappePostCall(
         "nirmaan_stack.api.outflow_import.expenses.create_expense"
-    );
-    const { call: callClose } = useFrappePostCall(
-        "nirmaan_stack.api.outflow_import.review.close_batch"
-    );
-    const { call: callReopen } = useFrappePostCall(
-        "nirmaan_stack.api.outflow_import.review.reopen_batch"
     );
 
     const rows = useMemo(() => pageData?.message?.rows ?? [], [pageData]);
@@ -390,33 +379,6 @@ export const OutflowMasterPage = () => {
         [refreshAll]
     );
 
-    /**
-     * A figure in the summary was clicked: scope the table to exactly those rows.
-     *
-     * The tab has to move too, because a status set lives in one tab -- clicking "Settled" while
-     * the Pending tab is showing would filter to a status the tab excludes and show nothing.
-     */
-    const handleFocusStatuses = useCallback((statuses: string[]) => {
-        setFilters((prev) => ({ ...prev, row_status: statuses }));
-        setTab(tabForStatus(statuses[0]));
-        setSelected(new Set());
-    }, []);
-
-    const handleClose = useCallback(
-        async (reason: string) => {
-            if (!selectedImport) return;
-            await callClose({ batch: selectedImport, reason: reason || undefined });
-            await refreshAll();
-        },
-        [callClose, selectedImport, refreshAll]
-    );
-
-    const handleReopen = useCallback(async () => {
-        if (!selectedImport) return;
-        await callReopen({ batch: selectedImport });
-        await refreshAll();
-    }, [callReopen, selectedImport, refreshAll]);
-
     const filterCount = activeFilterCount(filters);
 
     return (
@@ -429,22 +391,6 @@ export const OutflowMasterPage = () => {
                     </span>
                 )}
                 <div className="ml-auto flex gap-2">
-                    {summary?.import.closed_at ? (
-                        <Button variant="outline" size="sm" onClick={handleReopen}>
-                            <Unlock className="mr-2 h-4 w-4" />
-                            Reopen import
-                        </Button>
-                    ) : (
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            disabled={!selectedImport}
-                            onClick={() => setClosing(true)}
-                        >
-                            <Lock className="mr-2 h-4 w-4" />
-                            Close import
-                        </Button>
-                    )}
                     <Button size="sm" onClick={() => setImporting(true)}>
                         <Upload className="mr-2 h-4 w-4" />
                         Import statement
@@ -459,19 +405,9 @@ export const OutflowMasterPage = () => {
                 loading={summaryLoading}
                 matching={matching}
                 onSelect={setSelectedImport}
-                onFocusStatuses={handleFocusStatuses}
                 onConfirmAllMatched={() => setConfirmingAll(true)}
                 onRunMatch={handleMatch}
             />
-
-            {summary?.import.closed_at && (
-                <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-                    Closed by {summary.import.closed_by} on{" "}
-                    {formatDate(summary.import.closed_at.split(/[ T]/)[0])}
-                    {summary.import.close_reason ? ` — ${summary.import.close_reason}` : ""}. Rows
-                    left undecided keep their status and can still be settled.
-                </p>
-            )}
 
             <div className="flex gap-2 border-b">
                 {OUTFLOW_TABS.map((t) => (
@@ -602,15 +538,6 @@ export const OutflowMasterPage = () => {
                 onOpenChange={setConfirmingAll}
                 onSettled={refreshAll}
             />
-
-            {selectedImport && (
-                <CloseBatchDialog
-                    batch={selectedImport}
-                    open={closing}
-                    onOpenChange={setClosing}
-                    onConfirm={handleClose}
-                />
-            )}
 
             <DecisionDialog
                 row={openRow}

@@ -26,7 +26,6 @@ import {
     settlementLink,
     suggestedDecision,
     summaryTiles,
-    tabForStatus,
     type RowDecision,
 } from "./outflowTableModel";
 
@@ -97,22 +96,6 @@ describe("columns", () => {
 });
 
 describe("tabs", () => {
-    it("routes every OPEN status to Pending and the two terminal ones to their own tabs", () => {
-        expect(tabForStatus("Pending match run")).toBe("pending");
-        expect(tabForStatus("Matched")).toBe("pending");
-        expect(tabForStatus("Unmatched")).toBe("pending");
-        expect(tabForStatus("Mismatched")).toBe("pending");
-        expect(tabForStatus("Error")).toBe("pending");
-        expect(tabForStatus("Settled")).toBe("settled");
-        expect(tabForStatus("Skipped")).toBe("skipped");
-    });
-
-    it("puts an unknown status in Pending rather than dropping it", () => {
-        // A status with no tab is invisible, which is worse than a wrong tab: the work silently
-        // disappears from the screen.
-        expect(tabForStatus("Something the server invented")).toBe("pending");
-    });
-
     it("maps every tab to a scope the server knows", () => {
         // ⚠️ The two vocabularies differ on purpose -- the screen says "Pending", the endpoint says
         // "open", because server-side that set is literally OPEN_ROW_STATUSES and "pending" there
@@ -266,9 +249,14 @@ describe("the summary panel's figures", () => {
         expect(tiles[0].id).toBe("pending");
     });
 
-    it("carries the statuses each figure filters to", () => {
-        const matched = summaryTiles(totals).find((t) => t.id === "matched")!;
-        expect(matched.statuses).toEqual(["Matched"]);
+    it("carries no status set, because a figure is not a filter", () => {
+        // ⚠️ THE CHIPS STOPPED BEING BUTTONS (owner ruling 2026-08-10), and the `statuses` field
+        // went with the click. A panel describing ONE import must not rewrite the filters of a
+        // table spanning all of them -- and it moved the tab as a side effect, so a click meant to
+        // read a figure navigated away from the work in progress.
+        for (const tile of summaryTiles({ ...totals, mismatched_rows: 1, error_rows: 2 })) {
+            expect(tile).not.toHaveProperty("statuses");
+        }
     });
 });
 

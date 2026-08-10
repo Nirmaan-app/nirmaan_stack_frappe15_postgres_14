@@ -1,8 +1,7 @@
 // src/pages/outflow-import/components/ImportSummaryPanel.tsx
 
-import { CheckCircle2, ChevronDown, FileSpreadsheet, Loader2, RefreshCw } from "lucide-react";
+import { CheckCircle2, FileSpreadsheet, Loader2, RefreshCw } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -28,8 +27,6 @@ interface Props {
     loading?: boolean;
     matching?: boolean;
     onSelect: (batch: string) => void;
-    /** Clicking a figure scopes the table below to exactly those rows. */
-    onFocusStatuses: (statuses: string[]) => void;
     onConfirmAllMatched: () => void;
     onRunMatch: () => void;
 }
@@ -40,8 +37,14 @@ interface Props {
  * ⚠️ IT SUMMARISES AN IMPORT WHILE THE TABLE BELOW SPANS ALL OF THEM, and the mismatch is the
  * design, not an oversight. "How did that statement go?" is a question about one upload; "what do
  * I still owe a decision on?" is a question about the ledger. Putting the first above the second is
- * what lets one screen answer both -- and every figure here is a BUTTON that scopes the table to
- * itself, which is what stops the panel being a poster.
+ * what lets one screen answer both.
+ *
+ * ⚠️ THE STATUS FIGURES ARE READ-ONLY (owner ruling 2026-08-10). They used to be buttons that
+ * re-scoped the table to themselves. That coupling made a panel about ONE import silently rewrite
+ * the filters of a table spanning ALL of them -- and it moved the tab as a side effect, so a click
+ * meant to answer "how did that statement go?" navigated away from the work in progress. The
+ * figures now report; the Status column's own filter is where scoping belongs, and it is the only
+ * place it happens.
  *
  * ⚠️ EVERY NUMBER COMES FROM THE SERVER (`get_import_summary`). Nothing here counts anything.
  * `status.py` is the only deriver in this feature, and a panel that added up its own rows could
@@ -54,7 +57,6 @@ export const ImportSummaryPanel = ({
     loading,
     matching,
     onSelect,
-    onFocusStatuses,
     onConfirmAllMatched,
     onRunMatch,
 }: Props) => {
@@ -146,11 +148,7 @@ export const ImportSummaryPanel = ({
 
                         <div className="flex flex-wrap items-center gap-2">
                             {summaryTiles(totals).map((tile) => (
-                                <StatusChip
-                                    key={tile.id}
-                                    tile={tile}
-                                    onClick={() => onFocusStatuses(tile.statuses)}
-                                />
+                                <StatusChip key={tile.id} tile={tile} />
                             ))}
                         </div>
 
@@ -171,15 +169,14 @@ export const ImportSummaryPanel = ({
                             </span>
                             {/* Auto vs manual skips mean different things: one is bookkeeping (a
                                 duplicate, a failed transfer), the other is somebody's decision. */}
+                            {/* ⚠️ THE ONLY PLACE SKIPPED ROWS ARE REPORTED (owner ruling
+                                2026-08-10). They are filtered out of the master table's three
+                                tabs entirely, so if this line goes, a skipped transfer becomes
+                                invisible rather than merely out of the way. */}
                             <span>
                                 {summary.auto_skipped_rows} auto-skipped ·{" "}
                                 {summary.manually_skipped_rows} skipped by hand
                             </span>
-                            {summary.import.closed_at && (
-                                <Badge variant="outline" className="border-0 bg-muted">
-                                    Closed {formatDate(summary.import.closed_at.split(/[ T]/)[0])}
-                                </Badge>
-                            )}
                         </div>
 
                         {totals.ambiguous_rows > 0 && (
@@ -230,15 +227,12 @@ const Figure = ({
     </div>
 );
 
-const StatusChip = ({ tile, onClick }: { tile: SummaryTile; onClick: () => void }) => (
-    <button
-        type="button"
-        onClick={onClick}
-        title={`Show only ${tile.label.toLowerCase()} rows`}
-        className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors hover:bg-muted ${tile.tone}`}
+/** A figure, not a control. See the panel docstring for why it stopped being a button. */
+const StatusChip = ({ tile }: { tile: SummaryTile }) => (
+    <span
+        className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs ${tile.tone}`}
     >
         <span className="font-medium tabular-nums">{tile.count}</span>
         <span>{tile.label}</span>
-        <ChevronDown className="h-3 w-3 -rotate-90 opacity-50" />
-    </button>
+    </span>
 );

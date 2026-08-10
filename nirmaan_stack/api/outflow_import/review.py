@@ -1164,7 +1164,7 @@ def list_imports(limit=60):
     return frappe.db.sql(
         """
         SELECT name, original_filename, period_from, period_to, status,
-               total_rows, uploaded_at, uploaded_by, closed_at
+               total_rows, uploaded_at, uploaded_by
         FROM "tabOutflow Import Batch"
         ORDER BY uploaded_at DESC NULLS LAST, creation DESC
         LIMIT %s
@@ -1202,10 +1202,10 @@ def _load_rows(batch: str) -> list:
 def _refresh_batch_rollup(batch: str) -> list:
     """Recompute the batch's counters and status from its rows. `status.py` is the only deriver.
 
-    ⚠️ v3: `closed_at` NO LONGER FEEDS THE STATUS. `Completed with exceptions` is retired, so
-    closing is pure bookkeeping -- a batch closed with rows outstanding reads `Partially Settled`,
-    which is the truth, and the three tabs show exactly which rows are outstanding. The flag is
-    still recorded and still read by the screen; it just no longer changes what the status says.
+    ⚠️ THERE IS NO CLOSE ANY MORE. `closed_at` was already excluded from the status derivation when
+    `Completed with exceptions` was retired; the close ACTION itself went at the 2026-08-10 owner
+    ruling (see the note where its endpoints used to be). The field survives on the doctype holding
+    the history of batches closed before then, and nothing writes or reads it.
     """
     statuses = [
         r["row_status"] or ""
@@ -1284,7 +1284,7 @@ def get_import_summary(batch: str):
         [
             "name", "original_filename", "source", "period_from", "period_to",
             "status", "gross_amount", "charges_amount", "overlaps_batch",
-            "uploaded_by", "uploaded_at", "closed_at", "closed_by", "close_reason",
+            "uploaded_by", "uploaded_at",
         ],
         as_dict=True,
     )
@@ -1321,87 +1321,17 @@ def _jsonable_summary(summary: dict) -> dict:
     return out
 
 
-@frappe.whitelist(methods=["POST"])
-def close_batch(batch: str, reason: str = None):
-    """Close a batch, accepting that its remaining rows will not be decided.
-
-    ⚠️ CLOSING DOES NOT CONVERT THE OPEN ROWS TO `Skipped`, and that is a deliberate reversal of
-    what the v1 design described. A skip is a DECISION -- which is exactly why a manual one requires
-    a typed reason (owner ruling) -- and auto-skipping on close would manufacture decisions nobody
-    made, replacing "never decided" with a fabricated "deliberately skipped" on every row.
-
-    Instead the abandonment is recorded ONCE, on the batch, as `closed_at`.
-
-    ⚠️ v3: that flag NO LONGER CHANGES THE DERIVED STATUS. `Completed with exceptions` is retired
-    (owner ruling) -- a batch closed with work outstanding reads `Partially Settled`, and the three
-    tabs show which rows are outstanding directly, which is what the retired status was standing in
-    for. V5 simplifies this endpoint and its dialog to a single button.
-
-    Closing is bookkeeping, NOT a freeze. An abandoned row can still be settled afterwards, and the
-    status re-derives when it is.
-    """
-    require_outflow_access()
-    _assert_batch(batch)
-
-    frappe.db.set_value(
-        BATCH_DOCTYPE,
-        batch,
-        {
-            "closed_at": frappe.utils.now_datetime(),
-            "closed_by": frappe.session.user,
-            "close_reason": (reason or "").strip() or None,
-        },
-        update_modified=False,
-    )
-    statuses = _refresh_batch_rollup(batch)
-    frappe.db.commit()
-    return {
-        "batch": batch,
-        "status": derive_batch_status(statuses),
-        "counters": derive_batch_counters(statuses),
-        "abandoned_rows": sum(1 for s in statuses if s in OPEN_ROW_STATUSES),
-    }
-
-
-@frappe.whitelist(methods=["POST"])
-def reopen_batch(batch: str):
-    """Clear the close, putting the batch back into review. A mis-click must not be permanent."""
-    require_outflow_access()
-    _assert_batch(batch)
-
-    frappe.db.set_value(
-        BATCH_DOCTYPE,
-        batch,
-        {"closed_at": None, "closed_by": None, "close_reason": None},
-        update_modified=False,
-    )
-    statuses = _refresh_batch_rollup(batch)
-    frappe.db.commit()
-    return {"batch": batch, "status": derive_batch_status(statuses)}
-
-
-@frappe.whitelist()
-def get_close_preview(batch: str):
-    """What closing this batch would abandon, so the confirmation can say it rather than imply it."""
-    require_outflow_access()
-    _assert_batch(batch)
-
-    rows = [
-        r
-        for r in _load_rows(batch)
-        if (r.get("row_status") or "") in OPEN_ROW_STATUSES
-    ]
-    return {
-        "batch": batch,
-        "abandoned_rows": len(rows),
-        "abandoned_amount": float(sum(float(r.get("amount") or 0) for r in rows)),
-        "rows": [
-            {
-                "name": r["name"],
-                "beneficiary_name": r.get("beneficiary_name"),
-                "amount": float(r.get("amount") or 0),
-                "row_status": r.get("row_status"),
-            }
-            for r in rows
-        ],
-    }
+# ⚠️ `close_batch` / `reopen_batch` / `get_close_preview` ARE GONE (owner ruling 2026-08-10), and
+# what they did is worth stating so nobody re-adds them by accident. Closing stamped `closed_at`,
+# `closed_by` and `close_reason` on the batch. It changed no row status, it did not freeze anything,
+# and -- since `Completed with exceptions` was retired -- it did not change the derived batch status
+# either. The screen showed a banner; nothing else read the flag.
+#
+# At X3 an import stopped being a PLACE. There is one master table across every import, so "close
+# this import" no longer marks anything as finished with: the rows stay in the same table, in the
+# same tabs, doing the same work. A control that writes three fields nobody reads is worse than no
+# control, because people reasonably assume it must do something.
+#
+# THE THREE FIELDS ARE DELIBERATELY LEFT ON `Outflow Import Batch`. Dropping them is a migrate that
+# destroys the close history of every batch already closed, to save nothing. They are simply no
+# longer written, and no longer returned by `get_import_summary` or `list_imports`.

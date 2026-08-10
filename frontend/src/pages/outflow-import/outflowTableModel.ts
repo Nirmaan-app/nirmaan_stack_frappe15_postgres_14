@@ -14,12 +14,7 @@
 // drift because they read the same definition -- the same reason the Rate Master viewer keeps a
 // unified `columns` array rather than a header list beside a predicate.
 
-import {
-    OPEN_ROW_STATUSES,
-    ROW_PENDING_MATCH,
-    ROW_SETTLED,
-    ROW_SKIPPED,
-} from "./outflowImportStatus";
+import { OPEN_ROW_STATUSES, ROW_PENDING_MATCH } from "./outflowImportStatus";
 import { paymentHref } from "@/pages/ProjectPayments/config/projectPaymentsTable.config";
 import type { OutflowImportRow } from "@/types/NirmaanStack/OutflowImportBatch";
 
@@ -122,25 +117,16 @@ export const SCOPE_FOR_TAB: Record<OutflowTab, string> = {
     skipped: "skipped",
 };
 
-/**
- * Which tab a row belongs in.
- *
- * ⚠️ DERIVED FROM THE STATUS DERIVER, never from a second list of status strings. `Pending` holds
- * everything still OPEN -- which is exactly `OPEN_ROW_STATUSES` -- so adding a status to the
- * vocabulary can never leave it homeless and invisible.
- */
-export const tabForStatus = (status: string): OutflowTab => {
-    if (status === ROW_SETTLED) return "settled";
-    if (status === ROW_SKIPPED) return "skipped";
-    return "pending";
-};
+// ⚠️ `tabForStatus` WENT WITH THE SUMMARY'S CLICKABLE CHIPS (owner ruling 2026-08-10). Its only
+// caller mapped a clicked status figure to the tab that holds it; with the chips reduced to
+// figures there is nothing left that needs to answer "which tab does this status live in", and a
+// mapping kept alive with no caller is one more thing to keep in step with `_SCOPE_STATUSES`.
 
 // ⚠️ `rowsForTab` AND `tabCounts` WENT WITH THE CLIENT FILTER ENGINE (slice X3). Both partitioned
 // the rows the browser was holding, which was every row of one import. The master table holds ONE
 // PAGE of every import, so a count taken from it would describe the page rather than the table --
 // and `get_outflow_rows` returns `tab_counts` computed under the same filters, which is the number
-// the tabs actually need. `tabForStatus` survives because mapping a status to its tab is still a
-// real question: it is how a summary figure knows which tab to switch to.
+// the tabs actually need.
 
 // --- search ------------------------------------------------------------------------------------
 
@@ -343,13 +329,16 @@ export interface SummaryTile {
     id: string;
     label: string;
     count: number;
-    /** Which row statuses this figure covers -- clicking it scopes the table to exactly these. */
-    statuses: string[];
     tone: string;
 }
 
 /**
- * The clickable status figures, in the order a reviewer reads them.
+ * The status figures, in the order a reviewer reads them.
+ *
+ * ⚠️ THEY REPORT; THEY DO NOT SCOPE (owner ruling 2026-08-10). Each tile used to carry the
+ * `statuses` it covered so a click could re-filter the table. The field is gone with the click --
+ * a panel describing ONE import must not silently rewrite the filters of a table spanning all of
+ * them, and it moved the tab as a side effect. Scoping lives in the Status column's own filter.
  *
  * ⚠️ THE ORDER LEADS WITH THE WORK, NOT WITH THE VOCABULARY. Matched and Unmatched come first
  * because they are what somebody has to act on; Settled and Skipped are the record of what is done.
@@ -375,28 +364,24 @@ export const summaryTiles = (totals: {
             id: "matched",
             label: "Matched",
             count: totals.matched_rows,
-            statuses: ["Matched"],
             tone: "border-sky-200 bg-sky-50 text-sky-900",
         },
         {
             id: "unmatched",
             label: "Unmatched",
             count: totals.unmatched_rows,
-            statuses: ["Unmatched"],
             tone: "border-amber-200 bg-amber-50 text-amber-900",
         },
         {
             id: "settled",
             label: "Settled",
             count: totals.settled_rows,
-            statuses: ["Settled"],
             tone: "border-emerald-200 bg-emerald-50 text-emerald-900",
         },
         {
             id: "skipped",
             label: "Skipped",
             count: totals.skipped_rows,
-            statuses: ["Skipped"],
             tone: "border-muted bg-muted/50 text-muted-foreground",
         },
     ];
@@ -406,7 +391,6 @@ export const summaryTiles = (totals: {
             id: "pending",
             label: "Not matched yet",
             count: totals.pending_rows,
-            statuses: [ROW_PENDING_MATCH],
             tone: "border-muted bg-muted/50 text-muted-foreground",
         });
     }
@@ -415,7 +399,6 @@ export const summaryTiles = (totals: {
             id: "mismatched",
             label: "Mismatched",
             count: totals.mismatched_rows,
-            statuses: ["Mismatched"],
             tone: "border-rose-200 bg-rose-50 text-rose-900",
         });
     }
@@ -424,7 +407,6 @@ export const summaryTiles = (totals: {
             id: "error",
             label: "Errors",
             count: totals.error_rows,
-            statuses: ["Error"],
             tone: "border-rose-300 bg-rose-100 text-rose-900",
         });
     }

@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/select";
 import type { OutflowImportRow } from "@/types/NirmaanStack/OutflowImportBatch";
 import { formatDate } from "@/utils/FormatDate";
-import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 import {
     amountVerdict,
@@ -516,8 +516,11 @@ const RecordVerdict = ({
                     <>
                         <Check className="h-3.5 w-3.5 shrink-0" />
                         <span>
+                            {/* ⚠️ To the paise -- the rounded formatter ceils, and the gap this
+                                branch describes is USUALLY under a rupee, so it read "differs by
+                                ₹1" for 31 paise. */}
                             <span className="font-mono">{record.name}</span> differs by{" "}
-                            {formatToRoundedIndianRupee(Math.abs(verdict.difference))} — within the
+                            {formatToIndianRupee(Math.abs(verdict.difference))} — within the
                             accepted rounding tolerance, so this can be settled
                         </span>
                     </>
@@ -526,7 +529,7 @@ const RecordVerdict = ({
                         <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                         <span>
                             <span className="font-mono">{record.name}</span> differs by{" "}
-                            {formatToRoundedIndianRupee(Math.abs(verdict.difference))} — too far
+                            {formatToIndianRupee(Math.abs(verdict.difference))} — too far
                             apart to settle here. A deduction such as TDS looks like this; settle it
                             in the payments screen
                         </span>

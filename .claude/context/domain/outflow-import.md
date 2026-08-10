@@ -226,7 +226,12 @@ thing — one master table across every import at `/bulk-import-outflow` — and
 - **Three tabs — Pending / Settled / Skipped** — plus the per-row decision dialog, unchanged.
 - **The summary panel above summarises ONE import while the table spans all of them.** That is the
   design: "how did that statement go?" and "what do I still owe a decision on?" are different
-  questions. Every figure is a button that scopes the table to itself.
+  questions. ⚠️ **The status figures REPORT; they do not scope (owner ruling 2026-08-10).** They
+  used to be buttons that re-filtered the table to their own status set. Two things were wrong with
+  that: a panel describing ONE import silently rewrote the filters of a table spanning ALL of them,
+  and the click **moved the tab** as a side effect, so reading a figure navigated away from the work
+  in progress. The `SummaryTile.statuses` field and `tabForStatus` are deleted with the click —
+  scoping lives in the Status column's own filter, and nowhere else.
 - **The import dialog runs the match itself** and closes only when it is done — there is no case
   where somebody imports a statement and does not want it matched. A manual **Re-run match** stays
   on the summary, because re-running is normal (payments get hand-ticked all day). ⚠️ If the upload
@@ -238,6 +243,15 @@ thing — one master table across every import at `/bulk-import-outflow` — and
   records has nothing to confirm against and is listed read-only as "needs you". It loops **one call
   per row**, preserving the per-row savepoint isolation, and shows each row's **amount delta before
   the click** (since X1, confirming rewrites amounts).
+- ⚠️ **EVERY AMOUNT DELTA IS FORMATTED TO THE PAISE, never with `formatToRoundedIndianRupee`.** That
+  formatter `Math.ceil`s, and **nearly every correction this feature makes is sub-rupee** — 313 of
+  them on the first real statement, all under a rupee. Rounded, the confirm dialog's change notice
+  read `₹27,504 → ₹27,504`: a warning showing no change, on the screen where the reviewer is being
+  asked to authorise it; and the candidate tables read `off by ₹1` for a 31-paise gap. The three
+  delta/gap sites (`ConfirmAllMatchedDialog`'s before→after pair, `SettleableRecordTable`'s
+  `AmountMark`, `DecisionDialog`'s two "differs by" lines) use the exact `formatToIndianRupee`.
+  Plain amounts elsewhere keep the rounded form — the rule is about **differences**, where the
+  rounding is the entire signal.
 
 Everything that is not a React semantic lives in the pure `outflowTableModel.ts`, because
 there is **no DOM test environment in this repository, by deliberate choice**: the table, the dialog
@@ -293,14 +307,27 @@ browser walk.
 
 | Doctype | Holds |
 |---|---|
-| `Outflow Import Batch` | one uploaded statement: source, period, counters, `closed_at` |
+| `Outflow Import Batch` | one uploaded statement: source, period, counters |
 | `Outflow Import Row` | one staged transfer + its derived outcome, resolved vendor, and the match run's `suggested_doctype`/`suggested_name` |
 | `Outflow Row Match` | **settlements only** — a row here means money was written |
 
-Closing a batch is **bookkeeping, not a freeze**: it records `closed_at` and no longer changes the
-derived status (`Completed with exceptions` is retired). An abandoned row keeps its status and can
-still be settled afterwards. Closing does **not** convert open rows to `Skipped` — a skip is a
-DECISION, and auto-skipping would manufacture decisions nobody made.
+⚠️ **THERE IS NO "CLOSE IMPORT" (owner ruling 2026-08-10), and the reasoning is worth keeping so it
+is not re-added as an obvious gap.** Closing stamped `closed_at` / `closed_by` / `close_reason` on
+the batch and did nothing else: no row status changed, nothing froze, and once
+`Completed with exceptions` was retired it stopped feeding the derived batch status too. The screen
+showed a banner; no other code read the flag. At X3 an import stopped being a **place** — there is
+one master table across every import — so "close this import" no longer marks anything as finished
+with, and a control that writes three fields nobody reads is worse than no control, because people
+reasonably assume it must do something. `close_batch` / `reopen_batch` / `get_close_preview` and
+`CloseBatchDialog.tsx` are deleted; `test_close.py` went with them.
+
+**The three fields stay on the doctype.** Dropping them is a migrate that destroys the close history
+of every batch already closed, to save nothing. They are simply never written, and no longer
+returned by `get_import_summary` or `list_imports`.
+
+**Closing never converted open rows to `Skipped`** — a skip is a DECISION, and auto-skipping would
+have manufactured decisions nobody made. That reasoning outlives the feature and is why no future
+"finish this import" action may do it either.
 
 ---
 
@@ -329,7 +356,7 @@ DECISION, and auto-skipping would manufacture decisions nobody made.
 | Suite | How |
 |---|---|
 | pure services (8 modules, 245 tests) | `python -m unittest discover -s nirmaan_stack/services/outflow_import -t . -p "test_*.py"` — no bench needed |
-| api (`test_upload`/`test_review`/`test_expenses`/`test_settle_payment`/`test_close`) | `bench --site localhost run-tests --app nirmaan_stack --module nirmaan_stack.api.outflow_import.<module>` |
+| api (`test_upload`/`test_review`/`test_expenses`/`test_settle_payment`) | `bench --site localhost run-tests --app nirmaan_stack --module nirmaan_stack.api.outflow_import.<module>` |
 | frontend | `yarn test` (vitest, `node` environment — pure helpers only) |
 
 ⚠️ **Never run the bench suite and a browser session against localhost together** — they collide on

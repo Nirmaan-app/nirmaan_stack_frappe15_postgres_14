@@ -16,7 +16,7 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { formatDate } from "@/utils/FormatDate";
-import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 import { ledgerLabel, type ConfirmableRow, type ConfirmOutcome } from "../outflowTableModel";
 
@@ -263,17 +263,25 @@ export const ConfirmAllMatchedDialog = ({ batch, open, onOpenChange, onSettled }
                                                 {/* ⚠️ THE DELTA IS SHOWN BEFORE THE CLICK, NOT AFTER
                                                     (slice X1). Confirming REWRITES the record's
                                                     amount to the bank's, so a row that will change
-                                                    an approved figure has to say so here. */}
+                                                    an approved figure has to say so here.
+
+                                                    ⚠️ BOTH SIDES ARE FORMATTED TO THE PAISE, and
+                                                    the rounded formatter is WRONG here however
+                                                    tidy it looks. Nearly every correction this
+                                                    feature makes is sub-rupee -- 313 of them on
+                                                    the first real statement, all under a rupee --
+                                                    so rounding rendered the whole warning as
+                                                    "₹27,504 → ₹27,504": a change notice showing
+                                                    no change, on the one screen where the reviewer
+                                                    is being asked to authorise it. */}
                                                 {row.amount_changes ? (
                                                     <div className="flex items-center justify-end gap-1 text-xs">
                                                         <span className="text-muted-foreground line-through">
-                                                            {formatToRoundedIndianRupee(
-                                                                row.target_amount
-                                                            )}
+                                                            {formatToIndianRupee(row.target_amount)}
                                                         </span>
                                                         <ArrowRight className="h-3 w-3 text-amber-600" />
                                                         <span className="font-medium text-amber-700">
-                                                            {formatToRoundedIndianRupee(row.amount)}
+                                                            {formatToIndianRupee(row.amount)}
                                                         </span>
                                                     </div>
                                                 ) : (
