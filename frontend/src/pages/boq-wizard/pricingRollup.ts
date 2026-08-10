@@ -54,8 +54,12 @@ import { isRowIncomplete } from "./priceability";
 import { rollBcsSections, type BcsRollupResult } from "./bcsRollup";
 import {
   bcsRowQuantity,
-  bcsTotalAmount,
-  bcsUnitCost,
+  bcsTotalCell,
+  pickBcsTotalFormula,
+  pickBoqTotalFormula,
+  pickMarginCostFormula,
+  marginCostCell,
+  boqTotalAmount,
   mergeBcsRowValues,
   type BcsRateKind,
 } from "./bcsColumns";
@@ -67,6 +71,7 @@ import {
 } from "./reconcile";
 import { ROLE_LABELS } from "./boqTypes";
 import type {
+  AmountFormulaNode,
   AmountFormulaRef,
   BcsRateField,
   BcsRowRate,
@@ -101,6 +106,10 @@ export interface BcsRollupInput {
   qtySource: BcsSource | null;
   /** The confirmed AMOUNT source. Its columns ARE the tendered denominator. */
   amountSource: BcsSource | null;
+  /** BCS-S9: the sheet's declared BCS Total formula, or null/absent for the built-in
+   *  `(cost boxes) x quantity`. MUST be the same tree the grid is given -- the whole point of
+   *  routing both through `bcsTotalCell` is that the panel and the grid agree. */
+  totalFormula?: AmountFormulaNode | null;
 }
 
 /** One amount column in the rollup -- mirrors one amount-bearing descriptor on the sheet. */
@@ -160,7 +169,7 @@ export interface RollupResult {
   /** Per-column reconciliation failures (Option 1 vs Option 2). Empty = clean. */
   integrityErrors: IntegrityError[];
   /**
-   * BCS-S5: the PARALLEL cost/tendered/% Profit structure -- null when BCS is not set up on the
+   * BCS-S5: the PARALLEL cost/tendered/% Margin structure -- null when BCS is not set up on the
    * version being viewed.
    *
    * ⚠️ IT IS PARALLEL TO `columns`, NEVER PART OF IT, AND THAT IS STRUCTURAL. Every `RollupColumn`
@@ -412,18 +421,70 @@ export function rollupByParent(
   if (bcsInput) {
     const bcsRowByIdx = new Map<number, number | null>();
     for (const r of rows) {
-      const qty = bcsRowQuantity(bcsInput.qtySource, (e) => resolveDescriptorValue(r, e));
+      const qty = bcsRowQuantity(
+        bcsInput.qtySource,
+        (e) => resolveDescriptorValue(r, e),
+        columnDescriptors,
+      );
       const merged = mergeBcsRowValues(
         bcsInput.ratesByExcelRow.get(r.source_row_number),
         NO_BCS_DRAFTS,
       );
-      bcsRowByIdx.set(r.row_index, bcsTotalAmount(qty, bcsUnitCost(merged, bcsInput.kinds)));
+      // BCS-S9: the SHARED `bcsTotalCell` -- the same function the grid's cell comes from, so
+      // an edited formula moves both surfaces together. `cost` here is a number-or-null, so the
+      // discriminated cell is unwrapped: a blank (uncosted / no quantity) stays null, which is
+      // exactly what `rollBcsSections` needs to keep "absent" apart from "zero".
+      const resolveSheetColumn = (ref: AmountFormulaRef): number | null => {
+        const raw = resolveDescriptorValue(r, ref as unknown as ColumnDescriptor);
+        return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
+      };
+      const cell = bcsTotalCell(
+        bcsInput.totalFormula ?? pickBcsTotalFormula(columnFormulas),
+        qty,
+        merged,
+        bcsInput.kinds,
+        resolveSheetColumn,
+      );
+      // BCS-S11: the section cost is the margin's NUMERATOR, so it must follow a re-pointed
+      // cost side exactly as the grid's does -- otherwise an edited numerator would move the
+      // grid's margin and leave the Summary panel's section margin on the old basis.
+      const costCell = marginCostCell(
+        pickMarginCostFormula(columnFormulas),
+        cell,
+        merged,
+        qty,
+        resolveSheetColumn,
+      );
+      bcsRowByIdx.set(r.row_index, costCell.kind === "value" ? costCell.value : null);
+    }
+    // BCS-S10: when the sheet declares a BOQ Total formula the section denominator must be the
+    // rolled PER-ROW figure, not the per-column sum -- see rollBcsSections' `ownTendered`. No
+    // formula -> undefined -> the column path, byte-identical to pre-S10.
+    const boqFormula = pickBoqTotalFormula(columnFormulas);
+    const boqByIdx = new Map<number, number | null>();
+    if (boqFormula) {
+      for (const r of rows) {
+        boqByIdx.set(
+          r.row_index,
+          // The SAME saved-only resolver every other rollup figure uses (formula precedence +
+          // reconciliation choice), so the section denominator and the panel's amount columns
+          // still come from one decision.
+          boqTotalAmount(
+            boqFormula,
+            bcsInput.amountSource,
+            (entry) =>
+              rowOwnAmount(r, entry as ColumnDescriptor, columnDescriptors, columnFormulas, choiceMap),
+            columnDescriptors,
+          ),
+        );
+      }
     }
     bcs = rollBcsSections(
       roots,
       (idx) => bcsRowByIdx.get(idx) ?? null,
       (bcsInput.amountSource?.columns ?? []).map((c) => c.col),
       grandTotals,
+      boqFormula ? (idx) => boqByIdx.get(idx) ?? null : null,
     );
   }
 

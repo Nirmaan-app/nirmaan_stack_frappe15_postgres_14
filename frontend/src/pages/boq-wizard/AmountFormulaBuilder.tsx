@@ -32,8 +32,10 @@ import {
   treeToTokens,
   wouldCreateCycle,
   type FormulaToken,
+  type OpToken,
 } from "./formulaTokens";
 import type {
+  AmountFormulaNode,
   AmountFormulaRef,
   AmountFormulaSaveArgs,
   ColumnDescriptor,
@@ -44,7 +46,28 @@ import type {
 const FN = "ƒ"; // the function mark used on the header label (f-hook)
 const MUL = "×"; // the multiply glyph
 
+/**
+ * The glyph each stored operator is DISPLAYED as -- a total map over the operator vocabulary,
+ * used by BOTH renderings (the one-line preview and the chip strip).
+ *
+ * ⚠️ A MAP, NOT A TERNARY, AND THAT IS THE POINT (F5). Both sites read `t.op === "*" ? MUL :
+ * "+"` before this slice, which is correct while `+` and `*` are the only operators and
+ * silently renders a `-` or a `/` AS A `+` the moment they are not. A formula shown as
+ * something other than what it computes is worse than one that fails to render, and the two
+ * sites drifting apart is worse again. Adding an operator without extending this map is a
+ * TYPE ERROR, because the key type is the token's own op union.
+ */
+export const OP_GLYPH: Record<OpToken["op"], string> = {
+  "+": "+",
+  "-": "−", // U+2212 MINUS SIGN -- reads as an operator beside x, unlike an ASCII hyphen
+  "*": MUL,
+  "/": "÷",
+};
+
 const AREA_BOUND_VALUE_FIELDS = new Set(["qty_by_area", "rate_by_area", "amount_by_area"]);
+
+/** The operator buttons, in the order they appear under the preview. */
+export const OP_BUTTONS: ReadonlyArray<OpToken["op"]> = ["+", "-", "*", "/"];
 
 type Mode = "default" | "override";
 
@@ -53,10 +76,39 @@ export function tokensToText(tokens: FormulaToken[]): string {
   return tokens
     .map((t) =>
       t.kind === "column" ? t.label
-        : t.kind === "op" ? (t.op === "*" ? MUL : "+")
+        : t.kind === "op" ? OP_GLYPH[t.op]
         : t.kind === "lparen" ? "(" : ")",
     )
     .join(" ");
+}
+
+/** The canonical group headings, in the order an amount column has always shown them. */
+const CANONICAL_PALETTE_GROUPS = ["Quantity", "Rate", "Amount"];
+
+/**
+ * The palette's group headings to render, IN ORDER -- derived from the palette itself.
+ *
+ * ⚠️ THIS WAS A HARDCODED `["Quantity", "Rate", "Amount"]` INLINE AT THE RENDER SITE, AND IT
+ * SHIPPED BROKEN. BCS-S9's cost chips were built into the palette array correctly and then
+ * dropped on the floor, because their group was not one of those three -- so the BCS Total
+ * builder opened offering only Total Quantity, with no way to name a cost at all. NOTHING
+ * FAILED: no type error, no empty-palette message (the array was not empty), just two silently
+ * missing buttons. Same failure class as the operator-glyph ternary this slice also replaced --
+ * a fixed list that quietly omits whatever it has not heard of.
+ *
+ * The canonical three keep their order and are emitted even when empty (the caller skips empty
+ * groups), so an amount column's palette is byte-unchanged; any other group follows in
+ * first-appearance order. A new group now renders BY EXISTING, which is the point.
+ *
+ * Pure + exported so it is unit-testable -- this repo has no DOM environment, so a helper left
+ * inline in the component would have stayed exactly as untestable as the bug it caused.
+ */
+export function paletteGroupOrder(
+  palette: ReadonlyArray<{ group: string }>,
+): string[] {
+  const out = [...CANONICAL_PALETTE_GROUPS];
+  for (const p of palette) if (!out.includes(p.group)) out.push(p.group);
+  return out;
 }
 
 interface AmountFormulaBuilderProps {
@@ -72,6 +124,29 @@ interface AmountFormulaBuilderProps {
   /** Save one column formula (null formula = clear). Withheld (undefined) when the sheet is
    *  locked/taken-over -> the label renders read-only. */
   onSave?: (args: AmountFormulaSaveArgs) => Promise<void>;
+  /**
+   * BCS-S9: REPLACE the descriptor-derived operand palette with an explicit one.
+   *
+   * The BCS Total Amount column is computed from operands that are NOT sheet columns -- the
+   * row's stored cost boxes and the sheet's confirmed BCS quantity -- so there are no
+   * descriptors to derive chips from. Supplying this switches the palette AND the label
+   * resolver (hydrating a stored tree needs to name those refs too).
+   *
+   * ⚠️ Absent = the amount-column behaviour, BYTE-UNCHANGED. Every existing call site passes
+   * nothing, so this component keeps doing exactly what it did for amount columns.
+   */
+  operands?: ReadonlyArray<{
+    ref: AmountFormulaRef;
+    label: string;
+    group: string;
+    /** BCS-S12b: LABEL-ONLY. Not offered as a chip, but still names a ref when hydrating a
+     *  stored formula -- see the palette note for why a retired operand still needs a name. */
+    hidden?: boolean;
+  }>;
+  /** BCS-S9: what an EMPTY stored formula opens showing. The BCS column has a built-in rule
+   *  that applies when nothing is stored, so the builder must open on THAT rule rather than on
+   *  a blank -- otherwise "no formula" would look like "no rule", which is false. */
+  seedTokensFrom?: AmountFormulaNode | null;
 }
 
 export function AmountFormulaBuilder({
@@ -80,6 +155,8 @@ export function AmountFormulaBuilder({
   descriptors,
   columnFormulas,
   onSave,
+  operands,
+  seedTokensFrom,
 }: AmountFormulaBuilderProps) {
   const [open, setOpen] = useState(false);
   // A per-area target offers the DEFAULT (all areas) vs THIS-AREA override toggle; a scalar
@@ -95,6 +172,16 @@ export function AmountFormulaBuilder({
   // Resolve a ref to a display label from the descriptor set. A wildcard (area-bound, value_key
   // null) matches by (value_field, rate_subkey) ignoring area and shows no area.
   const labelFor = (r: AmountFormulaRef): string => {
+    // BCS-S9: an explicit palette owns its own names -- its refs are not sheet columns, so the
+    // descriptor lookup below could never resolve them and would fall through to the raw
+    // value_field ("bcs_supply"), which is not a thing any user has seen.
+    const explicit = operands?.find(
+      (o) =>
+        o.ref.value_field === r.value_field &&
+        o.ref.value_key === r.value_key &&
+        o.ref.rate_subkey === r.rate_subkey,
+    );
+    if (explicit) return explicit.label;
     const isWildcard = r.value_key === null && AREA_BOUND_VALUE_FIELDS.has(r.value_field);
     const match = descriptors.find(
       (d) =>
@@ -139,7 +226,8 @@ export function AmountFormulaBuilder({
   useEffect(() => {
     if (!open) return;
     setError(null);
-    setTokens(existingForMode?.formula ? treeToTokens(existingForMode.formula, labelFor) : []);
+    const seed = existingForMode?.formula ?? seedTokensFrom ?? null;
+    setTokens(seed ? treeToTokens(seed, labelFor) : []);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, effectiveMode]);
 
@@ -159,7 +247,16 @@ export function AmountFormulaBuilder({
   const selfKey = refKey(tokenRefForMode(target, effectiveMode));
   const seen = new Set<string>();
   const palette: { ref: AmountFormulaRef; label: string; group: string }[] = [];
-  for (const d of descriptors) {
+  // BCS-S9: an explicit palette REPLACES the descriptor sweep entirely (its operands are not
+  // sheet columns). Absent -> the original loop, byte-unchanged.
+  const descriptorSource = operands ? [] : descriptors;
+  // ⚠️ HIDDEN ENTRIES ARE FILTERED HERE, NOT AT THE CALLER. They exist so a RETIRED operand
+  // still has a NAME: a formula stored before an operand left the palette must keep rendering
+  // its own words, not the raw `value_field`. That is exactly what broke when `bcs_qty` was
+  // retired at S12 -- an existing BCS Total formula started showing a chip reading "bcs_qty",
+  // which is not a thing anyone has ever seen on this screen.
+  if (operands) palette.push(...operands.filter((o) => !o.hidden));
+  for (const d of descriptorSource) {
     if (!OPERAND_VALUE_FIELDS.has(d.value_field)) continue;
     const r = tokenRefForMode(d, effectiveMode);
     const k = refKey(r);
@@ -174,6 +271,8 @@ export function AmountFormulaBuilder({
     palette.push({ ref: r, label: labelFor(r), group });
   }
   const paletteByGroup = (g: string) => palette.filter((p) => p.group === g);
+
+  const paletteGroups = paletteGroupOrder(palette);
 
   // ── save / clear ──────────────────────────────────────────────────────────
   const handleSave = async () => {
@@ -231,7 +330,9 @@ export function AmountFormulaBuilder({
   const applicablePreview = applicable?.formula
     ? tokensToText(treeToTokens(applicable.formula, labelFor))
     : null;
-  const badgeTitle = covered ? `${FN} = ${applicablePreview}` : "No amount formula yet";
+  const badgeTitle = covered
+    ? `${FN} = ${applicablePreview}`
+    : "Not configured yet";
   const badgeClass = cn(
     "inline-flex h-4 min-w-[1rem] items-center justify-center rounded border px-0.5 text-[10px] font-semibold leading-none shrink-0",
     covered
@@ -322,7 +423,7 @@ export function AmountFormulaBuilder({
                 </span>
               ) : (
                 <span key={i} className="px-0.5 text-[12px] font-medium text-foreground">
-                  {t.kind === "op" ? (t.op === "*" ? MUL : "+") : t.kind === "lparen" ? "(" : ")"}
+                  {t.kind === "op" ? OP_GLYPH[t.op] : t.kind === "lparen" ? "(" : ")"}
                 </span>
               ),
             )
@@ -352,12 +453,17 @@ export function AmountFormulaBuilder({
 
         {/* Operators + backspace */}
         <div className="mb-2 flex items-center gap-1">
-          <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => insert({ kind: "op", op: "+" })}>
-            +
-          </Button>
-          <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => insert({ kind: "op", op: "*" })}>
-            {MUL}
-          </Button>
+          {OP_BUTTONS.map((op) => (
+            <Button
+              key={op}
+              size="sm"
+              variant="outline"
+              className="h-7 px-2 text-xs"
+              onClick={() => insert({ kind: "op", op })}
+            >
+              {OP_GLYPH[op]}
+            </Button>
+          ))}
           <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => insert({ kind: "lparen" })}>
             (
           </Button>
@@ -377,7 +483,7 @@ export function AmountFormulaBuilder({
 
         {/* Column palette */}
         <div className="mb-2 max-h-44 overflow-auto rounded-md border border-border p-1.5">
-          {["Quantity", "Rate", "Amount"].map((g) => {
+          {paletteGroups.map((g) => {
             const items = paletteByGroup(g);
             if (items.length === 0) return null;
             return (

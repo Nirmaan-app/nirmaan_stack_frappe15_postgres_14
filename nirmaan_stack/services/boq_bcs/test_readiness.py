@@ -122,15 +122,32 @@ class TestReadinessRule(_BcsReadinessFixture):
         frappe.db.commit()
         self.assertFalse(bcs_is_ready(self.boq, self.SHEET, self.CV))
 
-    def test_an_unconfirmed_quantity_column_is_not_ready(self):
-        frappe.db.set_value(_BOQ_SHEET, self.sheet_row, "bcs_qty_source", None,
-                            update_modified=False)
-        frappe.db.commit()
-        self.assertFalse(bcs_is_ready(self.boq, self.SHEET, self.CV))
+    def test_an_unconfirmed_column_no_longer_blocks_readiness(self):
+        """BCS-S12 (owner 2026-08-07): readiness is EXACTLY `bcs_enabled`.
 
-    def test_an_unconfirmed_amount_column_is_not_ready(self):
-        frappe.db.set_value(_BOQ_SHEET, self.sheet_row, "bcs_amount_source", None,
-                            update_modified=False)
+        ⚠️ THIS REPLACED TWO TESTS asserting the opposite -- that clearing either
+        `bcs_qty_source` or `bcs_amount_source` made the sheet not-ready. The BCS dialog's two
+        column pickers were removed in the same ruling (the quantity and amount a sheet measures
+        against are chosen in the BCS Total / % Margin formula dialogs now), and the condition
+        had to go WITH them: with nothing writing those confirmations, requiring them would
+        leave readiness permanently FALSE, and `save_row_bcs_rates` refuses every cost write
+        while it is -- so BCS would switch on and stay silently read-only forever.
+
+        Re-adding the requirement means re-adding the pickers in the SAME edit."""
+        for field in ("bcs_qty_source", "bcs_amount_source"):
+            frappe.db.set_value(_BOQ_SHEET, self.sheet_row, field, None, update_modified=False)
+        frappe.db.commit()
+        self.assertTrue(
+            bcs_is_ready(self.boq, self.SHEET, self.CV),
+            "with both confirmations cleared, an ENABLED sheet is still ready since S12",
+        )
+
+    def test_enablement_is_still_the_whole_gate_in_both_directions(self):
+        """The other half of the same rule: with the confirmations gone, `bcs_enabled` is the
+        only thing left that can say no -- so it must still be able to."""
+        for field in ("bcs_qty_source", "bcs_amount_source"):
+            frappe.db.set_value(_BOQ_SHEET, self.sheet_row, field, None, update_modified=False)
+        frappe.db.set_value(_BOQ_SHEET, self.sheet_row, "bcs_enabled", 0, update_modified=False)
         frappe.db.commit()
         self.assertFalse(bcs_is_ready(self.boq, self.SHEET, self.CV))
 

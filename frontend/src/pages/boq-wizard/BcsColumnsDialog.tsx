@@ -2,7 +2,7 @@
  * BcsColumnsDialog -- the BCS two-column confirmation card (slice BCS-S2).
  *
  * BCS records what a row costs US against what we charge the CLIENT. To compute a Total Amount
- * and a % Profit it needs two numbers off the committed sheet -- the row's Total Quantity and
+ * and a % Margin it needs two numbers off the committed sheet -- the row's Total Quantity and
  * the Amount charged -- and neither sits on a fixed column across BoQs. This card is where a
  * human says which columns hold them, once per sheet+version.
  *
@@ -19,7 +19,7 @@
  *
  * WHICH MAKES THE VALIDITY LINE THE SAFETY, NOT DECORATION. "Adapt and disclose, never refuse":
  * because a one-sided sheet is now accepted, the line under each side STATES THE FORMULA IN
- * FORCE ("% Profit is measured against the Supply amount alone (column G). Installation is not
+ * FORCE ("% Margin is measured against the Supply amount alone (column G). Installation is not
  * included."). A sheet measured against half its amount otherwise looks exactly like one
  * measured against all of it. Never demote that line to a hint, and never truncate it.
  *
@@ -36,7 +36,7 @@
  * supersede and nothing on this path removes one. Readiness simply goes false meanwhile. That
  * makes it the Lock/Unlock shape, not the Freeze shape.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import {
   Dialog,
@@ -47,257 +47,104 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import { getFrappeError } from "@/utils/frappeErrors";
-import type { BcsSource, ColumnDescriptor } from "./boqTypes";
-import {
-  bcsColumnLabel,
-  bcsSelectionSaveable,
-  bcsSourceCols,
-  bcsStoredSummary,
-  buildBcsDescriptorIndex,
-  eligibleBcsColumns,
-  validateBcsPicks,
-  type BcsSide,
-} from "./bcsColumns";
 
 interface BcsColumnsDialogProps {
   open: boolean;
-  /** The sheet this confirmation belongs to (display text only -- trimmed by the caller). */
+  /** The sheet this switch belongs to (display text only -- trimmed by the caller). */
   sheetLabel: string;
-  /** Every mapped column of the COMMITTED sheet -- the same set the server validates against. */
-  descriptors: ColumnDescriptor[];
-  /** The stored confirmations, so re-opening the card shows what is already chosen. */
-  qtySource: BcsSource | null;
-  amountSource: BcsSource | null;
+  /** Is BCS currently on for this sheet+version? Drives which action the dialog offers. */
+  enabled: boolean;
   onClose: () => void;
-  /** POST confirm_bcs_columns. Throws on a server refusal; the message is shown inline. */
-  onSave: (qtyCols: string[], amountCols: string[]) => Promise<void>;
+  /** POST set_bcs_enabled(1). */
+  onEnable: () => Promise<void>;
   /** POST set_bcs_enabled(0). Non-destructive -- see the module docblock. */
   onDisable: () => Promise<void>;
-}
-
-/** One side's chip list + validity line. Pure presentation over the pure rules. */
-function SideSection({
-  side,
-  heading,
-  hint,
-  columns,
-  picks,
-  onToggle,
-  validity,
-  storedSummary,
-  disabled,
-}: {
-  side: BcsSide;
-  heading: string;
-  hint: string;
-  columns: ColumnDescriptor[];
-  picks: string[];
-  onToggle: (col: string) => void;
-  validity: ReturnType<typeof validateBcsPicks>;
-  /** The formula CURRENTLY saved, read from the stored mode. "" when nothing is stored. */
-  storedSummary: string;
-  disabled: boolean;
-}) {
-  // Show what is saved only when it differs from what is about to be saved -- otherwise the two
-  // lines are the same sentence twice. When they differ, the user is replacing one formula with
-  // another and ought to see both.
-  const liveSummary = validity.ok ? validity.summary : "";
-  const showStored = storedSummary !== "" && storedSummary !== liveSummary;
-  return (
-    <div className="space-y-2">
-      <div>
-        <p className="text-sm font-medium text-foreground">{heading}</p>
-        <p className="text-xs text-muted-foreground">{hint}</p>
-      </div>
-
-      {columns.length === 0 ? (
-        // An honest dead end: the sheet maps nothing this side can use. Saying so beats an
-        // empty box the user will read as a loading state.
-        <p className="text-xs text-destructive">
-          This sheet has no {side === "qty" ? "quantity" : "Amount"} column mapped, so BCS cannot
-          read {side === "qty" ? "a quantity" : "an amount"} from it.
-        </p>
-      ) : (
-        <div className="flex flex-wrap gap-1.5">
-          {columns.map((d) => {
-            const picked = picks.includes(d.col);
-            return (
-              <button
-                key={d.col}
-                type="button"
-                disabled={disabled}
-                aria-pressed={picked}
-                onClick={() => onToggle(d.col)}
-                className={cn(
-                  "rounded-md border px-2 py-1 text-xs transition-colors disabled:opacity-50",
-                  picked
-                    ? "border-primary bg-primary/10 font-semibold text-foreground"
-                    : "border-border text-muted-foreground hover:text-foreground",
-                )}
-              >
-                <span className="font-mono">{d.col}</span>
-                <span className="mx-1 opacity-50">—</span>
-                {bcsColumnLabel(d)}
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      {/* THE DISCLOSURE LINE. Two jobs in one place: when the pick is invalid it is the CARD's
-          voice for the server's refusal set, so the user never gets as far as a thrown error for
-          something knowable here; when the pick is VALID it states the formula that will actually
-          be in force. The second job is the owner's safety mechanism for accepting one-sided
-          sheets -- see the module docblock. */}
-      <p className={cn("text-xs", validity.ok ? "text-muted-foreground" : "text-destructive")}>
-        {validity.ok ? validity.summary : validity.message}
-      </p>
-
-      {/* What is saved RIGHT NOW, read from the stored confirmation's own mode -- never
-          recomputed from its columns, because the server decided that mode and will compute
-          from it. Shown only while the selection would change it, so replacing one formula with
-          another is a visible act rather than a silent one. */}
-      {showStored && (
-        <p className="text-xs text-muted-foreground">
-          <span className="font-medium">Currently saved:</span> {storedSummary}
-        </p>
-      )}
-    </div>
-  );
 }
 
 export function BcsColumnsDialog({
   open,
   sheetLabel,
-  descriptors,
-  qtySource,
-  amountSource,
+  enabled,
   onClose,
-  onSave,
+  onEnable,
   onDisable,
 }: BcsColumnsDialogProps) {
-  const [qtyPicks, setQtyPicks] = useState<string[]>([]);
-  const [amountPicks, setAmountPicks] = useState<string[]>([]);
-  const [saving, setSaving] = useState(false);
-  const [disabling, setDisabling] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Hydrate from the stored confirmation whenever the card (re)opens, so re-opening shows what
-  // is already chosen rather than a blank slate. Keyed on `open` only -- a mid-edit refetch must
-  // not stomp the user's in-progress picks.
   useEffect(() => {
-    if (!open) return;
-    setQtyPicks(bcsSourceCols(qtySource));
-    setAmountPicks(bcsSourceCols(amountSource));
-    setError(null);
-    setSaving(false);
-    setDisabling(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (open) setError(null);
   }, [open]);
 
-  const index = useMemo(() => buildBcsDescriptorIndex(descriptors), [descriptors]);
-  const qtyColumns = useMemo(() => eligibleBcsColumns("qty", descriptors), [descriptors]);
-  const amountColumns = useMemo(() => eligibleBcsColumns("amount", descriptors), [descriptors]);
-
-  const qtyValidity = validateBcsPicks("qty", qtyPicks, index);
-  const amountValidity = validateBcsPicks("amount", amountPicks, index);
-  // The formula CURRENTLY in force, taken from each stored confirmation's own `mode`. Never
-  // re-derived from its columns: the server decided that mode and BCS-S3 will compute from it,
-  // so a client that recomputed could quietly disclose a formula that is not the one running.
-  const qtyStoredSummary = bcsStoredSummary(qtySource);
-  const amountStoredSummary = bcsStoredSummary(amountSource);
-  const busy = saving || disabling;
-  const canSave = !busy && bcsSelectionSaveable(qtyValidity, amountValidity);
-
-  const toggle = (side: BcsSide, col: string) => {
-    const setPicks = side === "qty" ? setQtyPicks : setAmountPicks;
-    setPicks((prev) => (prev.includes(col) ? prev.filter((c) => c !== col) : [...prev, col]));
-  };
-
-  const handleSave = async () => {
-    if (!canSave) return;
-    setSaving(true);
+  const act = async () => {
+    setBusy(true);
     setError(null);
     try {
-      await onSave(qtyPicks, amountPicks);
+      await (enabled ? onDisable() : onEnable());
       onClose();
     } catch (e) {
-      // The server is the authority: if it refuses something the card thought was fine, its
-      // words are what the user sees -- never a generic message that hides the real reason.
-      setError(getFrappeError(e) || "Could not save the BCS columns. Please try again.");
-      setSaving(false);
-    }
-  };
-
-  const handleDisable = async () => {
-    setDisabling(true);
-    setError(null);
-    try {
-      await onDisable();
-      onClose();
-    } catch (e) {
-      setError(getFrappeError(e) || "Could not turn BCS off. Please try again.");
-      setDisabling(false);
+      setError(getFrappeError(e) || "Could not change the BCS setting. Please try again.");
+    } finally {
+      setBusy(false);
     }
   };
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o && !busy) onClose(); }}>
-      <DialogContent className="max-w-lg">
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>BCS columns — {sheetLabel}</DialogTitle>
+          <DialogTitle>BCS — {sheetLabel}</DialogTitle>
           <DialogDescription>
-            BCS compares what each row costs us against what we charge the client. Tell it which
-            columns on this sheet hold the row&apos;s total quantity and the amount charged. Where
-            a sheet splits a number across areas, pick every area column — they are added up.
+            {enabled
+              ? "BCS is ON for this sheet. The cost columns are shown and cost rates can be entered."
+              : "BCS is OFF for this sheet. Turn it on to record what the work costs us alongside what we charge."}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
-          <SideSection
-            side="qty"
-            heading="Total Quantity"
-            hint="The sheet's one Total Quantity column, or the per-area quantity columns that add up to it."
-            columns={qtyColumns}
-            picks={qtyPicks}
-            onToggle={(col) => toggle("qty", col)}
-            validity={qtyValidity}
-            storedSummary={qtyStoredSummary}
-            disabled={busy}
-          />
-          <SideSection
-            side="amount"
-            heading="Amount charged to the client"
-            hint="The sheet's combined Amount, the per-area Amount columns that add up to it, or its Supply and Installation amounts."
-            columns={amountColumns}
-            picks={amountPicks}
-            onToggle={(col) => toggle("amount", col)}
-            validity={amountValidity}
-            storedSummary={amountStoredSummary}
-            disabled={busy}
-          />
-        </div>
+        {/* Where the quantity and amount choices went (BCS-S12). This dialog used to carry two
+            column pickers; both now live in the formula dialogs on the columns they feed, which
+            name the sheet's real columns with their Excel letters. Saying it here means someone
+            looking for the old pickers is not left hunting. */}
+        <p className="text-[12px] text-muted-foreground">
+          Which quantity and which amount this sheet measures against is set in the{" "}
+          <span className="font-medium text-foreground">ƒ</span> on{" "}
+          <span className="font-medium text-foreground">BCS Total Amount</span> and{" "}
+          <span className="font-medium text-foreground">% Margin</span>.
+        </p>
 
-        {error && <p className="text-xs text-destructive">{error}</p>}
+        {/* Turning BCS off is NON-DESTRUCTIVE, which is why there is no confirm step: it writes
+            one flag. Every stored cost row and both formulas are preserved, so turning it back
+            on restores the sheet exactly. */}
+        {enabled && (
+          <p className="text-[12px] text-muted-foreground">
+            Turning it off hides the cost columns. Nothing is deleted — costs and formulas are
+            kept, and come back if you turn it on again.
+          </p>
+        )}
+
+        {error && <p className="text-[12px] text-destructive">{error}</p>}
 
         <DialogFooter className="sm:justify-between">
-          {/* Turning BCS off keeps these columns and any cost rates already entered -- so it is a
-              direct action, not a confirm-first one (see the module docblock). */}
-          <Button variant="outline" onClick={handleDisable} disabled={busy} title="Hide the BCS cost section. Your columns and any cost rates are kept.">
-            {disabling ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            Turn BCS off
+          <Button variant="ghost" onClick={onClose} disabled={busy}>
+            Cancel
           </Button>
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" onClick={onClose} disabled={busy}>
-              Cancel
-            </Button>
-            <Button onClick={handleSave} disabled={!canSave}>
-              {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Save columns
-            </Button>
-          </div>
+          <Button
+            variant={enabled ? "destructive" : "default"}
+            onClick={act}
+            disabled={busy}
+          >
+            {busy ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Working…
+              </>
+            ) : enabled ? (
+              "Turn BCS off"
+            ) : (
+              "Turn BCS on"
+            )}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

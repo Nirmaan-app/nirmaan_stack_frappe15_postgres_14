@@ -1301,7 +1301,7 @@ in the codebase**; do not invent an expansion for it.
 
 The cost side of a committed BoQ sheet: hand-typed cost rates per row representing what the work
 costs **us**, sitting against the BoQ amount we charge the **client**. From those inputs the screen
-computes *BCS Total Amount* (quantity × cost) and *% Profit*.
+computes *BCS Total Amount* (quantity × cost) and *% Margin*.
 
 **Three cost inputs are stored, and which of them a sheet uses is the SCREEN's decision, not the
 backend's** (owner ruling): a sheet that splits its quote carries a Supply Rate and an Installation
@@ -1348,7 +1348,7 @@ CONFIRMED column sources, stored as re-resolvable dicts rather than re-guessed),
 
 ### ⚠️ Three owner-locked properties — the reason this is its own module
 
-**1. ONLY THE INPUT RATES PERSIST.** Total Amount and % Profit are ALWAYS computed downstream from
+**1. ONLY THE INPUT RATES PERSIST.** Total Amount and % Margin are ALWAYS computed downstream from
 the stored rates plus the sheet's confirmed quantity/amount columns. A stored copy could disagree
 with the live sheet, so there is deliberately **no column for either**.
 
@@ -1464,6 +1464,151 @@ provenance fields were provisioned at S1.
 - **Default OFF in the client, never in the server.** An omitted `layers` payload is rates-only, so a
   client that never learned about `bcs_costs` keeps the earlier behaviour exactly. ON is the
   exception, not the rule, and an internal cost rate is the last layer on which to relax that.
+
+### BCS-S9 — BCS Total Amount as a formula TARGET, and what it cost the export boundary
+
+`BCS Total Amount`'s rule (`quantity × summed cost boxes`) was hardcoded in the frontend, so it
+could be neither seen nor varied per sheet. It is now a declarable formula.
+
+- **NO NEW SCHEMA.** It reuses `BoQ Cell Amount Formula` with `target_value_field = "bcs_total"`
+  (`pricing._BCS_TOTAL_TARGET` / `_BCS_TARGET_FIELDS`). No doctype change, no migrate, and it
+  rides the `column_formulas` payload + `save_amount_formula` that already existed.
+- **`save_amount_formula` branches for it:** a BCS target SKIPS the committed-column match (BCS
+  Total is screen-only — requiring a column would reject every BCS formula), refuses a non-null
+  `target_value_key` / `target_rate_subkey` (no area or kind axis), and **forces `target_col` to
+  NULL**.
+- **New operand vocabulary** `_BCS_OPERAND_FIELDS` = `bcs_supply` / `bcs_install` /
+  `bcs_combined` / `bcs_qty`. None resolves through `column_role_map` — the first three come from
+  the row's `BoQ Row BCS Rate`, the last from the sheet's confirmed BCS quantity source.
+
+⚠️ **THIS IS WHERE THE EXPORT BOUNDARY STOPPED BEING STRUCTURAL. READ BEFORE TOUCHING EITHER SET.**
+
+Property 3 above says BCS never reaches `export_priced_workbook`, and that the exclusion holds
+**by construction** — BCS lived in its own doctype, so the formula layer had no way to *name* a
+cost. **S9 gives the shared formula vocabulary BCS operands, so construction no longer does the
+work on its own.** Two DIRECTIONAL rules in `_validate_formula_operands` now do it:
+
+    a bcs_total target may use ONLY _BCS_OPERAND_FIELDS  -- it cannot reach into sheet data;
+    an amount  target may use NONE of them               -- cost cannot reach a client column.
+
+**The second is the one that matters, and it is not theoretical.** An amount column's computed
+VALUE is what the export writes, so a cost operand inside a client amount formula would leak the
+cost as a **NUMBER** — invisible to any audit of the export's field list, which is exactly the
+audit the old by-construction argument rested on. Both directions run on EVERY save (the amount
+side too, though nothing on that side changed) and are pinned by their own tests. **Do not relax
+either "for symmetry".**
+
+Because enforcement replaced construction, the export carries a **SECOND, INDEPENDENT STOP**:
+`export_template_workbook.resolve_target_col` returns `None` unconditionally for a target in
+`_INTERNAL_ONLY_TARGETS`, **before** either resolution path — so even a record whose `target_col`
+somehow survived non-null cannot be placed. One enforcement point for a leak of this kind is not
+enough; keep both.
+
+### BCS-S10 / S11 — the % Margin operands became formula targets too
+
+`% Margin = (1 − cost / amount) × 100`. Both operands are now declarable; **the RATIO is not.**
+
+| Target | Means | May name |
+|---|---|---|
+| `bcs_total` | BCS Total Amount | `_BCS_OPERAND_FIELDS` — the cost boxes, plus the sheet's qty columns |
+| `boq_total` (S10) | the margin's DENOMINATOR ("BOQ Total") | `_BOQ_OPERAND_FIELDS` = the sheet's Amount columns |
+| `bcs_margin_cost` (S11) | the margin's NUMERATOR | `_MARGIN_COST_OPERAND_FIELDS` = BCS operands **+ `bcs_total`** |
+
+`_TARGET_OPERAND_WHITELIST` is the one table driving `_validate_formula_operands`; every other
+(amount) target may name none of the BCS fields. All three are in `_BCS_TARGET_FIELDS` (screen-only
+→ `target_col` forced NULL) and in the export's `_INTERNAL_ONLY_TARGETS`.
+
+⚠️ **`bcs_total` IS BOTH A TARGET AND AN OPERAND, deliberately.** Choosing "BCS Total Amount" as the
+margin's cost must mean *whatever that column currently computes*, not a frozen copy of the rule it
+had when the margin was configured — so the numerator resolves it live, through its own formula.
+
+⚠️ **THE RATIO'S SHAPE STAYS IN CODE, AND NOT OUT OF CAUTION — IT IS INEXPRESSIBLE.** `(1 − … / …)
+× 100` needs the literals `1` and `100`, and `_validate_formula_structure` rejects a `literal` node
+outright ("Numeric literals are not allowed in a formula") — a rule that exists so nobody writes
+`Total Quantity × 450` in place of a rate reference. Keeping the wrapper in code is also what keeps
+`bcsMarginPercent`'s three guards unbypassable: zero denominator, non-finite, and a **NEGATIVE**
+denominator, which flips the inequality so −100 charged against 50 cost computes as **+150%** — a
+loss displayed as a profit. **Do not add a `bcs_margin` target.**
+
+### ⚠️ BCS-S12b — the two-operand-set bug, and what it says about the backend suite
+
+**S12 folded the sheet's qty value_fields into `_BCS_OPERAND_FIELDS`, the single set BOTH
+directional rules read. The leak rule then refused `qty_total` on an AMOUNT target as though it
+were internal cost — so `Total Quantity × Rate`, the canonical amount formula, became unsaveable
+on every sheet, with an error message about BCS cost that had nothing to do with what the user
+had built.** There are now two sets and they must stay two:
+
+- `_BCS_ONLY_OPERAND_FIELDS` — what an AMOUNT target may NEVER name (the internal cost figures);
+- `_BCS_OPERAND_FIELDS` — what a BCS target MAY name: the above **plus** the qty columns.
+
+The two rules point in opposite directions, so they cannot share a set.
+
+⚠️ **NOTHING ON THE FRONTEND CAUGHT THIS**, and nothing could: 1356 vitest tests and a clean
+`tsc` stayed green throughout, because the rule lives server-side. It surfaced the moment the
+backend suite ran, as a `setUpClass` error — which had also been **masking 15 further tests**
+(64 ran, 79 after the fix). Treat a `setUpClass` error as a suite-wide outage, not one failure.
+
+⚠️ **THE BACKEND SUITE HAD BEEN UNRUNNABLE FOR THE WHOLE ARC** — `import anthropic` failed at
+module load (the package is a declared dependency in `pyproject.toml`; the container simply
+lacked it). Every slice from F5 to S12 was written against a frontend suite alone. If the import
+breaks again, fix it before writing code, not after.
+
+### BCS-S12 — the two column pickers were removed, and readiness relaxed WITH them
+
+Owner ruling 2026-08-07. The BCS dialog is now a switch: *Turn BCS on* / *Turn BCS off* / Cancel.
+Which quantity and which amount a sheet measures against is chosen in the two formula dialogs,
+which name the sheet's REAL columns (with Excel letters) instead of a separate confirmation.
+
+⚠️ **`bcs_is_ready` IS NOW JUST `bcs_enabled`, AND THE TWO CHANGES MUST NEVER BE SEPARATED.**
+`save_row_bcs_rates` refuses every cost write while readiness is false. With no UI writing
+`bcs_qty_source` / `bcs_amount_source`, re-adding the confirmation requirement would make readiness
+permanently FALSE — BCS would switch on and stay silently read-only forever, with no message
+anywhere saying why. Re-adding the condition requires re-adding the pickers in the same edit.
+
+- `_QTY_VALUE_FIELDS` (`qty_total` / `qty_by_area`) joined `_BCS_OPERAND_FIELDS`, so a BCS formula
+  names the sheet's real quantity column. **`bcs_qty` is RETAINED** — formulas stored before S12
+  still resolve through the old confirmation.
+- **`confirm_bcs_columns` still exists and both JSON fields are still stored and read** (as the
+  built-in defaults' seed on pre-S12 sheets). Nothing is orphaned and no sheet's numbers moved.
+  `services/boq_bcs/sources.py` + `parity_cases.json` therefore stay live — do not delete them as
+  dead code; the endpoint is still their caller.
+
+### F5 — the operator vocabulary widened to `+ − × ÷`
+
+`_FORMULA_OPS` (was `{"+", "*"}`). ⚠️ **Operand ORDER became load-bearing:** `+`/`*` are
+commutative so nothing downstream ever had reason not to reorder an `operands` list, but for
+`-`/`/` the list order IS the arithmetic (`{"op":"-","operands":[a,b,c]}` means `((a−b)−c)`). Any
+future pass over a stored tree must preserve it. `_validate_formula_structure` stays STRUCTURAL —
+it does not fold operands, so a **zero divisor is not its business**; that is the frontend
+evaluator's refusal, exactly as cycle detection has always been F2's rather than F1's.
+
+⚠️ **`export_template_workbook._OP_INFIX` MUST STAY IN STEP WITH `_FORMULA_OPS`.** An operator
+missing from that map makes `ast_to_excel` return `None`, which fails SAFE (a blank amount cell)
+but **silently drops a formula the sheet really has**. This was missed in the F5 plan and caught
+only while building. Left-associativity needs no special handling there — `ast_to_excel` wraps
+every operator node in its own parentheses, so `(A5-B5-C5)` and `(A5-(B5+C5))` both read in Excel
+exactly as the evaluator folds them.
+
+⚠️ **THREE TESTS USED `"-"` AS THEIR EXAMPLE OF AN *UNSUPPORTED* OPERATOR** (the frontend
+evaluator, `test_pricing`, `test_export_writeback`) and all three had to move to `"^"`. Note the
+`test_export_writeback` one in particular: it asserted `ast_to_excel({"op": "/", "operands": []})`
+is `None`, which would have **kept passing for the wrong reason** after `/` was promoted — the
+empty operands list, not the operator, was doing the work. It now covers both arms.
+
+### The `ast`-not-grep tripwire rule got its second proof (BCS-S12b)
+
+`test_bcs_module_never_touches_the_client_facing_rate_gate` was a substring grep, and it went red
+against a **comment** in `pricing.py` that merely named the BCS doctype while explaining where
+cost operands come from — exactly the failure this doc predicted ("it fires on the comment warning
+against the thing, and the only way back to green is to delete the explanation").
+
+It is now `ast`-based and asks the real questions: does pricing.py IMPORT the bcs module, does it
+NAME `bcs_is_ready` / `_guard_bcs_ready`, does it address `"BoQ Row BCS Rate"` as a string
+constant in CODE. Comments are invisible to it in both directions.
+
+⚠️ **Its scope also had to NARROW.** Since S9 pricing.py legitimately knows the BCS formula target
+tokens and their operand vocabulary — knowing a target name is not calling the readiness gate. A
+blanket "no BCS strings anywhere in pricing.py" would forbid the formula layer the owner asked for.
 
 ### Structural tripwires guarding all of the above
 

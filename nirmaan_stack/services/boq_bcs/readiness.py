@@ -80,8 +80,21 @@ def _parse_json_value(value, default):
 
 
 def bcs_is_ready(boq_name, sheet_name, committed_version) -> bool:
-    """THE readiness condition, defined ONCE and used by every BCS path: BCS is enabled for this
-    sheet+version AND both columns have been confirmed.
+    """THE readiness condition, defined ONCE and used by every BCS path: BCS is ENABLED for this
+    sheet+version. That is now the whole of it.
+
+    ⚠️ IT USED TO ALSO REQUIRE BOTH COLUMN CONFIRMATIONS, and the owner removed that at BCS-S12
+    (2026-08-07) together with the two pickers that produced them. The quantity and amount a
+    sheet measures against are now chosen IN THE TWO FORMULA DIALOGS -- the BCS Total ƒ and the
+    % Margin ƒ -- which name the sheet's real columns directly, with their Excel letters. A
+    separate up-front confirmation of the same thing was a second place to say it.
+
+    ⚠️ THE OLD CONDITION MUST NOT BE PUT BACK WITHOUT THE PICKERS. The two moved together on
+    purpose: with no UI writing `bcs_qty_source` / `bcs_amount_source`, requiring them would
+    make readiness permanently FALSE, and `save_row_bcs_rates` refuses every cost write while it
+    is -- so BCS would switch on and stay silently read-only forever, with no message anywhere
+    saying why. Those two columns are still READ (as the built-in defaults' seed on sheets
+    configured before S12) and still stored; they are simply no longer a gate.
 
     A pure read -- never mutates, never throws for a missing sheet (an uncommitted or
     re-committed-away version is simply not ready). sheet_name VERBATIM (#152).
@@ -119,11 +132,5 @@ def bcs_is_ready(boq_name, sheet_name, committed_version) -> bool:
     )
     if not name:
         return False
-    row = frappe.db.get_value(
-        _BOQ_SHEET, name, ["bcs_enabled", "bcs_qty_source", "bcs_amount_source"], as_dict=True
-    )
-    if not row or not row.get("bcs_enabled"):
-        return False
-    qty = _parse_json_value(row.get("bcs_qty_source"), None)
-    amount = _parse_json_value(row.get("bcs_amount_source"), None)
-    return bool(qty and qty.get("columns")) and bool(amount and amount.get("columns"))
+    row = frappe.db.get_value(_BOQ_SHEET, name, ["bcs_enabled"], as_dict=True)
+    return bool(row and row.get("bcs_enabled"))

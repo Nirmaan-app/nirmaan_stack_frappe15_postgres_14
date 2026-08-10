@@ -1098,15 +1098,46 @@ class TestBcsCombinedRate(_BcsEndpointBase):
 # ===========================================================================
 class TestBcsReadinessGate(_BcsEndpointBase):
 
-    def test_not_ready_until_both_enabled_and_confirmed(self):
+    def test_ready_is_exactly_enabled(self):
+        """BCS-S12 (owner 2026-08-07): readiness IS enablement.
+
+        ⚠️ THIS TEST REPLACED `test_not_ready_until_both_enabled_and_confirmed`, which asserted
+        the OPPOSITE -- that enabling alone was not enough and both columns had to be confirmed
+        first. The two column pickers were removed in the same ruling (the quantity and amount a
+        sheet measures against are chosen in the BCS Total / % Margin formula dialogs now), and
+        the condition had to go WITH them: with no UI writing those confirmations, requiring
+        them would leave readiness permanently FALSE, and `save_row_bcs_rates` refuses every
+        cost write while it is -- so BCS would switch on and stay silently read-only forever.
+
+        Anyone re-adding the confirmation requirement must re-add the pickers in the same edit."""
         self.assertFalse(bcs_is_ready(self.boq, self.sheet, self.cv))
         set_bcs_enabled(boq_name=self.boq, sheet_name=self.sheet,
                         committed_version=self.cv, enabled=1)
-        self.assertFalse(bcs_is_ready(self.boq, self.sheet, self.cv),
-                         "enabled alone is not ready -- the columns are unconfirmed")
+        self.assertTrue(bcs_is_ready(self.boq, self.sheet, self.cv),
+                        "enabling is the whole of readiness since BCS-S12")
+
+    def test_ready_without_any_confirmation_at_all(self):
+        """The S12 shape end to end: switch BCS on, and a cost write lands -- no confirmation
+        step anywhere. This is the regression that would fire if the old condition came back."""
+        set_bcs_enabled(boq_name=self.boq, sheet_name=self.sheet,
+                        committed_version=self.cv, enabled=1)
+        res = save_row_bcs_rates(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=10,
+            committed_version=self.cv, supply_rate=10.0, install_rate=2.0,
+        )
+        self.assertTrue(res["ok"])
+        self.assertEqual(len(self._current(10)), 1)
+
+    def test_a_stored_confirmation_does_not_change_readiness(self):
+        """Confirmations made BEFORE S12 are still stored and still read as the formula
+        defaults' seed -- but they are no longer a GATE. Enabled decides, either way."""
         confirm_bcs_columns(boq_name=self.boq, sheet_name=self.sheet,
                             committed_version=self.cv,
                             qty_cols=json.dumps(["D"]), amount_cols=json.dumps(["F"]))
+        self.assertFalse(bcs_is_ready(self.boq, self.sheet, self.cv),
+                         "confirmed but disabled is still not ready")
+        set_bcs_enabled(boq_name=self.boq, sheet_name=self.sheet,
+                        committed_version=self.cv, enabled=1)
         self.assertTrue(bcs_is_ready(self.boq, self.sheet, self.cv))
 
     def test_confirmed_but_disabled_is_not_ready(self):
@@ -1123,15 +1154,11 @@ class TestBcsReadinessGate(_BcsEndpointBase):
             )
         self.assertEqual(self._current(10), [], "a refused BCS write stores nothing")
 
-    def test_rate_write_refused_while_columns_are_unconfirmed(self):
-        set_bcs_enabled(boq_name=self.boq, sheet_name=self.sheet,
-                        committed_version=self.cv, enabled=1)
-        with self.assertRaises(frappe.ValidationError):
-            save_row_bcs_rates(
-                boq_name=self.boq, sheet_name=self.sheet, excel_row=10,
-                committed_version=self.cv, supply_rate=10.0, install_rate=2.0,
-            )
-        self.assertEqual(self._current(10), [])
+    # `test_rate_write_refused_while_columns_are_unconfirmed` was DELETED at BCS-S12 -- it
+    # asserted the behaviour that ruling removed. Its replacement is
+    # `test_ready_without_any_confirmation_at_all` above, which pins the opposite and is the
+    # regression guard if the confirmation requirement is ever reinstated without its pickers.
+    # `test_rate_write_refused_while_bcs_is_disabled` (above) still covers the surviving gate.
 
     def test_rate_write_succeeds_once_ready(self):
         self._make_ready()
@@ -1468,21 +1495,62 @@ class TestBcsDoesNotGateOrdinaryPricing(_BcsEndpointBase):
         )
 
     def test_bcs_module_never_touches_the_client_facing_rate_gate(self):
-        """OWNER-LOCKED: an unconfirmed BCS section must leave ordinary client-facing
+        """OWNER-LOCKED: a BCS section that is switched off must leave ordinary client-facing
         pricing fully editable. The BCS readiness predicate must therefore have NO caller
-        inside pricing.py -- structurally, not by convention."""
+        inside pricing.py -- structurally, not by convention.
+
+        ⚠️ READS THE MODULE THROUGH `ast`, NEVER A SUBSTRING GREP, and that distinction is
+        EARNED -- this test was a grep until BCS-S12 and it went red against a COMMENT that
+        merely named the BCS doctype while explaining where cost operands come from. A
+        presence-side grep fires on the prose warning against the thing, and the only way back
+        to green is to delete the explanation. `ast` asks the real questions -- does this module
+        IMPORT bcs? does it NAME the predicate? does it address the cost doctype in CODE? -- and
+        is blind to comments in both directions. This is the shape the domain doc already
+        prescribed for the next such tripwire; it is now this one too.
+
+        ⚠️ NOTE WHAT IS *NOT* ASSERTED, because S9 changed it: pricing.py legitimately knows the
+        BCS formula TARGET tokens now (`bcs_total`, `boq_total`, `bcs_margin_cost`) and their
+        operand vocabulary. Knowing a target name is not calling the readiness gate. Blanket
+        "no BCS strings anywhere" would forbid the formula layer that the owner asked for."""
+        import ast
         import inspect
 
         from nirmaan_stack.api.boq.wizard import pricing
 
-        src = inspect.getsource(pricing)
-        for token in ("bcs_is_ready", "_guard_bcs_ready", "BoQ Row BCS Rate",
-                      "import bcs", "wizard.bcs"):
+        tree = ast.parse(inspect.getsource(pricing))
+
+        imported: set = set()
+        named: set = set()
+        code_strings: set = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imported.update(a.name for a in node.names)
+            elif isinstance(node, ast.ImportFrom):
+                imported.add(node.module or "")
+                imported.update(f"{node.module}.{a.name}" for a in node.names)
+            elif isinstance(node, ast.Name):
+                named.add(node.id)
+            elif isinstance(node, ast.Attribute):
+                named.add(node.attr)
+            elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+                code_strings.add(node.value)
+
+        self.assertFalse(
+            [m for m in imported if m.endswith(".bcs") or m == "bcs"],
+            "pricing.py must not import the bcs endpoint module -- the BCS gate guards BCS "
+            "cells ONLY and must never reach the client-facing rate gate",
+        )
+        for fn in ("bcs_is_ready", "_guard_bcs_ready"):
             self.assertNotIn(
-                token, src,
-                f"pricing.py must not reference {token!r} -- the BCS gate guards BCS "
-                f"cells ONLY and must never reach the client-facing rate gate",
+                fn, named,
+                f"pricing.py must not call {fn!r} -- the BCS readiness gate must never reach "
+                f"the client-facing rate gate",
             )
+        self.assertNotIn(
+            "BoQ Row BCS Rate", code_strings,
+            "pricing.py must not address the BCS cost doctype in code (a comment naming it is "
+            "fine -- this check is deliberately blind to prose)",
+        )
 
 
 # ===========================================================================

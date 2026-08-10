@@ -196,7 +196,7 @@ const CARRY_PLAN_STATES = makeLoadStates({
  *
  * ⚠️ WHY THIS ONE WAS THE WORST OF THE FOUR. The page read `bcsRatesData?.message?.rows ?? []`.
  * That `?? []` is not a degrade to "unknown" -- it is a degrade to a CONFIDENT ANSWER. An empty
- * rate map makes every cost box, every Total Amount and every % Profit on a fully costed sheet
+ * rate map makes every cost box, every Total Amount and every % Margin on a fully costed sheet
  * render blank, and (before this slice) still editable. A costed sheet and a sheet nobody has
  * touched were pixel-identical behind a failed read, so the two honest reactions were to re-enter
  * two hundred figures over costs that already exist, or to conclude the data had been lost.

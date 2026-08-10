@@ -51,14 +51,17 @@ const ITEM_W = "w-[320px]";
 // Per-amount-column width.
 const COL_W = "w-28 min-w-[112px]";
 
-// ── BCS-S5: the three per-section cost columns ────────────────────────────────
+// ── BCS-S5: the per-section cost columns ──────────────────────────────────────
 // Header text mirrors the grid's own column titles, so the same figure is called the same thing
-// in both places. Read left to right they are the question BCS exists to answer, at section
-// scale: what this section costs us, what we charge for it, and the margin between the two.
+// in both places -- which is why dropping Tendered Total Amount from the grid at BCS-S8 (owner
+// ruling 2026-08-07) had to drop it HERE TOO. Leaving it would have put a column in the summary
+// that the grid beneath it no longer has, under a heading the owner asked to remove.
+//
+// `BcsSectionTotals.tendered` is still computed and still feeds `sectionMarginPercent` -- the
+// section margin's denominator is unchanged. Only the column is gone.
 const BCS_HEADERS: ReadonlyArray<{ label: string; title: string }> = [
   { label: "BCS Total Amount", title: "BCS Total Amount — this section's cost (quantity × the cost entered), rolled up" },
-  { label: "Tendered Total Amount", title: "Tendered Total Amount — the amount charged to the client across this section" },
-  { label: "% Profit", title: "% Profit — recomputed from this section's SUMMED cost and SUMMED amount charged, never an average of its lines" },
+  { label: "% Margin", title: "% Margin — recomputed from this section's SUMMED cost and SUMMED amount charged, never an average of its lines" },
 ];
 
 // The only classifications shown as panel rows -- the priceable/qty-bearing types
@@ -77,11 +80,11 @@ function fmtAmount(n: number | null | undefined): string {
  *
  * ⚠️ A BLANK IS NEVER A 0 HERE, and the reason is carried in the `title` -- the same rule the
  * grid's computed cells keep. A section nobody has costed shows an EMPTY cost cell and an EMPTY
- * % Profit; rendering 0 / 0% would be a confident claim ("this section costs nothing", "we make
+ * % Margin; rendering 0 / 0% would be a confident claim ("this section costs nothing", "we make
  * nothing on it") about a section where nothing is known. `fmtAmount` already distinguishes the
  * two: null -> "", a genuine 0 -> "0".
  *
- * No colour scale, deliberately: the grid presents % Profit as plain right-aligned figures, and a
+ * No colour scale, deliberately: the grid presents % Margin as plain right-aligned figures, and a
  * second visual language for the same number in the panel above it would be its own confusion.
  */
 function bcsCells(totals: BcsSectionTotals | undefined, keyPrefix: string, cls: string) {
@@ -91,9 +94,8 @@ function bcsCells(totals: BcsSectionTotals | undefined, keyPrefix: string, cls: 
       <td key={`${keyPrefix}-cost`} className={cls}>
         {fmtAmount(totals?.cost ?? null)}
       </td>
-      <td key={`${keyPrefix}-tendered`} className={cls}>
-        {fmtAmount(totals?.tendered ?? null)}
-      </td>
+      {/* BCS-S8: the tendered `<td>` was removed here. `totals.tendered` is deliberately still
+          populated -- `sectionMarginPercent` divides by it. */}
       <td
         key={`${keyPrefix}-margin`}
         className={cls}
@@ -395,7 +397,7 @@ const SummaryPanel = ({ rows, columnDescriptors, columnFormulas, reconChoices, b
                     {fmtAmount(grandTotals[c.col])}
                   </td>
                 ))}
-                {/* The project's BCS row. Its % Profit is recomputed from the WHOLE sheet's summed
+                {/* The project's BCS row. Its % Margin is recomputed from the WHOLE sheet's summed
                     cost and summed amount -- it is emphatically not the average of the sections
                     above it, which is exactly the number a reader might assume it to be. */}
                 {bcsRollup &&
