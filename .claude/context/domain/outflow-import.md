@@ -250,10 +250,40 @@ thing — one master table across every import at `/bulk-import-outflow` — and
   `get_outflow_facet_values` over the whole filtered table, fetched lazily on first open. ⚠️ That
   endpoint deliberately does **not** apply the funnel's own selection: a funnel that filtered its
   own options would collapse to whatever is ticked and offer no way back.
-- **Default scope is the open work** (owner ruling) — a worklist first, an archive second.
+- **Default scope is the work, not the archive** (owner ruling) — a worklist first. Since the retab
+  that default is `not_matched`, **narrower than the old `open`**, which also held `Matched`.
 - **`/bulk-import-outflow/:id` is KEPT** and renders the same page pre-scoped to that import, so
   every pre-X3 link still resolves. `/new` is gone; uploading is a dialog.
-- **Three tabs — Pending / Settled / Skipped** — plus the per-row decision dialog, unchanged.
+- **Three tabs — All / Not-Matched / Matched & Settled** (owner ruling 2026-08-10, replacing
+  Pending / Settled / Skipped) — plus the per-row decision dialog, unchanged.
+
+  | Tab | Scope | Holds |
+  |---|---|---|
+  | All | `all` | everything **except Skipped** |
+  | Not-Matched | `not_matched` | `Pending match run` · `Mismatched` · `Error` |
+  | Matched / Settled | `matched` | `Matched` · `Settled` |
+
+  ⚠️ **`Skipped` HAS NO TAB, AND IS EXCLUDED FROM `all` TOO.** "All" means everything a person might
+  still act on, not every row. Skipped rows are bookkeeping — a failed transfer, a duplicate, a
+  payment already ticked Paid by hand — and **the import summary panel's auto/manual split line is
+  now the ONLY place they are reported.** Delete that line and a skipped transfer becomes invisible
+  rather than merely out of the way. Pinned by `test_no_scope_will_show_a_skipped_row`.
+
+  ⚠️ **`all` CARRIES A REAL WHERE CLAUSE NOW.** It used to fall through to "no clause", correct when
+  it meant every row. `_scope_clause`'s unknown-scope fallback had to change with it — it falls back
+  to **`all`**, not to no-clause, or a typo'd scope leaks skipped rows into the one view nobody
+  would think to check.
+
+  ⚠️ **`Matched` AND `Settled` SHARE A TAB, pairing an OPEN status with a TERMINAL one.** That is
+  the reviewer's grouping ("this transfer has a record"), not the vocabulary's, and it has a
+  consequence: **row selection is PER ROW, not per tab.** The old table took one `selectable`
+  boolean because the tabs partitioned open from terminal; they no longer do, so the page passes
+  `selectableRowNames` (derived from `OPEN_ROW_STATUSES`) and select-all acts only on those. The
+  checkbox `<td>` still renders — empty — for an unselectable row, or every later cell in that row
+  shifts one column left.
+
+  `tab_counts` is keyed by SCOPE name, and every count is derived from `_SCOPE_STATUSES` rather than
+  a second hand-written list — a count that disagrees with what its tab shows is worse than none.
 - **The summary panel above summarises ONE import while the table spans all of them.** That is the
   design: "how did that statement go?" and "what do I still owe a decision on?" are different
   questions. ⚠️ **The status figures REPORT; they do not scope (owner ruling 2026-08-10).** They

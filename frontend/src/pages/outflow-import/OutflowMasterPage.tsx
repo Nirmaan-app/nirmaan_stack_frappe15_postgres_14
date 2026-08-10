@@ -16,6 +16,7 @@ import type {
     OutflowImportSummary,
     OutflowRowsPage,
 } from "@/types/NirmaanStack/OutflowImportBatch";
+import { OPEN_ROW_STATUSES } from "./outflowImportStatus";
 import { ConfirmAllMatchedDialog } from "./components/ConfirmAllMatchedDialog";
 import { DecisionDialog } from "./components/DecisionDialog";
 import { ImportStatementDialog } from "./components/ImportStatementDialog";
@@ -28,8 +29,10 @@ import {
 import {
     DEFAULT_PAGE_SIZE,
     DEFAULT_HIDDEN_COLUMNS,
+    DEFAULT_TAB,
     OUTFLOW_COLUMNS,
     OUTFLOW_TABS,
+    SCOPE_FOR_TAB,
     activeFilterCount,
     decidedRows,
     decisionOrigin,
@@ -68,7 +71,7 @@ export const OutflowMasterPage = () => {
     // bookmark and every link written before X3 keeps working.
     const { id: deepLinkedBatch } = useParams<{ id: string }>();
 
-    const [tab, setTab] = useState<OutflowTab>("pending");
+    const [tab, setTab] = useState<OutflowTab>(DEFAULT_TAB);
     const [query, setQuery] = useState("");
     const [debouncedQuery, setDebouncedQuery] = useState("");
     const [filters, setFilters] = useState<ColumnFilters>({});
@@ -182,6 +185,18 @@ export const OutflowMasterPage = () => {
         () =>
             new Set(rows.filter((r) => isConfirmable(r, decisions.get(r.name))).map((r) => r.name)),
         [rows, decisions]
+    );
+    /**
+     * Which rows may be ticked, computed PER ROW rather than per tab (2026-08-10 retab).
+     *
+     * ⚠️ IT KEYS ON THE STATUS DERIVER, not on the tab. The new tabs deliberately do not partition
+     * open from terminal -- "Matched / Settled" pairs an open status with a terminal one -- so
+     * asking the tab is asking the wrong question. `OPEN_ROW_STATUSES` is the same set that decides
+     * whether anyone still owes this row a decision, which is exactly what "can I tick it" means.
+     */
+    const selectableRowNames = useMemo(
+        () => new Set(rows.filter((r) => OPEN_ROW_STATUSES.has(r.row_status)).map((r) => r.name)),
+        [rows]
     );
     const readyToConfirm = useMemo(
         () => decidedRows(rows, selected, decisions),
@@ -425,13 +440,14 @@ export const OutflowMasterPage = () => {
                     >
                         {t.label}
                         {/* ⚠️ THE COUNTS DESCRIBE THE CURRENT SEARCH, not the whole table. A search
-                            matching four rows must not show "Settled 812" beside it. */}
+                            matching four rows must not show "Settled 812" beside it.
+
+                            ⚠️ KEYED THROUGH `SCOPE_FOR_TAB`, never by the tab id. The endpoint
+                            returns its counts under the SCOPE names, and the two vocabularies
+                            differ on purpose -- the pre-retab code special-cased the one tab whose
+                            id and scope disagreed, which is a bug waiting for the second one. */}
                         <span className="rounded-full bg-muted px-1.5 text-xs tabular-nums">
-                            {tabCounts
-                                ? t.id === "pending"
-                                    ? tabCounts.open
-                                    : tabCounts[t.id]
-                                : "—"}
+                            {tabCounts?.[SCOPE_FOR_TAB[t.id]] ?? "—"}
                         </span>
                     </button>
                 ))}
@@ -482,7 +498,7 @@ export const OutflowMasterPage = () => {
                         selected={selected}
                         decidedRowNames={decidedNames}
                         originByRow={originByRow}
-                        selectable={tab === "pending"}
+                        selectableRowNames={selectableRowNames}
                         onSort={handleSort}
                         onFilter={handleFilter}
                         onToggleRow={toggleRow}
@@ -502,8 +518,12 @@ export const OutflowMasterPage = () => {
             {/* ⚠️ REPORTS HOW MANY SELECTED ROWS ARE ACTUALLY DECIDED, not how many are ticked
                 (owner ruling). It never silently acts on a row nobody resolved, and it does not
                 refuse the whole action either -- the rest are ready. Paged, it counts among the
-                rows LOADED; "Confirm all matched" in the summary is the whole-import action. */}
-            {tab === "pending" && selected.size > 0 && (
+                rows LOADED; "Confirm all matched" in the summary is the whole-import action.
+
+                ⚠️ NO LONGER GATED ON A TAB (2026-08-10 retab). Only open rows can be ticked at all
+                now -- the table enforces that per row -- so a non-empty selection means there is
+                something to confirm, whichever tab it was made on. */}
+            {selected.size > 0 && (
                 <div className="sticky bottom-4 z-20 flex flex-wrap items-center gap-3 rounded-md border bg-background/95 p-3 shadow-lg backdrop-blur">
                     <span className="text-sm font-medium">{selected.size} selected</span>
                     <span className="text-xs text-muted-foreground">

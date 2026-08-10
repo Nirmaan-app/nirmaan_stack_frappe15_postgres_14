@@ -908,10 +908,39 @@ patch module to the branch's obligation.**
 seen against the 1,043-row statement. The patch is proven on a probe, not on that data. Re-import
 before trusting the screen.
 
-Tests after both commits: 270 pure python · `test_review` 70 · `test_expenses` 29 ·
-`test_settle_payment` 21 · `test_upload` 25 · 1654 vitest (59 files) · `bench migrate` clean · tsc
-clean across `src/pages/outflow-import`. `residence_check.py` fails two rules (F5, F2) **identically
-at HEAD** — pre-existing, stale baseline, not from this work.
+Commit 3 — the retab. No migrate.
+
+**All / Not-Matched / Matched & Settled**, replacing Pending / Settled / Skipped. Sets, the
+skipped-has-no-tab ruling and the two structural consequences are in the domain doc's §The screen.
+What is worth recording here is what the retab *cost*, because none of it was in the plan:
+
+- **`all` needed a real WHERE clause**, having previously meant "no clause". `_scope_clause`'s
+  unknown-scope fallback had to move from `[], []` to `all` in the same breath, or a typo'd scope
+  leaks skipped rows into the one view nobody checks.
+- **Row selection had to become per-row.** The old `selectable: boolean` worked only because the
+  tabs partitioned open from terminal. "Matched / Settled" deliberately does not, so the table now
+  takes `selectableRowNames`; select-all acts on that subset, and the checkbox `<td>` renders empty
+  rather than being omitted (omitting shifts every later cell one column left).
+- **`SCOPE_FOR_TAB` is now compiler-enforced** against the payload type
+  (`OutflowScope = keyof OutflowRowsPage["tab_counts"]`). The pre-retab tab strip special-cased the
+  one tab whose id and scope disagreed; with three of them that pattern is a bug waiting.
+
+**Two test failures caught real things, and one was in the new test itself:**
+
+1. `test_the_total_is_the_whole_result_not_the_page` pinned `scope="all"` against
+   `len(self.parsed.rows)`. Correct until `all` stopped meaning every row. Re-pinned to the scope's
+   own count — it is a paging test and should not fail for a reason it does not describe.
+2. ⚠️ **My partition test counted skipped rows through `_rows_by_transfer_suffix`, which is keyed by
+   transfer id — and this fixture deliberately REPEATS one.** The in-file duplicate's two rows
+   collapsed to one entry, so the count came back one short: 8 + 2 ≠ 11. The collapsed row is a
+   *duplicate*, i.e. one of the three ways a row gets skipped — precisely what the assertion was
+   about. Counted from the database instead. **Any future test counting rows by status must not go
+   through that helper.**
+
+Tests after all three commits: 270 pure python · `test_review` **71** · `test_expenses` 29 ·
+`test_settle_payment` 21 · `test_upload` 25 · **1657** vitest (59 files) · `bench migrate` clean ·
+tsc clean across `src/pages/outflow-import`. `residence_check.py` fails two rules (F5, F2)
+**identically at HEAD** — pre-existing, stale baseline, not from this work.
 
 ⚠️ **`_match_many` in `test_status.py` is the fixture that did not exist.** Every prior fixture built
 ONE payment group, so reading `payment_groups[0]` was indistinguishable from reading all of them and

@@ -140,8 +140,15 @@ export interface OutflowRowsPage {
     limit: number;
     offset: number;
     scope: string;
-    /** Rows per tab UNDER THE CURRENT FILTERS -- not over the whole table. */
-    tab_counts: { open: number; settled: number; skipped: number; all: number };
+    /**
+     * Rows per tab UNDER THE CURRENT FILTERS -- not over the whole table.
+     *
+     * ⚠️ KEYED BY SCOPE NAME, which is not the tab id -- `SCOPE_FOR_TAB` is the one place the two
+     * vocabularies meet. `all` EXCLUDES `Skipped`, exactly as the tab does (owner ruling
+     * 2026-08-10); there is no skipped count here because there is no skipped tab, and the import
+     * summary panel reports them instead.
+     */
+    tab_counts: { all: number; not_matched: number; matched: number };
 }
 
 /** One import, as the summary picker lists it. */

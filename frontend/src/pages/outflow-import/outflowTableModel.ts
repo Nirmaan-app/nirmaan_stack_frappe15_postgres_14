@@ -16,7 +16,10 @@
 
 import { OPEN_ROW_STATUSES, ROW_PENDING_MATCH } from "./outflowImportStatus";
 import { paymentHref } from "@/pages/ProjectPayments/config/projectPaymentsTable.config";
-import type { OutflowImportRow } from "@/types/NirmaanStack/OutflowImportBatch";
+import type {
+    OutflowImportRow,
+    OutflowRowsPage,
+} from "@/types/NirmaanStack/OutflowImportBatch";
 
 /** Which ledger a row is being settled against, or a brand-new expense. */
 export type DecisionTarget =
@@ -94,27 +97,52 @@ export const DEFAULT_HIDDEN_COLUMNS: string[] = OUTFLOW_COLUMNS.filter(
     (c) => c.hiddenByDefault
 ).map((c) => c.id);
 
-export type OutflowTab = "pending" | "settled" | "skipped";
+/**
+ * The three tabs (owner ruling 2026-08-10, replacing Pending / Settled / Skipped).
+ *
+ * ⚠️ THERE IS NO SKIPPED TAB, AND `all` EXCLUDES SKIPPED TOO. "All" here means everything a person
+ * might still act on, not every row in the table. Skipped rows are bookkeeping -- a failed
+ * transfer, a duplicate, a payment already ticked Paid by hand -- and the import summary panel's
+ * auto/manual split line is now the ONLY place they are reported. The server enforces this in
+ * `_SCOPE_STATUSES`; this half only has to ask for the right scope.
+ *
+ * ⚠️ MATCHED AND SETTLED SHARE A TAB, which pairs an OPEN status with a TERMINAL one. That is the
+ * reviewer's grouping, not the vocabulary's: both mean "this transfer has a record". The
+ * consequence is that the tab holds a mix, which is why row selection is per-row on this screen
+ * rather than per-tab.
+ */
+export type OutflowTab = "all" | "notMatched" | "matched";
 
 export const OUTFLOW_TABS: { id: OutflowTab; label: string }[] = [
-    { id: "pending", label: "Pending" },
-    { id: "settled", label: "Settled" },
-    { id: "skipped", label: "Skipped" },
+    { id: "all", label: "All" },
+    { id: "notMatched", label: "Not-Matched" },
+    { id: "matched", label: "Matched / Settled" },
 ];
+
+/** Where the screen opens: the work, not the archive (owner ruling 2026-08-09, carried across). */
+export const DEFAULT_TAB: OutflowTab = "notMatched";
+
+/**
+ * The scope names the endpoint knows, which are also the keys of its `tab_counts`.
+ *
+ * ⚠️ DERIVED FROM THE PAYLOAD TYPE, not written out again. The counts label the tabs, so the map
+ * below and the counts have to agree about what a scope is called -- and the compiler now enforces
+ * it: renaming a scope server-side breaks this file rather than silently rendering "—" under a tab.
+ */
+export type OutflowScope = keyof OutflowRowsPage["tab_counts"];
 
 /**
  * The tab, as the scope name the server knows it by.
  *
- * ⚠️ THE TWO VOCABULARIES DIFFER ON PURPOSE AND THIS IS THE ONE PLACE THEY MEET. The screen has
- * always called it "Pending"; the endpoint calls the same set `open`, because server-side it is
- * literally `OPEN_ROW_STATUSES` and naming it "pending" there would collide with the
- * `Pending match run` STATUS, which is only one member of that set. Renaming either would be a
- * bigger change than this map.
+ * ⚠️ THE TWO VOCABULARIES DIFFER ON PURPOSE AND THIS IS THE ONE PLACE THEY MEET. The screen's ids
+ * are camelCase because they are TypeScript; the endpoint's are snake_case because they are Python
+ * and appear in URLs. An unmapped tab would silently scope to the server's fallback rather than to
+ * what the label promises.
  */
-export const SCOPE_FOR_TAB: Record<OutflowTab, string> = {
-    pending: "open",
-    settled: "settled",
-    skipped: "skipped",
+export const SCOPE_FOR_TAB: Record<OutflowTab, OutflowScope> = {
+    all: "all",
+    notMatched: "not_matched",
+    matched: "matched",
 };
 
 // ⚠️ `tabForStatus` WENT WITH THE SUMMARY'S CLICKABLE CHIPS (owner ruling 2026-08-10). Its only

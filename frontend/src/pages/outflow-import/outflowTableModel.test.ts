@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import type { OutflowImportRow } from "@/types/NirmaanStack/OutflowImportBatch";
 import {
     DEFAULT_HIDDEN_COLUMNS,
+    DEFAULT_TAB,
     OUTFLOW_COLUMNS,
+    OUTFLOW_TABS,
     RECORD_COLUMNS,
     activeFilterCount,
     amountVerdict,
@@ -96,14 +98,34 @@ describe("columns", () => {
 });
 
 describe("tabs", () => {
+    it("is All / Not-Matched / Matched-Settled, in that order", () => {
+        // ⚠️ THERE IS NO SKIPPED TAB, and "All" excludes Skipped too (owner ruling 2026-08-10) --
+        // it means everything a person might still act on, not every row in the table. The import
+        // summary panel is the only place skipped transfers are reported.
+        expect(OUTFLOW_TABS.map((t) => t.id)).toEqual(["all", "notMatched", "matched"]);
+        expect(OUTFLOW_TABS.map((t) => t.label)).toEqual([
+            "All",
+            "Not-Matched",
+            "Matched / Settled",
+        ]);
+    });
+
+    it("opens on the work, not the archive", () => {
+        expect(DEFAULT_TAB).toBe("notMatched");
+    });
+
     it("maps every tab to a scope the server knows", () => {
-        // ⚠️ The two vocabularies differ on purpose -- the screen says "Pending", the endpoint says
-        // "open", because server-side that set is literally OPEN_ROW_STATUSES and "pending" there
-        // would collide with the `Pending match run` STATUS. This map is the one place they meet,
-        // so an unmapped tab would silently scope to nothing.
-        expect(SCOPE_FOR_TAB.pending).toBe("open");
-        expect(SCOPE_FOR_TAB.settled).toBe("settled");
-        expect(SCOPE_FOR_TAB.skipped).toBe("skipped");
+        // ⚠️ The two vocabularies differ on purpose -- camelCase ids in TypeScript, snake_case
+        // scopes in Python and in URLs. This map is the one place they meet, so an unmapped tab
+        // would silently scope to the server's fallback rather than to what the label promises.
+        expect(SCOPE_FOR_TAB.all).toBe("all");
+        expect(SCOPE_FOR_TAB.notMatched).toBe("not_matched");
+        expect(SCOPE_FOR_TAB.matched).toBe("matched");
+    });
+
+    it("maps every declared tab, with no gaps", () => {
+        // A tab present in the strip but missing from the map renders an empty table with no error.
+        for (const tab of OUTFLOW_TABS) expect(SCOPE_FOR_TAB[tab.id]).toBeTruthy();
     });
 });
 
@@ -120,8 +142,9 @@ describe("tabs", () => {
  */
 describe("serverQuery", () => {
     it("translates the tab into the scope the endpoint knows", () => {
-        expect(serverQuery({ tab: "pending" }).scope).toBe("open");
-        expect(serverQuery({ tab: "settled" }).scope).toBe("settled");
+        expect(serverQuery({ tab: "notMatched" }).scope).toBe("not_matched");
+        expect(serverQuery({ tab: "matched" }).scope).toBe("matched");
+        expect(serverQuery({ tab: "all" }).scope).toBe("all");
     });
 
     it("omits an empty filter rather than sending an empty value", () => {
@@ -129,7 +152,7 @@ describe("serverQuery", () => {
         // a naive handler, and the day one treats it as "match nothing" the table blanks when you
         // untick the last value. Omitting is unambiguous at both ends.
         const query = serverQuery({
-            tab: "pending",
+            tab: "notMatched",
             query: "   ",
             filters: { beneficiary_name: [], amount: { min: null, max: null } },
         });
@@ -140,22 +163,22 @@ describe("serverQuery", () => {
 
     it("sends only the columns the server can facet on", () => {
         const query = serverQuery({
-            tab: "pending",
+            tab: "notMatched",
             filters: { beneficiary_name: ["APEX"], outcome: ["nonsense"] },
         });
         expect(query.facets).toEqual({ beneficiary_name: ["APEX"] });
     });
 
     it("passes an amount range through as two bounds", () => {
-        const query = serverQuery({ tab: "pending", filters: { amount: { min: 100, max: 500 } } });
+        const query = serverQuery({ tab: "notMatched", filters: { amount: { min: 100, max: 500 } } });
         expect(query.amount_min).toBe(100);
         expect(query.amount_max).toBe(500);
     });
 
     it("allows a one-sided range", () => {
-        expect(serverQuery({ tab: "pending", filters: { amount: { min: 500 } } }).amount_max)
+        expect(serverQuery({ tab: "notMatched", filters: { amount: { min: 500 } } }).amount_max)
             .toBeUndefined();
-        expect(serverQuery({ tab: "pending", filters: { amount: { max: 100 } } }).amount_min)
+        expect(serverQuery({ tab: "notMatched", filters: { amount: { max: 100 } } }).amount_min)
             .toBeUndefined();
     });
 
@@ -164,7 +187,7 @@ describe("serverQuery", () => {
         // key the endpoint knows, and sending one would fail the whole page load over a cosmetic
         // click.
         const query = serverQuery({
-            tab: "pending",
+            tab: "notMatched",
             sort: { columnId: "outcome", direction: "asc" },
         });
         expect(query.sort_by).toBe("added_on");
@@ -172,35 +195,35 @@ describe("serverQuery", () => {
     });
 
     it("passes a sortable column through with its direction", () => {
-        const query = serverQuery({ tab: "pending", sort: { columnId: "amount", direction: "asc" } });
+        const query = serverQuery({ tab: "notMatched", sort: { columnId: "amount", direction: "asc" } });
         expect(query.sort_by).toBe("amount");
         expect(query.sort_dir).toBe("asc");
     });
 
     it("turns the page number into an offset", () => {
-        expect(serverQuery({ tab: "pending", page: 0 }).offset).toBe(0);
-        expect(serverQuery({ tab: "pending", page: 2 }).offset).toBe(2 * DEFAULT_PAGE_SIZE);
-        expect(serverQuery({ tab: "pending", page: 2, pageSize: 10 }).offset).toBe(20);
+        expect(serverQuery({ tab: "notMatched", page: 0 }).offset).toBe(0);
+        expect(serverQuery({ tab: "notMatched", page: 2 }).offset).toBe(2 * DEFAULT_PAGE_SIZE);
+        expect(serverQuery({ tab: "notMatched", page: 2, pageSize: 10 }).offset).toBe(20);
     });
 
     it("never sends a negative offset", () => {
-        expect(serverQuery({ tab: "pending", page: -3 }).offset).toBe(0);
+        expect(serverQuery({ tab: "notMatched", page: -3 }).offset).toBe(0);
     });
 
     it("scopes to one import when the screen is deep-linked to it", () => {
-        expect(serverQuery({ tab: "pending", batch: "OFI-26-00007" }).batch).toBe("OFI-26-00007");
-        expect(serverQuery({ tab: "pending" }).batch).toBeUndefined();
+        expect(serverQuery({ tab: "notMatched", batch: "OFI-26-00007" }).batch).toBe("OFI-26-00007");
+        expect(serverQuery({ tab: "notMatched" }).batch).toBeUndefined();
     });
 
     it("folds a per-column text filter into the search the server already runs", () => {
         // `remarks` and `bank_reference_no` are both covered by the endpoint's search, so they do
         // not need two more parameters for a distinction no reader makes.
-        expect(serverQuery({ tab: "pending", filters: { remarks: "rent" } }).search).toBe("rent");
+        expect(serverQuery({ tab: "notMatched", filters: { remarks: "rent" } }).search).toBe("rent");
     });
 
     it("lets an explicit search win over a column text filter", () => {
         const query = serverQuery({
-            tab: "pending",
+            tab: "notMatched",
             query: "apex",
             filters: { remarks: "rent" },
         });

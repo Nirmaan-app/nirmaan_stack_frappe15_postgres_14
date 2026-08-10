@@ -48,7 +48,18 @@ interface Props {
     decidedRowNames: ReadonlySet<string>;
     /** Whether each row's decision came from the match run or from a person. */
     originByRow: ReadonlyMap<string, DecisionOrigin>;
-    selectable: boolean;
+    /**
+     * Which rows on this page may be ticked.
+     *
+     * ⚠️ PER ROW SINCE THE 2026-08-10 RETAB, AND IT HAD TO BECOME PER ROW. It used to be one
+     * boolean for the whole table, which worked while the tabs partitioned open from terminal:
+     * Pending was entirely selectable, Settled and Skipped entirely not. The new tabs do not
+     * partition that way -- "Matched / Settled" deliberately pairs an OPEN status with a TERMINAL
+     * one, and "All" mixes everything -- so a table-level flag would either offer a checkbox on a
+     * settled row (which the confirm would then refuse) or withhold it from the matched rows that
+     * are the entire point of that tab.
+     */
+    selectableRowNames: ReadonlySet<string>;
     onSort: (columnId: string) => void;
     onFilter: (columnId: string, value: ColumnFilters[string]) => void;
     onToggleRow: (name: string) => void;
@@ -77,7 +88,7 @@ export const OutflowRowsTable = ({
     selected,
     decidedRowNames,
     originByRow,
-    selectable,
+    selectableRowNames,
     onSort,
     onFilter,
     onToggleRow,
@@ -88,7 +99,16 @@ export const OutflowRowsTable = ({
         () => OUTFLOW_COLUMNS.filter((c) => !hiddenColumns.has(c.id)),
         [hiddenColumns]
     );
-    const names = useMemo(() => rows.map((r) => r.name), [rows]);
+    // ⚠️ SELECT-ALL ACTS ON THE SELECTABLE ROWS, NOT EVERY ROW ON THE PAGE. On a mixed tab the two
+    // differ, and ticking a settled row would put it in a selection the confirm then silently
+    // ignores -- so the bulk bar would say "12 selected · 4 decided" with no way to see why.
+    const names = useMemo(
+        () => rows.map((r) => r.name).filter((n) => selectableRowNames.has(n)),
+        [rows, selectableRowNames]
+    );
+    // ⚠️ The checkbox COLUMN is present whenever this page holds anything tickable. A tab that
+    // happens to load a page of purely terminal rows drops it rather than showing a dead column.
+    const selectable = names.length > 0;
     const allSelected = names.length > 0 && names.every((n) => selected.has(n));
 
     if (!rows.length) {
@@ -134,6 +154,9 @@ export const OutflowRowsTable = ({
                             columns={columns}
                             query={query}
                             selectable={selectable}
+                            // ⚠️ The row's OWN boolean, like `selected` -- never the Set. Handing a
+                            // memoized row the Set re-renders every row on every tick.
+                            rowSelectable={selectableRowNames.has(row.name)}
                             selected={selected.has(row.name)}
                             decided={decidedRowNames.has(row.name)}
                             origin={originByRow.get(row.name) ?? "none"}
@@ -373,7 +396,10 @@ interface RowProps {
     row: OutflowImportRow;
     columns: OutflowColumn[];
     query: string;
+    /** Whether the checkbox COLUMN exists on this page at all. */
     selectable: boolean;
+    /** ⚠️ The row's OWN boolean, never the shared Set -- see the component docstring. */
+    rowSelectable: boolean;
     /** ⚠️ The row's OWN boolean, never the shared Set -- see the component docstring. */
     selected: boolean;
     decided: boolean;
@@ -388,6 +414,7 @@ const Row = memo(function Row({
     columns,
     query,
     selectable,
+    rowSelectable,
     selected,
     decided,
     origin,
@@ -396,13 +423,18 @@ const Row = memo(function Row({
 }: RowProps) {
     return (
         <tr className={`border-t ${selected ? "bg-primary/5" : "hover:bg-muted/40"}`}>
+            {/* ⚠️ THE CELL IS ALWAYS RENDERED WHEN THE COLUMN EXISTS, empty for a row that cannot
+                be ticked. Omitting the `<td>` instead would shift every later cell of that row one
+                column left -- a settled row's Beneficiary landing under the checkbox header. */}
             {selectable && (
                 <td className="px-2 py-1.5 align-top">
-                    <Checkbox
-                        checked={selected}
-                        onCheckedChange={() => onToggleRow(row.name)}
-                        aria-label={`Select ${row.beneficiary_name}`}
-                    />
+                    {rowSelectable && (
+                        <Checkbox
+                            checked={selected}
+                            onCheckedChange={() => onToggleRow(row.name)}
+                            aria-label={`Select ${row.beneficiary_name}`}
+                        />
+                    )}
                 </td>
             )}
             {columns.map((column) => (

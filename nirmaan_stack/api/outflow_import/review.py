@@ -44,10 +44,13 @@ from nirmaan_stack.services.outflow_import.ledgers import (
 )
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
 from nirmaan_stack.services.outflow_import.status import (
-    OPEN_ROW_STATUSES,
+    ROW_ERROR,
     ROW_MATCHED,
+    ROW_MISMATCHED,
+    ROW_PENDING_MATCH,
     ROW_SETTLED,
     ROW_SKIPPED,
+    ROW_STATUSES,
     StatusTally,
     derive_batch_counters,
     derive_batch_status,
@@ -666,17 +669,35 @@ def _search_one_ledger(target_doctype: str, bank_amount, search: str, limit: int
 
 # --- the master table (slice X3) ----------------------------------------------------------------
 
-# The three tabs, as STATUS SETS. `open` is every status still owing a decision, which is what makes
-# it the default scope: the master table is a worklist first and an archive second.
-SCOPE_OPEN = "open"
-SCOPE_SETTLED = "settled"
-SCOPE_SKIPPED = "skipped"
+# The three tabs, as STATUS SETS (owner ruling 2026-08-10, replacing Pending / Settled / Skipped).
+#
+#   all           everything EXCEPT Skipped
+#   not_matched   the work: staged, did not line up, or the write failed
+#   matched       found something, or already written -- the two "this is handled" states
+#
+# ⚠️ `Skipped` HAS NO TAB, AND IS EXCLUDED FROM `all` TOO (owner ruling). It is not "everything";
+# it is everything a person might still act on. Skipped rows are bookkeeping -- a failed transfer, a
+# duplicate, a payment already ticked Paid by hand -- and on a real statement they are ~5% of the
+# file that nobody will ever open again. THE IMPORT SUMMARY PANEL IS NOW THE ONLY PLACE THEY ARE
+# REPORTED (its auto/manual split line); if that line is ever removed, a skipped transfer becomes
+# invisible rather than merely out of the way.
+#
+# ⚠️ `Matched` AND `Settled` SHARE A TAB, and the pairing is the reviewer's, not the vocabulary's:
+# both mean "this transfer has a record", one confirmed and one not. `Settled` is terminal and
+# `Matched` is open, so this tab holds a MIX -- which is why row selection is per-row rather than
+# per-tab on the screen.
 SCOPE_ALL = "all"
+SCOPE_NOT_MATCHED = "not_matched"
+SCOPE_MATCHED = "matched"
 
 _SCOPE_STATUSES = {
-    SCOPE_OPEN: tuple(sorted(OPEN_ROW_STATUSES)),
-    SCOPE_SETTLED: (ROW_SETTLED,),
-    SCOPE_SKIPPED: (ROW_SKIPPED,),
+    # ⚠️ `all` CARRIES A REAL CLAUSE NOW, and it did not before. It used to fall through to "no
+    # WHERE at all", which was correct when it meant every row. Excluding `Skipped` makes it an
+    # actual filter, and forgetting that is exactly how skipped rows would leak back into the one
+    # tab nobody would think to check.
+    SCOPE_ALL: tuple(s for s in ROW_STATUSES if s != ROW_SKIPPED),
+    SCOPE_NOT_MATCHED: (ROW_PENDING_MATCH, ROW_MISMATCHED, ROW_ERROR),
+    SCOPE_MATCHED: (ROW_MATCHED, ROW_SETTLED),
 }
 
 # ⚠️ AN ALLOW-LIST, BECAUSE THE SORT COLUMN IS INTERPOLATED INTO SQL. A sort key cannot be a bound
@@ -728,7 +749,7 @@ _MAX_PAGE_SIZE = 200
 
 @frappe.whitelist()
 def get_outflow_rows(
-    scope: str = SCOPE_OPEN,
+    scope: str = SCOPE_NOT_MATCHED,
     batch: str = None,
     search: str = None,
     date_from: str = None,
@@ -749,9 +770,11 @@ def get_outflow_rows(
     reach thousands within a couple of years. `get_batch_rows` is KEPT: the api suites read it, and
     it is still the honest way to ask for exactly one import's rows.
 
-    ⚠️ THE DEFAULT SCOPE IS `open`, WHICH IS A PRODUCT DECISION, NOT A PERFORMANCE ONE (owner ruling
-    2026-08-09). The master table is a worklist first: what it opens on is the work somebody still
-    owes a decision on, not months of settled history that happens to sort first by date.
+    ⚠️ THE DEFAULT SCOPE IS `not_matched`, WHICH IS A PRODUCT DECISION, NOT A PERFORMANCE ONE (owner
+    ruling 2026-08-09, carried across the 2026-08-10 retab). The master table is a worklist first:
+    what it opens on is the work somebody still owes a decision on, not months of settled history
+    that happens to sort first by date. It is NARROWER than the old `open` default, which also held
+    `Matched` -- those rows now live with `Settled`, because both mean "this transfer has a record".
 
     FILTER COMPOSITION IS `AND` ACROSS COLUMNS, `OR` WITHIN ONE -- the same rule the rest of this
     app's tables use, and the same one the client-side filters it replaces used.
@@ -969,20 +992,29 @@ def get_outflow_facet_values(
 
 
 def _scope_clause(scope: str):
-    """The tab, as a status set. An unknown scope means ALL rather than nothing.
+    """The tab, as a status set. An unknown scope falls back to `all` rather than to nothing.
 
     Failing open is right here: a client sending a scope this server has not heard of should see the
     whole table, which is visibly odd, rather than an empty one, which reads as "there is no work".
+
+    ⚠️ FAILING OPEN NOW MEANS `all`, NOT "NO CLAUSE" -- and the distinction is load-bearing since
+    `all` stopped meaning every row. Returning `[], []` here would let a typo'd scope show `Skipped`
+    rows that every real tab excludes, in the one view nobody would think to check. `all` is the
+    widest set a client may ask for, so it is also the right thing to fall back to.
     """
-    statuses = _SCOPE_STATUSES.get((scope or "").lower())
-    if not statuses:
-        return [], []
+    statuses = _SCOPE_STATUSES.get((scope or "").lower()) or _SCOPE_STATUSES[SCOPE_ALL]
     placeholders = ", ".join(["%s"] * len(statuses))
     return [f"r.row_status IN ({placeholders})"], list(statuses)
 
 
 def _tab_counts(where, params) -> dict:
-    """How many rows each tab holds UNDER THE CURRENT FILTERS, in one grouped query."""
+    """How many rows each tab holds UNDER THE CURRENT FILTERS, in one grouped query.
+
+    ⚠️ EVERY COUNT IS DERIVED FROM `_SCOPE_STATUSES`, never from a second list of statuses written
+    out here. The counts label the tabs, so a count that disagrees with what the tab actually shows
+    is worse than no count -- and with `Skipped` now excluded from `all`, a hand-written `all` count
+    would over-report by exactly the rows the tab refuses to show.
+    """
     clause = (" WHERE " + " AND ".join(where)) if where else ""
     grouped = frappe.db.sql(
         f"""
@@ -996,10 +1028,8 @@ def _tab_counts(where, params) -> dict:
     )
     by_status = {(g["status"] or ""): int(g["n"] or 0) for g in grouped}
     return {
-        SCOPE_OPEN: sum(n for s, n in by_status.items() if s in OPEN_ROW_STATUSES),
-        SCOPE_SETTLED: by_status.get(ROW_SETTLED, 0),
-        SCOPE_SKIPPED: by_status.get(ROW_SKIPPED, 0),
-        SCOPE_ALL: sum(by_status.values()),
+        scope: sum(n for s, n in by_status.items() if s in statuses)
+        for scope, statuses in _SCOPE_STATUSES.items()
     }
 
 

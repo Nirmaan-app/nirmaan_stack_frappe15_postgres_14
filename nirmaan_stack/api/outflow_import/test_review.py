@@ -823,27 +823,60 @@ class TestTheMasterTableEndpoint(OutflowReviewFixture):
         kwargs.setdefault("batch", self.batch.name)
         return get_outflow_rows(**kwargs)
 
-    def test_the_default_scope_is_the_open_work(self):
+    def test_the_default_scope_is_the_work_not_the_archive(self):
         """⚠️ A PRODUCT DECISION, NOT A PERFORMANCE ONE (owner ruling). The master table is a
         worklist first: it opens on what somebody still owes a decision on, not on months of settled
-        history that happens to sort first by date."""
+        history that happens to sort first by date.
+
+        NARROWER since the 2026-08-10 retab -- the old `open` default also held `Matched`, which now
+        lives with `Settled` because both mean "this transfer has a record".
+        """
         page = self._page()
-        self.assertEqual(page["scope"], "open")
+        self.assertEqual(page["scope"], "not_matched")
         self.assertTrue(page["rows"])
         for row in page["rows"]:
-            self.assertNotIn(row["row_status"], ("Settled", "Skipped"))
+            self.assertIn(row["row_status"], ("Pending match run", "Mismatched", "Error"))
 
-    def test_the_scopes_partition_the_import(self):
+    def test_the_two_working_scopes_partition_everything_except_skipped(self):
+        """⚠️ `all` IS NOT EVERY ROW (owner ruling 2026-08-10). It is everything a person might
+        still act on -- skipped rows are excluded from it, exactly as they are from the other two,
+        because they have no tab at all. Asserted as arithmetic rather than a code read: the day
+        `all` silently reverts to "no WHERE clause", this is what catches it.
+        """
         counts = self._page()["tab_counts"]
-        self.assertEqual(counts["open"] + counts["settled"] + counts["skipped"], counts["all"])
-        self.assertEqual(counts["all"], len(self.parsed.rows))
+        self.assertEqual(counts["not_matched"] + counts["matched"], counts["all"])
+
+        # ⚠️ COUNTED FROM THE DATABASE, NOT THROUGH `_rows_by_transfer_suffix`. That helper is keyed
+        # by transfer id, and this fixture deliberately REPEATS one -- so the two rows of the
+        # in-file duplicate collapse to a single entry and the skipped count comes back one short.
+        # Which is exactly the row this assertion is about, since a duplicate is one of the three
+        # ways a row gets skipped.
+        skipped = frappe.db.count(
+            ROW_DOCTYPE, {"import_batch": self.batch.name, "row_status": "Skipped"}
+        )
+        self.assertTrue(skipped, "the fixture must contain a skipped row for this to mean anything")
+        self.assertEqual(counts["all"] + skipped, len(self.parsed.rows))
+
+    def test_no_scope_will_show_a_skipped_row(self):
+        """The other half of the ruling, asserted where a reader will look for it: there is no tab
+        that reaches a skipped transfer, so the import summary panel's auto/manual split line is the
+        ONLY surface reporting them."""
+        for scope in ("all", "not_matched", "matched"):
+            for row in self._page(scope=scope, limit=200)["rows"]:
+                self.assertNotEqual(row["row_status"], "Skipped", scope)
 
     def test_the_total_is_the_whole_result_not_the_page(self):
         """The paging control reads this. If it were the page length, "1–5 of 5" would show on a
         table with two hundred rows and nobody would know there was a second page."""
         page = self._page(scope="all", limit=2)
         self.assertEqual(len(page["rows"]), 2)
-        self.assertEqual(page["total"], len(self.parsed.rows))
+        # ⚠️ AGAINST THE SCOPE'S OWN COUNT, not against every parsed row. `all` stopped meaning
+        # every row at the 2026-08-10 retab -- it excludes `Skipped` -- and this test is about
+        # paging, so pinning it to the file length would make it fail for a reason it does not
+        # describe. `test_the_two_working_scopes_partition_everything_except_skipped` owns that
+        # arithmetic.
+        self.assertEqual(page["total"], page["tab_counts"]["all"])
+        self.assertGreater(page["total"], 2)
 
     def test_paging_walks_the_whole_set_without_repeating_a_row(self):
         first = self._page(scope="all", limit=3, offset=0)["rows"]
@@ -868,13 +901,20 @@ class TestTheMasterTableEndpoint(OutflowReviewFixture):
         self.assertEqual(narrow["total"], 0)
         self.assertEqual(narrow["tab_counts"]["all"], 0)
 
-    def test_an_unknown_scope_shows_everything_rather_than_nothing(self):
+    def test_an_unknown_scope_falls_back_to_all_rather_than_to_nothing(self):
         """Failing OPEN is the right way round here: a scope this server has not heard of should
-        show the whole table, which is visibly odd, rather than an empty one, which reads as
-        "there is no work"."""
-        self.assertEqual(
-            self._page(scope="not-a-scope")["total"], self._page(scope="all")["total"]
-        )
+        show the widest set a client may ask for, which is visibly odd, rather than an empty table,
+        which reads as "there is no work".
+
+        ⚠️ THAT FALLBACK IS `all`, NOT "no clause" -- and the distinction became load-bearing when
+        `all` stopped meaning every row. A no-clause fallback would show `Skipped` rows that every
+        real tab excludes, in the one view nobody would think to check. Both assertions are needed:
+        the first pins the width, the second pins that the width is still filtered.
+        """
+        rogue = self._page(scope="not-a-scope", limit=200)
+        self.assertEqual(rogue["total"], self._page(scope="all")["total"])
+        for row in rogue["rows"]:
+            self.assertNotEqual(row["row_status"], "Skipped")
 
     def test_a_row_says_which_import_staged_it(self):
         """New at X3 and only meaningful from X3 on: the table spans every import, so "which
