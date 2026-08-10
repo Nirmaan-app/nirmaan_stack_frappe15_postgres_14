@@ -837,6 +837,41 @@ X5's dialog is the only thing that makes the summary's headline button real.
   `test_review` gained ~20 tests across three new classes; they are written, not verified.
 - ❌ **No browser walk.** Three of these five slices are React semantics end to end.
 
+### §H.8 — The first real statement, and what it found (2026-08-10)
+
+A 1,043-row Cashfree statement (₹3.45 cr, 02-May → 06-Aug) against a scenario where every ledger
+record from 01-May was set to `Approved` with **UTRs cleared**, so tier 0 was impossible and tiers 1
+and 2 had to do all the work. That measurement was owed since T3.
+
+**Result: 863 of 1,016 successful transfers matched (85%) on tiers 1+2 alone. 734 settled,
+₹2,10,95,243.** 47 auto-skipped — 27 failed at the bank, and **20 caught by the already-Paid
+duplicate guard**, which is ruling Q14 paying for itself on real data. X1 corrected 313 amounts, all
+sub-rupee, each audited.
+
+**Three defects found, all fixed:**
+
+1. **THE CANDIDATE COLLAPSE** — see invariant 0 in the domain doc. `_settleable_candidates` read
+   only `best_payment_group`. Fixed to read every group. On the real batch this took the rows
+   offered as "ready" from **112 to 59** — the 59 that genuinely have one candidate — and the
+   ambiguity notice from 5 to 58. Residual collisions dropped from **124 to 3**, and those 3 are
+   honest: the statement contains more transfers than the ledger has records, which no per-row logic
+   can resolve.
+2. **THE RESULTS PANEL NEVER APPEARED.** 124 failures were collected and discarded when the dialog
+   reverted to the list, so nobody could see what failed or why. Fixed structurally: the confirmable
+   fetch is SUSPENDED (null SWR key) once `outcomes` is set, and the results view no longer shares a
+   `!isLoading` gate with the list. The exact trigger was never isolated — a focus revalidation is
+   the best candidate — so the dependency was removed rather than re-ordered.
+3. **The delta rendered as `₹27,504 → ₹27,504`** — the confirm dialog formats both sides with the
+   rounded-rupee formatter, and virtually every correction is sub-rupee. ⚠️ **STILL OPEN.**
+
+**Two owner rulings applied the same day:** the Link payment table dropped `type` as its own column
+(Amount was off-screen), and "Skip this row" is hidden behind `SHOW_SKIP_ROW` — with the consequence
+recorded in the domain doc.
+
+⚠️ **`_match_many` in `test_status.py` is the fixture that did not exist.** Every prior fixture built
+ONE payment group, so reading `payment_groups[0]` was indistinguishable from reading all of them and
+263 green tests said nothing. Any new candidate test must use it.
+
 ### §H.6 — Order, and what each slice costs
 
 | Slice | Depends on | Migrate | Verifiable here? |

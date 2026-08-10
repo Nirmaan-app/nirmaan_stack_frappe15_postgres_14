@@ -45,6 +45,22 @@ const NON_PROJECT_EXPENSE = "Non Project Expenses";
  */
 const SHOW_CREATE_NEW_EXPENSE = false;
 
+/**
+ * ⚠️ HIDDEN, NOT DELETED (owner ruling 2026-08-10) -- same treatment, and for the same reason.
+ * "Skip this row" is off this dialog. `review.skip_row`, its required-reason guard, the
+ * `Skipped` status, the Skipped tab and the auto-skip path at upload are ALL untouched: automatic
+ * skips (a failed transfer, an already-recorded duplicate) still happen and still land in that tab.
+ * What is gone is the MANUAL skip button.
+ *
+ * ⚠️ STATE THE CONSEQUENCE RATHER THAN DISCOVER IT LATER: linking an approved record is now the
+ * ONLY way a person can resolve an open row. A transfer with genuinely nothing to settle against --
+ * and 145 of them exist on the first real statement -- has no terminal state available from this
+ * screen, so it stays open indefinitely and keeps counting against "Still open". Closing the import
+ * is the only way to set it aside, and closing is bookkeeping: it does not change a row's status.
+ * Flipping this one const back is the whole reversal.
+ */
+const SHOW_SKIP_ROW = false;
+
 const CREATE_NEW_TARGET: { id: DecisionTarget; label: string; hint: string } = {
     id: "new",
     label: "Create a new expense",
@@ -159,7 +175,7 @@ export const DecisionDialog = ({
                         Re-run match
                     </Button>
                     <div className="flex-1" />
-                    {skipping ? (
+                    {SHOW_SKIP_ROW && skipping ? (
                         <div className="flex w-full items-center gap-2 sm:w-auto">
                             <Input
                                 autoFocus
@@ -183,9 +199,15 @@ export const DecisionDialog = ({
                     ) : (
                         <>
                             {/* A skip is a DECISION, which is why it requires a typed reason. */}
-                            <Button size="sm" variant="outline" onClick={() => setSkipping(true)}>
-                                Skip this row
-                            </Button>
+                            {SHOW_SKIP_ROW && (
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => setSkipping(true)}
+                                >
+                                    Skip this row
+                                </Button>
+                            )}
                             {/* ⚠️ GATED ON THE SAME `isConfirmable` THE BULK BAR COUNTS WITH, so
                                 the two surfaces can never disagree about whether a row is ready.
                                 It also closes a real hole: the ledger now arrives with the chosen

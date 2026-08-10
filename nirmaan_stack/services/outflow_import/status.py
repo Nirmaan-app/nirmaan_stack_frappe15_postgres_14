@@ -304,13 +304,40 @@ def _settleable_candidates(match) -> tuple:
     Both ledgers reach the same final step, so both are `Matched`. Payments arrive grouped (one
     transfer may cover several, and the group is what settles together); expenses arrive as
     individual candidates.
+
+    ⚠️ IT READS **EVERY** PAYMENT GROUP. IT USED TO READ ONLY `best_payment_group`, AND THAT WAS THE
+    WORST DEFECT THIS FEATURE HAS SHIPPED -- found on the first 1,043-row real statement, 2026-08-10.
+
+    `best_payment_group` is `payment_groups[0]`. Taking only it collapsed N equally-good payment
+    candidates into ONE list entry, so `len(candidates)` was 1 and everything downstream believed
+    the row was unambiguous:
+
+      * `sole_suggestion` pre-selected the arbitrary first one -- breaking its own owner-locked rule
+        that two real records must yield NOTHING, because the screen never guesses between them.
+      * `_matched_note` announced "One approved record at this amount: PAY-X" when there were six.
+        That sentence is the reviewer's entire basis for ticking a row without opening it.
+
+    Measured on the real statement: a vendor with SIX approved payments of Rs 9,000 and SEVEN
+    transfers of Rs 9,000 had all seven rows pre-selected onto the SAME payment. One settled; the
+    other six failed with `AlreadyPaidError`, and the vendor's five other approved payments were
+    never offered to anybody. Across the batch that was 124 doomed confirmations, and 58 of the 117
+    rows still reading "One approved record" genuinely had several.
+
+    The bug was invisible because the ONLY ambiguity the old list could express was payment-vs-
+    expense (or expense-vs-expense) -- which is why exactly 5 rows in 1,043 ever read as ambiguous.
+    Payment-vs-payment, the common case on the main ledger, could not be represented at all.
+
+    ⚠️ A GROUP IS STILL ONE CANDIDATE. A fan-out -- one transfer covering several payments, found at
+    tier 0 by shared reference -- is a single group with several targets, and it counts ONCE here.
+    That is correct: the group settles together, so there is nothing for a person to choose between.
+    Tiers 1 and 2 are single-target by construction, so N candidates there means N separate records.
     """
     if match is None:
         return ()
     out: list = []
-    group = getattr(match, "best_payment_group", None)
-    if group is not None and getattr(group, "targets", ()):
-        out.append(group)
+    for group in getattr(match, "payment_groups", ()) or ():
+        if getattr(group, "targets", ()):
+            out.append(group)
     out.extend(getattr(match, "expense_candidates", ()) or ())
     return tuple(out)
 

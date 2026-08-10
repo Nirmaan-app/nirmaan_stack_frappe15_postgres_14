@@ -123,6 +123,19 @@ used to catch now arrive `Unmatched` and are linked by hand. Owner's call, made 
 
 ## The invariants that break silently
 
+0. **`_settleable_candidates` must read EVERY payment group, not `best_payment_group`.** This was
+   the worst defect the feature has shipped, found on the first real 1,043-row statement
+   (2026-08-10). `best_payment_group` is `payment_groups[0]`; taking only it collapsed N separate
+   approved payments into ONE candidate, so `sole_suggestion` pre-selected an arbitrary record —
+   breaking its own owner-locked "exactly one, or nothing" — and `_matched_note` announced *"One
+   approved record at this amount"* when there were six. **Payment-vs-payment ambiguity, the common
+   case on the main ledger, could not be represented at all**, which is why only 5 rows in 1,043
+   ever read as ambiguous. Measured cost: 124 confirmations doomed before the button was pressed;
+   58 of 117 rows claiming a sole record had several. ⚠️ **A fan-out group still counts ONCE** —
+   its targets settle together, so there is nothing to choose between. ⚠️ **Every fixture built a
+   single group, which is why a fully green suite said nothing.** `test_status._match_many` exists
+   to build the N-separate-groups shape; use it for any new candidate test.
+
 1. **Only `Approved` is ever matched.** `Requested` / `CEO Pending` → plain `Unmatched`. No status,
    no nudge, no approval deep link. This REVERSED an earlier goal (surfacing the 111 CEO-Pending
    payments); it was removed deliberately and must not be re-added.
@@ -256,7 +269,18 @@ browser walk.
   where money is written.
 - **"Create a new expense" is HIDDEN, not deleted** — one `const` in `DecisionDialog.tsx`. The form,
   `RowDecision.newExpense`, the `new` branch of `isConfirmable` and the `create_expense` endpoint are
-  all intact. Linking and skipping are currently the only two ways to resolve a row.
+  all intact.
+- **"Skip this row" is HIDDEN too** (owner ruling 2026-08-10), same treatment, same one `const`
+  (`SHOW_SKIP_ROW`). `review.skip_row`, its required-reason guard, the `Skipped` status and the
+  Skipped tab are untouched, and AUTOMATIC skips (failed transfer, already-recorded duplicate) still
+  happen. ⚠️ **Consequence, stated rather than discovered:** linking an approved record is now the
+  only way a person can resolve an open row, so a transfer with genuinely nothing to settle against
+  — 145 of them on the first real statement — has no terminal state and keeps counting against
+  "Still open". Closing the import does not change a row's status.
+- **The Link payment table is FIVE columns, not six** (owner ruling 2026-08-10). The ledger label
+  was its own `type` column and the sixth column pushed **Amount** off the right edge — the one fact
+  that decides whether a record can be settled needed a horizontal scroll to reach. The label now
+  stacks above the id it qualifies inside `Record`. A test pins the total width against the dialog.
 - **Records outside the tolerance are shown and marked, never hidden.** Someone hunting a TDS payment
   needs to SEE the one that differs by ₹2,000 to learn it cannot be settled here; filtering it out
   looks like the record does not exist.

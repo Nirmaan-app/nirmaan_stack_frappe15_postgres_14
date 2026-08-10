@@ -851,12 +851,19 @@ export interface RecordColumn {
  * crammed onto two wrapped lines of a dropdown option. As columns they can be COMPARED down the
  * page, which is the entire reason this became a table.
  */
+/**
+ * ⚠️ TYPE AND RECORD ARE ONE COLUMN (owner ruling 2026-08-10). They were two, and the six columns
+ * pushed AMOUNT off the right edge -- so the reviewer had to scroll horizontally to see the single
+ * fact that decides whether a record can be settled at all. The ledger is a one-word label that
+ * belongs with the id it qualifies, not in a column of its own competing for width.
+ *
+ * The facts did not change; five columns fit where six did not.
+ */
 export const RECORD_COLUMNS: RecordColumn[] = [
-    { id: "type", title: "Type", width: "140px" },
-    { id: "record", title: "Record", width: "150px", mono: true },
+    { id: "record", title: "Record", width: "210px" },
     { id: "vendor", title: "Vendor", width: "180px" },
     { id: "project", title: "Project", width: "160px" },
-    { id: "date", title: "Approved", width: "130px" },
+    { id: "date", title: "Approved", width: "120px" },
     { id: "amount", title: "Amount", width: "150px", align: "right" },
 ];
 

@@ -80,9 +80,27 @@ def _group(targets, basis=BASIS_BANK_REFERENCE):
 
 
 def _match(targets=(), expenses=(), basis=BASIS_BANK_REFERENCE):
+    """ONE group holding every target -- i.e. a FAN-OUT, which is what tier 0 produces."""
     return RowMatchResult(
         vendor=VendorResolution(),
         payment_groups=(_group(targets, basis),) if targets else (),
+        expense_candidates=tuple(expenses),
+    )
+
+
+def _match_many(targets=(), expenses=(), basis=BASIS_BANK_REFERENCE):
+    """ONE GROUP PER TARGET -- i.e. N SEPARATE candidate payments, which is what tiers 1 and 2
+    produce and what `_match` above cannot express.
+
+    ⚠️ THIS HELPER DID NOT EXIST UNTIL 2026-08-10, AND ITS ABSENCE IS WHY THE WORST DEFECT IN THIS
+    FEATURE SHIPPED. Every fixture built a single group, so `_settleable_candidates` reading only
+    `payment_groups[0]` was indistinguishable from reading all of them, and a full green suite said
+    nothing about the case that matters most on the main ledger: several separate approved payments
+    at the same amount for the same vendor.
+    """
+    return RowMatchResult(
+        vendor=VendorResolution(),
+        payment_groups=tuple(_group([t], basis) for t in targets),
         expense_candidates=tuple(expenses),
     )
 
@@ -332,6 +350,18 @@ class TestMatched(unittest.TestCase):
         self.assertIn("2 approved records", outcome.note)
         self.assertIn("Choose", outcome.note)
 
+    def test_the_note_COUNTS_separate_payments_instead_of_claiming_there_is_one(self):
+        """⚠️ THE SENTENCE THAT LIED. With six separate approved payments the note read "One
+        approved record at this amount: PAY-X" -- and that sentence is the reviewer's entire basis
+        for ticking a row without opening it. It must count them and ask."""
+        outcome = derive_row_outcome(
+            _Row(), _match_many([_payment(f"PAY-{i}") for i in range(6)])
+        )
+        self.assertEqual(outcome.status, ROW_MATCHED)
+        self.assertIn("6 approved records", outcome.note)
+        self.assertIn("Choose", outcome.note)
+        self.assertNotIn("One approved record", outcome.note)
+
 
 class TestSoleSuggestion(unittest.TestCase):
     """What the screen may pre-select (slice R1).
@@ -368,6 +398,34 @@ class TestSoleSuggestion(unittest.TestCase):
         outcome = derive_row_outcome(_Row(amount="9000"), match)
         self.assertEqual(outcome.status, ROW_MATCHED)
         self.assertIsNone(sole_suggestion(outcome, match))
+
+    def test_TWO_SEPARATE_PAYMENTS_suggest_nothing(self):
+        """⚠️ THE REGRESSION THAT COST 124 CONFIRMATIONS ON THE FIRST REAL STATEMENT (2026-08-10).
+
+        Two SEPARATE approved payments -- not a fan-out -- is the commonest ambiguity there is on
+        the main ledger, and it was the one shape no fixture built. `_settleable_candidates` read
+        only `payment_groups[0]`, so this collapsed to one candidate and the screen pre-selected the
+        arbitrary first one while announcing "One approved record at this amount".
+
+        A vendor with six Rs 9,000 approved payments and seven Rs 9,000 transfers had all seven rows
+        pointed at the SAME payment. One settled; six failed `AlreadyPaidError`; five good payments
+        were never offered to anyone.
+        """
+        match = _match_many([_payment("PAY-1"), _payment("PAY-2")])
+        outcome = derive_row_outcome(_Row(), match)
+        self.assertEqual(outcome.status, ROW_MATCHED)
+        self.assertIsNone(sole_suggestion(outcome, match))
+
+    def test_six_separate_payments_suggest_nothing(self):
+        """The real shape, at the real size."""
+        match = _match_many([_payment(f"PAY-{i}") for i in range(6)])
+        self.assertIsNone(sole_suggestion(derive_row_outcome(_Row(), match), match))
+
+    def test_one_payment_among_several_groups_is_still_suggested_when_it_is_alone(self):
+        """The fix must not over-correct: ONE group with ONE target is still unambiguous."""
+        match = _match_many([_payment("PAY-1")])
+        outcome = derive_row_outcome(_Row(), match)
+        self.assertEqual(sole_suggestion(outcome, match), Suggestion("Project Payments", "PAY-1"))
 
     def test_no_candidates_suggest_nothing(self):
         match = _match()

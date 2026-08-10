@@ -135,17 +135,17 @@ const RecordRow = ({
                 />
             </td>
 
-            {/* ⚠️ THE TYPE IS NOT DECORATION. One list holds all three ledgers, so this is the only
-                thing on the row saying whether this is a payment against a PO or an expense somebody
-                booked -- which is what three separate cards used to say by existing. */}
-            <td className="px-2 py-2 align-top">
+            {/* ⚠️ THE TYPE IS NOT DECORATION, AND IT IS NOT ITS OWN COLUMN EITHER (owner ruling
+                2026-08-10). One list holds all three ledgers, so the label is the only thing on the
+                row saying whether this is a payment against a PO or an expense somebody booked --
+                which is what three separate cards used to say by existing. But as a sixth column it
+                pushed AMOUNT past the right edge, and the amount is the fact that decides whether a
+                record can be settled at all. It stacks above the id it qualifies instead. */}
+            <td className="px-2 py-2 align-top" title={record.name}>
                 <span className="inline-block rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium text-foreground/70">
                     {ledgerLabel(record.target_doctype)}
                 </span>
-            </td>
-
-            <td className="truncate px-2 py-2 align-top font-mono text-xs" title={record.name}>
-                {record.name}
+                <div className="mt-0.5 truncate font-mono text-xs">{record.name}</div>
             </td>
 
             {/* ⚠️ `PAY-00105-034` SAYS NOTHING ABOUT WHOSE MONEY IT IS. A reviewer with three

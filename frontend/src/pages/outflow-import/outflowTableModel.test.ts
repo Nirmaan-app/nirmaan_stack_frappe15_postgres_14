@@ -842,14 +842,24 @@ describe("the settleable-record table model", () => {
     });
 
     it("declares every column the reviewer picks a record by", () => {
+        // ⚠️ FIVE, NOT SIX (owner ruling 2026-08-10). The ledger label used to be its own `type`
+        // column and the six pushed AMOUNT off the right edge -- so the one fact that decides
+        // whether a record can be settled needed a horizontal scroll to reach. The label now
+        // stacks above the id it qualifies inside `record`.
         expect(RECORD_COLUMNS.map((c) => c.id)).toEqual([
-            "type",
             "record",
             "vendor",
             "project",
             "date",
             "amount",
         ]);
+    });
+
+    it("keeps the whole table inside the dialog without horizontal scroll", () => {
+        // The dialog is 960px wide with ~48px of padding and a ~36px radio column. If the columns
+        // outgrow that, Amount is the one that falls off -- which is what this change fixed.
+        const total = RECORD_COLUMNS.reduce((sum, c) => sum + parseInt(c.width, 10), 0);
+        expect(total).toBeLessThanOrEqual(960 - 48 - 36);
     });
 
     it("gives every column a fixed width, so the header and the scrolling body stay in step", () => {

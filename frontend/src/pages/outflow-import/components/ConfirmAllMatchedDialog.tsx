@@ -59,10 +59,26 @@ export const ConfirmAllMatchedDialog = ({ batch, open, onOpenChange, onSettled }
     const [done, setDone] = useState(0);
     const [outcomes, setOutcomes] = useState<ConfirmOutcome[] | null>(null);
 
+    /**
+     * ⚠️ THE FETCH IS SUSPENDED ONCE THERE ARE RESULTS, AND THAT IS THE FIX, NOT A TUNING.
+     *
+     * On the first real 1,043-row run the results panel never appeared: the dialog finished 858
+     * settles and then quietly showed the LIST again, refreshed, so 124 failures were collected and
+     * thrown away without ever being read. Once the run is over, the confirmable list is not just
+     * stale, it is IRRELEVANT -- the dialog is reporting what happened, and nothing arriving from
+     * the server can improve that. Passing a null SWR key while `outcomes` is set means no
+     * revalidation, no `data` change, no re-render that can reach the results view at all.
+     *
+     * Whatever exactly swapped the view (a focus revalidation is the best candidate; the run had
+     * been idle for minutes), it can no longer happen, because the dependency is gone rather than
+     * ordered more carefully.
+     */
+    const showResults = outcomes !== null;
+
     const { data, isLoading } = useFrappeGetCall<{ message: Payload }>(
         "nirmaan_stack.api.outflow_import.review.get_confirmable_rows",
         { batch },
-        open && batch ? `outflow-confirmable-${batch}` : null
+        open && batch && !showResults ? `outflow-confirmable-${batch}` : null
     );
 
     const { call: callSettle } = useFrappePostCall(
@@ -132,13 +148,17 @@ export const ConfirmAllMatchedDialog = ({ batch, open, onOpenChange, onSettled }
                     </DialogDescription>
                 </DialogHeader>
 
-                {isLoading && (
+                {/* ⚠️ RESULTS TAKE ABSOLUTE PRECEDENCE, and are NOT gated on `!isLoading`. A
+                    loading flag from a fetch that no longer runs must never be able to hide the
+                    report of 858 writes -- the previous ordering made the two mutually
+                    exclusive, which is how the failures went unseen. */}
+                {!showResults && isLoading && (
                     <div className="flex items-center justify-center py-10 text-muted-foreground">
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading…
                     </div>
                 )}
 
-                {!isLoading && outcomes && (
+                {showResults && outcomes && (
                     <div className="max-h-[50vh] space-y-2 overflow-y-auto">
                         <p className="flex items-center gap-2 text-sm">
                             <CheckCircle2 className="h-4 w-4 text-emerald-600" />
@@ -175,7 +195,7 @@ export const ConfirmAllMatchedDialog = ({ batch, open, onOpenChange, onSettled }
                     </div>
                 )}
 
-                {!isLoading && !outcomes && (
+                {!showResults && !isLoading && (
                     <div className="max-h-[50vh] space-y-4 overflow-y-auto">
                         {ready.length === 0 && (
                             <p className="py-6 text-center text-sm text-muted-foreground">
