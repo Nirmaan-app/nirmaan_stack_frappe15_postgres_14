@@ -280,6 +280,79 @@ def _parse_target_search_field(search_fields_input: str | None, doctype_for_log:
         
     return None
 
+# Fieldtypes whose PostgreSQL column is NOT text, so `col LIKE '%x%'` has no operator:
+# psycopg2 raises `operator does not exist: numeric ~~* unknown`. Mirrors the set already
+# used in facets.py for the `col != ''` guard — the same PG strict-typing class of bug.
+NON_TEXT_SEARCH_FIELDTYPES = {
+    "Currency", "Float", "Int", "Percent", "Rating",
+    "Date", "Datetime", "Time", "Duration", "Check",
+}
+
+
+def append_search_filter(doctype: str, field: str, token: str, filters: list) -> set | None:
+    """Add a substring-search condition for `token` on `doctype.field`.
+
+    Returns None when the condition was appended to `filters` as a normal `like`, or a SET
+    OF NAMES that the CALLER MUST APPLY as a name constraint. Callers must handle both —
+    ignoring the return value silently drops the search condition entirely.
+
+    TEXT fields keep the plain `like` filter — byte-identical to the pre-fix behaviour, so
+    every existing text search on every other table is untouched.
+
+    NON-TEXT fields (Currency/Float/Int/... — see NON_TEXT_SEARCH_FIELDTYPES) cannot take a
+    `like`: PostgreSQL has no `numeric ~~ unknown` operator and, unlike MariaDB, will not
+    implicitly cast. Frappe's filter list cannot express a cast, so those are resolved here
+    with a raw `col::text ILIKE` and handed back as names.
+
+    ⚠️ The names are RETURNED, never appended as `["name","in",[...]]`. Injecting that
+    filter is exactly the shape that trips sqlparse's 10k-token cap once the set is large
+    (a real production crash on this module): a broad numeric search matches thousands of
+    rows, and `reportview_execute` would inline every one of them into the query text. The
+    caller's own name-constraint machinery (`base_name_constraint` /
+    `enumerate_matching_names`) applies the set WITHOUT inlining it.
+
+    Substring semantics are preserved for numbers on purpose: typing `95` must still find
+    9,516 and 149,140. Parsing the token and using `=` would avoid the crash but silently
+    return almost nothing — a worse failure, because nobody would report it.
+    """
+    field_meta = None
+    try:
+        field_meta = frappe.get_meta(doctype).get_field(field)
+    except Exception:
+        field_meta = None
+
+    # get_field returns None for standard fields (name/owner/creation/...). Those keep the
+    # existing `like` path: unchanged behaviour, and the safe default for anything unknown.
+    is_non_text = bool(field_meta) and field_meta.fieldtype in NON_TEXT_SEARCH_FIELDTYPES
+    if not is_non_text:
+        filters.append([doctype, field, "like", f"%{token}%"])
+        return None
+
+    # Cast the COLUMN, never the pattern: `col::text ILIKE '%9%'`. Casting the other way
+    # (`col ILIKE '9'::numeric`) is the same error with the operands swapped.
+    matches = frappe.db.sql(
+        f'SELECT name FROM `tab{doctype}` WHERE `{field}`::text ILIKE %(pattern)s',
+        {"pattern": f"%{token}%"},
+        as_list=True,
+    )
+    # An empty set is meaningful: it must narrow to nothing, never widen to everything.
+    return {r[0] for r in matches if r and r[0]}
+
+
+def merge_name_constraint(existing: set | None, incoming: set | None) -> set | None:
+    """Intersect two optional name constraints (AND semantics, matching stacked filters).
+
+    None means "no constraint". An EMPTY incoming set is a real constraint meaning "nothing
+    matched" and must survive the merge — returning `existing` for a falsy incoming would
+    turn a zero-result search into an unfiltered one.
+    """
+    if incoming is None:
+        return existing
+    if existing is None:
+        return incoming
+    return existing & incoming
+
+
 def split_name_in_constraints(processed_filters: list) -> tuple[list, set | None]:
     """Pull `name in [...]` filters out of a processed filter list so a downstream ORM query never inlines a
     giant `name IN (...)` (the sqlparse 10,000-token trap). The JSON-field facet path above injects exactly

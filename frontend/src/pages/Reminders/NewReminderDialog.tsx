@@ -15,6 +15,7 @@ import {
   useFrappeCreateDoc,
   useFrappeGetCall,
   useFrappeGetDoc,
+  useFrappePostCall,
   useFrappeUpdateDoc,
 } from "frappe-react-sdk";
 import ReactSelect from "react-select";
@@ -28,20 +29,47 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/ui/use-toast";
 import { useDialogStore } from "@/zustand/useDialogStore";
+import { useUserData } from "@/hooks/useUserData";
+import { cn } from "@/lib/utils";
+
+/**
+ * May this user RENAME a Reminder Schedule? Mirrors the server gate
+ * `_require_reminder_editor` (Administrator user OR the Nirmaan Admin Profile) by
+ * construction — CONVENIENCE ONLY; `rename_reminder` is the real boundary.
+ *
+ * The `role === "Loading"` guard is load-bearing: `useUserData` returns the literal
+ * "Loading" while the Nirmaan Users doc is in flight, and without it an ADMIN would
+ * see the Title field flash read-only on open.
+ */
+export function canRenameReminder(role: string, userId: string): boolean {
+  if (role === "Loading") return false;
+  return userId === "Administrator" || role === "Nirmaan Admin Profile";
+}
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const SCHEDULE_TYPES = ["Monthly", "Quarterly", "Half-Yearly", "Custom Dates"] as const;
 // Months each span-based schedule covers (auto-fills the end month from the start).
 const SPAN: Record<string, number> = { Quarterly: 3, "Half-Yearly": 6 };
 
-const selectClass =
-  "flex h-10 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-all focus:outline-none focus:ring-2 disabled:cursor-not-allowed disabled:opacity-50";
+// Dropdowns use the app's Radix <Select>, never a native <select>. A native select's
+// popup is drawn by the browser and mis-anchors inside DialogContent (which is
+// `fixed` + `translate-x-[-50%] translate-y-[-50%]`) — the list rendered detached in
+// the top-left of the viewport. Radix anchors to the trigger, so it stays put.
+const errorRing = "border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500/20";
+const okRing = "focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500";
 
 const dueDateRowSchema = z.object({
   from_month: z.string().optional(),
@@ -68,6 +96,27 @@ const schema = z
       }
     } else if (!val.due_dates || val.due_dates.length === 0) {
       ctx.addIssue({ path: ["due_dates"], code: z.ZodIssueCode.custom, message: "Add at least one due date" });
+    } else {
+      // from_month/to_month stay .optional() on the row schema ON PURPOSE: a Monthly
+      // schedule keeps its due_dates rows in form state (useFieldArray does not drop
+      // them on type switch), and requiring them there would block a Monthly submit on
+      // hidden fields. Every non-Monthly type needs both, so the check belongs here.
+      val.due_dates.forEach((row, i) => {
+        if (!row.from_month) {
+          ctx.addIssue({
+            path: ["due_dates", i, "from_month"],
+            code: z.ZodIssueCode.custom,
+            message: "Covers From is required",
+          });
+        }
+        if (!row.to_month) {
+          ctx.addIssue({
+            path: ["due_dates", i, "to_month"],
+            code: z.ZodIssueCode.custom,
+            message: "Covers To is required",
+          });
+        }
+      });
     }
   });
 
@@ -88,8 +137,19 @@ export function NewReminderDialog({ onCreated }: NewReminderDialogProps) {
   const { toast } = useToast();
   const { createDoc, loading: creating } = useFrappeCreateDoc();
   const { updateDoc, loading: updating } = useFrappeUpdateDoc();
+  // Title changes cannot ride updateDoc (autoname `field:title` — see onSubmit).
+  const { call: renameReminder, loading: renaming } = useFrappePostCall<{
+    message: { name: string; renamed: boolean };
+  }>("nirmaan_stack.api.reminders.write.rename_reminder");
   const isEdit = !!editReminderScheduleName;
-  const loading = creating || updating;
+  const loading = creating || updating || renaming;
+
+  // Rename is Admin-only. The lock is EDIT-ONLY on purpose: creating goes through
+  // createDoc, where autoname derives the name from the title — no rename involved —
+  // so every create-capable role must still be able to name a new reminder.
+  const { user_id, role } = useUserData();
+  const canRename = canRenameReminder(role, user_id);
+  const titleLocked = isEdit && !canRename;
 
   // In EDIT mode, load the schedule — get_doc hydrates the child tables (role_profiles,
   // due_dates) one level deep, so no child-table list query is needed.
@@ -176,11 +236,17 @@ export function NewReminderDialog({ onCreated }: NewReminderDialogProps) {
 
   // Quarterly/Half-Yearly: derive the end month from the picked start month.
   const handleFromMonthChange = (index: number, value: string) => {
-    setValue(`due_dates.${index}.from_month`, value);
+    // shouldValidate: unlike a Controller's field.onChange, a bare setValue does not
+    // re-run the resolver, so a "Covers From is required" error would stay red after
+    // the user picked a month.
+    setValue(`due_dates.${index}.from_month`, value, { shouldValidate: true });
     const span = SPAN[scheduleType];
     if (span && value) {
       const start = MONTHS.indexOf(value);
-      if (start >= 0) setValue(`due_dates.${index}.to_month`, MONTHS[(start + span - 1) % 12]);
+      if (start >= 0)
+        setValue(`due_dates.${index}.to_month`, MONTHS[(start + span - 1) % 12], {
+          shouldValidate: true,
+        });
     }
   };
 
@@ -220,7 +286,23 @@ export function NewReminderDialog({ onCreated }: NewReminderDialogProps) {
         }));
       }
       if (isEdit && editReminderScheduleName) {
-        await updateDoc("Reminder Schedule", editReminderScheduleName, payload);
+        // `Reminder Schedule` is autonamed `field:title`, so the doc NAME *is* the title
+        // and Frappe force-syncs name -> title on every save — a `title` in the payload is
+        // silently reverted. A real rename must go through `rename_doc` FIRST, and the
+        // returned new name becomes the target of the field update below (the old name no
+        // longer exists). `rename_doc` repoints the linked Reminder Schedule Log rows.
+        let targetName = editReminderScheduleName;
+        // `canRename &&` makes "a non-admin never calls rename" a property of the code,
+        // not of a DOM attribute — so their save can never fail on the Admin-only gate.
+        if (canRename && values.title !== editReminderScheduleName) {
+          const res = await renameReminder({
+            name: editReminderScheduleName,
+            new_title: values.title,
+          });
+          targetName = res?.message?.name || editReminderScheduleName;
+          setEditReminderScheduleName(targetName);
+        }
+        await updateDoc("Reminder Schedule", targetName, payload);
         toast({ title: "Reminder updated", description: `"${values.title}" was saved.` });
       } else {
         await createDoc("Reminder Schedule", payload);
@@ -274,7 +356,10 @@ export function NewReminderDialog({ onCreated }: NewReminderDialogProps) {
 
   return (
     <Dialog open={newReminderDialog} onOpenChange={(open) => (open ? setNewReminderDialog(true) : close())}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+      {/* max-w-2xl (not the base lg): a due-date row is ~540px of fixed content, so at
+          lg the row overflowed — and overflow-y-auto computes overflow-x to auto, which
+          is what put a horizontal scrollbar on the whole dialog. */}
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>{isEdit ? "Edit Reminder" : "Add Reminder"}</DialogTitle>
         </DialogHeader>
@@ -288,9 +373,25 @@ export function NewReminderDialog({ onCreated }: NewReminderDialogProps) {
             <Input
               id="reminder-title"
               placeholder="e.g. GSTR-3B"
-              className={`h-10 transition-all focus:ring-2 ${errors.title ? 'border-red-500 focus:border-red-500 focus:ring-red-500/20' : 'focus:ring-emerald-500/20 focus:border-emerald-500'}`}
+              // readOnly, NEVER disabled: a disabled input drops out of the form value
+              // pipeline, so `title` would arrive undefined and the zod min(1) rule would
+              // fail EVERY non-admin save — the exact breakage this lock removes.
+              readOnly={titleLocked}
+              aria-readonly={titleLocked || undefined}
+              className={cn(
+                "h-10 transition-all focus:ring-2",
+                errors.title
+                  ? "border-red-500 focus:border-red-500 focus:ring-red-500/20"
+                  : "focus:ring-emerald-500/20 focus:border-emerald-500",
+                titleLocked && "bg-muted cursor-not-allowed"
+              )}
               {...register("title")}
             />
+            {titleLocked && (
+              <p className="text-xs text-muted-foreground">
+                Only an Admin can rename a reminder.
+              </p>
+            )}
             {errors.title && <p className="text-xs text-red-500">{errors.title.message}</p>}
           </div>
 
@@ -331,13 +432,27 @@ export function NewReminderDialog({ onCreated }: NewReminderDialogProps) {
               <Label htmlFor="reminder-type" className="text-sm font-medium text-slate-700 dark:text-slate-300">
                 Schedule Type <span className="text-red-500">*</span>
               </Label>
-              <select id="reminder-type" className={`${selectClass} ${errors.schedule_type ? 'border-red-500 focus:border-red-500 focus:ring-red-500/20' : 'focus:ring-emerald-500/20 focus:border-emerald-500'}`} {...register("schedule_type")}>
-                {SCHEDULE_TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
+              <Controller
+                control={control}
+                name="schedule_type"
+                render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger
+                      id="reminder-type"
+                      className={cn("h-10 transition-all", errors.schedule_type ? errorRing : okRing)}
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {SCHEDULE_TYPES.map((t) => (
+                        <SelectItem key={t} value={t}>
+                          {t}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="notify-before" className="text-sm font-medium text-slate-700 dark:text-slate-300">
@@ -398,52 +513,125 @@ export function NewReminderDialog({ onCreated }: NewReminderDialogProps) {
               )}
               {fields.map((row, index) => {
                 const rowErr = errors.due_dates?.[index];
-                const hasError = !!(rowErr?.due_month || rowErr?.due_day);
-                
+                const hasError = !!(
+                  rowErr?.due_month ||
+                  rowErr?.due_day ||
+                  rowErr?.from_month ||
+                  rowErr?.to_month
+                );
+
                 return (
                   <div key={row.id} className="flex flex-col gap-1">
-                    <div className={`flex items-center gap-2 rounded-md border px-2 py-1.5 transition-colors ${hasError ? 'border-red-200 bg-red-50/30' : 'bg-gray-50/50'}`}>
+                    {/* Stacks to two lines below sm (the single row needs ~540px); the
+                        delete button pins to the corner so it never eats a whole line. */}
+                    <div
+                      className={cn(
+                        "relative flex flex-col gap-2 rounded-md border py-2 pl-2 pr-10 transition-colors sm:flex-row sm:items-center sm:gap-2 sm:py-1.5 sm:pr-2",
+                        hasError ? "border-red-200 bg-red-50/30" : "bg-gray-50/50"
+                      )}
+                    >
                       {/* Due Date */}
-                      <div className="flex items-center gap-1.5">
-                        <span className={`text-xs font-medium w-9 ${hasError ? 'text-red-600' : 'text-gray-700'}`}>Due:</span>
-                        <select className={`${selectClass} w-20 bg-white h-8 ${rowErr?.due_month ? 'border-red-500 focus:border-red-500 focus:ring-red-500/20' : 'focus:ring-emerald-500/20 focus:border-emerald-500'}`} {...register(`due_dates.${index}.due_month`)}>
-                          <option value="">Mon</option>
-                          {MONTHS.map((m) => (
-                            <option key={m} value={m}>{m}</option>
-                          ))}
-                        </select>
+                      <div className="flex items-center gap-1.5 sm:shrink-0">
+                        <span
+                          className={cn(
+                            "w-14 shrink-0 text-xs font-medium sm:w-9",
+                            hasError ? "text-red-600" : "text-gray-700"
+                          )}
+                        >
+                          Due:
+                        </span>
+                        <Controller
+                          control={control}
+                          name={`due_dates.${index}.due_month`}
+                          render={({ field }) => (
+                            <Select value={field.value || ""} onValueChange={field.onChange}>
+                              <SelectTrigger
+                                className={cn(
+                                  "h-8 w-24 shrink-0 bg-white px-2 transition-all",
+                                  rowErr?.due_month ? errorRing : okRing
+                                )}
+                              >
+                                <SelectValue placeholder="Month" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {MONTHS.map((m) => (
+                                  <SelectItem key={m} value={m}>
+                                    {m}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          )}
+                        />
                         <Input
                           type="number"
                           min={1}
                           max={31}
                           placeholder="Day"
-                          className={`w-16 h-8 bg-white transition-all focus:ring-2 ${rowErr?.due_day ? 'border-red-500 focus:border-red-500 focus:ring-red-500/20' : 'focus:ring-emerald-500/20 focus:border-emerald-500'}`}
+                          className={cn(
+                            "h-8 w-14 shrink-0 bg-white transition-all",
+                            rowErr?.due_day ? errorRing : okRing
+                          )}
                           {...register(`due_dates.${index}.due_day`)}
                         />
                       </div>
-                      
-                      <div className="w-px h-5 bg-gray-200 mx-1 hidden sm:block"></div>
-                      
+
+                      <div className="mx-1 hidden h-5 w-px bg-gray-200 sm:block"></div>
+
                       {/* Covers Period */}
-                      <div className="flex flex-wrap sm:flex-nowrap items-center gap-1.5 flex-1">
-                        <span className="text-xs font-medium text-gray-500 hidden sm:inline-block">Covers:</span>
-                        <select
-                          className={`${selectClass} w-16 sm:w-20 bg-white h-8 text-muted-foreground focus:ring-emerald-500/20 focus:border-emerald-500`}
-                          value={watch(`due_dates.${index}.from_month`) || ""}
-                          onChange={(e) => handleFromMonthChange(index, e.target.value)}
+                      <div className="flex items-center gap-1.5 sm:flex-1">
+                        <span
+                          className={cn(
+                            "w-14 shrink-0 text-xs font-medium sm:w-auto",
+                            rowErr?.from_month || rowErr?.to_month ? "text-red-600" : "text-gray-500"
+                          )}
                         >
-                          <option value="">From</option>
-                          {MONTHS.map((m) => (
-                            <option key={m} value={m}>{m}</option>
-                          ))}
-                        </select>
-                        <span className="text-xs text-gray-400 hidden sm:inline-block">-</span>
-                        <select className={`${selectClass} w-16 sm:w-20 bg-white h-8 text-muted-foreground focus:ring-emerald-500/20 focus:border-emerald-500`} {...register(`due_dates.${index}.to_month`)}>
-                          <option value="">To</option>
-                          {MONTHS.map((m) => (
-                            <option key={m} value={m}>{m}</option>
-                          ))}
-                        </select>
+                          Covers:
+                        </span>
+                        <Select
+                          value={watch(`due_dates.${index}.from_month`) || ""}
+                          onValueChange={(v) => handleFromMonthChange(index, v)}
+                        >
+                          <SelectTrigger
+                            className={cn(
+                              "h-8 min-w-0 flex-1 bg-white px-2 transition-all",
+                              rowErr?.from_month ? errorRing : okRing
+                            )}
+                          >
+                            <SelectValue placeholder="From" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {MONTHS.map((m) => (
+                              <SelectItem key={m} value={m}>
+                                {m}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <span className="text-xs text-gray-400">-</span>
+                        <Controller
+                          control={control}
+                          name={`due_dates.${index}.to_month`}
+                          render={({ field }) => (
+                            <Select value={field.value || ""} onValueChange={field.onChange}>
+                              <SelectTrigger
+                                className={cn(
+                                  "h-8 min-w-0 flex-1 bg-white px-2 transition-all",
+                                  rowErr?.to_month ? errorRing : okRing
+                                )}
+                              >
+                                <SelectValue placeholder="To" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {MONTHS.map((m) => (
+                                  <SelectItem key={m} value={m}>
+                                    {m}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          )}
+                        />
                       </div>
 
                       {/* Delete */}
@@ -451,12 +639,20 @@ export function NewReminderDialog({ onCreated }: NewReminderDialogProps) {
                         type="button"
                         size="icon"
                         variant="ghost"
-                        className="h-8 w-8 shrink-0 text-gray-400 hover:bg-red-50 hover:text-red-600"
+                        className="absolute right-1 top-1 h-8 w-8 shrink-0 text-gray-400 hover:bg-red-50 hover:text-red-600 sm:static sm:right-auto sm:top-auto"
                         onClick={() => remove(index)}
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
+                    {hasError && (
+                      <p className="pl-2 text-xs text-red-500">
+                        {rowErr?.due_month?.message ||
+                          rowErr?.due_day?.message ||
+                          rowErr?.from_month?.message ||
+                          rowErr?.to_month?.message}
+                      </p>
+                    )}
                   </div>
                 );
               })}

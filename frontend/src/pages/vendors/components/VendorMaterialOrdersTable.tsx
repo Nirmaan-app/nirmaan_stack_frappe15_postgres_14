@@ -1,8 +1,9 @@
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   DataTable,
   SearchFieldOption,
 } from "@/components/data-table/new-data-table";
+import { Row as TanRow } from "@tanstack/react-table";
 import { FacetDeclaration } from "@/components/data-table/facetConfig";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
@@ -24,6 +25,8 @@ import { PaymentsDataDialog } from "@/pages/ProjectPayments/PaymentsDataDialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { TailSpin } from "react-loader-spinner";
+import { Info } from "lucide-react";
+import { INACTIVE_PO_ROW_CLASSES } from "@/utils/inactivePoRowStyles";
 
 interface VendorMaterialOrdersTableProps {
   vendorId: string;
@@ -76,12 +79,21 @@ export const VendorMaterialOrdersTable: React.FC<
   const [selectedPaymentPO, setSelectedPaymentPO] = useState<ProcurementOrder | undefined>();
 
   // --- Static Filters ---
+  // Inactive POs ARE included here (they are shown with a red row tint) — only
+  // Merged POs stay hidden.
   const staticFilters = useMemo(() => {
     return [
       ["vendor", "=", vendorId],
-      ["status", "not in", ["Merged", "Inactive"]],
+      ["status", "not in", ["Merged"]],
     ];
   }, [vendorId]);
+
+  // Inactive (superseded) POs get a red row tint so they are visibly distinct.
+  const getRowClassName = useCallback(
+    (row: TanRow<ProcurementOrder>) =>
+      row.original.status === "Inactive" ? INACTIVE_PO_ROW_CLASSES : undefined,
+    []
+  );
 
   // Fetch Vendor Invoices for this vendor to calculate total invoiced per PO
   const { data: vendorInvoices } = useVendorInvoices(vendorId);
@@ -169,11 +181,13 @@ export const VendorMaterialOrdersTable: React.FC<
         cell: ({ row }) => (
           <Badge
             variant={
-              ["Partially Delivered", "Delivered"].includes(row.original.status)
-                ? "green"
-                : ["Partially Dispatched"].includes(row.original.status)
-                  ? "yellow"
-                  : "outline"
+              row.original.status === "Inactive"
+                ? "red"
+                : ["Partially Delivered", "Delivered"].includes(row.original.status)
+                  ? "green"
+                  : ["Partially Dispatched"].includes(row.original.status)
+                    ? "yellow"
+                    : "outline"
             }
           >
             {row.original.status}
@@ -493,6 +507,14 @@ export const VendorMaterialOrdersTable: React.FC<
 
   const amountDue = totalInvoiced - totalPaidForPOs;
 
+  // Drives the red-tint legend. Read off the rendered rows rather than a separate
+  // count query: the list is server-paginated, so "is anything red right now" is the
+  // only question the page can answer cheaply — and it is the question the legend
+  // answers. Recomputed per render, which is what makes it track pagination.
+  const hasInactiveOnPage = table
+    .getRowModel()
+    .rows.some((r) => r.original.status === "Inactive");
+
   return (
     <>
       <DataTable<ProcurementOrder>
@@ -505,6 +527,7 @@ export const VendorMaterialOrdersTable: React.FC<
         onSelectedSearchFieldChange={setSelectedSearchField}
         searchTerm={searchTerm}
         onSearchTermChange={setSearchTerm}
+        getRowClassName={getRowClassName}
         facetDoctype="Procurement Orders"
         facetOverrides={{
           project: { additionalFilters: staticFilters },
@@ -577,6 +600,26 @@ export const VendorMaterialOrdersTable: React.FC<
                   </div>
                 </div>
               </div>
+
+              {/* Legend for the red row tint — rendered ONLY when an Inactive PO is
+                  actually on the current page. Inactive POs are rare (9 across 8 vendors
+                  in live data), so an always-on legend would explain a colour most
+                  vendors never show. */}
+              {/* A plain info glyph: this is an explanatory note, not a warning or an error,
+                  and unlike a bordered swatch it cannot be mistaken for a control. */}
+              {hasInactiveOnPage && (
+                <div className="mt-3 flex items-start gap-1.5 border-t pt-3 text-xs text-muted-foreground">
+                  <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  <span>
+                    Rows shown with a{" "}
+                    <span className="rounded-[3px] bg-red-50 px-1.5 py-0.5 font-medium text-red-700 dark:bg-red-950/40 dark:text-red-400">
+                      red background
+                    </span>{" "}
+                    are Inactive POs (superseded by a revision) — they are included in the
+                    list and in the PO Totals above.
+                  </span>
+                </div>
+              )}
             </CardContent>
           </Card>
         }
