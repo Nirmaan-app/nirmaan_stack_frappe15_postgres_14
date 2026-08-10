@@ -1191,6 +1191,301 @@ class TestTheTierLadderEndToEnd(OutflowReviewFixture):
         self.assertIsNone(row["suggested_name"])
 
 
+class TestStackAutoPairing(OutflowReviewFixture):
+    """The chunk-E stack pass, through the REAL endpoint (`_resolve_stacks`).
+
+    THE CASE. Several transfers that are indistinguishable from one another -- same vendor account,
+    same amount -- against the same number of indistinguishable approved payments. Row by row the
+    matcher correctly refuses to pick one; for the SET there is exactly one sensible outcome.
+
+    ⚠️ THE FIXTURE REWRITES STAGED ROWS IN PLACE, which no other class here does, and it has to:
+    the CSV's rows all carry distinct amounts and references, so no stack can form from it as
+    written. Rewriting `bank_account` / `ifsc` / `amount` means also rewriting `normalized_account`
+    -- the normalised column is computed at STAGING and a `set_value` on the raw column leaves it
+    stale, which would silently put the row in no stack at all. Both references are cleared so
+    tier 0 cannot fire and hand a row a sole suggestion, which would take it out of the stack.
+    """
+
+    # Amounts chosen to be implausible in the live ledger, so a real approved payment cannot wander
+    # into the pool and change the counts this class asserts on.
+    #
+    # ⚠️ AND SEPARATED BY FAR MORE THAN THE TIER-1 WINDOW, which the first version of this fixture
+    # was not: 7737.11 / .22 / .33 are all within +-Re 1 of each other, so every stack's candidate
+    # set contained every stack's payments -- 7 records against 3 transfers -- and nothing paired.
+    # That is the code behaving CORRECTLY (see
+    # `test_two_stacks_within_the_tier_one_window_of_each_other_do_not_pair`, which pins it on
+    # purpose); it was the fixture that was wrong.
+    STACK_A_AMOUNT = 7737.11
+    STACK_B_AMOUNT = 8848.22
+    STACK_C_AMOUNT = 9959.33
+    # Deliberately 50 paise from stack A -- inside the tier-1 window, so it shares A's candidates.
+    STACK_NEAR_A_AMOUNT = 7737.61
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.extra_vendors: list = []
+
+        cls.stack_account = "98765432101"
+        cls.stack_ifsc = "TEST0009999"
+        cls.stack_vendor = f"TEST-OFV-{frappe.generate_hash(length=10)}"
+        frappe.db.sql(
+            """
+            INSERT INTO "tabVendors" (name, creation, modified, modified_by, owner, docstatus, idx,
+                                      vendor_name, account_number, ifsc)
+            VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s)
+            """,
+            (cls.stack_vendor, "Administrator", "Administrator",
+             "Testvendor Stackco Ltd", cls.stack_account, cls.stack_ifsc),
+        )
+        cls.extra_vendors.append(cls.stack_vendor)
+
+        # STACK A -- BALANCED: three transfers, three approved payments.
+        #
+        # ⚠️ NOT SUFFIX `0001`. The fixture REPEATS that transfer id (CSV rows 1 and 12) to exercise
+        # the in-file duplicate guard, so a `transfer_id` lookup returns an arbitrary one of the two
+        # and roughly half the time hands back the row that was SKIPPED at upload. `_stack_row`
+        # asserts against that now, but the simpler fix is not to use the ambiguous suffix at all.
+        cls.a_rows = [cls._stack_row(s, cls.STACK_A_AMOUNT) for s in ("0003", "0004", "0005")]
+        cls.a_payments = [cls._stack_payment(cls.STACK_A_AMOUNT) for _ in range(3)]
+
+        # STACK B -- UNBALANCED: THREE transfers, TWO approved payments. The owner's residual
+        # collision shape -- the statement holds more transfers than the ledger holds records.
+        #
+        # ⚠️ THREE-AGAINST-TWO, NOT TWO-AGAINST-ONE, and the first version of this fixture was the
+        # latter and tested nothing. With a single candidate every row gets a SOLE SUGGESTION from
+        # the per-row matcher, so both rows arrive already suggested, the stack pass skips them
+        # entirely, and the assertion passed for a reason that had nothing to do with the code under
+        # test. Two candidates is the smallest set for which `sole_suggestion` declines and the
+        # stack pass is genuinely the thing being exercised.
+        cls.b_rows = [cls._stack_row(s, cls.STACK_B_AMOUNT) for s in ("0006", "0007", "0008")]
+        cls.b_payments = [cls._stack_payment(cls.STACK_B_AMOUNT) for _ in range(2)]
+
+        # STACK C -- SPANS TWO IMPORTS: two transfers here, one in a batch staged mid-test, three
+        # approved payments. Unbalanced until the second import lands.
+        cls.c_rows = [cls._stack_row(s, cls.STACK_C_AMOUNT) for s in ("0009", "0010")]
+        cls.c_payments = [cls._stack_payment(cls.STACK_C_AMOUNT) for _ in range(3)]
+
+        frappe.db.commit()
+
+    @classmethod
+    def _stack_row(cls, suffix, amount) -> str:
+        """Rewrite one staged row into the stack's identity. Returns its `name`."""
+        from nirmaan_stack.services.outflow_import.normalize import normalize_account
+
+        name = frappe.db.get_value(
+            ROW_DOCTYPE,
+            {"import_batch": cls.batch.name, "transfer_id": cls._row(suffix).transfer_id},
+            "name",
+        )
+        # ⚠️ ASSERTED, NOT ASSUMED, and it cost a debugging session to learn why. A row that was
+        # skipped at upload is excluded from every stack, so building the fixture on one produces a
+        # class where NOTHING pairs and every assertion fails for a reason that looks like a defect
+        # in the code under test. Two of the fixture's twelve rows are skipped at upload -- the
+        # FAILED transfer and the second copy of the repeated transfer id -- and the second is
+        # reachable by a `transfer_id` lookup that has two rows to choose from.
+        staged_status = frappe.db.get_value(ROW_DOCTYPE, name, "row_status")
+        if staged_status != "Pending match run":
+            raise AssertionError(
+                f"fixture row {suffix} staged as {staged_status!r}, not 'Pending match run' -- "
+                f"it cannot be part of a stack. Pick a suffix that is SUCCESS and whose transfer "
+                f"id appears once in the CSV."
+            )
+        frappe.db.set_value(
+            ROW_DOCTYPE,
+            name,
+            {
+                "bank_account": cls.stack_account,
+                "normalized_account": normalize_account(cls.stack_account),
+                "ifsc": cls.stack_ifsc,
+                "amount": amount,
+                # ⚠️ BOTH reference columns. Leaving either would let tier 0 fire and give the row a
+                # sole suggestion, which removes it from the stack -- and the test would then be
+                # asserting nothing.
+                "bank_reference_no": None,
+                "normalized_reference": None,
+            },
+            update_modified=False,
+        )
+        return name
+
+    @classmethod
+    def _stack_payment(cls, amount) -> str:
+        """An approved payment to the stack's vendor. Junk UTR, so tier 0 cannot reach it."""
+        name = cls._insert_payment_row(
+            amount=amount, status="Approved", utr="PO/STACK/00001/25-26",
+            payment_date=None, project=cls.project,
+        )
+        frappe.db.set_value(
+            "Project Payments", name, "vendor", cls.stack_vendor, update_modified=False
+        )
+        return name
+
+    @classmethod
+    def tearDownClass(cls):
+        for name in getattr(cls, "extra_vendors", []):
+            frappe.db.delete("Vendors", {"name": name})
+        super().tearDownClass()
+
+    def _suggestions(self, names) -> list:
+        return [
+            frappe.db.get_value(
+                ROW_DOCTYPE, n, ["suggested_doctype", "suggested_name", "outcome_note"], as_dict=True
+            )
+            for n in names
+        ]
+
+    def test_a_balanced_stack_pairs_every_transfer_to_its_own_record(self):
+        match_batch(self.batch.name)
+        rows = self._suggestions(self.a_rows)
+
+        for row in rows:
+            self.assertEqual(row.suggested_doctype, "Project Payments")
+            self.assertIn(row.suggested_name, self.a_payments)
+
+        assigned = [r.suggested_name for r in rows]
+        self.assertEqual(
+            len(set(assigned)), 3,
+            "a record handed to two transfers is the AlreadyPaidError the whole fix exists to stop",
+        )
+
+    def test_an_auto_paired_row_says_the_pairing_was_arbitrary(self):
+        """⚠️ THE MITIGATION FOR THE ACCEPTED RISK, pinned at the endpoint. The owner accepted
+        arbitrary pairing between interchangeable records; six payments of one amount may sit on six
+        different projects, and a note reading like an ordinary confident match would hide the one
+        fact a reviewer needs to catch that."""
+        match_batch(self.batch.name)
+        for row in self._suggestions(self.a_rows):
+            self.assertIn("arbitrary", row.outcome_note)
+            self.assertIn("Check the project before confirming", row.outcome_note)
+
+    def test_an_unbalanced_stack_is_left_entirely_alone(self):
+        """Two transfers, one record: SOME transfer settles nothing, and choosing which is a
+        judgement about money. Nothing is paired -- not even the one that would fit."""
+        match_batch(self.batch.name)
+        for row in self._suggestions(self.b_rows):
+            self.assertIsNone(row.suggested_name)
+
+    def test_the_pairing_is_identical_across_re_runs(self):
+        """⚠️ Re-running the match is NORMAL -- payments get ticked Paid by hand all day. A pairing
+        that reshuffled would move a suggestion out from under a reviewer mid-decision, and nothing
+        on the screen would say it had moved."""
+        match_batch(self.batch.name)
+        first = {n: r.suggested_name for n, r in zip(self.a_rows, self._suggestions(self.a_rows))}
+        match_batch(self.batch.name)
+        second = {n: r.suggested_name for n, r in zip(self.a_rows, self._suggestions(self.a_rows))}
+        self.assertEqual(first, second)
+
+    def test_a_stack_spanning_two_imports_pairs_only_once_the_second_one_lands(self):
+        """⚠️ THE CROSS-IMPORT WRITE, WHICH IS THE RISKIEST THING IN THIS CHUNK -- matching batch B
+        changes rows belonging to batch A.
+
+        Stack C has three approved payments and only two transfers in this batch, so the first
+        match leaves it alone. Staging a second import carrying the third transfer makes it
+        balanced, and matching THAT batch must pair all three -- including the two that belong to
+        the first import and were not part of the run.
+        """
+        match_batch(self.batch.name)
+        self.assertTrue(
+            all(r.suggested_name is None for r in self._suggestions(self.c_rows)),
+            "two transfers against three records is unbalanced and must not pair",
+        )
+
+        second = _fresh_parse()
+        second_batch = _stage_batch(
+            second,
+            file_url="/private/files/test-statement.csv",
+            filename="test-statement.csv",
+            user="Administrator",
+        )
+        type(self).batches.append(second_batch.name)
+        third_transfer = self._stack_row_in(second_batch.name, second, "0006", self.STACK_C_AMOUNT)
+        frappe.db.commit()
+
+        match_batch(second_batch.name)
+
+        paired = self._suggestions([*self.c_rows, third_transfer])
+        for row in paired:
+            self.assertIsNotNone(row.suggested_name, "the stack is balanced now and must pair")
+            self.assertIn(row.suggested_name, self.c_payments)
+        self.assertEqual(len({r.suggested_name for r in paired}), 3)
+
+    @classmethod
+    def _stack_row_in(cls, batch, parsed, suffix, amount) -> str:
+        """`_stack_row`, but against a batch other than the class's own."""
+        from nirmaan_stack.services.outflow_import.normalize import normalize_account
+
+        transfer_id = next(r for r in parsed.rows if r.transfer_id.endswith(suffix)).transfer_id
+        name = frappe.db.get_value(
+            ROW_DOCTYPE, {"import_batch": batch, "transfer_id": transfer_id}, "name"
+        )
+        frappe.db.set_value(
+            ROW_DOCTYPE,
+            name,
+            {
+                "bank_account": cls.stack_account,
+                "normalized_account": normalize_account(cls.stack_account),
+                "ifsc": cls.stack_ifsc,
+                "amount": amount,
+                "bank_reference_no": None,
+                "normalized_reference": None,
+            },
+            update_modified=False,
+        )
+        return name
+
+    def test_a_record_inside_the_tier_one_window_unbalances_the_stack(self):
+        """⚠️ A REAL LIMIT OF THE DESIGN, pinned deliberately rather than discovered later.
+
+        The stack KEY groups transfers on an EXACT amount, but the CANDIDATE set comes from the
+        matcher, which uses the +-Re 1 tier-1 window. So a payment 50 paise away is a candidate for
+        stack A without being part of it: 3 transfers against 4 records, unbalanced, nothing paired.
+
+        That is correct, not a defect. Picking 3 of 4 records would be choosing WHICH payments this
+        stack settles -- exactly the guess the whole pass refuses to make. The cost is that
+        near-identical amounts fall through to a person, and that is the right side to fail on.
+        """
+        intruder = self._stack_payment(self.STACK_NEAR_A_AMOUNT)
+        frappe.db.commit()
+        try:
+            match_batch(self.batch.name)
+            for row in self._suggestions(self.a_rows):
+                self.assertIsNone(
+                    row.suggested_name,
+                    "a fourth candidate 50 paise away leaves stack A unbalanced, so nothing may "
+                    "pair",
+                )
+        finally:
+            # Put stack A back where the other tests expect it.
+            frappe.db.delete("Project Payments", {"name": intruder})
+            frappe.db.commit()
+            match_batch(self.batch.name)
+
+    def test_the_pass_never_touches_a_settled_or_skipped_row(self):
+        """`_load_open_rows_for_keys` filters on OPEN_ROW_STATUSES. A skipped row carrying the
+        stack's account and amount must be left exactly as it is.
+
+        ⚠️ THE SETUP IS SHARPER THAN IT LOOKS. Stack B is 3 transfers against 2 records --
+        unbalanced, so it pairs nothing. Skipping one member leaves 2 against 2, which IS balanced,
+        so the pass runs and pairs the other two ROUND the skipped row. The assertion is therefore
+        not "the pass did nothing"; it is "the pass did its work and still did not touch this row",
+        which is the property that actually matters.
+        """
+        match_batch(self.batch.name)
+        frappe.db.set_value(ROW_DOCTYPE, self.b_rows[0], "row_status", "Skipped", update_modified=False)
+        frappe.db.set_value(
+            ROW_DOCTYPE, self.b_rows[0], "suggested_name", None, update_modified=False
+        )
+        frappe.db.commit()
+
+        match_batch(self.batch.name)
+        after = frappe.db.get_value(
+            ROW_DOCTYPE, self.b_rows[0], ["row_status", "suggested_name"], as_dict=True
+        )
+        self.assertEqual(after.row_status, "Skipped")
+        self.assertIsNone(after.suggested_name)
+
+
 # ⚠️ `get_reconciliation_report` AND ITS TWO TESTS WERE DELETED AT V5, and one capability went with
 # them that the three tabs do NOT replace: the REVERSE VIEW -- payments we recorded as Paid inside
 # the statement's period with no bank row behind them. The tabs answer "is this transfer recorded?";

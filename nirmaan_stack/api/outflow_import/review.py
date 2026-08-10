@@ -43,7 +43,15 @@ from nirmaan_stack.services.outflow_import.ledgers import (
     settleable_statuses,
 )
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
+from nirmaan_stack.services.outflow_import.stacks import (
+    Stack,
+    group_into_stacks,
+    pair_stack,
+    stack_key,
+    stack_note,
+)
 from nirmaan_stack.services.outflow_import.status import (
+    OPEN_ROW_STATUSES,
     ROW_ERROR,
     ROW_MATCHED,
     ROW_MISMATCHED,
@@ -118,6 +126,7 @@ def match_batch(batch: str):
     rows = [_StagedRow(r) for r in _load_rows(batch)]
     matchable = [r for r in rows if r.row_status not in _FROZEN_ROW_STATUSES]
 
+    paired = 0
     if matchable:
         pools = _load_pools(matchable, batch)
         for row in matchable:
@@ -133,11 +142,18 @@ def match_batch(batch: str):
             )
             _persist_row_outcome(row, outcome, result, batch)
 
+        # ⚠️ AFTER THE PER-ROW LOOP, NEVER INSIDE IT. The loop CLEARS every suggestion it does not
+        # re-find (see `_persist_row_outcome`), so a pairing written mid-loop would be wiped by the
+        # next row's clear. The stack pass also needs the loop's finished output -- which rows ended
+        # up with a sole suggestion -- to know which records are already spoken for.
+        paired = _resolve_stacks(matchable, pools)
+
     statuses = _refresh_batch_rollup(batch)
     frappe.db.commit()
     return {
         "batch": batch,
         "matched_rows": len(matchable),
+        "stack_paired_rows": paired,
         "counters": derive_batch_counters(statuses),
         "status": derive_batch_status(statuses),
     }
@@ -249,6 +265,142 @@ def _persist_row_outcome(row: _StagedRow, outcome, result, batch: str) -> None:
     # and re-running the match is how they get cleared. It cannot touch a settlement -- `Settled` is
     # in `_FROZEN_ROW_STATUSES`, so a settled row never reaches this function at all.
     frappe.db.delete(MATCH_DOCTYPE, {"import_row": row.name})
+
+
+# --- stacks: several interchangeable transfers against several interchangeable records (E2) ------
+
+
+def _resolve_stacks(matchable, pools) -> int:
+    """Auto-pair BALANCED stacks and write their suggestions. Returns how many rows were paired.
+
+    THE CASE. A vendor with six approved payments of Rs 9,000 and six transfers of Rs 9,000. Every
+    transfer matches every payment equally well, so `sole_suggestion` correctly refuses to pick one
+    and all six rows arrive with nothing pre-selected -- 58 such rows on the first real statement.
+    Refusing to guess is right ROW BY ROW and wrong for the SET: six against six has exactly one
+    sensible outcome. `services/outflow_import/stacks.py` owns the grouping and the pairing; this
+    function owns the database.
+
+    ⚠️ IT WRITES ACROSS IMPORTS, AND THAT IS THE POINT OF IT (owner ruling 2026-08-10). A stack does
+    not respect batch boundaries -- three of the six transfers may have arrived in last fortnight's
+    statement. So running the match on batch B can change rows belonging to batch A. Three things
+    keep that safe rather than surprising:
+
+      * It only ever writes a suggestion onto an OPEN row that has NONE. A settled, skipped or
+        already-suggested row is never touched.
+      * It changes no STATUS, so no other batch's rollup counters go stale. The only fields written
+        are the two suggestion fields and the note.
+      * Both batches compute the same stacks from the same rows, so whichever one is matched second
+        reproduces the identical pairing rather than reshuffling it (`pair_stack` is deterministic).
+
+    ⚠️ A RECORD IS CLAIMED ONCE. `zip` guarantees that inside one stack; this function guards
+    ACROSS stacks and against the per-row matcher, which may already have handed a record to a 1:1
+    row. Without it, a payment could be suggested to two different transfers and the second confirm
+    would fail with `AlreadyPaidError` -- which is exactly the failure the whole candidate-collapse
+    fix was written to stop producing.
+    """
+    keys = {k for k in (stack_key(row) for row in matchable) if k is not None}
+    if not keys:
+        return 0
+
+    rows = _load_open_rows_for_keys(keys)
+    if not rows:
+        return 0
+
+    # Everything the per-row matcher already spoke for, anywhere in the table. Read BEFORE any
+    # pairing so the pass cannot hand out a record a 1:1 row is holding.
+    claimed = {r["suggested_name"] for r in rows if (r.get("suggested_name") or "").strip()}
+
+    staged = [_StagedRow(r) for r in rows if not (r.get("suggested_name") or "").strip()]
+    stacks = group_into_stacks(staged, lambda key, transfers: _stack_records(transfers[0], pools))
+
+    paired = 0
+    for stack in stacks:
+        available = tuple(t for t in stack.records if t.name not in claimed)
+        candidate = Stack(key=stack.key, transfers=stack.transfers, records=available)
+        pairs = pair_stack(candidate)
+        if not pairs:
+            # Unbalanced: some transfer would settle nothing, or some record would go unclaimed.
+            # Choosing which is a judgement about money, and it belongs to a person -- these rows
+            # keep exactly the outcome the per-row matcher gave them.
+            continue
+        for transfer, record in pairs:
+            frappe.db.set_value(
+                ROW_DOCTYPE,
+                transfer.name,
+                {
+                    "suggested_doctype": record.doctype,
+                    "suggested_name": record.name,
+                    "outcome_note": stack_note(candidate, record.name),
+                },
+                update_modified=False,
+            )
+            claimed.add(record.name)
+            paired += 1
+    return paired
+
+
+def _stack_records(representative, pools) -> tuple:
+    """The candidate records a whole stack shares, via the SAME matcher every other row goes
+    through.
+
+    ⚠️ IT RUNS THE MATCHER ON ONE MEMBER RATHER THAN RE-DERIVING "approved records at this account
+    and amount". Re-deriving would be a second opinion about what a candidate is, sitting beside
+    `matcher.py` and free to disagree with it the day either changes (ADR-0010 F1/F3). One member is
+    enough because the stack key IS the pair of axes the pool is filtered on: every member returns
+    the same set.
+
+    ⚠️ A FAN-OUT DISQUALIFIES THE WHOLE STACK. A group with several targets is one transfer covering
+    several payments -- report-only, settled by hand (owner ruling Q4) -- and it cannot be one end
+    of a 1:1 pairing. Returning nothing makes the stack unbalanced, so it falls through to a person
+    untouched, which is the correct handling for something this module has no answer for.
+
+    The pools already cover these rows: they were loaded for the amounts and accounts of this
+    batch's rows, and a stack key is BY CONSTRUCTION one of those pairs.
+    """
+    result = match_row(
+        representative,
+        pools["vendors"],
+        pools["payments"],
+        pools["expenses"],
+        pools["projects"],
+    )
+    targets = []
+    for group in result.payment_groups or ():
+        if len(group.targets) != 1:
+            return ()
+        targets.append(group.targets[0])
+    targets.extend(c.target for c in (result.expense_candidates or ()))
+    return tuple(targets)
+
+
+def _load_open_rows_for_keys(keys) -> list:
+    """Every OPEN row in the WHOLE table whose (account, amount) is one of these.
+
+    ⚠️ NOT SCOPED TO A BATCH, deliberately -- that is what makes a stack able to span imports. It IS
+    scoped to the keys this batch actually touches, so matching one statement never walks every
+    stack in the table.
+
+    The `(normalized_account, amount) IN ((...), (...))` form is a row-constructor comparison, which
+    PostgreSQL supports and which the `(normalized_account, amount)` index serves directly.
+    """
+    pairs = sorted((k.account, k.amount) for k in keys)
+    key_ph = ", ".join(["(%s, %s)"] * len(pairs))
+    status_ph = ", ".join(["%s"] * len(OPEN_ROW_STATUSES))
+    params = [value for pair in pairs for value in pair]
+    params.extend(sorted(OPEN_ROW_STATUSES))
+
+    return frappe.db.sql(
+        f"""
+        SELECT name, transfer_id, added_on, amount, status_raw, beneficiary_name, bank_account,
+               ifsc, remarks, bank_reference_no, normalized_account, normalized_reference,
+               resolved_vendor, suggested_doctype, suggested_name, row_status
+        FROM "tabOutflow Import Row"
+        WHERE (normalized_account, amount) IN ({key_ph})
+          AND row_status IN ({status_ph})
+        """,
+        tuple(params),
+        as_dict=True,
+    )
 
 
 def _sole_vendor(result):
