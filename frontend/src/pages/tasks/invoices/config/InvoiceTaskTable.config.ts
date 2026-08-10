@@ -5,6 +5,7 @@
  */
 import { SearchFieldOption } from '@/components/data-table/new-data-table';
 import { VendorInvoice } from '@/types/NirmaanStack/VendorInvoice';
+import { isProcurementProfile } from "@/constants/roles";
 
 /**
  * Fields to fetch for Vendor Invoice tables
@@ -97,7 +98,7 @@ export const getVendorInvoiceStaticFilters = (statusFilter: string, role: string
         ? HISTORY_VENDOR_INVOICE_STATIC_FILTERS
         : PENDING_VENDOR_INVOICE_STATIC_FILTERS;
 
-    if (role === "Nirmaan Procurement Executive Profile") {
+    if (isProcurementProfile(role)) {
         return base.concat([['owner', '=', user_id]]);
     }
     return base;

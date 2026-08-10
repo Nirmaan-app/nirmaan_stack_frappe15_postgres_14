@@ -207,6 +207,15 @@ const ROLE_CONFIG: Record<
     bg: "bg-sky-100",
     ring: "ring-sky-200",
   },
+  // Keyed separately (not merged into "Proc") because RELEVANT_ROLES is derived
+  // from these keys — a Procurement Lead assignee would otherwise be dropped
+  // from the team strip entirely.
+  "Nirmaan Procurement Lead Profile": {
+    label: "Proc Lead",
+    color: "text-teal-700",
+    bg: "bg-teal-100",
+    ring: "ring-teal-200",
+  },
   "Nirmaan Project Lead Profile": {
     label: "Lead",
     color: "text-emerald-700",

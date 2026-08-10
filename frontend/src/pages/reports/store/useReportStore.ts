@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { REPORTS_TABS } from '../constants'; // Adjust path
+import { PROCUREMENT_PROFILES, isProcurementProfile } from "@/constants/roles";
 
 export type ProjectReportType = 'Cash Sheet' | 'Inflow Report' | 'Outflow Report(Project)' | 'Outflow Report(Non-Project)' | 'Project Progress Report' | 'Inventory Report' | 'Project GST' | 'Monthly WIP';
 
@@ -37,7 +38,7 @@ interface ReportState {
 // Helper to get default report type based on tab and role
 const getDefaultReportTypeForTabAndRole = (tab: string, userRole?: string): ReportType => {
     if (tab === REPORTS_TABS.PROJECTS) {
-        if (userRole === "Nirmaan Project Manager Profile" || userRole === "Nirmaan Procurement Executive Profile") {
+        if (userRole === "Nirmaan Project Manager Profile" || isProcurementProfile(userRole)) {
             return 'Inventory Report';
         }
         // Only Admin and Accountant see Project reports
@@ -56,18 +57,18 @@ const getDefaultReportTypeForTabAndRole = (tab: string, userRole?: string): Repo
             return 'Dispatched for 1 days';
         }
         // Other roles (Admin, Accountant) who can see PO tab
-        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(userRole || "")) {
+        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", ...PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(userRole || "")) {
             return 'Pending Invoices'; // Default for Admin/Accountant on PO tab
         }
         return null; // No default if role cannot see this tab's reports
     } else if (tab === REPORTS_TABS.SR) {
         // Assuming SR tab is visible to Admin, Accountant, PM
-        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(userRole || "")) {
+        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", ...PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(userRole || "")) {
             return 'Pending Invoices'; // Default for SR tab for allowed roles
         }
         return null;
     } else if (tab === REPORTS_TABS.DCS_MIRS) {
-        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Manager Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(userRole || "")) {
+        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Manager Profile", ...PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(userRole || "")) {
             return 'DC Report';
         }
         return null;

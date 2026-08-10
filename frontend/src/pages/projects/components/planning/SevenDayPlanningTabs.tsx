@@ -2,6 +2,7 @@ import React, { useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { useUserData } from "@/hooks/useUserData";
 import { Blocks, TrendingUp, Workflow, LucideIcon } from "lucide-react";
+import { isProcurementProfile } from "@/constants/roles";
 
 // Make sure these match the parent's usage or export them from a shared types file
 export const PLANNING_TABS = {
@@ -40,7 +41,7 @@ export const SevenDayPlanningTabs = ({
       user_id === "Administrator" ||
       allowedRolesForRestrictedTabs.includes(role);
 
-    if (role === "Nirmaan Procurement Executive Profile") {
+    if (isProcurementProfile(role)) {
       return [PLANNING_TABS.MATERIAL_PLAN];
     }
 

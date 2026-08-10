@@ -13,6 +13,7 @@ import { useNavigate } from "react-router-dom";
 import { Badge } from "../ui/badge";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { canManageTendering } from "@/pages/projects/tendering/tenderingAuth";
+import { PROCUREMENT_PROFILES } from "@/constants/roles";
 
 interface RenderActionButtonProps {
   locationPath: string;
@@ -73,7 +74,7 @@ export const RenderRightActionButton = ({
     );
   } else if (locationPath === "/prs&milestones/procurement-requests" && selectedProject) {
     return (
-      ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile"].includes(role) || user_id === "Administrator" ? (
+      ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", ...PROCUREMENT_PROFILES].includes(role) || user_id === "Administrator" ? (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button className="sm:mr-4 mr-2">

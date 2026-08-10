@@ -5,6 +5,8 @@
  * Granular permissions allow different roles to have specific capabilities.
  */
 
+import { PROCUREMENT_PROFILES, isProcurementProfile } from "@/constants/roles";
+
 // Roles that can manage ALL aspects of assets (add, edit, delete, assign, categories)
 export const ASSET_ADMIN_ROLES = [
     'Nirmaan Admin Profile',
@@ -15,13 +17,13 @@ export const ASSET_ADMIN_ROLES = [
 export const ASSET_HR_ROLE = 'Nirmaan HR Executive Profile' as const;
 
 // Roles that have limited asset management capabilities (add assets, assign/unassign)
-export const ASSET_PROCUREMENT_ROLE = 'Nirmaan Procurement Executive Profile' as const;
+export const ASSET_PROCUREMENT_ROLES = PROCUREMENT_PROFILES;
 
 // Combined list of all roles that can access assets module
 export const ASSET_ACCESS_ROLES = [
     ...ASSET_ADMIN_ROLES,
     ASSET_HR_ROLE,
-    ASSET_PROCUREMENT_ROLE,
+    ...ASSET_PROCUREMENT_ROLES,
 ] as const;
 
 export interface AssetPermissions {
@@ -62,7 +64,7 @@ export function getAssetPermissions(
     const isAdmin = userId === 'Administrator';
     const isAdminRole = ASSET_ADMIN_ROLES.includes(role as typeof ASSET_ADMIN_ROLES[number]);
     const isHRRole = role === ASSET_HR_ROLE;
-    const isProcurementRole = role === ASSET_PROCUREMENT_ROLE;
+    const isProcurementRole = isProcurementProfile(role);
 
     // Full admin access: Administrator user or Admin/PMO roles
     const hasFullAccess = isAdmin || isAdminRole;

@@ -110,6 +110,7 @@ import {
   useProjectViewMeta,
   useProjectViewMutations,
 } from "./data/root/useProjectRootApi";
+import { isProcurementProfile } from "@/constants/roles";
 
 // v3 dual-field model: this list covers the EXECUTION status (`status` field
 // — Created / WIP / Completed / Halted / Handover / CEO Hold). The bid
@@ -299,7 +300,7 @@ const getLandingTab = (role: string): ProjectPageTabValue => {
   if (role === "Nirmaan Sales Executive Profile" || role === "Nirmaan Sales Lead Profile") {
     return PROJECT_PAGE_TABS.OVERVIEW;
   }
-  if (role === "Nirmaan Procurement Executive Profile") {
+  if (isProcurementProfile(role)) {
     return PROJECT_PAGE_TABS.CRITICAL_POS;
   }
   if (role === "Nirmaan Estimates Executive Profile") {
@@ -429,7 +430,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
   const isPrivilegedUser = PRIVILEGED_ROLES.includes(role);
   const isAccountant = role === "Nirmaan Accountant Profile" || role === "Nirmaan Accountant Lead Profile";
-  const isProcurementExecutive = role === "Nirmaan Procurement Executive Profile";
+  const isProcurementExecutive = isProcurementProfile(role);
   // Billing Executive is a view-only mirror of Estimates Executive (minus pricing/BoQ) --
   // it inherits every Estimates-Executive gate on this page EXCEPT BoQ (see the BoQ
   // tab exclusion below).

@@ -45,6 +45,17 @@ export const ROLE_COLORS: Record<string, RoleColorScheme> = {
     gradient: "bg-gradient-to-br from-emerald-500 to-teal-600",
     ring: "ring-emerald-500/30",
   },
+  // Procurement Lead shares Procurement Executive's access but keeps its own
+  // shade (teal, adjacent to Executive's emerald) so the two stay tellable apart
+  // on badges and avatars.
+  "Nirmaan Procurement Lead Profile": {
+    bg: "bg-teal-50",
+    text: "text-teal-700",
+    border: "border-teal-200",
+    dot: "bg-teal-500",
+    gradient: "bg-gradient-to-br from-teal-500 to-cyan-600",
+    ring: "ring-teal-500/30",
+  },
   "Nirmaan Accountant Profile": {
     bg: "bg-purple-50",
     text: "text-purple-700",
@@ -152,6 +163,7 @@ export const ROLE_OPTIONS: { label: string; value: string }[] = [
   { label: "Project Lead", value: "Nirmaan Project Lead Profile" },
   { label: "Project Manager", value: "Nirmaan Project Manager Profile" },
   { label: "Procurement Executive", value: "Nirmaan Procurement Executive Profile" },
+  { label: "Procurement Lead", value: "Nirmaan Procurement Lead Profile" },
   { label: "Accountant", value: "Nirmaan Accountant Profile" },
   { label: "Accountant Lead", value: "Nirmaan Accountant Lead Profile" },
   { label: "Estimates Executive", value: "Nirmaan Estimates Executive Profile" },

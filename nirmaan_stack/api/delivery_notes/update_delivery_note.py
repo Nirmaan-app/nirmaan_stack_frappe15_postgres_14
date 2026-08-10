@@ -1,6 +1,7 @@
 import frappe
 from datetime import datetime
 from frappe.model.document import Document
+from nirmaan_stack.services.role_profiles import PROCUREMENT_PROFILES
 
 
 def safe_float(value, default=0.0):
@@ -73,7 +74,7 @@ def update_delivery_note(po_id: str, modified_items: dict, delivery_data: dict =
             "Nirmaan Admin Profile",
             "Nirmaan PMO Executive Profile",
             "Nirmaan Project Lead Profile",
-            "Nirmaan Procurement Executive Profile",
+            *PROCUREMENT_PROFILES,
         ]
         if is_return:
             role = frappe.db.get_value("Nirmaan Users", frappe.session.user, "role_profile")

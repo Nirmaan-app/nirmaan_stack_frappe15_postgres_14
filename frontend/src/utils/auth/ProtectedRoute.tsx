@@ -52,18 +52,6 @@ export const ManagerRoute = () => {
     }
 }
 
-export const ProcuementExecutiveRoute = () => {
-    const {role, has_project} = useUserData()
-
-    if(role === "Nirmaan Procurement Executive Profile" && has_project === "true") {
-        return <Outlet />
-    } else if(role !== "Nirmaan Procurement Executive Profile") {
-        return <div>You do not access to this page</div>
-    } else if(has_project === "false") {
-        return <div>You have not assigned any project!</div>
-    }
-}
-
 export const UsersRoute = () => {
     const { role, user_id } = useUserData()
 

@@ -3,6 +3,8 @@
  * Used by RenderProjectPaymentsComponent.tsx for consistent tab values and role-based access
  */
 
+import { PROCUREMENT_PROFILES } from "@/constants/roles";
+
 export const PP_TABS = {
     APPROVE_PAYMENTS: 'Approve Payments',
     CEO_PENDING: 'CEO Pending',
@@ -58,7 +60,7 @@ export const PP_ACCOUNTANT_ROLES = [
 ];
 
 export const PP_PROJECT_ROLES = [
-    "Nirmaan Procurement Executive Profile",
+    ...PROCUREMENT_PROFILES,
     "Nirmaan Project Lead Profile",
     "Nirmaan Project Manager Profile"
 ];

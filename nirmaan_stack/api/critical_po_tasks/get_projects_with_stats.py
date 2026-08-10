@@ -1,13 +1,14 @@
 import frappe
 from collections import defaultdict
 from frappe.utils import create_batch
+from nirmaan_stack.services.role_profiles import PROCUREMENT_PROFILES
 
 
 # Roles that require project-level filtering based on user permissions
 FILTERED_ACCESS_ROLES = {
     "Nirmaan Project Manager Profile",
     "Nirmaan Project Lead Profile",
-    "Nirmaan Procurement Executive Profile",
+    *PROCUREMENT_PROFILES,
 }
 
 # Roles with full access to all projects

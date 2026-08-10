@@ -2,6 +2,8 @@ from firebase_admin import messaging
 import frappe
 import time
 
+from nirmaan_stack.services.role_profiles import PROCUREMENT_PROFILES
+
 # def PrNotification(lead_users, notification_title, notification_body):
 #         # Send push notifications to each project lead
 #         for lead in lead_users:
@@ -72,7 +74,7 @@ def get_allowed_procurement_users(doc):
             'Nirmaan Users',
             filters={
                 'name': ['in', proc_user_ids],
-                'role_profile': 'Nirmaan Procurement Executive Profile',
+                'role_profile': ['in', list(PROCUREMENT_PROFILES)],
             },
             fields=['fcm_token', 'name', 'full_name', 'role_profile', 'push_notification']
         )

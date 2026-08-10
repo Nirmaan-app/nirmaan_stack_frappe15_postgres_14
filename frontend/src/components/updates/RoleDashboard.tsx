@@ -62,6 +62,7 @@ import { RocketIcon } from "@radix-ui/react-icons";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Sidebar } from "../sidebar-nav";
+import { isProcurementProfile } from "@/constants/roles";
 
 const RoleDashboard = ({ selectedValue }) => {
     const { logout } = useContext(UserContext);
@@ -90,7 +91,7 @@ const RoleDashboard = ({ selectedValue }) => {
                         <>
                             {userData.role === 'Nirmaan Project Manager Profile' && <ProjectManager />}
                             {userData.role === 'Nirmaan Project Lead Profile' && <ProjectLead />}
-                            {userData.role === 'Nirmaan Procurement Executive Profile' && <ProcurementDashboard />}
+                            {isProcurementProfile(userData.role) && <ProcurementDashboard />}
                         </>
                     )}
                 </div>

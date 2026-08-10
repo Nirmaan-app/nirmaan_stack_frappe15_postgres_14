@@ -32,6 +32,7 @@ import {
   type POAdjustmentDoc,
 } from "@/pages/POAdjustment/data/usePOAdjustmentQueries";
 import { useUserData } from "@/hooks/useUserData";
+import { PROCUREMENT_PROFILES } from "@/constants/roles";
 
 interface PORevisionsAndAdjustmentsProps {
   poId: string;
@@ -42,7 +43,7 @@ const REVISION_ROLES = [
   "Nirmaan PMO Executive Profile",
   "Nirmaan Accountant Profile",
   "Nirmaan Accountant Lead Profile",
-  "Nirmaan Procurement Executive Profile",
+  ...PROCUREMENT_PROFILES,
 ];
 
 const statusConfig: Record<

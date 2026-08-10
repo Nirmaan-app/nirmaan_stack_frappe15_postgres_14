@@ -4,12 +4,13 @@ import { useToast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
 import { isCreatedToday } from "@/utils/FormatDate";
 import { parseNumber } from "@/utils/parseNumber";
+import { PROCUREMENT_PROFILES } from "@/constants/roles";
 
 const ALWAYS_EDIT_ROLES = [
   "Nirmaan Admin Profile",
   "Nirmaan PMO Executive Profile",
   "Nirmaan Project Lead Profile",
-  "Nirmaan Procurement Executive Profile",
+  ...PROCUREMENT_PROFILES,
 ];
 
 // ITM DNs aggregate by (item_id, make) — the row key encodes both so two ITM

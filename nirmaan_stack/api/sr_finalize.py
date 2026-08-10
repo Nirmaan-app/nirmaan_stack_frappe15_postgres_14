@@ -1,13 +1,14 @@
 import frappe
 from frappe import _
 from frappe.utils import now_datetime, format_datetime
+from nirmaan_stack.services.role_profiles import PROCUREMENT_PROFILES
 
 # Admin roles that can finalize and revert
 ADMIN_ROLES = [
     "Nirmaan Admin Profile",
     "Nirmaan PMO Executive Profile",
     "Nirmaan Project Lead Profile",
-    "Nirmaan Procurement Executive Profile",
+    *PROCUREMENT_PROFILES,
 ]
 
 
