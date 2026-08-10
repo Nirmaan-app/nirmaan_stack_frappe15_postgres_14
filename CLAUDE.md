@@ -106,6 +106,223 @@ First worked proof: the `sidebar_counts` aggregate rewrite + the shared `service
 - **Administrator user:** Name is the literal string `"Administrator"`, not an email. Handle explicitly in rename/delete logic.
 - **Frappe child-table serialization depth:** `frappe.get_doc` / the REST resource API hydrate child tables ONE LEVEL DEEP ONLY. A child-of-a-child (grandchild) Table field is NOT returned. When a doctype has a child table that itself has a child table, the grandchild needs an explicit read path (a whitelisted endpoint querying the grandchild doctype directly via `frappe.db.get_all`). Example: BoQ Sheet Draft.work_packages required `get_boq_work_packages` (`api/boq/wizard/update_sheet_draft.py`).
 - **BoQ Description role is multi-column:** a sheet may map the `description` role on MULTIPLE columns (it is intentionally NOT in the parser's `_SINGLETON_ROLES`). The classifier JOINS all mapped description columns, in Excel column order, with the separator `" | "`, into the one canonical `description` string the whole pipeline uses, and ALSO records each original column in the per-row `description_parts_raw` list -- an ordered list of `(col_letter, header_label, cell_text)` triples in Excel column order (col_letter is unique so identical headers never collide; original headers preserved; duplicate labels get ` 2`/` 3` suffixes only at RENDER time, MC-4/MC-5) -- for faithful display. `header_label` is the real per-column header text, captured at PARSE time from the sheet's `header_row` cells by `orchestrator._enrich_column_headers` (MC-3b) into the in-memory `SheetConfig.column_headers` (stored-wins; blank header cell -> the bare column letter; never written back to the stored blob); MC-4/5 read these labels from the persisted `description_parts_raw` triples. A single-description sheet's joined string stays byte-identical (no separator). Owner-locked; the shared `_description_columns` / `_description_parts` helpers in `services/boq_parser/classifier.py` are the single source of truth.
+- **BoQ note parenting is NEAREST-PREAMBLE-OR-LINE-ITEM (EA-6a, owner-locked):** a NOTE attaches to the nearest **preamble OR line item** above it, not the nearest preamble. Selection is a plain three-way nearest-wins over `(_top_non_none(stack), last_line_item_index, level0_ancestor)` — **`level0_ancestor` is a FULL CANDIDATE, never an `else` fallback** (a level-0 section header IS a PREAMBLE, merely absent from the stack; the fallback form mis-attaches to a stale line item preceding the header — 42 measured). **The marker is READ ONLY in the note branch** — the LINE_ITEM branch only records it, so all other parenting/level logic is byte-unchanged. Reset at `SUBTOTAL_MARKER` ONLY (root-preamble / any-preamble resets are provable no-ops). Notes keep `path=None` and carry no level, so the demotion pass is unaffected; `attached_to_index == parent_index` for every note. Flag `hierarchy.NOTE_PARENT_NEAREST_ROW_ENABLED` (default True). Full detail: `.claude/context/domain/boq-backend.md`.
+- **Both review-tree parenting PROMPTS are TEST-PINNED (owner-locked):** the load-bearing passages of
+  `boq_ai_assist._AI_PASS_PROMPT_TEMPLATE` and `boq_gemini_assist._BOQ_CLASSIFY_PROMPT` are frozen by
+  `TestPromptParentingPins` in **both** service test files. **A wording change must UPDATE the pins
+  deliberately** — pin first, reword second, so the diff shows exactly what the model was told before and
+  after. Both prompts state the parser's real rule (*a note's parent is the nearest preamble or line_item
+  above it*) and the identical line-item rule (*only a preamble may parent a line_item* — matching the
+  finalize gate, which hard-blocks an item under any non-heading parent). Both stay **SILENT on
+  note-under-note**: silence is the mechanism, enforced by a NEGATIVE pin on each engine — never add a
+  prohibition sentence.
+- **Both AI-assist chunkers cut on the EFFECTIVE CLASSIFICATION (EA-6b, owner-locked):** Claude via
+  `_is_preamble_payload`, Gemini via the `section_flags` parallel list the API layer resolves
+  (`gemini_assist._section_flags`). Gemini previously cut on `preamble_candidate_score > 0` -- a derived
+  SIGNAL -- which landed cuts MID-SECTION and stranded **774 notes across 97 of 110 sheets** (118 with a
+  line-item target, median 2 rows behind the cut, plus 19 blind hard-max cuts); the classification-based
+  rule takes every one of those to **0**. **Gemini's WIRE PAYLOAD NEVER carries the parser's verdict**
+  (owner ruling: independence = (a), WIRE independence -- the model must never be shown a prior
+  classification). The verdict IS now fetched for cutting, so the old structural guarantee (simply not
+  fetching it) is gone: **the invariant is enforced by `services/test_boq_gemini_assist.TestWirePayloadPin`,
+  which freezes the 11-key payload contract -- a wording change must never make it red.** `chunk_rows`
+  with ABSENT `section_flags` degrades to ceiling-only cuts, never back to the score rule.
+- **Committed `attached_notes` is DERIVED, not carried (EA-6a slice 2, owner-locked):** at commit,
+  `commit_pipeline._derive_attached_notes` rebuilds every node's `attached_notes` from the EFFECTIVE
+  tree (effective parent + effective classification, row_index order -- order is load-bearing,
+  `hierarchy._notes_text` pipe-joins it). **The `BoQ Review Row` copy is DISPLAY-TIER only**; a
+  disagreement emits ONE `frappe.logger("boq_commit")` warning and **NEVER fails the commit**. This is
+  what makes the forward-only policy safe -- a historical sheet SELF-HEALS on re-commit, so there is no
+  backfill. The review tier is kept in step at the ONE chokepoint `_apply_and_save_row_edit`, which
+  fires on a `human_parent` move of a note **AND** on a `human_classification` transition INTO or OUT OF
+  "note" (a re-label); a classification change touching "note" on neither side rebuilds nothing. **The
+  rebuild keys on the EFFECTIVE PARENT, never `attached_to_index`** -- that field's 0 means "not
+  attached", so keying on it silently dropped the text of every note parented to `row_index` 0; the
+  sentinel ambiguity is now confined to the pointer field and can never reach the text or the AI
+  engines. The C4 reconciliation asserts the DERIVED value **at its call site only** -- the shared
+  `_jsn` helper still guards `append_notes_raw` / `edit_log` / `description_parts_raw` and must not be
+  touched. `BUG_24_NOTE_PARENT_INDEX_ENABLED` is **RETIRED** (slice 1 made one `target` drive pointer,
+  parent and notes-key, so setting it False would MANUFACTURE a divergence). **An item cannot be the
+  parent of another item** -- the finalize gate refuses it ("Item not under a section heading").
+- **`matching_mode: "item_identity"` routes a category to the composite-REFUSAL prompt (owner-locked).**
+  `extraction.select_prompt_text` hands such a category `prompts/boq_rate_item_identity_prompt.md`, which
+  instructs the model to return null for any row describing "MULTIPLE items or an assembled unit". It must
+  NEVER be set on a category whose rows are ASSEMBLIES -- the model then refuses every row, deliberately and
+  at high confidence, and the blanks look like an extraction failure rather than the instruction they are.
+  Removing it means removing `identity_attribute_id` in the SAME edit (that key is read only when the mode
+  is `item_identity`, so leaving it is a dangling key); `item_kinds` is SEPARATE and must stay -- it is what
+  records which category OWNS a catalog kind.
+- **`switches_sockets` is a PER-COMPONENT COMPOSITE and rounds to TENS; `point_wiring` rounds to UNITS
+  (owner-locked, deliberately different).** Both are sheet-faithful: switches_sockets sums the RAW component
+  lines, multiplies once, then rounds to tens; point_wiring multiplies and rounds per component. Do NOT
+  "harmonise" them -- point_wiring's own notes record its unit rounding as "INTENTIONAL, per the sheet", and
+  the tens convention is what keeps switches_sockets' standing golden value-identical across the rebuild.
+- **The only blanker item in the catalog is `1M Blanker`, and it lives under `family: "Switch"`** -- there is
+  no blanker family. Any `blank_item` slot therefore binds `values_from.where = {"family": "Switch"}`.
+  **BOTH `switches_sockets` and `point_wiring` carry a blanker slot.**
+- **The module count is computed in the PIPELINE, never by the model (owner-locked).** The
+  `module_fit` interpreter step derives a row's module count from a weighted sum over its stated
+  quantities and resolves it against the catalog. It belongs in the pipeline precisely BECAUSE a
+  model-selected plate leaves no trace: the step's trace carries the arithmetic AND the ladder hop,
+  and this system's design ethos is that a price shows its working. **The weighted sum is CONFIG —
+  weights AND attribute ids — never hardcoded**, because `switches_sockets` has TWO socket slots and
+  `point_wiring` has one, so a fixed two-attribute formula is not portable between them.
+- **`module_fit` ladders derive from the CATALOG, never from a params array (owner-locked).** A ladder
+  spec names an item `kind` + a `where` family and carries NO size list, so adding or retiring a plate
+  size flows through with no config edit. Resolution is EXACT if the catalog carries the size, else the
+  **NEXT HIGHER** one, **never a lower one** — a plate smaller than its contents cannot hold them, so
+  rounding down is a wrong price, not merely a wrong size. **`"1M & 2M"` is ONE catalog item covering
+  TWO sizes**: every integer in a rung's label is a covered size, so a computed 1 and a computed 2 both
+  match it on the ordinary exact-match path. A count ABOVE the ladder's top is an HONEST NO-COMPUTE,
+  never clamped to the largest rung; this DELIBERATELY DIVERGES from `circuit_fit`, which does fall
+  back to its largest size but then re-checks with `circuits <= 0` — `module_fit` has no such second
+  gate, so it refuses at the ladder.
+- **THE BLANKER IS INFERRED FROM THE EFFECTIVE COUNT, NEVER SELECTED BY EXTRACTION (owner-locked).**
+  A POSITIVE effective count prices `1M Blanker` in the assembly's colour whatever the model returned
+  for `blank_item`; a ZERO count binds the **None sentinel** so the line reads as deliberately absent
+  rather than as a blanker bought zero times. **The boundary follows the EFFECTIVE count, not the
+  computed one** — editing the quantity to zero reverts the item to None. `blank_qty` is therefore
+  EDITABLE again (seeded with the computed count): the earlier read-only ruling is REVERSED because
+  the pipeline now genuinely reads it. **An over-count is CORRECTED to the plate's SPARE capacity
+  (never its total — a blanker cannot go where a socket sits); an under-count is HONOURED with a
+  warning naming the uncovered modules. Do NOT flatten that asymmetry** — one is physically
+  impossible, the other merely untidy, and they carry deliberately different wording. The arbitration
+  lives in `module_fit` (config keys `qty_attr` / `bind_item` / `item_when_positive`), which is the
+  ONE step seeing both the spare and the stated value and which runs FIRST, so the pricing panel and
+  the Rate Master Derivation screen inherit it by construction.
+- **⚠️ A `ref` MUST NEVER CARRY A LITERAL THAT COULD MEAN "None" (owner-locked).** The `none_skips`
+  short-circuit tests the **`@` prefix FIRST**, so a literal never reaches the sentinel comparison: it
+  is taken as a **CATALOG MATCH KEY**, matches no row, and returns a **WHOLE-PIPELINE `no_match`** —
+  the entire row unpriceable, wire and conduit included, not merely that line. The item is bound
+  through `fitLabels` instead, exactly as a ladder binds its fitted rung, so the shared resolver and
+  the shared short-circuit are both UNTOUCHED. **The bind must fire on every path that reaches a
+  component, including the two absent ones** — an unbound `@` reference is a `bindMiss`, which refuses
+  the whole pipeline. The COUNT still binds nothing on the no-plate path deliberately: an uncomputed
+  blank count renders EMPTY, never 0.
+- **⚠️ `item_when_positive` is the FIRST config value naming a catalog ITEM** rather than a `kind` plus
+  a `where` filter, which is the convention ladders exist to keep. It is sound ONLY because the ruling
+  is premised on the catalog carrying exactly one blanker; a second one would make this line a
+  quietly wrong price, with nothing failing loudly.
+- **A ZERO module count with `back_box = Yes` FITS A 3M BOX — the STATE-A fallback (owner-locked).**
+  A light point wired straight to an MCB carries no switch and no socket, so nothing fits any ladder and
+  the box used to vanish with the plate; a light point still needs a junction box. A ladder may declare
+  `on_zero_modules`, read ONLY on the zero-count path. **It is a module COUNT, never a catalog label** —
+  the catalog still names the rung, so retiring a size needs no config edit. **The PLATE ladder must
+  never declare it** (with nothing on it there is no plate), and **STATE B — `plate_item: "None"` with a
+  NON-ZERO count — is OUT OF SCOPE and structurally unreachable**: `on_none: "computed"` already boxes
+  those rows correctly, and a wider reading would DOWNGRADE a correctly-sized box. **It does NOT re-gate
+  on `back_box`** — the component's own `qty: {if_attr: {back_box: "Yes"}}` already answers that, and
+  asking twice would be two definitions of one rule.
+- **WIRE INSTALL STEPS IN THREES; SUPPLY AND BCS STAY LINEAR (owner-locked).** The install multiplier is
+  `ceil(runs / divisor)` — three runs is three times the WIRE but one unit of LABOUR. **The divisor is
+  CONFIG, never hardcoded** (the `module_fit` `terms` precedent): a `component_ref` rate stage carries
+  `mult_step_divisor`, a `scale` param carries `<ident>_step_divisor`, and BOTH go through the one shared
+  `stepFactor` helper so they cannot drift. **ABSENT ⇒ the raw factor, byte-identical** — which is what
+  keeps every un-stepped attachment (cable supply, termination supply, both BCS, point_wiring supply and
+  BCS) exactly as it was. It never softens either site's existing no-compute rule and can never yield 0.
+  **`ceil(n/3)` required NEW interpreter work**: the formula language has four operators (`+ - * /`) and
+  NO function-call syntax, and every existing rounding rounds a product, never a factor.
+- **⚠️ TERMINATION INSTALL INHERITS RUNS THROUGH `install_as_ratio` AND MUST NEVER CARRY ITS OWN
+  MULTIPLIER (owner-locked).** `install_as_ratio` sits AFTER the supply `scale` and reads the
+  already-runs-multiplied supply, so the inheritance IS the multiplier. Attaching a second one gives
+  `runs x ceil(runs/3)` — the runs-SQUARED shape the ext-b ruling exists to prevent. Its ordering and its
+  trailing `roundup(-1)` are equally load-bearing: moving `install_as_ratio` ahead of the supply scale
+  would change WHERE the rounding lands, which is a second behavioural change. Leave all three alone.
+- **A ZERO module count yields NO plate and NO blanks — but must NEVER kill the pipeline
+  (owner-locked).** A light point wired straight to an MCB carries no switch, socket or plate, so
+  the weighted sum is 0; that is a REAL and COMMON product, not a data error. **Wire and conduit are
+  unrelated to module counts**, so refusing the whole pipeline discards a `circuit_fit` that already
+  succeeded. A zero count marks EVERY ladder positively absent — the same `absentLadders` mechanism
+  a `"None"` plate already uses — and the trace must SAY that nothing was fitted; silence would be
+  worse than the refusal it replaced. A NEGATIVE or non-finite count, and a MALFORMED step declaring
+  no terms at all, both stay honest no-computes: "declared nothing to count" is not the same
+  statement as "counted to zero", and collapsing them lets a broken config report a priced row.
+- **A ladder marked absent must still BIND the None sentinel (owner-locked).** A ladder bind may
+  have no backing attribute (`@box_item`), so binding nothing leaves that `@` reference UNBOUND —
+  and an unbound `@` reference aborts the whole row. Binding the sentinel is what lets a `none_skips`
+  component zero its line instead. For the same reason a blank count binds an explicit 0 rather than
+  nothing: a `{from_fit}` quantity that is absent is "not provided", which also aborts the row.
+- **TAKE-THE-LARGER: the plate priced is the LARGER of the STATED and the COMPUTED module count
+  (owner-locked; REPLACES the earlier stated-wins rule).** A ladder's `floor_from` names the attribute
+  whose stated count is a **FLOOR, never a ceiling**: a stated plate too small for its contents is
+  **UPGRADED** rather than refusing the row (a BoQ typo must not kill a line), and a stated plate
+  bigger than needed is what gets bought. **An UPGRADE MUST ALWAYS BE VISIBLE in the derivation trace**
+  — the BoQ said one size and we price another, which is the right call only while it cannot be missed.
+  **Blanks derive from the plate ACTUALLY SELECTED and CLAMP AT ZERO** (never negative, never a
+  refusal); the clamp is likewise named in the trace.
+- **The BACK BOX takes the SELECTED plate's module COUNT, re-fitted on its OWN ladder — never the
+  plate's LABEL (owner-locked).** The box ladder is SHORTER than the plate ladder (no 9M, no 16M), so a
+  9M plate pairs with a **12M** box and a 16M plate with an **18M** box. Copying the label asks the
+  catalog for a box that does not exist and makes the WHOLE ROW unpriceable — that was a live defect
+  before slice 2 part 2. When the plate is `"None"` the plate line stays ZERO and only the BOX takes
+  the computed count, which is why a box may exist with no face plate.
+- **The plate / back-box relationship is ONE-WAY (owner-locked).** A face plate present DEFAULTS the box to
+  yes; a face plate set to `"None"` must leave `back_box` **STILL SELECTABLE**, because a back box can exist
+  with no face plate. `plate_item.disables_when_none` therefore lists **`plate_qty` ONLY** -- never `back_box`.
+  Greying the box out makes such a row UNPRICEABLE, which is a wrong answer and not merely a wrong UI.
+  The back_box component's `@plate_item` binding is SEPARATE and stays: **box module = the PLATE's module
+  when a plate exists**; the no-plate fallback needs the module computation and is a later slice.
+- **A COMPUTED ATTRIBUTE VALUE MUST REACH THE SELECTION, because `circuit_fit` and `resolveQty` read
+  there and never consult `ctx` (owner-locked).** `circuit_fit` takes its length from
+  `selected[length_attr]` and a component's `{from_attr}` quantity from `selected[qty.from_attr]`,
+  while every other step writes into `ctx` — so a value computed the ordinary way cannot reach either
+  one. `scale` cannot bridge it: it is a RATE scaler, needing an existing finite `ctx` rate as its
+  target. The `derive_attribute` step crosses the gap by writing into a **run-local overlay copy of
+  the selection**, so every existing read site sees it and **the caller's object is never mutated** —
+  `value` must keep meaning "what the user or extraction supplied". **Do NOT instead teach the readers
+  to fall back to `ctx`**: they are shared by all 13 categories, and a `ctx` key colliding with an
+  attribute id would silently re-price a shipped row. A pipeline carrying no `derive_attribute` step
+  is byte-identical.
+- **A STATED circuit length ALWAYS WINS over a computed one — NO floor and NO warning (owner-locked).**
+  This DELIBERATELY DIVERGES from the plate's take-the-larger: the larger does not win, the STATED one
+  does, whether it is bigger or smaller than the computation, and nothing warns. A pricer typing 60 for
+  a long run is simply right. Stated-wins is checked BEFORE the source attributes are read, so a row
+  that states its length prices even when the input the rule would have used is unreadable.
+- **A `derive_attribute`'s FORMULA, its SOURCE attributes and its TARGET attribute are all named in
+  CONFIG, never hardcoded** (the `module_fit` `terms` precedent) — `15 + (N-1) x 5` is one category's
+  rule. A missing / blank / non-numeric / `"None"` source is an HONEST NO-COMPUTE naming the attribute,
+  never a zero and never a guess; domain limits stay with the reader that owns them (`circuit_fit`
+  already refuses a non-positive length). The step publishes `StepTrace.derivedAttr` as STRUCTURED
+  DATA with ONE reader (`derivedAttrOutcomes`) — the `moduleFit` precedent; never parse the trace prose
+  and never re-derive the arithmetic. **Both its source attrs AND its `result_attr` are validator
+  `_ref`-guarded**: a typo in the TARGET would silently stop it ever finding a stated value to defer
+  to, which is quieter than a no-compute and worse.
+- **`point_wiring`'s CIRCUIT LENGTH is COMPUTED from the point count, and a STATED length always wins
+  with NO floor and NO warning (owner-locked).** `circuit_length_m = 15 + (points - 1) x 5` — 15 m is
+  correct only for a single point. It is a `derive_attribute` step that must sit **FIRST in every
+  pipeline**: `circuit_fit` reads `selected[length_attr]` and the wire components read the length
+  through `resolveQty`'s `{from_attr}`, so one first-position step serves both and any later position
+  makes `circuit_fit` refuse the row. **⚠️ `circuit_length_m` must NEVER carry an `extraction_defaults`
+  entry** — an INJECTED value is a STATED value, so a default would win on every row forever and make
+  the whole derivation inert while every test stayed green.
+- **`points` is the number of points a LINE COVERS, never the number of such lines in the bill
+  (owner-locked).** The sheet's own `qty` is INVERSELY shaped — one line covering seven points has
+  `qty 1`, and twenty-nine single-point lines have `qty 29` — so reading `qty` as the point count
+  inverts the correction on exactly the rows that matter most. It is EXTRACTED (the model reads it from
+  the description under R9), never derived, and it is a plain `number`: a point count has no catalog
+  domain, so `number_choice` would be wrong.
+- **⚠️ ADDING A REQUIRED EXTRACTED ATTRIBUTE INVALIDATES EVERY PRE-EXISTING EXTRACTION OF THAT
+  CATEGORY, so the ASSET APPLY and the RE-EXTRACTION ARE ONE ATOMIC OPERATION (owner-locked).** A
+  stored run that predates the attribute carries it on NO row; it is a genuine input, so the
+  missing-attribute gate blocks and the category prices NOTHING in the window between the two.
+  **`extraction_defaults` does NOT rescue this** — defaults are injected at EXTRACTION time and baked
+  into the stored result, never applied when reading an older run. This is the "atomic set" rule
+  (already recorded for goldens) landing on the stored run. **Every test surface stays GREEN while the
+  category prices 0** — goldens and unit tests supply their own attributes — so the editor-path row
+  count over live data is the only gate that can see it.
+- **A `derive_attribute`'s `result_attr` is the THIRD derivation mechanism `derivedAttrIds` must
+  collect** (beside a `{from_fit}` superseded qty and a `module_fit` ladder bind), read FROM CONFIG and
+  never by id. It behaves like the LADDER BIND, not the read-only blanker quantity: a stated value IS
+  read and wins outright, so the field stays **EDITABLE** and `readOnly` is never set. **The gate
+  NARROWS, it does not open** — a genuinely absent input, including the SOURCE attribute the formula
+  reads, must still block.
+- **Goldens live in the asset's TOP-LEVEL `goldens` dict, keyed by category_id, and NOWHERE ELSE.**
+  `loader.load_rate_master` reads `payload["goldens"]` and OVERWRITES each config's `goldens` key from it, so
+  a golden written into a `category_configs[*].goldens` entry is SILENTLY IGNORED. A golden added in-system
+  via RM-4b but never written back into that top-level dict is DROPPED on the next `replace=True` import.
+  **Verify an apply by comparing `stored == asset` KEY BY KEY, never by golden COUNT** -- a swap can leave the
+  count identical while replacing the content.
+- **Estimator rules are read from the DB, not the asset:** `extraction._load_active_configs` reads `BoQ Rate Category Config`, so editing `services/boq_rate_master/data/rate_master_*.json` is **INERT at runtime** until re-imported or applied via the audited RM-4b `update_rate_config`. The asset is the record; the config row is what the model reads.
 - **Loss Justification (PR/SB):** a written reason is required for any approval item whose **Loss % > 10%** (strict). One field `loss_justification` (Small Text) on the SHARED child `Procurement Request Item Detail` covers both PR and SB. Terms in `CONTEXT.md`; scope/rationale in `docs/adr/0002-loss-justification-scope.md` (PR/SB approval surfaces ONLY — NOT on `Purchase Order Item`, no Loss% snapshot, no PO/print). Loss % = `(-savingLoss / benchmark) * 100`, **benchmark = Target Amount (target rate ×0.98) if available else Lowest Quoted L1 (Target-prioritized)**. Gate is server-authoritative: `send_vendor_quotes.handle_delayed_items` accepts `loss_justifications`, writes them onto `order_list`, and re-computes Loss % (`compute_item_loss_percent`) to `frappe.throw` on a blank >10% reason. **GOTCHA 1 — `rfq_data.details` is keyed by `item_id`, NOT the order_list child-row `name`** (verified against live data); the L1 lookup must use `item.item_id`. **GOTCHA 2 — dual benchmark on the approval screen:** the existing ₹ "Savings/Loss" column keeps its `min(Target, L1)` benchmark (unchanged), but the new Loss % uses the Target-prioritized benchmark to match capture and keep the >10% gate identical end-to-end — so the ₹ and the % on that one screen can come from different benchmarks; don't "fix" it.
 
 ---
@@ -164,6 +381,12 @@ For BoQ Upload dev-environment setup, clean bench-restart sequence, the CSRF cle
 - **Existing tests:** Nearly all are empty stubs. Don't rely on them to catch regressions.
 - **New code:** Pure-Python modules (parsers, services) must have real unit tests with fixture files. No stubs for logic-bearing code.
 - **Frontend E2E:** Cypress 13.7 configured in `frontend/cypress.config.ts` — largely unimplemented.
+- **Single-doctype state (STANDING RULE):** a test that mutates a field on a Single doctype MUST capture the
+  site's original value and restore **that** — never a hardcoded restore constant. These suites run against the
+  LIVE localhost site, so a hardcoded restore rewrites the owner's real setting whenever it differs. The failure
+  is SILENT because `frappe.db.set_single_value` bypasses the doc lifecycle and writes **no `Version` row**: a
+  `track_changes` audit cannot see it, so the setting appears to change by itself. Correct pattern:
+  `test_ai_settings.py` (capture + `addCleanup`) or a `setUpClass` capture restored in `tearDownClass`.
 - **After editing any doctype JSON:** Always run `bench --site localhost migrate`. Tests use a separate test database that auto-migrates, so **passing tests do not guarantee the runtime database has the new column**. Verify with `frappe.db.has_column("DocType Name", "field_name")` in the bench console after migration.
 
 ### Projects row fixture pattern
@@ -389,12 +612,351 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   seeded via ONE audited endpoint call; the vitest golden files stay INDEPENDENT pins. The frontend Pipelines
   tab's PREVIEW GATE computes the goldens against a draft before save (confirm-not-block). Interpreter
   EXECUTION semantics untouched. Tests `test_rate_master` 14→22.
+- **Multi-category import + scoped supersede (owner-locked; full detail in the plan doc's "Build slice
+  EA-1").** A rate-master payload may carry a `category_configs` LIST (each config a `BoQ Rate Category
+  Config` row, discipline stamped from the top-level payload, per-category goldens merged in as RM-4b
+  config-data); `loader.load_rate_master` branches to `_load_multi` and the single-config path is
+  unchanged. **Idempotency is SCOPED to the payload's item KINDS + config category_ids, NEVER the whole
+  discipline (`_deactivate_scope`): a `replace=True` supersedes only that scope, so importing the
+  non-wiring Electrical categories can NEVER deactivate a wiring (cable/termination, wiring_cabling) row —
+  the WIRING-UNTOUCHED invariant.** Non-wiring Electrical categories are loaded by PATH from a separate
+  asset; `DEFAULT_DATA_FILE` stays the wiring asset.
+- **Interpreter step vocabulary (owner-locked, MINIMAL — no loose-formula generalization; the asset
+  normalizes every formula to `base` = the step's target value + EXACT param names).** Beyond the wiring
+  set, the pure `ratePipelineInterpreter.ts` supports: `component_band` STRING-EQUALITY bands (band_on read
+  from the matched item, falling back to the selection) alongside the legacy numeric comparator bands; a
+  `scale` value-from-attribute multiply (a `*_from_attr` param binds the selected attribute's value;
+  missing/non-numeric → HONEST no-compute, never a zero default); `match_master_row` on the
+  stored-vs-selected INTERSECTION (a row matches on the keys it carries, exact where they overlap — wiring,
+  whose key sets coincide, is unchanged); and a conditional `component` (params resolved by attribute
+  conditions on the selection, formula may be param-only — an unmatched condition is an HONEST no-compute).
+  A conditional `component` may ALSO carry a `target` (base from the matched row) together with its
+  conditions (e.g. the tray `cover`, `base*factor`) — this shape needed no interpreter change.
+  **EA-2b — the CORRECTED cable-tray config is FOUR pipelines** (supply/install/bcs/bcs_install):
+  conditional-component adders (cover / ceiling 106 / refill 180 / cutting 200) + a **width-table install
+  match** (kind `tray_install_rate`, ×4). The old single `tray_boq` (install = supply ×0.2, golden 280/60)
+  was WRONG and is DELETED; oracle goldens t1/t2/t3 (431/120/297/0, 415/120/286, 410/200) are the pins,
+  machine-verified (config-data preview gate + vitest + live Derivation), so the tray is OFF the manual
+  verification list. **EA-2c — `component_ref` (a NEW step): base from a SEPARATELY-REFERENCED master row**
+  matched by `ref.kind` AND every `ref.attributes` (exact canonical, this discipline). UNIQUE resolution:
+  zero OR multiple matches is an HONEST no-compute (never zero-by-default, never pick-first); the referenced
+  row's `target` binds as `base`, then conditions/params/formula per the component contract; the trace names
+  the referenced row (`StepTrace.refItem`). It is a first-class vocabulary member (client STEP_VOCABULARY +
+  server `_KNOWN_STEP_TYPES`/`_validate_config`). **Owner correction: the earthing adder ADDS A BUS BAR (the
+  existing Bus bar earthing_item row), NOT an earth chamber** (the chamber attempt was reverted, asset v8
+  skipped v7->v9). This is ONE ROW, TWO ROLES (requirement #7, shared items stored once): the Bus bar row
+  prices both as a selectable item AND as the adder; an edit to it flows into both. **component_ref is the
+  ASSEMBLY PRIMITIVE's simplest form.** **EA-4a SHIPPED the assembly engine (owner-locked):** two pure-TS
+  shapes — `circuit_fit` (sizes conduit + counts circuits: `overall_dia = sum sqrt(sqmm/pi)*2*core`;
+  `fitted_size` = smallest usable-dia >= dia; `circuits = ROUNDDOWN(usable/dia)`; `conduit_qty =
+  ROUNDUP(length/circuits)`; binds into ctx) and **`component_ref` extended** (ref attrs literal | `@attr` |
+  `@fitted_size`; `rate_stages [{mult,round?:up0|up-1}]` with PER-STAGE rounding; `qty` = number |
+  `{from_attr}` | `{from_fit}` | `{if_attr,then,else}`; `value = staged_rate * qty`; UNIQUE resolution else
+  honest no-compute; both obey Option-C never-throws). **PER-STAGE ROUNDING is faithful to the guiding sheet
+  and INTENTIONAL** (install switch `ceil(list*0.3625)` THEN `*0.2` UNROUNDED — pw1 `155*0.2=31`, pw2 White
+  `131*0.2=26.2`); do NOT collapse to one final round. **`point_wiring` is LIVE** (14 defs, 3 pipelines);
+  goldens **pw1 1869/735/1370** + **pw2 1823/722.2/1342** (MS→3 circuits; the fractional 722.2 pins per-stage
+  rounding) are config data AND standing pins — a golden's attrs are an ATOMIC SET. **A switch-only light
+  point (socket_item null) is an HONEST NON-COMPUTE — the EA-4a-r acceptance case, not a defect** (EA-4a-r
+  adds a `None` socket next). **The nine `extraction_defaults` (owner-locked):** a config default is INJECTED
+  into the extraction prompt and, where the row text gives no positive identification, returned with moderate
+  confidence AND stamped `defaulted:true` (raceway also carries a `text_override`); ABSENT => byte-identical.
+  **`values_from` is resolved in BOTH surfaces** — `RateMasterDerivation` AND the editor helper
+  (`pricingSheetHelper.attributeOptions`, options from the live master by kind+where) — so an AI-extracted
+  item with no static `values` still DISPLAYS in the panel select and a partial row completes from the
+  catalog. **EA-4a-r SHIPPED the NONE mechanism (owner-locked):** a composite component may be POSITIVELY
+  ABSENT -- the sentinel string `"None"` (distinct from blank=unknown) makes that line an EXPLICIT ZERO
+  (`export const NONE_SENTINEL`). Config: an attr def carries `allow_none` + `disables_when_none` (the dependent
+  attr ids greyed/cleared when it is None -- e.g. plate_item -> [plate_qty, back_box]); a `component_ref` carries
+  `none_skips` (a ref @attr resolving to "None" -> the component is 0, fired BEFORE the ref lookup, so
+  `socket_item="None"` doesn't abort; back_box binds @plate_item so plate=None zeroes it too); `circuit_fit`
+  carries `optional_wire_when_none` (that wire is omitted from the dia -> single-wire fit). **The None affordance
+  is GENERIC + input-appropriate:** a CHOICE def offers "None" at the top of its select; a NUMBER def offers a
+  "None" CHECKBOX beside the numeric input (checked -> sentinel + input greys/clears) -- both in the Derivation
+  AND the editor panel. `coerceForMatch`/`_coerce_value` PRESERVE "None" for an allow_none def (number included).
+  Extraction injects "None" as a valid value + a guidance line ("None when the bill names no such component;
+  null only when too vague"); `extraction_none_guidance` may be a custom string OR a truthy flag. Goldens: **pw3**
+  (switch-only, socket="None") -> supply **1682**; single-wire (wire2="None") -> **1362**. A switch-only light
+  point (socket null, no None) stays honest no-compute until the None is set. **EA-4b SHIPPED switches_point +
+  the industrial_sockets paired-MCB (DATA-ONLY -- NO interpreter change; every shape is existing vocabulary):**
+  `switches_point` is a 6-line switch/socket/plate/box assembly (TWO None-able socket slots; distinct from
+  point_wiring -- no circuit_fit/wires; golden sp1 2320/470/1600); `industrial_sockets` gained a `paired_mcb`
+  `component_ref` that is CROSS-CATEGORY (ref.kind `db_switchgear_item`) + gated by a `qty if_attr` interlocked
+  rule (`{item:"...Interlocked"}?0:1`), with **`extraction_defaults={paired_mcb:"None"}` the production fix** so a
+  socket-only row prices instead of refusing (absent=unknown->no_match; "None"=positive-absence->0 line -- the
+  EA-4a-r distinction, owner-locked). Tray ceiling-accessories are a CONFIRMED FIXED 106 scalar (do not make
+  adjustable this era). **EA-4c SHIPPED the DB build-up + the `lookup_or_ratio` interpreter step (owner-ruled
+  ONE new capability -- implement the sheet's IFERROR install EXACTLY):** the build-up is FIVE FIXED None-able
+  MCB slots (mirroring the sheet's I10:I14) + a `db_shell` slot (allow_none -- **MCB-only, shell None, is a REAL
+  product = the sheet's `IF(J9=0)` branch**, the same module pricing bare MCBs) + enclosure, summed x0.495
+  (supply) / x0.3 (bcs); supply + bcs are EXISTING vocabulary (`component_ref none_skips` cross-kind to the NEW
+  `db_shell` kind, `sum_components`, `scale`, `roundup`), so the earlier "variable-length list step +
+  extraction-payload extension" prediction was WRONG -- the scalar one-attribute-set-per-row payload carries the
+  fixed slots and needed NO extension. **`lookup_or_ratio` is the sheet's EXACT IFERROR three-way install**
+  (owner contract, do NOT improvise): (a) `when_shell_absent.attr=="None"` -> `ROUNDUP(ratio.of x ratio.mult)`
+  [shell-absent]; (b) else the unique install-table lookup (`kind`+`item`==`@attr`) resolves -> `ROUNDUP(matched
+  [target] x mult)` [table-hit]; (c) lookup MISS -> `ROUNDUP(ratio.of x ratio.mult)` [IFERROR fallback]. A ratio
+  branch with an uncomputed `ratio.of` is an HONEST no_match; a malformed shape NEVER throws (Option C ->
+  `unsupported`); the trace NAMES the branch. Pass-through in `rate_master._KNOWN_STEP_TYPES` (no deep
+  validation; its `@db_shell_item` is reference-guarded via the supply `component_ref`s). Goldens dbu1 (VTPN
+  fallback 24360/3660/14760) / dbu2 (TPN 8WAY table-hit install 1500) / dbu3 (MCB-only shell None 23840/3580/
+  14450). **This CLOSES the assembly-category arc (point wiring, switches point, industrial-socket pairing, tray
+  accessories [fixed], DB build-up all live).** A discarded v16b data-only attempt (shell REQUIRED, no
+  none_skips) was reverted for this owner ruling.
+  **EA-4d (owner-locked) supersedes the db_switchgear extraction + install-rounding invariants (asset v17,
+  sha `c41ba8e7ce2e0b8b`):** (1) the DB SINGLE-ITEM path is REMOVED -- `db_boq`/`db_install_nondb`/
+  `db_install_db`/`db_bcs` pipelines + the `family`/`item` attrs are GONE (they had NO sheet-cell basis; the
+  whole guiding DB block IS the build-up). db_switchgear carries ONLY the 3 build-up pipelines; the 137
+  `db_switchgear_item` master rows stay (the build-up slots reference them). (2) db_switchgear is the FIRST
+  `matching_mode: "composite_decomposition"` category -- a GENERAL extraction mode driven ENTIRELY by
+  `composite_slots` (shell / repeatable `{prefix,count,...}` -> enumerated slot attrs / fixed) +
+  `decomposition_rules`, with NOTHING db-specific in `extraction.py`; **a second composite (switches_point /
+  industrial sockets / future HVAC) opts in by config alone -- zero code change** (seam = `select_prompt_text`
+  + `build_slot_spec`; prompt asset `prompts/boq_composite_decomposition_prompt.md`). Owner resolution rulings
+  (in the prompt + `decomposition_rules`): CURVE BoQ-stated->UPS-context-D->default-C; AMP exact-or-NEXT-HIGHER
+  (never lower), range takes highest; PARTIAL pricing (un-cataloguable components -- ATS, standalone bus bar,
+  weatherproof enclosure, module-flexi shell, bespoke DB -- left out, never a wrong pick; whole-row no-match ->
+  all null). (3) `lookup_or_ratio` now honors `round_lookup` (table-hit) + `round_ratio` (ratio branches)
+  SEPARATELY; v17 sets `round_lookup: null` (table-hit UNROUNDED `VLOOKUP*1.5`, sheet-faithful) + `round_ratio:
+  -1`; the legacy single `round` stays the fallback for both. Goldens: dbu1 fallback 24360/3660/14760, dbu2
+  table-hit 1500, **dbu4 TPN-6WAY table-hit install 1275 UNROUNDED** (the fix; the EA-4c 1280 was the drift);
+  d1/d2 removed.
+  **A functional config with a RED preview gate is exactly what the gate exists to surface -- even when the miss
+  is in the golden, not the pipeline (two i1 golden defects caught + fixed by regenerated assets at EA-4b).**
+  **The wiring + point_wiring + switches_sockets goldens are the standing regression pins (`switches_point` was RETIRED 2026-08-08 and its `sp1` golden went with it); the wiring-asset
+  invariant sha is `645a81d6841254e4` (2026-08-09, the install step function -- was `76e09bba0d7affa1` at ext-b 2026-08-05, and `dcc9b2ea69f072bb` before that; the owner ACCEPTED each break. The earlier `c10509…` was a stale carry-error).** The Rate Master category selector is
+  REGISTRY-driven (`rateMasterRegistry.ts`), not config-read. The pricing-sheet helper stays wiring-only
+  and shows its category coming-soon note for other categories (honest no-compute). A `scale` step whose
+  TARGET RATE is missing (`null`/`NaN`) SKIPS that output (renders absent, never invented as 0) while the
+  pipeline's other outputs still compute — the HONEST-PARTIAL rule (a source row with supply but no install,
+  or vice-versa, prices only what exists).
+- **THE GUIDING-SHEET AUTHORITY RULE (owner-locked standing law, 2026-07-29).** A rate-master category gets
+  FINALIZED rules ONLY if it has a block on the **ALL ITEM WISE RATE** sheet; no block → no rules. Every
+  future category/discipline inherits this. **Corollary:** where the guiding block carries its rates
+  DIRECTLY, the block IS the table (no background-sheet dependency) — **miscellaneous** is the first such
+  case (its items carry `boq_supply`/`boq_install` that ARE the BoQ rates; `misc_boq` is direct factor 1.0,
+  `misc_bcs` = `boq*0.8` with install 0). The EA-1 "UPS" decode was a misread **Floor BOX** block: UPS is
+  removed (excluded-by-ruling) and **popup_boxes** is the corrected decode (per-module, the
+  value-from-attribute shape). A category may be committed DATA-ONLY (empty `pipelines: {}` — attribute
+  definitions + items, no derivation) when its ruleset is not yet authored; **lighting_mgmt_system** is the
+  first, to be authored in-system later (the loader + all four surfaces + the preview gate tolerate empty
+  pipelines honestly — no derivation output, no crash). **EA-2 SHIPPED the in-system authoring path:**
+  `_validate_config` now ACCEPTS empty `pipelines: {}` (a non-empty pipelines object is still fully
+  validated), and the RM-4b Pipelines tab has an **Add-pipeline affordance** (id + output keys -> a
+  validator-minimal `{output, [match_master_row]}` via `blankPipeline`, then edited via AddStep).
+  `_KNOWN_CONFIG_KEYS` also gained FOUR pass-through keys (`identity_attribute_id`, `matching_mode`,
+  `notes`, `pipeline_labels`) stored VERBATIM and NOT structurally validated (like `item_kinds`) —
+  REQUIRED because RM-4b resubmits the whole config, so an item-identity config (or the wiring
+  `pipeline_labels` edit) would otherwise be rejected as an unknown key.
+- **Retired-scope supersede (loader, owner-locked).** A multi-config payload may declare `retired_kinds` /
+  `retired_category_ids` — kinds/categories dropped from THIS payload that a `replace=True` must ALSO
+  deactivate (a second scoped-supersede beyond the payload's own kinds/categories), so a retired
+  kind/category left active from a prior batch (e.g. ups after the Floor BOX correction) is superseded rather
+  than left orphan-active. Freeze-and-supersede (rows retained), logged in the load summary; the
+  wiring-untouched invariant is unaffected.
+- **⚠️ A CATEGORY IS RETIRED VIA `retired_category_ids`, NEVER BY OMISSION FROM AN ASSET (owner-locked).**
+  `_load_multi` computes its supersede scope from the PAYLOAD, so a category simply DROPPED from the
+  asset is never touched by a `replace=True` and stays **ORPHAN-ACTIVE** — still `active = 1`, still
+  served by every active-only reader, while the asset that is supposed to define it no longer mentions
+  it. Naming it in `retired_category_ids` is the only thing that deactivates it. **There is NO delete
+  path** — not in the loader, not in any admin write endpoint (the item-level one is even named
+  `deactivate_…` and RETAINS the row); the whole module is freeze-and-supersede, so "delete this
+  category" always means "retire it", and a hard delete would be a manual DB operation outside every
+  audited path.
+- **The Rate Master category picker is REGISTRY-driven, not config-driven, so a retired category must
+  leave `rateMasterRegistry.ts` in the SAME change.** The list the picker renders comes from the
+  registry; retiring the config alone leaves the category on offer and renders
+  "No active config found for …" when it is chosen.
 - **Benchmark data (owner ruling):** the committed data asset is the **28-Jul benchmark workbook**
   (`rate_master_wiring_cabling_v3.json`) — the reference going forward, superseding the earlier 25-Jul
   reference. A benchmark refresh is a `replace=True` re-import of a new asset (freeze-and-supersede: the
   prior `rmbulk-` batch goes inactive, rows retained). NOTE: `loader.DEFAULT_DATA_FILE` is version-pinned
   to the asset filename (a known wart flagged for a future de-pinning slice), so a rename forces a loader
   edit in lockstep.
+- **29-Jul truth-file cycle (EA-DIFF, owner-locked; the E-ALL benchmark of THAT cycle was
+  `rate_master_electrical_all_v12.json` — the CURRENT E-ALL asset is `rate_master_electrical_all_v22.json`,
+  sha256 prefix `f1344c1853614d75`; asset lineage v9->v12, v10/v11 skipped):** four
+  data changes + two owner-ruled invariants. (1) **Synonyms** — a config may carry top-level `synonyms`
+  `{attr_id:{variant:canonical}}` (conduit `{conduit_type:{GI:MS}}`); consumed TWICE (defence in depth) — the
+  extraction prompt INJECTION (`extraction._extract_batch`, `.md` assets untouched) AND `_coerce_value`
+  variant->canonical mapping BEFORE the allowed-values check. ABSENT => byte-identical. (2) **GI conduit rows
+  EXCLUDED** (`conduit_type` now [PVC,MS]); a GI row prices at MS via the synonym. (3) **point_wiring** — a
+  DATA-ONLY category (`pipelines:{}`, `item_kinds:[]`) with a banked EA-4 oracle `1869/735/2604` in
+  `config.notes`; it is the FIRST kind-less category. (4) **DB install three-way split** (db_switchgear): kind
+  `db_install_rate` + pipelines `db_install_db` (DB-family, scale x1.5) / `db_install_nondb` (switchgear+enclosure,
+  15% of BoQ supply). **OWNER-RULED SHAPE (load-bearing):** `db_install_nondb` MUST be a **`component` step with
+  `conditions`** (NOT `scale` — the interpreter's `scale` does NOT bind `conditions`, only `component` /
+  `apply_effective_multiplier` do; a `scale`+conditions ships an unbound identifier that throws). Its conditions
+  EXCLUDE the DB family (a DB row matches no condition -> honest no-compute, so DB install comes ONLY from
+  `db_install_db`). **THE DEMOTION-STYLE LESSON: `scale` binds only top-level `params`; conditional params require
+  `component`.** (5) **Interpreter robustness (Option C, owner scope-add):** `runPipeline`'s "never throws on data
+  shape" contract is ENFORCED — a data-shape formula throw (unbound identifier / malformed) DEGRADES to the honest
+  `unsupported` status, page + helper NEVER hit the error boundary. The Data-Viewer **empty-scope** rule
+  (`rateMasterStructure.isCategoryDataScopeEmpty`): a kind-less category renders an honest empty state (0 rows,
+  note, no Add-row), NEVER the discipline-wide all-items list; LMS (declares `item_kinds`) is unchanged.
+- **Estimator `rules` (EA-4 ext-a, owner-authored config data; full as-built + the four rules verbatim in
+  the plan doc's "Build slice EA-4 ext-a"):** a category config may carry a top-level `rules` array
+  (`{id, label, applies_to, guidance}`) of OWNER-AUTHORED estimator guidance. It is a `_KNOWN_CONFIG_KEYS`
+  pass-through key, read into the extraction context **UNGATED** (unlike `slot_spec` /
+  `decomposition_rules`, which are composite-only — R7 lands on `cabletray_raceway`, an ordinary
+  attribute category) and injected as an `ESTIMATOR_RULES` prompt block beside SYNONYMS / DEFAULTS.
+  **NO interpreter change; absent key => byte-identical prompt.** The guidance text is the contract —
+  it is passed through VERBATIM and nothing in the app rewords it. Rendered read-only on the Derivation
+  tab, with an explicit "No rules configured for this category." empty state (that tab had no
+  empty-state precedent). Live: `db_switchgear` R2/R3/R4, `cabletray_raceway` R7.
+- **Cable RUNS and CORES are SEPARATE and are NEVER multiplied together (owner-locked).**
+  `wiring_cabling` carries BOTH a `runs` and a `core` attribute, each defaulting to **1** via
+  `extraction_defaults`. **The core count IDENTIFIES the cable in the catalog; the run count
+  MULTIPLIES its price** — collapsing them would match the wrong cable. This is the OPPOSITE of
+  `point_wiring`, which records runs INTO its wire-core value (`wire1_core`/`wire2_core`, labelled
+  "Wire N - runs (Core)", both defaulting to 1): point wiring is single-core in the ordinary case, so
+  a stated run count IS the core value and a line stating both records the PRODUCT. **Two categories,
+  two deliberately opposite rules — do not "harmonise" them.**
+- **All four wiring pipelines multiply by runs, at FIVE points not six (owner-locked).** A `scale`
+  step carrying `runs_from_attr` (existing vocabulary; precedent `popup_boxes`
+  `module_count_from_attr`) attaches AFTER each output's `roundup`, so runs multiplies a ROUNDED
+  per-unit rate: `cable_boq` supply + install, `termination_boq` **supply ONLY**, `cable_bcs`,
+  `termination_bcs`. **⚠️ `termination_boq` install is NOT multiplied — `install_as_ratio` derives it
+  from the already-multiplied supply, so a second multiplier would make install runs-SQUARED.** The
+  supply multiplier MUST stay BEFORE `install_as_ratio` for that inheritance to hold. `cable_boq`
+  install IS multiplied because it scales the raw `install_base_per_mtr`, not supply.
+- **A golden's attrs are an ATOMIC SET — a new attribute must be added to every stored golden.**
+  Introducing `runs` made all five wiring goldens no-compute (`attribute 'runs' missing or
+  non-numeric` — the interpreter's honest no-compute) until each golden's `attrs` gained `runs: 1`;
+  the expected VALUES are untouched, since the goldens are invariant at runs=1 by construction.
+  ⚠️ **Multi-run goldens (runs > 1) are OWED from the owner and must NOT be computed from our own
+  code:** the guiding sheet carries no runs concept, so a multi-run value has no sheet basis.
+- **`rules` remains an UNGATED `_KNOWN_CONFIG_KEYS` pass-through** reaching every category regardless
+  of `matching_mode`; an absent/empty array yields a byte-identical prompt. Rule text is owner-authored
+  and passes through VERBATIM — nothing in the app rewords it.
+- **point_wiring records RUNS and CORES SEPARATELY, and they are NEVER multiplied together
+  (owner-locked).** `wire1_runs`/`wire2_runs` are per-WIRE attributes, each defaulting to 1 beside
+  `wire1_core`/`wire2_core`. **CORES is the CATALOG MATCH KEY** (the `ref.core` binding), **RUNS drives
+  the conduit GEOMETRY and the WIRE RATE.** One attribute serving both purposes is exactly what broke
+  the previous rule: folding runs into cores wrote a core count with no catalog row behind it, and the
+  row stopped computing. ⚠️ This is the OPPOSITE of `wiring_cabling`, where runs and cores are also
+  separate but the core count is itself a match key with no geometry — do not unify the two categories.
+- **`circuit_fit`'s third `wire_spec` element is OPTIONAL and ABSENT MEANS 1.** A wire spec is
+  `[core_attr, thickness_attr]` or `[core_attr, thickness_attr, runs_attr]`; the dia sum becomes
+  `sqrt(sqmm/PI) * 2 * cores * runs`. Absence must never change behaviour — every pre-existing config
+  carries 2-tuples, so a non-optional third element would break all of them on ship. The same
+  absent-means-1 rule governs a rate stage's optional `mult_from_attr`, which folds its attribute in
+  BEFORE that stage's rounding (`x runs then round`). **This DELIBERATELY DIVERGES from `scale`'s
+  `<ident>_from_attr`, which hard-fails to an honest no-compute** — a run count is a multiplier whose
+  neutral element is 1, not a missing measurement. Both sites share one helper so they cannot drift.
+- **CONDUIT is runs-aware through the GEOMETRY ALONE and must never carry a second runs multiplier.**
+  `conduit_qty` derives from `circuits`, which derives from the runs-scaled diameter. Adding a
+  multiplier to the conduit component would charge runs-squared. Switch, socket, plate and back box
+  never multiply by runs at all.
+- **ITEM MATCHING IS STRICT IDENTITY, so a dropdown over a NUMERIC catalog column needs the
+  numeric choice type (`number_choice`), NEVER a plain `choice` (owner-locked).** `matchMasterRow`
+  compares with `===`, so a `choice` emits the string `"3"` against a stored `3` and matches
+  NOTHING -- silently, and with no error. Making the matcher numeric-aware was REJECTED: it changes
+  how every category matches every attribute and its failure mode is a WRONG match, a price that
+  looks right and is not. The type is contained by construction -- a config that does not carry it
+  is byte-unaffected. `coerceForMatch` (the ONE place an attribute value becomes a match key) lives
+  in `rateMasterStructure.ts`; the two type axes are `isNumericAttributeType` /
+  `isDropdownAttributeType`, one definition each, read by BOTH rendering surfaces.
+- **AN ATTRIBUTE VALUE IS COERCED IN MORE THAN ONE PLACE, AND A NEW TYPE MUST BE TAUGHT TO EVERY
+  ONE (owner-locked).** The two that decide whether a value survives are the FRONTEND match path
+  (`rateMasterStructure.coerceForMatch`, value -> catalog match key) and the SERVER EXTRACTION path
+  (`extraction._coerce_value`, model reply -> stored value); the config validator and the Derivation
+  form carry the same type knowledge. **`number_choice` compares NUMERICALLY at every site, never by
+  string** — its domain is resolved from the catalog and is therefore FLOATS, so a string comparison
+  can never match and silently discards every correct answer. Membership is still ENFORCED: like
+  with like, not no check at all. This has now been missed TWICE (the frontend twin, then the
+  server); **when you touch a coercion, sweep the whole stack — both halves — before believing the
+  list is complete.**
+- **THE GOLDENS BYPASS `coerceForMatch` ENTIRELY, so a coercion change must be proven through the
+  PRICING-EDITOR path as well.** Goldens call `runPipeline` with values directly; a coercion that
+  matches nothing leaves every golden green while the editor prices nothing. Measured once already:
+  the naive flip took point_wiring from pricing most of its rows to pricing none, with all goldens
+  green throughout. The editor-path count is a GATE, not a formality.
+- **A category's dropdown domain is the family ITS OWN component refs pin, not the union across
+  families (owner-locked).** `values_from.where` on a `point_wiring` wire attribute pins
+  copper/unarmoured because that is what its component refs price; offering the cross-family union
+  would put values on screen with no catalog row behind them. **The resulting domain need not be
+  rectangular** -- core x thickness offers pairs the catalog does not carry, which is an honest
+  no-match; constraining one dropdown by another's selection is the dependent-`where` mechanism
+  cables are deferred for and is deliberately NOT built.
+- **POINT WIRING CARRIES THREE CONDUCTORS -- phase, neutral and earth -- so the run counts across
+  wire 1 and wire 2 sum to three unless the line explicitly states otherwise (owner-locked, R9).**
+  A closing sentence naming an earth wire describes a conductor already counted, not an extra one.
+  A number before a size is a RUN count, never a core count; wire 2 is recorded only where the line
+  describes two distinct wires, and is `"None"` otherwise -- which is why `wire2_thickness_sqmm`
+  must keep `allow_none` + its `disables_when_none` targets.
+- **`_validate_config` must not be stricter than the interpreter (EA-4 ext-a).** Three shapes the
+  interpreter explicitly executes are valid config and must stay accepted: a `component` with **no
+  `params`** (a conditional component carries them per-condition), a `component` with **no `target`**
+  (a param-only formula reads no price off the matched row; present-but-blank is still an error), and a
+  **`*_from_attr` param holding a STRING** (an attribute-id binding — scoped to that suffix ONLY; any
+  other param carrying a string still raises). Before this, `cabletray_raceway` and `popup_boxes` could
+  not be saved through RM-4b at all.
+- **⚠️ THE LOADER DOES NOT VALIDATE, THE EDITOR DOES.** `_validate_config` has exactly ONE caller
+  (`update_rate_config`); `load_rate_master` / `_load_multi` validate nothing of the sort. **So an
+  un-validatable config imports cleanly and only fails later, at the editor** — a whole-config RM-4b
+  save. This asymmetry has now bitten TWICE in one slice (an unregistered top-level key, and step
+  shapes). **Closing it is BANKED as its own future slice — do not attempt it inside a feature slice.**
+- **⚠️ A `replace=True` IS WHOLESALE, so the losable set is a config's ENTIRE KEY SPACE — not a short
+  list (owner-locked).** `_load_multi` flips the prior row `active = 0` and INSERTS a new document
+  from the payload alone; nothing is merged, nothing is diffed, and the prior config is never read.
+  **Any key absent from the asset is gone from the active config — intended or not, and with no signal
+  of any kind.** `pipelines` is the sharpest case: an EMPTY `{}` is LEGAL, so a mint that empties one
+  imports cleanly and that category silently stops pricing. `rules`, `extraction_defaults`,
+  `synonyms`, `matching_mode` and an `attribute_definitions[].default` all reach the AI prompt, so
+  losing any of them is a BEHAVIOURAL regression no test can see. **Comparing COUNTS cannot detect
+  this** — the original instance left the count unchanged while replacing the content, which is why
+  any verification must compare KEY BY KEY.
+- **⚠️ AN IN-SYSTEM EDIT NOT WRITTEN BACK TO ITS ASSET IS DROPPED BY THE NEXT IMPORT (owner-locked).**
+  An audited config write lands on the config ROW; the asset is a separate artefact that no write
+  updates. The `Version` audit is FORENSIC, not preventive — nothing consults it before a replace, and
+  the new row starts a fresh history, so the edit's own trail stays attached to a now-inactive row.
+  **Any in-system edit must be mirrored into its asset in the same change**, or the next `replace=True`
+  erases it silently. This is what makes deferred in-system authoring (e.g. `lighting_mgmt_system`)
+  fragile until its result is written back.
+- **⚠️ A MINT COMPARISON MUST READ COMMITS, NEVER WORKING-COPY FILES (owner-locked).** An asset edited
+  IN PLACE hides the very loss a later commit repaired: comparing the two files as they sit on disk
+  shows the repaired item merely CHANGED, while comparing the asset AS ORIGINALLY COMMITTED shows it
+  LOST. A file-based comparison would have missed the one loss on record. The wiring asset has no
+  version chain at all — one filename across several commits — so for it, git history is the ONLY
+  record. `scripts/mint_completeness_check.py` is the invoked gate: it reports every disappeared atom
+  down to an `expect` key inside a golden, warns when an operand is a working-copy file carrying more
+  than one commit, and names the asset versions absent from disk and therefore uninspectable.
+  **Intent is machine-readable ONLY at category/kind granularity (`retired_category_ids` /
+  `retired_kinds`); `slice_note` and `excluded_categories` have ZERO code consumers, and a note nobody
+  verifies is not a declaration.**
+- **The extraction payload is TIERED, LABELLED and NEVER DEDUPED (EA-7, owner-locked; SUPERSEDES the
+  banked EA-6 note, whose boundary sat one level higher).** The rate-extraction payload
+  (`extraction._ai_item`) keeps its four top-level keys (`id` / `description` / `notes` /
+  `ancestor_chain`) but their VALUES are labelled: `notes` is a map keyed by note KIND (`own` /
+  `attached` / `appended`, the last a `{column-header: value}` map so the source COLUMN is part of the
+  provenance), and each `ancestor_chain` entry is an object carrying `relation` + `distance` + `tier` +
+  `node_type` + `description` + its own kind-keyed note block, root-first, with the sheet name as an
+  outermost LABEL entry (no distance/tier/notes — it is not a node). **An empty kind is OMITTED, never
+  sent as an empty container**, so absence is unambiguous. **THE TIER (owner-locked 2026-08-04): self
+  (distance 0), immediate parent (1) and GRANDPARENT (2) carry every note kind; great-grandparent (3)
+  and every ancestor above carries description + APPENDED ONLY.** The boundary is the named constant
+  `extraction._FULL_TIER_MAX_DISTANCE`, never a magic number. The flat `notes` field rides the FULL tier
+  with `attached` (it is node-borne body text, and the lean-tier ruling names only description +
+  appended). **PER-ROW, NEVER DEDUPED** — a shared ancestor's text is repeated in full on every row
+  beneath it; the repetition was MEASURED and the cost accepted in exchange for each row being
+  independently readable inline, so do NOT add dedup, reference-passing or a shared-ancestor block. The
+  model is told how to read the labels by `_ROW_CONTEXT_SHAPE_GUIDANCE`, appended in `_extract_batch`
+  following the existing SYNONYMS / DEFAULTS / ESTIMATOR_RULES convention — **the `.md` prompt ASSETS
+  stay untouched.** EXTRACTION ONLY; the CLASSIFIER is NOT in scope and its input is byte-identical.
+- **⚠️ `context_builder._notes_text` is SHARED with the classifier voter — changes there must be
+  ADDITIVE (EA-7).** EA-7 needed the three self note-kinds separately and added `own_notes_raw` to the
+  row dict AND to each entry of the `ancestors` struct **without touching `_notes_text` or any existing
+  key**; `notes` still carries the identical `' | '`-joined string. Byte-identity of the voter's
+  assembled payload is PROVEN, not asserted — a hand-written golden test (`TestEA7PayloadShape.
+  test_p5_...`) plus a measured before/after hash over the live corpus. Any future change here owes the
+  same proof.
+- **The extraction payload shape is TEST-PINNED (EA-7).** `TestEA7PayloadShape` in
+  `api/boq/test_rate_suggest.py` pins the key set, the labelled ancestor objects, the kind-keyed self
+  notes, the tier boundary (both halves — the grandparent MUST carry every kind, the great-grandparent
+  MUST NOT), the no-dedup rule, and the omit-empty-kinds rule. Before EA-7 this builder was pinned by
+  NOTHING. **Pin first, change second** — the pins were proven green against the unchanged code, then
+  updated in the same commit, so the test diff shows what the payload carried before and after.
 - **Pipelines are STORED CONFIG, not code:** the four derivation pipelines (cable/termination × BoQ/BCS)
   live in the config JSON and are interpreted downstream — RM-1 stores them faithfully; no interpreter
   ships this slice. Owner-decoded shapes: effective = `(1-discount)*(1+markup)`; termination = lug +
@@ -425,13 +987,129 @@ invariants:
   `get_suggest_status` / `get_active_suggestion_run` / `record_rate_suggestion_event` /
   `get_suggestion_events`, gated by the shared D8 chain (not locked + formulas complete + category gate,
   REUSING the `pricing.py` predicates). Marker + terminal payload live in Redis keyed by (boq, sheet_name).
+- **SR-1 run resilience (owner-locked, MIGRATE-carrying; full as-built in `.claude/context/domain/boq-backend.md`):**
+  a run is NO LONGER all-or-nothing. **The run doc IS the partial store** (never Redis — its TTL is the wrong
+  lifetime): created up front at `status=running`/`active=0` and updated per completed batch via a
+  `checkpoint_cb` that mirrors the existing `progress_cb` injection (the service layer still performs NO
+  `frappe.db` writes). Three fields: `status` (`running|partial|complete|failed`, **`default: "complete"`** so
+  pre-SR-1 rows backfill on migrate and never retroactively lock Use), `attempted_rows` (the per-row
+  done-marker), `halt_reason`. **`ai_status` is NOT widened** — it keeps its own `ran|disabled|no_key`
+  vocabulary, which the doctype and frontend treat as a contract. **`attempted_rows` is load-bearing:** a blank
+  row is byte-identical whether never-asked, asked-and-null, or fail-closed, so the marker is explicit and is
+  set **only AFTER a batch returns** — a FAILED batch's rows are never marked and stay pending. **R-SUPERSEDE:**
+  a partial NEVER supersedes a prior COMPLETE run; `active` flips to 1 ONLY at `complete` (so
+  `get_active_suggestion_run` also returns the newest resumable partial under a separate additive `partial_run`
+  key). **R-RESUME-SAME-RUN:** a resume completes the SAME doc/`run_id`, never a second; it re-checks the D8
+  gate AND the committed-version keying. **R-USE-GATE:** "Use this value" requires `status=complete`. Writes use
+  `set_value(update_modified=False)`, never `doc.save` — this doctype is `track_changes:0` (no audit to bypass)
+  AND its list-valued JSON hits the documented `doc.save()`/`delete_doc` wall. **`ExtractionHalted` splits
+  terminal from transient — and the DEFAULT DIRECTION IS LOAD-BEARING: an UNRECOGNISED error must keep the
+  pre-SR-1 retry behaviour** (a positive-terminal test, adopting `boq_ai_assist._TRANSIENT_MARKERS` for the
+  transient signals). Classifying unrecognised errors as terminal turned a truncated reply into an instant halt
+  — worse than the behaviour replaced; caught by the browser cert, not by the tests. A graceful halt still
+  `log_error`s the provider's own words, so handling it never makes the cause unknowable.
+- **`_extract_json_array` is STRICTLY MORE PERMISSIVE (SR-1):** it takes the FIRST BALANCED array span
+  (string-aware) and ignores trailing data, fixing the production `Extra data: line 1 column 845`. It never
+  rejects a previously-accepted shape (prose-wrapped array, element order, HV-2 bare object), and still RAISES
+  on genuine garbage and on a TRUNCATED array (which must NOT degrade to its first element). **Shared by three
+  production consumers BY DESIGN** — the classifier voter (def site), the certified harness (by import
+  identity), rate extraction. ⚠️ The same-named function at `services/boq_ai_assist.py:431` returns a `str` and
+  is a DIFFERENT function — do not confuse them.
+- **The reply ceiling (SR-2, owner-locked, EXTRACTION ONLY):** `extraction._AI_MAX_TOKENS` is an EXPLICIT
+  constant and is deliberately **NOT** the configured `ai_settings.max_tokens` — the call is NON-STREAMING
+  with a fixed timeout and the higher configured region is UNTESTED, so extraction still does not read the
+  setting. **The classifier voter and the offline harness keep their own lower constant deliberately**: the
+  voter's reply is one small object per row (a wide margin that does not bind) and it is a CERTIFIED surface
+  whose corpus is spent, so raising it is all risk and no benefit — changing it belongs in its own slice with
+  a fresh harness run. A `stop_reason == "max_tokens"` cut raises the distinct **`ReplyCeilingExceeded`**
+  BEFORE the reply text is parsed, so it can never degrade into the generic truncated-JSON `ValueError`, and
+  it is **NEVER retried** — a ceiling cut is DETERMINISTIC for a given batch, so retrying is guaranteed waste
+  (a garbled reply is the opposite case and keeps the SR-1 default-to-retry rule). **The special-case is
+  NARROW: every other `stop_reason` keeps its pre-SR-2 behaviour byte-identical.**
+  `_extract_with_ceiling_split` halves a cut batch (`_MAX_SPLIT_DEPTH`), triggers ONLY on
+  `ReplyCeilingExceeded` — never on a transient error or a garbled reply — and composes with SR-1 unchanged:
+  `attempted` advances and checkpoints per HALF, so a halt mid-split keeps the halves already done. Batch size
+  is unchanged. **The trigger was ANY high-attribute-count category at the full batch size, NOT
+  `composite_decomposition` specifically** — the failing batch was a non-composite assembly category, so a fix
+  scoped to composite mode would have missed it.
+- **A PARTIAL-SCOPE SUGGEST RUN SCOPES THE PROCESSING, NEVER THE POPULATION (owner-locked).**
+  `start_suggest`/`run_extraction` take a POSITIVE `only_rows` (a tick box says "do these";
+  `skip_rows` is the resume's done-marker lever and says the opposite — inverting it on the client
+  would force the client to reproduce the server's population definition). **`assemble_population`
+  is UNTOUCHED and `population_rows` is ALWAYS the whole sheet**, because it is the completeness
+  yardstick `complete = ... and not (population - attempted)` tests against. **Narrowing the
+  population instead is the DESTRUCTIVE implementation** — `complete` becomes reachable with only
+  the selected rows present, the run flips `active=1`, the prior run is deactivated, and every
+  unselected row silently loses its extraction, its badge and its "Use this value". `only_rows` is
+  validated server-side and **REJECTED, never silently narrowed** (a row outside the population
+  means the client's eligible set is stale and the count the user just confirmed is no longer true).
+  **ABSENT or EMPTY `only_rows` is byte-identical to the whole-sheet path.**
+- **EVERY SUGGEST RUN WRITES A NEW DOCUMENT CARRYING THE UNTOUCHED ROWS FORWARD BYTE-IDENTICALLY —
+  nothing is edited in place (owner-locked).** A merged run's `run_at` and `ai_status` stop
+  describing the rows and start describing the last touch, and the previous values are destroyed;
+  the rest of the module already supersedes rather than mutates. **BYTE-IDENTITY is the
+  requirement, not "still present"** — a carry that re-serialised and dropped a `defaulted` flag
+  would pass a parsed-value check and still be a silent regression. `serialize_run_results` is THE
+  single serialisation for every writer and its three properties are load-bearing: `json.dumps`
+  with DEFAULT separators (no `indent`/`sort_keys`), `sorted` by excel_row, and row dicts passed
+  through UNTOUCHED (never re-derived — `_corroborate`/`_row_result` run only for rows the pass
+  actually extracts). The `results` column is postgres **`json`, NOT `jsonb`**, so submitted text
+  is stored verbatim and the guarantee survives the round trip. **⚠️ The skip set must EXCLUDE the
+  scope or NOTHING runs**: a scoped pass seeds `acc_attempted` from the carried COMPLETE run, which
+  already contains the ticked rows, so `pending_skip = acc_attempted - scope` is what makes
+  "re-run these" mean re-run. Carry-forward is scoped to `only_rows` deliberately — seeding a
+  whole-sheet run would make a halted run silently inherit the old rows instead of reporting them
+  pending. A scoped run is refused when AI is off (it would blank the picked rows and mislabel the
+  document), when a resume is also requested, and when there is no completed run to carry from.
+- **A SCOPED RUN PERSISTS ITS SCOPE, AND A RESUME HONOURS IT (owner-locked).** `only_rows` is a
+  REQUEST parameter: it dies with the request, so a resume that re-derives the scope from it finds
+  nothing and silently falls back to the population — the run forgets it was ever scoped. The scope
+  lives on the run document (`scope_rows`, holding the rows STILL TO DO; NULL = whole-sheet) and is
+  resolved in ONE place, `_open_run_doc`, which returns it for a fresh run and for a resume alike.
+  **It is not recoverable from anything else**: `attempted_rows` is seeded with the carried run's
+  rows so it holds the whole population, and in `results` an unfinished scoped row is byte-identical
+  to the carried row it came from. **A stored EMPTY list means "scoped, nothing left" and must never
+  collapse to None** — that reinstates the fallback. A NULL scope keeps the whole-sheet path
+  byte-identical.
+- **A BANNER'S COUNT AND THE WORK IT TRIGGERS MUST DERIVE FROM ONE VALUE (owner-locked).** Two
+  independent computations over different data is how a control comes to promise one number and
+  deliver another; it is not a wording problem and cannot be fixed by rewording. Where a control
+  offers to do N things, the N it displays and the set the worker processes read the SAME stored
+  field.
+- **A RUN'S `attempted_count` IS DOCUMENT-LEVEL AND CANNOT DESCRIBE ONE PASS (owner-locked).** On a
+  carried scoped run `acc_attempted` is SEEDED with the carried run's rows, so `attempted_count`
+  counts every row the DOCUMENT has results for — the right number for the completeness test and
+  the resume's skip set, and the wrong one for "how much did this pass do". Subtracting it from the
+  population then yields 0, which reads as "nothing missed" precisely when ticked rows were left
+  unfinished. The pass's own set is `env["attempted_rows"]`, published as `pass_attempted_count`;
+  anything reporting what a PASS did must read that. Keep the two names distinct — they answer
+  different questions and collapsing them re-creates the defect silently.
 - **Extraction prompt rulings (owner, `prompts/boq_rate_attr_extraction_prompt.md`):** tolerate spelling
   variants (map to the canonical value), and — for an ARMOURED/UNARMOURED insulation attribute — a FLEXIBLE
   cable is UNARMOURED, and insulation DEFAULTS to UNARMOURED when neither armoured nor unarmoured is stated.
 - **Frontend attributes are CATEGORY-SCOPED (owner):** the `Pricing sheet` helper shows the row's CATEGORY
   attributes; a category with no attribute set defined yet shows a "coming soon" note, not the wrong fields.
-  A badge-less rate-editable cell exposes an always-on faint opener for manual fill. Only `wiring_cabling`
-  is defined this slice.
+  A badge-less rate-editable cell exposes an always-on faint opener for manual fill.
+- **EA-2 -- extraction + helper are N-CATEGORY (owner-locked).** The runner is no longer wiring-only: the
+  population spans EVERY category on the sheet whose active config has BOTH non-empty pipelines AND
+  attribute definitions (an empty-pipelines DATA-ONLY config like `lighting_mgmt_system` is excluded
+  automatically -- NO special case); batches are SINGLE-CATEGORY (each carries its category's defs +
+  prompt), and results carry `category_id` per row. **MODE SWITCH** (config.`matching_mode`): an
+  `item_identity` category injects the SECOND prompt asset
+  (`prompts/boq_rate_item_identity_prompt.md`) and flags the identity attribute (`identity_attribute_id`)
+  `identity:true` with its allowed values := the LIVE item catalog (distinct identity-attr values across
+  the category's active master items -- NEVER hardcoded); `_coerce_value` enforces catalog membership, so
+  an out-of-catalog value -> null. The identity prompt's REFUSE-COMPOSITES rule (an assembly / multi-item
+  row -> null) is owner-locked. The helper (`pricingSheetHelper.ts`) resolves the config PER row category
+  (`configsByCategory`, all 11 registry categories fetched via a child `RateConfigFetcher`); a category
+  with no eligible config -> "coming soon". Groups render ONE per NON-BCS pipeline (ids containing "bcs"
+  are NEVER surfaced -- owner deferral), labelled `config.pipeline_labels?.[id]` (CONFIG DATA, added to
+  wiring by an audited RM-4b edit) else a prettified id. **The `wiring_cabling` paired Cable+Termination
+  display is a TEMPORARY owner special-case (Decision 2) with a NAMED SUCCESSOR: EA-4 designs the generic
+  pairing/assembly mechanism and wiring migrates onto it then -- do NOT extend the named-category branch.**
+- **CLASSIFICATION-VOCABULARY GAP (standing):** `popup_boxes` + `lighting_mgmt_system` are rate-master
+  categories the Electrical CLASSIFIER does not emit yet, so ZERO production rows resolve to them; the
+  helper is ready but they need a classifier vocabulary update first.
 
 ---
 

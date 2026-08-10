@@ -48,7 +48,10 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime
 
-from nirmaan_stack.api.boq.wizard.review_screen import _ASSIGNABLE_CLASSIFICATIONS
+from nirmaan_stack.api.boq.wizard.review_screen import (
+    _ASSIGNABLE_CLASSIFICATIONS,
+    rebuild_attached_notes_blobs,
+)
 from nirmaan_stack.api.boq.wizard.row_renumber import (
     _delete_remap,
     _delete_remap_attached,
@@ -543,7 +546,9 @@ def template_delete_row(template: str = None, sheet_name: str = None, row_index=
         old_idx = r.row_index
         new_idx = old_idx - 1 if old_idx > deleted_index else old_idx
         new_parent = _delete_remap(r.parent_index, deleted_index, grandparent)
-        new_attached = _delete_remap_attached(r.attached_to_index, deleted_index)
+        # EA-6a slice 2 (C2a): the attachment pointer RE-POINTS to the grandparent in lockstep
+        # with parent_index, instead of detaching.
+        new_attached = _delete_remap_attached(r.attached_to_index, deleted_index, grandparent)
         changed = {}
         if new_idx != old_idx:
             changed["row_index"] = new_idx
@@ -553,6 +558,17 @@ def template_delete_row(template: str = None, sheet_name: str = None, row_index=
             changed["attached_to_index"] = new_attached
         if changed:
             frappe.db.set_value("BoQ Template Row", r.name, changed)
+
+    # EA-6a slice 2 (C2b): the TEXT follows the pointer -- recompute the grandparent's blob
+    # from the rows now pointing at it. Runs AFTER the remap loop (post-shift keyspace);
+    # `grandparent` is a PRE-delete row_index, so it takes the same -1 shift.
+    if grandparent is not None and grandparent >= 0:
+        _gp_after_shift = grandparent - 1 if grandparent > deleted_index else grandparent
+        rebuild_attached_notes_blobs(
+            "BoQ Template Row",
+            {"template": template, "sheet_name": sheet_name},  # sheet_name VERBATIM (#152)
+            (_gp_after_shift,),
+        )
 
     # Positional source_row_number ("Excel Row") after the reverse-renumber (which rewrote
     # row_index but NOT source_row_number): stamp srn = row_index + offset (captured pre-delete)

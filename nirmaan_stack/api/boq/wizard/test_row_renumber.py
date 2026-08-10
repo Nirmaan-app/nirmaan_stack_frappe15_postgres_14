@@ -17,6 +17,10 @@ import unittest
 
 from nirmaan_stack.api.boq.wizard.row_renumber import (
     _SRN_OFFSET_FALLBACK,
+    _delete_remap,
+    _delete_remap_attached,
+    _insert_shift,
+    _insert_shift_attached,
     derive_source_row_offset,
 )
 
@@ -78,6 +82,77 @@ class TestDeriveSourceRowOffset(unittest.TestCase):
             rows = _simulate_insert(rows, insertion_index=0)
             self.assertEqual(derive_source_row_offset(rows), 1)
             self.assertTrue(all(s >= 1 for _, s in rows))
+
+
+class TestDeleteRemapAttachedGrandparent(unittest.TestCase):
+    """EA-6a slice 2 (C2a): attached_to_index re-points to the grandparent on DELETE.
+
+    BEFORE this slice `_delete_remap_attached` DETACHED (-> 0) when the attached row was
+    deleted, while `_delete_remap` RE-POINTED the same row's parent to the grandparent. That
+    asymmetry is the pointer/text split the slice exists to remove: the note's parent survived
+    the delete, its attachment did not, so the note's TEXT was stranded.
+
+    The two sentinel spaces are deliberately NOT unified (attached_to_index keeps 0 =
+    unattached; parent pointers keep -1 = no parent), so the mirror is behavioural, not literal.
+    """
+
+    def test_repoints_to_grandparent_instead_of_detaching(self):
+        # Row 5 deleted; its own parent (grandparent) is row 2. A note attached to 5 must now
+        # attach to 2 -- NOT detach to 0 (the pre-slice-2 behaviour).
+        self.assertEqual(_delete_remap_attached(5, deleted_index=5, grandparent=2), 2)
+
+    def test_repoint_target_above_delete_takes_the_shift(self):
+        # Grandparent 7 sits ABOVE the deleted row 5, so after the -1 shift it is 6.
+        self.assertEqual(_delete_remap_attached(5, deleted_index=5, grandparent=7), 6)
+
+    def test_root_grandparent_detaches(self):
+        # The deleted row was itself a root (-1): there is nothing left to attach to, so the
+        # note unattaches -- the ONE case where the old detach behaviour is still correct.
+        self.assertEqual(_delete_remap_attached(5, deleted_index=5, grandparent=-1), 0)
+        self.assertEqual(_delete_remap_attached(5, deleted_index=5, grandparent=None), 0)
+
+    def test_unattached_and_untouched_pointers(self):
+        # 0 / None = not attached -> never rewritten, whatever the grandparent is.
+        self.assertEqual(_delete_remap_attached(0, deleted_index=5, grandparent=2), 0)
+        self.assertIsNone(_delete_remap_attached(None, deleted_index=5, grandparent=2))
+        # A pointer BELOW the deleted row is unaffected by the shift.
+        self.assertEqual(_delete_remap_attached(3, deleted_index=5, grandparent=2), 3)
+        # A pointer ABOVE the deleted row shifts -1 (unchanged pre-existing behaviour).
+        self.assertEqual(_delete_remap_attached(9, deleted_index=5, grandparent=2), 8)
+
+    def test_mirrors_delete_remap_wherever_both_have_a_real_target(self):
+        """Parity sweep: for every real (non-sentinel) outcome the two helpers now agree.
+
+        This is the regression that would catch the asymmetry coming back -- it compares the
+        attachment remap against the parent remap directly instead of restating its rules.
+        """
+        for deleted_index in range(0, 6):
+            for grandparent in range(0, 6):
+                for pointer in range(1, 8):
+                    parent_out = _delete_remap(pointer, deleted_index, grandparent)
+                    attached_out = _delete_remap_attached(pointer, deleted_index, grandparent)
+                    if parent_out < 0:
+                        # -1 space says "no parent"; the 0 space says "not attached".
+                        self.assertEqual(attached_out, 0)
+                    else:
+                        self.assertEqual(
+                            attached_out, parent_out,
+                            f"divergence at pointer={pointer} deleted={deleted_index} "
+                            f"grandparent={grandparent}",
+                        )
+
+    def test_insert_shift_still_mirrors_for_real_targets(self):
+        """NEGATIVE / unchanged-behaviour control: the INSERT side was already symmetric.
+
+        C2c reasoning -- an insert renumbers indices but never changes OWNERSHIP, so no blob
+        movement is needed there. This pins that the two insert helpers stay in lockstep.
+        """
+        for insertion_index in range(0, 6):
+            for pointer in range(1, 8):
+                self.assertEqual(
+                    _insert_shift_attached(pointer, insertion_index),
+                    _insert_shift(pointer, insertion_index),
+                )
 
 
 if __name__ == "__main__":

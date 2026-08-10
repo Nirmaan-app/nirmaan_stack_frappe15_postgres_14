@@ -52,6 +52,9 @@ from nirmaan_stack.services.extraction.files import (
     get_boq_classifier_settings,
     get_gemini_api_key,
 )
+# EA-6b: the class vocabulary, for _section_flags' chunk-cut boundaries (the service
+# imports the same enum -- one source of truth for the "preamble" literal).
+from nirmaan_stack.services.boq_parser.classifier import RowClassification
 # Shared review-screen guards + the write chokepoint (sets chosen_source from reason).
 from nirmaan_stack.api.boq.wizard.review_screen import (
     _SHEET_FINALIZED,
@@ -107,6 +110,11 @@ _GEMINI_FETCH_FIELDS = [
     "amount_total", "amount_supply", "amount_install",
     "preamble_candidate_score", "is_rate_only", "is_synthetic",
     "gemini_suggestion_status", "chosen_source",
+    # EA-6b: the verdict, fetched for CHUNK CUTTING ONLY (_section_flags). It is NEVER
+    # passed to build_row_payload's output -- that builder is whitelist-based and the
+    # exclusion is pinned by services/test_boq_gemini_assist.TestWirePayloadPin, which
+    # REPLACES the old structural guarantee (this list simply not carrying the verdict).
+    "classification", "human_classification",
 ]
 
 # The 4 assignable classes (DISPLAY SIX, ACCEPT FOUR). A Gemini classification accept is
@@ -161,16 +169,46 @@ def _get_parse_in_progress(boq_name: str, sheet_name: str) -> int:
 # ---------------------------------------------------------------------------
 
 def _fetch_review_rows_for_gemini(boq_name: str, sheet_name: str) -> list[dict]:
-    """Fetch this sheet's review rows (explicit gemini_* field list). Unlike the Claude
-    fetch, the Gemini service reads ONLY raw facts (build_row_payload) and never the
-    parser's verdict, so resolve_effective is NOT merged in here -- the payload builder
-    must see the FACTS, not effective_*."""
+    """Fetch this sheet's review rows (explicit gemini_* field list).
+
+    Unlike the Claude fetch, resolve_effective is NOT merged in: the PAYLOAD BUILDER must
+    see the FACTS, not effective_*, so the model is never shown a prior classification.
+
+    EA-6b AMENDMENT (owner ruling: independence = (a), WIRE independence). The list now
+    also carries `classification` / `human_classification`, used for ONE purpose --
+    `_section_flags` computes the chunk-cut boundaries from the effective class, because
+    cutting on the old `preamble_candidate_score` signal sliced mid-section and stranded
+    774 notes from the rows they describe. The verdict stays OUT-OF-BAND: it never enters
+    build_row_payload's output, which is whitelist-based, and that exclusion is now pinned
+    by services/test_boq_gemini_assist.TestWirePayloadPin -- the test REPLACES the previous
+    structural guarantee of simply not fetching these columns. If that pin goes red, the
+    model is about to be shown the parser's verdict."""
     return frappe.db.get_all(
         _REVIEW_ROW,
         filters={"boq": boq_name, "sheet_name": sheet_name},
         fields=_GEMINI_FETCH_FIELDS,
         order_by="row_index asc",
     )
+
+
+def _section_flags(rows: list[dict]) -> list[bool]:
+    """EA-6b: one bool per row -- "this row's EFFECTIVE classification is preamble".
+
+    The chunk-cut boundaries, resolved HERE because only the API layer holds the human
+    override layer. Returned as a PARALLEL list so the verdict never touches the wire
+    payload (owner ruling: independence = (a)).
+
+    Effective class is `human_classification or classification` -- the same precedence
+    resolve_effective applies. resolve_effective itself is deliberately NOT called: it
+    would merge effective_* keys into the row dicts that build_row_payload then reads,
+    and while that builder's whitelist would still hold, keeping the verdict out of those
+    dicts entirely preserves the narrower blast radius the original design chose.
+    """
+    return [
+        ((r.get("human_classification") or r.get("classification") or "").strip()
+         == RowClassification.PREAMBLE.value)
+        for r in rows
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -766,8 +804,9 @@ def _run_gemini_pass_worker(boq_name: str, sheet_name: str, user: str = None) ->
         model = settings.get("gemini_model")
 
         payloads = [boq_gemini_assist.build_row_payload(dict(r)) for r in rows]
+        # EA-6b: chunk cuts ride a PARALLEL flag list, never the payload (WIRE independence).
         suggestions, token_total = boq_gemini_assist.classify_sheet(
-            client, model, settings, payloads
+            client, model, settings, payloads, _section_flags(rows)
         )
 
         written = _apply_gemini_suggestions(boq_name, sheet_name, rows, suggestions)

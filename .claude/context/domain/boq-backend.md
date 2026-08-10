@@ -1286,6 +1286,224 @@ per-area keys preserved, re-select does not restore, SELECT never clears, no pro
 
 ---
 
+## SR-1 -- suggest-run resilience (checkpointing, resume, halt classification, tolerant parse)
+
+**The defect.** A suggest run was ALL-OR-NOTHING: `_suggest_worker` wrote the `BoQ Rate Suggestion Run` doc
+exactly ONCE, at terminal success. A batch failure raised through `run_extraction`, hit the worker's bare
+`except`, did `frappe.db.rollback()`, and produced `{"status":"error","error_code":"suggest_failed"}` -- so
+batches 1..N-1 (their rows AND their AI spend) were discarded. Two production runs died this way; the Error Log
+of 2026-07-31 holds both, at the pre-SR-1 line numbers: a `BadRequestError 400 ... usage limits` and a
+`JSONDecodeError('Extra data: line 1 column 845 (char 844)')`.
+
+### The run doc IS the partial store
+
+Not Redis -- the Redis marker's 1-hour TTL is the wrong lifetime, and it is cleared unconditionally at the end
+of the worker. Three new fields on `BoQ Rate Suggestion Run`:
+
+| Field | Role |
+|---|---|
+| `status` (Select) | `running` \| `partial` \| `complete` \| `failed`. The run LIFECYCLE. **Distinct from `ai_status`, which keeps its own `ran`/`disabled`/`no_key` vocabulary -- deliberately NOT widened, because the doctype and the frontend both treat it as a contract.** |
+| `attempted_rows` (JSON) | The per-row DONE-MARKER: the `excel_row`s actually attempted. |
+| `halt_reason` (Small Text) | Why a partial stopped, in plain language. Persisted so it survives a reload and can drive the resume affordance -- the opaque `suggest_failed` could not. |
+
+`status` carries `"default": "complete"`, so PostgreSQL's `ADD COLUMN ... DEFAULT` backfills every pre-SR-1 row
+on migrate and **an old run can never retroactively lock Use**. No patch was needed. The worker always sets
+`status` explicitly, so the default never applies to a new run.
+
+**`attempted_rows` is the load-bearing idea.** A row with blank attributes is byte-identical whether it was
+never asked, asked-and-the-AI-returned-null, or produced by the fail-closed path (`_blank_row`). A resume that
+keyed off "are the attributes blank" would silently re-ask honest nulls and, worse, could treat un-asked rows
+as done. So the done-marker is recorded explicitly, and **only after a batch RETURNS**:
+
+```python
+# services/boq_rate_master/extraction.py
+batch_out = _extract_batch(...)                        # raises ExtractionHalted on failure
+ai_out.update(batch_out)
+attempted.update(r["excel_row"] for r in batch)        # unreachable if the batch failed
+```
+
+A FAILED batch's rows are therefore NEVER marked attempted -- they stay pending for the resume. This is the
+single invariant the whole resume rests on.
+
+### Checkpointing
+
+`run_extraction` gained `checkpoint_cb` + `skip_rows`, following the EXISTING `progress_cb` injection pattern
+(the worker owns persistence; the service layer still performs no `frappe.db` writes of its own). The callback
+fires after every completed batch and the worker commits immediately.
+
+Writes use `frappe.db.set_value(update_modified=False)`, never `doc.save`. Two independent reasons: this
+doctype is `track_changes: 0` so there is no Version audit to bypass (unlike the RM-4a editing endpoints, where
+`set_value` is FORBIDDEN precisely because it would skip the audit); and the doctype has **list-valued JSON**
+fields, which hit the documented `doc.save()`/`delete_doc` wall -- confirmed live during the SR-1 cert cleanup,
+where `delete_doc` threw `Value for Results cannot be a list`.
+
+### The three owner rulings
+
+- **R-SUPERSEDE** -- a partial NEVER supersedes a prior COMPLETE run. The doc is created `active=0` and stays
+  there while running/partial; `active` flips to 1 ONLY at `status=complete`, and only then is the prior active
+  run deactivated. So a halted run leaves the editor reading the last good run. Because a partial is `active=0`
+  it is invisible to `get_active_suggestion_run`'s active-only filter, which is why that endpoint now ALSO
+  returns the newest resumable partial under a separate `partial_run` key (additive; `run` is unchanged).
+- **R-RESUME-SAME-RUN** -- `start_suggest(resume_run_id=...)` continues the SAME doc and `run_id`; it never
+  spawns a second run. `_validate_resume_target` refuses anything that is not a live `partial` of THIS sheet at
+  the CURRENT committed version (the version keying matters: rows may have changed under an older partial).
+  The "already in progress" guard and the full D8 gate are re-checked on resume exactly as for a fresh run.
+- **R-USE-GATE** -- "Use this value" requires `status=complete`. Structurally this is already true (a partial
+  is `active=0`, so the page never adopts it as `suggestRun`); the client check is the explicit second half,
+  and it re-opens the run modal rather than dropping the click silently.
+
+### Terminal vs transient (`ExtractionHalted`)
+
+A terminal error (usage limit / auth / invalid-request) will not clear in six seconds, so retrying it burns two
+guaranteed-failed calls and delays the partial save. It now raises immediately as a distinguishable
+`ExtractionHalted`; the batch loop catches it, BREAKS, and falls through to the SAME results assembly the
+complete path uses (which already tolerated a partial `ai_out`). An exhausted transient halts the same way
+rather than crashing, so its completed batches are kept too.
+
+**THE DEFAULT DIRECTION IS LOAD-BEARING, and this is the lesson of the slice.** The first implementation
+classified UNRECOGNISED errors as terminal. A truncated AI reply raises `ValueError` from the parser --
+unrecognised -- so it fast-failed instantly where pre-SR-1 it retried 3x. That is *worse* than the behaviour
+being replaced, and the user-facing text blamed the provider for a local parse failure. The unit tests missed
+it because they only ever raised errors with explicitly terminal or explicitly transient text. **The browser
+cert caught it on real data.** The fix is a POSITIVE-terminal test (`_TERMINAL_MARKERS`); anything unrecognised
+keeps the pre-SR-1 retry behaviour. Pinned by `test_19` (a truncated reply is retried 3x with 3 sleeps, and the
+reason must not say "rejected") and `test_20` (the classifier contract directly).
+
+The transient vocabulary ADOPTS `boq_ai_assist._TRANSIENT_MARKERS` rather than minting a second one; the import
+is LAZY because `boq_ai_assist` calls `frappe.logger("boq_ai")` at module load (the documented reason the raw
+unittest runner fails on it), so a module-scope import would extend that constraint to every importer.
+
+**Operator logging:** handling a halt gracefully removed the only record of WHY. A `frappe.log_error` on halt
+now carries the provider's own error text, `terminal=True/False`, and the attempted-vs-population counts. That
+log is what exposed the regression above.
+
+### The tolerant parser (`services/boq_category/ai_voter._extract_json_array`)
+
+The naive first-`[` .. last-`]` slice fed `json.loads` a span that could contain MORE than one JSON value,
+which is what produced `Extra data: line 1 column 845`. It now scans for the first BALANCED array span
+(string-aware, so brackets and escaped quotes inside string values do not affect depth) and ignores anything
+trailing it.
+
+**Strictly more permissive -- it never rejects what it accepted before:** array-with-prose, multi-element order,
+and the HV-2 bare-object-wrapped-as-one-element-list all still parse. It still RAISES on genuine garbage
+("error-swallowing is the harness's job, never the voter's"), and a TRUNCATED array raises rather than falling
+through to the bare-object path -- otherwise a cut-off reply would silently yield only its first element, which
+is far worse than a loud failure.
+
+**Shared by three production consumers BY DESIGN:** the classifier voter (definition site), the certified
+harness (by import identity -- the `assertIs` pin guarantees there is never a second copy), and rate
+extraction. `test_classify` 77 pass after the change, so classification is undisturbed. ⚠️ The same-named
+`_extract_json_array` at `services/boq_ai_assist.py:431` is a DIFFERENT function returning a `str` -- untouched,
+and must not be confused with this one.
+
+### Cert dispositions (owner, 2026-08-02)
+
+- **A real run to `status=complete` -- WAIVED.** One batch on `BOQ-26-00106 / ELECTRICAL BOQ` returns a
+  truncated reply every time; the reply appears to exceed `_AI_MAX_TOKENS = 8000` (EA-4d composite
+  decomposition emits far larger per-row payloads than the 20-row batch was sized for). PROVEN PRE-EXISTING
+  (same sheet, same failure, Error Log 2026-07-31, before SR-1). **Carried to SR-2; batch size and
+  `_AI_MAX_TOKENS` deliberately untouched.**
+- **Use + undo rupee-verified -- ACCEPTED AS MET IN SUBSTANCE.** SR-1 gates an untouched write path; both sides
+  of the gate are verified (enabled on a complete run, locked on a partial).
+
+### `attempted_count` display -- KNOWN DEFECT, carried to SR-2
+
+The cert modal read "155 of 144 rows". Investigated read-only and settled as **BENIGN (display only)**:
+
+- The cert seeded a SYNTHETIC partial with `attempted_rows = list(range(1, 41))`. The sheet's population is
+  144 rows with `min excel_row = 59` -- `population rows <= 40` is EMPTY -- so all 40 seeded entries lie
+  outside the population. That is the constant `attempted - results == 40` at every checkpoint (109/69, 129/89,
+  133/93, 155/115), and `155 = 40 + 115`.
+- **No duplicates exist**: `acc_attempted` is a Python `set` and the write is a full REPLACE
+  (`json.dumps(sorted(acc_attempted))`), not an append, so a retried batch cannot mark twice.
+- **In production the display cannot occur at all**, because `attempted` only ever receives rows drawn from the
+  population, so `attempted ⊆ population`.
+- Hardening for SR-2: intersect with the population before display.
+
+Resume is unaffected: it is a SET DIFFERENCE on row identity
+(`rows = [r for r in all_rows if r["excel_row"] not in skip]`), and completeness is
+`not (population - acc_attempted)` -- also a set difference, so out-of-population entries can never make a run
+read complete.
+
+### Test coverage map
+
+| Behaviour | Test |
+|---|---|
+| Mid-run failure persists earlier batches; partial/active=0; prior complete stays live; clear halt reason | `test_13` |
+| Resume fills only pending rows, same run_id/doc, then supersedes | `test_14` |
+| Usage limit fast-fails (2 calls, `time.sleep` never called) | `test_15` |
+| NEG control: a 529 still retries 3x with 3 sleeps | `test_16` |
+| Done-marker is not inferred from blank attributes | `test_17` |
+| NEG: resume refuses unknown / complete / wrong-version targets | `test_18` |
+| REGRESSION: an unrecognised error (truncated reply) still retries | `test_19` |
+| Terminal markers are positively identified only | `test_20` |
+| Trailing data parses; truncated raises; garbage raises; prose/bare-object/order preserved; harness identity pin | `test_hv2_voter_harness` TestTolerantParse (15) |
+
+`test_rate_suggest` 12 -> **20**; `test_hv2_voter_harness` 14 -> **29**.
+Unchanged: `test_rate_master` 32, `test_pricing` 230, `test_classify` 77, `test_row_category` 29,
+vitest 1229, build exit 0.
+
+**Declared gap:** the frontend `deriveSuggestModalPhase` "partial" branch has no vitest pin -- a pin needs a NEW
+test file, which was outside the slice's exclusive FILES IN SCOPE. Recommended follow-up.
+
+
+---
+
+## EA-6a slice 1 -- note re-parenting (backend as-built, 2026-08-04)
+
+**`services/boq_parser/hierarchy.py`** -- a NOTE attaches to the **nearest PREAMBLE OR LINE ITEM above it**
+(was: always the nearest preamble on the stack). Flag `NOTE_PARENT_NEAREST_ROW_ENABLED` (default `True`).
+
+```python
+candidates = [i for i in (_top_non_none(stack), last_line_item_index, level0_ancestor) if i is not None]
+target = max(candidates) if candidates else None
+attached_to_index = note_parent_index = target
+```
+
+- **`last_line_item_index` is READ ONLY in the note branch.** The LINE_ITEM branch RECORDS it in one line
+  after `resolved.append`; nothing else reads it. Line-item / preamble / subtotal parenting and level logic
+  is **byte-unchanged** (measured: 5 fixtures, identical `parent_index` / `level` / `path` flag-off vs on).
+- **`level0_ancestor` is a FULL CANDIDATE, not a fallback.** A level-0 section header IS a PREAMBLE
+  (`classifier._promote_section_header` sets `classification = PREAMBLE`); it is merely never pushed onto the
+  stack, so `_top_non_none(stack)` cannot see it. The `else level0_ancestor` fallback form is **WRONG** --
+  measured **42 real mis-attachments** to a stale line item preceding the header.
+- **Reset: SUBTOTAL_MARKER ONLY**, in lockstep with `stack.clear()`. Root-preamble / any-preamble resets are
+  **provable no-ops** (a later preamble is by construction nearer) -- do not add them.
+- Notes keep `path=None` and carry **no level**; the demotion pass is path-based and therefore sees
+  byte-identical input (209 demotions across 5 fixtures, zero drift).
+- `attached_to_index == parent_index` now holds for **every** note (both `None` in the master-bucket case),
+  removing the pre-existing Bug-24 divergence for free. The post-walk `notes_to_attach` loop keys on the SAME
+  `target`, so pointer and text can never diverge.
+- Master-bucket else-arm (nothing at all above the note) is **byte-unchanged**.
+
+**Prompt/rules alignment.** `prompts/boq_composite_decomposition_prompt.md` names the row own notes in three
+clauses (source list, breaker enumeration, CURVE/UPS trigger) -- read from disk per request, so live on edit.
+R3 reworded in the new asset `data/rate_master_electrical_all_v18.json` (one JSON leaf differs from v17;
+v17 untouched) and applied LIVE via the audited RM-4b `update_rate_config` (`Version` 4 -> 5).
+**Asset pin (current): the E-ALL asset is now `data/rate_master_electrical_all_v22.json`**
+(sha256 prefix `f1344c1853614d75`, 795 items / 12 configs), minted at slice 1b for point_wiring's
+blanker + the back_box dependency fix (v21 was slice 1a's `switches_sockets` rebuild). v18 above is the historical record of THAT cycle, not the
+current pointer. `loader.DEFAULT_DATA_FILE` still points at the WIRING asset, so E-ALL loads by path.
+
+⚠ **The live estimator rules come from the `BoQ Rate Category Config` DB row, NOT the JSON asset**
+(`extraction._load_active_configs`). Editing the asset alone is **inert at runtime** -- a trap that cost a
+whole verify-first pass. The asset is the record; the config row is what the model reads.
+
+⚠ **The R3 reword changed NOTHING.** C2 ran a before/after pair on the same re-parsed rows: extractions were
+**byte-identical** (row 16 -> `40A RCBO 30mA (DP)` under BOTH wordings). **The notes arriving is the fix**;
+the reword only removes ambiguity.
+
+**Cert:** C1 PASS (re-parse -> commit v3, 249 nodes; classify 164 rows) · C2 byte-identical · C3 PASS (real
+ELCB -> MCB + RCCB) · C4 PASS (capture-as-sent; instrumentation hash-verified removed) · C5 PASS (00066, 146
+rows, row 430 unchanged) · C6 PASS (209 demotions, zero drift). Browser B1/B3/B4/B5 PASS on screen
+(20,550 / 22,080 / 22,600), B2 partial, B4 negative half backend-verified.
+
+**Tests:** whole `boq_parser` suite **625, OK**. One pre-existing assertion updated by owner ruling
+(`test_note_after_level0_subhead_attaches_to_the_anchor`) -- it pinned the divergence the fix removes; the
+three genuine top-of-BoQ master-bucket assertions are unchanged and green.
+
+---
+
 ## BCS — the per-row internal COST layer (backend as-built, branch `feature/bcs-columns`)
 
 Per-slice narrative for the whole BCS arc (S1 → S6) lives in the plan doc. This section is the

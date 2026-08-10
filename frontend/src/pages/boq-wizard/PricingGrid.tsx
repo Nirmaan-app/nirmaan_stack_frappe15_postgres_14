@@ -62,7 +62,7 @@ import {
   type SetStateAction,
 } from "react";
 import { debounce, type DebouncedFunc } from "lodash";
-import { Palette, MessageSquare, AlertTriangle, Flag, Scale, ChevronRight, Check, CornerDownRight, Sparkles, ArrowUpDown, ArrowUpNarrowWide, ArrowDownWideNarrow, Filter, Inbox } from "lucide-react";
+import { Palette, MessageSquare, AlertTriangle, Flag, Scale, ChevronRight, Check, CornerDownRight, Sparkles, ListChecks, ArrowUpDown, ArrowUpNarrowWide, ArrowDownWideNarrow, Filter, Inbox } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -77,7 +77,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
+  GridColumnFilter,
+  type ColumnFilterOption,
+} from "./GridColumnFilter";
+import {
   ClassificationPill,
+  ROW_TYPE_LABEL,
   computeDepths,
   renderDescriptorCell,
   resolveDescriptorValue,
@@ -592,6 +597,119 @@ export function countMasterSetBlankRows(
  */
 export function isCategoryGateOpen(blankCount: number, override: boolean): boolean {
   return blankCount === 0 || override;
+}
+
+// ── SELECTED-ROW runs: pure selection helpers + the confirmation copy ────────────────
+
+/**
+ * Immutable toggle of one excel row in the selection set. Returns a NEW set (so the grid's
+ * reference changes and renderRow re-derives the per-row booleans) but never mutates the old one.
+ * Keyed on the DURABLE excel row, never an array index. Pure -- unit-tested.
+ */
+export function toggleRowSelection(
+  selected: ReadonlySet<number>,
+  excelRow: number,
+): ReadonlySet<number> {
+  const next = new Set(selected);
+  if (next.has(excelRow)) next.delete(excelRow);
+  else next.add(excelRow);
+  return next;
+}
+
+/**
+ * Drop any tick whose row is no longer run-eligible. Called after a refetch: a re-classify can
+ * remove a row from the population while it sits ticked, and sending it would be REJECTED by the
+ * server's validation (which refuses the whole request rather than silently narrowing it). Pruning
+ * client-side keeps the confirmation's count honest. Returns the SAME reference when nothing
+ * changes, so it cannot churn the grid. Pure -- unit-tested.
+ */
+export function pruneSelectionToEligible(
+  selected: ReadonlySet<number>,
+  eligible: ReadonlySet<number>,
+): ReadonlySet<number> {
+  let dropped = false;
+  for (const er of selected) if (!eligible.has(er)) { dropped = true; break; }
+  if (!dropped) return selected;
+  const next = new Set<number>();
+  for (const er of selected) if (eligible.has(er)) next.add(er);
+  return next;
+}
+
+/**
+ * SELROW filter -- PURE. Does this row pass the "show only ticked rows" toggle?
+ *
+ * ⚠️ It is a TOGGLE, not a value list. `GridColumnFilter` is built entirely around distinct-VALUE
+ * lists (an options array, a Set<string> selection, a type-to-search box, membership matching), and
+ * a thousand row numbers would be a useless list. Bending it into a toggle would put a search box
+ * over two pseudo-options and express a boolean as a set of sentinels -- worse, not better. So the
+ * Excel-row header carries a dedicated toggle instead, and this is its predicate.
+ *
+ * ⚠️ OFF, or NO ROWS TICKED, is a PASS-THROUGH -- the same composition law the value-list filters
+ * obey ("an EMPTY selection never means hide everything"). A filter that empties the grid with no
+ * explanation is the worse failure, so the toggle is additionally DISABLED while nothing is ticked.
+ *
+ * ⚠️ UNTICKING WHILE FILTERED makes the row vanish immediately (owner ruling) -- and that falls out
+ * of reading the live selection here rather than snapshotting it. Do NOT special-case it.
+ */
+export function passesTickedFilter(
+  showOnlyTicked: boolean,
+  selected: ReadonlySet<number>,
+  excelRow: number,
+): boolean {
+  if (!showOnlyTicked || selected.size === 0) return true;
+  return selected.has(excelRow);
+}
+
+export interface SuggestConfirmCopy {
+  title: string;
+  body: string;
+  /** The warning line. EMPTY on a selected-row run; the whole-sheet run always carries it. */
+  warning: string;
+  confirmLabel: string;
+  /** True for the whole-sheet branch -- the caller styles that action as the destructive one. */
+  wholeSheet: boolean;
+}
+
+/**
+ * THE confirmation shown before ANY AI call. Two branches, and the WHOLE-SHEET WORDING IS THE
+ * PRODUCT -- more than the count.
+ *
+ * A whole-sheet run re-extracts and OVERWRITES every row, including rows that are already correct.
+ * That is how ten switch rows lost their `plate_item` during a diagnostic re-run, and it cost a day
+ * chasing a prompt-attention theory for what turned out to be a gate bug. The warning names that
+ * consequence in plain words, so it cannot be met by accident; the selected-row branch carries no
+ * warning because it does not have that consequence.
+ *
+ * The whole-sheet branch is deliberately worded as the BIGGER action (it names the row count, says
+ * "every row", and its confirm label says "Re-extract all" rather than a bare "Run"), and the
+ * caller renders it destructively so a stray click cannot launch a full run. Pure -- unit-tested.
+ */
+export function suggestConfirmCopy(
+  selectedCount: number,
+  eligibleCount: number,
+): SuggestConfirmCopy {
+  if (selectedCount > 0) {
+    const rowWord = selectedCount === 1 ? "row" : "rows";
+    return {
+      title: `Suggest rates for ${selectedCount} selected ${rowWord}?`,
+      body:
+        `${selectedCount} ${rowWord} will be re-extracted. Every other row keeps the attributes it ` +
+        `already has -- they are carried forward unchanged.`,
+      warning: "",
+      confirmLabel: `Run ${selectedCount} ${rowWord}`,
+      wholeSheet: false,
+    };
+  }
+  return {
+    title: `Re-extract the whole sheet (${eligibleCount} rows)?`,
+    body:
+      `No rows are selected, so all ${eligibleCount} eligible rows will be sent for extraction.`,
+    warning:
+      "This OVERWRITES the attributes on every row, including rows that are already correct. " +
+      "To re-run just a few, tick them in the Excel-row column first.",
+    confirmLabel: `Re-extract all ${eligibleCount} rows`,
+    wholeSheet: true,
+  };
 }
 
 /**
@@ -1745,6 +1863,31 @@ interface PricingGridProps {
    */
   onSuggestionBadgeClick?: (excelRow: number, col: string, cellEl: HTMLElement) => void;
   /**
+   * SELECTED-ROW runs (grid-level). `tickableRows` is the SERVER's run-eligible excel-row set,
+   * surfaced by get_active_suggestion_run -- never re-derived here, because FOUR definitions of
+   * "eligible" live in this screen and they disagree by real numbers: the priceable master set
+   * (Line Item / Preamble), priceability's priceable LINE (qty in a rate-column area), the
+   * rate-editable set the badges render on, and the run's own population. On the reference sheet
+   * those are 164 / 139 / 94. A client-side copy would be a FIFTH definition, free to drift, and
+   * the drift would present as ticks the run silently ignores.
+   *
+   * ⚠️ Both arrive as SETS and are reduced to per-row BOOLEANS in renderRow. A COUNT must NEVER
+   * reach the memoized row -- it changes on every tick and would re-render all ~1,093 rows. The
+   * booleans flip only for the row actually ticked (the `openRemark` shape).
+   */
+  tickableRows?: ReadonlySet<number>;
+  selectedRows?: ReadonlySet<number>;
+  /** Reference-stable page callback; ABSENT => no tick column at all (no run yet / feature off). */
+  onToggleTick?: (excelRow: number) => void;
+  /**
+   * SELROW filter (grid-level, header only). `showOnlyTicked` drives the header toggle's pressed
+   * state; `onToggleTicked` flips it. BOTH stay OUT of `pricingRowPropsAreEqual` -- the FILTERING
+   * itself happens page-side in `passesViewFilter` (the ONE place view filters compose), so the row
+   * never learns about it and the memo is untouched. ABSENT => no toggle rendered.
+   */
+  showOnlyTicked?: boolean;
+  onToggleTicked?: () => void;
+  /**
    * CL-3: id -> label for the Category cell's DISPLAY (from classify.get_category_catalog). A
    * reference-stable Map (page-built, changes only on fetch, never on keystroke) -> memo-safe.
    * ABSENT/empty => the cell falls back to the raw category id (labelFor).
@@ -1764,6 +1907,23 @@ interface PricingGridProps {
    * (default, back-compat). A per-GRID prop -- it changes displayDescriptors' reference for the
    * row, so a hide re-renders all rows ONCE (like formulasComplete); it is NOT a per-row prop.
    */
+  /**
+   * U1 -- the two header column filters (Row Type + Category). PER-GRID props, deliberately NOT
+   * per-row: the SELECTION acts on the row SET upstream (SheetPricingPage.passesViewFilter), so the
+   * grid only needs enough to render the funnel + its ticks. None of these enter
+   * `pricingRowPropsAreEqual`; a keystroke in the popover's search box never reaches here at all
+   * (that state is LOCAL to GridColumnFilter -- see the note in that file).
+   *
+   * The option lists are page-side useMemos computed ONCE per sheet; the selections are page-owned
+   * Sets of stable IDS (never labels -- "filter on the label, match on the id"); the callbacks are
+   * page useCallbacks. All identity-stable, so the PricingGrid React.memo shield holds.
+   */
+  rowTypeFilterOptions?: readonly ColumnFilterOption[];
+  rowTypeFilter?: ReadonlySet<string>;
+  onRowTypeFilterChange?: (next: ReadonlySet<string>) => void;
+  categoryFilterOptions?: readonly ColumnFilterOption[];
+  categoryFilter?: ReadonlySet<string>;
+  onCategoryFilterChange?: (next: ReadonlySet<string>) => void;
   hiddenCols?: Set<string>;
   /**
    * Toolbar Part 1 -- description search. The Excel row number (source_row_number) of the
@@ -2003,9 +2163,16 @@ const EMPTY_CATEGORY_MAP: Map<number, SheetCategoryRow> = new Map();
 
 // CL-3: a stable empty id->label map for the default (no catalog fetched) case -- a shared
 // reference so the row memo is never defeated by a fresh Map per render.
+// U1: module-level EMPTY defaults -- a fresh `new Set()` / `[]` in the destructuring default
+// would mint a new identity on EVERY render and defeat the PricingGrid React.memo shield.
+const EMPTY_FILTER_SET: ReadonlySet<string> = new Set<string>();
+const EMPTY_FILTER_OPTIONS: readonly ColumnFilterOption[] = [];
 const EMPTY_CATEGORY_LABEL_MAP: Map<string, string> = new Map();
 // U1 rate-helper: stable empty default so an absent prop never churns the memo.
 const EMPTY_SUGGESTIONS_MAP: Map<number, RowSuggestions> = new Map();
+// SELECTED-ROW runs: module-level empties so a destructuring DEFAULT cannot mint a new identity
+// per render and defeat the PricingGrid memo (the EMPTY_FILTER_SET precedent).
+const EMPTY_ROW_SET: ReadonlySet<number> = new Set<number>();
 // BCS-S3a: stable empty defaults -- an absent cost block must not mint a fresh [] / Map per
 // render, which would defeat the row memo AND the V0 grid-level memo shield.
 // BCS-S9: the formula TARGET for the BCS Total Amount column, shaped as a ColumnDescriptor so
@@ -2466,6 +2633,15 @@ interface PricingGridRowProps {
   /** U1 rate-helper: reference-stable page callback the badge calls (stopPropagation). undefined =>
    *  feature off. */
   onSuggestionBadgeClick?: (excelRow: number, col: string, cellEl: HTMLElement) => void;
+  /** SELECTED-ROW runs: does this row get a tick box at all? Derived grid-side from the SERVER's
+   *  run-eligible set -- a per-row BOOLEAN, never the set. */
+  tickable: boolean;
+  /** SELECTED-ROW runs: is this row currently ticked? A per-row BOOLEAN, never the selection Set
+   *  and NEVER a count -- a count changes on every tick and would re-render all ~1,093 rows. */
+  selected: boolean;
+  /** SELECTED-ROW runs: reference-stable page callback (stopPropagation, like the badge).
+   *  undefined => no tick column (no run to scope, or the feature is off). */
+  onToggleTick?: (excelRow: number) => void;
   override: boolean;
   /** MANDATORY amount-formula gate (per-SHEET boolean -- flips identically for all rows). */
   formulasComplete: boolean;
@@ -2578,6 +2754,11 @@ export function pricingRowPropsAreEqual(
     prev.onCategoryClick === next.onCategoryClick &&
     rowSuggestionsEqual(prev.rowSuggestions, next.rowSuggestions) &&
     prev.onSuggestionBadgeClick === next.onSuggestionBadgeClick &&
+    // SELECTED-ROW runs: two per-row BOOLEANS + one stable callback. A tick flips exactly ONE
+    // row's `selected`, so every other row bails here -- the same shape as `openRemark`.
+    prev.tickable === next.tickable &&
+    prev.selected === next.selected &&
+    prev.onToggleTick === next.onToggleTick &&
     prev.override === next.override &&
     prev.formulasComplete === next.formulasComplete &&
     prev.categoryGateOpen === next.categoryGateOpen &&
@@ -2660,6 +2841,9 @@ const PricingGridRow = memo(function PricingGridRow({
   onCategoryClick,
   rowSuggestions,
   onSuggestionBadgeClick,
+  tickable,
+  selected,
+  onToggleTick,
   override,
   formulasComplete,
   categoryGateOpen,
@@ -2806,6 +2990,25 @@ const PricingGridRow = memo(function PricingGridRow({
         )}
       >
         <span className="inline-flex items-center gap-1">
+          {/* SELECTED-ROW runs: the tick box, rendered ONLY on rows the SERVER's suggest run
+              accepts (`tickable`). Deliberately NOT on the badge set -- that is a WIDER
+              definition (rate-editable), and offering a tick the run would silently drop is
+              exactly the class of failure this feature exists to remove. stopPropagation so a
+              tick does not also move the cell cursor. */}
+          {onToggleTick && tickable && (
+            <input
+              type="checkbox"
+              className="h-3.5 w-3.5 shrink-0 cursor-pointer accent-primary"
+              checked={selected}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => {
+                e.stopPropagation();
+                onToggleTick(row.source_row_number);
+              }}
+              aria-label={`Select row ${row.source_row_number} for the next suggestion run`}
+              title={selected ? "Selected -- click to unselect" : "Select this row for the next suggestion run"}
+            />
+          )}
           {hasFlag && (
             <Flag
               aria-hidden
@@ -3559,7 +3762,7 @@ PricingGridRow.displayName = "PricingGridRow";
 // grid props identity-stable (the 12 useMemo/useCallback wraps -- esp. `rows`/`displayRows`); a
 // future non-stable prop silently kills the shield (see frontend/CLAUDE.md).
 export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(function PricingGrid(
-  { rows, columnDescriptors, onSaveRate, onBatchWrite, onDirtyChange, onHistoryChange, override = false, formulasComplete = true, categoryGateOpen = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], categoriesByExcelRow = EMPTY_CATEGORY_MAP, hasRun = false, categoryLabelById = EMPTY_CATEGORY_LABEL_MAP, onCategoryClick, rowSuggestionsByExcelRow = EMPTY_SUGGESTIONS_MAP, onSuggestionBadgeClick, onSaveReconChoice, hiddenCols, currentHitExcelRow = null, collapsed, childrenByParent, onToggleCollapse, onRevealRow, frozen = false, virtualized = false, bcsKinds = EMPTY_BCS_KINDS, bcsRatesByExcelRow = EMPTY_BCS_RATES_MAP, bcsQtySource = null, bcsAmountSource = null, onSaveBcsRates, bcsReadOnlyReason = null, marginFrom = "", marginTo = "", marginRangeCount = null, onApplyMarginRange, marginSortDir = null, onCycleMarginSort, viewFiltersActive = false, onClearViewFilters },
+  { rows, columnDescriptors, onSaveRate, onBatchWrite, onDirtyChange, onHistoryChange, override = false, formulasComplete = true, categoryGateOpen = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], categoriesByExcelRow = EMPTY_CATEGORY_MAP, hasRun = false, rowTypeFilterOptions = EMPTY_FILTER_OPTIONS, rowTypeFilter = EMPTY_FILTER_SET, onRowTypeFilterChange, categoryFilterOptions = EMPTY_FILTER_OPTIONS, categoryFilter = EMPTY_FILTER_SET, onCategoryFilterChange, categoryLabelById = EMPTY_CATEGORY_LABEL_MAP, onCategoryClick, rowSuggestionsByExcelRow = EMPTY_SUGGESTIONS_MAP, onSuggestionBadgeClick, tickableRows = EMPTY_ROW_SET, selectedRows = EMPTY_ROW_SET, onToggleTick, showOnlyTicked = false, onToggleTicked, onSaveReconChoice, hiddenCols, currentHitExcelRow = null, collapsed, childrenByParent, onToggleCollapse, onRevealRow, frozen = false, virtualized = false, bcsKinds = EMPTY_BCS_KINDS, bcsRatesByExcelRow = EMPTY_BCS_RATES_MAP, bcsQtySource = null, bcsAmountSource = null, onSaveBcsRates, bcsReadOnlyReason = null, marginFrom = "", marginTo = "", marginRangeCount = null, onApplyMarginRange, marginSortDir = null, onCycleMarginSort, viewFiltersActive = false, onClearViewFilters },
   ref,
 ) {
   // Cluster B: per-cell reconciliation choice map (per-SHEET; reference-stable across a keystroke
@@ -5685,7 +5888,38 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
         title="Excel Row"
         className="px-2 py-2 text-left font-medium text-muted-foreground border-r border-border sticky top-0 z-20 bg-muted"
       >
-        <span className="block truncate">Excel Row</span>
+        {/* SELROW filter: a dedicated TOGGLE, not a GridColumnFilter -- that component is built
+            around distinct-VALUE lists and a thousand row numbers would be a useless list (see
+            passesTickedFilter). Rendered only when the tick column itself is live.
+            ⚠️ The h-4 + leading-none sizing is LOAD-BEARING, not styling: in FROZEN mode this
+            header lives in the frozen table while Category lives in the scrolling one, and an
+            affordance that changes this cell's height offsets the two panes against each other.
+            It must stay height-neutral in BOTH states (on and off). */}
+        <div className="flex items-center gap-1">
+          <span className="block truncate">Excel Row</span>
+          {onToggleTicked && (
+            <button
+              type="button"
+              onClick={onToggleTicked}
+              disabled={selectedRows.size === 0}
+              aria-pressed={showOnlyTicked}
+              title={
+                selectedRows.size === 0
+                  ? "Tick some rows first, then filter to just those"
+                  : showOnlyTicked
+                    ? "Showing only ticked rows -- click to show all rows"
+                    : "Show only the ticked rows"
+              }
+              className={cn(
+                "inline-flex h-4 shrink-0 items-center justify-center rounded leading-none",
+                "disabled:cursor-default disabled:opacity-30",
+                showOnlyTicked ? "text-primary" : "text-muted-foreground/70 hover:text-foreground",
+              )}
+            >
+              <ListChecks className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
         {resizeHandle("a0", false)}
       </th>
       <th
@@ -5706,10 +5940,20 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
       </th>
       <th
         data-colkey="a3"
-        title="Classification"
+        title={ROW_TYPE_LABEL}
         className="px-2 py-2 text-left font-medium text-muted-foreground border-r border-border sticky top-0 z-20 bg-muted"
       >
-        <span className="block truncate">Classification</span>
+        {/* U3: the LABEL is "Row Type"; `data-colkey="a3"` is a stable selector used by the resize
+            machinery and is deliberately NOT renamed. U1: the funnel filters this column. */}
+        <div className="flex items-center gap-1">
+          <span className="block truncate">{ROW_TYPE_LABEL}</span>
+          <GridColumnFilter
+            label={ROW_TYPE_LABEL}
+            options={rowTypeFilterOptions}
+            selected={rowTypeFilter}
+            onChange={onRowTypeFilterChange ?? (() => {})}
+          />
+        </div>
         {resizeHandle("a3", false)}
       </th>
       {/* MC-5: Description header fan-out -- one <th> per mapped description column (fan-out),
@@ -5796,7 +6040,17 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
       title="Category"
       className="px-2 py-2 text-left font-medium text-muted-foreground border-l border-border sticky top-0 z-20 bg-muted"
     >
-      <span className="block truncate">Category</span>
+      {/* U1: the funnel lists DISPLAY LABELS (matching what the cell renders via labelFor) but the
+          selection it emits is a set of category IDS -- see GridColumnFilter's label/id note. */}
+      <div className="flex items-center gap-1">
+        <span className="block truncate">Category</span>
+        <GridColumnFilter
+          label="Category"
+          options={categoryFilterOptions}
+          selected={categoryFilter}
+          onChange={onCategoryFilterChange ?? (() => {})}
+        />
+      </div>
     </th>
   );
 
@@ -6188,6 +6442,12 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
       onCategoryClick={onCategoryClick}
       rowSuggestions={rowSuggestionsByExcelRow.get(row.source_row_number)}
       onSuggestionBadgeClick={onSuggestionBadgeClick}
+      // SELECTED-ROW runs: per-row BOOLEANS derived from the grid-level sets, keyed on the
+      // DURABLE source_row_number (never the window array index -- under virtualized row
+      // recycling a collapse/filter reshuffle makes array index N map to a different row).
+      tickable={tickableRows.has(row.source_row_number)}
+      selected={selectedRows.has(row.source_row_number)}
+      onToggleTick={onToggleTick}
       override={override}
       formulasComplete={formulasComplete}
       categoryGateOpen={categoryGateOpen}

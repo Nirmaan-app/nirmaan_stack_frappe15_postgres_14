@@ -205,3 +205,98 @@ class TestHarnessReusesVoterExtractor(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTolerantParse(unittest.TestCase):
+    """SR-1 -- _extract_json_array becomes STRICTLY MORE PERMISSIVE: it takes the first BALANCED
+    array span and ignores trailing data, instead of slicing first-'[' .. last-']' and dying on
+    json.loads' "Extra data: line 1 column N". Everything previously accepted stays accepted; a
+    truncated array and genuine garbage still RAISE (error-swallowing is the harness's job)."""
+
+    # ── the fix: trailing data after a valid array now parses ──
+    def test_trailing_second_array_now_parses(self):
+        # The exact production shape: a good payload followed by another bracketed block. The old
+        # first-'[' .. last-']' slice spanned BOTH and raised "Extra data".
+        text = '[{"id": 1, "category_id": "wiring_cabling", "confidence": 0.8}]\n\n[{"note": "ignore me"}]'
+        parsed = ai_voter._extract_json_array(text)
+        self.assertEqual([el["id"] for el in parsed], [1])
+
+    def test_trailing_prose_with_bracket_now_parses(self):
+        text = '[{"id": 7, "category_id": "point_wiring", "confidence": 0.5}]\nDone [see notes].'
+        parsed = ai_voter._extract_json_array(text)
+        self.assertEqual(parsed[0]["id"], 7)
+
+    def test_old_slice_would_have_failed_here(self):
+        """Non-vacuity: the pre-SR-1 slice really did raise on this input."""
+        text = '[{"id": 1, "category_id": "wiring_cabling", "confidence": 0.8}]\n\n[{"note": "x"}]'
+        with self.assertRaises(ValueError):
+            json.loads(text[text.find("[") : text.rfind("]") + 1])
+        self.assertEqual(len(ai_voter._extract_json_array(text)), 1)  # ... and now it parses
+
+    # ── brackets inside string values must not break the balance scan ──
+    def test_bracket_inside_string_value(self):
+        text = '[{"id": 2, "category_id": "wiring_cabling", "brief_reason": "cable [3C] x 2.5"}]'
+        parsed = ai_voter._extract_json_array(text)
+        self.assertEqual(parsed[0]["brief_reason"], "cable [3C] x 2.5")
+
+    def test_escaped_quote_inside_string_value(self):
+        text = r'[{"id": 3, "category_id": "earthing", "brief_reason": "a \"quoted\" ] brace"}]'
+        parsed = ai_voter._extract_json_array(text)
+        self.assertEqual(parsed[0]["id"], 3)
+
+    # ── everything previously accepted is STILL accepted (strictly-more-permissive) ──
+    def test_regression_plain_array(self):
+        text = '[{"id": 1, "category_id": "wiring_cabling", "confidence": 0.8, "brief_reason": "c"},' \
+               ' {"id": 2, "category_id": "db_switchgear", "confidence": 0.7, "brief_reason": "b"}]'
+        self.assertEqual([el["id"] for el in ai_voter._extract_json_array(text)], [1, 2])
+
+    def test_regression_prose_around_array(self):
+        text = 'Here is the JSON:\n[' + _ROW_OBJECT + ']\nDone.'
+        self.assertEqual(ai_voter._extract_json_array(text)[0]["id"], 42)
+
+    def test_regression_bare_object_still_wrapped(self):
+        parsed = ai_voter._extract_json_array(_ROW_OBJECT)
+        self.assertEqual(len(parsed), 1)
+        self.assertEqual(parsed[0]["id"], 42)
+
+    # ── NEGATIVES: real failures still raise, never silently degrade to [] ──
+    def test_truncated_array_raises(self):
+        """A cut-off reply (max_tokens) must RAISE -- never silently yield only its first element,
+        and never fall through to the bare-object path."""
+        text = '[{"id": 1, "category_id": "wiring_cabling"}, {"id": 2, "category_id": "ear'
+        with self.assertRaises(ValueError):
+            ai_voter._extract_json_array(text)
+
+    def test_truncated_array_does_not_degrade_to_first_object(self):
+        text = '[{"id": 1, "category_id": "wiring_cabling"}, {"id": 2, "cat'
+        try:
+            got = ai_voter._extract_json_array(text)
+        except ValueError:
+            got = None
+        self.assertIsNone(got, "a truncated array must raise, not return a partial list")
+
+    def test_non_json_still_raises(self):
+        with self.assertRaises(ValueError):
+            ai_voter._extract_json_array("sorry, I could not classify these rows")
+
+    def test_broken_json_still_raises(self):
+        with self.assertRaises(ValueError):
+            ai_voter._extract_json_array("{id: 42 no quotes here}")
+
+    def test_never_returns_empty_on_garbage(self):
+        for junk in ("", "no json at all", "]["):
+            with self.assertRaises(ValueError):
+                ai_voter._extract_json_array(junk)
+
+    # ── the shared consumers ──
+    def test_voter_batch_consumes_trailing_data_reply(self):
+        text = '[{"id": 42, "category_id": "point_wiring", "confidence": 0.9, "brief_reason": "pts"}]\ntrailing [junk]'
+        out = ai_voter._ai_batch(_FakeClient(text), "m", "prompt", [], _VALID_IDS)
+        self.assertEqual(out, {42: ("point_wiring", 0.9, "pts")})
+
+    def test_harness_still_shares_the_same_function(self):
+        """The certified harness imports this function by identity, so it inherits the tolerance
+        BY DESIGN -- this pin is what guarantees there is never a second copy."""
+        from nirmaan_stack.services.boq_category.harness import electrical_classification_harness as H
+
+        self.assertIs(H._extract_json_array, ai_voter._extract_json_array)

@@ -11,7 +11,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { resolveRateHelpers } from "./rateHelperRegistry";
-import { isSuggestion, type RateHelper, type RateHelperRowContext } from "./rateHelperTypes";
+import {
+  attrDisplayValue,
+  attrNoteText,
+  isAttrBlank,
+  isAttrDefaulted,
+  isShowingDerived,
+  isSuggestion,
+  type RateHelper,
+  type RateHelperRowContext,
+} from "./rateHelperTypes";
 
 // RM-3c item B: the FULL-SCREEN panel is a resizable PUSH panel (occupies real layout width, narrows
 // the grid). Width persists per-user across sessions. The default is meaningfully below the RM-3a
@@ -73,14 +82,57 @@ interface RateHelperPanelProps {
   variant?: "embedded" | "push";
 }
 
+/**
+ * PURE. Panel edits are ROW-SCOPED: the state carries the row it was typed on, and a read from any
+ * other row (or with no row selected) yields the empty map. This is what makes the cross-row leak
+ * structurally impossible rather than merely cleaned up afterwards -- there is no render in which a
+ * previous row's edits are visible, so no click can bank them.
+ *
+ * Returning the caller's EMPTY constant (not a fresh {}) keeps the reference stable, so the
+ * `evaluations` memo does not recompute on every render.
+ */
+export interface RowScoped<T> {
+  /** The excelRow these edits were typed on; null = nothing typed yet. */
+  row: number | null;
+  byHelper: T;
+}
+
+export function overridesForRow<T>(state: RowScoped<T>, excelRow: number | undefined, empty: T): T {
+  if (excelRow == null || state.row !== excelRow) return empty;
+  return state.byHelper;
+}
+
+const EMPTY_ATTR_MAP: Record<string, Record<string, string>> = {};
+const EMPTY_FINAL_MAP: Record<string, string> = {};
+const EMPTY_ATTR_STATE: RowScoped<Record<string, Record<string, string>>> = { row: null, byHelper: EMPTY_ATTR_MAP };
+const EMPTY_FINAL_STATE: RowScoped<Record<string, string>> = { row: null, byHelper: EMPTY_FINAL_MAP };
+
 export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onClose, variant = "embedded" }: RateHelperPanelProps) {
   // RM-3b: a row is loaded iff we have its context. Absent => the empty-state placeholder.
   const hasSelection = ctx != null && excelRow != null && col != null && kind != null;
   // Panel-session state ONLY (never persisted): per-helper attribute edits, which card is expanded,
   // and a per-helper final-value override (undefined => track the computed value).
-  const [attrOverrides, setAttrOverrides] = useState<Record<string, Record<string, string>>>({});
+  // ⚠️ ROW-SCOPED, and structurally so. These edits belong to ONE ROW and must never ride along to
+  // the next: the panel is a single mounted component that swaps `excelRow`, and before this fix the
+  // maps were keyed by HELPER ID alone. With one helper (`pricing_sheet`) serving EVERY category,
+  // an override typed on one row was re-applied to whatever row was opened next -- and to any
+  // category declaring an attribute of the same id, which is why it crossed categories
+  // (plate_item typed on point_wiring reached switches_sockets).
+  //
+  // THE HAZARD THAT MAKES IT URGENT: "Use this value" writes a rate PERMANENTLY via applyRate, and a
+  // stale override changes the number shown -- so the value banked could be computed from another
+  // row's attributes.
+  //
+  // The row is carried INSIDE the state and checked on read (see `attrOverrides` / `finalOverride`
+  // below) rather than cleared by an effect. An effect would leave a window: the render after
+  // `excelRow` changes but before the effect runs would still compute with the old row's edits, and
+  // a click in that window would bank it. Carrying the row makes a mismatch impossible to observe.
+  const [attrOverrideState, setAttrOverrideState] = useState<RowScoped<Record<string, Record<string, string>>>>(EMPTY_ATTR_STATE);
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [finalOverride, setFinalOverride] = useState<Record<string, string>>({});
+  const [finalOverrideState, setFinalOverrideState] = useState<RowScoped<Record<string, string>>>(EMPTY_FINAL_STATE);
+  // What the CURRENT row may see. A different row (or none) sees nothing -- never the previous row's.
+  const attrOverrides = overridesForRow(attrOverrideState, excelRow, EMPTY_ATTR_MAP);
+  const finalOverride = overridesForRow(finalOverrideState, excelRow, EMPTY_FINAL_MAP);
 
   // Defect 1c: scroll-into-view GUARD on open / when the target cell changes -- but ONLY when the
   // panel is genuinely off-screen. A sticky embedded panel deep in a scrolled sheet is already pinned
@@ -146,16 +198,21 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
   };
 
   const setAttr = (helperId: string, attrId: string, value: string) => {
-    setAttrOverrides((prev) => ({
-      ...prev,
-      [helperId]: { ...(prev[helperId] ?? {}), [attrId]: value },
-    }));
+    if (excelRow == null) return; // nothing selected -> nothing to scope the edit to
+    setAttrOverrideState((prev) => {
+      // A different row's edits are DISCARDED here, not merged -- same rule as the read.
+      const base = prev.row === excelRow ? prev.byHelper : EMPTY_ATTR_MAP;
+      return {
+        row: excelRow,
+        byHelper: { ...base, [helperId]: { ...(base[helperId] ?? {}), [attrId]: value } },
+      };
+    });
     // An attribute change invalidates a stale final-value override -> re-prefill from the recompute.
-    setFinalOverride((prev) => {
-      if (prev[helperId] === undefined) return prev;
-      const next = { ...prev };
+    setFinalOverrideState((prev) => {
+      if (prev.row !== excelRow || prev.byHelper[helperId] === undefined) return prev;
+      const next = { ...prev.byHelper };
       delete next[helperId];
-      return next;
+      return { row: excelRow, byHelper: next };
     });
   };
 
@@ -272,10 +329,52 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                 <div className="space-y-2 border-t px-3 py-2">
                   {result.workings.attributes.length > 0 && (
                     <div className="space-y-1.5">
-                      {result.workings.attributes.map((a) => (
-                        <label key={a.id} className="flex items-center justify-between gap-2 text-xs">
+                      {result.workings.attributes.map((a) => {
+                        // U2: the three-way state. BLANK -> red border (needs filling); DEFAULTED ->
+                        // the grid's established amber attention token (filled from a config default,
+                        // worth checking). A POSITIVELY-ABSENT attribute ("None", or disabled because
+                        // its controller is None) gets NEITHER -- that is a decision, not a gap.
+                        // Both clear on their own: setAttr writes an override, the helper recomputes,
+                        // the value goes non-empty and the defaulted mark is dropped at source. There
+                        // is deliberately NO highlight state held here to outlive the correction.
+                        const blank = isAttrBlank(a);
+                        const defaulted = isAttrDefaulted(a);
+                        const fieldTone = blank
+                          ? "border-red-500 dark:border-red-500"
+                          : defaulted
+                            ? "bg-amber-50 dark:bg-amber-950/30"
+                            : undefined;
+                        // DERIVED DISPLAY: what the field SHOWS may be the PIPELINE's value rather
+                        // than the row's -- a computed face plate where the row stated none, or the
+                        // blanker count that always wins. One pure helper decides, so this render
+                        // and the tests read the identical rule.
+                        const shown = attrDisplayValue(a);
+                        const showingDerived = isShowingDerived(a);
+                        return (
+                        <div key={a.id} className="space-y-0.5">
+                        <label className="flex items-center justify-between gap-2 text-xs">
                           <span className="flex items-center gap-1 text-muted-foreground">
                             {a.label}
+                            {showingDerived && (
+                              <span
+                                className="text-[10px] italic"
+                                title={
+                                  a.readOnly
+                                    ? "Computed from the assembly -- the pipeline does not read a stated value here, so this field is not editable"
+                                    : "Computed from the assembly -- state a value to set a floor"
+                                }
+                              >
+                                (computed)
+                              </span>
+                            )}
+                            {defaulted && (
+                              <span
+                                className="rounded bg-amber-100 px-1 text-[9px] font-medium leading-none text-amber-800 dark:bg-amber-900 dark:text-amber-200"
+                                title="Filled from a config default -- the row text gave no positive identification"
+                              >
+                                default
+                              </span>
+                            )}
                             {typeof a.confidence === "number" && (
                               <span className="tabular-nums text-[10px] opacity-70">
                                 {Math.round(a.confidence * 100)}%
@@ -290,8 +389,15 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                           </span>
                           {a.options ? (
                             <select
-                              className="h-7 rounded border bg-background px-1 text-xs"
-                              value={a.value}
+                              // EA-4a-r: disabled = greyed (an allow_none controller is set to "None").
+                              className={cn(
+                                "h-7 rounded border bg-background px-1 text-xs disabled:opacity-50",
+                                fieldTone,
+                              )}
+                              value={shown}
+                              // A fully-superseded attribute is READ-ONLY: the pipeline never reads
+                              // it, so an editable control would promise an effect it cannot have.
+                              disabled={a.disabled || a.readOnly}
                               onChange={(e) => setAttr(helper.id, a.id, e.target.value)}
                             >
                               {/* An EMPTY value (the AI could not read it, or a manual row) must not
@@ -307,14 +413,51 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                               ))}
                             </select>
                           ) : (
-                            <Input
-                              className="h-7 w-28 text-xs"
-                              value={a.value}
-                              onChange={(e) => setAttr(helper.id, a.id, e.target.value)}
-                            />
+                            <span className="flex items-center gap-1">
+                              {/* EA-4a-r: a NUMBER allow_none def offers "None" (positive absence) as a
+                                  checkbox -- the input-appropriate analogue of a choice def's top-of-list
+                                  "None". Checked -> the sentinel + the numeric field greys/clears. */}
+                              {a.allowNone && !a.readOnly && (
+                                <label className="flex items-center gap-0.5 text-[10px] text-muted-foreground">
+                                  <input
+                                    type="checkbox"
+                                    checked={a.value === "None"}
+                                    onChange={(e) => setAttr(helper.id, a.id, e.target.checked ? "None" : "")}
+                                  />
+                                  None
+                                </label>
+                              )}
+                              <Input
+                                className={cn("h-7 w-28 text-xs disabled:opacity-50", fieldTone)}
+                                value={shown === "None" ? "" : shown}
+                                // READ-ONLY, not disabled: the value is real and worth reading (and
+                                // copying) -- greying it out would read as "positively absent", which
+                                // is a DIFFERENT state this panel already renders that way.
+                                readOnly={a.readOnly}
+                                disabled={a.disabled || shown === "None"}
+                                onChange={(e) => setAttr(helper.id, a.id, e.target.value)}
+                              />
+                            </span>
                           )}
                         </label>
-                      ))}
+                        {/* Everything the pipeline must SAY about this field, in the declared
+                            ATTR_NOTE_ORDER. Two meanings live here and they are NOT interchangeable:
+                            an override (the field shows one thing and the row prices another -- say
+                            so, or it just looks like the pricer was ignored) and a CONSEQUENCE of a
+                            value that WAS honoured. The panel renders the sentence a note words for
+                            itself; it never decides which meaning applies. The trace carries the same
+                            facts -- but a pricer may never open it. */}
+                        {a.notes?.map((n, ni) => (
+                          <p
+                            key={`${n.kind}-${ni}`}
+                            className="pl-1 text-[10px] leading-tight text-amber-700 dark:text-amber-400"
+                          >
+                            {attrNoteText(n)}
+                          </p>
+                        ))}
+                        </div>
+                        );
+                      })}
                     </div>
                   )}
 
@@ -380,7 +523,13 @@ export function RateHelperPanel({ excelRow, col, kind, ctx, helpers, onUse, onCl
                       inputMode="decimal"
                       value={finalStr}
                       onChange={(e) =>
-                        setFinalOverride((prev) => ({ ...prev, [helper.id]: e.target.value }))
+                        setFinalOverrideState((prev) => ({
+                          row: excelRow!,
+                          byHelper: {
+                            ...(prev.row === excelRow ? prev.byHelper : EMPTY_FINAL_MAP),
+                            [helper.id]: e.target.value,
+                          },
+                        }))
                       }
                       aria-label="Final value"
                     />

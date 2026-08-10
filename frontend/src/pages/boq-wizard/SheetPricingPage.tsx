@@ -19,6 +19,13 @@
  * "Unsaved changes". The save MECHANISM is unchanged. The single-editor lock is a later slice
  * (editable / lock_info stay INERT -- read from the payload, threaded into the grid, no lock).
  */
+import {
+  passesColumnFilter,
+  BLANKS_FILTER_ID,
+  BLANKS_FILTER_LABEL,
+  type ColumnFilterOption,
+} from "./GridColumnFilter";
+import { CLS_LABELS } from "./reviewRender";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useFrappeGetCall, useFrappeGetDoc, useFrappePostCall, FrappeContext, type FrappeConfig } from "frappe-react-sdk";
@@ -128,7 +135,7 @@ import {
   carryButtonState,
   summarizeSheetCarry,
 } from "./CrossBoqCarryDialog";
-import { CategoryVerdictPicker, buildEngineGroups } from "./CategoryVerdictPicker";
+import { CategoryVerdictPicker, buildEngineGroups, labelFor } from "./CategoryVerdictPicker";
 import {
   acceptClassifyEvent,
   addRunningDisciplines,
@@ -159,8 +166,12 @@ import {
   isRateDescriptor,
   isTakeoverError,
   orderCommittedSheets,
+  passesTickedFilter,
+  pruneSelectionToEligible,
   shouldExitFullscreenOnEsc,
   stepHit,
+  suggestConfirmCopy,
+  toggleRowSelection,
   type PricingGridHandle,
 } from "./PricingGrid";
 import type { BatchOutcome, BatchWrite } from "./clipboard";
@@ -198,8 +209,9 @@ import {
   isRunForVersion,
   makePricingSheetHelper,
 } from "./rate-helper/pricingSheetHelper";
-import { RateSuggestProgressModal } from "./rate-helper/RateSuggestProgressModal";
+import { RateSuggestProgressModal, type SuggestModalSummary } from "./rate-helper/RateSuggestProgressModal";
 import type { RateCategoryConfig, RateMasterItem } from "@/pages/pricing/rate-master/rateMasterTypes";
+import { RATE_MASTER_DISCIPLINES } from "@/pages/pricing/rate-master/rateMasterRegistry";
 
 // Slice 3c: "saved as of" uses the CLIENT clock at save-success (save_cell_price returns no
 // timestamp). HH:MM, mirroring SheetReviewPage's fmtSavedTime shape (client-clock seeded).
@@ -280,6 +292,9 @@ interface ClassifyStatusResponse {
 }
 // HV-10: a stable empty catalog record for the default (no catalogs fetched) case.
 const EMPTY_CATALOGS: Record<string, EngineCatalog> = {};
+// SELECTED-ROW runs: a module-level empty selection so a reset cannot mint a new identity per
+// render and churn the memoized grid (the EMPTY_FILTER_SET precedent).
+const EMPTY_SELECTION: ReadonlySet<number> = new Set<number>();
 
 /**
  * HV-10: fetch ONE discipline's category catalog and report it up. Rendered once per ran-discipline
@@ -304,6 +319,37 @@ function EngineCatalogFetcher({
   useEffect(() => {
     if (cats) onLoaded(discipline, cats);
   }, [cats, discipline, onLoaded]);
+  return null;
+}
+
+// EA-2: the rate-master category configs the pricing helper may resolve, one per registry category
+// (all Electrical). Fetched by a RateConfigFetcher child each -- the same hook-safe N-fetch shape as
+// EngineCatalogFetcher -- into configsByCategory. Registry-driven: a new category flows through with
+// no code change here.
+const RATE_MASTER_CONFIG_TARGETS: Array<{ discipline: string; categoryId: string }> =
+  RATE_MASTER_DISCIPLINES.flatMap((d) =>
+    d.categories.map((c) => ({ discipline: d.discipline, categoryId: c.category_id })),
+  );
+
+/** EA-2: fetch ONE category's rate config and report it up. Renders no DOM; one hook per instance. */
+function RateConfigFetcher({
+  discipline,
+  categoryId,
+  onLoaded,
+}: {
+  discipline: string;
+  categoryId: string;
+  onLoaded: (categoryId: string, config: RateCategoryConfig | null) => void;
+}) {
+  const { data } = useFrappeGetCall<{ message: { config: RateCategoryConfig | null } }>(
+    "nirmaan_stack.api.boq.rate_master.get_rate_category_config",
+    { discipline, category_id: categoryId },
+    `boq-rm-config::${discipline}::${categoryId}`,
+  );
+  const config = data?.message?.config;
+  useEffect(() => {
+    if (config !== undefined) onLoaded(categoryId, config ?? null);
+  }, [config, categoryId, onLoaded]);
   return null;
 }
 
@@ -353,6 +399,25 @@ interface SuggestStatusResponse {
   run_id?: string;
   committed_version?: number;
   results?: SuggestRunResultRow[];
+  // SR-1: the run LIFECYCLE (distinct from ai_status, which keeps its own 3-value vocabulary).
+  // A partial run is resumable and keeps "Use this value" LOCKED until it completes.
+  run_status?: "running" | "partial" | "complete" | "failed";
+  halt_reason?: string | null;
+  attempted_count?: number;
+  population_count?: number;
+  /** SELROW: rows THIS pass was scoped to (null on a whole-sheet run). The completion message needs
+   *  it to report what RAN rather than the population. Already published by the worker. */
+  scoped_row_count?: number | null;
+}
+
+/** SR-1: a resumable partial run, surfaced ALONGSIDE the active (complete) run -- a partial is
+ * deliberately active=0, so it never supersedes a good run and must be read separately. */
+interface PartialSuggestRun {
+  run_id: string;
+  committed_version: number;
+  status: string;
+  halt_reason?: string | null;
+  attempted_count?: number;
 }
 
 /** RM-3: poll the suggest-run status for one sheet (cloned from ClassifyStatusPoller). `running`
@@ -600,10 +665,23 @@ const SheetPricingPage = () => {
   // ── RM-3 rate-helper data (DEV-gated fetches; all null-keyed off when the flag/ids are absent) ──
   // The RM-1 config + master (once per page, SWR-cached) feed the RM-2 interpreter CLIENT-SIDE.
   const rmEnabled = RATE_HELPER_ENABLED && !!boqId && !!sheetName;
-  const { data: rmConfigData } = useFrappeGetCall<{ message: { config: RateCategoryConfig | null } }>(
-    "nirmaan_stack.api.boq.rate_master.get_rate_category_config",
-    { discipline: "Electrical", category_id: "wiring_cabling" },
-    RATE_HELPER_ENABLED ? "boq-rm-config-electrical-wiring" : null,
+  // EA-2: N-category configs, accumulated from child RateConfigFetchers (hook-safe N-fetch, mirroring
+  // the HV-10 catalog fetchers) so the helper can resolve a config PER row category. Load-once per
+  // category (a settled Map -> a stable helper); the single wiring-only fetch is gone.
+  const [configsByCategory, setConfigsByCategory] = useState<Map<string, RateCategoryConfig>>(
+    () => new Map(),
+  );
+  const handleRateConfigLoaded = useCallback(
+    (categoryId: string, config: RateCategoryConfig | null) => {
+      if (!config) return;
+      setConfigsByCategory((prev) => {
+        if (prev.has(categoryId)) return prev;
+        const next = new Map(prev);
+        next.set(categoryId, config);
+        return next;
+      });
+    },
+    [],
   );
   const { data: rmItemsData } = useFrappeGetCall<{ message: { items: RateMasterItem[] } }>(
     "nirmaan_stack.api.boq.rate_master.get_rate_master_items",
@@ -612,7 +690,14 @@ const SheetPricingPage = () => {
   );
   // The ACTIVE suggestion run for this sheet (persistence -- version-keyed on load).
   const { data: activeRunData, mutate: mutateActiveRun } = useFrappeGetCall<{
-    message: { run: { run_id: string; committed_version: number; ai_status: string; results: SuggestRunResultRow[]; run_at?: string } | null };
+    message: {
+      run: { run_id: string; committed_version: number; ai_status: string; results: SuggestRunResultRow[]; run_at?: string; status?: string } | null;
+      partial_run?: PartialSuggestRun | null;
+      /** SELECTED-ROW runs: the excel rows the suggest run ACCEPTS (assemble_population's own
+       *  output). THE server is the single source -- see PricingGrid's tickableRows doc for why a
+       *  client-side copy would be a fifth, drifting definition of "eligible". */
+      eligible_rows?: number[];
+    };
   }>(
     "nirmaan_stack.api.boq.rate_master.get_active_suggestion_run",
     { boq: boqId ?? "", sheet_name: sheetName ?? "" },
@@ -963,6 +1048,14 @@ const SheetPricingPage = () => {
   );
   const [classifySummary, setClassifySummary] = useState<ClassifySummary | null>(null);
   const [showNeedsReview, setShowNeedsReview] = useState(false);
+  // U1 -- the two header column filters. PAGE-LEVEL state holding sets of stable IDS (never labels:
+  // "filter on the label, match on the id", so editing a catalog label cannot silently break a live
+  // filter). It acts on the ROW SET via passesViewFilter below and NEVER reaches the memoized row --
+  // only the funnel's ticks reach the grid, and the popover's search box is local to the popover.
+  const [rowTypeFilter, setRowTypeFilter] = useState<ReadonlySet<string>>(() => new Set<string>());
+  const [categoryFilter, setCategoryFilter] = useState<ReadonlySet<string>>(() => new Set<string>());
+  const onRowTypeFilterChange = useCallback((next: ReadonlySet<string>) => setRowTypeFilter(next), []);
+  const onCategoryFilterChange = useCallback((next: ReadonlySet<string>) => setCategoryFilter(next), []);
   const classifyRunningRef = useRef(false);
   // HV-10: a ref mirror of classifySummary so the stable per-discipline status callback can read
   // "is a terminal summary showing?" without re-registering the pollers.
@@ -1139,6 +1232,14 @@ const SheetPricingPage = () => {
     setShowSubtotals(true);
     clearMarginRange();
     clearMarginSort();
+    // MERGE SEAM (U1/SELROW x BCS-S13): the three axes added by the header-filter + ticked-rows
+    // work are view filters too, so they are terms of `anyViewFilter` -- and this escape hatch must
+    // reset EVERY axis that flag counts, or the empty state offers a "Clear filters" that leaves the
+    // grid empty. The setters are React-stable, so they stay out of the dep array like their
+    // neighbours above (`setShowOnlyTicked` is declared below; the body only runs on a click).
+    setRowTypeFilter(new Set<string>());
+    setCategoryFilter(new Set<string>());
+    setShowOnlyTicked(false);
   }, [clearMarginRange, clearMarginSort]);
   // Priceability override (Slice 3e, per-sheet per-session). Default OFF: a rate cell is
   // editable ONLY on a priceable row (node_type Preamble / Line Item). When ON, it unlocks
@@ -1165,7 +1266,21 @@ const SheetPricingPage = () => {
   const [suggestModalOpen, setSuggestModalOpen] = useState(false);
   const [suggestRunning, setSuggestRunning] = useState(false);
   const [suggestProgress, setSuggestProgress] = useState<{ done: number; total: number } | null>(null);
-  const [suggestSummary, setSuggestSummary] = useState<{ status?: string; ai_status?: string; results?: unknown[]; run_id?: string } | null>(null);
+  // SR-1: reuses the modal's own summary type so the run-lifecycle keys (run_status / halt_reason /
+  // attempted_count) stay declared in ONE place rather than drifting between page and modal.
+  const [suggestSummary, setSuggestSummary] = useState<SuggestModalSummary | null>(null);
+  // SELECTED-ROW runs. The selection lives HERE, at page level, for two reasons: the button that
+  // consumes it is a page control, and the grid must receive only per-row BOOLEANS. The COUNT
+  // derived below is used by the page's own confirmation and is NEVER passed to PricingGrid -- a
+  // count changes on every tick and would re-render all ~1,093 rows.
+  const [selectedRows, setSelectedRows] = useState<ReadonlySet<number>>(EMPTY_SELECTION);
+  const [suggestConfirmOpen, setSuggestConfirmOpen] = useState(false);
+  // SELROW filter: "show only ticked rows". A page-level BOOLEAN that acts on the ROW SET via
+  // passesViewFilter -- it never reaches the memoized row (only the header toggle's own pressed
+  // state does, which is a grid-level prop outside pricingRowPropsAreEqual). Session-only, like
+  // the ticks it depends on.
+  const [showOnlyTicked, setShowOnlyTicked] = useState(false);
+  const onToggleTicked = useCallback(() => setShowOnlyTicked((v) => !v), []);
   const suggestRunningRef = useRef(false);
   suggestRunningRef.current = suggestRunning;
   const usedPairsRef = useRef<Set<string>>(new Set());
@@ -1331,6 +1446,11 @@ const SheetPricingPage = () => {
     // RM-3: the run + used-pairs are per-sheet; the persistence effect re-adopts the new sheet's
     // active run (version-keyed) and its Use events after the fetches land.
     setSuggestRun(null);
+    // SELECTED-ROW runs: ticks are per-sheet AND session-only (they clear on reload because they
+    // live in component state and are never persisted).
+    setSelectedRows(EMPTY_SELECTION);
+    setShowOnlyTicked(false); // SELROW filter is per-sheet, like the ticks it reads
+    setSuggestConfirmOpen(false);
     usedPairsRef.current = new Set();
     setReviewOpen(false); // Slice 4a: the review-list strip is per-sheet
     setShowDismissed(false); // Slice 4b-ACKNOWLEDGE: the show-dismissed toggle is per-sheet
@@ -2810,22 +2930,23 @@ const SheetPricingPage = () => {
                 : null;
   const suggestRatesDisabled = suggestRatesReason !== null;
 
-  // RM-3: config + master (SWR) feed the RM-2 interpreter CLIENT-SIDE (the single compute source).
-  const rmConfig = rmConfigData?.message?.config ?? null;
+  // RM-3/EA-2: the N-category configs + master (SWR) feed the RM-2 interpreter CLIENT-SIDE (the single
+  // compute source). The helper resolves a config PER row category from configsByCategory.
   const rmItems = useMemo(() => rmItemsData?.message?.items ?? [], [rmItemsData]);
   // The run's extraction, keyed by excel_row.
   const extractionByRow = useMemo<Map<number, ExtractionRow>>(
     () => buildExtractionByRow(suggestRun?.results ?? []),
     [suggestRun],
   );
-  // The page-built REAL helper (closure over config + master + the run's extraction). Null until a
-  // run + config are present -> before any run there are no badges. RATE_HELPER_ENABLED gates it.
+  // The page-built REAL helper (closure over the category configs + master + the run's extraction).
+  // Null until a run + at least one config are present -> before any run there are no badges.
+  // RATE_HELPER_ENABLED gates it.
   const pricingSheetHelper = useMemo(
     () =>
-      RATE_HELPER_ENABLED && rmConfig && suggestRun
-        ? makePricingSheetHelper({ config: rmConfig, items: rmItems, extractionByRow })
+      RATE_HELPER_ENABLED && configsByCategory.size > 0 && suggestRun
+        ? makePricingSheetHelper({ configsByCategory, items: rmItems, extractionByRow })
         : null,
-    [rmConfig, rmItems, extractionByRow, suggestRun],
+    [configsByCategory, rmItems, extractionByRow, suggestRun],
   );
   const helperList = useMemo(() => buildHelperList(pricingSheetHelper), [pricingSheetHelper]);
 
@@ -2892,32 +3013,108 @@ const SheetPricingPage = () => {
       }
       if (msg.state === "done") {
         setSuggestRunning(false);
-        setSuggestSummary({ status: msg.status, ai_status: msg.ai_status, results: msg.results, run_id: msg.run_id });
+        setSuggestSummary({
+          status: msg.status,
+          ai_status: msg.ai_status,
+          results: msg.results,
+          run_id: msg.run_id,
+          run_status: msg.run_status,
+          halt_reason: msg.halt_reason,
+          attempted_count: msg.attempted_count,
+          population_count: msg.population_count,
+          scoped_row_count: msg.scoped_row_count,
+        });
+        // SR-1: only a COMPLETE run is adopted as the page's live run. A partial keeps whatever
+        // complete run was already there (it never superseded it server-side either), so the
+        // badges + "Use this value" keep reflecting a trustworthy, whole run.
         if (msg.status === "success" && typeof msg.committed_version === "number" && msg.run_id) {
           usedPairsRef.current = new Set(); // a NEW run supersedes -> no used pairs yet
           setSuggestRun({ runId: msg.run_id, committedVersion: msg.committed_version, results: msg.results ?? [] });
-          void mutateActiveRun();
-          void mutateSuggestEvents();
         }
+        // Refetch either way: a partial still needs the resume affordance to appear.
+        void mutateActiveRun();
+        void mutateSuggestEvents();
       }
     },
     [mutateActiveRun, mutateSuggestEvents],
   );
 
+  // ── SELECTED-ROW runs: the eligible set, the tick handler, and the confirmation ──────
+  // The SERVER's run-eligible rows. Reference-stable per fetch (a Set built from the payload), so
+  // handing it to the memoized grid does not churn it.
+  const eligibleRows = useMemo<ReadonlySet<number>>(
+    () => new Set(activeRunData?.message?.eligible_rows ?? []),
+    [activeRunData],
+  );
+  // A re-classify can drop a row out of the population while it sits ticked. The server REJECTS a
+  // selection containing such a row (it refuses the whole request rather than silently narrowing
+  // it), so pruning here is what keeps the confirmation's count honest. pruneSelectionToEligible
+  // returns the SAME reference when nothing changed, so this cannot loop.
+  useEffect(() => {
+    if (!RATE_HELPER_ENABLED) return;
+    setSelectedRows((prev) => (prev.size === 0 ? prev : pruneSelectionToEligible(prev, eligibleRows)));
+  }, [eligibleRows]);
+
+  const handleToggleTick = useCallback((excelRow: number) => {
+    setSelectedRows((prev) => toggleRowSelection(prev, excelRow));
+  }, []);
+
+  // The count the CONFIRMATION quotes. Page-local, never a grid prop.
+  const selectedCount = selectedRows.size;
+  const confirmCopy = useMemo(
+    () => suggestConfirmCopy(selectedCount, eligibleRows.size),
+    [selectedCount, eligibleRows],
+  );
+
   // ASYNC press: enqueue the run, open the blocking modal; the poll/socket drive it to terminal.
-  const runSuggestRates = useCallback(async () => {
+  // SR-1: pass resumeRunId to CONTINUE a partial run -- the server fills only its pending rows and
+  // completes the SAME run doc, so a halted run is finished rather than restarted from scratch.
+  // SELECTED-ROW runs: pass only_rows to re-extract JUST the ticked rows; every other row is
+  // carried forward byte-identically by the server into the new run document.
+  const runSuggestRates = useCallback(async (resumeRunId?: string, onlyRows?: number[]) => {
     setHelperPanel(null);
     setSuggestSummary(null);
     setSuggestProgress(null);
     setSuggestRunning(true);
     setSuggestModalOpen(true);
     try {
-      await startSuggestCall({ boq: boqId, sheet_name: sheetName });
+      await startSuggestCall({
+        boq: boqId,
+        sheet_name: sheetName,
+        ...(resumeRunId ? { resume_run_id: resumeRunId } : {}),
+        ...(onlyRows && onlyRows.length ? { only_rows: JSON.stringify(onlyRows) } : {}),
+      });
     } catch {
       setSuggestRunning(false);
       setSuggestSummary({ status: "error" });
     }
   }, [startSuggestCall, boqId, sheetName]);
+
+  // The confirmed press. NOTHING is sent until the user accepts the dialog -- this is the ONLY
+  // path from the "Suggest rates" button to an AI call.
+  const confirmSuggestRates = useCallback(() => {
+    setSuggestConfirmOpen(false);
+    void runSuggestRates(undefined, selectedCount > 0 ? [...selectedRows].sort((a, b) => a - b) : undefined);
+  }, [runSuggestRates, selectedRows, selectedCount]);
+
+  // SR-1: the resumable partial for this sheet, version-keyed exactly like the active run.
+  const partialSuggestRun = useMemo<PartialSuggestRun | null>(() => {
+    const p = activeRunData?.message?.partial_run ?? null;
+    if (!p || !isRunForVersion(p.committed_version, commitVersion)) return null;
+    return p;
+  }, [activeRunData, commitVersion]);
+
+  const resumeSuggestRun = useCallback(() => {
+    if (partialSuggestRun) void runSuggestRates(partialSuggestRun.run_id);
+  }, [partialSuggestRun, runSuggestRates]);
+
+  // SR-1 R-USE-GATE: "Use this value" is enabled ONLY when the run the page is showing is COMPLETE
+  // (every population row attempted). A blank status is a pre-SR-1 run, which migrated to complete.
+  const suggestRunComplete = useMemo(() => {
+    const run = activeRunData?.message?.run ?? null;
+    if (!run || !suggestRun) return false;
+    return (run.status ?? "complete") === "complete" && run.run_id === suggestRun.runId;
+  }, [activeRunData, suggestRun]);
 
   const handleSuggestionBadgeClick = useCallback(
     (excelRow: number, col: string, _cellEl: HTMLElement) => {
@@ -2933,6 +3130,14 @@ const SheetPricingPage = () => {
   const handleUseSuggestion = useCallback(
     (col: string, value: number, meta: UseMeta) => {
       if (!helperPanel) return;
+      // SR-1 R-USE-GATE: never write a rate from a run that is not COMPLETE. Structurally this is
+      // already true (a partial stays active=0, so the page only ever adopts a complete run as
+      // `suggestRun`) -- this is the explicit client-side half of the same rule, and it re-opens
+      // the run modal rather than dropping the click silently.
+      if (!suggestRunComplete) {
+        setSuggestModalOpen(true);
+        return;
+      }
       const excelRow = helperPanel.excelRow;
       gridRef.current?.applyRate(excelRow, col, value);
       usedPairsRef.current.add(`${excelRow}::${col}`);
@@ -2969,7 +3174,7 @@ const SheetPricingPage = () => {
         });
       setHelperPanel(null);
     },
-    [helperPanel, extractionByRow, boqId, sheetName, liveCategoriesByExcelRow, suggestRun, recordSuggestEventCall, mutateSuggestEvents],
+    [helperPanel, extractionByRow, boqId, sheetName, liveCategoriesByExcelRow, suggestRun, suggestRunComplete, recordSuggestEventCall, mutateSuggestEvents],
   );
 
   // The open panel's row context, built from the SAME page data buildSuggestions used.
@@ -3090,6 +3295,51 @@ const SheetPricingPage = () => {
 
   // The view-filter predicate (show-unpriced + row-type), WITHOUT collapse -- shared by the
   // search universe (R3: search ignores collapse) and folded into displayRows below.
+  // U1 -- the funnel option lists. Computed ONCE per sheet in a memo (deps: the row set + the
+  // category map + the label catalog), NEVER per render and NEVER per keystroke -- the popover's
+  // search box filters this already-built list locally.
+  const rowTypeFilterOptions = useMemo<ColumnFilterOption[]>(() => {
+    const seen = new Set<string>();
+    for (const r of rows) seen.add(r.effective_classification ?? BLANKS_FILTER_ID);
+    return [...seen]
+      .map((id) => ({
+        id,
+        label: id === BLANKS_FILTER_ID ? BLANKS_FILTER_LABEL : (CLS_LABELS[id] ?? id),
+      }))
+      .sort((a, b) =>
+        a.id === BLANKS_FILTER_ID ? -1 : b.id === BLANKS_FILTER_ID ? 1 : a.label.localeCompare(b.label),
+      );
+  }, [rows]);
+
+  // CATEGORY: DISPLAY LABELS, sorted by label, with "(Blanks)" pinned first. The option's `id` is
+  // the category id the predicate matches on -- the label is display/sort/search only.
+  const categoryFilterOptions = useMemo<ColumnFilterOption[]>(() => {
+    const ids = new Set<string>();
+    let anyBlank = false;
+    for (const r of rows) {
+      const cat = activeCategoriesByExcelRow.get(r.source_row_number);
+      if (isMasterSetBlank(r, cat)) { anyBlank = true; continue; }
+      const id = cat?.effective_category_id ?? "";
+      if (id) ids.add(id);
+    }
+    const out = [...ids]
+      .map((id) => ({ id, label: labelFor(id, categoryLabelById) }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+    return anyBlank ? [{ id: BLANKS_FILTER_ID, label: BLANKS_FILTER_LABEL }, ...out] : out;
+  }, [rows, activeCategoriesByExcelRow, categoryLabelById]);
+
+  // U1 -- the Category axis. "(Blanks)" is NOT a new blank test: it is the SHARED isMasterSetBlank
+  // predicate (the same one behind the server gate, the amber cell fill, the Check-Category filter
+  // and the live blank count) -- so ticking (Blanks) alone yields EXACTLY the page's blank count.
+  // A row that is neither master-set-blank nor categorised (a note/spacer -- not eligible, so not a
+  // "blank") belongs to no bucket and is excluded while the filter is active, by construction.
+  const passesCategoryFilter = (r: PricedRow) => {
+    if (categoryFilter.size === 0) return true;
+    const cat = activeCategoriesByExcelRow.get(r.source_row_number);
+    if (isMasterSetBlank(r, cat)) return categoryFilter.has(BLANKS_FILTER_ID);
+    const id = cat?.effective_category_id ?? "";
+    return id !== "" && categoryFilter.has(id);
+  };
   const passesViewFilter = (r: PricedRow) =>
     (!showOnlyUnpriced ||
       (isPriceableLine(r, columnDescriptors) && !isFullyPriced(r, columnDescriptors))) &&
@@ -3109,9 +3359,25 @@ const SheetPricingPage = () => {
     // Membership only -- the range was decided at Apply (`applyMarginRange`), never here. Reading
     // a margin during this predicate would put an O(rows x columns) recompute inside a render.
     (!marginRangeSet || marginRangeSet.has(r.row_index)) &&
-    classificationVisible(r.effective_classification, rowTypeToggles);
+    classificationVisible(r.effective_classification, rowTypeToggles) &&
+    // U1 -- the FOURTH clause: the two header column filters. Same composition law as the three
+    // above: AND across axes, and an EMPTY selection is a PASS-THROUGH (never "hide everything").
+    passesColumnFilter(rowTypeFilter, r.effective_classification) &&
+    passesCategoryFilter(r) &&
+    // SELROW -- the FIFTH clause: "show only ticked rows". Same composition law as the four above:
+    // AND across axes, and OFF (or nothing ticked) is a PASS-THROUGH, never "hide everything".
+    // It READS the page's ONE selection set -- the state is not duplicated, and because it reads
+    // the live set, unticking while filtered drops the row immediately (owner ruling), with no
+    // special case anywhere.
+    passesTickedFilter(showOnlyTicked, selectedRows, r.source_row_number);
+  // SELROW: the ticked filter must be listed here too, or the `!anyViewFilter` FAST PATH returns
+  // the unfiltered `rows` and the toggle silently does nothing. It counts as active only when it
+  // would actually narrow anything (on AND something ticked) -- which is the same pass-through law
+  // passesTickedFilter obeys, kept in one place so the two cannot disagree.
+  const tickedFilterActive = showOnlyTicked && selectedRows.size > 0;
   const anyViewFilter =
-    showOnlyUnpriced || showNeedsReview || !noRowTypeHidden || marginRangeSet !== null;
+    showOnlyUnpriced || showNeedsReview || !noRowTypeHidden || rowTypeFilter.size > 0 ||
+    categoryFilter.size > 0 || tickedFilterActive || marginRangeSet !== null;
   // displayRows: the view filter AND collapse, composed in ONE page-side pass (R4). VIEW-ONLY --
   // the count (computePricedCount over `rows`), the Summary (rows={rows}), and the review/flag
   // feed all read the UNFILTERED `rows`, so neither hiding a row-type NOR collapsing a subtree
@@ -3140,6 +3406,13 @@ const SheetPricingPage = () => {
       showSpacers,
       showNotes,
       showSubtotals,
+      rowTypeFilter,
+      categoryFilter,
+      // SELROW: both inputs of the fifth clause. `selectedRows` is a NEW Set per tick, so the memo
+      // recomputes exactly when the ticked set changes -- which is what makes unticking while
+      // filtered drop the row immediately.
+      showOnlyTicked,
+      selectedRows,
       // BCS-S13: the matched set is replaced wholesale on each Apply, so identity IS the change
       // signal -- exactly like `activeCategoriesByExcelRow` above.
       marginRangeSet,
@@ -4063,11 +4336,21 @@ const SheetPricingPage = () => {
               variant="outline"
               className="gap-1.5"
               disabled={suggestRatesDisabled}
-              onClick={runSuggestRates}
-              title={suggestRatesReason ?? "Suggest rates for editable rows"}
+              onClick={() => setSuggestConfirmOpen(true)}
+              title={
+                suggestRatesReason ??
+                (selectedCount > 0
+                  ? `Suggest rates for ${selectedCount} selected row${selectedCount === 1 ? "" : "s"}`
+                  : "Suggest rates for the whole sheet")
+              }
             >
               <Sparkles className="h-4 w-4" />
               Suggest rates
+              {selectedCount > 0 && (
+                <span className="ml-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-primary/15 px-1 text-[10px] font-semibold leading-none text-primary">
+                  {selectedCount}
+                </span>
+              )}
             </Button>
           )}
 
@@ -4305,7 +4588,66 @@ const SheetPricingPage = () => {
             setSuggestModalOpen(false);
             setSuggestProgress(null);
           }}
+          onResume={partialSuggestRun ? resumeSuggestRun : undefined}
         />
+      )}
+      {/* SELECTED-ROW runs: THE confirmation before ANY AI call. There is no other path from the
+          "Suggest rates" button to a run. The copy is the PURE suggestConfirmCopy so both branches
+          are unit-testable; the whole-sheet branch carries the overwrite WARNING and renders its
+          action destructively, so a stray click cannot launch a full re-extraction. */}
+      {RATE_HELPER_ENABLED && (
+        <AlertDialog open={suggestConfirmOpen} onOpenChange={setSuggestConfirmOpen}>
+          <AlertDialogContent data-testid="suggest-confirm">
+            <AlertDialogHeader>
+              <AlertDialogTitle>{confirmCopy.title}</AlertDialogTitle>
+              <AlertDialogDescription asChild>
+                <div className="space-y-2">
+                  <p>{confirmCopy.body}</p>
+                  {confirmCopy.warning && (
+                    <p className="font-medium text-destructive">{confirmCopy.warning}</p>
+                  )}
+                </div>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={confirmSuggestRates}
+                className={
+                  confirmCopy.wholeSheet
+                    ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    : undefined
+                }
+              >
+                {confirmCopy.confirmLabel}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
+      {/* SR-1: a partial run must stay resumable ACROSS a reload -- the modal only exists for the
+          session that produced it, but the partial is persisted on the run doc. This strip is the
+          durable affordance, and it is the SR-1 bundle marker on this page. */}
+      {RATE_HELPER_ENABLED && !suggestRunning && partialSuggestRun && (
+        <div
+          className="flex items-start gap-2 rounded-md border border-amber-400/50 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
+          data-testid="sr1-partial-run-strip"
+        >
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <div className="flex-1">
+            <span className="font-medium">Rate suggestions stopped early.</span>{" "}
+            {partialSuggestRun.halt_reason || "The run did not process every row."}{" "}
+            {typeof partialSuggestRun.attempted_count === "number" && (
+              <span className="tabular-nums">
+                {partialSuggestRun.attempted_count} rows were saved.
+              </span>
+            )}{" "}
+            Resume to finish the remaining rows; &ldquo;Use this value&rdquo; unlocks when it completes.
+          </div>
+          <Button size="sm" variant="outline" className="h-6 px-2 text-xs" onClick={resumeSuggestRun}>
+            Resume run
+          </Button>
+        </div>
       )}
       {!classifyRunning && !classifyModalOpen && classifySummary && classifySummary.status === "error" && (
         <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
@@ -4363,6 +4705,17 @@ const SheetPricingPage = () => {
       {ranDisciplines.map((d) => (
         <EngineCatalogFetcher key={`cat-${d}`} discipline={d} onLoaded={handleCatalogLoaded} />
       ))}
+      {/* EA-2: one rate-config fetcher per registry category (DEV-gated with the whole helper). */}
+      {RATE_HELPER_ENABLED
+        ? RATE_MASTER_CONFIG_TARGETS.map((t) => (
+            <RateConfigFetcher
+              key={`rmcfg-${t.discipline}-${t.categoryId}`}
+              discipline={t.discipline}
+              categoryId={t.categoryId}
+              onLoaded={handleRateConfigLoaded}
+            />
+          ))
+        : null}
       {boqId && sheetName
         ? statusPollDisciplines.map((d) => (
             <ClassifyStatusPoller
@@ -4999,6 +5352,12 @@ const SheetPricingPage = () => {
             // that gates the Check-Category filter button below. Reads the DISPLAYED version, so
             // a version with no classification run at all shows no clickable cells.
             hasRun={activeCategoriesByExcelRow.size > 0}
+            rowTypeFilterOptions={rowTypeFilterOptions}
+            rowTypeFilter={rowTypeFilter}
+            onRowTypeFilterChange={onRowTypeFilterChange}
+            categoryFilterOptions={categoryFilterOptions}
+            categoryFilter={categoryFilter}
+            onCategoryFilterChange={onCategoryFilterChange}
             categoryLabelById={categoryLabelById}
             onCategoryClick={locked ? undefined : onCategoryClick}
             // U1 rate-helper (DEV): the per-row suggestion badges + the page-owned open callback.
@@ -5007,6 +5366,19 @@ const SheetPricingPage = () => {
             // value" (like liveCategoriesByExcelRow) -- never on keystroke, so the memo shield holds.
             rowSuggestionsByExcelRow={RATE_HELPER_ENABLED ? suggestionsByExcelRow : undefined}
             onSuggestionBadgeClick={RATE_HELPER_ENABLED ? handleSuggestionBadgeClick : undefined}
+            tickableRows={RATE_HELPER_ENABLED ? eligibleRows : undefined}
+            selectedRows={RATE_HELPER_ENABLED ? selectedRows : undefined}
+            onToggleTick={
+              RATE_HELPER_ENABLED && !suggestRatesDisabled && eligibleRows.size > 0
+                ? handleToggleTick
+                : undefined
+            }
+            showOnlyTicked={showOnlyTicked}
+            onToggleTicked={
+              RATE_HELPER_ENABLED && !suggestRatesDisabled && eligibleRows.size > 0
+                ? onToggleTicked
+                : undefined
+            }
             // F3: the amount-column formula header label + builder. columnFormulas drives the
             // `f = ...` label; onSaveFormula is withheld when locked (header renders read-only).
             columnFormulas={columnFormulas}

@@ -26,8 +26,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import type { AttributeDefinition, RateCategoryConfig, RateMasterItem } from "./rateMasterTypes";
 import {
-  STEP_VOCABULARY, StepType, blankAttributeDefinition, blankStep, cloneConfig, evaluateGoldens,
-  goldenDeltas, referencedAttrIds,
+  STEP_VOCABULARY, StepType, blankAttributeDefinition, blankPipeline, blankStep, categoryItemKinds,
+  cloneConfig, evaluateGoldens, goldenDeltas, isDropdownAttributeType, referencedAttrIds,
 } from "./rateMasterStructure";
 
 interface Props {
@@ -35,6 +35,112 @@ interface Props {
   items: RateMasterItem[];
   isAdmin?: boolean;
   onSaveConfig?: (config: RateCategoryConfig) => Promise<void>;
+}
+
+/**
+ * DEFECT 1, half one -- THE PICKER MUST OFFER EVERY TYPE THE VOCABULARY DECLARES.
+ *
+ * The attribute type `<Select>` offered `choice` and `number` only, while the declared union
+ * (`rateMasterTypes.AttributeDefinition["type"]`) has carried `number_choice` since CP2 and FOUR live
+ * definitions use it (point_wiring's wire1/wire2 core + thickness). A `<Select>` bound to a value it
+ * cannot offer is a TRAPDOOR: the control renders no label, and one interaction overwrites the value
+ * with something the picker CAN represent -- with no way back, because the original is not on the list.
+ *
+ * The list is therefore DERIVED from an exhaustive presence map rather than hand-written in the JSX.
+ * The `Record<AttributeDefinition["type"], true>` is the guarantee: a future member added to the union
+ * makes THIS OBJECT a compile error (a missing property), so the picker cannot silently fall behind the
+ * vocabulary again. That is the whole reason it is a map and not an array literal.
+ */
+const ATTRIBUTE_TYPE_PRESENCE: Record<AttributeDefinition["type"], true> = {
+  choice: true,
+  number: true,
+  number_choice: true,
+};
+export const ATTRIBUTE_TYPE_OPTIONS = Object.keys(
+  ATTRIBUTE_TYPE_PRESENCE,
+) as AttributeDefinition["type"][];
+
+/**
+ * DEFECT 1, half two -- A `values_from` DEFINITION'S TYPE IS NOT SAFELY EDITABLE HERE.
+ *
+ * Offering `number_choice` makes the control HONEST, but on its own it does not make it SAFE: picking
+ * `choice` on `wire1_core` would still be a one-click silent break. That definition resolves its values
+ * from the NUMERIC catalog column `cable.core`, and `coerceForMatch` keys the match on the TYPE -- a
+ * `choice` emits the string "3" against the stored numeric 3 and matches nothing, which is the exact CP2
+ * defect `number_choice` was created to prevent. The server does NOT catch it: `_validate_config` only
+ * requires a dropdown type to have `values` OR `values_from`, so a wrong-but-present type passes and the
+ * save succeeds. The same hazard runs the other way on the 22 `choice` + `values_from` definitions --
+ * switching one to `number` nulls every catalog string just as silently.
+ *
+ * The type of such a definition is ENTANGLED with a source column this editor can neither see nor set:
+ * `values_from.kind`, `.attr` and `.where` have no control here at all (nor do `allow_none`,
+ * `disables_when_none`, `default` or `note`). Changing one half of an entangled pair is precisely how a
+ * config goes silently wrong. So the control is READ-ONLY wherever the values come from the catalog, and
+ * stays fully editable on every definition this editor CAN express end to end (a static `values` list, or
+ * a plain number). This REMOVES reach; it adds no authoring control -- authoring a `values_from` is its
+ * own slice, and that slice is where this lock is deliberately reopened.
+ *
+ * PURE -- unit-tested.
+ */
+export function isTypeLockedByValuesSource(
+  d: Pick<AttributeDefinition, "values_from">,
+): boolean {
+  return !!d.values_from;
+}
+
+/** DEFECT 2 -- what the read-only attribute table shows in the values column, as DATA. */
+export interface ValuesSourceDescription {
+  /** The primary cell text: a catalog reference, the stored list, or "" when there is neither. */
+  text: string;
+  /** TRUE when the values are resolved from the live master rather than stored on the definition. */
+  fromCatalog: boolean;
+  /** The `where` filter rendered as "key=value" pairs, in declaration order. Empty when unfiltered. */
+  filters: string[];
+  /** The definition may be positively absent (the "None" sentinel). */
+  noneable: boolean;
+  /** The dependent attribute ids greyed/cleared when this one is "None". */
+  disables: string[];
+}
+
+/**
+ * DEFECT 2 -- THE VALUES COLUMN TOLD A WRONG STORY.
+ *
+ * The read-only table rendered `(d.values ?? []).join(", ")`, and NO live `values_from` definition
+ * carries `values` -- so the column was BLANK on all 26 of them, and the table showed neither
+ * `values_from`, `allow_none` nor `disables_when_none`. `plate_item` read as `choice | (blank) | yes`
+ * for a definition actually driving a catalog-resolved dropdown with a None sentinel and a dependent
+ * field. A reader got a wrong picture of the configuration, not merely an incomplete one.
+ *
+ * WHAT IS SHOWN, and what is deliberately NOT: the catalog reference is named as `<kind>.<attr>` plus its
+ * `where` pairs -- every live filter is one or two short pairs, and the pair is what DISTINGUISHES two
+ * otherwise identical specs (`switch_socket_item.item` backs both the Switch and the Socket slot). The
+ * RESOLVED VALUES are deliberately NOT shown: resolving them here would be a FOURTH copy of the
+ * values_from resolution (the backend's, the Derivation tab's and the pricing helper's are the three that
+ * exist), and the standing lesson is that copies agree until they do not. This describes the SPEC; it
+ * does not execute it.
+ *
+ * PURE -- unit-tested.
+ */
+export function describeValuesSource(d: AttributeDefinition): ValuesSourceDescription {
+  const noneable = d.allow_none === true;
+  const disables = d.disables_when_none ?? [];
+  const vf = d.values_from;
+  if (vf) {
+    return {
+      text: `catalog ${vf.kind ?? "?"}.${vf.attr ?? "?"}`,
+      fromCatalog: true,
+      filters: Object.entries(vf.where ?? {}).map(([k, v]) => `${k}=${v}`),
+      noneable,
+      disables,
+    };
+  }
+  return {
+    text: (d.values ?? []).map((v) => String(v)).join(", "),
+    fromCatalog: false,
+    filters: [],
+    noneable,
+    disables,
+  };
 }
 
 // A generic {key -> finite number} params editor (add / rename / edit value / remove).
@@ -323,27 +429,94 @@ export function RateMasterPipelines({ config, items, isAdmin, onSaveConfig }: Pr
         <CardContent>
           {!editing ? (
             <table className="w-full text-xs">
-              <thead><tr className="text-left text-muted-foreground"><th className="py-1 pr-3">id</th><th className="py-1 pr-3">label</th><th className="py-1 pr-3">type</th><th className="py-1 pr-3">values</th><th className="py-1">selectable</th></tr></thead>
+              {/* DEFECT 2: "values" -> "values source". The old column read `d.values` only, which no
+                  values_from definition carries -- so it was blank on every catalog-backed attribute. */}
+              <thead><tr className="text-left text-muted-foreground"><th className="py-1 pr-3">id</th><th className="py-1 pr-3">label</th><th className="py-1 pr-3">type</th><th className="py-1 pr-3">values source</th><th className="py-1">selectable</th></tr></thead>
               <tbody>
-                {view.attribute_definitions.map((d) => (
-                  <tr key={d.id}><td className="py-1 pr-3 font-mono">{d.id}</td><td className="py-1 pr-3">{d.label}</td><td className="py-1 pr-3">{d.type}</td><td className="py-1 pr-3">{(d.values ?? []).join(", ")}</td><td className="py-1">{d.selector === false ? "no" : "yes"}</td></tr>
-                ))}
+                {view.attribute_definitions.map((d) => {
+                  const src = describeValuesSource(d);
+                  return (
+                  <tr key={d.id}><td className="py-1 pr-3 font-mono">{d.id}</td><td className="py-1 pr-3">{d.label}</td><td className="py-1 pr-3">{d.type}</td>
+                    <td className="py-1 pr-3">
+                      {src.text ? (
+                        <span className={src.fromCatalog ? "font-mono text-[11px]" : undefined}>{src.text}</span>
+                      ) : (
+                        <span className="text-muted-foreground">&mdash;</span>
+                      )}
+                      {/* The `where` pairs are what DISTINGUISH two otherwise identical catalog refs
+                          (switch_socket_item.item backs both the Switch and the Socket slot). */}
+                      {src.filters.length > 0 && (
+                        <span className="ml-1 text-[11px] text-muted-foreground">&middot; {src.filters.join(", ")}</span>
+                      )}
+                      {/* POSITIVE ABSENCE is part of the picture: a None-able attribute offers a
+                          sentinel option, and may grey out dependants when it is chosen. */}
+                      {src.noneable && (
+                        <span
+                          className="ml-1 rounded bg-muted px-1 text-[10px] font-medium leading-none text-muted-foreground"
+                          title={src.disables.length ? `"None" also clears: ${src.disables.join(", ")}` : "may be set to \"None\" (positive absence)"}
+                        >
+                          None
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-1">{d.selector === false ? "no" : "yes"}</td></tr>
+                  );
+                })}
               </tbody>
             </table>
           ) : (
             <div className="space-y-2">
               {view.attribute_definitions.map((d, di) => {
                 const referenced = refIds.has(d.id);
+                // DEFECT 1: a catalog-backed definition's type is entangled with a source column this
+                // editor cannot see or set, and a wrong type breaks the match SILENTLY (the server
+                // accepts it). Show the type, refuse the edit. See isTypeLockedByValuesSource.
+                const typeLocked = isTypeLockedByValuesSource(d);
+                const src = describeValuesSource(d);
                 return (
                   <div key={di} className="flex flex-wrap items-center gap-1.5 rounded border p-1.5 text-xs">
                     <Input className="h-6 w-28 font-mono text-xs" value={d.id} aria-label="attribute id" onChange={(e) => updateDraft((dd) => { dd.attribute_definitions[di].id = e.target.value; })} />
                     <Input className="h-6 w-32 text-xs" value={d.label} aria-label="attribute label" onChange={(e) => updateDraft((dd) => { dd.attribute_definitions[di].label = e.target.value; })} />
-                    <Select value={d.type} onValueChange={(t) => updateDraft((dd) => { dd.attribute_definitions[di].type = t as "choice" | "number"; if (t === "choice" && !dd.attribute_definitions[di].values) dd.attribute_definitions[di].values = []; })}>
-                      <SelectTrigger className="h-6 w-24 text-xs"><SelectValue /></SelectTrigger>
-                      <SelectContent><SelectItem value="choice">choice</SelectItem><SelectItem value="number">number</SelectItem></SelectContent>
+                    <Select
+                      value={d.type}
+                      disabled={typeLocked}
+                      onValueChange={(t) => updateDraft((dd) => {
+                        const next = t as AttributeDefinition["type"];
+                        dd.attribute_definitions[di].type = next;
+                        // Seed an empty list for ANY dropdown type (a number_choice needs one too),
+                        // so the values Input below appears for the author to fill.
+                        if (isDropdownAttributeType(next) && !dd.attribute_definitions[di].values) {
+                          dd.attribute_definitions[di].values = [];
+                        }
+                      })}
+                    >
+                      <SelectTrigger
+                        className="h-6 w-32 text-xs"
+                        aria-label="attribute type"
+                        title={typeLocked ? "Type is fixed: this attribute's values come from the catalog (values_from), and its type must match that column" : undefined}
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      {/* Derived from the exhaustive presence map -- never hand-listed, so the picker
+                          cannot fall behind the declared type union again. */}
+                      <SelectContent>
+                        {ATTRIBUTE_TYPE_OPTIONS.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                      </SelectContent>
                     </Select>
-                    {d.type === "choice" && (
+                    {isDropdownAttributeType(d.type) && !typeLocked && (
                       <Input className="h-6 w-48 text-xs" placeholder="comma,separated,values" aria-label="values" value={(d.values ?? []).join(",")} onChange={(e) => updateDraft((dd) => { dd.attribute_definitions[di].values = e.target.value.split(",").map((s) => s.trim()).filter(Boolean); })} />
+                    )}
+                    {/* A locked row shows WHERE its values come from in place of the (necessarily empty)
+                        static-values input. The explanation lives on this chip rather than only on the
+                        disabled trigger, because a disabled control's title is not reliably reachable. */}
+                    {typeLocked && (
+                      <span
+                        className="rounded bg-muted px-1 font-mono text-[10px] leading-none text-muted-foreground"
+                        title={`Type and values are fixed by the catalog source ${src.text}${src.filters.length ? ` (${src.filters.join(", ")})` : ""} -- authoring a values_from source is a separate slice.`}
+                      >
+                        {src.text}
+                        {src.filters.length > 0 && ` · ${src.filters.join(", ")}`}
+                      </span>
                     )}
                     <label className="flex items-center gap-1"><Checkbox checked={d.selector !== false} onCheckedChange={(v) => updateDraft((dd) => { dd.attribute_definitions[di].selector = v === true ? undefined : false; })} aria-label="selectable" /> selectable</label>
                     <button type="button" aria-label={`remove ${d.id}`} disabled={referenced} title={referenced ? "referenced by a pipeline -- remove the references first" : "remove"} onClick={() => updateDraft((dd) => { dd.attribute_definitions.splice(di, 1); })} className="ml-auto text-muted-foreground hover:text-destructive disabled:opacity-30">
@@ -396,6 +569,20 @@ export function RateMasterPipelines({ config, items, isAdmin, onSaveConfig }: Pr
         ))}
       </div>
 
+      {/* EA-2 rider 1: author a NEW pipeline (works on an EMPTY-pipelines config -- the LMS path).
+          Seeds a validator-minimal {output, [match_master_row]} the server accepts; the author then
+          adds real steps via the per-pipeline AddStep above. */}
+      {editing && (
+        <AddPipeline
+          existingIds={Object.keys(view.pipelines)}
+          onAdd={(id, outputs) =>
+            updateDraft((dd) => {
+              dd.pipelines[id] = blankPipeline(outputs, categoryItemKinds(dd)[0]);
+            })
+          }
+        />
+      )}
+
       {/* GOLDENS (read-only reference) */}
       {Array.isArray(view.goldens) && view.goldens.length > 0 && (
         <Card>
@@ -433,6 +620,63 @@ export function RateMasterPipelines({ config, items, isAdmin, onSaveConfig }: Pr
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </div>
+  );
+}
+
+// EA-2 rider 1: the Add-pipeline control (edit mode). Validates the id (a lowercase identifier, not
+// already used) + at least one output key, then creates a validator-minimal pipeline the author fills.
+function AddPipeline({
+  existingIds,
+  onAdd,
+}: {
+  existingIds: string[];
+  onAdd: (id: string, outputs: string[]) => void;
+}) {
+  const [id, setId] = useState("");
+  const [outputs, setOutputs] = useState("");
+  const idSyntaxOk = /^[a-z][a-z0-9_]*$/.test(id);
+  const idTaken = existingIds.includes(id);
+  const outList = outputs.split(",").map((s) => s.trim()).filter(Boolean);
+  const canAdd = idSyntaxOk && !idTaken && outList.length > 0;
+  return (
+    <div className="flex flex-wrap items-end gap-2 rounded border border-dashed p-2">
+      <div className="flex flex-col gap-1">
+        <label className="text-[10px] text-muted-foreground">new pipeline id</label>
+        <input
+          value={id}
+          onChange={(e) => setId(e.target.value)}
+          placeholder="e.g. lms_boq"
+          className="h-7 w-40 rounded border bg-background px-2 font-mono text-xs"
+        />
+      </div>
+      <div className="flex flex-col gap-1">
+        <label className="text-[10px] text-muted-foreground">output keys (comma-separated)</label>
+        <input
+          value={outputs}
+          onChange={(e) => setOutputs(e.target.value)}
+          placeholder="e.g. supply_per_no, install_per_no"
+          className="h-7 w-64 rounded border bg-background px-2 font-mono text-xs"
+        />
+      </div>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        className="h-7 text-xs"
+        disabled={!canAdd}
+        onClick={() => {
+          onAdd(id, outList);
+          setId("");
+          setOutputs("");
+        }}
+      >
+        <Plus className="mr-1 h-3 w-3" /> add pipeline
+      </Button>
+      {id && !idSyntaxOk && (
+        <span className="text-[10px] text-destructive">id: lowercase letters/digits/underscore, start with a letter</span>
+      )}
+      {id && idSyntaxOk && idTaken && <span className="text-[10px] text-destructive">id already exists</span>}
     </div>
   );
 }

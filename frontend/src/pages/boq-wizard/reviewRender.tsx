@@ -104,6 +104,21 @@ const CLS_PILL_CLASSES: Record<string, { bg: string; text: string }> = {
   header_repeat:   { bg: "bg-slate-100 dark:bg-slate-800",     text: "text-slate-700 dark:text-slate-300" },
 };
 
+/**
+ * U3 -- the USER-FACING name of the row-taxonomy axis. The word shown to a user is "Row Type"; the
+ * FIELD is still `classification` / `human_classification` / `effective_classification` everywhere
+ * (backend, API keys, types, every committed node), and the AI prompt constants are test-pinned.
+ * Renaming the data would be a migration; renaming the label is a wording change.
+ *
+ * IT IS ONE CONSTANT, READ BY BOTH SCREENS (the pricing editor's column header and the review
+ * tree's column header + filter + detail line + dialogs). That is deliberate: there is no test that
+ * can see rendered DOM in this repo's node-env vitest, so the guard against a HALF-rename is
+ * structural -- both screens import this, so they cannot drift apart without deleting an import.
+ */
+export const ROW_TYPE_LABEL = "Row Type";
+/** The filter affordance's aria-label/title, derived so it can never disagree with the column name. */
+export const ROW_TYPE_FILTER_LABEL = `Filter by ${ROW_TYPE_LABEL.toLowerCase()}`;
+
 export function ClassificationPill({ cls }: { cls: string | null }) {
   if (!cls) return null;
   const label = CLS_LABELS[cls] ?? cls;

@@ -5207,3 +5207,301 @@ class TestRevertToParser(FrappeTestCase):
     def test_revert_missing_row_throws(self):
         with self.assertRaises(frappe.ValidationError):
             revert_to_parser(boq_name=self.boq_name, sheet_name=self.sheet_name, row_index=99)
+
+
+# ---------------------------------------------------------------------------
+# EA-6a slice 2 (C1) -- note ATTACHMENT follows the reviewer's re-parent
+# ---------------------------------------------------------------------------
+
+class TestNoteAttachmentFollowsReparent(FrappeTestCase):
+    """EA-6a slice 2 (C1): re-parenting a NOTE moves its TEXT, not just its parent.
+
+    THE DEFECT: before this slice a re-parent wrote human_parent only. The note's
+    attached_to_index and -- the part the AI engines actually read -- the note text on the
+    OLD parent's attached_notes blob both stayed put, so a reviewer's correction was
+    silently discarded downstream.
+
+    Fixture (reset by setUp):
+      Row 0 -- preamble  (root)
+      Row 1 -- line_item (child of 0), blob ["note alpha", "note beta"]
+      Row 2 -- line_item (child of 0)
+      Row 3 -- note "note alpha"  attached to + parented under row 1
+      Row 4 -- note "note beta"   attached to + parented under row 1
+    Rows 3/4 mirror the post-slice-1 parser invariant: attached_to_index == parent_index.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "EA6a Slice2 Attachment BoQ"
+        boq.tax_treatment = "Pre-tax"
+        boq.append("sheet_drafts", {
+            "sheet_name": "AttachSheet", "sheet_order": 1, "wizard_status": "Parsed",
+        })
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq_name = boq.name
+        cls.sheet_name = "AttachSheet"
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete("BoQ Review Row", {"boq": cls.boq_name})
+        frappe.db.commit()
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        frappe.db.delete("BoQ Review Row", {"boq": self.boq_name})
+        frappe.db.commit()
+
+        def _row(idx, cls_, parent, desc, attached_to=0, notes=None):
+            d = _minimal_row(self.sheet_name, idx, cls_, parent_index=parent)
+            d["description"] = desc
+            d["attached_to_index"] = attached_to
+            d["attached_notes"] = notes or []
+            return d
+
+        _insert_rows(self.boq_name, [
+            _row(0, "preamble", None, "SECTION A"),
+            _row(1, "line_item", 0, "supply and fix cable", notes=["note alpha", "note beta"]),
+            _row(2, "line_item", 0, "supply and fix conduit"),
+            _row(3, "note", 1, "note alpha", attached_to=1),
+            _row(4, "note", 1, "note beta", attached_to=1),
+        ])
+
+    def _blob(self, row_index):
+        raw = frappe.db.get_value(
+            "BoQ Review Row",
+            {"boq": self.boq_name, "sheet_name": self.sheet_name, "row_index": row_index},
+            "attached_notes",
+        )
+        if isinstance(raw, str) and raw:
+            return json.loads(raw)
+        return raw or []
+
+    def _attached_to(self, row_index):
+        return frappe.db.get_value(
+            "BoQ Review Row",
+            {"boq": self.boq_name, "sheet_name": self.sheet_name, "row_index": row_index},
+            "attached_to_index",
+        )
+
+    # -- C1 core ---------------------------------------------------------------------
+
+    def test_reparenting_a_note_moves_its_text_to_the_new_parent(self):
+        """The headline defect: move note 3 from row 1 to row 2 -- text and pointer follow."""
+        save_review_edit(
+            boq_name=self.boq_name, sheet_name=self.sheet_name, row_index=3,
+            field="human_parent", value=2,
+        )
+        self.assertEqual(self._blob(1), ["note beta"], "old parent must LOSE the moved note")
+        self.assertEqual(self._blob(2), ["note alpha"], "new parent must GAIN the moved note")
+        self.assertEqual(self._attached_to(3), 2, "attached_to_index must follow the parent")
+
+    def test_note_order_within_a_parent_is_row_index_order(self):
+        """ORDER IS LOAD-BEARING -- hierarchy._notes_text pipe-joins the list.
+
+        Move the LATER note (row 4) onto row 2 first, then the EARLIER one (row 3). A blind
+        append would leave ["note beta", "note alpha"]; the rebuild must produce row_index
+        order regardless of the order the edits were made in.
+        """
+        save_review_edit(
+            boq_name=self.boq_name, sheet_name=self.sheet_name, row_index=4,
+            field="human_parent", value=2,
+        )
+        save_review_edit(
+            boq_name=self.boq_name, sheet_name=self.sheet_name, row_index=3,
+            field="human_parent", value=2,
+        )
+        self.assertEqual(self._blob(2), ["note alpha", "note beta"])
+        self.assertEqual(self._blob(1), [], "row 1 must end up with no notes at all")
+
+    def test_making_a_note_root_unattaches_it(self):
+        """Root/unattach: the text leaves the old blob and the pointer returns to 0.
+
+        Root is reached through save_review_restructure(row_new_parent=-1), which is the
+        endpoint that sets the human_is_root override -- save_review_edit's human_parent
+        value=None only CLEARS the override back to the parser parent, it does not root a row.
+        Both endpoints share the same chokepoint, so this also covers the restructure path.
+        """
+        save_review_restructure(
+            boq_name=self.boq_name, sheet_name=self.sheet_name, row_index=3,
+            new_classification="note", child_moves={}, row_new_parent=-1,
+        )
+        self.assertEqual(self._blob(1), ["note beta"], "old parent must LOSE the rooted note")
+        self.assertEqual(
+            self._attached_to(3), 0,
+            "attached_to_index keeps its OWN sentinel space -- 0 = unattached, never -1",
+        )
+
+    def test_revert_to_parser_restores_the_note_to_its_parser_parent(self):
+        """revert_to_parser routes through the SAME chokepoint, so the blob comes back."""
+        save_review_edit(
+            boq_name=self.boq_name, sheet_name=self.sheet_name, row_index=3,
+            field="human_parent", value=2,
+        )
+        self.assertEqual(self._blob(2), ["note alpha"])  # precondition
+        revert_to_parser(
+            boq_name=self.boq_name, sheet_name=self.sheet_name, row_index=3,
+        )
+        self.assertEqual(self._blob(2), [], "reverted note must leave the overridden parent")
+        self.assertEqual(
+            self._blob(1), ["note alpha", "note beta"],
+            "and land back on the PARSER parent, in row_index order",
+        )
+        self.assertEqual(self._attached_to(3), 1)
+
+    # -- negative / unchanged-behaviour controls -------------------------------------
+
+    def test_reparenting_a_non_note_row_leaves_every_blob_untouched(self):
+        """NEGATIVE: only notes carry attachment. Moving a line item must not touch a blob."""
+        before = {i: self._blob(i) for i in range(5)}
+        save_review_edit(
+            boq_name=self.boq_name, sheet_name=self.sheet_name, row_index=2,
+            field="human_parent", value=1,
+        )
+        after = {i: self._blob(i) for i in range(5)}
+        self.assertEqual(before, after, "a non-note re-parent must not rebuild any blob")
+        self.assertEqual(self._attached_to(3), 1, "and must not move a note's pointer")
+
+    def test_case2_ride_along_leaves_the_note_untouched(self):
+        """D8 REGRESSION PIN: parent moves, note rides along -- byte-unchanged.
+
+        Row 1 (the notes' parent) is re-parented from row 0 to row 2. The notes stay under
+        row 1, so nothing about them changes. This path worked BEFORE slice 2 and the owner
+        ruled it must keep working -- a rebuild here would be a regression, not a fix.
+        """
+        before_blob_1 = self._blob(1)
+        before_ptr = (self._attached_to(3), self._attached_to(4))
+        save_review_edit(
+            boq_name=self.boq_name, sheet_name=self.sheet_name, row_index=1,
+            field="human_parent", value=2,
+        )
+        self.assertEqual(self._blob(1), before_blob_1, "ride-along must not disturb the blob")
+        self.assertEqual((self._attached_to(3), self._attached_to(4)), before_ptr)
+        self.assertEqual(self._blob(2), [], "the new grandparent gains nothing")
+
+    def test_a_no_op_reparent_does_not_rebuild(self):
+        """NEGATIVE: setting human_parent to the value already in effect changes nothing."""
+        before = {i: self._blob(i) for i in range(5)}
+        save_review_edit(
+            boq_name=self.boq_name, sheet_name=self.sheet_name, row_index=3,
+            field="human_parent", value=1,  # already the effective parent
+        )
+        self.assertEqual({i: self._blob(i) for i in range(5)}, before)
+        self.assertEqual(self._attached_to(3), 1)
+
+    # -- C6: RE-LABEL (owner ruling E2 -- "not a rare case") -------------------------
+
+    def test_relabel_into_note_joins_the_parents_blob(self):
+        """C6a: a line item RE-LABELLED to note contributes its text to its parent's blob.
+
+        Row 2 is a line item under the preamble (row 0) with no children. Re-labelling it to
+        "note" must add its description to row 0's blob and point it at row 0.
+        """
+        save_review_restructure(
+            boq_name=self.boq_name, sheet_name=self.sheet_name, row_index=2,
+            new_classification="note", child_moves={},
+        )
+        self.assertEqual(self._blob(0), ["supply and fix conduit"],
+                         "the new note's text must join its parent's blob")
+        # REGRESSION: the parent here is row_index 0, which collides with the
+        # attached_to_index "unattached" sentinel. The blob is rebuilt from the EFFECTIVE
+        # PARENT precisely so the collision cannot lose the text -- an earlier cut keyed on
+        # attached_to_index and dropped it. The pointer stays ambiguous (documented limit);
+        # the TEXT above is what must be right.
+        self.assertEqual(self._attached_to(2), 0)
+        self.assertEqual(self._blob(1), ["note alpha", "note beta"],
+                         "an unrelated parent's blob is untouched")
+
+    def test_relabel_into_note_under_a_line_item_parent(self):
+        """C6a with an unambiguous pointer: re-label row 4's sibling case under row 1.
+
+        Uses a parent whose row_index is NOT 0, so the pointer assertion is free of the
+        0-sentinel ambiguity above and genuinely proves the pointer was set.
+        """
+        # Move row 2 under row 1 first (a non-note re-parent -- proven inert by its own test),
+        # then re-label it. Its parent is now row 1.
+        save_review_edit(
+            boq_name=self.boq_name, sheet_name=self.sheet_name, row_index=2,
+            field="human_parent", value=1,
+        )
+        save_review_restructure(
+            boq_name=self.boq_name, sheet_name=self.sheet_name, row_index=2,
+            new_classification="note", child_moves={},
+        )
+        self.assertEqual(self._attached_to(2), 1, "pointer must be set to the real parent")
+        self.assertEqual(
+            self._blob(1), ["supply and fix conduit", "note alpha", "note beta"],
+            "the re-labelled row joins its parent's blob in ROW_INDEX order -- row 2 comes "
+            "before the existing notes at rows 3 and 4, so it must sort to the FRONT",
+        )
+
+    def test_relabel_out_of_note_removes_the_text_and_unattaches(self):
+        """C6b: a note RE-LABELLED to a line item leaves its old parent's blob."""
+        save_review_restructure(
+            boq_name=self.boq_name, sheet_name=self.sheet_name, row_index=3,
+            new_classification="line_item", child_moves={},
+        )
+        self.assertEqual(self._blob(1), ["note beta"],
+                         "the ex-note's text must LEAVE the old parent's blob")
+        self.assertEqual(self._attached_to(3), 0,
+                         "a row that is no longer a note owns no attachment")
+
+    def test_relabel_not_involving_note_rebuilds_nothing(self):
+        """C6c NEGATIVE: line_item -> preamble touches "note" on neither side -> no rebuild.
+
+        This is the pin that keeps the hook narrow. Without it, any classification edit
+        anywhere on the sheet would rewrite blobs.
+        """
+        before = {i: self._blob(i) for i in range(5)}
+        before_ptrs = {i: self._attached_to(i) for i in range(5)}
+        save_review_restructure(
+            boq_name=self.boq_name, sheet_name=self.sheet_name, row_index=2,
+            new_classification="preamble", child_moves={},
+        )
+        self.assertEqual({i: self._blob(i) for i in range(5)}, before,
+                         "a non-note classification change must rebuild NOTHING")
+        self.assertEqual({i: self._attached_to(i) for i in range(5)}, before_ptrs)
+
+    def test_relabel_round_trip_restores_the_blob(self):
+        """C6a+C6b together: out of note and back in returns the blob to its original state."""
+        original = self._blob(1)
+        save_review_edit(
+            boq_name=self.boq_name, sheet_name=self.sheet_name, row_index=3,
+            field="human_classification", value="line_item",
+        )
+        self.assertEqual(self._blob(1), ["note beta"])
+        save_review_edit(
+            boq_name=self.boq_name, sheet_name=self.sheet_name, row_index=3,
+            field="human_classification", value="note",
+        )
+        self.assertEqual(self._blob(1), original,
+                         "re-labelling back must restore the note in row_index order")
+        self.assertEqual(self._attached_to(3), 1)
+
+    def test_relabel_a_note_carrying_row_into_a_note_EDGE(self):
+        """C6 EDGE PIN (Task 3d, review tier) -- REPORTED BEHAVIOUR, not a designed feature.
+
+        Row 1 CARRIES notes (rows 3 and 4 point at it). Re-labelling row 1 itself into a note
+        is allowed, and produces a note that carries attached_notes:
+          - row 1 KEEPS its own blob (the hook rebuilds only the OLD and NEW parents of the
+            row being edited -- never the edited row's own blob), and
+          - row 1's text joins ITS parent's blob (row 0).
+        The commit-tier derivation agrees exactly (see
+        test_commit_pipeline.test_c3_note_parented_under_a_note_nests_the_text_EDGE): it keys
+        purely on the effective parent and applies NO classification filter to that parent.
+        Well-defined and consistent across both tiers -- pinned so it stays deliberate.
+        """
+        save_review_edit(
+            boq_name=self.boq_name, sheet_name=self.sheet_name, row_index=1,
+            field="human_classification", value="note",
+        )
+        self.assertEqual(self._blob(1), ["note alpha", "note beta"],
+                         "the re-labelled row KEEPS the notes attached to it")
+        self.assertEqual(self._blob(0), ["supply and fix cable"],
+                         "and its own text joins its parent's blob")
+        self.assertEqual(self._attached_to(3), 1, "the inner notes still point at it")

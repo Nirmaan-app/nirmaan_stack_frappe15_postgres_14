@@ -174,6 +174,8 @@ import {
   resolveDescriptorValue,
   renderDescriptorCell,
   ClassificationPill,
+  ROW_TYPE_LABEL,
+  ROW_TYPE_FILTER_LABEL,
   CLS_LABELS,
   buildDescriptionColumns,
   descriptionCellValue,
@@ -2555,7 +2557,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                   (effective_classification), NOT the 4 assignable write-targets. */}
                 <th className="px-2 py-2 text-left font-medium text-muted-foreground w-36 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
                   <div className="flex items-center gap-1">
-                    <span>Classification</span>
+                    <span>{ROW_TYPE_LABEL}</span>
                     <Popover>
                       <PopoverTrigger asChild>
                         <button
@@ -2567,14 +2569,14 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                               ? "text-blue-600 dark:text-blue-400"
                               : "text-muted-foreground/60 hover:text-foreground",
                           )}
-                          aria-label="Filter by classification"
-                          title="Filter by classification"
+                          aria-label={ROW_TYPE_FILTER_LABEL}
+                          title={ROW_TYPE_FILTER_LABEL}
                         >
                           <Filter className="h-3 w-3" />
                         </button>
                       </PopoverTrigger>
                       <PopoverContent align="start" className="w-auto min-w-[160px] p-2">
-                        <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">Classification</p>
+                        <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">{ROW_TYPE_LABEL}</p>
                         <div className="space-y-1">
                           {CLASS_FILTER_VALUES.map(c => (
                             <label
@@ -2975,7 +2977,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                               {aiInfo.hasClass && (
                                 <AiConfBadge
                                   conf={aiInfo.classConf}
-                                  title={`AI suggests classification: ${row.ai_suggested_classification ?? "?"}${aiInfo.classConf ? ` (${aiInfo.classConf})` : ""}`}
+                                  title={`AI suggests ${ROW_TYPE_LABEL.toLowerCase()}: ${row.ai_suggested_classification ?? "?"}${aiInfo.classConf ? ` (${aiInfo.classConf})` : ""}`}
                                 />
                               )}
                               {aiInfo.hasParent && (
@@ -3342,7 +3344,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                             <div className="grid grid-cols-1 gap-y-1 text-xs mb-2">
                               <div className="flex items-center gap-2">
                                 <div>
-                                  <span className="text-muted-foreground">Classification: </span>
+                                  <span className="text-muted-foreground">{ROW_TYPE_LABEL}: </span>
                                   {clsOverridden ? (
                                     <>
                                       <span className="line-through text-muted-foreground">{row.classification ?? "—"}</span>
@@ -3473,9 +3475,9 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                                         disabled={!clsIsChange}
                                         onCheckedChange={(c) => setAiAcceptCls(!!c)}
                                       />
-                                      <AiConfBadge conf={row.ai_classification_confidence ?? null} title="AI classification confidence" />
+                                      <AiConfBadge conf={row.ai_classification_confidence ?? null} title={`AI ${ROW_TYPE_LABEL.toLowerCase()} confidence`} />
                                       <span>
-                                        Classification &rarr;{" "}
+                                        {ROW_TYPE_LABEL} &rarr;{" "}
                                         <span className="font-medium">{CLS_LABELS[row.ai_suggested_classification ?? ""] ?? row.ai_suggested_classification}</span>
                                         {!clsIsChange && <span className="text-muted-foreground italic"> (no change)</span>}
                                       </span>
@@ -3981,7 +3983,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Change classification</AlertDialogTitle>
+            <AlertDialogTitle>Change {ROW_TYPE_LABEL.toLowerCase()}</AlertDialogTitle>
             <AlertDialogDescription>
               {childlessConfirm
                 ? `Reclassify row ${childlessConfirm.row.source_row_number} from ${CLS_LABELS[childlessConfirm.row.effective_classification ?? ""] ?? childlessConfirm.row.effective_classification ?? "—"} to ${CLS_LABELS[childlessConfirm.newClassification] ?? childlessConfirm.newClassification}. Its parent stays the same; no rows are reparented.`
@@ -4073,7 +4075,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
           </DialogHeader>
           <div className="space-y-3 py-1">
             <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">Classification</label>
+              <label className="text-xs font-medium text-muted-foreground">{ROW_TYPE_LABEL}</label>
               <Select value={createCls} onValueChange={setCreateCls}>
                 <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
                 <SelectContent>

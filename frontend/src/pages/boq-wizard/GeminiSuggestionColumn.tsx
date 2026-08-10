@@ -22,6 +22,7 @@
 import { cn } from "@/lib/utils";
 import { Filter } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { ROW_TYPE_LABEL } from "./reviewRender";
 import type { ReviewRow } from "./boqTypes";
 
 // ── Gemini suggestion shape (mirror of ReviewTree's AiSuggestionInfo, gemini_* namespace) ──
@@ -202,7 +203,7 @@ export function GeminiBodyCell({ row }: { row: ReviewRow }) {
           {info.hasClass && (
             <GeminiConfBadge
               conf={info.classConf}
-              title={`Gemini suggests classification: ${row.gemini_suggested_classification ?? "?"}${info.classConf ? ` (${info.classConf})` : ""}`}
+              title={`Gemini suggests ${ROW_TYPE_LABEL.toLowerCase()}: ${row.gemini_suggested_classification ?? "?"}${info.classConf ? ` (${info.classConf})` : ""}`}
             />
           )}
           {info.hasParent && (
