@@ -862,11 +862,56 @@ sub-rupee, each audited.
    `!isLoading` gate with the list. The exact trigger was never isolated — a focus revalidation is
    the best candidate — so the dependency was removed rather than re-ordered.
 3. **The delta rendered as `₹27,504 → ₹27,504`** — the confirm dialog formats both sides with the
-   rounded-rupee formatter, and virtually every correction is sub-rupee. ⚠️ **STILL OPEN.**
+   rounded-rupee formatter, and virtually every correction is sub-rupee. ✅ **FIXED in §H.9.**
 
 **Two owner rulings applied the same day:** the Link payment table dropped `type` as its own column
 (Amount was off-screen), and "Skip this row" is hidden behind `SHOW_SKIP_ROW` — with the consequence
 recorded in the domain doc.
+
+### §H.9 — Three removals, one formatter (2026-08-10, owner-directed)
+
+Commit 1 — `refactor(outflow): a control nobody read, a figure that moved the tab, and a change
+notice showing no change`. No migrate.
+
+- **Close Import deleted** — button, `CloseBatchDialog.tsx`, the closed banner, `close_batch` /
+  `reopen_batch` / `get_close_preview`, `test_close.py` (13 tests). It stamped three fields and
+  nothing read them; at X3 an import stopped being a place, so closing one marked nothing as
+  finished with. **The three doctype fields stay** — dropping them is a migrate that destroys the
+  close history of already-closed batches to save nothing. Rationale in the domain doc.
+- **Summary status chips are figures, not buttons.** A click re-scoped a table spanning ALL imports
+  from a panel describing ONE, and moved the tab as a side effect. `SummaryTile.statuses` and
+  `tabForStatus` went with it.
+- **Amount deltas now render to the paise** at all three sites (confirm dialog before→after,
+  `SettleableRecordTable`'s `AmountMark`, `DecisionDialog`'s two "differs by" lines). The candidate
+  tables had the same defect from the other side, reading `off by ₹1` for a 31-paise gap. Plain
+  amounts keep the rounded form — **the rule is about differences**, where the rounding is the whole
+  signal.
+
+Commit 2 — the status merge. **MIGRATE-CARRYING, and it adds an eighth doctype JSON plus a second
+patch module to the branch's obligation.**
+
+- **`Unmatched` merged into `Mismatched`** — seven statuses became six, both sides of the parity
+  pin, the doctype Select, and `unmatched_rows` / `unmatched_value` removed from the summary
+  (**absent, not zeroed**). Full rationale + the two test consequences: domain doc §Status
+  vocabulary.
+- **`patches/v3_0/merge_outflow_unmatched_status.py`** rewrites stored rows. Raw SQL, idempotent;
+  the `patches.txt` line is the maintainer's, matching `add_outflow_master_index`. **Verified live**
+  on a planted probe row: `Unmatched → Mismatched`, second run a no-op, probe removed.
+- **`ROW_FILTERS` deleted** from `outflowImportStatus.ts` — the pre-V4 chip strip's buckets, with no
+  caller since X3 deleted that screen. A second, older answer to "which rows belong together"
+  sitting beside `_SCOPE_STATUSES`; the merge is what surfaced it.
+- `DecisionDialog`'s "Only approved records are ever offered here" line no longer branches on the
+  retired status. It applies to only ONE of the merged status's two causes, and is now gated on
+  `related_payments` — the fact the database already holds, not the note text.
+
+⚠️ **The dev database held 0 import rows and 0 batches at this point**, so the merge has NOT been
+seen against the 1,043-row statement. The patch is proven on a probe, not on that data. Re-import
+before trusting the screen.
+
+Tests after both commits: 270 pure python · `test_review` 70 · `test_expenses` 29 ·
+`test_settle_payment` 21 · `test_upload` 25 · 1654 vitest (59 files) · `bench migrate` clean · tsc
+clean across `src/pages/outflow-import`. `residence_check.py` fails two rules (F5, F2) **identically
+at HEAD** — pre-existing, stale baseline, not from this work.
 
 ⚠️ **`_match_many` in `test_status.py` is the fixture that did not exist.** Every prior fixture built
 ONE payment group, so reading `payment_groups[0]` was indistinguishable from reading all of them and
@@ -895,6 +940,9 @@ regardless, because X5 has to display what it introduces.
 
 **Added by this arc:**
 - A **seventh** migrate obligation if X3 lands an index, plus a patch module for deployed databases.
+- An **eighth** from §H.9's status merge (`outflow_import_row.json`), plus a **second** patch module
+  (`merge_outflow_unmatched_status`). Both patches need their `patches.txt` lines from the
+  maintainer — neither ships its own.
 - A behaviour change to the CEO-Hold cashflow recompute on expense settles (§H.1) — it starts
   running, which it should always have done, and stops publishing realtime on that path.
 - The reversal of the "paise difference is not recorded" limit in the domain doc.

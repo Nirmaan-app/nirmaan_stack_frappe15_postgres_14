@@ -42,7 +42,6 @@ from nirmaan_stack.services.outflow_import.status import (
     ROW_SETTLED,
     ROW_SKIPPED,
     ROW_STATUSES,
-    ROW_UNMATCHED,
     TERMINAL_ROW_STATUSES,
     RowOutcome,
     StatusTally,
@@ -109,19 +108,29 @@ def _match_many(targets=(), expenses=(), basis=BASIS_BANK_REFERENCE):
 
 
 class TestVocabulary(unittest.TestCase):
-    def test_exactly_seven_row_statuses_in_reviewer_order(self):
+    def test_exactly_six_row_statuses_in_reviewer_order(self):
         self.assertEqual(
             ROW_STATUSES,
             (
                 "Pending match run",
                 "Matched",
-                "Unmatched",
                 "Mismatched",
                 "Settled",
                 "Skipped",
                 "Error",
             ),
         )
+
+    def test_unmatched_is_retired_from_the_vocabulary(self):
+        """⚠️ ASSERTED AS ABSENCE, and it is the one retired value a live database can still hold:
+        rows staged before `patches/v3_0/merge_outflow_unmatched_status.py` runs carry it. Pinning
+        the VOCABULARY is what makes such a row visibly stale rather than silently normal -- and it
+        is the Python half of the parity pin with `outflowImportStatus.test.ts`, which asserts the
+        same absence.
+        """
+        self.assertNotIn("Unmatched", ROW_STATUSES)
+        self.assertNotIn("Unmatched", OPEN_ROW_STATUSES)
+        self.assertNotIn("Unmatched", TERMINAL_ROW_STATUSES)
 
     def test_exactly_four_batch_statuses(self):
         self.assertEqual(
@@ -316,7 +325,7 @@ class TestAlreadyPaidDuplicate(unittest.TestCase):
         self.assertEqual(outcome.status, ROW_MATCHED)
 
 
-# --- Matched and Unmatched ------------------------------------------------------------------------
+# --- Matched and the found-nothing half of Mismatched ------------------------------------------------------------------------
 
 
 class TestMatched(unittest.TestCase):
@@ -458,22 +467,50 @@ class TestSoleSuggestion(unittest.TestCase):
         self.assertIsNone(sole_suggestion(RowOutcome(ROW_MATCHED, "")))
 
 
-class TestUnmatched(unittest.TestCase):
-    def test_no_candidates_is_unmatched(self):
-        outcome = derive_row_outcome(_Row(), _match())
-        self.assertEqual(outcome.status, ROW_UNMATCHED)
+class TestNothingFound(unittest.TestCase):
+    """The FOUND-NOTHING half of `Mismatched`.
 
-    def test_no_match_object_at_all_is_unmatched(self):
-        self.assertEqual(derive_row_outcome(_Row()).status, ROW_UNMATCHED)
+    ⚠️ THIS CLASS WAS `TestUnmatched`, AND THE RENAME IS THE MERGE (owner ruling 2026-08-10). The
+    status these cases produce is now the same one the amount-disagreement cases produce; what
+    keeps them distinguishable is the NOTE, which is why every test here asserts the note as well
+    as the status. Delete those note assertions and the merge becomes a genuine loss of
+    information rather than a relocation of it.
+    """
+
+    def test_no_candidates_is_mismatched(self):
+        outcome = derive_row_outcome(_Row(), _match())
+        self.assertEqual(outcome.status, ROW_MISMATCHED)
+
+    def test_no_match_object_at_all_is_mismatched(self):
+        self.assertEqual(derive_row_outcome(_Row()).status, ROW_MISMATCHED)
 
     def test_the_note_offers_the_two_real_next_actions(self):
         note = derive_row_outcome(_Row(), _match()).note
         self.assertIn("new expense", note)
         self.assertIn("by hand", note)
 
+    def test_the_note_tells_this_apart_from_an_amount_disagreement(self):
+        """⚠️ THE LOAD-BEARING TEST OF THE MERGE. Two causes now share one status, so the note is
+        the ONLY thing separating "we looked and found nothing" from "a record already recorded as
+        Paid disagrees on amount". These two sentences must never converge.
+        """
+        nothing_found = derive_row_outcome(_Row(), _match()).note
+        disagreement = derive_row_outcome(
+            _Row(amount="1000"),
+            _match(),
+            paid_duplicate=_group([_payment("PAY-7", amount="9000")]),
+        ).note
+
+        self.assertIn("No approved payment or expense matches", nothing_found)
+        self.assertNotIn("Already recorded as Paid", nothing_found)
+
+        self.assertIn("PAY-7", disagreement)
+        self.assertIn("Already recorded as Paid", disagreement)
+        self.assertNotIn("No approved payment or expense matches", disagreement)
+
     def test_a_non_approved_payment_never_reaches_this_module_as_matched(self):
         """Rule 1 is enforced UPSTREAM, in candidates.py -- the pool is Approved only, so a
-        CEO Pending payment is simply absent and the row is Unmatched. Pinned here because the
+        CEO Pending payment is simply absent and the row is Mismatched. Pinned here because the
         seam is easy to misread as 'status.py filters by status', which it must never do: a
         filter here would silently paper over a widened candidate query.
 
@@ -482,7 +519,7 @@ class TestUnmatched(unittest.TestCase):
         stated goal).
         """
         outcome = derive_row_outcome(_Row(), _match())
-        self.assertEqual(outcome.status, ROW_UNMATCHED)
+        self.assertEqual(outcome.status, ROW_MISMATCHED)
         self.assertNotIn("approval", outcome.note.lower())
         self.assertNotIn("ceo", outcome.note.lower())
 
@@ -525,12 +562,12 @@ class TestBatchStatus(unittest.TestCase):
 
     def test_all_open_is_in_review(self):
         self.assertEqual(
-            derive_batch_status([ROW_PENDING_MATCH, ROW_MATCHED, ROW_UNMATCHED]), BATCH_IN_REVIEW
+            derive_batch_status([ROW_PENDING_MATCH, ROW_MATCHED, ROW_MISMATCHED]), BATCH_IN_REVIEW
         )
 
     def test_some_terminal_some_open_is_partially_settled(self):
         self.assertEqual(
-            derive_batch_status([ROW_SETTLED, ROW_UNMATCHED]), BATCH_PARTIALLY_SETTLED
+            derive_batch_status([ROW_SETTLED, ROW_MISMATCHED]), BATCH_PARTIALLY_SETTLED
         )
 
     def test_all_terminal_is_completed(self):
@@ -604,25 +641,25 @@ class TestImportSummary(unittest.TestCase):
 
     def test_every_status_is_present_even_at_zero(self):
         """⚠️ ZERO-FILLED ON PURPOSE. A screen that renders only the statuses present reads as
-        though the missing ones do not apply. "Unmatched 0" is the most useful cell on the panel --
+        though the missing ones do not apply. "Mismatched 0" is the most useful cell on the panel --
         it is the one that says the import has finished finding work."""
         summary = derive_import_summary([StatusTally(ROW_SETTLED, 3, Decimal("300"))])
         for status in ROW_STATUSES:
             self.assertIn(status, summary["by_status"])
-        self.assertEqual(summary["by_status"][ROW_UNMATCHED], {"count": 0, "value": Decimal("0")})
+        self.assertEqual(summary["by_status"][ROW_MISMATCHED], {"count": 0, "value": Decimal("0")})
 
     def test_counts_and_money_both_roll_up(self):
         summary = derive_import_summary(
             [
                 StatusTally(ROW_SETTLED, 2, Decimal("5000.50")),
-                StatusTally(ROW_UNMATCHED, 3, Decimal("1200")),
+                StatusTally(ROW_MISMATCHED, 3, Decimal("1200")),
                 StatusTally(ROW_SKIPPED, 1, Decimal("99.49")),
             ]
         )
         self.assertEqual(summary["total_rows"], 6)
         self.assertEqual(summary["total_value"], Decimal("6299.99"))
         self.assertEqual(summary["settled_value"], Decimal("5000.50"))
-        self.assertEqual(summary["unmatched_rows"], 3)
+        self.assertEqual(summary["mismatched_rows"], 3)
 
     def test_the_open_value_is_summed_not_subtracted(self):
         """⚠️ THE ARITHMETIC IS IDENTICAL TODAY AND THE FAILURE MODES ARE NOT. Subtracting settled
@@ -631,7 +668,7 @@ class TestImportSummary(unittest.TestCase):
         summary = derive_import_summary(
             [
                 StatusTally(ROW_MATCHED, 1, Decimal("100")),
-                StatusTally(ROW_UNMATCHED, 1, Decimal("200")),
+                StatusTally(ROW_MISMATCHED, 1, Decimal("200")),
                 StatusTally(ROW_SETTLED, 1, Decimal("900")),
                 StatusTally("Reconciled", 4, Decimal("4000")),  # a retired v2 value
             ]
@@ -696,13 +733,26 @@ class TestImportSummary(unittest.TestCase):
         )
         self.assertEqual(summary["confirmable_rows"], 0)
 
-    def test_mismatched_is_reported_even_though_it_is_usually_zero(self):
-        """The owner asked for "matched and mismatched". `Mismatched` fires only when a hand-ticked
-        payment disagrees on amount beyond the settle window, so it is normally 0 -- and the split
-        that carries the WORK is matched vs unmatched. Both are returned; the screen chooses."""
+    def test_mismatched_is_the_figure_that_carries_the_work(self):
+        """⚠️ THIS TEST'S POINT INVERTED AT THE 2026-08-10 MERGE, and the old version is worth
+        stating: it used to read "reported even though it is usually zero", because `Mismatched`
+        fired only when a hand-ticked payment disagreed on amount beyond the settle window. Having
+        absorbed `Unmatched` it is the PRODUCTIVE figure -- most of a statement's work -- and the
+        split a reviewer reads is matched vs mismatched.
+        """
         summary = derive_import_summary([StatusTally(ROW_MISMATCHED, 1, Decimal("18679"))])
         self.assertEqual(summary["mismatched_rows"], 1)
         self.assertEqual(summary["mismatched_value"], Decimal("18679"))
+
+    def test_the_retired_unmatched_keys_are_gone_rather_than_zeroed(self):
+        """⚠️ ABSENT, NOT 0 -- the loud failure is deliberate. A screen still reading
+        `unmatched_rows` gets `None` and breaks visibly; zeroing the key would have it report
+        "0 transfers need a person" on a statement full of them, which is the same class of defect
+        as the summary disagreeing with the table beneath it.
+        """
+        summary = derive_import_summary([StatusTally(ROW_MISMATCHED, 3, Decimal("300"))])
+        self.assertNotIn("unmatched_rows", summary)
+        self.assertNotIn("unmatched_value", summary)
 
     def test_it_accepts_a_generator(self):
         """The endpoint passes a genexp straight off the query rows. Consuming the input twice

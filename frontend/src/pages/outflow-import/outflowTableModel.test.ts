@@ -211,8 +211,7 @@ describe("serverQuery", () => {
 describe("the summary panel's figures", () => {
     const totals = {
         matched_rows: 4,
-        unmatched_rows: 7,
-        mismatched_rows: 0,
+        mismatched_rows: 7,
         settled_rows: 12,
         skipped_rows: 3,
         pending_rows: 0,
@@ -222,26 +221,32 @@ describe("the summary panel's figures", () => {
     it("leads with the work, not with the vocabulary", () => {
         expect(summaryTiles(totals).map((t) => t.id)).toEqual([
             "matched",
-            "unmatched",
+            "mismatched",
             "settled",
             "skipped",
         ]);
     });
 
-    it("hides Mismatched and Errors when they are zero", () => {
-        // ⚠️ THE OPPOSITE OF THE SERVER'S RULE, deliberately. `derive_import_summary` zero-fills
-        // every status because a MISSING figure reads as "does not apply". But `Mismatched` fires
-        // only when a hand-ticked payment disagrees on amount beyond the window, so it is 0 on
-        // almost every import, and a permanent "0 Mismatched" chip trains people to stop reading
-        // the row it sits in.
-        expect(summaryTiles(totals).find((t) => t.id === "mismatched")).toBeUndefined();
+    it("shows Mismatched even at zero, because zero is the answer", () => {
+        // ⚠️ THIS REVERSES THE PRE-MERGE RULE, and the reversal is the point. `Mismatched` used to
+        // be hidden at zero: it fired only when a hand-ticked payment disagreed on amount beyond
+        // the window, so it was 0 on almost every import and a standing "0 Mismatched" chip would
+        // have trained people to stop reading the row it sits in. Having absorbed `Unmatched`
+        // (owner ruling 2026-08-10) it carries most of a statement's work, and at zero it says the
+        // genuinely useful thing: this import is finished finding work.
+        expect(summaryTiles({ ...totals, mismatched_rows: 0 }).find((t) => t.id === "mismatched"))
+            .toBeDefined();
+    });
+
+    it("still hides Errors when they are zero", () => {
+        // Error is the one that stays conditional: it means the SOFTWARE failed, and that is still
+        // rare enough that a standing "0 Errors" would be noise.
         expect(summaryTiles(totals).find((t) => t.id === "error")).toBeUndefined();
     });
 
-    it("shows them the moment they are not zero", () => {
-        const tiles = summaryTiles({ ...totals, mismatched_rows: 1, error_rows: 2 });
-        expect(tiles.find((t) => t.id === "mismatched")?.count).toBe(1);
-        expect(tiles.find((t) => t.id === "error")?.count).toBe(2);
+    it("shows Errors the moment they are not zero", () => {
+        expect(summaryTiles({ ...totals, error_rows: 2 }).find((t) => t.id === "error")?.count)
+            .toBe(2);
     });
 
     it("puts an un-matched-yet import's own figure first", () => {
@@ -254,7 +259,7 @@ describe("the summary panel's figures", () => {
         // went with the click. A panel describing ONE import must not rewrite the filters of a
         // table spanning all of them -- and it moved the tab as a side effect, so a click meant to
         // read a figure navigated away from the work in progress.
-        for (const tile of summaryTiles({ ...totals, mismatched_rows: 1, error_rows: 2 })) {
+        for (const tile of summaryTiles({ ...totals, error_rows: 2 })) {
             expect(tile).not.toHaveProperty("statuses");
         }
     });
@@ -355,7 +360,7 @@ describe("isConfirmable", () => {
     });
 
     it("refuses a row with no decision at all", () => {
-        expect(isConfirmable(row({ row_status: "Unmatched" }), undefined)).toBe(false);
+        expect(isConfirmable(row({ row_status: "Mismatched" }), undefined)).toBe(false);
     });
 
     it("refuses a linked record with no ledger behind it", () => {
@@ -373,7 +378,7 @@ describe("isConfirmable", () => {
     });
 
     it("requires a type on a new expense, and a project on the project side", () => {
-        const base = row({ row_status: "Unmatched" });
+        const base = row({ row_status: "Mismatched" });
         expect(
             isConfirmable(base, {
                 target: "new",
@@ -391,7 +396,7 @@ describe("isConfirmable", () => {
     it("does not require a project for a NON-project expense", () => {
         // The two expense doctypes are not twins: `Non Project Expenses` has no project at all.
         expect(
-            isConfirmable(row({ row_status: "Unmatched" }), {
+            isConfirmable(row({ row_status: "Mismatched" }), {
                 target: "new",
                 newExpense: { doctype: "Non Project Expenses", expenseType: "Office Maintenance" },
             })
@@ -403,7 +408,7 @@ describe("the bulk bar counts DECIDED rows, not selected ones", () => {
     const rows = [
         row({ name: "a", row_status: "Matched" }),
         row({ name: "b", row_status: "Matched" }),
-        row({ name: "c", row_status: "Unmatched" }),
+        row({ name: "c", row_status: "Mismatched" }),
     ];
     const decisions = new Map<string, RowDecision>([
         ["a", { target: "Project Payments", linkTo: "PAY-1" }],
@@ -588,8 +593,8 @@ describe("links to the record a row settles", () => {
         expect(rowSettlementLinks(both).map((l) => l.label)).toEqual(["PAY-SETTLED"]);
     });
 
-    it("gives an unmatched row nothing to link to", () => {
-        expect(rowSettlementLinks(row({ row_status: "Unmatched" }))).toEqual([]);
+    it("gives a mismatched row nothing to link to", () => {
+        expect(rowSettlementLinks(row({ row_status: "Mismatched" }))).toEqual([]);
     });
 
     it("gives a skip with no payment behind it nothing to link to", () => {
@@ -604,7 +609,7 @@ describe("the match run's suggestion becomes a decision", () => {
     /**
      * ⚠️ THE "EXACTLY ONE" RULE IS NOT TESTED HERE, ON PURPOSE. It lives on the server, in
      * `services/outflow_import/status.sole_suggestion`, and is pinned by its own unit tests. Two
-     * candidates, a fan-out, a skipped duplicate and an unmatched row all arrive with the fields
+     * candidates, a fan-out, a skipped duplicate and a mismatched row all arrive with the fields
      * BLANK. A second copy of that rule in the browser is exactly what this replaced.
      */
     const suggested = (over: Partial<OutflowImportRow> = {}) =>
@@ -653,7 +658,7 @@ describe("the match run's suggestion becomes a decision", () => {
         const rows = [
             suggested({ name: "A" }),
             suggested({ name: "B", suggested_name: "PAY-2" }),
-            row({ name: "C", row_status: "Unmatched" }),
+            row({ name: "C", row_status: "Mismatched" }),
         ];
         const seeded = seedDecisions(rows, new Map());
         expect(seeded.size).toBe(2);
@@ -685,7 +690,7 @@ describe("the match run's suggestion becomes a decision", () => {
         // The page re-runs this on every fetch. A fresh Map each time would change the reference,
         // re-render the table and re-run every memo for no change at all.
         const existing = new Map<string, RowDecision>();
-        expect(seedDecisions([row({ row_status: "Unmatched" })], existing)).toBe(existing);
+        expect(seedDecisions([row({ row_status: "Mismatched" })], existing)).toBe(existing);
     });
 
     it("a seeded row is immediately confirmable, which is the whole point", () => {

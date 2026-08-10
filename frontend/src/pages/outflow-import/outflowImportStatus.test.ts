@@ -15,7 +15,6 @@ import {
     ROW_SKIPPED,
     ROW_STATUSES,
     ROW_STATUS_TONE,
-    ROW_UNMATCHED,
     TERMINAL_ROW_STATUSES,
     deriveBatchCounters,
     deriveBatchStatus,
@@ -37,11 +36,10 @@ import {
  * ⚠️ REWRITTEN AT THE v3 REVERSAL (slice V0), alongside the Python half.
  */
 describe("row status vocabulary (parity with services/outflow_import/status.py)", () => {
-    it("is exactly these seven statuses, in reviewer order", () => {
+    it("is exactly these six statuses, in reviewer order", () => {
         expect(ROW_STATUSES).toEqual([
             "Pending match run",
             "Matched",
-            "Unmatched",
             "Mismatched",
             "Settled",
             "Skipped",
@@ -58,15 +56,22 @@ describe("row status vocabulary (parity with services/outflow_import/status.py)"
         ]);
     });
 
-    it("no longer carries any retired v2 status", () => {
+    it("no longer carries any retired status", () => {
         // Asserted as absence, not left to a code read: a re-added constant would pass every other
         // test here while the server, whose Select no longer offers it, could never send it.
+        //
+        // ⚠️ `Unmatched` JOINED THIS LIST AT THE 2026-08-10 MERGE, and it is the one entry here
+        // that a database can still legitimately hold: rows staged before
+        // `patches/v3_0/merge_outflow_unmatched_status.py` runs carry it. This asserts the
+        // VOCABULARY has retired it, which is what makes such a row visibly stale rather than
+        // silently normal.
         for (const retired of [
             "Pending",
             "Reconciled",
             "Amount mismatch",
             "Reference mismatch",
             "Control exception",
+            "Unmatched",
         ]) {
             expect(ROW_STATUSES).not.toContain(retired);
             expect(ROW_STATUS_TONE[retired]).toBeUndefined();
@@ -119,13 +124,13 @@ describe("deriveBatchStatus (mirrors status.derive_batch_status)", () => {
     });
 
     it("is In Review while nothing is terminal", () => {
-        expect(deriveBatchStatus([ROW_PENDING_MATCH, ROW_MATCHED, ROW_UNMATCHED])).toBe(
+        expect(deriveBatchStatus([ROW_PENDING_MATCH, ROW_MATCHED, ROW_MISMATCHED])).toBe(
             BATCH_IN_REVIEW
         );
     });
 
     it("is Partially Settled with a mix", () => {
-        expect(deriveBatchStatus([ROW_SETTLED, ROW_UNMATCHED])).toBe(BATCH_PARTIALLY_SETTLED);
+        expect(deriveBatchStatus([ROW_SETTLED, ROW_MISMATCHED])).toBe(BATCH_PARTIALLY_SETTLED);
     });
 
     it("is Completed only when every row is settled or skipped", () => {

@@ -24,20 +24,31 @@ All three ledgers -- `Project Payments`, `Project Expenses`, `Non Project Expens
 payment branch is read-only is history, not instruction. Spec: `docs/outflow-import/workflow.html`
 section 0.
 
-THE VOCABULARY -- seven statuses, and what a reviewer does with each:
+THE VOCABULARY -- six statuses, and what a reviewer does with each:
 
     Pending match run   Staged from the sheet. Nothing has been looked up yet.  -> press Run match
     Matched             At least one APPROVED record was found at this amount.  -> confirm it
-    Unmatched           The match ran and found nothing settleable.             -> create or link
-    Mismatched          Amounts disagree. AMOUNTS ONLY -- never a reference.    -> resolve it
+    Mismatched          Nothing settleable was found, OR the amounts disagree.  -> create or link
     Settled             We wrote. The record is now Paid and linked back.       -> terminal
     Skipped             Nothing to do, and the reason says which nothing.       -> terminal
     Error               The write was attempted and rolled back.                -> retry
 
+⚠️ `Unmatched` WAS MERGED INTO `Mismatched` (owner ruling 2026-08-10) -- SEVEN STATUSES BECAME SIX.
+They were separate because they have different CAUSES: one is "the match ran and found nothing
+settleable", the other is "a record already recorded as Paid disagrees on amount". They are the same
+THING to the person holding the statement -- a transfer that did not line up, needing a human to
+create or link something -- and splitting them made the reviewer classify the reason before they
+could act on either.
+
+THE CAUSE IS NOT LOST, IT MOVED TO THE NOTE. `_nothing_found_note` and `_delta_note` are unchanged
+and still say plainly which case a row is, in the sentence the Outcome column already shows. What
+went is the need to read a STATUS CHIP to find out. Do not reintroduce a status to carry a
+distinction a sentence carries better.
+
 FOUR RULES THAT LOOK LIKE DETAILS AND ARE NOT:
 
 1. ONLY `Approved` RECORDS ARE EVER MATCHED. A transfer against a `Requested` or `CEO Pending`
-   payment is simply `Unmatched`. There is no "matched but not approved" status, no approval nudge
+   payment is simply `Mismatched`. There is no "matched but not approved" status, no approval nudge
    and no deep link into an approval queue -- nothing that cannot be settled is offered. This
    REVERSES an earlier stated goal (surfacing the 111 CEO-Pending payments, Rs 88.8 L); it was
    removed deliberately and must not be re-added. Enforcing it is `candidates.py`'s job -- this
@@ -46,16 +57,16 @@ FOUR RULES THAT LOOK LIKE DETAILS AND ARE NOT:
 2. THE ALREADY-PAID DUPLICATE CHECK SURVIVES, AND IT IS A SKIP, NOT A MATCH (owner ruling Q14). It
    is fed in through `paid_duplicate`, which comes from a query kept VISIBLY SEPARATE from the
    candidate query precisely so a later reader cannot mistake one for the other. Without it, a
-   payment somebody ticked Paid by hand before uploading comes back `Unmatched`, and the obvious
+   payment somebody ticked Paid by hand before uploading comes back `Mismatched`, and the obvious
    next click records the same money a second time. Mixed usage -- half a statement hand-ticked --
    is the NORMAL case under owner ruling Q12, not an edge case.
 
-3. `Mismatched` IS ABOUT AMOUNTS, FULL STOP -- and about amounts that differ by MORE THAN THE
-   ROUNDING WINDOW. The v2 `Reference mismatch` branch is DELETED, not folded in: the owner asked
-   why the system would compare a stored reference on a payment that is already Paid, and there was
-   no answer. A reference is now only ever WRITTEN into a blank, never compared. That deletion is
-   also why this module no longer imports `matcher` -- the basis string was needed by the reference
-   branch and by nothing else.
+3. THE AMOUNT BRANCH OF `Mismatched` IS ABOUT AMOUNTS, FULL STOP -- and about amounts that differ by
+   MORE THAN THE ROUNDING WINDOW. The v2 `Reference mismatch` branch is DELETED, not folded in: the
+   owner asked why the system would compare a stored reference on a payment that is already Paid,
+   and there was no answer. A reference is now only ever WRITTEN into a blank, never compared. That
+   deletion is also why this module no longer imports `matcher` -- the basis string was needed by
+   the reference branch and by nothing else.
 
    The window matters as much as the axis: a sub-rupee gap is the bank rounding a paise amount, not
    a discrepancy, and reporting it as one buried 8 of 26 rows in a real statement under a note that
@@ -63,7 +74,8 @@ FOUR RULES THAT LOOK LIKE DETAILS AND ARE NOT:
 
 4. `Mismatched` MUST STAY RESOLVABLE. It is an OPEN status, and the screen gives it the same full
    decision dialog as any other open row. Reporting a disagreement with no way to act on it was the
-   defect the owner named.
+   defect the owner named. This matters MORE after the merge, not less: the status is now the
+   productive case -- most of the work in a statement -- rather than the rare one.
 
 PRECEDENCE IS DELIBERATE. Duplicates and failed transfers are settled before anything is matched,
 because both describe money that must not be recorded again -- or at all -- whatever a lookup would
@@ -91,7 +103,6 @@ from nirmaan_stack.services.outflow_import.amounts import amounts_match
 __all__ = [
     "ROW_PENDING_MATCH",
     "ROW_MATCHED",
-    "ROW_UNMATCHED",
     "ROW_MISMATCHED",
     "ROW_SETTLED",
     "ROW_SKIPPED",
@@ -121,7 +132,6 @@ __all__ = [
 
 ROW_PENDING_MATCH = "Pending match run"
 ROW_MATCHED = "Matched"
-ROW_UNMATCHED = "Unmatched"
 ROW_MISMATCHED = "Mismatched"
 ROW_SETTLED = "Settled"
 ROW_SKIPPED = "Skipped"
@@ -129,10 +139,14 @@ ROW_ERROR = "Error"
 
 # The vocabulary in the order a reviewer meets it. The doctype's `row_status` Select carries this
 # exact list in this exact order, and so does the frontend mirror.
+#
+# ⚠️ `Unmatched` IS RETIRED (owner ruling 2026-08-10), MERGED INTO `Mismatched`. Rows staged before
+# that carry the retired string until `patches/v3_0/merge_outflow_unmatched_status.py` has run --
+# and `derive_import_summary` carries an unknown status rather than dropping it precisely so an
+# un-migrated database reports an honest total instead of a quietly short one.
 ROW_STATUSES = (
     ROW_PENDING_MATCH,
     ROW_MATCHED,
-    ROW_UNMATCHED,
     ROW_MISMATCHED,
     ROW_SETTLED,
     ROW_SKIPPED,
@@ -148,9 +162,7 @@ ROW_STATUSES = (
 TERMINAL_ROW_STATUSES = frozenset({ROW_SETTLED, ROW_SKIPPED})
 
 # Open = a person still owes this row a decision. Everything that is not terminal.
-OPEN_ROW_STATUSES = frozenset(
-    {ROW_PENDING_MATCH, ROW_MATCHED, ROW_UNMATCHED, ROW_MISMATCHED, ROW_ERROR}
-)
+OPEN_ROW_STATUSES = frozenset({ROW_PENDING_MATCH, ROW_MATCHED, ROW_MISMATCHED, ROW_ERROR})
 
 BATCH_DRAFT = "Draft"
 BATCH_IN_REVIEW = "In Review"
@@ -207,7 +219,7 @@ def derive_staged_row_outcome(
 
     A separate entry point rather than a mode flag on `derive_row_outcome`, because the two answer
     genuinely different questions. At upload there IS no match, so "did this find a record?" is
-    unanswerable -- and `derive_row_outcome` would answer `Unmatched`, which is a FINDING and would
+    unanswerable -- and `derive_row_outcome` would answer `Mismatched`, which is a FINDING and would
     be a lie about work that has not happened yet. Only the facts knowable without matching are
     decided here; everything else stays `Pending match run`.
 
@@ -270,8 +282,11 @@ def derive_row_outcome(
     if paid_duplicate is not None and getattr(paid_duplicate, "targets", ()):
         total = _total_of(paid_duplicate)
         if not amounts_match(total, bank_amount):
-            # The ONLY route to `Mismatched`, and it is a narrow, honest one: the bank amount
-            # disagrees with what the already-Paid record(s) claim by MORE THAN THE ROUNDING WINDOW.
+            # The AMOUNT route to `Mismatched` -- narrow and honest: the bank amount disagrees with
+            # what the already-Paid record(s) claim by MORE THAN THE ROUNDING WINDOW. Since the
+            # 2026-08-10 merge it is no longer the ONLY route (found-nothing lands here too), which
+            # is exactly why `_delta_note` must keep naming the record and the shortfall -- the note
+            # is now the only thing telling the two apart.
             #
             # ⚠️ THIS USED TO BE `total != bank_amount`, AND THE EXACTNESS WAS A DEFECT. The bank
             # rounds to the whole rupee and 31.4% of payments carry paise, so every hand-ticked
@@ -287,7 +302,11 @@ def derive_row_outcome(
 
     candidates = _settleable_candidates(match)
     if not candidates:
-        return RowOutcome(ROW_UNMATCHED, _unmatched_note())
+        # ⚠️ SAME STATUS AS THE AMOUNT DISAGREEMENT ABOVE, DIFFERENT NOTE (owner ruling 2026-08-10).
+        # This used to be its own `Unmatched`. The two are one status now because they are one job
+        # -- a transfer that did not line up, needing a person to create or link something -- and
+        # the note is where the cause belongs.
+        return RowOutcome(ROW_MISMATCHED, _nothing_found_note())
 
     # 4. At least one APPROVED record at this amount. One candidate is a confident suggestion the
     #    screen pre-selects; several is an ambiguity the screen presents without guessing between
@@ -422,7 +441,13 @@ def _joined(*sentences: str) -> str:
     return " ".join(s for s in sentences if s)
 
 
-def _unmatched_note() -> str:
+def _nothing_found_note() -> str:
+    """The `Mismatched` note for the FOUND-NOTHING case.
+
+    ⚠️ THIS SENTENCE IS NOW THE ONLY THING SEPARATING THE TWO CAUSES OF `Mismatched`, since the
+    status merge took the chip away. It has to say what happened AND what to do about it, because
+    the reader has nothing else to go on.
+    """
     return (
         "No approved payment or expense matches this transfer. Record a new expense, or link one "
         "by hand."
@@ -525,7 +550,7 @@ def derive_import_summary(tallies: Iterable[StatusTally]) -> dict:
 
     ⚠️ EVERY STATUS IS ZERO-FILLED, on purpose. A screen that renders only the statuses present
     reads as though the missing ones do not apply, when what they mean is "none of these, right
-    now" -- and "Unmatched 0" is a genuinely useful thing to see, because it is the one that says
+    now" -- and "Mismatched 0" is a genuinely useful thing to see, because it is the one that says
     the import is finished finding work.
 
     ⚠️ `open_value` IS SUMMED FROM THE OPEN STATUSES, NOT SUBTRACTED FROM THE TOTAL. Subtraction
@@ -586,13 +611,12 @@ def derive_import_summary(tallies: Iterable[StatusTally]) -> dict:
         "skipped_value": value(ROW_SKIPPED),
         "matched_rows": rows(ROW_MATCHED),
         "matched_value": value(ROW_MATCHED),
-        "unmatched_rows": rows(ROW_UNMATCHED),
-        "unmatched_value": value(ROW_UNMATCHED),
-        # ⚠️ RARE BY DESIGN, AND SHOWN ANYWAY. `Mismatched` fires only when a payment somebody
-        # already ticked Paid by hand disagrees on amount beyond the settle window, so it is
-        # usually 0. The owner asked for "matched and mismatched"; the split that carries the WORK
-        # is matched vs unmatched, and both are returned so the screen can lead with the second
-        # without hiding the first.
+        # ⚠️ `unmatched_rows` / `unmatched_value` ARE GONE WITH THE STATUS (owner ruling
+        # 2026-08-10), and `mismatched_*` ABSORBED THEM. It used to be the rare figure -- a payment
+        # hand-ticked Paid that disagrees on amount, 0 on almost every import -- and is now the
+        # PRODUCTIVE one, carrying most of a statement's work. Any screen still reading
+        # `unmatched_rows` gets `None`, which is the intended loud failure: silently reporting 0
+        # transfers needing a person would be far worse.
         "mismatched_rows": rows(ROW_MISMATCHED),
         "mismatched_value": value(ROW_MISMATCHED),
         "pending_rows": rows(ROW_PENDING_MATCH),

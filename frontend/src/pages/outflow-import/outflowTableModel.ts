@@ -340,19 +340,19 @@ export interface SummaryTile {
  * a panel describing ONE import must not silently rewrite the filters of a table spanning all of
  * them, and it moved the tab as a side effect. Scoping lives in the Status column's own filter.
  *
- * ⚠️ THE ORDER LEADS WITH THE WORK, NOT WITH THE VOCABULARY. Matched and Unmatched come first
+ * ⚠️ THE ORDER LEADS WITH THE WORK, NOT WITH THE VOCABULARY. Matched and Mismatched come first
  * because they are what somebody has to act on; Settled and Skipped are the record of what is done.
  *
- * ⚠️ MISMATCHED AND ERROR APPEAR ONLY WHEN NON-ZERO, and that is the opposite of the rule the
- * server follows. `derive_import_summary` zero-fills every status because a MISSING figure reads as
- * "does not apply" -- but `Mismatched` fires only when a hand-ticked payment disagrees on amount
- * beyond the settle window, so it is 0 on almost every import, and a permanent "0 Mismatched" chip
- * would train people to stop reading the row it sits in. The owner asked for mismatched; it is
- * here, and it is impossible to miss on the imports that have one.
+ * ⚠️ MISMATCHED IS NOW PERMANENT, AND IT USED TO BE CONDITIONAL -- the change is the whole point of
+ * the 2026-08-10 merge. It was hidden at zero because it fired only when a hand-ticked payment
+ * disagreed on amount beyond the settle window, so it was 0 on almost every import and a standing
+ * "0 Mismatched" chip would have trained people to stop reading the row it sits in. Having absorbed
+ * `Unmatched` it is the PRODUCTIVE figure -- most of a statement's work -- and at zero it says the
+ * genuinely useful thing: this import is finished finding work. Only `Error` stays conditional,
+ * because it still means the software failed and that is still rare.
  */
 export const summaryTiles = (totals: {
     matched_rows: number;
-    unmatched_rows: number;
     mismatched_rows: number;
     settled_rows: number;
     skipped_rows: number;
@@ -367,9 +367,9 @@ export const summaryTiles = (totals: {
             tone: "border-sky-200 bg-sky-50 text-sky-900",
         },
         {
-            id: "unmatched",
-            label: "Unmatched",
-            count: totals.unmatched_rows,
+            id: "mismatched",
+            label: "Mismatched",
+            count: totals.mismatched_rows,
             tone: "border-amber-200 bg-amber-50 text-amber-900",
         },
         {
@@ -392,14 +392,6 @@ export const summaryTiles = (totals: {
             label: "Not matched yet",
             count: totals.pending_rows,
             tone: "border-muted bg-muted/50 text-muted-foreground",
-        });
-    }
-    if (totals.mismatched_rows > 0) {
-        tiles.push({
-            id: "mismatched",
-            label: "Mismatched",
-            count: totals.mismatched_rows,
-            tone: "border-rose-200 bg-rose-50 text-rose-900",
         });
     }
     if (totals.error_rows > 0) {

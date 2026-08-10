@@ -15,13 +15,15 @@
 //
 // ⚠️ REWRITTEN AT THE v3 REVERSAL (owner, 2026-08-06). The import now PAYS what is already
 // approved, on all three ledgers. `Reconciled`, `Amount mismatch`, `Reference mismatch` and
-// `Control exception` are retired; `Mismatched` replaces the amount case and is about AMOUNTS
-// ONLY. Rationale lives in the Python module's docstring -- it is the authority, and duplicating
-// it here is how the two drift.
+// `Control exception` are retired; `Mismatched` replaces the amount case. Rationale lives in the
+// Python module's docstring -- it is the authority, and duplicating it here is how the two drift.
+//
+// ⚠️ `Unmatched` MERGED INTO `Mismatched` (owner, 2026-08-10) -- seven statuses became six. Same
+// job to the reviewer either way: a transfer that did not line up. The CAUSE moved to the outcome
+// note, which already said which case a row was.
 
 export const ROW_PENDING_MATCH = "Pending match run";
 export const ROW_MATCHED = "Matched";
-export const ROW_UNMATCHED = "Unmatched";
 export const ROW_MISMATCHED = "Mismatched";
 export const ROW_SETTLED = "Settled";
 export const ROW_SKIPPED = "Skipped";
@@ -30,7 +32,6 @@ export const ROW_ERROR = "Error";
 export type RowStatus =
     | typeof ROW_PENDING_MATCH
     | typeof ROW_MATCHED
-    | typeof ROW_UNMATCHED
     | typeof ROW_MISMATCHED
     | typeof ROW_SETTLED
     | typeof ROW_SKIPPED
@@ -40,7 +41,6 @@ export type RowStatus =
 export const ROW_STATUSES: RowStatus[] = [
     ROW_PENDING_MATCH,
     ROW_MATCHED,
-    ROW_UNMATCHED,
     ROW_MISMATCHED,
     ROW_SETTLED,
     ROW_SKIPPED,
@@ -59,7 +59,6 @@ export const TERMINAL_ROW_STATUSES: ReadonlySet<string> = new Set([ROW_SETTLED, 
 export const OPEN_ROW_STATUSES: ReadonlySet<string> = new Set([
     ROW_PENDING_MATCH,
     ROW_MATCHED,
-    ROW_UNMATCHED,
     ROW_MISMATCHED,
     ROW_ERROR,
 ]);
@@ -118,13 +117,16 @@ export function deriveBatchCounters(rowStatuses: string[]): BatchCounters {
  * Chip tone per status.
  *
  * Red belongs to `Error` alone -- the only status meaning the software failed rather than the data
- * disagreed. Amber is `Mismatched`, the one finding that needs a person to look. `Matched` is
- * emerald because it is the good case: something settleable was found and one click finishes it.
+ * disagreed. Amber is `Mismatched`, the finding that needs a person to look. `Matched` is emerald
+ * because it is the good case: something settleable was found and one click finishes it.
+ *
+ * ⚠️ `Mismatched` KEEPS AMBER after absorbing `Unmatched` (which was blue). Amber is the "needs
+ * you" tone in this screen, and the merged status is now the bulk of the work rather than the rare
+ * exception -- so if either tone had to win, it is this one.
  */
 export const ROW_STATUS_TONE: Record<string, string> = {
     [ROW_PENDING_MATCH]: "bg-gray-100 text-gray-700",
     [ROW_MATCHED]: "bg-emerald-50 text-emerald-700",
-    [ROW_UNMATCHED]: "bg-blue-50 text-blue-700",
     [ROW_MISMATCHED]: "bg-amber-50 text-amber-700",
     [ROW_SETTLED]: "bg-indigo-50 text-indigo-700",
     [ROW_SKIPPED]: "bg-gray-100 text-gray-500",
@@ -134,18 +136,9 @@ export const ROW_STATUS_TONE: Record<string, string> = {
 export const rowStatusTone = (status: string): string =>
     ROW_STATUS_TONE[status] || "bg-gray-100 text-gray-700";
 
-/**
- * Filter buckets for the review screen's chip strip.
- *
- * ⚠️ INTERIM. V4 replaces this screen with a three-tab table carrying per-column facet filters, at
- * which point these buckets go. They are kept working through V0-V3 so the tree stays green and
- * the existing screen keeps functioning while the vocabulary underneath it changes.
- */
-export const ROW_FILTERS: { id: string; label: string; match: (s: string) => boolean }[] = [
-    { id: "all", label: "All", match: () => true },
-    { id: "open", label: "Needs a decision", match: isOpen },
-    { id: "matched", label: "Matched", match: (s) => s === ROW_MATCHED },
-    { id: "mismatched", label: "Mismatched", match: (s) => s === ROW_MISMATCHED },
-    { id: "settled", label: "Settled", match: (s) => s === ROW_SETTLED },
-    { id: "skipped", label: "Skipped", match: (s) => s === ROW_SKIPPED },
-];
+// ⚠️ `ROW_FILTERS` IS DELETED. It was the chip strip of the PRE-V4 review screen, kept alive
+// through V0-V3 so that screen stayed green while the vocabulary under it changed. V4 replaced the
+// screen with the tabbed table and X3 deleted it outright, leaving these buckets with no caller --
+// a second, older answer to "which rows belong together" sitting beside `_SCOPE_STATUSES`, and one
+// more list to keep in step every time the vocabulary moves. It moved again at the 2026-08-10
+// merge, which is what surfaced it.

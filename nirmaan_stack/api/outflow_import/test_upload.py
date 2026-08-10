@@ -117,9 +117,9 @@ class TestStageBatch(unittest.TestCase):
         self.assertEqual(failed[0]["row_status"], "Skipped")
         self.assertIn("FAILED", failed[0]["skip_reason"])
 
-    def test_successful_rows_are_pending_not_unmatched(self):
-        # At upload nothing has been matched, so "Unmatched" would be a finding about work that has
-        # not happened. That is the whole reason derive_staged_row_outcome exists.
+    def test_successful_rows_are_pending_not_mismatched(self):
+        # At upload nothing has been matched, so "Mismatched" would be a finding about work that
+        # has not happened. That is the whole reason derive_staged_row_outcome exists.
         # The fixture's repeated transfer id is excluded: it is successful AND a duplicate, and the
         # duplicate wins (see test_in_file_duplicate_is_skipped_on_its_second_appearance).
         batch = self._stage()

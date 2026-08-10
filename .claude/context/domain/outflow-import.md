@@ -47,27 +47,57 @@ pick one ad-hoc; ask.
 
 ## Status vocabulary
 
-Seven row statuses. `status.py` is the only deriver.
+Six row statuses. `status.py` is the only deriver.
 
 | Status | Means | Reviewer does |
 |---|---|---|
 | `Pending match run` | staged from the sheet, nothing looked up | press Run match |
 | `Matched` | ≥1 **approved** record found at this amount | confirm it |
-| `Unmatched` | the match ran and found nothing settleable | link one by hand |
-| `Mismatched` | amounts disagree. **AMOUNTS ONLY**, never a reference | resolve it |
+| `Mismatched` | this transfer did not line up — **two causes, one status** | create or link one |
 | `Settled` | we wrote; the record is now Paid and linked back | terminal |
 | `Skipped` | nothing to do, and the reason says which nothing | terminal |
 | `Error` | the write was attempted and rolled back | retry |
 
 Batch: `Draft` → `In Review` → `Partially Settled` → `Completed`.
 
+### ⚠️ `Unmatched` was merged into `Mismatched` (owner ruling 2026-08-10)
+
+They were separate because their CAUSES differ — "the match ran and found nothing settleable"
+versus "a record already recorded as Paid disagrees on amount beyond the rounding window". They are
+the same JOB to the person holding the statement, and splitting them made a reviewer classify the
+reason before they could act on either. **`Mismatched` went from the rarest status (0 on almost
+every import) to the productive one carrying most of a statement's work** — which is why its
+summary chip is now permanent instead of hidden-at-zero, and why the `unmatched_rows` /
+`unmatched_value` summary keys are **absent, not zeroed** (a screen still reading them gets `None`
+and breaks visibly, rather than reporting "0 transfers need a person").
+
+**THE CAUSE IS NOT LOST — IT MOVED TO `outcome_note`.** `_nothing_found_note` and `_delta_note` are
+unchanged and still say plainly which case a row is, in the sentence the Outcome column already
+shows. Do not reintroduce a status to carry a distinction a sentence carries better. Two
+consequences follow, and both are pinned by tests:
+
+- `test_status.TestNothingFound::test_the_note_tells_this_apart_from_an_amount_disagreement` is the
+  load-bearing test of the merge. The two sentences must never converge.
+- `test_review::test_an_already_paid_payment_is_skipped_and_names_the_record` got **quieter**, not
+  louder: before the merge, breaking the duplicate query produced a different STATUS from the
+  correct behaviour; now both are `Mismatched` and only the note differs. Its note assertions are
+  the whole test.
+
+**Existing rows need `patches/v3_0/merge_outflow_unmatched_status.py`** — Frappe does not rewrite
+stored values when a Select narrows, so pre-merge rows keep the retired string, invisible to every
+tab and rendering as an untoned chip. Raw SQL, not per-row `set_value`: the status is DERIVED, so
+there is nothing to audit, and a Version row per transfer would record a change nobody made. As
+with `add_outflow_master_index`, **the `patches.txt` line is added by the maintainer, not the
+patch**.
+
 **Only `Settled` and `Skipped` are terminal** — narrower than v2, where a *finding* was terminal
 because reporting it was the whole job. Under v3 the import settles, so a row that found something
-and was never confirmed is unfinished work: `Matched` and `Mismatched` are both OPEN.
+and was never confirmed is unfinished work: `Matched` and `Mismatched` are both OPEN. That matters
+MORE after the merge: `Mismatched` is now the bulk of the work, not the exception.
 
 v2 → v3: `Reconciled` → `Skipped`/`Matched` · `Amount mismatch` → `Mismatched` ·
-`Reference mismatch` → **deleted** · `Control exception` → **deleted** (now `Unmatched`) ·
-`Completed with exceptions` → **deleted**.
+`Reference mismatch` → **deleted** · `Control exception` → **deleted** ·
+`Completed with exceptions` → **deleted**. v3 → now: `Unmatched` → `Mismatched`.
 
 ---
 
@@ -82,7 +112,7 @@ v2 → v3: `Reconciled` → `Skipped`/`Matched` · `Amount mismatch` → `Mismat
 3. TIER 0     normalised UTR equal                     (finds fan-out; payments)
 4. TIER 1     beneficiary account AND IFSC = a vendor's, amount +-Re 1 (payments)
 5. TIER 2     amount +-Rs 5 AND the remark names the record's project  (payments + Project Expenses)
-6. OUTCOME    >=1 approved candidate -> Matched     else -> Unmatched
+6. OUTCOME    >=1 approved candidate -> Matched     else -> Mismatched
 ```
 
 **A lower tier never tops up a higher one.** Two candidates pre-select nothing, so reaching into
@@ -117,7 +147,7 @@ candidates and pre-selected nothing. That was the practical ceiling on how often
 Description text (payee name / account / IFSC) still RANKS the candidates the project gate admitted.
 
 ⚠️ **DELETED, and not by oversight: the old Pass B** (vendor-by-name + amount + date ±3d). Rows it
-used to catch now arrive `Unmatched` and are linked by hand. Owner's call, made with the loss stated.
+used to catch now arrive `Mismatched` and are linked by hand. Owner's call, made with the loss stated.
 
 ---
 
@@ -136,11 +166,11 @@ used to catch now arrive `Unmatched` and are linked by hand. Owner's call, made 
    single group, which is why a fully green suite said nothing.** `test_status._match_many` exists
    to build the N-separate-groups shape; use it for any new candidate test.
 
-1. **Only `Approved` is ever matched.** `Requested` / `CEO Pending` → plain `Unmatched`. No status,
+1. **Only `Approved` is ever matched.** `Requested` / `CEO Pending` → plain `Mismatched`. No status,
    no nudge, no approval deep link. This REVERSED an earlier goal (surfacing the 111 CEO-Pending
    payments); it was removed deliberately and must not be re-added.
 2. **The already-Paid check is a SKIP, not a match** (Q14) — and it is the **only** route to
-   `Mismatched`. Delete it and a hand-ticked payment reads `Unmatched`, and the obvious next click
+   `Mismatched`. Delete it and a hand-ticked payment reads `Mismatched` carrying the FOUND-NOTHING note, and the obvious next click
    books the same money twice.
 3. **`Mismatched` is AMOUNTS ONLY, and only beyond the settle window.** The v2 `Reference mismatch`
    branch is deleted, not folded in. A reference is only ever *written into a blank*, never compared.
@@ -373,5 +403,5 @@ suite exercises TIER 0 and nothing else.** `TestTheTierLadderEndToEnd` is the de
 it plants junk-UTR payments plus a fabricated vendor and project to drive tiers 1 and 2 through the
 real endpoint. It exists to cover the WIRING (that `_load_pools` loads a project index and that it
 reaches `match_row`), which every pure test would pass without. Its **control** — row 0006, identical
-in every respect except that its remark names no project, and which must stay `Unmatched` — is the
+in every respect except that its remark names no project, and which must stay `Mismatched` — is the
 assertion that fails first if tier 2 ever stops requiring one.

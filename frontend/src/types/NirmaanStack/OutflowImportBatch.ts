@@ -179,8 +179,11 @@ export interface OutflowImportSummary {
         skipped_value: number;
         matched_rows: number;
         matched_value: number;
-        unmatched_rows: number;
-        unmatched_value: number;
+        /**
+         * ⚠️ ABSORBED `unmatched_rows` / `unmatched_value` (owner ruling 2026-08-10). It was the
+         * rare figure -- 0 on almost every import -- and is now the productive one, carrying most
+         * of a statement's work.
+         */
         mismatched_rows: number;
         mismatched_value: number;
         pending_rows: number;

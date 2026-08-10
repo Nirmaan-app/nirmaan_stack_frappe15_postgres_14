@@ -31,6 +31,7 @@ import {
     type RowDecision,
     type SettleableRecord,
 } from "../outflowTableModel";
+import { ROW_MISMATCHED } from "../outflowImportStatus";
 import { SettleableRecordTable } from "./SettleableRecordTable";
 
 const PROJECT_EXPENSE = "Project Expenses";
@@ -245,7 +246,17 @@ const WhyThisSuggestion = ({ row }: { row: OutflowImportRow }) => {
         );
     }
     if (row.outcome_note) bullets.push(row.outcome_note);
-    if (row.row_status === "Unmatched") {
+    // ⚠️ THIS USED TO BRANCH ON `row_status === "Unmatched"`, AND THAT STATUS IS GONE (merged into
+    // `Mismatched`, owner 2026-08-10). The line only makes sense for ONE of the merged status's two
+    // causes -- the FOUND-NOTHING one, where "we looked and offered you nothing" needs explaining.
+    // On the other cause a record WAS found, and is already recorded as Paid; telling that reader
+    // "only approved records are offered here" answers a question they did not ask.
+    //
+    // The two are told apart by `related_payments`, which the endpoint populates precisely when an
+    // already-Paid record shares this transfer's reference. Keying on the NOTE TEXT would have
+    // worked too and is exactly the guessing `rowSettlementLinks` documents as forbidden: the
+    // sentence is written for a person, and the database already holds the fact.
+    if (row.row_status === ROW_MISMATCHED && !(row.related_payments ?? []).length) {
         bullets.push("Only approved records are ever offered here.");
     }
     if (!bullets.length) return null;

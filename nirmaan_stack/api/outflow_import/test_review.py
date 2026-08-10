@@ -179,7 +179,7 @@ class OutflowReviewFixture(unittest.TestCase):
         # 0001 -- APPROVED, exact amount: the clean settle candidate. -> Matched
         cls.pay_clean = cls._make_payment(cls._row("0001"), status="Approved")
         # 0003 -- PAID, exact amount: somebody ticked it by hand before this upload. Owner ruling
-        # Q14, and the reason it exists: without this the row reads Unmatched and the obvious next
+        # Q14, and the reason it exists: without this the row reads Mismatched and the obvious next
         # click books the same money twice. -> Skipped
         cls.pay_already = cls._make_payment(cls._row("0003"), status="Paid")
         # 0004 + 0005 -- a FAN-OUT of APPROVED payments: one bank reference, two payments whose
@@ -189,7 +189,7 @@ class OutflowReviewFixture(unittest.TestCase):
         cls.pay_fan_b = cls._make_payment(fan, amount=float(fan.amount) / 2, status="Approved")
         # 0006 -- CEO PENDING. The reversal: v2 called this a `Control exception` and nudged
         # somebody to approve it. v3 offers nothing that cannot be settled, so the payment is not
-        # in the pool at all. -> Unmatched
+        # in the pool at all. -> Mismatched
         cls.pay_unapproved = cls._make_payment(cls._row("0006"), status="CEO Pending")
         # 0007 -- PAID but for MORE than left the bank: the classic deduction shape, and the only
         # route to Mismatched now that both candidate passes match on an exact amount.
@@ -198,7 +198,7 @@ class OutflowReviewFixture(unittest.TestCase):
             seven, amount=float(seven.amount) + 100, status="Paid"
         )
         # 0008 -- REQUESTED. Proves the narrowing is not CEO-Pending-specific: nothing below
-        # Approved is settleable, on any ledger (owner ruling Q3). -> Unmatched
+        # Approved is settleable, on any ledger (owner ruling Q3). -> Mismatched
         cls.pay_requested = cls._make_payment(cls._row("0008"), status="Requested")
 
     @classmethod
@@ -241,8 +241,13 @@ class TestMatchBatch(OutflowReviewFixture):
         """Owner ruling Q14. The row that stops the same money being booked twice.
 
         Under Q12 mixed usage is normal -- half a statement ticked by hand before upload -- so this
-        is the COMMON case. Delete the duplicate query and this row reads `Unmatched`, whose
-        obvious next click is "create a new expense".
+        is the COMMON case. Delete the duplicate query and this row reads `Mismatched` carrying the
+        FOUND-NOTHING note, whose obvious next click is "create a new expense" -- and the money is
+        booked a second time.
+
+        ⚠️ THE MERGE MADE THAT FAILURE QUIETER, NOT LOUDER. Before 2026-08-10 the broken version
+        produced a different STATUS (`Unmatched`) from the correct one; now both are `Mismatched`
+        and only the note differs. Hence the note assertions below -- they are the whole test.
         """
         row = self._rows_by_transfer_suffix()["0003"]
         self.assertEqual(row["row_status"], "Skipped")
@@ -256,25 +261,26 @@ class TestMatchBatch(OutflowReviewFixture):
         self.assertIn(self.pay_fan_a, row["outcome_note"])
         self.assertIn(self.pay_fan_b, row["outcome_note"])
 
-    def test_a_ceo_pending_payment_is_unmatched_with_no_nudge(self):
+    def test_a_ceo_pending_payment_is_mismatched_with_no_nudge(self):
         """THE REVERSAL, pinned. v2 called this a `Control exception` and pointed at an approval
         queue. v3 offers nothing that cannot be settled: the payment is not in the candidate pool,
-        so the row is plainly `Unmatched` and the note mentions neither approval nor the CEO.
+        so the row is plainly `Mismatched` -- the found-nothing half -- and the note mentions neither
+        approval nor the CEO.
 
         This reverses an earlier stated goal -- surfacing the 111 CEO-Pending payments -- which was
         removed deliberately. A failure here most likely means the candidate query was widened back.
         """
         row = self._rows_by_transfer_suffix()["0006"]
-        self.assertEqual(row["row_status"], "Unmatched")
+        self.assertEqual(row["row_status"], "Mismatched")
         self.assertNotIn("CEO", row["outcome_note"])
         self.assertNotIn("approval", row["outcome_note"].lower())
 
-    def test_a_requested_payment_is_unmatched_too(self):
+    def test_a_requested_payment_is_mismatched_too(self):
         """The narrowing is not CEO-Pending-specific: nothing below Approved settles, on any
         ledger (owner ruling Q3, which also removed v2's Requested exception for non-project
         expenses)."""
         row = self._rows_by_transfer_suffix()["0008"]
-        self.assertEqual(row["row_status"], "Unmatched")
+        self.assertEqual(row["row_status"], "Mismatched")
 
     def test_amount_disagreement_is_mismatched_with_the_implied_rate(self):
         """The ONLY route to Mismatched: an already-Paid record whose amount disagrees. Both
@@ -285,9 +291,9 @@ class TestMatchBatch(OutflowReviewFixture):
         self.assertIn("TDS", row["outcome_note"])
         self.assertIn(self.pay_short, row["outcome_note"])
 
-    def test_rows_with_no_target_are_unmatched(self):
+    def test_rows_with_no_target_are_mismatched(self):
         row = self._rows_by_transfer_suffix()["0009"]
-        self.assertEqual(row["row_status"], "Unmatched")
+        self.assertEqual(row["row_status"], "Mismatched")
 
     def test_a_skipped_row_is_never_re_matched(self):
         # The FAILED transfer was skipped at upload. Matching must leave that decision alone --
@@ -473,14 +479,16 @@ class TestSuggestionIsPersisted(OutflowReviewFixture):
         row = self._rows_by_transfer_suffix()["0009"]
         self.assertIn("bank reference is recorded on it", row["outcome_note"])
 
-    def test_no_unmatched_row_anywhere_carries_a_suggestion(self):
-        """Asserted across every row rather than one named one: which fixture rows end up Unmatched
-        depends on the live ledger, and the rule does not."""
-        unmatched = [
-            r for r in self._rows_by_transfer_suffix().values() if r["row_status"] == "Unmatched"
+    def test_no_mismatched_row_anywhere_carries_a_suggestion(self):
+        """Asserted across every row rather than one named one: which fixture rows end up here
+        depends on the live ledger, and the rule does not. Since the 2026-08-10 merge this set also
+        holds the amount-disagreement rows, which never carried a suggestion either -- so the
+        assertion WIDENED without weakening."""
+        mismatched = [
+            r for r in self._rows_by_transfer_suffix().values() if r["row_status"] == "Mismatched"
         ]
-        self.assertTrue(unmatched)
-        for row in unmatched:
+        self.assertTrue(mismatched)
+        for row in mismatched:
             self.assertIsNone(row["suggested_name"], row["transfer_id"])
             self.assertIsNone(row["suggested_doctype"], row["transfer_id"])
 
@@ -515,11 +523,11 @@ class TestSuggestionIsPersisted(OutflowReviewFixture):
         this morning's pick, and the screen would open it already ticked against a record the
         matcher has since rejected. Nothing on the screen would show that.
 
-        The stale value is planted on whichever row is Unmatched rather than a named one -- which
-        rows end up Unmatched depends on the live ledger, and the clearing rule does not.
+        The stale value is planted on whichever row is Mismatched rather than a named one -- which
+        rows end up there depends on the live ledger, and the clearing rule does not.
         """
         target = next(
-            r for r in self._rows_by_transfer_suffix().values() if r["row_status"] == "Unmatched"
+            r for r in self._rows_by_transfer_suffix().values() if r["row_status"] == "Mismatched"
         )
         self.assertIsNone(target["suggested_name"])
         frappe.db.set_value(
@@ -1136,10 +1144,10 @@ class TestTheTierLadderEndToEnd(OutflowReviewFixture):
         """⚠️ THE CONTROL, AND IT IS THE MOST LOAD-BEARING TEST IN THIS CLASS. Row 0006 has an
         approved payment planted at its exact amount, in a project, with a junk UTR -- everything
         the row above has -- and differs ONLY in that its remark names no project. It must stay
-        `Unmatched`. If tier 2 ever stops requiring the project, the amount pool is wide enough that
+        `Mismatched`. If tier 2 ever stops requiring the project, the amount pool is wide enough that
         this row matches instantly, and this assertion is what says so."""
         row = self._rows_by_transfer_suffix()["0006"]
-        self.assertEqual(row["row_status"], "Unmatched")
+        self.assertEqual(row["row_status"], "Mismatched")
         self.assertIsNone(row["suggested_name"])
 
 
