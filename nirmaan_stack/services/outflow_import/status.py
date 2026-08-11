@@ -467,6 +467,30 @@ def _nothing_found_note() -> str:
     )
 
 
+def several_found_note(count: int) -> str:
+    """The `Mismatched` note for the THIRD cause: several records found, none chosen.
+
+    ⚠️ `Mismatched` NOW CARRIES THREE FACTS, AND THE SENTENCES MUST NEVER CONVERGE. The merge that
+    folded `Unmatched` in was allowed on the explicit condition that `outcome_note` keeps the causes
+    apart, because the status no longer can:
+
+        `_nothing_found_note`  nothing matched at all           -> record or link one
+        `_delta_note`          already Paid, amounts disagree    -> a deduction such as TDS
+        `several_found_note`   several matched, none chosen      -> pick which one
+
+    ⚠️ THE FAILURE THIS PREVENTS IS SPECIFIC AND EXPENSIVE. Before the sweep that uses it, a row
+    that found six approved records sat under `Matched` -- the tab meaning "this transfer has a
+    record" -- carrying a note that read as a successful match. Moving it to `Not-Matched` without
+    a note of its own would swing it to the opposite lie: "no approved payment or expense matches
+    this transfer", said about a transfer that matched six. Both readings send the reviewer to
+    create a duplicate expense for money that is already approved and waiting.
+    """
+    return (
+        f"{count} approved records match this transfer and nothing could separate them. "
+        f"Open the row and pick which one it settled."
+    )
+
+
 def _delta_note(bank_amount: Decimal, total: Decimal, group) -> str:
     delta = total - bank_amount
     if delta > 0:

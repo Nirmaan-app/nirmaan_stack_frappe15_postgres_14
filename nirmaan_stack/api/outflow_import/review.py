@@ -43,6 +43,7 @@ from nirmaan_stack.services.outflow_import.claims import (
 )
 from nirmaan_stack.services.outflow_import.disambiguate import (
     RULE_SOLE,
+    RULE_STACK_NEAREST_DATE,
     RULE_STACK_PAIRING,
     Candidate,
     pick_from_several,
@@ -62,6 +63,7 @@ from nirmaan_stack.services.outflow_import.stacks import (
     pair_stack,
     stack_key,
     stack_note,
+    stack_surplus_note,
 )
 from nirmaan_stack.services.outflow_import.status import (
     OPEN_ROW_STATUSES,
@@ -76,6 +78,7 @@ from nirmaan_stack.services.outflow_import.status import (
     StatusTally,
     derive_batch_counters,
     derive_batch_status,
+    several_found_note,
     derive_import_summary,
     derive_row_outcome,
     sole_suggestion,
@@ -143,6 +146,7 @@ def match_batch(batch: str):
     paired = 0
     released = 0
     picked = 0
+    swept = 0
     if matchable:
         pools = _load_pools(matchable, batch)
         results: dict = {}
@@ -177,7 +181,12 @@ def match_batch(batch: str):
         # re-find (see `_persist_row_outcome`), so a pairing written mid-loop would be wiped by the
         # next row's clear. The stack pass also needs the loop's finished output -- which rows ended
         # up with a sole suggestion -- to know which records are already spoken for.
-        paired = _resolve_stacks(matchable, pools)
+        paired, noted_surplus = _resolve_stacks(matchable, pools)
+
+        # ⚠️ LAST, AFTER ALL THREE PASSES. "Several candidates and nobody picked one" only becomes
+        # a fact once every pass entitled to pick has declined -- deciding it in the per-row loop
+        # would sweep rows the stack pass was about to pair.
+        swept = _sweep_unresolved_to_mismatched(results, noted_surplus)
 
     statuses = _refresh_batch_rollup(batch)
     frappe.db.commit()
@@ -191,6 +200,9 @@ def match_batch(batch: str):
         # Rows where a rule separated several approved records (Option B). Reported so a run that
         # leans hard on the rules is visible rather than silently pre-selecting more than usual.
         "rule_picked_rows": picked,
+        # Rows that found approved records but ended with no pre-selection, and now read as
+        # Not-Matched. Reported so a run leaving a lot of decisions on the table is visible.
+        "swept_to_mismatched_rows": swept,
         "counters": derive_batch_counters(statuses),
         "status": derive_batch_status(statuses),
     }
@@ -349,6 +361,7 @@ def _disambiguation_candidates(result) -> list:
                 name=target.name,
                 amount=normalize_amount(target.amount),
                 project=(getattr(target, "project", "") or ""),
+                decided_on=getattr(target, "decided_on", None),
             )
         )
     return out
@@ -453,6 +466,10 @@ def _disambiguate_matched(results: dict, pools: dict) -> int:
             # Either way there is nothing here to disambiguate.
             continue
 
+        # ⚠️ `added_on_date`, NOT `added_on`. M4 subtracts this from a candidate's `date`, and a
+        # `datetime` on either side raises rather than comparing.
+        transfer_date = getattr(row, "added_on_date", None)
+
         pick = pick_from_several(
             bank_amount=normalize_amount(row.amount),
             candidates=candidates,
@@ -460,6 +477,7 @@ def _disambiguate_matched(results: dict, pools: dict) -> int:
             project_index=pools.get("projects"),
             claimed=claimed,
             allow_interchangeable=not _in_a_stack(row),
+            transfer_date=transfer_date,
         )
         if pick is None:
             continue
@@ -475,7 +493,9 @@ def _disambiguate_matched(results: dict, pools: dict) -> int:
                 # The tier that FOUND the candidates. Option B chose between them; it did not find
                 # them, so the basis is still the ladder's.
                 "match_basis": (getattr(result, "tier", "") or None),
-                "outcome_note": pick_note(pick, candidates, normalize_amount(row.amount)),
+                "outcome_note": pick_note(
+                    pick, candidates, normalize_amount(row.amount), transfer_date
+                ),
             },
             update_modified=False,
         )
@@ -626,16 +646,42 @@ def _resolve_stacks(matchable, pools) -> int:
     stacks = group_into_stacks(staged, _records_for)
 
     paired = 0
+    # Rows this pass explained as an unbalanced stack. Handed back so the final sweep does not
+    # overwrite the specific reason with its generic one -- it runs after this and would.
+    noted_surplus: set[str] = set()
     for stack in stacks:
         available = tuple(t for t in stack.records if t.name not in claimed)
         candidate = Stack(key=stack.key, transfers=stack.transfers, records=available)
         pairs = pair_stack(candidate)
         if not pairs:
             # Unbalanced: some transfer would settle nothing, or some record would go unclaimed.
-            # Choosing which is a judgement about money, and it belongs to a person -- these rows
-            # keep exactly the outcome the per-row matcher gave them.
+            # Choosing which is a judgement about money, and it belongs to a person -- so nothing is
+            # paired and no suggestion is written.
+            #
+            # ⚠️ THE ROWS DO GET A NOTE, AND THAT NOTE IS WHAT THE DELETED "Resolve N stacks" SCREEN
+            # USED TO SAY. Its rows now land in the ordinary worklist, where "several matched and
+            # nothing separated them" would send a reviewer hunting for a record that does not
+            # exist. Only the STATUS is left alone here; the explanation is the point.
+            #
+            # ⚠️ ONLY WHEN THE STACK ACTUALLY HAS RECORDS, and this guard cost a red test to find.
+            # An EMPTY record set means one of two things and this pass cannot tell them apart:
+            # every record was claimed by another transfer, OR the stack was DISQUALIFIED because
+            # its candidates include a fan-out (`_stack_records` returns nothing for one, ruling
+            # Q4). In the second case the row is a perfectly good fan-out MATCH carrying
+            # `_matched_note` -- "one transfer settling 2 approved payments" -- and writing a
+            # surplus note over it replaces a true statement with a false one, on a row that needs
+            # no attention at all. A note that cannot tell those two apart must assert neither.
+            if not candidate.records:
+                continue
+            surplus = stack_surplus_note(candidate)
+            for transfer in candidate.transfers:
+                frappe.db.set_value(
+                    ROW_DOCTYPE, transfer.name, {"outcome_note": surplus}, update_modified=False
+                )
+                noted_surplus.add(transfer.name)
             continue
-        for transfer, record in pairs:
+        for pair in pairs:
+            transfer, record = pair.transfer, pair.record
             frappe.db.set_value(
                 ROW_DOCTYPE,
                 transfer.name,
@@ -643,20 +689,99 @@ def _resolve_stacks(matchable, pools) -> int:
                     "suggested_doctype": record.doctype,
                     "suggested_name": record.name,
                     # ⚠️ THIS IS THE ROW CLASS THE PROVENANCE FIELDS WERE ADDED FOR. A stack pairing
-                    # is deterministic but ARBITRARY -- identical transfers zipped against identical
-                    # records -- and until now it carried a blank rule, so the confirm dialog filed
-                    # all 112 of them under "Only candidate": the arbitrary picks presented as the
-                    # safest kind there is.
-                    "suggestion_rule": RULE_STACK_PAIRING,
+                    # is deterministic but was ALWAYS ARBITRARY -- identical transfers zipped against
+                    # identical records -- and until the fields existed it carried a blank rule, so
+                    # the confirm dialog filed all 112 of them under "Only candidate": the arbitrary
+                    # picks presented as the safest kind there is.
+                    #
+                    # ⚠️ TWO VALUES NOW, AND THEY MUST NOT BE COLLAPSED. A pair the decision dates
+                    # actually separated is not the same fact as a coin flip between twins, and the
+                    # whole reason this field exists is that one value covering two facts is how the
+                    # arbitrary ones hid. Measured on the live statement: of 112 stack pairings, 25
+                    # are evidence, 76 arbitrary, 11 in stacks that no longer balance.
+                    "suggestion_rule": (
+                        RULE_STACK_NEAREST_DATE if pair.is_evidence else RULE_STACK_PAIRING
+                    ),
                     "auto_matched": 1,
                     "match_basis": basis_by_key.get(stack.key) or None,
-                    "outcome_note": stack_note(candidate, record.name),
+                    "outcome_note": stack_note(candidate, record.name, pair.basis),
                 },
                 update_modified=False,
             )
             claimed.add(record.name)
             paired += 1
-    return paired
+    return paired, noted_surplus
+
+
+def _sweep_unresolved_to_mismatched(results: dict, keep_notes: set) -> int:
+    """Any row still `Matched` with NO suggestion becomes `Mismatched` (owner ruling 2026-08-11).
+
+    ⚠️ IT CANNOT LIVE IN `derive_row_outcome`, AND THAT IS WHY IT IS A SWEEP. That function runs in
+    the per-row loop, BEFORE the claim pass, Option B and the stack pass have had their say -- at
+    that moment "several candidates and no pick" is not yet a fact, because three passes are still
+    entitled to make one. The status can only be decided once they have all finished.
+
+    WHY THE ROWS MOVE AT ALL. `Matched` shares a tab with `Settled` under the reviewer's heading
+    "this transfer has a record". A row that found six records and chose none has NOT got a record;
+    it has a decision waiting, and it belongs in the worklist with the rest of the open work.
+
+    ⚠️ IT NEVER TOUCHES A ROW THAT HAS A SUGGESTION. A pre-selected row is exactly the case
+    `Matched` is for, and sweeping one into `Not-Matched` would hide the confirmable work.
+
+    ⚠️ NOR A FAN-OUT, NOR A SINGLE-CANDIDATE ROW. Both are `Matched` with no suggestion for reasons
+    that are not "nothing could be chosen" -- see the guard in the loop. Only a row the matcher gave
+    SEVERAL comparable records, none of which any pass would pick, has a decision genuinely waiting.
+
+    ⚠️ `keep_notes` IS NOT AN OPTIMISATION. The stack pass has already written the SPECIFIC reason
+    on unbalanced-stack rows -- seven transfers, six records -- and this pass's generic sentence is
+    strictly less informative. Overwriting it would delete the explanation that the deleted stack
+    screen was replaced by, one pass after writing it.
+
+    ⚠️ THE COUNT COMES FROM THE MATCH RESULT, NOT FROM A STORED COLUMN -- there is no
+    `candidate_count` field on the doctype, and adding one to carry a sentence would be a migrate
+    for a number this function already holds. `settleable_candidates` is the SAME list
+    `_matched_note` counts and `sole_suggestion` reads, so the note cannot disagree with the one the
+    row carried a moment earlier.
+    """
+    names = [name for name, (_row, _res, outcome) in results.items() if outcome.status == ROW_MATCHED]
+    if not names:
+        return 0
+
+    placeholders = ", ".join(["%s"] * len(names))
+    stale = frappe.db.sql(
+        f"""
+        SELECT name FROM "tabOutflow Import Row"
+        WHERE name IN ({placeholders})
+          AND row_status = %s
+          AND COALESCE(suggested_name, '') = ''
+        """,
+        (*names, ROW_MATCHED),
+        as_dict=True,
+    )
+    swept = 0
+    for row in stale:
+        _row, result, _outcome = results[row["name"]]
+
+        # ⚠️ A FAN-OUT IS `Matched` WITH NO SUGGESTION *BY DESIGN*, AND MUST NOT BE SWEPT. One
+        # transfer covering several approved payments is a genuine match -- it carries no
+        # `suggested_name` only because a `(doctype, name)` pair cannot hold a GROUP, not because
+        # nothing could be chosen. Fan-out is report-only by ruling Q4, so the row is meant to sit
+        # in `Matched` and say what it found; moving it to `Not-Matched` would report a successful
+        # match as an unresolved one and invite someone to book the money a second time.
+        #
+        # `_disambiguation_candidates` returns [] for a set containing a fan-out -- the same
+        # abstention Option B makes -- so this reuses that judgement rather than re-deriving
+        # "is this a fan-out", which is exactly the second opinion that list's docstring warns of.
+        candidates = _disambiguation_candidates(result)
+        if len(candidates) < 2:
+            continue
+
+        payload = {"row_status": ROW_MISMATCHED}
+        if row["name"] not in keep_notes:
+            payload["outcome_note"] = several_found_note(len(candidates))
+        frappe.db.set_value(ROW_DOCTYPE, row["name"], payload, update_modified=False)
+        swept += 1
+    return swept
 
 
 def _stack_records_with_basis(representative, pools) -> tuple:
@@ -736,135 +861,6 @@ def _load_open_rows_for_keys(keys) -> list:
         tuple(params),
         as_dict=True,
     )
-
-
-@frappe.whitelist()
-def get_unpaired_stacks(limit=25):
-    """The stacks a person still has to resolve: same vendor, same amount, counts do NOT match.
-
-    ⚠️ THIS IS THE LEFTOVER OF `_resolve_stacks`, AND ONLY THE LEFTOVER. A balanced stack is already
-    paired and needs no screen; what lands here is the shape no rule can settle -- 7 transfers
-    against 6 approved payments, where SOME transfer settles nothing and choosing which is a
-    judgement about money. Three such stacks survived on the owner's first real statement, and they
-    are the reason this endpoint exists rather than the pass simply reporting a number.
-
-    ⚠️ IT SPANS EVERY IMPORT, exactly as the pass does. A stack does not respect batch boundaries,
-    so scoping this to one would show a person half of their own problem.
-
-    It writes NOTHING. Resolving a stack goes through `settle_row`, one call per pair, so the lock,
-    the already-Paid guard and the X1 amount rewrite all apply unchanged -- and a failure on the
-    third pair leaves the first two written and the rest attemptable.
-    """
-    require_outflow_access()
-    limit = max(1, min(int(limit or 25), 100))
-
-    rows = _load_unstacked_open_rows()
-    if not rows:
-        return {"stacks": [], "total": 0}
-
-    staged = [_StagedRow(r) for r in rows]
-    # ⚠️ `_load_pools` IGNORES ITS `batch` ARGUMENT -- it filters by the ROWS it is given, never by
-    # the batch. Passing None is honest about that rather than inventing a batch this read has no
-    # business naming; a stack spans imports and there is no single batch to pass.
-    pools = _load_pools(staged, None)
-    by_name = {r["name"]: r for r in rows}
-
-    stacks = group_into_stacks(staged, lambda key, transfers: _stack_records(transfers[0], pools))
-    unpaired = [s for s in stacks if not s.is_balanced and s.records]
-
-    return {
-        "stacks": [_stack_payload(s, by_name) for s in unpaired[:limit]],
-        "total": len(unpaired),
-    }
-
-
-def _load_unstacked_open_rows() -> list:
-    """OPEN rows with no suggestion that share an (account, amount) with at least one other.
-
-    ⚠️ THE `HAVING COUNT(*) > 1` IS IN THE DATABASE, not in Python. A read that pulled every open
-    row and grouped them in a loop would get slower every month the feature is used, and ADR-0010
-    puts a count over many rows in the database. The subquery narrows to the handful of keys that
-    can possibly form a stack before a single row is materialised.
-
-    ⚠️ ROWS THAT ALREADY CARRY A SUGGESTION ARE EXCLUDED HERE, which is what makes this read agree
-    with `_resolve_stacks`. That pass skips them too -- a row the per-row matcher spoke for is not
-    ambiguous -- so counting them would show a person a stack the pass has a different view of.
-    """
-    status_ph = ", ".join(["%s"] * len(OPEN_ROW_STATUSES))
-    statuses = sorted(OPEN_ROW_STATUSES)
-
-    return frappe.db.sql(
-        f"""
-        SELECT r.name, r.transfer_id, r.added_on, r.amount, r.status_raw, r.beneficiary_name,
-               r.bank_account, r.ifsc, r.remarks, r.bank_reference_no, r.normalized_account,
-               r.normalized_reference, r.row_status, r.import_batch,
-               b.original_filename AS import_filename
-        FROM "tabOutflow Import Row" r
-        LEFT JOIN "tabOutflow Import Batch" b ON b.name = r.import_batch
-        WHERE r.row_status IN ({status_ph})
-          AND COALESCE(r.suggested_name, '') = ''
-          AND COALESCE(r.normalized_account, '') <> ''
-          AND (r.normalized_account, r.amount) IN (
-              SELECT normalized_account, amount
-              FROM "tabOutflow Import Row"
-              WHERE row_status IN ({status_ph})
-                AND COALESCE(suggested_name, '') = ''
-                AND COALESCE(normalized_account, '') <> ''
-              GROUP BY normalized_account, amount
-              HAVING COUNT(*) > 1
-          )
-        ORDER BY r.normalized_account, r.amount, r.added_on, r.name
-        """,
-        tuple(statuses) * 2,
-        as_dict=True,
-    )
-
-
-def _stack_payload(stack, by_name: dict) -> dict:
-    """One unpaired stack, as the screen reads it.
-
-    The records carry the facts a reviewer picks by -- vendor, project, status -- loaded through the
-    SAME `_targets_by_name` the confirm list uses, so the two screens can never describe one record
-    differently. Status is RE-READ rather than trusted from the match run: a payment ticked Paid by
-    hand since then must not be offered here as though it were still available.
-    """
-    details: dict = {}
-    for doctype in {t.doctype for t in stack.records}:
-        names = [t.name for t in stack.records if t.doctype == doctype]
-        details.update({(doctype, k): v for k, v in _targets_by_name(doctype, names).items()})
-
-    first = by_name.get(stack.transfers[0].name, {})
-    return {
-        "account": stack.key.account,
-        "amount": float(stack.key.amount),
-        "beneficiary_name": first.get("beneficiary_name") or "",
-        "surplus_transfers": stack.surplus_transfers,
-        "surplus_records": stack.surplus_records,
-        "transfers": [
-            {
-                "name": t.name,
-                "transfer_id": t.transfer_id,
-                "added_on": by_name.get(t.name, {}).get("added_on"),
-                "amount": float(t.amount),
-                "remarks": t.remarks,
-                "bank_reference_no": t.bank_reference_no,
-                "import_batch": by_name.get(t.name, {}).get("import_batch"),
-                "import_filename": by_name.get(t.name, {}).get("import_filename"),
-            }
-            for t in stack.transfers
-        ],
-        "records": [
-            {
-                "target_doctype": t.doctype,
-                "target_name": t.name,
-                "amount": float(normalize_amount(details.get((t.doctype, t.name), {}).get("amount", t.amount))),
-                "status": details.get((t.doctype, t.name), {}).get("status") or "",
-                "vendor_name": details.get((t.doctype, t.name), {}).get("vendor_name") or "",
-                "project_name": details.get((t.doctype, t.name), {}).get("project_name") or "",
-            }
-            for t in stack.records
-        ],
-    }
 
 
 def _sole_vendor(result):

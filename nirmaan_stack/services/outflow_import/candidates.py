@@ -54,6 +54,7 @@ from nirmaan_stack.services.outflow_import.ledgers import (
     PAID,
     PAYMENT_DOCTYPE,
     PROJECT_EXPENSE_DOCTYPE,
+    decided_on_sql,
     settleable_statuses,
 )
 from nirmaan_stack.services.outflow_import.matcher import TargetRef, VendorIndex, VendorRef, build_vendor_index
@@ -80,6 +81,13 @@ __all__ = [
 _PAYMENT_STATUSES = settleable_statuses(PAYMENT_DOCTYPE)
 _PROJECT_EXPENSE_STATUSES = settleable_statuses(PROJECT_EXPENSE_DOCTYPE)
 _NON_PROJECT_EXPENSE_STATUSES = settleable_statuses(NON_PROJECT_EXPENSE_DOCTYPE)
+
+# The M4 nearest-date input, selected under one alias on every ledger so the target builders read
+# one key. The EXPRESSIONS live in `ledgers.DECIDED_ON_SQL` -- see the warning there about why this
+# value may be matched on but must never be displayed as an approval.
+_PAYMENT_DECIDED_ON = f"{decided_on_sql(PAYMENT_DOCTYPE)} AS decided_on"
+_PROJECT_EXPENSE_DECIDED_ON = f"{decided_on_sql(PROJECT_EXPENSE_DOCTYPE)} AS decided_on"
+_NON_PROJECT_EXPENSE_DECIDED_ON = f"{decided_on_sql(NON_PROJECT_EXPENSE_DOCTYPE)} AS decided_on"
 
 
 def amount_window_sql(column: str, amounts: Sequence[Decimal]) -> tuple[str, list]:
@@ -193,7 +201,8 @@ def _payments_by_reference(
     status_ph = ", ".join(["%s"] * len(statuses))
     rows = frappe.db.sql(
         f"""
-        SELECT name, amount, status, vendor, utr, payment_date, project, document_type, document_name
+        SELECT name, amount, status, vendor, utr, payment_date, project, document_type,
+               document_name, {_PAYMENT_DECIDED_ON}
         FROM "tabProject Payments"
         WHERE utr IS NOT NULL AND utr <> ''
           AND upper(btrim(utr)) IN ({reference_ph})
@@ -233,7 +242,8 @@ def load_payments_by_amount(amounts: Sequence[Decimal]) -> tuple[TargetRef, ...]
 
     rows = frappe.db.sql(
         f"""
-        SELECT name, amount, status, vendor, utr, payment_date, project, document_type, document_name
+        SELECT name, amount, status, vendor, utr, payment_date, project, document_type,
+               document_name, {_PAYMENT_DECIDED_ON}
         FROM "tabProject Payments"
         WHERE {amount_clause}
           AND status IN ({status_ph})
@@ -274,7 +284,8 @@ def load_expense_targets(amounts: Sequence[Decimal]) -> tuple[TargetRef, ...]:
     project_ph = ", ".join(["%s"] * len(_PROJECT_EXPENSE_STATUSES))
     project_rows = frappe.db.sql(
         f"""
-        SELECT name, amount, status, projects, description, payment_ref, payment_date, type, vendor
+        SELECT name, amount, status, projects, description, payment_ref, payment_date, type,
+               vendor, {_PROJECT_EXPENSE_DECIDED_ON}
         FROM "tabProject Expenses"
         WHERE status IN ({project_ph})
           AND amount IS NOT NULL AND btrim(amount) <> ''
@@ -295,13 +306,15 @@ def load_expense_targets(amounts: Sequence[Decimal]) -> tuple[TargetRef, ...]:
                 txn_date=r.get("payment_date"),
                 project=r.get("projects") or None,
                 description=r.get("description") or "",
+                decided_on=_decided_on(r),
             )
         )
 
     non_project_ph = ", ".join(["%s"] * len(_NON_PROJECT_EXPENSE_STATUSES))
     non_project_rows = frappe.db.sql(
         f"""
-        SELECT name, amount, status, description, payment_ref, payment_date, type
+        SELECT name, amount, status, description, payment_ref, payment_date, type,
+               {_NON_PROJECT_EXPENSE_DECIDED_ON}
         FROM "tabNon Project Expenses"
         WHERE status IN ({non_project_ph})
           AND {non_project_amount_clause}
@@ -321,6 +334,7 @@ def load_expense_targets(amounts: Sequence[Decimal]) -> tuple[TargetRef, ...]:
                 txn_date=r.get("payment_date"),
                 project=None,
                 description=r.get("description") or "",
+                decided_on=_decided_on(r),
             )
         )
 
@@ -393,6 +407,20 @@ def find_earlier_batches_for_transfers(
     return seen
 
 
+def _decided_on(row: dict) -> date | None:
+    """The `decided_on` column as a plain `date`.
+
+    ⚠️ THE COERCION IS NOT COSMETIC. On a payment this is a `Date` column and arrives as a `date`;
+    on either expense it is `modified`, a `Datetime`, and arrives as a `datetime`. M4 subtracts this
+    from the transfer's date, and `date - datetime` raises `TypeError` -- so without this the rule
+    would work on payments and blow up on the first expense candidate it ever saw.
+    """
+    value = row.get("decided_on")
+    if value is None:
+        return None
+    return value.date() if hasattr(value, "date") else value
+
+
 def _payment_target(row: dict) -> TargetRef:
     return TargetRef(
         doctype=PAYMENT_DOCTYPE,
@@ -404,4 +432,5 @@ def _payment_target(row: dict) -> TargetRef:
         txn_date=row.get("payment_date"),
         project=row.get("project") or None,
         description="",
+        decided_on=_decided_on(row),
     )

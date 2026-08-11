@@ -151,6 +151,21 @@ class TargetRef:
     project: str | None = None
     description: str = ""
 
+    decided_on: date | None = None
+    """When this record was DECIDED -- the M4 nearest-date input. See `ledgers.DECIDED_ON_SQL`.
+
+    ⚠️ NOT `txn_date`, and the two must never be conflated. `txn_date` is `payment_date`, which on an
+    APPROVED record is blank or forward-looking -- it is written at fulfilment, which is the very
+    event this import performs. Matching on it would compare the bank's date against a date we are
+    about to write ourselves.
+
+    ⚠️ NOTHING BUT M4 READS THIS. It is an approval date on a payment and a modification timestamp on
+    an expense, so it means slightly different things per ledger; any other consumer would inherit
+    that ambiguity without inheriting M4's obligation to name the source in its note.
+
+    `None` where no date could be established, which makes M4 abstain rather than guess.
+    """
+
     @property
     def normalized_reference(self) -> str:
         return normalize_reference(self.reference)

@@ -9,19 +9,11 @@ import {
     RECORD_COLUMNS,
     activeFilterCount,
     amountVerdict,
-    assignedStackPairs,
     confirmFunnel,
     describeFrappeError,
     settleBlocker,
     previewCounts,
     statementDebit,
-    duplicateStackAssignments,
-    proposeStackPairs,
-    stackLabel,
-    stackPairsAreSubmittable,
-    stackSurplusNote,
-    stackIsCrossProject,
-    stackProjectSpread,
     tabCountParts,
     matchBasisLabel,
     ARBITRARY_SUGGESTION_RULES,
@@ -36,7 +28,6 @@ import {
     orderLabel,
     suggestionRuleLabel,
     type ConfirmableRow,
-    type UnpairedStack,
     ledgerLabel,
     parseRecordKey,
     recordDateLabel,
@@ -313,104 +304,6 @@ describe("the summary panel's figures", () => {
         for (const tile of summaryTiles({ ...totals, error_rows: 2 })) {
             expect(tile).not.toHaveProperty("statuses");
         }
-    });
-});
-
-describe("unpaired stacks", () => {
-    const stack = (transfers: number, records: number) => ({
-        account: "98765432101",
-        amount: 9000,
-        beneficiary_name: "APEX FABRICATION WORKS",
-        surplus_transfers: Math.max(transfers - records, 0),
-        surplus_records: Math.max(records - transfers, 0),
-        transfers: Array.from({ length: transfers }, (_, i) => ({
-            name: `OFR-${i + 1}`,
-            transfer_id: `T${i + 1}`,
-            amount: 9000,
-        })),
-        records: Array.from({ length: records }, (_, i) => ({
-            target_doctype: "Project Payments" as const,
-            target_name: `PAY-${i + 1}`,
-            amount: 9000,
-            status: "Approved",
-            vendor_name: "Apex",
-            project_name: "Site A",
-        })),
-    });
-
-    it("opens with transfer i against record i, up to the shorter side", () => {
-        // ⚠️ THE DIFFERENCE FROM THE SERVER'S `pair_stack`, which refuses an unbalanced stack
-        // outright because it would be DECIDING which transfer settles nothing. Here a person is
-        // present, so the surplus is left unassigned for them to place.
-        const pairs = proposeStackPairs(stack(3, 2));
-        expect(pairs).toEqual({
-            "OFR-1": "Project Payments|PAY-1",
-            "OFR-2": "Project Payments|PAY-2",
-        });
-        expect(pairs["OFR-3"]).toBeUndefined();
-    });
-
-    it("leaves surplus records unassigned too", () => {
-        expect(Object.keys(proposeStackPairs(stack(2, 3)))).toEqual(["OFR-1", "OFR-2"]);
-    });
-
-    it("catches a record assigned to two transfers", () => {
-        // ⚠️ THE ONE THING THE DIALOG MUST NOT LET THROUGH. The first settle marks the payment Paid
-        // and the second fails with AlreadyPaidError -- the exact failure the candidate-collapse
-        // fix was written to stop producing, re-created by hand.
-        const duplicates = duplicateStackAssignments({
-            "OFR-1": "Project Payments|PAY-1",
-            "OFR-2": "Project Payments|PAY-1",
-        });
-        expect([...duplicates]).toEqual(["Project Payments|PAY-1"]);
-    });
-
-    it("ignores blanks when looking for duplicates", () => {
-        expect(duplicateStackAssignments({ a: "", b: "" }).size).toBe(0);
-    });
-
-    it("submits a partial pairing, because the surplus is why a person is here", () => {
-        // Refusing to write the pairs someone DID make until they invent one for a transfer with no
-        // record would be a screen arguing with its own premise.
-        const s = stack(3, 2);
-        expect(stackPairsAreSubmittable(s, proposeStackPairs(s))).toBe(true);
-    });
-
-    it("refuses an empty pairing and a duplicated one", () => {
-        const s = stack(3, 2);
-        expect(stackPairsAreSubmittable(s, {})).toBe(false);
-        expect(
-            stackPairsAreSubmittable(s, {
-                "OFR-1": "Project Payments|PAY-1",
-                "OFR-2": "Project Payments|PAY-1",
-            })
-        ).toBe(false);
-    });
-
-    it("returns the assigned pairs in transfer order, split back into ledger and name", () => {
-        const s = stack(3, 2);
-        const assigned = assignedStackPairs(s, proposeStackPairs(s));
-        expect(assigned.map((a) => [a.transfer.name, a.target, a.name])).toEqual([
-            ["OFR-1", "Project Payments", "PAY-1"],
-            ["OFR-2", "Project Payments", "PAY-2"],
-        ]);
-    });
-
-    it("states the surplus in both directions, and says nothing when there is none", () => {
-        // A stack is here BECAUSE the counts do not match; a dialog showing only the pairs would
-        // let someone close it believing the whole stack was dealt with.
-        expect(stackSurplusNote(stack(3, 2))).toContain("1 transfer");
-        expect(stackSurplusNote(stack(3, 2))).toContain("stay open");
-        expect(stackSurplusNote(stack(2, 4))).toContain("2 approved records");
-        expect(stackSurplusNote(stack(2, 2))).toBe("");
-    });
-
-    it("names a stack by what it is, falling back to the account", () => {
-        const money = (n: number) => `₹${n.toLocaleString("en-IN")}`;
-        expect(stackLabel(stack(7, 6), money)).toBe("₹9,000 × 7 to APEX FABRICATION WORKS");
-        expect(stackLabel({ ...stack(2, 1), beneficiary_name: "" }, money)).toBe(
-            "₹9,000 × 2 to 98765432101"
-        );
     });
 });
 
@@ -1294,54 +1187,6 @@ describe("tabCountParts", () => {
         }
     });
 });
-
-// ------------------------------------------------------------------------------------------------
-// stackProjectSpread -- the fact that separates a harmless pairing from an expensive one
-// ------------------------------------------------------------------------------------------------
-
-describe("stackProjectSpread", () => {
-    const stack = (projects: (string | undefined)[]): UnpairedStack => ({
-        account: "ACC",
-        amount: 9000,
-        beneficiary_name: "VK Air Conditioning",
-        surplus_transfers: 0,
-        surplus_records: 1,
-        transfers: [],
-        records: projects.map((project_name, i) => ({
-            target_doctype: "Project Payments" as const,
-            target_name: `PAY-${i}`,
-            amount: 9000,
-            status: "Approved",
-            vendor_name: "VK Air Conditioning",
-            project_name: project_name as string,
-        })),
-    });
-
-    it("is not cross-project when every record is on one job", () => {
-        const s = stack(["Paytm Bangalore", "Paytm Bangalore"]);
-        expect(stackProjectSpread(s)).toEqual(["Paytm Bangalore"]);
-        expect(stackIsCrossProject(s)).toBe(false);
-    });
-
-    it("lists every distinct project once, in first-seen order", () => {
-        const s = stack(["Alpha", "Beta", "Alpha", "Gamma"]);
-        expect(stackProjectSpread(s)).toEqual(["Alpha", "Beta", "Gamma"]);
-        expect(stackIsCrossProject(s)).toBe(true);
-    });
-
-    // A blank is missing data, not a second project. Counting it would raise the warning on a stack
-    // that is merely incomplete, which is how a real signal gets trained away.
-    it("treats a blank or whitespace project as no project at all", () => {
-        const s = stack(["Alpha", "", "   ", undefined]);
-        expect(stackProjectSpread(s)).toEqual(["Alpha"]);
-        expect(stackIsCrossProject(s)).toBe(false);
-    });
-
-    it("is not cross-project when nothing carries a project", () => {
-        expect(stackIsCrossProject(stack(["", ""]))).toBe(false);
-    });
-});
-
 
 // ------------------------------------------------------------------------------------------------
 // the confirm rollup (S4) -- vendor -> project -> transfer
