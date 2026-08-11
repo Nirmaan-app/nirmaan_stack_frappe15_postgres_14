@@ -996,7 +996,8 @@ export const CustomerPODetailsCard: React.FC<CustomerPODetailsCardProps> = ({ pr
                     {projectId && projectNameForDialog && (
                         <AddCustomerPODialog 
                             projectName={projectNameForDialog}
-                            refetchProjectData={handlePoAdded} 
+                            manualProjectValue={projectDataForDialog?.manual_project_value}
+                            refetchProjectData={handlePoAdded}
                         />
                     )}
                     

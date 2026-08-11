@@ -403,13 +403,27 @@ export interface CustomerPODetail {
 interface AddCustomerPODialogProps {
     projectName: string; // Name of the parent Projects doc (e.g., "PROJ/0001")
     refetchProjectData: () => Promise<any>;
+    // 1 when the project's value was entered manually. Drives the step-2 override/keep choice.
+    manualProjectValue?: 0 | 1;
 }
 
 // REMOVED 'none' to enforce selection
 type LinkAttachmentChoice = 'link' | 'attachment'; 
 
-export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projectName, refetchProjectData }) => {
+export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projectName, refetchProjectData, manualProjectValue }) => {
     const [open, setOpen] = useState(false);
+    // Two-step flow ONLY when the project is in Manual value mode: step 1 collects the PO,
+    // step 2 asks whether to keep the manual value or switch to Customer PO totals.
+    const isManualMode = manualProjectValue === 1;
+    const [step, setStep] = useState<1 | 2>(1);
+    const [valueChoice, setValueChoice] = useState<'keep' | 'override'>('keep');
+    // Reset the wizard whenever the dialog closes so it always reopens on step 1 with the safe default.
+    useEffect(() => {
+        if (!open) {
+            setStep(1);
+            setValueChoice('keep');
+        }
+    }, [open]);
     
     // State for Link/Attachment choice - Default to 'link' for initial form state
     const [linkOrAttachmentChoice, setLinkOrAttachmentChoice] = useState<LinkAttachmentChoice>('attachment');
@@ -677,6 +691,8 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
         setProjectMismatch(null);
         setAutofillMeta(null);
         setAttachmentProcessed(false); // fields hidden until the PO is read
+        setStep(1);
+        setValueChoice('keep');
     }, []);
 
     const isLinkAttachmentValid = useMemo(() => {
@@ -752,7 +768,14 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
             toast({ title: "Error", description: "Project Name is missing.", variant: "destructive" });
             return;
         }
-        
+
+        // Manual-mode gate: on step 1 we don't save yet — advance to the value-choice step first.
+        // (No file upload happens until the user confirms on step 2.)
+        if (isManualMode && step === 1) {
+            setStep(2);
+            return;
+        }
+
         let finalAttachmentName = '';
 
         // 1. Handle File Upload if an attachment is selected
@@ -795,8 +818,9 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
             ...(linkOrAttachmentChoice === 'attachment' && autofillMeta ? autofillMeta : {}),
         };
 
-        // 3. Call Custom Frappe API for saving
-        createCustomerPO(projectName, newPODetail)
+        // 3. Call Custom Frappe API for saving.
+        // In manual mode, "override" flips the project to PO-driven; "keep" (default) leaves the value alone.
+        createCustomerPO(projectName, newPODetail, isManualMode && valueChoice === 'override')
         .then((data) => {
             if(data?.message?.status=="Duplicate"){
               toast({title:"Duplicate Po Number",description:"Failed to create Customer Po, Because We already have PO Number in our records. Create a New Po number for Creation.",variant:"destructive"});
@@ -833,11 +857,15 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
             </DialogTrigger>
             <DialogContent className="sm:max-w-[600px] max-h-[85vh] overflow-y-auto overflow-x-hidden">
                 <DialogHeader>
-                    <DialogTitle className="text-xl font-semibold mb-4">
-                        Add Customer Purchase Order
+                    <DialogTitle className="text-xl font-semibold mb-1">
+                        {step === 2 ? "Project value — choose how to handle it" : "Add Customer Purchase Order"}
                     </DialogTitle>
+                    {isManualMode && (
+                        <p className="text-xs text-muted-foreground mb-3">Step {step} of 2</p>
+                    )}
                 </DialogHeader>
                 <form onSubmit={handleSubmit} className="grid gap-6 py-4">
+                    {step === 1 && (<>
                     {/* PO Source FIRST (attachment-first): uploading the PO auto-fills the fields below */}
                     {/* Radio Button Choice for Link or Attachment */}
                     <div className="space-y-2 border p-4 rounded-md">
@@ -1103,6 +1131,48 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
                     </>
                     )}
 
+                    </>)}
+
+                    {step === 2 && (
+                        <div className="grid gap-4">
+                            <button
+                                type="button"
+                                onClick={() => setStep(1)}
+                                className="text-sm text-muted-foreground hover:text-foreground w-fit inline-flex items-center gap-1"
+                            >
+                                ← Back to PO details
+                            </button>
+                            <div className="rounded-md border border-amber-200 bg-amber-50 dark:border-amber-900/40 dark:bg-amber-950/20 p-3">
+                                <p className="text-sm font-medium">This project's value was entered manually.</p>
+                                <p className="text-sm text-muted-foreground mt-1">Choose what should happen now that you're adding a Customer PO. The PO is recorded either way.</p>
+                            </div>
+                            {([
+                                { key: 'keep', title: 'Keep my project value as it is', desc: 'Just record this Customer PO. The manually-entered project value stays unchanged.' },
+                                { key: 'override', title: 'Switch to Customer PO totals', desc: 'The project value will be calculated from all Customer POs — this one and future ones. Your manually-entered value is replaced.' },
+                            ] as const).map((opt) => {
+                                const selected = valueChoice === opt.key;
+                                return (
+                                    <button
+                                        key={opt.key}
+                                        type="button"
+                                        onClick={() => setValueChoice(opt.key)}
+                                        className={`text-left border rounded-lg p-4 transition ${selected ? 'border-primary ring-1 ring-primary bg-primary/5' : 'border-input hover:bg-muted/50'}`}
+                                    >
+                                        <div className="flex items-start gap-3">
+                                            <span className={`mt-0.5 h-4 w-4 rounded-full border flex-none flex items-center justify-center ${selected ? 'border-primary' : 'border-muted-foreground'}`}>
+                                                {selected && <span className="h-2 w-2 rounded-full bg-primary" />}
+                                            </span>
+                                            <div>
+                                                <p className="text-sm font-medium">{opt.title}</p>
+                                                <p className="text-xs text-muted-foreground mt-1">{opt.desc}</p>
+                                            </div>
+                                        </div>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    )}
+
                     <div className="flex gap-4">
                         <Button 
                             type="button" 
@@ -1121,7 +1191,7 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
                             )}
                             {updateLoading 
                                 ? (uploadLoading ? "Uploading File..." : "Validating & Saving...") 
-                                : "Create Customer PO"
+                                : (isManualMode && step === 1 ? "Continue" : "Create Customer PO")
                             }
                         </Button>
                     </div>
