@@ -28,9 +28,12 @@ pick one ad-hoc; ask.
 |---|---|---|
 | Row + batch status derivation | `services/outflow_import/status.py` (`derive_row_outcome`, `derive_staged_row_outcome`, `derive_batch_status`, `derive_batch_counters`) — B3 | compute a `row_status` or a batch `status`. The frontend mirror `outflowImportStatus.ts` is a CONVENIENCE pinned by a parity test; this file is the authority |
 | Which record the screen pre-selects | `services/outflow_import/status.py` (`sole_suggestion`) | re-derive "exactly one candidate" anywhere else — the browser did, from a different candidate list than the note counted, and the two disagreed |
-| The two amount windows (settle ±₹5, tier 1 ±₹1) | `services/outflow_import/amounts.py` (`AMOUNT_TOLERANCE`, `TIER1_TOLERANCE`, `amounts_match`) | hold a copy of either, **or add a comparison that is not on the list**. FIVE call sites: both SQL pool queries, the matcher, the settle guard, and the already-paid duplicate check. `TIER1_TOLERANCE ≤ AMOUNT_TOLERANCE` always — a tier wider than the settle window offers a record the confirm then refuses. The fifth site was *missing* until 2026-08-07 and flagged 8 of 26 rows in a live statement as discrepancies over sub-rupee rounding |
+| The two amount windows (settle ±₹5, tier 1 ±₹1) | `services/outflow_import/amounts.py` (`AMOUNT_TOLERANCE`, `TIER1_TOLERANCE`, `amounts_match`) | hold a copy of either, **or add a comparison that is not on the list**. SIX call sites: both SQL pool queries, the matcher, the settle guard, the already-paid duplicate check, and (N1) `similarity._amount_score`. The sixth decides NOTHING — it shapes the order of a browse list — and is listed anyway, because the rule is "every amount comparison in this feature", not "every one that writes". `TIER1_TOLERANCE ≤ AMOUNT_TOLERANCE` always — a tier wider than the settle window offers a record the confirm then refuses. The fifth site was *missing* until 2026-08-07 and flagged 8 of 26 rows in a live statement as discrepancies over sub-rupee rounding |
 | What amount a settle WRITES (X1) | `services/outflow_import/amounts.py` (`rewrite_amount`) | decide it at a write site. It is **not a sixth window site**: the window already gated the pool and the write guard already re-asserted it, so this answers only "do these differ at all". ⚠️ Do not "finish" it by giving it a tolerance — that would put a second, quieter opinion about what may be settled inside a function whose job is to say what the number is |
 | Does a remark name a project? | `services/outflow_import/project_match.py` (`build_project_index`, `ProjectIndex.sole_project`) | re-derive it. Tier 2 auto-suggests on this predicate, so a second copy is a second opinion about where money goes |
+| Which words count when comparing free text to a master name | `services/outflow_import/project_match.comparable_tokens` (public since N1) | grow a private twin. Two readers now — tier 2's project index and the browse ranking — and a second copy would drift: change the length floor in one and the ranked list quietly stops agreeing with the matcher about what a word even is. ⚠️ Sharing the TOKENISER is not sharing a POLICY |
+| How the browse list is ORDERED | `services/outflow_import/similarity.py` (`SimilarityPolicy`, `build_row_signals`, `score_record`, `ranked_records`) — N1 | let it reach anything that SETTLES. `matcher`, `disambiguate` and `status` must not import it, directly or transitively (pinned by a test both ways). Its weights exist to be tuned against reviewer feedback; a tweak made because a list felt wrongly ordered must not change which transfers move money unattended. It also must not reuse `matcher.VendorScoringPolicy` — sharing the dataclass retunes the matcher every time the list is retuned |
+| Filtering + sorting that list on screen | `frontend/src/pages/outflow-import/recordPickerView.ts` — N1 | re-score a record in the client. The server sends the pool already ranked; `sortRecords(records, null)` MEANS "keep that order". A second scoring implementation here would be free to drift, and the symptom — a list ordered differently from the reasons printed on it — is invisible to every test on either side |
 | What may be settled, and from which status; and WHEN a record was decided | `services/outflow_import/ledgers.py` (`SETTLEABLE_STATUSES`, `settleable_statuses`, `DECIDED_ON_SQL`, `decided_on_sql`) | carry its own Approved-only list. Read by `candidates.py` (what may be OFFERED) and `settle.py` (what may be WRITTEN) so the two can never disagree about one record |
 | Bank row → target matching | `services/outflow_import/matcher.py` (`match_row`, `match_by_reference`, `match_payments`, `match_expenses`, `resolve_vendors`) | decide anything. It PROPOSES ranked candidates; `status.py` derives the outcome and a person makes the choice |
 | Choosing BETWEEN several admitted candidates | `services/outflow_import/disambiguate.py` (`pick_from_several`, `pick_note`, `RULE_*`) — the pure half; `review._disambiguate_matched` owns the writes | add a fourth way to separate candidates. It is **not a tier** and must never live in `matcher.py` — it cannot introduce a record the ladder did not admit |
@@ -39,7 +42,7 @@ pick one ad-hoc; ask.
 | Reading approved-and-unpaid across the three ledgers | `services/outflow_import/ledger_read.py` (`LEDGER_SOURCES`, `approved_rows`, `approved_count`, `approved_projects`) | write a fourth query that knows the three ledgers' asymmetries. `review._search_one_ledger` is the OTHER caller and stays separate deliberately |
 | The settlement write | `services/outflow_import/settle.py` + the one orchestrator `api/outflow_import/expenses.settle_row` | write to a ledger from anywhere else in this feature |
 | Candidate pool queries | `services/outflow_import/candidates.py` | query a ledger for candidates inline in an endpoint |
-| Browsable approved records (hand-linking) | `api/outflow_import/review.search_settleable_records` (+ `_search_one_ledger`) | reuse `get_row_candidates` for browsing — that is the MATCHER's output, and when the matcher finds nothing it is empty, which is exactly when hand-linking is needed |
+| Browsable approved records (hand-linking) | `api/outflow_import/review.search_settleable_records` (+ `_search_one_ledger`, `_rank_browse_records`, `_browse_cap`) | reuse `get_row_candidates` for browsing — that is the MATCHER's output, and when the matcher finds nothing it is empty, which is exactly when hand-linking is needed. Since N1 it returns the WHOLE approved pool by default and `limit` is a safety ceiling, not a page size |
 | What counts as "decided" on the screen | `frontend/src/pages/outflow-import/outflowTableModel.ts` (`isConfirmable`) | gate a confirm button on its own predicate — the dialog and the bulk bar both read this one |
 | Which rows the master table shows (X3) | `api/outflow_import/review.get_outflow_rows` (+ `_row_filters`, `_scope_clause`, `get_outflow_facet_values`) | filter, sort or search rows in the browser. ⚠️ `_row_filters` is ONE builder shared by the page query, its count, the tab counts and the facet values — a count computed under different filters than the page it labels is a lie that looks like a paging bug |
 | What the screen ASKS for (X3) | `outflowTableModel.serverQuery` | build endpoint params at a call site. It owns the MEANING of a filter; SQL owns the application |
@@ -459,6 +462,22 @@ needs one vocabulary rather than one per writer.
       attached to the *import batch*; Frappe authorises a private file through the document it is
       attached to. `expenses._link_statement_file_to_target` creates the second `File` row that
       makes it openable from the payment or expense.
+
+16. **The browse ranking must never reach anything that SETTLES** (N1). `similarity.py` orders a list
+    a person reads and then confirms; `matcher`, `disambiguate` and `status` decide what moves money.
+    The weights in `SimilarityPolicy` exist **precisely to be tuned** against reviewer feedback — so
+    if the two were connected, a tweak made because a list *felt* wrongly ordered would change which
+    transfers settle unattended, and nothing would report it. Pinned **both ways** by
+    `test_similarity.TestThePolicyIsSeparateFromTheMatchers`: `similarity` imports none of them, and
+    none of them mentions `similarity`.
+    - ⚠️ **The same reasoning forbids reusing `matcher.VendorScoringPolicy`.** The numbers are
+      deliberately similar — they came from the same vendor master and it would be perverse to
+      disagree with them for no reason — but sharing the dataclass would retune the matcher every
+      time the browse list is retuned, which is the connection this invariant exists to prevent.
+    - ⚠️ **Sharing the TOKENISER is not sharing a POLICY.** `project_match.comparable_tokens` is
+      public and read by both, on purpose: "which words count" must have ONE owner or the ranked list
+      quietly stops agreeing with the matcher about what a word even is. The WEIGHTS are what stay
+      apart.
     - ⚠️ **That `File` insert runs AFTER the commit and outside the savepoint, and must never
       raise.** A `File` insert wakes the cloud-attachment hook, which commits inside the request —
       inside the caller's savepoint that would make the per-row rollback a silent no-op. And by the
@@ -630,6 +649,78 @@ those in would hand the dialog affordances it must not have behind a flag. **The
 BY CONSTRUCTION** — `Skipped` is terminal so the table renders no action, and an empty
 `selectableRowNames` removes the checkbox column. Its `All / Already paid / Bank refused` control is
 what makes the split inside `Skipped` actionable.
+
+---
+
+## The Resolve dialog's record list — the whole pool, ranked (chunk N1, 2026-08-11)
+
+The Link-payment table inside `DecisionDialog` is the ONE way a person resolves a Not-Matched
+transfer. It is a **browse** list, not the matcher's output, and until N1 it was ordered by amount
+alone.
+
+### What was wrong, in two parts
+
+`search_settleable_records` asked each ledger for **50 rows ORDERED BY AMOUNT CLOSENESS** and cut the
+merge to 50. Both halves bit:
+
+- **The right record was INVISIBLE unless its amount happened to be near.** The vendor could be right
+  and the project could be right and it still would not appear. Typing in the search box was the only
+  way to reach it — and that box re-queried the SERVER on every keystroke.
+- **A whole ledger could vanish.** 50 near-amount payments filled the merge before the 14 approved
+  project expenses could get in, from a list that claims to span all three.
+
+### The ranking (`services/outflow_import/similarity.py`)
+
+Owner priority, 2026-08-11: **project > vendor name > vendor nickname / contact person > amount.**
+
+| Owner decision | Ruling |
+|---|---|
+| **Q1b** | A **weighted sum**, not a strict tier ladder. The project signal comes from free-typed remark text — the noisiest input in this feature — so an exact vendor name plus a nickname plus an identical amount must be able to outrank one loose shared project word. |
+| **Q2** | **Settleability is a HARD SPLIT above the score**, not a fifth axis. A record `settle.py` would refuse can never sit above one it would accept. Unsettleable records are still **returned and ranked among themselves** — a TDS hunter has to SEE the one that cannot be settled in order to learn that it cannot. |
+| **Q3** | **Both bank fields feed both text axes.** The matcher keeps `beneficiary_name` and `remarks` apart because each tier stands on one clean signal; a browse list that refuses to look in both just fails to find things. |
+
+Sort key, and every part is load-bearing:
+`(not settleable, -total, |amount − bank|, doctype, name)`. **It ends in a unique field on purpose** —
+`(doctype, name)` is unique across the three ledgers, so the order is TOTAL and two loads of the same
+dialog cannot disagree.
+
+⚠️ **IT READS `ProjectIndex.projects_mentioned`, NOT `sole_project`.** `sole_project` abstains the
+moment two projects fit — exactly right for tier 2, where inventing an answer settles money on a coin
+flip. Ranking is under no such obligation: it boosts **both** and lets the reviewer choose. **The
+asymmetry is deliberate and must not be "made consistent".**
+
+⚠️ **A MISSING FIELD SCORES ZERO AND IS NEVER A PENALTY.** Non Project Expenses have no vendor and no
+project *at all* — no column, no join to make — so every one of them scores on amount alone.
+Penalising them would push an entire ledger to the bottom for having a different shape, which is a
+fact about the data rather than evidence about the transfer.
+
+**Measured end to end** on a real transfer (beneficiary `CoolFreez Systems Private Limited`, remark
+`Alorica materials`, ₹5,00,000): 322 records returned against 322 approved on file, and the record
+that transfer actually paid ranks **first**, on vendor-exact plus project-named. By amount it sits
+₹88,000 away and would not have been in the old list at all.
+
+⚠️ **HOW BIG THE POOL IS, IS NOT A FIXED FACT.** Measured twice on 2026-08-11, five hours apart:
+**1,164 records, then 322** — the same pool, after a batch was settled. It drains as an import is
+confirmed and refills as approvals happen. Both readings are far inside `_MAX_BROWSE` (5000). What
+would NOT be fine is sizing a future decision on one reading of a number that moves 4× in an
+afternoon.
+
+### The screen (`recordPickerView.ts`, `RecordColumnHeader.tsx`)
+
+Vendor, Project, Approved and Amount each carry a sort arrow and a filter — facets for the first two,
+ranges for the last two. The pure model is `recordPickerView.ts`; the whole pool arrives in ONE call
+so every narrowing is local, and the SWR key is stable per row (it used to carry the search text).
+
+- **Q4 — the Approved column sorts a payment's approval date and an expense's update date TOGETHER.**
+  ⚠️ `recordDateLabel` still renders them **apart** ("approved …" vs "updated …"). Ordering makes no
+  claim about what a value MEANS; a LABEL does. Neither expense doctype has an approval date, an
+  approver, or an approval step at all. **If `recordSortDate` ever feeds a label, that ruling has been
+  broken.**
+- **Q5 — Clear filters resets the filters AND the sort.** "Normal" is the similarity ranking, so
+  `hasActiveFilters` counts a sort as active; otherwise a reviewer who has only sorted has no way
+  back.
+- Search is **token-AND across every field, in any order** — `hakimi 4471` finds what the old
+  `LIKE '%needle%'` could not, because that needed the words in the order the record stored them.
 
 ---
 
@@ -851,9 +942,16 @@ falls to a person untouched.
 
 | Suite | How |
 |---|---|
-| pure services (11 modules, 382 tests) | `python -m unittest discover -s nirmaan_stack/services/outflow_import -t . -p "test_*.py"` — no bench needed |
-| api (`test_upload`/`test_review`/`test_expenses`/`test_settle_payment`/`test_approved`) | `bench --site localhost run-tests --app nirmaan_stack --module nirmaan_stack.api.outflow_import.<module>` |
-| frontend | `yarn test` (vitest, `node` environment — pure helpers only). 191 in this feature. |
+| pure services (12 modules, 409 tests) | `python -m unittest discover -s nirmaan_stack/services/outflow_import -t . -p "test_*.py"` — no bench needed |
+| api (`test_upload`/`test_review`/`test_expenses`/`test_settle_payment`/`test_approved`) | `bench --site localhost run-tests --app nirmaan_stack --module nirmaan_stack.api.outflow_import.<module>` — `test_review` is 121 |
+| frontend | `yarn test` (vitest, `node` environment — pure helpers only). 226 in this feature. |
+
+⚠️ **Both runners must be invoked INSIDE the dev container.** The host has no `firebase_admin`, so
+`python -m unittest` fails at `nirmaan_stack/__init__.py` before reaching a test; and the host
+`node_modules` is linux-arm64, so `yarn vitest` dies on a missing rolldown binding. Neither failure
+looks like a test failure.
+⚠️ **`tsc --noEmit` over the whole project is NOT a gate** — the repo carries ~3,200 pre-existing
+errors elsewhere. Grep the output for the paths you touched.
 
 ⚠️ **Never run the bench suite and a browser session against localhost together** — they collide on
 the `tabSeries` naming lock.
