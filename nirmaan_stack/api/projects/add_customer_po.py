@@ -1,4 +1,5 @@
 import frappe
+from frappe import _
 from frappe.utils import get_url, cint
 
 # === IMPORTANT: Verify the name of your Child Doctype ===
@@ -20,6 +21,16 @@ def add_customer_po_with_validation(project_name, new_po_detail, override_manual
         from the Customer PO rows. Default 0 keeps Manual mode: the PO is recorded, the value untouched.
     """
     
+    # 0. Permission gate. `frappe.get_doc` does NOT check permissions and the save below runs with
+    # ignore_permissions, so without this an authenticated caller could add a Customer PO to any
+    # project (and, with override_manual_value, overwrite its value). Mirrors `delete_customer_po`.
+    if not frappe.has_permission("Projects", "write", project_name):
+        frappe.throw(
+            _("You do not have permission to add Customer POs to this project."),
+            frappe.PermissionError,
+            title=_("Permission Error"),
+        )
+
     # 1. Fetch the existing Project document
     try:
         project_doc = frappe.get_doc("Projects", project_name)

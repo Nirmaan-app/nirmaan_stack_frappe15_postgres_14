@@ -16,6 +16,24 @@ from nirmaan_stack.constants.authorized_users import (
 class Projects(Document):
 	def validate(self):
 		self._validate_ceo_hold_status()
+		self._validate_manual_project_value()
+
+	def _validate_manual_project_value(self):
+		"""Manual mode claims a human typed the value, so it must actually carry one.
+
+		Without this a project saves with `manual_project_value = 1` and a blank/zero value:
+		before_save then skips PO aggregation for it, so no Customer PO can ever repair the 0.
+		The PO-driven path (flag 0) is untouched — it is derived and may legitimately be 0.
+		"""
+		if not self.get("manual_project_value"):
+			return
+
+		if flt(self.project_value) <= 0 or flt(self.project_value_gst) <= 0:
+			frappe.throw(
+				"Enter both Project Value (excl. GST) and Project Value (incl. GST) when the value is "
+				"entered manually, or untick 'Enter project value manually' to derive them from Customer POs.",
+				title="Missing Project Value",
+			)
 
 	def _validate_ceo_hold_status(self):
 		"""Enforce CEO Hold access rules:

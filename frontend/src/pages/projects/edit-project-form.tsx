@@ -161,7 +161,23 @@ const projectFormSchema = z.object({
   project_gst: z.string().min(1, { message: "Project GST is required" }),
   carpet_area: z.coerce.number().nonnegative().optional(),
 
-});
+})
+  // Manual mode means the value is typed rather than derived, so it must actually be typed.
+  // Blank would be persisted as 0 and — because PO aggregation is skipped in manual mode —
+  // no Customer PO could ever repair it. Mirrors the create form's rule.
+  .superRefine((values, ctx) => {
+    if (values.manual_project_value !== 1) return;
+    (["project_value", "project_value_gst"] as const).forEach((field) => {
+      const raw = values[field];
+      if (!raw || Number(raw) <= 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [field],
+          message: "Required when the project value is entered manually.",
+        });
+      }
+    });
+  });
 
 type ProjectFormValues = z.infer<typeof projectFormSchema>;
 
@@ -764,7 +780,7 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
                   render={({ field }) => (
                     <FormItem className="md:flex md:items-start gap-4">
                       <FormLabel className="md:w-1/4 md:pt-2.5 shrink-0">
-                        Project Value (excl. GST)
+                        Project Value (excl. GST)<sup className="pl-1 text-sm text-red-600">*</sup>
                       </FormLabel>
                       <div className="flex flex-col items-start flex-1">
                         <FormControl>
@@ -782,7 +798,7 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
                   render={({ field }) => (
                     <FormItem className="md:flex md:items-start gap-4">
                       <FormLabel className="md:w-1/4 md:pt-2.5 shrink-0">
-                        Project Value (incl. GST)
+                        Project Value (incl. GST)<sup className="pl-1 text-sm text-red-600">*</sup>
                       </FormLabel>
                       <div className="flex flex-col items-start flex-1">
                         <FormControl>

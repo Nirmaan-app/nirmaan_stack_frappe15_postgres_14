@@ -216,7 +216,7 @@ export const ProjectDetailsStep: React.FC<ProjectDetailsStepProps> = ({
                         render={({ field }) => (
                             <FormItem className="lg:flex lg:items-center gap-4">
                                 <FormLabel className="md:basis-2/12">
-                                    Project Value (excl. GST)
+                                    Project Value (excl. GST)<sup className="pl-1 text-sm text-red-600">*</sup>
                                 </FormLabel>
                                 <div className="flex flex-col items-start md:basis-2/4">
                                     <FormControl>
@@ -234,7 +234,7 @@ export const ProjectDetailsStep: React.FC<ProjectDetailsStepProps> = ({
                         render={({ field }) => (
                             <FormItem className="lg:flex lg:items-center gap-4">
                                 <FormLabel className="md:basis-2/12">
-                                    Project Value (incl. GST)
+                                    Project Value (incl. GST)<sup className="pl-1 text-sm text-red-600">*</sup>
                                 </FormLabel>
                                 <div className="flex flex-col items-start md:basis-2/4">
                                     <FormControl>

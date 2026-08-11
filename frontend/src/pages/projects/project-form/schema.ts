@@ -182,7 +182,24 @@ export const projectFormSchema = z.object({
         enabled: z.boolean().default(false),
         selected_categories: z.array(z.string()).default([]),
     }).optional(),
-});
+})
+    // Manual mode means the value is typed rather than derived, so it must actually be typed.
+    // Blank would be persisted as 0 and — because PO aggregation is skipped in manual mode —
+    // no Customer PO could ever repair it. Only fires when the toggle is on; the default
+    // PO-driven path (manual_project_value !== 1) is unaffected.
+    .superRefine((values, ctx) => {
+        if (values.manual_project_value !== 1) return;
+        (["project_value", "project_value_gst"] as const).forEach((field) => {
+            const raw = values[field];
+            if (!raw || Number(raw) <= 0) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    path: [field],
+                    message: "Required when the project value is entered manually.",
+                });
+            }
+        });
+    });
 
 export type ProjectFormValues = z.infer<typeof projectFormSchema>;
 
