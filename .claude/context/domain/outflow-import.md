@@ -31,8 +31,12 @@ pick one ad-hoc; ask.
 | The two amount windows (settle ±₹5, tier 1 ±₹1) | `services/outflow_import/amounts.py` (`AMOUNT_TOLERANCE`, `TIER1_TOLERANCE`, `amounts_match`) | hold a copy of either, **or add a comparison that is not on the list**. FIVE call sites: both SQL pool queries, the matcher, the settle guard, and the already-paid duplicate check. `TIER1_TOLERANCE ≤ AMOUNT_TOLERANCE` always — a tier wider than the settle window offers a record the confirm then refuses. The fifth site was *missing* until 2026-08-07 and flagged 8 of 26 rows in a live statement as discrepancies over sub-rupee rounding |
 | What amount a settle WRITES (X1) | `services/outflow_import/amounts.py` (`rewrite_amount`) | decide it at a write site. It is **not a sixth window site**: the window already gated the pool and the write guard already re-asserted it, so this answers only "do these differ at all". ⚠️ Do not "finish" it by giving it a tolerance — that would put a second, quieter opinion about what may be settled inside a function whose job is to say what the number is |
 | Does a remark name a project? | `services/outflow_import/project_match.py` (`build_project_index`, `ProjectIndex.sole_project`) | re-derive it. Tier 2 auto-suggests on this predicate, so a second copy is a second opinion about where money goes |
-| What may be settled, and from which status | `services/outflow_import/ledgers.py` (`SETTLEABLE_STATUSES`, `settleable_statuses`) | carry its own Approved-only list. Read by `candidates.py` (what may be OFFERED) and `settle.py` (what may be WRITTEN) so the two can never disagree about one record |
+| What may be settled, and from which status; and WHEN a record was decided | `services/outflow_import/ledgers.py` (`SETTLEABLE_STATUSES`, `settleable_statuses`, `DECIDED_ON_SQL`, `decided_on_sql`) | carry its own Approved-only list. Read by `candidates.py` (what may be OFFERED) and `settle.py` (what may be WRITTEN) so the two can never disagree about one record |
 | Bank row → target matching | `services/outflow_import/matcher.py` (`match_row`, `match_by_reference`, `match_payments`, `match_expenses`, `resolve_vendors`) | decide anything. It PROPOSES ranked candidates; `status.py` derives the outcome and a person makes the choice |
+| Choosing BETWEEN several admitted candidates | `services/outflow_import/disambiguate.py` (`pick_from_several`, `pick_note`, `RULE_*`) — the pure half; `review._disambiguate_matched` owns the writes | add a fourth way to separate candidates. It is **not a tier** and must never live in `matcher.py` — it cannot introduce a record the ladder did not admit |
+| Which row keeps a contested record | `services/outflow_import/claims.py` (`resolve_claims`, `claim_note`) — pure; `review._enforce_single_claim` owns the writes | let two rows hold one record. `sole_suggestion` answers per row and cannot see the contest |
+| How a suggestion was chosen | the `suggestion_rule` field + `disambiguate.RULE_LABELS` | invent a label. BLANK means "no suggestion", never "no rule" |
+| Reading approved-and-unpaid across the three ledgers | `services/outflow_import/ledger_read.py` (`LEDGER_SOURCES`, `approved_rows`, `approved_count`, `approved_projects`) | write a fourth query that knows the three ledgers' asymmetries. `review._search_one_ledger` is the OTHER caller and stays separate deliberately |
 | The settlement write | `services/outflow_import/settle.py` + the one orchestrator `api/outflow_import/expenses.settle_row` | write to a ledger from anywhere else in this feature |
 | Candidate pool queries | `services/outflow_import/candidates.py` | query a ledger for candidates inline in an endpoint |
 | Browsable approved records (hand-linking) | `api/outflow_import/review.search_settleable_records` (+ `_search_one_ledger`) | reuse `get_row_candidates` for browsing — that is the MATCHER's output, and when the matcher finds nothing it is empty, which is exactly when hand-linking is needed |
@@ -41,7 +45,7 @@ pick one ad-hoc; ask.
 | What the screen ASKS for (X3) | `outflowTableModel.serverQuery` | build endpoint params at a call site. It owns the MEANING of a filter; SQL owns the application |
 | One import's aggregate (X2) | `services/outflow_import/status.py` (`derive_import_summary`, `StatusTally`) | count or sum an import anywhere else. The DB does the `GROUP BY`; this assembles |
 | Seeding decisions from the match run | `outflowTableModel.ts` (`suggestedDecision`, `seedDecisions`, `decisionOrigin`) | pre-select inside a component; the dialog used to, and it could only fire once a row was already open |
-| Grouping + pairing interchangeable transfers | `services/outflow_import/stacks.py` (`stack_key`, `group_into_stacks`, `pair_stack`, `stack_note`) | decide a stack's membership or its pairing anywhere else. `review._resolve_stacks` owns the DATABASE half and nothing more |
+| Grouping + pairing interchangeable transfers | `services/outflow_import/stacks.py` (`stack_key`, `group_into_stacks`, `pair_stack`, `stack_note`, `stack_surplus_note`) | decide a stack's membership, its pairing, or why it did not pair, anywhere else. `review._resolve_stacks` owns the DATABASE half and nothing more |
 | Access | `api/outflow_import/permissions.require_outflow_access` | gate an endpoint any other way |
 
 ---
@@ -54,7 +58,7 @@ Six row statuses. `status.py` is the only deriver.
 |---|---|---|
 | `Pending match run` | staged from the sheet, nothing looked up | press Run match |
 | `Matched` | ≥1 **approved** record found at this amount | confirm it |
-| `Mismatched` | this transfer did not line up — **two causes, one status** | create or link one |
+| `Mismatched` | this transfer did not line up — **three causes, one status** | create, link, or pick one |
 | `Settled` | we wrote; the record is now Paid and linked back | terminal |
 | `Skipped` | nothing to do, and the reason says which nothing | terminal |
 | `Error` | the write was attempted and rolled back | retry |
@@ -83,6 +87,29 @@ consequences follow, and both are pinned by tests:
   louder: before the merge, breaking the duplicate query produced a different STATUS from the
   correct behaviour; now both are `Mismatched` and only the note differs. Its note assertions are
   the whole test.
+
+### ⚠️ A THIRD cause joined `Mismatched` (owner ruling 2026-08-11)
+
+`_sweep_unresolved_to_mismatched` moves a row that found **several** approved records and had none
+picked out of `Matched` — which shares a tab with `Settled` under the reviewer's heading *"this
+transfer has a record"* — and into the Not-Matched worklist, where the decision is.
+
+    _nothing_found_note   nothing matched at all          -> record or link one
+    _delta_note           already Paid, amounts disagree   -> a deduction such as TDS
+    several_found_note    several matched, none chosen     -> pick which one
+
+**The dangerous pair is the FIRST and THIRD**, and it is why the third sentence had to exist before
+the sweep could ship: telling a reviewer *"no approved payment or expense matches this transfer"*
+about a transfer that matched six sends them to create a duplicate expense for money that is already
+approved and waiting. Pinned by `test_status::test_all_THREE_mismatched_causes_stay_distinguishable`.
+
+⚠️ **THE SWEEP NEVER TOUCHES A FAN-OUT, AND THAT COST A RED TEST TO FIND.** A fan-out is `Matched`
+with no suggestion **by design** — one transfer covering several payments, carrying no
+`suggested_name` only because a `(doctype, name)` pair cannot hold a GROUP. It is report-only by
+ruling Q4, so it is meant to sit in `Matched` and say what it found. The guard reuses
+`_disambiguation_candidates`, which already abstains on a set containing a fan-out, rather than
+re-deriving "is this a fan-out" — the second opinion that list's docstring exists to warn about. A
+single-candidate row is skipped on the same terms.
 
 **Existing rows need `patches/v3_0/merge_outflow_unmatched_status.py`** — Frappe does not rewrite
 stored values when a Select narrows, so pre-merge rows keep the retired string, invisible to every
@@ -149,6 +176,148 @@ Description text (payee name / account / IFSC) still RANKS the candidates the pr
 
 ⚠️ **DELETED, and not by oversight: the old Pass B** (vendor-by-name + amount + date ±3d). Rows it
 used to catch now arrive `Mismatched` and are linked by hand. Owner's call, made with the loss stated.
+
+---
+
+## The match run, in order — one per-row loop and FOUR global passes
+
+`review.match_batch` is the only orchestrator. **The order is load-bearing at every joint** and each
+comment in that function says which defect the position prevents.
+
+```
+for each unfrozen row:  match_row -> derive_row_outcome -> _persist_row_outcome
+1. _enforce_single_claim         (claims.py)        a record is claimed once
+2. _disambiguate_matched         (disambiguate.py)  Option B: separate several candidates
+3. _resolve_stacks               (stacks.py)        pair interchangeable sets
+4. _sweep_unresolved_to_mismatched                  leftovers read as Not-Matched
+   _refresh_batch_rollup + commit
+```
+
+- **All three run AFTER the loop, never inside it.** `_persist_row_outcome` CLEARS every suggestion
+  it does not re-find, so anything written mid-loop is wiped by the next row's clear.
+- **Claims before Option B.** The claim pass frees records up; choosing between candidates while
+  another row still held one would only produce a pick for the claim pass to release.
+- **Option B before stacks.** The stack pass reads a `claimed` set built from the suggestions that
+  now exist, so it must see a set already made consistent.
+- **The sweep is LAST and could not be anywhere else.** "Several candidates and nobody picked one"
+  only becomes a fact once every pass entitled to pick has declined, which is why it cannot live in
+  `derive_row_outcome` — that runs in the per-row loop, before three passes have had their say.
+- The run returns `stack_paired_rows` / `released_rows` / `rule_picked_rows` /
+  `swept_to_mismatched_rows` beside the counters, so a run leaning hard on any pass is **visible
+  rather than silent**.
+
+---
+
+## Several candidates, and the rules that tell them apart (Option B)
+
+`sole_suggestion` pre-selects only when the matcher found EXACTLY ONE record. That refusal is right,
+and on the first real statement it left **56 transfers with no pre-selection**. Measuring them showed
+the evidence to separate the candidates was already on the row and nothing was looking at it.
+
+**`disambiguate.py` decides BETWEEN candidates. It is not a fourth tier.** Every candidate it sees
+was already admitted by the ladder and already passed the settle window, so it cannot widen what may
+be matched — which is exactly why it does not live in `matcher.py`. It cannot widen what may be
+SETTLED either: a pick is a PRE-SELECTION, the person still confirms, and `settle_row` still
+re-asserts status and amount under a row lock.
+
+| Rule | Fires when | The fence, and why |
+|---|---|---|
+| **M1** `project-in-remark` | the remark names exactly one project and exactly one candidate is on it | the ONLY rule allowed to fire across projects — it is the only one holding evidence about *which* project |
+| **M2** `nearest-amount` | one candidate is strictly nearer the bank's amount than every other | **FENCED to a single project.** Across projects, 8 paise closer is not evidence about which job the money was for; within one project the worst case is the wrong document on the right job |
+| **M3** `interchangeable` | every candidate is on the SAME project at the SAME amount | **FENCED HARDER** — and switched OFF for stack members (below) |
+| **M4** `nearest-decision-date` | one candidate was decided strictly nearest the day the money moved, within **±3 days** | **NOT FENCED** — an owner ruling, held as the flippable `NEAREST_DATE_FENCE_TO_ONE_PROJECT` |
+
+Measured: ready **807 → 833**, needs-a-person **56 → 30**.
+
+### M4 — the nearest decision date (2026-08-11)
+
+**Where the date comes from is `ledgers.DECIDED_ON_SQL`, the one owner:** payments use
+`COALESCE(ceo_approval_date, approval_date)` (CEO first — a payment needing that signature is not
+payable until it exists, and the two differ by days on exactly the high-value rows); **both expense
+doctypes use `modified`, because neither has an approval date, an approver, or an approval step at
+all.**
+
+⚠️ **THAT MERGE IS FORBIDDEN ON THE APPROVED INBOX AND PERMITTED HERE, AND THE DIFFERENCE IS THE
+WHOLE LICENCE.** `ledger_read.py` keeps `approved_on` and `updated_on` apart because a human reads
+that column and a modification timestamp is not a sanction. `decided_on` is a MATCHING input nobody
+reads as a label — **so every note built from it MUST name which date it used** (`_date_source`).
+Without that, a reviewer cannot tell an approval from someone fixing a description, on the screen
+where money is authorised.
+
+⚠️ **M4 RUNS LAST, WHICH IS WHAT MAKES IT PURELY ADDITIVE** — it fires only where
+`pick_from_several` previously returned None, so no M1/M2/M3 pick already in the database moves
+because of it.
+
+⚠️ **THE SINGLE-PROJECT FENCE HAD TO BECOME A BRANCH.** It used to `return None`, so a cross-project
+set left the function outright and **no rule written below it could ever see one**. M4 is unfenced,
+so it sits outside that branch — inside, it would have been silently reduced to the single-project
+half of its own measurement.
+
+⚠️ **A STACK MEMBER STILL REACHES M4.** M3's fence used to `return None`, short-circuiting it — but
+declining M3 says only *"do not pick ARBITRARILY between interchangeable records"*, which is why M1
+and M2 were always left on for stack members. M4 is evidence, so it belongs on the same side of that
+line. Measured cost of the bug: two rows whose candidates were decided **seven days apart** were
+handed to a person as though nothing distinguished them.
+
+⚠️ **MEASURED HONESTLY, IT RESOLVES 2 OF 30 — not the 8 first projected.** Nearly every ambiguous row
+is in a stack sharing one candidate pool, so the first row takes the nearest record and its siblings
+find it gone. **A measurement that does not accumulate claims as the real pass does overstates this
+by a factor of three**; two successive estimates (8, then 6) were wrong for exactly that reason. The
+rest are batch approvals — identical dates, where the rule is silent by construction.
+
+⚠️ **A BLANK PROJECT IS NOT A PROJECT.** If any candidate has no project the single-project fence
+FAILS, so M2 and M3 stay out. Treating blanks as equal lets a missing value stand in for evidence,
+which is the whole failure the fence exists to prevent.
+
+⚠️ **M3 MUST BE OFF FOR A STACK MEMBER, AND THIS IS AN OWNER RULING, NOT A DETAIL.** An unbalanced
+stack pairs NOTHING, not even partially; M3 applied per row does exactly that partial pairing — the
+first six transfers each take a record and the seventh finds them all claimed. **Measured when it
+shipped unfenced: 62 of 65 interchangeable picks landed on stack members and the leftovers screen
+fell from 6 stacks to 3, because the pass had quietly consumed the difference.** The caller passes
+`allow_interchangeable=False` for any row in a stack. **M1 and M2 stay ON for stack members**, and
+that distinction IS the ruling: they act on evidence about one specific transfer; arbitrary-among-
+interchangeable is the case the stack machinery owns.
+
+⚠️ **CLAIM-AWARENESS IS WHAT MAKES M3 WORK.** Seven transfers against eight twin records only resolve
+if each takes a DIFFERENT one, so the caller feeds back what it has already handed out. Without it
+every twin row picks the same record and `_enforce_single_claim` releases all but one — turning the
+best-covered rule into the worst.
+
+### A record is claimed once (`claims.py`)
+
+`sole_suggestion` asks a question about ONE row and answers it independently for every row, so **two
+transfers can each correctly find the same single record**. Five records were in that state across 15
+rows on the first real statement; **ten of the 807 confirms were doomed with `AlreadyPaidError`
+before anybody pressed the button.**
+
+⚠️ **THE VENDOR ROLLUP IS WHY THIS BECAME URGENT RATHER THAN MERELY WRONG.** The rival transfers are
+usually to DIFFERENT beneficiaries — one record was suggested to four of them. A flat list sorted by
+amount puts them near each other, so a person could notice. **A tree grouped by vendor puts them in
+four separate branches and the conflict becomes invisible from every screen position.** The rollup
+does not create the defect; it removes the last chance of seeing it.
+
+- ⚠️ **`_resolve_stacks` already guarded this, and only for itself** — it reads a `claimed` set so the
+  stack pass cannot take a record a 1:1 row holds. Nothing protected the per-row loop from itself.
+- **`releasable` is the scope fence.** The pass READS across imports and WRITES only inside the batch
+  being matched: clearing another import's pre-selection is not filling a blank, so it does not get
+  the licence `_resolve_stacks` has. An unreleasable claim always wins.
+- Contenders are ordered by `(added_on, row name)` — the name is unique, so no tie survives to be
+  broken by query order, the same guarantee `pair_stack` relies on.
+
+### ⚠️ `suggestion_rule`, `match_basis` and `auto_matched` answer THREE different questions
+
+Blank used to mean both "no rule" **and** "no suggestion", and that ambiguity filed **112 arbitrary
+stack pairings under "Only candidate"**.
+
+| Field | Answers | Vocabulary |
+|---|---|---|
+| `suggestion_rule` | **how** was this one record chosen? | `sole` · `stack-pairing` · `project-in-remark` · `nearest-amount` · `interchangeable` |
+| `match_basis` | **which tier** found the counterpart? | the tier ladder |
+| `auto_matched` | Check, **stored** not derived, so Desk can filter on it | written in the SAME `set_value` as the pair at every site, so it cannot drift |
+
+**Blank `suggestion_rule` now means only that there is no suggestion.** `RULE_SOLE` and
+`RULE_STACK_PAIRING` live in `disambiguate.py` although it never produces them, because the FIELD
+needs one vocabulary rather than one per writer.
 
 ---
 
@@ -432,6 +601,87 @@ browser walk.
 
 ---
 
+## The confirm dialog is a TREE, and the Skipped chip is a DOOR
+
+**833 rows in a flat list with one checkbox each is not a thing anyone reviews; grouped by vendor it
+is.** `buildConfirmTree` / `confirmSelectionSummary` / `toggleNode` are pure and vitested — the rest
+is a browser walk, because there is no DOM test environment here.
+
+- **The project level renders only when it has something to say.** 147 of 210 vendors sit on exactly
+  ONE project and 79 have a single transfer, so a rigid three-level tree was two expands to reach one
+  row, past a middle level repeating what the vendor row already said. A single-project vendor reads
+  inline: `Sri Sai Enterprises - Nagarjuna Olive`.
+- **The summary bar is a SAFETY CONTROL, not a status line.** It states what the button will WRITE at
+  all times, including the one figure that appears nowhere else: **how many approved AMOUNTS the
+  confirm will rewrite** (312 of 807 on the real statement, nearly all sub-rupee). It also carries
+  *"N selected are hidden by these filters"* — **selection survives filtering**, so without it you
+  could narrow to one vendor, read 12, and confirm 142.
+- ⚠️ **THE SHARED CHECKBOX CANNOT SHOW "PARTIAL", and it fails in the dangerous direction.** Radix
+  mounts the Indicator for `indeterminate` too, so a half-selected vendor rendered with a **TICK**.
+  `components/ui/` is shadcn-generated and not ours to edit, so the third state is drawn in this
+  dialog — Radix keeps the state, the keyboard behaviour and `aria-checked="mixed"`; only the mark is
+  ours.
+- The confirm payload carries **which order** the record is against — 602 Procurement Orders against
+  193 Service Requests on the real statement, so it is never labelled "PO" wholesale.
+
+**`useOutflowRows` extracts the table's whole query** so the Skipped dialog can share it. Selection
+and decisions deliberately stayed on the page: it is a worklist, the dialog is read-only, and folding
+those in would hand the dialog affordances it must not have behind a flag. **The dialog is read-only
+BY CONSTRUCTION** — `Skipped` is terminal so the table renders no action, and an empty
+`selectableRowNames` removes the checkbox column. Its `All / Already paid / Bank refused` control is
+what makes the split inside `Skipped` actionable.
+
+---
+
+## The approved inbox — what is sanctioned and not yet paid
+
+A button on the tab strip (`ApprovedRecordsPanel`), opening `approved.list_approved_records` over
+**`Project Payments` + `Project Expenses` + `Non Project Expenses`**. Filters: ledger, project,
+search, sort. **Nothing here writes** — settling is still reached from a transfer, through
+`settle_row`. A screen that could mark an approved payment Paid with no transfer in front of it would
+be a second, quieter way to spend money.
+
+⚠️ **THIS IS NOT THE DELETED REVERSE VIEW, and the two are one step apart.**
+`get_reconciliation_report` went at V5 and read BACKWARDS from records already Paid — *"is every
+payment we recorded backed by a real transfer?"*. This reads FORWARDS from records still Approved:
+the queue this import exists to consume. It answers "what is waiting", not "what did we get wrong".
+
+⚠️ **A BUTTON, NOT A FOURTH TAB (owner, 2026-08-11).** The three tabs are three SCOPES over ONE
+population — `Outflow Import Row` — so their counts sit in a row precisely because they can be
+compared and subtracted. This opens a view over three OTHER doctypes with no import row in it at all.
+**`ml-auto` is load-bearing, not alignment taste**: pushing it to the far right is what stops it
+reading as the next item in the sequence.
+
+**`ledger_read.py` is ONE PLACE THAT KNOWS THE ASYMMETRIES, NOT ONE QUERY THAT HIDES THEM.** Each
+ledger keeps its own `LedgerSource` — joins, amount expression, date expression, searchable columns —
+written out in full; what is shared is the SHAPE every row comes back in. It is a second caller
+alongside `review._search_one_ledger`, which stays separate deliberately. Each asymmetry below has
+already caused a defect somewhere in this feature:
+
+1. ⚠️ **Only `Project Payments` has an approval date.** `approved_on` and `updated_on` are SEPARATE
+   KEYS and a row fills exactly one — a modification timestamp is not an approval and must never be
+   rendered as one. One column would have presented it as one on 82 of 1,164 records.
+2. ⚠️ **`Project Expenses.amount` is a DATA column of numeric strings.** The cast is **REGEX-GUARDED**
+   so junk yields NULL rather than taking the whole page down: the record still appears with a blank
+   where the number would be. There is no junk today (measured: zero); the column permits it, and the
+   test plants some.
+3. ⚠️ **`Non Project Expenses` has NO vendor and NO project column.** Selecting either is a hard SQL
+   error, not a blank, so the literal NULLs are spelled out. **A project filter drops that ledger
+   entirely** rather than contributing an always-false predicate — "which of these are on project X"
+   has one honest answer for a doctype that records no project.
+
+**Two defects the new tests caught before the screen did.** The project filter built its options from
+ONE page of 200 rows against a set of 332, so a project could appear in the table and be missing from
+its own filter — it is a DISTINCT query now. And the first union filtered OUTSIDE the subquery, where
+`p.name` and `v.vendor_name` do not exist; every predicate now sits where its columns are, which also
+lets the index on `status` work.
+
+⚠️ **The totals are computed under the SAME filters as the page** — the `_row_filters` rule, on the
+other side of the feature. **This feature has already shipped that defect once.** `by_ledger` is
+returned beside the total because the three are not comparable.
+
+---
+
 ## Doctypes
 
 | Doctype | Holds |
@@ -484,17 +734,68 @@ statement. Two mitigations are part of the ruling and must not be dropped as cos
 
 1. **Every auto-paired row says the pairing was arbitrary** and tells the reader to check the
    project (`stacks.stack_note`). Pinned at both the pure and endpoint layers.
-2. **Pairing is deterministic** — transfers by `(added_on, name)`, records by `(doctype, name)`, then
-   zipped. Both keys end in a UNIQUE field, so no tie survives to be broken by query order. A
+2. **Pairing is deterministic** — by DECISION DATE first (below), else transfers by
+   `(added_on, name)` and records by `(doctype, name)`, then zipped. Both keys end in a UNIQUE field, so no tie survives to be broken by query order. A
    reshuffle between runs would move a suggestion out from under a reviewer mid-decision.
    ⚠️ `pair_stack` re-sorts **both** sides itself rather than trusting `stack.transfers`; a function
    whose contract is "same input, same pairing" cannot delegate half of it to its caller.
 
 **Unbalanced stacks pair NOTHING** — not even partially. With 7 transfers and 6 records, SOME
-transfer settles nothing, and choosing which is a judgement about money. They surface in
-`get_unpaired_stacks` → the **Resolve N stacks** dialog, which opens on a proposal, lets every row be
-re-pointed, states the surplus in words, refuses a record assigned twice, and writes through
-`settle_row` **one call per pair**. The button is **absent, not disabled**, when the count is 0.
+transfer settles nothing, and choosing which is a judgement about money.
+
+### ⚠️ The "Resolve N stacks" screen is DELETED (owner ruling 2026-08-11)
+
+`get_unpaired_stacks`, `_load_unstacked_open_rows`, `_stack_payload`, `UnpairedStacksDialog.tsx`, the
+page button and the eight stack helpers in `outflowTableModel.ts` are all gone. Unbalanced stacks now
+fall into the ordinary worklist as `Not-Matched` and are resolved like any other row.
+
+⚠️ **THE EXPLANATION IT CARRIED HAD TO SURVIVE IT.** That dialog stated the surplus in words —
+*seven transfers, six records, one settles nothing*. A row sitting in the worklist with a generic
+"could not choose" tells a reviewer nothing about WHY it is unresolvable, and they would hunt for a
+seventh record that does not exist. `stacks.stack_surplus_note` is that sentence, written by
+`_resolve_stacks` onto every member. **Deleting a screen is allowed; deleting the reasoning it
+carried is not.**
+
+⚠️ **THE NOTE IS ONLY CORRECT COMPUTED ACROSS IMPORTS**, which is why the pass writes it from a read
+that spans them — the other six transfers may sit in last month's batch, and a per-batch count would
+state a surplus that is not the real one. Pinned by
+`test_review::test_the_stack_pass_spans_imports`, which matches only the SECOND batch and asserts a
+FIRST-batch row now carries the cross-import count.
+
+⚠️ **IT IS NOT WRITTEN WHEN THE STACK HAS NO RECORDS AT ALL.** Empty means either "every record was
+claimed by another transfer" or "the stack was DISQUALIFIED by a fan-out" — and the pass cannot tell
+them apart. In the second case the row is a perfectly good fan-out MATCH carrying `_matched_note`,
+and a surplus note would replace a true statement with a false one. **A note that cannot tell two
+cases apart must assert neither.**
+
+### The pairing key is DECISION DATE first, the arbitrary zip second (2026-08-11)
+
+`pair_stack` builds every `(transfer, record)` pair that carries dates on both sides, sorts by
+`(gap, transfer index, record index)` over already-ordered sequences, and assigns greedily; whatever
+the date pass cannot speak for is zipped in the original order. It returns `StackPair` objects
+carrying a **basis** — `date` or `arbitrary` — because a pairing decided by evidence and a coin flip
+between twins are different facts, and a caller that cannot tell them apart must either waste the
+evidence or overclaim on the majority.
+
+⚠️ **NO DATES, OR EVERY GAP TIED, REPRODUCES THE OLD ZIP EXACTLY** — not by luck, but because the
+greedy is keyed on the indices of already-ordered sequences, so a total tie IS the zip. The dateless
+fixtures in `test_stacks` are the guard, and they assert the same pairings they always did.
+
+⚠️ **EVIDENCE MEANS "STRICTLY NEARER THAN EVERY OTHER RECORD IN THE STACK", not than the ones still
+free** — judged against the free ones, the LAST pair of any stack could never be evidence, and the
+note it produced then claimed the records were *"interchangeable on amount"* about records decided a
+week apart. Whether another transfer got there first has no bearing on whether the dates favour
+**this** pairing. A transfer that LOST a nearer record to a rival still comes out arbitrary, which is
+correct: it took what was left.
+
+⚠️ **THE DATE VARIANT OF THE NOTE STILL ASKS FOR THE PROJECT CHECK.** A decision date says the
+records are distinguishable; it does not say the pairing is on the right project. The evidence
+changes the claim, never the caution.
+
+**Measured, and smaller than it sounds:** of 112 live stack pairings, **25 come out evidence-decided
+and 76 arbitrary — but only TWO point at a different record than the zip already chose.** Most of
+what this buys is a TRUE SENTENCE about a pairing that was already right. Do not let a later reader
+mistake the 25 for 25 corrections.
 
 ⚠️ **THE PASS WRITES ACROSS IMPORTS, and that is the point of it.** A stack does not respect batch
 boundaries, so matching batch B can change rows in batch A. Safe because it only ever fills a BLANK
@@ -550,9 +851,9 @@ falls to a person untouched.
 
 | Suite | How |
 |---|---|
-| pure services (8 modules, 245 tests) | `python -m unittest discover -s nirmaan_stack/services/outflow_import -t . -p "test_*.py"` — no bench needed |
-| api (`test_upload`/`test_review`/`test_expenses`/`test_settle_payment`) | `bench --site localhost run-tests --app nirmaan_stack --module nirmaan_stack.api.outflow_import.<module>` |
-| frontend | `yarn test` (vitest, `node` environment — pure helpers only) |
+| pure services (11 modules, 382 tests) | `python -m unittest discover -s nirmaan_stack/services/outflow_import -t . -p "test_*.py"` — no bench needed |
+| api (`test_upload`/`test_review`/`test_expenses`/`test_settle_payment`/`test_approved`) | `bench --site localhost run-tests --app nirmaan_stack --module nirmaan_stack.api.outflow_import.<module>` |
+| frontend | `yarn test` (vitest, `node` environment — pure helpers only). 191 in this feature. |
 
 ⚠️ **Never run the bench suite and a browser session against localhost together** — they collide on
 the `tabSeries` naming lock.
