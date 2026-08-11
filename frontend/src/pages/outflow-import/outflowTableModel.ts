@@ -1470,7 +1470,22 @@ export const settleBlocker = (
     };
 };
 
-/** Suggested records first, then closest by amount. */
+/**
+ * Suggested records first, then closest by amount.
+ *
+ * ⚠️ NO PRODUCTION CALLER SINCE SLICE N1 -- ONLY THESE TESTS. It was the Link-payment table's
+ * ordering, and the server now sends that table already ranked by
+ * `services/outflow_import/similarity.py` (project > vendor > nickname/contact > amount, inside a
+ * hard settleable/unsettleable split). `RecordPicker` calling this AFTERWARDS would silently
+ * re-sort the ranking back into amount order, which is the one thing that would make the
+ * similarity_reasons printed on each row disagree with the order they are printed in.
+ *
+ * ⚠️ SO DO NOT REACH FOR IT AS "the record ordering helper" -- that is exactly the mistake it is
+ * now positioned to invite. Kept rather than deleted because it is exported and covered, and
+ * because the settleable-first HALF of it is still the rule the server applies; if a future surface
+ * needs an amount ordering, this is a correct implementation of one. Deleting it is a reasonable
+ * call for whoever confirms nothing else wants it.
+ */
 export const orderBySuggestion = <T extends CandidateLike>(
     candidates: T[],
     bankAmount: number
@@ -1502,6 +1517,33 @@ export interface SettleableRecord {
     vendor_name: string;
     project_name: string;
     document_name: string;
+    /**
+     * The vendor's other two names (slice N1). Tier 3 of the similarity ranking, and searchable.
+     *
+     * ⚠️ BOTH ARE STRUCTURALLY EMPTY ON `Non Project Expenses`, which has no vendor link at all --
+     * no column, no join to make. That is a fact about the ledger, not a missing value, and the
+     * ranking scores it as no signal rather than as a penalty.
+     */
+    vendor_nickname: string;
+    contact_person: string;
+    /**
+     * The project's LINK ID, beside `project_name` rather than instead of it (slice N1).
+     *
+     * ⚠️ `project_name` FALLS BACK TO THE ID when the join finds nothing, so it cannot be compared
+     * against what the server's `ProjectIndex` reports -- that speaks in ids. The filter matches on
+     * this; the column displays the name. One key cannot carry both jobs.
+     */
+    project: string;
+    /**
+     * How much this record looks like the transfer, and why (slice N1).
+     *
+     * ⚠️ THE SERVER RANKS; THE CLIENT DOES NOT RE-SCORE. The token rules live in
+     * `services/outflow_import/similarity.py` beside the tokeniser the matcher uses, and a second
+     * implementation here would be free to drift from it. The payload arrives already ordered --
+     * `similarity` is carried so the screen can EXPLAIN the order, not reproduce it.
+     */
+    similarity: number;
+    similarity_reasons: string[];
     /**
      * ⚠️ TWO DATE KEYS, NEVER ONE. Only `Project Payments` records an approval date -- neither
      * expense doctype has the field at all. The expense's last-changed timestamp is real and useful
