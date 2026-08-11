@@ -57,6 +57,15 @@ from nirmaan_stack.services.outflow_import.ledgers import (
 )
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
 from nirmaan_stack.services.outflow_import.parser import BANK_SUCCESS_STATUS
+# ⚠️ THE BROWSE LIST'S RANKING, AND NOTHING ELSE IN THIS MODULE MAY USE IT. `similarity` orders the
+# records a person chooses from in the Resolve dialog; it must never reach `match_batch` or anything
+# it calls. See the rule at the top of `similarity.py` -- its weights exist to be tuned against
+# reviewer feedback, and a tuning change must not be able to alter what settles unattended.
+from nirmaan_stack.services.outflow_import.similarity import (
+    RecordSignals,
+    build_row_signals,
+    ranked_records,
+)
 from nirmaan_stack.services.outflow_import.stacks import (
     Stack,
     group_into_stacks,
@@ -1063,7 +1072,7 @@ def get_row_candidates(row: str):
 
 @frappe.whitelist()
 def search_settleable_records(
-    row: str, target_doctype: str = "", search: str = "", limit: int = 50
+    row: str, target_doctype: str = "", search: str = "", limit: int = 0
 ):
     """Approved records a reviewer may link to this row BY HAND (slice V4a; all-ledger at R2).
 
@@ -1073,14 +1082,37 @@ def search_settleable_records(
     dialog used to make you pick a ledger FIRST -- three cards, one per doctype -- and only then
     showed you records. That asked the reviewer to answer a question they often cannot: a transfer
     to a vendor may have been raised as a Project Payment or booked as a Project Expense, and the
-    only way to find out was to open each card in turn. One list, ordered by how close the amount
-    is, lets them recognise the record instead of classifying it first.
+    only way to find out was to open each card in turn. One list lets them recognise the record
+    instead of classifying it first.
 
-    ⚠️ THE CAP IS APPLIED AFTER THE MERGE, NOT PER LEDGER. Each ledger is asked for `limit` rows and
-    the merged list is cut to `limit` -- so the records you get are the globally closest, not a
-    third from each. Sorting before the cut is what makes the cut meaningful, and it uses the same
-    order the screen renders in (suggested first, then closest) so the two never disagree about
-    which records "the top of the list" means.
+    ⚠️ IT RETURNS THE WHOLE APPROVED POOL, AND THE CAP IS NOW A SAFETY CEILING (slice N1, owner
+    decision Q6). `limit=0` -- the default -- means everything, bounded only by `_MAX_BROWSE`. The
+    pool is small enough to hand over once and let the screen filter and sort it with no further
+    round trip.
+
+    ⚠️ HOW SMALL IS NOT A FIXED FACT, AND MEASURING IT ONCE IS A TRAP. It is whatever is APPROVED
+    and not yet paid, so it DRAINS as an import is confirmed and refills as approvals happen. It was
+    measured twice on 2026-08-11, five hours apart: 1,164 records, then 322 -- the same pool, after
+    a batch was settled. Both are comfortably inside the ceiling and either would be fine to send;
+    what would NOT be fine is sizing a future decision on one reading of a number that moves by 4x
+    in an afternoon.
+
+    THE OLD BEHAVIOUR WAS A REAL DEFECT, NOT MERELY A LIMIT. It asked each ledger for 50 rows
+    ORDERED BY AMOUNT CLOSENESS and cut the merge to 50. Two consequences, both live:
+      * the record a reviewer wanted was INVISIBLE unless its amount happened to be near -- the
+        vendor could be right, the project could be right, and it would not be in the list;
+      * 50 near-amount payments filled the merge before the 14 approved project expenses could get
+        in, so an entire ledger could vanish from a list that claims to span all three.
+    A positive `limit` still caps, so the existing callers and tests are unaffected.
+
+    ⚠️ THE ORDER IS NOW A SIMILARITY RANKING, NOT AMOUNT CLOSENESS (owner decision Q1b, slice N1).
+    `similarity.ranked_records` weighs project, vendor name, vendor nickname / contact person and
+    amount, in that priority -- INSIDE a hard settleable/unsettleable split, so a record the write
+    path would refuse can never sit above one it would accept. Every record carries its own
+    `similarity` and `similarity_reasons` so the screen can say why it is where it is.
+
+    ⚠️ THE RANKING MUST NOT LEAK INTO THE MATCHER. `similarity` decides nothing; it orders a list a
+    person confirms. See the import comment at the top of this module.
 
     ⚠️ THIS EXISTS BECAUSE `get_row_candidates` IS THE MATCHER'S OUTPUT, NOT A BROWSABLE LIST, and
     the decision dialog was built on it. When the matcher found nothing the dropdowns were EMPTY --
@@ -1102,12 +1134,14 @@ def search_settleable_records(
     top without hiding anything else.
     """
     require_outflow_access()
-    doc = frappe.db.get_value(ROW_DOCTYPE, row, ["amount", "beneficiary_name"], as_dict=True)
+    doc = frappe.db.get_value(
+        ROW_DOCTYPE, row, ["amount", "beneficiary_name", "remarks"], as_dict=True
+    )
     if not doc:
         frappe.throw(f"Import row '{row}' not found.", title="Not found")
 
     bank_amount = normalize_amount(doc.get("amount"))
-    limit = max(1, min(int(limit or 50), 200))
+    cap = _browse_cap(limit)
 
     wanted = (target_doctype or "").strip()
     if wanted:
@@ -1122,12 +1156,82 @@ def search_settleable_records(
 
     records: list[dict] = []
     for ledger in ledgers:
-        records.extend(_search_one_ledger(ledger, bank_amount, search, limit))
+        records.extend(_search_one_ledger(ledger, bank_amount, search, cap))
 
-    # The SAME order the screen renders in -- suggested first, then closest by amount -- so the cut
-    # below keeps the records a reviewer would actually have looked at.
-    records.sort(key=lambda r: (not r["suggested"], abs(r["amount"] - float(bank_amount))))
-    return records[:limit]
+    return _rank_browse_records(records, doc, bank_amount)[:cap]
+
+
+# The ceiling `limit=0` resolves to. Not a page size -- a guard, so that a ledger which grows by an
+# order of magnitude degrades into a truncated list rather than an unbounded query. The live pool
+# has been measured between 322 and 1,164 (it drains as an import is confirmed), so it does not bind
+# today; it exists for the day the shape of the ledger changes and nobody re-checks this file.
+_MAX_BROWSE = 5000
+
+
+def _browse_cap(limit) -> int:
+    """How many records to return. `0` or blank means "everything", up to `_MAX_BROWSE`.
+
+    ⚠️ `0` MEANS EVERYTHING, WHICH IS THE OPPOSITE OF WHAT `int(limit or 50)` USED TO DO. The old
+    expression turned a falsy limit into the default page of 50; the browse list now wants the whole
+    pool by default, and a caller that genuinely wants a page still passes a positive number.
+    """
+    try:
+        wanted = int(limit or 0)
+    except (TypeError, ValueError):
+        wanted = 0
+    if wanted <= 0:
+        return _MAX_BROWSE
+    return min(wanted, _MAX_BROWSE)
+
+
+def _rank_browse_records(records: list[dict], doc: dict, bank_amount) -> list[dict]:
+    """Order the merged pool by how much each record looks like this transfer.
+
+    ⚠️ THE PROJECT INDEX IS BUILT ONCE PER CALL, not per record. It is 194 names; tokenising them
+    1,164 times over would be the redundant work `candidates.load_project_index` exists to avoid.
+
+    ⚠️ THE SCORE AND ITS REASONS ARE ATTACHED TO THE RECORD THE SCREEN ALREADY RENDERS, rather than
+    returned alongside. A parallel array indexed by position is one filter or sort away from
+    describing the wrong row, and this list is about to be filtered and sorted by the client.
+    """
+    row_signals = build_row_signals(
+        doc.get("beneficiary_name"),
+        doc.get("remarks"),
+        bank_amount,
+        C.load_project_index(),
+    )
+
+    # `(doctype, name)` -- a bare name is not unique across three ledgers, which is the same reason
+    # the frontend's `recordKey` carries both halves.
+    by_key = {(r["target_doctype"], r["name"]): r for r in records}
+    ordered: list[dict] = []
+    for signals, score in ranked_records(row_signals, [_record_signals(r) for r in records]):
+        record = by_key[(signals.doctype, signals.name)]
+        record["similarity"] = round(score.total, 3)
+        record["similarity_reasons"] = list(score.reasons)
+        ordered.append(record)
+    return ordered
+
+
+def _record_signals(record: dict) -> RecordSignals:
+    """One row of the browse payload, as the ranker needs to see it.
+
+    ⚠️ `settleable` IS THE PAYLOAD'S OWN `suggested` FLAG, never a second amount comparison. That
+    flag is `amounts.amounts_match` against the settle window, computed where the record was built;
+    re-deriving it here would be a second opinion about what may be settled, which is exactly what
+    `amounts.py` warns its call-site list against.
+    """
+    return RecordSignals(
+        doctype=record["target_doctype"],
+        name=record["name"],
+        amount=normalize_amount(record.get("amount")),
+        settleable=bool(record.get("suggested")),
+        vendor_name=record.get("vendor_name") or "",
+        vendor_nickname=record.get("vendor_nickname") or "",
+        contact_person=record.get("contact_person") or "",
+        project=record.get("project") or "",
+        project_name=record.get("project_name") or "",
+    )
 
 
 def _search_one_ledger(target_doctype: str, bank_amount, search: str, limit: int) -> list[dict]:
@@ -1148,17 +1252,27 @@ def _search_one_ledger(target_doctype: str, bank_amount, search: str, limit: int
         # still be findable -- dropping it would hide a settleable record for a reason invisible on
         # the screen. Both names are resolved server-side so the dropdown does not have to make N
         # more round trips to render N options.
+        # ⚠️ THE COLUMN LIST DRIVES THE PLACEHOLDER COUNT, exactly as the two expense branches below
+        # already do. It was a hand-written OR chain with a hand-counted `[needle] * 5` beside it,
+        # and slice N1 had to add two more columns to it -- which is the moment a hand-counted
+        # parameter list silently goes wrong.
+        search_cols = [
+            "p.name", "v.vendor_name", "p.document_name", "pr.project_name", "p.project",
+            # The nickname and the contact person are how a payment is FOUND by someone who knows
+            # the vendor by neither its registered name nor its id. Same two fields the similarity
+            # ranking reads.
+            "v.vendor_nickname", "v.vendor_contact_person_name",
+        ]
         search_sql = (
-            "AND (lower(p.name) LIKE %s OR lower(coalesce(v.vendor_name,'')) LIKE %s"
-            " OR lower(coalesce(p.document_name,'')) LIKE %s"
-            " OR lower(coalesce(pr.project_name,'')) LIKE %s"
-            " OR lower(coalesce(p.project,'')) LIKE %s)"
+            " AND (" + " OR ".join(f"lower(coalesce({c}::text,'')) LIKE %s" for c in search_cols)
+            + ")"
             if has_search
             else ""
         )
         sql = f"""
             SELECT p.name, p.amount, p.status, p.project, p.document_name,
-                   v.vendor_name, pr.project_name,
+                   v.vendor_name, v.vendor_nickname, v.vendor_contact_person_name,
+                   pr.project_name,
                    COALESCE(p.ceo_approval_date, p.approval_date) AS approved_on
             FROM "tabProject Payments" p
             LEFT JOIN "tabVendors" v ON v.name = p.vendor
@@ -1170,7 +1284,7 @@ def _search_one_ledger(target_doctype: str, bank_amount, search: str, limit: int
         """
         params = [*statuses]
         if has_search:
-            params.extend([needle] * 5)
+            params.extend([needle] * len(search_cols))
         params.extend([float(bank_amount), limit])
         return [
             {
@@ -1180,6 +1294,13 @@ def _search_one_ledger(target_doctype: str, bank_amount, search: str, limit: int
                 # The facts a reviewer picks a payment BY (owner ruling 2026-08-06), each its own
                 # field so the dropdown can lay them out rather than parse a joined string.
                 "vendor_name": r.get("vendor_name") or "",
+                "vendor_nickname": r.get("vendor_nickname") or "",
+                "contact_person": r.get("vendor_contact_person_name") or "",
+                # ⚠️ THE ID, BESIDE THE DISPLAY NAME AND NOT INSTEAD OF IT. `project_name` falls
+                # back to the id when the join finds nothing, so it cannot be compared against what
+                # `ProjectIndex` reports -- that speaks in ids. The ranking needs the id; the screen
+                # needs the name; conflating them loses one of the two.
+                "project": r.get("project") or "",
                 "project_name": r.get("project_name") or r.get("project") or "",
                 "document_name": r.get("document_name") or "",
                 "approved_on": str(r["approved_on"]) if r.get("approved_on") else "",
@@ -1210,6 +1331,7 @@ def _search_one_ledger(target_doctype: str, bank_amount, search: str, limit: int
         search_cols = [
             "e.name", "e.description", "e.type", "e.projects",
             "v.vendor_name", "pr.project_name",
+            "v.vendor_nickname", "v.vendor_contact_person_name",
         ]
         where_search = (
             " AND (" + " OR ".join(f"lower(coalesce({c}::text,'')) LIKE %s" for c in search_cols)
@@ -1219,7 +1341,9 @@ def _search_one_ledger(target_doctype: str, bank_amount, search: str, limit: int
         )
         sql = f"""
             SELECT e.name, e.amount, e.status, e.description, e.type,
-                   e.projects AS project, v.vendor_name, pr.project_name, e.modified
+                   e.projects AS project, v.vendor_name,
+                   v.vendor_nickname, v.vendor_contact_person_name,
+                   pr.project_name, e.modified
             FROM "tabProject Expenses" e
             LEFT JOIN "tabVendors" v ON v.name = e.vendor
             LEFT JOIN "tabProjects" pr ON pr.name = e.projects
@@ -1237,9 +1361,15 @@ def _search_one_ledger(target_doctype: str, bank_amount, search: str, limit: int
             if has_search
             else ""
         )
+        # ⚠️ THIS LEDGER HAS NO VENDOR AND NO PROJECT AT ALL -- not blank values, no columns and no
+        # join to make. All 68 approved Non Project Expenses therefore score ZERO on three of the
+        # ranking's four axes, and that is a fact about the data rather than evidence about the
+        # transfer: `similarity` treats a missing field as no signal, never as a penalty.
         sql = f"""
             SELECT name, amount, status, description, type,
-                   NULL AS project, NULL AS vendor_name, NULL AS project_name, modified
+                   NULL AS project, NULL AS vendor_name,
+                   NULL AS vendor_nickname, NULL AS vendor_contact_person_name,
+                   NULL AS project_name, modified
             FROM "tabNon Project Expenses"
             WHERE status IN ({status_ph})
               AND amount IS NOT NULL
@@ -1258,6 +1388,9 @@ def _search_one_ledger(target_doctype: str, bank_amount, search: str, limit: int
             "name": r["name"],
             "amount": float(normalize_amount(r.get("amount"))),
             "vendor_name": r.get("vendor_name") or "",
+            "vendor_nickname": r.get("vendor_nickname") or "",
+            "contact_person": r.get("vendor_contact_person_name") or "",
+            "project": r.get("project") or "",
             "project_name": r.get("project_name") or r.get("project") or "",
             "document_name": r.get("type") or "",
             "approved_on": "",

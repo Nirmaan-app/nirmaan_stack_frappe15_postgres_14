@@ -658,6 +658,99 @@ class TestSearchSettleableRecords(OutflowReviewFixture):
         records = search_settleable_records(self._row_name(), "", limit=2)
         self.assertLessEqual(len(records), 2)
 
+    # --- slice N1: the whole pool, ranked -------------------------------------------------------
+
+    def test_the_default_now_returns_every_approved_payment_not_a_page_of_fifty(self):
+        """⚠️ THE DEFECT THIS FIXES, AND IT WAS NOT MERELY A SHORT LIST.
+
+        The old default asked each ledger for 50 rows ORDERED BY AMOUNT CLOSENESS. A record whose
+        vendor and project were both right was INVISIBLE unless its amount happened to be near --
+        and the search box was the only way to reach it. The pool is small enough to send whole.
+        """
+        offered = {
+            r["name"]
+            for r in search_settleable_records(self._row_name(), "")
+            if r["target_doctype"] == "Project Payments"
+        }
+        approved = set(
+            frappe.get_all(
+                "Project Payments", filters={"status": "Approved"}, pluck="name", limit_page_length=0
+            )
+        )
+        self.assertEqual(offered, approved)
+
+    def test_a_small_ledger_can_no_longer_be_squeezed_out_of_the_merge(self):
+        """⚠️ THE SECOND HALF OF THE SAME DEFECT. Each ledger was capped at 50 and the merge was cut
+        to 50, so near-amount payments could fill the list and drop an ENTIRE ledger from a view
+        that claims to span all three."""
+        records = search_settleable_records(self._row_name(), "")
+        self.assertIn(self.expense_linked, {r["name"] for r in records})
+
+    def test_every_record_carries_its_similarity_score_and_the_reasons_for_it(self):
+        """A ranked list whose order cannot be explained is one people stop trusting."""
+        records = search_settleable_records(self._row_name(), "")
+        self.assertTrue(records)
+        for record in records:
+            self.assertIsInstance(record["similarity"], (int, float))
+            self.assertIsInstance(record["similarity_reasons"], list)
+
+    def test_a_record_carries_the_project_id_BESIDE_the_display_name(self):
+        """⚠️ NOT INSTEAD OF IT. `project_name` falls back to the id when the join finds nothing, so
+        it cannot be compared against what `ProjectIndex` reports -- that speaks in ids. The ranking
+        needs the id and the screen needs the name; one key cannot carry both."""
+        records = search_settleable_records(self._row_name(), "")
+        expense = next(r for r in records if r["name"] == self.expense_linked)
+        self.assertEqual(expense["project"], self.project)
+        self.assertNotEqual(expense["project_name"], expense["project"])
+
+    def test_every_record_carries_the_nickname_and_contact_person_keys(self):
+        """Structural: the alias axis reads them on every ledger, and a MISSING key is not the same
+        as an empty one -- Non Project Expenses have no vendor at all and must still answer."""
+        records = search_settleable_records(self._row_name(), "")
+        for record in records:
+            self.assertIn("vendor_nickname", record)
+            self.assertIn("contact_person", record)
+
+    def test_a_non_project_expense_reports_no_vendor_rather_than_omitting_the_field(self):
+        records = search_settleable_records(self._row_name(), "Non Project Expenses")
+        for record in records:
+            self.assertEqual(record["vendor_name"], "")
+            self.assertEqual(record["vendor_nickname"], "")
+            self.assertEqual(record["contact_person"], "")
+
+    def test_a_vendors_nickname_reaches_the_payload_when_it_has_one(self):
+        nickname = frappe.db.get_value("Vendors", self.vendor.name, "vendor_nickname") if self.vendor else None
+        if not nickname:
+            self.skipTest("the fixture vendor has no nickname on file")
+        records = search_settleable_records(self._row_name(), "")
+        expense = next(r for r in records if r["name"] == self.expense_linked)
+        self.assertEqual(expense["vendor_nickname"], nickname)
+
+    def test_an_unsettleable_record_never_outranks_a_settleable_one(self):
+        """⚠️ THE HARD SPLIT (owner decision Q2), asserted on real data rather than a fixture.
+
+        `settle.py` refuses a record outside the settle window, so however much one looks like the
+        transfer it must never sit above a record the reviewer can actually confirm. This is the
+        same property `test_suggested_records_come_first_then_the_closest` checks; it is repeated
+        here because the ORDER's reason changed underneath that test -- it now passes because of the
+        split rather than because of the amount sort, and only this docstring says so.
+        """
+        flags = [r["suggested"] for r in search_settleable_records(self._row_name(), "")]
+        self.assertEqual(flags, sorted(flags, reverse=True))
+
+    def test_scores_never_rise_as_the_list_goes_down_within_one_half(self):
+        records = search_settleable_records(self._row_name(), "")
+        for earlier, later in zip(records, records[1:]):
+            if earlier["suggested"] == later["suggested"]:
+                self.assertGreaterEqual(earlier["similarity"], later["similarity"])
+
+    def test_the_order_is_total_so_two_identical_calls_agree(self):
+        """⚠️ THE SORT KEY ENDS IN `(doctype, name)`, WHICH IS UNIQUE. A ranking that reshuffles
+        equal-scoring rows between two loads of the same dialog is one a reviewer cannot trust."""
+        first = [(r["target_doctype"], r["name"]) for r in search_settleable_records(self._row_name(), "")]
+        again = [(r["target_doctype"], r["name"]) for r in search_settleable_records(self._row_name(), "")]
+        self.assertEqual(first, again)
+
 
 class TestAmbiguityIsNotResolved(OutflowReviewFixture):
     def test_an_ambiguous_vendor_is_left_blank_rather_than_guessed(self):
