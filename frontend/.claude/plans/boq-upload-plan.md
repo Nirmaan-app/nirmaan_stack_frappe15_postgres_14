@@ -13992,9 +13992,12 @@ replacing any of them with its own condition is the failure mode this change exi
 **PER-BROWSER and PER-USER, effective next page load, never company-wide**. The consequent PERMANENT widening of the
 embedded pricing editor (`embeddedPanel`: `max-w-5xl` -> `w-full`) is the INTENDED outcome, not a side effect — the
 centred cap is not to be preserved. **STANDING OWNER RULE from this ruling: no dev-only gates, ever; anything built
-here must work as-is in production.** Note the now-stale inline comment at the `embeddedPanel` page-width site in
-`SheetPricingPage.tsx` still says "prod (feature off) keeps the centered cap" — left deliberately untouched because
-that site is one of the 21 guards and this change was scoped to the flag file.
+here must work as-is in production.** The inline comment at the `embeddedPanel` page-width site in
+`SheetPricingPage.tsx` (which used to say "prod (feature off) keeps the centered cap") was CORRECTED in a follow-up
+commit on owner instruction: it now records that the widening is the default everywhere, and that -- since `expanded`
+is handled by the branch above, leaving `embeddedPanel` reduced to `RATE_HELPER_ENABLED` -- the centred cap is
+reachable ONLY when the `nirmaan-rate-helper-off` kill-switch is set. **COMMENT ONLY: the className expression, the
+`embeddedPanel` derivation and every other guard site remain byte-untouched.**
 
 **Gates (in-container, bench-verified).** vitest **932 -> 952** (+20 for the pure leaves: stub compute incl. the
 recompute + no-match paths, registry resolution + dead-helper declines, kind mapping, `buildSuggestions` per-kind
