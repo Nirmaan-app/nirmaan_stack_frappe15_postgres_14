@@ -286,10 +286,12 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({
 
       console.log("CameraCapture: Uploading file:", file);
 
-      const fileResponse = await uploadFile(file, { // Use frappeFileUpload object
-        doctype: "Project Progress Report Attachment",
-        fieldname: "image_link", // Ensure this fieldname matches your DocType
-        isPrivate: true // Good practice for personal info
+      // Capture happens BEFORE the report exists, so we upload as a private temp
+      // file with no attach target. The backend `Project Progress Reports`
+      // on_update hook (relink_attachment_files) stamps ownership
+      // (attached_to_doctype/name) onto this File once the report is saved.
+      const fileResponse = await uploadFile(file, {
+        isPrivate: true // DPR photos may carry site / location detail
       });
       const frappeFileUrl = fileResponse.file_url;
 
