@@ -78,6 +78,7 @@ __all__ = [
     "GENERIC_PROJECT_TOKENS",
     "ProjectIndex",
     "build_project_index",
+    "comparable_tokens",
     "distinctive_tokens",
 ]
 
@@ -146,7 +147,7 @@ class ProjectIndex:
         Reports more than one when the remark is genuinely ambiguous, so a caller can explain itself
         rather than silently seeing nothing. `sole_project` is what applies the rule.
         """
-        remark_tokens = _comparable_tokens(remarks)
+        remark_tokens = comparable_tokens(remarks)
         return frozenset(
             {p for p, _ in self._whole_name_matches(remark_tokens)}
             | self._keyword_matches(remark_tokens)
@@ -160,7 +161,7 @@ class ProjectIndex:
         and `VendorResolution.best` behind `.ambiguous`, and for the same reason: the alternative is
         the machine choosing between two real answers.
         """
-        remark_tokens = _comparable_tokens(remarks)
+        remark_tokens = comparable_tokens(remarks)
 
         # STEP 1 -- the remark contains a project's whole name.
         matches = self._whole_name_matches(remark_tokens)
@@ -216,7 +217,7 @@ def build_project_index(projects: Sequence[tuple[str, str]]) -> ProjectIndex:
         if not project_id:
             continue
         names[project_id] = (project_name or "").strip()
-        tokens = _comparable_tokens(project_name)
+        tokens = comparable_tokens(project_name)
         token_sets[project_id] = tokens
         for token in tokens:
             if token not in GENERIC_PROJECT_TOKENS:
@@ -257,8 +258,17 @@ def _most_specific(matches: Sequence[tuple[str, frozenset[str]]]) -> list[str]:
     return dominators or [project for project, _ in matches]
 
 
-def _comparable_tokens(value: object) -> frozenset[str]:
+def comparable_tokens(value: object) -> frozenset[str]:
     """The comparable token set of a project name or a bank remark.
+
+    ⚠️ PUBLIC SINCE `similarity.py`, AND IT HAS TO BE. That module ranks the browse list by how much
+    a record looks like the transfer, over the same free text against the same masters -- so it needs
+    exactly this rule. A private twin over there would be a SECOND definition of "which words count",
+    free to drift: change the length floor here and the ranked list would quietly stop agreeing with
+    the matcher about what a word even is. One owner, two readers.
+
+    ⚠️ SHARING THE TOKENISER IS NOT SHARING A POLICY. `similarity` sets its own weights and
+    thresholds and must never read this module's -- see the note at the top of `similarity.py`.
 
     BOTH SIDES GO THROUGH THIS ONE FUNCTION, which is the point: `name_tokens` case-folds, expands
     legal-form abbreviations and singularises, so `Absolute Air Solutions` in a remark meets
