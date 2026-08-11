@@ -510,12 +510,25 @@ All BoQ wizard / pricing frontend code lives in `src/pages/boq-wizard/`. This se
   `AlertDialog`; both `mutate()` to re-read the flag (the `lock_sheet`/`handleToggleLock` pattern). While frozen,
   `onCategoryClick` short-circuits with a brief inline message via a `classificationFrozenRef` — the callback stays
   REFERENCE-STABLE (row-memo anti-defeat rule); NEVER thread a per-row `frozen` prop through `pricingRowPropsAreEqual`.
-- **Rate-helper chassis (U1, DEV-only, `rate-helper/`; full detail in the plan doc's "Build slice U1"):** the
+- **Rate-helper chassis (U1, ALWAYS-ON in production, `rate-helper/`; full detail in the plan doc's "Build slice
+  U1"):** the
   "Suggest rates" button + per-cell badges + the page-level panel that renders a typed helper CONTRACT generically
   (`RateHelper.compute -> Suggestion | NoSuggestion`; the panel has ZERO helper-specific rendering — a new helper is
-  a registry edit). Load-bearing invariants: (1) **DEV gate `RATE_HELPER_ENABLED` (`import.meta.env.DEV` + a
-  localStorage kill-switch) — a prod `vite build` makes the whole feature unreachable**, so it must guard the button,
-  the grid props (`rowSuggestionsByExcelRow`/`onSuggestionBadgeClick` passed only when enabled), and the panel mount.
+  a registry edit). Load-bearing invariants: (1) **`RATE_HELPER_ENABLED` is a RUNTIME KILL-SWITCH THAT DEFAULTS ON —
+  the `import.meta.env.DEV` gate is GONE (owner ruling), so the feature SHIPS in a production `vite build`.** It is
+  read at ~21 sites in `SheetPricingPage.tsx` — **16 direct + the three derived `rmEnabled` / `helperPanelOpen` /
+  `embeddedPanel`** — NOT the three this note used to name: the button, the four suggestion SWR fetches, the
+  run-adoption / badge-rebuild / selection-prune effects, the status poller, the progress modal, the pre-run
+  confirmation dialog, the partial-run resume strip, the per-category config fetchers, the grid badge + tick props
+  (`rowSuggestionsByExcelRow`/`onSuggestionBadgeClick`/`tickableRows`/`selectedRows`/`onToggleTick`/`onToggleTicked`),
+  and BOTH panel mounts. **They flip together ONLY because they all read the ONE module-load-once const — never
+  replace a guard site with its own condition, and never make the const per-call** (memo-shield load-bearing; a
+  half-gated set yields half-rendered states, e.g. a button that opens nothing or badges with no panel). The
+  localStorage key `nirmaan-rate-helper-off` REMAINS as an emergency off-lever: **PER-BROWSER and PER-USER, effective
+  on the next page load, never company-wide** — turning the feature off for everyone is a code change, not a setting.
+  Because the gate is gone, `embeddedPanel`'s widening of the embedded pricing editor (`max-w-5xl` -> `w-full`) is now
+  PERMANENT and INTENDED. **STANDING OWNER RULE: no dev-only gates, ever — anything built here must work as-is in
+  production, so `import.meta.env.DEV` must never gate a feature again.**
   (2) The ONE write is **`PricingGridHandle.applyRate(excelRow, col, value)`, which MUST mirror the typed `onChange`
   EXACTLY — optimistic `setDraftRates` + clear proposal + the SAME 1s debounced `scheduleAutoSave`, NEVER a
   synchronous `commitRate`**: a synchronous commit races the page's `dirty -> ensureLockAcquired` and trips a spurious

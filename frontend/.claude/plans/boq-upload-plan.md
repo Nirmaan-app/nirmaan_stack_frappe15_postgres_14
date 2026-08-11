@@ -13972,11 +13972,29 @@ virtualization -- all internal, untouched); EMBEDDED mode drops `max-w-5xl` (wid
 Panel state keyed by the durable `(excelRow, col)` -- col is the stable Excel column letter that DETERMINES the
 rate-kind (1:1 on scalar/per-area sheets), never a window index.
 
-**Dev-flag mechanism (item 8).** `rateHelperFlag.ts`: `RATE_HELPER_ENABLED = import.meta.env.DEV && localStorage
-"nirmaan-rate-helper-off" !== "true"`, evaluated ONCE at module load (a stable const, memo-safe). A production
-`vite build` sets `import.meta.env.DEV = false` -> the feature is UNREACHABLE in a shipped bundle (no button, no
-badges, no panel). The localStorage kill-switch toggles it OFF at runtime for verification (V10) without a rebuild
-(next page load); it can only turn the feature OFF, never ON in prod.
+**Dev-flag mechanism (item 8). ⚠️ SUPERSEDED 2026-08-11 — see "Gate removal" below. Retained as history; the
+behaviour described in this paragraph NO LONGER EXISTS.** `rateHelperFlag.ts`: `RATE_HELPER_ENABLED =
+import.meta.env.DEV && localStorage "nirmaan-rate-helper-off" !== "true"`, evaluated ONCE at module load (a stable
+const, memo-safe). A production `vite build` sets `import.meta.env.DEV = false` -> the feature is UNREACHABLE in a
+shipped bundle (no button, no badges, no panel). The localStorage kill-switch toggles it OFF at runtime for
+verification (V10) without a rebuild (next page load); it can only turn the feature OFF, never ON in prod.
+
+**Gate removal (2026-08-11, owner ruling: ALWAYS-ON) — what REPLACED the above.** The single line
+`if (!import.meta.env.DEV) return false;` was removed from `computeEnabled()`; `rateHelperFlag.ts` is otherwise
+unchanged in shape (same one export, same try/catch fail-open, same module-load-once evaluation — the last is
+memo-shield load-bearing and must NOT become per-call). `RATE_HELPER_ENABLED` is therefore a **runtime kill-switch
+that DEFAULTS ON**, and the rate helper SHIPS in a production `vite build`. No site setting, no new schema, no
+per-site conditions: the ~21 guard sites in `SheetPricingPage.tsx` (16 direct + the derived `rmEnabled` /
+`helperPanelOpen` / `embeddedPanel`) were left BYTE-UNTOUCHED and flip together because they read the one const —
+replacing any of them with its own condition is the failure mode this change exists to avoid. The localStorage key
+`nirmaan-rate-helper-off` survives as the emergency off-lever and still works in a production bundle (only
+`import.meta.env.DEV` was ever build-time-substituted; the storage read is ordinary runtime code), but it is
+**PER-BROWSER and PER-USER, effective next page load, never company-wide**. The consequent PERMANENT widening of the
+embedded pricing editor (`embeddedPanel`: `max-w-5xl` -> `w-full`) is the INTENDED outcome, not a side effect — the
+centred cap is not to be preserved. **STANDING OWNER RULE from this ruling: no dev-only gates, ever; anything built
+here must work as-is in production.** Note the now-stale inline comment at the `embeddedPanel` page-width site in
+`SheetPricingPage.tsx` still says "prod (feature off) keeps the centered cap" — left deliberately untouched because
+that site is one of the 21 guards and this change was scoped to the flag file.
 
 **Gates (in-container, bench-verified).** vitest **932 -> 952** (+20 for the pure leaves: stub compute incl. the
 recompute + no-match paths, registry resolution + dead-helper declines, kind mapping, `buildSuggestions` per-kind
