@@ -44,9 +44,12 @@ pick one ad-hoc; ask.
 | Candidate pool queries | `services/outflow_import/candidates.py` | query a ledger for candidates inline in an endpoint |
 | Browsable approved records (hand-linking) | `api/outflow_import/review.search_settleable_records` (+ `_search_one_ledger`, `_rank_browse_records`, `_browse_cap`) | reuse `get_row_candidates` for browsing — that is the MATCHER's output, and when the matcher finds nothing it is empty, which is exactly when hand-linking is needed. Since N1 it returns the WHOLE approved pool by default and `limit` is a safety ceiling, not a page size |
 | What counts as "decided" on the screen | `frontend/src/pages/outflow-import/outflowTableModel.ts` (`isConfirmable`) | gate a confirm button on its own predicate — the dialog and the bulk bar both read this one |
-| Which rows the master table shows (X3) | `api/outflow_import/review.get_outflow_rows` (+ `_row_filters`, `_scope_clause`, `get_outflow_facet_values`) | filter, sort or search rows in the browser. ⚠️ `_row_filters` is ONE builder shared by the page query, its count, the tab counts and the facet values — a count computed under different filters than the page it labels is a lie that looks like a paging bug |
+| Which rows the master table shows (X3) | `api/outflow_import/review.get_outflow_rows` (+ `_row_filters`, `_scope_clause`, `get_outflow_facet_values`) | filter, sort or search rows in the browser. ⚠️ `_row_filters` is ONE builder shared by the page query, its count, the tab counts, the facet values **and — since P1 — the summary, the confirmable list and `match_period`** — a count computed under different filters than the page it labels is a lie that looks like a paging bug. ⚠️ Its two date clauses carry `OR r.added_on IS NULL` on purpose: an unparseable bank date would otherwise match no period and vanish from every surface at once |
 | What the screen ASKS for (X3) | `outflowTableModel.serverQuery` | build endpoint params at a call site. It owns the MEANING of a filter; SQL owns the application |
-| One import's aggregate (X2) | `services/outflow_import/status.py` (`derive_import_summary`, `StatusTally`) | count or sum an import anywhere else. The DB does the `GROUP BY`; this assembles |
+| The screen's aggregate (X2, widened P1) | `services/outflow_import/status.py` (`derive_import_summary`, `StatusTally`) | count or sum the selected transfers anywhere else. The DB does the `GROUP BY`; this assembles. It is batch-agnostic and always was, which is why scoping it to a PERIOD needed no change here at all — only the WHERE clause moved |
+| The screen's PERIOD, and the `added_on` filter (P1) | `frontend/.../outflow-import/outflowPeriod.ts` + `useOutflowPeriodStore.ts` | hold a second date filter for this column. ⚠️ **ONE VALUE, TWO EDITORS** — the `Period` control above the summary and the `Payment Date` column funnel read and write the same store entry. Two filters over one column would AND together, so "Last 30 days" plus "Is 01-Jan" selects nothing while neither control looks wrong. It is a STORE and not page state because four surfaces need it and one (the Skipped dialog's own `useOutflowRows` instance) is not a child |
+| A timespan word -> two dates | `frontend/src/utils/dateFilterRange.ts` | resolve "last 30 days" at a call site. It MIRRORS Frappe's `get_timespan_date_range`, including the odd ones (`this month` ends TODAY; `last 6 months` is quarter-aligned), so the same label selects the same rows on this screen as on every DataTable screen. ⚠️ The reports' `datePresets` define the SAME WORDS differently (its "Last 30 days" is 29 days) — the two vocabularies must not be mixed |
+| The date filter CONTROL and its vocabulary | `components/data-table/dateFilterModel.ts` (pure) + `date-filter-popover.tsx` (the popover) | write a second date filter. `DataTableDateFilter` is now a thin TanStack binding over the same popover, so every screen offers one set of operators. Adding an operator or a timespan means teaching `dateFilterRange.ts` in the SAME change, or a control offers an option that silently filters nothing |
 | Seeding decisions from the match run | `outflowTableModel.ts` (`suggestedDecision`, `seedDecisions`, `decisionOrigin`) | pre-select inside a component; the dialog used to, and it could only fire once a row was already open |
 | Grouping + pairing interchangeable transfers | `services/outflow_import/stacks.py` (`stack_key`, `group_into_stacks`, `pair_stack`, `stack_note`, `stack_surplus_note`) | decide a stack's membership, its pairing, or why it did not pair, anywhere else. `review._resolve_stacks` owns the DATABASE half and nothing more |
 | Access | `api/outflow_import/permissions.require_outflow_access` | gate an endpoint any other way |
@@ -520,6 +523,10 @@ thing — one master table across every import at `/bulk-import-outflow` — and
   | Not-Matched | `not_matched` | `Pending match run` · `Mismatched` · `Error` |
   | Matched / Settled | `matched` | `Matched` · `Settled` |
 
+  ⚠️ **ALL THREE TABS ARE SCOPED BY THE PERIOD SINCE P1**, and so is the Skipped dialog — the
+  period is the `added_on` column's filter, and `_row_filters` applies it to every one of these
+  reads. `tab_counts` therefore describes the period, exactly as it already described the search.
+
   ⚠️ **`Skipped` HAS NO TAB, AND IS EXCLUDED FROM `all` TOO.** "All" means everything a person might
   still act on, not every row. Skipped rows are bookkeeping — a failed transfer, a duplicate, a
   payment already ticked Paid by hand — and **the import summary panel's auto/manual split line is
@@ -541,14 +548,86 @@ thing — one master table across every import at `/bulk-import-outflow` — and
 
   `tab_counts` is keyed by SCOPE name, and every count is derived from `_SCOPE_STATUSES` rather than
   a second hand-written list — a count that disagrees with what its tab shows is worse than none.
-- **The summary panel above summarises ONE import while the table spans all of them.** That is the
-  design: "how did that statement go?" and "what do I still owe a decision on?" are different
-  questions. ⚠️ **The status figures REPORT; they do not scope (owner ruling 2026-08-10).** They
-  used to be buttons that re-filtered the table to their own status set. Two things were wrong with
-  that: a panel describing ONE import silently rewrote the filters of a table spanning ALL of them,
-  and the click **moved the tab** as a side effect, so reading a figure navigated away from the work
-  in progress. The `SummaryTile.statuses` field and `tabForStatus` are deleted with the click —
-  scoping lives in the Status column's own filter, and nowhere else.
+- ⚠️ **THE SUMMARY PANEL SUMMARISES A PERIOD, NOT ONE IMPORT — owner ruling 2026-08-12 (slice P1),
+  REVERSING the 2026-08-10 position recorded here.** That entry read: *"the summary panel above
+  summarises ONE import while the table spans all of them. That is the design: 'how did that
+  statement go?' and 'what do I still owe a decision on?' are different questions."* The owner took
+  the other side. A **period control** above the panel now scopes the summary **and** the three
+  tabs, and the import picker is gone.
+  - **The two now describe ONE population, which is what let the ruling be revised rather than
+    merely overridden.** The 2026-08-10 objection had two halves. The first was a POPULATION
+    mismatch — *"a panel describing ONE import silently rewrote the filters of a table spanning ALL
+    of them"* — and that dissolves when there is only one population. **The second half STANDS and
+    is deliberately kept: a click must never MOVE THE TAB.** The status figures still REPORT,
+    `SummaryTile.statuses` and `tabForStatus` stay deleted, and changing the period does not change
+    which tab is open.
+  - **Every sibling read takes the same filter set and builds it with the same `_row_filters`:**
+    `get_outflow_summary`, `get_outflow_rows`, `get_confirmable_rows`, `match_period` and the facet
+    values. The frontend passes ONE object (`useOutflowRows().filterQuery`, derived by stripping
+    scope/sort/paging off the query the table just sent), so a panel figure and a tab count cannot
+    be computed under different filters. **The scope (the tab) is excluded from all of them** — it
+    partitions the population rather than narrowing it, the same rule `_tab_counts` follows.
+  - **`derive_import_summary` needed NO change.** It folds a stream of `StatusTally` and has never
+    known what a batch is, so widening from one import to a period was a WHERE-clause change only.
+    **`get_import_summary(batch)` survives as a thin wrapper** over `get_outflow_summary(batch=X)`
+    plus the statement's metadata — kept because `test_review` reads it and because it is the
+    regression pin: `batch=X` and nothing else IS the pre-P1 clause, so the two can never drift
+    (`test_one_batch_reproduces_the_old_endpoint_EXACTLY`).
+  - ⚠️ **A ROW WITH NO `added_on` SURVIVES EVERY PERIOD, and the `IS NULL` in `_row_filters` is the
+    whole point of those two clauses.** The bank's date column is free text and does not always
+    parse — the parser stores NULL rather than guessing, and the fixture carries a literal
+    `not-a-date` for the case. Under a plain `>=` / `<` bound such a row matches NO window, so once
+    the period became the screen's SCOPE it would have vanished from the summary, all three tabs and
+    the Skipped dialog simultaneously, **with no filter on screen able to bring it back**. The
+    transfer still moved money and still needs settling. Found by a test, not by the screen.
+  - ⚠️ **RE-MATCHING REACHES FURTHER THAN THE PERIOD, AND THE SCREEN SAYS SO.** `match_period`
+    resolves which batches the filters touch and **loops `match_batch` per batch** — the matching
+    unit stays a whole statement, because its four global passes reason over a batch at once and a
+    partial picture would break claims and stacks. So a statement straddling the window is
+    re-matched **in full**. `get_outflow_summary().imports` carries each batch's `row_count` (in
+    scope) beside `total_rows` (in the batch) so `rematchWarning` can state the overspill *before*
+    the click. Do not "fix" this by narrowing the match; keep the warning honest.
+  - ⚠️ **"Confirm all matched" REFUSES a set too large to review rather than truncating it**
+    (`_MAX_CONFIRMABLE`, 2000). The dialog is a SAFETY CONTROL that states what the button will
+    write, including how many approved amounts it will REWRITE; a silent `LIMIT` would show a list
+    shorter than the count on the button that opened it, over a set nobody chose, with the missing
+    rows sharing no property anything on screen could name. The refusal names the number and says to
+    narrow. Sized so any single real statement always fits, so narrowing to one import is always a
+    way through.
+  - ⚠️ **THE IMPORT SELECTOR IS BACK, DEMOTED (owner ruling 2026-08-12, same day).** A top-level
+    `Import` control sits LEFT of the period. **Empty is the default and means "every import"** —
+    the period-scoped screen above. Selecting a statement switches the whole screen to **that
+    statement's own summary**, which is the pre-P1 view, now available on demand instead of being
+    the only mode. System-wide by default; one statement when asked.
+    - ⚠️ **SELECTING AN IMPORT IGNORES THE PERIOD — it does not AND with it (owner ruling).** "That
+      sheet's summary" means the WHOLE statement. `useOutflowRows` withholds the period whenever a
+      batch is pinned, which is the same rule that fixed the deep link (below) — one rule, not two.
+    - ⚠️ **THE PERIOD CONTROL IS DISABLED, NOT HIDDEN, while an import is selected**, reading
+      `Not applied · whole statement`. A control that VANISHES leaves the reader unable to tell "no
+      period applies" from "a period applies and I cannot see it" — and the second is a defect this
+      screen actually shipped (below). It must also not keep NAMING a window while greyed: showing
+      "Last 30 days" disabled reads as "applied, just not editable", the opposite of the truth.
+    - **`/bulk-import-outflow/:id` IS the selection** — the route param is the only copy of it, so
+      the two can never contradict each other. Picking a statement navigates there; picking "All
+      imports" navigates back to the bare path. Every pre-P1 bookmark resolves AND now has a way out
+      of itself, which the old deep-linked mode did not. Switching remounts the page (two route
+      entries), which is correct: different rows, so the ticked selection and un-confirmed decisions
+      should reset. The period survives, because it lives in a module-level store.
+    - `get_outflow_summary` returns the statement's metadata under `import` **only when a batch is
+      selected** — absent across a period, because several statements have no single filename,
+      uploader or declared period and inventing one captions the panel with the wrong statement.
+      That moved INTO the period-scoped read so `get_import_summary` could become a **pure
+      delegate**: one query answering "how did that statement go", never two that could drift.
+  - ⚠️ **THE DEEP LINK SHIPPED SILENTLY FILTERED, AND IT IS THE REASON FOR THE RULES ABOVE.** Found
+    in the browser walk, not by a test: `/bulk-import-outflow/OFI-26-00289` reported **274 transfers
+    out of 1,043**, because a period left in the store by an earlier visit was still applied while
+    the control was hidden. Every number wrong, everything looking right, and nothing on screen able
+    to reveal or clear it. An invisible filter is the worst kind.
+  - **A fresh import moves the screen to the statement's own declared period.** Statements are
+    routinely uploaded weeks after the transfers moved, so a new import can land entirely outside the
+    default `last 30 days` window — the page would refresh to a summary that does not mention it and
+    a table that does not list it, which reads as a failed upload. `ImportStatementDialog.onImported`
+    carries the period for exactly this.
 - **The import dialog runs the match itself** and closes only when it is done — there is no case
   where somebody imports a statement and does not want it matched. A manual **Re-run match** stays
   on the summary, because re-running is normal (payments get hand-ticked all day). ⚠️ If the upload
@@ -943,8 +1022,8 @@ falls to a person untouched.
 | Suite | How |
 |---|---|
 | pure services (12 modules, 409 tests) | `python -m unittest discover -s nirmaan_stack/services/outflow_import -t . -p "test_*.py"` — no bench needed |
-| api (`test_upload`/`test_review`/`test_expenses`/`test_settle_payment`/`test_approved`) | `bench --site localhost run-tests --app nirmaan_stack --module nirmaan_stack.api.outflow_import.<module>` — `test_review` is 121 |
-| frontend | `yarn test` (vitest, `node` environment — pure helpers only). 226 in this feature. |
+| api (`test_upload`/`test_review`/`test_expenses`/`test_settle_payment`/`test_approved`) | `bench --site localhost run-tests --app nirmaan_stack --module nirmaan_stack.api.outflow_import.<module>` — `test_review` is **137** (121 before P1) |
+| frontend | `yarn test` (vitest, `node` environment — pure helpers only). **309** across this feature + the shared date-filter model (226 before P1). |
 
 ⚠️ **Both runners must be invoked INSIDE the dev container.** The host has no `firebase_admin`, so
 `python -m unittest` fails at `nirmaan_stack/__init__.py` before reaching a test; and the host
