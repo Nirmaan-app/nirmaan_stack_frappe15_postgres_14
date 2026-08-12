@@ -61,17 +61,25 @@ export const PERIOD_PRESETS: PeriodPreset[] = [
 ];
 
 /**
- * Where the screen opens.
+ * Where the screen opens. `null` IS "all time" -- the same value the Period control produces when
+ * somebody clears it, so opening and clearing land on exactly one state.
  *
- * ⚠️ NOT "ALL TIME" — this screen is a WORKLIST, the same reason `DEFAULT_TAB` is `not_matched`
- * rather than `all` (owner ruling 2026-08-09). Opening on every transfer ever staged makes the
- * first paint slower every month the feature is used, and buries the statement somebody just
- * imported under months of settled history.
+ * ⚠️ THIS REVERSES THE 2026-08-09 RULING (owner, 2026-08-12), and the reasoning it reverses is
+ * recorded here rather than deleted, because it was not wrong -- it was a trade the owner has now
+ * decided the other way.
  *
- * ⚠️ IT IS A TIMESPAN, SO IT NEVER GOES STALE. Stored as the word, resolved against a live today on
- * every read.
+ * The old default was `last 30 days`, on the grounds that this screen is a WORKLIST (the same
+ * reason `DEFAULT_TAB` is `not_matched` rather than `all`): opening on every transfer ever staged
+ * makes the first paint slower every month the feature is used, and buries the statement somebody
+ * just imported under months of settled history. BOTH OF THOSE COSTS ARE REAL AND ARE NOW ACCEPTED
+ * -- a reviewer looking for an older transfer was silently shown nothing and had no reason to
+ * suspect a date filter was the cause, and that was judged the worse failure.
+ *
+ * ⚠️ SO THE FIRST PAINT NOW SCALES WITH THE WHOLE TABLE, not with a window. If that becomes a
+ * problem the fix is paging or a server-side cap, NOT quietly reinstating a default period -- the
+ * reason this one was reversed is that an invisible filter is indistinguishable from missing data.
  */
-export const DEFAULT_PERIOD: DateFilterValue = { operator: "Timespan", value: "last 30 days" };
+export const DEFAULT_PERIOD: DateFilterValue | null = null;
 
 /**
  * How the period reads on the trigger.
@@ -117,9 +125,11 @@ export const periodToParams = (
     value?: DateFilterValue | null
 ): Record<string, string | null> => {
     if (!value || !value.value) {
-        // ⚠️ "ALL TIME" IS WRITTEN, NOT OMITTED. An absent operator means "nothing was chosen", which
-        // must fall back to the default period; clearing the filter is a CHOICE and has to survive a
-        // reload. `none` is that choice, spelled.
+        // ⚠️ "ALL TIME" IS STILL WRITTEN, NOT OMITTED, even though the DEFAULT is now all time too
+        // and the two therefore resolve alike. Keeping `none` spelled costs one param and buys two
+        // things: the URL keeps saying what the screen is showing rather than leaving the reader to
+        // know the default, and if a default period is ever reintroduced, a cleared filter still
+        // survives a reload instead of silently snapping back to it.
         return {
             [PERIOD_URL_KEYS.operator]: "none",
             [PERIOD_URL_KEYS.from]: null,
@@ -160,7 +170,10 @@ export const periodFromParams = (
     if (["Is", "<=", ">="].includes(operator)) {
         return from ? { operator, value: from } : DEFAULT_PERIOD;
     }
-    // An operator this build does not know falls back to the default rather than to "all time" — a
-    // stale link should show the ordinary worklist, not silently widen to every row ever staged.
+    // An operator this build does not know falls back to the default, which IS "all time" since
+    // 2026-08-12. The old note here said the fallback must not "silently widen to every row ever
+    // staged" -- that concern belonged to the worklist default and expired with it. Widening is
+    // now the safe direction: showing everything is visibly everything, whereas a stale link
+    // resolving to a narrow window hides rows with nothing on screen to say so.
     return DEFAULT_PERIOD;
 };

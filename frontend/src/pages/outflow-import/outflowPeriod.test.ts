@@ -38,18 +38,21 @@ describe("PERIOD_PRESETS", () => {
 });
 
 describe("DEFAULT_PERIOD", () => {
-    it("opens on a worklist window rather than on every row ever staged", () => {
-        // The same reasoning as `DEFAULT_TAB = notMatched` (owner ruling 2026-08-09): this screen
-        // is a worklist first.
-        expect(DEFAULT_PERIOD).toEqual({ operator: "Timespan", value: "last 30 days" });
+    it("opens on ALL TIME, so nothing is hidden by a filter nobody chose", () => {
+        // ⚠️ REVERSES the 2026-08-09 worklist ruling (owner, 2026-08-12). It used to be
+        // `{ operator: "Timespan", value: "last 30 days" }`; a reviewer looking for an older
+        // transfer was shown nothing, with no reason to suspect a date filter.
+        expect(DEFAULT_PERIOD).toBeNull();
     });
 
-    it("is a TIMESPAN, so the default can never go stale", () => {
-        expect(DEFAULT_PERIOD.operator).toBe("Timespan");
+    it("is the SAME value the control produces when cleared", () => {
+        // Opening and clearing must land on one state, or "all time" would mean two different
+        // things depending on how you got there.
+        expect(DEFAULT_PERIOD).toBe(periodFromParams({ [PERIOD_URL_KEYS.operator]: "none" }));
     });
 
-    it("is one of the presets, so the trigger can name it", () => {
-        expect(periodLabel(DEFAULT_PERIOD)).toBe("Last 30 days");
+    it("the trigger names it", () => {
+        expect(periodLabel(DEFAULT_PERIOD)).toBe("All time");
     });
 });
 
@@ -101,9 +104,10 @@ describe("URL round-trip", () => {
     });
 
     it("round-trips 'All time' as a CHOICE, not as an absence", () => {
-        // ⚠️ THE LOAD-BEARING ONE. If clearing the period merely removed the key, a reload would
-        // fall back to the default window and silently re-narrow a screen somebody deliberately
-        // widened. `none` is that choice, spelled out.
+        // The default IS all time since 2026-08-12, so this no longer guards against a reload
+        // re-narrowing the screen. It is kept because the URL should say what is on screen rather
+        // than rely on the reader knowing the default -- and because if a default period is ever
+        // reintroduced, this is what stops a cleared filter snapping back to it.
         expect(periodToParams(null)[PERIOD_URL_KEYS.operator]).toBe("none");
         expect(roundTrip(null)).toBeNull();
     });
@@ -112,11 +116,15 @@ describe("URL round-trip", () => {
         expect(periodFromParams({})).toEqual(DEFAULT_PERIOD);
     });
 
-    it("falls back to the DEFAULT — not to All time — for junk", () => {
-        // A stale link should show the ordinary worklist, not silently widen to every row staged.
+    it("falls back to the DEFAULT for junk, which now means ALL TIME", () => {
+        // ⚠️ THE DIRECTION FLIPPED WITH THE DEFAULT. This used to assert that a stale link showed
+        // the worklist window rather than "silently widening to every row staged". Widening is now
+        // the safe direction: everything is visibly everything, whereas a stale link resolving to
+        // a narrow window hides rows with nothing on screen to say so.
         expect(periodFromParams({ [PERIOD_URL_KEYS.operator]: "Whenever" })).toEqual(DEFAULT_PERIOD);
         expect(periodFromParams({ [PERIOD_URL_KEYS.operator]: "Between" })).toEqual(DEFAULT_PERIOD);
         expect(periodFromParams({ [PERIOD_URL_KEYS.operator]: "Timespan" })).toEqual(DEFAULT_PERIOD);
+        expect(periodFromParams({ [PERIOD_URL_KEYS.operator]: "Whenever" })).toBeNull();
     });
 
     it("does not collide with the reports' shared date keys", () => {
