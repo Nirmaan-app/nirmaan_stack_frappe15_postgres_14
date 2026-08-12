@@ -26,6 +26,8 @@ Coverage map (behavior -> test):
 """
 
 import json
+import os
+import tempfile
 from unittest import mock
 
 import frappe
@@ -1268,86 +1270,10 @@ class TestEA7PayloadShape(FrappeTestCase):
         self.assertIn("distance", sink[0])
         self.assertIn("NOT SUPPLIED", sink[0], "the lean tier's silence must be explained")
 
-    # ---- P10: the dump, OFF (the default) ----
-    def test_p10_dump_off_writes_nothing_and_changes_no_payload(self):
-        """NEGATIVE POLARITY / the default. Flag OFF must produce NO file and a byte-identical
-        payload. The flag ships FALSE -- this test also pins that default."""
-        import os as _os
-        import tempfile
-
-        self.assertIs(extraction.EA7_PAYLOAD_DUMP_ENABLED, False,
-                      "the dump is TEMPORARY instrumentation and must ship OFF")
-
-        target = _os.path.join(tempfile.mkdtemp(), "ea7_off.jsonl")
-        defn = {"id": "material", "type": "choice", "values": ["COPPER"]}
-        rows = [{"excel_row": 2, "description": "cable", "ancestors": [], "sheet_name": "S",
-                 "committed_version": 1, "category_id": "wiring_cabling"}]
-        sink = []
-
-        def responder(call, kwargs):
-            sink.append(kwargs["messages"][0]["content"])
-            return _Resp(json.dumps([{"id": 2, "attributes": {}}]))
-
-        with mock.patch.object(extraction, "_dump_path", return_value=target):
-            extraction._extract_batch(_FakeClient(responder), "m", "P", [defn], rows,
-                                      dump_ctx={"boq": "BOQ-TEST"})
-        self.assertFalse(_os.path.exists(target), "flag OFF must not create the file")
-
-        # and the payload itself is identical to a call that passes no dump context at all
-        with mock.patch.object(extraction, "_dump_path", return_value=target):
-            extraction._extract_batch(_FakeClient(responder), "m", "P", [defn], rows)
-        self.assertEqual(sink[0], sink[1], "the dump must not touch the payload")
-
-    # ---- P11: the dump, ON ----
-    def test_p11_dump_on_writes_one_joinable_record_per_row(self):
-        """POSITIVE. Flag ON writes one JSON line per row carrying the join key (boq, sheet_name
-        VERBATIM, committed_version, excel_row) + category_id + the EXACT payload item as sent.
-        `boq` is not on the row dict -- it is threaded from run_extraction's scope via dump_ctx."""
-        import os as _os
-        import tempfile
-
-        target = _os.path.join(tempfile.mkdtemp(), "ea7_on.jsonl")
-        defn = {"id": "material", "type": "choice", "values": ["COPPER"]}
-        rows = [{"excel_row": 5, "description": "3C x 2.5 sqmm cable", "ancestors": [],
-                 "sheet_name": "Deep Sheet ", "committed_version": 1,
-                 "category_id": "wiring_cabling", "discipline": "Electrical"}]
-
-        def responder(call, kwargs):
-            return _Resp(json.dumps([{"id": 5, "attributes": {}}]))
-
-        with mock.patch.object(extraction, "EA7_PAYLOAD_DUMP_ENABLED", True), \
-             mock.patch.object(extraction, "_dump_path", return_value=target):
-            extraction._extract_batch(_FakeClient(responder), "m", "P", [defn], rows,
-                                      dump_ctx={"boq": "BOQ-26-99999"})
-
-        with open(target, encoding="utf-8") as fh:
-            lines = [json.loads(x) for x in fh if x.strip()]
-        self.assertEqual(len(lines), 1)
-        rec = lines[0]
-        self.assertEqual(rec["boq"], "BOQ-26-99999")
-        self.assertEqual(rec["sheet_name"], "Deep Sheet ", "sheet_name must stay VERBATIM")
-        self.assertEqual(rec["committed_version"], 1)
-        self.assertEqual(rec["excel_row"], 5)
-        self.assertEqual(rec["category_id"], "wiring_cabling")
-        self.assertEqual(rec["payload_item"], extraction._ai_item(rows[0]),
-                         "the record must carry the EXACT item that was sent")
-
-    # ---- P12: an unresolvable dump path can never break a run ----
-    def test_p12_a_failing_dump_never_fails_the_run(self):
-        """Instrumentation that can break the thing it observes is worse than none. With the flag
-        ON and no writable path, the batch must still complete normally."""
-        defn = {"id": "material", "type": "choice", "values": ["COPPER"]}
-        rows = [{"excel_row": 5, "description": "cable", "ancestors": [], "sheet_name": "S"}]
-
-        def responder(call, kwargs):
-            return _Resp(json.dumps(
-                [{"id": 5, "attributes": {"material": {"value": "COPPER", "confidence": 0.9}}}]))
-
-        with mock.patch.object(extraction, "EA7_PAYLOAD_DUMP_ENABLED", True), \
-             mock.patch.object(extraction, "_dump_path", return_value=None):
-            out = extraction._extract_batch(_FakeClient(responder), "m", "P", [defn], rows,
-                                            dump_ctx={"boq": "B"})
-        self.assertEqual(out[5]["material"]["value"], "COPPER")
+    # ---- P10-P12 REMOVED: they pinned the TEMPORARY EA-7 payload dump, which is retired. Its
+    # record (the per-row payload item) is a strict SUBSET of the permanent capture's batch record,
+    # so nothing it proved was lost -- see TestOptionBCapture at the foot of this file, which pins
+    # the payload item is still carried, verbatim, under `payload_items`.
 
 
 # ══════════════════════════════════════════════════════════════════════════════════════
@@ -1547,3 +1473,261 @@ class TestExtBRules(FrappeTestCase):
         with NO rules must still produce the pre-ext-a prompt exactly."""
         self.assertEqual(_prompt_for(None), _prompt_for([]))
         self.assertNotIn("ESTIMATOR_RULES", _prompt_for(None))
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════
+# Option B -- the extraction capture (prompt + raw response + per-attribute mapping)
+#
+# Deliberately in a class with NO setUpClass: the DB-fixture classes above abort with
+# `relation "tabCEO Hold Reason" does not exist` in this environment, and a test that cannot run
+# proves nothing. These are pure in-process unit pins over synthetic rows.
+# ══════════════════════════════════════════════════════════════════════════════════════
+class _CapResp:
+    """A response carrying the fields the capture reads. The shared `_Resp` has only `.content`,
+    which is why the production code reads stop_reason/usage through getattr with a default."""
+
+    class _U:
+        input_tokens = 111
+        output_tokens = 222
+
+    def __init__(self, text, stop_reason=None, usage=True):
+        self.content = [type("B", (), {"text": text})()]
+        self.stop_reason = stop_reason
+        if usage:
+            self.usage = _CapResp._U()
+
+
+def _cap_rows(*specs):
+    """specs: (excel_row, description) -> the row dicts _extract_batch consumes."""
+    return [{"excel_row": r, "description": d, "ancestors": [], "sheet_name": "Sheet A ",
+             "committed_version": 4, "category_id": "wiring_cabling", "discipline": "Electrical"}
+            for r, d in specs]
+
+
+_CAP_DEFS = [
+    {"id": "material", "type": "choice", "values": ["COPPER", "ALUMINIUM"]},
+    {"id": "core", "type": "number_choice", "values": [1, 3, 4]},
+]
+
+
+class TestOptionBCapture(FrappeTestCase):
+    """The capture must make a DROP visible AS a drop. Every test here reads the artefact."""
+
+    def setUp(self):
+        self._dir = tempfile.mkdtemp()
+        self.path = os.path.join(self._dir, "capture.jsonl")
+
+    def _records(self):
+        if not os.path.exists(self.path):
+            return []
+        with open(self.path, encoding="utf-8") as fh:
+            return [json.loads(x) for x in fh if x.strip()]
+
+    def _batch(self):
+        recs = [r for r in self._records() if r["kind"] == "batch"]
+        self.assertEqual(len(recs), 1, "expected exactly one batch record")
+        return recs[0]
+
+    def _run(self, reply, rows=None, defs=None, **kw):
+        """One captured batch against a canned reply."""
+        rows = rows if rows is not None else _cap_rows((2, "3C x 2.5 sqmm copper cable"))
+        defs = defs if defs is not None else _CAP_DEFS
+
+        def responder(call, kwargs):
+            r = reply(call) if callable(reply) else reply
+            if isinstance(r, Exception):
+                raise r
+            return r
+
+        with mock.patch.object(extraction, "_capture_path", return_value=self.path), \
+             mock.patch.object(extraction.time, "sleep"):
+            return extraction._extract_batch(_FakeClient(responder), "m", "PROMPT", defs, rows,
+                                             capture_ctx={"boq": "BOQ-26-00019"}, **kw)
+
+    # ---- C1: the batch record carries prompt + raw reply + usage + the EA-7 payload item ----
+    def test_c1_batch_record_carries_prompt_response_usage_and_payload_items(self):
+        rows = _cap_rows((2, "3C x 2.5 sqmm copper cable"))
+        self._run(_CapResp(json.dumps([{"id": 2, "attributes": {
+            "material": {"value": "COPPER", "confidence": 0.9}}}]), stop_reason="end_turn"),
+            rows=rows)
+        rec = self._batch()
+        self.assertEqual(rec["boq"], "BOQ-26-00019")
+        self.assertEqual(rec["sheet_name"], "Sheet A ", "sheet_name must stay VERBATIM")
+        self.assertEqual(rec["committed_version"], 4)
+        self.assertIn("PROMPT", rec["prompt"], "the assembled prompt must be captured as sent")
+        self.assertIn("ROWS:", rec["prompt"])
+        self.assertIn("COPPER", rec["response_text"], "the RAW reply must be captured")
+        self.assertEqual(rec["stop_reason"], "end_turn")
+        self.assertEqual(rec["usage"], {"input_tokens": 111, "output_tokens": 222},
+                         "usage is what retires the inferred-call-count problem")
+        # the RETIRED EA-7 record was exactly this, and it is still carried
+        self.assertEqual(rec["payload_items"], [extraction._ai_item(rows[0])])
+
+    # ---- C2: THE CORE -- raw-non-null-coerced-null differs from raw-null ----
+    def test_c2_a_dropped_value_is_distinguishable_from_a_never_returned_one(self):
+        """(i) vs (iii). Both store None; the capture must tell them apart."""
+        self._run(_CapResp(json.dumps([{"id": 2, "attributes": {
+            "material": {"value": "BRONZE", "confidence": 0.9},   # returned, then dropped
+            "core": {"value": None, "confidence": 0.0},           # never returned
+        }}])))
+        m = self._batch()["mapping"]["2"]
+        self.assertEqual(m["material"]["raw"], "BRONZE")
+        self.assertIsNone(m["material"]["coerced"])
+        self.assertEqual(m["material"]["reason"], extraction.COERCE_NOT_ALLOWED)
+        self.assertIsNone(m["core"]["raw"])
+        self.assertIsNone(m["core"]["coerced"])
+        self.assertEqual(m["core"]["reason"], extraction.COERCE_ABSENT)
+        self.assertNotEqual(m["material"]["reason"], m["core"]["reason"],
+                            "the two failure classes must not collapse")
+
+    # ---- C3: each coercion failure names WHICH check rejected it ----
+    def test_c3_coercion_reasons_name_the_failing_check(self):
+        self._run(_CapResp(json.dumps([{"id": 2, "attributes": {
+            "material": {"value": "BRONZE", "confidence": 0.9},
+            "core": {"value": "seven", "confidence": 0.9},
+        }}])))
+        f = self._batch()["drops"]["coercion_failures"]["2"]
+        self.assertEqual(f["material"], extraction.COERCE_NOT_ALLOWED)
+        self.assertEqual(f["core"], extraction.COERCE_NOT_A_NUMBER)
+
+    def test_c3b_a_numeric_domain_miss_is_its_own_reason(self):
+        """`7` IS a number -- it is simply not in the catalog domain. Lumping it in with
+        `not_a_number` would send a reader looking at the wrong thing."""
+        self._run(_CapResp(json.dumps(
+            [{"id": 2, "attributes": {"core": {"value": 7, "confidence": 1}}}])))
+        f = self._batch()["drops"]["coercion_failures"]["2"]
+        self.assertEqual(f["core"], extraction.COERCE_OUTSIDE_DOMAIN)
+
+    # ---- C4: the SURPLUS drop -- returned but not declared ----
+    def test_c4_surplus_attributes_are_recorded(self):
+        """The compound-row surplus: dropped today with no else-branch and no diagnostic."""
+        self._run(_CapResp(json.dumps([{"id": 2, "attributes": {
+            "material": {"value": "COPPER", "confidence": 0.9},
+            "mcb_3": {"value": "32A", "confidence": 0.8},
+            "zzz": {"value": 1, "confidence": 0.5},
+        }}])))
+        self.assertEqual(self._batch()["drops"]["surplus_attributes"]["2"], ["mcb_3", "zzz"])
+
+    # ---- C5: the row-level drop classes ----
+    def test_c5_row_level_drop_classes_are_recorded(self):
+        rows = _cap_rows((2, "a"), (3, "b"), (4, "c"))
+        self._run(_CapResp(json.dumps([
+            {"id": 2, "attributes": {"material": {"value": "COPPER", "confidence": "high"}}},
+            {"id": 3, "widgets": {"material": {"value": "COPPER"}}},   # unknown container
+            {"id": 99, "attributes": {}},                              # not in this batch
+            # excel_row 4 omitted entirely
+        ])), rows=rows)
+        d = self._batch()["drops"]
+        self.assertEqual(d["ids_not_in_batch"], [99])
+        self.assertEqual(d["rows_omitted"], [4])
+        self.assertEqual(d["unknown_container_rows"],
+                         [{"excel_row": 3, "keys_returned": ["id", "widgets"]}])
+        self.assertEqual(d["confidence_unparseable"]["2"], ["material"],
+                         "an unreadable confidence silently becomes 0.0 -- say so")
+        self.assertIn("core", d["attributes_absent"]["2"])
+
+    # ---- C6: a defaulted value that fails coercion loses BOTH value and evidence ----
+    def test_c6_defaulted_lost_to_coercion_is_its_own_drop_class(self):
+        self._run(_CapResp(json.dumps([{"id": 2, "attributes": {
+            "material": {"value": "BRONZE", "confidence": 0.7, "defaulted": True}}}])),
+            defaults={"material": "COPPER"})
+        rec = self._batch()
+        self.assertEqual(rec["drops"]["defaulted_lost_to_coercion"]["2"], ["material"])
+        cell = rec["mapping"]["2"]["material"]
+        self.assertTrue(cell["defaulted_claimed"], "the model claimed a default")
+        self.assertFalse(cell["defaulted_kept"], "... and the stored row keeps no trace of it")
+
+    # ---- C7: failed attempts are captured, not overwritten by the retry ----
+    def test_c7_a_failed_attempt_is_captured_with_its_reply(self):
+        def reply(call):
+            if call == 1:
+                return _CapResp("not json at all")
+            return _CapResp(json.dumps([{"id": 2, "attributes": {}}]))
+
+        self._run(reply)
+        self.assertEqual([r["kind"] for r in self._records()], ["attempt_failed", "batch"])
+        failed = self._records()[0]
+        self.assertEqual(failed["attempt"], 1)
+        self.assertEqual(failed["response_text"], "not json at all",
+                         "the unparseable reply IS the evidence")
+        self.assertTrue(failed["transient"])
+
+    # ---- C8: a ceiling cut is captured even though it raises before any text ----
+    def test_c8_a_ceiling_cut_is_distinguishable_from_a_batch_that_never_ran(self):
+        with self.assertRaises(extraction.ReplyCeilingExceeded):
+            self._run(_CapResp("", stop_reason="max_tokens"))
+        recs = self._records()
+        self.assertEqual([r["kind"] for r in recs], ["ceiling_cut"])
+        self.assertEqual(recs[0]["stop_reason"], "max_tokens")
+        self.assertIn("PROMPT", recs[0]["prompt"])
+
+    # ---- C9: capture NEVER changes the extraction output, and never breaks a run ----
+    def test_c9_output_is_byte_identical_with_and_without_capture(self):
+        reply = _CapResp(json.dumps([{"id": 2, "attributes": {
+            "material": {"value": "COPPER", "confidence": 0.9},
+            "core": {"value": 3, "confidence": 0.8}}}]))
+        with_capture = self._run(reply)
+        with mock.patch.object(extraction, "_capture_write", return_value=None):
+            without = self._run(reply)
+        self.assertEqual(json.dumps(with_capture, sort_keys=True),
+                         json.dumps(without, sort_keys=True),
+                         "capture is observation only -- the stored shape must not move")
+
+    def test_c9b_an_unwritable_capture_path_never_fails_the_run(self):
+        def responder(call, kwargs):
+            return _CapResp(json.dumps([{"id": 2, "attributes": {
+                "material": {"value": "COPPER", "confidence": 0.9}}}]))
+
+        with mock.patch.object(extraction, "_capture_path", return_value=None):
+            out = extraction._extract_batch(_FakeClient(responder), "m", "P", _CAP_DEFS,
+                                            _cap_rows((2, "cable")), capture_ctx={"boq": "B"})
+        self.assertEqual(out[2]["material"]["value"], "COPPER")
+
+    # ---- C10: the second touch must not change ANY existing caller ----
+    def test_c10_coerce_value_is_exactly_the_value_half_of_coerce_value_ex(self):
+        """`_coerce_value` keeps its value-only contract BY CONSTRUCTION (it delegates to
+        `_coerce_value_ex`), and this pins it across every type and both polarities, so no existing
+        caller can drift."""
+        defs = [
+            {"id": "a", "type": "choice", "values": ["COPPER"]},
+            {"id": "b", "type": "number"},
+            {"id": "c", "type": "number_choice", "values": [1, 3]},
+            {"id": "d", "type": "choice", "values": ["MS"], "allow_none": True},
+            {"id": "e", "type": "choice"},
+        ]
+        raws = [None, "COPPER", "BRONZE", 1, 3, 7, "1.5", "abc", "None", "", 0, "GI"]
+        syn = {"GI": "MS"}
+        for defn in defs:
+            for raw in raws:
+                for s in (None, syn):
+                    self.assertEqual(
+                        extraction._coerce_value(defn, raw, s),
+                        extraction._coerce_value_ex(defn, raw, s)[0],
+                        msg="defn=%r raw=%r syn=%r" % (defn, raw, s))
+
+    # ---- C11: the run header -- the anti-silence device ----
+    def test_c11_run_header_is_written_even_when_the_run_extracts_nothing(self):
+        """Absence of output must never be indistinguishable from absence of the phenomenon."""
+        with mock.patch.object(extraction, "_capture_path", return_value=self.path), \
+             mock.patch.object(extraction, "assemble_population", return_value=(None, [])), \
+             mock.patch("nirmaan_stack.api.boq.wizard.ai_settings.get_boq_ai_settings",
+                        return_value={"enabled": 0, "model": "m"}), \
+             mock.patch("nirmaan_stack.api.boq.wizard.ai_settings.get_boq_ai_api_key",
+                        return_value=None):
+            extraction.run_extraction("BOQ-26-00019", "Sheet A ")
+        recs = self._records()
+        self.assertEqual([r["kind"] for r in recs], ["run_header"],
+                         "a run that extracts nothing must STILL leave a header")
+        self.assertEqual(recs[0]["boq"], "BOQ-26-00019")
+        self.assertEqual(recs[0]["sheet_name"], "Sheet A ")
+        self.assertEqual(recs[0]["capture"], "always-on")
+        self.assertFalse(recs[0]["ai_enabled"])
+
+    # ---- C12: retention -- always-on must bound itself ----
+    def test_c12_capture_rolls_at_the_size_ceiling(self):
+        with open(self.path, "w", encoding="utf-8") as fh:
+            fh.write("x" * 32)
+        with mock.patch.object(extraction, "CAPTURE_MAX_BYTES", 16):
+            extraction._capture_roll(self.path)
+        self.assertTrue(os.path.exists(self.path + ".1"), "the oversized file must be rolled aside")
+        self.assertFalse(os.path.exists(self.path), "... and the live path freed")
