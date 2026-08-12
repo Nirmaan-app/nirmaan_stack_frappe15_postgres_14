@@ -70,6 +70,7 @@ SELECTED-ROW RUNS (only_rows + the carry-forward write). Plain-English coverage:
 
 import base64
 import collections
+import io
 import copy
 import json
 import os
@@ -80,6 +81,9 @@ from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.boq import rate_master
 from nirmaan_stack.services.boq_rate_master import extraction, loader
+
+# The UTF-8 BOM the CSV writer prepends so Excel renders non-ASCII correctly.
+BOM = "\ufeff"
 
 PIPELINE_KEYS = {"cable_boq", "termination_boq", "cable_bcs", "termination_bcs"}
 
@@ -1181,6 +1185,153 @@ class TestRateMaster(FrappeTestCase):
         decoded = base64.b64decode(res["content_base64"]).decode("utf-8")
         self.assertEqual(json.loads(decoded)["discipline"], disc)
         self.assertEqual(frappe.db.count(exporter.SNAPSHOT_DOCTYPE, {"discipline": disc}), before + 1)
+
+    # -- SLICE 5: the editable CSV download ----------------------------------------------
+    # Plain-English coverage summary (test -> changed behaviour):
+    #   24m  MODE A gives exactly ONE category's attribute + rate columns, and every row carries
+    #        item_uid -- without which the round trip is one-way and the upload cannot tell an edit
+    #        from a new item.
+    #   24n  MODE B gives the UNION of every category's keys plus a `category` column, so one file
+    #        covers the whole catalog. Sparse by construction.
+    #   24o  a value containing a comma or a quote survives CSV quoting intact, and values are
+    #        emitted AS STORED -- never reformatted to look tidier.
+    #   24p  NEGATIVE: a non-admin is refused before anything is read.
+    #   24q  NEGATIVE: a category with no items yields a HEADERS-ONLY template, not an error.
+
+    def test_24m_mode_a_gives_one_categorys_columns_with_item_uid(self):
+        """SLICE 5 MODE A -- narrow and directly editable.
+
+        Columns are exactly that category's attribute and rate keys as real named columns. EVERY row
+        carries item_uid: without it the upload cannot tell an edit from a new item."""
+        import csv as _csv
+        from nirmaan_stack.services.boq_rate_master import csv_exporter
+
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._merged_payload(disc))
+
+        text, headers, n = csv_exporter.build_category_csv(disc, "cabletray_raceway")
+        self.assertEqual(n, 460)
+        self.assertEqual(headers,
+                         ["item_uid", "kind", "brand", "unit",
+                          "material", "thickness_mm", "tray_type", "width_mm",
+                          "cover_only_list", "install_rate", "with_cover_list", "without_cover_list",
+                          "source_sheet", "source_row"])
+        self.assertNotIn("core", headers)          # a wiring attribute must NOT appear
+        self.assertNotIn("category", headers)      # MODE A has no category column
+
+        rows = list(_csv.reader(io.StringIO(text.lstrip(BOM))))
+        self.assertEqual(rows[0], headers)
+        self.assertEqual(len(rows) - 1, 460)
+        self.assertTrue(all(r[0].startswith("rmi-") for r in rows[1:]),
+                        "every row must carry item_uid")
+
+    def test_24n_mode_b_gives_the_union_plus_a_category_column(self):
+        """SLICE 5 MODE B -- one file, every category, the UNION of all keys.
+
+        Sparseness is inherent: a cable row has nothing to say about tray_type. What matters is that
+        the category is EXPLICIT per row, so a reader never has to infer it from a value."""
+        import csv as _csv
+        from nirmaan_stack.services.boq_rate_master import csv_exporter
+
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._merged_payload(disc))
+
+        text, headers, n = csv_exporter.build_all_categories_csv(disc)
+        self.assertEqual(n, 1382)
+        self.assertEqual(headers[:5], ["item_uid", "category", "kind", "brand", "unit"])
+        self.assertEqual(headers[-2:], ["source_sheet", "source_row"])
+        for k in ("tray_type", "core", "conduit_type", "colour", "description"):
+            self.assertIn(k, headers)
+        self.assertEqual(len(headers), 45)
+
+        rows = list(_csv.reader(io.StringIO(text.lstrip(BOM))))
+        self.assertEqual(len(rows) - 1, 1382)
+        self.assertTrue(all(r[0].startswith("rmi-") for r in rows[1:]))
+        cats = {r[1] for r in rows[1:]}
+        self.assertIn("cabletray_raceway", cats)
+        self.assertIn("wiring_cabling", cats)
+        # a cable row is BLANK in the tray column -- sparse, not wrong
+        ti = headers.index("tray_type")
+        cable = next(r for r in rows[1:] if r[2] == "cable")
+        self.assertEqual(cable[ti], "")
+
+    def test_24o_a_comma_or_quote_survives_and_values_are_emitted_as_stored(self):
+        """SLICE 5 -- CSV quoting holds, and nothing is silently 'fixed'.
+
+        The file must round-trip what is in the DB. A value is emitted exactly as stored: a float
+        stays 2.0, a string keeps its spacing, and a comma or quote is quoted rather than stripped."""
+        import csv as _csv
+        from nirmaan_stack.services.boq_rate_master import csv_exporter
+
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._merged_payload(disc))
+        name = frappe.db.get_value("BoQ Rate Master Item",
+                                   {"discipline": disc, "kind": "junction_box", "active": 1}, "name")
+        nasty = 'A "quoted", comma value'
+        frappe.db.set_value("BoQ Rate Master Item", name, "attributes",
+                            json.dumps({"size": nasty}), update_modified=False)
+        frappe.db.commit()
+
+        text, headers, _ = csv_exporter.build_category_csv(disc, "junction_box_raceway")
+        rows = list(_csv.reader(io.StringIO(text.lstrip(BOM))))
+        si = headers.index("size")
+        self.assertIn(nasty, [r[si] for r in rows[1:]])
+
+        # values as stored: a float keeps its .0 rather than being prettified to an int
+        text2, h2, _ = csv_exporter.build_category_csv(disc, "wiring_cabling")
+        rows2 = list(_csv.reader(io.StringIO(text2.lstrip(BOM))))
+        ci = h2.index("core")
+        self.assertTrue(any(v.endswith(".0") for v in [r[ci] for r in rows2[1:]]),
+                        "a stored float must be emitted as stored, not reformatted")
+
+    def test_24p_the_csv_endpoint_refuses_a_non_admin(self):
+        """SLICE 5 NEGATIVE -- an editable dump of the priced catalog is no less sensitive than the
+        asset, so it carries the SAME admin gate, checked before anything is read."""
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._merged_payload(disc))
+        original = frappe.session.user
+        try:
+            frappe.set_user("Guest")
+            with self.assertRaises(frappe.PermissionError):
+                rate_master.export_rate_master_csv(discipline=disc)
+            with self.assertRaises(frappe.PermissionError):
+                rate_master.export_rate_master_csv(discipline=disc, category_id="earthing")
+        finally:
+            frappe.set_user(original)
+
+        # POSITIVE twin: as admin both modes return a decodable file
+        res = rate_master.export_rate_master_csv(discipline=disc, category_id="earthing")
+        self.assertEqual(res["content_type"], "text/csv")
+        self.assertEqual(res["mode"], "category")
+        self.assertTrue(res["filename"].endswith(".csv"))
+        self.assertIn("item_uid", base64.b64decode(res["content_base64"]).decode("utf-8"))
+        res_all = rate_master.export_rate_master_csv(discipline=disc)
+        self.assertEqual(res_all["mode"], "all")
+        self.assertEqual(res_all["column_count"], 45)
+        self.assertEqual(res_all["row_count"], 1382)
+
+    def test_24q_a_category_with_no_items_gives_headers_only_not_an_error(self):
+        """SLICE 5 NEGATIVE -- point_wiring is kind-less and owns no rows of its own. It must yield a
+        usable headers-only TEMPLATE (from the config's attribute definitions) rather than throwing,
+        so a user can still add rows for it."""
+        import csv as _csv
+        from nirmaan_stack.services.boq_rate_master import csv_exporter
+
+        disc = self._new_disc()
+        loader.load_rate_master(payload=self._merged_payload(disc))
+
+        text, headers, n = csv_exporter.build_category_csv(disc, "point_wiring")
+        self.assertEqual(n, 0)
+        rows = list(_csv.reader(io.StringIO(text.lstrip(BOM))))
+        self.assertEqual(len(rows), 1, "headers only")
+        self.assertEqual(rows[0], headers)
+        self.assertIn("item_uid", headers)
+        # the template still names the category's own attributes, from its definitions
+        self.assertIn("circuit_length_m", headers)
+
+        # and an UNKNOWN category is a named error, not an empty file
+        with self.assertRaises(frappe.ValidationError):
+            csv_exporter.build_category_csv(disc, "no_such_category")
 
     def test_25_eall_retired_scope_deactivated_on_replace(self):
         disc = self._new_disc()

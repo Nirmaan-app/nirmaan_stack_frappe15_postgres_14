@@ -55,6 +55,13 @@ export interface AttributeDefinition {
 /** One master item row (attributes/rates are parsed objects from the endpoint). */
 export interface RateMasterItem {
   name?: string;
+  /**
+   * The STABLE, DURABLE row identity across mints (slice 2). `name` is regenerated on every import
+   * -- freeze-and-supersede INSERTS a new row and retains the old one, so the old name stays
+   * occupied -- which is why it cannot serve. The endpoint has returned this since slice 2; the
+   * type was the one line that slice owed, and the CSV round trip is what needs it.
+   */
+  item_uid?: string;
   discipline: string;
   kind: string;
   brand?: string;

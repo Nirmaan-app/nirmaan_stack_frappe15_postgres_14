@@ -19,6 +19,7 @@ import { RateMasterDataViewer } from "./RateMasterDataViewer";
 import { RateMasterDerivation } from "./RateMasterDerivation";
 import { RateMasterPipelines } from "./RateMasterPipelines";
 import { isRateMasterAdmin } from "./rateMasterEdit";
+import { downloadBase64, type DownloadPayload } from "./rateMasterDownload";
 import type { GetConfigResponse, GetItemsResponse, RateCategoryConfig } from "./rateMasterTypes";
 
 const ITEMS_METHOD = "nirmaan_stack.api.boq.rate_master.get_rate_master_items";
@@ -30,6 +31,10 @@ const CREATE_ITEM_METHOD = "nirmaan_stack.api.boq.rate_master.create_rate_master
 const DEACTIVATE_ITEM_METHOD = "nirmaan_stack.api.boq.rate_master.deactivate_rate_master_item";
 // RM-4b: admin-only whole-config STRUCTURE replace (validated server-side; the authority).
 const UPDATE_CONFIG_METHOD = "nirmaan_stack.api.boq.rate_master.update_rate_config";
+// SLICE 5: the two download surfaces. Both are ADMIN-gated server-side (_require_rate_admin) --
+// hiding the buttons is UX; the endpoints are the boundary.
+const EXPORT_CSV_METHOD = "nirmaan_stack.api.boq.rate_master.export_rate_master_csv";
+const EXPORT_ASSET_METHOD = "nirmaan_stack.api.boq.rate_master.export_rate_master_asset";
 
 export function RateMasterPage() {
   const [disciplineId, setDisciplineId] = useState(RATE_MASTER_DISCIPLINES[0]?.discipline ?? "");
@@ -71,6 +76,8 @@ export function RateMasterPage() {
   const { call: callCreateItem } = useFrappePostCall(CREATE_ITEM_METHOD);
   const { call: callDeactivateItem } = useFrappePostCall(DEACTIVATE_ITEM_METHOD);
   const { call: callSaveConfig } = useFrappePostCall(UPDATE_CONFIG_METHOD);
+  const { call: callExportCsv } = useFrappePostCall(EXPORT_CSV_METHOD);
+  const { call: callExportAsset } = useFrappePostCall(EXPORT_ASSET_METHOD);
 
   // Each write refetches its collection so the derivation/viewer recompute live (the persistence split
   // then carries edited params/rates into the next pricing-panel compute with no re-run).
@@ -112,6 +119,29 @@ export function RateMasterPage() {
       await mutateItems();
     },
     [callDeactivateItem, mutateItems]
+  );
+
+  // SLICE 5 -- the downloads. Both endpoints return the base64-in-JSON triple that
+  // export_priced_workbook established, so ONE decoder serves both. `categoryId === null` is MODE B
+  // (every category in one file). Nothing is mutated, so neither refetches.
+  const onDownloadCsv = useCallback(
+    async (categoryId: string | null) => {
+      const res = await callExportCsv({
+        discipline: disciplineId,
+        category_id: categoryId ?? undefined,
+      });
+      const payload = (res as { message: DownloadPayload }).message;
+      downloadBase64(payload, `rate_master_${categoryId ?? "all"}.csv`);
+    },
+    [callExportCsv, disciplineId]
+  );
+  const onDownloadAsset = useCallback(
+    async () => {
+      const res = await callExportAsset({ discipline: disciplineId });
+      const payload = (res as { message: DownloadPayload }).message;
+      downloadBase64(payload, `rate_master_${disciplineId}.json`);
+    },
+    [callExportAsset, disciplineId]
   );
   // RM-4b: whole-config structure replace. The server re-validates (the authority); on success the
   // config refetch flows the new structure into the Derivation + Data tabs and the helper (no re-run).
@@ -189,6 +219,8 @@ export function RateMasterPage() {
               disciplineLabel={discipline?.label ?? disciplineId}
               categoryLabel={categoryLabel}
               isAdmin={isAdmin}
+              onDownloadCsv={onDownloadCsv}
+              onDownloadAsset={onDownloadAsset}
               onSaveItem={onSaveItem}
               onCreateItem={onCreateItem}
               onDeactivateItem={onDeactivateItem}

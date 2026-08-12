@@ -1958,3 +1958,44 @@ def export_rate_master_asset(discipline=None):
         "snapshot": snapshot,
         "snapshot_version": version,
     }
+
+
+@frappe.whitelist(methods=["POST"])
+def export_rate_master_csv(discipline=None, category_id=None):
+    """ADMIN-ONLY: the EDITABLE csv -- what a pricer edits in Excel and uploads back.
+
+    MODE A when `category_id` is given: exactly that category's attribute + rate columns.
+    MODE B when it is omitted: every category in one file, with a `category` column and the UNION
+    of every category's keys (sparse by construction).
+
+    Same download shape and the SAME admin gate as export_rate_master_asset -- an editable dump of
+    the priced catalog is no less sensitive than the asset.
+
+    Returns {filename, content_type, content_base64, discipline, category_id, mode, columns,
+    column_count, row_count}. URL: .../rate_master.export_rate_master_csv
+    """
+    _require_rate_admin()  # BEFORE any read
+    if not discipline:
+        frappe.throw("discipline is required.", title="Missing field: discipline")
+
+    from nirmaan_stack.services.boq_rate_master import csv_exporter
+
+    if category_id:
+        text, headers, n = csv_exporter.build_category_csv(discipline, category_id)
+        mode, label = "category", category_id
+    else:
+        text, headers, n = csv_exporter.build_all_categories_csv(discipline)
+        mode, label = "all", "all_categories"
+
+    slug = re.sub(r"[^A-Za-z0-9_-]+", "_", "%s_%s" % (discipline, label)).strip("_").lower()
+    return {
+        "filename": f"rate_master_{slug}.csv",
+        "content_type": "text/csv",
+        "content_base64": base64.b64encode(text.encode("utf-8")).decode("ascii"),
+        "discipline": discipline,
+        "category_id": category_id or None,
+        "mode": mode,
+        "columns": headers,
+        "column_count": len(headers),
+        "row_count": n,
+    }
