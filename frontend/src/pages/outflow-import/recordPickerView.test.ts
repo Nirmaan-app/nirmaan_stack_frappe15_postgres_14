@@ -12,6 +12,7 @@ import {
     matchesText,
     nextSortState,
     parseAmountBound,
+    reasonCaption,
     recordSortDate,
     sortRecords,
     visibleRecords,
@@ -29,6 +30,7 @@ const record = (over: Partial<SettleableRecord> = {}): SettleableRecord => ({
     document_name: "",
     vendor_nickname: "",
     contact_person: "",
+    document_type: "",
     project: "",
     approved_on: "",
     updated_on: "",
@@ -288,6 +290,53 @@ describe("hasActiveFilters", () => {
         // A real bound of 0 must not read as "unset" -- that is the `parseAmountBound` trap again,
         // one layer up.
         expect(hasActiveFilters(filters({ amountMin: 0 }), null)).toBe(true);
+    });
+});
+
+describe("reasonCaption explains the ranking, and only while it IS the ranking", () => {
+    it("joins the server's reasons in the order they arrived", () => {
+        // ⚠️ THE ORDER IS THE OWNER'S PRIORITY ORDER (project > vendor > alias > amount), appended
+        // by `score_record` in that sequence. Re-sorting them here would contradict the ranking they
+        // exist to explain.
+        const caption = reasonCaption(
+            record({
+                similarity_reasons: [
+                    "the transfer names Fujitsu Chennai",
+                    "the vendor name matches exactly",
+                    "the amount is identical",
+                ],
+            }),
+            null
+        );
+        expect(caption).toBe(
+            "the transfer names Fujitsu Chennai · the vendor name matches exactly · the amount is identical"
+        );
+    });
+
+    it("says nothing when an explicit sort is active", () => {
+        // ⚠️ THE LOAD-BEARING HALF. Under a user-chosen sort the list is no longer in similarity
+        // order, so a "why it ranks here" caption would be explaining an order that is not on
+        // screen. `null` is the ranking; anything else is not.
+        const r = record({ similarity_reasons: ["the vendor name matches exactly"] });
+        expect(reasonCaption(r, { column: "amount", dir: "asc" })).toBe("");
+        expect(reasonCaption(r, { column: "date", dir: "desc" })).toBe("");
+        expect(reasonCaption(r, null)).not.toBe("");
+    });
+
+    it("says nothing when the record scored on nothing", () => {
+        // Every Non Project Expense reaches this: no vendor column and no project column at all, so
+        // it can only ever score on amount and often not even that. A blank caption is the honest
+        // rendering -- an empty bullet would imply a reason was withheld.
+        expect(reasonCaption(record({ similarity_reasons: [] }), null)).toBe("");
+    });
+
+    it("tolerates a missing or blank-padded reasons list", () => {
+        // The field is always sent today. Guarded anyway: this renders inside a table that decides
+        // where money goes, and a crash here would take the whole picker down.
+        expect(
+            reasonCaption({ similarity_reasons: undefined as unknown as string[] }, null)
+        ).toBe("");
+        expect(reasonCaption(record({ similarity_reasons: ["", "  "] }), null)).toBe("");
     });
 });
 
