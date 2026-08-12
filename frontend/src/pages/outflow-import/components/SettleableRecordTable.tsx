@@ -13,11 +13,12 @@ import {
     recordKey,
     type SettleableRecord,
 } from "../outflowTableModel";
-import type {
-    FacetOption,
-    RecordFilters,
-    RecordSort,
-    RecordSortColumn,
+import {
+    reasonCaption,
+    type FacetOption,
+    type RecordFilters,
+    type RecordSort,
+    type RecordSortColumn,
 } from "../recordPickerView";
 import { RecordColumnHeader } from "./RecordColumnHeader";
 
@@ -28,6 +29,14 @@ interface Props {
     onSelect: (key: string) => void;
     /** The bank row's amount, for the per-row amount verdict. */
     bankAmount: number;
+    /**
+     * `recordKey`s the match run found for this transfer (slice N3).
+     *
+     * ⚠️ A GRID-LEVEL SET, and each row gets only its own BOOLEAN. Same discipline as everything
+     * else in this repo that renders a collection: handing the whole set to a row makes the row's
+     * props change identity whenever any part of it does.
+     */
+    matcherCandidates: ReadonlySet<string>;
     /**
      * The view state (slice N1). It lives in the PICKER, not in here: the count line, the Clear
      * control and this table must agree about what is filtered, and two copies of that state is
@@ -68,6 +77,7 @@ export const SettleableRecordTable = ({
     selected,
     onSelect,
     bankAmount,
+    matcherCandidates,
     sort,
     onSort,
     filters,
@@ -79,9 +89,24 @@ export const SettleableRecordTable = ({
     //
     // ⚠️ 260px -> 420px AT SLICE N1. 260 was sized for a list of at most 50 records that the server
     // had already narrowed by amount; this table now holds the WHOLE approved pool and is meant to
-    // be browsed, filtered and sorted. The dialog still owns its own scrollbar with a pinned header
-    // and footer, so the taller bound cannot push Confirm out of reach.
-    <div className="max-h-[420px] overflow-y-auto rounded-md border">
+    // be browsed, filtered and sorted.
+    //
+    // ⚠️ 420px -> `min(420px, 38vh)` AT SLICE D2, AND THE `vh` HALF IS THE FIX. A FIXED bound is
+    // right about the table and wrong about the SCREEN: the dialog body is capped at 85vh, and on a
+    // short viewport a fixed 420px table plus the header, the filters, the verdict line and the
+    // footer exceeds that -- so the BODY scrolls, and "Clear selection", which sits below the
+    // table, goes under the fold. The owner reported exactly that. It is not reachable by any
+    // control on screen, because the thing that scrolled it out of view is the thing you would
+    // scroll to reach it.
+    //
+    // `min()` keeps today's 420px on a tall screen (nothing changes at 1080p and above) and lets
+    // the table give way first on a short one, so the DIALOG BODY never overflows and the controls
+    // beneath the table are always visible. There are two nested scrollers here by design -- this
+    // one and the body's -- and the point of the bound is that only the inner one is ever used.
+    //
+    // ⚠️ DO NOT "SIMPLIFY" THIS BACK TO A BARE `vh`. The 420px ceiling is what stops the table
+    // growing to fill a very tall monitor, which would push the same controls down again.
+    <div className="max-h-[min(420px,38vh)] overflow-y-auto rounded-md border">
         <table className="w-full table-fixed border-collapse text-sm">
             <colgroup>
                 {/* The radio column, then one per model column -- so the header cells and the body
@@ -137,6 +162,10 @@ export const SettleableRecordTable = ({
                         chosen={recordKey(record) === selected}
                         onSelect={onSelect}
                         bankAmount={bankAmount}
+                        // Computed here rather than in the row so the rule lives in ONE pure,
+                        // unit-tested place — see `reasonCaption` on why it goes silent under a sort.
+                        reason={reasonCaption(record, sort)}
+                        matched={matcherCandidates.has(recordKey(record))}
                     />
                 ))}
             </tbody>
@@ -196,11 +225,17 @@ const RecordRow = ({
     chosen,
     onSelect,
     bankAmount,
+    reason,
+    matched,
 }: {
     record: SettleableRecord;
     chosen: boolean;
     onSelect: (key: string) => void;
     bankAmount: number;
+    /** Why this record ranks here, or `""` for nothing to say. See `reasonCaption`. */
+    reason: string;
+    /** The match run found this record for this transfer (slice N3). */
+    matched: boolean;
 }) => {
     const key = recordKey(record);
     const verdict = amountVerdict(record.amount, bankAmount);
@@ -237,11 +272,39 @@ const RecordRow = ({
                 which is what three separate cards used to say by existing. But as a sixth column it
                 pushed AMOUNT past the right edge, and the amount is the fact that decides whether a
                 record can be settled at all. It stacks above the id it qualifies instead. */}
-            <td className="px-2 py-2 align-top" title={record.name}>
+            <td className="px-2 py-2 align-top">
                 <span className="inline-block rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium text-foreground/70">
                     {ledgerLabel(record.target_doctype)}
                 </span>
-                <div className="mt-0.5 truncate font-mono text-xs">{record.name}</div>
+                {/* ⚠️ NEUTRAL, NOT EMERALD (slice N3). Emerald on this screen means settleable --
+                    the amount mark below uses it -- and being a candidate is neither a verdict nor
+                    a permission. The title says FOUND, never "available": these come from a live
+                    re-run that skips the claim pass, so one may already be held by another row. */}
+                {matched && (
+                    <span
+                        className="ml-1 inline-block rounded border border-sky-600/40 px-1.5 py-0.5 text-[11px] font-medium text-sky-700"
+                        title="The match run found this record for this transfer, but could not choose between several. Another transfer may already have claimed it."
+                    >
+                        candidate
+                    </span>
+                )}
+                <div className="mt-0.5 truncate font-mono text-xs" title={record.name}>
+                    {record.name}
+                </div>
+                {/* ⚠️ WHY THIS RECORD IS WHERE IT IS (slice N2). The whole list is ordered by
+                    `similarity.py` and, until N2, nothing on screen said so — a record could sit
+                    first on an exact vendor match plus a named project and read as though the order
+                    were arbitrary. The full text is in the `title` because 210px truncates the
+                    common two-reason case; the caption is the invitation to hover, not the whole
+                    answer. It is BLANK under an explicit sort by construction — see `reasonCaption`. */}
+                {reason && (
+                    <div
+                        className="mt-0.5 truncate text-[11px] leading-tight text-muted-foreground"
+                        title={reason}
+                    >
+                        {reason}
+                    </div>
+                )}
             </td>
 
             {/* ⚠️ `PAY-00105-034` SAYS NOTHING ABOUT WHOSE MONEY IT IS. A reviewer with three

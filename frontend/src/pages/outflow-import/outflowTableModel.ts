@@ -1588,8 +1588,48 @@ export interface CandidateLike {
  * boundary. What it prevents is the shape the owner reported: a Confirm button that is enabled,
  * posts, is refused, and shows nothing, which reads as a broken front end rather than a rule.
  */
+/**
+ * The one ledger that has split machinery, `split_from` and PO payment terms.
+ *
+ * ⚠️ SHARED BY THE TWO FUNCTIONS THAT MUST AGREE ABOUT IT, and that is why it is a constant rather
+ * than the string literal both used to carry. `partialOffer` bails on a non-payment ledger, and
+ * `settleBlockReason` prints "an expense can only be settled at its exact amount" for exactly the
+ * same set. If those two ever disagreed the dialog would explain a refusal that had not happened,
+ * or offer a split the endpoint would reject.
+ *
+ * ⚠️ IT IS `target_doctype`, NOT `document_type`. The other one is the payment's PARENT
+ * ("Service Requests" / "Procurement Orders") and gates TDS -- see `SERVICE_DOCTYPE` below. Two
+ * lookalike keys; the wrong one passes silently.
+ */
+const PROJECT_PAYMENTS_DOCTYPE = "Project Payments";
+
+/**
+ * WHICH of the amount rules this pick falls foul of (slice D1).
+ *
+ * ⚠️ IT REFINES THE MESSAGE, NEVER THE VERDICT. `kind` stays the single
+ * `"amount_outside_window"` and the block still fires on exactly one thing -- the server's
+ * `suggested === false`. Adding a reason must not change WHICH records are blocked, only what the
+ * reviewer is told about them; the cross-pin against `partialOffer` below is what holds that.
+ *
+ * Four cases, and they are TOTAL over a blocked pick:
+ *
+ *   `not_positive`       the record's amount, or the transfer's, is zero or negative
+ *   `bank_paid_more`     the bank moved MORE than the record is for -- an overpayment
+ *   `expense_exact_only` the record is larger, but it is an expense, which cannot be part-settled
+ *   `record_larger`      the record is larger and IS a payment -- ordinarily the partial dialog
+ *
+ * The last one reaches the dead-end branch only when `SHOW_PARTIAL_SETTLE` is off, and it has to
+ * exist anyway: this function is total, and a silent fall-through would print nothing at all.
+ */
+export type SettleBlockReason =
+    | "not_positive"
+    | "bank_paid_more"
+    | "expense_exact_only"
+    | "record_larger";
+
 export interface SettleBlock {
     kind: "amount_outside_window";
+    reason: SettleBlockReason;
     recordName: string;
     recordAmount: number;
     bankAmount: number;
@@ -1597,19 +1637,87 @@ export interface SettleBlock {
     difference: number;
 }
 
+/**
+ * ⚠️ AN ABSENT `target_doctype` IS NEVER READ AS AN EXPENSE, on the same fail-open reasoning as
+ * `suggested` above. An older payload, or a fixture that predates the field, would otherwise be
+ * told "an expense can only be settled at its exact amount" about a payment -- a confident,
+ * specific and wrong sentence, which is worse than the general one. Only an explicitly non-payment
+ * doctype takes that branch.
+ */
+const settleBlockReason = (
+    targetDoctype: string | undefined,
+    recordAmount: number,
+    bankAmount: number
+): SettleBlockReason => {
+    // First, because the direction question is meaningless on a non-positive amount and the
+    // arithmetic below would read as a confident statement about nonsense.
+    if (!(recordAmount > 0) || !(bankAmount > 0)) return "not_positive";
+    // Direction BEFORE ledger: "the bank moved more than this record is for" is true of a payment
+    // and an expense alike, and it is the more useful fact in both cases. Only once the record is
+    // the LARGER side does the ledger start to matter, because that is the side partial
+    // settlement could in principle have rescued.
+    if (recordAmount < bankAmount) return "bank_paid_more";
+    if (targetDoctype && targetDoctype !== PROJECT_PAYMENTS_DOCTYPE) return "expense_exact_only";
+    return "record_larger";
+};
+
 export const settleBlocker = (
-    record: { name: string; amount: number; suggested?: boolean } | null | undefined,
+    record:
+        | { name: string; amount: number; suggested?: boolean; target_doctype?: string }
+        | null
+        | undefined,
     bankAmount: number
 ): SettleBlock | null => {
     if (!record) return null;
     if (record.suggested !== false) return null;
+    const recordAmount = Number(record.amount);
+    const bank = Number(bankAmount);
     return {
         kind: "amount_outside_window",
+        reason: settleBlockReason(record.target_doctype, recordAmount, bank),
         recordName: record.name,
-        recordAmount: Number(record.amount),
-        bankAmount: Number(bankAmount),
-        difference: Number(record.amount) - Number(bankAmount),
+        recordAmount,
+        bankAmount: bank,
+        difference: recordAmount - bank,
     };
+};
+
+/**
+ * Why this particular pick cannot be settled, in the reviewer's words (slice D1).
+ *
+ * ⚠️ IT CARRIES NO AMOUNTS, DELIBERATELY. The dialog's first paragraph already states the record's
+ * figure, the bank's figure and the difference between them; repeating any of them here would put
+ * the same number on screen twice, in two places free to drift. Keeping the sentence
+ * currency-free is also what lets it be a plain unit-testable string rather than something that
+ * has to be handed a formatter.
+ *
+ * ⚠️ WHAT THIS REPLACED, AND WHY IT HAD TO GO. The dead-end branch used to print one fixed
+ * paragraph for every blocked pick, and by slice D1 three of its claims were false:
+ *
+ *   * "This gap is far larger than that" -- it had never checked. A gap of Rs 6 trips this branch.
+ *   * "A deduction such as TDS looks exactly like this -- settle those in the payments screen."
+ *     TDS IS settled here now, on the service-payment path (slice TD). The sentence survived the
+ *     slice that falsified it.
+ *   * "or record it as a new expense" -- `SHOW_CREATE_NEW_EXPENSE` is `false`, so that route is
+ *     not on this dialog at all.
+ *
+ * It also read identically whether the record was bigger or smaller than the transfer, and since
+ * the partial-settlement slice took the "record is bigger" case away into its own two-answer
+ * dialog, the SMALLER case is the common arrival here -- the one shape the old wording described
+ * least well.
+ */
+export const settleBlockText = (block: SettleBlock | null | undefined): string => {
+    if (!block) return "";
+    switch (block.reason) {
+        case "not_positive":
+            return "This record's amount is zero or negative, so there is nothing for this transfer to settle against.";
+        case "bank_paid_more":
+            return "The bank moved more than this record is for. An import only ever settles a record for the amount that actually left the bank, so it cannot record this transfer against a smaller record — the overpayment has to be sorted out on the record itself first.";
+        case "expense_exact_only":
+            return "An expense can only be settled at its exact amount. It cannot be settled in parts or carried forward, because neither expense ledger has anywhere for a balance to go.";
+        case "record_larger":
+            return "This record is for more than the transfer covers, and settling a payment in parts is currently switched off, so the difference has to be sorted out on the record itself.";
+    }
 };
 
 /**
@@ -1669,6 +1777,14 @@ export interface SettleableRecord {
     vendor_nickname: string;
     contact_person: string;
     /**
+     * The payment's PARENT order — "Procurement Orders" or "Service Requests" (slice TD).
+     *
+     * ⚠️ NOT `target_doctype`, WHICH IS THE LEDGER. Blank on both expense ledgers, which have no
+     * parent order at all. The deduction gate turns on this field; reading the other would let
+     * every record pass the service check.
+     */
+    document_type: string;
+    /**
      * The project's LINK ID, beside `project_name` rather than instead of it (slice N1).
      *
      * ⚠️ `project_name` FALLS BACK TO THE ID when the join finds nothing, so it cannot be compared
@@ -1725,6 +1841,235 @@ export const parseRecordKey = (
     if (!target || !name) return null;
     return { target: target as DecisionTarget, name };
 };
+
+// --- partial settlement (slice PS) --------------------------------------------------------------
+
+/**
+ * The settle window, MIRRORED for the client's own eligibility check.
+ *
+ * ⚠️ THE SERVER OWNS THIS NUMBER (`services/outflow_import/amounts.AMOUNT_TOLERANCE`) AND IS THE
+ * AUTHORITY. This copy exists for the same reason `isRateEditableRow` mirrors the pricing gate: the
+ * screen has to know whether to OFFER the choice before it posts anything. If the two ever
+ * disagree, the server wins and the reviewer sees its refusal — which is the honest failure, not a
+ * silent one. The nearby `AmountMark` deliberately does NOT print this value for exactly the reason
+ * that makes a mirror risky.
+ */
+export const SETTLE_WINDOW = 5;
+
+export const INTENT_PART_PAYMENT = "part_payment";
+export const INTENT_DEDUCTION = "deduction";
+export type PartialIntent = typeof INTENT_PART_PAYMENT | typeof INTENT_DEDUCTION;
+
+/** Common statutory TDS rates, as percentages. Mirrors `partial_settle.TDS_RATE_HINTS`. */
+const TDS_RATE_HINTS = [1, 2, 5, 10];
+const TDS_HINT_NEARNESS_PCT = 0.05;
+
+export interface PartialOffer {
+    /** What stays on the record and is settled now: the bank's own figure. */
+    keep: number;
+    /** What is carried forward as a new approved payment. */
+    remainder: number;
+    /** The shortfall as a percentage of the record. */
+    impliedPct: number;
+    /** Whether that percentage sits on a common TDS rate — a WARNING, never a decision. */
+    tdsLike: boolean;
+}
+
+/**
+ * Whether this pick may be settled in parts, and what the two halves would be — or `null`.
+ *
+ * ⚠️ `null` MEANS THE DIALOG IS BYTE-IDENTICAL TO BEFORE PS. Every ineligible shape falls through
+ * to the existing dead-end explanation, which is still the right answer for all of them.
+ *
+ * ⚠️ IT MIRRORS `partial_settle.partial_eligibility` AND IS NOT THE AUTHORITY. The server re-asserts
+ * the whole gate under a row lock, because an expense write in this app has no optimistic-
+ * concurrency protection and a read-check-write across a request boundary is a race.
+ *
+ * The conditions, each for its own reason:
+ *   * PAYMENTS ONLY — neither expense doctype has split machinery, `split_from`, or PO terms.
+ *   * the record is STRICTLY LARGER — the reverse is an overpayment, a different problem, and
+ *     carving a record up to match it would partition a payment against money it never covered.
+ *   * the gap EXCEEDS the settle window — inside it the ordinary Confirm already handles this and
+ *     rewrites the record to the bank's figure, so a split there would mint a sub-₹5 payment.
+ *   * both amounts are POSITIVE — a refund travels this ledger as a negative payment.
+ */
+export const partialOffer = (
+    record: { target_doctype: string; amount: number } | null | undefined,
+    bankAmount: number
+): PartialOffer | null => {
+    if (!record) return null;
+    if (record.target_doctype !== PROJECT_PAYMENTS_DOCTYPE) return null;
+
+    const recordAmount = Number(record.amount);
+    const bank = Number(bankAmount);
+    if (!Number.isFinite(recordAmount) || !Number.isFinite(bank)) return null;
+    if (recordAmount <= 0 || bank <= 0) return null;
+
+    const remainder = recordAmount - bank;
+    if (remainder <= SETTLE_WINDOW) return null;
+
+    const impliedPct = (remainder / recordAmount) * 100;
+    return {
+        keep: bank,
+        remainder,
+        impliedPct,
+        tdsLike: TDS_RATE_HINTS.some(
+            (hint) => Math.abs(impliedPct - hint) <= TDS_HINT_NEARNESS_PCT
+        ),
+    };
+};
+
+// --- recording the shortfall as TDS (slice TD) ---------------------------------------------------
+
+/**
+ * The ledger a deduction may be recorded on — the payment's PARENT, not the ledger it lives in.
+ *
+ * ⚠️ `document_type` IS NOT `target_doctype`. The second is always "Project Payments" here; this is
+ * "Service Requests" or "Procurement Orders". Gate on the wrong one and every payment passes the
+ * service check silently. Mirrors `partial_settle.SERVICE_DOCTYPE`.
+ */
+export const SERVICE_DOCTYPE = "Service Requests";
+
+/**
+ * The rate band a shortfall must land in to be recordable as TDS. Mirrors `partial_settle`.
+ *
+ * MEASURED on the live ledger 2026-08-12: of 671 Paid payments carrying a TDS figure, 505 sit at
+ * exactly 1.00% and 60 at exactly 2.00%; this band captures 584. The server is the authority — this
+ * copy decides only whether to OFFER the choice.
+ */
+export const TDS_BAND_MIN_PCT = 0.95;
+export const TDS_BAND_MAX_PCT = 2.05;
+
+/**
+ * Slack on the band edges, because THIS SIDE IS FLOAT AND THE SERVER IS NOT.
+ *
+ * ⚠️ A REAL DIVERGENCE, FOUND BY THE EDGE TEST AND NOT BY READING. The server computes the rate in
+ * `Decimal`, so a ₹2,050 shortfall on ₹1,00,000 is exactly `2.05` and sits inside the band. In
+ * IEEE-754 the same arithmetic gives `2.0500000000000003`, which is OUTSIDE it — so without this
+ * the screen would grey out an option the server would happily accept, on the exact boundary the
+ * band is defined by.
+ *
+ * ⚠️ THE DIRECTION IS THE POINT: the mirror must never be STRICTER than the server. Erring a
+ * hair's breadth toward OFFERING is safe — the server re-asserts under a row lock and refuses with
+ * a message. Erring the other way hides the choice, and a hidden choice pushes the reviewer to
+ * "part payment", which writes a balance nobody owes.
+ */
+const BAND_EDGE_EPSILON = 1e-9;
+
+export type DeductionRefusal = "not_service" | "rate_out_of_band" | "shape";
+
+export interface DeductionOffer {
+    /** Whether the option may be taken. When false, `refusal` says which rule stopped it. */
+    eligible: boolean;
+    refusal?: DeductionRefusal;
+    /** The deduction that would be written: the gap, always derived. */
+    tds: number;
+    impliedPct: number;
+}
+
+/**
+ * Whether this shortfall may be recorded as TDS — and when not, WHY.
+ *
+ * ⚠️ IT RETURNS A VERDICT, NEVER `null`, AND THAT IS THE POINT. The option must stay VISIBLE and
+ * disabled with its reason, never hidden. A reviewer looking at a genuine 2% TDS on a materials PO,
+ * offered only "part payment", will take it — and that creates an approved balance for money nobody
+ * owes, which is the exact phantom the partial-settlement slice exists to prevent. Hiding the option
+ * is what would cause it; showing it greyed with "TDS is recorded here only on service payments" is
+ * what stops it.
+ *
+ * ⚠️ IT READS NOTHING FROM THE PAYMENT'S OWN `tds`. That field is empty on an approved payment by
+ * rule, and the rows carrying one are residue from an un-fulfil that bypassed the document
+ * lifecycle. The figure is the gap, derived every time — same rule as the server.
+ *
+ * Caller passes the `partialOffer` result so the shared SHAPE conditions are computed once. A `null`
+ * shape means the row is not in the "record is larger than the transfer" situation at all, and the
+ * whole dialog is the pre-TD one.
+ */
+export const deductionOffer = (
+    record: { document_type?: string } | null | undefined,
+    shape: PartialOffer | null
+): DeductionOffer => {
+    if (!shape) return { eligible: false, refusal: "shape", tds: 0, impliedPct: 0 };
+
+    const base = { tds: shape.remainder, impliedPct: shape.impliedPct };
+    if ((record?.document_type ?? "").trim() !== SERVICE_DOCTYPE) {
+        return { eligible: false, refusal: "not_service", ...base };
+    }
+    if (
+        shape.impliedPct < TDS_BAND_MIN_PCT - BAND_EDGE_EPSILON ||
+        shape.impliedPct > TDS_BAND_MAX_PCT + BAND_EDGE_EPSILON
+    ) {
+        return { eligible: false, refusal: "rate_out_of_band", ...base };
+    }
+    return { eligible: true, ...base };
+};
+
+/** Why the deduction option is greyed, in the reviewer's words. `""` when it is available. */
+export const deductionRefusalText = (offer: DeductionOffer): string => {
+    if (offer.eligible) return "";
+    switch (offer.refusal) {
+        case "not_service":
+            return "TDS is recorded here only on service payments — use the payments screen.";
+        case "rate_out_of_band":
+            return "Only a shortfall of about 1–2% can be recorded as TDS here — use the payments screen.";
+        default:
+            return "This shortfall cannot be recorded as TDS here.";
+    }
+};
+
+// --- the candidates the match run could not separate (slice N3) ---------------------------------
+
+/** One `(doctype, name)` pair from `get_row_candidates().settleable_candidates`. */
+export interface MatcherCandidate {
+    doctype: string;
+    name: string;
+}
+
+/**
+ * The matcher's candidates as `recordKey`s, ready to test a browse row against.
+ *
+ * ⚠️ KEYED ON BOTH HALVES. A bare name is not unique across the three ledgers, which is the same
+ * reason `recordKey` exists at all and why `_rank_browse_records` indexes on the pair server-side.
+ */
+export const candidateKeySet = (
+    candidates: readonly MatcherCandidate[] | undefined
+): ReadonlySet<string> =>
+    new Set(
+        (candidates ?? [])
+            .filter((c) => c && c.doctype && c.name)
+            .map((c) => recordKey({ target_doctype: c.doctype, name: c.name }))
+    );
+
+/**
+ * The line the picker prints above the table, or `""` for nothing to say.
+ *
+ * ⚠️ THE WORDING IS A GUARD, NOT A STYLE CHOICE. `get_row_candidates` re-runs the match LIVE and
+ * does not apply the four global passes -- no claim pass, no Option B, no stack pairing -- so a
+ * marked record may ALREADY be claimed by another open row. Saying what the match run FOUND is
+ * true; saying what the reviewer MAY PICK would not be, and the difference only shows up as a
+ * confirm that fails with `AlreadyPaidError` after the click.
+ *
+ * ⚠️ SILENT BELOW TWO. One candidate is not something a person needs help choosing between, and
+ * that row already carries a pre-selection from `sole_suggestion`.
+ */
+export const matcherCandidateLine = (count: number): string =>
+    count >= 2
+        ? `The match run found ${count} records it could not separate — marked below.`
+        : "";
+
+/*
+ * ⚠️ `suppressOutcomeNote` WAS DELETED HERE (slice D2, owner 2026-08-12) -- unlike
+ * `orderBySuggestion` above, which is kept as a documented-unused export.
+ *
+ * The difference is that this one had NOTHING LEFT TO DECIDE. It answered "should the dialog stop
+ * printing the row's stored `outcome_note`?", and the only thing that ever printed that note was
+ * the `WhyThisSuggestion` block in `DecisionDialog.tsx`, which slice D2 removed. With no printer
+ * there is no suppression question -- so keeping it would not be preserving a correct
+ * implementation of a rule that still exists, it would be preserving a rule that does not.
+ * `orderBySuggestion` earns its keep because the ordering it implements IS still the server's.
+ *
+ * `matcherCandidateLine` above is the surviving half of slice N3 and is unaffected.
+ */
 
 /**
  * The record's date, SAYING WHICH DATE IT IS.
