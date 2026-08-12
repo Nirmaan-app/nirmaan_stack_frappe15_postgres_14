@@ -22,6 +22,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import type { AttributeDefinition, RateCategoryConfig, RateMasterItem } from "./rateMasterTypes";
 import { parseFiniteInput } from "./rateMasterEdit";
 import { DOWNLOAD_COPY, downloadErrorMessage } from "./rateMasterDownload";
+import { RateMasterUploadDialog } from "./RateMasterUploadDialog";
+import type { UploadPlan, UploadResult } from "./rateMasterUpload";
 import {
   categoryItemKinds,
   isCategoryDataScopeEmpty,
@@ -81,6 +83,11 @@ interface Props {
   // `categoryId === null` means MODE B (every category in one file).
   onDownloadCsv?: (categoryId: string | null) => Promise<void>;
   onDownloadAsset?: () => Promise<void>;
+  // SLICE 6: the upload half of the round trip. Withheld (not disabled) for a non-admin, like
+  // every other write affordance here; the endpoints re-gate server-side, which is the boundary.
+  onPreviewCsv?: (contentBase64: string) => Promise<UploadPlan>;
+  onApplyCsv?: (contentBase64: string, expectedDigest: string) => Promise<UploadResult>;
+  onUploadApplied?: () => void;
 }
 
 type KindFilter = "all" | string;
@@ -92,7 +99,7 @@ function cellText(v: unknown): string {
 
 export function RateMasterDataViewer({
   items, config, disciplineLabel, categoryLabel, isAdmin, onSaveItem, onCreateItem, onDeactivateItem,
-  onDownloadCsv, onDownloadAsset,
+  onDownloadCsv, onDownloadAsset, onPreviewCsv, onApplyCsv, onUploadApplied,
 }: Props) {
   // SLICE 5: which download is in flight, so a slow one cannot be double-fired. One string rather
   // than three booleans -- only one download can be running at a time by construction.
@@ -399,7 +406,11 @@ export function RateMasterDataViewer({
   // NOTE: a `{/* ... */}` comment is JSX-CHILD syntax. Written here it parses as an empty object
   // literal and silently swallows the element into a `{}` -- which is what it did, until tsc named
   // it. Outside JSX children, comments are `//`.
-  const downloadPanel = isAdmin && (onDownloadCsv || onDownloadAsset) && (
+  // SLICE 6: the upload sits IN the same dashed panel as the downloads, immediately after the
+  // "Download to edit" group, because it is the SECOND HALF of that one action -- download, edit,
+  // upload. Putting it beside the backup group instead would pair it with the file nothing reads
+  // back, which is exactly the confusion the purpose-based grouping exists to prevent.
+  const downloadPanel = isAdmin && (onDownloadCsv || onDownloadAsset || onPreviewCsv) && (
       <div className="flex flex-wrap items-start gap-6 rounded border border-dashed p-3">
         {onDownloadCsv && (
           <div className="space-y-1">
@@ -423,6 +434,13 @@ export function RateMasterDataViewer({
             <p className="text-[11px] text-muted-foreground">{DOWNLOAD_COPY.editHint}</p>
             <p className="text-[11px] text-muted-foreground">{DOWNLOAD_COPY.newRowHint}</p>
           </div>
+        )}
+        {onPreviewCsv && onApplyCsv && (
+          <RateMasterUploadDialog
+            onPreview={onPreviewCsv}
+            onApply={onApplyCsv}
+            onApplied={onUploadApplied}
+          />
         )}
         {onDownloadAsset && (
           <div className="space-y-1">

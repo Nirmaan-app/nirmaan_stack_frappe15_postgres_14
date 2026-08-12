@@ -1999,3 +1999,98 @@ def export_rate_master_csv(discipline=None, category_id=None):
         "column_count": len(headers),
         "row_count": n,
     }
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════
+# SLICE 6: THE CSV UPLOAD -- the last piece of the round trip, and the FIRST write path
+# into the live catalog from a file a human edited.
+#
+# TWO STEPS, NEVER ONE. `preview_rate_master_csv` is READ-ONLY and `apply_rate_master_csv`
+# is the only writer; there is deliberately no combined endpoint, because an upload that
+# applied on arrival would give the user nothing to check before a catastrophic rate landed.
+#
+# The apply RE-BUILDS the plan from the live catalog rather than trusting anything posted
+# back, and refuses when the preview's `digest` no longer matches -- the honest answer when
+# the database moved between the two steps.
+#
+# ⚠️ BOTH gate on the SAME `_require_rate_admin`, gate FIRST, as slice 5 does. The preview
+# is read-only but it renders the whole priced catalog's deltas, so it is exactly as
+# sensitive as the download it is paired with.
+#
+# ⚠️ The upload does NOT go through `loader.py`: a `replace=True` supersedes an entire
+# SCOPE and would wipe every item the file omitted. See services/boq_rate_master/
+# csv_importer.py for the upsert rules and why absent items must stay untouched.
+# ══════════════════════════════════════════════════════════════════════════════════════
+
+
+def _decode_upload(content_base64, csv_text):
+    """The uploaded bytes. base64 is the primary transport -- it mirrors the download's own
+    `content_base64` and preserves the file's bytes exactly, including the BOM and whatever
+    encoding Excel chose, which is what lets the importer REPORT the encoding rather than
+    guess at it. A plain-text fallback exists for callers (and tests) with a string in hand."""
+    if content_base64:
+        try:
+            return base64.b64decode(content_base64)
+        except Exception:
+            frappe.throw("The uploaded file could not be decoded.", title="Unreadable upload")
+    if csv_text is None or csv_text == "":
+        frappe.throw("No file content was received.", title="Nothing to read")
+    return csv_text
+
+
+@frappe.whitelist(methods=["POST"])
+def preview_rate_master_csv(discipline=None, content_base64=None, csv_text=None):
+    """ADMIN-ONLY, READ-ONLY: what this file WOULD do. Writes nothing, commits nothing.
+
+    Returns the plan: {discipline, mode, encoding, row_count, columns, counts, errors,
+    changes, digest}. `counts` carries rates_changed / items_added / unchanged / errors
+    (the owner's four headline numbers) plus `other_changed` for rows that moved in some
+    way other than a rate -- an honest fifth number rather than mislabelling those rows as
+    one of the four.
+
+    Each change carries `major`: TRUE for every new item and for any rate move of 10% or
+    more IN EITHER DIRECTION (and for a move a percentage cannot describe -- a rate
+    appearing, disappearing, or leaving zero). The client expands those by default and
+    collapses the rest behind a count; nothing is hidden either way.
+    URL: .../rate_master.preview_rate_master_csv
+    """
+    _require_rate_admin()  # BEFORE any read
+    if not discipline:
+        frappe.throw("discipline is required.", title="Missing field: discipline")
+
+    from nirmaan_stack.services.boq_rate_master import csv_importer
+
+    plan = csv_importer.build_plan(discipline, _decode_upload(content_base64, csv_text))
+    return csv_importer.public_plan(plan)
+
+
+@frappe.whitelist(methods=["POST"])
+def apply_rate_master_csv(discipline=None, content_base64=None, csv_text=None,
+                          expected_digest=None):
+    """ADMIN-ONLY: apply an already-previewed CSV. ALL-OR-NOTHING.
+
+    A SNAPSHOT of the pre-upload catalog is written FIRST, in the SAME transaction, via
+    slice 4's mechanism -- that is the rollback path, and an upload with no snapshot behind
+    it is unrecoverable. The single `frappe.db.commit()` below is the only commit: any
+    failure anywhere above it leaves the transaction uncommitted, so a malformed row rejects
+    the WHOLE file rather than half-applying it.
+
+    The result is LIVE IMMEDIATELY -- extraction allowed-values, the pricing-helper dropdowns
+    and every rate computation read the catalog at runtime, through the active-only readers,
+    so a superseded row leaves those surfaces the moment this commits.
+
+    Returns {applied, items_added, items_replaced, snapshot, snapshot_version, batch, plan}.
+    URL: .../rate_master.apply_rate_master_csv
+    """
+    _require_rate_admin()  # BEFORE any read or write
+    if not discipline:
+        frappe.throw("discipline is required.", title="Missing field: discipline")
+
+    from nirmaan_stack.services.boq_rate_master import csv_importer
+
+    result = csv_importer.apply_plan(
+        discipline, _decode_upload(content_base64, csv_text), expected_digest=expected_digest
+    )
+    frappe.db.commit()  # the ONE commit -- snapshot + every write, or neither
+    result["plan"] = csv_importer.public_plan(result["plan"])
+    return result

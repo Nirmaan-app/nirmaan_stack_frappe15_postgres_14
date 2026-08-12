@@ -20,6 +20,7 @@ import { RateMasterDerivation } from "./RateMasterDerivation";
 import { RateMasterPipelines } from "./RateMasterPipelines";
 import { isRateMasterAdmin } from "./rateMasterEdit";
 import { downloadBase64, type DownloadPayload } from "./rateMasterDownload";
+import type { UploadPlan, UploadResult } from "./rateMasterUpload";
 import type { GetConfigResponse, GetItemsResponse, RateCategoryConfig } from "./rateMasterTypes";
 
 const ITEMS_METHOD = "nirmaan_stack.api.boq.rate_master.get_rate_master_items";
@@ -35,6 +36,10 @@ const UPDATE_CONFIG_METHOD = "nirmaan_stack.api.boq.rate_master.update_rate_conf
 // hiding the buttons is UX; the endpoints are the boundary.
 const EXPORT_CSV_METHOD = "nirmaan_stack.api.boq.rate_master.export_rate_master_csv";
 const EXPORT_ASSET_METHOD = "nirmaan_stack.api.boq.rate_master.export_rate_master_asset";
+// SLICE 6: the upload. TWO endpoints, never one -- the preview is READ-ONLY and the apply is the
+// only writer, so a file can never be applied on arrival. Both are ADMIN-gated server-side.
+const PREVIEW_CSV_METHOD = "nirmaan_stack.api.boq.rate_master.preview_rate_master_csv";
+const APPLY_CSV_METHOD = "nirmaan_stack.api.boq.rate_master.apply_rate_master_csv";
 
 export function RateMasterPage() {
   const [disciplineId, setDisciplineId] = useState(RATE_MASTER_DISCIPLINES[0]?.discipline ?? "");
@@ -78,6 +83,8 @@ export function RateMasterPage() {
   const { call: callSaveConfig } = useFrappePostCall(UPDATE_CONFIG_METHOD);
   const { call: callExportCsv } = useFrappePostCall(EXPORT_CSV_METHOD);
   const { call: callExportAsset } = useFrappePostCall(EXPORT_ASSET_METHOD);
+  const { call: callPreviewCsv } = useFrappePostCall(PREVIEW_CSV_METHOD);
+  const { call: callApplyCsv } = useFrappePostCall(APPLY_CSV_METHOD);
 
   // Each write refetches its collection so the derivation/viewer recompute live (the persistence split
   // then carries edited params/rates into the next pricing-panel compute with no re-run).
@@ -143,6 +150,34 @@ export function RateMasterPage() {
     },
     [callExportAsset, disciplineId]
   );
+  // SLICE 6 -- the upload. The PREVIEW writes nothing, so it deliberately does NOT refetch; the
+  // APPLY does, and its refetch is what makes the change visible immediately (the catalog is read
+  // at runtime everywhere else too, so extraction values and helper dropdowns follow on their own
+  // next read).
+  const onPreviewCsv = useCallback(
+    async (contentBase64: string) => {
+      const res = await callPreviewCsv({ discipline: disciplineId, content_base64: contentBase64 });
+      return (res as { message: UploadPlan }).message;
+    },
+    [callPreviewCsv, disciplineId]
+  );
+  const onApplyCsv = useCallback(
+    async (contentBase64: string, expectedDigest: string) => {
+      const res = await callApplyCsv({
+        discipline: disciplineId,
+        content_base64: contentBase64,
+        // The preview's fingerprint. The server re-derives the plan and REFUSES when the catalog
+        // moved underneath -- what the user confirmed is then no longer what would happen.
+        expected_digest: expectedDigest,
+      });
+      return (res as { message: UploadResult }).message;
+    },
+    [callApplyCsv, disciplineId]
+  );
+  const onUploadApplied = useCallback(() => {
+    void mutateItems();
+  }, [mutateItems]);
+
   // RM-4b: whole-config structure replace. The server re-validates (the authority); on success the
   // config refetch flows the new structure into the Derivation + Data tabs and the helper (no re-run).
   const onSaveConfig = useCallback(
@@ -221,6 +256,9 @@ export function RateMasterPage() {
               isAdmin={isAdmin}
               onDownloadCsv={onDownloadCsv}
               onDownloadAsset={onDownloadAsset}
+              onPreviewCsv={onPreviewCsv}
+              onApplyCsv={onApplyCsv}
+              onUploadApplied={onUploadApplied}
               onSaveItem={onSaveItem}
               onCreateItem={onCreateItem}
               onDeactivateItem={onDeactivateItem}
