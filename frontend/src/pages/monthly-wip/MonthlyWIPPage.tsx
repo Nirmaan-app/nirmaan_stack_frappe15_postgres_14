@@ -1,4 +1,10 @@
 import { Badge } from "@/components/ui/badge";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -27,6 +33,7 @@ import {
   ChevronRight,
   ChevronUp,
   Download,
+  ExternalLink,
   Search,
 } from "lucide-react";
 import { Fragment, useEffect, useMemo, useState } from "react";
@@ -38,59 +45,18 @@ import {
   WipMonthlyRow,
   WipPeriod,
 } from "./useMonthlyWIPData";
+import { WipFormulaDialog } from "./WipFormulaDialog";
 
-// --------------------------------------------------------------------------- //
-// Column model — the single source of truth for the numeric columns. The header
-// (two-tier), the body cells, sorting and the group dividers all derive from it,
-// so a column is added/renamed/reordered in ONE place.
-// --------------------------------------------------------------------------- //
-
-/** Month-scoped, day-based fields (present on both a project row AND its stints). */
-type ComplianceField = keyof WipCompliance;
-/** Lifetime, project-level fields (present only on the project row). */
-type LifetimeField = "dispatched_po" | "total_dn" | "missing_dn" | "total_dc" | "missing_dc";
-type NumericField = ComplianceField | LifetimeField;
-
-type SortKey = "project_name" | NumericField;
-
-interface NumericColumn {
-  key: NumericField;
-  label: string;
-  /** First column of a group — draws the left divider. */
-  groupStart?: boolean;
-  /** Bold — the "base" figure of its group (Active Days, Dispatched POs). */
-  emphasize?: boolean;
-  /** Lifetime & project-level — stint sub-rows render "—" instead of a value. */
-  lifetime?: boolean;
-  /** A "missing" gap column — a non-zero value is shown red (0 stays muted). */
-  danger?: boolean;
-}
-
-const NUMERIC_COLUMNS: NumericColumn[] = [
-  { key: "active_working_days", label: "Active Days", groupStart: true, emphasize: true },
-  { key: "total_dpr_days", label: "Total DPR" },
-  { key: "missing_dpr_days", label: "Missing DPR", danger: true },
-  { key: "expected_inventory", label: "Expected", groupStart: true },
-  { key: "actual_inventory", label: "Actual" },
-  { key: "missing_inventory", label: "Missing", danger: true },
-  { key: "dispatched_po", label: "Disp.", groupStart: true, emphasize: true, lifetime: true },
-  { key: "total_dn", label: "Total DN", lifetime: true },
-  { key: "missing_dn", label: "Missing DN", lifetime: true, danger: true },
-  { key: "total_dc", label: "Total DC", groupStart: true, lifetime: true },
-  { key: "missing_dc", label: "Missing DC", lifetime: true, danger: true },
-];
-
-interface ColumnGroup {
-  label: string;
-  span: number;
-}
-const COLUMN_GROUPS: ColumnGroup[] = [
-  { label: "Project", span: 3 },
-  { label: "DPR · Daily (excl. Sun)", span: 3 },
-  { label: "Inventory · Weekly (Mon)", span: 3 },
-  { label: "Delivery Notes (ALL)", span: 3 },
-  { label: "Delivery Chellans (All)", span: 2 },
-];
+// Column model lives in wipColumns.ts — shared with WipFormulaDialog, which renders
+// its help text from the SAME arrays that drive this table, so a rule change updates
+// both in one edit. It sits in its own module so the page and the dialog never import
+// each other in a cycle.
+import {
+  COLUMN_GROUPS,
+  NUMERIC_COLUMNS,
+  type NumericColumn,
+  type SortKey,
+} from "./wipColumns";
 
 /** A visible vertical divider between column groups — runs continuously through
  *  the header band and every body row (applied to each group's first column). */
@@ -237,19 +203,92 @@ const EndCell = ({ c, small }: { c: ClampedWip; small?: boolean }) => (
 // Numeric columns are tight (see COL_W.num) — trim shadcn's default p-4 side padding.
 const NUM_CELL = "text-center tabular-nums !px-2";
 
-const NumberCell = ({ value, col, small }: { value: number; col: NumericColumn; small?: boolean }) => (
-  <TableCell
-    className={cn(
-      NUM_CELL,
-      small && "text-sm",
-      col.emphasize && "font-medium",
-      col.danger && value > 0 && "font-semibold text-red-600 dark:text-red-500",
-      col.groupStart ? GROUP_EDGE : LEAN_EDGE,
-    )}
-  >
-    {numFmt(value)}
-  </TableCell>
-);
+/** Deep link into a project's DN > DC report with one status pre-selected.
+ *  `dcmir_tab` / `dcmir_parent` are the params ProjectDCMIRTab already reads on mount;
+ *  `dndc_status` is read by DNDCQuantityReport to seed its Status filter. */
+const dndcReportHref = (project: string, status: string) =>
+  `/projects/${project}?page=projectdcmir&dcmir_tab=DN_DC&dcmir_parent=PO&dndc_status=${status}`;
+
+/** "N Billable · M Non-Billable" for the two columns that count both, else undefined.
+ *  Guarded on the field being a number: an older payload carries neither, and
+ *  "undefined Billable · NaN Non-Billable" is worse than no tooltip at all. */
+const billableSplitHint = (row: WipMonthlyRow, key: NumericColumn["key"]) => {
+  const billable =
+    key === "total_dn"
+      ? row.total_dn_billable
+      : key === "dispatched_po"
+        ? row.dispatched_po_billable
+        : undefined;
+  if (typeof billable !== "number") return undefined;
+  return `${billable} Billable · ${row[key] - billable} Non-Billable`;
+};
+
+const NumberCell = ({
+  value,
+  col,
+  small,
+  project,
+  hint,
+}: {
+  value: number;
+  col: NumericColumn;
+  small?: boolean;
+  /** Hover text for the cell. Used by Total DN to show its Billable split. */
+  hint?: string;
+  /** Present on a project row, absent on a stint sub-row. A cell only links when the
+   *  column declares a `linkStatus` AND the value is non-zero — linking a 0 would land
+   *  the reader on an empty report. */
+  project?: string;
+}) => {
+  const linkable = project && col.linkStatus && value > 0;
+
+  // `inline`, not `inline-flex`: text-decoration does not run across a flex container's
+  // items, so the icon would sit outside the underline. Inline layout puts the number and
+  // the SVG in the same line box, and the hover underline spans both.
+  const body = linkable ? (
+    <Link
+      to={dndcReportHref(project!, col.linkStatus!)}
+      className="inline text-red-600 underline-offset-2 hover:underline dark:text-blue-400"
+    >
+      {numFmt(value)}
+      <ExternalLink className="ml-1 text-blue-600 inline h-3 w-3 align-text-top" aria-hidden="true" />
+    </Link>
+  ) : (
+    numFmt(value)
+  );
+
+  const cell = (
+    <TableCell
+      className={cn(
+        NUM_CELL,
+        // A hover with no visual cue is a feature nobody finds. The dotted underline is
+        // the conventional "there is more here" affordance and costs no row height.
+        hint && "decoration-dotted underline underline-offset-4 decoration-muted-foreground/50",
+        small && "text-sm",
+        col.emphasize && "font-medium",
+        // A linked cell owns its own colour (blue); the danger red would fight it.
+        col.danger && value > 0 && !linkable && "font-semibold text-red-600 dark:text-red-500",
+        col.groupStart ? GROUP_EDGE : LEAN_EDGE,
+      )}
+    >
+      {body}
+    </TableCell>
+  );
+
+  // A real Tooltip rather than a native `title`: the native one waits ~1s, is unstyled and
+  // is easy to miss entirely — which is exactly what happened with the Total DN split.
+  if (!hint) return cell;
+  return (
+    <TooltipProvider>
+      <Tooltip delayDuration={150}>
+        <TooltipTrigger asChild>{cell}</TooltipTrigger>
+        <TooltipContent side="top" className="text-xs">
+          {hint}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+};
 
 /** Lifetime column on a stint row — a muted em-dash (G4/G5 are project-level). */
 const DashCell = ({ col }: { col: NumericColumn }) => (
@@ -303,9 +342,9 @@ const EXPORT_COLUMNS: ColumnDef<ExportRow, any>[] = [
   { accessorKey: "missing_inventory", header: "Missing Inventory", meta: { exportHeaderName: "Missing Inventory" } },
   { accessorKey: "dispatched_po", header: "Dispatched POs", meta: { exportHeaderName: "Dispatched POs (lifetime)" } },
   { accessorKey: "total_dn", header: "Total DN", meta: { exportHeaderName: "Total DN (lifetime)" } },
-  { accessorKey: "missing_dn", header: "Missing DN", meta: { exportHeaderName: "Missing DN (lifetime)" } },
+  { accessorKey: "missing_dn", header: "Missing DN", meta: { exportHeaderName: "Missing DN (POs, lifetime)" } },
   { accessorKey: "total_dc", header: "Total DC", meta: { exportHeaderName: "Total DC (lifetime)" } },
-  { accessorKey: "missing_dc", header: "Missing DC", meta: { exportHeaderName: "Missing DC (lifetime)" } },
+  { accessorKey: "missing_dc", header: "Missing DC", meta: { exportHeaderName: "Missing DC (POs, lifetime)" } },
 ];
 
 /** Group-header row for the CSV (merged-cell style — label at each group's first
@@ -479,15 +518,21 @@ export default function MonthlyWIPPage() {
 
   return (
     <div className="flex flex-col gap-4 p-4">
-      {/* Header + controls */}
+      {/* Header line — title + count pill on the left, controls right-aligned. The
+          explanatory paragraph sits BELOW this row (see next block) so the title and the
+          month picker land on the same line and the eye reaches the controls first. */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
+        <div className="flex flex-wrap items-center gap-2">
           <h1 className="text-xl font-semibold tracking-tight">Monthly WIP &amp; Handover</h1>
-          <p className="text-sm text-muted-foreground">
-            DPR (daily, Sundays excluded) and Inventory (weekly, each active Monday) are scoped to the
-            selected month. PO Dispatch and DC are <span className="font-medium">lifetime</span> totals —
-            unaffected by the month picker. Hover dates for the actuals.
-          </p>
+          {/* Absorbs the old "N projects active during <month>" line. Shows the VISIBLE
+              count when the list is narrowed, so the pill can never contradict the table. */}
+          {!isLoading && !error && (
+            <Badge variant="outline" className="font-normal text-muted-foreground">
+              {displayRows.length === rows.length
+                ? `${rows.length} project${rows.length === 1 ? "" : "s"}`
+                : `${displayRows.length} of ${rows.length} projects`}
+            </Badge>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <Select value={month} onValueChange={handleMonthChange} disabled={optionsLoading}>
@@ -506,26 +551,19 @@ export default function MonthlyWIPPage() {
             <Download className="mr-2 h-4 w-4" />
             Export
           </Button>
+          <WipFormulaDialog />
         </div>
       </div>
 
-      {/* Summary line — reports the VISIBLE count when narrowed, so the number never
-          contradicts the table. */}
-      {!isLoading && !error && (
-        <p className="text-sm text-muted-foreground">
-          {displayRows.length === rows.length ? (
-            <>
-              {rows.length} project{rows.length === 1 ? "" : "s"} active during{" "}
-            </>
-          ) : (
-            <>
-              Showing {displayRows.length} of {rows.length} project
-              {rows.length === 1 ? "" : "s"} active during{" "}
-            </>
-          )}
-          <span className="font-medium text-foreground">{monthLabel(options, month)}</span>
-        </p>
-      )}
+      {/* Moved down from beside the title. Carries the active month, which the count
+          pill above deliberately does not repeat. */}
+      <p className="text-sm text-muted-foreground">
+        Active during{" "}
+        <span className="font-medium text-foreground">{monthLabel(options, month)}</span>. DPR
+        (daily, Sundays excluded) and Inventory (weekly, each active Monday) are scoped to the
+        selected month. PO Dispatch and DC are <span className="font-medium">lifetime</span>{" "}
+        totals — unaffected by the month picker. Hover dates for the actuals.
+      </p>
 
       {/* Search + project facet */}
       <div className="flex flex-wrap items-center gap-2">
@@ -548,9 +586,21 @@ export default function MonthlyWIPPage() {
         />
       </div>
 
-      {/* Table */}
-      <div className="rounded-md border overflow-x-auto">
-        <Table className="table-fixed">
+      {/* Table.
+          `max-h` + `overflow-auto` make this a BOUNDED scroll container, which is what
+          lets the header stick (a sticky <thead> has nothing to stick to while the page
+          itself is the scroller — and `overflow-x: auto` alone already computes
+          `overflow-y` to auto, so the sticky was inert either way).
+          Mirrors the DN > DC report's table, which is the established pattern here. */}
+      <div className="rounded-md border overflow-auto max-h-[70vh]">
+        {/* min-w is what fixes tablet/mobile. The colgroup below is PERCENTAGES, so a
+            table-fixed layout can never exceed its container — it just squeezes every
+            column until the whole grid is unreadable, and the wrapper's overflow-x never
+            engages. The floor is those same percentages at their smallest readable size:
+            chevron 22 + project 154 + dates 99x2 + numeric 66x11 = 1100. At any content
+            width at or above that the percentages fill exactly as before, so desktop is
+            unchanged; below it the table holds its width and scrolls sideways instead. */}
+        <Table className="table-fixed min-w-[1100px]">
           <colgroup>
             <col style={{ width: COL_W.chevron }} />
             <col style={{ width: COL_W.project }} />
@@ -560,7 +610,9 @@ export default function MonthlyWIPPage() {
               <col key={col.key} style={{ width: COL_W.num }} />
             ))}
           </colgroup>
-          <TableHeader>
+          {/* Opaque background is load-bearing: the group row's bg-muted/60 is
+              semi-transparent, so rows would scroll through it without this. */}
+          <TableHeader className="sticky top-0 z-20 bg-background">
             {/* Group row — a distinct banded header so each group reads as a block */}
             <TableRow className="border-b-0 bg-muted/60 hover:bg-muted/60">
               <TableHead rowSpan={2} />
@@ -653,7 +705,13 @@ export default function MonthlyWIPPage() {
                       <StartCell c={c} />
                       <EndCell c={c} />
                       {NUMERIC_COLUMNS.map((col) => (
-                        <NumberCell key={col.key} value={row[col.key]} col={col} />
+                        <NumberCell
+                          key={col.key}
+                          value={row[col.key]}
+                          col={col}
+                          project={row.project}
+                          hint={billableSplitHint(row, col.key)}
+                        />
                       ))}
                     </TableRow>
 

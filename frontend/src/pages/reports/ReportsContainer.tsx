@@ -250,10 +250,28 @@ export default function ReportsContainer() {
             // console.log("Current selection invalid, resetting to default for tab:", activeTab, "role:", role);
             setDefaultReportType(activeTab, role);
         } else if (!selectedReportType && currentReportOptions.length > 0) {
-            // If no report is selected but there are options, set to default
-            // This happens on initial load or if selection became null
-            // console.log("No report selected but options exist, setting to default for tab:", activeTab, "role:", role);
-            setDefaultReportType(activeTab, role);
+            // No report selected but options exist — initial load, or the selection
+            // became null.
+            //
+            // A report named in the URL WINS over the tab default. This branch used to
+            // call setDefaultReportType() unconditionally, which silently clobbered a
+            // deep link on every refresh: the URL-restoring effect above and this one
+            // run in the SAME commit, so `selectedReportType` here is still the stale
+            // pre-update value (null) even though that effect has already set it. This
+            // effect ran last and won, so /reports?report=Monthly+WIP reloaded as Cash
+            // Sheet while the address bar still read Monthly WIP — setDefaultReportType
+            // touches only the store, never the URL, which is why it never looked like
+            // a redirect. Reading the param here removes the dependency on effect order
+            // entirely; an absent or tab-invalid URL report still falls to the default.
+            // urlStateManager.getParam, not getUrlStringParam("report", null): the
+            // helper is `getParam(key) ?? defaultValue` and declares its default as
+            // `string`, so passing null is the same call with a type error attached.
+            const urlReport = urlStateManager.getParam("report") as ReportType | null;
+            if (urlReport && currentReportOptions.some(opt => opt.value === urlReport)) {
+                setSelectedReportType(urlReport);
+            } else {
+                setDefaultReportType(activeTab, role);
+            }
         }
 
     }, [currentReportOptions, selectedReportType, setSelectedReportType, setDefaultReportType, activeTab, role]);

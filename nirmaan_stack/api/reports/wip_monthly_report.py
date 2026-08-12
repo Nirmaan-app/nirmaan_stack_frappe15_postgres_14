@@ -12,10 +12,28 @@ For a selected month, list every project that was ACTIVE (in ``WIP`` OR
     (active Mondays), the Mondays actually filled, and the missing ones.
 
 Two further groups are LIFETIME (whole-project, NOT scoped to the month — the
-same regardless of which month is picked), shown only on the project row:
+same regardless of which month is picked) and BILLABLE-ONLY, shown only on the
+project row:
   - PO dispatch: dispatched POs (status in DISPATCHED_PO_STATUSES), total DNs
-    (deliveries, returns excluded), and missing DN = dispatched − DN (clamped ≥0),
-  - DC compliance: total Delivery Challans and missing DC = total DN − total DC.
+    (deliveries, returns excluded), and missing DN,
+  - DC compliance: total Delivery Challans and missing DC.
+
+Every column in both groups is restricted to Billable POs. A Non-Billable PO cannot
+acquire a Delivery Challan at all, so it can never be compliant and never enters the
+``missing_*`` figures; leaving it in the totals beside them meant the two halves of a
+row described different universes.
+
+``missing_dn`` / ``missing_dc`` are PO COUNTS from ``reports/metrics.py`` — the same
+predicates the Project Action Item reconciler uses — NOT arithmetic over the document
+totals beside them. They used to be ``max(0, dispatched_po − total_dn)`` and
+``max(0, total_dn − non_billable_dn − total_dc)``; both subtracted document counts to
+answer a per-PO question, which is unsound because one PO carries any number of DNs.
+The raw values went negative on 56 / 12 of 93 projects respectively and the clamp
+rendered that as a clean zero. See reports/metrics.py for the full rationale.
+
+CONSEQUENCE, and it is intended: ``total_dn`` / ``total_dc`` are DOCUMENT counts while
+``missing_dn`` / ``missing_dc`` are PO counts, so the columns do NOT reconcile
+arithmetically on screen. They are answering different questions in different units.
 
 There is no stored status-start date on Projects (``status`` is a free-text Data
 field). Duration is derived purely from the recorded ``-> WIP`` / ``-> Handover``
@@ -38,6 +56,7 @@ from frappe.utils import (
 )
 
 from nirmaan_stack.api.pmo_dashboard import _extract_status_change_value_pairs
+from nirmaan_stack.api.reports.metrics import pending_counts_by_project
 from nirmaan_stack.api.seven_days_planning.get_projects_material_plan_stats import (
     _get_allowed_projects,
     _get_user_role,
@@ -179,8 +198,10 @@ def _compliance_metrics(active_days, dpr_days, inv_report_count):
 
     The clamp is required, not cosmetic — ``actual`` is an unbounded document count and
     routinely exceeds ``expected`` on live data (a project filing 6 reports against 5
-    active Mondays would otherwise render −1). Same reason ``missing_dn`` /
-    ``missing_dc`` are clamped.
+    active Mondays would otherwise render −1). ``missing_dn`` / ``missing_dc`` used to
+    be clamped for the same reason; they no longer are, because they are now PO counts
+    from reports/metrics.py rather than a subtraction of document totals, and a count
+    cannot go negative. Inventory keeps its clamp because it IS still a subtraction.
 
     NOTE (owner ruling): ``actual_inventory`` counts DOCUMENTS, not covered Mondays. It
     deliberately no longer keys on the report landing on its Monday, so a project filing
@@ -257,25 +278,40 @@ def _report_dates_by_project(table, date_col, project_ids, month_start, month_en
     return out
 
 
-# A Delivery Note whose PO is Non-Billable can NEVER acquire a DC — the DC/MIR upload
-# path rejects Non-Billable POs outright (see api/delivery_challans_data.py). Counting
-# such DNs as "missing a DC" is permanently unclearable, so they are subtracted out of
-# the G5 gap. Two joins-worth of care:
-#   * matched on the legacy ``procurement_order`` Link, NOT ``parent_docname`` — the DN
-#     polymorphism migration is only partly applied, so ``parent_docname`` is NULL on
-#     every row while ``procurement_order`` is reliably set.
-#   * only the EXPLICIT 'Non-Billable' string counts; a blank billing_status means
-#     Billable (procurement_orders.py leaves it empty for an item-less PO), matching
-#     the frontend convention everywhere.
-# ITM-parented DNs have no PO, so they do not match and stay in the gap (owner call).
-_NON_BILLABLE_DN_CLAUSE = '''
-          AND is_return = 0
+# NOTE: the old ``_NON_BILLABLE_DN_CLAUSE`` lived here. It subtracted DNs belonging to
+# Non-Billable POs out of the missing-DC gap, because such a PO can never acquire a DC
+# (the DC/MIR upload path rejects it — see api/delivery_challans_data.py). It is gone
+# because ``missing_dc`` no longer subtracts anything: reports/metrics.py counts POs
+# through ``predicates.is_dc_pending``, which already returns False for a Non-Billable
+# PO. The correction is now explicit in the predicate instead of an invisible term.
+
+
+# A blank / NULL ``billing_status`` counts as BILLABLE — the same convention as
+# predicates.is_billable and the frontend. procurement_orders.py leaves the field empty
+# on an item-less PO, so an ``!= 'Non-Billable'`` test alone would wrongly drop those
+# rows on Postgres (NULL != 'x' is NULL, not TRUE).
+_BILLABLE = "(po.billing_status IS NULL OR po.billing_status != 'Non-Billable')"
+
+
+def _billable_po_clause(table, link_column):
+    """``AND EXISTS(...)`` restricting ``table`` to rows whose parent PO is Billable.
+
+    ``_lifetime_counts_by_project`` does not alias its FROM table, so the correlation
+    has to name the table in full (``"tabDelivery Notes".procurement_order``) rather
+    than use an alias — Postgres rejects the aliased form with "invalid reference to
+    FROM-clause entry".
+
+    A row whose ``link_column`` is blank (an ITM-parented DN, of which there are 4 on
+    live data) matches no PO and is therefore EXCLUDED — correct here, since the whole
+    lifetime block is scoped to the Billable PO universe.
+    """
+    return f'''
           AND EXISTS (
               SELECT 1 FROM "tabProcurement Orders" po
-              WHERE po.name = "tabDelivery Notes".procurement_order
-                AND po.billing_status = 'Non-Billable'
+              WHERE po.name = "{table}".{link_column}
+                AND {_BILLABLE}
           )
-'''
+    '''
 
 
 def _lifetime_counts_by_project(table, project_ids, extra=""):
@@ -383,21 +419,55 @@ def get_wip_monthly_report(month=None):
 
     # PO-dispatch (G4) + DC (G5): LIFETIME totals, NOT month-scoped. DISPATCHED_PO_STATUSES
     # is a code constant (no user input) so its literals are safe to inline.
+    #
+    # THE WHOLE LIFETIME BLOCK IS SCOPED TO BILLABLE POs. A Non-Billable PO can never
+    # acquire a Delivery Challan (the upload path rejects it), so it can never be
+    # "compliant" and never appears in `missing_dn` / `missing_dc` either — counting its
+    # POs and documents in the totals beside them made the row unreadable (a project
+    # would show 35 dispatched POs against 25 missing DCs with no visible explanation
+    # for the 10-PO gap). Every column in this block now describes the same Billable
+    # universe. On live data this drops 1107 of 5047 POs and 261 of 1631 challans.
     status_in = ", ".join(f"'{s}'" for s in DISPATCHED_PO_STATUSES)
+    # Disp PO counts EVERY live PO, Billable or not — the same owner ruling as Total DN
+    # below. A Non-Billable PO is still a dispatched PO. The Billable subset rides along
+    # so the cell can show the split on hover.
     dispatched_po = _lifetime_counts_by_project(
         "tabProcurement Orders", active_ids, f"AND status IN ({status_in})"
     )
-    total_dn = _lifetime_counts_by_project("tabDelivery Notes", active_ids, "AND is_return = 0")
-    # Subtracted out of the G5 gap only — `total_dn` above stays the FULL count, so the
-    # displayed Total DN / Total DC / Missing DC do not visibly reconcile (owner chose
-    # to keep this subtraction implicit rather than add a column).
-    non_billable_dn = _lifetime_counts_by_project(
-        "tabDelivery Notes", active_ids, _NON_BILLABLE_DN_CLAUSE
+    dispatched_po_billable = _lifetime_counts_by_project(
+        "tabProcurement Orders", active_ids,
+        f"AND status IN ({status_in}) "
+        "AND (billing_status IS NULL OR billing_status != 'Non-Billable')",
+    )
+    # Total DN counts EVERY non-return delivery note, Billable or not — owner ruling,
+    # and DELIBERATELY unlike the rest of this block. A Non-Billable PO still receives
+    # goods and still produces delivery notes; hiding them made the column disagree with
+    # the Delivery Notes list for no reason a reader could see. The Billable subset rides
+    # alongside so the cell can show the split on hover.
+    #
+    # It does NOT change `missing_dn` / `missing_dc`, which stay Billable-only: a
+    # Non-Billable PO can never acquire a challan (the upload path rejects it), so
+    # counting one as non-compliant would put a row in those columns that can never
+    # clear. Nor does it change Total DC — the ruling is delivery notes only.
+    total_dn = _lifetime_counts_by_project(
+        "tabDelivery Notes", active_ids, "AND is_return = 0"
+    )
+    total_dn_billable = _lifetime_counts_by_project(
+        "tabDelivery Notes", active_ids,
+        "AND is_return = 0" + _billable_po_clause("tabDelivery Notes", "procurement_order"),
     )
     total_dc = _lifetime_counts_by_project(
         "tabPO Delivery Documents", active_ids,
-        "AND type = 'Delivery Challan' AND parent_doctype = 'Procurement Orders'",
+        "AND type = 'Delivery Challan' AND parent_doctype = 'Procurement Orders'"
+        + _billable_po_clause("tabPO Delivery Documents", "parent_docname"),
     )
+
+    # The two "missing" figures — PO counts, NOT arithmetic over the totals above. One
+    # bulk call covering every project; a project with no live POs is simply absent, so
+    # every read below defaults to 0. Deliberately NOT filtered to `active_ids`: the
+    # helper's queries join on PO status rather than taking an IN-list of project names,
+    # which is what keeps them clear of the sqlparse 10k-token cap in production.
+    pending = pending_counts_by_project()
 
     rows = []
     for pid, periods in proj_periods.items():
@@ -432,6 +502,7 @@ def get_wip_monthly_report(month=None):
         n_dispatched = dispatched_po.get(pid, 0)
         n_dn = total_dn.get(pid, 0)
         n_dc = total_dc.get(pid, 0)
+        p_pending = pending.get(pid) or {}
         rows.append(
             {
                 "project": pid,
@@ -442,17 +513,28 @@ def get_wip_monthly_report(month=None):
                 "active_start": periods[0]["start"].isoformat(),
                 "active_end": "ongoing" if periods[-1]["end"] is None else periods[-1]["end"].isoformat(),
                 "stints": len(periods),
-                # G4 — PO dispatch vs delivery (lifetime). Missing clamped at 0: a PO can
-                # carry several DNs, so raw (dispatched − dn) can go negative.
+                # G4 — PO dispatch vs delivery (lifetime). `dispatched_po` / `total_dn`
+                # are DOCUMENT counts; `missing_dn` is a PO count — Billable POs with a
+                # dispatched item that is not yet fully received (predicates.is_dn_pending,
+                # the SAME rule as the project Overview tile's "DN Pending", so the two
+                # surfaces always print the same number). The three do NOT subtract into
+                # one another. No clamp — a count cannot be negative.
                 "dispatched_po": n_dispatched,
+                # Billable slice, surfaced ONLY for the hover split. Nothing derives from
+                # it — `missing_dn` / `missing_dc` still come from the predicates, which
+                # apply their own Billable rule.
+                "dispatched_po_billable": dispatched_po_billable.get(pid, 0),
                 "total_dn": n_dn,
-                "missing_dn": max(0, n_dispatched - n_dn),
-                # G5 — DC compliance (lifetime). Missing = total DN − Non-Billable DN −
-                # total DC, clamped at 0. The Non-Billable term removes DNs that can
-                # never acquire a DC (see _NON_BILLABLE_DN_CLAUSE); the clamp still does
-                # real work — several live projects go negative before it.
+                # The Billable slice of `total_dn`, surfaced ONLY so the cell can show
+                # "N Billable / M Non-Billable" on hover. Nothing derives from it.
+                "total_dn_billable": total_dn_billable.get(pid, 0),
+                "missing_dn": p_pending.get("dn_pending", 0),
+                # G5 — DC compliance (lifetime). Same unit split: `total_dc` counts
+                # challan DOCUMENTS (stubs included, as a raw total should), while
+                # `missing_dc` counts POs that owe one via predicates.is_dc_pending
+                # (which excludes stubs and Non-Billable POs).
                 "total_dc": n_dc,
-                "missing_dc": max(0, n_dn - non_billable_dn.get(pid, 0) - n_dc),
+                "missing_dc": p_pending.get("dc_pending", 0),
                 "periods": child_periods,
             }
         )
