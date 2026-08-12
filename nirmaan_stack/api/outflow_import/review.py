@@ -998,6 +998,29 @@ def get_row_candidates(row: str):
     Per-row rather than bundled into `get_batch_rows`: candidates are only ever looked at for the
     row being worked on, and shipping every row's candidate set would make the review payload
     an order of magnitude larger for information nobody reads.
+
+    ⚠️ `settleable_candidates` WAS ADDED AT N3, AND IT IS THE ONE KEY THE SCREEN READS. It is the
+    list `_disambiguation_candidates` builds -- which is `status.settleable_candidates`, the SAME
+    list `sole_suggestion` reads and `_matched_note` / `several_found_note` count. It is emphatically
+    NOT re-derived from `payment_groups` below, in this function or in the client: the note says "6
+    approved records match this transfer and nothing could separate them", and a second list built
+    from a different source is exactly how the sentence and the marks come to disagree about the
+    same row. That failure has a name in this feature's history -- it is the `best_payment_group`
+    collapse, the worst defect it has shipped.
+
+    ⚠️ IT IS `[]` FOR A FAN-OUT, inheriting Option B's abstention rather than restating it: one
+    transfer covering several payments is a genuine match with no single name to offer, so it is not
+    a set of comparable alternatives.
+
+    ⚠️ A SINGLE CANDIDATE COMES BACK AS A LIST OF ONE, NOT AS `[]`. The `< 2` threshold belongs to
+    `_sweep_unresolved_to_mismatched`, which is asking a different question ("is there a decision
+    genuinely waiting?"). Copying it here would put a screen's rule inside an endpoint and give this
+    feature a second place to change it.
+
+    ⚠️ THIS RE-RUNS THE MATCH LIVE AND DOES NOT APPLY THE FOUR GLOBAL PASSES -- no claim pass, no
+    Option B, no stack pairing. So a candidate here may ALREADY BE CLAIMED by another open row. That
+    is honest (it WAS a candidate for this transfer) but it is not a promise, which is why the
+    screen's wording is "the match run found these" and never "you may pick these".
     """
     require_outflow_access()
     doc = frappe.db.get_value(ROW_DOCTYPE, row, "*", as_dict=True)
@@ -1066,6 +1089,14 @@ def get_row_candidates(row: str):
                 "reasons": list(c.reasons),
             }
             for c in result.expense_candidates
+        ],
+        # N3. Additive -- every key above is untouched, so no existing caller can break. Only the
+        # (doctype, name) pair is sent: it is what the screen matches a browse row on, and a bare
+        # name is not unique across three ledgers. The amounts and projects these candidates carry
+        # are already on the browse row the mark lands on.
+        "settleable_candidates": [
+            {"doctype": c.doctype, "name": c.name}
+            for c in _disambiguation_candidates(result)
         ],
     }
 
@@ -1270,7 +1301,8 @@ def _search_one_ledger(target_doctype: str, bank_amount, search: str, limit: int
             else ""
         )
         sql = f"""
-            SELECT p.name, p.amount, p.status, p.project, p.document_name,
+            SELECT p.name, p.amount, p.status, p.project,
+                   p.document_type, p.document_name,
                    v.vendor_name, v.vendor_nickname, v.vendor_contact_person_name,
                    pr.project_name,
                    COALESCE(p.ceo_approval_date, p.approval_date) AS approved_on
@@ -1302,6 +1334,11 @@ def _search_one_ledger(target_doctype: str, bank_amount, search: str, limit: int
                 # needs the name; conflating them loses one of the two.
                 "project": r.get("project") or "",
                 "project_name": r.get("project_name") or r.get("project") or "",
+                # ⚠️ `document_type` IS THE PARENT (Procurement Orders / Service Requests). IT IS
+                # NOT `target_doctype`, WHICH IS THE LEDGER and is always "Project Payments" here.
+                # Two lookalike keys one line apart, and the deduction gate (slice TD) turns on this
+                # one: reading the other would make every payment pass the service check silently.
+                "document_type": r.get("document_type") or "",
                 "document_name": r.get("document_name") or "",
                 "approved_on": str(r["approved_on"]) if r.get("approved_on") else "",
                 "updated_on": "",
@@ -1392,6 +1429,9 @@ def _search_one_ledger(target_doctype: str, bank_amount, search: str, limit: int
             "contact_person": r.get("vendor_contact_person_name") or "",
             "project": r.get("project") or "",
             "project_name": r.get("project_name") or r.get("project") or "",
+            # Blank on both expense ledgers -- an expense has no parent order at all, which is also
+            # why neither can carry a deduction (slice TD, ruling R6).
+            "document_type": "",
             "document_name": r.get("type") or "",
             "approved_on": "",
             "updated_on": str(r["modified"]) if r.get("modified") else "",
