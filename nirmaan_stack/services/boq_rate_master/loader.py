@@ -230,6 +230,9 @@ def load_rate_master(payload=None, path=None, replace=False):
                 "kind": kind,
                 "brand": it.get("brand"),
                 "unit": it.get("unit"),
+                # Carried through from the payload exactly like brand/unit. A legacy asset (v29 and
+                # earlier) carries none, and .get() yields None -- which is why nothing else changes.
+                "item_uid": it.get("item_uid"),
                 "attributes": json.dumps(attrs),
                 "rates": json.dumps(it["rates"]),
                 "source_sheet": src.get("sheet"),
@@ -345,6 +348,9 @@ def _load_multi(payload, replace):
                 "kind": kind,
                 "brand": it.get("brand"),
                 "unit": it.get("unit"),
+                # Carried through from the payload exactly like brand/unit. A legacy asset (v29 and
+                # earlier) carries none, and .get() yields None -- which is why nothing else changes.
+                "item_uid": it.get("item_uid"),
                 "attributes": json.dumps(attrs),
                 "rates": json.dumps(it["rates"]),
                 "source_sheet": src.get("sheet"),

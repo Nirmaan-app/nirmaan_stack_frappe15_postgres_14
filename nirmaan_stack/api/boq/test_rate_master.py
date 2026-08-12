@@ -805,6 +805,68 @@ class TestRateMaster(FrappeTestCase):
         self.assertEqual(payload["retired_kinds"], ["ups_per_kva", "ups_reference"])
         self.assertEqual(payload["retired_category_ids"], ["ups", "switches_point"])
 
+    def test_24c_the_loader_carries_item_uid_through_from_the_asset(self):
+        """SLICE 2 -- the stable item uid survives an import.
+
+        Every import INSERTS fresh documents, so `name` is regenerated and cannot be a durable
+        identity: freeze-and-supersede RETAINS the superseded row, so its name stays OCCUPIED and a
+        new row reusing it would be a primary-key collision. `item_uid` is carried through from the
+        payload exactly like brand/unit, which is what lets a CSV round trip say "this row is that
+        row" across a mint.
+
+        Loaded into a SCRATCH discipline -- never against live Electrical data."""
+        disc = self._new_disc()
+        payload = self._merged_payload(disc)
+
+        # the asset itself must carry a uid on every item (the backfill stamps asset AND DB alike)
+        uids = [it.get("item_uid") for it in payload["items"]]
+        self.assertTrue(all(uids), "every asset item must carry an item_uid")
+        self.assertEqual(len(set(uids)), len(uids), "asset uids must be distinct")
+        self.assertTrue(all(u.startswith("rmi-") for u in uids))
+
+        loader.load_rate_master(payload=payload)
+
+        stored = frappe.get_all(
+            "BoQ Rate Master Item",
+            filters={"discipline": disc, "active": 1},
+            fields=["kind", "brand", "attributes", "item_uid"],
+        )
+        self.assertEqual(len(stored), 1382)
+        self.assertTrue(all((r["item_uid"] or "").startswith("rmi-") for r in stored),
+                        "every stored row must carry the uid the asset supplied")
+        self.assertEqual(len({r["item_uid"] for r in stored}), 1382)
+        # and it is the SAME uid on the SAME item -- keyed by (kind, brand, attributes), the tuple
+        # the backfill paired on. `brand` is load-bearing here: six lms_item pairs are identical on
+        # (kind, attributes) and differ ONLY by brand, at materially different prices.
+        def key(kind, brand, attrs):
+            return json.dumps([kind, brand, attrs], sort_keys=True, separators=(",", ":"))
+        want = {key(it["kind"].strip(), it.get("brand"),
+                    loader._canonicalize_attributes(it["attributes"])): it["item_uid"]
+                for it in payload["items"]}
+        got = {key(r["kind"], r["brand"], _obj(r["attributes"])): r["item_uid"] for r in stored}
+        self.assertEqual(len(want), 1382)
+        self.assertEqual(want, got, "uid must land on the item the asset assigned it to")
+
+    def test_24d_a_legacy_asset_without_uids_still_loads(self):
+        """SLICE 2 -- NEGATIVE half. v29 and earlier carry no `item_uid`, and `_validate_items` must
+        keep tolerating its absence rather than requiring it, or every historical-fixture test in
+        this suite would break. The loader reads it with .get(), so absence yields None.
+
+        Uses the v12 asset (the oldest one this suite pins) into a SCRATCH discipline."""
+        disc = self._new_disc()
+        legacy = self._eall_payload(disc)
+        self.assertTrue(all("item_uid" not in it for it in legacy["items"]),
+                        "the v12 fixture must genuinely carry no uid, or this proves nothing")
+
+        r = loader.load_rate_master(payload=legacy)      # must NOT raise
+        self.assertEqual(r["status"], "loaded")
+
+        stored = frappe.get_all("BoQ Rate Master Item",
+                                filters={"discipline": disc, "active": 1}, fields=["item_uid"])
+        self.assertTrue(stored)
+        self.assertTrue(all(not r["item_uid"] for r in stored),
+                        "a legacy asset must load with a BLANK uid, never a fabricated one")
+
     def test_25_eall_retired_scope_deactivated_on_replace(self):
         disc = self._new_disc()
         # simulate a PRIOR batch that carried UPS (now retired by the Floor BOX correction): a

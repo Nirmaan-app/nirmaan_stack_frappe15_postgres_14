@@ -53,6 +53,10 @@ def get_rate_master_items(discipline=None, kind=None):
         filters=filters,
         fields=[
             "name",
+            # The STABLE, DURABLE row identity across mints -- what a later CSV round trip matches
+            # on. `name` is regenerated on every import (freeze-and-supersede INSERTS a new row and
+            # retains the old one, so the old name stays occupied), which is why it cannot serve.
+            "item_uid",
             "discipline",
             "kind",
             "brand",
