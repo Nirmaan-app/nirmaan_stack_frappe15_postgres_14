@@ -767,15 +767,54 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   leave `rateMasterRegistry.ts` in the SAME change.** The list the picker renders comes from the
   registry; retiring the config alone leaves the category on offer and renders
   "No active config found for …" when it is chosen.
+- **⚠️ THERE IS ONE ELECTRICAL ASSET, AND THE SPLIT THAT PRECEDED IT WAS A LIVE HAZARD (merged
+  2026-08-13, owner ruling).** `rate_master_electrical_all_v30.json` carries **all 1,382 items and all
+  12 configs**, wiring included. The two-asset split was **SEQUENCING, NOT DESIGN** — wiring was built
+  first as a trial — and it must not be reintroduced "for safety". **THE REASON IT HAD TO GO: the two
+  assets took DIFFERENT loader paths with DIFFERENT supersede semantics.** The wiring asset carried the
+  **SINGULAR `category_config`** key, which routes to `load_rate_master`'s single-config path, whose
+  `_deactivate_prior` runs `UPDATE "tabBoQ Rate Master Item" SET active = 0 WHERE discipline = %s AND
+  active = 1` — **DISCIPLINE-WIDE**. Importing wiring with `replace=True` therefore deactivated **every
+  E-ALL item**, and the live catalog survived only on an **undocumented ordering rule** (wiring first,
+  E-ALL second). The batch timeline records it happening on 2026-08-09: E-ALL 22:20:33, wiring 22:20:43
+  wiping it, E-ALL re-loaded 22:21:20 to repair. **The merged asset uses the LIST form, so it takes
+  `_load_multi`'s SCOPED supersede and the discipline-wide `UPDATE` is never reached.** The singular
+  path still EXISTS in the loader and is still dangerous — it is simply no longer reachable from a
+  shipped asset, and `test_24b`'s negative half pins that (`category_config` must be ABSENT).
+- **⚠️ `rate_master_wiring_cabling_v3.json` STAYS ON DISK — do NOT delete it.** It is a mint-gate
+  **self-test operand** (`scripts/mint_completeness_check.py`, `do_history(WIRING)`, T4 — the wiring
+  asset is the only one-filename-many-commits asset, so it is the ONLY thing that exercises the history
+  walk), and it is the singular-shape fixture the ~30 single-config loader tests still need
+  (`test_rate_master.LEGACY_WIRING_ASSET`). It is a **retired artefact, not a live asset.**
+- **ONE ITEM WAS DROPPED AT THE MERGE, BY OWNER RULING (2026-08-13), AND NO DELETE PATH WAS ADDED.**
+  `db_switchgear_item` / `TPN FLEXI DB 4 ROW 14M (DOUBLE DOOR IP 43)` existed **twice** with two prices;
+  the **12,881 copy (source row 17) is KEPT**, the **12,133 copy (source row 14) is DROPPED**. It is
+  simply **absent from the asset** and is superseded naturally on import — this module has never had a
+  delete and the merge did not introduce one. Item count is therefore **1,382, not 1,383**. ⚠️ **The
+  mint gate CANNOT see this**: its item vocabulary is `kind:<k>`, so a dropped *individual item* is
+  below its resolution and it reported "No atoms disappeared". An `intentional_removals` entry is
+  therefore inapplicable — the gate never emits an atom string for it.
+- **Goldens at the merge:** wiring's five (`g1`–`g5`) are carried **BOTH** on the config **and** in the
+  top-level `goldens` dict — which is what **9 of the 11** pre-existing E-ALL configs already do.
+  `_load_multi` lets the top-level entry win and the two agree exactly, so `test_72`'s equality half
+  holds. ⚠️ **`CLAUDE.md`'s "top-level and NOWHERE ELSE" wording is STRONGER than the code**: the
+  overwrite fires **only when the top-level dict has an entry for that category**, so a config-level
+  copy with no top-level twin survives untouched. Code is authoritative.
+- **`wiring_cabling` deliberately carries NO `item_kinds`.** Its kinds derive from the pipelines'
+  `match_master_row` (`cable`, `termination`) and the derivation is byte-equal to a declared list, so
+  adding one is behaviour-neutral — but it would make the stored config differ from the live DB for no
+  gain. Left absent; `test_24b` pins both the absence and the derivation.
 - **Benchmark data (owner ruling):** the committed data asset is the **28-Jul benchmark workbook**
   (`rate_master_wiring_cabling_v3.json`) — the reference going forward, superseding the earlier 25-Jul
-  reference. A benchmark refresh is a `replace=True` re-import of a new asset (freeze-and-supersede: the
-  prior `rmbulk-` batch goes inactive, rows retained). NOTE: `loader.DEFAULT_DATA_FILE` is version-pinned
-  to the asset filename (a known wart flagged for a future de-pinning slice), so a rename forces a loader
-  edit in lockstep.
+  reference; **its content now lives inside the merged asset** (above). A benchmark refresh is a
+  `replace=True` re-import of a new asset (freeze-and-supersede: the prior `rmbulk-` batch goes inactive,
+  rows retained). NOTE: `loader.DEFAULT_DATA_FILE` is version-pinned to the asset filename (a known wart
+  flagged for a future de-pinning slice), so a rename forces a loader edit in lockstep.
 - **29-Jul truth-file cycle (EA-DIFF, owner-locked; the E-ALL benchmark of THAT cycle was
-  `rate_master_electrical_all_v12.json` — the CURRENT E-ALL asset is `rate_master_electrical_all_v22.json`,
-  sha256 prefix `f1344c1853614d75`; asset lineage v9->v12, v10/v11 skipped):** four
+  `rate_master_electrical_all_v12.json` — the CURRENT asset is the MERGED
+  `rate_master_electrical_all_v30.json`, sha256 prefix `63628d6a15a33796`; asset lineage v9->v12,
+  v10/v11 skipped. ⚠️ This line read `v22` / `f1344c1853614d75` until 2026-08-13 — SEVEN versions
+  behind, the doc twin of the stale test pins the merge slice found):** four
   data changes + two owner-ruled invariants. (1) **Synonyms** — a config may carry top-level `synonyms`
   `{attr_id:{variant:canonical}}` (conduit `{conduit_type:{GI:MS}}`); consumed TWICE (defence in depth) — the
   extraction prompt INJECTION (`extraction._extract_batch`, `.md` assets untouched) AND `_coerce_value`

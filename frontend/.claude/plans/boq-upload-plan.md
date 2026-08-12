@@ -27426,3 +27426,126 @@ ways, compared through the real `serialize_run_results`.**
 
 Volume measured at ~401 KB for a 94-row sheet -> ~1.8 MB for the ~415-row audit sweep, matching the
 1.5-3 MB estimate.
+
+## Build slice MERGE-1 -- ONE Electrical asset (2026-08-13)
+
+Branch `feature/boq-pricing-helper`. Owner ruling: the two-asset split was **SEQUENCING, NOT
+DESIGN** -- wiring was built first as a trial and everything else followed. It is **not** an
+invariant and is **SUPERSEDED** by this slice. The history below stays recorded; only the
+arrangement changes.
+
+**THE ASSET.** `data/rate_master_electrical_all_v30.json`, sha256 prefix `63628d6a15a33796` --
+**1,382 items + 12 configs**, folding in `rate_master_wiring_cabling_v3.json` (588 items + the
+`wiring_cabling` config). `loader.DEFAULT_DATA_FILE` repointed to it.
+
+### Why the split had to go -- a LIVE hazard, not tidiness
+
+The two assets took **different loader paths with different supersede semantics**:
+
+| | wiring v3 (`category_config`, SINGULAR) | E-ALL (`category_configs`, LIST) |
+|---|---|---|
+| path | `load_rate_master` single-config | `_load_multi` |
+| refuse check | `_active_item_count(discipline)` -- discipline-wide | scoped to payload kinds + category_ids |
+| `replace=True` supersede | `_deactivate_prior` -> `UPDATE "tabBoQ Rate Master Item" SET active = 0 WHERE discipline = %s AND active = 1` -- **EVERY Electrical item** | `_deactivate_scope` -- only this payload's kinds |
+
+So importing wiring with `replace=True` **deactivated all 795 E-ALL items**, and the live catalog
+survived only on an **undocumented ordering rule** (wiring FIRST, E-ALL SECOND). The batch timeline
+records it happening:
+
+```
+rmbulk-2375d419f780  795 items  2026-08-09 22:20:33  (E-ALL)       -> inactive
+rmbulk-237b288346ab  588 items  2026-08-09 22:20:43  (WIRING)      -> ACTIVE   <- wiped the 795
+rmbulk-af38ed056c61  795 items  2026-08-09 22:21:20  (E-ALL again) -> inactive
+```
+
+The merged asset uses the LIST form, so it takes `_load_multi`'s SCOPED supersede and the
+discipline-wide `UPDATE` is **never reached**. The singular path still exists in the loader and is
+still dangerous -- it is simply no longer reachable from a shipped asset. `test_24b`'s NEGATIVE half
+pins exactly that: the merged payload must NOT carry `category_config`, because that key alone
+selects the wide path.
+
+### Owner rulings applied
+
+- **ONE ITEM DROPPED, NO DELETE PATH ADDED.** `db_switchgear_item` /
+  `TPN FLEXI DB 4 ROW 14M (DOUBLE DOOR IP 43)` existed TWICE with two prices. **KEPT** the 12,881
+  copy (source row 17); **DROPPED** the 12,133 copy (source row 14). It is simply ABSENT from the
+  asset and is superseded naturally on import. Item count **1,382, not 1,383**.
+- **`rate_master_wiring_cabling_v3.json` RETAINED on disk** -- a mint-gate self-test operand
+  (`do_history(WIRING)`, T4) and the singular-shape fixture the ~30 single-config loader tests need.
+  A retired artefact, not a live asset.
+- **Goldens:** wiring's five (g1-g5) carried BOTH on the config AND in the top-level dict -- what 9
+  of the 11 pre-existing E-ALL configs already do. Proven EFFECTIVE (below).
+- **`item_kinds` NOT added to `wiring_cabling`** -- its kinds derive from the pipelines'
+  `match_master_row` (`cable`, `termination`), byte-equal to a declared list, so adding one is
+  behaviour-neutral but would make the stored config differ from the live DB for no gain.
+
+### The acceptance test -- reproduced CURRENT DB CONTENT, proven not asserted
+
+Read-only: the loader was **never** run against live data. What `_load_multi` WOULD store was
+reconstructed (canonicalisation + goldens merge + discipline stamp) and compared to the live active
+rows.
+
+| Axis | Result |
+|---|---|
+| item count per kind | **15 kinds** both sides; asset 1,382 vs db 1,383 -- the ruled drop only (`db_switchgear_item` 136 vs 137) |
+| identity multiset (kind, brand, attributes) | asset-only **0** / db-only **1** = exactly the dropped duplicate |
+| rates | **ZERO diff** |
+| brand / unit / source_sheet | **ZERO diff** |
+| `source_row` | **27 rows**, all `db_shell`, asset `null` vs DB `0` -- Frappe `Int` stores `None` as `0`. A FRAMEWORK COERCION, idempotent from the second hop. Not "fixed"; the data was not edited. |
+| per-row field diff | **1,355 IDENTICAL** + 27 source_row + 1 dropped |
+| config key sets and values, deep | **12 / 12 IDENTICAL** -- no asset-only key, no db-only key, no differing value |
+| EFFECTIVE goldens after the merge | **12 / 12 MATCH**; `wiring_cabling` = `[g1..g5]`, inner copy == top-level copy |
+| retired scope | `retired_kinds` `[ups_per_kva, ups_reference]`, `retired_category_ids` `[ups, switches_point]` -- carried through verbatim |
+| `name` / `import_batch` / `creation` / `modified` | **NOT reproducible, by design** -- `_load_multi` INSERTS fresh documents. "Exactly" means CONTENT-exactly, never IDENTITY-exactly; that is why the stable id is its own slice. |
+
+### The stale pins -- three of four collapsed, one BLOCKED on an owner ruling
+
+`test_rate_master.py` carried FOUR "current-asset" pins on THREE different versions. A single
+module-level `CURRENT_EALL_ASSET` now names the live asset once.
+
+| Pin | Was | Now |
+|---|---|---|
+| `_EALL_CURRENT` (3 tests) | **v27** -- the pin whose own docstring warns about this exact staleness, and which had fallen into it TWICE | `CURRENT_EALL_ASSET` |
+| inline path in `test_92` | v29 | `CURRENT_EALL_ASSET` |
+| RULING-2 wiring read | `rate_master_wiring_cabling_v3.json` | the merged asset's `wiring_cabling` config |
+| `_ASSET` (4 tests) | **v22** | **STILL v22 -- see below** |
+| `cls.eall` / two v17 reads | v12 / v17 | **unchanged, deliberately historical** (they assert those assets' own counts) |
+| `cls.raw` | `loader.DEFAULT_DATA_FILE` | `LEGACY_WIRING_ASSET` by explicit path |
+
+**`cls.raw` had to stop following `DEFAULT_DATA_FILE`.** `_real_payload` stamps
+`p["category_config"]["discipline"]`, so the ~30 tests built on it require the SINGULAR shape --
+which is also the only coverage the discipline-wide path has. Repointing them at the merged asset
+would have deleted that coverage.
+
+**`_ASSET` could NOT be collapsed, and that is a FINDING.** Repointing it at the current asset
+fails THREE tests -- and **v30 is byte-identical to v29 on both points**, so the merge changed
+nothing here; the tests are simply two mints stale and assert shapes **two owner rulings have since
+superseded**:
+
+- `test_38` / `test_40` -- `blank_item.disables_when_none == ["blank_qty"]`. v22 `['blank_qty']` ->
+  v29/v30 **ABSENT**. Removed by the BLANKER-BIND ruling: once `blank_item` stopped driving the
+  price, its `disables_when_none` was greying out the newly EDITABLE `blank_qty`.
+- `test_41` -- back_box `ref.item == "@plate_item"`. v22 `@plate_item` -> v29/v30 **`@box_item`**.
+  The back box takes the selected plate's module COUNT re-fitted on its OWN shorter ladder, never
+  the plate's LABEL.
+
+So those three currently assert the PRE-RULING shape, i.e. two defects. **Updating them is an owner
+call and is out of scope for a merge slice**, which must not silently rewrite a guard. The pin stays
+explicit with the finding recorded in-line at the pin site.
+
+### Gates
+
+- **MINT GATE `v29 (as committed) -> v30 (working copy)`: PASS -- "No atoms disappeared", exit 0.**
+  **The gate CANNOT see the dropped item.** Its item vocabulary is `kind:<k>`, so an individual
+  dropped item is below its resolution -- `db_switchgear_item` still exists as a kind. An
+  `intentional_removals` entry is therefore **inapplicable**: the gate never emits an atom string
+  for it. (Prediction corrected: the drop does NOT show as a removal.)
+- **`--self-test`: ALL PASS (T1-T5)**, T4 included -- confirming wiring v3's retention keeps the
+  history-walk calibration intact.
+- **`test_rate_master` 100 -> 101** (the new `test_24b`), OK both before and after.
+- `test_rate_suggest` and `test_extraction_coercion`: **identical to baseline** (suggest carries 3
+  pre-existing failures unrelated to this slice; coercion 26 OK).
+- vitest: **2,317 passed / 1 failed of 2,318, identical to baseline** (the pre-existing
+  `POAdjustment/writeOffControl.test.ts` timeout). No frontend file touched.
+
+**No rendered surface changes.**
