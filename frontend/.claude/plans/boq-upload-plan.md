@@ -27549,3 +27549,110 @@ explicit with the finding recorded in-line at the pin site.
   `POAdjustment/writeOffControl.test.ts` timeout). No frontend file touched.
 
 **No rendered surface changes.**
+
+## Build slice MERGE-1b -- stale pins closed, v30 imported, browser cert (2026-08-13)
+
+Branch `feature/boq-pricing-helper`. Slice 1 proved v30 was CONTENT-EQUIVALENT to the live DB but
+never imported it, so nothing had proven the running system still behaves the same. This slice
+closes both gaps.
+
+### Part A -- the four stale `_ASSET` assertions
+
+`_ASSET` was the last of four "current-asset" pins still naming its own version (v22, two mints
+stale). It now reads `CURRENT_EALL_ASSET`, so **every** current pin reads one constant.
+
+**FOUR tests read `_ASSET`** -- slice 1 reported "4 tests" but named only three failures. The fourth
+is **`test_37_switches_sockets_routing_and_ownership`**, which asserts `matching_mode` /
+`identity_attribute_id` are absent and `item_kinds == ["switch_socket_item"]`, plus the negative
+prompt-routing pins. **All of those are unchanged v22 -> v30, so test_37 PASSES on repoint with no
+edit.** The other three failed, and repointing surfaced a FOURTH stale assertion inside test_38 that
+the earlier run never reached (assertions short-circuit).
+
+Every updated assertion carries an inline comment naming the ruling it now encodes:
+
+| Test | Was (v22) | Now (v30) | Ruling |
+|---|---|---|---|
+| `test_38`, `test_40` | `blank_item.disables_when_none == ["blank_qty"]` | **ABSENT** | **BLANKER-BIND** -- the blanker is inferred from the EFFECTIVE module count and no longer drives the price, so `blank_qty` became EDITABLE; the dead dropdown was greying out the one field that had just started to matter |
+| `test_40` | blank line `ref.item "@blank_item"`, `qty {from_attr: blank_qty}` | **`@blank_fit_item`**, `qty {from_fit: blank_count}` | same ruling, binding half -- the pipeline computes both the item and the count |
+| `test_40` | `extraction_defaults["blank_qty"] == 1.0` | **ABSENT** | **RULING 4** -- a fabricated default and a computed count must not both be live |
+| `test_41` | back_box `ref.item == "@plate_item"` | **`@box_item`** | the box takes the plate's module COUNT re-fitted on its OWN shorter ladder, never the plate's LABEL; copying the label asked the catalog for a box that does not exist and made the row unpriceable |
+| `test_38` | `assertNotIn("colour", extraction_defaults)` + `assertFalse(rules)` | `colour == "White"`, `rules` truthy | both were **C2 SCOPE statements** ("no colour default and no rules THIS SLICE"), superseded at v23 where `colour: "White"` was added on both categories ("S4 is NOT a rule") |
+
+`test_41`'s explanatory comment was ALSO stale -- it said the back_box binding was "NOT part of this
+fix ... and is slice 2"; slice 2 shipped and changed it. Both comment and assertion moved.
+
+**Left untouched, deliberately:** `cls.eall` (v12), the two v17 reads in test_31/test_32, and
+`cls.raw` (`LEGACY_WIRING_ASSET`). The last is the ONLY coverage the discipline-wide
+`_deactivate_prior` path has -- that path is reachable only through the SINGULAR `category_config`
+key, which the merged asset does not carry.
+
+### Part B -- v30 imported into the dev database (LIVE WRITE)
+
+Production loader path, `loader.load_rate_master(replace=True)` with `DEFAULT_DATA_FILE` = v30. New
+batch **`rmbulk-e4684c2b9daa`**: **1,382 items + 12 configs in ONE batch**, where the two-asset
+arrangement needed two. Prior batches (`rmbulk-1ac1ca9da022` 795, `rmbulk-237b288346ab` 588) are
+retained at `active=0` -- 1,383 items and 12 configs superseded, **none deleted**.
+
+Fingerprints captured read-only before and after, compared axis by axis:
+
+| Axis | Result |
+|---|---|
+| active item count | 1,383 -> 1,382, **exactly -1** (the ruled duplicate) |
+| per-kind counts | **15 kinds both sides**; only `db_switchgear_item` 137 -> 136 |
+| identity multiset (kind, brand, attributes) | 1,382 distinct both sides; **lost exactly the duplicate's second copy, gained nothing** |
+| rates per identity | **ZERO changes.** The duplicate collapsed `['{"list_price":12133.0}','{"list_price":12881.0}']` -> `['{"list_price":12881.0}']`, keeping the ruled copy |
+| full content multiset | lost 1 (the dropped row), gained 0 |
+| config blobs, deep | **all 12 BYTE-IDENTICAL** |
+| batches | two -> **one**, covering items AND configs |
+| superseded rows | inactive items +1,383, inactive configs +12 -- every one retained |
+
+**OVERALL: PASS** -- content-equivalent; only the ruled duplicate and row identity changed.
+
+### Part C -- browser cert, GREEN
+
+Environment: Docker crashed mid-slice and the owner restarted it; **bench and Vite were both down**
+and had to be started. Worker restarted after the import per #171 (new PID, start time post-import).
+Vite restarted PID-targeted (`pgrep -af vite`, `kill <listed PIDs>`, confirm empty + port free,
+restart from `frontend/`) -- never `pkill -f vite`. De-stale ritual run twice (once for the BEFORE
+capture, once after the import): site data cleared **EXCLUDING cookies** (clearing them forces a
+relogin), service workers unregistered, tab CLOSED and a new one opened, bare root loaded before the
+deep route. `sid` confirmed present and HttpOnly on both sides of the clear, read through the CDP
+cookie API, never `document.cookie`.
+
+**The rate comparison -- seven rows, seven categories, captured from the helper panel BEFORE the
+import and again AFTER:**
+
+| Excel row | Category | Before | After | |
+|---|---|---|---|---|
+| 120 | `wiring_cabling` | 120 | 120 | IDENTICAL |
+| 16 | `db_switchgear` | 20550 | 20550 | IDENTICAL |
+| 175 | `conduit_piping` | 45.5 | 45.5 | IDENTICAL |
+| 196 | `point_wiring` | 4326 | 4326 | IDENTICAL |
+| 239 | `switches_sockets` | 380 | 380 | IDENTICAL |
+| 364 | `cabletray_raceway` | (missing attributes) | (missing attributes) | IDENTICAL |
+| 265 | `popup_boxes` | 7200 | 7200 | IDENTICAL |
+
+The extracted-attribute lines are identical too, so both the INPUTS and the OUTPUTS match. Row 364's
+honest no-compute ("Complete the missing attributes to price") is stable across the import and is a
+valid observable, not a gap.
+
+**Rate Master Data Viewer**, every category, all reading the new batch `rmbulk-e4684c2b9daa`:
+Wiring **588**, CableTray 460, **DB and Switchgear 171** (was 172 -- the dropped duplicate visible in
+the UI), Switches 58, Industrial Socket 28, Earthing 25, LMS 24, Miscellaneous 13, Conduit 8, Junction
+Box 6, Pop-up 1, and Point Wiring **0 with its documented empty state** (kind-less category).
+
+READ-ONLY throughout: no suggestion accepted, no rate edited, no suggest run started. Clicking a
+badge only SELECTS the row for the always-mounted embedded panel.
+
+### Environment notes worth keeping
+
+- **`playwright.connect_over_cdp` STALLS against Chrome 151** -- the websocket connects and the
+  handshake never completes. The cause is the **Origin header**: Chrome rejects a CDP websocket that
+  carries one ("Rejected an incoming WebSocket connection from the http://127.0.0.1:9222 origin").
+  A raw `websocket-client` connection with `suppress_origin=True` works.
+- **`127.0.0.1:8000` is NOT a Frappe site.** Probing bench there returns `404 ... 127.0.0.1 does not
+  exist`; the Host header must be `localhost`. A cold bench also takes minutes before its first
+  response, which reads exactly like a hang.
+- ⚠️ **Killing the RQ worker under honcho takes the WHOLE bench stack down.** honcho terminates every
+  process when one exits, so `kill <worker pid>` stopped web, schedule, watch and socketio too
+  (`rc=-15`). Restart the worker by restarting `bench start`, not by killing its PID.

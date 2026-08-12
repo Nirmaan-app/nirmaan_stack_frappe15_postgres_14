@@ -767,6 +767,15 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   leave `rateMasterRegistry.ts` in the SAME change.** The list the picker renders comes from the
   registry; retiring the config alone leaves the category on offer and renders
   "No active config found for …" when it is chosen.
+- **⚠️ A TEST IS UPDATED TO MATCH A RULING, NEVER A RULING TO MATCH A TEST (owner-locked).** An
+  asset-pinned test that disagrees with the live asset is asserting the shape a ruling REPLACED — i.e.
+  a defect — so the assertion moves and carries an INLINE COMMENT naming the ruling it now encodes and
+  why the old shape was wrong. **A test that silently changed its mind is worse than a stale one.**
+  Corollary: **every current-asset pin in `test_rate_master.py` reads the ONE module-level
+  `CURRENT_EALL_ASSET` constant.** Pins that are DELIBERATELY historical (`cls.eall`, the two v17 reads,
+  and `LEGACY_WIRING_ASSET`) name their version explicitly and must NOT follow it — `LEGACY_WIRING_ASSET`
+  in particular is the ONLY coverage the discipline-wide `_deactivate_prior` path has, because that path
+  is reachable only through the SINGULAR `category_config` key.
 - **⚠️ THERE IS ONE ELECTRICAL ASSET, AND THE SPLIT THAT PRECEDED IT WAS A LIVE HAZARD (merged
   2026-08-13, owner ruling).** `rate_master_electrical_all_v30.json` carries **all 1,382 items and all
   12 configs**, wiring included. The two-asset split was **SEQUENCING, NOT DESIGN** — wiring was built
