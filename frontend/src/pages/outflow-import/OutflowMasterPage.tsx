@@ -1,8 +1,8 @@
 // src/pages/outflow-import/OutflowMasterPage.tsx
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
-import { Columns3, Layers, Search, Upload, Wallet, X } from "lucide-react";
+import { useNavigate, useParams } from "react-router-dom";
+import { Columns3, Search, Upload, Wallet, X } from "lucide-react";
 import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
 import { TailSpin } from "react-loader-spinner";
 
@@ -21,9 +21,9 @@ import { DecisionDialog } from "./components/DecisionDialog";
 import { ImportStatementDialog } from "./components/ImportStatementDialog";
 import { ImportSummaryPanel } from "./components/ImportSummaryPanel";
 import { useOutflowRows } from "./useOutflowRows";
+import { useOutflowPeriod } from "./useOutflowPeriodStore";
 import { ApprovedRecordsPanel } from "./components/ApprovedRecordsPanel";
 import { SkippedRowsDialog } from "./components/SkippedRowsDialog";
-import { UnpairedStacksDialog } from "./components/UnpairedStacksDialog";
 import {
     ClearFiltersButton,
     OutflowRowsTable,
@@ -54,10 +54,16 @@ import {
  * import -- and an import is an attribute of a row, a column and a filter. Importing adds to the
  * table rather than creating somewhere to go.
  *
- * ⚠️ THE SUMMARY ABOVE IT IS SCOPED TO ONE IMPORT WHILE THE TABLE SPANS ALL OF THEM. That is
- * deliberate: "how did that statement go?" and "what do I still owe a decision on?" are different
- * questions, and this is the screen that answers both. Clicking a figure in the summary scopes the
- * table to it, which is the seam between the two.
+ * ⚠️ THE SUMMARY AND THE TABLE DESCRIBE ONE POPULATION SINCE P1, AND THEY USED TO DESCRIBE TWO. The
+ * panel summarised a single import chosen from a picker while the table spanned every one, and the
+ * domain doc recorded that mismatch as the DESIGN (owner ruling 2026-08-10). The owner reversed it
+ * on 2026-08-12: a PERIOD control at the top scopes both, and every sibling read -- the summary, the
+ * confirm dialog, the Skipped dialog, the re-match -- is handed the SAME filter set, which the
+ * server applies through the one `_row_filters` builder.
+ *
+ * ⚠️ THE SURVIVING HALF OF THAT RULING IS KEPT DELIBERATELY: reading a figure must never move the
+ * tab. The status figures still REPORT rather than scope, and changing the period does not change
+ * which tab is open.
  *
  * ⚠️ DECISIONS ARE STILL CLIENT STATE UNTIL CONFIRMED, exactly as before. A reviewer works down the
  * list and confirms a batch of rows; nothing is written until they do. That is why the bulk bar
@@ -66,9 +72,34 @@ import {
  * acting on a whole import at once, and it is driven from the server for exactly that reason.
  */
 export const OutflowMasterPage = () => {
-    // A deep link to one import still resolves -- it lands here with the table pre-scoped, so every
-    // bookmark and every link written before X3 keeps working.
-    const { id: deepLinkedBatch } = useParams<{ id: string }>();
+    /**
+     * The selected import, or undefined for ALL of them.
+     *
+     * ⚠️ THE ROUTE PARAM IS THE SELECTION — there is no second copy in page state, and that is what
+     * keeps the two from contradicting each other. `/bulk-import-outflow/:id` used to be a separate
+     * "deep-linked" MODE with its own header and no way back; it is now simply the URL that says
+     * which import the selector has chosen. Picking one navigates there, picking "All imports"
+     * navigates back to the bare path, and every pre-existing bookmark keeps working while gaining a
+     * way out of itself.
+     *
+     * ⚠️ THE TWO PATHS ARE SEPARATE ROUTE ENTRIES, so switching REMOUNTS this page. That is correct
+     * rather than merely tolerable: a different import is a different set of rows, and the ticked
+     * selection and the un-confirmed decisions belong to the rows they were made on. The period
+     * survives, because it lives in a module-level store rather than here.
+     */
+    const { id: selectedImport } = useParams<{ id: string }>();
+    const navigate = useNavigate();
+
+    const handleSelectImport = useCallback(
+        (batch?: string) => {
+            // ⚠️ THE PERIOD PARAMS ARE DROPPED ON THE WAY IN AND RESTORED ON THE WAY OUT BY THE
+            // STORE, not carried here. A period in the URL of an import-scoped screen would be a
+            // filter that is written down but not applied — the same contradiction the disabled
+            // control exists to avoid, in the address bar.
+            navigate(batch ? `/bulk-import-outflow/${encodeURIComponent(batch)}` : "/bulk-import-outflow");
+        },
+        [navigate]
+    );
 
     const [tab, setTab] = useState<OutflowTab>(DEFAULT_TAB);
     /**
@@ -90,9 +121,7 @@ export const OutflowMasterPage = () => {
     const [confirmError, setConfirmError] = useState<string | null>(null);
     const [importing, setImporting] = useState(false);
     const [confirmingAll, setConfirmingAll] = useState(false);
-    const [resolvingStacks, setResolvingStacks] = useState(false);
     const [showingSkipped, setShowingSkipped] = useState(false);
-    const [selectedImport, setSelectedImport] = useState<string | undefined>(deepLinkedBatch);
 
     /**
      * The table's whole query, and what came back.
@@ -103,54 +132,65 @@ export const OutflowMasterPage = () => {
      * for being the second engine. Selection and decisions deliberately stayed here -- see the
      * hook's docstring for why they are not the hook's to own.
      */
-    const table = useOutflowRows({ scope: SCOPE_FOR_TAB[tab], batch: deepLinkedBatch });
+    const table = useOutflowRows({ scope: SCOPE_FOR_TAB[tab], batch: selectedImport });
     const { rows, loading: rowsLoading, mutate: mutateRows } = table;
 
-    const { data: importsData, mutate: mutateImports } = useFrappeGetCall<{
-        message: OutflowImportOption[];
-    }>("nirmaan_stack.api.outflow_import.review.list_imports", {}, "outflow-imports");
+    /**
+     * The period the whole screen is scoped to (slice P1).
+     *
+     * ⚠️ READ FROM THE STORE HERE AND FROM `useOutflowRows` THERE — deliberately NOT threaded as a
+     * prop. Four surfaces need the same window (this panel, the master table, the Skipped dialog's
+     * own separate table, and the confirm dialog), and a prop would reach three of them.
+     */
+    const { period, setPeriod } = useOutflowPeriod();
 
     /**
-     * How many stacks still need a person (chunk E3).
-     *
-     * ⚠️ FETCHED FOR THE COUNT ALONE, so the button can be ABSENT rather than disabled when there
-     * is nothing to resolve. A permanently visible "Resolve stacks (0)" would be one more control
-     * to learn and dismiss on every visit, and the case it serves is rare -- three stacks on a
-     * 1,043-row statement. It is a separate read from the table's because it spans every import
-     * and ignores every filter, which is exactly what the table's does not.
+     * ⚠️ THE SUMMARY TAKES THE TABLE'S OWN FILTERS, MINUS THE SCOPE. This is what makes the panel
+     * the aggregate of the table beneath it rather than a second opinion about a different
+     * population — the objection behind the 2026-08-10 ruling that P1 revises. `filterQuery` is
+     * derived from the query the table just sent, so the two cannot drift.
      */
-    const { data: stacksData, mutate: mutateStacks } = useFrappeGetCall<{
-        message: { stacks: unknown[]; total: number };
-    }>(
-        "nirmaan_stack.api.outflow_import.review.get_unpaired_stacks",
-        {},
-        "outflow-unpaired-stacks-count"
+    const { filterQuery } = table;
+
+    /**
+     * The filter set as it goes ON THE WIRE — ONE object for every sibling read.
+     *
+     * ⚠️ `facets` MUST BE SERIALISED HERE, NOT AT EACH CALL SITE. It is the only nested value in the
+     * set, and these are GET calls: an object reaches the server as `[object Object]`, which
+     * `_parsed_facets` then drops SILENTLY (it swallows a parse failure on purpose, so a stale
+     * bookmark shows an unfiltered table rather than an error page). The failure mode is therefore
+     * invisible — a funnel that works on the table and is quietly ignored by the summary, the
+     * confirm dialog and the re-match. Serialising once, where the object is built, is what stops
+     * the four from disagreeing.
+     */
+    const filterArgs = useMemo(
+        () => ({ ...filterQuery, facets: JSON.stringify(filterQuery.facets ?? {}) }),
+        [filterQuery]
     );
-    const unpairedStacks = stacksData?.message?.total ?? 0;
-
-    const imports = useMemo(() => importsData?.message ?? [], [importsData]);
-
-    // The picker defaults to the NEWEST import -- `list_imports` is ordered for exactly that -- and
-    // a deep link overrides it. Only ever set when nothing is chosen, so it cannot fight the user.
-    useEffect(() => {
-        if (selectedImport || !imports.length) return;
-        setSelectedImport(imports[0].name);
-    }, [imports, selectedImport]);
 
     const {
         data: summaryData,
         isLoading: summaryLoading,
         mutate: mutateSummary,
     } = useFrappeGetCall<{ message: OutflowImportSummary }>(
-        "nirmaan_stack.api.outflow_import.review.get_import_summary",
-        { batch: selectedImport },
-        selectedImport ? `outflow-summary-${selectedImport}` : null
+        "nirmaan_stack.api.outflow_import.review.get_outflow_summary",
+        filterArgs,
+        `outflow-summary-${JSON.stringify(filterArgs)}`
     );
 
     const summary = summaryData?.message;
+    const { data: importsData, mutate: mutateImports } = useFrappeGetCall<{
+        message: OutflowImportOption[];
+    }>("nirmaan_stack.api.outflow_import.review.list_imports", {}, "outflow-imports");
 
+    const importOptions = useMemo(() => importsData?.message ?? [], [importsData]);
+
+    // ⚠️ PERIOD-WIDE, NOT PER BATCH (slice P1). `match_period` resolves which imports the current
+    // filters touch and loops `match_batch` over them -- the matching UNIT is still one whole
+    // statement, because its four global passes reason over a batch at once. See the button's
+    // tooltip, which states the overspill that follows from that.
     const { call: runMatch, loading: matching } = useFrappePostCall(
-        "nirmaan_stack.api.outflow_import.review.match_batch"
+        "nirmaan_stack.api.outflow_import.review.match_period"
     );
     const { call: callSkip } = useFrappePostCall(
         "nirmaan_stack.api.outflow_import.review.skip_row"
@@ -207,8 +247,8 @@ export const OutflowMasterPage = () => {
     }, [rows, decisions]);
 
     const refreshAll = useCallback(async () => {
-        await Promise.all([mutateRows(), mutateSummary(), mutateImports(), mutateStacks()]);
-    }, [mutateRows, mutateSummary, mutateImports, mutateStacks]);
+        await Promise.all([mutateRows(), mutateSummary(), mutateImports()]);
+    }, [mutateRows, mutateSummary, mutateImports]);
 
     /**
      * The facet values one funnel offers, fetched when it opens.
@@ -344,45 +384,50 @@ export const OutflowMasterPage = () => {
     );
 
     const handleMatch = useCallback(async () => {
-        if (!selectedImport) return;
-        await runMatch({ batch: selectedImport });
+        await runMatch(filterArgs);
         await refreshAll();
-    }, [runMatch, selectedImport, refreshAll]);
+    }, [runMatch, filterArgs, refreshAll]);
 
     const handleImported = useCallback(
-        async (batch: string) => {
-            // The new import becomes the one being summarised -- it is what somebody just did, and
-            // it is what they are about to work on.
-            setSelectedImport(batch);
+        async (_batch: string, statementPeriod?: { from?: string | null; to?: string | null }) => {
+            /**
+             * ⚠️ THE SCREEN MOVES TO THE STATEMENT THAT WAS JUST IMPORTED (slice P1), and it has to.
+             * A statement is routinely uploaded weeks after the transfers in it moved, so a fresh
+             * import can land entirely OUTSIDE the default `last 30 days` window — the page would
+             * refresh to a summary that does not mention it and a table that does not list it,
+             * which reads as a failed upload rather than as a period doing its job.
+             *
+             * ⚠️ IT SETS THE STATEMENT'S OWN PERIOD RATHER THAN CLEARING TO ALL TIME. "Here is the
+             * statement you just imported" is the useful answer; "here is every transfer ever
+             * staged" is merely a wide one, and it throws away the scoping somebody may have set up
+             * before uploading. The dates come from the upload result, so they are the statement's
+             * declared period and not a guess.
+             *
+             * A statement with no period at all (an empty or unparseable date column) falls back to
+             * clearing the filter — showing everything is wrong-but-visible, where leaving a narrow
+             * window would be wrong-and-invisible.
+             */
+            const from = statementPeriod?.from;
+            const to = statementPeriod?.to;
+            setPeriod(
+                from && to
+                    ? { operator: "Between", value: [from.split(/[ T]/)[0], to.split(/[ T]/)[0]] }
+                    : null
+            );
             await refreshAll();
         },
-        [refreshAll]
+        [refreshAll, setPeriod]
     );
 
     return (
         <div className="flex-1 space-y-4">
             <div className="flex flex-wrap items-center gap-2">
                 <h2 className="text-xl font-bold tracking-tight">Bulk Import Outflow</h2>
-                {deepLinkedBatch && (
-                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-                        showing {deepLinkedBatch} only
-                    </span>
-                )}
+                {/* ⚠️ THE "showing X only" CHIP IS GONE (2026-08-12). It existed when a deep link was
+                    a MODE you could not leave, so the screen had to announce that it was in one. The
+                    Import selector now states the same fact in a control you can act on, and a chip
+                    repeating it would be a second, un-clickable copy of the answer. */}
                 <div className="ml-auto flex gap-2">
-                    {/* ⚠️ ABSENT, NOT DISABLED, when there is nothing to resolve. The case is rare
-                        -- three stacks on a 1,043-row statement -- and a permanent "Resolve
-                        stacks (0)" would be one more control to learn and dismiss on every visit. */}
-                    {unpairedStacks > 0 && (
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setResolvingStacks(true)}
-                        >
-                            <Layers className="mr-2 h-4 w-4" />
-                            Resolve {unpairedStacks}{" "}
-                            {unpairedStacks === 1 ? "stack" : "stacks"}
-                        </Button>
-                    )}
                     <Button size="sm" onClick={() => setImporting(true)}>
                         <Upload className="mr-2 h-4 w-4" />
                         Import statement
@@ -392,26 +437,27 @@ export const OutflowMasterPage = () => {
 
             <ImportSummaryPanel
                 summary={summary}
-                imports={imports}
-                selected={selectedImport}
+                period={period}
+                onPeriodChange={setPeriod}
+                imports={importOptions}
+                selectedImport={selectedImport}
+                onSelectImport={handleSelectImport}
                 loading={summaryLoading}
                 matching={matching}
-                onSelect={setSelectedImport}
                 onConfirmAllMatched={() => setConfirmingAll(true)}
                 onRunMatch={handleMatch}
                 onShowSkipped={() => setShowingSkipped(true)}
             />
 
-            {/* ⚠️ THE SCOPE OF THE TABLE, SAID OUT LOUD. The panel above describes ONE import and
-                the table below spans every one -- deliberate, and the reason this screen answers
-                both "how did that statement go?" and "what do I still owe a decision on?". But the
-                two put a count labelled "matched" directly above a tab labelled "Matched", over
-                different populations, and nothing said so: the panel's button read 688 while the
-                tab read 893, and both were right. One line is cheaper than either number moving. */}
+            {/* ⚠️ THE SCOPE OF THE TABLE, SAID OUT LOUD -- AND IT SAYS SOMETHING DIFFERENT SINCE P1.
+                It used to warn that the panel and the table described DIFFERENT populations (the
+                panel's button read 688 while the tab read 893, and both were right). They now
+                describe the SAME one, so the line's job changed from reconciling two numbers to
+                naming the window both of them are counting. */}
             <p className={`text-xs text-muted-foreground ${showingApproved ? "hidden" : ""}`}>
-                {deepLinkedBatch
-                    ? `Transactions in ${deepLinkedBatch}. The summary above describes the import selected there.`
-                    : "Transactions across every import. The summary above describes one import only."}
+                {selectedImport
+                    ? "The summary above and the tabs below describe this whole import — the period does not apply."
+                    : "The summary above and the tabs below describe the same period."}
             </p>
 
             <div className="flex flex-wrap items-center gap-2 border-b">
@@ -583,8 +629,13 @@ export const OutflowMasterPage = () => {
                 onImported={handleImported}
             />
 
+            {/* ⚠️ BOTH TAKE THE PERIOD'S FILTERS, NOT A BATCH (slice P1). The confirm dialog acts on
+                the rows the panel's button counted, and the Skipped dialog holds the rows the
+                Skipped chip counted -- so both have to select the population those numbers came
+                from. Scoping either to one import while the chip above it counted a period is the
+                "button 688, table 893" defect in a new place. */}
             <ConfirmAllMatchedDialog
-                batch={selectedImport}
+                filters={filterArgs}
                 open={confirmingAll}
                 onOpenChange={setConfirmingAll}
                 onSettled={refreshAll}
@@ -596,12 +647,6 @@ export const OutflowMasterPage = () => {
                 failedRows={summary?.totals?.failed_rows}
                 open={showingSkipped}
                 onOpenChange={setShowingSkipped}
-            />
-
-            <UnpairedStacksDialog
-                open={resolvingStacks}
-                onOpenChange={setResolvingStacks}
-                onSettled={refreshAll}
             />
 
             <DecisionDialog

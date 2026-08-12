@@ -67,6 +67,14 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({
                         }
                     />
                     <ReviewDetail
+                        label="Project Value"
+                        value={
+                            form.getValues("manual_project_value") === 1
+                                ? `Manual — ${form.getValues("project_value") || "0"} (excl. GST) / ${form.getValues("project_value_gst") || "0"} (incl. GST)`
+                                : "Auto — from Customer POs"
+                        }
+                    />
+                    <ReviewDetail
                         label="Carpet Area (Sqft)"
                         value={form.getValues("carpet_area")}
                     />

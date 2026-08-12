@@ -14,6 +14,9 @@
 // drift because they read the same definition -- the same reason the Rate Master viewer keeps a
 // unified `columns` array rather than a header list beside a predicate.
 
+import type { DateFilterValue } from "@/components/data-table/dateFilterModel";
+import { resolveDateFilter } from "@/utils/dateFilterRange";
+import { formatDate } from "@/utils/FormatDate";
 import {
     OPEN_ROW_STATUSES,
     ROW_MATCHED,
@@ -59,7 +62,14 @@ export interface RowDecision {
     };
 }
 
-export type ColumnFilterKind = "facet" | "text" | "range" | "none";
+/**
+ * ⚠️ `date` IS NOT A FACET, AND IT USED TO BE (slice P1). `added_on` shipped as `filter: "facet"`,
+ * which offers a tick box per DISTINCT VALUE — one per calendar day the statement touched, growing
+ * without limit as the table does, and unable to express "everything after the 14th" at all. It is
+ * now the app's standard date filter (`DateFilterPopover`, the same control every DataTable screen
+ * uses), which speaks operators and Frappe's timespan words instead.
+ */
+export type ColumnFilterKind = "facet" | "text" | "range" | "date" | "none";
 
 export interface OutflowColumn {
     id: string;
@@ -82,7 +92,9 @@ export interface OutflowColumn {
  * a rare lookup. The Columns menu is where any further field belongs, for the same reason.
  */
 export const OUTFLOW_COLUMNS: OutflowColumn[] = [
-    { id: "added_on", title: "Payment Date", get: (r) => dateOnly(r.added_on), filter: "facet", mono: true, width: "126px" },
+    // ⚠️ THE PERIOD CONTROL ABOVE THE SUMMARY EDITS THIS SAME FILTER (slice P1). It is not a second
+    // date filter that ANDs with this one -- see `PERIOD_COLUMN_ID` below.
+    { id: "added_on", title: "Payment Date", get: (r) => dateOnly(r.added_on), filter: "date", mono: true, width: "126px" },
     { id: "beneficiary_name", title: "Beneficiary", get: (r) => r.beneficiary_name ?? "", filter: "facet", width: "230px" },
     { id: "amount", title: "Amount Paid", get: (r) => r.amount ?? 0, filter: "range", align: "right", width: "140px" },
     { id: "remarks", title: "Remarks", get: (r) => r.remarks ?? "", filter: "text", width: "230px" },
@@ -288,14 +300,51 @@ export interface RangeFilter {
     max?: number | null;
 }
 
-/** Facet -> the chosen values; text -> a substring; range -> min/max. */
-export type ColumnFilters = Record<string, string[] | string | RangeFilter | undefined>;
+/** Facet -> the chosen values; text -> a substring; range -> min/max; date -> a `DateFilterValue`. */
+export type ColumnFilters = Record<
+    string,
+    string[] | string | RangeFilter | DateFilterValue | undefined
+>;
 
+/**
+ * The column whose filter IS the screen's period (slice P1).
+ *
+ * ⚠️ ONE VALUE, TWO EDITORS — the `Period` control above the summary and this column's own funnel.
+ * They are deliberately NOT two filters that compose: two date filters over one column would AND
+ * together, so "Last 30 days" plus "Is 01-Jan" selects nothing while neither control looks wrong.
+ * The page holds the value in `useOutflowPeriodStore` and surfaces it here so the table header
+ * renders and edits it exactly like any other column filter.
+ */
+export const PERIOD_COLUMN_ID = "added_on";
+
+/** Is this a date filter (as opposed to a facet's array, a text string or a numeric range)? */
+export const isDateFilterValue = (
+    filter: ColumnFilters[string]
+): filter is DateFilterValue =>
+    Boolean(
+        filter &&
+            !Array.isArray(filter) &&
+            typeof filter === "object" &&
+            typeof (filter as DateFilterValue).operator === "string"
+    );
+
+/**
+ * How many filters the "Clear filters (N)" button would clear.
+ *
+ * ⚠️ THE PERIOD IS EXCLUDED, AND THE EXCLUSION IS THE POINT. It is always set (the screen opens on
+ * `last 30 days`), so counting it would open every session reading "Clear filters (1)" and train
+ * people to ignore the badge — and it already has a large, always-visible control of its own
+ * stating exactly what it is, which is the thing a badge exists to substitute for. Clearing does
+ * not touch it either: a period is the scope somebody chose for the screen, not a narrowing they
+ * might have forgotten leaving on.
+ */
 export const activeFilterCount = (filters: ColumnFilters): number =>
-    Object.values(filters).filter((filter) => {
+    Object.entries(filters).filter(([columnId, filter]) => {
+        if (columnId === PERIOD_COLUMN_ID) return false;
         if (filter == null) return false;
         if (Array.isArray(filter)) return filter.length > 0;
         if (typeof filter === "string") return filter.trim().length > 0;
+        if (isDateFilterValue(filter)) return Boolean(filter.value);
         const range = filter as RangeFilter;
         return range.min != null || range.max != null;
     }).length;
@@ -309,14 +358,21 @@ export interface SortState {
 
 // --- what the screen asks the server for (slice X3) ----------------------------------------------
 
-/** Which columns the server can facet on. Mirrors `review._FACET_COLUMNS`. */
+/**
+ * Which columns the server can facet on. Mirrors `review._FACET_COLUMNS`.
+ *
+ * ⚠️ `added_on` WAS REMOVED AT P1 AND MUST NOT COME BACK. It is a DATE filter now, and a date is the
+ * one thing a facet cannot usefully offer: one tick box per calendar day the table touches, growing
+ * without limit, and no way to express "everything after the 14th". Leaving it here was harmless
+ * only by accident -- `serverQuery`'s facet loop skips it because a `DateFilterValue` is not an
+ * array -- which is exactly the kind of silence that stops being true after a refactor.
+ */
 export const SERVER_FACET_COLUMNS: readonly string[] = [
     "beneficiary_name",
     "row_status",
     "bank_account",
     "ifsc",
     "import_batch",
-    "added_on",
 ];
 
 /** Which columns the server can sort by. Mirrors `review._SORTABLE_COLUMNS`. */
@@ -447,6 +503,20 @@ export const serverQuery = (state: MasterTableState): OutflowRowsQuery => {
     if (amount?.min != null) query.amount_min = amount.min;
     if (amount?.max != null) query.amount_max = amount.max;
 
+    // ⚠️ THE TIMESPAN IS RESOLVED HERE, NOT SENT AS A WORD (slice P1). Frappe's list API understands
+    // "last 30 days" server-side, which is why the DataTable path can pass it through; these
+    // endpoints are hand-written SQL over `added_on` and bind two plain dates. Resolving in this
+    // function is the same division of labour the rest of the file follows -- `serverQuery` owns
+    // what a filter MEANS, SQL owns applying it -- and it keeps the resolution pure and testable.
+    //
+    // ⚠️ RESOLVED AGAINST A LIVE `new Date()` ON EVERY CALL. A relative window frozen at module load
+    // filters on yesterday's dates in a tab left open across midnight.
+    const period = resolveDateFilter(
+        isDateFilterValue(filters[PERIOD_COLUMN_ID]) ? (filters[PERIOD_COLUMN_ID] as DateFilterValue) : undefined
+    );
+    if (period.from) query.date_from = period.from;
+    if (period.to) query.date_to = period.to;
+
     return query;
 };
 
@@ -559,11 +629,79 @@ export const summaryTiles = (totals: {
 };
 
 /**
- * How one import reads in the picker.
+ * One import, as `get_outflow_summary` reports it for the current period (slice P1).
+ *
+ * `row_count` is how many of its rows are IN the period; `total_rows` is how many it holds
+ * altogether. The two differ whenever a statement straddles the window, and that difference is what
+ * the re-match warning is about.
+ */
+export interface SummaryImport {
+    name: string;
+    original_filename?: string;
+    period_from?: string;
+    period_to?: string;
+    uploaded_at?: string;
+    row_count: number;
+    total_rows: number;
+}
+
+/** "3 imports" / "1 import" / "" — the caption beside the period control. */
+export const importsCoveredLabel = (imports: readonly SummaryImport[]): string => {
+    if (!imports.length) return "";
+    return `${imports.length} import${imports.length === 1 ? "" : "s"}`;
+};
+
+/**
+ * What "Re-run match" will actually touch, in a sentence.
+ *
+ * ⚠️ IT MUST NAME THE OVERSPILL, AND THAT IS THE WHOLE REASON IT EXISTS. Matching runs per BATCH --
+ * `match_batch` has four global passes that reason over a whole import at once, so matching "only
+ * the rows in the period" would hand them a partial picture and break claims and stacks. The
+ * consequence is that a statement straddling the window is re-matched IN FULL. That is wider than
+ * the period implies, so the screen says so before the click rather than after it.
+ *
+ * ⚠️ IT COMPARES `row_count` TO `total_rows` RATHER THAN COMPARING DATES. Whether a batch straddles
+ * the window is already answered exactly by "are all of its rows in scope?", and the server computed
+ * both numbers from the same query. Re-deriving it from `period_from`/`period_to` would be asking a
+ * different question -- a batch's DECLARED period is not a fact about where its rows fall.
+ */
+export const rematchWarning = (imports: readonly SummaryImport[]): string => {
+    if (!imports.length) return "No imports in this period.";
+
+    const straddling = imports.filter((b) => b.total_rows > b.row_count);
+    const names = imports
+        .slice(0, 3)
+        .map((b) => b.original_filename || b.name)
+        .join(", ");
+    const more = imports.length > 3 ? ` and ${imports.length - 3} more` : "";
+
+    const base = `Re-runs the match for ${imports.length} import${
+        imports.length === 1 ? "" : "s"
+    }: ${names}${more}.`;
+
+    if (!straddling.length) return base;
+
+    const spill = straddling.reduce((sum, b) => sum + (b.total_rows - b.row_count), 0);
+    // ⚠️ "1 of them extend" WAS THE SHIPPED WORDING AND IT READ AS BROKEN, which matters on a
+    // sentence whose whole job is to warn that a button reaches further than it looks. With a single
+    // import "1 of them" is also clumsy for a set of one -- so the SUBJECT and the VERB are chosen
+    // separately rather than pluralised together.
+    const subject = imports.length === 1 ? "It" : `${straddling.length} of them`;
+    const verb = straddling.length === 1 ? "extends" : "extend";
+    return `${base} ${subject} ${verb} past this period, so ${spill} transfer${
+        spill === 1 ? "" : "s"
+    } outside it will be re-matched too — matching always runs over a whole statement.`;
+};
+
+/**
+ * How one import reads in a picker.
  *
  * ⚠️ NEVER THE BATCH ID ALONE. `OFI-26-00007` means nothing to an accountant; the file they
  * uploaded and the fortnight it covers is how they know which statement is which. The id is the
  * last-resort fallback for a row missing both.
+ *
+ * ⚠️ THE SUMMARY PANEL'S PICKER IS GONE (slice P1) BUT THIS IS STILL USED -- the import dialog and
+ * the deep-linked header both name a statement this way, and the label is the same either way.
  */
 export const importOptionLabel = (option: {
     name: string;
@@ -572,8 +710,12 @@ export const importOptionLabel = (option: {
     period_to?: string;
 }): string => {
     const file = (option.original_filename ?? "").trim();
-    const from = dateOnly(option.period_from);
-    const to = dateOnly(option.period_to);
+    // ⚠️ `dd-MMM-yyyy`, THE APP-WIDE DATE FORMAT, NOT THE RAW ISO `dateOnly` RETURNS. This label sits
+    // directly above a metadata line already rendering `02-May-2026`, so the ISO form read as two
+    // different date conventions on one panel. `dateOnly` itself must stay ISO -- it also feeds the
+    // Payment Date column's sort value, where a `dd-MMM-yyyy` string would order by day-of-month.
+    const from = formatIfPresent(option.period_from);
+    const to = formatIfPresent(option.period_to);
     const period = from && to ? `${from} → ${to}` : from || to || "";
     if (file && period) return `${file} · ${period}`;
     return file || period || option.name;
@@ -1173,179 +1315,6 @@ export const previewCounts = (preview: {
     };
 };
 
-// --- unpaired stacks (chunk E3) ------------------------------------------------------------------
-
-/** One transfer inside an unpaired stack, as `review.get_unpaired_stacks` returns it. */
-export interface StackTransfer {
-    name: string;
-    transfer_id: string;
-    added_on?: string;
-    amount: number;
-    remarks?: string;
-    bank_reference_no?: string;
-    import_batch?: string;
-    import_filename?: string;
-}
-
-/** One approved record the stack could settle against. */
-export interface StackRecord {
-    target_doctype: DecisionTarget;
-    target_name: string;
-    amount: number;
-    status: string;
-    vendor_name: string;
-    project_name: string;
-}
-
-export interface UnpairedStack {
-    account: string;
-    amount: number;
-    beneficiary_name: string;
-    surplus_transfers: number;
-    surplus_records: number;
-    transfers: StackTransfer[];
-    records: StackRecord[];
-}
-
-/**
- * The pairing the dialog OPENS with: transfer i takes record i, in the order the server sent them.
- *
- * ⚠️ IT PAIRS UP TO THE SHORTER SIDE AND LEAVES THE REST BLANK, which is the whole difference
- * between this and the server's `pair_stack`. The server refuses an unbalanced stack outright,
- * because it would be DECIDING which transfer settles nothing. Here a person is present, so the
- * surplus is shown as unassigned and they choose -- the proposal is a starting point they can move,
- * not an answer.
- *
- * The server's order is already deterministic (transfers by date, records by name), so opening on
- * it means the dialog and a later re-read agree about which transfer sits beside which record.
- */
-export const proposeStackPairs = (stack: UnpairedStack): Record<string, string> => {
-    const pairs: Record<string, string> = {};
-    const count = Math.min(stack.transfers.length, stack.records.length);
-    for (let i = 0; i < count; i += 1) {
-        pairs[stack.transfers[i].name] = stackRecordKey(stack.records[i]);
-    }
-    return pairs;
-};
-
-/**
- * The distinct projects a stack's approved records belong to, in first-seen order.
- *
- * ⚠️ THIS IS THE ONE FACT THAT SEPARATES A HARMLESS PAIRING FROM AN EXPENSIVE ONE, and until now
- * nothing on the screen said it. A stack is transfers that are IDENTICAL to each other — same
- * account, same exact amount — against approved records that are identical in the same way, so the
- * bank statement contains NOTHING that says which transfer paid which record. When every record
- * belongs to one project, that ambiguity costs nothing: whichever way round it goes, the same job
- * is billed. When the records span several projects, the same arbitrary pairing bills the WRONG
- * JOB, and it does so silently and permanently.
- *
- * Measured on the first real statement: of the 18 transfers the dialog can settle, 12 sit in a
- * stack whose records span more than one project — the ₹9,000 set alone is 7 transfers against 8
- * approved payments across 4 different projects. The dialog opens PRE-FILLED on a proposal, so the
- * default is one click away from being accepted.
- *
- * ⚠️ A BLANK PROJECT IS NOT A PROJECT. `get_unpaired_stacks` sends `""` for a record with none —
- * counting blanks as a distinct value would raise the warning on a set that is merely missing data,
- * which is how a real signal gets trained away.
- */
-export const stackProjectSpread = (stack: UnpairedStack): string[] => {
-    const seen: string[] = [];
-    for (const record of stack.records) {
-        const project = (record.project_name || "").trim();
-        if (project && !seen.includes(project)) seen.push(project);
-    }
-    return seen;
-};
-
-/** Does this stack's outcome depend on a choice nothing in the statement can settle? */
-export const stackIsCrossProject = (stack: UnpairedStack): boolean =>
-    stackProjectSpread(stack).length > 1;
-
-/**
- * A stack record's key, in the SAME `<doctype>|<name>` format the Link-payment table uses.
- *
- * ⚠️ IT ADAPTS RATHER THAN DUPLICATING. `get_unpaired_stacks` names the record `target_name` while
- * `SettleableRecord` names it `name`, so the shapes do not line up -- but the KEY FORMAT must,
- * because `parseRecordKey` reads both. One format, one parser, one adapter.
- */
-export const stackRecordKey = (record: StackRecord): string =>
-    recordKey({ target_doctype: record.target_doctype, name: record.target_name });
-
-/**
- * Which record keys are used more than once in a proposed pairing.
- *
- * ⚠️ THE ONE THING THE DIALOG MUST NOT LET THROUGH. Two transfers pointed at one payment means the
- * first settle marks it Paid and the second fails with `AlreadyPaidError` -- the exact failure the
- * candidate-collapse fix was written to stop producing, re-created by hand. Returned as a SET so
- * the offending rows can be marked individually rather than the whole dialog just refusing.
- */
-export const duplicateStackAssignments = (
-    pairs: Record<string, string>
-): ReadonlySet<string> => {
-    const seen = new Set<string>();
-    const duplicates = new Set<string>();
-    for (const value of Object.values(pairs)) {
-        if (!value) continue;
-        if (seen.has(value)) duplicates.add(value);
-        seen.add(value);
-    }
-    return duplicates;
-};
-
-/** The pairs a person has actually assigned, in transfer order, ready to settle. */
-export const assignedStackPairs = (
-    stack: UnpairedStack,
-    pairs: Record<string, string>
-): { transfer: StackTransfer; target: DecisionTarget; name: string }[] =>
-    stack.transfers
-        .map((transfer) => {
-            const parsed = parseRecordKey(pairs[transfer.name] ?? "");
-            return parsed ? { transfer, target: parsed.target, name: parsed.name } : null;
-        })
-        .filter((entry): entry is { transfer: StackTransfer; target: DecisionTarget; name: string } =>
-            entry !== null
-        );
-
-/**
- * Whether this pairing may be submitted.
- *
- * Something assigned, and nothing assigned twice. Deliberately NOT "everything assigned": the
- * surplus is the whole reason a person is here, and refusing to write the pairs they DID make until
- * they invent one for a transfer with no record would be a screen arguing with its own premise.
- */
-export const stackPairsAreSubmittable = (
-    stack: UnpairedStack,
-    pairs: Record<string, string>
-): boolean =>
-    assignedStackPairs(stack, pairs).length > 0 &&
-    duplicateStackAssignments(pairs).size === 0;
-
-/** `Rs 9,000 x 7 to APEX FABRICATION` -- how a stack is named in the list. */
-export const stackLabel = (stack: UnpairedStack, formatAmount: (n: number) => string): string => {
-    const who = (stack.beneficiary_name || "").trim() || stack.account;
-    return `${formatAmount(stack.amount)} × ${stack.transfers.length} to ${who}`;
-};
-
-/**
- * The sentence stating what will be left over.
- *
- * ⚠️ IT NAMES THE SURPLUS RATHER THAN HIDING IT. A stack is here precisely BECAUSE the counts do
- * not match; a dialog that showed only the pairs would let someone close it believing the whole
- * stack was dealt with. Both directions are real: more transfers than records (the owner's 3
- * residual collisions) and more records than transfers.
- */
-export const stackSurplusNote = (stack: UnpairedStack): string => {
-    if (stack.surplus_transfers > 0) {
-        const n = stack.surplus_transfers;
-        return `${n} ${n === 1 ? "transfer" : "transfers"} here ${n === 1 ? "has" : "have"} no approved record to settle against. ${n === 1 ? "It" : "They"} will stay open.`;
-    }
-    if (stack.surplus_records > 0) {
-        const n = stack.surplus_records;
-        return `${n} approved ${n === 1 ? "record" : "records"} at this amount ${n === 1 ? "is" : "are"} not covered by any transfer here.`;
-    }
-    return "";
-};
-
 // --- what counts as decided --------------------------------------------------------------------
 
 /**
@@ -1643,7 +1612,22 @@ export const settleBlocker = (
     };
 };
 
-/** Suggested records first, then closest by amount. */
+/**
+ * Suggested records first, then closest by amount.
+ *
+ * ⚠️ NO PRODUCTION CALLER SINCE SLICE N1 -- ONLY THESE TESTS. It was the Link-payment table's
+ * ordering, and the server now sends that table already ranked by
+ * `services/outflow_import/similarity.py` (project > vendor > nickname/contact > amount, inside a
+ * hard settleable/unsettleable split). `RecordPicker` calling this AFTERWARDS would silently
+ * re-sort the ranking back into amount order, which is the one thing that would make the
+ * similarity_reasons printed on each row disagree with the order they are printed in.
+ *
+ * ⚠️ SO DO NOT REACH FOR IT AS "the record ordering helper" -- that is exactly the mistake it is
+ * now positioned to invite. Kept rather than deleted because it is exported and covered, and
+ * because the settleable-first HALF of it is still the rule the server applies; if a future surface
+ * needs an amount ordering, this is a correct implementation of one. Deleting it is a reasonable
+ * call for whoever confirms nothing else wants it.
+ */
 export const orderBySuggestion = <T extends CandidateLike>(
     candidates: T[],
     bankAmount: number
@@ -1675,6 +1659,33 @@ export interface SettleableRecord {
     vendor_name: string;
     project_name: string;
     document_name: string;
+    /**
+     * The vendor's other two names (slice N1). Tier 3 of the similarity ranking, and searchable.
+     *
+     * ⚠️ BOTH ARE STRUCTURALLY EMPTY ON `Non Project Expenses`, which has no vendor link at all --
+     * no column, no join to make. That is a fact about the ledger, not a missing value, and the
+     * ranking scores it as no signal rather than as a penalty.
+     */
+    vendor_nickname: string;
+    contact_person: string;
+    /**
+     * The project's LINK ID, beside `project_name` rather than instead of it (slice N1).
+     *
+     * ⚠️ `project_name` FALLS BACK TO THE ID when the join finds nothing, so it cannot be compared
+     * against what the server's `ProjectIndex` reports -- that speaks in ids. The filter matches on
+     * this; the column displays the name. One key cannot carry both jobs.
+     */
+    project: string;
+    /**
+     * How much this record looks like the transfer, and why (slice N1).
+     *
+     * ⚠️ THE SERVER RANKS; THE CLIENT DOES NOT RE-SCORE. The token rules live in
+     * `services/outflow_import/similarity.py` beside the tokeniser the matcher uses, and a second
+     * implementation here would be free to drift from it. The payload arrives already ordered --
+     * `similarity` is carried so the screen can EXPLAIN the order, not reproduce it.
+     */
+    similarity: number;
+    similarity_reasons: string[];
     /**
      * ⚠️ TWO DATE KEYS, NEVER ONE. Only `Project Payments` records an approval date -- neither
      * expense doctype has the field at all. The expense's last-changed timestamp is real and useful
@@ -1779,6 +1790,12 @@ export const amountVerdict = (
 };
 
 // --- small helpers -----------------------------------------------------------------------------
+
+/** A date for DISPLAY, in the app's `dd-MMM-yyyy`. Blank in, blank out — never "Invalid Date". */
+function formatIfPresent(value: string | null | undefined): string {
+    const iso = dateOnly(value);
+    return iso ? formatDate(iso) : "";
+}
 
 function dateOnly(value: string | null | undefined): string {
     const text = String(value ?? "");

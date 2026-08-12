@@ -1,27 +1,26 @@
 import { describe, expect, it } from "vitest";
 
 import type { OutflowImportRow } from "@/types/NirmaanStack/OutflowImportBatch";
+import { DEFAULT_PERIOD } from "./outflowPeriod";
 import {
     DEFAULT_HIDDEN_COLUMNS,
     DEFAULT_TAB,
+    PERIOD_COLUMN_ID,
+    SERVER_FACET_COLUMNS,
+    importsCoveredLabel,
+    isDateFilterValue,
+    rematchWarning,
+    type SummaryImport,
     OUTFLOW_COLUMNS,
     OUTFLOW_TABS,
     RECORD_COLUMNS,
     activeFilterCount,
     amountVerdict,
-    assignedStackPairs,
     confirmFunnel,
     describeFrappeError,
     settleBlocker,
     previewCounts,
     statementDebit,
-    duplicateStackAssignments,
-    proposeStackPairs,
-    stackLabel,
-    stackPairsAreSubmittable,
-    stackSurplusNote,
-    stackIsCrossProject,
-    stackProjectSpread,
     tabCountParts,
     matchBasisLabel,
     ARBITRARY_SUGGESTION_RULES,
@@ -36,7 +35,6 @@ import {
     orderLabel,
     suggestionRuleLabel,
     type ConfirmableRow,
-    type UnpairedStack,
     ledgerLabel,
     parseRecordKey,
     recordDateLabel,
@@ -316,104 +314,6 @@ describe("the summary panel's figures", () => {
     });
 });
 
-describe("unpaired stacks", () => {
-    const stack = (transfers: number, records: number) => ({
-        account: "98765432101",
-        amount: 9000,
-        beneficiary_name: "APEX FABRICATION WORKS",
-        surplus_transfers: Math.max(transfers - records, 0),
-        surplus_records: Math.max(records - transfers, 0),
-        transfers: Array.from({ length: transfers }, (_, i) => ({
-            name: `OFR-${i + 1}`,
-            transfer_id: `T${i + 1}`,
-            amount: 9000,
-        })),
-        records: Array.from({ length: records }, (_, i) => ({
-            target_doctype: "Project Payments" as const,
-            target_name: `PAY-${i + 1}`,
-            amount: 9000,
-            status: "Approved",
-            vendor_name: "Apex",
-            project_name: "Site A",
-        })),
-    });
-
-    it("opens with transfer i against record i, up to the shorter side", () => {
-        // ⚠️ THE DIFFERENCE FROM THE SERVER'S `pair_stack`, which refuses an unbalanced stack
-        // outright because it would be DECIDING which transfer settles nothing. Here a person is
-        // present, so the surplus is left unassigned for them to place.
-        const pairs = proposeStackPairs(stack(3, 2));
-        expect(pairs).toEqual({
-            "OFR-1": "Project Payments|PAY-1",
-            "OFR-2": "Project Payments|PAY-2",
-        });
-        expect(pairs["OFR-3"]).toBeUndefined();
-    });
-
-    it("leaves surplus records unassigned too", () => {
-        expect(Object.keys(proposeStackPairs(stack(2, 3)))).toEqual(["OFR-1", "OFR-2"]);
-    });
-
-    it("catches a record assigned to two transfers", () => {
-        // ⚠️ THE ONE THING THE DIALOG MUST NOT LET THROUGH. The first settle marks the payment Paid
-        // and the second fails with AlreadyPaidError -- the exact failure the candidate-collapse
-        // fix was written to stop producing, re-created by hand.
-        const duplicates = duplicateStackAssignments({
-            "OFR-1": "Project Payments|PAY-1",
-            "OFR-2": "Project Payments|PAY-1",
-        });
-        expect([...duplicates]).toEqual(["Project Payments|PAY-1"]);
-    });
-
-    it("ignores blanks when looking for duplicates", () => {
-        expect(duplicateStackAssignments({ a: "", b: "" }).size).toBe(0);
-    });
-
-    it("submits a partial pairing, because the surplus is why a person is here", () => {
-        // Refusing to write the pairs someone DID make until they invent one for a transfer with no
-        // record would be a screen arguing with its own premise.
-        const s = stack(3, 2);
-        expect(stackPairsAreSubmittable(s, proposeStackPairs(s))).toBe(true);
-    });
-
-    it("refuses an empty pairing and a duplicated one", () => {
-        const s = stack(3, 2);
-        expect(stackPairsAreSubmittable(s, {})).toBe(false);
-        expect(
-            stackPairsAreSubmittable(s, {
-                "OFR-1": "Project Payments|PAY-1",
-                "OFR-2": "Project Payments|PAY-1",
-            })
-        ).toBe(false);
-    });
-
-    it("returns the assigned pairs in transfer order, split back into ledger and name", () => {
-        const s = stack(3, 2);
-        const assigned = assignedStackPairs(s, proposeStackPairs(s));
-        expect(assigned.map((a) => [a.transfer.name, a.target, a.name])).toEqual([
-            ["OFR-1", "Project Payments", "PAY-1"],
-            ["OFR-2", "Project Payments", "PAY-2"],
-        ]);
-    });
-
-    it("states the surplus in both directions, and says nothing when there is none", () => {
-        // A stack is here BECAUSE the counts do not match; a dialog showing only the pairs would
-        // let someone close it believing the whole stack was dealt with.
-        expect(stackSurplusNote(stack(3, 2))).toContain("1 transfer");
-        expect(stackSurplusNote(stack(3, 2))).toContain("stay open");
-        expect(stackSurplusNote(stack(2, 4))).toContain("2 approved records");
-        expect(stackSurplusNote(stack(2, 2))).toBe("");
-    });
-
-    it("names a stack by what it is, falling back to the account", () => {
-        const money = (n: number) => `₹${n.toLocaleString("en-IN")}`;
-        expect(stackLabel(stack(7, 6), money)).toBe("₹9,000 × 7 to APEX FABRICATION WORKS");
-        expect(stackLabel({ ...stack(2, 1), beneficiary_name: "" }, money)).toBe(
-            "₹9,000 × 2 to 98765432101"
-        );
-    });
-});
-
 describe("importOptionLabel", () => {
     it("names the file and the period, never the batch id", () => {
         // `OFI-26-00007` means nothing to an accountant; the file they uploaded and the fortnight
@@ -425,13 +325,13 @@ describe("importOptionLabel", () => {
                 period_from: "2026-07-16 00:00:00",
                 period_to: "2026-07-31 00:00:00",
             })
-        ).toBe("july-b.csv · 2026-07-16 → 2026-07-31");
+        ).toBe("july-b.csv · 16-Jul-2026 → 31-Jul-2026");
     });
 
     it("falls back through file, then period, then the id", () => {
         expect(importOptionLabel({ name: "OFI-1", original_filename: "a.csv" })).toBe("a.csv");
         expect(importOptionLabel({ name: "OFI-1", period_from: "2026-07-16 00:00:00" })).toBe(
-            "2026-07-16"
+            "16-Jul-2026"
         );
         expect(importOptionLabel({ name: "OFI-1" })).toBe("OFI-1");
     });
@@ -1296,54 +1196,6 @@ describe("tabCountParts", () => {
 });
 
 // ------------------------------------------------------------------------------------------------
-// stackProjectSpread -- the fact that separates a harmless pairing from an expensive one
-// ------------------------------------------------------------------------------------------------
-
-describe("stackProjectSpread", () => {
-    const stack = (projects: (string | undefined)[]): UnpairedStack => ({
-        account: "ACC",
-        amount: 9000,
-        beneficiary_name: "VK Air Conditioning",
-        surplus_transfers: 0,
-        surplus_records: 1,
-        transfers: [],
-        records: projects.map((project_name, i) => ({
-            target_doctype: "Project Payments" as const,
-            target_name: `PAY-${i}`,
-            amount: 9000,
-            status: "Approved",
-            vendor_name: "VK Air Conditioning",
-            project_name: project_name as string,
-        })),
-    });
-
-    it("is not cross-project when every record is on one job", () => {
-        const s = stack(["Paytm Bangalore", "Paytm Bangalore"]);
-        expect(stackProjectSpread(s)).toEqual(["Paytm Bangalore"]);
-        expect(stackIsCrossProject(s)).toBe(false);
-    });
-
-    it("lists every distinct project once, in first-seen order", () => {
-        const s = stack(["Alpha", "Beta", "Alpha", "Gamma"]);
-        expect(stackProjectSpread(s)).toEqual(["Alpha", "Beta", "Gamma"]);
-        expect(stackIsCrossProject(s)).toBe(true);
-    });
-
-    // A blank is missing data, not a second project. Counting it would raise the warning on a stack
-    // that is merely incomplete, which is how a real signal gets trained away.
-    it("treats a blank or whitespace project as no project at all", () => {
-        const s = stack(["Alpha", "", "   ", undefined]);
-        expect(stackProjectSpread(s)).toEqual(["Alpha"]);
-        expect(stackIsCrossProject(s)).toBe(false);
-    });
-
-    it("is not cross-project when nothing carries a project", () => {
-        expect(stackIsCrossProject(stack(["", ""]))).toBe(false);
-    });
-});
-
-
-// ------------------------------------------------------------------------------------------------
 // the confirm rollup (S4) -- vendor -> project -> transfer
 // ------------------------------------------------------------------------------------------------
 
@@ -1694,5 +1546,219 @@ describe("suggestionRuleLabel", () => {
     // A rule shipped server-side that this mirror has not learned must not render as "no rule".
     it("falls back to the raw id rather than to an empty chip", () => {
         expect(suggestionRuleLabel("brand-new-rule")).toBe("brand-new-rule");
+    });
+});
+
+// --- the period, and the filter it IS (slice P1) --------------------------------------------------
+
+describe("the period column", () => {
+    it("is a date filter, not a facet", () => {
+        // ⚠️ IT SHIPPED AS `facet`, WHICH IS THE DEFECT THIS FIXES. A facet offers a tick box per
+        // DISTINCT VALUE -- one per calendar day the table touches, growing without limit -- and it
+        // cannot express "everything after the 14th" at all.
+        const column = OUTFLOW_COLUMNS.find((c) => c.id === PERIOD_COLUMN_ID);
+        expect(column?.filter).toBe("date");
+    });
+
+    it("is not offered as a server FACET column, or the funnel would fetch dates to tick", () => {
+        expect(SERVER_FACET_COLUMNS).not.toContain(PERIOD_COLUMN_ID);
+    });
+});
+
+describe("isDateFilterValue", () => {
+    it("tells a date filter apart from every other filter shape", () => {
+        expect(isDateFilterValue({ operator: "Is", value: "2026-07-01" })).toBe(true);
+        expect(isDateFilterValue(["a", "b"])).toBe(false); // facet
+        expect(isDateFilterValue("contains")).toBe(false); // text
+        expect(isDateFilterValue({ min: 1, max: 2 })).toBe(false); // range
+        expect(isDateFilterValue(undefined)).toBe(false);
+    });
+});
+
+describe("activeFilterCount with a period", () => {
+    it("EXCLUDES the period, so the badge does not read '1' on every fresh session", () => {
+        // The period is always set (the screen opens on `last 30 days`) and has a large, always
+        // visible control of its own stating exactly what it is -- which is the thing a badge exists
+        // to substitute for.
+        expect(activeFilterCount({ [PERIOD_COLUMN_ID]: DEFAULT_PERIOD })).toBe(0);
+    });
+
+    it("still counts every other filter beside it", () => {
+        expect(
+            activeFilterCount({
+                [PERIOD_COLUMN_ID]: DEFAULT_PERIOD,
+                beneficiary_name: ["ACME"],
+                amount: { min: 100 },
+            })
+        ).toBe(2);
+    });
+});
+
+describe("serverQuery and the period", () => {
+    it("resolves a Between into the endpoint's two bounds", () => {
+        const query = serverQuery({
+            tab: DEFAULT_TAB,
+            filters: {
+                [PERIOD_COLUMN_ID]: { operator: "Between", value: ["2026-07-01", "2026-07-31"] },
+            },
+        });
+        expect(query.date_from).toBe("2026-07-01");
+        expect(query.date_to).toBe("2026-07-31");
+    });
+
+    it("sends only the bound an open-ended filter actually has", () => {
+        const query = serverQuery({
+            tab: DEFAULT_TAB,
+            filters: { [PERIOD_COLUMN_ID]: { operator: ">=", value: "2026-07-01" } },
+        });
+        expect(query.date_from).toBe("2026-07-01");
+        expect(query.date_to).toBeUndefined();
+    });
+
+    it("resolves a timespan into DATES, because these endpoints do not speak Frappe timespans", () => {
+        const query = serverQuery({
+            tab: DEFAULT_TAB,
+            filters: { [PERIOD_COLUMN_ID]: { operator: "Timespan", value: "today" } },
+        });
+        // Resolved against a live today, so assert the SHAPE and that the two agree rather than
+        // pinning a date that is wrong tomorrow.
+        expect(query.date_from).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+        expect(query.date_from).toBe(query.date_to);
+    });
+
+    it("sends no date at all when the period is cleared", () => {
+        const query = serverQuery({ tab: DEFAULT_TAB, filters: {} });
+        expect(query.date_from).toBeUndefined();
+        expect(query.date_to).toBeUndefined();
+    });
+});
+
+describe("importsCoveredLabel", () => {
+    it("says nothing when there is nothing to say", () => {
+        expect(importsCoveredLabel([])).toBe("");
+    });
+
+    it("agrees with itself about singular and plural", () => {
+        expect(importsCoveredLabel([anImport()])).toBe("1 import");
+        expect(importsCoveredLabel([anImport(), anImport({ name: "OFI-2" })])).toBe("2 imports");
+    });
+});
+
+describe("rematchWarning", () => {
+    it("names the imports the click will touch", () => {
+        const warning = rematchWarning([anImport({ original_filename: "july.csv" })]);
+        expect(warning).toContain("july.csv");
+        expect(warning).toContain("1 import");
+    });
+
+    it("stays quiet about overspill when every row of every batch is in scope", () => {
+        const warning = rematchWarning([anImport({ row_count: 40, total_rows: 40 })]);
+        expect(warning).not.toContain("extend past");
+    });
+
+    it("says 'It extends', not '1 of them extend', for a single straddling import", () => {
+        // ⚠️ FOUND IN THE BROWSER, NOT BY A TEST. The shipped wording read "1 of them extend past
+        // this period" — broken grammar on the one sentence whose job is to warn that a button
+        // reaches further than it looks, and "1 of them" is clumsy for a set of one.
+        const warning = rematchWarning([anImport({ row_count: 10, total_rows: 40 })]);
+        expect(warning).toContain("It extends past this period");
+        expect(warning).not.toContain("of them extend");
+    });
+
+    it("agrees subject and verb when SOME of several imports straddle", () => {
+        const warning = rematchWarning([
+            anImport({ name: "OFI-1", row_count: 10, total_rows: 40 }),
+            anImport({ name: "OFI-2", row_count: 5, total_rows: 5 }),
+        ]);
+        expect(warning).toContain("1 of them extends past this period");
+    });
+
+    it("uses the plural verb when several straddle", () => {
+        const warning = rematchWarning([
+            anImport({ name: "OFI-1", row_count: 10, total_rows: 40 }),
+            anImport({ name: "OFI-2", row_count: 5, total_rows: 6 }),
+        ]);
+        expect(warning).toContain("2 of them extend past this period");
+    });
+
+    it("STATES the overspill when a statement straddles the period", () => {
+        // ⚠️ THE WHOLE REASON THIS FUNCTION EXISTS. Matching runs per BATCH -- `match_batch`'s four
+        // global passes reason over a whole import at once -- so a straddling statement is
+        // re-matched in full. That is wider than the period implies, and the screen has to say so
+        // BEFORE the click rather than after it.
+        const warning = rematchWarning([anImport({ row_count: 10, total_rows: 40 })]);
+        expect(warning).toContain("past this period");
+        expect(warning).toContain("30 transfers");
+    });
+
+    it("adds up the overspill across several straddling statements", () => {
+        const warning = rematchWarning([
+            anImport({ name: "OFI-1", row_count: 10, total_rows: 40 }),
+            anImport({ name: "OFI-2", row_count: 5, total_rows: 6 }),
+        ]);
+        expect(warning).toContain("31 transfers");
+    });
+
+    it("says so plainly when the period holds no imports at all", () => {
+        expect(rematchWarning([])).toBe("No imports in this period.");
+    });
+});
+
+function anImport(overrides: Partial<SummaryImport> = {}): SummaryImport {
+    return {
+        name: "OFI-26-00001",
+        original_filename: "statement.csv",
+        row_count: 10,
+        total_rows: 10,
+        ...overrides,
+    };
+}
+
+describe("a pinned batch and the period", () => {
+    /**
+     * ⚠️ FOUND IN THE BROWSER, NOT BY A TEST, AND IT WAS THE WORST KIND OF WRONG. On
+     * `/bulk-import-outflow/:id` the period control is HIDDEN, so a period left in the store by an
+     * earlier visit kept narrowing the view with nothing on screen able to reveal or clear it. A
+     * deep link to a 1,043-row statement reported 274 transfers under a panel headed "Showing
+     * OFI-26-00289": every number wrong, everything looking right.
+     *
+     * `useOutflowRows` drops the period whenever a batch is pinned. That is a hook, so it is not
+     * directly testable here — what IS testable is the contract underneath it: given no date filter,
+     * `serverQuery` must send no date bound at all, so a pinned batch means the whole batch.
+     */
+    it("sends NO date bound when the period filter is absent", () => {
+        const query = serverQuery({ tab: DEFAULT_TAB, batch: "OFI-26-00289", filters: {} });
+        expect(query.batch).toBe("OFI-26-00289");
+        expect(query.date_from).toBeUndefined();
+        expect(query.date_to).toBeUndefined();
+    });
+
+    it("would otherwise narrow a pinned batch, which is exactly the defect", () => {
+        // The same call WITH a period proves the two are independent: nothing about `batch` cancels
+        // a date server-side, which is why the hook has to withhold it.
+        const query = serverQuery({
+            tab: DEFAULT_TAB,
+            batch: "OFI-26-00289",
+            filters: { [PERIOD_COLUMN_ID]: { operator: "Between", value: ["2026-07-01", "2026-07-31"] } },
+        });
+        expect(query.date_from).toBe("2026-07-01");
+    });
+});
+
+describe("importOptionLabel dates", () => {
+    it("renders the period in the app's dd-MMM-yyyy, not raw ISO", () => {
+        // ⚠️ FOUND IN THE BROWSER. The selector's label sat directly above a metadata line already
+        // showing "02-May-2026", so the ISO form put two date conventions on one panel.
+        const label = importOptionLabel({
+            name: "OFI-26-00289",
+            original_filename: "statement.csv",
+            period_from: "2026-05-02",
+            period_to: "2026-08-06",
+        });
+        expect(label).toBe("statement.csv · 02-May-2026 → 06-Aug-2026");
+    });
+
+    it("still falls back to the id when there is neither a file nor a period", () => {
+        expect(importOptionLabel({ name: "OFI-26-00289" })).toBe("OFI-26-00289");
     });
 });

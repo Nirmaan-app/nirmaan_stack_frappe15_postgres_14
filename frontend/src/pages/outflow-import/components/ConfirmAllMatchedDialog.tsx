@@ -60,14 +60,26 @@ import {
 } from "../outflowTableModel";
 
 interface Props {
-    batch?: string;
+    /**
+     * The population to confirm over — the SAME filter set the master table and the summary use
+     * (slice P1).
+     *
+     * ⚠️ IT WAS `batch?: string`, AND THE WIDENING IS NOT COSMETIC. The panel's button is labelled
+     * with `confirmable_rows` from `get_outflow_summary`, which now counts a PERIOD. If this dialog
+     * kept asking for one import, the button would offer a number this list could not produce —
+     * which is precisely the "button 688, table 893" defect the `stale` bucket exists to explain,
+     * except unexplainable, because the missing rows would have no property in common. Both sides
+     * pass the same object to the same server-side `_row_filters`.
+     */
+    filters: Record<string, unknown>;
     open: boolean;
     onOpenChange: (open: boolean) => void;
     onSettled: () => Promise<void> | void;
 }
 
 interface Payload {
-    batch: string;
+    /** The import, when the screen is pinned to one. `null` over a period spanning several. */
+    batch: string | null;
     ready: ConfirmableRow[];
     /** Matched SEVERAL approved records, so the matcher deliberately picked none. */
     needs_you: ConfirmableRow[];
@@ -80,13 +92,19 @@ interface Payload {
      * together, the gap between the button and the list was unexplainable from the screen.
      */
     stale: ConfirmableRow[];
-    /** Every `Matched` row in this import: `ready + stale + needs_you`. */
+    /** Every `Matched` row in scope: `ready + stale + needs_you`. */
     matched_rows: number;
     ready_value: number;
 }
 
 /**
- * Confirm every transfer the matcher was SURE about, for one import (slice X5).
+ * Confirm every transfer the matcher was SURE about, across the current period (X5, widened P1).
+ *
+ * ⚠️ THE SERVER REFUSES A SET TOO LARGE TO REVIEW rather than truncating it (`_MAX_CONFIRMABLE`).
+ * This dialog is a SAFETY CONTROL -- it states what the button will write, including how many
+ * approved amounts the click will REWRITE -- and a silently shortened list would show a number the
+ * summary did not agree with, over a set nobody chose. The refusal arrives as an ordinary error and
+ * says to narrow the period.
  *
  * ⚠️ IT SAYS "CONFIRM", NEVER "APPROVE" (owner ruling 2026-08-09). This feature never approves
  * anything -- it records that already-approved money left the bank. A dialog headed "Approve"
@@ -104,7 +122,7 @@ interface Payload {
  * by the time this runs. The per-row lock makes a stale confirm FAIL rather than write the wrong
  * thing -- so the results panel reports them plainly instead of treating them as an error state.
  */
-export const ConfirmAllMatchedDialog = ({ batch, open, onOpenChange, onSettled }: Props) => {
+export const ConfirmAllMatchedDialog = ({ filters: scope, open, onOpenChange, onSettled }: Props) => {
     /**
      * ⚠️ A POSITIVE SELECTION, NOT A SKIP LIST, AND THE SWAP WAS FORCED BY THE ROLLUP. A skip set
      * answers "which of the visible rows did somebody untick", which is fine for a flat list where
@@ -136,10 +154,10 @@ export const ConfirmAllMatchedDialog = ({ batch, open, onOpenChange, onSettled }
      */
     const showResults = outcomes !== null;
 
-    const { data, isLoading } = useFrappeGetCall<{ message: Payload }>(
+    const { data, isLoading, error } = useFrappeGetCall<{ message: Payload }>(
         "nirmaan_stack.api.outflow_import.review.get_confirmable_rows",
-        { batch },
-        open && batch && !showResults ? `outflow-confirmable-${batch}` : null
+        scope,
+        open && !showResults ? `outflow-confirmable-${JSON.stringify(scope)}` : null
     );
 
     const { call: callSettle } = useFrappePostCall(
@@ -271,6 +289,18 @@ export const ConfirmAllMatchedDialog = ({ batch, open, onOpenChange, onSettled }
                     </div>
                 )}
 
+                {/* ⚠️ THE SERVER'S REFUSAL IS SHOWN, NOT SWALLOWED (slice P1). The commonest one
+                    here is the reviewability cap: a period selecting more matched transfers than
+                    anybody can read in one go. It is a deliberate rule with a stated way through
+                    (narrow the period), so it is rendered as guidance rather than as a failure --
+                    but it must never fall through to an empty list, which would read as "there is
+                    nothing to confirm" on a screen whose button just said there were thousands. */}
+                {!showResults && !isLoading && error && (
+                    <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                        {describeFrappeError(error, "The confirmable transfers could not be loaded.")}
+                    </div>
+                )}
+
                 {showResults && outcomes && (
                     <div className="max-h-[50vh] space-y-2 overflow-y-auto">
                         <p className="flex items-center gap-2 text-sm">
@@ -320,7 +350,7 @@ export const ConfirmAllMatchedDialog = ({ batch, open, onOpenChange, onSettled }
                     </div>
                 )}
 
-                {!showResults && !isLoading && (
+                {!showResults && !isLoading && !error && (
                     <div className="max-h-[50vh] space-y-4 overflow-y-auto">
                         {/* ⚠️ THE FUNNEL, STATED. The summary panel's button counts every matched
                             row carrying a suggestion; this dialog can only act on the ones whose

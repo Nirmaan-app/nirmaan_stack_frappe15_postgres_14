@@ -6,6 +6,7 @@ import React, { useCallback, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
     ColumnDef,
+    RowSelectionState,
     getCoreRowModel,
     getFacetedRowModel,
     getFacetedUniqueValues,
@@ -28,6 +29,7 @@ import { getUnifiedStatusStyle } from "../utils";
 import { masterMapKey } from "./FillReportButton";
 import { ReportPreviewDialog } from "./ReportPreviewDialog";
 import { ApprovalActionDialog, type ApprovalTaskRef } from "./ApprovalActionDialog";
+import { BulkApprovalDialog } from "./BulkApprovalDialog";
 import { useMasterTaskMap } from "../report-wizard/data/useMasterTaskMap";
 
 const PARENT_DOCTYPE = "Project Commission Report";
@@ -56,9 +58,15 @@ interface Props {
     trackerName?: string;
     /** Called after approve/reject so the parent can refresh counts / tracker doc. */
     onRefresh?: () => void;
+    /**
+     * Opt into row selection + bulk Approve / Reject. Requires `trackerName`, since
+     * the endpoint writes within ONE tracker; the cross-project list page leaves it
+     * off. Still gated on `isAdmin` inside.
+     */
+    enableBulk?: boolean;
 }
 
-export const GlobalApprovalsTable: React.FC<Props> = ({ trackerName, onRefresh }) => {
+export const GlobalApprovalsTable: React.FC<Props> = ({ trackerName, onRefresh, enableBulk }) => {
     const { categoryData, FacetProjectsOptions } = useCommissionMasters();
     const { map: masterMap } = useMasterTaskMap();
     const { role, user_id } = useUserData();
@@ -73,6 +81,11 @@ export const GlobalApprovalsTable: React.FC<Props> = ({ trackerName, onRefresh }
     const [approval, setApproval] = useState<{ open: boolean; mode: 'approve' | 'reject' | null; task: ApprovalTaskRef | null }>(
         { open: false, mode: null, task: null },
     );
+
+    // Bulk is opt-in AND admin-only, matching the per-row ✓/✗ gate above.
+    const bulkEnabled = !!enableBulk && !!trackerName && isAdmin;
+    const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
+    const [bulkMode, setBulkMode] = useState<'approve' | 'reject' | null>(null);
     const refetchRef = useRef<() => void>(() => {});
     // Refresh BOTH this table and the parent (tracker doc / list) so status counts
     // and other views update immediately after approve/reject.
@@ -278,12 +291,19 @@ export const GlobalApprovalsTable: React.FC<Props> = ({ trackerName, onRefresh }
         getCoreRowModel: getCoreRowModel(),
         manualPagination: true,
         pageCount: serverDataTable.table.getPageCount(),
+        // Keyed on the DURABLE child-row name, never the array index: this table is
+        // server-paginated, so index ids would remap ticks onto different rows the
+        // moment the page, sort or filter changes.
+        getRowId: (row) => row.name,
+        enableRowSelection: bulkEnabled,
         state: {
             pagination: serverDataTable.pagination,
             sorting: serverDataTable.sorting,
             columnFilters: serverDataTable.columnFilters,
             globalFilter: serverDataTable.searchTerm,
+            rowSelection,
         },
+        onRowSelectionChange: setRowSelection,
         onPaginationChange: serverDataTable.setPagination,
         onSortingChange: serverDataTable.setSorting,
         onColumnFiltersChange: serverDataTable.setColumnFilters,
@@ -291,6 +311,12 @@ export const GlobalApprovalsTable: React.FC<Props> = ({ trackerName, onRefresh }
         getFacetedRowModel: getFacetedRowModel(),
         getFacetedUniqueValues: getFacetedUniqueValues(),
     });
+
+    const selectedTasks = useMemo(
+        () => table.getSelectedRowModel().rows.map((r) => r.original),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [rowSelection, serverDataTable.data],
+    );
 
     if (serverDataTable.isLoading && !serverDataTable.data?.length) {
         return <TableSkeleton />;
@@ -316,6 +342,29 @@ export const GlobalApprovalsTable: React.FC<Props> = ({ trackerName, onRefresh }
                 onSearchTermChange={serverDataTable.setSearchTerm}
                 showExportButton={false}
                 tableHeight="60vh"
+                showRowSelection={bulkEnabled}
+                toolbarActions={
+                    bulkEnabled && selectedTasks.length > 0 ? (
+                        <div className="flex items-center gap-2">
+                            <Button
+                                size="sm"
+                                className="bg-green-600 hover:bg-green-700 gap-1"
+                                onClick={() => setBulkMode('approve')}
+                            >
+                                <Check className="h-3.5 w-3.5" />
+                                Approve ({selectedTasks.length})
+                            </Button>
+                            <Button
+                                size="sm"
+                                className="bg-red-600 hover:bg-red-700 gap-1"
+                                onClick={() => setBulkMode('reject')}
+                            >
+                                <X className="h-3.5 w-3.5" />
+                                Reject ({selectedTasks.length})
+                            </Button>
+                        </div>
+                    ) : null
+                }
             />
             <ReportPreviewDialog
                 open={preview.open}
@@ -332,6 +381,16 @@ export const GlobalApprovalsTable: React.FC<Props> = ({ trackerName, onRefresh }
                 task={approval.task}
                 refresh={refresh}
             />
+            {bulkEnabled && (
+                <BulkApprovalDialog
+                    open={!!bulkMode}
+                    onOpenChange={(o) => { if (!o) setBulkMode(null); }}
+                    mode={bulkMode}
+                    trackerId={trackerName || ''}
+                    selectedTasks={selectedTasks}
+                    onApplied={() => { setRowSelection({}); refresh(); }}
+                />
+            )}
         </div>
     );
 };

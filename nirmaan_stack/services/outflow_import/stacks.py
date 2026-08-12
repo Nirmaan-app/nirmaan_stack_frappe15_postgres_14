@@ -40,14 +40,46 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Iterable, Sequence
 
+from nirmaan_stack.services.outflow_import.disambiguate import NEAREST_DATE_WINDOW_DAYS
+
 __all__ = [
     "StackKey",
     "Stack",
+    "StackPair",
+    "PAIR_BASIS_DATE",
+    "PAIR_BASIS_ARBITRARY",
     "stack_key",
     "group_into_stacks",
     "pair_stack",
     "stack_note",
+    "stack_surplus_note",
 ]
+
+PAIR_BASIS_DATE = "date"
+"""This pair was decided by a decision date that beat every rival still available."""
+
+PAIR_BASIS_ARBITRARY = "arbitrary"
+"""Nothing separated this pair -- the historic behaviour, and still the majority of them."""
+
+
+@dataclass(frozen=True)
+class StackPair:
+    """One transfer, the record it was paired with, and WHETHER ANYTHING DECIDED IT.
+
+    ⚠️ THE BASIS IS THE POINT OF THIS TYPE. `pair_stack` used to return bare `(transfer, record)`
+    tuples, which was honest while every pairing was arbitrary and every note said so. Now that some
+    are decided by evidence and some are not, a caller that cannot tell them apart has to either
+    call all of them arbitrary -- wasting the evidence -- or none of them, which is a false claim on
+    the majority. Both failures are silent, so the distinction travels WITH the pair.
+    """
+
+    transfer: object
+    record: object
+    basis: str
+
+    @property
+    def is_evidence(self) -> bool:
+        return self.basis == PAIR_BASIS_DATE
 
 
 @dataclass(frozen=True, order=True)
@@ -160,7 +192,41 @@ def group_into_stacks(rows: Iterable, records_for) -> tuple[Stack, ...]:
     return tuple(stacks)
 
 
-def pair_stack(stack: Stack) -> tuple[tuple, ...]:
+def _transfer_date(row):
+    """The day the money moved, as a plain `date`.
+
+    `_StagedRow` exposes `added_on_date`; a raw row may carry only `added_on`, which is a datetime.
+    Both are accepted because this module is pure and does not get to say who builds its input.
+    """
+    value = getattr(row, "added_on_date", None)
+    if value is None:
+        value = getattr(row, "added_on", None)
+    if value is None:
+        return None
+    return value.date() if hasattr(value, "date") else value
+
+
+def _date_ranked_pairs(transfers: Sequence, records: Sequence) -> list[tuple[int, int, int]]:
+    """Every `(gap, transfer index, record index)` where BOTH sides carry a date, nearest first.
+
+    Indices rather than objects: they are unique within an already-ordered sequence, so they make
+    the sort total without needing the rows themselves to be comparable.
+    """
+    out: list[tuple[int, int, int]] = []
+    for ti, transfer in enumerate(transfers):
+        td = _transfer_date(transfer)
+        if td is None:
+            continue
+        for ri, record in enumerate(records):
+            rd = getattr(record, "decided_on", None)
+            if rd is None:
+                continue
+            out.append((abs((rd - td).days), ti, ri))
+    out.sort()
+    return out
+
+
+def pair_stack(stack: Stack) -> tuple["StackPair", ...]:
     """Pair a BALANCED stack 1:1, or return nothing.
 
     ⚠️ IT PAIRS ONLY WHEN THE COUNTS ARE EQUAL (owner ruling 2026-08-10). Unequal counts are the
@@ -184,30 +250,154 @@ def pair_stack(stack: Stack) -> tuple[tuple, ...]:
     contract is "the same input gives the same pairing" cannot delegate half of that contract to its
     caller. Sorting an already-sorted sequence costs nothing.
 
-    A record is never handed to two transfers: `zip` over two same-length sequences consumes each
-    exactly once. Guarding a record against being claimed by a DIFFERENT stack is the caller's job,
-    since only the caller can see across stacks.
+    A record is never handed to two transfers: each index is consumed exactly once. Guarding a
+    record against being claimed by a DIFFERENT stack is the caller's job, since only the caller can
+    see across stacks.
+
+    ⚠️ IT PAIRS BY DECISION DATE FIRST, AND FALLS BACK TO THE ZIP (2026-08-11). The zip above is
+    ARBITRARY -- it always was, and every paired row had to say so. Where the records carry decision
+    dates that actually separate them, the pairing is no longer a coin flip and the row should not
+    claim it is: those pairs come back with `PAIR_BASIS_DATE` and a note that states the evidence.
+
+    ⚠️ NO DATES, OR EVERY GAP TIED, REPRODUCES THE OLD ZIP EXACTLY -- and that is not luck, it is
+    the reason the greedy is keyed on `(gap, transfer index, record index)` over ALREADY-ORDERED
+    sequences. With no dates the ranked list is empty and everything falls through to the zip; with
+    every gap equal the indices break every tie in order, which IS the zip. The dateless fixtures in
+    `test_stacks` are the guard that says so.
+
+    ⚠️ MEASURED ON THE FIRST REAL STATEMENT, AND THE HEADLINE IS SMALLER THAN IT SOUNDS: of 112
+    stack pairings, 25 come out evidence-decided and 76 arbitrary -- but only TWO point at a
+    different record than the arbitrary zip already chose. Most of what this pass buys is not a
+    better pairing, it is a TRUE SENTENCE about a pairing that was already right: those 25 rows used
+    to tell a reviewer the records were "interchangeable on amount" when they had been decided days
+    apart. Do not let a later reader mistake the 25 for 25 corrections.
     """
     if not stack.is_balanced:
         return ()
-    return tuple(zip(_ordered_transfers(stack.transfers), _ordered_records(stack.records)))
+
+    transfers = _ordered_transfers(stack.transfers)
+    records = _ordered_records(stack.records)
+
+    ranked = _date_ranked_pairs(transfers, records)
+    taken_t: set[int] = set()
+    taken_r: set[int] = set()
+    by_transfer: dict[int, tuple[int, str]] = {}
+
+    for gap, ti, ri in ranked:
+        if ti in taken_t or ri in taken_r:
+            continue
+        # ⚠️ EVIDENCE ONLY IF IT BEAT SOMETHING -- but the comparison is against EVERY OTHER RECORD
+        # IN THE STACK, not only the ones still free, and that distinction took a red test to find.
+        #
+        # Judged against the free ones, the LAST pair of any stack can never be evidence: there is
+        # nothing left to be nearer than. That sounds conservative and is actually WRONG, because
+        # the note it produces is a false statement -- "the records are interchangeable on amount"
+        # said about two records decided a week apart, which is the one thing a reviewer would have
+        # used to check it. Whether some other transfer got there first has no bearing on whether
+        # the dates favour THIS pairing.
+        #
+        # A transfer that lost a nearer record to a rival still comes out ARBITRARY, which is
+        # correct: it did not win on evidence, it took what was left.
+        rivals = [g for g, t, r in ranked if t == ti and r != ri]
+        basis = (
+            PAIR_BASIS_DATE
+            if rivals and gap < min(rivals) and gap <= NEAREST_DATE_WINDOW_DAYS
+            else PAIR_BASIS_ARBITRARY
+        )
+        taken_t.add(ti)
+        taken_r.add(ri)
+        by_transfer[ti] = (ri, basis)
+
+    # Whatever the date pass could not speak for is zipped in the original order -- the arbitrary
+    # pairing, unchanged, over the leftovers.
+    spare = [ri for ri in range(len(records)) if ri not in taken_r]
+    for ti in range(len(transfers)):
+        if ti in by_transfer:
+            continue
+        by_transfer[ti] = (spare.pop(0), PAIR_BASIS_ARBITRARY)
+
+    return tuple(
+        StackPair(
+            transfer=transfers[ti],
+            record=records[by_transfer[ti][0]],
+            basis=by_transfer[ti][1],
+        )
+        for ti in range(len(transfers))
+    )
 
 
-def stack_note(stack: Stack, record_name: str) -> str:
+def stack_note(stack: Stack, record_name: str, basis: str = PAIR_BASIS_ARBITRARY) -> str:
     """The sentence an auto-paired row carries, in place of the matcher's own.
 
-    ⚠️ IT SAYS THE PAIRING WAS ARBITRARY, IN SO MANY WORDS, and that is the whole point of it. The
-    owner accepted arbitrary pairing between interchangeable records; a note that read like an
-    ordinary confident match would hide the one fact a reviewer needs in order to catch the case
-    where the records were NOT interchangeable after all -- six payments of the same amount sitting
-    on six different projects. "Check the project before confirming" is the instruction that turns
-    an accepted risk into a reviewable one.
+    ⚠️ THE ARBITRARY WORDING IS AN OWNER-RULED SAFETY CONTROL, NOT PROSE. The owner accepted
+    arbitrary pairing between interchangeable records; a note that read like an ordinary confident
+    match would hide the one fact a reviewer needs in order to catch the case where the records were
+    NOT interchangeable after all -- six payments of the same amount sitting on six different
+    projects. "Check the project before confirming" is what turns an accepted risk into a reviewable
+    one, and it must survive any edit to this function.
+
+    ⚠️ THE DATE VARIANT DOES NOT DROP THAT INSTRUCTION, and the reason is worth stating because the
+    opposite is tempting. A decision date says these two records are distinguishable; it does not
+    say the pairing is on the right PROJECT, which is precisely where a wrong pick bills the wrong
+    job. So the evidence is stated AND the check is still asked for: what changes is the claim, not
+    the caution. (On the first real statement none of the 25 date-decided pairs were cross-project
+    -- but only one stack spanned projects at all, so that is a fact about this statement, not a
+    property of the rule, and it must not be read as one.)
     """
-    return (
+    lead = (
         f"One of {stack.size} identical transfers of {stack.key.amount} to this account, "
         f"paired 1:1 with {len(stack.records)} approved records. "
-        f"This one is assigned to {record_name}; the pairing between them is arbitrary because the "
-        f"records are interchangeable on amount. Check the project before confirming."
+    )
+    if basis == PAIR_BASIS_DATE:
+        return (
+            f"{lead}This one is assigned to {record_name}, which was decided closest to the day "
+            f"this transfer moved -- nearer than any other record still available. "
+            f"Check the project before confirming."
+        )
+    return (
+        f"{lead}This one is assigned to {record_name}; the pairing between them is arbitrary "
+        f"because the records are interchangeable on amount. Check the project before confirming."
+    )
+
+
+def stack_surplus_note(stack: Stack) -> str:
+    """Why an UNBALANCED stack was left alone -- the sentence that replaced a whole screen.
+
+    ⚠️ THIS EXISTS BECAUSE THE "RESOLVE N STACKS" DIALOG WAS DELETED (2026-08-11), AND WITHOUT IT
+    THE REASONING WENT WITH IT. That dialog opened on a proposal and stated the surplus in words:
+    seven transfers, six records, one settles nothing. Its rows now fall into the ordinary worklist
+    as `Not-Matched`, and a row sitting there with the generic "could not choose" note tells a
+    reviewer nothing about WHY it is unresolvable -- they would look for a seventh record that does
+    not exist. Deleting a screen is allowed; deleting the explanation it carried is not.
+
+    ⚠️ IT IS ONLY TRUE COMPUTED ACROSS IMPORTS, which is why `_resolve_stacks` writes it from a
+    read that spans them. The other six transfers of this stack may sit in last month's batch, and
+    a count taken inside one batch would state a surplus that is not the real one.
+    """
+    transfers = len(stack.transfers)
+    records = len(stack.records)
+    lead = (
+        f"One of {transfers} identical transfers of {stack.key.amount} to this account, "
+        f"against {records} approved record{'' if records == 1 else 's'}."
+    )
+    if records == 0:
+        return (
+            f"{lead} Every record at this amount is already spoken for by another transfer, so "
+            f"there is nothing left for this one to settle. Link a record by hand, or leave it."
+        )
+    if transfers > records:
+        spare = transfers - records
+        return (
+            f"{lead} There are {spare} more transfer{'' if spare == 1 else 's'} than records, so "
+            f"at least {'one settles' if spare == 1 else f'{spare} settle'} nothing. Nothing was "
+            f"paired automatically, because choosing which one goes without is a judgement about "
+            f"money. Link the ones you can by hand."
+        )
+    spare = records - transfers
+    return (
+        f"{lead} There {'is' if spare == 1 else 'are'} {spare} more record{'' if spare == 1 else 's'} "
+        f"than transfers, so at least {'one' if spare == 1 else f'{spare}'} will stay unpaid. "
+        f"Nothing was paired automatically. Link the ones you can by hand."
     )
 
 

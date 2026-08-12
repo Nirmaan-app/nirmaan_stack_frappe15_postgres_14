@@ -45,6 +45,8 @@ import {
 import { getTaskTableColumns, TASK_DATE_COLUMNS } from './config/commissionTableColumns';
 import { useMasterTaskMap } from './report-wizard/data/useMasterTaskMap';
 import { ApprovedReportsDialog } from './components/ApprovedReportsDialog';
+import { BulkUpdateDialog } from './components/BulkUpdateDialog';
+import { canBulkEdit } from './commissionBulk';
 
 const DOCTYPE = 'Project Commission Report';
 
@@ -313,6 +315,12 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
     const hasEditStructureAccess = role === "Nirmaan Design Lead Profile" || role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile" || user_id === "Administrator";
     // Approvers (Admin / PMO) get the Approvals queue tab + Approve/Reject actions.
     const isApprover = role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile" || user_id === "Administrator";
+    // Strictly Admin — NOT PMO. Gates the bulk-update STATUS section, mirroring the
+    // Design Tracker's `isAdmin` (its bulk_update_task_status is Admin-only too).
+    const isAdmin = role === "Nirmaan Admin Profile" || user_id === "Administrator";
+    // Bulk Update is ADMIN + PMO only — narrower than hasEditStructureAccess, which
+    // also carries Design Lead. Shared with the server via commissionBulk.ts.
+    const canBulkUpdate = canBulkEdit(role, user_id);
     // Who may open the "Bulk Approved Reports" export: Administrator + Admin + PMO + Project Manager
     // (the tracker-access roles) + Design Lead (kept from the prior hasEditStructureAccess gate).
     const canExportApprovedReports = user_id === "Administrator" || [
@@ -344,6 +352,7 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
     const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 50 });
     const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
     const [isApprovedReportsOpen, setIsApprovedReportsOpen] = useState(false);
+    const [isBulkUpdateOpen, setIsBulkUpdateOpen] = useState(false);
 
     // --- Progress Calculations for Header (phase-scoped) ---
     // Phase-scoped tasks for progress metrics
@@ -506,9 +515,9 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
         onPaginationChange: setPagination,
         onGlobalFilterChange: setSearchTerm,
         onRowSelectionChange: setRowSelection,
-        enableRowSelection: (hasEditStructureAccess || role === "Nirmaan Design Lead Profile")
-            ? (row) => row.original.task_status !== 'Not Applicable'
-            : false,
+        // Every row is tickable, INCLUDING Not Applicable: bulk "Pending" re-activates
+        // exactly those, so excluding them made that action unreachable.
+        enableRowSelection: hasEditStructureAccess || role === "Nirmaan Design Lead Profile",
         getCoreRowModel: getCoreRowModel(),
         getFilteredRowModel: getFilteredRowModel(),
         getSortedRowModel: getSortedRowModel(),
@@ -524,6 +533,14 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
             return false;
         },
     });
+
+    // Ticked rows, for the Bulk Update dialog. Keyed on the SELECTION + the row set —
+    // never on `table` itself (a new instance every render).
+    const selectedTaskObjects = useMemo(
+        () => table.getSelectedRowModel().rows.map(r => r.original),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [rowSelection, displayedTasks],
+    );
 
     // --- Action Handlers ---
     const handleAddCategories = async (newTasks: Partial<CommissionReportTask>[]) => {
@@ -844,7 +861,7 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
             <div className="p-4 md:px-6 overflow-x-auto">
                 {isApprover && activeStatusTab === 'Pending Approval' ? (
                     /* Pending Approval queue (same table as the list page, scoped to this project) */
-                    <GlobalApprovalsTable trackerName={trackerId || ''} onRefresh={refetchTracker} />
+                    <GlobalApprovalsTable trackerName={trackerId || ''} onRefresh={refetchTracker} enableBulk />
                 ) : (
                 /* DataTable for all tasks */
                 <DataTable<CommissionReportTask>
@@ -865,6 +882,19 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
                     onExport="default"
                     tableHeight="60vh"
                     showRowSelection={hasEditStructureAccess || role === "Nirmaan Design Lead Profile"}
+                    toolbarActions={
+                        selectedTaskObjects.length > 0 && canBulkUpdate ? (
+                            <Button
+                                size="sm"
+                                variant="default"
+                                className="bg-blue-600 hover:bg-blue-700"
+                                onClick={() => setIsBulkUpdateOpen(true)}
+                            >
+                                <Edit className="h-3.5 w-3.5 mr-1.5" />
+                                Bulk Update ({selectedTaskObjects.length})
+                            </Button>
+                        ) : null
+                    }
                 />
                 )}
             </div>
@@ -888,6 +918,18 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
                 onOpenChange={setIsAddCategoryModalOpen}
                 availableCategories={availableNewCategories}
                 onAdd={handleAddCategories}
+            />
+
+            <BulkUpdateDialog
+                isOpen={isBulkUpdateOpen}
+                onOpenChange={setIsBulkUpdateOpen}
+                trackerId={trackerId || ''}
+                selectedTasks={selectedTaskObjects}
+                isAdmin={isAdmin}
+                onApplied={() => {
+                    setRowSelection({});
+                    refetchTracker();
+                }}
             />
 
             <ApprovedReportsDialog

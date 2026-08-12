@@ -110,6 +110,9 @@ export interface Projects {
 
 	project_value_gst?: string
 
+	/**	Manual Project Value : Check - when set, project_value / project_value_gst are entered manually and NOT recomputed from Customer PO rows	*/
+	manual_project_value?: 0 | 1
+
 	/**	Cashflow Gap Limit : Float	*/
 	cashflow_gap_limit?: number
 

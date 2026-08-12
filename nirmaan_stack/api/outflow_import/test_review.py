@@ -38,17 +38,19 @@ from nirmaan_stack.api.outflow_import.review import (
     get_import_summary,
     get_outflow_facet_values,
     get_outflow_rows,
+    get_outflow_summary,
     get_row_candidates,
-    get_unpaired_stacks,
     match_batch,
+    match_period,
     search_settleable_records,
     skip_row,
 )
 from nirmaan_stack.api.outflow_import.expenses import settle_row
 from nirmaan_stack.api.outflow_import.upload import BATCH_DOCTYPE, ROW_DOCTYPE, _stage_batch
 from nirmaan_stack.services.outflow_import.amounts import AMOUNT_TOLERANCE
+from nirmaan_stack.services.outflow_import.normalize import normalize_account
 from nirmaan_stack.services.outflow_import.parser import parse_statement
-from nirmaan_stack.services.outflow_import.status import ROW_STATUSES
+from nirmaan_stack.services.outflow_import.status import OPEN_ROW_STATUSES, ROW_STATUSES
 
 FIXTURE = (
     frappe.get_app_path("nirmaan_stack")
@@ -657,6 +659,99 @@ class TestSearchSettleableRecords(OutflowReviewFixture):
     def test_the_merged_list_respects_the_limit(self):
         records = search_settleable_records(self._row_name(), "", limit=2)
         self.assertLessEqual(len(records), 2)
+
+    # --- slice N1: the whole pool, ranked -------------------------------------------------------
+
+    def test_the_default_now_returns_every_approved_payment_not_a_page_of_fifty(self):
+        """⚠️ THE DEFECT THIS FIXES, AND IT WAS NOT MERELY A SHORT LIST.
+
+        The old default asked each ledger for 50 rows ORDERED BY AMOUNT CLOSENESS. A record whose
+        vendor and project were both right was INVISIBLE unless its amount happened to be near --
+        and the search box was the only way to reach it. The pool is small enough to send whole.
+        """
+        offered = {
+            r["name"]
+            for r in search_settleable_records(self._row_name(), "")
+            if r["target_doctype"] == "Project Payments"
+        }
+        approved = set(
+            frappe.get_all(
+                "Project Payments", filters={"status": "Approved"}, pluck="name", limit_page_length=0
+            )
+        )
+        self.assertEqual(offered, approved)
+
+    def test_a_small_ledger_can_no_longer_be_squeezed_out_of_the_merge(self):
+        """⚠️ THE SECOND HALF OF THE SAME DEFECT. Each ledger was capped at 50 and the merge was cut
+        to 50, so near-amount payments could fill the list and drop an ENTIRE ledger from a view
+        that claims to span all three."""
+        records = search_settleable_records(self._row_name(), "")
+        self.assertIn(self.expense_linked, {r["name"] for r in records})
+
+    def test_every_record_carries_its_similarity_score_and_the_reasons_for_it(self):
+        """A ranked list whose order cannot be explained is one people stop trusting."""
+        records = search_settleable_records(self._row_name(), "")
+        self.assertTrue(records)
+        for record in records:
+            self.assertIsInstance(record["similarity"], (int, float))
+            self.assertIsInstance(record["similarity_reasons"], list)
+
+    def test_a_record_carries_the_project_id_BESIDE_the_display_name(self):
+        """⚠️ NOT INSTEAD OF IT. `project_name` falls back to the id when the join finds nothing, so
+        it cannot be compared against what `ProjectIndex` reports -- that speaks in ids. The ranking
+        needs the id and the screen needs the name; one key cannot carry both."""
+        records = search_settleable_records(self._row_name(), "")
+        expense = next(r for r in records if r["name"] == self.expense_linked)
+        self.assertEqual(expense["project"], self.project)
+        self.assertNotEqual(expense["project_name"], expense["project"])
+
+    def test_every_record_carries_the_nickname_and_contact_person_keys(self):
+        """Structural: the alias axis reads them on every ledger, and a MISSING key is not the same
+        as an empty one -- Non Project Expenses have no vendor at all and must still answer."""
+        records = search_settleable_records(self._row_name(), "")
+        for record in records:
+            self.assertIn("vendor_nickname", record)
+            self.assertIn("contact_person", record)
+
+    def test_a_non_project_expense_reports_no_vendor_rather_than_omitting_the_field(self):
+        records = search_settleable_records(self._row_name(), "Non Project Expenses")
+        for record in records:
+            self.assertEqual(record["vendor_name"], "")
+            self.assertEqual(record["vendor_nickname"], "")
+            self.assertEqual(record["contact_person"], "")
+
+    def test_a_vendors_nickname_reaches_the_payload_when_it_has_one(self):
+        nickname = frappe.db.get_value("Vendors", self.vendor.name, "vendor_nickname") if self.vendor else None
+        if not nickname:
+            self.skipTest("the fixture vendor has no nickname on file")
+        records = search_settleable_records(self._row_name(), "")
+        expense = next(r for r in records if r["name"] == self.expense_linked)
+        self.assertEqual(expense["vendor_nickname"], nickname)
+
+    def test_an_unsettleable_record_never_outranks_a_settleable_one(self):
+        """⚠️ THE HARD SPLIT (owner decision Q2), asserted on real data rather than a fixture.
+
+        `settle.py` refuses a record outside the settle window, so however much one looks like the
+        transfer it must never sit above a record the reviewer can actually confirm. This is the
+        same property `test_suggested_records_come_first_then_the_closest` checks; it is repeated
+        here because the ORDER's reason changed underneath that test -- it now passes because of the
+        split rather than because of the amount sort, and only this docstring says so.
+        """
+        flags = [r["suggested"] for r in search_settleable_records(self._row_name(), "")]
+        self.assertEqual(flags, sorted(flags, reverse=True))
+
+    def test_scores_never_rise_as_the_list_goes_down_within_one_half(self):
+        records = search_settleable_records(self._row_name(), "")
+        for earlier, later in zip(records, records[1:]):
+            if earlier["suggested"] == later["suggested"]:
+                self.assertGreaterEqual(earlier["similarity"], later["similarity"])
+
+    def test_the_order_is_total_so_two_identical_calls_agree(self):
+        """⚠️ THE SORT KEY ENDS IN `(doctype, name)`, WHICH IS UNIQUE. A ranking that reshuffles
+        equal-scoring rows between two loads of the same dialog is one a reviewer cannot trust."""
+        first = [(r["target_doctype"], r["name"]) for r in search_settleable_records(self._row_name(), "")]
+        again = [(r["target_doctype"], r["name"]) for r in search_settleable_records(self._row_name(), "")]
+        self.assertEqual(first, again)
 
 
 class TestAmbiguityIsNotResolved(OutflowReviewFixture):
@@ -1648,49 +1743,21 @@ class TestStackAutoPairing(OutflowReviewFixture):
             frappe.db.commit()
             match_batch(self.batch.name)
 
-    def test_the_leftovers_endpoint_reports_only_the_unbalanced_stacks(self):
-        """`get_unpaired_stacks` is the LEFTOVER of the pass and only the leftover. A balanced stack
-        is already paired and needs no screen; what a person has to resolve is the shape no rule can
-        settle -- more transfers than records, where SOME transfer settles nothing."""
-        match_batch(self.batch.name)
-        payload = get_unpaired_stacks()
+    def test_the_stack_pass_spans_imports(self):
+        """A stack does not respect batch boundaries, so a pass scoped to one import would see half
+        of its own problem -- and would state a surplus that is not the real one.
 
-        keys = {(s["account"], round(s["amount"], 2)) for s in payload["stacks"]}
-        self.assertIn(
-            (self.stack_account, round(self.STACK_B_AMOUNT, 2)), keys,
-            "stack B is 3 transfers against 2 records and must be offered for resolution",
-        )
-        self.assertNotIn(
-            (self.stack_account, round(self.STACK_A_AMOUNT, 2)), keys,
-            "stack A paired itself and has nothing left for a person to decide",
-        )
-
-    def test_a_leftover_stack_states_its_surplus_and_carries_both_sides(self):
-        match_batch(self.batch.name)
-        stack = next(
-            s
-            for s in get_unpaired_stacks()["stacks"]
-            if round(s["amount"], 2) == round(self.STACK_B_AMOUNT, 2)
-        )
-        self.assertEqual(len(stack["transfers"]), 3)
-        self.assertEqual(len(stack["records"]), 2)
-        self.assertEqual(stack["surplus_transfers"], 1)
-        self.assertEqual(stack["surplus_records"], 0)
-        # The facts a reviewer picks a record by, from the SAME loader the confirm list uses.
-        for record in stack["records"]:
-            self.assertEqual(record["target_doctype"], "Project Payments")
-            self.assertEqual(record["status"], "Approved")
-
-    def test_the_leftovers_endpoint_spans_imports(self):
-        """A stack does not respect batch boundaries, so scoping this read to one import would show
-        a person half of their own problem.
+        ⚠️ THIS USED TO READ `get_unpaired_stacks`, WHICH IS DELETED. The screen went; the property
+        it proved did not, so the assertion moved onto the artefact that replaced it -- the surplus
+        note the pass now writes on the leftover rows. That note is only CORRECT when the count
+        spans imports, which is exactly what this test is for.
 
         ⚠️ IT BUILDS AND TEARS DOWN ITS OWN CROSS-IMPORT MEMBER rather than leaning on stack C.
         The first version asserted on C, which is unbalanced only UNTIL
         `test_a_stack_spanning_two_imports_...` stages the batch that balances it -- and that test
         sorts earlier, so this one read an empty result and failed for a reason that had nothing to
-        do with the endpoint. A test whose meaning depends on which tests ran before it is not
-        testing what its name says.
+        do with the pass. A test whose meaning depends on which tests ran before it is not testing
+        what its name says.
         """
         second = _fresh_parse()
         second_batch = _stage_batch(
@@ -1703,16 +1770,69 @@ class TestStackAutoPairing(OutflowReviewFixture):
         extra = self._stack_row_in(second_batch.name, second, "0003", self.STACK_B_AMOUNT)
         frappe.db.commit()
         try:
-            match_batch(second_batch.name)
-            stack = next(
-                s
-                for s in get_unpaired_stacks()["stacks"]
-                if round(s["amount"], 2) == round(self.STACK_B_AMOUNT, 2)
+            # ⚠️ THE PRECONDITION IS SET EXPLICITLY, NOT INHERITED. Sibling tests in this class
+            # legitimately leave stack B's rows carrying suggestions, and `_resolve_stacks` only
+            # ever looks at rows WITHOUT one -- so a version of this test that just ran the match
+            # found the first batch's members invisible and proved nothing. Two earlier drafts
+            # failed here in two different ways, both of them order-dependence, which is the exact
+            # trap this test's own docstring warns about.
+            members = frappe.db.sql(
+                """
+                SELECT name FROM "tabOutflow Import Row"
+                WHERE normalized_account = %s AND amount = %s AND row_status IN %s
+                """,
+                (
+                    normalize_account(self.stack_account),
+                    self.STACK_B_AMOUNT,
+                    tuple(OPEN_ROW_STATUSES),
+                ),
+                as_dict=True,
             )
-            batches = {t["import_batch"] for t in stack["transfers"]}
-            self.assertEqual(len(stack["transfers"]), 4)
-            self.assertEqual(len(batches), 2, "the stack must carry members from both imports")
-            self.assertEqual(stack["surplus_transfers"], 2)
+            for m in members:
+                frappe.db.set_value(
+                    ROW_DOCTYPE, m["name"],
+                    {"suggested_doctype": None, "suggested_name": None, "suggestion_rule": None},
+                    update_modified=False,
+                )
+            frappe.db.commit()
+
+            match_batch(second_batch.name)
+
+            rows = frappe.db.sql(
+                """
+                SELECT name, import_batch, outcome_note FROM "tabOutflow Import Row"
+                WHERE normalized_account = %s AND amount = %s
+                  AND row_status IN %s AND COALESCE(suggested_name, '') = ''
+                """,
+                (
+                    normalize_account(self.stack_account),
+                    self.STACK_B_AMOUNT,
+                    tuple(OPEN_ROW_STATUSES),
+                ),
+                as_dict=True,
+            )
+            by_batch = {}
+            for r in rows:
+                by_batch.setdefault(r["import_batch"], []).append(r)
+
+            self.assertEqual(
+                len(by_batch), 2, "the stack must carry members from both imports"
+            )
+            self.assertGreater(
+                len(rows), max(len(v) for v in by_batch.values()),
+                "no single batch may hold the whole stack, or this proves nothing about spanning",
+            )
+
+            # ⚠️ THE WHOLE ASSERTION, AND NOTE WHICH BATCH WAS MATCHED. Only the SECOND batch was
+            # run, yet a row in the FIRST one now carries a note naming the cross-import count. A
+            # pass scoped to one batch could neither have written it nor known the number.
+            first_batch_rows = [r for r in rows if r["import_batch"] == self.batch.name]
+            self.assertTrue(first_batch_rows, "the first batch must still hold stack B members")
+            for r in first_batch_rows:
+                self.assertIn(
+                    f"{len(rows)} identical transfers", r["outcome_note"] or "",
+                    f"{r['name']} states a count that is not the cross-import one",
+                )
         finally:
             # Return stack B to the 3-against-2 the later tests expect. Skipping is how a row
             # leaves a stack, and it is what the pass itself honours.
@@ -2015,3 +2135,291 @@ class TestMatchProvenance(OutflowReviewFixture):
         settled = self._rows("row_status = 'Settled'")
         for row in settled:
             self.assertEqual(row.row_status, "Settled")
+
+
+class TestThePeriodScopedSummary(OutflowReviewFixture):
+    """`get_outflow_summary` -- the panel's aggregate over a PERIOD rather than one import (P1).
+
+    ⚠️ THE SCOPE REVERSED HERE. Until P1 the panel summarised ONE import while the table beneath it
+    spanned every one, and the domain doc recorded that mismatch as the design (owner ruling
+    2026-08-10). The owner reversed it on 2026-08-12: both now describe the same population, scoped
+    by a period.
+
+    ⚠️ ASSERT PARTITIONS AND INVARIANTS, NOT EXACT COUNTS -- this suite sees the LIVE ledger, and how
+    many rows land `Matched` depends on what is approved in the database on the day.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        match_batch(cls.batch.name)
+
+    def test_one_batch_reproduces_the_old_endpoint_EXACTLY(self):
+        """THE REGRESSION PIN, and the reason `get_import_summary` still exists.
+
+        `get_import_summary(X)` is now a thin wrapper that delegates here with `batch=X` and adds the
+        statement's metadata. `batch=X` and nothing else IS the pre-P1 WHERE clause, so every figure
+        must be the figure that endpoint returned before the widening. If these two ever drift, a
+        filtered summary and a batch summary are being computed two different ways -- which is the
+        `_row_filters` defect ("a count computed under different filters than the page it labels")
+        arriving on the panel.
+        """
+        widened = get_outflow_summary(batch=self.batch.name)
+        pinned = get_import_summary(self.batch.name)
+        self.assertEqual(widened["totals"], pinned["totals"])
+        self.assertEqual(widened["auto_skipped_rows"], pinned["auto_skipped_rows"])
+        self.assertEqual(widened["manually_skipped_rows"], pinned["manually_skipped_rows"])
+        # The wrapper adds the statement's own metadata; the period-scoped read has no single one.
+        self.assertIn("import", pinned)
+        self.assertEqual(pinned["import"]["name"], self.batch.name)
+
+    def test_the_statements_metadata_rides_the_read_ONLY_when_one_is_selected(self):
+        """The Import selector's two states, in the payload (owner ruling 2026-08-12).
+
+        ⚠️ ABSENT IS THE HONEST SHAPE ACROSS A PERIOD. Several imports have no single filename,
+        uploader or declared period, and inventing one would caption the panel with the wrong
+        statement. The screen reads the `imports` LIST there instead.
+
+        It moved INTO `get_outflow_summary` so `get_import_summary` could become a pure delegate --
+        one query answering "how did that statement go", never two that could drift.
+        """
+        selected = get_outflow_summary(batch=self.batch.name)
+        self.assertIsNotNone(selected["import"])
+        self.assertEqual(selected["import"]["name"], self.batch.name)
+        self.assertEqual(selected["import"]["original_filename"], "test-statement.csv")
+
+        across = get_outflow_summary()
+        self.assertIsNone(across["import"])
+        # ...and the list is still there, which is what the panel captions itself with instead.
+        self.assertTrue(across["imports"])
+
+    def test_the_summary_counts_the_same_population_as_the_tabs(self):
+        """The whole point of routing both through `_row_filters`.
+
+        The panel sits directly above the tabs. Before P1 they described different populations by
+        design, and the screen carried a line of prose explaining why the numbers differed. They now
+        have to agree, and this is what says so: the summary's per-status counts must equal the
+        table's `status_counts` under the identical filters.
+        """
+        summary = get_outflow_summary(batch=self.batch.name)["totals"]
+        page = get_outflow_rows(scope="all", batch=self.batch.name, limit=1)
+        status_counts = page["status_counts"]
+
+        for status, bucket in summary["by_status"].items():
+            # ⚠️ FAILED ROWS ARE THE ONE LICENSED DIFFERENCE. The summary excludes them from
+            # `by_status` (option B); `status_counts` is a RAW breakdown of the population and keeps
+            # them under `Skipped`. Every OTHER status must match exactly.
+            if status == "Skipped":
+                self.assertGreaterEqual(status_counts.get(status, 0), bucket["count"])
+                continue
+            self.assertEqual(
+                bucket["count"],
+                status_counts.get(status, 0),
+                f"{status}: the panel and the tabs disagree about the same rows",
+            )
+
+    def test_a_period_that_holds_the_statement_returns_the_whole_statement(self):
+        dates = [r["added_on"] for r in get_batch_rows(self.batch.name)["rows"] if r["added_on"]]
+        self.assertTrue(dates, "the fixture must carry dated rows or this proves nothing")
+        first, last = min(dates), max(dates)
+
+        scoped = get_outflow_summary(
+            batch=self.batch.name,
+            date_from=str(first)[:10],
+            date_to=str(last)[:10],
+        )["totals"]
+        whole = get_outflow_summary(batch=self.batch.name)["totals"]
+        # ⚠️ EQUAL, INCLUDING THE UNDATED ROW. A period spanning the statement must return the whole
+        # statement -- and the fixture's unparseable-date row is inside "the whole statement", which
+        # is why the two are equal rather than off by one. See
+        # `test_an_undated_transfer_is_visible_in_EVERY_period`.
+        self.assertEqual(scoped["total_rows"], whole["total_rows"])
+
+    def test_a_period_BEFORE_the_statement_drops_every_DATED_row(self):
+        """A filter must narrow, and must never fall through to every row.
+
+        ⚠️ IT DROPS THE DATED ROWS, NOT ALL OF THEM. The fixture's unparseable-date row survives
+        every period on purpose (see `test_an_undated_transfer_is_visible_in_EVERY_period`), so the
+        honest assertion is that everything with a real date is gone -- not that the result is empty.
+        Asserting zero here would be asserting the defect.
+        """
+        dated = [r for r in self.parsed.rows if r.added_on and r.is_success]
+        undated = [r for r in self.parsed.rows if not r.added_on]
+
+        empty = get_outflow_summary(
+            batch=self.batch.name, date_from="1999-01-01", date_to="1999-12-31"
+        )
+        self.assertEqual(empty["totals"]["total_rows"], len(undated))
+        self.assertGreater(len(dated), 0)
+        self.assertLess(empty["totals"]["total_rows"], len(dated))
+        # Zero-filled, not absent: a missing key renders as an em dash, which reads as "unknown".
+        self.assertIn("Matched", empty["totals"]["by_status"])
+
+    def test_a_scope_matching_no_row_at_all_yields_a_zeroed_summary(self):
+        """The empty state the panel renders as "No transfers in this period".
+
+        `derive_import_summary` zero-fills every status, so the SHAPE survives an empty population
+        and the panel shows zeros rather than breaking.
+        """
+        beyond = max(float(r.amount) for r in self.parsed.rows) + 1
+        empty = get_outflow_summary(batch=self.batch.name, amount_min=beyond)
+        self.assertEqual(empty["totals"]["total_rows"], 0)
+        self.assertEqual(empty["totals"]["total_value"], 0)
+        self.assertEqual(empty["totals"]["decided_percent"], 0.0)
+        self.assertEqual(empty["imports"], [])
+        self.assertIn("Matched", empty["totals"]["by_status"])
+
+    def test_the_imports_are_derived_from_the_ROWS(self):
+        """⚠️ NOT FROM `period_from` / `period_to` ON THE BATCH.
+
+        Three different "periods" exist in this schema and they do not coincide. Reading the imports
+        back off the same rows the figures were computed from is the only answer that cannot
+        disagree with the figures beside it -- and it is the set `match_period` acts on.
+        """
+        summary = get_outflow_summary(batch=self.batch.name)
+        self.assertEqual([b["name"] for b in summary["imports"]], [self.batch.name])
+
+        covered = summary["imports"][0]
+        # Every row of this batch is in scope, so the two counts agree and nothing overspills.
+        self.assertEqual(covered["row_count"], len(self.parsed.rows))
+        self.assertEqual(covered["original_filename"], "test-statement.csv")
+
+    def test_a_narrowed_scope_reports_the_batch_as_only_PARTLY_in_scope(self):
+        """`row_count` < `total_rows` is what the re-match warning is built on.
+
+        Matching runs per BATCH, so a statement only partly in scope is re-matched IN FULL. The
+        screen can only say so honestly if the server reports both numbers, which is why they travel
+        together.
+
+        ⚠️ NARROWED BY AMOUNT, NOT BY DATE, AND ONLY BECAUSE OF THE FIXTURE. Every row in
+        `cashfree_sample.csv` shares one calendar day, so no date window can split it -- and the one
+        row that could (`not-a-date`) now survives every period by design, see
+        `test_an_undated_transfer_is_visible_in_EVERY_period`. The invariant under test is not about
+        dates: it is that `row_count` follows the FILTERS while `total_rows` follows the BATCH, which
+        any filter exercises.
+        """
+        biggest = max(float(r.amount) for r in self.parsed.rows)
+        summary = get_outflow_summary(batch=self.batch.name, amount_min=biggest)
+        covered = summary["imports"][0]
+        self.assertLess(covered["row_count"], covered["total_rows"])
+        self.assertEqual(covered["total_rows"], len(self.parsed.rows))
+
+    def test_an_undated_transfer_is_visible_in_EVERY_period(self):
+        """⚠️ THE DEFECT THIS RULE EXISTS TO PREVENT, and it was live until P1 measured it.
+
+        The bank's date column is free text and does not always parse; the parser stores NULL rather
+        than guessing, and this fixture carries a literal `not-a-date` row for the case. Under a
+        plain `>=` / `<` bound such a row matches NO window -- so once the period became the SCREEN'S
+        SCOPE it would vanish from the summary, all three tabs and the Skipped dialog at once, with
+        no filter on screen able to bring it back.
+
+        The transfer still moved money and still needs settling, so it survives every period instead.
+        """
+        undated = [r for r in self.parsed.rows if not r.added_on]
+        self.assertTrue(undated, "the fixture must carry an unparseable date or this proves nothing")
+
+        # A window that cannot possibly contain it by date still returns it.
+        long_ago = get_outflow_rows(
+            scope="all", batch=self.batch.name, date_from="1999-01-01", date_to="1999-12-31",
+            limit=100,
+        )
+        self.assertIn(
+            undated[0].transfer_id,
+            [r["transfer_id"] for r in long_ago["rows"]],
+            "an undated transfer disappeared from a period -- it is now invisible everywhere",
+        )
+
+    def test_the_status_counts_still_sum_to_the_total_under_a_period(self):
+        summary = get_outflow_summary(batch=self.batch.name)["totals"]
+        counted = sum(b["count"] for b in summary["by_status"].values())
+        self.assertEqual(counted, summary["total_rows"])
+        self.assertEqual(summary["open_rows"] + summary["decided_rows"], summary["total_rows"])
+
+
+class TestMatchPeriod(OutflowReviewFixture):
+    """`match_period` -- re-running the match over every import the filters touch (slice P1)."""
+
+    def test_it_matches_the_batches_the_filters_select(self):
+        result = match_period(batch=self.batch.name)
+        self.assertEqual(result["batches"], [self.batch.name])
+        self.assertEqual(result["batches_matched"], 1)
+        # It clears the pending rows exactly as `match_batch` would -- it IS `match_batch`, looped.
+        self.assertEqual(_pending_count(self.batch.name), 0)
+
+    def test_it_returns_each_batch_result_so_a_heavy_pass_is_VISIBLE(self):
+        """`match_batch` reports which passes did the work (claims, Option B, stacks, the sweep).
+
+        Looping it must not swallow that -- a run leaning hard on any pass has to stay visible rather
+        than silent, which is why the per-batch payloads come back rather than a bare count.
+        """
+        result = match_period(batch=self.batch.name)
+        self.assertEqual(len(result["results"]), 1)
+        self.assertIn("swept_to_mismatched_rows", result["results"][0])
+        self.assertEqual(result["results"][0]["batch"], self.batch.name)
+
+    def test_a_scope_holding_no_rows_matches_NOTHING_rather_than_everything(self):
+        """The failure that would matter: a filter selecting no rows must not fall through to "all
+        batches". Re-matching every import ever staged because a filter was mistyped is not a
+        no-op -- it would churn suggestions under every reviewer currently working.
+
+        ⚠️ NARROWED BY AMOUNT, NOT BY AN OUT-OF-RANGE DATE. A date window that excludes everything
+        still returns any row whose date would not parse, so it does not select an empty set -- see
+        `TestThePeriodScopedSummary.test_an_undated_transfer_is_visible_in_EVERY_period`. This test
+        is about the fall-through, so it needs a genuinely empty scope.
+        """
+        # ⚠️ THE BOUND HAS TO BEAT THE LIVE DATABASE, NOT JUST THIS FIXTURE. This call is
+        # deliberately UNSCOPED by batch -- that is the fall-through being tested -- so it sees every
+        # real statement on the dev site, and "one rupee above my own biggest row" selects plenty of
+        # them. A trillion rupees is past any real transfer.
+        result = match_period(amount_min=10**12)
+        self.assertEqual(result["batches"], [])
+        self.assertEqual(result["batches_matched"], 0)
+
+
+class TestTheConfirmableCap(OutflowReviewFixture):
+    """`_MAX_CONFIRMABLE` -- the reviewability limit on "Confirm all matched" (slice P1)."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        match_batch(cls.batch.name)
+
+    def test_it_takes_the_same_filters_as_the_summary(self):
+        """The button is labelled with the summary's `confirmable_rows`, so the two must select the
+        same population -- otherwise the button offers a number this list cannot produce, which is
+        the "button 688, table 893" defect the `stale` bucket exists to explain."""
+        summary = get_outflow_summary(batch=self.batch.name)["totals"]
+        confirmable = get_confirmable_rows(batch=self.batch.name)
+        self.assertEqual(
+            len(confirmable["ready"]) + len(confirmable["stale"]),
+            summary["confirmable_rows"],
+        )
+        self.assertEqual(confirmable["matched_rows"], summary["matched_rows"])
+
+    def test_a_period_narrows_the_confirmable_set(self):
+        empty = get_confirmable_rows(
+            batch=self.batch.name, date_from="1999-01-01", date_to="1999-12-31"
+        )
+        self.assertEqual(empty["matched_rows"], 0)
+        self.assertEqual(empty["ready"], [])
+
+    def test_it_REFUSES_rather_than_truncating_when_the_set_is_too_large(self):
+        """⚠️ THE DIRECTION IS THE WHOLE POINT.
+
+        A `LIMIT` would hand back a list shorter than the count on the button that opened it, over a
+        set nobody chose -- and the missing rows would have no property in common, so nothing on
+        screen could account for them. Refusing names the number and leaves a way through.
+        """
+        from nirmaan_stack.api.outflow_import import review as R
+
+        original = R._MAX_CONFIRMABLE
+        R._MAX_CONFIRMABLE = 0
+        try:
+            with self.assertRaises(frappe.ValidationError):
+                get_confirmable_rows(batch=self.batch.name)
+        finally:
+            R._MAX_CONFIRMABLE = original
+
+        # And with the real ceiling back, the same call succeeds -- the refusal is the cap, not the
+        # query.
+        self.assertIsInstance(get_confirmable_rows(batch=self.batch.name)["ready"], list)

@@ -54,6 +54,14 @@ amount), which neither can reach and neither may be stretched to reach. A TDS pa
                                                `TIER1_TOLERANCE`, tier 2 at `AMOUNT_TOLERANCE`)
   * `settle.settle_payment` / `_lock_and_assert_settleable` -- the WRITE guard
   * `status.derive_row_outcome`             -- the ALREADY-PAID duplicate check
+  * `similarity._amount_score`              -- the browse list's RANKING axis, SETTLE window
+                                               (slice N1). ⚠️ THE ONE SITE THAT DECIDES NOTHING:
+                                               it shapes the ORDER of a list a person reads, and
+                                               `similarity` is forbidden from reaching any module
+                                               that settles. Listed anyway, because the rule below
+                                               is "every amount comparison in this feature", not
+                                               "every one that writes" -- and an unlisted site is
+                                               exactly how the fifth one went wrong.
 These are easy to fix independently and catastrophic to fix inconsistently: a pool wider than the
 guard offers a record the confirm then refuses; a guard wider than the pool silently permits a
 settlement the screen never proposed. The SQL half cannot import this module's function, so it takes

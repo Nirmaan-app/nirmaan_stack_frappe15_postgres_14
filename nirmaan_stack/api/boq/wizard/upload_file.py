@@ -358,6 +358,20 @@ def _upload_file_worker(project_id, file_url, file_name, user, is_template_sourc
             "Nirmaan Attachments", att_doc.name, "associated_docname", boq_doc.name
         )
 
+        # Step 11b: Give the uploaded workbook File a real owner. save_file() at the
+        # endpoint stores it with an empty attached_to_* (an orphan in "tabFile");
+        # now that the BOQs doc exists, attach the File to it so it shows in the
+        # native attachment panel and is cleaned up when the BoQ is deleted. The
+        # Nirmaan Attachments row stays as the parallel index (unchanged).
+        source_file = frappe.db.get_value("File", {"file_url": file_url}, "name")
+        if source_file:
+            frappe.db.set_value(
+                "File",
+                source_file,
+                {"attached_to_doctype": "BOQs", "attached_to_name": boq_doc.name},
+                update_modified=False,
+            )
+
         frappe.db.commit()
 
         # Step 12: Notify client (realtime) + record outcome for the polling fallback.

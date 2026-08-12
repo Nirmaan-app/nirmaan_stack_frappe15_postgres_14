@@ -13,6 +13,13 @@ import {
     recordKey,
     type SettleableRecord,
 } from "../outflowTableModel";
+import type {
+    FacetOption,
+    RecordFilters,
+    RecordSort,
+    RecordSortColumn,
+} from "../recordPickerView";
+import { RecordColumnHeader } from "./RecordColumnHeader";
 
 interface Props {
     records: SettleableRecord[];
@@ -21,6 +28,17 @@ interface Props {
     onSelect: (key: string) => void;
     /** The bank row's amount, for the per-row amount verdict. */
     bankAmount: number;
+    /**
+     * The view state (slice N1). It lives in the PICKER, not in here: the count line, the Clear
+     * control and this table must agree about what is filtered, and two copies of that state is
+     * how they come to disagree.
+     */
+    sort: RecordSort | null;
+    onSort: (column: RecordSortColumn) => void;
+    filters: RecordFilters;
+    /** Distinct values across the WHOLE pool, not the filtered view -- see the note in the body. */
+    facets: { vendors: FacetOption[]; projects: FacetOption[] };
+    onFiltersChange: (next: RecordFilters) => void;
 }
 
 /**
@@ -50,10 +68,20 @@ export const SettleableRecordTable = ({
     selected,
     onSelect,
     bankAmount,
+    sort,
+    onSort,
+    filters,
+    facets,
+    onFiltersChange,
 }: Props) => (
     // The bound is on the SCROLL CONTAINER, not on the table, so the header can be sticky INSIDE it:
     // a max-height on the table itself would scroll the header away with the rows.
-    <div className="max-h-[260px] overflow-y-auto rounded-md border">
+    //
+    // ⚠️ 260px -> 420px AT SLICE N1. 260 was sized for a list of at most 50 records that the server
+    // had already narrowed by amount; this table now holds the WHOLE approved pool and is meant to
+    // be browsed, filtered and sorted. The dialog still owns its own scrollbar with a pinned header
+    // and footer, so the taller bound cannot push Confirm out of reach.
+    <div className="max-h-[420px] overflow-y-auto rounded-md border">
         <table className="w-full table-fixed border-collapse text-sm">
             <colgroup>
                 {/* The radio column, then one per model column -- so the header cells and the body
@@ -75,7 +103,28 @@ export const SettleableRecordTable = ({
                                 column.align === "right" ? "text-right" : ""
                             }`}
                         >
-                            {column.title}
+                            {/* ⚠️ THE RECORD COLUMN IS NOT SORTABLE OR FILTERABLE, and that is the
+                                owner's list rather than an omission: Vendor, Project, Approved and
+                                Amount are the four facts a reviewer narrows by. The id column
+                                carries the ledger label and the record name, neither of which is
+                                something anyone filters a list of approved records down to. */}
+                            {column.id === "record" ? (
+                                column.title
+                            ) : (
+                                <RecordColumnHeader
+                                    title={column.title}
+                                    column={column.id as RecordSortColumn}
+                                    sort={sort}
+                                    onSort={onSort}
+                                    align={column.align}
+                                    filter={filterSpecFor(
+                                        column.id as RecordSortColumn,
+                                        filters,
+                                        facets,
+                                        onFiltersChange
+                                    )}
+                                />
+                            )}
                         </th>
                     ))}
                 </tr>
@@ -94,6 +143,53 @@ export const SettleableRecordTable = ({
         </table>
     </div>
 );
+
+/**
+ * Which filter each column carries.
+ *
+ * ⚠️ THE FACET LISTS ARE BUILT FROM THE WHOLE POOL, NEVER FROM THE FILTERED VIEW. Deriving them
+ * from what is currently visible makes a filter one-way: pick a vendor, and every other vendor
+ * disappears from the list you would need in order to change your mind.
+ */
+const filterSpecFor = (
+    column: RecordSortColumn,
+    filters: RecordFilters,
+    facets: { vendors: FacetOption[]; projects: FacetOption[] },
+    onChange: (next: RecordFilters) => void
+) => {
+    switch (column) {
+        case "vendor":
+            return {
+                kind: "facet" as const,
+                options: facets.vendors,
+                selected: filters.vendors,
+                onChange: (vendors: ReadonlySet<string>) => onChange({ ...filters, vendors }),
+            };
+        case "project":
+            return {
+                kind: "facet" as const,
+                options: facets.projects,
+                selected: filters.projects,
+                onChange: (projects: ReadonlySet<string>) => onChange({ ...filters, projects }),
+            };
+        case "amount":
+            return {
+                kind: "amount" as const,
+                min: filters.amountMin,
+                max: filters.amountMax,
+                onChange: (amountMin: number | null, amountMax: number | null) =>
+                    onChange({ ...filters, amountMin, amountMax }),
+            };
+        default:
+            return {
+                kind: "date" as const,
+                from: filters.dateFrom,
+                to: filters.dateTo,
+                onChange: (dateFrom: string | null, dateTo: string | null) =>
+                    onChange({ ...filters, dateFrom, dateTo }),
+            };
+    }
+};
 
 const RecordRow = ({
     record,
@@ -151,11 +247,19 @@ const RecordRow = ({
             {/* ⚠️ `PAY-00105-034` SAYS NOTHING ABOUT WHOSE MONEY IT IS. A reviewer with three
                 approved records in front of them picks by vendor and project. An em dash rather
                 than a blank, so an absent vendor reads as absent rather than as a rendering gap. */}
-            <td
-                className="truncate px-2 py-2 align-top"
-                title={record.vendor_name || undefined}
-            >
-                {record.vendor_name || <span className="text-muted-foreground">—</span>}
+            {/* ⚠️ THE NICKNAME IS SHOWN ONLY WHEN IT ADDS SOMETHING. It is tier 3 of the ranking,
+                so a record can be near the top BECAUSE of it -- and a reviewer who cannot see the
+                name that put it there has been given an order they cannot check. Suppressed when it
+                merely repeats the vendor name, which would be noise on every row that has one. */}
+            <td className="px-2 py-2 align-top" title={record.vendor_name || undefined}>
+                <div className="truncate">
+                    {record.vendor_name || <span className="text-muted-foreground">—</span>}
+                </div>
+                {record.vendor_nickname && record.vendor_nickname !== record.vendor_name && (
+                    <div className="truncate text-[11px] text-muted-foreground">
+                        {record.vendor_nickname}
+                    </div>
+                )}
             </td>
 
             <td

@@ -13972,11 +13972,33 @@ virtualization -- all internal, untouched); EMBEDDED mode drops `max-w-5xl` (wid
 Panel state keyed by the durable `(excelRow, col)` -- col is the stable Excel column letter that DETERMINES the
 rate-kind (1:1 on scalar/per-area sheets), never a window index.
 
-**Dev-flag mechanism (item 8).** `rateHelperFlag.ts`: `RATE_HELPER_ENABLED = import.meta.env.DEV && localStorage
-"nirmaan-rate-helper-off" !== "true"`, evaluated ONCE at module load (a stable const, memo-safe). A production
-`vite build` sets `import.meta.env.DEV = false` -> the feature is UNREACHABLE in a shipped bundle (no button, no
-badges, no panel). The localStorage kill-switch toggles it OFF at runtime for verification (V10) without a rebuild
-(next page load); it can only turn the feature OFF, never ON in prod.
+**Dev-flag mechanism (item 8). ⚠️ SUPERSEDED 2026-08-11 — see "Gate removal" below. Retained as history; the
+behaviour described in this paragraph NO LONGER EXISTS.** (This is the RATE-HELPER dev flag. The separate
+EA-7 payload-dump flag is RETIRED 2026-08-12 — see "Build slice OB-1" at the foot of this document.) `rateHelperFlag.ts`: `RATE_HELPER_ENABLED =
+import.meta.env.DEV && localStorage "nirmaan-rate-helper-off" !== "true"`, evaluated ONCE at module load (a stable
+const, memo-safe). A production `vite build` sets `import.meta.env.DEV = false` -> the feature is UNREACHABLE in a
+shipped bundle (no button, no badges, no panel). The localStorage kill-switch toggles it OFF at runtime for
+verification (V10) without a rebuild (next page load); it can only turn the feature OFF, never ON in prod.
+
+**Gate removal (2026-08-11, owner ruling: ALWAYS-ON) — what REPLACED the above.** The single line
+`if (!import.meta.env.DEV) return false;` was removed from `computeEnabled()`; `rateHelperFlag.ts` is otherwise
+unchanged in shape (same one export, same try/catch fail-open, same module-load-once evaluation — the last is
+memo-shield load-bearing and must NOT become per-call). `RATE_HELPER_ENABLED` is therefore a **runtime kill-switch
+that DEFAULTS ON**, and the rate helper SHIPS in a production `vite build`. No site setting, no new schema, no
+per-site conditions: the ~21 guard sites in `SheetPricingPage.tsx` (16 direct + the derived `rmEnabled` /
+`helperPanelOpen` / `embeddedPanel`) were left BYTE-UNTOUCHED and flip together because they read the one const —
+replacing any of them with its own condition is the failure mode this change exists to avoid. The localStorage key
+`nirmaan-rate-helper-off` survives as the emergency off-lever and still works in a production bundle (only
+`import.meta.env.DEV` was ever build-time-substituted; the storage read is ordinary runtime code), but it is
+**PER-BROWSER and PER-USER, effective next page load, never company-wide**. The consequent PERMANENT widening of the
+embedded pricing editor (`embeddedPanel`: `max-w-5xl` -> `w-full`) is the INTENDED outcome, not a side effect — the
+centred cap is not to be preserved. **STANDING OWNER RULE from this ruling: no dev-only gates, ever; anything built
+here must work as-is in production.** The inline comment at the `embeddedPanel` page-width site in
+`SheetPricingPage.tsx` (which used to say "prod (feature off) keeps the centered cap") was CORRECTED in a follow-up
+commit on owner instruction: it now records that the widening is the default everywhere, and that -- since `expanded`
+is handled by the branch above, leaving `embeddedPanel` reduced to `RATE_HELPER_ENABLED` -- the centred cap is
+reachable ONLY when the `nirmaan-rate-helper-off` kill-switch is set. **COMMENT ONLY: the className expression, the
+`embeddedPanel` derivation and every other guard site remain byte-untouched.**
 
 **Gates (in-container, bench-verified).** vitest **932 -> 952** (+20 for the pure leaves: stub compute incl. the
 recompute + no-match paths, registry resolution + dead-helper declines, kind mapping, `buildSuggestions` per-kind
@@ -27276,3 +27298,131 @@ membership-is-the-margin-not-the-node_type; `describeMarginRange` shapes, revers
 - **`marginView.ts` was not renamed** despite the view being gone: it would touch every import for no
   behavioural gain, and the module docblock is what a reader lands on.
 - **The plan doc was never read whole.** `wc -l` → partial `Read` → single anchored `Edit`.
+
+
+---
+
+## Build slice OB-1 -- the extraction capture (prompt + raw response + per-attribute mapping)
+
+**Date:** 2026-08-12. **Scope:** `services/boq_rate_master/extraction.py` + `api/boq/test_rate_suggest.py`
++ docs. **No schema, no migrate, no `patches.txt` line, no frontend.**
+
+### Why
+
+The category audit could not separate three failure classes, because `_coerce_value` returns `None` for
+EVERY failure and discards the raw value: **(i)** a readable description was sent and the model returned
+nothing, **(ii)** the row text was genuinely ambiguous, **(iii)** the model RETURNED a value that we then
+dropped, coerced away, or replaced with a default. In storage (i) and (iii) are byte-identical. Symptoms
+that motivated it: `junction_box_raceway` reading `size` on ZERO rows across all three audit BoQs;
+`db_switchgear` blanking a whole composite slot set on `BOQ-26-00113` while scoring 29/29 on
+`BOQ-26-00066`; `cabletray_raceway` losing `thickness_mm` on 30 of 39 rows.
+
+### What it writes
+
+One JSONL record per event to `<bench>/logs/boq_rate_extraction_capture.jsonl` (path resolved via
+`frappe.utils.get_bench_path()`, never hardcoded; unresolvable/unwritable -> capture silently no-ops and
+the run is unaffected). Four record kinds, each carrying the join key
+(`boq`, `sheet_name` VERBATIM, `committed_version`, `category_id`, `discipline`, `excel_rows`):
+
+| kind | when | carries |
+|---|---|---|
+| `run_header` | once per run, **UNCONDITIONALLY** | boq/sheet/cv, model, row_count, categories, `ai_enabled`, `capture: "always-on"` |
+| `batch` | before `return out` (the PRIMARY point) | `prompt` (assembled, as sent), `response_text` (raw), `stop_reason`, `usage`, `payload_items`, `declared_attributes`, `defaults_configured`, `mapping`, `drops` |
+| `attempt_failed` | in the retry `except` | prompt, whatever `response_text` that attempt produced, `error`, `transient` |
+| `ceiling_cut` | on `stop_reason == "max_tokens"` | prompt, `stop_reason`, `usage`, `max_tokens`, `batch_size` |
+
+`mapping` is per row -> per declared attribute: `{raw, coerced, reason, confidence_raw, confidence,
+defaulted_claimed, defaulted_kept}`. **A raw non-null arriving with a coerced null IS the drop**, and
+`reason` names which check discarded it.
+
+`drops` carries **eight named classes**: `ids_not_in_batch`, `unknown_container_rows`,
+`attributes_absent`, `coercion_failures`, `confidence_unparseable`, `surplus_attributes`,
+`rows_omitted`, `defaulted_lost_to_coercion`.
+
+**`surplus_attributes`** (`set(attrs) - set(defs_by_id)`) is the COMPOUND-ROW SURPLUS -- attributes the
+model returned that no declaration reads. It was dropped with no else-branch and no diagnostic; it is now
+visible, which is a defect surfaced in its own right rather than merely instrumented.
+
+**`defaulted_lost_to_coercion`** exists because the `defaulted` flag is only kept when the value survives
+coercion -- so a defaulted value that FAILS coercion loses the value AND the evidence it was ever a
+default, and its stored row is indistinguishable from one the model never answered.
+
+### The second touch -- `_coerce_value`
+
+`_coerce_value(defn, raw, syn)` is now the **value-only WRAPPER** over
+`_coerce_value_ex(defn, raw, syn) -> (value, reason)`, which holds the one and only implementation. Every
+pre-existing caller keeps its contract **BY CONSTRUCTION**, not by copy. Reasons: `ok`, `ok_synonym`,
+`ok_none_sentinel`, `absent`, `not_a_number`, `outside_numeric_domain`, `not_an_allowed_choice`.
+
+⚠️ **The code has THREE rejection branches, not four.** A "synonym miss" is NOT a separate branch -- an
+unmapped variant simply reaches the allowed-values check and fails there. Whether a synonym WAS applied is
+reported on the success path via `ok_synonym`. Recorded here because the slice brief assumed four.
+
+### Always-on, and why there is no flag
+
+Standing owner rule (2026-08-11): no dev-only gates. Beyond that, the absence of a flag is what makes
+**#171 structurally impossible**: EA-7 was gated by a module-level constant, and a long-lived RQ worker
+imports the module ONCE at process start and never hot-reloads -- so a constant flipped afterwards was
+silently ignored, the pass ran to completion, and no dump appeared. Nothing to flip means nothing can be
+stale. Retention is self-bounded (`CAPTURE_MAX_BYTES` 8 MB x `CAPTURE_KEEP` 5 rolled generations);
+Frappe's own `RotatingFileHandler` belongs to `logging` and does not apply to a plain append, which is
+why rotation is hand-rolled.
+
+### EA-7 -- RETIRED, superseded by this slice
+
+The EA-7 payload dump is **removed** (`EA7_PAYLOAD_DUMP_ENABLED`, `EA7_PAYLOAD_DUMP_FILENAME`,
+`_dump_path`, `_dump_payload_items`, the `dump_ctx` keyword and its call sites, and pins P10-P12). Its
+history above is retained. It was documented as TEMPORARY in three places -- its own code header, this
+plan, and a test pinning its flag `False` -- so extending it would have failed that pin and left live
+"delete me" instructions pointing at the audit's own instrument. **Its record was a strict SUBSET of the
+new `batch` record**: the per-row payload item is still carried verbatim under `payload_items`, and a test
+pins that. Nothing it proved was lost.
+
+### `boq_ai.log` -- CLOSED AS MISCONCEPTION
+
+The standing carry "make `boq_ai.log` carry the payloads / call counts" is **closed, not done**. Two
+independent findings, either sufficient:
+
+1. **The rate extraction path never calls that logger at all.** `frappe.logger("boq_ai")` is instantiated
+   only in `api/boq/wizard/ai_assist.py` and `services/boq_ai_assist.py` -- the review-tree assist, a
+   different feature. In `extraction.py` the string appears only inside a comment.
+2. **It was never meant to carry payloads.** Its own helpers' docstrings say *"Never logs prompt content
+   or the API key"*; it was designed for token counts, emitted at `logger.info`/`logger.debug` against a
+   handler whose level is `WARNING` (dev) or `ERROR` (otherwise) -- which is why the file is 0 bytes, as
+   are `boq.log`, `boq_gemini.log` and `boq_revision.log`.
+
+Call counts are now recorded properly: the `batch` record carries `usage` (`input_tokens` /
+`output_tokens`), which the pipeline previously discarded.
+
+### ⚠️ Known limit -- stated, deliberately NOT solved
+
+This is a **SERVER** capture. The frontend `rateMasterStructure.coerceForMatch` turns a stored value into
+a catalog match key and a mismatch silently matches NOTHING. So capture proves a value reached STORAGE; it
+cannot see a client-side match failure. **A row that captures cleanly and still does not price is a
+frontend question, not a contradiction.** Scope was deliberately not extended to the frontend.
+
+### Gates + cert
+
+Suites (bench-verified in session, this tip): `test_rate_master` 100 -> **100 OK**;
+`test_extraction_coercion` 26 -> **26 OK** (this suite IS the `_coerce_value` caller-identity proof --
+~26 assertions call the wrapper and are unchanged); `test_rate_suggest` **8 -> 22 tests ran**, with the
+SAME pre-existing 1 failure + 2 errors before and after (`tabCEO Hold Reason` absent from the test DB
+aborts two `setUpClass` fixtures; one live-config rule-label drift). **14 new tests, all passing.**
+
+⚠️ The new tests live in `TestOptionBCapture`, which deliberately has **no `setUpClass`** -- the
+DB-fixture classes in that file abort in this environment, and P10-P12 had therefore not been executing
+at all. A test that cannot run proves nothing.
+
+**MEASURED CERT** (no rendered surface -- the same disposition as the Gemini cut-rule slice), run
+IN-PROCESS with an INJECTED FAKE CLIENT over the LIVE `BOQ-26-00019 / '12 Internal Works '` population.
+⚠️ A queued run goes through the RQ worker and the paths differ. **No AI call, no DB write.**
+94 rows, 7 categories, 9 batches -> 1 `run_header` + 9 `batch` records, 401,022 bytes. First batch
+(db_switchgear): prompt **39,619 bytes**, `usage` present, 14 payload items. Six of the eight drop classes
+fired on live data (`confidence_unparseable` and `defaulted_lost_to_coercion` were not exercised by the
+fixture and are covered by unit tests C5/C6). The drop reads as a drop:
+`RAW='!!NOT-A-CATALOG-VALUE!!' -> COERCED=None reason=not_an_allowed_choice`, beside
+`RAW=None reason=absent`. **Output byte-identical with capture active vs suppressed: 87,426 bytes both
+ways, compared through the real `serialize_run_results`.**
+
+Volume measured at ~401 KB for a 94-row sheet -> ~1.8 MB for the ~415-row audit sweep, matching the
+1.5-3 MB estimate.

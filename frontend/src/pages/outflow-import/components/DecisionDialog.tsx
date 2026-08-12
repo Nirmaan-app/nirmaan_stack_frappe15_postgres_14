@@ -32,7 +32,6 @@ import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatP
 import {
     amountVerdict,
     isConfirmable,
-    orderBySuggestion,
     parseRecordKey,
     recordKey,
     settlementLink,
@@ -42,6 +41,16 @@ import {
     type SettleBlock,
     type SettleableRecord,
 } from "../outflowTableModel";
+import {
+    EMPTY_FILTERS,
+    facetValues,
+    hasActiveFilters,
+    nextSortState,
+    visibleRecords,
+    type RecordFilters,
+    type RecordSort,
+    type RecordSortColumn,
+} from "../recordPickerView";
 import { ROW_MISMATCHED } from "../outflowImportStatus";
 import { SettleableRecordTable } from "./SettleableRecordTable";
 
@@ -547,26 +556,51 @@ const RecordPicker = ({
     onChange: (decision: RowDecision) => void;
     onSelectedRecordChange: (record: SettleableRecord | null) => void;
 }) => {
-    const [search, setSearch] = useState("");
+    const [filters, setFilters] = useState<RecordFilters>(EMPTY_FILTERS);
+    const [sort, setSort] = useState<RecordSort | null>(null);
+
+    // A different transfer is a different question -- carrying one row's filters onto the next
+    // would hide records for a reason that is no longer on screen.
+    useEffect(() => {
+        setFilters(EMPTY_FILTERS);
+        setSort(null);
+    }, [row.name]);
 
     // ⚠️ NO `target_doctype`, WHICH IS WHAT MAKES THIS ONE LIST. A blank one means all three
-    // ledgers, merged and ordered server-side by how close the amount is -- so the reviewer
-    // recognises a record instead of first classifying the transfer.
+    // ledgers, merged and RANKED server-side by how much each record looks like this transfer --
+    // so the reviewer recognises a record instead of first classifying the transfer.
+    //
+    // ⚠️ NO `search` AND NO `limit` EITHER, AND THE SWR KEY IS THEREFORE STABLE PER ROW (slice N1).
+    // It used to carry the search text, which minted a new key -- and so a new REQUEST -- on every
+    // keystroke. The whole approved pool now arrives in one call and every narrowing below is
+    // local, which is what makes filtering and sorting instant.
     const { data, isLoading } = useFrappeGetCall<{ message: SettleableRecord[] }>(
         "nirmaan_stack.api.outflow_import.review.search_settleable_records",
-        { row: row.name, search },
-        `settleable-${row.name}-${search}`
+        { row: row.name },
+        `settleable-${row.name}`
     );
 
-    const options = useMemo(
-        () => orderBySuggestion(data?.message ?? [], row.amount),
-        [data, row.amount]
+    // ⚠️ THE SERVER'S ORDER IS THE RANKING, SO IT IS NOT RE-SORTED HERE. This used to call
+    // `orderBySuggestion`, which re-sorted by amount and would now silently undo the similarity
+    // ranking it arrives in.
+    const pool = useMemo(() => data?.message ?? [], [data]);
+    const facets = useMemo(() => facetValues(pool), [pool]);
+    const options = useMemo(() => visibleRecords(pool, filters, sort), [pool, filters, sort]);
+
+    const handleSort = useCallback(
+        (column: RecordSortColumn) => setSort((current) => nextSortState(current, column)),
+        []
     );
 
-    // Matched on BOTH halves: a bare name is not unique across three ledgers.
-    const selected = options.find(
+    // ⚠️ LOOKED UP IN THE WHOLE POOL, NOT THE FILTERED VIEW. A reviewer who picks a record and then
+    // narrows the list would otherwise watch their own choice become invisible AND unconfirmable --
+    // the footer reads the selection from here, so a filtered-out pick would disable Confirm with
+    // nothing on screen explaining why. Matched on BOTH halves: a bare name is not unique across
+    // three ledgers.
+    const selected = pool.find(
         (o) => o.name === decision.linkTo && o.target_doctype === decision.target
     );
+    const selectedHidden = Boolean(selected) && !options.some((o) => o === selected);
 
     // ⚠️ REPORTED UPWARD BECAUSE THE FOOTER HAS TO KNOW WHAT WAS PICKED. The candidate list, and
     // therefore the server's `suggested` flag, lives only in here -- the page's `RowDecision`
@@ -583,24 +617,76 @@ const RecordPicker = ({
                 <Label className="text-xs">Find an approved record</Label>
                 <Input
                     className="h-8"
-                    placeholder="Search by id, vendor, PO number or project…"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
+                    // It searches the nickname and the contact person too, and says so: those two
+                    // are how a vendor is found by someone who knows the person rather than the
+                    // registered name.
+                    placeholder="Search by id, vendor, nickname, contact, PO number or project…"
+                    value={filters.text}
+                    onChange={(e) => setFilters({ ...filters, text: e.target.value })}
                 />
             </div>
 
+            {/* ⚠️ THE COUNT LINE AND THE CLEAR CONTROL SIT TOGETHER, ABOVE THE TABLE. A filtered
+                table that does not say it is filtered is how a reviewer concludes a record does
+                not exist -- and the way out has to be beside the number that reports it. */}
+            {!isLoading && pool.length > 0 && (
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                    <span>
+                        {options.length === pool.length
+                            ? `${pool.length} approved record${pool.length === 1 ? "" : "s"}`
+                            : `Showing ${options.length} of ${pool.length} approved records`}
+                    </span>
+                    {hasActiveFilters(filters, sort) && (
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-2 text-xs"
+                            onClick={() => {
+                                setFilters(EMPTY_FILTERS);
+                                setSort(null);
+                            }}
+                        >
+                            <X className="mr-1 h-3 w-3" />
+                            Clear filters
+                        </Button>
+                    )}
+                </div>
+            )}
+
             {isLoading ? (
                 <p className="text-sm text-muted-foreground">Loading records…</p>
-            ) : !options.length ? (
+            ) : !pool.length ? (
                 <p className="text-sm text-muted-foreground">
-                    {search
-                        ? "No approved record matches that search."
-                        : "There are no approved payments or expenses to link to."}
+                    There are no approved payments or expenses to link to.
                 </p>
+            ) : !options.length ? (
+                // ⚠️ "NOTHING MATCHES" IS A DIFFERENT SENTENCE FROM "THERE IS NOTHING", and the
+                // difference decides what the reviewer does next. This branch also has to offer the
+                // way back, because the filters that emptied the table are in a header the table no
+                // longer renders -- the control that caused this can hide itself.
+                <div className="space-y-2 rounded-md border border-dashed px-3 py-4 text-sm text-muted-foreground">
+                    <p>No approved record matches the filters you have set.</p>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => {
+                            setFilters(EMPTY_FILTERS);
+                            setSort(null);
+                        }}
+                    >
+                        Clear filters
+                    </Button>
+                </div>
             ) : (
                 <SettleableRecordTable
                     records={options}
                     bankAmount={row.amount}
+                    sort={sort}
+                    onSort={handleSort}
+                    filters={filters}
+                    facets={facets}
+                    onFiltersChange={setFilters}
                     selected={
                         decision.target && decision.linkTo
                             ? recordKey({
@@ -618,6 +704,15 @@ const RecordPicker = ({
                         onChange({ ...decision, target: picked.target, linkTo: picked.name });
                     }}
                 />
+            )}
+
+            {/* The chosen record is still chosen and still confirmable -- but it is no longer on
+                screen, so say so rather than let the verdict line below describe a row the reviewer
+                cannot see. */}
+            {selectedHidden && (
+                <p className="text-xs text-amber-700">
+                    Your chosen record is hidden by the current filters.
+                </p>
             )}
 
             {selected && <RecordVerdict record={selected} bankAmount={row.amount} />}

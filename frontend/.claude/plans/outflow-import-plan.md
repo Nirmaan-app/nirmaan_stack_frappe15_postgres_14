@@ -4,6 +4,7 @@
 they conflict.
 **Status:** **v3 is BUILT and committed** through T1–T5 (`6567d2e4`); the live browser walk and the
 production migrate are still owed. **v4 (§H) is PLANNED, NOT STARTED — no code written.**
+**§P1 — the period-scoped summary — is BUILT (2026-08-12), browser walk owed. See §P1 below.**
 **Fresh-session brief:** `docs/outflow-import/HANDOFF.md` — read it first.
 **Branch (proposed):** `feature/outflow-import`
 **Spec + all 13 owner rulings:** `docs/outflow-import/workflow.html` **section 0** (7 tabs).
@@ -371,6 +372,140 @@ UTR and so only ever exercised tier 0) · `test_expenses` 21 · `test_settle_pay
 real statement.** The dev DB carries **0 outflow import rows and 5 Approved payments**, so neither
 the table nor the tiers have been seen against real data; T3 is verified against fixtures only. One
 real statement's remarks column is what would tell us how often a remark actually names a project.
+
+---
+
+## §P1 — the period-scoped summary (BUILT 2026-08-12)
+
+**Owner request:** *"Currently the summary section shows the summary of an import. Change it to the
+overall summary of all the imports in the system, with a period selector that changes the summary as
+well as the tabs having all the transactions"* — plus *"the date filter for the `added_on` column
+should be the date filter we provide for other screens."*
+
+### The ruling it reverses, stated plainly
+
+The domain doc recorded, as the design and dated 2026-08-10: *"the summary panel above summarises ONE
+import while the table spans all of them. That is the design: 'how did that statement go?' and 'what
+do I still owe a decision on?' are different questions."* **The owner took the other side on
+2026-08-12.** It is recorded as a reversal rather than quietly overwritten, because the next reader
+is entitled to see that both positions were held deliberately.
+
+**The 2026-08-10 ruling had two halves and only one is reversed.**
+- The POPULATION-MISMATCH half — *"a panel describing ONE import silently rewrote the filters of a
+  table spanning ALL of them"* — **dissolves**: there is one population now, so the objection has
+  nothing to attach to. The reasoning arguably endorses the new shape.
+- The MOVED-THE-TAB half **stands and is kept**: reading a figure must never navigate away from the
+  work in progress. `SummaryTile.statuses` and `tabForStatus` stay deleted, the status figures still
+  REPORT, and changing the period does not change the tab.
+
+### The seam that made it cheap
+
+`status.derive_import_summary` folds a stream of `StatusTally` and **has never known what a batch
+is**, so widening it to a period was a WHERE-clause change and nothing else — no deriver change, no
+tile change, no change to how a number is rendered. Everything else followed from routing every read
+through the one `_row_filters` builder that already existed.
+
+### Decisions
+
+| Decision | Why |
+|---|---|
+| The period filters **`row.added_on`** (when the money moved) | The only one of the schema's THREE "periods" the transaction table can filter on. A batch's declared `period_from`/`period_to` is not a fact about where its rows fall, and `overlaps_batch` exists precisely because declared periods overlap. |
+| The summary honours **every table filter except the scope** | Not just the period — search, funnels, amount too. `tab_counts` already works this way. Anything less lets the panel and the tabs disagree the moment somebody types in the search box, which is the defect the reversed ruling was protecting against. |
+| **ONE date value, TWO editors** | The `Period` control and the `Payment Date` column funnel read/write the same store entry. Two filters over one column would AND: "Last 30 days" + "Is 01-Jan" selects nothing and neither control looks wrong. |
+| The period lives in a **store**, not page state | Four surfaces need it, and one of them — the Skipped dialog's own `useOutflowRows` instance — is not a child of the page. |
+| Presets are the app's **`timespanOptions`**, NOT the reports' `datePresets` | ⚠️ MEASURED CONFLICT: the two vocabularies define the SAME WORDS differently. `datePresets`' "Last 30 days" is `today-29 → today`; the timespan is `today-30 → today`. Its "This month" runs to the END of the month; the timespan runs to TODAY. With one value and two editors, mapping between them would move the window every time it passed between the controls. |
+| A preset is stored as the **word**, resolved live | A relative window frozen into two dates at click time is a bookmark that means something different tomorrow — the same trap `datePresets` documents. Only the fixed FYs and a hand-picked range are stored as dates. |
+| `_MAX_CONFIRMABLE` **refuses**, never truncates | A `LIMIT` shows a list shorter than the button that opened it, over a set nobody chose, with the missing rows sharing no property the screen can name. |
+| Matching stays **per batch**, looped | `match_batch`'s four global passes reason over a whole import at once; a partial picture breaks claims and stacks. The overspill is stated in the UI instead. |
+
+### What was found by building it
+
+⚠️ **A TRANSFER WITH AN UNPARSEABLE DATE WOULD HAVE BECOME INVISIBLE.** The bank's date column is
+free text; the parser stores NULL rather than guessing, and `cashfree_sample.csv` carries a literal
+`not-a-date` row for the case. Under a plain `>=` / `<` bound it matches **no** period — so once the
+period became the screen's SCOPE it would have vanished from the summary, all three tabs and the
+Skipped dialog at once, **with no filter on screen able to bring it back**. `_row_filters`' two date
+clauses now carry `OR r.added_on IS NULL`. Found by a test (`9 != 10`), not by the screen, and
+pinned by `test_an_undated_transfer_is_visible_in_EVERY_period`.
+
+⚠️ **`added_on` HAD SHIPPED AS A FACET FILTER** — a tick box per distinct calendar day, growing
+without limit, unable to express "everything after the 14th". Removed from `SERVER_FACET_COLUMNS`
+and from the server's `_FACET_COLUMNS`; caught by a test written for the new behaviour.
+
+### Files
+
+**Backend** (`api/outflow_import/review.py`): NEW `get_outflow_summary` (+ `_imports_in_scope`),
+NEW `match_period`, NEW `_assert_confirmable_size` / `_MAX_CONFIRMABLE`; `get_confirmable_rows`
+widened batch→filters; `get_import_summary` becomes a thin wrapper (the regression pin);
+`_row_filters` date clauses widened for NULL; `added_on` dropped from `_FACET_COLUMNS`.
+
+**Frontend**: NEW `components/data-table/dateFilterModel.ts` (pure) +
+`date-filter-popover.tsx` (controlled popover, with `data-table-date-filter.tsx` now a thin TanStack
+binding over it — every other screen untouched); NEW `utils/dateFilterRange.ts`; NEW
+`outflow-import/outflowPeriod.ts`, `useOutflowPeriodStore.ts`,
+`components/OutflowPeriodFilter.tsx`; `ImportSummaryPanel` rebuilt around the period;
+`outflowTableModel` gains the `date` filter kind, `PERIOD_COLUMN_ID`, `isDateFilterValue`,
+`importsCoveredLabel`, `rematchWarning`; `useOutflowRows` routes `added_on` to the store and exposes
+`filterQuery`; `OutflowRowsTable` renders the app-standard date popover for the date column;
+`SkippedRowsDialog` and `ConfirmAllMatchedDialog` rescoped batch→period.
+
+### The import selector (owner follow-up, same day)
+
+The period-only screen lost the ability to ask "how did *that* statement go" — the question the
+reversed 2026-08-10 ruling was built around. The owner asked for the selector back, **demoted**: a
+top-level `Import` control, **empty by default meaning every import**, which switches the whole
+screen to one statement's summary when set. System-wide by default, per-statement on demand.
+
+| Decision | Why |
+|---|---|
+| Selecting an import **IGNORES** the period | Owner ruling. "That sheet's summary" is the WHOLE statement, not a slice of it. `useOutflowRows` withholds the period when a batch is pinned — the same rule that fixed the deep link, so there is one rule rather than two. |
+| The period control is **disabled, not hidden** | A vanishing control cannot distinguish "no period applies" from "a period applies and you cannot see it". The second is a defect this screen actually shipped. It also stops NAMING a window while greyed (`Not applied`), because a greyed "Last 30 days" reads as applied-but-locked. |
+| The **route param IS the selection** | No second copy in page state, so the URL and the control can never contradict each other. `/bulk-import-outflow/:id` stops being a mode you cannot leave and becomes just "the selector has chosen this". |
+| Remount on switch is **fine** | Two route entries, so switching remounts — correct, because a different import is a different set of rows and the ticked selection / un-confirmed decisions belong to the rows they were made on. The period survives in the store. |
+| `import` metadata moved INTO `get_outflow_summary` | Filled only when a batch is selected (absent across a period — no single filename or uploader to name). This let `get_import_summary` become a **pure delegate**, so there is no second query that could answer the same question differently. |
+
+### What the browser walk found
+
+The walk was the real gate, and it earned its place — **three defects, none visible to a green suite**:
+
+1. ⚠️ **THE DEEP LINK WAS SILENTLY FILTERED.** `/bulk-import-outflow/OFI-26-00289` reported **274
+   transfers out of 1,043**: a period left in the store by an earlier visit was still applied while
+   the control was hidden. Every number wrong, everything looking right, nothing on screen able to
+   reveal or clear it. This is what produced the disabled-not-hidden rule above.
+2. **`"1 of them extend past this period"`** — broken grammar on the one sentence whose job is to
+   warn that a button reaches further than it looks, and "1 of them" is clumsy for a set of one.
+   Subject and verb are now chosen separately.
+3. **The selector's label rendered raw ISO** (`2026-05-02 → 2026-08-06`) directly above a metadata
+   line already showing `02-May-2026` — two date conventions on one panel. `importOptionLabel` now
+   uses the app-wide `dd-MMM-yyyy`; `dateOnly` stays ISO because it also feeds the Payment Date
+   column's SORT value, where a `dd-MMM-yyyy` string would order by day-of-month.
+
+All three are pinned by tests written after the fact.
+
+### Verified live
+
+Period drives summary + tabs together with every figure reconciling at each setting (All 274 /
+Not-Matched 36 / 238 settled against the chips; All 516 / 95 / 421 at Last Quarter; All 996 / 152 /
+844 at All time, where All = total − skipped and the Skipped chip = skipped + failed). The tab never
+moves. Presets persist as WORDS (`?ofl_period_op=Timespan&ofl_period_from=last+quarter`); All time
+persists as an explicit `none`. The column funnel opens the app-standard date filter already showing
+the Period's value, and clearing there moved the Period control — the one-value-two-editors design.
+Import selector round-trips to `/OFI-26-00289` and back, restoring the period from the store. Skipped
+chip 47 → dialog 47 (20 already paid / 27 bank refused). Console clean (its one error also fires on
+`/rate-master`).
+
+### Gates run
+
+- `tsc --noEmit`: **no errors in any touched file** (the repo carries ~3,200 pre-existing elsewhere).
+- vitest: **309 pass** (was 226) — 7 files, incl. new `dateFilterRange.test.ts` (16) and
+  `outflowPeriod.test.ts` (18).
+- pure services: **409 pass**, untouched.
+- `test_review`: **137 pass** (was 121). `test_upload` 25, `test_expenses` 31,
+  `test_settle_payment` 24, `test_approved` 16 — all green.
+- `yarn build`: succeeds.
+- ✅ **The live browser walk is DONE** (see above) and found three defects the suite could not —
+  there is no DOM test environment in this repository, so the panel, the two-editor date value and
+  the tab wiring are structurally untestable here.
 
 ---
 

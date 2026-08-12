@@ -51,6 +51,7 @@ from nirmaan_stack.services.outflow_import.status import (
     derive_import_summary,
     derive_row_outcome,
     derive_staged_row_outcome,
+    several_found_note,
     sole_suggestion,
 )
 
@@ -507,6 +508,36 @@ class TestNothingFound(unittest.TestCase):
         self.assertIn("PAY-7", disagreement)
         self.assertIn("Already recorded as Paid", disagreement)
         self.assertNotIn("No approved payment or expense matches", disagreement)
+
+    def test_all_THREE_mismatched_causes_stay_distinguishable(self):
+        """⚠️ THE MERGE TEST, WIDENED -- `Mismatched` now carries a THIRD fact (2026-08-11).
+
+        The sweep that moves "several records matched and nothing separated them" out of `Matched`
+        put a third cause under one status, so the note carries a three-way distinction where it
+        used to carry a two-way one:
+
+            found nothing        -> record or link one
+            already Paid, delta  -> a deduction such as TDS
+            several, none chosen -> pick which one
+
+        The dangerous pair is the FIRST and THIRD. Both are open rows in the Not-Matched tab, and
+        telling a reviewer "no approved payment or expense matches this transfer" about a transfer
+        that matched six sends them to create a duplicate expense for money already approved and
+        waiting to be paid.
+        """
+        nothing_found = derive_row_outcome(_Row(), _match()).note
+        several = several_found_note(6)
+
+        self.assertIn("No approved payment or expense matches", nothing_found)
+        self.assertNotIn("6", nothing_found)
+
+        self.assertIn("6 approved records match", several)
+        self.assertNotIn("No approved payment or expense matches", several)
+        self.assertNotIn("Already recorded as Paid", several)
+
+    def test_the_several_note_says_what_to_do_not_just_what_happened(self):
+        """Same obligation `_nothing_found_note` carries: the reader has nothing else to go on."""
+        self.assertIn("pick which one", several_found_note(3).lower())
 
     def test_a_non_approved_payment_never_reaches_this_module_as_matched(self):
         """Rule 1 is enforced UPSTREAM, in candidates.py -- the pool is Approved only, so a

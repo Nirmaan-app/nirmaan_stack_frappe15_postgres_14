@@ -3628,7 +3628,10 @@ const SheetPricingPage = () => {
         expanded
           ? "fixed inset-0 z-50 flex flex-col space-y-4 overflow-auto bg-background p-4"
           : // RM-3b: the embedded rate-helper panel is ALWAYS mounted (panel-as-default), so the page
-            // is PERMANENTLY widened when the feature is on; prod (feature off) keeps the centered cap.
+            // is PERMANENTLY widened when the feature is on -- which, since the DEV gate was removed,
+            // is the DEFAULT EVERYWHERE, production included. `expanded` is handled above, so here
+            // embeddedPanel reduces to RATE_HELPER_ENABLED: the centred cap below is now reachable
+            // ONLY when the `nirmaan-rate-helper-off` kill-switch is set.
             embeddedPanel
             ? "flex-1 space-y-4 w-full mx-auto pt-6 pb-10 px-4"
             : "flex-1 space-y-4 max-w-5xl mx-auto pt-6 pb-10 px-4",

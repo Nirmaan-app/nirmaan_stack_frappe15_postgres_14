@@ -653,11 +653,31 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Req. Amt" />
         ),
-        cell: ({ row }) => (
-          <div className="font-medium pr-2 text-emerald-500 dark:text-emerald-300">
-            {formatToRoundedIndianRupee(parseNumber(row.getValue("amount")))}
-          </div>
-        ),
+        cell: ({ row }) => {
+          // A carried-forward balance is smaller than the PO term it came from, which reads as
+          // a data error unless the row says where it came from.
+          const splitFrom = row.original.split_from;
+          return (
+            // STACKED, not inline. This column is sized at 100px and the amount already fills it,
+            // so an inline chip overflows the cell and is overlapped by the next column's text
+            // (seen live before this layout). `w-fit` keeps the chip hugging its label.
+            <div className="font-medium pr-2 text-emerald-500 dark:text-emerald-300">
+              <div>{formatToRoundedIndianRupee(parseNumber(row.getValue("amount")))}</div>
+              {splitFrom && (
+                <HoverCard>
+                  <HoverCardTrigger asChild>
+                    <span className="mt-0.5 block w-fit cursor-default rounded bg-amber-100 px-1 py-0.5 text-[10px] font-medium leading-tight text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                      Balance
+                    </span>
+                  </HoverCardTrigger>
+                  <HoverCardContent className="w-auto p-1.5 text-xs">
+                    Balance carried forward from <i>{splitFrom}</i> after a partial approval
+                  </HoverCardContent>
+                </HoverCard>
+              )}
+            </div>
+          );
+        },
         size: 100,
         meta: {
           exportHeaderName: "Requested Amount",
@@ -797,6 +817,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
         showBlockedToast();
         return;
       }
+      let successMessage: string | undefined;
       try {
         if (isCEOMode) {
           if (actionType === DIALOG_ACTION_TYPES.REJECT) {
@@ -807,12 +828,22 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
           } else {
             // CEO approval: call the whitelisted API so the backend can enforce
             // the single-user permission gate (Approved + ceo_approval_date stamp).
-            await ceoApproveCall({ payment_id: selectedPayment.name });
+            //
+            // `approved_amount` is sent ONLY for a genuine partial approval. Omitting it takes
+            // the endpoint's original full-approve path, byte-identical to before this feature —
+            // which is what keeps a plain approval free of any split machinery.
+            const isPartial = amount > 0 && amount < parseNumber(selectedPayment.amount);
+            const response = await ceoApproveCall({
+              payment_id: selectedPayment.name,
+              ...(isPartial ? { approved_amount: amount } : {}),
+            });
+            // The server composes the split message (it names the new payment), so echo it
+            // rather than re-deriving a second wording that could drift from what happened.
+            successMessage = response?.message?.message;
           }
         } else {
           const newStatus =
-            actionType === DIALOG_ACTION_TYPES.APPROVE ||
-              actionType === DIALOG_ACTION_TYPES.EDIT
+            actionType === DIALOG_ACTION_TYPES.APPROVE
               ? PAYMENT_STATUS.CEO_PENDING
               : PAYMENT_STATUS.REJECTED;
           await updateDoc(DOCTYPE, selectedPayment.name, {
@@ -831,9 +862,10 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
         toast({
           title: "Success!",
           description:
-            isCEOMode && actionType !== DIALOG_ACTION_TYPES.REJECT
+            successMessage ??
+            (isCEOMode && actionType !== DIALOG_ACTION_TYPES.REJECT
               ? "Payment forwarded for fulfilment."
-              : `Payment ${actionType} successfully!`,
+              : `Payment ${actionType} successfully!`),
           variant: "success",
         });
       } catch (error: any) {
@@ -950,6 +982,9 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
           }
           onSubmit={handlePaymentUpdate}
           isLoading={updateLoading || ceoApproveLoading}
+          // Partial approval is the CEO gate ONLY (owner ruling). The lead tick stays a plain
+          // full approve — two split points would let one payment fragment twice on its way up.
+          allowPartial={isCEOMode}
         />
       )}
     </div>

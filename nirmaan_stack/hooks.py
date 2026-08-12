@@ -165,6 +165,12 @@ doc_events = {
         # don't list it as a separate doc_event here.
         "on_update": "nirmaan_stack.nirmaan_stack.doctype.projects.projects.on_update"
     },
+    "Project Progress Reports": {
+        # Adopt capture-time DPR photo Files (uploaded before the report existed,
+        # so orphaned) into this report — sets File.attached_to_doctype/name.
+        # on_update fires on both create and edit; the handler is idempotent.
+        "on_update": "nirmaan_stack.integrations.controllers.project_progress_reports.relink_attachment_files"
+    },
     "Vendors": {
         "after_insert": "nirmaan_stack.nirmaan_stack.doctype.vendor_category.vendor_category.generate_vendor_category",
         # IMPLEMENT ON_UPDATE

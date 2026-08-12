@@ -21,6 +21,7 @@
   "ceo_approval_date",
   "status",
   "auto_approved",
+  "split_from",
   "voucher_attachment"
  ],
  "fields": [
@@ -109,12 +110,20 @@
    "fieldname": "ceo_approval_date",
    "fieldtype": "Date",
    "label": "CEO Approval Date"
+  },
+  {
+   "description": "Set only on a remainder payment produced by a partial CEO approval: the payment this one was split off from. Blank on every ordinary payment.",
+   "fieldname": "split_from",
+   "fieldtype": "Link",
+   "label": "Split From",
+   "options": "Project Payments",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-05-13 12:08:02.237768",
+ "modified": "2026-08-12 09:19:40.755101",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Project Payments",

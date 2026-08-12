@@ -13,11 +13,14 @@ import type { OutflowImportRow } from "@/types/NirmaanStack/OutflowImportBatch";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
+import { DateFilterPopover } from "@/components/data-table/date-filter-popover";
+
 import { rowStatusLabel, rowStatusTone } from "../outflowImportStatus";
 import {
     OUTFLOW_COLUMNS,
     SERVER_SORT_COLUMNS,
     highlightSegments,
+    isDateFilterValue,
     rowSettlementLinks,
     type ColumnFilters,
     type DecisionOrigin,
@@ -195,10 +198,28 @@ const HeaderCell = ({
         ? filter.length > 0
         : typeof filter === "string"
           ? filter.trim().length > 0
-          : Boolean(
-                filter &&
-                    ((filter as RangeFilter).min != null || (filter as RangeFilter).max != null)
-            );
+          : isDateFilterValue(filter)
+            ? Boolean(filter.value)
+            : Boolean(
+                  filter &&
+                      ((filter as RangeFilter).min != null || (filter as RangeFilter).max != null)
+              );
+
+    /**
+     * The funnel itself. Shared by both branches below so an active date filter and an active facet
+     * cannot end up looking different from each other.
+     */
+    const trigger = (
+        <button
+            type="button"
+            aria-label={`Filter ${column.title}`}
+            className={`rounded p-0.5 ${
+                active ? "text-primary" : "text-muted-foreground/50 hover:text-muted-foreground"
+            }`}
+        >
+            <Filter className="h-3 w-3" />
+        </button>
+    );
 
     return (
         <th
@@ -228,21 +249,28 @@ const HeaderCell = ({
                     </button>
                 )}
 
-                {column.filter !== "none" && (
+                {/* ⚠️ THE DATE COLUMN BRINGS ITS OWN POPOVER (slice P1), so it branches here rather
+                    than becoming another case inside `ColumnFilterBody`. `DateFilterPopover` is the
+                    app's standard date filter -- the exact control every DataTable screen uses --
+                    and it owns its own open state, its Apply/Clear footer and its trigger. Nesting
+                    it inside the generic popover would put a popover in a popover and give it two
+                    sets of footer buttons.
+
+                    ⚠️ IT EDITS THE SCREEN'S PERIOD. `onFilter("added_on", ...)` is routed by
+                    `useOutflowRows` to the shared store, so changing it here moves the Period
+                    control above the summary and the summary figures with it. That is the design:
+                    one value, two editors. */}
+                {column.filter === "date" ? (
+                    <DateFilterPopover
+                        id={column.id}
+                        value={isDateFilterValue(filter) ? filter : undefined}
+                        onChange={(next) => onFilter(column.id, next)}
+                    >
+                        {trigger}
+                    </DateFilterPopover>
+                ) : column.filter !== "none" ? (
                     <Popover>
-                        <PopoverTrigger asChild>
-                            <button
-                                type="button"
-                                aria-label={`Filter ${column.title}`}
-                                className={`rounded p-0.5 ${
-                                    active
-                                        ? "text-primary"
-                                        : "text-muted-foreground/50 hover:text-muted-foreground"
-                                }`}
-                            >
-                                <Filter className="h-3 w-3" />
-                            </button>
-                        </PopoverTrigger>
+                        <PopoverTrigger asChild>{trigger}</PopoverTrigger>
                         <PopoverContent align="start" className="w-64 p-3">
                             {/* Radix mounts this only when the popover OPENS, which is what makes
                                 the facet fetch lazy without any open-state bookkeeping here. */}
@@ -254,7 +282,7 @@ const HeaderCell = ({
                             />
                         </PopoverContent>
                     </Popover>
-                )}
+                ) : null}
             </div>
         </th>
     );

@@ -1084,6 +1084,40 @@ invariants:
   unfinished. The pass's own set is `env["attempted_rows"]`, published as `pass_attempted_count`;
   anything reporting what a PASS did must read that. Keep the two names distinct — they answer
   different questions and collapsing them re-creates the defect silently.
+- **Extraction capture is ALWAYS-ON and is the ONLY way a DROP is distinguishable from an ABSENCE
+  (owner-locked).** `_coerce_value` returns `None` for every failure and discards the raw value, so
+  a value the model RETURNED and we then dropped is byte-identical, in storage, to one it never
+  returned — which made three defect classes indistinguishable: sent-and-nothing-returned,
+  genuinely-ambiguous row text, and returned-then-dropped. `extraction._extract_batch` therefore
+  writes ONE JSONL record per batch to `<bench>/logs/boq_rate_extraction_capture.jsonl` carrying the
+  **assembled prompt**, the **raw reply** (+ `stop_reason` + `usage`), the per-row payload items, and
+  the **per-attribute `raw` -> `coerced` + `reason`** mapping, plus eight named DROP classes
+  (`ids_not_in_batch`, `unknown_container_rows`, `attributes_absent`, `coercion_failures`,
+  `confidence_unparseable`, `surplus_attributes`, `rows_omitted`, `defaulted_lost_to_coercion`).
+  **`_coerce_value` is the value-only WRAPPER over `_coerce_value_ex(defn, raw, syn) -> (value,
+  reason)`** — ONE implementation, so the value and the why can never drift; re-deriving the checks
+  at a call site to explain a `None` is exactly the coercion-twin duplication this codebase has been
+  bitten by three times. **A `defaulted` value that FAILS coercion loses the value AND the evidence
+  it was a default** — hence its own drop class. **THERE IS NO FLAG, and that is load-bearing:** the
+  retired EA-7 dump was gated by a module-level constant, and a long-lived RQ worker imports the
+  module ONCE at process start and never hot-reloads, so a constant flipped afterwards was silently
+  ignored and a completed run produced no dump at all (#171). Nothing to flip means nothing can be
+  stale. A **run-header record is written UNCONDITIONALLY**, including for a run that extracts
+  nothing — it is the anti-silence device, so "the code never ran" stays distinguishable from
+  "nothing happened". Retention is self-bounded (`CAPTURE_MAX_BYTES` 8 MB x `CAPTURE_KEEP` 5;
+  Frappe's `RotatingFileHandler` belongs to `logging` and does NOT apply to a plain append).
+  Capture is OBSERVATION ONLY — the stored `results` shape is byte-identical with it active.
+  **⚠️ KNOWN BLIND SPOT: this is a SERVER capture.** The frontend
+  `rateMasterStructure.coerceForMatch` turns a stored value into a catalog match key and a mismatch
+  silently matches NOTHING, so capture proves a value reached STORAGE — a row that captures cleanly
+  and still does not price is a FRONTEND question, not a contradiction.
+- **⚠️ EXTRACTION IS NON-DETERMINISTIC BY CONSTRUCTION.** `client.messages.create` sets **no
+  `temperature`, `top_p`, `top_k` or seed** at any of the four AI call sites, so it runs at the
+  API's default sampling. Measured 2026-08-11 on two whole-sheet re-runs with identical code and
+  inputs: **22 of 146 rows (15%) and 31 of 175 rows (18%) changed at least one attribute value,
+  while row counts and non-blank counts stayed IDENTICAL** — the drift is invisible to any aggregate
+  check. A re-run is therefore never a neutral act on a sheet under review; scope it with
+  `start_suggest(only_rows=[...])`, which carries every untouched row forward byte-identically.
 - **Extraction prompt rulings (owner, `prompts/boq_rate_attr_extraction_prompt.md`):** tolerate spelling
   variants (map to the canonical value), and — for an ARMOURED/UNARMOURED insulation attribute — a FLEXIBLE
   cable is UNARMOURED, and insulation DEFAULTS to UNARMOURED when neither armoured nor unarmoured is stated.

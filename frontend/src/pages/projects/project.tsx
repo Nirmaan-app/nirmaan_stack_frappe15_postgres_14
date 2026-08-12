@@ -334,9 +334,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   const designTrackerId = designTrackerResponse.data?.[0]?.name;
   const commissionReportId = commissionReportResponse.data?.[0]?.name;
 
-  // Commission Report tab visibility: show whenever a report exists for the
-  // project, independent of project status.
-  const isCommissionReportActive = !!commissionReportId;
+  // The Commission Report tab is ALWAYS available (independent of project status
+  // and of whether a report exists yet). With no report the tab renders
+  // NoCommissionReportView, which is the MANUAL creation entry point; the
+  // Handover status change still auto-creates one when it fires first.
 
   // console.log("modified-call", po_item_data)
 
@@ -576,10 +577,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           label: "Bulk Download",
           key: PROJECT_PAGE_TABS.BULK_DOWNLOAD,
         },
-        ...(isCommissionReportActive ? [{
+        {
           label: "Commission Report",
           key: PROJECT_PAGE_TABS.COMMISSION_REPORT,
-        }] : []),
+        },
       ];
     }
 
@@ -634,10 +635,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           label: "Bulk Download",
           key: PROJECT_PAGE_TABS.BULK_DOWNLOAD,
         },
-        ...(isCommissionReportActive ? [{
+        {
           label: "Commission Report",
           key: PROJECT_PAGE_TABS.COMMISSION_REPORT,
-        }] : []),
+        },
       ];
     }
 
@@ -704,10 +705,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           label: "Bulk Download",
           key: PROJECT_PAGE_TABS.BULK_DOWNLOAD,
         },
-        ...(isCommissionReportActive ? [{
+        {
           label: "Commission Report",
           key: PROJECT_PAGE_TABS.COMMISSION_REPORT,
-        }] : []),
+        },
       ];
     }
 
@@ -802,12 +803,12 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         label: "Bulk Download",
         key: PROJECT_PAGE_TABS.BULK_DOWNLOAD,
       },
-      ...(!isAccountant && isCommissionReportActive ? [{
+      ...(!isAccountant ? [{
         label: "Commission Report",
         key: PROJECT_PAGE_TABS.COMMISSION_REPORT,
       }] : []),
     ];
-  }, [role, isAccountant, isProcurementExecutive, isEstimatesExecutive, isPrivilegedUser, isProjectManager, isSales, isCommissionReportActive]);
+  }, [role, isAccountant, isProcurementExecutive, isEstimatesExecutive, isPrivilegedUser, isProjectManager, isSales]);
 
   // Define tabs available based on role or other logic
   // const availableTabs = useMemo(() => {

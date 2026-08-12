@@ -160,63 +160,160 @@ def _halt_reason_for(exc):
     return "The AI request was refused, so the run stopped early."
 
 
-# ── EA-7: the TEMPORARY payload dump ────────────────────────────────────────────────
-# TEMPORARY DIAGNOSTIC INSTRUMENTATION, not a feature. No doctype, no UI, no endpoint, no
-# permanent write path. It exists to capture the real payload for ONE diagnostic run and is
-# meant to be DELETED.
+# ── Extraction capture: prompt + raw response + per-attribute mapping ───────────────
+# PERMANENT instrumentation. It SUPERSEDES the temporary EA-7 payload dump, which is RETIRED --
+# EA-7's record (the per-row payload item) is a strict SUBSET of the batch record below, so
+# nothing was lost by removing it.
 #
-# TO REMOVE (whole slice, no migration, no data to clean): delete this constant, _dump_path,
-# _dump_payload_items, the `dump_ctx` keyword on _extract_batch and its two-line call inside it,
-# the `dump_ctx=` argument in run_extraction's _call, and the dump tests in test_rate_suggest.py.
-# Nothing else references any of them.
+# WHY IT EXISTS: `_coerce_value` returns None for EVERY failure and discards the raw value, so a
+# value the model RETURNED and we then dropped is byte-identical, in storage, to a value the model
+# never returned. That made three defect classes indistinguishable: (i) a readable description was
+# sent and nothing came back, (ii) the row text was genuinely ambiguous, (iii) a value came back
+# and we dropped / coerced / defaulted it away. This records the assembled prompt, the raw reply
+# and the per-attribute raw->coerced mapping, so a drop is visible AS a drop rather than as an
+# absence.
 #
-# The module-level-boolean convention is the one already used across the parser
-# (NOTE_PARENT_NEAREST_ROW_ENABLED, BUG_23_LINE_ITEM_LEVEL0_ANCESTOR_ENABLED, ...). Those all
-# default True because they gate a SHIPPED behaviour; this one defaults FALSE because it gates
-# diagnostics. os.environ is deliberately NOT used -- no production service module in this
-# codebase reads it (only the offline harness does).
-EA7_PAYLOAD_DUMP_ENABLED: bool = False
-EA7_PAYLOAD_DUMP_FILENAME = "ea7_payload_dump.jsonl"
+# ALWAYS-ON, deliberately (standing owner rule 2026-08-11: no dev-only gates -- anything built
+# works as-is in production). There is NO flag, and that is load-bearing rather than incidental:
+# EA-7 was gated by a module-level constant, and a long-lived RQ worker imports this module ONCE
+# at process start and never hot-reloads, so a constant flipped afterwards was silently ignored --
+# the pass ran, completed, and produced no dump at all (standing finding #171). Nothing to flip
+# means nothing can be stale. Measured cost is ~1.5-3 MB per full audit sweep.
+#
+# ⚠️ KNOWN LIMIT -- do NOT try to solve it here: this is a SERVER capture. The frontend
+# `rateMasterStructure.coerceForMatch` turns a stored value into a catalog match key, and a
+# mismatch silently matches NOTHING. So this proves a value reached STORAGE; it cannot see a
+# client-side match failure. A row that captures cleanly and still does not price is a frontend
+# question, not a contradiction.
+CAPTURE_FILENAME = "boq_rate_extraction_capture.jsonl"
+CAPTURE_MAX_BYTES = 8 * 1024 * 1024   # roll at 8 MB (~3 full audit sweeps)
+CAPTURE_KEEP = 5                      # ... keeping 5 rolled generations, so ~48 MB ceiling
+CAPTURE_VERSION = 1                   # record-shape version, so a later reader can branch on it
+
+# The coercion outcome vocabulary. Returned by _coerce_value_ex alongside the value so the capture
+# can say WHY a value was dropped without re-deriving the checks at the call site (duplicating
+# coercion logic is the exact drift this codebase has been bitten by three times).
+COERCE_OK = "ok"
+COERCE_OK_SYNONYM = "ok_synonym"          # a variant was mapped to its canonical, then accepted
+COERCE_OK_NONE = "ok_none_sentinel"       # the "None" positive-absence sentinel, preserved
+COERCE_ABSENT = "absent"                  # the model returned null -- NOT a failure
+COERCE_NOT_A_NUMBER = "not_a_number"
+COERCE_OUTSIDE_DOMAIN = "outside_numeric_domain"
+COERCE_NOT_ALLOWED = "not_an_allowed_choice"
 
 
-def _dump_path():
+def _capture_path():
     """The bench logs directory -- resolved, never hardcoded -- alongside the existing boq_*.log
-    family. Returns None if it cannot be resolved or is not writable, so the dump can never break
-    a run by failing to find somewhere to write."""
+    family. Returns None if it cannot be resolved or is not writable, so capture can never break a
+    run by failing to find somewhere to write."""
     try:
         logs = os.path.join(frappe.utils.get_bench_path(), "logs")
         if os.path.isdir(logs) and os.access(logs, os.W_OK):
-            return os.path.join(logs, EA7_PAYLOAD_DUMP_FILENAME)
+            return os.path.join(logs, CAPTURE_FILENAME)
     except Exception:
         pass
     return None
 
 
-def _dump_payload_items(payload_items, rows_batch, boq):
-    """Append one JSON line per row: the join key + category + the EXACT payload item as sent.
+def _capture_roll(path):
+    """Size-based rotation, hand-rolled on purpose. Frappe's own RotatingFileHandler belongs to the
+    `logging` module and does not apply to a plain append like this one -- the EA-7 writer had no
+    rotation at all, which was tolerable only because it was temporary and off. Capture is
+    always-on, so it MUST bound itself."""
+    try:
+        if os.path.getsize(path) < CAPTURE_MAX_BYTES:
+            return
+    except OSError:
+        return  # missing / unstatable -> nothing to roll
+    try:
+        oldest = "%s.%d" % (path, CAPTURE_KEEP)
+        if os.path.exists(oldest):
+            os.remove(oldest)
+        for i in range(CAPTURE_KEEP - 1, 0, -1):
+            src, dst = "%s.%d" % (path, i), "%s.%d" % (path, i + 1)
+            if os.path.exists(src):
+                os.replace(src, dst)
+        os.replace(path, path + ".1")
+    except OSError:
+        pass  # a failed roll must not stop the write, and must not fail the run
 
-    Wrapped so a dump failure can never fail a run -- this is instrumentation, and instrumentation
-    that can break the thing it observes is worse than none.
-    """
-    path = _dump_path()
+
+def _capture_write(record):
+    """Append one JSON line. Wrapped so a capture failure can NEVER fail a run -- instrumentation
+    that can break the thing it observes is worse than none. `default=str` guards the raw model
+    reply: it is arbitrary model output, and a value that will not serialise must degrade to its
+    repr rather than raise."""
+    path = _capture_path()
     if not path:
         return None
     try:
+        _capture_roll(path)
         with open(path, "a", encoding="utf-8") as fh:
-            for item, row in zip(payload_items, rows_batch):
-                fh.write(json.dumps({
-                    # the join key back to the suggestion output (the durable Excel address)
-                    "boq": boq,
-                    "sheet_name": row.get("sheet_name"),   # VERBATIM, trailing space and all
-                    "committed_version": row.get("committed_version"),
-                    "excel_row": row.get("excel_row"),
-                    "category_id": row.get("category_id"),
-                    "discipline": row.get("discipline"),
-                    "payload_item": item,                  # exactly what was sent
-                }, ensure_ascii=False) + "\n")
+            fh.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
         return path
     except Exception:
         return None
+
+
+def _usage_of(resp):
+    """Token usage off the response object, defensively. Currently DISCARDED by the pipeline --
+    recording it here is what retires the inferred-call-count problem."""
+    u = getattr(resp, "usage", None)
+    if u is None:
+        return None
+    out = {}
+    for k in ("input_tokens", "output_tokens",
+              "cache_read_input_tokens", "cache_creation_input_tokens"):
+        v = getattr(u, k, None)
+        if v is not None:
+            out[k] = v
+    return out or None
+
+
+def _capture_common(capture_ctx, rows_batch, kind):
+    """The join key back to the suggestion output. `boq` is NOT on the row dict -- it lives only in
+    run_extraction's scope and is threaded in through capture_ctx."""
+    first = rows_batch[0] if rows_batch else {}
+    ctx = capture_ctx or {}
+    return {
+        "kind": kind,
+        "capture_version": CAPTURE_VERSION,
+        "ts": frappe.utils.now(),
+        "boq": ctx.get("boq"),
+        "sheet_name": first.get("sheet_name"),   # VERBATIM, trailing space and all
+        "committed_version": first.get("committed_version"),
+        "category_id": first.get("category_id"),
+        "discipline": first.get("discipline"),
+        "excel_rows": [r.get("excel_row") for r in rows_batch],
+    }
+
+
+def _capture_run_header(boq, sheet_name, committed_version, model, row_count, categories,
+                        ai_enabled):
+    """THE ANTI-SILENCE DEVICE. Written once per run, UNCONDITIONALLY -- including for a run that
+    extracts nothing (AI disabled, no key, no eligible rows).
+
+    The failure mode this exists to kill is the worst kind: with the old dump, absence of output
+    was indistinguishable from absence of the phenomenon. A header makes "the code never ran" a
+    different observation from "the code ran and nothing happened".
+
+    NOTE: `run_id` is deliberately absent -- it is minted by the API layer (`_suggest_worker`), and
+    threading it down would mean editing that module. Join on (boq, sheet_name, committed_version,
+    ts) instead.
+    """
+    return _capture_write({
+        "kind": "run_header",
+        "capture_version": CAPTURE_VERSION,
+        "ts": frappe.utils.now(),
+        "boq": boq,
+        "sheet_name": sheet_name,
+        "committed_version": committed_version,
+        "model": model,
+        "row_count": row_count,
+        "categories": sorted(categories),
+        "ai_enabled": bool(ai_enabled),
+        "capture": "always-on",   # there is no flag; this states it in the artefact itself
+    })
 
 
 _ROW_CATEGORY = "BoQ Row Category"
@@ -694,7 +791,26 @@ _ROW_CONTEXT_SHAPE_GUIDANCE = (
 
 
 def _coerce_value(defn, raw, synonyms_for_attr=None):
-    """Coerce/validate one extracted value against its definition. choice -> must be an allowed
+    """The VALUE-ONLY contract, UNCHANGED. Every pre-capture caller keeps calling this and gets
+    exactly what it got before.
+
+    It is a thin delegation to `_coerce_value_ex`, which holds the one and only implementation --
+    so "the value" and "the value plus why" can never drift apart. That structure is the point:
+    the alternative (re-deriving the checks at the capture site to explain a None) is precisely the
+    duplication this codebase has been bitten by three times, per the coercion-twin warnings.
+    """
+    return _coerce_value_ex(defn, raw, synonyms_for_attr)[0]
+
+
+def _coerce_value_ex(defn, raw, synonyms_for_attr=None):
+    """Coerce/validate one extracted value against its definition, returning `(value, reason)`.
+
+    `reason` is one of the COERCE_* constants and is what makes a DROP visible as a drop: a raw
+    non-null arriving with a coerced null is a value we discarded, and the reason says which of the
+    checks discarded it. `COERCE_ABSENT` is NOT a failure -- it means the model returned null.
+
+    The coercion rules themselves are byte-unchanged from the value-only version:
+    choice -> must be an allowed
     value (else None; for an identity attribute the allowed values ARE the catalog); number -> a
     float/int (else None); number_choice -> a float/int that must also be a member of its NUMERIC
     domain (else None); null stays None.
@@ -711,18 +827,18 @@ def _coerce_value(defn, raw, synonyms_for_attr=None):
     lands on the canonical (MS) even though the .md prompt was told to map it. Price-interchangeable
     per business rule."""
     if raw is None:
-        return None
+        return None, COERCE_ABSENT
     # EA-4a-r: the "None" sentinel is POSITIVE ABSENCE -- preserve it verbatim for an allow_none def (a
     # number one included, where float("None") would raise and drop the signal). Distinct from null/blank.
     if defn.get("allow_none") and str(raw) == "None":
-        return "None"
+        return "None", COERCE_OK_NONE
     # NUMERIC types: `number` (a free numeric input) and `number_choice` (a DROPDOWN that produces a
     # NUMBER -- CP2). Both store a number; only number_choice carries a domain to check.
     if defn["type"] in ("number", "number_choice"):
         try:
             v = float(raw)
         except (TypeError, ValueError):
-            return None
+            return None, COERCE_NOT_A_NUMBER
         v = int(v) if v == int(v) else v
         if defn["type"] == "number_choice":
             # ⚠️ MEMBERSHIP MUST COMPARE LIKE WITH LIKE. The domain is resolved from the catalog, so
@@ -740,19 +856,24 @@ def _coerce_value(defn, raw, synonyms_for_attr=None):
                     except (TypeError, ValueError):
                         continue  # a non-numeric member (e.g. a "None" entry) never matches a number
                 if domain and float(v) not in domain:
-                    return None
-        return v
+                    return None, COERCE_OUTSIDE_DOMAIN
+        return v, COERCE_OK
     # choice (incl. the identity catalog)
     sval = str(raw)
+    synonym_applied = False
     if synonyms_for_attr and sval in synonyms_for_attr:
         sval = str(synonyms_for_attr[sval])  # variant -> canonical, before the allowed-values check
+        synonym_applied = True
     allowed = defn.get("values")
     if allowed and sval not in allowed:
-        return None
-    return sval
+        # NOTE: a "synonym miss" is NOT a separate branch in this function -- an unmapped variant
+        # simply reaches the allowed-values check and fails it here. Whether a synonym WAS applied
+        # is reported through COERCE_OK_SYNONYM on the success path.
+        return None, COERCE_NOT_ALLOWED
+    return sval, (COERCE_OK_SYNONYM if synonym_applied else COERCE_OK)
 
 
-def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=None, defaults=None, none_guidance=None, slot_spec=None, resolution_rules=None, rules=None, *, dump_ctx=None):
+def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=None, defaults=None, none_guidance=None, slot_spec=None, resolution_rules=None, rules=None, *, capture_ctx=None):
     """One extraction batch call with retry/backoff. Returns {excel_row: {attr_id: {value,
     confidence[, defaulted]}}} for the batch's OWN rows only. Ports ai_voter._ai_batch mechanics
     (<=20 rows, 3 attempts, sleep 2*attempt).
@@ -768,10 +889,6 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
     of that override value. That per-attribute `defaulted` flag is carried into the result (coercion
     keeps the value; this wrapper keeps the flag). Absent synonyms AND defaults -> byte-identical."""
     payload_items = [_ai_item(r) for r in rows_batch]
-    # EA-7 TEMPORARY DUMP. Default OFF -> this is one falsy check per batch and nothing else:
-    # no path resolution, no open(), no write, and the payload is untouched either way.
-    if EA7_PAYLOAD_DUMP_ENABLED and dump_ctx:
-        _dump_payload_items(payload_items, rows_batch, dump_ctx.get("boq"))
     content = (
         prompt_text
         + "\n\nATTRIBUTE_DEFINITIONS:\n"
@@ -832,6 +949,11 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
     defs_by_id = {d["id"]: d for d in attr_defs}
     last = None
     for attempt in range(1, _RETRIES + 1):
+        # `text` is per-attempt and is overwritten on a retry, so it is initialised here: the
+        # failed-attempt capture below needs whatever this attempt managed to produce, and a
+        # capture placed only after a SUCCESSFUL join would record nothing about the attempts that
+        # failed -- which are usually the interesting ones.
+        text = None
         try:
             resp = client.messages.create(
                 model=model,
@@ -845,12 +967,33 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
             # reply, anything unforeseen -- keeps its pre-SR-2 behaviour byte-identical and still
             # falls through to the parse and the existing retry classification.
             if getattr(resp, "stop_reason", None) == "max_tokens":
+                # CAPTURE (ceiling cut). This path RAISES BEFORE any text exists, so without a
+                # record here a cut batch is indistinguishable from a batch that never ran.
+                _capture_write(dict(
+                    _capture_common(capture_ctx, rows_batch, "ceiling_cut"),
+                    model=model, attempt=attempt, prompt=content,
+                    stop_reason="max_tokens", usage=_usage_of(resp),
+                    max_tokens=_AI_MAX_TOKENS, batch_size=len(rows_batch),
+                ))
                 raise ReplyCeilingExceeded(len(rows_batch), _AI_MAX_TOKENS)
             text = "".join(getattr(b, "text", "") for b in resp.content)
             out = {}
+            # ── capture accumulators. OBSERVATION ONLY: `out` below is built exactly as before,
+            # and nothing in this bookkeeping feeds back into it. ──
+            cap_map = {}
+            drops = {
+                "ids_not_in_batch": [],
+                "unknown_container_rows": [],
+                "attributes_absent": {},
+                "coercion_failures": {},
+                "confidence_unparseable": {},
+                "surplus_attributes": {},
+                "defaulted_lost_to_coercion": {},
+            }
             for el in _extract_json_array(text):
                 rid = int(el["id"])
                 if rid not in batch_ids:
+                    drops["ids_not_in_batch"].append(rid)
                     continue  # ignore any id the model echoed that is not in THIS batch
                 # EA-4d: the composite-decomposition prompt returns the filled slots under "slots"; the
                 # identity/attribute prompts use "attributes". Accept EITHER -- the per-attr shape
@@ -858,22 +1001,84 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
                 attrs = el.get("attributes")
                 if attrs is None:
                     attrs = el.get("slots")
+                if attrs is None:
+                    # Neither key: EVERY attribute of this row goes blank, silently. Record what the
+                    # model actually sent so a renamed container is diagnosable.
+                    drops["unknown_container_rows"].append(
+                        {"excel_row": rid, "keys_returned": sorted(str(k) for k in el.keys())})
                 attrs = attrs or {}
                 row_out = {}
+                row_map = {}
+                absent, coerce_fail, conf_bad, defaulted_lost = [], {}, [], []
                 for aid, defn in defs_by_id.items():
                     cell = attrs.get(aid) or {}
-                    value = _coerce_value(defn, cell.get("value"), (synonyms or {}).get(aid))
+                    if aid not in attrs:
+                        absent.append(aid)
+                    raw = cell.get("value")
+                    value, reason = _coerce_value_ex(defn, raw, (synonyms or {}).get(aid))
+                    conf_raw = cell.get("confidence")
                     try:
-                        conf = float(cell.get("confidence"))
+                        conf = float(conf_raw)
                     except (TypeError, ValueError):
                         conf = 0.0
+                        # An ABSENT confidence also lands here; only flag a value the model
+                        # actually sent that could not be read (absence is covered by `absent`).
+                        if conf_raw is not None:
+                            conf_bad.append(aid)
                     row_out[aid] = {"value": value, "confidence": max(0.0, min(1.0, conf))}
                     # EA-4a: keep the model's per-attribute `defaulted` flag (only when the value
                     # survived coercion -- a defaulted value is one of the allowed values, so this
                     # simply marks WHY it is present). Absent/false -> flag omitted (byte-compat).
-                    if defaults and value is not None and bool(cell.get("defaulted")):
+                    claimed_default = bool(cell.get("defaulted"))
+                    if defaults and value is not None and claimed_default:
                         row_out[aid]["defaulted"] = True
+                    if raw is not None and value is None:
+                        coerce_fail[aid] = reason
+                        # ⚠️ The flag rides on the value surviving, so a DEFAULTED value that fails
+                        # coercion loses the value AND the evidence it was ever a default. That is
+                        # the one case where the stored row cannot be told apart from a row the
+                        # model never answered -- so it gets its own drop class.
+                        if claimed_default:
+                            defaulted_lost.append(aid)
+                    row_map[aid] = {
+                        "raw": raw,
+                        "coerced": value,
+                        "reason": reason,
+                        "confidence_raw": conf_raw,
+                        "confidence": row_out[aid]["confidence"],
+                        "defaulted_claimed": claimed_default,
+                        "defaulted_kept": bool(row_out[aid].get("defaulted")),
+                    }
+                # Attributes the model returned that are NOT declared. Currently read by nothing and
+                # dropped with no else-branch -- the compound-row surplus.
+                surplus = sorted(str(k) for k in set(attrs) - set(defs_by_id))
+                if surplus:
+                    drops["surplus_attributes"][str(rid)] = surplus
+                if absent:
+                    drops["attributes_absent"][str(rid)] = absent
+                if coerce_fail:
+                    drops["coercion_failures"][str(rid)] = coerce_fail
+                if conf_bad:
+                    drops["confidence_unparseable"][str(rid)] = conf_bad
+                if defaulted_lost:
+                    drops["defaulted_lost_to_coercion"][str(rid)] = defaulted_lost
+                cap_map[str(rid)] = row_map
                 out[rid] = row_out
+            # Rows we asked about and the model never mentioned. `_row_result` will fill these with
+            # all-None attributes, which is indistinguishable from all-nulls returned.
+            drops["rows_omitted"] = sorted(batch_ids - set(out))
+            # CAPTURE (the primary point): prompt + raw reply + the whole mapping, one record per
+            # batch, written immediately before the return.
+            _capture_write(dict(
+                _capture_common(capture_ctx, rows_batch, "batch"),
+                model=model, attempt=attempt, prompt=content,
+                response_text=text, stop_reason=getattr(resp, "stop_reason", None),
+                usage=_usage_of(resp),
+                payload_items=payload_items,
+                defaults_configured=bool(defaults),
+                declared_attributes=sorted(defs_by_id),
+                mapping=cap_map, drops=drops,
+            ))
             return out
         except ReplyCeilingExceeded:
             # SR-2: NOT retried on purpose. The cut is deterministic for this batch -- an identical
@@ -882,6 +1087,15 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
             raise
         except Exception as exc:
             last = exc
+            # CAPTURE (failed attempt). The reply that could not be parsed is the evidence, and it
+            # is otherwise discarded when the next attempt overwrites `text`. Records whatever this
+            # attempt produced -- `response_text` is None when the call itself failed.
+            _capture_write(dict(
+                _capture_common(capture_ctx, rows_batch, "attempt_failed"),
+                model=model, attempt=attempt, prompt=content,
+                response_text=text, error=repr(exc),
+                transient=bool(_is_transient(exc)),
+            ))
             # SR-1: classify BEFORE retrying. A TERMINAL error (usage limit / auth / invalid
             # request) will not clear in six seconds, so retrying it burns two guaranteed-failed
             # calls and delays the partial save. Fail fast and let the caller keep what it has.
@@ -1059,6 +1273,15 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None, checkpoint_cb
         if r["excel_row"] not in skip and (only is None or r["excel_row"] in only)
     ]
 
+    # THE ANTI-SILENCE HEADER, written before every early return below so that a run which
+    # extracts nothing still leaves a trace. Placed here, after the population and settings are
+    # known, so it can state what the run was ABOUT to do.
+    _capture_run_header(
+        boq, sheet_name, cv, model, len(rows),
+        {r.get("category_id") for r in rows if r.get("category_id")},
+        settings.get("enabled"),
+    )
+
     def _envelope(ai_status, results, complete=True, halt_reason=None, attempted=None):
         attempted_now = sorted(attempted) if attempted is not None else [r["excel_row"] for r in results]
         return {
@@ -1155,9 +1378,9 @@ def run_extraction(boq, sheet_name, client=None, progress_cb=None, checkpoint_cb
                 batch = grp_rows[b : b + _BATCH]
 
                 def _call(rows_, _gc=gc):
-                    # EA-7: `boq` is NOT on the row dict -- it lives only in this enclosing scope,
-                    # so the dump's join key is threaded in from here.
-                    return _extract_batch(client, model, _gc["prompt"], _gc["defs"], rows_, _gc["synonyms"], _gc["defaults"], _gc["none_guidance"], _gc["slot_spec"], _gc["resolution_rules"], _gc["rules"], dump_ctx={"boq": boq})
+                    # `boq` is NOT on the row dict -- it lives only in this enclosing scope, so the
+                    # capture's join key is threaded in from here.
+                    return _extract_batch(client, model, _gc["prompt"], _gc["defs"], rows_, _gc["synonyms"], _gc["defaults"], _gc["none_guidance"], _gc["slot_spec"], _gc["resolution_rules"], _gc["rules"], capture_ctx={"boq": boq})
 
                 # SR-2 (3): ONE iteration when the batch fits (byte-identical to the pre-SR-2 single
                 # call); one per surviving half after a ceiling cut. Everything below is unchanged

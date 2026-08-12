@@ -900,7 +900,10 @@ export function NewSidebar() {
           className={`${state === "expanded" ? "bg-gray-100" : "mx-auto"}`}
         />
       </SidebarHeader>
-      <SidebarContent className="scrollbar-container overflow-x-hidden">
+      <SidebarContent
+        className={`scrollbar-container overflow-x-hidden group-data-[collapsible=icon]:overflow-y-auto ${state === "collapsed" ? "scrollbar-hide" : ""
+          }`}
+      >
         <SidebarGroup>
           <SidebarMenu>
             {items.map((item) => (
