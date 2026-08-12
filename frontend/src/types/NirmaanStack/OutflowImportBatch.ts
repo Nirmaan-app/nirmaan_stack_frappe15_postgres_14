@@ -183,8 +183,33 @@ export interface OutflowImportOption {
 
 /** `review.get_import_summary` (slice X2). Every money figure crosses the wire as a number. */
 export interface OutflowImportSummary {
-    batch: string;
-    import: OutflowImportOption & {
+    /**
+     * The import this summary is pinned to, or `null` when it describes a PERIOD spanning several
+     * (slice P1). `get_outflow_summary` is the period-scoped read; `get_import_summary` is the thin
+     * wrapper that pins it to one statement and is what fills `import` below.
+     */
+    batch: string | null;
+    /**
+     * Which statements the selected transfers came from.
+     *
+     * ⚠️ DERIVED FROM THE ROWS, not from batches whose declared period overlaps. Three different
+     * "periods" exist in this schema and they do not coincide; reading the imports back off the same
+     * rows the figures were computed from is the only answer that cannot disagree with them.
+     *
+     * `row_count` is how many of the batch's rows are IN scope; `total_rows` is how many it holds.
+     * The gap is what "Re-run match" overspills, and the screen says so before the click.
+     */
+    imports?: {
+        name: string;
+        original_filename?: string;
+        period_from?: string;
+        period_to?: string;
+        uploaded_at?: string;
+        row_count: number;
+        total_rows: number;
+    }[];
+    /** Only present on the batch-pinned read — a period has no single statement's metadata. */
+    import?: OutflowImportOption & {
         source?: string;
         gross_amount?: number;
         charges_amount?: number;

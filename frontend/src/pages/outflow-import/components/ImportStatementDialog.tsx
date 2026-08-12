@@ -51,7 +51,16 @@ interface Props {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     /** Called once the import is staged AND matched, with the new batch's name. */
-    onImported: (batch: string) => void;
+    /**
+     * The statement is in and matched.
+     *
+     * ⚠️ IT CARRIES THE STATEMENT'S OWN PERIOD (slice P1), not just the batch id. The screen is
+     * scoped to a period now, and a statement is routinely uploaded weeks after its transfers
+     * moved -- so a fresh import can land entirely OUTSIDE the default window and the page would
+     * refresh to a summary that does not mention it and a table that does not list it. That reads
+     * as a failed upload. The caller uses these dates to bring what was just imported into view.
+     */
+    onImported: (batch: string, period?: { from?: string | null; to?: string | null }) => void;
 }
 
 /**
@@ -173,6 +182,7 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported }: Props)
         setError(null);
 
         let batch: string;
+        let period: { from?: string | null; to?: string | null } | undefined;
         try {
             const message = (await post(UPLOAD_URL)) as OutflowUploadResult | undefined;
             if (!message?.batch) {
@@ -182,6 +192,7 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported }: Props)
             }
             setStaged(message);
             batch = message.batch;
+            period = { from: message.period_from, to: message.period_to };
         } catch (err: any) {
             setError(describeFrappeError(err, "The upload failed."));
             setIsBusy(null);
@@ -202,11 +213,11 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported }: Props)
                 )} Use “Re-run match” on the summary.`
             );
             setIsBusy(null);
-            onImported(batch);
+            onImported(batch, period);
             return;
         }
         setIsBusy(null);
-        onImported(batch);
+        onImported(batch, period);
         onOpenChange(false);
     }, [file, isBusy, post, runMatch, onImported, onOpenChange]);
 

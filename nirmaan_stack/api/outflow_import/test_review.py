@@ -38,8 +38,10 @@ from nirmaan_stack.api.outflow_import.review import (
     get_import_summary,
     get_outflow_facet_values,
     get_outflow_rows,
+    get_outflow_summary,
     get_row_candidates,
     match_batch,
+    match_period,
     search_settleable_records,
     skip_row,
 )
@@ -2133,3 +2135,291 @@ class TestMatchProvenance(OutflowReviewFixture):
         settled = self._rows("row_status = 'Settled'")
         for row in settled:
             self.assertEqual(row.row_status, "Settled")
+
+
+class TestThePeriodScopedSummary(OutflowReviewFixture):
+    """`get_outflow_summary` -- the panel's aggregate over a PERIOD rather than one import (P1).
+
+    ⚠️ THE SCOPE REVERSED HERE. Until P1 the panel summarised ONE import while the table beneath it
+    spanned every one, and the domain doc recorded that mismatch as the design (owner ruling
+    2026-08-10). The owner reversed it on 2026-08-12: both now describe the same population, scoped
+    by a period.
+
+    ⚠️ ASSERT PARTITIONS AND INVARIANTS, NOT EXACT COUNTS -- this suite sees the LIVE ledger, and how
+    many rows land `Matched` depends on what is approved in the database on the day.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        match_batch(cls.batch.name)
+
+    def test_one_batch_reproduces_the_old_endpoint_EXACTLY(self):
+        """THE REGRESSION PIN, and the reason `get_import_summary` still exists.
+
+        `get_import_summary(X)` is now a thin wrapper that delegates here with `batch=X` and adds the
+        statement's metadata. `batch=X` and nothing else IS the pre-P1 WHERE clause, so every figure
+        must be the figure that endpoint returned before the widening. If these two ever drift, a
+        filtered summary and a batch summary are being computed two different ways -- which is the
+        `_row_filters` defect ("a count computed under different filters than the page it labels")
+        arriving on the panel.
+        """
+        widened = get_outflow_summary(batch=self.batch.name)
+        pinned = get_import_summary(self.batch.name)
+        self.assertEqual(widened["totals"], pinned["totals"])
+        self.assertEqual(widened["auto_skipped_rows"], pinned["auto_skipped_rows"])
+        self.assertEqual(widened["manually_skipped_rows"], pinned["manually_skipped_rows"])
+        # The wrapper adds the statement's own metadata; the period-scoped read has no single one.
+        self.assertIn("import", pinned)
+        self.assertEqual(pinned["import"]["name"], self.batch.name)
+
+    def test_the_statements_metadata_rides_the_read_ONLY_when_one_is_selected(self):
+        """The Import selector's two states, in the payload (owner ruling 2026-08-12).
+
+        ⚠️ ABSENT IS THE HONEST SHAPE ACROSS A PERIOD. Several imports have no single filename,
+        uploader or declared period, and inventing one would caption the panel with the wrong
+        statement. The screen reads the `imports` LIST there instead.
+
+        It moved INTO `get_outflow_summary` so `get_import_summary` could become a pure delegate --
+        one query answering "how did that statement go", never two that could drift.
+        """
+        selected = get_outflow_summary(batch=self.batch.name)
+        self.assertIsNotNone(selected["import"])
+        self.assertEqual(selected["import"]["name"], self.batch.name)
+        self.assertEqual(selected["import"]["original_filename"], "test-statement.csv")
+
+        across = get_outflow_summary()
+        self.assertIsNone(across["import"])
+        # ...and the list is still there, which is what the panel captions itself with instead.
+        self.assertTrue(across["imports"])
+
+    def test_the_summary_counts_the_same_population_as_the_tabs(self):
+        """The whole point of routing both through `_row_filters`.
+
+        The panel sits directly above the tabs. Before P1 they described different populations by
+        design, and the screen carried a line of prose explaining why the numbers differed. They now
+        have to agree, and this is what says so: the summary's per-status counts must equal the
+        table's `status_counts` under the identical filters.
+        """
+        summary = get_outflow_summary(batch=self.batch.name)["totals"]
+        page = get_outflow_rows(scope="all", batch=self.batch.name, limit=1)
+        status_counts = page["status_counts"]
+
+        for status, bucket in summary["by_status"].items():
+            # ⚠️ FAILED ROWS ARE THE ONE LICENSED DIFFERENCE. The summary excludes them from
+            # `by_status` (option B); `status_counts` is a RAW breakdown of the population and keeps
+            # them under `Skipped`. Every OTHER status must match exactly.
+            if status == "Skipped":
+                self.assertGreaterEqual(status_counts.get(status, 0), bucket["count"])
+                continue
+            self.assertEqual(
+                bucket["count"],
+                status_counts.get(status, 0),
+                f"{status}: the panel and the tabs disagree about the same rows",
+            )
+
+    def test_a_period_that_holds_the_statement_returns_the_whole_statement(self):
+        dates = [r["added_on"] for r in get_batch_rows(self.batch.name)["rows"] if r["added_on"]]
+        self.assertTrue(dates, "the fixture must carry dated rows or this proves nothing")
+        first, last = min(dates), max(dates)
+
+        scoped = get_outflow_summary(
+            batch=self.batch.name,
+            date_from=str(first)[:10],
+            date_to=str(last)[:10],
+        )["totals"]
+        whole = get_outflow_summary(batch=self.batch.name)["totals"]
+        # ⚠️ EQUAL, INCLUDING THE UNDATED ROW. A period spanning the statement must return the whole
+        # statement -- and the fixture's unparseable-date row is inside "the whole statement", which
+        # is why the two are equal rather than off by one. See
+        # `test_an_undated_transfer_is_visible_in_EVERY_period`.
+        self.assertEqual(scoped["total_rows"], whole["total_rows"])
+
+    def test_a_period_BEFORE_the_statement_drops_every_DATED_row(self):
+        """A filter must narrow, and must never fall through to every row.
+
+        ⚠️ IT DROPS THE DATED ROWS, NOT ALL OF THEM. The fixture's unparseable-date row survives
+        every period on purpose (see `test_an_undated_transfer_is_visible_in_EVERY_period`), so the
+        honest assertion is that everything with a real date is gone -- not that the result is empty.
+        Asserting zero here would be asserting the defect.
+        """
+        dated = [r for r in self.parsed.rows if r.added_on and r.is_success]
+        undated = [r for r in self.parsed.rows if not r.added_on]
+
+        empty = get_outflow_summary(
+            batch=self.batch.name, date_from="1999-01-01", date_to="1999-12-31"
+        )
+        self.assertEqual(empty["totals"]["total_rows"], len(undated))
+        self.assertGreater(len(dated), 0)
+        self.assertLess(empty["totals"]["total_rows"], len(dated))
+        # Zero-filled, not absent: a missing key renders as an em dash, which reads as "unknown".
+        self.assertIn("Matched", empty["totals"]["by_status"])
+
+    def test_a_scope_matching_no_row_at_all_yields_a_zeroed_summary(self):
+        """The empty state the panel renders as "No transfers in this period".
+
+        `derive_import_summary` zero-fills every status, so the SHAPE survives an empty population
+        and the panel shows zeros rather than breaking.
+        """
+        beyond = max(float(r.amount) for r in self.parsed.rows) + 1
+        empty = get_outflow_summary(batch=self.batch.name, amount_min=beyond)
+        self.assertEqual(empty["totals"]["total_rows"], 0)
+        self.assertEqual(empty["totals"]["total_value"], 0)
+        self.assertEqual(empty["totals"]["decided_percent"], 0.0)
+        self.assertEqual(empty["imports"], [])
+        self.assertIn("Matched", empty["totals"]["by_status"])
+
+    def test_the_imports_are_derived_from_the_ROWS(self):
+        """⚠️ NOT FROM `period_from` / `period_to` ON THE BATCH.
+
+        Three different "periods" exist in this schema and they do not coincide. Reading the imports
+        back off the same rows the figures were computed from is the only answer that cannot
+        disagree with the figures beside it -- and it is the set `match_period` acts on.
+        """
+        summary = get_outflow_summary(batch=self.batch.name)
+        self.assertEqual([b["name"] for b in summary["imports"]], [self.batch.name])
+
+        covered = summary["imports"][0]
+        # Every row of this batch is in scope, so the two counts agree and nothing overspills.
+        self.assertEqual(covered["row_count"], len(self.parsed.rows))
+        self.assertEqual(covered["original_filename"], "test-statement.csv")
+
+    def test_a_narrowed_scope_reports_the_batch_as_only_PARTLY_in_scope(self):
+        """`row_count` < `total_rows` is what the re-match warning is built on.
+
+        Matching runs per BATCH, so a statement only partly in scope is re-matched IN FULL. The
+        screen can only say so honestly if the server reports both numbers, which is why they travel
+        together.
+
+        ⚠️ NARROWED BY AMOUNT, NOT BY DATE, AND ONLY BECAUSE OF THE FIXTURE. Every row in
+        `cashfree_sample.csv` shares one calendar day, so no date window can split it -- and the one
+        row that could (`not-a-date`) now survives every period by design, see
+        `test_an_undated_transfer_is_visible_in_EVERY_period`. The invariant under test is not about
+        dates: it is that `row_count` follows the FILTERS while `total_rows` follows the BATCH, which
+        any filter exercises.
+        """
+        biggest = max(float(r.amount) for r in self.parsed.rows)
+        summary = get_outflow_summary(batch=self.batch.name, amount_min=biggest)
+        covered = summary["imports"][0]
+        self.assertLess(covered["row_count"], covered["total_rows"])
+        self.assertEqual(covered["total_rows"], len(self.parsed.rows))
+
+    def test_an_undated_transfer_is_visible_in_EVERY_period(self):
+        """⚠️ THE DEFECT THIS RULE EXISTS TO PREVENT, and it was live until P1 measured it.
+
+        The bank's date column is free text and does not always parse; the parser stores NULL rather
+        than guessing, and this fixture carries a literal `not-a-date` row for the case. Under a
+        plain `>=` / `<` bound such a row matches NO window -- so once the period became the SCREEN'S
+        SCOPE it would vanish from the summary, all three tabs and the Skipped dialog at once, with
+        no filter on screen able to bring it back.
+
+        The transfer still moved money and still needs settling, so it survives every period instead.
+        """
+        undated = [r for r in self.parsed.rows if not r.added_on]
+        self.assertTrue(undated, "the fixture must carry an unparseable date or this proves nothing")
+
+        # A window that cannot possibly contain it by date still returns it.
+        long_ago = get_outflow_rows(
+            scope="all", batch=self.batch.name, date_from="1999-01-01", date_to="1999-12-31",
+            limit=100,
+        )
+        self.assertIn(
+            undated[0].transfer_id,
+            [r["transfer_id"] for r in long_ago["rows"]],
+            "an undated transfer disappeared from a period -- it is now invisible everywhere",
+        )
+
+    def test_the_status_counts_still_sum_to_the_total_under_a_period(self):
+        summary = get_outflow_summary(batch=self.batch.name)["totals"]
+        counted = sum(b["count"] for b in summary["by_status"].values())
+        self.assertEqual(counted, summary["total_rows"])
+        self.assertEqual(summary["open_rows"] + summary["decided_rows"], summary["total_rows"])
+
+
+class TestMatchPeriod(OutflowReviewFixture):
+    """`match_period` -- re-running the match over every import the filters touch (slice P1)."""
+
+    def test_it_matches_the_batches_the_filters_select(self):
+        result = match_period(batch=self.batch.name)
+        self.assertEqual(result["batches"], [self.batch.name])
+        self.assertEqual(result["batches_matched"], 1)
+        # It clears the pending rows exactly as `match_batch` would -- it IS `match_batch`, looped.
+        self.assertEqual(_pending_count(self.batch.name), 0)
+
+    def test_it_returns_each_batch_result_so_a_heavy_pass_is_VISIBLE(self):
+        """`match_batch` reports which passes did the work (claims, Option B, stacks, the sweep).
+
+        Looping it must not swallow that -- a run leaning hard on any pass has to stay visible rather
+        than silent, which is why the per-batch payloads come back rather than a bare count.
+        """
+        result = match_period(batch=self.batch.name)
+        self.assertEqual(len(result["results"]), 1)
+        self.assertIn("swept_to_mismatched_rows", result["results"][0])
+        self.assertEqual(result["results"][0]["batch"], self.batch.name)
+
+    def test_a_scope_holding_no_rows_matches_NOTHING_rather_than_everything(self):
+        """The failure that would matter: a filter selecting no rows must not fall through to "all
+        batches". Re-matching every import ever staged because a filter was mistyped is not a
+        no-op -- it would churn suggestions under every reviewer currently working.
+
+        ⚠️ NARROWED BY AMOUNT, NOT BY AN OUT-OF-RANGE DATE. A date window that excludes everything
+        still returns any row whose date would not parse, so it does not select an empty set -- see
+        `TestThePeriodScopedSummary.test_an_undated_transfer_is_visible_in_EVERY_period`. This test
+        is about the fall-through, so it needs a genuinely empty scope.
+        """
+        # ⚠️ THE BOUND HAS TO BEAT THE LIVE DATABASE, NOT JUST THIS FIXTURE. This call is
+        # deliberately UNSCOPED by batch -- that is the fall-through being tested -- so it sees every
+        # real statement on the dev site, and "one rupee above my own biggest row" selects plenty of
+        # them. A trillion rupees is past any real transfer.
+        result = match_period(amount_min=10**12)
+        self.assertEqual(result["batches"], [])
+        self.assertEqual(result["batches_matched"], 0)
+
+
+class TestTheConfirmableCap(OutflowReviewFixture):
+    """`_MAX_CONFIRMABLE` -- the reviewability limit on "Confirm all matched" (slice P1)."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        match_batch(cls.batch.name)
+
+    def test_it_takes_the_same_filters_as_the_summary(self):
+        """The button is labelled with the summary's `confirmable_rows`, so the two must select the
+        same population -- otherwise the button offers a number this list cannot produce, which is
+        the "button 688, table 893" defect the `stale` bucket exists to explain."""
+        summary = get_outflow_summary(batch=self.batch.name)["totals"]
+        confirmable = get_confirmable_rows(batch=self.batch.name)
+        self.assertEqual(
+            len(confirmable["ready"]) + len(confirmable["stale"]),
+            summary["confirmable_rows"],
+        )
+        self.assertEqual(confirmable["matched_rows"], summary["matched_rows"])
+
+    def test_a_period_narrows_the_confirmable_set(self):
+        empty = get_confirmable_rows(
+            batch=self.batch.name, date_from="1999-01-01", date_to="1999-12-31"
+        )
+        self.assertEqual(empty["matched_rows"], 0)
+        self.assertEqual(empty["ready"], [])
+
+    def test_it_REFUSES_rather_than_truncating_when_the_set_is_too_large(self):
+        """⚠️ THE DIRECTION IS THE WHOLE POINT.
+
+        A `LIMIT` would hand back a list shorter than the count on the button that opened it, over a
+        set nobody chose -- and the missing rows would have no property in common, so nothing on
+        screen could account for them. Refusing names the number and leaves a way through.
+        """
+        from nirmaan_stack.api.outflow_import import review as R
+
+        original = R._MAX_CONFIRMABLE
+        R._MAX_CONFIRMABLE = 0
+        try:
+            with self.assertRaises(frappe.ValidationError):
+                get_confirmable_rows(batch=self.batch.name)
+        finally:
+            R._MAX_CONFIRMABLE = original
+
+        # And with the real ceiling back, the same call succeeds -- the refusal is the cap, not the
+        # query.
+        self.assertIsInstance(get_confirmable_rows(batch=self.batch.name)["ready"], list)

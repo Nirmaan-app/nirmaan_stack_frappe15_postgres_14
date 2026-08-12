@@ -1491,16 +1491,33 @@ _FACET_COLUMNS = {
     "bank_account": "r.bank_account",
     "ifsc": "r.ifsc",
     "import_batch": "r.import_batch",
-    # The screen facets on the DAY, not the timestamp -- which is what a person means by "the
-    # payment date". `added_on` is a Datetime, so the cast is what makes the facet's values match
-    # the cell's text.
-    "added_on": "CAST(r.added_on AS date)",
+    # ⚠️ `added_on` WAS REMOVED AT P1 AND MUST NOT COME BACK. The payment date is a DATE FILTER now
+    # (`date_from` / `date_to`, applied in `_row_filters`), which is the one shape a facet cannot
+    # serve: an IN list over distinct days grows without limit as the table does, and cannot express
+    # "everything after the 14th" at all. It also became the SCREEN'S PERIOD, so offering a second
+    # way to filter the same column would let two controls contradict each other.
+    #
+    # Removing it is safe rather than breaking: `_parsed_facets` drops an unknown column SILENTLY, so
+    # a stale bookmark carrying an `added_on` facet shows an unfiltered table instead of an error.
+    # `get_outflow_facet_values("added_on")` now throws, which is correct -- nothing asks for it.
 }
 
 # One page. Generous enough that a whole statement usually fits on one, capped so a client cannot
 # ask for the entire table and reinstate the problem this endpoint exists to solve.
 _DEFAULT_PAGE_SIZE = 50
 _MAX_PAGE_SIZE = 200
+
+# The most rows "Confirm all matched" will assemble in one go (slice P1).
+#
+# ⚠️ IT IS A REVIEWABILITY LIMIT, NOT A PERFORMANCE ONE, AND IT REFUSES RATHER THAN TRUNCATING. The
+# confirm dialog is a SAFETY CONTROL: it states what the button will write, including how many
+# approved amounts the click will REWRITE. Before P1 the set was bounded by one statement -- the
+# largest real one to date is 1,043 rows -- and a period can now select months of them. Past a few
+# thousand nobody reads the tree, and a control nobody reads is a control that is not there.
+#
+# Sized so that any single real statement always fits, so narrowing to one import is always a way
+# through. See `_assert_confirmable_size` for why truncating would be the dangerous alternative.
+_MAX_CONFIRMABLE = 2000
 
 
 @frappe.whitelist()
@@ -1661,13 +1678,31 @@ def _row_filters(*, batch, search, date_from, date_to, amount_min, amount_max, f
         )
         params.extend([needle] * len(_SEARCHABLE_COLUMNS))
 
+    # ⚠️ A ROW WITH NO `added_on` SURVIVES EVERY PERIOD (slice P1), AND THE `IS NULL` IS THE WHOLE
+    # POINT OF THESE TWO CLAUSES.
+    #
+    # The bank's date column is free text and does not always parse -- the parser stores NULL rather
+    # than guessing, and the test fixture carries a literal `not-a-date` for exactly this case. Under
+    # plain `>=` / `<` such a row matches NO period at all, so once the period became the SCREEN'S
+    # SCOPE (P1) it would have disappeared from the summary, from all three tabs and from the Skipped
+    # dialog simultaneously -- with no filter on screen that could bring it back, because every
+    # window excludes it equally.
+    #
+    # That is the worst available outcome for a worklist about money: the transfer still moved, it
+    # still needs settling, and a parse failure in one column is precisely the kind of row that needs
+    # a person. Showing it in every period is noisy in the rare case; hiding it is silent in the
+    # dangerous one.
+    #
+    # ⚠️ IT IS SAFE TO WIDEN THESE HERE because nothing shipped depended on the narrow reading:
+    # `date_from` / `date_to` existed on the endpoint before P1 but `serverQuery` never emitted them,
+    # so this is the first release in which any client sends a date at all.
     if date_from:
-        where.append("r.added_on >= %s")
+        where.append("(r.added_on >= %s OR r.added_on IS NULL)")
         params.append(date_from)
     if date_to:
         # Inclusive of the whole end DAY. `added_on` is a Datetime, so a bare date bound would
         # silently exclude everything after midnight on the day a person typed.
-        where.append("r.added_on < (%s::date + INTERVAL '1 day')")
+        where.append("(r.added_on < (%s::date + INTERVAL '1 day') OR r.added_on IS NULL)")
         params.append(date_to)
 
     if amount_min not in (None, ""):
@@ -1837,8 +1872,29 @@ def _tab_counts(where, params) -> tuple[dict, dict]:
 
 
 @frappe.whitelist()
-def get_confirmable_rows(batch: str):
-    """What "Confirm all matched" can and cannot act on, for one import (slice X5).
+def get_confirmable_rows(
+    batch: str = None,
+    failed=None,
+    search: str = None,
+    date_from: str = None,
+    date_to: str = None,
+    amount_min=None,
+    amount_max=None,
+    facets=None,
+):
+    """What "Confirm all matched" can and cannot act on, over the current filters (X5, widened P1).
+
+    ⚠️ IT TAKES THE SAME FILTERS AS `get_outflow_rows` AND `get_outflow_summary`, THROUGH THE SAME
+    `_row_filters`. The button is labelled with `confirmable_rows` from the summary, so the two must
+    select the same population or the button offers a number this endpoint cannot produce -- which
+    is the defect the `stale` bucket was invented to explain, and it would come straight back if
+    these two ever filtered differently. `batch=X` alone reproduces the pre-P1 behaviour exactly.
+
+    ⚠️ IT IS CAPPED (`_MAX_CONFIRMABLE`), AND THE CAP REFUSES RATHER THAN TRUNCATES. Before P1 this
+    was bounded by one statement; a period can select months. A silently truncated list would show
+    "Confirm 2,000" over a set that is not the set the summary counted, and the person clicking
+    would have no way to know. Refusing names the number and tells them to narrow -- see
+    `_assert_confirmable_size`.
 
     ⚠️ `Matched` IS NOT THE SAME AS CONFIRMABLE, AND CONFLATING THEM IS THE TRAP IN THIS FEATURE. A
     row is `Matched` when the matcher found one OR MORE approved records. When it found several it
@@ -1871,18 +1927,39 @@ def get_confirmable_rows(batch: str):
     holds.
     """
     require_outflow_access()
-    _assert_batch(batch)
+    if batch:
+        _assert_batch(batch)
+
+    where, params = _row_filters(
+        batch=batch,
+        search=search,
+        date_from=date_from,
+        date_to=date_to,
+        amount_min=amount_min,
+        amount_max=amount_max,
+        facets=facets,
+        failed=failed,
+    )
+    # The scope is NOT taken from the caller. "Confirm all matched" acts on `Matched` rows by
+    # definition, so the status is this endpoint's own, not a tab's -- reading a scope here would
+    # let a person on the Settled tab ask to confirm nothing, or on `all` ask to confirm the same
+    # set under a name that does not say so.
+    where = where + ["r.row_status = %s"]
+    params = params + [ROW_MATCHED]
+    clause = " WHERE " + " AND ".join(where)
+
+    _assert_confirmable_size(clause, params)
 
     rows = frappe.db.sql(
-        """
-        SELECT name, transfer_id, added_on, amount, beneficiary_name, remarks,
-               bank_reference_no, suggested_doctype, suggested_name, outcome_note,
-               suggestion_rule, match_basis, auto_matched
-        FROM "tabOutflow Import Row"
-        WHERE import_batch = %s AND row_status = %s
-        ORDER BY added_on ASC, name ASC
+        f"""
+        SELECT r.name, r.transfer_id, r.added_on, r.amount, r.beneficiary_name, r.remarks,
+               r.bank_reference_no, r.suggested_doctype, r.suggested_name, r.outcome_note,
+               r.suggestion_rule, r.match_basis, r.auto_matched
+        FROM "tabOutflow Import Row" r
+        {clause}
+        ORDER BY r.added_on ASC, r.name ASC
         """,
-        (batch, ROW_MATCHED),
+        tuple(params),
         as_dict=True,
     )
 
@@ -1966,6 +2043,101 @@ def get_confirmable_rows(batch: str):
         # it from three list lengths: matched -> (ready + stale) confirmable -> ready actionable.
         "matched_rows": len(rows),
         "ready_value": float(sum(normalize_amount(r["amount"]) for r in ready)),
+    }
+
+
+def _assert_confirmable_size(clause: str, params) -> None:
+    """Refuse a confirm set too large to be reviewed, naming the number (slice P1).
+
+    ⚠️ IT REFUSES; IT DOES NOT TRUNCATE, AND THAT IS THE WHOLE VALUE OF IT. A `LIMIT` would hand
+    back a list shorter than the count on the button that opened it, over a set nobody chose --
+    exactly the "button 688, table 893" defect that the `stale` bucket exists to explain, except
+    unexplainable because the missing rows would have no property in common. Refusing keeps the two
+    numbers honest and hands the person a lever: narrow the period.
+
+    ⚠️ THE CAP IS ABOUT REVIEWABILITY, NOT PERFORMANCE. The dialog is a SAFETY CONTROL -- it states
+    what the button will write, including how many approved amounts it will rewrite. Past a few
+    thousand rows nobody reads it, and a control nobody reads is a control that is not there.
+    """
+    total = frappe.db.sql(
+        f"""SELECT COUNT(*) AS n FROM "tabOutflow Import Row" r {clause}""",
+        tuple(params),
+        as_dict=True,
+    )[0]["n"]
+    if int(total or 0) > _MAX_CONFIRMABLE:
+        frappe.throw(
+            f"{int(total):,} matched transfers are in view — too many to review in one go "
+            f"(the limit is {_MAX_CONFIRMABLE:,}). Narrow the period, or filter to one import, "
+            "and confirm in smaller batches.",
+            title="Too many to confirm at once",
+        )
+
+
+@frappe.whitelist(methods=["POST"])
+def match_period(
+    batch: str = None,
+    failed=None,
+    search: str = None,
+    date_from: str = None,
+    date_to: str = None,
+    amount_min=None,
+    amount_max=None,
+    facets=None,
+):
+    """Re-run the match for every import the current filters touch (slice P1).
+
+    ⚠️ IT LOOPS `match_batch` PER BATCH AND CHANGES NOTHING ABOUT IT. `match_batch` runs a per-row
+    loop and then FOUR global passes -- claims, Option B, stacks, the sweep -- whose ORDER is
+    load-bearing at every joint, and three of which reason over the whole batch's results at once.
+    Matching "just the rows in the period" would hand those passes a partial picture: the claim pass
+    could not see a rival row outside the window, and the stack pass could not tell a balanced stack
+    from an unbalanced one. So the unit of matching stays the BATCH, and this only decides which
+    batches.
+
+    ⚠️ CONSEQUENCE, STATED RATHER THAN DISCOVERED: a batch that STRADDLES the period is re-matched
+    IN FULL, including its transfers outside it. That is wider than the filter implies, and the
+    screen says so before the click -- `get_outflow_summary().imports` carries each batch's
+    `row_count` (in scope) beside its `total_rows` (in the batch) for exactly that sentence. Do not
+    "fix" this by narrowing the match; fix it by keeping the warning honest.
+
+    ⚠️ SEQUENTIAL, AND THAT IS ALREADY THE SUPPORTED SHAPE. Re-running a batch is normal and safe
+    (see the module docstring), and matching batch A then batch B is precisely what a person does
+    today clicking Re-run on each import in turn. The cross-import passes are built for it:
+    `_enforce_single_claim` READS across imports and WRITES only inside the batch being matched, and
+    `_resolve_stacks` computes the same pairing from either side.
+    """
+    require_outflow_access()
+    if batch:
+        _assert_batch(batch)
+
+    where, params = _row_filters(
+        batch=batch,
+        search=search,
+        date_from=date_from,
+        date_to=date_to,
+        amount_min=amount_min,
+        amount_max=amount_max,
+        facets=facets,
+        failed=failed,
+    )
+    batches = [b["name"] for b in _imports_in_scope(where, params)]
+
+    # ⚠️ ORDERED OLDEST-FIRST, DELIBERATELY. `_imports_in_scope` returns newest-first because that is
+    # how a picker reads; matching wants the opposite. A record contested by two imports goes to the
+    # EARLIER transfer under `resolve_claims`' `(added_on, row name)` ordering, and matching oldest
+    # first means the later batch sees that claim already placed rather than placing and releasing
+    # it. The outcome is the same either way -- the claim pass is order-independent by construction
+    # -- but the run does less work and its per-batch counters read in the order things happened.
+    batches.reverse()
+
+    results = []
+    for name in batches:
+        results.append({"batch": name, **(match_batch(name) or {})})
+
+    return {
+        "batches": batches,
+        "batches_matched": len(batches),
+        "results": results,
     }
 
 
@@ -2108,17 +2280,43 @@ def _refresh_batch_rollup(batch: str) -> list:
 
 
 @frappe.whitelist()
-def get_import_summary(batch: str):
-    """Everything the summary section reports about one import (slice X2).
+def get_outflow_summary(
+    batch: str = None,
+    failed=None,
+    search: str = None,
+    date_from: str = None,
+    date_to: str = None,
+    amount_min=None,
+    amount_max=None,
+    facets=None,
+):
+    """The summary of EVERY transfer the current filters select (slice P1).
 
-    ⚠️ ONE `GROUP BY`, NOT A ROW LOOP. This is a count and a sum over every row of an import, which
-    ADR-0010 puts in the database. `get_batch_rows` exists for the rows themselves; using it here
-    would load the whole import to add up two columns, and would get slower every month the feature
-    is used. The pure `derive_import_summary` assembles what the query returns.
+    ⚠️ THE SCOPE REVERSED HERE, AND THE OLD SHAPE IS WORTH STATING SO THE CHANGE IS LEGIBLE. Until
+    P1 this was `get_import_summary(batch)` -- hard-scoped to ONE import, sitting above a table that
+    spanned all of them, which the 2026-08-10 ruling called the design ("how did that statement go?"
+    and "what do I still owe a decision on?" are different questions). The owner REVERSED that on
+    2026-08-12: the panel now summarises a PERIOD, and the table shows the transfers inside it.
+
+    ⚠️ IT TAKES THE SAME FILTERS AS `get_outflow_rows` AND BUILDS THEM WITH `_row_filters`, WHICH IS
+    THE WHOLE POINT. The old objection to a panel that disagreed with its table was a POPULATION
+    mismatch, and the fix is not to argue about which population is right -- it is to make there be
+    only one. This runs the identical WHERE clause the page query, its count, the tab counts and the
+    facet values all run, so the panel and the tabs beneath it cannot disagree by construction.
+    Adding a second filter path here would reinstate exactly the defect `_row_filters` exists to
+    prevent.
+
+    ⚠️ EVERY FILTER EXCEPT THE SCOPE. The scope is the TAB -- a partition OF this population, not a
+    narrowing of it -- so applying it would make the panel describe whichever tab happened to be
+    open. This is the same rule `_tab_counts` follows, for the same reason.
+
+    ⚠️ ONE `GROUP BY`, NOT A ROW LOOP. This is a count and a sum over potentially every row ever
+    staged, which ADR-0010 puts in the database. `get_batch_rows` exists for the rows themselves.
 
     ⚠️ IT DERIVES NOTHING ITSELF. Every count, sum and percentage comes out of `status.py`, which is
-    the only deriver in this feature (ADR-0010 B3). A summary that computed its own numbers could
-    disagree with the tabs directly beneath it, which is worse than showing no summary at all.
+    the only deriver in this feature (ADR-0010 B3), and `derive_import_summary` needed NO change to
+    serve a period -- it folds a stream of tallies and has never known what a batch is. A summary
+    that computed its own numbers could disagree with the tabs directly beneath it.
 
     ⚠️ THE AUTO / MANUAL SKIP SPLIT KEYS ON `decided_by`, NOT ON THE REASON TEXT. A skip written at
     upload carries a system-generated `skip_reason` and no decider; a manual one records the person.
@@ -2126,7 +2324,20 @@ def get_import_summary(batch: str):
     rule `_related_paid_payments` follows for exactly the same reason.
     """
     require_outflow_access()
-    _assert_batch(batch)
+    if batch:
+        _assert_batch(batch)
+
+    where, params = _row_filters(
+        batch=batch,
+        search=search,
+        date_from=date_from,
+        date_to=date_to,
+        amount_min=amount_min,
+        amount_max=amount_max,
+        facets=facets,
+        failed=failed,
+    )
+    clause = (" WHERE " + " AND ".join(where)) if where else ""
 
     # ⚠️ GROUPED BY `(row_status, failed)`, NOT BY STATUS ALONE. A transfer the bank rejected is
     # `Skipped` -- and so is a duplicate, and so is a payment ticked Paid by hand. The owner ruled
@@ -2137,23 +2348,27 @@ def get_import_summary(batch: str):
     # `is_success_status`, which is what the parse path uses; writing `'SUCCESS'` into this SQL
     # would be a second definition of "successful" that stays right only until one of them learns
     # about a status word the other has not.
+    #
+    # ⚠️ THE `r.` ALIAS IS REQUIRED, NOT DECORATION. `_row_filters` writes every fragment against
+    # `r`, so the FROM clause has to bind that alias or the shared builder cannot be used here at
+    # all -- which is the one thing this endpoint must not fall back on.
     grouped = frappe.db.sql(
-        """
-        SELECT row_status                                        AS status,
-               UPPER(TRIM(COALESCE(status_raw, ''))) <> %s        AS failed,
-               COUNT(*)                                          AS count,
-               COALESCE(SUM(amount), 0)                          AS value,
-               COALESCE(SUM(CASE WHEN COALESCE(suggested_name, '') <> ''
-                                 THEN 1 ELSE 0 END), 0)          AS with_suggestion,
-               COALESCE(SUM(CASE WHEN COALESCE(suggested_name, '') <> ''
-                                 THEN amount ELSE 0 END), 0)     AS suggested_value,
-               COALESCE(SUM(CASE WHEN COALESCE(decided_by, '') = ''
-                                 THEN 1 ELSE 0 END), 0)          AS undecided_by_a_person
-        FROM "tabOutflow Import Row"
-        WHERE import_batch = %s
-        GROUP BY row_status, UPPER(TRIM(COALESCE(status_raw, ''))) <> %s
+        f"""
+        SELECT r.row_status                                        AS status,
+               UPPER(TRIM(COALESCE(r.status_raw, ''))) <> %s        AS failed,
+               COUNT(*)                                            AS count,
+               COALESCE(SUM(r.amount), 0)                          AS value,
+               COALESCE(SUM(CASE WHEN COALESCE(r.suggested_name, '') <> ''
+                                 THEN 1 ELSE 0 END), 0)            AS with_suggestion,
+               COALESCE(SUM(CASE WHEN COALESCE(r.suggested_name, '') <> ''
+                                 THEN r.amount ELSE 0 END), 0)     AS suggested_value,
+               COALESCE(SUM(CASE WHEN COALESCE(r.decided_by, '') = ''
+                                 THEN 1 ELSE 0 END), 0)            AS undecided_by_a_person
+        FROM "tabOutflow Import Row" r
+        {clause}
+        GROUP BY r.row_status, UPPER(TRIM(COALESCE(r.status_raw, ''))) <> %s
         """,
-        (BANK_SUCCESS_STATUS, batch, BANK_SUCCESS_STATUS),
+        (BANK_SUCCESS_STATUS,) + tuple(params) + (BANK_SUCCESS_STATUS,),
         as_dict=True,
     )
 
@@ -2180,7 +2395,25 @@ def get_import_summary(batch: str):
         if (g["status"] or "") == ROW_SKIPPED and not g["failed"]
     )
 
-    meta = frappe.db.get_value(
+    return {
+        "batch": batch,
+        "imports": _imports_in_scope(where, params),
+        # ⚠️ THE STATEMENT'S OWN METADATA, ONLY WHEN ONE IS SELECTED. A period spanning several
+        # imports has no single filename, uploader or declared period, and inventing one would be a
+        # caption that quietly describes the wrong statement. Absent is the honest shape there; the
+        # screen reads the `imports` list instead.
+        "import": _batch_meta(batch) if batch else None,
+        "totals": _jsonable_summary(summary),
+        # Which skips were the system's and which were a person's. The screen labels them
+        # differently because they mean different things: one is bookkeeping, one is a decision.
+        "auto_skipped_rows": auto_skipped,
+        "manually_skipped_rows": max(summary["skipped_rows"] - auto_skipped, 0),
+    }
+
+
+def _batch_meta(batch: str) -> dict:
+    """One statement's own facts, for the header shown when it is the selected import."""
+    return frappe.db.get_value(
         BATCH_DOCTYPE,
         batch,
         [
@@ -2191,15 +2424,73 @@ def get_import_summary(batch: str):
         as_dict=True,
     )
 
-    return {
-        "batch": batch,
-        "import": meta,
-        "totals": _jsonable_summary(summary),
-        # Which skips were the system's and which were a person's. The screen labels them
-        # differently because they mean different things: one is bookkeeping, one is a decision.
-        "auto_skipped_rows": auto_skipped,
-        "manually_skipped_rows": max(summary["skipped_rows"] - auto_skipped, 0),
-    }
+
+def _imports_in_scope(where, params) -> list:
+    """Which statements the selected transfers actually came from.
+
+    ⚠️ DERIVED FROM THE ROWS, NEVER BY SELECTING BATCHES ON `period_from` / `period_to`. There are
+    THREE different "periods" in this schema and they do not coincide: a row's `added_on` (when the
+    money moved), a batch's declared period, and its `uploaded_at`. The screen filters on
+    `added_on`, so asking the batch table for "batches whose declared period overlaps" would return
+    a DIFFERENT set -- late uploads straddle boundaries, and `overlaps_batch` exists precisely
+    because declared periods overlap. Reading the imports back off the rows we already selected is
+    the only answer that cannot disagree with the figures beside it.
+
+    ⚠️ THIS IS WHAT `match_period` ACTS ON, so it is a fact about the action and not only a caption:
+    re-running the match touches these batches IN FULL, including their transfers outside the
+    filter. `row_count` is how many of each batch's rows are actually in scope, which is what lets
+    the screen say so honestly instead of implying the action is as narrow as the period.
+    """
+    clause = (" WHERE " + " AND ".join(where)) if where else ""
+    return [
+        {
+            "name": g["name"],
+            "original_filename": g["original_filename"],
+            "period_from": g["period_from"],
+            "period_to": g["period_to"],
+            "uploaded_at": g["uploaded_at"],
+            "row_count": int(g["row_count"] or 0),
+            # How many rows the batch holds in TOTAL, so a caller can see at a glance that acting on
+            # it reaches further than the filter does.
+            "total_rows": int(g["total_rows"] or 0),
+        }
+        for g in frappe.db.sql(
+            f"""
+            SELECT b.name, b.original_filename, b.period_from, b.period_to, b.uploaded_at,
+                   COUNT(*) AS row_count,
+                   COALESCE(MAX(b.total_rows), 0) AS total_rows
+            FROM "tabOutflow Import Row" r
+            JOIN "tabOutflow Import Batch" b ON b.name = r.import_batch
+            {clause}
+            GROUP BY b.name, b.original_filename, b.period_from, b.period_to, b.uploaded_at
+            ORDER BY b.uploaded_at DESC NULLS LAST, b.name DESC
+            """,
+            tuple(params),
+            as_dict=True,
+        )
+    ]
+
+
+@frappe.whitelist()
+def get_import_summary(batch: str):
+    """One import's summary. KEPT as a thin wrapper over the period-scoped read (slice P1).
+
+    ⚠️ IT IS NOT DEAD CODE AND MUST NOT BE DELETED. `test_review` reads it, and it is still the
+    honest way to ask "how did that one statement go?" -- the question the 2026-08-10 ruling was
+    about. What changed is that it is no longer the ONLY question the panel can answer.
+
+    ⚠️ IT IS ALSO THE REGRESSION PIN. Because it delegates rather than keeping its own query, a
+    filtered summary and a batch summary can never drift apart: `batch=X` and nothing else IS the
+    old WHERE clause, so every number here is the number this endpoint returned before P1. A test
+    asserts exactly that.
+
+    The `import:` block it is named for now comes straight from `get_outflow_summary`, which fills it
+    whenever a batch is selected -- so this really is a pure delegate, and there is no second query
+    anywhere that could answer the same question differently.
+    """
+    require_outflow_access()
+    _assert_batch(batch)
+    return get_outflow_summary(batch=batch)
 
 
 def _jsonable_summary(summary: dict) -> dict:
