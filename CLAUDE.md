@@ -767,6 +767,36 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   leave `rateMasterRegistry.ts` in the SAME change.** The list the picker renders comes from the
   registry; retiring the config alone leaves the category on offer and renders
   "No active config found for …" when it is chosen.
+- **⚠️ `item_uid` IS THE STABLE ITEM IDENTITY, AND `name` STRUCTURALLY CANNOT SERVE (owner-locked).**
+  `BoQ Rate Master Item.item_uid` (`Data`, `search_index`) is the durable handle a CSV round trip
+  (download -> edit -> upload) matches on — "matched ids replace, blank ids add" is undefined without
+  it, and content matching turns every rename into a silent duplicate. **`name` cannot be reused for
+  this:** every import INSERTS fresh documents, and freeze-and-supersede **RETAINS** the superseded
+  row, so its `name` stays OCCUPIED — a new row reusing it is a primary-key collision. A separate
+  field has no such constraint, and **MANY ROWS SHARING ONE UID IS THE POINT**: every historical
+  version of an item can carry the same uid.
+- **⚠️ THE UID IS STAMPED, NEVER CONTENT-DERIVED (owner-locked).** Form: `rmi-` + 12 lowercase hex
+  (16 chars — opaque, prefix-consistent with the module's `rmbulk-` / `manual-` provenance prefixes,
+  and short enough to sit in a CSV cell). **A content hash is EXCLUDED and the reason is decisive:**
+  the id would CHANGE when an attribute is edited, so an edited row would return carrying a different
+  id, be read as an insert, and leave the original active — a silent duplicate on every rename, which
+  is the exact failure the uid exists to prevent.
+- **⚠️ THE UID IS NOT UNIQUE ON THIS TABLE — do NOT add a UNIQUE constraint.** It is unique only among
+  `active = 1` rows; superseded rows legitimately share a uid with their successor, and that sharing is
+  what would make history traceable. The field carries a **plain btree `search_index` only**. A partial
+  unique index over `active = 1` is possible but is NOT applied.
+- **⚠️ THE BACKFILL IS ACTIVE-ROWS-ONLY, AND HISTORY IS DELIBERATELY EXCLUDED (owner-locked).** A
+  superseded row has **no reliable key to its successor** — the only handle is content, and content is
+  exactly what changes between versions, so a historical backfill could only ever be approximate.
+  `scripts/backfill_rate_master_item_uid.py` is a one-off maintenance script (NOT a patch — it seeds
+  data, it does not migrate structure), it is idempotent, and it **REFUSES and writes nothing unless
+  every active row pairs to EXACTLY ONE asset item** on `(kind, brand, attributes)`. **`brand` is
+  load-bearing in that tuple**: several `lms_item` pairs are identical on `(kind, attributes)` and
+  differ only by brand, at materially different prices, so pairing without it mis-assigns their uids.
+  **The asset and the DB are stamped in the same run with the same value**, so a re-import reproduces
+  the identity rather than minting a new one; the loader carries `item_uid` through at both insert
+  sites exactly as it carries `brand`/`unit`. A legacy asset carrying no uid still loads, with the
+  field left BLANK — never a fabricated value.
 - **⚠️ A TEST IS UPDATED TO MATCH A RULING, NEVER A RULING TO MATCH A TEST (owner-locked).** An
   asset-pinned test that disagrees with the live asset is asserting the shape a ruling REPLACED — i.e.
   a defect — so the assertion moves and carries an INLINE COMMENT naming the ruling it now encodes and

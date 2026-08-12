@@ -27656,3 +27656,142 @@ badge only SELECTS the row for the always-mounted embedded panel.
 - ⚠️ **Killing the RQ worker under honcho takes the WHOLE bench stack down.** honcho terminates every
   process when one exits, so `kill <worker pid>` stopped web, schedule, watch and socketio too
   (`rc=-15`). Restart the worker by restarting `bench start`, not by killing its PID.
+
+## Build slice STABLE-ID -- `item_uid` on BoQ Rate Master Item (2026-08-13)
+
+Branch `feature/boq-pricing-helper`. Every import INSERTS fresh documents, so `name` is regenerated
+and no item had a durable identity across mints. The round trip (download -> edit -> upload) needs
+one: "matched ids replace, blank ids add" is undefined without it, and content matching turns every
+rename into a silent duplicate.
+
+### ⚠️ MIGRATE-CARRYING
+
+**This slice adds a database column. Anyone pulling this branch must run a migration**
+(`bench --site localhost migrate`). `patches.txt` was NOT touched and no patch entry is needed --
+a new field on an existing doctype is picked up by the ordinary doctype sync.
+
+### The field
+
+`item_uid` -- `Data`, `search_index: 1`, placed at the END of the Identity section (immediately after
+`unit`), so the human-meaningful identity fields keep their positions and the opaque id groups with
+them.
+
+**Added through FRAPPE'S OWN DocType API, not by hand-editing JSON.** `developer_mode: 1` is set in
+`common_site_config.json`, so `frappe.get_doc("DocType", ...).save()` both altered the table and
+rewrote the doctype JSON in the app folder itself ("Wrote document file for DocType BoQ Rate Master
+Item at ...").
+
+**Exactly what changed in the JSON** -- Frappe's export made four incidental changes beyond the field:
+
+| Change | Note |
+|---|---|
+| `+ "item_uid"` in `field_order`, after `unit` | the field |
+| `+` the field object (fieldname / fieldtype / label / search_index / description) | the field |
+| `- "allow_rename": 0` | Frappe omits falsy defaults on export; semantically a no-op (0 IS the default) |
+| `- "istable": 0` | same |
+| `creation` microseconds truncated, `modified` bumped | Frappe's export normalisation |
+| trailing newline dropped | restored by hand afterwards; JSON re-validated |
+
+**⚠️ NOT UNIQUE.** The column carries a plain btree index
+(`CREATE INDEX item_uid ON public."tabBoQ Rate Master Item" USING btree (item_uid)`), `unique = 0`.
+The uid is unique only among `active = 1` rows -- superseded rows legitimately share one, and that
+sharing is what makes history traceable. A partial unique index over `active = 1` is possible; it is
+**NOT applied**, and is reported rather than assumed.
+
+### The scheme -- STAMPED, never content-derived
+
+`rmi-` + 12 lowercase hex = **16 chars**. Opaque, so it never has to change when an attribute is
+edited; the prefix mirrors the module's existing `rmbulk-` / `manual-` provenance prefixes so a uid is
+recognisable on sight in a spreadsheet cell; 16 chars sits in a CSV cell without wrapping.
+
+**A content hash was excluded, and the reason is decisive:** the id would CHANGE when an attribute is
+edited, so an edited row would come back carrying a different id, be read as an insert, and leave the
+original active -- a silent duplicate on every rename, which is the exact failure the uid exists to
+prevent.
+
+### The loader -- two lines, verified against the code first
+
+Both insert sites were read before editing and are exactly as expected: two `frappe.get_doc({...})`
+dicts carrying `brand`/`unit` through `it.get(...)`. Each gained one line:
+
+```python
+"item_uid": it.get("item_uid"),
+```
+
+**Nothing else in the loader moved** -- freeze-and-supersede is untouched.
+
+**`_validate_items` needed NO change.** It requires `kind` / `attributes` / `rates` / `source` and
+never mentions `item_uid`, so absence was already tolerated by construction. A legacy asset therefore
+loads unchanged, with the field left BLANK -- never a fabricated value.
+
+### The read endpoint
+
+`get_rate_master_items` gained `item_uid` in its `fields` list -- one entry, beside the `name` the
+endpoint already returned. Verified: the field is present on every returned row.
+
+### The backfill -- ACTIVE ROWS ONLY
+
+`scripts/backfill_rate_master_item_uid.py`. A one-off maintenance script, **not a patch**: it seeds
+data, it does not migrate structure.
+
+**History is DELIBERATELY EXCLUDED** (owner ruling). A superseded row has no reliable key to its
+successor -- the only handle is content, and content is exactly what changes between versions, so a
+historical backfill could only ever be approximate. There is no hook implying one is coming.
+
+**Pairing:** DB row <-> asset item on `(kind, brand, canonicalised attributes)`, mirroring
+`loader._canonicalize_attributes` so both sides key identically. **`brand` is load-bearing**: six
+`lms_item` pairs are identical on `(kind, attributes)` and differ ONLY by brand -- Lutron vs Zen
+Control, at materially different prices -- so pairing without it would mis-assign six uids. The script
+**REFUSES and writes nothing** unless the pairing is 1:1 in both directions.
+
+**Measured:** 1,382 active DB rows / 1,382 distinct keys; 1,382 asset items / 1,382 distinct keys;
+**pairing 1:1 VERIFIED**; 1,382 uids minted, 1,382 distinct.
+
+**Idempotent, proven by running `--apply` twice:** the second run reported `1382 reused, 0 minted`,
+`DB rows stamped: 0`, and the same PASS.
+
+**The asset and the DB are stamped in the SAME run with the SAME value**, so a re-import reproduces
+the identity rather than minting a new one. Proof, re-read from disk and DB after writing:
+
+```
+DB rows with a uid    : 1382 / 1382
+asset items with a uid: 1382 / 1382
+keys where DB uid != asset uid: 0
+RESULT: PASS -- asset and DB agree on every item
+```
+
+`frappe.db.set_value(..., update_modified=False)` is used deliberately: this seeds an identity rather
+than editing content, and the doctype is `track_changes: 1`, so a `doc.save()` would have minted 1,382
+Version rows recording a field that had no prior value.
+
+**Inactive rows carrying a uid: 0** -- the active-only ruling is honoured in the data, not just the
+docstring.
+
+### Gates
+
+- **MINT GATE: PASS both ways -- "No atoms disappeared", exit 0.** Run as `v29 (committed) -> v30
+  (working copy)` and again as `v30 (committed) -> v30 (working copy)`, the latter isolating the uid
+  addition itself.
+  ⚠️ **Adding a key to every item does NOT register with the gate**, and the reason is the same blind
+  spot the dropped item hit: the gate's item vocabulary is `kind:<k>`, so nothing BELOW the kind level
+  -- neither an individual item nor a per-item key -- is in its atom vocabulary at all. Reported here
+  because "may or may not register" was an open question; the answer is that it does not.
+- **Loader round-trip PROVEN** (`test_24c`): the uid-carrying v30 loads into a SCRATCH discipline via
+  `_new_disc()` and every one of the 1,382 rows arrives with the uid the asset assigned it, keyed on
+  the same `(kind, brand, attributes)` tuple the backfill paired on. Never against live Electrical data.
+- **Legacy asset PROVEN** (`test_24d`): v12 (which genuinely carries no uid -- asserted, so the test
+  cannot pass vacuously) loads successfully into a scratch discipline with the field left blank.
+- `test_rate_master` **101 -> 103** (the two new tests), OK before and after.
+- `test_rate_suggest` and `test_extraction_coercion` unchanged from baseline; vitest unchanged.
+
+### Cert -- MEASURED, because nothing renders
+
+**No rendered surface changed.** `grep` over `frontend/src` finds **zero** references to `item_uid`,
+and the Data Viewer's column model is `kind / brand / <attribute definitions> / <rate keys> / unit /
+source_sheet / source_row` -- a top-level item field is not in it. The measured cert stands in place of
+a browser run: field present with the right type and index, 1,382 rows stamped and distinct, 0 inactive
+stamped, endpoint surfacing it on every row, loader carrying it, legacy loading, suites green.
+
+⚠️ The frontend `RateMasterItem` TypeScript interface does **not** declare `item_uid` yet. Harmless at
+runtime (the field rides in the payload regardless) and deliberately out of scope here -- the download
+slice owes that one line when it first reads the value.
