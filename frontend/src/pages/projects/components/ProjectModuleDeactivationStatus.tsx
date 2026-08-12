@@ -256,7 +256,9 @@ export const ProjectModuleDeactivationStatus: React.FC<ProjectModuleDeactivation
               {selectedModule?.state === "disabled"
                 ? `Are you sure you want to re-enable the ${selectedModule?.shortLabel} module for this project?`
                 : selectedModule?.state === "not_setup"
-                  ? "When the Project status is changed from any state to Handover, a Commission Report will be generated as part of the transition."
+                  ? isAdmin
+                    ? "When the Project status is changed from any state to Handover, a Commission Report will be generated as part of the transition."
+                    : "When the Project status is changed from any state to Handover, a Commission Report will be generated as part of the transition. Please contact your Admin to generate the Commission Report for this project."
                   : `Are you sure you want to deactivate the ${selectedModule?.shortLabel} module?`
               }
             </DialogDescription>
@@ -280,8 +282,21 @@ export const ProjectModuleDeactivationStatus: React.FC<ProjectModuleDeactivation
                 )}
               </Button>
             ) : selectedModule?.state === "not_setup" ? (
-              // Just show info, no buttons as per user request
-              null
+              isAdmin && selectedModule?.route ? (
+                <Button
+                  onClick={() => {
+                    setConfirmDialog(false);
+                    navigate(selectedModule.route!);
+                  }}
+                >
+                  <ExternalLink className="mr-2 h-4 w-4" />
+                  Go to Commission Reports
+                </Button>
+              ) : (
+                <Button variant="outline" onClick={() => setConfirmDialog(false)}>
+                  Close
+                </Button>
+              )
             ) : (
               <Button variant="destructive" onClick={() => handleModuleAction("disable")} disabled={isProcessing}>
                 {isProcessing ? (
