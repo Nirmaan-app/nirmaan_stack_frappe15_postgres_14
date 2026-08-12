@@ -41,7 +41,11 @@ pick one ad-hoc; ask.
 | How a suggestion was chosen | the `suggestion_rule` field + `disambiguate.RULE_LABELS` | invent a label. BLANK means "no suggestion", never "no rule" |
 | Reading approved-and-unpaid across the three ledgers | `services/outflow_import/ledger_read.py` (`LEDGER_SOURCES`, `approved_rows`, `approved_count`, `approved_projects`) | write a fourth query that knows the three ledgers' asymmetries. `review._search_one_ledger` is the OTHER caller and stays separate deliberately |
 | The settlement write | `services/outflow_import/settle.py` + the one orchestrator `api/outflow_import/expenses.settle_row` | write to a ledger from anywhere else in this feature |
+| **May a transfer pay PART of a record, or is the gap a DEDUCTION?** (PS + TD) | `services/outflow_import/partial_settle.py` (`partial_eligibility`, `deduction_eligibility`, `looks_like_tds`, `TDS_BAND_*`, `SERVICE_DOCTYPE`, `INTENT_*`) — pure. `deduction_eligibility` LAYERS on `partial_eligibility`; the shared shape half has one copy | let it reach the MATCHER. `matcher`, `disambiguate`, `status`, `stacks`, `claims` and `candidates` must not import it (pinned by a test). A partial sits OUTSIDE the ±₹5 settle window that gates every other write here; it is safe only because a person opens it on one specific row, and the moment the matcher can reach it that sentence stops being true. The frontend mirror `outflowTableModel.partialOffer` is a CONVENIENCE — the server re-asserts the whole gate under a row lock |
+| **Splitting a Project Payment in two** (PS-1) | `services/payment_split.py` (`split_payment`; `split_and_approve` is a thin wrapper) — SHARED with the CEO partial approval | fork it for the second caller. ONE concept, ONE owner (ADR-0010 B1): two copies of the sum invariant and the PO-term surgery would drift, and the symptom is a PO whose terms stopped adding up, months later, with no way to tell which copy wrote it. **Every parameter defaults to the CEO behaviour**, which is what makes `test_payment_split`'s 26 original tests the proof that generalising it changed nothing |
+| **What makes two staged transfers THE SAME transfer** (D3) | `services/outflow_import/duplicates.py` (`row_identity`, `dates_agree`, `RowIdentity`) — pure | key a duplicate check on anything else. THREE readers: the cross-batch lookup (`candidates.find_earlier_batches_for_rows`), the in-file repeat check in `upload._stage_batch`, and the parser's `_duplicate_transfer_ids`. They used to key on `transfer_id` independently; a key that differed between them would let one call two rows duplicates while another called them distinct, on the same file. ⚠️ It is **NOT** the `Outflow Row Match` unique constraint — that stays `(transfer_id, target_doctype, target_name)` and is the money guarantee; this is about WORK, and may be more discriminating |
 | Candidate pool queries | `services/outflow_import/candidates.py` | query a ledger for candidates inline in an endpoint |
+| **Why a picked record cannot be settled** (D1) | `frontend/.../outflow-import/outflowTableModel.ts` (`settleBlocker`, `settleBlockText`, `SettleBlockReason`) | write the refusal prose at a render site. The dialog used ONE fixed paragraph for every blocked pick and three of its claims went stale without anything failing — the worst told the reviewer to settle a TDS deduction "in the payments screen" after slice TD made that route live here |
 | Browsable approved records (hand-linking) | `api/outflow_import/review.search_settleable_records` (+ `_search_one_ledger`, `_rank_browse_records`, `_browse_cap`) | reuse `get_row_candidates` for browsing — that is the MATCHER's output, and when the matcher finds nothing it is empty, which is exactly when hand-linking is needed. Since N1 it returns the WHOLE approved pool by default and `limit` is a safety ceiling, not a page size |
 | What counts as "decided" on the screen | `frontend/src/pages/outflow-import/outflowTableModel.ts` (`isConfirmable`) | gate a confirm button on its own predicate — the dialog and the bulk bar both read this one |
 | Which rows the master table shows (X3) | `api/outflow_import/review.get_outflow_rows` (+ `_row_filters`, `_scope_clause`, `get_outflow_facet_values`) | filter, sort or search rows in the browser. ⚠️ `_row_filters` is ONE builder shared by the page query, its count, the tab counts, the facet values **and — since P1 — the summary, the confirmable list and `match_period`** — a count computed under different filters than the page it labels is a lie that looks like a paging bug. ⚠️ Its two date clauses carry `OR r.added_on IS NULL` on purpose: an unparseable bank date would otherwise match no period and vanish from every surface at once |
@@ -784,6 +788,47 @@ confirmed and refills as approvals happen. Both readings are far inside `_MAX_BR
 would NOT be fine is sizing a future decision on one reading of a number that moves 4× in an
 afternoon.
 
+### The reasons are RENDERED (slice N2, 2026-08-12)
+
+`similarity.py` computes `similarity` + `similarity_reasons` per record and `_rank_browse_records`
+attaches them — and **until N2 nothing on the frontend read either**, despite that module's docstring
+saying "the screen renders `reasons`". A record sat third in a ranked list with nothing saying why.
+
+The pure `recordPickerView.reasonCaption(record, sort)` now drives a muted sub-caption under the
+record id (full text in the `title`; 210px truncates the common two-reason case).
+
+- ⚠️ **IT GOES SILENT UNDER AN EXPLICIT SORT.** `sort === null` IS the ranking; under any other sort
+  a "why it ranks here" caption explains an order that is not on screen — worse than silence,
+  because it reads as authoritative.
+- ⚠️ **THE NUMERIC SCORE IS NOT SURFACED.** It is a weighted sum on an arbitrary scale, so nobody can
+  calibrate 1.35 against 0.9, and a number on a screen where money is confirmed invites being read as
+  a confidence.
+- The reason ORDER is the server's (project → vendor → alias → amount) and must not be re-sorted.
+
+### The matcher's candidates are MARKED (slice N3, 2026-08-12)
+
+`several_found_note(count)` says *"6 approved records match this transfer and nothing could separate
+them. Open the row and pick which one it settled."* — and the row opened into the whole approved pool
+with those 6 **unmarked**. The instruction pointed at nothing.
+
+`get_row_candidates` gained one **additive** key, `settleable_candidates` (`[{doctype, name}]`),
+computed by `_disambiguation_candidates` — the SAME list `sole_suggestion` reads and the note counts.
+`DecisionDialog` fetches it once at the top and marks matching browse rows with a neutral chip.
+
+- ⚠️ **NOT re-derived from `payment_groups`**, in the endpoint or the client. The sentence and the
+  marks must come from one list, or they disagree about the same row — the `best_payment_group`
+  collapse is what that failure looks like.
+- ⚠️ **`[]` for a fan-out** (inherited from Option B's abstention), but **a list of ONE for a single
+  candidate** — the `< 2` threshold belongs to `_sweep_unresolved_to_mismatched`, which asks a
+  different question. Copying it into the endpoint would give this feature a second place to change
+  one rule.
+- ⚠️ **The chip says FOUND, never AVAILABLE.** This endpoint re-runs the match live and applies none
+  of the four global passes, so a marked record may already be claimed by another open row. Promising
+  availability would surface as a confirm failing with `AlreadyPaidError` after the click.
+- ⚠️ **The stored note stands down when the live line appears** (`suppressOutcomeNote`, keyed on the
+  COUNT and never on the sentence's wording). The note was frozen at match time and the marks are
+  fetched now; two counts of one thing, free to disagree, is worse than one that is current.
+
 ### The screen (`recordPickerView.ts`, `RecordColumnHeader.tsx`)
 
 Vendor, Project, Approved and Amount each carry a sort arrow and a filter — facets for the first two,
@@ -989,21 +1034,331 @@ falls to a person untouched.
 
 ---
 
+## Partial settlement — one approved payment, several transfers (slice PS, 2026-08-12)
+
+A vendor is approved ONE payment of ₹5,00,000 and the bank pays it as ₹2,00,000 + ₹3,00,000. Before
+PS both transfers were unresolvable: `settle_row` refuses each with `AmountMismatchError`, and the
+dialog's other two exits (`SHOW_SKIP_ROW`, `SHOW_CREATE_NEW_EXPENSE`) are switched off.
+
+**`settle_row_partial(row, target_name, intent)` splits the record, then settles one half through
+the UNCHANGED `settle_payment`.** The kept half takes the bank's figure and goes `Paid`; the balance
+becomes a new `Approved` payment linked by `split_from`.
+
+### The five owner rulings (2026-08-12)
+
+| | Ruling |
+|---|---|
+| **R1** | Same access as the rest of outflow — Accountant, Accountant Lead, Admin. It changes no approved total, so it is not an approval and does not need the CEO gate |
+| **R2** | `settle.py`'s spine is **restated, not broken**: *this import never approves and never increases what is sanctioned*. A split re-partitions an existing sanction. Anything in this repo still reading "it cannot create a payment" is pre-PS |
+| **R3** | **The matcher never auto-suggests a partial.** Reviewer-initiated only, forever |
+| **R4** | The balance half is `Approved`. The money already was |
+| **R6** | `Project Payments` only. Neither expense doctype has split machinery, `split_from`, or PO terms |
+
+### ⚠️ TDS AND A PART PAYMENT ARE INDISTINGUISHABLE IN THE DATA
+
+A ₹5,00,000 payment against a ₹4,50,000 transfer is EITHER a part payment (₹50,000 still owed) OR a
+deduction (nothing more owed, ₹50,000 withheld). **`Project Payments.tds` is blank on every
+approved-unpaid payment** — it is written at fulfilment by a human who knows the figure — so there is
+nothing to read. 709 of 7,421 paid payments carry one.
+
+Guess it wrong in the part-payment direction and this feature **creates an approved payment that will
+never be paid, inflating what the PO thinks it still owes, forever** — worse than the dead end it
+replaces. Hence:
+
+- **`intent` is REQUIRED with no default**, server-side. Missing or unrecognised → throw.
+- **Neither option is pre-selected** on screen, and the primary button is disabled until one is.
+- `partial_settle.looks_like_tds` flags a shortfall sitting on 1/2/5/10% — **a warning beside the
+  choice, never a gate.** A 2% gap is still eligible; a part payment can land on 2% by coincidence.
+- `intent="deduction"` **throws and writes nothing**, routing to the payments screen.
+
+### The gate (`services/outflow_import/partial_settle.py`, pure)
+
+`Project Payments` · status `Approved` · record **strictly larger** than the transfer · gap
+**exceeds** `AMOUNT_TOLERANCE` (₹5) · both amounts positive. Every refusal is **named**
+(`REFUSAL_*`), so the endpoint, the screen and the tests cannot disagree about which rule stopped a
+row. ⚠️ The window boundary is **exclusive on the split side** — exactly ₹5 belongs to the ordinary
+settle, which is inclusive at its own boundary; otherwise both paths would claim the same gap.
+
+⚠️ **The gap exceeding ₹5 is also what makes `payment_split`'s own `MIN_SPLIT_AMOUNT` (₹1) floors
+unreachable from here.** That relation crosses a purity boundary (the pure module cannot import a
+frappe-importing service), so it is pinned by `test_settle_payment.TestTheWindowsStayInTheirRelation`
+— the one layer that may import both.
+
+### The transaction, and the two flags
+
+```
+require_outflow_access -> intent guard -> _load_settleable_row
+savepoint:
+   _assert_partially_settleable   (row lock, re-asserts the whole gate)
+   split_payment(...)             expect/remainder Approved, stamp_ceo_approval=False
+   settle_payment(...)            UNCHANGED
+   _record_settlement             UNCHANGED
+commit -> _link_statement_file_to_target -> _record_partial_provenance
+```
+
+- ⚠️ **ONE SAVEPOINT OVER SPLIT + SETTLE.** A split that succeeded with a settle that failed leaves a
+  payment partitioned for a settlement that never happened. Pinned by a test that forces the UTR
+  guard to fire after a successful split and asserts no orphan balance survives.
+- ⚠️ **`remainder.flags.split_child`** — the balance inserts AS `Approved`, and `after_insert`'s
+  `if doc.status == "Approved"` branch fans out notifications that `frappe.db.commit()` **per
+  recipient**. Inside the outflow savepoint that ends isolation, and "Confirm 8" could leave four
+  rows written and four not with nothing recording which.
+- ⚠️ **`pay.flags.split_approval`** — set even though it is currently redundant (the trim is
+  `Approved → Approved`, so `on_update` early-returns). Relying on an early return in another
+  function to keep a PO lock safe is agreement by coincidence.
+- ⚠️ **`stamp_ceo_approval=False`** — `ceo_approval_date` records when the CEO approved this money,
+  and `ledgers.DECIDED_ON_SQL` reads exactly that column to decide which record a later transfer was
+  nearest to. Stamping today would overwrite an approval fact with a bank fact and quietly re-order
+  every future match against that vendor.
+
+### Verified against the real machinery, not assumed
+
+- **`update_parent_amount_paid` SUMS the Paid payments** rather than incrementing, so a PO paid in
+  two halves reports the right total with no new code. Pinned.
+- **The PO's terms are written twice in one transaction** — by the split, then by
+  `_find_and_update_po_term` when the settle flips the status to `Paid` (a fresh `get_doc` + a second
+  save). This was the one joint reasoning could not settle; it is now proven: the terms come out
+  `Paid` + `Approved` and still sum to the original.
+- **`settle_row` still refuses the same payment** with `AmountMismatchError` — pinned, so the
+  ordinary path is proven un-widened.
+- **The bulk confirm cannot reach this**: a different endpoint name the confirm tree never calls, and
+  `get_confirmable_rows` only offers rows carrying a `suggested_name`, which a partial has not got.
+
+### The OTHER answer: recording the shortfall as TDS (slice TD, 2026-08-12)
+
+The same dialog, the same shortfall, the opposite reading. `intent="deduction"` used to throw; it now
+**writes `Project Payments.tds` and settles the payment in full** — in one narrow, measured case.
+
+```
+tds    = amount − bank        DERIVED, never typed
+amount = UNCHANGED            the record keeps its invoiced figure
+status = Paid, + utr + payment_date
+```
+
+**Owner rulings:** band **0.95–2.05%** (T-R1) · **`Service Requests` only** (T-R2) · no new approval
+gate (T-R4) · the amount never changes (T-R5).
+
+**Measured on the live ledger, 2026-08-12** — 671 Paid payments carry a TDS figure:
+
+- **584 are Service Requests** (87%); **505 sit at exactly 1.00% and 60 at exactly 2.00%**
+- the band captures **584 of 671**; widening to 0.5–2.5% adds **two**
+- service-only costs **5** in-band rows
+- ⚠️ **TDS is computed on `amount` DIRECTLY, not a pre-GST base.** Checked, because the opposite
+  would have mattered: `/1.18` turns those clean 1.00 / 2.00 into 1.18 / 2.36, and a band built on
+  that assumption misses almost every real deduction while every test stays green.
+
+⚠️ **`Project Payments.tds` IS EMPTY ON AN APPROVED PAYMENT — an INVARIANT, not a description of the
+table.** 39 rows violate it: every one is residue from a fulfilment undone by a hand write outside
+the document lifecycle (33 carry a `Version` row reading `Approved → Paid` and none for the way back;
+all 39 had `utr` and `payment_date` cleared and `tds` missed). **So nothing on this path READS the
+field** — `deduction_eligibility` has no `stored_tds` parameter and must never grow one. Residue is
+simply replaced by the figure this transfer implies, and `track_changes` records the replacement.
+**The 39 rows are a separate data-cleanup item**; spot the class with `status='Approved'` and a
+non-empty `tds`, no `utr`, no `payment_date`.
+
+⚠️ **THE WINDOW IS NOT WIDENED — IT IS POINTED AT THE RIGHT NUMBER.** With a `tds`,
+`_lock_and_assert_payment_settleable` asserts `|amount − tds − bank| ≤ AMOUNT_TOLERANCE`, because
+`amount − tds` is what the bank was expected to move. `tds=None` is byte-identical to before, and
+`rewrite_amount` is skipped entirely on the deduction path (X1's take-the-bank's-figure rule is for a
+record that should EQUAL the transfer; here it is deliberately larger).
+
+⚠️ **THE DEDUCTION OPTION IS GREYED, NEVER HIDDEN, AND THAT IS THE SAFETY ARGUMENT.** A reviewer
+looking at a genuine 2% TDS on a **materials PO**, offered only "part payment", will take it — and
+that creates an approved balance for money nobody owes, the exact phantom the PS slice exists to
+prevent. `deductionOffer` therefore always returns a verdict with a REASON, and the screen renders it
+beside the disabled option.
+
+⚠️ **THE CLIENT MIRROR IS FLOAT AND THE SERVER IS `Decimal`.** `2050/100000*100` is exactly `2.05`
+server-side and `2.0500000000000003` in IEEE-754 — so a naive comparison greys out an option the
+server accepts, on the very boundary the band is defined by. `BAND_EDGE_EPSILON` fixes it, and **the
+direction is the rule: the mirror may never be STRICTER than the server.** Erring toward offering is
+safe (the server re-asserts under a row lock); erring the other way hides the choice.
+
+⚠️ **`format_tds` is SEPARATE from `format_amount_for`.** That one keys on the DOCTYPE and would be
+right here only by coincidence — it is about `amount`, a real Currency column, while `tds` on the
+same doctype is a **Data** column of stringified numbers. The live column already holds both
+`'1000.0'` and `'1000'` because two writers disagreed; this path must not add a third shape, so it
+matches `_fulfil_payment`'s `flt()` exactly (pinned by test).
+
+⚠️ **NAME COLLISION — READ BEFORE GREPPING.** `TDS Items`, `TDS Repository`, `Project TDS Setting`
+and `TDS Items Child Table` are **Technical Data Sheets** (materials approval: `make`,
+`work_package`, `Verified / Not Verified`), and the "TDS Approval" tab with its Admin+PL approvers
+belongs to *that* feature. `Project Payments.tds` is **Tax Deducted at Source** and is unrelated to
+any of it. Same three letters, two concepts — the same trap this repo documents for "BCS".
+
+**`looks_like_tds` and the band are DIFFERENT QUESTIONS and must not be merged.** The first asks
+*"does this look like a deduction?"* (1/2/5/10%) and warns before a part payment is chosen; the second
+asks *"may we record it here?"* and gates the button. They deliberately disagree at 5% and 10%, which
+are real rates this path does not write.
+
+### What it does NOT solve
+
+**A transfer with genuinely nothing to link still has no terminal state.** `SHOW_SKIP_ROW` and
+`SHOW_CREATE_NEW_EXPENSE` remain `false`; 145 such rows existed on the first real statement. PS
+narrows that gap, it does not close it. Flipping either const is a separate decision.
+
+**There is no undo, and a wrong partial is worse than a wrong settle** because it created a document.
+Manual repair: delete the balance payment in the payments screen (`on_trash` reverts its PO term),
+then correct the original's amount. ⚠️ **After that repair the PO's terms will not sum to the PO
+total until someone fixes the remaining term** — the PO card warns, nothing fixes it automatically.
+A reverse-split utility is a reasonable follow-up and is out of scope.
+
+---
+
+## Three repairs on the decision path (slices D1–D3, 2026-08-12)
+
+Three independent changes, shipped together because they all landed on the Resolve dialog and the
+upload that feeds it. Each rolls back on its own.
+
+### D1 — the refusal says WHICH rule it broke
+
+The dead-end branch of `AmountOutsideWindowDialog` printed **one fixed paragraph for every blocked
+pick**, and by this date three of its claims were false:
+
+| The old sentence | Why it was wrong |
+|---|---|
+| *"This gap is far larger than that"* | It had never checked. A gap of ₹6 trips this branch |
+| *"A deduction such as TDS looks exactly like this — settle those in the payments screen"* | ⚠️ **Slice TD made that route live HERE** and did not touch this sentence |
+| *"or record it as a new expense"* | `SHOW_CREATE_NEW_EXPENSE` is `false` — that route is not on this dialog |
+
+It also read identically whether the record was bigger or smaller than the transfer — and since PS
+took the *bigger* case away into its own two-answer dialog, the **smaller** case is the common
+arrival here, the one shape the old wording described least well.
+
+**`settleBlocker` now carries a `reason`**, and `settleBlockText` owns the wording:
+
+| Reason | When | Says |
+|---|---|---|
+| `not_positive` | either amount ≤ 0 | nothing to settle against |
+| `bank_paid_more` | record **smaller** than the transfer | the bank moved more than this record is for |
+| `expense_exact_only` | record larger, but it is an expense | expenses settle at their exact amount only |
+| `record_larger` | record larger and IS a payment | reachable only with `SHOW_PARTIAL_SETTLE` off |
+
+⚠️ **IT REFINES THE MESSAGE, NEVER THE VERDICT.** `kind` stays the single `"amount_outside_window"`
+and the block still fires on exactly one thing — the server's `suggested === false`, which is a pure
+amount comparison over a list already filtered to settleable statuses. **The amount is the only
+reason a listed record can be blocked**, so the classification was already right; only the prose was
+stale.
+
+⚠️ **An absent `target_doctype` is NEVER read as an expense** — the same fail-open as `suggested`.
+Otherwise an older payload gets told "an expense can only be settled at its exact amount" about a
+payment: confident, specific and wrong.
+
+⚠️ **The sentence carries no amounts, deliberately.** The dialog's first paragraph already prints
+the record figure, the bank figure and the difference; repeating one here is a second copy free to
+drift. It is also what keeps the function a plain unit-testable string.
+
+`PROJECT_PAYMENTS_DOCTYPE` is now a shared constant because `settleBlockReason` and `partialOffer`
+must agree about the ledger — pinned by a test. If they drifted, the dialog would explain a refusal
+that had not happened, or offer a split the endpoint would reject.
+
+### D2 — the Why block is gone, and the dialog stops scrolling
+
+**`WhyThisSuggestion` is DELETED** (owner). It was a bulleted card at the top of the body carrying
+at most three sentences — the bank reference not being on any payment yet, the row's stored
+`outcome_note`, and *"Only approved records are ever offered here."* All three predate the record
+TABLE: since N2 the table prints a per-row similarity reason and since N3 it marks the rows the
+match run actually found, so the card restated — one level less precisely, and for the whole row
+rather than per record — what the reviewer can now read against each candidate.
+
+**Nothing server-side changed.** `outcome_note`, `related_payments` and `bank_reference_no` are all
+still written, still returned and still read elsewhere. Only the one rendering is gone.
+
+`suppressOutcomeNote` went with it — it answered "should the dialog stop printing the stored note?",
+and with no printer there is no question. ⚠️ This is deliberately unlike `orderBySuggestion`, which
+is KEPT as a documented-unused export: that one still implements a rule the server applies, this one
+did not.
+
+**The scrollbar.** Two nested scrollers exist by design — the dialog body (`max-h-[85vh]`) and the
+record table. The table's bound was a fixed `420px`, which is right about the table and wrong about
+the SCREEN: on a short viewport the body overflowed, and **"Clear selection", which sits below the
+table, went under the fold**. It was then unreachable, because the thing that scrolled it out of
+view was the thing you would scroll to reach it.
+
+`max-h-[min(420px,38vh)]` keeps today's size at 1080p and lets the table give way first on a short
+screen, so only the INNER scroller is ever used. ⚠️ **Do not simplify to a bare `vh`** — the 420px
+ceiling stops the table filling a very tall monitor and pushing the same controls down again.
+
+### D3 — duplicate identity is `(transfer_id, amount, date)`
+
+**What it was:** `transfer_id` alone — one column, read verbatim from the sheet's *Transfer Id*
+header, `.strip()`ed. Not a computed fingerprint. No amount, no date, no beneficiary, no reference.
+
+**What it is now:** the triple, owned by `duplicates.row_identity`.
+
+⚠️ **WIDENING MEANS STRICTER, AND THE INSTINCT RUNS THE OTHER WAY.** A longer key matches FEWER
+things, so this catches FEWER duplicates than before. A statement re-issued with the same transfer
+id but a corrected amount now imports as **new work** instead of being silently skipped. That is the
+point — a different amount is a different fact — but it is a live behaviour change, not a tightening.
+
+Four rules, each for its own reason:
+
+- **The amount compares EXACTLY. No tolerance.** `AMOUNT_TOLERANCE` is the SETTLE window — what may
+  be WRITTEN against a record — and has no business deciding whether two rows are the same row: at
+  ₹5 two genuinely different ₹3 transfers would collapse and the second would never import.
+  `amounts.py` also guards this structurally by failing any `Decimal` constant declared outside it.
+- **The DATE, not the datetime.** `added_on` is a Datetime and two exports of one transfer can carry
+  different clock times; comparing the timestamp would make every re-export look like new work.
+- ⚠️ **A MISSING DATE FALLS BACK TO id + amount** (owner ruling) — `dates_agree`, deliberately NOT
+  SQL `NULL = NULL`. The parser tolerates an unreadable Added On and stages the row anyway, so under
+  NULL semantics a sheet whose dates we failed to read would stop being recognised on re-upload and
+  **import a second time, silently**. A missing date is our failure to read the sheet, not evidence
+  of a different transfer. It is symmetric — either side may be the unreadable one.
+- **The in-file check widened identically.** `_stage_batch`'s `seen_in_file` and the parser's
+  `_duplicate_transfer_ids` both key on the identity now. ⚠️ The parser still RETURNS ids, because
+  `duplicate_transfer_ids` is an API payload field typed `string[]` on the client.
+
+**The SQL still narrows on `transfer_id` only; the triple is applied in Python.** Twice deliberate:
+`transfer_id` is the indexed column and stays the cheap first cut, and `amount` is a **Currency**
+column — a float in Postgres — so an `=` against it in SQL is exactly the binary-floating-point
+comparison that `normalize_amount` returning `Decimal` exists to avoid.
+
+`find_earlier_batches_for_transfers` was **renamed** to `find_earlier_batches_for_rows` and takes
+rows. The old name is deliberately not kept as an alias: a caller passing ids would otherwise keep
+getting the old, looser answer with nothing failing.
+
+⚠️ **THE TWO KEYS ARE NOW DIFFERENT, AND MUST STAY DIFFERENT.** `Outflow Row Match`'s unique
+constraint is `(transfer_id, target_doctype, target_name)` — untouched, and still the real
+guarantee that one transfer cannot settle one record twice. Do not "align" them: widening the
+constraint to a triple would let the same transfer settle the same record twice under a corrected
+amount.
+
+⚠️ **EVERY PRE-EXISTING `test_upload` TEST PASSED UNCHANGED WHEN THE KEY WIDENED.** A suite that
+cannot tell the old behaviour from the new is evidence of neither, so six tests were added and
+three of them were **proven to fail** against a temporarily reverted key before being accepted. The
+other three assert behaviour that is the same either way (same-day different time still duplicate,
+the missing-date fallback, an unchanged re-upload) and are regression guards, not change-detectors.
+
+---
+
 ## Known limits, accepted with numbers
 
-- **TDS payments will not match.** 709 of 7,421 Paid payments carry TDS (9.6%). `tds` is written at
-  fulfil time, so an approved unpaid payment has a blank one and `amount − tds` has nothing to
-  subtract. A tolerance pass (Q11) and a TDS box (Q6) are **next version**.
+- **TDS payments will not MATCH** — the matcher is untouched and a deduction-sized gap reaches no
+  tier. ⚠️ **But since slice TD they can be SETTLED by hand**, in one narrow case — see the
+  Deductions section above. Measured 2026-08-12: **671 of 7,642** Paid payments carry a TDS figure
+  (the 709 / 7,421 recorded here on 2026-08-10 is superseded). A tolerance pass (Q11) is still
+  **next version**.
 - **No undo of a settle** from inside the import (Q9). Fix it in the payments screen.
 - **Fan-out is report-only** (Q4) — which is why the existing UTR guard is never challenged. Chunk E
   did NOT change this: a fan-out disqualifies its whole stack rather than being paired.
-- **N transfers summing to ONE record is not built** (analysed 2026-08-10, deferred by the owner).
-  It cannot reuse `settle_row`: transfer 1 of ₹2L against a ₹5L payment fails `AmountMismatchError`,
-  and transfers 2..N would fail `AlreadyPaidError`. It needs one new atomic write taking N rows, a
-  group id on the row (the per-row `suggested_*` pair cannot express a group), and a bounded search
-  — finding which transfers sum to a payment is subset-sum, where the danger is false positives,
-  not compute. `Project Payments.utr` is `varchar(140)`, so ~10 slash-joined references before
-  Frappe hard-fails.
+- ~~**N transfers summing to ONE record is not built**~~ **SOLVED FROM THE OTHER END, 2026-08-12
+  (slice PS).** The struck-through analysis below was correct about the design it examined and is
+  kept because the next reader is entitled to see why that design was abandoned rather than built:
+  *"It cannot reuse `settle_row`: transfer 1 of ₹2L against a ₹5L payment fails
+  `AmountMismatchError`, and transfers 2..N would fail `AlreadyPaidError`. It needs one new atomic
+  write taking N rows, a group id on the row (the per-row `suggested_*` pair cannot express a
+  group), and a bounded search — finding which transfers sum to a payment is subset-sum, where the
+  danger is false positives, not compute. `Project Payments.utr` is `varchar(140)`, so ~10
+  slash-joined references before Frappe hard-fails."*
+  **PS inverts it: SPLIT THE RECORD FIRST, then settle each half as an ordinary 1-to-1.** Every one
+  of those four walls disappears rather than being climbed — `settle_payment` is unchanged, each
+  half carries its own UTR in its own field, no group id is needed, and there is no search at all
+  because the reviewer names the record and the bank names the amount. Two invariants survive
+  untouched, which is the strongest argument for the shape: `_enforce_single_claim` sees two records
+  claimed by two transfers, and `Outflow Row Match`'s unique `(transfer_id, target_doctype,
+  target_name)` sees two different targets.
+  **The remaining limits are stated in the PS section below**, and the sharp one is that TDS and a
+  part payment are indistinguishable in the data.
 - ~~**The paise difference is not recorded.**~~ **REVERSED 2026-08-09 (slice X1).** It used to say:
   *"Settling an ₹18,678.69 payment from an ₹18,679.00 transfer leaves the payment at ₹18,678.69.
   Accepted explicitly."* The record now takes the **bank's** amount, in **both directions**, on all
@@ -1021,9 +1376,22 @@ falls to a person untouched.
 
 | Suite | How |
 |---|---|
-| pure services (12 modules, 409 tests) | `python -m unittest discover -s nirmaan_stack/services/outflow_import -t . -p "test_*.py"` — no bench needed |
-| api (`test_upload`/`test_review`/`test_expenses`/`test_settle_payment`/`test_approved`) | `bench --site localhost run-tests --app nirmaan_stack --module nirmaan_stack.api.outflow_import.<module>` — `test_review` is **137** (121 before P1) |
-| frontend | `yarn test` (vitest, `node` environment — pure helpers only). **309** across this feature + the shared date-filter model (226 before P1). |
+| pure services (13 modules, **449** tests) | `python -m unittest discover -s nirmaan_stack/services/outflow_import -t . -p "test_*.py"` — no bench needed (441 before D3, 409 before PS) |
+| api (`test_upload`/`test_review`/`test_expenses`/`test_settle_payment`/`test_approved`) | `bench --site localhost run-tests --app nirmaan_stack --module nirmaan_stack.api.outflow_import.<module>` — `test_upload` **31** (25 before D3), `test_review` **143** (137 before N3), `test_expenses` **31**, `test_settle_payment` **54** (39 after PS, 25 before), `test_approved` **16** |
+| the SHARED split (CEO + partial settlement) | `… --module nirmaan_stack.api.payments.test_payment_split` — **31** (26 before PS-1; those 26 are the proof the CEO path is unchanged) |
+| frontend | `yarn test` (vitest, `node` environment — pure helpers only). **305** across this feature (287 before D1/D2, 267 before N2); **2,492** repo-wide. |
+
+⚠️ **A TEST THAT PASSES BEFORE AND AFTER A BEHAVIOUR CHANGE IS EVIDENCE OF NEITHER.** Every
+pre-existing `test_upload` test stayed green when the duplicate key widened at D3, because none of
+them varied an amount or a date. The change-detecting tests added there were **run against a
+temporarily reverted key and confirmed RED** before being accepted. Do this for any change to the
+identity, the windows, or the gates — a green suite is the easiest thing in this feature to obtain
+by accident.
+
+⚠️ **The pure suite needs the BENCH env python, not the container's system python**
+(`/workspace/development/frappe-bench/env/bin/python -m unittest discover …`, run from the app root).
+The system interpreter has no `firebase_admin`, so it dies importing `nirmaan_stack/__init__.py`
+before reaching a test — a failure that does not look like a test failure.
 
 ⚠️ **Both runners must be invoked INSIDE the dev container.** The host has no `firebase_admin`, so
 `python -m unittest` fails at `nirmaan_stack/__init__.py` before reaching a test; and the host
