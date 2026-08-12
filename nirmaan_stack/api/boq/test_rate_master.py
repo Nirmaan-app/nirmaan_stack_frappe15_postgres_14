@@ -126,12 +126,17 @@ class TestRateMaster(FrappeTestCase):
     def tearDownClass(cls):
         # RM-4a: audited edits create Version docs (track_changes) in the live DB -- delete them for
         # the synthetic docs BEFORE the docs, so no orphan Versions and the live count returns to 0.
+        # SLICE 3: BoQ Rate Master Retirement joins the purge. The loader now records a retirement
+        # row per declared entry, and both E-ALL fixtures (v12 and the current asset) declare some --
+        # so without this every run of this suite would leave synthetic rows behind in the LIVE DB.
         for disc in cls._disciplines:
-            for dt in ("BoQ Rate Category Config", "BoQ Rate Master Item"):
+            for dt in ("BoQ Rate Category Config", "BoQ Rate Master Item",
+                       "BoQ Rate Master Retirement"):
                 for r in frappe.get_all(dt, filters={"discipline": disc}, fields=["name"]):
                     frappe.db.delete("Version", {"ref_doctype": dt, "docname": r.name})
             frappe.db.delete("BoQ Rate Master Item", {"discipline": disc})
             frappe.db.delete("BoQ Rate Category Config", {"discipline": disc})
+            frappe.db.delete("BoQ Rate Master Retirement", {"discipline": disc})
         frappe.db.commit()
         super().tearDownClass()
 
@@ -866,6 +871,94 @@ class TestRateMaster(FrappeTestCase):
         self.assertTrue(stored)
         self.assertTrue(all(not r["item_uid"] for r in stored),
                         "a legacy asset must load with a BLANK uid, never a fabricated one")
+
+    def test_24e_the_loader_records_retirement_state_it_never_used_to_persist(self):
+        """SLICE 3 -- the retirement lists become a durable RECORD.
+
+        `retired_kinds` / `retired_category_ids` were the ONLY two loader inputs consumed to drive
+        behaviour and never persisted: the whole effect was `active = 0`, which is indistinguishable
+        from an ordinary supersede. Built from rows alone, an export would drop them.
+
+        ⚠️ PAYLOAD IS THE INSTRUCTION, TABLE IS THE RECORD -- the NEGATIVE half below pins that the
+        deactivation still reads the payload, never this table.
+
+        Loaded into a SCRATCH discipline; never against live Electrical data."""
+        from nirmaan_stack.services.boq_rate_master import retirement
+
+        disc = self._new_disc()
+        payload = self._merged_payload(disc)
+        self.assertEqual(payload["retired_kinds"], ["ups_per_kva", "ups_reference"])
+        self.assertEqual(payload["retired_category_ids"], ["ups", "switches_point"])
+
+        # nothing recorded for a discipline that has never been loaded
+        self.assertEqual(
+            retirement.get_retirement_lists(disc),
+            {"retired_kinds": [], "retired_category_ids": []},
+        )
+
+        r = loader.load_rate_master(payload=payload)
+
+        # the summary reports what it recorded, and the read function returns the asset's own shape
+        self.assertEqual(len(r["retirements_recorded"]["created"]), 4)
+        self.assertEqual(r["retirements_recorded"]["existing"], [])
+        self.assertEqual(
+            retirement.get_retirement_lists(disc),
+            {"retired_kinds": ["ups_per_kva", "ups_reference"],
+             "retired_category_ids": ["switches_point", "ups"]},
+        )
+
+        # ⚠️ provenance stays EMPTY -- the loader never knew when/who/why, and a field asserting a
+        # precision it does not have is worse than an empty one.
+        for row in frappe.get_all(retirement.RETIREMENT_DOCTYPE, filters={"discipline": disc},
+                                  fields=["retired_at", "retired_by", "reason"]):
+            self.assertIsNone(row["retired_at"])
+            self.assertFalse(row["retired_by"])
+            self.assertFalse(row["reason"])
+
+        # IDEMPOTENT: a second load records nothing new
+        r2 = loader.load_rate_master(payload=self._merged_payload(disc), replace=True)
+        self.assertEqual(r2["retirements_recorded"]["created"], [])
+        self.assertEqual(len(r2["retirements_recorded"]["existing"]), 4)
+        self.assertEqual(
+            frappe.db.count(retirement.RETIREMENT_DOCTYPE, {"discipline": disc}), 4
+        )
+
+        # UNIQUENESS IS STRUCTURAL: the tuple IS the primary key, so a duplicate cannot be inserted
+        # even bypassing record_retirements. Not a validate hook that could race or be skipped.
+        #
+        # ⚠️ SAVEPOINT IS LOAD-BEARING, not tidiness. A primary-key violation ABORTS the postgres
+        # transaction ("current transaction is aborted, commands ignored until end of transaction
+        # block"), so without rolling back to a savepoint every subsequent test in this class fails
+        # at its first write -- measured: 18 cascading errors plus tearDownClass.
+        frappe.db.savepoint("retirement_dup_probe")
+        with self.assertRaises(frappe.DuplicateEntryError):
+            frappe.get_doc({
+                "doctype": retirement.RETIREMENT_DOCTYPE, "discipline": disc,
+                "scope_type": "kind", "scope_value": "ups_per_kva",
+            }).insert(ignore_permissions=True)
+        frappe.db.rollback(save_point="retirement_dup_probe")
+
+    def test_24f_the_table_is_the_record_and_never_drives_deactivation(self):
+        """SLICE 3 NEGATIVE half -- the payload remains the instruction.
+
+        A retirement RECORDED for a discipline must NOT cause a later payload that no longer
+        declares it to deactivate anything. If the loader ever read this table to drive
+        `_deactivate_scope`, import behaviour would change -- explicitly out of scope."""
+        from nirmaan_stack.services.boq_rate_master import retirement
+
+        disc = self._new_disc()
+        # record a retirement for a kind that the E-ALL payload DOES carry, so if the table were
+        # ever consulted the load below would deactivate those rows.
+        retirement.record_retirements(disc, ["cable_tray"], [])
+        frappe.db.commit()
+        self.assertEqual(retirement.get_retirement_lists(disc)["retired_kinds"], ["cable_tray"])
+
+        payload = self._merged_payload(disc)
+        self.assertNotIn("cable_tray", payload["retired_kinds"])   # the payload does NOT retire it
+        loader.load_rate_master(payload=payload, replace=True)
+
+        # cable_tray loaded ACTIVE and stayed active -- the recorded row changed nothing
+        self.assertEqual(self._active_items(disc, kind="cable_tray"), 450)
 
     def test_25_eall_retired_scope_deactivated_on_replace(self):
         disc = self._new_disc()

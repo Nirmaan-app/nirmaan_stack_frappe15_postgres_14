@@ -1,0 +1,141 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "format:{discipline}::{scope_type}::{scope_value}",
+ "creation": "2026-08-13 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "identity_section",
+  "discipline",
+  "scope_type",
+  "scope_value",
+  "provenance_section",
+  "retired_at",
+  "retired_by",
+  "reason"
+ ],
+ "fields": [
+  {
+   "fieldname": "identity_section",
+   "fieldtype": "Section Break",
+   "label": "Identity"
+  },
+  {
+   "description": "The engine/discipline this retirement belongs to (e.g. 'Electrical'). The read function returns the two lists scoped to one discipline, which is the shape the asset uses.",
+   "fieldname": "discipline",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Discipline",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "description": "Which axis this retirement is on: 'kind' retires a master-item kind (loader retired_kinds), 'category' retires a category config (loader retired_category_ids). The two axes are NOT symmetric -- switches_point owned no item kinds at all (a pure borrower of switch_socket_item), so its retirement has a config footprint and no item footprint.",
+   "fieldname": "scope_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Scope Type",
+   "options": "kind\ncategory",
+   "reqd": 1
+  },
+  {
+   "description": "The retired kind name (e.g. 'ups_per_kva') or category_id (e.g. 'switches_point').",
+   "fieldname": "scope_value",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Scope Value",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "provenance_section",
+   "fieldtype": "Section Break",
+   "label": "Provenance (optional)"
+  },
+  {
+   "description": "When this was retired. OPTIONAL, and DELIBERATELY EMPTY on the backfilled rows: the loader never recorded when, and the only available signal is a batch creation timestamp, which is approximate. A field asserting a precision it does not have is worse than an empty one -- do NOT back-infer it.",
+   "fieldname": "retired_at",
+   "fieldtype": "Datetime",
+   "label": "Retired At"
+  },
+  {
+   "description": "Who retired it. OPTIONAL, and DELIBERATELY EMPTY on the backfilled rows for the same reason as retired_at -- the loader never recorded it and it must not be invented.",
+   "fieldname": "retired_by",
+   "fieldtype": "Data",
+   "label": "Retired By"
+  },
+  {
+   "description": "Why it was retired, in the owner's words. OPTIONAL and empty on the backfill. The asset's excluded_categories prose carried reasons for some of these, but that key is archaeology the export deliberately drops, so it is not migrated here.",
+   "fieldname": "reason",
+   "fieldtype": "Small Text",
+   "label": "Reason"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 0,
+ "links": [],
+ "modified": "2026-08-13 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "BoQ Rate Master Retirement",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Estimates Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan PMO Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Lead",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Procurement Executive",
+   "share": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

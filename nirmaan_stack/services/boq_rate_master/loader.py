@@ -31,6 +31,8 @@ import os
 
 import frappe
 
+from nirmaan_stack.services.boq_rate_master import retirement
+
 ITEM_DOCTYPE = "BoQ Rate Master Item"
 CONFIG_DOCTYPE = "BoQ Rate Category Config"
 
@@ -385,6 +387,14 @@ def _load_multi(payload, replace):
         ).insert(ignore_permissions=True)
         category_ids.append(cat_id)
 
+    # SLICE 3 -- PAYLOAD IS THE INSTRUCTION, TABLE IS THE RECORD. Recording is a SIDE EFFECT of a
+    # payload declaring a retirement; the deactivation above still takes its scope from the payload
+    # alone and is BYTE-UNCHANGED. Nothing here is ever read back to drive behaviour -- that would
+    # change import semantics, which is out of scope. Rides this function's single commit.
+    retirements_recorded = retirement.record_retirements(
+        discipline, retired_kinds, retired_cat_ids
+    )
+
     frappe.db.commit()
 
     return {
@@ -392,6 +402,7 @@ def _load_multi(payload, replace):
         "batch": batch,
         "discipline": discipline,
         "category_ids": category_ids,
+        "retirements_recorded": retirements_recorded,
         "items_by_kind": by_kind,
         "items_total": sum(by_kind.values()),
         "configs_loaded": len(configs),
