@@ -27795,3 +27795,151 @@ stamped, endpoint surfacing it on every row, loader carrying it, legacy loading,
 ⚠️ The frontend `RateMasterItem` TypeScript interface does **not** declare `item_uid` yet. Harmless at
 runtime (the field rides in the payload regardless) and deliberately out of scope here -- the download
 slice owes that one line when it first reads the value.
+
+## Build slice RETIREMENT-STATE -- `BoQ Rate Master Retirement` (2026-08-13)
+
+Branch `feature/boq-pricing-helper`. The database becomes the source of truth and the export will
+build the asset FROM it. `retired_kinds` / `retired_category_ids` are the ONLY two loader inputs
+consumed to drive behaviour and never persisted (the Q5 sweep: 43 read sites against 12 write sites,
+this pair the only intersection), so an export walking rows alone would drop them.
+
+### ⚠️ MIGRATE-CARRYING
+
+**This slice creates a doctype. Anyone pulling this branch must run `bench --site localhost
+migrate`.** `patches.txt` was NOT touched and no patch entry is needed -- a new doctype is picked up
+by the ordinary doctype sync.
+
+**Route used: EDIT THE JSON BY HAND, THEN `bench migrate`** -- the standing practice, no deviation.
+The DocType API route (`frappe.get_doc("DocType", ...).save()`) that slice 2 used on my prompt's
+instruction was NOT used here.
+
+### The doctype
+
+`BoQ Rate Master Retirement`, one row per retired thing.
+
+| Field | Type | Notes |
+|---|---|---|
+| `discipline` | Data, reqd, search_index | scopes the read function |
+| `scope_type` | Select `kind` \| `category`, reqd | the two axes are NOT symmetric -- see below |
+| `scope_value` | Data, reqd, search_index | the kind name or category_id |
+| `retired_at` | Datetime, OPTIONAL | **empty on the backfill, deliberately** |
+| `retired_by` | Data, OPTIONAL | **empty on the backfill, deliberately** |
+| `reason` | Small Text, OPTIONAL | empty on the backfill |
+
+Plus a composite `(discipline, scope_type)` index via `on_doctype_update`, mirroring the sibling
+doctypes' pattern.
+
+**⚠️ UNIQUENESS IS STRUCTURAL.** `autoname` is
+`format:{discipline}::{scope_type}::{scope_value}`, so the tuple IS the primary key -- a duplicate is
+a PK collision, not a validation that could race or be skipped. This follows the pricing lock's
+deterministic-PK precedent. **No unique index, no duplicate-checking validate hook.** Verified live:
+the only UNIQUE index on the table is `..._pkey`; `discipline`, `scope_value` and the composite are
+plain btree.
+
+**⚠️ Why the axes are not symmetric:** `switches_point` owned NO item kinds at all (a pure borrower of
+`switch_socket_item`), so its retirement has a config footprint and no item footprint. A kind can be
+retired without a category and vice versa, which is why `scope_type` exists rather than two tables.
+
+### Why derivation was rejected
+
+The obvious derivation -- *a kind/category with rows but none active* -- was **measured and matches
+the four known entries exactly** on the current database. Rejected anyway:
+
+1. ⚠️ **It returns EMPTY on a fresh bootstrap database.** The lists would vanish in precisely the case
+   the asset exists to serve. This alone settles it.
+2. It is coupled to history retention: archiving superseded rows would silently shrink it.
+3. It cannot tell "deliberately retired" from "happens to have no active rows just now".
+4. It can only see what once existed in *that* database -- so the answer depends on which database you
+   ask, which is the opposite of a declaration.
+
+### PAYLOAD IS THE INSTRUCTION, TABLE IS THE RECORD
+
+`_load_multi` calls `retirement.record_retirements(...)` immediately before its single commit.
+**`_deactivate_scope` is byte-unchanged and still takes its scope from the payload alone.** The table
+is never read to drive deactivation; doing so would change import semantics and is out of scope.
+
+Pinned by `test_24f`, the negative half: a retirement recorded for `cable_tray` (a kind the payload
+does NOT retire) must leave all 450 `cable_tray` rows active after a `replace=True` load. If the
+loader ever consulted the table, that test goes red.
+
+### The hazard this guards -- reachable with two commands
+
+Three of the four retired things cannot be re-activated by any asset on disk (even v12, the oldest
+retained, carries zero `ups_per_kva` / `ups_reference` items and no `ups` config; they came from a
+batch whose asset version is in the gate's uninspectable window).
+
+⚠️ **`switches_point` is the exception and it is real: its config EXISTS in `v22`, which is on disk.**
+Load v22, then load an export lacking `retired_category_ids`, and it stays ORPHAN-ACTIVE.
+
+Separately, the mint gate treats these lists as its **only machine-readable retirement declaration**
+(`retkind:` / `retcat:` atoms, used to explain cascading removals). Losing them would make every
+future retirement surface as an undeclared, unexplained loss -- a cost unaffected by the current four
+already being banked.
+
+### The read function
+
+`retirement.get_retirement_lists(discipline)` returns `{"retired_kinds": [...],
+"retired_category_ids": [...]}` -- two sorted lists of plain strings, the exact shape the asset uses.
+The export (a later slice) calls this instead of carrying the lists forward from the previous file.
+An unknown discipline returns two EMPTY lists, never a guess.
+
+### The backfill
+
+`scripts/backfill_rate_master_retirement.py` -- a one-off maintenance script, NOT a patch. Four rows,
+all discipline `Electrical`, all three optional fields empty:
+
+```
+Electrical::kind::ups_per_kva
+Electrical::kind::ups_reference
+Electrical::category::ups
+Electrical::category::switches_point
+```
+
+**Idempotent, proven by running `--apply` twice:** the second run reported
+`created: []`, `existing: [all four]`, rows still 4.
+
+### Known gap, deliberately not fixed
+
+⚠️ **The SINGULAR-config loader path ignores the retirement lists entirely.** They are read only
+inside `_load_multi`; `load_rate_master`'s singular `category_config` branch never reads them and
+therefore never records them. No shipped asset takes that branch (the merge removed the only one), but
+the gap is real. Asserted in the cert so it stays visible rather than forgotten.
+
+### Gates
+
+- **`bench migrate`: CLEAN.** It also executed four previously-pending `v3_0` patches (CEO-hold seed,
+  TDS backfills and indexes) that had nothing to do with this slice -- see the surprises below.
+- **MINT GATE: PASS -- "No atoms disappeared", exit 0.** No asset was changed this slice, so this is a
+  no-op confirmation. ⚠️ Its known blindness below the kind level (it missed a dropped item in slice 1
+  and a per-item key in slice 2) means a PASS proves very little here; reported because #187 requires
+  it.
+- **Loader round-trip PROVEN** (`test_24e`): the current asset loads into a SCRATCH discipline via
+  `_new_disc()` and all four retirement entries are recorded, with provenance empty and a second load
+  recording nothing new. Never against live Electrical data.
+- **Legacy asset PROVEN** (`test_24d`, pre-existing): v12 still loads into a scratch discipline.
+- `test_rate_master` **103 -> 105**; `test_rate_suggest` back to its single known failure with **zero
+  errors**; `test_extraction_coercion` 26 OK; vitest unchanged.
+
+### Cert -- MEASURED, because nothing renders
+
+No frontend file was touched and nothing surfaces the new doctype. The measured cert covers: doctype
+and table exist with the exact field shape; the only UNIQUE index is the primary key; the four rows
+present with every provenance field empty; the read function returning the asset's exact shape and two
+empty lists for an unknown discipline; idempotence on re-run; the live Electrical catalog unchanged
+(1,382 active items / 12 configs / one batch); and the singular-path gap asserted. **GREEN.**
+
+### ⚠️ Two environment findings worth keeping
+
+1. **A primary-key violation ABORTS the postgres transaction.** The first version of `test_24e`
+   probed the duplicate-insert without a savepoint, and every subsequent test in the class failed at
+   its first write -- **18 cascading errors plus a failing `tearDownClass`**. The probe now sits inside
+   `frappe.db.savepoint(...)` / `frappe.db.rollback(save_point=...)`. Any test that deliberately
+   triggers an integrity error needs the same.
+2. ⚠️ **A failed `tearDownClass` orphans an entire run's synthetic data in the LIVE site DB.** That
+   cascade left **56 `TEST_RM_*` disciplines: 45,432 items, 234 configs, 42 retirement rows** — and
+   `test_rate_suggest.test_27_live_configs_all_validate` reads *all active configs across all
+   disciplines*, so it began failing on that debris. Purged with the same discipline-scoped delete
+   `tearDownClass` performs; Electrical verified untouched (28,826 total items, 1,382 active, 382
+   configs) and the suite returned to its single known failure. **The suite's teardown now also purges
+   `BoQ Rate Master Retirement`**, since both E-ALL fixtures declare retirements and would otherwise
+   leave rows behind on every run.

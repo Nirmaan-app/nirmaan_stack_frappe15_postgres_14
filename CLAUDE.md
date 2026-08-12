@@ -767,6 +767,44 @@ rates). Full as-built lives in the plan doc + `.claude/context/domain/boq-backen
   leave `rateMasterRegistry.ts` in the SAME change.** The list the picker renders comes from the
   registry; retiring the config alone leaves the category on offer and renders
   "No active config found for …" when it is chosen.
+- **⚠️ RETIREMENT STATE LIVES IN `BoQ Rate Master Retirement`, BECAUSE IT CANNOT BE DERIVED
+  (owner-locked).** One row per retired thing: `discipline` + `scope_type` (`kind` | `category`) +
+  `scope_value`, with OPTIONAL `retired_at` / `retired_by` / `reason`. `retired_kinds` and
+  `retired_category_ids` are the ONLY two loader inputs consumed to drive behaviour and never
+  persisted — the whole effect is `active = 0`, which is **INDISTINGUISHABLE from an ordinary
+  supersede** — so an export built from rows alone would drop them silently.
+- **⚠️ THE DERIVATION "a kind/category with rows but none active" WAS MEASURED, MATCHED, AND
+  REJECTED.** It matches the known entries exactly on a populated database and is still unusable: it
+  returns **EMPTY on a fresh bootstrap database**, so the lists would vanish in precisely the case the
+  asset exists to serve. It is also coupled to history retention (archiving superseded rows would
+  silently shrink it) and cannot tell "deliberately retired" from "happens to have no active rows just
+  now". Do not reintroduce it.
+- **⚠️ PAYLOAD IS THE INSTRUCTION, TABLE IS THE RECORD.** `_load_multi` records a retirement as a
+  SIDE EFFECT of a payload declaring one (`retirement.record_retirements`, riding the loader's single
+  commit). **The table is NEVER read to drive deactivation** — `_deactivate_scope` still takes its
+  scope from the payload alone, and mixing the two would change import semantics. Pinned by a negative
+  test: a retirement recorded for a kind the payload does NOT retire must leave that kind active.
+- **⚠️ THE HAZARD THIS GUARDS IS REACHABLE, and it is `switches_point`.** Its config still exists in
+  the `v22` asset ON DISK: load v22, then load an export that has lost `retired_category_ids`, and it
+  stays **ORPHAN-ACTIVE** — active in the database, absent from the asset meant to define it. Three of
+  the four retired things cannot be re-activated by any asset on disk; that one can, with two commands.
+  Separately, the mint gate treats these lists as its **ONLY machine-readable retirement declaration**
+  (`retkind:` / `retcat:` atoms), so losing them makes every FUTURE retirement surface as an
+  undeclared, unexplained loss.
+- **⚠️ UNIQUENESS IS STRUCTURAL, NOT CHECKED.** `autoname` is
+  `format:{discipline}::{scope_type}::{scope_value}`, so the tuple IS the primary key and a duplicate
+  is a PK collision rather than a validation that could race or be skipped (the deterministic-PK
+  precedent the pricing lock already sets). **No unique index and no duplicate-checking validate hook
+  is needed, and none exists.** ⚠️ A PK violation ABORTS the postgres transaction, so any test probing
+  it must wrap the probe in a savepoint or every later statement in that transaction fails.
+- **⚠️ PROVENANCE IS DELIBERATELY EMPTY ON BACKFILLED ROWS.** The loader never recorded when, by whom
+  or why; the only signal is a batch `creation` timestamp, which is approximate. **A field asserting a
+  precision it does not have is worse than an empty one** — never back-infer `retired_at` /
+  `retired_by`.
+- **⚠️ KNOWN GAP (not fixed): the SINGULAR-config loader path ignores the retirement lists entirely.**
+  `retired_kinds` / `retired_category_ids` are read only inside `_load_multi`; `load_rate_master`'s
+  singular `category_config` branch never reads them and therefore never records them. No shipped
+  asset takes that branch, but the gap is real and is pinned by an assertion in the cert.
 - **⚠️ `item_uid` IS THE STABLE ITEM IDENTITY, AND `name` STRUCTURALLY CANNOT SERVE (owner-locked).**
   `BoQ Rate Master Item.item_uid` (`Data`, `search_index`) is the durable handle a CSV round trip
   (download -> edit -> upload) matches on — "matched ids replace, blank ids add" is undefined without
