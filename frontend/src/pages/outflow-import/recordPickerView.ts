@@ -102,16 +102,17 @@ export const nextSortState = (
 /**
  * The record's date as a comparable `YYYY-MM-DD`, for SORTING AND FILTERING ONLY.
  *
- * ⚠️ THIS MERGES TWO DIFFERENT MEANINGS, AND `recordDateLabel` DELIBERATELY DOES NOT (owner
+ * ⚠️ THIS MERGES TWO DIFFERENT MEANINGS, AND `recordDateParts` DELIBERATELY DOES NOT (owner
  * decision Q4, 2026-08-11). Only `Project Payments` carries an approval date; neither expense
  * doctype has the field, an approver, or an approval step -- so an expense contributes its
  * last-modified timestamp instead. Ordering them together is what the owner asked for and is
  * defensible, because an ordering makes no claim about what a value MEANS.
  *
- * ⚠️ A DISPLAYED value is a different matter and the rule there is unchanged: the column still
- * reads "approved 12-Jul-2026" or "updated 12-Jul-2026" via `recordDateLabel`, because presenting a
- * modification under the word "approved" is a confident lie. If this function ever starts feeding a
- * LABEL, that ruling has been broken -- keep it on the comparison side.
+ * ⚠️ A DISPLAYED value is a different matter and the rule there is unchanged -- only louder since
+ * slice E2: the column carries an "Approved" or "Updated" BADGE above the date, via
+ * `recordDateParts`, because presenting a modification under the word "approved" is a confident
+ * lie. If this function ever starts feeding a LABEL, that ruling has been broken -- keep it on the
+ * comparison side.
  */
 export const recordSortDate = (
     record: Pick<SettleableRecord, "approved_on" | "updated_on">

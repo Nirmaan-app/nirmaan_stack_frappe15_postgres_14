@@ -72,6 +72,14 @@ export interface OutflowRowMatch {
     target_amount: number;
     match_kind: "Settled";
     match_basis: "Bank reference" | "Vendor+amount+date" | "Manual";
+    /**
+     * The ORDER this payment is against (`Project Payments.document_name`), stamped server-side so
+     * the screen can use the app's own `/project-payments/<order>` route (slice E3).
+     *
+     * ⚠️ PAYMENTS ONLY, and blank when the payment carries no order. Absent means the link falls
+     * back to the older search-param scheme rather than disappearing -- see `settlementLink`.
+     */
+    order_name?: string;
 }
 
 /** One staged transfer, as `get_batch_rows` returns it. */
@@ -118,7 +126,20 @@ export interface OutflowImportRow {
      * `get_batch_rows` from the same loader the duplicate guard uses, so the screen can link the
      * payment its note only names in prose.
      */
-    related_payments?: { target_doctype: string; target_name: string }[];
+    related_payments?: {
+        target_doctype: string;
+        target_name: string;
+        /** The order this payment is against, for the app's own route (slice E3). */
+        order_name?: string;
+    }[];
+    /**
+     * The order behind `suggested_name`, for the app's own route (slice E3).
+     *
+     * ⚠️ ITS OWN KEY BECAUSE THE SUGGESTION IS NOT A LIST. `matches` and `related_payments` carry
+     * their order stamped onto each entry; the suggestion is two scalar columns on the row, so
+     * there is no entry to stamp.
+     */
+    suggested_order_name?: string;
     /**
      * Which import staged this row.
      *

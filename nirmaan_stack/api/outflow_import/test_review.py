@@ -33,6 +33,7 @@ import frappe
 
 from nirmaan_stack.api.outflow_import.review import (
     MATCH_DOCTYPE,
+    _payment_order_names,
     get_batch_rows,
     get_confirmable_rows,
     get_import_summary,
@@ -840,6 +841,88 @@ class TestReadEndpoints(OutflowReviewFixture):
         payload = get_row_candidates(self._rows_by_transfer_suffix()["0004"]["name"])
         self.assertTrue(payload["payment_groups"][0]["is_fan_out"], "fixture precondition")
         self.assertEqual(payload["settleable_candidates"], [])
+
+
+class TestTheOrderNameForLinking(OutflowReviewFixture):
+    """`order_name` on every payment link source (slice E3).
+
+    ⚠️ THIS CLASS EXISTS BECAUSE THE WHOLE SUITE PASSED UNCHANGED WHEN THE FIELD WAS ADDED. The
+    fixture inserts payments with NO `document_name` -- deliberately, since a real one would need a
+    real PO -- so every existing assertion runs down the FALLBACK path and could not see the new
+    key appear or disappear. These tests stamp an order onto a fixture payment first.
+
+    The screen links to `/project-payments/<order>` because that is what the other twelve call
+    sites in this app do; without this field the row table could not reach that route at all.
+    """
+
+    ORDER = "TEST-PO/OFL/25-26"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        match_batch(cls.batch.name)
+        # Raw SQL for the same reason the fixture inserts raw: `document_name` is a Dynamic Link,
+        # and going through the lifecycle would demand a real Procurement Order on the live DB.
+        frappe.db.sql(
+            """UPDATE "tabProject Payments" SET document_type = %s, document_name = %s
+               WHERE name = %s""",
+            ("Procurement Orders", cls.ORDER, cls.pay_clean),
+        )
+        frappe.db.commit()
+
+    def _row_0001(self, rows):
+        return next(r for r in rows if r["transfer_id"].endswith("0001"))
+
+    def test_the_suggestion_carries_its_order(self):
+        rows = get_batch_rows(self.batch.name)["rows"]
+        row = self._row_0001(rows)
+        self.assertEqual(row["suggested_name"], self.pay_clean, "fixture precondition")
+        self.assertEqual(row["suggested_order_name"], self.ORDER)
+
+    def test_the_master_table_carries_it_too(self):
+        """⚠️ BOTH READS OR NEITHER. The master table is where most of these links are clicked;
+        enriching only the batch view would leave the app's route working in one place and not the
+        other, which is harder to diagnose than it not working anywhere."""
+        rows = get_outflow_rows(scope="all", limit=200)["rows"]
+        row = self._row_0001(rows)
+        self.assertEqual(row["suggested_order_name"], self.ORDER)
+
+    def test_the_key_is_on_EVERY_row_and_blank_when_there_is_no_order(self):
+        """Blank is the honest answer and the client falls back on it. A missing KEY would make the
+        two reads structurally different and force every caller to test for its presence.
+
+        ⚠️ ASSERTED OVER THE ROWS WITH NO SUGGESTION, because `pay_clean` is the only payment this
+        fixture ever stores as one -- an earlier version of this test asked for a second suggested
+        payment carrying no order and there is none. Those rows are the blank case that matters:
+        the key must still be there.
+        """
+        rows = get_batch_rows(self.batch.name)["rows"]
+        for row in rows:
+            self.assertIn("suggested_order_name", row)
+
+        unsuggested = [r for r in rows if not (r.get("suggested_name") or "")]
+        self.assertTrue(unsuggested, "fixture precondition: rows with no suggestion at all")
+        self.assertTrue(all(r["suggested_order_name"] == "" for r in unsuggested))
+
+    def test_an_already_paid_related_payment_carries_its_order(self):
+        """The other link source on an open row -- a Skipped/Mismatched row's related payment."""
+        frappe.db.sql(
+            """UPDATE "tabProject Payments" SET document_type = %s, document_name = %s
+               WHERE name = %s""",
+            ("Procurement Orders", "TEST-PO/REL/25-26", self.pay_already),
+        )
+        frappe.db.commit()
+        rows = get_batch_rows(self.batch.name)["rows"]
+        related = [e for r in rows for e in (r.get("related_payments") or [])]
+        self.assertTrue(related, "fixture precondition: a row with a related paid payment")
+        stamped = [e for e in related if e["target_name"] == self.pay_already]
+        self.assertTrue(stamped)
+        self.assertTrue(all(e["order_name"] == "TEST-PO/REL/25-26" for e in stamped))
+
+    def test_the_lookup_asks_for_nothing_when_there_are_no_payments(self):
+        """A pure guard on the helper: an empty ask must not build an `IN ()` clause."""
+        self.assertEqual(_payment_order_names([]), {})
+        self.assertEqual(_payment_order_names([None, "", "   "]), {})
 
 
 class TestTheCandidatesTheMatcherCouldNotSeparate(OutflowReviewFixture):

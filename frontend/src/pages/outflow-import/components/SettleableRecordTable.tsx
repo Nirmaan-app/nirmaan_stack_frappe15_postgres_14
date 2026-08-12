@@ -2,14 +2,16 @@
 
 import { AlertTriangle, Check } from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 import {
     RECORD_COLUMNS,
+    RECORD_DATE_LABELS,
     amountVerdict,
     ledgerLabel,
-    recordDateLabel,
+    recordDateParts,
     recordKey,
     type SettleableRecord,
 } from "../outflowTableModel";
@@ -239,7 +241,11 @@ const RecordRow = ({
 }) => {
     const key = recordKey(record);
     const verdict = amountVerdict(record.amount, bankAmount);
-    const date = recordDateLabel(record, formatDate);
+    const dateParts = recordDateParts(record, formatDate);
+    // The badge is two words wide; the tooltip carries the whole statement for anyone hovering.
+    const dateTitle = dateParts
+        ? `${RECORD_DATE_LABELS[dateParts.kind]} ${dateParts.date}`
+        : undefined;
 
     return (
         <tr
@@ -332,9 +338,31 @@ const RecordRow = ({
                 {record.project_name || "—"}
             </td>
 
-            {/* "approved" vs "updated" -- see `recordDateLabel`; the word is the guard. */}
-            <td className="truncate px-2 py-2 align-top text-xs text-muted-foreground" title={date}>
-                {date || "—"}
+            {/* ⚠️ THE BADGE IS THE GUARD, NOT DECORATION -- see `recordDateParts`. Only a payment
+                carries a real approval date; an expense's is the last time the row was touched, and
+                this column is headed "Approval Date". The two must therefore never look alike:
+                Approved is solid, Updated is a muted outline, so the weaker fact reads weaker at a
+                glance instead of depending on the reader parsing one word. */}
+            <td className="px-2 py-2 align-top text-xs" title={dateTitle}>
+                {dateParts ? (
+                    <>
+                        <Badge
+                            variant={dateParts.kind === "approved" ? "default" : "outline"}
+                            className={`h-4 px-1.5 text-[10px] font-medium leading-none ${
+                                dateParts.kind === "approved"
+                                    ? ""
+                                    : "border-muted-foreground/30 bg-transparent text-muted-foreground"
+                            }`}
+                        >
+                            {RECORD_DATE_LABELS[dateParts.kind]}
+                        </Badge>
+                        <span className="mt-1 block truncate tabular-nums text-muted-foreground">
+                            {dateParts.date}
+                        </span>
+                    </>
+                ) : (
+                    <span className="text-muted-foreground">—</span>
+                )}
             </td>
 
             <td className="px-2 py-2 align-top text-right">

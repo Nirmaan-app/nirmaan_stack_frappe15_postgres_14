@@ -331,12 +331,14 @@ export const isDateFilterValue = (
 /**
  * How many filters the "Clear filters (N)" button would clear.
  *
- * ⚠️ THE PERIOD IS EXCLUDED, AND THE EXCLUSION IS THE POINT. It is always set (the screen opens on
- * `last 30 days`), so counting it would open every session reading "Clear filters (1)" and train
- * people to ignore the badge — and it already has a large, always-visible control of its own
- * stating exactly what it is, which is the thing a badge exists to substitute for. Clearing does
- * not touch it either: a period is the scope somebody chose for the screen, not a narrowing they
- * might have forgotten leaving on.
+ * ⚠️ THE PERIOD IS EXCLUDED, AND THE EXCLUSION SURVIVED THE DEFAULT CHANGING. It used to be
+ * justified by the period ALWAYS being set (the screen opened on `last 30 days`), so counting it
+ * would have opened every session reading "Clear filters (1)". Since 2026-08-12 the screen opens on
+ * all time and that argument no longer applies -- but the exclusion is still right, for the reason
+ * that always mattered more: the period has a large, always-visible control of its own stating
+ * exactly what it is, which is the thing a badge exists to substitute for. Clearing does not touch
+ * it either: a period is the scope somebody chose for the screen, not a narrowing they might have
+ * forgotten leaving on.
  */
 export const activeFilterCount = (filters: ColumnFilters): number =>
     Object.entries(filters).filter(([columnId, filter]) => {
@@ -1389,16 +1391,43 @@ export interface SettlementLink {
 }
 
 /**
+ * The app's OWN route to a document's payments: `/project-payments/<id>` with the slashes escaped.
+ *
+ * ⚠️ `&=` IS THE APP'S ESCAPE, NOT AN INVENTION HERE. Order ids contain slashes, which would
+ * otherwise split into extra route segments; twelve call sites across reports, approved quotations,
+ * invoices and the payments screen itself already navigate this way, and `OrderPaymentSummary`
+ * reverses it with `id.replace(/&=/g, "/")`. Changing the escape means changing that reader too.
+ */
+export const orderPaymentsHref = (orderName: string): string =>
+    `/project-payments/${orderName.replace(/\//g, "&=")}`;
+
+/**
  * Where to send someone who wants to see the record behind a matched or settled row.
  *
- * ⚠️ THE PAYMENT URL IS NOT BUILT HERE. It comes from `paymentHref`, which the Project Payments
- * module owns along with the table's URL-sync key format -- the deep link works by pre-seeding that
- * table's own search params, so the two have to agree. A copy of the format in this file would keep
- * working until the payments module changed, then fail SILENTLY by landing on an unfiltered table.
+ * ⚠️ A PAYMENT LINKS TO ITS ORDER, WHICH IS WHAT THE REST OF THE APP DOES (slice E3, 2026-08-12).
+ * Twelve other call sites navigate to `/project-payments/<PO-or-SR id>`; this feature had invented
+ * its own scheme instead -- `paymentHref`, which pre-seeds the payments TABLE's search params with
+ * the payment name. That only lands correctly while FOUR separate things agree: the tab name, the
+ * url-sync key format, `name` being a searchable field, and the table reading the seeded params
+ * before overwriting them. Its own docstring recorded that it "fails SILENTLY by landing on an
+ * unfiltered table", and the owner reported these links not working in production.
+ *
+ * ⚠️ THE TRADE IS DELIBERATE AND WORTH STATING: the order route lands on the PO/SR page listing
+ * that document's payments, NOT on the individual payment row. That is less precise than what the
+ * old scheme PROMISED -- and more precise than what it delivered.
+ *
+ * ⚠️ `paymentHref` REMAINS THE FALLBACK for a payment whose order is unknown, so a payload that
+ * predates `order_name` keeps today's behaviour rather than losing its link entirely. It is the
+ * only remaining caller of that helper here; the Project Payments module still owns it.
  *
  * ⚠️ EXPENSES CANNOT BE DEEP-LINKED TO A ROW, and that is a property of their tables, not an
  * omission here: `PE_SEARCHABLE_FIELDS` and `NPE_SEARCHABLE_FIELDS` cover description, type, vendor
- * and amount -- never the record id. Adding the id to either list is what would make `exact` true.
+ * and amount -- never the record id. There is no `/expense/:id` route either. Adding the id to one
+ * of those lists is what would make `exact` true.
+ *
+ * ⚠️ WHATEVER THIS RETURNS MUST BE RENDERED THROUGH REACT ROUTER, never a raw `<a href>`. The
+ * router carries a `basename` (`VITE_BASE_NAME`: "" in dev, 'frontend' in production), so an
+ * anchor resolves to the SERVER ROOT and 404s in production while working perfectly in dev.
  */
 export const settlementLink = (
     targetDoctype: string | undefined | null,
@@ -1406,17 +1435,30 @@ export const settlementLink = (
     /**
      * Whether this row has already been SETTLED, which is what makes the payment `Paid`.
      *
-     * ⚠️ NOT COSMETIC. "Payments Done" filters `status = Paid`, so a merely SUGGESTED payment --
-     * still `Approved` until someone confirms -- lands there on an empty table, with nothing on
-     * screen explaining why. Verified live. An unsettled record goes to "All Payments" instead.
+     * ⚠️ ONLY THE FALLBACK READS THIS NOW. "Payments Done" filters `status = Paid`, so a merely
+     * SUGGESTED payment -- still `Approved` until someone confirms -- lands there on an empty
+     * table, with nothing on screen explaining why. Verified live. The order route carries no
+     * status filter at all and is unaffected, but the parameter stays because the fallback needs
+     * it and dropping it would make every caller quietly wrong the day a payload lacks an order.
      */
-    settled = false
+    settled = false,
+    /** The PO/SR this payment is against (`order_name` / `document_name`). Absent -> fallback. */
+    orderName?: string | null
 ): SettlementLink | null => {
     const doctype = (targetDoctype ?? "").trim();
     const name = (targetName ?? "").trim();
     if (!doctype || !name) return null;
 
     if (doctype === "Project Payments") {
+        const order = (orderName ?? "").trim();
+        if (order) {
+            return {
+                href: orderPaymentsHref(order),
+                label: name,
+                exact: true,
+                title: `Open ${order} — the order ${name} is against`,
+            };
+        }
         const tab = settled ? "Payments Done" : "All Payments";
         return {
             href: paymentHref(name, settled),
@@ -1447,8 +1489,11 @@ export const settlementLink = (
  */
 export const rowSettlementLinks = (row: OutflowImportRow): SettlementLink[] => {
     // A match record means WE wrote the money, so its payment is Paid -> "Payments Done".
+    // `order_name` is stamped onto every payment link source server-side (slice E3) so all three
+    // branches below reach the app's own `/project-payments/<order>` route. An absent one falls
+    // back inside `settlementLink` rather than losing the link.
     const settled = (row.matches ?? [])
-        .map((m) => settlementLink(m.target_doctype, m.target_name, true))
+        .map((m) => settlementLink(m.target_doctype, m.target_name, true, m.order_name))
         .filter((link): link is SettlementLink => link !== null);
     if (settled.length) return settled;
 
@@ -1457,12 +1502,19 @@ export const rowSettlementLinks = (row: OutflowImportRow): SettlementLink[] => {
     // This is the only route to a link on a Skipped or Mismatched row, whose note names the
     // payment in prose and which carries neither a match record nor a suggestion.
     const alreadyPaid = (row.related_payments ?? [])
-        .map((p) => settlementLink(p.target_doctype, p.target_name, true))
+        .map((p) => settlementLink(p.target_doctype, p.target_name, true, p.order_name))
         .filter((link): link is SettlementLink => link !== null);
     if (alreadyPaid.length) return alreadyPaid;
 
-    // A suggestion has settled nothing, so its payment is still Approved -> "All Payments".
-    const suggested = settlementLink(row.suggested_doctype, row.suggested_name, false);
+    // A suggestion has settled nothing, so its payment is still Approved -> "All Payments" on the
+    // fallback path. Its order travels under its own key: the suggestion is two scalar columns on
+    // the row, not a list, so it cannot be stamped in place like the two above.
+    const suggested = settlementLink(
+        row.suggested_doctype,
+        row.suggested_name,
+        false,
+        row.suggested_order_name
+    );
     return suggested ? [suggested] : [];
 };
 
@@ -2072,22 +2124,44 @@ export const matcherCandidateLine = (count: number): string =>
  */
 
 /**
- * The record's date, SAYING WHICH DATE IT IS.
+ * The record's date, SPLIT INTO WHICH DATE IT IS AND WHEN.
  *
  * ⚠️ A PURE FUNCTION RATHER THAN A TERNARY IN JSX, because the distinction is an owner ruling and
  * not a formatting detail. Neither expense doctype carries an approval date -- only
- * `Project Payments` records one -- so a payment reads "approved 12-Jul-2026" and an expense reads
- * "updated 12-Jul-2026". Presenting a modification timestamp under the word "approved" would be a
- * confident lie on two thirds of the list, and a reviewer settling by approval date would have no
- * way to see it. `format` is injected so this stays testable without importing the date utility.
+ * `Project Payments` records one -- so a payment's date is an APPROVAL and an expense's is the last
+ * time the row was touched. Presenting a modification timestamp under the word "approved" would be
+ * a confident lie on two thirds of the list, and a reviewer settling by approval date would have no
+ * way to see it.
+ *
+ * ⚠️ IT RETURNS THE TWO PARTS, NOT A SENTENCE (slice E2, owner 2026-08-12). It used to return one
+ * string -- "approved 12-Jul-2026" -- and the column header said "Approved" over all of it, so the
+ * qualifier was a lowercase word buried mid-cell in the same weight as the date. The parts are
+ * rendered as a BADGE above the full date, which makes the weaker fact visibly weaker instead of
+ * relying on the reader noticing one word. The RULE is unchanged; only its prominence is.
+ *
+ * `format` is injected so this stays testable without importing the date utility.
  */
-export const recordDateLabel = (
+export type RecordDateKind = "approved" | "updated";
+
+export interface RecordDateParts {
+    kind: RecordDateKind;
+    /** Already formatted for display. */
+    date: string;
+}
+
+export const recordDateParts = (
     record: Pick<SettleableRecord, "approved_on" | "updated_on">,
     format: (value: string) => string
-): string => {
-    if (record.approved_on) return `approved ${format(record.approved_on)}`;
-    if (record.updated_on) return `updated ${format(record.updated_on)}`;
-    return "";
+): RecordDateParts | null => {
+    if (record.approved_on) return { kind: "approved", date: format(record.approved_on) };
+    if (record.updated_on) return { kind: "updated", date: format(record.updated_on) };
+    return null;
+};
+
+/** The badge's word. A total map, so a new kind is a compile error rather than a blank badge. */
+export const RECORD_DATE_LABELS: Record<RecordDateKind, string> = {
+    approved: "Approved",
+    updated: "Updated",
 };
 
 export interface RecordColumn {
@@ -2121,7 +2195,7 @@ export const RECORD_COLUMNS: RecordColumn[] = [
     { id: "record", title: "Record", width: "210px" },
     { id: "vendor", title: "Vendor", width: "180px" },
     { id: "project", title: "Project", width: "160px" },
-    { id: "date", title: "Approved", width: "120px" },
+    { id: "date", title: "Approval Date", width: "130px" },
     { id: "amount", title: "Amount", width: "150px", align: "right" },
 ];
 

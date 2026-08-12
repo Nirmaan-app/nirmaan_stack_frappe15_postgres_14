@@ -942,6 +942,16 @@ def get_batch_rows(batch: str):
         by_row.setdefault(match["import_row"], []).append(match)
 
     related = _related_paid_payments(rows)
+    # Stamps `order_name` onto matches and related payments in place, and gives us the map the
+    # suggestion needs below -- see `_with_order_names` for why all three share one lookup.
+    suggested_orders = _payment_order_names(
+        [
+            r.get("suggested_name")
+            for r in rows
+            if (r.get("suggested_doctype") or "") == C.PAYMENT_DOCTYPE
+        ]
+    )
+    _with_order_names(rows, by_row, related)
 
     return {
         "batch": batch,
@@ -953,6 +963,9 @@ def get_batch_rows(batch: str):
                 "service_tax": float(row.get("service_tax") or 0),
                 "matches": by_row.get(row["name"], []),
                 "related_payments": related.get(row.get("normalized_reference") or "", []),
+                # The suggestion is a pair of scalar columns on the row, not a list, so it takes
+                # its own key rather than being stamped in place like the two lists above.
+                "suggested_order_name": suggested_orders.get(row.get("suggested_name") or "", ""),
             }
             for row in rows
         ],
@@ -989,6 +1002,78 @@ def _related_paid_payments(rows: list) -> dict[str, list]:
             {"target_doctype": target.doctype, "target_name": target.name}
         )
     return by_reference
+
+
+def _payment_order_names(names) -> dict:
+    """`Project Payments` name -> the ORDER it is against (`document_name`), for LINKING (slice E3).
+
+    ⚠️ THE SCREEN LINKS TO THE ORDER, NOT TO THE PAYMENT, because that is what every other screen in
+    this app does: twelve call sites navigate to `/project-payments/<PO-or-SR id>` with the slashes
+    escaped as `&=`. The outflow feature had invented its own scheme instead -- pre-seeding the
+    payments TABLE's search params with the payment name -- which only lands correctly while four
+    separate things agree (the tab name, the url-sync key format, `name` being a searchable field,
+    and the table reading the seeded params before overwriting them). `paymentHref`'s own docstring
+    already recorded that it "fails SILENTLY by landing on an unfiltered table".
+
+    ⚠️ SO THE ID THE SCREEN NEEDS IS THE ORDER'S, AND THE ROW PAYLOAD DID NOT CARRY IT. Matches,
+    related payments and the stored suggestion all travel as `(doctype, name)` pairs naming the
+    PAYMENT. One query per page adds the order beside them; without it the row table could not use
+    the app's own route at all and would have been left on the scheme this slice exists to retire.
+
+    A payment with no `document_name` maps to nothing and the client falls back -- see
+    `settlementLink`. Blank rather than absent is not distinguished: both mean "no order to open".
+    """
+    wanted = sorted({str(n).strip() for n in names if n and str(n).strip()})
+    if not wanted:
+        return {}
+    placeholders = ", ".join(["%s"] * len(wanted))
+    rows = frappe.db.sql(
+        f"""
+        SELECT name, document_name
+        FROM "tabProject Payments"
+        WHERE name IN ({placeholders})
+        """,
+        tuple(wanted),
+        as_dict=True,
+    )
+    return {r["name"]: (r.get("document_name") or "") for r in rows if r.get("document_name")}
+
+
+def _with_order_names(rows: list, by_row: dict, related: dict) -> None:
+    """Stamp `order_name` onto every payment link source, IN PLACE (slice E3).
+
+    ⚠️ ONE LOOKUP FOR ALL THREE SOURCES. A row can link through a match, through an already-Paid
+    related payment, or through its stored suggestion, and all three end up in the same
+    `rowSettlementLinks` on the client. Enriching them separately would be three queries and, worse,
+    three chances for one of them to be forgotten -- which presents as a link that silently keeps
+    the old behaviour on some rows and not others.
+    """
+    payment_names = []
+    for matches in by_row.values():
+        payment_names += [
+            m["target_name"] for m in matches if m.get("target_doctype") == C.PAYMENT_DOCTYPE
+        ]
+    for entries in related.values():
+        payment_names += [
+            e["target_name"] for e in entries if e.get("target_doctype") == C.PAYMENT_DOCTYPE
+        ]
+    payment_names += [
+        r.get("suggested_name")
+        for r in rows
+        if (r.get("suggested_doctype") or "") == C.PAYMENT_DOCTYPE
+    ]
+
+    orders = _payment_order_names(payment_names)
+    if not orders:
+        return
+    for matches in by_row.values():
+        for m in matches:
+            if m.get("target_doctype") == C.PAYMENT_DOCTYPE:
+                m["order_name"] = orders.get(m["target_name"], "")
+    for entries in related.values():
+        for e in entries:
+            if e.get("target_doctype") == C.PAYMENT_DOCTYPE:
+                e["order_name"] = orders.get(e["target_name"], "")
 
 
 @frappe.whitelist()
@@ -1649,6 +1734,19 @@ def get_outflow_rows(
     )[0]["n"]
 
     related = _related_paid_payments(rows)
+    # ⚠️ THE SAME ENRICHMENT AS `get_batch_rows`, AND IT HAS TO BE. This is the MASTER TABLE -- the
+    # surface most of the feature's payment links are actually clicked on -- so enriching only the
+    # batch view would leave the app's own route working in one place and not the other, which is
+    # harder to diagnose than it not working at all. `matches` is empty here by design, so only the
+    # related payments and the suggestion carry an order.
+    suggested_orders = _payment_order_names(
+        [
+            r.get("suggested_name")
+            for r in rows
+            if (r.get("suggested_doctype") or "") == C.PAYMENT_DOCTYPE
+        ]
+    )
+    _with_order_names(rows, {}, related)
     tab_counts, status_counts = _tab_counts(where, params)
 
     return {
@@ -1663,6 +1761,7 @@ def get_outflow_rows(
                 # records: they mean "settled", and the Settled tab reads them per row on demand.
                 "matches": [],
                 "related_payments": related.get(row.get("normalized_reference") or "", []),
+                "suggested_order_name": suggested_orders.get(row.get("suggested_name") or "", ""),
             }
             for row in rows
         ],

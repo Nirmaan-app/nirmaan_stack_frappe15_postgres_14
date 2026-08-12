@@ -1,6 +1,7 @@
 // src/pages/outflow-import/components/ApprovedRecordsPanel.tsx
 
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { Search, X } from "lucide-react";
 import { useFrappeGetCall } from "frappe-react-sdk";
 import { TailSpin } from "react-loader-spinner";
@@ -210,7 +211,7 @@ export const ApprovedRecordsPanel = () => {
                         </thead>
                         <tbody>
                             {rows.map((row) => {
-                                const link = settlementLink(row.target_doctype, row.name, false);
+                                const link = settlementLink(row.target_doctype, row.name, false, row.order_name);
                                 return (
                                     <tr
                                         key={`${row.target_doctype}|${row.name}`}
@@ -224,14 +225,25 @@ export const ApprovedRecordsPanel = () => {
                                                 >
                                                     {ledgerLabel(row.target_doctype)}
                                                 </Badge>
+                                                {/* ⚠️ `<Link>`, NEVER A RAW `<a href>` — THIS WAS A
+                                                    PRODUCTION-ONLY DEFECT (slice E3, 2026-08-12).
+                                                    `App.tsx` sets the router's `basename` from
+                                                    `VITE_BASE_NAME`, which is "" in dev and
+                                                    'frontend' in production. React Router prepends
+                                                    that basename; a raw anchor does not, so this
+                                                    link resolved to the SERVER ROOT and 404'd in
+                                                    production while working perfectly in dev — the
+                                                    exact shape that survives every local test.
+                                                    Any in-app navigation added here must go
+                                                    through the router for the same reason. */}
                                                 {link ? (
-                                                    <a
-                                                        href={link.href}
+                                                    <Link
+                                                        to={link.href}
                                                         title={link.title}
                                                         className="font-mono text-xs text-primary underline-offset-2 hover:underline"
                                                     >
                                                         {row.name}
-                                                    </a>
+                                                    </Link>
                                                 ) : (
                                                     <span className="font-mono text-xs">
                                                         {row.name}

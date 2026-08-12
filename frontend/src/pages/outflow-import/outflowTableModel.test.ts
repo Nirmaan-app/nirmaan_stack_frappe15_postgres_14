@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import type { OutflowImportRow } from "@/types/NirmaanStack/OutflowImportBatch";
-import { DEFAULT_PERIOD } from "./outflowPeriod";
 import {
     DEFAULT_HIDDEN_COLUMNS,
     DEFAULT_TAB,
@@ -47,7 +46,8 @@ import {
     type ConfirmableRow,
     ledgerLabel,
     parseRecordKey,
-    recordDateLabel,
+    RECORD_DATE_LABELS,
+    recordDateParts,
     recordKey,
     DEFAULT_PAGE_SIZE,
     SCOPE_FOR_TAB,
@@ -58,6 +58,7 @@ import {
     importOptionLabel,
     isConfirmable,
     orderBySuggestion,
+    orderPaymentsHref,
     rowSettlementLinks,
     seedDecisions,
     serverQuery,
@@ -497,7 +498,70 @@ describe("the bulk bar counts DECIDED rows, not selected ones", () => {
     });
 });
 
-describe("links to the record a row settles", () => {
+describe("links to the record a row settles — the app's own route (slice E3)", () => {
+    const ORDER = "PO/123/25-26";
+
+    it("sends a payment to its ORDER, the way the rest of the app does", () => {
+        // ⚠️ THE HEADLINE CHANGE. Twelve other call sites navigate to `/project-payments/<order>`;
+        // this feature had its own scheme, which only landed while four separate things agreed.
+        const link = settlementLink("Project Payments", "PAY-00105-038", true, ORDER)!;
+        expect(link.href).toBe("/project-payments/PO&=123&=25-26");
+        expect(link.exact).toBe(true);
+        // The LABEL stays the payment -- that is the record the row settled and what the reviewer
+        // recognises. Only the destination changed.
+        expect(link.label).toBe("PAY-00105-038");
+    });
+
+    it("escapes every slash as &=, because the reader reverses exactly that", () => {
+        // `OrderPaymentSummary` does `id.replace(/&=/g, "/")`. A different escape here would not
+        // fail loudly -- it would land on a route param that resolves to no document.
+        expect(orderPaymentsHref("PO/123/25-26")).toBe("/project-payments/PO&=123&=25-26");
+        expect(orderPaymentsHref("SR/9/25-26")).toBe("/project-payments/SR&=9&=25-26");
+        expect(orderPaymentsHref("NOSLASH")).toBe("/project-payments/NOSLASH");
+    });
+
+    it("carries a Service Request order as readily as a PO", () => {
+        // A quarter of payments are against an SR, and `OrderPaymentSummary` branches on the id
+        // prefix itself -- so this helper must not assume "PO".
+        expect(settlementLink("Project Payments", "PAY-1", true, "SR/9/25-26")!.href).toBe(
+            "/project-payments/SR&=9&=25-26"
+        );
+    });
+
+    it("the tooltip names the ORDER being opened, not a tab that no longer applies", () => {
+        const link = settlementLink("Project Payments", "PAY-1", true, ORDER)!;
+        expect(link.title).toContain(ORDER);
+        expect(link.title).not.toContain("Payments Done");
+    });
+
+    it("ignores the settled flag on the order route, which carries no status filter", () => {
+        const settled = settlementLink("Project Payments", "PAY-1", true, ORDER)!;
+        const open = settlementLink("Project Payments", "PAY-1", false, ORDER)!;
+        expect(settled.href).toBe(open.href);
+    });
+
+    it("⚠️ FALLS BACK rather than losing the link when no order is known", () => {
+        // A payload predating `order_name`, or a payment with no order at all. Blank and absent
+        // are the same answer: there is no order to open.
+        for (const missing of [undefined, null, "", "   "]) {
+            const link = settlementLink("Project Payments", "PAY-1", false, missing)!;
+            expect(link.href).toContain("tab=All+Payments");
+        }
+    });
+
+    it("never routes an EXPENSE to the payments route, whatever it is handed", () => {
+        // `document_name` holds the expense TYPE on both expense ledgers, so an order id passed
+        // here would be a category name, not a document.
+        expect(settlementLink("Project Expenses", "EXP-1", false, "Travel")!.href).toBe(
+            "/expense/project"
+        );
+        expect(settlementLink("Non Project Expenses", "NPE-1", false, "Travel")!.href).toBe(
+            "/expense/non-project"
+        );
+    });
+});
+
+describe("links to the record a row settles — the FALLBACK path, with no order known", () => {
     it("sends a SETTLED payment to Payments Done", () => {
         const link = settlementLink("Project Payments", "PAY-00105-038", true)!;
         expect(link.exact).toBe(true);
@@ -875,16 +939,44 @@ describe("the settleable-record table model", () => {
         // date; presenting its modification timestamp under the word "approved" would be a
         // confident lie on two thirds of the list.
         const format = (value: string) => `formatted(${value})`;
-        expect(recordDateLabel(payment, format)).toBe("approved formatted(2026-07-12 10:00:00)");
-        expect(recordDateLabel(expense, format)).toBe("updated formatted(2026-07-20 10:00:00)");
+        expect(recordDateParts(payment, format)).toEqual({
+            kind: "approved",
+            date: "formatted(2026-07-12 10:00:00)",
+        });
+        expect(recordDateParts(expense, format)).toEqual({
+            kind: "updated",
+            date: "formatted(2026-07-20 10:00:00)",
+        });
+    });
+
+    it("returns the KIND and the DATE separately, so the badge cannot be lost in the sentence", () => {
+        // ⚠️ SLICE E2. It used to return one string -- "approved 12-Jul-2026" -- under a column
+        // headed "Approved", so the qualifier was a lowercase word mid-cell in the same weight as
+        // the date. The parts render as a badge ABOVE the date. The rule is unchanged; the
+        // separation is what makes it visible.
+        const parts = recordDateParts(expense, (v) => v);
+        expect(parts?.kind).toBe("updated");
+        expect(parts?.date).not.toContain("updated");
+    });
+
+    it("gives every kind a badge word, so a new kind cannot render blank", () => {
+        for (const kind of ["approved", "updated"] as const) {
+            expect(RECORD_DATE_LABELS[kind]).toBeTruthy();
+        }
+        expect(RECORD_DATE_LABELS.approved).toBe("Approved");
+        expect(RECORD_DATE_LABELS.updated).toBe("Updated");
     });
 
     it("says nothing rather than inventing a date when the record has neither", () => {
-        expect(recordDateLabel({ approved_on: "", updated_on: "" }, (v) => v)).toBe("");
+        expect(recordDateParts({ approved_on: "", updated_on: "" }, (v) => v)).toBeNull();
     });
 
     it("prefers the approval date when a payment carries both", () => {
-        expect(recordDateLabel(payment, (v) => v)).toContain("approved");
+        expect(recordDateParts(payment, (v) => v)?.kind).toBe("approved");
+    });
+
+    it("the column is headed Approval Date", () => {
+        expect(RECORD_COLUMNS.find((c) => c.id === "date")?.title).toBe("Approval Date");
     });
 
     it("names each ledger in the singular, and passes an unknown one through unchanged", () => {
@@ -1692,21 +1784,35 @@ describe("isDateFilterValue", () => {
 });
 
 describe("activeFilterCount with a period", () => {
-    it("EXCLUDES the period, so the badge does not read '1' on every fresh session", () => {
-        // The period is always set (the screen opens on `last 30 days`) and has a large, always
-        // visible control of its own stating exactly what it is -- which is the thing a badge exists
-        // to substitute for.
-        expect(activeFilterCount({ [PERIOD_COLUMN_ID]: DEFAULT_PERIOD })).toBe(0);
+    // ⚠️ A REAL PERIOD, NEVER `DEFAULT_PERIOD`. The default became `null` on 2026-08-12, and
+    // `activeFilterCount` skips every null filter before it ever reaches the period rule -- so a
+    // test written against the default would pass whether the exclusion existed or not. It has to
+    // be a period that WOULD otherwise count.
+    const A_REAL_PERIOD = { operator: "Timespan", value: "last 30 days" } as const;
+
+    it("EXCLUDES the period, so the badge does not count the screen's own scope", () => {
+        // It has a large, always-visible control of its own stating exactly what it is -- which is
+        // the thing a badge exists to substitute for.
+        expect(activeFilterCount({ [PERIOD_COLUMN_ID]: A_REAL_PERIOD })).toBe(0);
     });
 
     it("still counts every other filter beside it", () => {
         expect(
             activeFilterCount({
-                [PERIOD_COLUMN_ID]: DEFAULT_PERIOD,
+                [PERIOD_COLUMN_ID]: A_REAL_PERIOD,
                 beneficiary_name: ["ACME"],
                 amount: { min: 100 },
             })
         ).toBe(2);
+    });
+
+    it("counts the SAME VALUE under a different column, so the exclusion is the COLUMN", () => {
+        // Proves the zero above comes from the period rule and not from the value's shape.
+        // ⚠️ `PERIOD_COLUMN_ID` IS `added_on` -- the Period control and the Payment Date column
+        // funnel are two editors of ONE filter -- so there is no second real date column to test
+        // against and this id is deliberately hypothetical. `activeFilterCount` is generic over
+        // column ids and does not validate them, which is exactly what makes the point provable.
+        expect(activeFilterCount({ some_other_column: A_REAL_PERIOD })).toBe(1);
     });
 });
 

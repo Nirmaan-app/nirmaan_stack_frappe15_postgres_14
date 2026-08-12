@@ -1009,7 +1009,8 @@ const RecordVerdict = ({
 }) => {
     const verdict = amountVerdict(record.amount, bankAmount);
     const settleable = record.suggested;
-    const link = settlementLink(record.target_doctype, record.name);
+    // `document_name` is the ORDER this payment is against -- the app's own route (slice E3).
+    const link = settlementLink(record.target_doctype, record.name, false, record.document_name);
     return (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-background px-3 py-2">
             <p
