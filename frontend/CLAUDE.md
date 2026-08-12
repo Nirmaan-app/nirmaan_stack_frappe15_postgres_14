@@ -1356,6 +1356,25 @@ in the plan doc.
   outside the `replace=True` supersede scope and stays ORPHAN-ACTIVE. There is no delete path in the
   loader or any admin endpoint — this module is freeze-and-supersede, so "remove a category" is always
   "retire it + drop its registry line".
+- **THE TWO DOWNLOAD SURFACES ARE GROUPED BY PURPOSE, NEVER BY FILE FORMAT (owner-approved copy).**
+  *Download to edit* (CSV, one row per item — a pricer edits it in Excel and uploads it back) and
+  *Download a backup* (the loader-ready asset JSON — bootstrap + restore, **not** hand-editable, and
+  nothing reads an edited one). Someone choosing between "CSV" and "JSON" is choosing an extension,
+  not an intention, and the failure this guards against is taking the BACKUP, editing it, and finding
+  nothing reads it back. All wording is single-sourced in `rateMasterDownload.DOWNLOAD_COPY` so the two
+  surfaces cannot drift; a test pins that neither group label may name a file extension.
+- **EVERY CSV ROW CARRIES `item_uid`, and that is what makes the round trip possible.** Without it the
+  upload cannot tell an edit from a new item, and matching on content would turn every rename into a
+  silent duplicate. Values are emitted **AS STORED** (a float stays `4.0`; nothing is prettified) — a
+  CSV that tidies its values is not a round trip. A category with no items yields a **headers-only
+  TEMPLATE**, never an error; an **unknown** category *is* an error, because absence and nonsense are
+  different answers. Both download endpoints are **ADMIN-GATED, gate first** — the panel is HIDDEN for
+  non-admins (never disabled) and the endpoints are the real boundary.
+- **A DOWNLOAD EITHER PRODUCES A FILE OR EXPLAINS ITSELF.** Frappe puts the useful text in
+  `_server_messages` / `exception`, **not** in `message`, so the pure `downloadErrorMessage` reads them
+  most-specific-first and strips the `frappe.exceptions.X:` prefix. It shipped once as
+  `(e as {message?})?.message ?? "…"`, which rendered a real stale-worker `AttributeError` as the
+  entirely uninformative "There was an error." — never reintroduce a generic catch-all here.
 - **`ratePipelineInterpreter.ts` is THE single compute source (owner-locked) -- a PURE TS module with NO
   React imports.** It executes the stored pipeline step vocabulary (`match_master_row`,
   `apply_effective_multiplier` with conditions, `scale`, `component`, `component_band`, `sum_components`,

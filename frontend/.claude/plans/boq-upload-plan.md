@@ -28079,3 +28079,129 @@ doctype. 30 checks green: doctype shape (including `payload` Long Text and `trac
 export's key set, byte-stability, the endpoint round trip on **synthetic data only** with the snapshot
 payload byte-identical to the download, the prune keeping the newest 10, live Electrical untouched,
 and **zero residual** after cleanup.
+
+
+## Build slice CSV-DOWNLOAD -- the editable CSV + the asset-export button (2026-08-13)
+
+The first half of the round trip the owner asked for: *download CSV -> edit in Excel -> upload back*.
+This slice ships the DOWNLOAD only. **There is no upload path, no parse and no upsert** -- deliberately
+held for the next slice, so nothing here can write to the catalog.
+
+It also wires slice EXPORT's `export_rate_master_asset`, which until now had **zero** callers.
+
+### Two files, two purposes, and they must never be confused
+
+| Surface | File | For |
+|---|---|---|
+| **Download to edit** | CSV, one row per item | a pricer edits rates / adds SKUs in Excel and uploads it back |
+| **Download a backup** | the loader-ready asset JSON | bootstrap + restore. **Not** hand-editable, and nothing reads an edited one |
+
+The two groups are labelled **by PURPOSE, not by file format** (owner-approved copy, single-sourced in
+`rateMasterDownload.DOWNLOAD_COPY`). A user choosing between "CSV" and "JSON" is choosing an
+extension, not an intention -- and the failure this guards against is someone taking the BACKUP,
+editing it, and finding that nothing reads it back. A test pins that neither group label may name a
+file extension.
+
+### The two CSV modes
+
+`services/boq_rate_master/csv_exporter.py` (new, service-side):
+
+- **MODE A `build_category_csv(discipline, category_id)`** -- ONE category. Columns are exactly that
+  category's attribute + rate keys as real named columns. Measured on `wiring_cabling`: **15 columns,
+  588 rows**.
+- **MODE B `build_all_categories_csv(discipline)`** -- every category in one file: the UNION of all
+  keys plus an explicit `category` column. Measured: **45 columns, 1,382 rows across 11 categories**
+  (= 20 attrs + 18 rates + 7 fixed). Sparse by construction -- a cable row has nothing to say about
+  `tray_type` -- and that is honest, not wrong.
+
+Both lead with `item_uid` and tail with `source_sheet` / `source_row`.
+
+**Why it is built SERVER-side** rather than from the already-loaded client rows: Mode B needs the
+kind -> category map across all 12 configs, which the client does not hold; it gives the download a real
+admin gate; and it reuses the existing kind resolution instead of minting a second definition in TS.
+
+### Load-bearing details
+
+- **EVERY row carries `item_uid`.** Without it the round trip is one-way: the upload cannot tell an
+  edit from a new item, and content matching would turn every rename into a silent duplicate. This is
+  what slice STABLE-ID exists for, and this slice is its first consumer.
+- **Values are emitted AS STORED** -- a float stays `4.0`, spacing is preserved, and nothing is
+  prettified. A CSV that tidies its values is not a round trip.
+- **A category with NO items is a headers-only TEMPLATE, not an error** (`point_wiring` is kind-less
+  and owns no rows). The columns then come from the config's `attribute_definitions`, so a user can
+  still add rows for it. An **unknown** category is a named error -- absence and nonsense are
+  different answers.
+- **UTF-8 BOM + CRLF**, so Excel opens the file correctly; the catalog carries `(R)` and a U+2010
+  hyphen, which is also why the client decoder widens `atob`'s binary string byte-by-byte before the
+  Blob rather than trusting it as text.
+- **ADMIN-GATED, gate first.** `export_rate_master_csv` calls `_require_rate_admin()` before it reads
+  anything -- an editable dump of the priced catalog is no less sensitive than the asset. The frontend
+  HIDES the panel for non-admins (never disables); the endpoint is the boundary.
+
+### Frontend
+
+`rateMasterDownload.ts` (new) holds `downloadBase64` (the base64 -> Blob decoder shared by both
+endpoints, following `export_priced_workbook`'s download triple), `DOWNLOAD_COPY`, and
+`downloadErrorMessage`. `RateMasterDataViewer.tsx` renders the panel; `RateMasterPage.tsx` wires both
+endpoints.
+
+The panel is **bound once and rendered in BOTH branches** -- including the kind-less-category early
+return. That case needs the downloads MORE than the normal one, since Mode B still covers it and its
+Mode A file is exactly the usable template described above.
+
+### Two defects this slice found in its own code, both worth recording
+
+**1. A JSX comment outside JSX children silently swallows the element.** The panel was first written
+as `const downloadPanel = {/* ... */} {isAdmin && (...)}`. `{/* ... */}` is JSX-CHILD syntax; at a
+`const` it parses as an empty object literal, so `downloadPanel` typed as `{}` and **the buttons would
+simply not have rendered**. `tsc` named it (`Type '{}' is not assignable to type 'ReactNode'`) -- the
+suite could not have, and neither could review at a glance. Fixed to `//` comments, with a note at the
+site.
+
+**2. "There was an error." is not an error message.** The panel first rendered
+`(e as {message?})?.message ?? "Download failed"`, and on a Frappe failure `message` is empty or
+generic. During the cert a stale web worker produced
+`AttributeError: module ... has no attribute 'export_rate_master_csv'` and the screen said only *"There
+was an error."*; the cause had to be dug out of the network tab by hand. Frappe puts the real text in
+`_server_messages` (a JSON array of JSON strings) or `exception`, **not** in `message` -- the same shape
+the pricing module already parses on its save path. The new pure `downloadErrorMessage` reads them
+most-specific-first, strips the `frappe.exceptions.X:` prefix, falls THROUGH a malformed envelope
+rather than swallowing it, and can never return an empty string. Validated against the real server
+envelope in-browser, not only in unit tests.
+
+### Tests
+
+`test_rate_master` **111 -> 116**. `test_24m` Mode A columns + `item_uid` on every row; `test_24n` the
+Mode B union + `category` column + a blank tray cell on a cable row; `test_24o` a comma/quote value
+survives and values are as-stored; `test_24p` a non-admin is refused (both modes) with the admin twin;
+`test_24q` an empty category is headers-only and an unknown one raises.
+
+`rateMasterDownload.test.ts` (new) **11 vitest tests** over `downloadErrorMessage` + `DOWNLOAD_COPY`.
+`downloadBase64` is deliberately NOT covered -- it only builds a Blob and clicks an `<a>`, and this
+project runs vitest with `environment: "node"` and no DOM on purpose; the browser cert is its gate.
+
+### Cert -- GREEN, full de-stale ritual
+
+Vite killed PID-targeted (verified `PPID=1`, NOT under honcho) and restarted detached; one service
+worker unregistered; site data cleared **excluding cookies** (`sid` verified surviving); every app tab
+closed and a fresh one opened; bare root then the deep route.
+
+**Bundle marker was code-derived, not a rendered string** -- `downloadBase64`, an exported symbol of
+the new module that never appears in the UI. A data marker could not serve here, because the buttons
+ARE the observation under test.
+
+Observed: both groups render with all three buttons and the exact copy; all three files downloaded
+through **real button clicks** -- Mode A 15 cols / 588 rows, Mode B 45 cols / 1,382 rows / 11
+categories, every row carrying `item_uid`; the asset parses as JSON with its 7 expected top-level keys,
+1,382 items / 12 configs / 11 goldens and both retirement lists intact. Sessionless (Guest) calls to
+all three endpoints returned **403 PermissionError** against the running server, not just in tests.
+
+**A stale web worker was the one real blocker**: `rate_master.py` was appended to after bench started,
+and the long-running process had already imported the module, so the endpoint 417'd with *"has no
+attribute"* while the file on disk was correct and the tests were green. A `bench start` restart fixed
+it. Worth remembering -- a passing test suite says nothing about what the running web worker holds.
+
+**One real-data write, reported not hidden:** clicking *Asset file* created `BoQ Rate Master Snapshot`
+**v1** (`admins@nirmaan.app`) -- the first snapshot ever on this site. That is slice EXPORT's designed
+retention firing on a genuine admin export, so it is correct product data rather than cert debris, and
+it was left in place. Everything else in the cert was read-only.
