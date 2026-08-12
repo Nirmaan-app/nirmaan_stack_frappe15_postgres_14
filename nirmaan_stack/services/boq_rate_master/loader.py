@@ -38,8 +38,16 @@ BATCH_PREFIX = "rmbulk-"
 # Only these attribute keys are canonicalized to UPPERCASE at ingest (per normalization_rule).
 NORMALIZE_ATTRS = ("material", "insulation")
 
+# THE single Electrical asset (merged 2026-08-13). It carries every item and every category
+# config, so it takes the MULTI path (`category_configs`) and therefore _load_multi's SCOPED
+# supersede. That is the point of the merge, not a side effect: the superseded wiring asset used
+# the SINGULAR `category_config` key, which routes to the single-config path below, whose
+# _deactivate_prior is DISCIPLINE-WIDE -- importing it with replace=True deactivated every
+# Electrical item, and the live catalog survived only on an undocumented ordering rule.
+# `rate_master_wiring_cabling_v3.json` is RETAINED on disk as a mint-gate self-test operand
+# (scripts/mint_completeness_check.py, do_history(WIRING)); it is a retired artefact, not an asset.
 DEFAULT_DATA_FILE = os.path.join(
-    os.path.dirname(__file__), "data", "rate_master_wiring_cabling_v3.json"
+    os.path.dirname(__file__), "data", "rate_master_electrical_all_v30.json"
 )
 
 

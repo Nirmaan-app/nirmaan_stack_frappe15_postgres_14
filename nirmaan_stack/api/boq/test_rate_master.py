@@ -81,6 +81,23 @@ from nirmaan_stack.services.boq_rate_master import extraction, loader
 
 PIPELINE_KEYS = {"cable_boq", "termination_boq", "cable_bcs", "termination_bcs"}
 
+# THE current Electrical asset -- named ONCE, here, and nowhere else. Three separate "current"
+# pins had drifted independently (_ASSET on v22, _EALL_CURRENT on v27, an inline v29), which is
+# the exact C4 trap _EALL_CURRENT's own docstring warns about and had itself fallen into twice.
+# One constant is the whole point: a mint bumps this line and every current-asset test follows.
+CURRENT_EALL_ASSET = "rate_master_electrical_all_v30.json"
+
+# The SUPERSEDED wiring asset. It is RETAINED on disk (a mint-gate self-test operand) and is still
+# read here on purpose: loader.load_rate_master's SINGLE-config path -- the one whose
+# _deactivate_prior is DISCIPLINE-WIDE -- is reachable only by a payload carrying the SINGULAR
+# `category_config` key, and the merged asset carries the LIST form. Repointing these tests at the
+# merged asset would delete the only coverage the dangerous path has.
+LEGACY_WIRING_ASSET = "rate_master_wiring_cabling_v3.json"
+
+
+def _asset_path(filename):
+    return os.path.join(os.path.dirname(loader.__file__), "data", filename)
+
 
 def _obj(value):
     """JSON fields come back from frappe.get_all already parsed to dict; tolerate either a
@@ -92,12 +109,15 @@ class TestRateMaster(FrappeTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        with open(loader.DEFAULT_DATA_FILE, "r", encoding="utf-8") as fh:
+        # The SINGULAR-shape fixture, read by explicit path. Until the 2026-08-13 merge this was
+        # loader.DEFAULT_DATA_FILE; that now points at the merged LIST-shape asset, and
+        # `_real_payload` below stamps `p["category_config"]["discipline"]`, so the ~30 tests built
+        # on it cover the single-config loader path specifically. See LEGACY_WIRING_ASSET.
+        with open(_asset_path(LEGACY_WIRING_ASSET), "r", encoding="utf-8") as fh:
             cls.raw = json.load(fh)
-        # EA-1/EA-1b: the all-categories (E-ALL) asset, loaded by path (DEFAULT_DATA_FILE stays wiring).
-        cls.eall_path = os.path.join(
-            os.path.dirname(loader.__file__), "data", "rate_master_electrical_all_v12.json"
-        )
+        # EA-1/EA-1b: a HISTORICAL E-ALL asset, pinned to v12 on purpose -- test_23 asserts that
+        # asset's own counts, so this must NOT follow CURRENT_EALL_ASSET.
+        cls.eall_path = _asset_path("rate_master_electrical_all_v12.json")
         with open(cls.eall_path, "r", encoding="utf-8") as fh:
             cls.eall = json.load(fh)
         cls._disciplines = set()
@@ -727,6 +747,64 @@ class TestRateMaster(FrappeTestCase):
             1,
         )
 
+    def _merged_payload(self, discipline):
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            p = json.load(fh)
+        p["discipline"] = discipline
+        return p
+
+    def test_24b_the_merged_asset_loads_as_one_batch_on_the_scoped_path(self):
+        """THE MERGE (2026-08-13). One asset, one batch, one loader path -- and the DANGEROUS path
+        is unreachable from it.
+
+        Until the merge the catalog needed TWO imports whose ORDER was load-bearing and undocumented:
+        the wiring asset carried the SINGULAR `category_config` key, which routes to
+        load_rate_master's single-config path, whose _deactivate_prior is DISCIPLINE-WIDE
+        (`... SET active = 0 WHERE discipline = %s`). Loading wiring second therefore deactivated
+        every E-ALL item -- which is exactly what happened on 2026-08-09 and had to be repaired by
+        re-importing E-ALL 37 seconds later.
+
+        This asserts the merged asset takes the LIST branch, so `_load_multi`'s SCOPED supersede is
+        what runs and the discipline-wide UPDATE is never reached. NEGATIVE HALF: the merged payload
+        must NOT carry `category_config`, because that key alone is what selects the wide path."""
+        disc = self._new_disc()
+        payload = self._merged_payload(disc)
+
+        # NEGATIVE: the singular key is absent -- this is what makes the wide path unreachable.
+        self.assertNotIn("category_config", payload)
+        self.assertIsInstance(payload["category_configs"], list)
+
+        r = loader.load_rate_master(payload=payload)
+        # ONE batch covers items AND configs -- previously two batches from two files.
+        self.assertEqual(r["items_total"], 1382)
+        self.assertEqual(r["configs_loaded"], 12)
+        self.assertEqual(len({r["batch"]}), 1)
+        self.assertTrue(r["batch"].startswith("rmbulk-"))
+
+        # wiring's kinds now arrive in the SAME batch as everything else
+        self.assertEqual(r["items_by_kind"]["cable"], 292)
+        self.assertEqual(r["items_by_kind"]["termination"], 296)
+        # and the ruled duplicate is gone: 137 -> 136 (owner ruling 2026-08-13, the 12133.0 @ row 14
+        # copy of TPN FLEXI DB 4 ROW 14M dropped, the 12881.0 @ row 17 copy kept)
+        self.assertEqual(r["items_by_kind"]["db_switchgear_item"], 136)
+        self.assertEqual(self._active_items(disc, kind="db_switchgear_item"), 136)
+
+        # wiring_cabling is a first-class member of the list now, and its FIVE goldens survived the
+        # effective merge (_load_multi lets the top-level dict win; the config's own copy agrees).
+        stored = _obj(frappe.db.get_value(
+            "BoQ Rate Category Config",
+            {"discipline": disc, "category_id": "wiring_cabling", "active": 1}, "config",
+        ))
+        self.assertEqual([g["id"] for g in stored["goldens"]], ["g1", "g2", "g3", "g4", "g5"])
+        # `item_kinds` is deliberately ABSENT on wiring_cabling -- its kinds derive from the
+        # pipelines' match_master_row, and adding one would change the stored config for no gain.
+        self.assertNotIn("item_kinds", stored)
+        self.assertEqual(extraction._config_kinds(stored), ["cable", "termination"])
+
+        # the retired scope carries through unchanged
+        self.assertEqual(payload["retired_kinds"], ["ups_per_kva", "ups_reference"])
+        self.assertEqual(payload["retired_category_ids"], ["ups", "switches_point"])
+
     def test_25_eall_retired_scope_deactivated_on_replace(self):
         disc = self._new_disc()
         # simulate a PRIOR batch that carried UPS (now retired by the Floor BOX correction): a
@@ -1083,12 +1161,29 @@ class TestRateMaster(FrappeTestCase):
     # These are the C1 BEFORE-pins: they assert the CURRENT behaviour and are proven green against the
     # unchanged state, then UPDATED IN THIS SAME SLICE, so the diff shows exactly what changed.
 
-    # SLICE 1a: bump with the rebuild. `cls.eall` stays pinned to v12 on purpose (test_23 asserts that
-    # asset's historical counts) -- the current asset is loaded by path, as test_31 does for v17.
+    # ⚠️ DELIBERATELY STILL HISTORICAL -- and this is a FINDING, not an oversight (merge slice,
+    # 2026-08-13). This pin was meant to track the current asset ("bump with the rebuild") and had
+    # drifted to v22. Repointing it at CURRENT_EALL_ASSET was attempted in the merge slice and
+    # FAILS THREE TESTS, because they asserted a v22-era shape that TWO OWNER RULINGS have since
+    # superseded -- v30 is byte-identical to v29 on both points, so the merge changed nothing here:
+    #
+    #   test_38 / test_40  `blank_item.disables_when_none == ["blank_qty"]`
+    #       v22 ['blank_qty'] -> v29/v30 ABSENT. Removed by the BLANKER-BIND ruling: once blank_item
+    #       stopped driving the price, its disables_when_none was greying out the newly EDITABLE
+    #       blank_qty on every row where extraction answered "None".
+    #   test_41            back_box `ref.item == "@plate_item"`
+    #       v22 @plate_item -> v29/v30 @box_item. The back box takes the selected plate's module
+    #       COUNT re-fitted on its OWN (shorter) ladder, never the plate's LABEL -- copying the
+    #       label asked the catalog for a box that does not exist and made the whole row unpriceable.
+    #
+    # So these three tests currently assert the PRE-RULING shape, i.e. two defects. Updating them is
+    # an owner call (they encode owner-locked rulings) and is OUT OF SCOPE for a merge slice, which
+    # must not silently rewrite a guard. Until that ruling, the pin stays explicit and this comment
+    # is the record. The OTHER three current pins DID collapse to CURRENT_EALL_ASSET.
     _ASSET = "rate_master_electrical_all_v22.json"
 
     def _asset_payload(self, discipline):
-        path = os.path.join(os.path.dirname(loader.__file__), "data", self._ASSET)
+        path = _asset_path(self._ASSET)
         with open(path, "r", encoding="utf-8") as fh:
             payload = json.load(fh)
         payload["discipline"] = discipline
@@ -1541,16 +1636,15 @@ class TestRateMaster(FrappeTestCase):
         })
         rate_master._validate_config(cfg)  # must not raise
 
-    def test_92_the_shipped_v29_asset_validates_end_to_end(self):
+    def test_92_the_shipped_asset_validates_end_to_end(self):
         """POSITIVE, over the REAL asset rather than a probe. Every category in the shipped E-ALL
         payload must pass the validator -- the loader does NOT validate, so this suite is the only
-        place an un-savable config is caught before it reaches the editor."""
-        import json as _json, os as _os
-        path = _os.path.join(
-            _os.path.dirname(rate_master.__file__), "..", "..", "services", "boq_rate_master",
-            "data", "rate_master_electrical_all_v29.json",
-        )
-        with open(_os.path.abspath(path), encoding="utf-8") as fh:
+        place an un-savable config is caught before it reaches the editor.
+
+        Reads CURRENT_EALL_ASSET (was an inline v29 path -- one of the three "current" pins that
+        had each drifted to a different version). The name is version-free for the same reason."""
+        import json as _json
+        with open(_asset_path(CURRENT_EALL_ASSET), encoding="utf-8") as fh:
             payload = _json.load(fh)
         goldens = payload.get("goldens") or {}
         for cfg in payload["category_configs"]:
@@ -2114,10 +2208,15 @@ class TestRateMaster(FrappeTestCase):
     # The CURRENT E-ALL asset. Named ONCE, version-free at the call sites, because the pin below
     # guards whichever asset is live -- and it was silently left behind on v26 when v27 was minted,
     # which is precisely the C4 trap it exists to catch.
-    _EALL_CURRENT = "rate_master_electrical_all_v27.json"
+    #
+    # IT THEN FELL INTO THAT TRAP A SECOND TIME: it sat on v27 while v28 and v29 shipped, so three
+    # tests spent two mints validating a stale file. "Named once" was true only WITHIN this class,
+    # and two OTHER current pins existed elsewhere on two other versions. It now reads the ONE
+    # module-level CURRENT_EALL_ASSET, so a mint bumps a single line for the whole suite.
+    _EALL_CURRENT = CURRENT_EALL_ASSET
 
     def _current_eall_asset(self):
-        path = os.path.join(os.path.dirname(loader.__file__), "data", self._EALL_CURRENT)
+        path = _asset_path(self._EALL_CURRENT)
         with open(path, "r", encoding="utf-8") as fh:
             return json.load(fh)
 
@@ -2196,12 +2295,14 @@ class TestRateMaster(FrappeTestCase):
                         # NEGATIVE: supply (0.602) and BCS (0.4515) stay LINEAR
                         self.assertNotIn("mult_step_divisor", stg, "%s/%s" % (pid, st["name"]))
 
-        # ---- RULING 2, the wiring asset: cable install only ----
-        wpath = os.path.join(
-            os.path.dirname(loader.__file__), "data", "rate_master_wiring_cabling_v3.json"
-        )
-        with open(wpath, "r", encoding="utf-8") as fh:
-            wcfg = json.load(fh)["category_config"]
+        # ---- RULING 2, the wiring config: cable install only ----
+        # Read from the MERGED asset (2026-08-13). It used to read rate_master_wiring_cabling_v3.json
+        # directly; that file is retained on disk as a mint-gate operand but is no longer the live
+        # asset, so a pin left on it would guard a frozen artefact instead of what ships.
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            wcfg = next(
+                c for c in json.load(fh)["category_configs"] if c["category_id"] == "wiring_cabling"
+            )
         for pid, pl in wcfg["pipelines"].items():
             for st in pl["steps"]:
                 if st.get("step") != "scale":
